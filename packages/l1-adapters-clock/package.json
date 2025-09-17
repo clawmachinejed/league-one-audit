@@ -1,0 +1,13 @@
+{
+  "name": "@l1/adapters-clock",
+  "version": "0.0.0-stub",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "private": true,
+  "dependencies": {
+    "luxon": "3.4.4"
+  },
+  "devDependencies": {
+    "@types/luxon": "^3.7.1"
+  }
+}

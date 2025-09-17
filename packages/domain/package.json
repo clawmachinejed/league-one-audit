@@ -1,0 +1,27 @@
+{
+  "name": "@l1/domain",
+  "version": "1.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "echo \"(domain) no lints configured\"",
+    "test": "vitest run --passWithNoTests",
+    "format": "echo \"ok\""
+  },
+  "devDependencies": {
+    "@types/luxon": "^3.7.1",
+    "@types/node": "20.14.12",
+    "typescript": "5.6.2",
+    "vitest": "1.6.0",
+    "zod": "3.23.8"
+  },
+  "dependencies": {
+    "@l1/contracts": "workspace:*",
+    "@l1/ports": "workspace:*",
+    "luxon": "3.4.4"
+  }
+}

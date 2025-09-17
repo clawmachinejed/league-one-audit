@@ -1,0 +1,7 @@
+- Read audit/acceptance-contract.yml and audit/audit.json.
+- Only modify files listed in the failing rule's scope.code_paths.
+- Output ONE patch at a time and a short "Why this changed" citing rule IDs (e.g., A11Y-014).
+- Provide exact commands to rerun: pnpm install (if needed) and pnpm verify.
+- Do not touch passing areas. Do not refactor unrelated code.
+- If audit/mode.txt starts with "single-file:<path>", restrict changes to that file plus imports strictly required to make it compile.
+- If a change requires broader edits, stop and ask for scope expansion with rationale.

@@ -1,0 +1,12 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/live-hourly",
+      "schedule": "0 * * * THU,SUN,MON"
+    },
+    {
+      "path": "/api/cron/awards-weekly",
+      "schedule": "0 9 * * MON"
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+Guardrails patch applied at 2025-09-17T15:35:38.076679Z
+- Repo root detected: /mnt/data/patched_repo
+- Added/updated: audit/acceptance-contract.yml (BUILD-001, A11Y-014, STRUCT-002)
+- Added: scripts/verify.mjs (writes audit/audit.json)
+- Added: .github/workflows/verify.yml (CI gate)
+- Added: audit/prompts/*, audit/traceability.csv, audit/mode.txt, audit/auditor-report.yaml
+- Non-destructive package.json merge: engines.node, packageManager, scripts, devDependencies
+- A11Y scope paths: apps/site/app/matchups/[week]/page.tsx ; apps/site/app/globals.css

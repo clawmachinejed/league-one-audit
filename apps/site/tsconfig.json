@@ -1,0 +1,33 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "paths": {
+      "@l1/*": ["../../packages/*/src"]
+    },
+    "jsx": "preserve",
+    "jsxImportSource": "react",
+    "incremental": true,
+    "isolatedModules": true,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "lib": ["es2021", "dom"]
+  },
+  "include": ["**/*.ts", "**/*.tsx", "next-env.d.ts", ".next/types/**/*.ts"],
+  "exclude": [
+    "node_modules",
+    "tests",
+    "tests/**",
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "**/*.spec.ts",
+    "**/*.spec.tsx",
+    ".next",
+    "\\.next",
+    "\\.next/**",
+    ".next/**",
+    ".next/types/**"
+  ]
+}

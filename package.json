@@ -1,0 +1,36 @@
+{
+  "name": "league-one",
+  "private": true,
+  "version": "1.1.0",
+  "description": "League One — SPEC-1.1.0 monorepo scaffold with ports & adapters, Next.js site, and CI.",
+  "license": "MIT",
+  "packageManager": "pnpm@9.0.0",
+  "engines": {
+    "node": ">=20 <21",
+    "pnpm": ">=9 <10"
+  },
+  "scripts": {
+    "build": "pnpm -r run build",
+    "dev": "pnpm --filter @l1/site dev",
+    "lint": "pnpm -r run lint",
+    "typecheck": "pnpm -r run typecheck",
+    "test": "pnpm -r run test",
+    "format": "pnpm -r run format",
+    "start": "next start -p 3000",
+    "format:check": "prettier -c .",
+    "verify": "node scripts/verify.mjs",
+    "format:fix": "prettier -w ."
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.9.1",
+    "@lhci/cli": "0.13.0",
+    "@playwright/test": "1.47.2",
+    "@types/node": "20.14.12",
+    "@vitest/coverage-v8": "1.6.0",
+    "eslint": "8.57.0",
+    "prettier": "3.3.3",
+    "typescript": "5.6.2",
+    "vitest": "1.6.0",
+    "yaml": "2.5.0"
+  }
+}

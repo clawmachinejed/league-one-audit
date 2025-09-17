@@ -1,0 +1,14 @@
+node_modules
+.pnpm-store
+dist
+.next
+out
+coverage
+.playwright
+test-results
+.vscode
+.DS_Store
+.env
+.env.*
+!.env.example
+*.log

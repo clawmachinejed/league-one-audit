@@ -1,0 +1,4 @@
+rule_id,priority,files,tests_or_checks
+BUILD-001,1,"package.json; pnpm-lock.yaml; tsconfig.json; next.config.ts","pnpm typecheck; pnpm build"
+A11Y-014,1,"apps/site/app/matchups/[week]/page.tsx; apps/site/app/globals.css","verify.mjs css/dom scan"
+STRUCT-002,2,"**/*","verify.mjs duplicate scan

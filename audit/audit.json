@@ -1,0 +1,37 @@
+{
+  "contractVersion": "1.1.0",
+  "summary": {
+    "pipeline": {
+      "format": "pass",
+      "lint": "pass",
+      "typecheck": "pass",
+      "build": "pass",
+      "unit": "pass",
+      "e2e": "skip",
+      "a11y": "skip"
+    },
+    "checks": {
+      "BUILD-001": "pass",
+      "STRUCT-002": "pass",
+      "A11Y-014": "pass"
+    },
+    "mode": null
+  },
+  "details": [
+    {
+      "id": "BUILD-001",
+      "pass": true,
+      "notes": "packageManager: pnpm@9, engines.node: >=20 <21, typecheck/build must pass"
+    },
+    {
+      "id": "STRUCT-002",
+      "pass": true,
+      "notes": "No duplicate filenames (case-insensitive)"
+    },
+    {
+      "id": "A11Y-014",
+      "pass": true,
+      "notes": "Needs aria-live polite and reduced-motion CSS"
+    }
+  ]
+}

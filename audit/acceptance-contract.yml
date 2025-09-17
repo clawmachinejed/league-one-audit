@@ -1,0 +1,46 @@
+version: 1.1.0
+project: League One
+rules:
+  - id: BUILD-001
+    must: true
+    title: Deterministic build
+    priority: 1
+    checks:
+      node: ">=20 <21"
+      packageManager: "pnpm@9"
+      typecheck: true
+      nextBuild: true
+    scope:
+      code_paths:
+        ["package.json", "pnpm-lock.yaml", "tsconfig.json", "next.config.ts"]
+
+  - id: A11Y-014
+    must: true
+    title: Live region + arrow nav + reduced-motion
+    priority: 1
+    description: >
+      Scores updates must announce via aria-live="polite". ArrowLeft/Right
+      navigate weeks on /matchups/[week] with a focus guard. All animations
+      respect prefers-reduced-motion.
+    signals:
+      dom:
+        mustContain:
+          - selector: '[aria-live="polite"]'
+      css:
+        mustContain:
+          - "@media (prefers-reduced-motion: reduce)"
+    scope:
+      code_paths:
+        - "apps/site/app/matchups/[week]/page.tsx"
+        - "apps/site/app/globals.css"
+
+  - id: STRUCT-002
+    must: true
+    title: No duplicate filenames (case-insensitive)
+    priority: 2
+    scope:
+      code_paths: ["**/*"]
+
+modes:
+  singleFile:
+    file: null
