@@ -27,8 +27,8 @@ function walk(d) {
   const out = [];
   for (const e of fs.readdirSync(d, { withFileTypes: true })) {
     if (
-      [".git", "node_modules", ".next", "coverage", "dist", ".turbo"].some((s) =>
-        e.name.startsWith(s),
+      [".git", "node_modules", ".next", "coverage", "dist", ".turbo"].some(
+        (s) => e.name.startsWith(s),
       )
     )
       continue;
@@ -149,7 +149,9 @@ if (fs.existsSync(modePath)) {
 
 const summary = {
   pipeline: Object.fromEntries(pipeline.map((p) => [p.name, p.status])),
-  checks: Object.fromEntries(checks.map((c) => [c.id, c.pass ? "pass" : "fail"])),
+  checks: Object.fromEntries(
+    checks.map((c) => [c.id, c.pass ? "pass" : "fail"]),
+  ),
   mode,
 };
 
