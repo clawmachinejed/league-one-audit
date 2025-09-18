@@ -14,10 +14,14 @@ export type LiveRange = { start: any; end: any };
 export function isLiveET(
   now: any = DateTime.now().setZone("America/New_York"),
 ): boolean {
-  return getLiveWindows(now).some(({ start, end }) => now >= start && now < end);
+  return getLiveWindows(now).some(
+    ({ start, end }) => now >= start && now < end,
+  );
 }
 
-export function getLiveWindows(ref: any = DateTime.now().setZone("America/New_York")): LiveRange[] {
+export function getLiveWindows(
+  ref: any = DateTime.now().setZone("America/New_York"),
+): LiveRange[] {
   return [
     weeklyWindow(ref, 4, { h: 19, m: 45 }, { h: 1, m: 15 }), // Thu → Fri
     weeklyWindow(ref, 7, { h: 12, m: 30 }, { h: 0, m: 15 }), // Sun → Mon

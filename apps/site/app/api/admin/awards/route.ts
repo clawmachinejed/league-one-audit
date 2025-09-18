@@ -37,7 +37,10 @@ export async function POST(request: Request) {
     // Go through `any` so we don't rely on a typed `awards` facet.
     const result = await (app as any)?.awards?.compute?.(season, week);
 
-    return json({ status: "success", reason: "ok", awards: result ?? null }, 200);
+    return json(
+      { status: "success", reason: "ok", awards: result ?? null },
+      200,
+    );
   } catch (err: any) {
     return json(
       { status: "error", reason: "ok", error: String(err?.message || err) },

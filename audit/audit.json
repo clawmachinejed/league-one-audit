@@ -2,7 +2,7 @@
   "contractVersion": "1.1.0",
   "summary": {
     "pipeline": {
-      "format": "fail",
+      "format": "pass",
       "lint": "pass",
       "typecheck": "pass",
       "build": "pass",
