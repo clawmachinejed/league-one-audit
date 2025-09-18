@@ -1,6 +1,7 @@
 // apps/site/app/layout.tsx
 import "./globals.css";
 import React from "react";
+import Link from "next/link";
 import LiveBadge from "../components/LiveBadge";
 import PrivacyNote from "../components/PrivacyNote";
 
@@ -27,26 +28,26 @@ export default function RootLayout({
         </a>
         <header className="p-4 border-b">
           <div className="max-w-5xl mx-auto flex items-center justify-between">
-            <a className="font-bold text-xl" href="/">
+            <Link className="font-bold text-xl" href="/">
               {process.env.NEXT_PUBLIC_SITE_NAME || "League One"}
-            </a>
+            </Link>
             <div className="flex items-center">
               <nav className="text-sm">
-                <a className="px-3 py-2 hover:underline" href="/standings">
+                <Link className="px-3 py-2 hover:underline" href="/standings">
                   Standings
-                </a>
-                <a className="px-3 py-2 hover:underline" href="/rivalries">
+                </Link>
+                <Link className="px-3 py-2 hover:underline" href="/rivalries">
                   Rivalries
-                </a>
-                <a className="px-3 py-2 hover:underline" href="/history">
+                </Link>
+                <Link className="px-3 py-2 hover:underline" href="/history">
                   History
-                </a>
-                <a className="px-3 py-2 hover:underline" href="/owners">
+                </Link>
+                <Link className="px-3 py-2 hover:underline" href="/owners">
                   Owners
-                </a>
-                <a className="px-3 py-2 hover:underline" href="/admin">
+                </Link>
+                <Link className="px-3 py-2 hover:underline" href="/admin">
                   Admin
-                </a>
+                </Link>
               </nav>
               <LiveBadge />
             </div>
