@@ -17,8 +17,8 @@ export default function LiveBadge() {
   React.useEffect(() => {
     const tick = () => setIsLive(checkLive());
     tick();
-    const id = 60000; // 60s
-    const t = window.setInterval(tick, id);
+    const intervalMs = 60000; // 60s
+    const t = window.setInterval(tick, intervalMs);
     return () => window.clearInterval(t);
   }, []);
 
@@ -27,7 +27,7 @@ export default function LiveBadge() {
   return (
     <span
       aria-label="Live scoring window"
-      className="ml-3 inline-flex items-center rounded-full bg-red-600 px-2 py-1 text-xs font-semibold text-white animate-pulse"
+      className="ml-3 inline-flex items-center rounded-full bg-red-600 px-2 py-1 text-xs font-semibold text-white motion-safe:animate-pulse"
     >
       LIVE
     </span>
@@ -55,18 +55,19 @@ function checkLive(): boolean {
 
 /**
  * Build the current week's window that most recently started on the given weekday.
- * weekday: (1 as any)) = Monday to 7 = Sunday
+ * weekday: 1 = Monday … 7 = Sunday
  * start: {h,m} on that weekday
  * end: {h,m} on next day (crosses midnight)
  */
 function weeklyWindow(
   ref: DateTime,
-  weekday: any,
+  weekday: 1 | 2 | 3 | 4 | 5 | 6 | 7,
   start: { h: number; m: number },
   end: { h: number; m: number },
 ) {
   let startDt = ref.set({
-    weekday,
+    // Luxon requires WeekdayNumbers union (1–7)
+    weekday: weekday as 1 | 2 | 3 | 4 | 5 | 6 | 7,
     hour: start.h,
     minute: start.m,
     second: 0,
