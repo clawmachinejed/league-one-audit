@@ -12,3 +12,13 @@ test-results
 .env.*
 !.env.example
 *.log
+
+# TS incremental build artifacts
+*.tsbuildinfo
+packages/**/tsconfig.tsbuildinfo
+
+
+# TS build artifacts
+*.tsbuildinfo
+packages/**/tsconfig.tsbuildinfo
+

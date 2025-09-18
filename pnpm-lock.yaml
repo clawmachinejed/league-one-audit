@@ -17,6 +17,9 @@ importers:
       '@playwright/test':
         specifier: 1.47.2
         version: 1.47.2
+      '@types/luxon':
+        specifier: 3.7.1
+        version: 3.7.1
       '@types/node':
         specifier: 20.14.12
         version: 20.14.12
@@ -309,9 +312,6 @@ importers:
         specifier: 3.4.4
         version: 3.4.4
     devDependencies:
-      '@types/luxon':
-        specifier: ^3.7.1
-        version: 3.7.1
       '@types/node':
         specifier: 20.14.12
         version: 20.14.12
@@ -321,9 +321,6 @@ importers:
       vitest:
         specifier: 1.6.0
         version: 1.6.0(@types/node@20.14.12)
-      zod:
-        specifier: 3.23.8
-        version: 3.23.8
 
   packages/l1-adapters-clock:
     dependencies:
