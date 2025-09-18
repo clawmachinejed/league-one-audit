@@ -3,5 +3,8 @@
   "version": "0.0.0-stub",
   "main": "index.js",
   "types": "index.d.ts",
-  "private": true
+  "private": true,
+  "dependencies": {
+    "zod": "3.23.8"
+  }
 }
