@@ -1,1 +1,2 @@
 *.{js,jsx,ts,tsx,css,scss,md,yml,yaml} text eol=lf
+pnpm-lock.yaml text eol=lf
