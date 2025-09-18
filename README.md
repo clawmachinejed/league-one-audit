@@ -15,4 +15,3 @@ pnpm --filter @l1/site dev
 ```
 
 [![verify](https://github.com/clawmachinejed/league-one-audit/actions/workflows/verify.yml/badge.svg)](https://github.com/clawmachinejed/league-one-audit/actions/workflows/verify.yml)
-
