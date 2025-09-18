@@ -1,3 +1,4 @@
+// scripts/verify.mjs
 import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -26,8 +27,8 @@ function walk(d) {
   const out = [];
   for (const e of fs.readdirSync(d, { withFileTypes: true })) {
     if (
-      [".git", "node_modules", ".next", "coverage", "dist", ".turbo"].some(
-        (s) => e.name.startsWith(s),
+      [".git", "node_modules", ".next", "coverage", "dist", ".turbo"].some((s) =>
+        e.name.startsWith(s),
       )
     )
       continue;
@@ -52,6 +53,25 @@ pipeline.push(maybe("a11y", "a11y"));
 
 const checks = [];
 const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+
+// Extra structural guard (recommendation):
+// Fail if any .js files are present under packages/**/src (TS sources only).
+// This prevents stale JS copies from causing Prettier failures or audit drift.
+const allFiles = walk(".");
+const strayJs = allFiles
+  .filter((f) => f.endsWith(".js"))
+  .filter((f) => {
+    const norm = f.replace(/\\/g, "/"); // windows-safe
+    return /^packages\/[^/]+\/src\/.+\.js$/.test(norm);
+  });
+
+checks.push({
+  id: "STRUCT-SRC-JS",
+  pass: strayJs.length === 0,
+  notes:
+    "No .js files allowed under packages/**/src (TypeScript source only). Remove stale JS or move them to dist/.",
+  stray: strayJs,
+});
 
 // BUILD-001
 const ruleBuild = contract.rules.find((r) => r.id === "BUILD-001");
@@ -129,9 +149,7 @@ if (fs.existsSync(modePath)) {
 
 const summary = {
   pipeline: Object.fromEntries(pipeline.map((p) => [p.name, p.status])),
-  checks: Object.fromEntries(
-    checks.map((c) => [c.id, c.pass ? "pass" : "fail"]),
-  ),
+  checks: Object.fromEntries(checks.map((c) => [c.id, c.pass ? "pass" : "fail"])),
   mode,
 };
 
@@ -150,6 +168,15 @@ fs.writeFileSync(
 
 console.log("\n=== AUDIT SUMMARY ===");
 console.log(JSON.stringify(summary, null, 2));
+
+// Show stray JS file list explicitly if present
+if (strayJs.length) {
+  console.error(
+    "\nStray JS files in src/ (should be TS only):\n" +
+      strayJs.map((s) => " - " + s).join("\n") +
+      "\n",
+  );
+}
 
 const failed =
   pipeline.some((p) => p.status === "fail") || checks.some((c) => !c.pass);
