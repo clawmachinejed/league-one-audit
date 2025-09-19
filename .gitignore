@@ -22,3 +22,5 @@ packages/**/tsconfig.tsbuildinfo
 *.tsbuildinfo
 packages/**/tsconfig.tsbuildinfo
 
+
+**/tsconfig.tsbuildinfo
