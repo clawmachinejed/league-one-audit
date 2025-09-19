@@ -1,4 +1,5 @@
 // apps/site/app/page.tsx
+export const dynamic = "force-dynamic";
 import { getApp } from "../lib/app";
 import { DateTime } from "luxon";
 import { unstable_noStore as noStore } from "next/cache";
