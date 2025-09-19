@@ -6,7 +6,9 @@ import type { Matchup, StandingsRow, Team } from "@l1/contracts";
 async function j<T = any>(url: string): Promise<T> {
   const res = await fetch(url, { cache: "force-cache" });
   if (!res.ok) {
-    throw new Error(`Sleeper fetch failed: ${res.status} ${res.statusText} ${url}`);
+    throw new Error(
+      `Sleeper fetch failed: ${res.status} ${res.statusText} ${url}`,
+    );
   }
   return (await res.json()) as T;
 }
@@ -51,13 +53,20 @@ export function createSleeperRepo(config: ConfigPort): SleeperRepository {
     return j(`${base}/matchups/${week}`);
   }
 
-  async function buildTeams(): Promise<{ teams: Team[]; byRosterId: Record<number, Team> }> {
+  async function buildTeams(): Promise<{
+    teams: Team[];
+    byRosterId: Record<number, Team>;
+  }> {
     const [users, rosters] = await Promise.all([getUsers(), getRosters()]);
     const userById = new Map(users.map((u) => [u.user_id, u]));
     const byRosterId: Record<number, Team> = {};
     const teams: Team[] = rosters.map((r) => {
       const u = r.owner_id ? userById.get(r.owner_id) : undefined;
-      const teamName = (u?.metadata?.team_name || u?.display_name || `Team ${r.roster_id}`).toString();
+      const teamName = (
+        u?.metadata?.team_name ||
+        u?.display_name ||
+        `Team ${r.roster_id}`
+      ).toString();
       const owner = u?.display_name || "";
       const t: Team = { id: String(r.roster_id), name: teamName, owner };
       byRosterId[r.roster_id] = t;
@@ -78,15 +87,14 @@ export function createSleeperRepo(config: ConfigPort): SleeperRepository {
 
       const rows: StandingsRow[] = rosters.map((r) => {
         const team =
-          byRosterId[r.roster_id] || ({ id: String(r.roster_id), name: `Team ${r.roster_id}` } as Team);
+          byRosterId[r.roster_id] ||
+          ({ id: String(r.roster_id), name: `Team ${r.roster_id}` } as Team);
 
         const wins = Number(r.settings?.wins ?? 0);
         const losses = Number(r.settings?.losses ?? 0);
 
         // Sleeper commonly exposes season totals as fpts / fpts_against; fall back to pf / pa if present.
-        const points_for = Number(
-          r.settings?.fpts ?? r.settings?.pf ?? 0,
-        );
+        const points_for = Number(r.settings?.fpts ?? r.settings?.pf ?? 0);
         const points_against = Number(
           r.settings?.fpts_against ?? r.settings?.pa ?? 0,
         );
@@ -97,9 +105,7 @@ export function createSleeperRepo(config: ConfigPort): SleeperRepository {
       // Sort by wins desc, losses asc, points_for desc
       rows.sort(
         (a, b) =>
-          b.wins - a.wins ||
-          a.losses - b.losses ||
-          b.points_for - a.points_for
+          b.wins - a.wins || a.losses - b.losses || b.points_for - a.points_for,
       );
       return rows;
     },
@@ -125,9 +131,17 @@ export function createSleeperRepo(config: ConfigPort): SleeperRepository {
             if (!a || !b) continue;
 
             const home =
-              byRosterId[a.roster_id] || ({ id: String(a.roster_id), name: `Team ${a.roster_id}` } as Team);
+              byRosterId[a.roster_id] ||
+              ({
+                id: String(a.roster_id),
+                name: `Team ${a.roster_id}`,
+              } as Team);
             const away =
-              byRosterId[b.roster_id] || ({ id: String(b.roster_id), name: `Team ${b.roster_id}` } as Team);
+              byRosterId[b.roster_id] ||
+              ({
+                id: String(b.roster_id),
+                name: `Team ${b.roster_id}`,
+              } as Team);
 
             all.push({
               week: w,
