@@ -1,7 +1,7 @@
 // apps/site/app/owners/page.tsx
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 
@@ -16,10 +16,14 @@ type OwnerVM = {
   points_against: number;
 };
 
+const MY_TEAM_KEY = "myTeam";
+
 export default function OwnersPage() {
   const [owners, setOwners] = useState<OwnerVM[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [myTeam, setMyTeam] = useState<number | null>(null);
 
+  // --- Fetch owners (no change) ---
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -37,6 +41,43 @@ export default function OwnersPage() {
     };
   }, []);
 
+  // --- Read & keep myTeam from localStorage; update on storage/visibility ---
+  useEffect(() => {
+    const read = () => {
+      try {
+        const v = localStorage.getItem(MY_TEAM_KEY);
+        setMyTeam(v ? Number(v) : null);
+      } catch {
+        setMyTeam(null);
+      }
+    };
+    read();
+
+    const onStorage = (ev: StorageEvent) => {
+      if (ev.key === MY_TEAM_KEY) read();
+    };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") read();
+    };
+
+    window.addEventListener("storage", onStorage);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, []);
+
+  // --- Sort: if myTeam is set, pin that owner to the top; otherwise keep API order ---
+  const displayOwners = useMemo(() => {
+    if (!owners) return null;
+    if (myTeam == null) return owners;
+    const mine = owners.find((o) => o.roster_id === myTeam);
+    if (!mine) return owners;
+    const rest = owners.filter((o) => o.roster_id !== myTeam);
+    return [mine, ...rest];
+  }, [owners, myTeam]);
+
   return (
     <main className="page owners" style={{ display: "grid", gap: 16 }}>
       <h1>Owners</h1>
@@ -44,11 +85,11 @@ export default function OwnersPage() {
       {owners === null && !error && <p>Loading owners…</p>}
       {error && <p style={{ color: "crimson" }}>{error}</p>}
 
-      {owners && owners.length === 0 && (
+      {displayOwners && displayOwners.length === 0 && (
         <p style={{ opacity: 0.8 }}>No owners available yet.</p>
       )}
 
-      {owners && owners.length > 0 && (
+      {displayOwners && displayOwners.length > 0 && (
         <ul
           style={{
             display: "grid",
@@ -58,39 +99,44 @@ export default function OwnersPage() {
             margin: 0,
           }}
         >
-          {owners.map((o) => (
-            <li
-              key={o.roster_id}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 12,
-                padding: "10px 12px",
-                border: "1px solid #e5e7eb",
-                borderRadius: 8,
-              }}
-            >
-              <Image
-                src={o.avatar_url || "/avatar-placeholder.png"}
-                alt=""
-                width={40}
-                height={40}
-                style={{ borderRadius: "50%", objectFit: "cover" }}
-              />
-              <div style={{ display: "grid", gap: 2 }}>
-                <Link
-                  href={`/owners/${o.roster_id}`}
-                  style={{ fontWeight: 600 }}
-                >
-                  {o.display_name}
-                </Link>
-                <div style={{ fontSize: 12, opacity: 0.8 }}>
-                  {o.wins}-{o.losses} • PF {o.points_for.toFixed(1)} • PA{" "}
-                  {o.points_against.toFixed(1)}
+          {displayOwners.map((o) => {
+            const isMine = myTeam != null && o.roster_id === myTeam;
+            return (
+              <li
+                key={o.roster_id}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 12,
+                  padding: "12px 14px",
+                  border: "1px solid",
+                  borderColor: isMine ? "#bfdbfe" : "#e5e7eb", // pale blue border for my team
+                  borderRadius: 10,
+                  background: isMine ? "#e7f0ff" : "white", // pale blue highlight
+                }}
+              >
+                <Image
+                  src={o.avatar_url || "/avatar-placeholder.png"}
+                  alt=""
+                  width={40}
+                  height={40}
+                  style={{ borderRadius: "50%", objectFit: "cover" }}
+                />
+                <div style={{ display: "grid", gap: 2 }}>
+                  <Link
+                    href={`/owners/${o.roster_id}`}
+                    style={{ fontWeight: 600, textDecoration: "none" }}
+                  >
+                    {o.display_name}
+                  </Link>
+                  <div style={{ fontSize: 12, opacity: 0.8 }}>
+                    {o.wins}-{o.losses} • PF {o.points_for.toFixed(1)} • PA{" "}
+                    {o.points_against.toFixed(1)}
+                  </div>
                 </div>
-              </div>
-            </li>
-          ))}
+              </li>
+            );
+          })}
         </ul>
       )}
     </main>
