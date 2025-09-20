@@ -1,16 +1,11 @@
 // apps/site/app/layout.tsx
-// apps/site/app/layout.tsx
-import "./globals.css";
-import React from "react";
+import type { Metadata } from "next";
 import Link from "next/link";
-import LiveBadge from "../components/LiveBadge";
-import PrivacyNote from "../components/PrivacyNote";
+import "./globals.css";
 
-export const metadata = {
-  title: process.env.NEXT_PUBLIC_SITE_NAME || "League One",
-  description:
-    process.env.NEXT_PUBLIC_TAGLINE ||
-    "It’s the worst thing that’s ever happened to me",
+export const metadata: Metadata = {
+  title: "League One",
+  description: "It's the worst thing that's ever happened to me.",
 };
 
 export default function RootLayout({
@@ -18,56 +13,64 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const siteName = process.env.NEXT_PUBLIC_SITE_NAME || "League One";
-  const tagline = process.env.NEXT_PUBLIC_TAGLINE || "";
-
   return (
     <html lang="en">
-      <body className="bg-paper text-ink">
-        <a
-          href="#main"
-          className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 bg-white text-ink border px-3 py-2 rounded"
-        >
-          Skip to main content
-        </a>
-        <header className="p-4 border-b">
-          <div className="max-w-5xl mx-auto flex items-center justify-between">
-            <div>
-              <Link className="font-bold text-xl block" href="/">
-                {siteName}
-              </Link>
-              {tagline ? (
-                <p className="text-sm opacity-70 mt-0.5">{tagline}</p>
-              ) : null}
-            </div>
-            <div className="flex items-center">
-              <nav className="text-sm">
-                <Link className="px-3 py-2 hover:underline" href="/standings">
-                  Standings
+      <body>
+        {/* Sticky, blurred header that reads well on mobile */}
+        <header className="sticky top-0 z-50 border-b bg-white/80 backdrop-blur">
+          <div className="mx-auto max-w-5xl px-4 py-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between sm:gap-6">
+              {/* Title + tagline stack on mobile */}
+              <div className="leading-none">
+                <Link
+                  href="/"
+                  className="block text-2xl font-semibold tracking-tight text-gray-900"
+                >
+                  League One
                 </Link>
-                <Link className="px-3 py-2 hover:underline" href="/rivalries">
-                  Rivalries
-                </Link>
-                <Link className="px-3 py-2 hover:underline" href="/history">
-                  History
-                </Link>
-                <Link className="px-3 py-2 hover:underline" href="/owners">
-                  Owners
-                </Link>
-                <Link className="px-3 py-2 hover:underline" href="/admin">
-                  Admin
-                </Link>
+                <p className="mt-1 max-w-[18rem] text-xs leading-snug text-gray-500 sm:max-w-none sm:text-sm">
+                  It’s the worst thing that’s ever happened to me.
+                </p>
+              </div>
+
+              {/* Horizontally scrollable nav on small screens (no scrollbar) */}
+              <nav className="-mx-4 overflow-x-auto px-4 no-scrollbar sm:m-0 sm:px-0">
+                <ul className="flex items-center gap-5 whitespace-nowrap text-[15px] text-gray-700">
+                  <li>
+                    <Link href="/standings" className="hover:text-black">
+                      Standings
+                    </Link>
+                  </li>
+                  <li>
+                    <Link href="/rivalries" className="hover:text-black">
+                      Rivalries
+                    </Link>
+                  </li>
+                  <li>
+                    <Link href="/history" className="hover:text-black">
+                      History
+                    </Link>
+                  </li>
+                  <li>
+                    <Link href="/owners" className="hover:text-black">
+                      Owners
+                    </Link>
+                  </li>
+                  <li>
+                    <Link href="/admin" className="hover:text-black">
+                      Admin
+                    </Link>
+                  </li>
+                </ul>
               </nav>
-              <LiveBadge />
             </div>
           </div>
         </header>
-        <main id="main" className="max-w-5xl mx-auto p-4">
-          {children}
-        </main>
-        <footer className="max-w-5xl mx-auto p-4 text-sm opacity-70">
-          © {new Date().getFullYear()} {siteName}
-          <PrivacyNote />
+
+        <main className="mx-auto max-w-5xl px-4 py-6">{children}</main>
+
+        <footer className="mx-auto max-w-5xl px-4 py-8 text-xs text-gray-500">
+          © {new Date().getFullYear()} League One
         </footer>
       </body>
     </html>

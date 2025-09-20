@@ -39,3 +39,11 @@
     scroll-behavior: auto !important;
   }
 }
+/* Hide horizontal scrollbar for the mobile nav while keeping it scrollable */
+.no-scrollbar {
+  -ms-overflow-style: none; /* IE/Edge */
+  scrollbar-width: none; /* Firefox */
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none; /* Chrome/Safari */
+}
