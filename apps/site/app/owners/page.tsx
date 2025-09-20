@@ -1,63 +1,41 @@
 // apps/site/app/owners/page.tsx
 import Link from "next/link";
-// Use RELATIVE imports to avoid alias resolution issues
-import { getOwners, type OwnerVM } from "../../lib/owners";
-import { MyTeamMark } from "../../components/MyTeamClient";
+import Image from "next/image";
+import { getOwners } from "../../lib/owners";
 
-// Revalidate every 5 minutes; you can still manual-revalidate via /api/admin/revalidate
-export const revalidate = 300;
+export const revalidate = 3600;
 
 export default async function OwnersPage() {
-  try {
-    const owners = await getOwners();
+  const owners = await getOwners();
 
-    return (
-      <main className="max-w-3xl mx-auto p-6">
-        <h1 className="text-2xl font-bold mb-4">Owners</h1>
-        <ul className="divide-y">
-          {owners.map((o: OwnerVM) => {
-            const name = o.team_name || o.display_name;
-            return (
-              <li
-                key={o.roster_id}
-                className="py-3 flex items-center justify-between"
-              >
-                <div className="flex items-center gap-3">
-                  {o.avatar_url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      alt=""
-                      src={o.avatar_url}
-                      className="w-8 h-8 rounded-full border"
-                      width={32}
-                      height={32}
-                    />
-                  ) : (
-                    <div className="w-8 h-8 rounded-full bg-gray-200 border" />
-                  )}
-                  <Link
-                    className="underline underline-offset-2"
-                    href={`/owners/${o.roster_id}`}
-                  >
-                    {name}
-                  </Link>
+  return (
+    <main className="page owners">
+      <h1>Owners</h1>
+
+      <ul className="owners-list" style={{ display: "grid", gap: 12, padding: 0 }}>
+        {owners.map((o) => (
+          <li key={o.roster_id} style={{ listStyle: "none" }}>
+            <Link href={`/owners/${o.roster_id}`} style={{ textDecoration: "none" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <Image
+                  src={o.avatar_url || "/avatar-placeholder.png"}
+                  alt=""
+                  width={48}
+                  height={48}
+                  style={{ borderRadius: "50%" }}
+                />
+                <div>
+                  <div style={{ fontWeight: 600 }}>{o.display_name}</div>
+                  <div style={{ fontSize: 12, opacity: 0.75 }}>
+                    Record {o.wins}-{o.losses} • PF {o.points_for.toFixed(1)} • PA{" "}
+                    {o.points_against.toFixed(1)}
+                  </div>
                 </div>
-                <MyTeamMark rosterId={o.roster_id} />
-              </li>
-            );
-          })}
-        </ul>
-      </main>
-    );
-  } catch {
-    // Friendly fallback if env is missing or Sleeper is down
-    return (
-      <main className="max-w-3xl mx-auto p-6">
-        <h1 className="text-2xl font-bold mb-4">Owners</h1>
-        <p className="text-sm opacity-80">
-          Could not load owners. Check SLEEPER_LEAGUE_ID and the Sleeper API.
-        </p>
-      </main>
-    );
-  }
+              </div>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </main>
+  );
 }

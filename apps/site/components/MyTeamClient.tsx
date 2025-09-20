@@ -3,75 +3,34 @@
 
 import { useEffect, useState } from "react";
 
-const KEY = "my-team";
-
-export function MyTeamMark({ rosterId }: { rosterId: number }) {
+export default function MyTeamClient({ rosterId }: { rosterId: number }) {
   const [mine, setMine] = useState<number | null>(null);
 
   useEffect(() => {
-    try {
-      const v = localStorage.getItem(KEY);
-      if (v != null) setMine(Number(v));
-    } catch {}
+    const v = localStorage.getItem("myTeam");
+    setMine(v ? Number(v) : null);
   }, []);
 
-  if (mine === rosterId) {
-    return (
-      <span
-        aria-label="My Team"
-        title="This is your saved team on this device"
-        className="select-none"
-      >
-        ★
-      </span>
-    );
+  function setAsMine() {
+    localStorage.setItem("myTeam", String(rosterId));
+    setMine(rosterId);
   }
-  return <span aria-hidden="true" />;
-}
 
-export function MyTeamControls({ rosterId }: { rosterId: number }) {
-  const [mine, setMine] = useState<number | null>(null);
+  function clearMine() {
+    localStorage.removeItem("myTeam");
+    setMine(null);
+  }
 
-  useEffect(() => {
-    try {
-      const v = localStorage.getItem(KEY);
-      if (v != null) setMine(Number(v));
-    } catch {}
-  }, []);
-
-  const setAsMine = () => {
-    try {
-      localStorage.setItem(KEY, String(rosterId));
-      setMine(rosterId);
-    } catch {}
-  };
-
-  const clearMine = () => {
-    try {
-      localStorage.removeItem(KEY);
-      setMine(null);
-    } catch {}
-  };
+  const isMine = mine === rosterId;
 
   return (
-    <div className="flex items-center gap-2">
-      <button
-        type="button"
-        onClick={setAsMine}
-        className="text-xs px-2 py-1 rounded border"
-        aria-pressed={mine === rosterId}
-      >
-        {mine === rosterId ? "✓ My Team" : "Set as My Team"}
+    <div style={{ display: "flex", gap: 8 }}>
+      <button onClick={setAsMine} aria-pressed={isMine} title="Mark as My Team">
+        ✓ My Team
       </button>
-      {mine === rosterId && (
-        <button
-          type="button"
-          onClick={clearMine}
-          className="text-xs px-2 py-1 rounded border"
-        >
-          Clear
-        </button>
-      )}
+      <button onClick={clearMine} disabled={!mine}>
+        Clear
+      </button>
     </div>
   );
 }
