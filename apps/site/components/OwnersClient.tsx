@@ -49,7 +49,8 @@ export default function OwnersClient({ owners }: { owners: OwnerVM[] }) {
     setMyTeam(v);
 
     const onStorage = (ev: StorageEvent) => {
-      if (!ev.key || MY_TEAM_KEYS.includes(ev.key as any)) setMyTeam(readMyTeam());
+      if (!ev.key || MY_TEAM_KEYS.includes(ev.key as any))
+        setMyTeam(readMyTeam());
     };
     const onVisible = () => {
       if (document.visibilityState === "visible") setMyTeam(readMyTeam());

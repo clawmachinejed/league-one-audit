@@ -38,7 +38,10 @@ function leagueId(): string {
 
 async function j<T>(path: string, revalidate = 3600): Promise<T> {
   const res = await fetch(`${API}${path}`, { next: { revalidate } });
-  if (!res.ok) throw new Error(`Sleeper fetch failed: ${res.status} ${res.statusText} ${path}`);
+  if (!res.ok)
+    throw new Error(
+      `Sleeper fetch failed: ${res.status} ${res.statusText} ${path}`,
+    );
   return res.json();
 }
 
@@ -128,7 +131,7 @@ export async function getOwner(rosterId: number): Promise<OwnerDetail | null> {
     ? league.roster_positions
     : [];
   const startingSlots = rosterPositions.filter(
-    (slot) => slot !== "BN" && slot !== "TAXI" && slot !== "IR"
+    (slot) => slot !== "BN" && slot !== "TAXI" && slot !== "IR",
   );
 
   const starterIds: string[] = (r.starters ?? []).filter(Boolean);
@@ -158,7 +161,11 @@ export async function getOwner(rosterId: number): Promise<OwnerDetail | null> {
         nfl: p?.team ?? null,
       } as PlayerVM;
     })
-    .sort((a, b) => (a.pos === b.pos ? a.name.localeCompare(b.name) : a.pos.localeCompare(b.pos)));
+    .sort((a, b) =>
+      a.pos === b.pos
+        ? a.name.localeCompare(b.name)
+        : a.pos.localeCompare(b.pos),
+    );
 
   return {
     roster_id: r.roster_id,

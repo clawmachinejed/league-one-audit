@@ -47,3 +47,8 @@
 .no-scrollbar::-webkit-scrollbar {
   display: none; /* Chrome/Safari */
 }
+/* apps/site/app/globals.css */
+.ownerCard--mine {
+  background: #eaf3ff;
+  border-color: #8cb6ff;
+}
