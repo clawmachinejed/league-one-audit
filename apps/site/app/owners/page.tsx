@@ -1,63 +1,98 @@
 // apps/site/app/owners/page.tsx
+"use client";
+
+import { useEffect, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
-// Use RELATIVE imports to avoid alias resolution issues
-import { getOwners, type OwnerVM } from "../../lib/owners";
-import { MyTeamMark } from "../../components/MyTeamClient";
 
-// Revalidate every 5 minutes; you can still manual-revalidate via /api/admin/revalidate
-export const revalidate = 300;
+type OwnerVM = {
+  roster_id: number;
+  owner_id: string;
+  display_name: string;
+  avatar_url?: string;
+  wins: number;
+  losses: number;
+  points_for: number;
+  points_against: number;
+};
 
-export default async function OwnersPage() {
-  try {
-    const owners = await getOwners();
+export default function OwnersPage() {
+  const [owners, setOwners] = useState<OwnerVM[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-    return (
-      <main className="max-w-3xl mx-auto p-6">
-        <h1 className="text-2xl font-bold mb-4">Owners</h1>
-        <ul className="divide-y">
-          {owners.map((o: OwnerVM) => {
-            const name = o.team_name || o.display_name;
-            return (
-              <li
-                key={o.roster_id}
-                className="py-3 flex items-center justify-between"
-              >
-                <div className="flex items-center gap-3">
-                  {o.avatar_url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      alt=""
-                      src={o.avatar_url}
-                      className="w-8 h-8 rounded-full border"
-                      width={32}
-                      height={32}
-                    />
-                  ) : (
-                    <div className="w-8 h-8 rounded-full bg-gray-200 border" />
-                  )}
-                  <Link
-                    className="underline underline-offset-2"
-                    href={`/owners/${o.roster_id}`}
-                  >
-                    {name}
-                  </Link>
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/owners", { cache: "no-store" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = (await res.json()) as OwnerVM[];
+        if (!cancelled) setOwners(data);
+      } catch (e: any) {
+        if (!cancelled) setError(e?.message || "Failed to load owners");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return (
+    <main className="page owners" style={{ display: "grid", gap: 16 }}>
+      <h1>Owners</h1>
+
+      {owners === null && !error && <p>Loading owners…</p>}
+      {error && <p style={{ color: "crimson" }}>{error}</p>}
+
+      {owners && owners.length === 0 && (
+        <p style={{ opacity: 0.8 }}>No owners available yet.</p>
+      )}
+
+      {owners && owners.length > 0 && (
+        <ul
+          style={{
+            display: "grid",
+            gap: 12,
+            listStyle: "none",
+            padding: 0,
+            margin: 0,
+          }}
+        >
+          {owners.map((o) => (
+            <li
+              key={o.roster_id}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+                padding: "10px 12px",
+                border: "1px solid #e5e7eb",
+                borderRadius: 8,
+              }}
+            >
+              <Image
+                src={o.avatar_url || "/avatar-placeholder.png"}
+                alt=""
+                width={40}
+                height={40}
+                style={{ borderRadius: "50%", objectFit: "cover" }}
+              />
+              <div style={{ display: "grid", gap: 2 }}>
+                <Link
+                  href={`/owners/${o.roster_id}`}
+                  style={{ fontWeight: 600 }}
+                >
+                  {o.display_name}
+                </Link>
+                <div style={{ fontSize: 12, opacity: 0.8 }}>
+                  {o.wins}-{o.losses} • PF {o.points_for.toFixed(1)} • PA{" "}
+                  {o.points_against.toFixed(1)}
                 </div>
-                <MyTeamMark rosterId={o.roster_id} />
-              </li>
-            );
-          })}
+              </div>
+            </li>
+          ))}
         </ul>
-      </main>
-    );
-  } catch {
-    // Friendly fallback if env is missing or Sleeper is down
-    return (
-      <main className="max-w-3xl mx-auto p-6">
-        <h1 className="text-2xl font-bold mb-4">Owners</h1>
-        <p className="text-sm opacity-80">
-          Could not load owners. Check SLEEPER_LEAGUE_ID and the Sleeper API.
-        </p>
-      </main>
-    );
-  }
+      )}
+    </main>
+  );
 }

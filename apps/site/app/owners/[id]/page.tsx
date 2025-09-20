@@ -1,72 +1,143 @@
 // apps/site/app/owners/[id]/page.tsx
 import Link from "next/link";
-import { notFound } from "next/navigation";
-// Use RELATIVE imports to avoid alias resolution issues
+import Image from "next/image";
+import MyTeamClient from "../../../components/MyTeamClient";
 import { getOwner } from "../../../lib/owners";
-import { MyTeamControls } from "../../../components/MyTeamClient";
 
-type Props = {
-  params: { id: string };
-};
+export default async function OwnerDetail({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = await params; // Next 15 requires awaiting params
+  const rosterId = Number(id);
+  const owner = await getOwner(rosterId);
 
-export const revalidate = 300;
-
-export default async function OwnerDetailPage({ params }: Props) {
-  const rosterId = Number(params.id);
-  if (!Number.isFinite(rosterId)) notFound();
-
-  let owner = null;
-  try {
-    owner = await getOwner(rosterId);
-  } catch {
-    owner = null;
+  if (!owner) {
+    return (
+      <main className="page owner">
+        <p>Owner not found.</p>
+        <p>
+          <Link href="/owners">← Back to Owners</Link>
+        </p>
+      </main>
+    );
   }
-  if (!owner) notFound();
 
-  const name = owner.team_name || owner.display_name;
+  type Row =
+    | { kind: "sep"; label: string }
+    | {
+        kind: "player";
+        slot: string;
+        name: string;
+        pos: string;
+        team: string | null;
+        key: string;
+      };
+
+  const rows: Row[] = [
+    { kind: "sep", label: "Starters" },
+    ...owner.starters.map((p) => ({
+      kind: "player" as const,
+      slot: p.slot ?? "-",
+      name: p.name,
+      pos: p.pos,
+      team: p.nfl ?? null,
+      key: `starter-${p.id}-${p.slot ?? ""}`,
+    })),
+    { kind: "sep", label: "Bench" },
+    ...owner.bench.map((p) => ({
+      kind: "player" as const,
+      slot: "-",
+      name: p.name,
+      pos: p.pos,
+      team: p.nfl ?? null,
+      key: `bench-${p.id}`,
+    })),
+  ];
 
   return (
-    <main className="max-w-3xl mx-auto p-6">
-      <div className="mb-4 flex items-center justify-between">
-        <h1 className="text-2xl font-bold">{name}</h1>
-        <MyTeamControls rosterId={owner.roster_id} />
-      </div>
+    <main className="page owner" style={{ display: "grid", gap: 20 }}>
+      <h1>{owner.display_name}</h1>
 
-      <div className="flex items-center gap-4 mb-6">
-        {owner.avatar_url ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            alt=""
-            src={owner.avatar_url}
-            className="w-16 h-16 rounded-full border"
-            width={64}
-            height={64}
-          />
-        ) : (
-          <div className="w-16 h-16 rounded-full bg-gray-200 border" />
-        )}
-        <div className="text-sm opacity-80">
+      <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+        <Image
+          src={owner.avatar_url || "/avatar-placeholder.png"}
+          alt=""
+          width={64}
+          height={64}
+          style={{ borderRadius: "50%", objectFit: "cover" }}
+        />
+        <div>
           <div>
-            <span className="font-semibold">Owner:</span> {owner.display_name}
+            Record {owner.wins}-{owner.losses}
           </div>
-          {(owner.wins != null || owner.losses != null) && (
-            <div>
-              <span className="font-semibold">Record:</span> {owner.wins ?? 0}-
-              {owner.losses ?? 0}
-            </div>
-          )}
-          {(owner.points_for != null || owner.points_against != null) && (
-            <div>
-              <span className="font-semibold">PF/PA:</span>{" "}
-              {owner.points_for ?? 0} / {owner.points_against ?? 0}
-            </div>
-          )}
+          <div>
+            PF {owner.points_for.toFixed(1)} • PA{" "}
+            {owner.points_against.toFixed(1)}
+          </div>
+        </div>
+        <div style={{ marginLeft: "auto" }}>
+          <MyTeamClient rosterId={owner.roster_id} />
         </div>
       </div>
 
-      <Link href="/owners" className="underline underline-offset-2">
-        ← Back to Owners
-      </Link>
+      <section>
+        <table
+          style={{
+            width: "100%",
+            borderCollapse: "collapse",
+            tableLayout: "fixed",
+          }}
+        >
+          <colgroup>
+            <col style={{ width: "80px" }} />
+            <col />
+            <col style={{ width: "80px" }} />
+            <col style={{ width: "80px" }} />
+          </colgroup>
+          <thead>
+            <tr>
+              <th style={{ textAlign: "left", padding: "6px 8px" }}>Slot</th>
+              <th style={{ textAlign: "left", padding: "6px 8px" }}>Player</th>
+              <th style={{ textAlign: "left", padding: "6px 8px" }}>Pos</th>
+              <th style={{ textAlign: "left", padding: "6px 8px" }}>Team</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) =>
+              r.kind === "sep" ? (
+                <tr key={`sep-${r.label}`}>
+                  <td
+                    colSpan={4}
+                    style={{
+                      padding: "10px 8px 6px",
+                      fontSize: 12,
+                      fontWeight: 600,
+                      opacity: 0.7,
+                    }}
+                  >
+                    {r.label}
+                  </td>
+                </tr>
+              ) : (
+                <tr key={r.key}>
+                  <td style={{ padding: "6px 8px", fontWeight: 600 }}>
+                    {r.slot}
+                  </td>
+                  <td style={{ padding: "6px 8px" }}>{r.name}</td>
+                  <td style={{ padding: "6px 8px" }}>{r.pos}</td>
+                  <td style={{ padding: "6px 8px" }}>{r.team ?? "—"}</td>
+                </tr>
+              ),
+            )}
+          </tbody>
+        </table>
+      </section>
+
+      <p>
+        <Link href="/owners">← Back to Owners</Link>
+      </p>
     </main>
   );
 }
