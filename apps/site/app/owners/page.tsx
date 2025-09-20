@@ -131,7 +131,9 @@ export default function OwnersPage() {
                     {o.display_name}
                   </Link>
                   {o.team_name ? (
-                    <div style={{ fontSize: 12, opacity: 0.9 }}>{o.team_name}</div>
+                    <div style={{ fontSize: 12, opacity: 0.9 }}>
+                      {o.team_name}
+                    </div>
                   ) : null}
                   <div style={{ fontSize: 12, opacity: 0.8 }}>
                     {o.wins}-{o.losses} • PF {o.points_for.toFixed(1)} • PA{" "}
