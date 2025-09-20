@@ -2,7 +2,7 @@
   "contractVersion": "1.1.0",
   "summary": {
     "pipeline": {
-      "format": "fail",
+      "format": "pass",
       "lint": "pass",
       "typecheck": "pass",
       "build": "pass",
@@ -11,6 +11,7 @@
       "a11y": "skip"
     },
     "checks": {
+      "STRUCT-SRC-JS": "pass",
       "BUILD-001": "pass",
       "STRUCT-002": "pass",
       "A11Y-014": "pass"
@@ -18,6 +19,12 @@
     "mode": null
   },
   "details": [
+    {
+      "id": "STRUCT-SRC-JS",
+      "pass": true,
+      "notes": "No .js files allowed under packages/**/src (TypeScript source only). Remove stale JS or move them to dist/.",
+      "stray": []
+    },
     {
       "id": "BUILD-001",
       "pass": true,
