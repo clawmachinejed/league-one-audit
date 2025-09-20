@@ -4,14 +4,10 @@ import Image from "next/image";
 import MyTeamClient from "../../../components/MyTeamClient";
 import { getOwner } from "../../../lib/owners";
 
-export default async function OwnerDetail({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  const { id } = await params; // Next 15 requires awaiting params
-  const rosterId = Number(id);
-  const owner = await getOwner(rosterId);
+// Next 15 dynamic params must be awaited
+export default async function OwnerDetail(props: { params: Promise<{ id: string }> }) {
+  const { id } = await props.params;
+  const owner = await getOwner(Number(id));
 
   if (!owner) {
     return (
@@ -24,6 +20,7 @@ export default async function OwnerDetail({
     );
   }
 
+  // Build a single table with “Starters” section then “Bench”
   type Row =
     | { kind: "sep"; label: string }
     | {
@@ -73,8 +70,7 @@ export default async function OwnerDetail({
             Record {owner.wins}-{owner.losses}
           </div>
           <div>
-            PF {owner.points_for.toFixed(1)} • PA{" "}
-            {owner.points_against.toFixed(1)}
+            PF {owner.points_for.toFixed(1)} • PA {owner.points_against.toFixed(1)}
           </div>
         </div>
         <div style={{ marginLeft: "auto" }}>
@@ -122,14 +118,12 @@ export default async function OwnerDetail({
                 </tr>
               ) : (
                 <tr key={r.key}>
-                  <td style={{ padding: "6px 8px", fontWeight: 600 }}>
-                    {r.slot}
-                  </td>
+                  <td style={{ padding: "6px 8px", fontWeight: 600 }}>{r.slot}</td>
                   <td style={{ padding: "6px 8px" }}>{r.name}</td>
                   <td style={{ padding: "6px 8px" }}>{r.pos}</td>
                   <td style={{ padding: "6px 8px" }}>{r.team ?? "—"}</td>
                 </tr>
-              ),
+              )
             )}
           </tbody>
         </table>
