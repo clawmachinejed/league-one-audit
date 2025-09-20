@@ -4,14 +4,12 @@ import Image from "next/image";
 import MyTeamClient from "../../../components/MyTeamClient";
 import { getOwner } from "../../../lib/owners";
 
-// NOTE: In Next 15, dynamic route params are async.
-//       Accept params as Promise<...> and await it before use.
 export default async function OwnerDetail({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const { id } = await params; // ✅ fixes “params should be awaited” error
+  const { id } = await params; // Next 15 requires awaiting params
   const rosterId = Number(id);
   const owner = await getOwner(rosterId);
 
@@ -26,7 +24,6 @@ export default async function OwnerDetail({
     );
   }
 
-  // Build one table: starters first (keep their slot), then a separator row, then bench with slot "-"
   type Row =
     | { kind: "sep"; label: string }
     | {
@@ -76,7 +73,8 @@ export default async function OwnerDetail({
             Record {owner.wins}-{owner.losses}
           </div>
           <div>
-            PF {owner.points_for.toFixed(1)} • PA {owner.points_against.toFixed(1)}
+            PF {owner.points_for.toFixed(1)} • PA{" "}
+            {owner.points_against.toFixed(1)}
           </div>
         </div>
         <div style={{ marginLeft: "auto" }}>
@@ -124,12 +122,14 @@ export default async function OwnerDetail({
                 </tr>
               ) : (
                 <tr key={r.key}>
-                  <td style={{ padding: "6px 8px", fontWeight: 600 }}>{r.slot}</td>
+                  <td style={{ padding: "6px 8px", fontWeight: 600 }}>
+                    {r.slot}
+                  </td>
                   <td style={{ padding: "6px 8px" }}>{r.name}</td>
                   <td style={{ padding: "6px 8px" }}>{r.pos}</td>
                   <td style={{ padding: "6px 8px" }}>{r.team ?? "—"}</td>
                 </tr>
-              )
+              ),
             )}
           </tbody>
         </table>

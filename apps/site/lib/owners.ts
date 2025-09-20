@@ -18,9 +18,9 @@ type OwnerVM = {
 export type PlayerVM = {
   id: string;
   name: string;
-  pos: string;         // QB/RB/WR/TE/DEF/…
-  nfl: string | null;  // NFL team (e.g., KC, PHI) or null
-  slot?: string;       // Starting slot label (QB/RB/WR/TE/FLEX/DEF/…)
+  pos: string; // QB/RB/WR/TE/DEF/…
+  nfl: string | null; // NFL team (e.g., KC, PHI) or null
+  slot?: string; // Starting slot label (QB/RB/WR/TE/FLEX/DEF/…)
 };
 
 export type OwnerDetail = OwnerVM & {
@@ -36,7 +36,10 @@ function leagueId(): string {
 
 async function j<T>(path: string, revalidate = 3600): Promise<T> {
   const res = await fetch(`${API}${path}`, { next: { revalidate } });
-  if (!res.ok) throw new Error(`Sleeper fetch failed: ${res.status} ${res.statusText} ${path}`);
+  if (!res.ok)
+    throw new Error(
+      `Sleeper fetch failed: ${res.status} ${res.statusText} ${path}`,
+    );
   return res.json();
 }
 
@@ -93,7 +96,7 @@ export async function getOwner(rosterId: number): Promise<OwnerDetail | null> {
   const lid = leagueId();
 
   const [league, users, rosters, players] = await Promise.all([
-    j<any>(`/league/${lid}`, 3600),        // for roster_positions (slot labels)
+    j<any>(`/league/${lid}`, 3600), // for roster_positions (slot labels)
     j<any[]>(`/league/${lid}/users`, 3600),
     j<any[]>(`/league/${lid}/rosters`, 300),
     j<Record<string, any>>(`/players/nfl`, 86400), // heavy; cache for a day
@@ -113,7 +116,7 @@ export async function getOwner(rosterId: number): Promise<OwnerDetail | null> {
 
   // Only take starting slots (exclude bench/taxi/IR)
   const startingSlots = rosterPositions.filter(
-    (slot) => slot !== "BN" && slot !== "TAXI" && slot !== "IR"
+    (slot) => slot !== "BN" && slot !== "TAXI" && slot !== "IR",
   );
 
   const starterIds: string[] = (r.starters ?? []).filter(Boolean);
@@ -145,7 +148,11 @@ export async function getOwner(rosterId: number): Promise<OwnerDetail | null> {
       } as PlayerVM;
     })
     // sort bench by position then name for readability
-    .sort((a, b) => (a.pos === b.pos ? a.name.localeCompare(b.name) : a.pos.localeCompare(b.pos)));
+    .sort((a, b) =>
+      a.pos === b.pos
+        ? a.name.localeCompare(b.name)
+        : a.pos.localeCompare(b.pos),
+    );
 
   return {
     roster_id: r.roster_id,
