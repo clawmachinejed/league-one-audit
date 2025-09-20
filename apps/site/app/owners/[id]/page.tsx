@@ -4,12 +4,13 @@ import Image from "next/image";
 import MyTeamClient from "../../../components/MyTeamClient";
 import { getOwner } from "../../../lib/owners";
 
-// Next 15 dynamic params must be awaited
+// Next 15: params is async in server components
 export default async function OwnerDetail(props: {
   params: Promise<{ id: string }>;
 }) {
   const { id } = await props.params;
-  const owner = await getOwner(Number(id));
+  const rosterId = Number(id);
+  const owner = await getOwner(rosterId);
 
   if (!owner) {
     return (
@@ -22,7 +23,7 @@ export default async function OwnerDetail(props: {
     );
   }
 
-  // Build a single table with “Starters” section then “Bench”
+  // Build one table: starters then a “Bench” section; bench rows show slot “-”
   type Row =
     | { kind: "sep"; label: string }
     | {

@@ -9,6 +9,7 @@ type OwnerVM = {
   roster_id: number;
   owner_id: string;
   display_name: string;
+  team_name?: string | null; // from league roster metadata if present
   avatar_url?: string;
   wins: number;
   losses: number;
@@ -16,14 +17,14 @@ type OwnerVM = {
   points_against: number;
 };
 
-const MY_TEAM_KEY = "myTeam";
+const MY_TEAM_KEY = "l1.myTeamRosterId"; // single source of truth we use everywhere
 
 export default function OwnersPage() {
   const [owners, setOwners] = useState<OwnerVM[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [myTeam, setMyTeam] = useState<number | null>(null);
 
-  // --- Fetch owners (no change) ---
+  // fetch owners at runtime from the API route
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -41,12 +42,12 @@ export default function OwnersPage() {
     };
   }, []);
 
-  // --- Read & keep myTeam from localStorage; update on storage/visibility ---
+  // keep myTeam in sync with localStorage + tab switches
   useEffect(() => {
     const read = () => {
       try {
-        const v = localStorage.getItem(MY_TEAM_KEY);
-        setMyTeam(v ? Number(v) : null);
+        const raw = localStorage.getItem(MY_TEAM_KEY);
+        setMyTeam(raw ? Number(raw) : null);
       } catch {
         setMyTeam(null);
       }
@@ -68,7 +69,7 @@ export default function OwnersPage() {
     };
   }, []);
 
-  // --- Sort: if myTeam is set, pin that owner to the top; otherwise keep API order ---
+  // Pin "my team" to the top (if set)
   const displayOwners = useMemo(() => {
     if (!owners) return null;
     if (myTeam == null) return owners;
@@ -110,9 +111,9 @@ export default function OwnersPage() {
                   gap: 12,
                   padding: "12px 14px",
                   border: "1px solid",
-                  borderColor: isMine ? "#bfdbfe" : "#e5e7eb", // pale blue border for my team
+                  borderColor: isMine ? "#bfdbfe" : "#e5e7eb",
                   borderRadius: 10,
-                  background: isMine ? "#e7f0ff" : "white", // pale blue highlight
+                  background: isMine ? "#e7f0ff" : "white",
                 }}
               >
                 <Image
@@ -129,6 +130,11 @@ export default function OwnersPage() {
                   >
                     {o.display_name}
                   </Link>
+                  {o.team_name ? (
+                    <div style={{ fontSize: 12, opacity: 0.9 }}>
+                      {o.team_name}
+                    </div>
+                  ) : null}
                   <div style={{ fontSize: 12, opacity: 0.8 }}>
                     {o.wins}-{o.losses} • PF {o.points_for.toFixed(1)} • PA{" "}
                     {o.points_against.toFixed(1)}

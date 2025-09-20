@@ -1,80 +1,90 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 
-/** Single source of truth for the localStorage key */
-const KEY = "l1.myTeamRosterId";
+/** Same pair of keys used by OwnersClient */
+const MY_TEAM_KEYS = ["l1.myTeamRosterId", "myTeam"] as const;
+
+function readMyTeam(): number | null {
+  try {
+    for (const k of MY_TEAM_KEYS) {
+      const v = localStorage.getItem(k);
+      if (v != null && v !== "") {
+        const n = Number(v);
+        if (!Number.isNaN(n)) return n;
+      }
+    }
+  } catch {}
+  return null;
+}
+
+function writeMyTeam(value: number | null) {
+  try {
+    for (const k of MY_TEAM_KEYS) {
+      if (value == null) localStorage.removeItem(k);
+      else localStorage.setItem(k, String(value));
+    }
+  } catch {}
+}
 
 export default function MyTeamClient({ rosterId }: { rosterId: number }) {
-  const [hydrated, setHydrated] = useState(false);
-  const [myTeam, setMyTeam] = useState<number | null>(null);
+  const [mine, setMine] = useState(false);
 
-  // Read once on mount (client only)
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(KEY);
-      setMyTeam(raw ? Number(raw) : null);
-    } catch {
-      // ignore
-    }
-    setHydrated(true);
-  }, []);
+    const v = readMyTeam();
+    setMine(v === rosterId);
 
-  const save = useCallback(() => {
-    try {
-      localStorage.setItem(KEY, String(rosterId));
-      setMyTeam(rosterId);
-    } catch {
-      // ignore
-    }
+    const onStorage = (ev: StorageEvent) => {
+      if (!ev.key || MY_TEAM_KEYS.includes(ev.key as any)) {
+        const now = readMyTeam();
+        setMine(now === rosterId);
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
   }, [rosterId]);
 
-  const clear = useCallback(() => {
-    try {
-      localStorage.removeItem(KEY);
-      setMyTeam(null);
-    } catch {
-      // ignore
-    }
-  }, []);
+  const markMine = () => {
+    writeMyTeam(rosterId);
+    setMine(true);
+  };
 
-  // Avoid server/client mismatch blips
-  if (!hydrated) return null;
-
-  const isMine = myTeam === rosterId;
+  const clearMine = () => {
+    writeMyTeam(null);
+    setMine(false);
+  };
 
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-      {isMine ? (
-        <>
-          <span style={{ fontSize: 12, opacity: 0.8 }}>This is your team</span>
-          <button
-            type="button"
-            onClick={clear}
-            style={{
-              padding: "6px 10px",
-              borderRadius: 6,
-              border: "1px solid currentColor",
-              fontSize: 13,
-            }}
-          >
-            Clear
-          </button>
-        </>
-      ) : (
-        <button
-          type="button"
-          onClick={save}
-          style={{
-            padding: "6px 10px",
-            borderRadius: 6,
-            border: "1px solid currentColor",
-            fontSize: 13,
-          }}
-        >
-          Make this my team
-        </button>
-      )}
+    <div style={{ display: "flex", gap: 8 }}>
+      <button
+        type="button"
+        onClick={markMine}
+        disabled={mine}
+        style={{
+          padding: "6px 10px",
+          borderRadius: 6,
+          border: "1px solid #d1d5db",
+          background: mine ? "#e7f0ff" : "white",
+          cursor: mine ? "default" : "pointer",
+        }}
+        aria-pressed={mine}
+      >
+        {mine ? "✓ My Team" : "My Team"}
+      </button>
+      <button
+        type="button"
+        onClick={clearMine}
+        disabled={!mine}
+        style={{
+          padding: "6px 10px",
+          borderRadius: 6,
+          border: "1px solid #d1d5db",
+          background: "white",
+          cursor: mine ? "pointer" : "default",
+        }}
+      >
+        Clear
+      </button>
     </div>
   );
 }
