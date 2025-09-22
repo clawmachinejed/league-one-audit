@@ -39,7 +39,9 @@ function leagueId(): string {
 async function j<T>(path: string, revalidate = 600): Promise<T> {
   const res = await fetch(`${API}${path}`, { next: { revalidate } });
   if (!res.ok) {
-    throw new Error(`Sleeper fetch failed: ${res.status} ${res.statusText} ${path}`);
+    throw new Error(
+      `Sleeper fetch failed: ${res.status} ${res.statusText} ${path}`,
+    );
   }
   return res.json();
 }
@@ -117,8 +119,12 @@ export async function getOwner(rosterId: number): Promise<OwnerDetail | null> {
     null;
 
   const pmap = new Map<string, any>(Object.entries(players ?? {}));
-  const rosterPositions: string[] = Array.isArray(league?.roster_positions) ? league.roster_positions : [];
-  const startingSlots = rosterPositions.filter((slot) => slot !== "BN" && slot !== "TAXI" && slot !== "IR");
+  const rosterPositions: string[] = Array.isArray(league?.roster_positions)
+    ? league.roster_positions
+    : [];
+  const startingSlots = rosterPositions.filter(
+    (slot) => slot !== "BN" && slot !== "TAXI" && slot !== "IR",
+  );
 
   const starterIds: string[] = (r.starters ?? []).filter(Boolean);
   const allPlayerIds: string[] = (r.players ?? []).filter(Boolean);
@@ -127,7 +133,10 @@ export async function getOwner(rosterId: number): Promise<OwnerDetail | null> {
     const p = pmap.get(pid) ?? {};
     return {
       id: pid,
-      name: p?.full_name || [p?.first_name, p?.last_name].filter(Boolean).join(" ").trim() || (p?.position === "DEF" && p?.team ? `${p.team} DEF` : pid),
+      name:
+        p?.full_name ||
+        [p?.first_name, p?.last_name].filter(Boolean).join(" ").trim() ||
+        (p?.position === "DEF" && p?.team ? `${p.team} DEF` : pid),
       pos: p?.position ?? "UNK",
       nfl: p?.team ?? null,
       slot: startingSlots[idx],
@@ -141,12 +150,19 @@ export async function getOwner(rosterId: number): Promise<OwnerDetail | null> {
       const p = pmap.get(pid) ?? {};
       return {
         id: pid,
-        name: p?.full_name || [p?.first_name, p?.last_name].filter(Boolean).join(" ").trim() || (p?.position === "DEF" && p?.team ? `${p.team} DEF` : pid),
+        name:
+          p?.full_name ||
+          [p?.first_name, p?.last_name].filter(Boolean).join(" ").trim() ||
+          (p?.position === "DEF" && p?.team ? `${p.team} DEF` : pid),
         pos: p?.position ?? "UNK",
         nfl: p?.team ?? null,
       };
     })
-    .sort((a, b) => (a.pos === b.pos ? a.name.localeCompare(b.name) : a.pos.localeCompare(b.pos)));
+    .sort((a, b) =>
+      a.pos === b.pos
+        ? a.name.localeCompare(b.name)
+        : a.pos.localeCompare(b.pos),
+    );
 
   return {
     roster_id: r.roster_id,

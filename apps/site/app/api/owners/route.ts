@@ -23,7 +23,9 @@ function normalizeTeamName(v: unknown): string | null {
 async function j<T>(path: string): Promise<T> {
   const res = await fetch(`${API}${path}`, { cache: "no-store" });
   if (!res.ok) {
-    throw new Error(`Sleeper fetch failed: ${res.status} ${res.statusText} ${path}`);
+    throw new Error(
+      `Sleeper fetch failed: ${res.status} ${res.statusText} ${path}`,
+    );
   }
   return res.json();
 }
