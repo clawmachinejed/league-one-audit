@@ -14,12 +14,19 @@ function avatarUrl(avatar?: string): string | undefined {
   return `https://sleepercdn.com/avatars/thumbs/${avatar}`;
 }
 
+function normalizeTeamName(v: unknown): string | null {
+  if (typeof v !== "string") return null;
+  const t = v.trim();
+  return t.length ? t : null;
+}
+
 async function j<T>(path: string): Promise<T> {
   const res = await fetch(`${API}${path}`, { cache: "no-store" });
-  if (!res.ok)
+  if (!res.ok) {
     throw new Error(
       `Sleeper fetch failed: ${res.status} ${res.statusText} ${path}`,
     );
+  }
   return res.json();
 }
 
@@ -38,11 +45,19 @@ export async function GET() {
       .map((r) => {
         const u = usersById.get(r.owner_id);
         const s = r.settings ?? {};
+
+        // Prefer roster.metadata.team_name; fallback to users[].metadata.team_name
+        const team_name =
+          normalizeTeamName(r?.metadata?.team_name) ??
+          normalizeTeamName(u?.metadata?.team_name) ??
+          null;
+
         return {
           roster_id: r.roster_id,
           owner_id: r.owner_id,
           display_name: u?.display_name ?? "Unknown",
           avatar_url: avatarUrl(u?.avatar),
+          team_name,
           wins: Number(s.wins ?? 0),
           losses: Number(s.losses ?? 0),
           points_for: Number(s.fpts ?? 0),
@@ -52,7 +67,7 @@ export async function GET() {
       .sort((a: any, b: any) => a.display_name.localeCompare(b.display_name));
 
     return NextResponse.json(owners, { status: 200 });
-  } catch (err) {
+  } catch {
     // Don’t crash static export; send an empty list on failure
     return NextResponse.json([], { status: 200 });
   }
