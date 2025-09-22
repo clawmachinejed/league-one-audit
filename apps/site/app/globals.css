@@ -52,3 +52,13 @@
   background: #eaf3ff;
   border-color: #8cb6ff;
 }
+
+/* brand: keep logo+text tight on mobile */
+.brand {
+  line-height: 1;
+}
+@media (max-width: 480px) {
+  .brand span {
+    font-size: 0.95rem;
+  }
+}
