@@ -1,10 +1,11 @@
 // apps/site/app/layout.tsx
 import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "League One",
+  title: "League One Fantasy Football",
   description: "It's the worst thing that's ever happened to me.",
 };
 
@@ -22,11 +23,21 @@ export default function RootLayout({
             <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between sm:gap-6">
               {/* Title + tagline stack on mobile */}
               <div className="leading-none">
-                <Link
-                  href="/"
-                  className="block text-2xl font-semibold tracking-tight text-gray-900"
-                >
-                  League One
+                <Link href="/" className="block">
+                  <span className="flex items-center gap-2">
+                    {/* Logo (PNG) to the left of the site name */}
+                    <Image
+                      src="/logo.png"
+                      alt="" // decorative
+                      width={32}
+                      height={32}
+                      className="h-7 w-7 sm:h-8 sm:w-8"
+                      priority
+                    />
+                    <span className="text-2xl font-semibold tracking-tight text-gray-900">
+                      League One Fantasy Football
+                    </span>
+                  </span>
                 </Link>
                 <p className="mt-1 max-w-[18rem] text-xs leading-snug text-gray-500 sm:max-w-none sm:text-sm">
                   It’s the worst thing that’s ever happened to me.
@@ -70,7 +81,7 @@ export default function RootLayout({
         <main className="mx-auto max-w-5xl px-4 py-6">{children}</main>
 
         <footer className="mx-auto max-w-5xl px-4 py-8 text-xs text-gray-500">
-          © {new Date().getFullYear()} League One
+          © {new Date().getFullYear()} League One Fantasy Football
         </footer>
       </body>
     </html>
