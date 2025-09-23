@@ -11,10 +11,11 @@ const API = "https://api.sleeper.app/v1";
 // tiny server-side fetch helper
 async function j<T>(path: string, revalidate = 300): Promise<T> {
   const res = await fetch(`${API}${path}`, { next: { revalidate } });
-  if (!res.ok)
+  if (!res.ok) {
     throw new Error(
       `Sleeper fetch failed: ${res.status} ${res.statusText} ${path}`,
     );
+  }
   return res.json();
 }
 
@@ -45,7 +46,6 @@ function pct(w: number, l: number, t = 0): string {
   return (w / g).toFixed(3).replace(/^0/, "");
 }
 function streakStr(row: AnyRow): string {
-  // Support a few shapes (e.g., {streak: "W3"} or {streak_len: 3, streak_sign: "W"})
   if (typeof row?.streak === "string") return row.streak;
   const len = asNum(row?.streak_len, 0);
   const sign = typeof row?.streak_sign === "string" ? row.streak_sign : "";
@@ -65,39 +65,39 @@ export default async function StandingsPage() {
 
   if (lid) {
     try {
-      // ⬇️ IMPROVED: include league so we can fallback to budget - used
+      // also load league for fallback FAAB math
       const [league, users, rosters] = await Promise.all([
         j<any>(`/league/${lid}`, 600),
         j<any[]>(`/league/${lid}/users`, 600),
         j<any[]>(`/league/${lid}/rosters`, 600),
       ]);
+      const usersById = new Map(users.map((u) => [u.user_id, u]));
 
       const leagueBudget = asNum(league?.settings?.waiver_budget, NaN);
-      const usersById = new Map(users.map((u) => [u.user_id, u]));
 
       for (const r of rosters) {
         const u = usersById.get(r.owner_id);
-        // Avatar: prefer team meta avatar; else user's own avatar
         teamAvatarByRosterId.set(Number(r.roster_id), pickAvatarUrl(u));
 
-        // ⬇️ FAAB remaining: try common keys, then fall back to (leagueBudget - used)
+        // FAAB remaining:
+        // 1) preferred: roster.settings.waiver_balance (Sleeper provides this in many leagues)
+        // 2) fallback: league.settings.waiver_budget - roster.settings.waiver_budget_used
+        // 3) last resort: roster.settings.waiver
         const s = r?.settings ?? {};
-        const balance = asNum(s.waiver_balance, NaN); // remaining (best, newer leagues)
-        const remaining = asNum(s.waiver_budget, NaN); // remaining in many leagues
-        const legacy = asNum(s.waiver, NaN); // some older leagues
-        const used = asNum(s.waiver_budget_used, NaN); // amount already spent
+        const bal = asNum(s.waiver_balance, NaN);
+        let faab: number;
 
-        let faab: number | null = null;
-        if (Number.isFinite(balance)) faab = balance;
-        else if (Number.isFinite(remaining)) faab = remaining;
-        else if (Number.isFinite(legacy)) faab = legacy;
-        else if (Number.isFinite(leagueBudget) && Number.isFinite(used))
-          faab = Math.max(leagueBudget - used, 0);
+        if (Number.isFinite(bal)) {
+          faab = bal;
+        } else if (Number.isFinite(leagueBudget)) {
+          const used = asNum(s.waiver_budget_used, 0);
+          const computed = leagueBudget - used;
+          faab = Number.isFinite(computed) ? computed : asNum(s.waiver, 0);
+        } else {
+          faab = asNum(s.waiver, 0);
+        }
 
-        faabByRosterId.set(
-          Number(r.roster_id),
-          Number.isFinite(faab ?? NaN) ? (faab as number) : 0,
-        );
+        faabByRosterId.set(Number(r.roster_id), Math.max(0, Math.round(faab)));
       }
     } catch {
       // If Sleeper is unavailable, just render what we have without avatars/FAAB.
@@ -108,118 +108,180 @@ export default async function StandingsPage() {
     <div>
       <h1 className="mb-4 text-2xl font-bold">Standings</h1>
 
-      {/* Responsive wrapper: horizontal scroll on small screens */}
-      <div className="overflow-x-auto -mx-4 sm:mx-0">
-        <table className="min-w-[720px] w-full border-collapse text-sm sm:text-base">
-          <thead>
-            <tr className="text-left text-gray-600">
-              {/* sticky first header cell so Team stays visible while scrolling */}
-              <th className="sticky left-0 z-10 bg-white py-2 pr-2">Team</th>
-              <th className="px-2 py-2 text-right tabular-nums">W</th>
-              <th className="px-2 py-2 text-right tabular-nums">L</th>
-              {/* T removed */}
-              <th className="px-2 py-2 text-right tabular-nums">Pct</th>
-              {/* Less-critical columns: hide on small screens, show from md+ */}
-              <th className="px-2 py-2 text-right tabular-nums hidden md:table-cell">
-                Dif
-              </th>
-              <th className="px-2 py-2 text-right tabular-nums">PF</th>
-              <th className="px-2 py-2 text-right tabular-nums">PA</th>
-              <th className="px-2 py-2 text-right tabular-nums hidden md:table-cell">
-                FAAB
-              </th>
-              <th className="px-2 py-2 text-right tabular-nums hidden md:table-cell">
-                Strk
-              </th>
-            </tr>
-          </thead>
+      {/* MOBILE (no scroll, all columns shown as a compact card) */}
+      <ul className="md:hidden space-y-3">
+        {standings.map((row: AnyRow) => {
+          const id = row?.team?.id ?? row?.team_id ?? row?.id;
+          const name =
+            row?.team?.name ?? row?.team_name ?? row?.name ?? "Unknown Team";
 
-          <tbody>
-            {standings.map((row: AnyRow) => {
-              const id = row?.team?.id ?? row?.team_id ?? row?.id;
-              const name =
-                row?.team?.name ??
-                row?.team_name ??
-                row?.name ??
-                "Unknown Team";
+          const wins = asNum(row?.wins);
+          const losses = asNum(row?.losses);
+          const ties = asNum(row?.ties ?? row?.t);
+          const pf = asNum(
+            row?.points_for ?? row?.pf ?? row?.pointsFor ?? row?.fpts,
+          );
+          const pa = asNum(
+            row?.points_against ??
+              row?.pa ??
+              row?.pointsAgainst ??
+              row?.fpts_against,
+          );
+          const dif = pf - pa;
+          const strk = streakStr(row);
 
-              const wins = asNum(row?.wins);
-              const losses = asNum(row?.losses);
-              const ties = asNum(row?.ties ?? row?.t); // not shown, but used for Pct if present
+          const rosterId = Number(row?.team?.id);
+          const avatarUrl = Number.isFinite(rosterId)
+            ? teamAvatarByRosterId.get(rosterId)
+            : undefined;
+          const faab = Number.isFinite(rosterId)
+            ? (faabByRosterId.get(rosterId) ?? 0)
+            : 0;
 
-              // PF/PA (support several common keys)
-              const pf = asNum(
-                row?.points_for ?? row?.pf ?? row?.pointsFor ?? row?.fpts,
-              );
-              const pa = asNum(
-                row?.points_against ??
-                  row?.pa ??
-                  row?.pointsAgainst ??
-                  row?.fpts_against,
-              );
-              const dif = pf - pa;
+          return (
+            <li key={id} className="rounded border p-3">
+              <div className="flex items-center gap-3 min-w-0">
+                {avatarUrl ? (
+                  <img
+                    src={avatarUrl}
+                    alt=""
+                    width={28}
+                    height={28}
+                    className="rounded-full shrink-0"
+                    style={{ objectFit: "cover" }}
+                  />
+                ) : (
+                  <span className="w-[28px] h-[28px] inline-block shrink-0" />
+                )}
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium truncate">{name}</div>
+                </div>
+              </div>
 
-              const strk = streakStr(row);
+              <div className="mt-2 grid grid-cols-4 gap-x-3 gap-y-1 text-sm text-gray-700">
+                <div>
+                  <span className="text-gray-500">W</span> {wins}
+                </div>
+                <div>
+                  <span className="text-gray-500">L</span> {losses}
+                </div>
+                <div>
+                  <span className="text-gray-500">Pct</span>{" "}
+                  {pct(wins, losses, ties)}
+                </div>
+                <div>
+                  <span className="text-gray-500">Dif</span> {dif}
+                </div>
+                <div>
+                  <span className="text-gray-500">PF</span> {pf}
+                </div>
+                <div>
+                  <span className="text-gray-500">PA</span> {pa}
+                </div>
+                <div>
+                  <span className="text-gray-500">FAAB</span> ${faab}
+                </div>
+                <div>
+                  <span className="text-gray-500">Strk</span> {strk}
+                </div>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
 
-              // Avatar + FAAB from Sleeper users/rosters maps
-              const rosterId = Number(row?.team?.id);
-              const avatarUrl = Number.isFinite(rosterId)
-                ? teamAvatarByRosterId.get(rosterId)
-                : undefined;
-              const faab = Number.isFinite(rosterId)
-                ? (faabByRosterId.get(rosterId) ?? 0)
-                : 0;
+      {/* DESKTOP/TABLE (classic layout) */}
+      <div className="hidden md:block">
+        <div className="overflow-x-auto">
+          <table className="min-w-full border-collapse">
+            <thead>
+              <tr className="text-left text-sm text-gray-600">
+                <th className="py-2 pr-2">Team</th>
+                <th className="px-2 py-2 text-right tabular-nums">W</th>
+                <th className="px-2 py-2 text-right tabular-nums">L</th>
+                <th className="px-2 py-2 text-right tabular-nums">Pct</th>
+                <th className="px-2 py-2 text-right tabular-nums">Dif</th>
+                <th className="px-2 py-2 text-right tabular-nums">PF</th>
+                <th className="px-2 py-2 text-right tabular-nums">PA</th>
+                <th className="px-2 py-2 text-right tabular-nums">FAAB</th>
+                <th className="px-2 py-2 text-right tabular-nums">Strk</th>
+              </tr>
+            </thead>
+            <tbody>
+              {standings.map((row: AnyRow) => {
+                const id = row?.team?.id ?? row?.team_id ?? row?.id;
+                const name =
+                  row?.team?.name ??
+                  row?.team_name ??
+                  row?.name ??
+                  "Unknown Team";
 
-              return (
-                <tr key={id} className="border-b last:border-b-0">
-                  {/* sticky first column to match header */}
-                  <td className="sticky left-0 z-10 bg-white py-2 pr-2">
-                    <div className="flex items-center gap-2">
-                      {avatarUrl ? (
-                        <img
-                          src={avatarUrl}
-                          alt=""
-                          width={22}
-                          height={22}
-                          style={{ borderRadius: "50%", objectFit: "cover" }}
-                        />
-                      ) : (
-                        <span
-                          style={{
-                            width: 22,
-                            height: 22,
-                            display: "inline-block",
-                          }}
-                        />
-                      )}
-                      <span className="whitespace-nowrap">{name}</span>
-                    </div>
-                  </td>
+                const wins = asNum(row?.wins);
+                const losses = asNum(row?.losses);
+                const ties = asNum(row?.ties ?? row?.t);
+                const pf = asNum(
+                  row?.points_for ?? row?.pf ?? row?.pointsFor ?? row?.fpts,
+                );
+                const pa = asNum(
+                  row?.points_against ??
+                    row?.pa ??
+                    row?.pointsAgainst ??
+                    row?.fpts_against,
+                );
+                const dif = pf - pa;
+                const strk = streakStr(row);
 
-                  <td className="px-2 py-2 text-right tabular-nums">{wins}</td>
-                  <td className="px-2 py-2 text-right tabular-nums">
-                    {losses}
-                  </td>
-                  {/* T column removed */}
-                  <td className="px-2 py-2 text-right tabular-nums">
-                    {pct(wins, losses, ties)}
-                  </td>
-                  <td className="px-2 py-2 text-right tabular-nums hidden md:table-cell">
-                    {dif}
-                  </td>
-                  <td className="px-2 py-2 text-right tabular-nums">{pf}</td>
-                  <td className="px-2 py-2 text-right tabular-nums">{pa}</td>
-                  <td className="px-2 py-2 text-right tabular-nums hidden md:table-cell">
-                    ${faab}
-                  </td>
-                  <td className="px-2 py-2 text-right tabular-nums hidden md:table-cell">
-                    {strk}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                const rosterId = Number(row?.team?.id);
+                const avatarUrl = Number.isFinite(rosterId)
+                  ? teamAvatarByRosterId.get(rosterId)
+                  : undefined;
+                const faab = Number.isFinite(rosterId)
+                  ? (faabByRosterId.get(rosterId) ?? 0)
+                  : 0;
+
+                return (
+                  <tr key={id} className="border-b last:border-b-0">
+                    <td className="py-2 pr-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        {avatarUrl ? (
+                          <img
+                            src={avatarUrl}
+                            alt=""
+                            width={22}
+                            height={22}
+                            className="rounded-full shrink-0"
+                            style={{ objectFit: "cover" }}
+                          />
+                        ) : (
+                          <span className="w-[22px] h-[22px] inline-block shrink-0" />
+                        )}
+                        <span className="truncate">{name}</span>
+                      </div>
+                    </td>
+                    <td className="px-2 py-2 text-right tabular-nums">
+                      {wins}
+                    </td>
+                    <td className="px-2 py-2 text-right tabular-nums">
+                      {losses}
+                    </td>
+                    <td className="px-2 py-2 text-right tabular-nums">
+                      {pct(wins, losses, ties)}
+                    </td>
+                    <td className="px-2 py-2 text-right tabular-nums">{dif}</td>
+                    <td className="px-2 py-2 text-right tabular-nums">{pf}</td>
+                    <td className="px-2 py-2 text-right tabular-nums">{pa}</td>
+                    <td className="px-2 py-2 text-right tabular-nums">
+                      ${faab}
+                    </td>
+                    <td className="px-2 py-2 text-right tabular-nums">
+                      {strk}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
