@@ -11,13 +11,26 @@ function leagueId(): string {
 
 async function j<T>(path: string, revalidate = 3600): Promise<T> {
   const res = await fetch(`${API}${path}`, { next: { revalidate } });
-  if (!res.ok) throw new Error(`Sleeper ${res.status} ${res.statusText} ${path}`);
+  if (!res.ok)
+    throw new Error(`Sleeper ${res.status} ${res.statusText} ${path}`);
   return res.json();
 }
 
 // Raw Sleeper shapes (partial but enough for our use)
-export type SleeperUser = { user_id: string; display_name?: string; avatar?: string; metadata?: Record<string, unknown> };
-export type SleeperRoster = { roster_id: number; owner_id: string; settings?: any; metadata?: Record<string, unknown>; starters?: string[]; players?: string[] };
+export type SleeperUser = {
+  user_id: string;
+  display_name?: string;
+  avatar?: string;
+  metadata?: Record<string, unknown>;
+};
+export type SleeperRoster = {
+  roster_id: number;
+  owner_id: string;
+  settings?: any;
+  metadata?: Record<string, unknown>;
+  starters?: string[];
+  players?: string[];
+};
 export type SleeperLeague = { roster_positions?: string[] } | null;
 export type SleeperPlayers = Record<string, any>;
 

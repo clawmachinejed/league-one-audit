@@ -11,7 +11,10 @@ const API = "https://api.sleeper.app/v1";
 // tiny server-side fetch helper
 async function j<T>(path: string, revalidate = 300): Promise<T> {
   const res = await fetch(`${API}${path}`, { next: { revalidate } });
-  if (!res.ok) throw new Error(`Sleeper fetch failed: ${res.status} ${res.statusText} ${path}`);
+  if (!res.ok)
+    throw new Error(
+      `Sleeper fetch failed: ${res.status} ${res.statusText} ${path}`,
+    );
   return res.json();
 }
 
@@ -22,7 +25,10 @@ function pickAvatarUrl(user: any | undefined): string | undefined {
       ? user.metadata.avatar.trim()
       : null;
   if (metaUrl) return metaUrl; // e.g. https://sleepercdn.com/uploads/...jpg
-  const id = typeof user?.avatar === "string" && user.avatar.trim() ? user.avatar.trim() : null;
+  const id =
+    typeof user?.avatar === "string" && user.avatar.trim()
+      ? user.avatar.trim()
+      : null;
   return id ? `https://sleepercdn.com/avatars/thumbs/${id}` : undefined;
 }
 
@@ -54,7 +60,8 @@ export default async function StandingsPage() {
   // Build maps of roster_id -> (team avatar URL, FAAB remaining)
   const teamAvatarByRosterId = new Map<number, string | undefined>();
   const faabByRosterId = new Map<number, number>();
-  const lid = process.env.SLEEPER_LEAGUE_ID || process.env.NEXT_PUBLIC_SLEEPER_LEAGUE_ID;
+  const lid =
+    process.env.SLEEPER_LEAGUE_ID || process.env.NEXT_PUBLIC_SLEEPER_LEAGUE_ID;
 
   if (lid) {
     try {
@@ -74,7 +81,10 @@ export default async function StandingsPage() {
           asNum(s.waiver_budget, NaN) ??
           asNum(s.waiver_balance, NaN) ??
           asNum(s.waiver, NaN);
-        faabByRosterId.set(Number(r.roster_id), Number.isFinite(faab) ? faab : 0);
+        faabByRosterId.set(
+          Number(r.roster_id),
+          Number.isFinite(faab) ? faab : 0,
+        );
       }
     } catch {
       // If Sleeper is unavailable, just render what we have without avatars/FAAB.
@@ -105,26 +115,34 @@ export default async function StandingsPage() {
           {standings.map((row: AnyRow) => {
             const id = row?.team?.id ?? row?.team_id ?? row?.id;
             const name =
-              row?.team?.name ??
-              row?.team_name ??
-              row?.name ??
-              "Unknown Team";
+              row?.team?.name ?? row?.team_name ?? row?.name ?? "Unknown Team";
 
             const wins = asNum(row?.wins);
             const losses = asNum(row?.losses);
             const ties = asNum(row?.ties ?? row?.t); // not shown, but used for Pct if present
 
             // PF/PA (support several common keys)
-            const pf = asNum(row?.points_for ?? row?.pf ?? row?.pointsFor ?? row?.fpts);
-            const pa = asNum(row?.points_against ?? row?.pa ?? row?.pointsAgainst ?? row?.fpts_against);
+            const pf = asNum(
+              row?.points_for ?? row?.pf ?? row?.pointsFor ?? row?.fpts,
+            );
+            const pa = asNum(
+              row?.points_against ??
+                row?.pa ??
+                row?.pointsAgainst ??
+                row?.fpts_against,
+            );
             const dif = pf - pa;
 
             const strk = streakStr(row);
 
             // Avatar + FAAB from Sleeper users/rosters maps (the piece that was working)
             const rosterId = Number(row?.team?.id);
-            const avatarUrl = Number.isFinite(rosterId) ? teamAvatarByRosterId.get(rosterId) : undefined;
-            const faab = Number.isFinite(rosterId) ? faabByRosterId.get(rosterId) ?? 0 : 0;
+            const avatarUrl = Number.isFinite(rosterId)
+              ? teamAvatarByRosterId.get(rosterId)
+              : undefined;
+            const faab = Number.isFinite(rosterId)
+              ? (faabByRosterId.get(rosterId) ?? 0)
+              : 0;
 
             return (
               <tr key={id} className="border-b last:border-b-0">
@@ -139,7 +157,13 @@ export default async function StandingsPage() {
                         style={{ borderRadius: "50%", objectFit: "cover" }}
                       />
                     ) : (
-                      <span style={{ width: 22, height: 22, display: "inline-block" }} />
+                      <span
+                        style={{
+                          width: 22,
+                          height: 22,
+                          display: "inline-block",
+                        }}
+                      />
                     )}
                     <span className="whitespace-nowrap">{name}</span>
                   </div>
@@ -147,7 +171,9 @@ export default async function StandingsPage() {
                 <td className="px-2 py-2 tabular-nums">{wins}</td>
                 <td className="px-2 py-2 tabular-nums">{losses}</td>
                 {/* T column removed */}
-                <td className="px-2 py-2 tabular-nums">{pct(wins, losses, ties)}</td>
+                <td className="px-2 py-2 tabular-nums">
+                  {pct(wins, losses, ties)}
+                </td>
                 <td className="px-2 py-2 tabular-nums">{dif}</td>
                 <td className="px-2 py-2 tabular-nums">{pf}</td>
                 <td className="px-2 py-2 tabular-nums">{pa}</td>
