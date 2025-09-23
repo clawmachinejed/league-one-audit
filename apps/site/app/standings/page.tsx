@@ -65,25 +65,38 @@ export default async function StandingsPage() {
 
   if (lid) {
     try {
-      const [users, rosters] = await Promise.all([
+      // ⬇️ IMPROVED: include league so we can fallback to budget - used
+      const [league, users, rosters] = await Promise.all([
+        j<any>(`/league/${lid}`, 600),
         j<any[]>(`/league/${lid}/users`, 600),
         j<any[]>(`/league/${lid}/rosters`, 600),
       ]);
+
+      const leagueBudget = asNum(league?.settings?.waiver_budget, NaN);
       const usersById = new Map(users.map((u) => [u.user_id, u]));
+
       for (const r of rosters) {
         const u = usersById.get(r.owner_id);
         // Avatar: prefer team meta avatar; else user's own avatar
         teamAvatarByRosterId.set(Number(r.roster_id), pickAvatarUrl(u));
 
-        // FAAB remaining: try a few common keys on roster settings
+        // ⬇️ FAAB remaining: try common keys, then fall back to (leagueBudget - used)
         const s = r?.settings ?? {};
-        const faab =
-          asNum(s.waiver_budget, NaN) ??
-          asNum(s.waiver_balance, NaN) ??
-          asNum(s.waiver, NaN);
+        const balance = asNum(s.waiver_balance, NaN); // remaining (best, newer leagues)
+        const remaining = asNum(s.waiver_budget, NaN); // remaining in many leagues
+        const legacy = asNum(s.waiver, NaN); // some older leagues
+        const used = asNum(s.waiver_budget_used, NaN); // amount already spent
+
+        let faab: number | null = null;
+        if (Number.isFinite(balance)) faab = balance;
+        else if (Number.isFinite(remaining)) faab = remaining;
+        else if (Number.isFinite(legacy)) faab = legacy;
+        else if (Number.isFinite(leagueBudget) && Number.isFinite(used))
+          faab = Math.max(leagueBudget - used, 0);
+
         faabByRosterId.set(
           Number(r.roster_id),
-          Number.isFinite(faab) ? faab : 0,
+          Number.isFinite(faab ?? NaN) ? (faab as number) : 0,
         );
       }
     } catch {
@@ -95,95 +108,119 @@ export default async function StandingsPage() {
     <div>
       <h1 className="mb-4 text-2xl font-bold">Standings</h1>
 
-      <table className="w-full border-collapse">
-        <thead>
-          <tr className="text-left text-sm text-gray-600">
-            <th className="py-2 pr-2">Team</th>
-            <th className="px-2 py-2">W</th>
-            <th className="px-2 py-2">L</th>
-            {/* T removed */}
-            <th className="px-2 py-2">Pct</th>
-            <th className="px-2 py-2">Dif</th>
-            <th className="px-2 py-2">PF</th>
-            <th className="px-2 py-2">PA</th>
-            <th className="px-2 py-2">FAAB</th>
-            <th className="px-2 py-2">Strk</th>
-          </tr>
-        </thead>
+      {/* Responsive wrapper: horizontal scroll on small screens */}
+      <div className="overflow-x-auto -mx-4 sm:mx-0">
+        <table className="min-w-[720px] w-full border-collapse text-sm sm:text-base">
+          <thead>
+            <tr className="text-left text-gray-600">
+              {/* sticky first header cell so Team stays visible while scrolling */}
+              <th className="sticky left-0 z-10 bg-white py-2 pr-2">Team</th>
+              <th className="px-2 py-2 text-right tabular-nums">W</th>
+              <th className="px-2 py-2 text-right tabular-nums">L</th>
+              {/* T removed */}
+              <th className="px-2 py-2 text-right tabular-nums">Pct</th>
+              {/* Less-critical columns: hide on small screens, show from md+ */}
+              <th className="px-2 py-2 text-right tabular-nums hidden md:table-cell">
+                Dif
+              </th>
+              <th className="px-2 py-2 text-right tabular-nums">PF</th>
+              <th className="px-2 py-2 text-right tabular-nums">PA</th>
+              <th className="px-2 py-2 text-right tabular-nums hidden md:table-cell">
+                FAAB
+              </th>
+              <th className="px-2 py-2 text-right tabular-nums hidden md:table-cell">
+                Strk
+              </th>
+            </tr>
+          </thead>
 
-        <tbody>
-          {standings.map((row: AnyRow) => {
-            const id = row?.team?.id ?? row?.team_id ?? row?.id;
-            const name =
-              row?.team?.name ?? row?.team_name ?? row?.name ?? "Unknown Team";
+          <tbody>
+            {standings.map((row: AnyRow) => {
+              const id = row?.team?.id ?? row?.team_id ?? row?.id;
+              const name =
+                row?.team?.name ??
+                row?.team_name ??
+                row?.name ??
+                "Unknown Team";
 
-            const wins = asNum(row?.wins);
-            const losses = asNum(row?.losses);
-            const ties = asNum(row?.ties ?? row?.t); // not shown, but used for Pct if present
+              const wins = asNum(row?.wins);
+              const losses = asNum(row?.losses);
+              const ties = asNum(row?.ties ?? row?.t); // not shown, but used for Pct if present
 
-            // PF/PA (support several common keys)
-            const pf = asNum(
-              row?.points_for ?? row?.pf ?? row?.pointsFor ?? row?.fpts,
-            );
-            const pa = asNum(
-              row?.points_against ??
-                row?.pa ??
-                row?.pointsAgainst ??
-                row?.fpts_against,
-            );
-            const dif = pf - pa;
+              // PF/PA (support several common keys)
+              const pf = asNum(
+                row?.points_for ?? row?.pf ?? row?.pointsFor ?? row?.fpts,
+              );
+              const pa = asNum(
+                row?.points_against ??
+                  row?.pa ??
+                  row?.pointsAgainst ??
+                  row?.fpts_against,
+              );
+              const dif = pf - pa;
 
-            const strk = streakStr(row);
+              const strk = streakStr(row);
 
-            // Avatar + FAAB from Sleeper users/rosters maps (the piece that was working)
-            const rosterId = Number(row?.team?.id);
-            const avatarUrl = Number.isFinite(rosterId)
-              ? teamAvatarByRosterId.get(rosterId)
-              : undefined;
-            const faab = Number.isFinite(rosterId)
-              ? (faabByRosterId.get(rosterId) ?? 0)
-              : 0;
+              // Avatar + FAAB from Sleeper users/rosters maps
+              const rosterId = Number(row?.team?.id);
+              const avatarUrl = Number.isFinite(rosterId)
+                ? teamAvatarByRosterId.get(rosterId)
+                : undefined;
+              const faab = Number.isFinite(rosterId)
+                ? (faabByRosterId.get(rosterId) ?? 0)
+                : 0;
 
-            return (
-              <tr key={id} className="border-b last:border-b-0">
-                <td className="py-2 pr-2">
-                  <div className="flex items-center gap-2">
-                    {avatarUrl ? (
-                      <img
-                        src={avatarUrl}
-                        alt=""
-                        width={22}
-                        height={22}
-                        style={{ borderRadius: "50%", objectFit: "cover" }}
-                      />
-                    ) : (
-                      <span
-                        style={{
-                          width: 22,
-                          height: 22,
-                          display: "inline-block",
-                        }}
-                      />
-                    )}
-                    <span className="whitespace-nowrap">{name}</span>
-                  </div>
-                </td>
-                <td className="px-2 py-2 tabular-nums">{wins}</td>
-                <td className="px-2 py-2 tabular-nums">{losses}</td>
-                {/* T column removed */}
-                <td className="px-2 py-2 tabular-nums">
-                  {pct(wins, losses, ties)}
-                </td>
-                <td className="px-2 py-2 tabular-nums">{dif}</td>
-                <td className="px-2 py-2 tabular-nums">{pf}</td>
-                <td className="px-2 py-2 tabular-nums">{pa}</td>
-                <td className="px-2 py-2 tabular-nums">${faab}</td>
-                <td className="px-2 py-2 tabular-nums">{strk}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+              return (
+                <tr key={id} className="border-b last:border-b-0">
+                  {/* sticky first column to match header */}
+                  <td className="sticky left-0 z-10 bg-white py-2 pr-2">
+                    <div className="flex items-center gap-2">
+                      {avatarUrl ? (
+                        <img
+                          src={avatarUrl}
+                          alt=""
+                          width={22}
+                          height={22}
+                          style={{ borderRadius: "50%", objectFit: "cover" }}
+                        />
+                      ) : (
+                        <span
+                          style={{
+                            width: 22,
+                            height: 22,
+                            display: "inline-block",
+                          }}
+                        />
+                      )}
+                      <span className="whitespace-nowrap">{name}</span>
+                    </div>
+                  </td>
+
+                  <td className="px-2 py-2 text-right tabular-nums">{wins}</td>
+                  <td className="px-2 py-2 text-right tabular-nums">
+                    {losses}
+                  </td>
+                  {/* T column removed */}
+                  <td className="px-2 py-2 text-right tabular-nums">
+                    {pct(wins, losses, ties)}
+                  </td>
+                  <td className="px-2 py-2 text-right tabular-nums hidden md:table-cell">
+                    {dif}
+                  </td>
+                  <td className="px-2 py-2 text-right tabular-nums">{pf}</td>
+                  <td className="px-2 py-2 text-right tabular-nums">{pa}</td>
+                  <td className="px-2 py-2 text-right tabular-nums hidden md:table-cell">
+                    ${faab}
+                  </td>
+                  <td className="px-2 py-2 text-right tabular-nums hidden md:table-cell">
+                    {strk}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
