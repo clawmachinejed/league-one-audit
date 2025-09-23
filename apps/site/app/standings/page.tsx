@@ -82,10 +82,10 @@ export default async function StandingsPage() {
 
         // ⬇️ FAAB remaining: try common keys, then fall back to (leagueBudget - used)
         const s = r?.settings ?? {};
-        const balance = asNum(s.waiver_balance, NaN);      // remaining (best, newer leagues)
-        const remaining = asNum(s.waiver_budget, NaN);     // remaining in many leagues
-        const legacy = asNum(s.waiver, NaN);               // some older leagues
-        const used = asNum(s.waiver_budget_used, NaN);     // amount already spent
+        const balance = asNum(s.waiver_balance, NaN); // remaining (best, newer leagues)
+        const remaining = asNum(s.waiver_budget, NaN); // remaining in many leagues
+        const legacy = asNum(s.waiver, NaN); // some older leagues
+        const used = asNum(s.waiver_budget_used, NaN); // amount already spent
 
         let faab: number | null = null;
         if (Number.isFinite(balance)) faab = balance;
@@ -138,7 +138,10 @@ export default async function StandingsPage() {
             {standings.map((row: AnyRow) => {
               const id = row?.team?.id ?? row?.team_id ?? row?.id;
               const name =
-                row?.team?.name ?? row?.team_name ?? row?.name ?? "Unknown Team";
+                row?.team?.name ??
+                row?.team_name ??
+                row?.name ??
+                "Unknown Team";
 
               const wins = asNum(row?.wins);
               const losses = asNum(row?.losses);
@@ -194,7 +197,9 @@ export default async function StandingsPage() {
                   </td>
 
                   <td className="px-2 py-2 text-right tabular-nums">{wins}</td>
-                  <td className="px-2 py-2 text-right tabular-nums">{losses}</td>
+                  <td className="px-2 py-2 text-right tabular-nums">
+                    {losses}
+                  </td>
                   {/* T column removed */}
                   <td className="px-2 py-2 text-right tabular-nums">
                     {pct(wins, losses, ties)}
