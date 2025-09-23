@@ -62,3 +62,6 @@
     font-size: 0.95rem;
   }
 }
+
+/* Numeric alignment helper for tables (safe even if Tailwind already provides it) */
+.tabular-nums { font-variant-numeric: tabular-nums; }
