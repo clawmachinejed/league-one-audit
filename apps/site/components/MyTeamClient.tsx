@@ -25,6 +25,14 @@ function writeMyTeam(value: number | null) {
       else localStorage.setItem(k, String(value));
     }
   } catch {}
+  // 🔵 also persist for server-side highlighting (readable on first load)
+  try {
+    if (value == null) {
+      document.cookie = "l1_my_roster=; Path=/; Max-Age=0; SameSite=Lax";
+    } else {
+      document.cookie = `l1_my_roster=${value}; Path=/; Max-Age=31536000; SameSite=Lax`;
+    }
+  } catch {}
 }
 
 export default function MyTeamClient({ rosterId }: { rosterId: number }) {
