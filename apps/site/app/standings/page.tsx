@@ -41,12 +41,11 @@ function streakStr(row: AnyRow): string {
   if (typeof row?.streak === "string") return row.streak;
   const len = asNum(row?.streak_len, 0);
   const sign = typeof row?.streak_sign === "string" ? row.streak_sign : "";
-  if (len > 0 && (sign === "W" || sign === "L")) return `${sign}${len}`;
+  if (len > 0 && (sign === "W" || "L")) return `${sign}${len}`;
   return "—";
 }
 
-/* ------------------ STREAK COMPUTATION (added earlier) ------------------ */
-
+/* ------------------ STREAK COMPUTATION (existing) ------------------ */
 type Matchup = {
   roster_id: number;
   matchup_id: number;
@@ -72,7 +71,6 @@ function resultsFromMatchups(
     const top = list.filter((m) => Number(m.points ?? 0) === max);
 
     if (top.length > 1) {
-      // tie for first: top scorers = T, others = L
       for (const m of list) {
         if (Number(m.points ?? 0) === max) out.set(m.roster_id, "T");
         else out.set(m.roster_id, "L");
@@ -92,7 +90,6 @@ async function getStreaks(
   leagueWeekMaybe: number | undefined,
   revalidate = 180,
 ): Promise<Map<number, string>> {
-  // Determine last completed week (prefer league.week; else NFL state)
   let currentWeek = Number(leagueWeekMaybe);
   if (!Number.isFinite(currentWeek)) {
     const state = await j<{ week: number }>(`/state/nfl`, 120);
@@ -106,7 +103,6 @@ async function getStreaks(
     weeks.map((w) => j<Matchup[]>(`/league/${lid}/matchups/${w}`, revalidate)),
   );
 
-  // Build per-roster history of W/L/T in chronological order
   const history = new Map<number, ("W" | "L" | "T")[]>();
   for (const weekMatchups of weekly) {
     const wk = resultsFromMatchups(weekMatchups || []);
@@ -116,7 +112,6 @@ async function getStreaks(
     }
   }
 
-  // Convert to streak string: ignore trailing ties; count contiguous W or L from end
   const streaks = new Map<number, string>();
   for (const [rid, arr] of history) {
     let i = arr.length - 1;
@@ -135,16 +130,20 @@ async function getStreaks(
   }
   return streaks;
 }
-
-/* ---------------------------------------------------------------------- */
+/* ------------------------------------------------------------------ */
 
 export default async function StandingsPage() {
   const season = new Date().getFullYear();
   const { standings } = await getApp().home(season, 1);
 
-  // read cookie (for highlight)
-  const cookieStore = await cookies();
-  const myRosterId = Number(cookieStore.get("l1_my_roster")?.value ?? NaN);
+  // Read "My Team" roster id from cookie (works on first page load)
+  const cookieStore = await cookies(); // Next 15: must await
+  const myTeamCookie =
+    cookieStore.get("l1.myTeamRosterId")?.value ??
+    cookieStore.get("myTeam")?.value ??
+    null;
+  const myTeamRosterId = Number(myTeamCookie);
+  const myTeamId = Number.isFinite(myTeamRosterId) ? myTeamRosterId : null;
 
   // Build maps of roster_id -> (team avatar URL, FAAB remaining)
   const teamAvatarByRosterId = new Map<number, string | undefined>();
@@ -155,7 +154,6 @@ export default async function StandingsPage() {
 
   if (lid) {
     try {
-      // Pull users/rosters plus league config (for default budget)
       const [users, rosters, league] = await Promise.all([
         j<any[]>(`/league/${lid}/users`, 600),
         j<any[]>(`/league/${lid}/rosters`, 600),
@@ -164,18 +162,14 @@ export default async function StandingsPage() {
       const usersById = new Map(users.map((u) => [u.user_id, u]));
       const defaultBudget = asNum(league?.settings?.waiver_budget, 100) || 100;
 
-      // Compute streaks once from completed weeks
       const streaks = await getStreaks(lid, asNum(league?.week, NaN));
       for (const [rid, s] of streaks) streakByRosterId.set(Number(rid), s);
 
-      // 1) Record avatars
       for (const r of rosters) {
         const u = usersById.get(r.owner_id);
         teamAvatarByRosterId.set(Number(r.roster_id), pickAvatarUrl(u));
       }
 
-      // 2) Try to use a real remaining balance if Sleeper provides it (> 0)
-      //    Otherwise we'll compute it from transactions below.
       const preliminaryRemaining = new Map<number, number>();
       for (const r of rosters) {
         const s = r?.settings ?? {};
@@ -183,20 +177,14 @@ export default async function StandingsPage() {
         const remaining = asNum(s.waiver_balance, NaN);
         if (Number.isFinite(remaining) && remaining > 0) {
           preliminaryRemaining.set(rid, remaining);
-        } else {
-          // keep empty – we'll compute later
         }
       }
 
-      // 3) For any roster we still don't have, compute:
-      //    remaining = initial_budget - sum(winning waiver bids)
       const needToCompute = rosters
         .map((r) => Number(r.roster_id))
         .filter((rid) => !preliminaryRemaining.has(rid));
 
       if (needToCompute.length) {
-        // Fetch all weeks' transactions (cache ~10 min)
-        // Sleeper weeks are 1..18 (regular season); grabbing all is safest and cheap with revalidate.
         const weeks = Array.from({ length: 18 }, (_, i) => i + 1);
         const weeklyTxns = await Promise.all(
           weeks.map((w) => j<any[]>(`/league/${lid}/transactions/${w}`, 600)),
@@ -205,12 +193,10 @@ export default async function StandingsPage() {
         const spentByRoster = new Map<number, number>();
         for (const txns of weeklyTxns) {
           for (const t of txns || []) {
-            // Count only completed waiver wins
             if (
               (t?.type === "waiver" || t?.type === "waiver_add") &&
               t?.status === "complete"
             ) {
-              // roster id fields vary, cover the common shapes
               const rid = asNum(
                 t?.roster_id ??
                   (Array.isArray(t?.roster_ids) ? t.roster_ids[0] : undefined),
@@ -232,7 +218,6 @@ export default async function StandingsPage() {
         for (const rid of needToCompute) {
           const r = rosters.find((x) => Number(x.roster_id) === rid);
           const s = r?.settings ?? {};
-          // If the roster tells us the initial budget, use it; else league default.
           const initial = asNum(s.waiver_budget, NaN) || defaultBudget || 100;
           const spent = spentByRoster.get(rid) ?? 0;
           const remaining = Math.max(0, initial - spent);
@@ -240,7 +225,6 @@ export default async function StandingsPage() {
         }
       }
 
-      // 4) Finalize FAAB per roster (ensure it's a finite number)
       for (const r of rosters) {
         const rid = Number(r.roster_id);
         const val = preliminaryRemaining.get(rid);
@@ -260,21 +244,18 @@ export default async function StandingsPage() {
     const wins = asNum(row?.wins);
     const losses = asNum(row?.losses);
 
-    // PF/PA (support several common keys)
     const pf = asNum(row?.points_for ?? row?.pf ?? row?.pointsFor ?? row?.fpts);
     const pa = asNum(
       row?.points_against ?? row?.pa ?? row?.pointsAgainst ?? row?.fpts_against,
     );
     const dif = pf - pa;
 
-    // prefer computed streak; fall back to any provided-on-row value
     const rosterId = Number(row?.team?.id);
     const computedStrk = Number.isFinite(rosterId)
       ? streakByRosterId.get(rosterId)
       : undefined;
     const strk = computedStrk ?? streakStr(row);
 
-    // Avatar + FAAB from Sleeper users/rosters maps
     const avatarUrl = Number.isFinite(rosterId)
       ? teamAvatarByRosterId.get(rosterId)
       : undefined;
@@ -282,9 +263,8 @@ export default async function StandingsPage() {
       ? (faabByRosterId.get(rosterId) ?? 0)
       : 0;
 
-    // highlight if cookie matches this roster
     const isMine =
-      Number.isFinite(myRosterId) && Number(rosterId) === Number(myRosterId);
+      myTeamId != null && Number.isFinite(rosterId) && myTeamId === rosterId;
 
     return {
       id,
@@ -312,7 +292,6 @@ export default async function StandingsPage() {
           <li
             className="grid items-center px-2 h-7 text-[10px] font-medium text-gray-600 bg-gray-50 tabular-nums"
             style={{
-              // avatar | name | W | L | PF | PA | Dif
               gridTemplateColumns:
                 "18px minmax(0,1fr) 24px 24px 40px 40px 34px",
             }}
@@ -329,15 +308,14 @@ export default async function StandingsPage() {
           {rows.map((r) => (
             <li
               key={r.id}
-              className="grid items-center px-2 h-10 text-[11px] tabular-nums"
+              className={`grid items-center px-2 h-10 text-[11px] tabular-nums ${
+                r.isMine ? "bg-blue-50" : ""
+              }`}
               style={{
                 gridTemplateColumns:
                   "18px minmax(0,1fr) 24px 24px 40px 40px 34px",
-                // highlight (match owners page blue)
-                backgroundColor: r.isMine ? "#e7f0ff" : undefined,
               }}
             >
-              {/* avatar */}
               {r.avatarUrl ? (
                 <img
                   src={r.avatarUrl}
@@ -350,7 +328,6 @@ export default async function StandingsPage() {
                 <span className="inline-block w-[18px] h-[18px]" />
               )}
 
-              {/* name + subline (FAAB • Streak) */}
               <div className="min-w-0 leading-tight">
                 <div className="truncate">{r.name}</div>
                 <div className="truncate text-[10px] text-gray-500">
@@ -358,7 +335,6 @@ export default async function StandingsPage() {
                 </div>
               </div>
 
-              {/* metrics */}
               <span className="text-center">{r.wins}</span>
               <span className="text-center">{r.losses}</span>
               <span className="text-center">{r.pf}</span>
@@ -369,7 +345,7 @@ export default async function StandingsPage() {
         </ul>
       </div>
 
-      {/* DESKTOP/TABLET: full table; Pct column removed per request */}
+      {/* DESKTOP/TABLET */}
       <div className="hidden sm:block overflow-x-auto -mx-4 sm:mx-0">
         <table className="min-w-[720px] w-full border-collapse text-sm sm:text-base">
           <thead>
@@ -392,11 +368,7 @@ export default async function StandingsPage() {
             {rows.map((r) => (
               <tr
                 key={r.id}
-                className="border-b last:border-b-0"
-                style={{
-                  // highlight (match owners page blue)
-                  backgroundColor: r.isMine ? "#e7f0ff" : undefined,
-                }}
+                className={`border-b last:border-b-0 ${r.isMine ? "bg-blue-50" : ""}`}
               >
                 <td className="sticky left-0 z-10 bg-white py-2 pr-2">
                   <div className="flex items-center gap-2">

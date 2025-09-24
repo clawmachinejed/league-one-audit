@@ -2,10 +2,13 @@
 
 import { useEffect, useState } from "react";
 
-/** Same pair of keys used by OwnersClient */
+/** Same pair of keys used previously (localStorage + cookie) */
 const MY_TEAM_KEYS = ["l1.myTeamRosterId", "myTeam"] as const;
 
-function readMyTeam(): number | null {
+/** One year in seconds */
+const YEAR = 60 * 60 * 24 * 365;
+
+function readMyTeamLS(): number | null {
   try {
     for (const k of MY_TEAM_KEYS) {
       const v = localStorage.getItem(k);
@@ -18,19 +21,31 @@ function readMyTeam(): number | null {
   return null;
 }
 
-function writeMyTeam(value: number | null) {
+function writeMyTeamLS(value: number | null) {
   try {
     for (const k of MY_TEAM_KEYS) {
       if (value == null) localStorage.removeItem(k);
       else localStorage.setItem(k, String(value));
     }
   } catch {}
-  // 🔵 also persist for server-side highlighting (readable on first load)
+}
+
+function writeMyTeamCookie(value: number | null) {
   try {
+    // Support both cookie names for compatibility
+    const names = ["l1.myTeamRosterId", "myTeam"];
     if (value == null) {
-      document.cookie = "l1_my_roster=; Path=/; Max-Age=0; SameSite=Lax";
-    } else {
-      document.cookie = `l1_my_roster=${value}; Path=/; Max-Age=31536000; SameSite=Lax`;
+      for (const n of names) {
+        document.cookie = `${n}=; Max-Age=0; Path=/; SameSite=Lax`;
+      }
+      return;
+    }
+    const secure =
+      typeof window !== "undefined" && window.location.protocol === "https:"
+        ? "; Secure"
+        : "";
+    for (const n of names) {
+      document.cookie = `${n}=${encodeURIComponent(String(value))}; Max-Age=${YEAR}; Path=/; SameSite=Lax${secure}`;
     }
   } catch {}
 }
@@ -39,12 +54,12 @@ export default function MyTeamClient({ rosterId }: { rosterId: number }) {
   const [mine, setMine] = useState(false);
 
   useEffect(() => {
-    const v = readMyTeam();
+    const v = readMyTeamLS();
     setMine(v === rosterId);
 
     const onStorage = (ev: StorageEvent) => {
-      if (!ev.key || MY_TEAM_KEYS.includes(ev.key as any)) {
-        const now = readMyTeam();
+      if (!ev.key || (MY_TEAM_KEYS as readonly string[]).includes(ev.key)) {
+        const now = readMyTeamLS();
         setMine(now === rosterId);
       }
     };
@@ -53,12 +68,14 @@ export default function MyTeamClient({ rosterId }: { rosterId: number }) {
   }, [rosterId]);
 
   const markMine = () => {
-    writeMyTeam(rosterId);
+    writeMyTeamLS(rosterId);
+    writeMyTeamCookie(rosterId);
     setMine(true);
   };
 
   const clearMine = () => {
-    writeMyTeam(null);
+    writeMyTeamLS(null);
+    writeMyTeamCookie(null);
     setMine(false);
   };
 
