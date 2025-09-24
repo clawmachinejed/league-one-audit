@@ -368,9 +368,17 @@ export default async function StandingsPage() {
             {rows.map((r) => (
               <tr
                 key={r.id}
-                className={`border-b last:border-b-0 ${r.isMine ? "bg-blue-50" : ""}`}
+                className={`border-b last:border-b-0 ${
+                  r.isMine
+                    ? "bg-blue-50 outline outline-1 outline-blue-200"
+                    : ""
+                }`}
               >
-                <td className="sticky left-0 z-10 bg-white py-2 pr-2">
+                <td
+                  className={`sticky left-0 z-10 py-2 pr-2 ${
+                    r.isMine ? "bg-blue-50" : "bg-white"
+                  }`}
+                >
                   <div className="flex items-center gap-2">
                     {r.avatarUrl ? (
                       <img
