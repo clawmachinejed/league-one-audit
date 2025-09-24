@@ -56,39 +56,92 @@ export default async function StandingsPage() {
 
   if (lid) {
     try {
-      const [users, rosters] = await Promise.all([
+      // Pull users/rosters plus league config (for default budget)
+      const [users, rosters, league] = await Promise.all([
         j<any[]>(`/league/${lid}/users`, 600),
         j<any[]>(`/league/${lid}/rosters`, 600),
+        j<any>(`/league/${lid}`, 600),
       ]);
       const usersById = new Map(users.map((u) => [u.user_id, u]));
+      const defaultBudget = asNum(league?.settings?.waiver_budget, 100) || 100;
+
+      // 1) Record avatars
       for (const r of rosters) {
         const u = usersById.get(r.owner_id);
-        // Avatar: prefer team meta avatar; else user's own avatar
         teamAvatarByRosterId.set(Number(r.roster_id), pickAvatarUrl(u));
+      }
 
-        // === FAAB remaining (updated only) ===
-        // Prefer computed remaining (start - used), then direct balance, then a final "waiver" fallback.
+      // 2) Try to use a real remaining balance if Sleeper provides it (> 0)
+      //    Otherwise we'll compute it from transactions below.
+      const preliminaryRemaining = new Map<number, number>();
+      for (const r of rosters) {
         const s = r?.settings ?? {};
-        const start = Number(s.waiver_budget);
-        const used = Number(s.waiver_budget_used);
-
-        let faab: number;
-        if (Number.isFinite(start)) {
-          const usedSafe = Number.isFinite(used) ? used : 0;
-          faab = start - usedSafe;
-        } else if (Number.isFinite(Number(s.waiver_balance))) {
-          faab = Number(s.waiver_balance);
-        } else if (Number.isFinite(Number(s.waiver))) {
-          faab = Number(s.waiver);
+        const rid = Number(r.roster_id);
+        const remaining = asNum(s.waiver_balance, NaN);
+        if (Number.isFinite(remaining) && remaining > 0) {
+          preliminaryRemaining.set(rid, remaining);
         } else {
-          faab = NaN;
+          // keep empty – we'll compute later
+        }
+      }
+
+      // 3) For any roster we still don't have, compute:
+      //    remaining = initial_budget - sum(winning waiver bids)
+      const needToCompute = rosters
+        .map((r) => Number(r.roster_id))
+        .filter((rid) => !preliminaryRemaining.has(rid));
+
+      if (needToCompute.length) {
+        // Fetch all weeks' transactions (cache ~10 min)
+        // Sleeper weeks are 1..18 (regular season); grabbing all is safest and cheap with revalidate.
+        const weeks = Array.from({ length: 18 }, (_, i) => i + 1);
+        const weeklyTxns = await Promise.all(
+          weeks.map((w) => j<any[]>(`/league/${lid}/transactions/${w}`, 600)),
+        );
+
+        const spentByRoster = new Map<number, number>();
+        for (const txns of weeklyTxns) {
+          for (const t of txns || []) {
+            // Count only completed waiver wins
+            if (
+              (t?.type === "waiver" || t?.type === "waiver_add") &&
+              t?.status === "complete"
+            ) {
+              // roster id fields vary, cover the common shapes
+              const rid = asNum(
+                t?.roster_id ??
+                  (Array.isArray(t?.roster_ids) ? t.roster_ids[0] : undefined),
+                NaN,
+              );
+              const bid = asNum(
+                t?.waiver_bid ??
+                  t?.metadata?.waiver_bid ??
+                  t?.settings?.waiver_bid,
+                NaN,
+              );
+              if (Number.isFinite(rid) && Number.isFinite(bid) && bid > 0) {
+                spentByRoster.set(rid, (spentByRoster.get(rid) ?? 0) + bid);
+              }
+            }
+          }
         }
 
-        faabByRosterId.set(
-          Number(r.roster_id),
-          Number.isFinite(faab) ? Math.max(0, Math.round(faab)) : 0,
-        );
-        // === end FAAB update ===
+        for (const rid of needToCompute) {
+          const r = rosters.find((x) => Number(x.roster_id) === rid);
+          const s = r?.settings ?? {};
+          // If the roster tells us the initial budget, use it; else league default.
+          const initial = asNum(s.waiver_budget, NaN) || defaultBudget || 100;
+          const spent = spentByRoster.get(rid) ?? 0;
+          const remaining = Math.max(0, initial - spent);
+          preliminaryRemaining.set(rid, remaining);
+        }
+      }
+
+      // 4) Finalize FAAB per roster (ensure it's a finite number)
+      for (const r of rosters) {
+        const rid = Number(r.roster_id);
+        const val = preliminaryRemaining.get(rid);
+        faabByRosterId.set(rid, Number.isFinite(val!) ? Number(val) : 0);
       }
     } catch {
       // If Sleeper is unavailable, just render what we have without avatars/FAAB.
