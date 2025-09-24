@@ -1,5 +1,6 @@
 // apps/site/app/standings/page.tsx
 import { getApp } from "../../lib/app";
+import { cookies } from "next/headers";
 
 export const metadata = { title: "Standings • League One" };
 // Render at request time so SLEEPER_LEAGUE_ID is read from the server env
@@ -44,7 +45,7 @@ function streakStr(row: AnyRow): string {
   return "—";
 }
 
-/* ------------------ STREAK COMPUTATION (added) ------------------ */
+/* ------------------ STREAK COMPUTATION (added earlier) ------------------ */
 
 type Matchup = {
   roster_id: number;
@@ -135,16 +136,20 @@ async function getStreaks(
   return streaks;
 }
 
-/* --------------------------------------------------------------- */
+/* ---------------------------------------------------------------------- */
 
 export default async function StandingsPage() {
   const season = new Date().getFullYear();
   const { standings } = await getApp().home(season, 1);
 
+  // read cookie (for highlight)
+  const cookieStore = await cookies();
+  const myRosterId = Number(cookieStore.get("l1_my_roster")?.value ?? NaN);
+
   // Build maps of roster_id -> (team avatar URL, FAAB remaining)
   const teamAvatarByRosterId = new Map<number, string | undefined>();
   const faabByRosterId = new Map<number, number>();
-  const streakByRosterId = new Map<number, string>(); // (added)
+  const streakByRosterId = new Map<number, string>();
   const lid =
     process.env.SLEEPER_LEAGUE_ID || process.env.NEXT_PUBLIC_SLEEPER_LEAGUE_ID;
 
@@ -159,7 +164,7 @@ export default async function StandingsPage() {
       const usersById = new Map(users.map((u) => [u.user_id, u]));
       const defaultBudget = asNum(league?.settings?.waiver_budget, 100) || 100;
 
-      // (added) Compute streaks once from completed weeks
+      // Compute streaks once from completed weeks
       const streaks = await getStreaks(lid, asNum(league?.week, NaN));
       for (const [rid, s] of streaks) streakByRosterId.set(Number(rid), s);
 
@@ -277,7 +282,23 @@ export default async function StandingsPage() {
       ? (faabByRosterId.get(rosterId) ?? 0)
       : 0;
 
-    return { id, name, wins, losses, pf, pa, dif, strk, avatarUrl, faab };
+    // highlight if cookie matches this roster
+    const isMine =
+      Number.isFinite(myRosterId) && Number(rosterId) === Number(myRosterId);
+
+    return {
+      id,
+      name,
+      wins,
+      losses,
+      pf,
+      pa,
+      dif,
+      strk,
+      avatarUrl,
+      faab,
+      isMine,
+    };
   });
 
   return (
@@ -312,6 +333,8 @@ export default async function StandingsPage() {
               style={{
                 gridTemplateColumns:
                   "18px minmax(0,1fr) 24px 24px 40px 40px 34px",
+                // highlight (match owners page blue)
+                backgroundColor: r.isMine ? "#e7f0ff" : undefined,
               }}
             >
               {/* avatar */}
@@ -367,7 +390,14 @@ export default async function StandingsPage() {
           </thead>
           <tbody>
             {rows.map((r) => (
-              <tr key={r.id} className="border-b last:border-b-0">
+              <tr
+                key={r.id}
+                className="border-b last:border-b-0"
+                style={{
+                  // highlight (match owners page blue)
+                  backgroundColor: r.isMine ? "#e7f0ff" : undefined,
+                }}
+              >
                 <td className="sticky left-0 z-10 bg-white py-2 pr-2">
                   <div className="flex items-center gap-2">
                     {r.avatarUrl ? (
