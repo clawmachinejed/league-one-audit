@@ -66,11 +66,29 @@ export default async function StandingsPage() {
         // Avatar: prefer team meta avatar; else user's own avatar
         teamAvatarByRosterId.set(Number(r.roster_id), pickAvatarUrl(u));
 
-        // FAAB remaining: prefer current balance, fallback to initial budget if balance is missing
+        // === FAAB remaining (updated only) ===
+        // Prefer computed remaining (start - used), then direct balance, then a final "waiver" fallback.
         const s = r?.settings ?? {};
-        const rawBal = Number(s.waiver_balance);
-        const bal = Number.isFinite(rawBal) ? rawBal : Number(s.waiver_budget);
-        faabByRosterId.set(Number(r.roster_id), Number.isFinite(bal) ? bal : 0);
+        const start = Number(s.waiver_budget);
+        const used = Number(s.waiver_budget_used);
+
+        let faab: number;
+        if (Number.isFinite(start)) {
+          const usedSafe = Number.isFinite(used) ? used : 0;
+          faab = start - usedSafe;
+        } else if (Number.isFinite(Number(s.waiver_balance))) {
+          faab = Number(s.waiver_balance);
+        } else if (Number.isFinite(Number(s.waiver))) {
+          faab = Number(s.waiver);
+        } else {
+          faab = NaN;
+        }
+
+        faabByRosterId.set(
+          Number(r.roster_id),
+          Number.isFinite(faab) ? Math.max(0, Math.round(faab)) : 0,
+        );
+        // === end FAAB update ===
       }
     } catch {
       // If Sleeper is unavailable, just render what we have without avatars/FAAB.
