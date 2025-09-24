@@ -375,8 +375,10 @@ export default async function StandingsPage() {
                 }`}
               >
                 <td
-                  className={`sticky left-0 z-10 py-2 pr-2 ${
-                    r.isMine ? "bg-blue-50" : "bg-white"
+                  className={`sticky left-0 z-10 py-2 pr-2 border-b border-gray-200 ${
+                    r.isMine
+                      ? "bg-blue-50 ring-1 ring-inset ring-blue-200"
+                      : "bg-white"
                   }`}
                 >
                   <div className="flex items-center gap-2">
