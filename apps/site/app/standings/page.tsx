@@ -368,17 +368,15 @@ export default async function StandingsPage() {
             {rows.map((r) => (
               <tr
                 key={r.id}
-                className={`border-b last:border-b-0 ${
-                  r.isMine
-                    ? "bg-blue-50 outline outline-1 outline-blue-200"
-                    : ""
+                className={`group border-b last:border-b-0 ${
+                  r.isMine ? "bg-blue-50 border-b-blue-200" : ""
                 }`}
               >
                 <td
-                  className={`sticky left-0 z-10 py-2 pr-2 border-b border-gray-200 ${
+                  className={`sticky left-0 z-10 py-2 pr-2 ${
                     r.isMine
-                      ? "bg-blue-50 ring-1 ring-inset ring-blue-200"
-                      : "bg-white"
+                      ? "bg-blue-50 border-r border-blue-200"
+                      : "bg-white border-r border-transparent"
                   }`}
                 >
                   <div className="flex items-center gap-2">
@@ -401,17 +399,39 @@ export default async function StandingsPage() {
                     </div>
                   </div>
                 </td>
-                <td className="px-2 py-2 text-right tabular-nums">{r.wins}</td>
-                <td className="px-2 py-2 text-right tabular-nums">
+                <td
+                  className={`px-2 py-2 text-right tabular-nums ${r.isMine ? "bg-blue-50" : ""}`}
+                >
+                  {r.wins}
+                </td>
+                <td
+                  className={`px-2 py-2 text-right tabular-nums ${r.isMine ? "bg-blue-50" : ""}`}
+                >
                   {r.losses}
                 </td>
-                <td className="px-2 py-2 text-right tabular-nums">{r.dif}</td>
-                <td className="px-2 py-2 text-right tabular-nums">{r.pf}</td>
-                <td className="px-2 py-2 text-right tabular-nums">{r.pa}</td>
-                <td className="px-2 py-2 text-right tabular-nums hidden md:table-cell">
+                <td
+                  className={`px-2 py-2 text-right tabular-nums ${r.isMine ? "bg-blue-50" : ""}`}
+                >
+                  {r.dif}
+                </td>
+                <td
+                  className={`px-2 py-2 text-right tabular-nums ${r.isMine ? "bg-blue-50" : ""}`}
+                >
+                  {r.pf}
+                </td>
+                <td
+                  className={`px-2 py-2 text-right tabular-nums ${r.isMine ? "bg-blue-50" : ""}`}
+                >
+                  {r.pa}
+                </td>
+                <td
+                  className={`px-2 py-2 text-right tabular-nums hidden md:table-cell ${r.isMine ? "bg-blue-50" : ""}`}
+                >
                   ${r.faab}
                 </td>
-                <td className="px-2 py-2 text-right tabular-nums hidden md:table-cell">
+                <td
+                  className={`px-2 py-2 text-right tabular-nums hidden md:table-cell ${r.isMine ? "bg-blue-50" : ""}`}
+                >
                   {r.strk}
                 </td>
               </tr>
@@ -422,3 +442,5 @@ export default async function StandingsPage() {
     </div>
   );
 }
+
+// noop: trigger deploy 2025-09-24T19:05:46
