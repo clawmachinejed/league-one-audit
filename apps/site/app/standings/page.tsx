@@ -44,6 +44,99 @@ function streakStr(row: AnyRow): string {
   return "—";
 }
 
+/* ------------------ STREAK COMPUTATION (added) ------------------ */
+
+type Matchup = {
+  roster_id: number;
+  matchup_id: number;
+  points: number;
+};
+
+function resultsFromMatchups(
+  matchups: Matchup[],
+): Map<number, "W" | "L" | "T"> {
+  const groups = new Map<number, Matchup[]>();
+  for (const m of matchups) {
+    if (!groups.has(m.matchup_id)) groups.set(m.matchup_id, []);
+    groups.get(m.matchup_id)!.push(m);
+  }
+
+  const out = new Map<number, "W" | "L" | "T">();
+  for (const [, list] of groups) {
+    if (!list || list.length === 0) continue;
+
+    let max = -Infinity;
+    for (const m of list) max = Math.max(max, Number(m.points ?? 0));
+
+    const top = list.filter((m) => Number(m.points ?? 0) === max);
+
+    if (top.length > 1) {
+      // tie for first: top scorers = T, others = L
+      for (const m of list) {
+        if (Number(m.points ?? 0) === max) out.set(m.roster_id, "T");
+        else out.set(m.roster_id, "L");
+      }
+    } else {
+      const winner = top[0]?.roster_id;
+      for (const m of list) {
+        out.set(m.roster_id, m.roster_id === winner ? "W" : "L");
+      }
+    }
+  }
+  return out;
+}
+
+async function getStreaks(
+  lid: string,
+  leagueWeekMaybe: number | undefined,
+  revalidate = 180,
+): Promise<Map<number, string>> {
+  // Determine last completed week (prefer league.week; else NFL state)
+  let currentWeek = Number(leagueWeekMaybe);
+  if (!Number.isFinite(currentWeek)) {
+    const state = await j<{ week: number }>(`/state/nfl`, 120);
+    currentWeek = Number(state?.week ?? 1);
+  }
+  const lastCompleted = Math.max(0, currentWeek - 1);
+  if (lastCompleted === 0) return new Map();
+
+  const weeks = Array.from({ length: lastCompleted }, (_, i) => i + 1);
+  const weekly = await Promise.all(
+    weeks.map((w) => j<Matchup[]>(`/league/${lid}/matchups/${w}`, revalidate)),
+  );
+
+  // Build per-roster history of W/L/T in chronological order
+  const history = new Map<number, ("W" | "L" | "T")[]>();
+  for (const weekMatchups of weekly) {
+    const wk = resultsFromMatchups(weekMatchups || []);
+    for (const [rid, res] of wk) {
+      if (!history.has(rid)) history.set(rid, []);
+      history.get(rid)!.push(res);
+    }
+  }
+
+  // Convert to streak string: ignore trailing ties; count contiguous W or L from end
+  const streaks = new Map<number, string>();
+  for (const [rid, arr] of history) {
+    let i = arr.length - 1;
+    while (i >= 0 && arr[i] === "T") i--;
+    if (i < 0) {
+      streaks.set(rid, "—");
+      continue;
+    }
+    const last = arr[i];
+    let count = 0;
+    while (i >= 0 && arr[i] === last) {
+      count++;
+      i--;
+    }
+    streaks.set(rid, `${last}${count}`);
+  }
+  return streaks;
+}
+
+/* --------------------------------------------------------------- */
+
 export default async function StandingsPage() {
   const season = new Date().getFullYear();
   const { standings } = await getApp().home(season, 1);
@@ -51,6 +144,7 @@ export default async function StandingsPage() {
   // Build maps of roster_id -> (team avatar URL, FAAB remaining)
   const teamAvatarByRosterId = new Map<number, string | undefined>();
   const faabByRosterId = new Map<number, number>();
+  const streakByRosterId = new Map<number, string>(); // (added)
   const lid =
     process.env.SLEEPER_LEAGUE_ID || process.env.NEXT_PUBLIC_SLEEPER_LEAGUE_ID;
 
@@ -64,6 +158,10 @@ export default async function StandingsPage() {
       ]);
       const usersById = new Map(users.map((u) => [u.user_id, u]));
       const defaultBudget = asNum(league?.settings?.waiver_budget, 100) || 100;
+
+      // (added) Compute streaks once from completed weeks
+      const streaks = await getStreaks(lid, asNum(league?.week, NaN));
+      for (const [rid, s] of streaks) streakByRosterId.set(Number(rid), s);
 
       // 1) Record avatars
       for (const r of rosters) {
@@ -164,10 +262,14 @@ export default async function StandingsPage() {
     );
     const dif = pf - pa;
 
-    const strk = streakStr(row);
+    // prefer computed streak; fall back to any provided-on-row value
+    const rosterId = Number(row?.team?.id);
+    const computedStrk = Number.isFinite(rosterId)
+      ? streakByRosterId.get(rosterId)
+      : undefined;
+    const strk = computedStrk ?? streakStr(row);
 
     // Avatar + FAAB from Sleeper users/rosters maps
-    const rosterId = Number(row?.team?.id);
     const avatarUrl = Number.isFinite(rosterId)
       ? teamAvatarByRosterId.get(rosterId)
       : undefined;
