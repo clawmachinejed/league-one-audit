@@ -369,9 +369,7 @@ export default async function StandingsPage() {
               <tr
                 key={r.id}
                 className={`border-b last:border-b-0 ${
-                  r.isMine
-                    ? "bg-blue-50 outline outline-1 outline-blue-200"
-                    : ""
+                  r.isMine ? "bg-blue-50 outline outline-1 outline-blue-200" : ""
                 }`}
               >
                 <td
