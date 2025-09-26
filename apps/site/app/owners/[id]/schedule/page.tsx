@@ -126,7 +126,6 @@ export default async function OwnerSchedulePage(props: {
     );
   }
 
-  // League id
   const lid =
     process.env.SLEEPER_LEAGUE_ID || process.env.NEXT_PUBLIC_SLEEPER_LEAGUE_ID;
 
@@ -151,9 +150,14 @@ export default async function OwnerSchedulePage(props: {
 
   if (lid) {
     try {
-      // League (to know current week -> lastCompleted)
+      // League (to know current week -> lastCompleted) with robust fallback to NFL state
       const league: League = await j<League>(`/league/${lid}`, 600);
-      const lastCompleted = Math.max(0, asNum(league?.week, NaN) - 1);
+      let currentWeek = Number(league?.week);
+      if (!Number.isFinite(currentWeek)) {
+        const state = await j<{ week: number }>(`/state/nfl`, 120);
+        currentWeek = Number(state?.week ?? 1);
+      }
+      const lastCompleted = Math.max(0, currentWeek - 1);
 
       // Build rosterId -> team display name map
       const [users, rosters] = await Promise.all([
