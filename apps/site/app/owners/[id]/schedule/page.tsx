@@ -1,22 +1,21 @@
 // apps/site/app/owners/[id]/schedule/page.tsx
 import Link from "next/link";
 import Image from "next/image";
-import MyTeamClient from "../../../../components/MyTeamClient";
 import { getOwner } from "../../../../lib/owners";
-import { getApp } from "../../../../lib/app";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 const API = "https://api.sleeper.app/v1";
 
-// tiny server-side fetch helper
-async function j<T>(path: string, revalidate = 600): Promise<T> {
+// tiny fetch helper with Next caching hints
+async function j<T>(path: string, revalidate = 300): Promise<T> {
   const res = await fetch(`${API}${path}`, { next: { revalidate } });
-  if (!res.ok)
+  if (!res.ok) {
     throw new Error(
       `Sleeper fetch failed: ${res.status} ${res.statusText} ${path}`,
     );
+  }
   return res.json();
 }
 
@@ -26,13 +25,88 @@ type Matchup = {
   points: number;
 };
 
-export default async function OwnerSchedule(props: {
+type League = {
+  week?: number;
+  settings?: { playoff_teams?: number; playoff_round_type?: string | number };
+};
+
+function asNum(v: unknown, d = 0): number {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : d;
+}
+
+// Group a week's matchups by matchup_id
+function groupByMatchupId(
+  list: Matchup[] | null | undefined,
+): Map<number, Matchup[]> {
+  const m = new Map<number, Matchup[]>();
+  for (const it of list || []) {
+    const id = Number(it.matchup_id);
+    if (!m.has(id)) m.set(id, []);
+    m.get(id)!.push(it);
+  }
+  return m;
+}
+
+// Compute W/L/T record for a roster up to and including a weekIndex (1-based)
+function recordThroughWeek(
+  rosterId: number,
+  weeks: Matchup[][],
+  throughWeek: number,
+) {
+  let w = 0,
+    l = 0,
+    t = 0;
+  for (let widx = 0; widx < weeks.length && widx < throughWeek; widx++) {
+    const wk = weeks[widx];
+    const groups = groupByMatchupId(wk);
+    for (const [, g] of groups) {
+      // Find this roster’s entry in this group (if any)
+      const mine = g.find((r) => Number(r.roster_id) === rosterId);
+      if (!mine) continue;
+      // Find top points in this group
+      let max = -Infinity;
+      for (const r of g) max = Math.max(max, asNum(r.points, 0));
+      const top = g.filter((r) => asNum(r.points, 0) === max);
+
+      if (top.length > 1) {
+        // All top scorers are ties; if mine is top → T, else L
+        if (top.some((r) => Number(r.roster_id) === rosterId)) t++;
+        else l++;
+      } else {
+        const winnerRid = Number(top[0].roster_id);
+        if (winnerRid === rosterId) w++;
+        else l++;
+      }
+      break; // only one group per week for a roster
+    }
+  }
+  return { w, l, t };
+}
+
+// Find the opponent for this roster within a group's array
+function pickOpponent(
+  group: Matchup[],
+  myRosterId: number,
+): Matchup | undefined {
+  // Sleeper standard is 2 per matchup; if more, pick the first different
+  return group.find((m) => Number(m.roster_id) !== myRosterId);
+}
+
+// tiny number formatter for scores
+function fmtScore(n: number): string {
+  return Number.isFinite(n) ? n.toFixed(2) : "—";
+}
+
+export default async function OwnerSchedulePage(props: {
   params: Promise<{ id: string }>;
 }) {
+  // Params (Next 15: async)
   const { id } = await props.params;
   const rosterId = Number(id);
-  const owner = await getOwner(rosterId);
 
+  // Owner header info (avatar, record, PF/PA)
+  const owner = await getOwner(rosterId);
   if (!owner) {
     return (
       <main className="page owner">
@@ -44,118 +118,162 @@ export default async function OwnerSchedule(props: {
     );
   }
 
-  // standings → map roster -> name / record (wins, losses)
-  const season = new Date().getFullYear();
-  const { standings } = await getApp().home(season, 1);
-
-  const nameByRoster = new Map<number, string>();
-  const recordByRoster = new Map<number, { w: number; l: number }>();
-  for (const row of standings as any[]) {
-    const rid = Number(row?.team?.id ?? row?.team_id ?? row?.id);
-    if (Number.isFinite(rid)) {
-      const nm =
-        row?.team?.name ?? row?.team_name ?? row?.name ?? `Team ${rid}`;
-      nameByRoster.set(rid, nm);
-      const w = Number(row?.wins ?? 0) || 0;
-      const l = Number(row?.losses ?? 0) || 0;
-      recordByRoster.set(rid, { w, l });
-    }
-  }
-
+  // League & matchups
   const lid =
     process.env.SLEEPER_LEAGUE_ID || process.env.NEXT_PUBLIC_SLEEPER_LEAGUE_ID;
 
+  // Prebuild an empty schedule scaffold Wk 1..17
   type Row = {
     week: number;
-    oppId: number | null;
-    oppName: string; // "TBD" if unknown
-    oppRecord: string; // "(W-L)" or ""
-    myPts: number | null;
-    oppPts: number | null;
+    oppRosterId?: number;
+    oppName?: string;
+    oppRecord?: string;
+    myPts?: number | null;
+    oppPts?: number | null;
+    playoff: boolean;
+    tbd: boolean;
   };
-
-  const rows: Row[] = [];
+  const rows: Row[] = Array.from({ length: 17 }, (_, i) => ({
+    week: i + 1,
+    playoff: i + 1 >= 15,
+    tbd: i + 1 >= 15, // playoffs TBD by default until bracket set
+  }));
 
   if (lid) {
-    // Detect playoff start (Sleeper exposes this on league.settings), default to 15.
-    const league = await j<any>(`/league/${lid}`, 600);
-    const playoffStart: number =
-      Number(league?.settings?.playoff_week_start) || 15;
+    try {
+      const league: League = await j<League>(`/league/${lid}`, 600);
 
-    // We want 1..14 regular season, and two more after playoffStart to cover 15–17
-    const lastWeek = Math.max(playoffStart + 2, 17); // safety, but will be 17 for typical config
-    const firstWeek = 1;
+      // Fetch all 17 weeks of matchups
+      const weekly: Matchup[][] = await Promise.all(
+        Array.from({ length: 17 }, (_, i) =>
+          j<Matchup[]>(`/league/${lid}/matchups/${i + 1}`, 600).catch(() => []),
+        ),
+      );
 
-    // Pull all weeks we care about
-    const weekly = await Promise.all(
-      Array.from(
-        { length: lastWeek - firstWeek + 1 },
-        (_, i) => firstWeek + i,
-      ).map((w) => j<Matchup[]>(`/league/${lid}/matchups/${w}`, 600)),
-    );
+      // cache for opponent names so we don't refetch owners repeatedly
+      const ownerCache = new Map<number, string>();
 
-    // Build rows; for playoff weeks (>= playoffStart), we show "TBD" until Sleeper posts matchups.
-    weekly.forEach((list, idx) => {
-      const week = firstWeek + idx;
-      const mine = (list || []).find((m) => Number(m.roster_id) === rosterId);
-      const opp = mine
-        ? (list || []).find(
-            (m) =>
-              m.matchup_id === mine.matchup_id &&
-              Number(m.roster_id) !== rosterId,
-          )
-        : undefined;
-
-      if (!mine) {
-        // No matchup for this roster this week (bye/eliminated/not yet set) → show TBD in playoffs.
-        const isPlayoff = week >= playoffStart;
-        rows.push({
-          week,
-          oppId: null,
-          oppName: isPlayoff ? "TBD" : "—",
-          oppRecord: "",
-          myPts: null,
-          oppPts: null,
-        });
-        return;
+      async function nameForRoster(rid: number): Promise<string> {
+        if (ownerCache.has(rid)) return ownerCache.get(rid)!;
+        try {
+          const o = await getOwner(rid);
+          const name = o?.display_name || String(rid);
+          ownerCache.set(rid, name);
+          return name;
+        } catch {
+          return String(rid);
+        }
       }
 
-      const oppId = opp ? Number(opp.roster_id) : null;
-      const oppName =
-        (oppId != null ? nameByRoster.get(oppId) : null) ??
-        (week >= playoffStart ? "TBD" : "—");
+      // For each regular-season week (1..14) attempt to find opponent & score
+      for (let weekIdx = 0; weekIdx < 14; weekIdx++) {
+        const wkList = weekly[weekIdx] || [];
+        const groups = groupByMatchupId(wkList);
 
-      const rec = oppId != null ? recordByRoster.get(oppId) : undefined;
-      const oppRecord =
-        rec && Number.isFinite(rec.w) && Number.isFinite(rec.l)
-          ? `(${rec.w}-${rec.l})`
-          : "";
+        let found: { mine: Matchup; opp?: Matchup } | null = null;
 
-      const myPts = Number.isFinite(Number(mine.points))
-        ? Number(mine.points)
-        : null;
-      const oppPts =
-        opp && Number.isFinite(Number(opp.points))
-          ? Number(opp.points)
-          : opp
-            ? null
-            : null;
+        for (const [, g] of groups) {
+          const mine = g.find((m) => Number(m.roster_id) === rosterId);
+          if (!mine) continue;
+          found = { mine, opp: pickOpponent(g, rosterId) };
+          break;
+        }
 
-      rows.push({ week, oppId, oppName, oppRecord, myPts, oppPts });
-    });
+        if (found) {
+          const oppRid = found.opp ? Number(found.opp.roster_id) : undefined;
 
-    // Only keep 1..14, 15..17 even if league config is weird.
-    const filtered = rows.filter(
-      (r) => r.week <= 14 || (r.week >= 15 && r.week <= 17),
-    );
-    filtered.sort((a, b) => a.week - b.week);
-    rows.length = 0;
-    rows.push(...filtered);
+          // Opponent name (no team_name fallback — stick to display_name/id)
+          let oppName: string | undefined;
+          if (Number.isFinite(oppRid)) {
+            oppName = await nameForRoster(oppRid!);
+          }
+
+          // Opponent record THROUGH this week (W-L only)
+          let oppRecord: string | undefined;
+          if (Number.isFinite(oppRid)) {
+            const r = recordThroughWeek(oppRid!, weekly, weekIdx + 1);
+            oppRecord = `${r.w}-${r.l}`;
+          }
+
+          const myPts = asNum(found.mine.points, NaN);
+          const opPts = found.opp ? asNum(found.opp.points, NaN) : NaN;
+
+          rows[weekIdx] = {
+            week: weekIdx + 1,
+            playoff: false,
+            tbd: false,
+            oppRosterId: oppRid,
+            oppName,
+            oppRecord,
+            myPts: Number.isFinite(myPts) ? myPts : null,
+            oppPts: Number.isFinite(opPts) ? opPts : null,
+          };
+        } else {
+          // No matchup for me this week (bye or schedule gap)
+          rows[weekIdx] = {
+            week: weekIdx + 1,
+            playoff: false,
+            tbd: true,
+          };
+        }
+      }
+
+      // Playoff weeks (15–17): try to resolve if matchups exist (late season)
+      for (let weekIdx = 14; weekIdx < 17; weekIdx++) {
+        const wkList = weekly[weekIdx] || [];
+        const groups = groupByMatchupId(wkList);
+        let found: { mine: Matchup; opp?: Matchup } | null = null;
+
+        for (const [, g] of groups) {
+          const mine = g.find((m) => Number(m.roster_id) === rosterId);
+          if (!mine) continue;
+          found = { mine, opp: pickOpponent(g, rosterId) };
+          break;
+        }
+
+        if (found) {
+          const oppRid = found.opp ? Number(found.opp.roster_id) : undefined;
+
+          let oppName: string | undefined;
+          if (Number.isFinite(oppRid)) {
+            oppName = await nameForRoster(oppRid!);
+          }
+
+          let oppRecord: string | undefined;
+          if (Number.isFinite(oppRid)) {
+            const r = recordThroughWeek(oppRid!, weekly, weekIdx + 1);
+            oppRecord = `${r.w}-${r.l}`;
+          }
+
+          const myPts = asNum(found.mine.points, NaN);
+          const opPts = found.opp ? asNum(found.opp.points, NaN) : NaN;
+
+          rows[weekIdx] = {
+            week: weekIdx + 1,
+            playoff: true,
+            tbd: false,
+            oppRosterId: oppRid,
+            oppName,
+            oppRecord,
+            myPts: Number.isFinite(myPts) ? myPts : null,
+            oppPts: Number.isFinite(opPts) ? opPts : null,
+          };
+        } else {
+          rows[weekIdx] = {
+            week: weekIdx + 1,
+            playoff: true,
+            tbd: true,
+          };
+        }
+      }
+    } catch {
+      // Fail-soft: keep rows as TBD
+    }
   }
 
   return (
     <main className="page owner" style={{ display: "grid", gap: 20 }}>
-      {/* Header card — identical to the Roster tab */}
+      {/* Header (exactly like roster page) */}
       <h1>{owner.display_name}</h1>
 
       <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
@@ -175,12 +293,12 @@ export default async function OwnerSchedule(props: {
             {owner.points_against.toFixed(1)}
           </div>
         </div>
-        <div style={{ marginLeft: "auto" }}>
-          <MyTeamClient rosterId={owner.roster_id} />
-        </div>
+        <div style={{ marginLeft: "auto" }} />
       </div>
 
+      {/* Schedule table */}
       <section>
+        <h2 style={{ margin: "8px 0 12px", fontSize: 18 }}>Schedule</h2>
         <table
           style={{
             width: "100%",
@@ -189,9 +307,10 @@ export default async function OwnerSchedule(props: {
           }}
         >
           <colgroup>
-            <col style={{ width: 80 }} />
+            <col style={{ width: "70px" }} /> {/* Week */}
             <col /> {/* Opponent */}
-            <col style={{ width: 160 }} /> {/* Score */}
+            <col style={{ width: "90px" }} /> {/* Opp Record */}
+            <col style={{ width: "140px" }} /> {/* Score */}
           </colgroup>
           <thead>
             <tr>
@@ -199,37 +318,48 @@ export default async function OwnerSchedule(props: {
               <th style={{ textAlign: "left", padding: "6px 8px" }}>
                 Opponent
               </th>
+              <th style={{ textAlign: "left", padding: "6px 8px" }}>Opp Rec</th>
               <th style={{ textAlign: "left", padding: "6px 8px" }}>Score</th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
-              <tr key={r.week}>
-                <td style={{ padding: "6px 8px" }}>{r.week}</td>
-                <td style={{ padding: "6px 8px" }}>
-                  {r.oppId != null ? (
-                    <Link href={`/owners/${r.oppId}`} className="underline">
-                      {r.oppName}
-                    </Link>
+            {rows.map((r) => {
+              const score =
+                r.myPts != null && r.oppPts != null
+                  ? `${fmtScore(r.myPts)} – ${fmtScore(r.oppPts)}`
+                  : "—";
+
+              const opp =
+                r.tbd || !r.oppRosterId ? (
+                  r.playoff ? (
+                    "TBD (Playoffs)"
                   ) : (
-                    r.oppName
-                  )}{" "}
-                  <span style={{ color: "#6b7280" }}>{r.oppRecord}</span>
-                </td>
-                <td style={{ padding: "6px 8px" }}>
-                  {r.myPts != null && r.oppPts != null
-                    ? `${r.myPts.toFixed(2)} – ${r.oppPts.toFixed(2)}`
-                    : "—"}
-                </td>
-              </tr>
-            ))}
+                    "TBD"
+                  )
+                ) : (
+                  <Link href={`/owners/${r.oppRosterId}`}>
+                    {r.oppName || r.oppRosterId}
+                  </Link>
+                );
+
+              return (
+                <tr key={r.week}>
+                  <td style={{ padding: "8px 8px" }}>{r.week}</td>
+                  <td style={{ padding: "8px 8px" }}>{opp}</td>
+                  <td style={{ padding: "8px 8px" }}>
+                    {r.tbd || !r.oppRosterId ? "—" : r.oppRecord || "—"}
+                  </td>
+                  <td style={{ padding: "8px 8px" }}>{score}</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
-      </section>
 
-      <p>
-        <Link href="/owners">← Back to Owners</Link>
-      </p>
+        <p style={{ marginTop: 12 }}>
+          <Link href="/owners">← Back to Owners</Link>
+        </p>
+      </section>
     </main>
   );
 }
