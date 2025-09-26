@@ -365,82 +365,83 @@ export default async function StandingsPage() {
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
-              <tr
-                key={r.id}
-                className={`group border-b last:border-b-0 ${
-                  r.isMine ? "bg-blue-50 border-b-blue-200" : ""
-                }`}
-              >
-                <td
-                  className={`sticky left-0 z-10 py-2 pr-2 ${
-                    r.isMine
-                      ? "bg-blue-50 border-r border-blue-200"
-                      : "bg-white border-r border-transparent"
+            {rows.map((r) => {
+              const mineBorders = r.isMine
+                ? "border-t border-b border-blue-200"
+                : "";
+              return (
+                <tr
+                  key={r.id}
+                  className={`border-b last:border-b-0 ${
+                    r.isMine ? "bg-blue-50" : ""
                   }`}
                 >
-                  <div className="flex items-center gap-2">
-                    {r.avatarUrl ? (
-                      <img
-                        src={r.avatarUrl}
-                        alt=""
-                        width={22}
-                        height={22}
-                        className="rounded-full object-cover"
-                      />
-                    ) : (
-                      <span className="inline-block w-[22px] h-[22px]" />
-                    )}
-                    <div className="flex flex-col leading-tight">
-                      <span className="whitespace-nowrap">{r.name}</span>
-                      <span className="text-xs text-gray-500">
-                        ${r.faab} • {r.strk}
-                      </span>
+                  <td
+                    className={`sticky left-0 z-10 py-2 pr-2 ${
+                      r.isMine ? "bg-blue-50" : "bg-white"
+                    } ${mineBorders}`}
+                  >
+                    <div className="flex items-center gap-2">
+                      {r.avatarUrl ? (
+                        <img
+                          src={r.avatarUrl}
+                          alt=""
+                          width={22}
+                          height={22}
+                          className="rounded-full object-cover"
+                        />
+                      ) : (
+                        <span className="inline-block w-[22px] h-[22px]" />
+                      )}
+                      <div className="flex flex-col leading-tight">
+                        <span className="whitespace-nowrap">{r.name}</span>
+                        <span className="text-xs text-gray-500">
+                          ${r.faab} • {r.strk}
+                        </span>
+                      </div>
                     </div>
-                  </div>
-                </td>
-                <td
-                  className={`px-2 py-2 text-right tabular-nums ${r.isMine ? "bg-blue-50" : ""}`}
-                >
-                  {r.wins}
-                </td>
-                <td
-                  className={`px-2 py-2 text-right tabular-nums ${r.isMine ? "bg-blue-50" : ""}`}
-                >
-                  {r.losses}
-                </td>
-                <td
-                  className={`px-2 py-2 text-right tabular-nums ${r.isMine ? "bg-blue-50" : ""}`}
-                >
-                  {r.dif}
-                </td>
-                <td
-                  className={`px-2 py-2 text-right tabular-nums ${r.isMine ? "bg-blue-50" : ""}`}
-                >
-                  {r.pf}
-                </td>
-                <td
-                  className={`px-2 py-2 text-right tabular-nums ${r.isMine ? "bg-blue-50" : ""}`}
-                >
-                  {r.pa}
-                </td>
-                <td
-                  className={`px-2 py-2 text-right tabular-nums hidden md:table-cell ${r.isMine ? "bg-blue-50" : ""}`}
-                >
-                  ${r.faab}
-                </td>
-                <td
-                  className={`px-2 py-2 text-right tabular-nums hidden md:table-cell ${r.isMine ? "bg-blue-50" : ""}`}
-                >
-                  {r.strk}
-                </td>
-              </tr>
-            ))}
+                  </td>
+                  <td
+                    className={`px-2 py-2 text-right tabular-nums ${mineBorders}`}
+                  >
+                    {r.wins}
+                  </td>
+                  <td
+                    className={`px-2 py-2 text-right tabular-nums ${mineBorders}`}
+                  >
+                    {r.losses}
+                  </td>
+                  <td
+                    className={`px-2 py-2 text-right tabular-nums ${mineBorders}`}
+                  >
+                    {r.dif}
+                  </td>
+                  <td
+                    className={`px-2 py-2 text-right tabular-nums ${mineBorders}`}
+                  >
+                    {r.pf}
+                  </td>
+                  <td
+                    className={`px-2 py-2 text-right tabular-nums ${mineBorders}`}
+                  >
+                    {r.pa}
+                  </td>
+                  <td
+                    className={`px-2 py-2 text-right tabular-nums hidden md:table-cell ${mineBorders}`}
+                  >
+                    ${r.faab}
+                  </td>
+                  <td
+                    className={`px-2 py-2 text-right tabular-nums hidden md:table-cell ${mineBorders}`}
+                  >
+                    {r.strk}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
     </div>
   );
 }
-
-// noop: trigger deploy 2025-09-24T19:05:46
