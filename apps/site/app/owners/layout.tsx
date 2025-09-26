@@ -1,20 +1,11 @@
-// apps/site/app/owners/[id]/layout.tsx
-import React from "react";
-import OwnersTabs from "./owners-tabs";
-
-export const metadata = { title: "Owners • League One" };
+// apps/site/app/owners/layout.tsx
 
 export default function OwnersLayout({
   children,
-  params,
 }: {
   children: React.ReactNode;
-  params: { id: string };
 }) {
-  return (
-    <>
-      <OwnersTabs rosterId={params.id} />
-      {children}
-    </>
-  );
+  // Parent /owners layout: no tabs here, so no cross-folder imports.
+  // This wraps both /owners and /owners/[id] trees.
+  return <>{children}</>;
 }
