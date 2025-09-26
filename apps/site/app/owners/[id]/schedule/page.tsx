@@ -1,13 +1,8 @@
 // apps/site/app/owners/[id]/schedule/page.tsx
-import "server-only";
+import Link from "next/link";
 
+// tiny server-side fetch helper
 const API = "https://api.sleeper.app/v1";
-
-function asNum(v: unknown, d = 0): number {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : d;
-}
-
 async function j<T>(path: string, revalidate = 300): Promise<T> {
   const res = await fetch(`${API}${path}`, { next: { revalidate } });
   if (!res.ok)
@@ -17,257 +12,193 @@ async function j<T>(path: string, revalidate = 300): Promise<T> {
   return res.json();
 }
 
+// Utility
+function asNum(v: unknown, d = 0) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : d;
+}
+
 type Matchup = {
   matchup_id: number;
   roster_id: number;
   points: number;
 };
 
-type Row = {
-  week: number;
-  opponentName: string;
-  opponentRosterId: number | null;
-  myPoints: number | null;
-  oppPoints: number | null;
-  result: "W" | "L" | "T" | "-";
-  completed: boolean;
-};
-
-function resultFrom(
-  pointsA: number | null,
-  pointsB: number | null,
-): "W" | "L" | "T" | "-" {
-  if (pointsA == null || pointsB == null) return "-";
-  if (pointsA === pointsB) return "T";
-  return pointsA > pointsB ? "W" : "L";
-}
-
-export default async function OwnerSchedule(props: {
+export default async function OwnerSchedulePage(props: {
   params: Promise<{ id: string }>;
 }) {
   const { id } = await props.params;
   const rosterId = Number(id);
-  if (!Number.isFinite(rosterId)) {
-    return (
-      <main className="page owner">
-        <p>Invalid roster id.</p>
-      </main>
-    );
-  }
 
   const lid =
     process.env.SLEEPER_LEAGUE_ID || process.env.NEXT_PUBLIC_SLEEPER_LEAGUE_ID;
-  if (!lid) {
+  if (!lid || !Number.isFinite(rosterId)) {
     return (
-      <main className="page owner">
-        <p>League ID is not configured.</p>
-      </main>
+      <div className="p-4 text-sm text-gray-600">Schedule unavailable.</div>
     );
   }
 
-  // Pull league (for current week), rosters (to resolve opponent roster_id),
-  // and users (to resolve opponent display_name)
-  const [league, rosters, users] = await Promise.all([
+  // Pull league for current week, all users/rosters for name lookups
+  const [league, users, rosters] = await Promise.all([
     j<any>(`/league/${lid}`, 600),
-    j<any[]>(`/league/${lid}/rosters`, 600),
     j<any[]>(`/league/${lid}/users`, 600),
+    j<any[]>(`/league/${lid}/rosters`, 600),
   ]);
 
-  // Fallback for current week if league.week is missing
+  // Map roster_id -> { user_id, display_name }
+  const usersById = new Map(users.map((u) => [u.user_id, u]));
+  const rosterInfo = new Map<number, { owner_id: string; name: string }>();
+  for (const r of rosters) {
+    const u = usersById.get(r.owner_id);
+    rosterInfo.set(Number(r.roster_id), {
+      owner_id: r.owner_id,
+      name: u?.display_name ?? "Unknown",
+    });
+  }
+
+  // Determine last completed week (don’t include current in-progress)
   let currentWeek = asNum(league?.week, NaN);
   if (!Number.isFinite(currentWeek)) {
     const state = await j<{ week: number }>(`/state/nfl`, 120);
     currentWeek = asNum(state?.week, 1);
   }
-
-  // Map roster_id -> owner display_name (best-effort)
-  const usersById = new Map(users.map((u) => [u.user_id, u]));
-  const ownerNameByRosterId = new Map<number, string>();
-  for (const r of rosters) {
-    const u = usersById.get(r.owner_id);
-    const name = (u?.display_name as string) || "Unknown";
-    ownerNameByRosterId.set(Number(r.roster_id), name);
+  const lastCompleted = Math.max(0, currentWeek - 1);
+  if (lastCompleted === 0) {
+    return (
+      <div className="p-4 text-sm text-gray-600">No completed games yet.</div>
+    );
   }
 
-  // Fetch matchups for a reasonable set of weeks (regular season 1..18).
-  const weeks = Array.from({ length: 18 }, (_, i) => i + 1);
-  const allWeeks = await Promise.all(
-    weeks.map(async (w) => ({
-      week: w,
-      matchups: await j<Matchup[]>(`/league/${lid}/matchups/${w}`, 300),
-    })),
+  // Fetch matchups for all completed weeks
+  const weeks = Array.from({ length: lastCompleted }, (_, i) => i + 1);
+  const weekly = await Promise.all(
+    weeks.map((w) => j<Matchup[]>(`/league/${lid}/matchups/${w}`, 300)),
   );
 
-  // Build rows for this roster
-  const rows: Row[] = [];
-  for (const { week, matchups } of allWeeks) {
-    const mine = (matchups || []).filter(
-      (m) => Number(m.roster_id) === rosterId,
-    );
-    if (mine.length === 0) {
-      // No matchup this week (bye or not generated yet)
-      rows.push({
-        week,
-        opponentName: "—",
-        opponentRosterId: null,
-        myPoints: null,
-        oppPoints: null,
-        result: "-",
-        completed: week < currentWeek,
-      });
-      continue;
+  // Build schedule lines for this owner: week, me, opp, scores
+  type Line = {
+    week: number;
+    mineId: number;
+    oppId: number | null;
+    myPts: number | null;
+    oppPts: number | null;
+  };
+  const lines: Line[] = [];
+
+  for (let wi = 0; wi < weeks.length; wi++) {
+    const wk = weeks[wi];
+    const matchups = weekly[wi] || [];
+
+    // group by matchup_id
+    const byMid = new Map<number, Matchup[]>();
+    for (const m of matchups) {
+      if (!byMid.has(m.matchup_id)) byMid.set(m.matchup_id, []);
+      byMid.get(m.matchup_id)!.push(m);
     }
 
-    // In head-to-head, there should be exactly one entry for me per matchup_id.
-    // Find the opponent by matching the same matchup_id with different roster_id.
-    // There can be 2+ teams per matchup if multi-team matchups are enabled;
-    // pick the top "other" entry.
-    const myEntry = mine[0];
-    const candidates = (matchups || []).filter(
-      (m) =>
-        m.matchup_id === myEntry.matchup_id && Number(m.roster_id) !== rosterId,
-    );
-    const oppEntry = candidates[0] || null;
+    for (const [, group] of byMid) {
+      // Does this group include my roster?
+      const mine = group.find((g) => Number(g.roster_id) === rosterId);
+      if (!mine) continue;
 
-    const myPts = myEntry ? asNum(myEntry.points, null as any) : null;
-    const oppPts = oppEntry ? asNum(oppEntry.points, null as any) : null;
-    const oppRosterId = oppEntry ? Number(oppEntry.roster_id) : null;
-    const oppName =
-      (oppRosterId != null
-        ? ownerNameByRosterId.get(oppRosterId)
-        : undefined) || "—";
+      // find opponent (head-to-head assumed, but handle 3+ just in case: pick highest non-me as opp)
+      const others = group.filter((g) => Number(g.roster_id) !== rosterId);
+      let opponent: Matchup | undefined = others[0];
+      if (others.length > 1) {
+        // choose the one with the closest points to "mine" as a heuristic fallback
+        opponent = others.reduce(
+          (acc, cur) =>
+            Math.abs(cur.points - mine.points) <
+            Math.abs((acc?.points ?? 0) - mine.points)
+              ? cur
+              : acc,
+          opponent,
+        );
+      }
 
-    rows.push({
-      week,
-      opponentName: oppName,
-      opponentRosterId: oppRosterId,
-      myPoints: myPts,
-      oppPoints: oppPts,
-      result: resultFrom(myPts, oppPts),
-      completed: week < currentWeek,
-    });
+      lines.push({
+        week: wk,
+        mineId: rosterId,
+        oppId: opponent ? Number(opponent.roster_id) : null,
+        myPts: Number.isFinite(mine.points) ? Number(mine.points) : null,
+        oppPts:
+          opponent && Number.isFinite(opponent.points)
+            ? Number(opponent.points)
+            : null,
+      });
+    }
   }
 
-  const completed = rows.filter((r) => r.completed);
-  const upcoming = rows.filter((r) => !r.completed);
+  // Sort by week ascending
+  lines.sort((a, b) => a.week - b.week);
 
   return (
-    <main className="page owner" style={{ display: "grid", gap: 16 }}>
-      <h2 style={{ fontSize: 18, fontWeight: 700 }}>Schedule</h2>
+    <div className="p-3 sm:p-4">
+      <h2 className="mb-3 text-lg font-semibold">Schedule</h2>
 
-      {/* Completed games */}
-      <section>
-        <h3
-          style={{
-            fontSize: 14,
-            fontWeight: 600,
-            opacity: 0.8,
-            marginBottom: 8,
-          }}
-        >
-          Completed
-        </h3>
-        {completed.length ? (
-          <table
-            style={{
-              width: "100%",
-              borderCollapse: "collapse",
-              tableLayout: "fixed",
-            }}
-          >
-            <colgroup>
-              <col style={{ width: 70 }} />
-              <col />
-              <col style={{ width: 120 }} />
-              <col style={{ width: 120 }} />
-              <col style={{ width: 60 }} />
-            </colgroup>
-            <thead>
-              <tr>
-                <th style={{ textAlign: "left", padding: "6px 8px" }}>Week</th>
-                <th style={{ textAlign: "left", padding: "6px 8px" }}>
-                  Opponent
-                </th>
-                <th style={{ textAlign: "left", padding: "6px 8px" }}>
-                  My Score
-                </th>
-                <th style={{ textAlign: "left", padding: "6px 8px" }}>
-                  Opp Score
-                </th>
-                <th style={{ textAlign: "left", padding: "6px 8px" }}>Res</th>
-              </tr>
-            </thead>
-            <tbody>
-              {completed.map((r) => (
-                <tr key={`c-${r.week}`}>
-                  <td style={{ padding: "6px 8px" }}>{r.week}</td>
-                  <td style={{ padding: "6px 8px" }}>{r.opponentName}</td>
-                  <td style={{ padding: "6px 8px" }}>
-                    {r.myPoints != null ? r.myPoints.toFixed(2) : "—"}
-                  </td>
-                  <td style={{ padding: "6px 8px" }}>
-                    {r.oppPoints != null ? r.oppPoints.toFixed(2) : "—"}
-                  </td>
-                  <td style={{ padding: "6px 8px", fontWeight: 600 }}>
-                    {r.result}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : (
-          <p style={{ opacity: 0.7 }}>No completed games yet.</p>
-        )}
-      </section>
+      <div className="overflow-x-auto -mx-3 sm:mx-0">
+        <table className="min-w-[520px] w-full border-collapse text-sm">
+          <thead>
+            <tr className="text-left text-gray-600">
+              <th className="px-2 py-2">Week</th>
+              <th className="px-2 py-2">Owner</th>
+              <th className="px-2 py-2">Opponent</th>
+              <th className="px-2 py-2 text-right">Score</th>
+            </tr>
+          </thead>
+          <tbody>
+            {lines.map((ln) => {
+              const me = rosterInfo.get(ln.mineId);
+              const opp =
+                ln.oppId != null ? rosterInfo.get(ln.oppId) : undefined;
+              const meName = me?.name ?? `Roster ${ln.mineId}`;
+              const oppName =
+                opp?.name ?? (ln.oppId != null ? `Roster ${ln.oppId}` : "—");
+              const score =
+                ln.myPts != null && ln.oppPts != null
+                  ? `${ln.myPts} – ${ln.oppPts}`
+                  : "—";
 
-      {/* Upcoming games */}
-      <section>
-        <h3
-          style={{
-            fontSize: 14,
-            fontWeight: 600,
-            opacity: 0.8,
-            marginBottom: 8,
-          }}
-        >
-          Upcoming
-        </h3>
-        {upcoming.length ? (
-          <table
-            style={{
-              width: "100%",
-              borderCollapse: "collapse",
-              tableLayout: "fixed",
-            }}
-          >
-            <colgroup>
-              <col style={{ width: 70 }} />
-              <col />
-              <col style={{ width: 60 }} />
-            </colgroup>
-            <thead>
-              <tr>
-                <th style={{ textAlign: "left", padding: "6px 8px" }}>Week</th>
-                <th style={{ textAlign: "left", padding: "6px 8px" }}>
-                  Opponent
-                </th>
-                <th style={{ textAlign: "left", padding: "6px 8px" }}>Res</th>
-              </tr>
-            </thead>
-            <tbody>
-              {upcoming.map((r) => (
-                <tr key={`u-${r.week}`}>
-                  <td style={{ padding: "6px 8px" }}>{r.week}</td>
-                  <td style={{ padding: "6px 8px" }}>{r.opponentName}</td>
-                  <td style={{ padding: "6px 8px" }}>—</td>
+              return (
+                <tr
+                  key={`${ln.week}-${ln.mineId}`}
+                  className="border-b last:border-b-0"
+                >
+                  <td className="px-2 py-2">{ln.week}</td>
+                  <td className="px-2 py-2">
+                    <Link
+                      href={`/owners/${ln.mineId}`}
+                      className="underline underline-offset-2 hover:opacity-80"
+                    >
+                      {meName}
+                    </Link>
+                  </td>
+                  <td className="px-2 py-2">
+                    {ln.oppId != null ? (
+                      <Link
+                        href={`/owners/${ln.oppId}`}
+                        className="underline underline-offset-2 hover:opacity-80"
+                      >
+                        {oppName}
+                      </Link>
+                    ) : (
+                      oppName
+                    )}
+                  </td>
+                  <td className="px-2 py-2 text-right tabular-nums">{score}</td>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : (
-          <p style={{ opacity: 0.7 }}>No upcoming games.</p>
-        )}
-      </section>
-    </main>
+              );
+            })}
+            {lines.length === 0 && (
+              <tr>
+                <td colSpan={4} className="px-2 py-6 text-center text-gray-500">
+                  No games found yet.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }
