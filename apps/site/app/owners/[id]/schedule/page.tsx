@@ -11,11 +11,10 @@ const API = "https://api.sleeper.app/v1";
 // tiny fetch helper with Next caching hints
 async function j<T>(path: string, reval = 300): Promise<T> {
   const res = await fetch(`${API}${path}`, { next: { revalidate: reval } });
-  if (!res.ok) {
+  if (!res.ok)
     throw new Error(
       `Sleeper fetch failed: ${res.status} ${res.statusText} ${path}`,
     );
-  }
   return res.json();
 }
 
@@ -46,7 +45,7 @@ function groupByMatchupId(
   return m;
 }
 
-// Find the opponent for this roster within a group's array
+// Opponent picker
 function pickOpponent(
   group: Matchup[],
   myRosterId: number,
@@ -54,7 +53,7 @@ function pickOpponent(
   return group.find((m) => Number(m.roster_id) !== myRosterId);
 }
 
-// Prefer user's custom team_name; else use display_name; else "Team #<rid>"
+// Team name preference
 function pickTeamName(user: any, rid: number): string {
   const metaName =
     typeof user?.metadata?.team_name === "string" &&
@@ -86,14 +85,11 @@ function resolveMyRosterId(
   return byUser ? Number(byUser.roster_id) : undefined;
 }
 
-/**
- * Compute W/L for a roster across weeks[0..throughWeek-1].
- * Ties are counted as LOSSES so you never see a "-1" column.
- */
+/** Record (W/L) through a cutoff week. Ties are treated as **losses** (never show -1). */
 function recordThroughWeekNoTies(
   rosterId: number,
   weeks: Matchup[][],
-  throughWeek: number, // 1-based inclusive target
+  throughWeek: number, // 1-based inclusive
 ) {
   let w = 0,
     l = 0;
@@ -106,14 +102,13 @@ function recordThroughWeekNoTies(
       for (const r of g) max = Math.max(max, asNum(r.points, 0));
       const top = g.filter((r) => asNum(r.points, 0) === max);
       if (top.length > 1) {
-        // treat tie as a loss for this roster (ties are astronomically rare)
-        l++;
+        l++; // tie -> count as loss
       } else {
         const winnerRid = Number(top[0].roster_id);
         if (winnerRid === rosterId) w++;
         else l++;
       }
-      break; // only one matchup group per week per roster
+      break;
     }
   }
   return { w, l };
@@ -122,10 +117,9 @@ function recordThroughWeekNoTies(
 export default async function OwnerSchedulePage(props: {
   params: Promise<{ id: string }>;
 }) {
-  // Next 15 async params
   const { id } = await props.params;
 
-  // League id
+  // League id (required)
   const lid =
     process.env.SLEEPER_LEAGUE_ID || process.env.NEXT_PUBLIC_SLEEPER_LEAGUE_ID;
   if (!lid) {
@@ -133,7 +127,7 @@ export default async function OwnerSchedulePage(props: {
       <main className="page owner">
         <p>
           <strong>Missing league id.</strong> Set <code>SLEEPER_LEAGUE_ID</code>{" "}
-          or <code>NEXT_PUBLIC_SLEEPER_LEAGUE_ID</code> for this app.
+          or <code>NEXT_PUBLIC_SLEEPER_LEAGUE_ID</code>.
         </p>
         <p>
           <Link href="/owners">← Back to Owners</Link>
@@ -142,14 +136,13 @@ export default async function OwnerSchedulePage(props: {
     );
   }
 
-  // Pull core league data
+  // League + people/rosters
   const [league, users, rosters] = await Promise.all([
     j<League>(`/league/${lid}`, 600),
     j<SleeperUser[]>(`/league/${lid}/users`, 600),
     j<SleeperRoster[]>(`/league/${lid}/rosters`, 600),
   ]);
 
-  // Map for names
   const usersById = new Map(users.map((u) => [u.user_id, u]));
   const nameByRosterId = new Map<number, string>();
   for (const r of rosters) {
@@ -158,7 +151,6 @@ export default async function OwnerSchedulePage(props: {
     nameByRosterId.set(rid, pickTeamName(u, rid));
   }
 
-  // Resolve my roster id for THIS league
   const myRosterId = resolveMyRosterId(id, rosters);
   if (!myRosterId) {
     return (
@@ -174,7 +166,7 @@ export default async function OwnerSchedulePage(props: {
     );
   }
 
-  // Owner header
+  // Owner header base (PF/PA, avatar)
   const owner = await getOwner(myRosterId);
   if (!owner) {
     return (
@@ -187,11 +179,11 @@ export default async function OwnerSchedulePage(props: {
     );
   }
 
-  // Determine last completed week so we never include the in-progress week
+  // Week boundaries
   const currentWeek = asNum(league?.week, 1);
-  const lastCompleted = Math.max(0, currentWeek - 1);
+  const lastCompleted = Math.max(0, currentWeek - 1); // finished weeks only
 
-  // Fetch only regular-season weeks 1..14
+  // Fetch regular season only (1..14)
   const settled = await Promise.allSettled(
     Array.from({ length: 14 }, (_, i) =>
       j<Matchup[]>(`/league/${lid}/matchups/${i + 1}`, 600),
@@ -201,15 +193,19 @@ export default async function OwnerSchedulePage(props: {
     s.status === "fulfilled" ? s.value || [] : [],
   );
 
-  // Table rows 1..14
+  // Compute *current* record header (through lastCompleted, never includes current)
+  const myRecord = recordThroughWeekNoTies(myRosterId, weekly, lastCompleted);
+  const recordHeader = `${myRecord.w}-${myRecord.l}`;
+
+  // Build rows (1..14)
   type Row = {
     week: number;
     oppRosterId?: number;
     oppName?: string;
-    oppRecord?: string; // W-L through min(week, lastCompleted)
+    oppRecord?: string; // through lastCompleted
     myPts?: number | null;
     oppPts?: number | null;
-    final: boolean;
+    final: boolean; // finished week?
     tbd: boolean;
   };
 
@@ -219,7 +215,6 @@ export default async function OwnerSchedulePage(props: {
     final: i + 1 <= lastCompleted,
   }));
 
-  // Build each week
   for (let weekIdx = 0; weekIdx < 14; weekIdx++) {
     const groups = groupByMatchupId(weekly[weekIdx]);
     let mine: Matchup | undefined;
@@ -248,11 +243,10 @@ export default async function OwnerSchedulePage(props: {
         ? (nameByRosterId.get(oppRid) ?? `Team #${oppRid}`)
         : undefined;
 
-    // Opponent record is computed ONLY through the last completed week (never includes current)
     const oppRec =
       oppRid != null
         ? (() => {
-            const cutoff = Math.min(weekIdx + 1, lastCompleted);
+            const cutoff = Math.min(lastCompleted, 14); // only finished weeks
             if (cutoff <= 0) return "0-0";
             const r = recordThroughWeekNoTies(oppRid, weekly, cutoff);
             return `${r.w}-${r.l}`;
@@ -266,7 +260,7 @@ export default async function OwnerSchedulePage(props: {
       oppRosterId: oppRid,
       oppName,
       oppRecord: oppRec,
-      // We keep points for later but we will ONLY display them if the week is final.
+      // Keep live points — we will always render them, but color only if final
       myPts: asNum(mine.points, null as any),
       oppPts: opp ? asNum(opp.points, null as any) : null,
     };
@@ -274,7 +268,7 @@ export default async function OwnerSchedulePage(props: {
 
   return (
     <main className="page owner" style={{ display: "grid", gap: 20 }}>
-      {/* Header (same as roster page) */}
+      {/* Header */}
       <h1>{owner.display_name}</h1>
 
       <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
@@ -286,9 +280,7 @@ export default async function OwnerSchedulePage(props: {
           style={{ borderRadius: "50%", objectFit: "cover" }}
         />
         <div>
-          <div>
-            Record {owner.wins}-{owner.losses}
-          </div>
+          <div>Record {recordHeader}</div>
           <div>
             PF {owner.points_for.toFixed(1)} • PA{" "}
             {owner.points_against.toFixed(1)}
@@ -334,20 +326,19 @@ export default async function OwnerSchedulePage(props: {
                 : iLost
                   ? { fontWeight: 700, color: "#dc2626" } // red-600
                   : r.final && haveScores
-                    ? { fontWeight: 700 }
-                    : undefined; // tie (rare)
+                    ? { fontWeight: 700 } // tie edge case (rare)
+                    : undefined;
 
-              // Only show scores when the week is FINAL; otherwise show an em dash
-              const scoreCell =
-                r.final && haveScores ? (
-                  <span>
-                    <span style={myStyle}>{r.myPts!.toFixed(2)}</span>
-                    {" – "}
-                    <span>{r.oppPts!.toFixed(2)}</span>
-                  </span>
-                ) : (
-                  "—"
-                );
+              // Show LIVE scores whenever they exist; color only when final
+              const scoreCell = haveScores ? (
+                <span>
+                  <span style={myStyle}>{r.myPts!.toFixed(2)}</span>
+                  {" – "}
+                  <span>{r.oppPts!.toFixed(2)}</span>
+                </span>
+              ) : (
+                "—"
+              );
 
               const opp =
                 r.tbd || !r.oppRosterId ? (
