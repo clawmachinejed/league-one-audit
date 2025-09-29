@@ -44,15 +44,18 @@ type Transaction = {
     | string;
   status: "complete" | "failed" | "pending" | string;
   status_updated?: number; // epoch ms
+  created?: number; // epoch ms
   leg?: number; // week
   roster_ids?: number[];
   creator?: string;
-  consenter_ids?: string[];
-  waiver_bid?: number | null;
+  consenter_ids?: number[];
+  waiver_bid?: number | null; // sometimes present
   adds?: Record<string, number>; // player_id -> roster_id
   drops?: Record<string, number>; // player_id -> roster_id
   draft_picks?: any[];
   metadata?: Record<string, any>;
+  settings?: Record<string, any> | null; // documented place for waiver_bid
+  waiver_budget?: Array<{ sender: number; receiver: number; amount: number }>; // FAAB moved in trades
 };
 
 const asNum = (v: unknown, d = 0) =>
@@ -103,7 +106,6 @@ function fmtDate(epochMs?: number | null, tz = "America/Indiana/Indianapolis") {
 }
 
 function normTypeLabel(t: string) {
-  // "free_agent" -> "Free agent", "commissioner" -> "Commissioner"
   const s = t.replace(/_/g, " ");
   return s.slice(0, 1).toUpperCase() + s.slice(1);
 }
@@ -130,7 +132,24 @@ function transactionResult(
   return "Complete";
 }
 
-/** My roster is involved if roster_ids includes it OR a line in adds/drops targets it. */
+/** Canonical (per Sleeper docs) and robust waiver bid extraction. */
+function extractWaiverBid(t: Transaction): number | null {
+  if (t.type !== "waiver") return null;
+
+  const candidates: unknown[] = [
+    t.settings && (t.settings as any).waiver_bid, // documented
+    (t as any).waiver_bid, // sometimes mirrored
+    t.metadata && (t.metadata as any).waiver_bid, // occasional
+  ];
+
+  for (const c of candidates) {
+    const n = Number(c);
+    if (Number.isFinite(n)) return n;
+  }
+  return null; // don't render $0 unless we truly know it's zero
+}
+
+/** My roster is involved if roster_ids includes it OR adds/drops touch it. */
 function involvesMyRoster(t: Transaction, myRosterId: number): boolean {
   if (
     Array.isArray(t.roster_ids) &&
@@ -229,7 +248,7 @@ export default async function OwnerTransactionsPage(props: {
     );
     playersById = new Map(Object.entries(players));
   } catch {
-    // falls back to numeric IDs in details
+    // fall back to player_id
   }
 
   type Row = {
@@ -243,10 +262,11 @@ export default async function OwnerTransactionsPage(props: {
 
   const rows: Row[] = myTx
     .map((t) => {
-      const when = fmtDate(t.status_updated);
+      // Prefer creation time; fall back to status_updated
+      const when = fmtDate((t as any).created ?? t.status_updated);
       const type = normTypeLabel(t.type);
 
-      // Build details: only the lines that targeted THIS roster
+      // details only for lines that touch THIS roster
       const addLines = t.adds
         ? Object.entries(t.adds)
             .filter(([, rid]) => Number(rid) === myRosterId)
@@ -266,22 +286,38 @@ export default async function OwnerTransactionsPage(props: {
 
       let details = [...addLines, ...dropLines].join("; ");
 
-      if (t.type === "trade" && !details) {
-        const others = (t.roster_ids || [])
-          .filter((rid) => Number(rid) !== myRosterId)
-          .map((rid) => nameByRosterId.get(Number(rid)) || `Team #${rid}`);
-        details = `TRADE with ${others.join(", ") || "unknown"}`;
+      // Trades: name partners + FAAB transfers if any
+      if (t.type === "trade") {
+        if (!details) {
+          const others = (t.roster_ids || [])
+            .filter((rid) => Number(rid) !== myRosterId)
+            .map((rid) => nameByRosterId.get(Number(rid)) || `Team #${rid}`);
+          details = `TRADE with ${others.join(", ") || "unknown"}`;
+        }
+        if (Array.isArray(t.waiver_budget) && t.waiver_budget.length) {
+          const parts = t.waiver_budget.map((wb) => {
+            const from =
+              nameByRosterId.get(Number(wb.sender)) ?? `Team #${wb.sender}`;
+            const to =
+              nameByRosterId.get(Number(wb.receiver)) ?? `Team #${wb.receiver}`;
+            return `FAAB ${wb.amount} from ${from} to ${to}`;
+          });
+          details = details
+            ? `${details}; ${parts.join("; ")}`
+            : parts.join("; ");
+        }
       }
+
       if (!details) details = type.toUpperCase();
 
-      // FAAB + Result
+      // Result + FAAB
       const result = transactionResult(t);
       let faab = "—";
       if (t.type === "waiver") {
-        const bid = t.waiver_bid != null ? asNum(t.waiver_bid, 0) : null;
-        if (result === "Won") faab = bid != null ? `$${bid}` : "$0";
+        const bid = extractWaiverBid(t);
+        if (result === "Won") faab = bid != null ? `$${bid}` : "—";
         else if (result === "Lost")
-          faab = bid != null ? `Bid $${bid}` : "Bid $0";
+          faab = bid != null ? `Bid $${bid}` : "Bid —";
         else faab = bid != null ? `Bid $${bid}` : "—";
       } else if (t.type === "free_agent") {
         faab = "$0";
@@ -293,11 +329,10 @@ export default async function OwnerTransactionsPage(props: {
         details,
         faab,
         result,
-        sortKey: t.status_updated || 0,
+        sortKey: (t as any).created ?? t.status_updated ?? 0,
       };
     })
-    // newest first
-    .sort((a, b) => b.sortKey - a.sortKey);
+    .sort((a, b) => b.sortKey - a.sortKey); // newest first
 
   return (
     <main className="page owner" style={{ display: "grid", gap: 20 }}>
