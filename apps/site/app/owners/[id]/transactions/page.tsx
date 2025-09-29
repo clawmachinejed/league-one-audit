@@ -44,15 +44,15 @@ type Transaction = {
     | string;
   status: "complete" | "failed" | "pending" | string;
   status_updated?: number; // epoch ms
-  roster_ids?: number[]; // rosters involved
-  creator?: string; // user_id
-  consenter_ids?: string[]; // for trades
-  waiver_bid?: number | null; // FAAB bid if waiver
+  leg?: number; // week
+  roster_ids?: number[];
+  creator?: string;
+  consenter_ids?: string[];
+  waiver_bid?: number | null;
   adds?: Record<string, number>; // player_id -> roster_id
   drops?: Record<string, number>; // player_id -> roster_id
   draft_picks?: any[];
   metadata?: Record<string, any>;
-  leg?: number; // week
 };
 
 const asNum = (v: unknown, d = 0) =>
@@ -102,6 +102,12 @@ function fmtDate(epochMs?: number | null, tz = "America/Indiana/Indianapolis") {
   }
 }
 
+function normTypeLabel(t: string) {
+  // "free_agent" -> "Free agent", "commissioner" -> "Commissioner"
+  const s = t.replace(/_/g, " ");
+  return s.slice(0, 1).toUpperCase() + s.slice(1);
+}
+
 function playerName(p: SleeperPlayer | undefined, id: string) {
   if (!p) return id;
   if (p.full_name && p.full_name.trim()) return p.full_name;
@@ -124,13 +130,7 @@ function transactionResult(
   return "Complete";
 }
 
-/**
- * A transaction "involves" my roster if:
- * - roster_ids includes myRosterId, or
- * - adds/drops map to myRosterId, or
- * - (trade) consenter_ids contain my user_id (covered by roster_ids once we map user->roster),
- * We evaluate primarily via roster_ids/adds/drops to be robust for waiver losses.
- */
+/** My roster is involved if roster_ids includes it OR a line in adds/drops targets it. */
 function involvesMyRoster(t: Transaction, myRosterId: number): boolean {
   if (
     Array.isArray(t.roster_ids) &&
@@ -152,7 +152,6 @@ export default async function OwnerTransactionsPage(props: {
 }) {
   const { id } = await props.params;
 
-  // League id (required)
   const lid =
     process.env.SLEEPER_LEAGUE_ID || process.env.NEXT_PUBLIC_SLEEPER_LEAGUE_ID;
   if (!lid) {
@@ -169,7 +168,7 @@ export default async function OwnerTransactionsPage(props: {
     );
   }
 
-  // Fetch users/rosters for mapping and owner header
+  // Users/Rosters for names + header
   const [users, rosters] = await Promise.all([
     j<SleeperUser[]>(`/league/${lid}/users`, 600),
     j<SleeperRoster[]>(`/league/${lid}/rosters`, 600),
@@ -182,7 +181,6 @@ export default async function OwnerTransactionsPage(props: {
     nameByRosterId.set(rid, pickTeamName(u, rid));
   }
 
-  // Resolve this page's roster
   const myRosterId = resolveMyRosterId(id, rosters);
   if (!myRosterId) {
     return (
@@ -210,22 +208,19 @@ export default async function OwnerTransactionsPage(props: {
     );
   }
 
-  // Pull all season transactions (weeks 0..18 to include preseason moves)
-  const weekRange = Array.from({ length: 19 }, (_, i) => i); // 0..18
+  // Pull all-season transactions (0..18 to catch preseason moves)
+  const weeks = Array.from({ length: 19 }, (_, i) => i);
   const txSettled = await Promise.allSettled(
-    weekRange.map((w) =>
-      j<Transaction[]>(`/league/${lid}/transactions/${w}`, 120),
-    ),
+    weeks.map((w) => j<Transaction[]>(`/league/${lid}/transactions/${w}`, 180)),
   );
   const allTx: Transaction[] = txSettled.flatMap((s) =>
     s.status === "fulfilled" ? s.value || [] : [],
   );
 
-  // Filter to this owner’s roster
+  // Filter to my roster
   const myTx = allTx.filter((t) => involvesMyRoster(t, myRosterId));
 
-  // Optional: load players map (cached longer; this endpoint is big, so keep revalidate high)
-  // If it ever becomes too heavy, swap to a tiny on-demand player lookup microservice.
+  // Load players map (long cache). If it fails, we fall back to IDs.
   let playersById: Map<string, SleeperPlayer> = new Map();
   try {
     const players = await j<Record<string, SleeperPlayer>>(
@@ -234,84 +229,78 @@ export default async function OwnerTransactionsPage(props: {
     );
     playersById = new Map(Object.entries(players));
   } catch {
-    // fall back silently; we’ll display player_id when names missing
+    // falls back to numeric IDs in details
   }
 
-  // Build presentable rows
   type Row = {
-    when: string; // date only
+    when: string;
     type: string;
     details: string;
     faab: string;
     result: string;
+    sortKey: number;
   };
 
   const rows: Row[] = myTx
     .map((t) => {
-      const date = fmtDate(t.status_updated);
-      const type = t.type;
+      const when = fmtDate(t.status_updated);
+      const type = normTypeLabel(t.type);
 
-      // Build details string
-      const addList =
-        t.adds && Object.keys(t.adds).length
-          ? Object.keys(t.adds)
-              .filter((pid) => {
-                // only list lines that touched THIS roster (for clarity)
-                return Number(t.adds?.[pid]) === myRosterId;
-              })
-              .map((pid) => `ADD ${playerName(playersById.get(pid), pid)}`)
-          : [];
+      // Build details: only the lines that targeted THIS roster
+      const addLines = t.adds
+        ? Object.entries(t.adds)
+            .filter(([, rid]) => Number(rid) === myRosterId)
+            .map(
+              ([pid]) =>
+                `ADD ${playerName(playersById.get(String(pid)), String(pid))}`,
+            )
+        : [];
+      const dropLines = t.drops
+        ? Object.entries(t.drops)
+            .filter(([, rid]) => Number(rid) === myRosterId)
+            .map(
+              ([pid]) =>
+                `DROP ${playerName(playersById.get(String(pid)), String(pid))}`,
+            )
+        : [];
 
-      const dropList =
-        t.drops && Object.keys(t.drops).length
-          ? Object.keys(t.drops)
-              .filter((pid) => {
-                return Number(t.drops?.[pid]) === myRosterId;
-              })
-              .map((pid) => `DROP ${playerName(playersById.get(pid), pid)}`)
-          : [];
+      let details = [...addLines, ...dropLines].join("; ");
 
-      let details = [...addList, ...dropList].join("; ");
-
-      // Trades: if nothing in adds/drops specifically for my roster, still show a generic marker
-      if (type === "trade" && !details) {
+      if (t.type === "trade" && !details) {
         const others = (t.roster_ids || [])
           .filter((rid) => Number(rid) !== myRosterId)
           .map((rid) => nameByRosterId.get(Number(rid)) || `Team #${rid}`);
         details = `TRADE with ${others.join(", ") || "unknown"}`;
       }
-
       if (!details) details = type.toUpperCase();
 
-      // FAAB & result
+      // FAAB + Result
+      const result = transactionResult(t);
       let faab = "—";
-      let result = transactionResult(t);
-
-      if (type === "waiver") {
-        const bid = asNum(t.waiver_bid, 0);
-        if (t.status === "complete") {
-          faab = bid ? `$${bid}` : "$0";
-        } else if (t.status === "failed") {
-          faab = bid ? `Bid $${bid}` : "Bid $0";
-        } else {
-          faab = bid ? `Bid $${bid}` : "—";
-        }
+      if (t.type === "waiver") {
+        const bid = t.waiver_bid != null ? asNum(t.waiver_bid, 0) : null;
+        if (result === "Won") faab = bid != null ? `$${bid}` : "$0";
+        else if (result === "Lost")
+          faab = bid != null ? `Bid $${bid}` : "Bid $0";
+        else faab = bid != null ? `Bid $${bid}` : "—";
+      } else if (t.type === "free_agent") {
+        faab = "$0";
       }
 
       return {
-        when: date,
+        when,
         type,
         details,
         faab,
         result,
+        sortKey: t.status_updated || 0,
       };
     })
     // newest first
-    .sort((a, b) => (a.when < b.when ? 1 : a.when > b.when ? -1 : 0));
+    .sort((a, b) => b.sortKey - a.sortKey);
 
   return (
     <main className="page owner" style={{ display: "grid", gap: 20 }}>
-      {/* Header (consistent with other owner subpages) */}
       <h1>{owner.display_name}</h1>
 
       <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
@@ -334,7 +323,6 @@ export default async function OwnerTransactionsPage(props: {
         <div style={{ marginLeft: "auto" }} />
       </div>
 
-      {/* Transactions table */}
       <section>
         <h2 style={{ margin: "8px 0 12px", fontSize: 18 }}>Transactions</h2>
 
@@ -347,7 +335,7 @@ export default async function OwnerTransactionsPage(props: {
         >
           <colgroup>
             <col style={{ width: "120px" }} />
-            <col style={{ width: "110px" }} />
+            <col style={{ width: "120px" }} />
             <col />
             <col style={{ width: "100px" }} />
             <col style={{ width: "90px" }} />
@@ -379,11 +367,7 @@ export default async function OwnerTransactionsPage(props: {
                   <td style={{ padding: "8px 8px", whiteSpace: "nowrap" }}>
                     {r.when}
                   </td>
-                  <td
-                    style={{ padding: "8px 8px", textTransform: "capitalize" }}
-                  >
-                    {r.type}
-                  </td>
+                  <td style={{ padding: "8px 8px" }}>{r.type}</td>
                   <td style={{ padding: "8px 8px" }}>{r.details}</td>
                   <td style={{ padding: "8px 8px" }}>{r.faab}</td>
                   <td style={{ padding: "8px 8px" }}>
