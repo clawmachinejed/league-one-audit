@@ -1,6 +1,7 @@
 // apps/site/app/owners/[id]/transactions/page.tsx
 import Link from "next/link";
 import Image from "next/image";
+import type { ReactNode } from "react";
 import { getOwner } from "../../../../lib/owners";
 
 export const dynamic = "force-dynamic";
@@ -31,6 +32,7 @@ type SleeperPlayer = {
   position?: string;
   team?: string;
 };
+type WaiverBudgetMove = { sender: number; receiver: number; amount: number };
 
 type Transaction = {
   transaction_id: string;
@@ -43,19 +45,19 @@ type Transaction = {
     | "reversal"
     | string;
   status: "complete" | "failed" | "pending" | string;
-  status_updated?: number; // epoch ms
-  created?: number; // epoch ms
-  leg?: number; // week
+  status_updated?: number;
+  created?: number;
+  leg?: number;
   roster_ids?: number[];
   creator?: string;
   consenter_ids?: number[];
-  waiver_bid?: number | null; // sometimes present
-  adds?: Record<string, number>; // player_id -> roster_id
-  drops?: Record<string, number>; // player_id -> roster_id
+  waiver_bid?: number | string | null;
+  adds?: Record<string, number>;
+  drops?: Record<string, number>;
   draft_picks?: any[];
   metadata?: Record<string, any>;
-  settings?: Record<string, any> | null; // documented place for waiver_bid
-  waiver_budget?: Array<{ sender: number; receiver: number; amount: number }>; // FAAB moved in trades
+  settings?: Record<string, any> | null;
+  waiver_budget?: WaiverBudgetMove[];
 };
 
 const asNum = (v: unknown, d = 0) =>
@@ -135,21 +137,18 @@ function transactionResult(
 /** Canonical (per Sleeper docs) and robust waiver bid extraction. */
 function extractWaiverBid(t: Transaction): number | null {
   if (t.type !== "waiver") return null;
-
   const candidates: unknown[] = [
     t.settings && (t.settings as any).waiver_bid, // documented
-    (t as any).waiver_bid, // sometimes mirrored
+    t.waiver_bid, // sometimes mirrored
     t.metadata && (t.metadata as any).waiver_bid, // occasional
   ];
-
   for (const c of candidates) {
     const n = Number(c);
     if (Number.isFinite(n)) return n;
   }
-  return null; // don't render $0 unless we truly know it's zero
+  return null;
 }
 
-/** My roster is involved if roster_ids includes it OR adds/drops touch it. */
 function involvesMyRoster(t: Transaction, myRosterId: number): boolean {
   if (
     Array.isArray(t.roster_ids) &&
@@ -227,7 +226,7 @@ export default async function OwnerTransactionsPage(props: {
     );
   }
 
-  // Pull all-season transactions (0..18 to catch preseason moves)
+  // Pull all-season transactions (0..18)
   const weeks = Array.from({ length: 19 }, (_, i) => i);
   const txSettled = await Promise.allSettled(
     weeks.map((w) => j<Transaction[]>(`/league/${lid}/transactions/${w}`, 180)),
@@ -239,22 +238,41 @@ export default async function OwnerTransactionsPage(props: {
   // Filter to my roster
   const myTx = allTx.filter((t) => involvesMyRoster(t, myRosterId));
 
-  // Load players map (long cache). If it fails, we fall back to IDs.
+  // Build set of needed player_ids (so we read only what we need)
+  const neededIds = new Set<string>();
+  for (const t of myTx) {
+    if (t.adds) for (const pid in t.adds) neededIds.add(String(pid));
+    if (t.drops) for (const pid in t.drops) neededIds.add(String(pid));
+  }
+
+  // Load players map once. Fall back to ids if it fails.
   let playersById: Map<string, SleeperPlayer> = new Map();
   try {
-    const players = await j<Record<string, SleeperPlayer>>(
+    const allPlayers = await j<Record<string, SleeperPlayer>>(
       `/players/nfl`,
       86400,
     );
-    playersById = new Map(Object.entries(players));
+    playersById = new Map(
+      Array.from(neededIds).map((pid) => [pid, allPlayers[pid]] as const),
+    );
   } catch {
-    // fall back to player_id
+    // fall back to ids
   }
+
+  // Helpers for trade lines
+  const namesForRosterAdds = (t: Transaction, rid: number) => {
+    const list = t.adds
+      ? Object.entries(t.adds)
+          .filter(([, r]) => Number(r) === rid)
+          .map(([pid]) => playerName(playersById.get(String(pid)), String(pid)))
+      : [];
+    return list;
+  };
 
   type Row = {
     when: string;
     type: string;
-    details: string;
+    details: ReactNode;
     faab: string;
     result: string;
     sortKey: number;
@@ -262,55 +280,99 @@ export default async function OwnerTransactionsPage(props: {
 
   const rows: Row[] = myTx
     .map((t) => {
-      // Prefer creation time; fall back to status_updated
       const when = fmtDate((t as any).created ?? t.status_updated);
       const type = normTypeLabel(t.type);
 
-      // details only for lines that touch THIS roster
-      const addLines = t.adds
+      const addNamesMine = t.adds
         ? Object.entries(t.adds)
             .filter(([, rid]) => Number(rid) === myRosterId)
-            .map(
-              ([pid]) =>
-                `ADD ${playerName(playersById.get(String(pid)), String(pid))}`,
+            .map(([pid]) =>
+              playerName(playersById.get(String(pid)), String(pid)),
             )
         : [];
-      const dropLines = t.drops
+      const dropNamesMine = t.drops
         ? Object.entries(t.drops)
             .filter(([, rid]) => Number(rid) === myRosterId)
-            .map(
-              ([pid]) =>
-                `DROP ${playerName(playersById.get(String(pid)), String(pid))}`,
+            .map(([pid]) =>
+              playerName(playersById.get(String(pid)), String(pid)),
             )
         : [];
 
-      let details = [...addLines, ...dropLines].join("; ");
+      const lines: ReactNode[] = [];
 
-      // Trades: name partners + FAAB transfers if any
       if (t.type === "trade") {
-        if (!details) {
-          const others = (t.roster_ids || [])
-            .filter((rid) => Number(rid) !== myRosterId)
-            .map((rid) => nameByRosterId.get(Number(rid)) || `Team #${rid}`);
-          details = `TRADE with ${others.join(", ") || "unknown"}`;
+        // Owner (this page) receives:
+        const meReceive = namesForRosterAdds(t, myRosterId);
+        if (meReceive.length) {
+          lines.push(
+            <div key="me-r">
+              {owner.display_name} receives: {meReceive.join(", ")}
+            </div>,
+          );
         }
+
+        // Other partners, alphabetically by team name
+        const others: number[] = Array.from(new Set<number>(t.roster_ids || []))
+          .filter((rid) => Number(rid) !== myRosterId)
+          .sort((a, b) => {
+            const an = (
+              nameByRosterId.get(Number(a)) || `Team #${a}`
+            ).toLowerCase();
+            const bn = (
+              nameByRosterId.get(Number(b)) || `Team #${b}`
+            ).toLowerCase();
+            return an.localeCompare(bn);
+          });
+
+        for (const rid of others) {
+          const partnerGets = namesForRosterAdds(t, Number(rid));
+          if (partnerGets.length) {
+            const nm = nameByRosterId.get(Number(rid)) || `Team #${rid}`;
+            lines.push(
+              <div key={`p-${rid}`}>
+                {nm} receives: {partnerGets.join(", ")}
+              </div>,
+            );
+          }
+        }
+
+        // FAAB transfers (append as their own lines)
         if (Array.isArray(t.waiver_budget) && t.waiver_budget.length) {
-          const parts = t.waiver_budget.map((wb) => {
+          for (let i = 0; i < t.waiver_budget.length; i++) {
+            const wb = t.waiver_budget[i];
             const from =
               nameByRosterId.get(Number(wb.sender)) ?? `Team #${wb.sender}`;
             const to =
               nameByRosterId.get(Number(wb.receiver)) ?? `Team #${wb.receiver}`;
-            return `FAAB ${wb.amount} from ${from} to ${to}`;
-          });
-          details = details
-            ? `${details}; ${parts.join("; ")}`
-            : parts.join("; ");
+            lines.push(
+              <div key={`wb-${i}`}>
+                FAAB {wb.amount} from {from} to {to}
+              </div>,
+            );
+          }
         }
+
+        if (lines.length === 0) {
+          // Fallback (no adds mapped): at least list partners
+          const partnerNames = others.map(
+            (rid) => nameByRosterId.get(Number(rid)) || `Team #${rid}`,
+          );
+          lines.push(
+            <div key="trade-fallback">
+              TRADE with {partnerNames.join(", ") || "unknown"}
+            </div>,
+          );
+        }
+      } else {
+        // Non-trade: two lines (ADD, DROP) if present
+        if (addNamesMine.length)
+          lines.push(<div key="add">ADD {addNamesMine.join(", ")}</div>);
+        if (dropNamesMine.length)
+          lines.push(<div key="drop">DROP {dropNamesMine.join(", ")}</div>);
+        if (!lines.length)
+          lines.push(<div key="noop">{type.toUpperCase()}</div>);
       }
 
-      if (!details) details = type.toUpperCase();
-
-      // Result + FAAB
       const result = transactionResult(t);
       let faab = "—";
       if (t.type === "waiver") {
@@ -326,13 +388,13 @@ export default async function OwnerTransactionsPage(props: {
       return {
         when,
         type,
-        details,
+        details: <div className="tx-lines">{lines}</div>,
         faab,
         result,
         sortKey: (t as any).created ?? t.status_updated ?? 0,
       };
     })
-    .sort((a, b) => b.sortKey - a.sortKey); // newest first
+    .sort((a, b) => b.sortKey - a.sortKey);
 
   return (
     <main className="page owner" style={{ display: "grid", gap: 20 }}>
@@ -361,77 +423,153 @@ export default async function OwnerTransactionsPage(props: {
       <section>
         <h2 style={{ margin: "8px 0 12px", fontSize: 18 }}>Transactions</h2>
 
-        <table
-          style={{
-            width: "100%",
-            borderCollapse: "collapse",
-            tableLayout: "fixed",
-          }}
-        >
-          <colgroup>
-            <col style={{ width: "120px" }} />
-            <col style={{ width: "120px" }} />
-            <col />
-            <col style={{ width: "100px" }} />
-            <col style={{ width: "90px" }} />
-          </colgroup>
-          <thead>
-            <tr>
-              <th style={{ textAlign: "left", padding: "6px 8px" }}>Date</th>
-              <th style={{ textAlign: "left", padding: "6px 8px" }}>Type</th>
-              <th style={{ textAlign: "left", padding: "6px 8px" }}>
-                Transaction
-              </th>
-              <th style={{ textAlign: "left", padding: "6px 8px" }}>FAAB</th>
-              <th style={{ textAlign: "left", padding: "6px 8px" }}>Result</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.length === 0 ? (
+        {/* Desktop table */}
+        <div className="tx-table">
+          <table>
+            <colgroup>
+              <col style={{ width: "140px" }} />
+              <col style={{ width: "130px" }} />
+              <col />
+              <col style={{ width: "110px" }} />
+              <col style={{ width: "90px" }} />
+            </colgroup>
+            <thead>
               <tr>
-                <td
-                  colSpan={5}
-                  style={{ padding: "10px 8px", color: "#6b7280" }}
-                >
-                  No transactions yet.
-                </td>
+                <th>Date</th>
+                <th>Type</th>
+                <th>Transaction</th>
+                <th>FAAB</th>
+                <th>Result</th>
               </tr>
-            ) : (
-              rows.map((r, i) => (
-                <tr key={i}>
-                  <td style={{ padding: "8px 8px", whiteSpace: "nowrap" }}>
-                    {r.when}
-                  </td>
-                  <td style={{ padding: "8px 8px" }}>{r.type}</td>
-                  <td style={{ padding: "8px 8px" }}>{r.details}</td>
-                  <td style={{ padding: "8px 8px" }}>{r.faab}</td>
-                  <td style={{ padding: "8px 8px" }}>
-                    {r.result === "Won" ? (
-                      <span style={{ fontWeight: 700, color: "#16a34a" }}>
-                        Won
-                      </span>
-                    ) : r.result === "Lost" ? (
-                      <span style={{ fontWeight: 700, color: "#dc2626" }}>
-                        Lost
-                      </span>
-                    ) : r.result === "Pending" ? (
-                      <span style={{ color: "#6b7280" }}>Pending</span>
-                    ) : (
-                      <span>Complete</span>
-                    )}
+            </thead>
+            <tbody>
+              {rows.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="muted">
+                    No transactions yet.
                   </td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+              ) : (
+                rows.map((r, i) => (
+                  <tr key={i}>
+                    <td>{r.when}</td>
+                    <td>{r.type}</td>
+                    <td>{r.details}</td>
+                    <td>{r.faab}</td>
+                    <td>
+                      {r.result === "Won" ? (
+                        <span className="won">Won</span>
+                      ) : r.result === "Lost" ? (
+                        <span className="lost">Lost</span>
+                      ) : r.result === "Pending" ? (
+                        <span className="pending">Pending</span>
+                      ) : (
+                        <span>Complete</span>
+                      )}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Mobile cards */}
+        <div className="tx-cards">
+          {rows.length === 0 ? (
+            <div className="card muted">No transactions yet.</div>
+          ) : (
+            rows.map((r, i) => (
+              <div className="card" key={i}>
+                <div className="row">
+                  <span className="label">Date</span>
+                  <span>{r.when}</span>
+                </div>
+                <div className="row">
+                  <span className="label">Type</span>
+                  <span>{r.type}</span>
+                </div>
+                <div className="row">
+                  <span className="label">Transaction</span>
+                  <span>{r.details}</span>
+                </div>
+                <div className="row">
+                  <span className="label">FAAB</span>
+                  <span>{r.faab}</span>
+                </div>
+                <div className="row">
+                  <span className="label">Result</span>
+                  <span
+                    className={
+                      r.result === "Won"
+                        ? "won"
+                        : r.result === "Lost"
+                          ? "lost"
+                          : r.result === "Pending"
+                            ? "pending"
+                            : ""
+                    }
+                  >
+                    {r.result}
+                  </span>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
 
         <p style={{ marginTop: 12 }}>
           <Link href={`/owners/${myRosterId}`}>← Back to Owner</Link>
         </p>
       </section>
+
+      {/* plain <style> so this works in a Server Component */}
+      <style>{`
+        .muted { color: #6b7280; }
+        .won { font-weight: 700; color: #16a34a; }
+        .lost { font-weight: 700; color: #dc2626; }
+        .pending { color: #6b7280; }
+
+        .tx-lines > div { margin: 2px 0; }
+
+        .tx-table table {
+          width: 100%;
+          border-collapse: collapse;
+          table-layout: fixed;
+        }
+        .tx-table th, .tx-table td {
+          text-align: left;
+          padding: 8px 8px;
+          vertical-align: top;
+          word-break: break-word;
+        }
+        .tx-table thead th {
+          padding: 6px 8px;
+        }
+
+        .tx-cards { display: none; }
+
+        @media (max-width: 640px) {
+          .tx-table { display: none; }
+          .tx-cards { display: grid; gap: 10px; }
+
+          .card {
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 10px 12px;
+          }
+          .row {
+            display: grid;
+            grid-template-columns: 100px 1fr;
+            gap: 8px;
+            margin: 4px 0;
+          }
+          .label {
+            color: #6b7280;
+            font-size: 12px;
+          }
+        }
+      `}</style>
     </main>
   );
 }
-
-// prod-touch:7107b61d-b5a7-4174-8409-080818eca521
