@@ -32,6 +32,8 @@ type SleeperPlayer = {
   team?: string;
 };
 
+type WaiverBudgetMove = { sender: number; receiver: number; amount: number };
+
 type Transaction = {
   transaction_id: string;
   type:
@@ -49,13 +51,13 @@ type Transaction = {
   roster_ids?: number[];
   creator?: string;
   consenter_ids?: number[];
-  waiver_bid?: number | null; // sometimes present
+  waiver_bid?: number | string | null;
   adds?: Record<string, number>; // player_id -> roster_id
   drops?: Record<string, number>; // player_id -> roster_id
   draft_picks?: any[];
   metadata?: Record<string, any>;
   settings?: Record<string, any> | null; // documented place for waiver_bid
-  waiver_budget?: Array<{ sender: number; receiver: number; amount: number }>; // FAAB moved in trades
+  waiver_budget?: WaiverBudgetMove[]; // FAAB moved in trades
 };
 
 const asNum = (v: unknown, d = 0) =>
@@ -76,7 +78,6 @@ function pickTeamName(user: any, rid: number): string {
   return `Team #${rid}`;
 }
 
-// URL id may be roster_id or user_id; resolve to THIS league's roster_id
 function resolveMyRosterId(
   idParam: string,
   rosters: SleeperRoster[],
@@ -138,7 +139,7 @@ function extractWaiverBid(t: Transaction): number | null {
 
   const candidates: unknown[] = [
     t.settings && (t.settings as any).waiver_bid, // documented
-    (t as any).waiver_bid, // sometimes mirrored
+    t.waiver_bid, // sometimes mirrored
     t.metadata && (t.metadata as any).waiver_bid, // occasional
   ];
 
@@ -149,7 +150,6 @@ function extractWaiverBid(t: Transaction): number | null {
   return null; // don't render $0 unless we truly know it's zero
 }
 
-/** My roster is involved if roster_ids includes it OR adds/drops touch it. */
 function involvesMyRoster(t: Transaction, myRosterId: number): boolean {
   if (
     Array.isArray(t.roster_ids) &&
@@ -239,16 +239,30 @@ export default async function OwnerTransactionsPage(props: {
   // Filter to my roster
   const myTx = allTx.filter((t) => involvesMyRoster(t, myRosterId));
 
-  // Load players map (long cache). If it fails, we fall back to IDs.
+  // === Build the exact set of player_ids we need (so we can map names reliably) ===
+  const neededIds = new Set<string>();
+  for (const t of myTx) {
+    if (t.adds)
+      for (const pid in t.adds)
+        if (Number(t.adds[pid]) === myRosterId) neededIds.add(String(pid));
+    if (t.drops)
+      for (const pid in t.drops)
+        if (Number(t.drops[pid]) === myRosterId) neededIds.add(String(pid));
+  }
+
+  // Load players map once. If it fails, we fall back to ids.
   let playersById: Map<string, SleeperPlayer> = new Map();
   try {
-    const players = await j<Record<string, SleeperPlayer>>(
+    const allPlayers = await j<Record<string, SleeperPlayer>>(
       `/players/nfl`,
       86400,
     );
-    playersById = new Map(Object.entries(players));
+    // only store what we need to reduce memory pressure
+    playersById = new Map(
+      Array.from(neededIds).map((pid) => [pid, allPlayers[pid]] as const),
+    );
   } catch {
-    // fall back to player_id
+    // fall back to ids
   }
 
   type Row = {
@@ -262,11 +276,9 @@ export default async function OwnerTransactionsPage(props: {
 
   const rows: Row[] = myTx
     .map((t) => {
-      // Prefer creation time; fall back to status_updated
       const when = fmtDate((t as any).created ?? t.status_updated);
       const type = normTypeLabel(t.type);
 
-      // details only for lines that touch THIS roster
       const addLines = t.adds
         ? Object.entries(t.adds)
             .filter(([, rid]) => Number(rid) === myRosterId)
@@ -284,9 +296,9 @@ export default async function OwnerTransactionsPage(props: {
             )
         : [];
 
-      let details = [...addLines, ...dropLines].join("; ");
+      let details = [...addLines, ...dropLines].join(" • ");
 
-      // Trades: name partners + FAAB transfers if any
+      // Trades: partner names + FAAB transfers
       if (t.type === "trade") {
         if (!details) {
           const others = (t.roster_ids || [])
@@ -303,14 +315,13 @@ export default async function OwnerTransactionsPage(props: {
             return `FAAB ${wb.amount} from ${from} to ${to}`;
           });
           details = details
-            ? `${details}; ${parts.join("; ")}`
-            : parts.join("; ");
+            ? `${details} • ${parts.join(" • ")}`
+            : parts.join(" • ");
         }
       }
 
       if (!details) details = type.toUpperCase();
 
-      // Result + FAAB
       const result = transactionResult(t);
       let faab = "—";
       if (t.type === "waiver") {
@@ -332,7 +343,7 @@ export default async function OwnerTransactionsPage(props: {
         sortKey: (t as any).created ?? t.status_updated ?? 0,
       };
     })
-    .sort((a, b) => b.sortKey - a.sortKey); // newest first
+    .sort((a, b) => b.sortKey - a.sortKey);
 
   return (
     <main className="page owner" style={{ display: "grid", gap: 20 }}>
@@ -361,75 +372,170 @@ export default async function OwnerTransactionsPage(props: {
       <section>
         <h2 style={{ margin: "8px 0 12px", fontSize: 18 }}>Transactions</h2>
 
-        <table
-          style={{
-            width: "100%",
-            borderCollapse: "collapse",
-            tableLayout: "fixed",
-          }}
-        >
-          <colgroup>
-            <col style={{ width: "120px" }} />
-            <col style={{ width: "120px" }} />
-            <col />
-            <col style={{ width: "100px" }} />
-            <col style={{ width: "90px" }} />
-          </colgroup>
-          <thead>
-            <tr>
-              <th style={{ textAlign: "left", padding: "6px 8px" }}>Date</th>
-              <th style={{ textAlign: "left", padding: "6px 8px" }}>Type</th>
-              <th style={{ textAlign: "left", padding: "6px 8px" }}>
-                Transaction
-              </th>
-              <th style={{ textAlign: "left", padding: "6px 8px" }}>FAAB</th>
-              <th style={{ textAlign: "left", padding: "6px 8px" }}>Result</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.length === 0 ? (
+        {/* Desktop table */}
+        <div className="tx-table">
+          <table>
+            <colgroup>
+              <col style={{ width: "140px" }} />
+              <col style={{ width: "130px" }} />
+              <col />
+              <col style={{ width: "110px" }} />
+              <col style={{ width: "90px" }} />
+            </colgroup>
+            <thead>
               <tr>
-                <td
-                  colSpan={5}
-                  style={{ padding: "10px 8px", color: "#6b7280" }}
-                >
-                  No transactions yet.
-                </td>
+                <th>Date</th>
+                <th>Type</th>
+                <th>Transaction</th>
+                <th>FAAB</th>
+                <th>Result</th>
               </tr>
-            ) : (
-              rows.map((r, i) => (
-                <tr key={i}>
-                  <td style={{ padding: "8px 8px", whiteSpace: "nowrap" }}>
-                    {r.when}
-                  </td>
-                  <td style={{ padding: "8px 8px" }}>{r.type}</td>
-                  <td style={{ padding: "8px 8px" }}>{r.details}</td>
-                  <td style={{ padding: "8px 8px" }}>{r.faab}</td>
-                  <td style={{ padding: "8px 8px" }}>
-                    {r.result === "Won" ? (
-                      <span style={{ fontWeight: 700, color: "#16a34a" }}>
-                        Won
-                      </span>
-                    ) : r.result === "Lost" ? (
-                      <span style={{ fontWeight: 700, color: "#dc2626" }}>
-                        Lost
-                      </span>
-                    ) : r.result === "Pending" ? (
-                      <span style={{ color: "#6b7280" }}>Pending</span>
-                    ) : (
-                      <span>Complete</span>
-                    )}
+            </thead>
+            <tbody>
+              {rows.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="muted">
+                    No transactions yet.
                   </td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+              ) : (
+                rows.map((r, i) => (
+                  <tr key={i}>
+                    <td>{r.when}</td>
+                    <td>{r.type}</td>
+                    <td>{r.details}</td>
+                    <td>{r.faab}</td>
+                    <td>
+                      {r.result === "Won" ? (
+                        <span className="won">Won</span>
+                      ) : r.result === "Lost" ? (
+                        <span className="lost">Lost</span>
+                      ) : r.result === "Pending" ? (
+                        <span className="pending">Pending</span>
+                      ) : (
+                        <span>Complete</span>
+                      )}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Mobile cards */}
+        <div className="tx-cards">
+          {rows.length === 0 ? (
+            <div className="card muted">No transactions yet.</div>
+          ) : (
+            rows.map((r, i) => (
+              <div className="card" key={i}>
+                <div className="row">
+                  <span className="label">Date</span>
+                  <span>{r.when}</span>
+                </div>
+                <div className="row">
+                  <span className="label">Type</span>
+                  <span>{r.type}</span>
+                </div>
+                <div className="row">
+                  <span className="label">Transaction</span>
+                  <span>{r.details}</span>
+                </div>
+                <div className="row">
+                  <span className="label">FAAB</span>
+                  <span>{r.faab}</span>
+                </div>
+                <div className="row">
+                  <span className="label">Result</span>
+                  <span
+                    className={
+                      r.result === "Won"
+                        ? "won"
+                        : r.result === "Lost"
+                          ? "lost"
+                          : r.result === "Pending"
+                            ? "pending"
+                            : ""
+                    }
+                  >
+                    {r.result}
+                  </span>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
 
         <p style={{ marginTop: 12 }}>
           <Link href={`/owners/${myRosterId}`}>← Back to Owner</Link>
         </p>
       </section>
+
+      <style jsx>{`
+        .muted {
+          color: #6b7280;
+        }
+        .won {
+          font-weight: 700;
+          color: #16a34a;
+        }
+        .lost {
+          font-weight: 700;
+          color: #dc2626;
+        }
+        .pending {
+          color: #6b7280;
+        }
+
+        /* Desktop table defaults */
+        .tx-table table {
+          width: 100%;
+          border-collapse: collapse;
+          table-layout: fixed;
+        }
+        .tx-table th,
+        .tx-table td {
+          text-align: left;
+          padding: 8px 8px;
+          vertical-align: top;
+          word-break: break-word;
+        }
+        .tx-table thead th {
+          padding: 6px 8px;
+        }
+
+        /* Mobile cards */
+        .tx-cards {
+          display: none;
+        }
+
+        @media (max-width: 640px) {
+          .tx-table {
+            display: none;
+          }
+          .tx-cards {
+            display: grid;
+            gap: 10px;
+          }
+
+          .card {
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 10px 12px;
+          }
+          .row {
+            display: grid;
+            grid-template-columns: 100px 1fr;
+            gap: 8px;
+            margin: 4px 0;
+          }
+          .label {
+            color: #6b7280;
+            font-size: 12px;
+          }
+        }
+      `}</style>
     </main>
   );
 }
