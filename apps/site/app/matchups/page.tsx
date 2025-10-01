@@ -19,25 +19,44 @@ async function j<T>(path: string, reval = 60): Promise<T> {
 
 type League = { week?: number };
 type Matchup = { roster_id: number; matchup_id: number; points: number };
+
 type SleeperUser = {
   user_id: string;
   display_name?: string;
   avatar?: string; // hash or url
-  metadata?: { team_name?: string; avatar?: string };
+  metadata?: {
+    team_name?: string;
+    avatar?: string; // standings treats this as URL if it looks like one
+  };
 };
+
 type SleeperRoster = {
   roster_id: number;
   owner_id: string | null;
   metadata?: {
-    team_avatar_url?: string;
-    team_avatar?: string;
-    avatar_url?: string;
-    avatar?: string;
+    team_avatar_url?: string; // URL
+    team_avatar?: string; // URL or hash (be safe)
+    avatar_url?: string; // URL
+    avatar?: string; // URL or hash (be safe)
   };
 };
 
 const asNum = (v: unknown, d = 0) =>
   Number.isFinite(Number(v)) ? Number(v) : d;
+
+function isUrl(v?: string | null): v is string {
+  return !!v && (v.startsWith("http://") || v.startsWith("https://"));
+}
+function isHash(v?: string | null): v is string {
+  // Sleeper avatar hashes are non-empty, no slashes/spaces; keep this permissive
+  return !!v && !v.includes("/") && !v.includes(" ") && !v.startsWith("data:");
+}
+function toCdn(v?: string | null): string | undefined {
+  if (!v) return undefined;
+  if (isUrl(v)) return v;
+  if (isHash(v)) return `https://sleepercdn.com/avatars/thumbs/${v}`;
+  return undefined;
+}
 
 function teamName(user: SleeperUser | undefined, rid: number): string {
   const meta = user?.metadata?.team_name?.trim?.();
@@ -47,37 +66,42 @@ function teamName(user: SleeperUser | undefined, rid: number): string {
   return `Team #${rid}`;
 }
 
-/** Standings-style user avatar:
- *  1) if user.metadata.avatar is a full URL, use it
- *  2) else if user.avatar is a hash, map to Sleeper CDN thumbs
- * (This mirrors the Standings page logic.) */
+/** Standings-style user avatar normalization:
+ *  - prefer user.metadata.avatar if it's a URL
+ *  - else map user.avatar hash -> Sleeper CDN
+ *  - else, if user.metadata.avatar looks like a hash, map it too
+ */
 function pickUserAvatarUrl(user: SleeperUser | undefined): string | undefined {
-  const metaUrl =
-    typeof user?.metadata?.avatar === "string" && user.metadata.avatar.trim()
-      ? user.metadata.avatar.trim()
-      : null;
-  if (metaUrl) return metaUrl;
-  const id =
-    typeof user?.avatar === "string" && user.avatar.trim()
-      ? user.avatar.trim()
-      : null;
-  return id ? `https://sleepercdn.com/avatars/thumbs/${id}` : undefined;
+  if (!user) return undefined;
+  const meta = user.metadata?.avatar?.trim();
+  const raw = user.avatar?.trim();
+
+  // If metadata field is already a URL, use it
+  if (isUrl(meta)) return meta;
+  // If user.avatar is a hash, map it
+  const fromRaw = toCdn(raw);
+  if (fromRaw) return fromRaw;
+  // If metadata looked like a hash, map it too
+  const fromMeta = toCdn(meta);
+  if (fromMeta) return fromMeta;
+
+  return undefined;
 }
 
-/** Prefer roster/team avatar; if missing, fall back to user avatar using the
- *  exact same logic as Standings (above). */
+/** Prefer roster/team avatar; if missing, fall back to user avatar (same logic as standings). */
 function pickAvatarUrl(
   roster: SleeperRoster | undefined,
   user: SleeperUser | undefined,
 ): string | undefined {
-  const tryRoster: (string | undefined)[] = [
-    roster?.metadata?.team_avatar_url,
-    roster?.metadata?.team_avatar,
-    roster?.metadata?.avatar_url,
-    roster?.metadata?.avatar,
-  ];
-  for (const v of tryRoster) {
-    if (typeof v === "string" && v.trim()) return v.trim();
+  if (roster?.metadata) {
+    const m = roster.metadata;
+    // Try the most explicit URL fields first
+    const cand =
+      toCdn(m.team_avatar_url?.trim()) ||
+      toCdn(m.team_avatar?.trim()) ||
+      toCdn(m.avatar_url?.trim()) ||
+      toCdn(m.avatar?.trim());
+    if (cand) return cand;
   }
   return pickUserAvatarUrl(user);
 }
@@ -119,7 +143,6 @@ export default async function MatchupsPage() {
     j<SleeperRoster[]>(`/league/${lid}/rosters`, 600),
   ]);
   const usersById = new Map(users.map((u) => [u.user_id, u]));
-  const rostersById = new Map(rosters.map((r) => [Number(r.roster_id), r]));
 
   const nameByRosterId = new Map<number, string>();
   const avatarByRosterId = new Map<number, string | undefined>();
