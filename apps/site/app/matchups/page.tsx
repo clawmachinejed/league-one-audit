@@ -1,5 +1,6 @@
 // apps/site/app/matchups/page.tsx
 import Link from "next/link";
+import Image from "next/image";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -21,29 +22,29 @@ type Matchup = { roster_id: number; matchup_id: number; points: number };
 type SleeperUser = {
   user_id: string;
   display_name?: string;
-  avatar?: string; // hash
-  metadata?: { team_name?: string; avatar?: string }; // may be full or relative URL
+  metadata?: {
+    team_name?: string;
+    avatar?: string;
+    avatar_url?: string;
+    team_avatar?: string;
+    team_avatar_url?: string;
+  };
+  avatar?: string; // some installs store raw hash or url here
+  avatar_url?: string; // some installs expose full url
 };
-type SleeperRoster = { roster_id: number; owner_id: string | null };
+type SleeperRoster = {
+  roster_id: number;
+  owner_id: string | null;
+  metadata?: {
+    avatar?: string;
+    avatar_url?: string;
+    team_avatar?: string;
+    team_avatar_url?: string;
+  };
+};
 
 const asNum = (v: unknown, d = 0) =>
   Number.isFinite(Number(v)) ? Number(v) : d;
-
-/** Same normalization we use elsewhere: full/relative → absolute; hash → thumbs */
-function normalizeSleeperImage(v?: string): string | undefined {
-  if (!v) return;
-  const s = v.trim();
-  if (!s) return;
-  if (/^https?:\/\//i.test(s)) return s; // already absolute
-  if (s.startsWith("/")) return `https://sleepercdn.com${s}`; // relative from metadata
-  return `https://sleepercdn.com/avatars/thumbs/${s}`; // user.avatar hash
-}
-
-function pickAvatarUrl(user: SleeperUser | undefined): string | undefined {
-  const fromMeta = normalizeSleeperImage(user?.metadata?.avatar);
-  if (fromMeta) return fromMeta;
-  return normalizeSleeperImage(user?.avatar);
-}
 
 function teamName(user: SleeperUser | undefined, rid: number): string {
   const meta = user?.metadata?.team_name?.trim?.();
@@ -65,6 +66,29 @@ function groupByMatchup(
   return m;
 }
 
+/** Prefer team/roster avatar; fall back to user avatar; else undefined. */
+function pickAvatarUrl(
+  roster: SleeperRoster | undefined,
+  user: SleeperUser | undefined,
+): string | undefined {
+  const tryVals: (string | undefined)[] = [
+    roster?.metadata?.team_avatar_url,
+    roster?.metadata?.team_avatar,
+    roster?.metadata?.avatar_url,
+    roster?.metadata?.avatar,
+    user?.metadata?.team_avatar_url,
+    user?.metadata?.team_avatar,
+    user?.metadata?.avatar_url,
+    user?.metadata?.avatar,
+    user?.avatar_url,
+    user?.avatar,
+  ];
+  for (const v of tryVals) {
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  return undefined;
+}
+
 export default async function MatchupsPage() {
   const lid =
     process.env.SLEEPER_LEAGUE_ID || process.env.NEXT_PUBLIC_SLEEPER_LEAGUE_ID;
@@ -80,41 +104,43 @@ export default async function MatchupsPage() {
     );
   }
 
-  // 1) which week is current?
+  // 1) current week
   const league = await j<League>(`/league/${lid}`, 60);
   const currentWeek = asNum(league?.week, 1);
 
-  // 2) names + avatars (same approach as /matchups/[week])
+  // 2) users + rosters (for names & avatars)
   const [users, rosters] = await Promise.all([
     j<SleeperUser[]>(`/league/${lid}/users`, 600),
     j<SleeperRoster[]>(`/league/${lid}/rosters`, 600),
   ]);
   const usersById = new Map(users.map((u) => [u.user_id, u]));
+  const rostersById = new Map(rosters.map((r) => [Number(r.roster_id), r]));
+
   const nameByRosterId = new Map<number, string>();
   const avatarByRosterId = new Map<number, string | undefined>();
   for (const r of rosters) {
     const rid = Number(r.roster_id);
-    const u = r.owner_id
-      ? (usersById.get(r.owner_id) as SleeperUser)
-      : undefined;
+    const u = r.owner_id ? usersById.get(r.owner_id) : undefined;
     nameByRosterId.set(rid, teamName(u, rid));
-    avatarByRosterId.set(rid, pickAvatarUrl(u));
+    avatarByRosterId.set(rid, pickAvatarUrl(r, u));
   }
 
   // 3) this week's matchups
-  const list = await j<Matchup[]>(`/league/${lid}/matchups/${currentWeek}`, 15);
+  const list = await j<Matchup[]>(`/league/${lid}/matchups/${currentWeek}`, 30);
   const groups = Array.from(groupByMatchup(list))
     .map(([mid, arr]) => ({ id: mid, a: arr[0], b: arr[1] }))
-    .filter((x) => x.a && x.b);
+    .filter((x) => x.a && x.b)
+    // stable order by matchup id
+    .sort((x, y) => x.id - y.id);
 
-  // This page is ONLY the current week → treat as live (not “Final”)
+  // current-week view → always "Live"
   const final = false;
 
   return (
     <main className="page" style={{ display: "grid", gap: 12 }}>
       <h1 style={{ marginBottom: 4 }}>Matchups — Week {currentWeek}</h1>
       <p style={{ color: "#6b7280", marginTop: -6 }}>
-        Auto-refreshing scores (every ~25s).
+        Scores refresh when you reload the page.
       </p>
 
       <div className="m-grid">
@@ -129,29 +155,25 @@ export default async function MatchupsPage() {
             const aPts = asNum(g.a.points, 0);
             const bPts = asNum(g.b.points, 0);
 
+            const aWin = final && aPts > bPts;
+            const bWin = final && bPts > aPts;
+
             const aAvatar =
               avatarByRosterId.get(aRid) || "/avatar-placeholder.png";
             const bAvatar =
               avatarByRosterId.get(bRid) || "/avatar-placeholder.png";
 
-            const aWin = final && aPts > bPts;
-            const bWin = final && bPts > aPts;
-
             return (
               <div className="m-card" key={g.id}>
                 <div className="m-row">
                   <div className="m-team">
-                    <img
+                    <Image
                       src={aAvatar}
                       alt=""
                       width={36}
                       height={36}
                       className="rounded-full object-cover"
                       style={{ borderRadius: "50%" }}
-                      onError={(e) => {
-                        (e.currentTarget as HTMLImageElement).src =
-                          "/avatar-placeholder.png";
-                      }}
                     />
                     <Link href={`/owners/${aRid}`} className="m-name">
                       {aName}
@@ -168,17 +190,13 @@ export default async function MatchupsPage() {
 
                 <div className="m-row">
                   <div className="m-team">
-                    <img
+                    <Image
                       src={bAvatar}
                       alt=""
                       width={36}
                       height={36}
                       className="rounded-full object-cover"
                       style={{ borderRadius: "50%" }}
-                      onError={(e) => {
-                        (e.currentTarget as HTMLImageElement).src =
-                          "/avatar-placeholder.png";
-                      }}
                     />
                     <Link href={`/owners/${bRid}`} className="m-name">
                       {bName}
@@ -202,44 +220,6 @@ export default async function MatchupsPage() {
         )}
       </div>
 
-      {/* Simple client-side polling to refresh scores (no full reload) */}
-      <script
-        dangerouslySetInnerHTML={{
-          __html: `
-            (function(){
-              const API='${API}';
-              const lid='${lid}';
-              const week=${currentWeek};
-              async function tick(){
-                try{
-                  const res=await fetch(\`\${API}/league/\${lid}/matchups/\${week}\`, {cache:'no-store'});
-                  if(!res.ok) return;
-                  const data=await res.json();
-                  const byMid=new Map();
-                  for(const it of data){
-                    const mid=Number(it.matchup_id);
-                    if(!byMid.has(mid)) byMid.set(mid, []);
-                    byMid.get(mid).push(it);
-                  }
-                  const cards=[...document.querySelectorAll('.m-card')];
-                  let i=0;
-                  for(const [mid, arr] of byMid){
-                    const a=arr[0], b=arr[1];
-                    const card=cards[i++];
-                    if(!card) continue;
-                    const spans=card.querySelectorAll('.m-row .m-score span');
-                    if(spans[0]) spans[0].textContent=(Number(a?.points||0)).toFixed(2);
-                    if(spans[1]) spans[1].textContent=(Number(b?.points||0)).toFixed(2);
-                  }
-                }catch{}
-                setTimeout(tick, 25000);
-              }
-              tick();
-            })();
-          `.trim(),
-        }}
-      />
-
       <style>{`
         .muted{color:#6b7280}
         .m-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px}
@@ -259,9 +239,3 @@ export default async function MatchupsPage() {
     </main>
   );
 }
-
-// prod-touch:7bee82ef-4d1a-4c69-96fb-ac43f5f721c3
-
-// prod-touch:bed77582-b59e-470e-b298-70ca62a17c26
-
-// prod-touch: 2025-10-01T15:56:02.8616379-04:00
