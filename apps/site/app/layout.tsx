@@ -53,13 +53,8 @@ export default function RootLayout({
                     </Link>
                   </li>
                   <li>
-                    <Link href="/rivalries" className="hover:text-black">
-                      Rivalries
-                    </Link>
-                  </li>
-                  <li>
-                    <Link href="/history" className="hover:text-black">
-                      History
+                    <Link href="/matchups" className="hover:text-black">
+                      Matchups
                     </Link>
                   </li>
                   <li>
@@ -68,8 +63,13 @@ export default function RootLayout({
                     </Link>
                   </li>
                   <li>
-                    <Link href="/admin" className="hover:text-black">
-                      Admin
+                    <Link href="/rivalries" className="hover:text-black">
+                      Rivalries
+                    </Link>
+                  </li>
+                  <li>
+                    <Link href="/history" className="hover:text-black">
+                      History
                     </Link>
                   </li>
                 </ul>
