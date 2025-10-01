@@ -1,6 +1,5 @@
 // apps/site/app/matchups/page.tsx
 import Link from "next/link";
-import Image from "next/image";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -22,14 +21,31 @@ type Matchup = { roster_id: number; matchup_id: number; points: number };
 type SleeperUser = {
   user_id: string;
   display_name?: string;
-  metadata?: { team_name?: string; avatar?: string };
+  avatar?: string; // hash
+  metadata?: { team_name?: string; avatar?: string }; // may be full or relative URL
 };
 type SleeperRoster = { roster_id: number; owner_id: string | null };
 
 const asNum = (v: unknown, d = 0) =>
   Number.isFinite(Number(v)) ? Number(v) : d;
 
-function teamName(user: any, rid: number): string {
+/** Same normalization we use elsewhere: full/relative → absolute; hash → thumbs */
+function normalizeSleeperImage(v?: string): string | undefined {
+  if (!v) return;
+  const s = v.trim();
+  if (!s) return;
+  if (/^https?:\/\//i.test(s)) return s; // already absolute
+  if (s.startsWith("/")) return `https://sleepercdn.com${s}`; // relative from metadata
+  return `https://sleepercdn.com/avatars/thumbs/${s}`; // user.avatar hash
+}
+
+function pickAvatarUrl(user: SleeperUser | undefined): string | undefined {
+  const fromMeta = normalizeSleeperImage(user?.metadata?.avatar);
+  if (fromMeta) return fromMeta;
+  return normalizeSleeperImage(user?.avatar);
+}
+
+function teamName(user: SleeperUser | undefined, rid: number): string {
   const meta = user?.metadata?.team_name?.trim?.();
   if (meta) return meta;
   const disp = user?.display_name?.trim?.();
@@ -68,7 +84,7 @@ export default async function MatchupsPage() {
   const league = await j<League>(`/league/${lid}`, 60);
   const currentWeek = asNum(league?.week, 1);
 
-  // 2) names + avatars
+  // 2) names + avatars (same approach as /matchups/[week])
   const [users, rosters] = await Promise.all([
     j<SleeperUser[]>(`/league/${lid}/users`, 600),
     j<SleeperRoster[]>(`/league/${lid}/rosters`, 600),
@@ -78,11 +94,11 @@ export default async function MatchupsPage() {
   const avatarByRosterId = new Map<number, string | undefined>();
   for (const r of rosters) {
     const rid = Number(r.roster_id);
-    const u = r.owner_id ? usersById.get(r.owner_id) : undefined;
+    const u = r.owner_id
+      ? (usersById.get(r.owner_id) as SleeperUser)
+      : undefined;
     nameByRosterId.set(rid, teamName(u, rid));
-    const av =
-      (u as any)?.avatar_url || (u as any)?.metadata?.avatar || undefined;
-    avatarByRosterId.set(rid, av);
+    avatarByRosterId.set(rid, pickAvatarUrl(u));
   }
 
   // 3) this week's matchups
@@ -113,7 +129,11 @@ export default async function MatchupsPage() {
             const aPts = asNum(g.a.points, 0);
             const bPts = asNum(g.b.points, 0);
 
-            // When you later add a “previous week” view, compute final per-matchup and color winner/loser.
+            const aAvatar =
+              avatarByRosterId.get(aRid) || "/avatar-placeholder.png";
+            const bAvatar =
+              avatarByRosterId.get(bRid) || "/avatar-placeholder.png";
+
             const aWin = final && aPts > bPts;
             const bWin = final && bPts > aPts;
 
@@ -121,14 +141,17 @@ export default async function MatchupsPage() {
               <div className="m-card" key={g.id}>
                 <div className="m-row">
                   <div className="m-team">
-                    <Image
-                      src={
-                        avatarByRosterId.get(aRid) || "/avatar-placeholder.png"
-                      }
+                    <img
+                      src={aAvatar}
                       alt=""
                       width={36}
                       height={36}
+                      className="rounded-full object-cover"
                       style={{ borderRadius: "50%" }}
+                      onError={(e) => {
+                        (e.currentTarget as HTMLImageElement).src =
+                          "/avatar-placeholder.png";
+                      }}
                     />
                     <Link href={`/owners/${aRid}`} className="m-name">
                       {aName}
@@ -145,14 +168,17 @@ export default async function MatchupsPage() {
 
                 <div className="m-row">
                   <div className="m-team">
-                    <Image
-                      src={
-                        avatarByRosterId.get(bRid) || "/avatar-placeholder.png"
-                      }
+                    <img
+                      src={bAvatar}
                       alt=""
                       width={36}
                       height={36}
+                      className="rounded-full object-cover"
                       style={{ borderRadius: "50%" }}
+                      onError={(e) => {
+                        (e.currentTarget as HTMLImageElement).src =
+                          "/avatar-placeholder.png";
+                      }}
                     />
                     <Link href={`/owners/${bRid}`} className="m-name">
                       {bName}
@@ -233,13 +259,3 @@ export default async function MatchupsPage() {
     </main>
   );
 }
-
-// prod-touch:3de10a32-c52d-4643-b09b-41d078f04fce
-
-// prod-touch:1c7b763f-c612-4fd2-8efd-5ae03d757923
-
-// prod-touch:5add1624-e650-4d28-a03e-407ab57ce232
-
-// prod-touch:aca2f42a-5700-4c90-b7f3-5550fa90aa1c
-
-// prod-touch:809d1b7f-b4de-4164-9c72-8566a1bb3ad8
