@@ -22,24 +22,17 @@ type Matchup = { roster_id: number; matchup_id: number; points: number };
 type SleeperUser = {
   user_id: string;
   display_name?: string;
-  metadata?: {
-    team_name?: string;
-    avatar?: string;
-    avatar_url?: string;
-    team_avatar?: string;
-    team_avatar_url?: string;
-  };
-  avatar?: string; // some installs store raw hash or url here
-  avatar_url?: string; // some installs expose full url
+  avatar?: string; // hash or url
+  metadata?: { team_name?: string; avatar?: string };
 };
 type SleeperRoster = {
   roster_id: number;
   owner_id: string | null;
   metadata?: {
-    avatar?: string;
-    avatar_url?: string;
-    team_avatar?: string;
     team_avatar_url?: string;
+    team_avatar?: string;
+    avatar_url?: string;
+    avatar?: string;
   };
 };
 
@@ -54,6 +47,41 @@ function teamName(user: SleeperUser | undefined, rid: number): string {
   return `Team #${rid}`;
 }
 
+/** Standings-style user avatar:
+ *  1) if user.metadata.avatar is a full URL, use it
+ *  2) else if user.avatar is a hash, map to Sleeper CDN thumbs
+ * (This mirrors the Standings page logic.) */
+function pickUserAvatarUrl(user: SleeperUser | undefined): string | undefined {
+  const metaUrl =
+    typeof user?.metadata?.avatar === "string" && user.metadata.avatar.trim()
+      ? user.metadata.avatar.trim()
+      : null;
+  if (metaUrl) return metaUrl;
+  const id =
+    typeof user?.avatar === "string" && user.avatar.trim()
+      ? user.avatar.trim()
+      : null;
+  return id ? `https://sleepercdn.com/avatars/thumbs/${id}` : undefined;
+}
+
+/** Prefer roster/team avatar; if missing, fall back to user avatar using the
+ *  exact same logic as Standings (above). */
+function pickAvatarUrl(
+  roster: SleeperRoster | undefined,
+  user: SleeperUser | undefined,
+): string | undefined {
+  const tryRoster: (string | undefined)[] = [
+    roster?.metadata?.team_avatar_url,
+    roster?.metadata?.team_avatar,
+    roster?.metadata?.avatar_url,
+    roster?.metadata?.avatar,
+  ];
+  for (const v of tryRoster) {
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  return pickUserAvatarUrl(user);
+}
+
 function groupByMatchup(
   list: Matchup[] | null | undefined,
 ): Map<number, Matchup[]> {
@@ -64,29 +92,6 @@ function groupByMatchup(
     m.get(id)!.push(it);
   }
   return m;
-}
-
-/** Prefer team/roster avatar; fall back to user avatar; else undefined. */
-function pickAvatarUrl(
-  roster: SleeperRoster | undefined,
-  user: SleeperUser | undefined,
-): string | undefined {
-  const tryVals: (string | undefined)[] = [
-    roster?.metadata?.team_avatar_url,
-    roster?.metadata?.team_avatar,
-    roster?.metadata?.avatar_url,
-    roster?.metadata?.avatar,
-    user?.metadata?.team_avatar_url,
-    user?.metadata?.team_avatar,
-    user?.metadata?.avatar_url,
-    user?.metadata?.avatar,
-    user?.avatar_url,
-    user?.avatar,
-  ];
-  for (const v of tryVals) {
-    if (typeof v === "string" && v.trim()) return v.trim();
-  }
-  return undefined;
 }
 
 export default async function MatchupsPage() {
@@ -104,11 +109,11 @@ export default async function MatchupsPage() {
     );
   }
 
-  // 1) current week
+  // 1) which week is current?
   const league = await j<League>(`/league/${lid}`, 60);
   const currentWeek = asNum(league?.week, 1);
 
-  // 2) users + rosters (for names & avatars)
+  // 2) names + avatars (roster-first, then user via standings logic)
   const [users, rosters] = await Promise.all([
     j<SleeperUser[]>(`/league/${lid}/users`, 600),
     j<SleeperRoster[]>(`/league/${lid}/rosters`, 600),
@@ -130,17 +135,16 @@ export default async function MatchupsPage() {
   const groups = Array.from(groupByMatchup(list))
     .map(([mid, arr]) => ({ id: mid, a: arr[0], b: arr[1] }))
     .filter((x) => x.a && x.b)
-    // stable order by matchup id
     .sort((x, y) => x.id - y.id);
 
-  // current-week view → always "Live"
+  // current-week only → live
   const final = false;
 
   return (
     <main className="page" style={{ display: "grid", gap: 12 }}>
       <h1 style={{ marginBottom: 4 }}>Matchups — Week {currentWeek}</h1>
       <p style={{ color: "#6b7280", marginTop: -6 }}>
-        Scores refresh when you reload the page.
+        Reload to refresh scores.
       </p>
 
       <div className="m-grid">
