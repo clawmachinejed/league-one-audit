@@ -7,7 +7,6 @@ export const revalidate = 0;
 
 const API = "https://api.sleeper.app/v1";
 
-// tiny JSON fetch with Next revalidate hints
 async function j<T>(path: string, reval = 60): Promise<T> {
   const res = await fetch(`${API}${path}`, { next: { revalidate: reval } });
   if (!res.ok)
@@ -24,20 +23,17 @@ type SleeperUser = {
   user_id: string;
   display_name?: string;
   avatar?: string; // hash or url
-  metadata?: {
-    team_name?: string;
-    avatar?: string; // standings treats this as URL if it looks like one
-  };
+  metadata?: { team_name?: string; avatar?: string };
 };
 
 type SleeperRoster = {
   roster_id: number;
   owner_id: string | null;
   metadata?: {
-    team_avatar_url?: string; // URL
-    team_avatar?: string; // URL or hash (be safe)
-    avatar_url?: string; // URL
-    avatar?: string; // URL or hash (be safe)
+    team_avatar_url?: string; // often url OR placeholder
+    team_avatar?: string; // url or hash (be safe)
+    avatar_url?: string; // url
+    avatar?: string; // url or hash (be safe)
   };
 };
 
@@ -47,15 +43,26 @@ const asNum = (v: unknown, d = 0) =>
 function isUrl(v?: string | null): v is string {
   return !!v && (v.startsWith("http://") || v.startsWith("https://"));
 }
+function isRelative(v?: string | null): v is string {
+  return !!v && v.startsWith("/");
+}
 function isHash(v?: string | null): v is string {
-  // Sleeper avatar hashes are non-empty, no slashes/spaces; keep this permissive
   return !!v && !v.includes("/") && !v.includes(" ") && !v.startsWith("data:");
 }
-function toCdn(v?: string | null): string | undefined {
-  if (!v) return undefined;
-  if (isUrl(v)) return v;
-  if (isHash(v)) return `https://sleepercdn.com/avatars/thumbs/${v}`;
-  return undefined;
+function toCdn(hash?: string | null): string | undefined {
+  return isHash(hash)
+    ? `https://sleepercdn.com/avatars/thumbs/${hash}`
+    : undefined;
+}
+/** Some "team avatar" fields point to sleepercdn generic images like /images/v2/logo.png.
+    Treat those as placeholders (invalid). */
+function isSleeperImagesPlaceholder(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return u.hostname === "sleepercdn.com" && u.pathname.startsWith("/images");
+  } catch {
+    return false;
+  }
 }
 
 function teamName(user: SleeperUser | undefined, rid: number): string {
@@ -66,43 +73,54 @@ function teamName(user: SleeperUser | undefined, rid: number): string {
   return `Team #${rid}`;
 }
 
-/** Standings-style user avatar normalization:
- *  - prefer user.metadata.avatar if it's a URL
- *  - else map user.avatar hash -> Sleeper CDN
- *  - else, if user.metadata.avatar looks like a hash, map it too
+/** Standings-style user avatar:
+ *  1) metadata.avatar if it's a URL
+ *  2) user.avatar hash -> CDN
+ *  3) metadata.avatar if it *looks* like a hash -> CDN
  */
 function pickUserAvatarUrl(user: SleeperUser | undefined): string | undefined {
   if (!user) return undefined;
   const meta = user.metadata?.avatar?.trim();
   const raw = user.avatar?.trim();
 
-  // If metadata field is already a URL, use it
-  if (isUrl(meta)) return meta;
-  // If user.avatar is a hash, map it
+  if (isUrl(meta) && !isSleeperImagesPlaceholder(meta)) return meta;
   const fromRaw = toCdn(raw);
   if (fromRaw) return fromRaw;
-  // If metadata looked like a hash, map it too
   const fromMeta = toCdn(meta);
   if (fromMeta) return fromMeta;
 
   return undefined;
 }
 
-/** Prefer roster/team avatar; if missing, fall back to user avatar (same logic as standings). */
+/** Prefer roster/team avatar; discard placeholders/relatives.
+ *  If none valid, fall back to user avatar (same as standings). */
 function pickAvatarUrl(
   roster: SleeperRoster | undefined,
   user: SleeperUser | undefined,
 ): string | undefined {
-  if (roster?.metadata) {
-    const m = roster.metadata;
-    // Try the most explicit URL fields first
-    const cand =
-      toCdn(m.team_avatar_url?.trim()) ||
-      toCdn(m.team_avatar?.trim()) ||
-      toCdn(m.avatar_url?.trim()) ||
-      toCdn(m.avatar?.trim());
-    if (cand) return cand;
+  const meta = roster?.metadata;
+  const candidates = [
+    meta?.team_avatar_url?.trim(),
+    meta?.team_avatar?.trim(),
+    meta?.avatar_url?.trim(),
+    meta?.avatar?.trim(),
+  ];
+
+  for (const c of candidates) {
+    if (!c) continue;
+    // ignore relative placeholders like "/logo.png"
+    if (isRelative(c)) continue;
+    if (isUrl(c)) {
+      if (!isSleeperImagesPlaceholder(c)) return c; // real URL and not a generic /images/*
+      // else treat as placeholder and continue to user avatar
+      continue;
+    }
+    // If it's a hash, map to CDN
+    const cdn = toCdn(c);
+    if (cdn) return cdn;
   }
+
+  // fall back to user avatar logic
   return pickUserAvatarUrl(user);
 }
 
@@ -133,11 +151,9 @@ export default async function MatchupsPage() {
     );
   }
 
-  // 1) which week is current?
   const league = await j<League>(`/league/${lid}`, 60);
   const currentWeek = asNum(league?.week, 1);
 
-  // 2) names + avatars (roster-first, then user via standings logic)
   const [users, rosters] = await Promise.all([
     j<SleeperUser[]>(`/league/${lid}/users`, 600),
     j<SleeperRoster[]>(`/league/${lid}/rosters`, 600),
@@ -153,14 +169,12 @@ export default async function MatchupsPage() {
     avatarByRosterId.set(rid, pickAvatarUrl(r, u));
   }
 
-  // 3) this week's matchups
   const list = await j<Matchup[]>(`/league/${lid}/matchups/${currentWeek}`, 30);
   const groups = Array.from(groupByMatchup(list))
     .map(([mid, arr]) => ({ id: mid, a: arr[0], b: arr[1] }))
     .filter((x) => x.a && x.b)
     .sort((x, y) => x.id - y.id);
 
-  // current-week only → live
   const final = false;
 
   return (
