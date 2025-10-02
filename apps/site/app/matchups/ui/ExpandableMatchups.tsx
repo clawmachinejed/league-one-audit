@@ -59,6 +59,7 @@ export default function ExpandableMatchups(props: Props) {
               <span className="teamName teamNameLeft" title={c.a.name}>
                 {c.a.name}
               </span>
+<<<<<<< Updated upstream
 
               {/* Left score */}
               <span className="scoreLeft">{c.a.pts.toFixed(2)}</span>
@@ -70,6 +71,25 @@ export default function ExpandableMatchups(props: Props) {
               <span className="scoreRight">{c.b.pts.toFixed(2)}</span>
 
               {/* Right team name */}
+=======
+              <span
+                className={
+                  "scoreLeft " +
+                  (tie ? "neutral" : leftWins ? "win" : "lose")
+                }
+              >
+                {c.a.pts.toFixed(2)}
+              </span>
+              <span className="vs">vs</span>
+              <span
+                className={
+                  "scoreRight " +
+                  (tie ? "neutral" : rightWins ? "win" : "lose")
+                }
+              >
+                {c.b.pts.toFixed(2)}
+              </span>
+>>>>>>> Stashed changes
               <span className="teamName teamNameRight" title={c.b.name}>
                 {c.b.name}
               </span>
@@ -134,12 +154,17 @@ export default function ExpandableMatchups(props: Props) {
           display: grid;
           align-items: center;
           column-gap: 8px;
+<<<<<<< Updated upstream
 
           /* avatars | team name | score | vs | score | team name | avatar */
           grid-template-columns:
             28px minmax(0, 1fr) 72px 20px 72px minmax(0, 1fr)
             28px;
 
+=======
+          grid-template-columns:
+            28px minmax(0, 1fr) 72px 20px 72px minmax(0, 1fr) 28px;
+>>>>>>> Stashed changes
           padding: 10px 12px;
           cursor: pointer;
           background: #fff;
@@ -241,11 +266,19 @@ export default function ExpandableMatchups(props: Props) {
           white-space: nowrap;
         }
         .pname.left {
+<<<<<<< Updated upstream
           text-align: right;
           padding-right: 6px;
         }
         .pname.right {
           text-align: left;
+=======
+          text-align: left;   /* was right */
+          padding-right: 6px;
+        }
+        .pname.right {
+          text-align: right;  /* was left */
+>>>>>>> Stashed changes
           padding-left: 6px;
         }
         .ppts {
@@ -269,8 +302,12 @@ export default function ExpandableMatchups(props: Props) {
         @media (min-width: 640px) {
           .rowTop {
             grid-template-columns:
+<<<<<<< Updated upstream
               36px minmax(0, 1fr) 88px 24px 88px minmax(0, 1fr)
               36px;
+=======
+              36px minmax(0, 1fr) 88px 24px 88px minmax(0, 1fr) 36px;
+>>>>>>> Stashed changes
             padding: 12px 14px;
           }
           .av {
