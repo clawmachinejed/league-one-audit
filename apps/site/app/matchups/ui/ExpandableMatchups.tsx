@@ -136,10 +136,9 @@ export default function ExpandableMatchups(props: Props) {
           column-gap: 8px;
 
           /* avatars | team name | score | vs | score | team name | avatar */
-          grid-template-columns: 28px minmax(0, 1fr) 72px 20px 72px minmax(
-              0,
-              1fr
-            ) 28px;
+          grid-template-columns:
+            28px minmax(0, 1fr) 72px 20px 72px minmax(0, 1fr)
+            28px;
 
           padding: 10px 12px;
           cursor: pointer;
@@ -257,10 +256,9 @@ export default function ExpandableMatchups(props: Props) {
         /* ---------- responsive tweaks ---------- */
         @media (min-width: 640px) {
           .rowTop {
-            grid-template-columns: 36px minmax(0, 1fr) 88px 24px 88px minmax(
-                0,
-                1fr
-              ) 36px;
+            grid-template-columns:
+              36px minmax(0, 1fr) 88px 24px 88px minmax(0, 1fr)
+              36px;
             padding: 12px 14px;
           }
           .av {
@@ -285,4 +283,3 @@ function fmt(n?: number) {
   if (n == null || Number.isNaN(n)) return "";
   return Number(n).toFixed(2);
 }
-// deploy-touch:43d74eb4-80b4-4398-89d4-d4546650657e
