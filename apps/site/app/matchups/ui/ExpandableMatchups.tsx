@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useState } from "react";
+import React, { useState } from "react";
 
 /** Minimal local types so this file is self-contained */
 type Starter = { slot: string; name: string; pts: number };
@@ -20,7 +20,6 @@ export default function ExpandableMatchups(props: Props) {
   const list: Card[] = "cards" in props ? props.cards : props.items;
 
   const [open, setOpen] = useState<Set<number>>(new Set());
-
   const toggle = (id: number) => {
     setOpen((cur) => {
       const next = new Set(cur);
@@ -34,19 +33,24 @@ export default function ExpandableMatchups(props: Props) {
     <div className="m-grid">
       {list.map((c) => {
         const isOpen = open.has(c.id);
+
+        // header-only: winner/loser coloring
+        const leftWins = c.a.pts > c.b.pts;
+        const rightWins = c.b.pts > c.a.pts;
+        const tie = c.a.pts === c.b.pts;
+
         return (
           <article
             key={c.id}
-            className={`m-card ${isOpen ? "open" : ""}`}
+            className={m-card }
             aria-expanded={isOpen}
           >
-            {/* TOP ROW — team names now wrap on mobile (2 lines) */}
+            {/* TOP ROW */}
             <button
               className="rowTop"
               onClick={() => toggle(c.id)}
               aria-label="Toggle starters"
             >
-              {/* Left avatar */}
               <img
                 className="av"
                 src={c.a.avatar || "/avatar-placeholder.png"}
@@ -54,27 +58,28 @@ export default function ExpandableMatchups(props: Props) {
                 width={28}
                 height={28}
               />
-
-              {/* Left team name */}
               <span className="teamName teamNameLeft" title={c.a.name}>
                 {c.a.name}
               </span>
-
-              {/* Left score */}
-              <span className="scoreLeft">{c.a.pts.toFixed(2)}</span>
-
-              {/* VS */}
+              <span
+                className={
+                  "scoreLeft " + (tie ? "neutral" : leftWins ? "win" : "lose")
+                }
+              >
+                {c.a.pts.toFixed(2)}
+              </span>
               <span className="vs">vs</span>
-
-              {/* Right score */}
-              <span className="scoreRight">{c.b.pts.toFixed(2)}</span>
-
-              {/* Right team name */}
+              <span
+                className={
+                  "scoreRight " +
+                  (tie ? "neutral" : rightWins ? "win" : "lose")
+                }
+              >
+                {c.b.pts.toFixed(2)}
+              </span>
               <span className="teamName teamNameRight" title={c.b.name}>
                 {c.b.name}
               </span>
-
-              {/* Right avatar */}
               <img
                 className="av"
                 src={c.b.avatar || "/avatar-placeholder.png"}
@@ -116,7 +121,7 @@ export default function ExpandableMatchups(props: Props) {
         );
       })}
 
-      <style jsx>{`
+      <style jsx>{
         .m-grid {
           display: grid;
           gap: 12px;
@@ -135,10 +140,9 @@ export default function ExpandableMatchups(props: Props) {
           align-items: center;
           column-gap: 8px;
 
-          /* avatars | team name | score | vs | score | team name | avatar */
+          /* avatars | name | score | vs | score | name | avatar */
           grid-template-columns:
-            28px minmax(0, 1fr) 72px 20px 72px minmax(0, 1fr)
-            28px;
+            28px minmax(0, 1fr) 72px 20px 72px minmax(0, 1fr) 28px;
 
           padding: 10px 12px;
           cursor: pointer;
@@ -156,17 +160,16 @@ export default function ExpandableMatchups(props: Props) {
           flex: 0 0 auto;
         }
 
-        /* NAMES — allow wrapping on mobile (2 lines), clamp to 1 line on >=640px */
+        /* NAMES — wrap on mobile (2 lines), 1 line >= sm */
         .teamName {
           min-width: 0; /* critical so text can shrink inside the grid cell */
           overflow: hidden;
 
-          /* multi-line clamp (mobile) */
           display: -webkit-box;
           -webkit-box-orient: vertical;
           -webkit-line-clamp: 2; /* two lines on small screens */
-          white-space: normal; /* allow wrapping */
-          word-break: break-word; /* break long tokens */
+          white-space: normal;
+          word-break: break-word;
           line-height: 1.15;
           font-weight: 600;
           font-size: 15px;
@@ -183,13 +186,25 @@ export default function ExpandableMatchups(props: Props) {
         .scoreRight {
           font-variant-numeric: tabular-nums;
           font-weight: 600;
-          color: #111827;
+          color: #111827; /* base; overridden by win/lose below */
+          transition: color 120ms ease;
         }
         .scoreLeft {
           text-align: right;
         }
         .scoreRight {
           text-align: left;
+        }
+
+        /* header: winner/loser coloring */
+        .win {
+          color: #059669; /* emerald-600 */
+        }
+        .lose {
+          color: #dc2626; /* red-600 */
+        }
+        .neutral {
+          color: #111827;
         }
 
         .vs {
@@ -220,7 +235,7 @@ export default function ExpandableMatchups(props: Props) {
           text-align: right;
         }
         .pos {
-          text-align: center;
+          text-align: center.
         }
         .ptsR {
           text-align: left;
@@ -240,14 +255,16 @@ export default function ExpandableMatchups(props: Props) {
           text-overflow: ellipsis;
           white-space: nowrap;
         }
+        /* outside justification ONLY */
         .pname.left {
-          text-align: right;
+          text-align: left;
           padding-right: 6px;
         }
         .pname.right {
-          text-align: left;
+          text-align: right;
           padding-left: 6px;
         }
+
         .ppts {
           font-variant-numeric: tabular-nums;
           font-weight: 600;
@@ -269,20 +286,19 @@ export default function ExpandableMatchups(props: Props) {
         @media (min-width: 640px) {
           .rowTop {
             grid-template-columns:
-              36px minmax(0, 1fr) 88px 24px 88px minmax(0, 1fr)
-              36px;
+              36px minmax(0, 1fr) 88px 24px 88px minmax(0, 1fr) 36px;
             padding: 12px 14px;
           }
           .av {
             width: 36px;
             height: 36px;
           }
-          /* on larger screens, clamp names to a single line (classic look) */
+          /* on larger screens, clamp names to a single line */
           .teamName {
             -webkit-line-clamp: 1;
           }
         }
-      `}</style>
+      }</style>
     </div>
   );
 }
