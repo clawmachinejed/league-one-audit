@@ -160,16 +160,13 @@ export default function ExpandableMatchups(props: Props) {
           flex: 0 0 auto;
         }
 
-        /* NAMES — wrap on mobile (2 lines), 1 line >= sm */
+        /* NAMES — ***NO CLAMP, NO ELLIPSIS*** allow full wrap */
         .teamName {
-          min-width: 0; /* critical so text can shrink inside the grid cell */
-          overflow: hidden;
-
-          display: -webkit-box;
-          -webkit-box-orient: vertical;
-          -webkit-line-clamp: 2; /* two lines on small screens */
-          white-space: normal;
-          word-break: break-word;
+          min-width: 0; /* critical so the grid cell can shrink */
+          display: block;
+          white-space: normal; /* allow wrapping (was nowrap via clamp) */
+          word-break: break-word; /* break long tokens if needed */
+          overflow: visible; /* do not hide overflow */
           line-height: 1.15;
           font-weight: 600;
           font-size: 15px;
@@ -251,11 +248,13 @@ export default function ExpandableMatchups(props: Props) {
         }
         .pname {
           min-width: 0;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
+          /* ***NO ELLIPSIS, NO NOWRAP*** show full player names */
+          white-space: normal;
+          overflow: visible;
+          text-overflow: clip;
+          word-break: break-word;
         }
-        /* outside justification ONLY */
+        /* Outside justification stays as requested */
         .pname.left {
           text-align: left;
           padding-right: 6px;
@@ -294,10 +293,7 @@ export default function ExpandableMatchups(props: Props) {
             width: 36px;
             height: 36px;
           }
-          /* on larger screens, clamp names to a single line */
-          .teamName {
-            -webkit-line-clamp: 1;
-          }
+          /* Keep full names on desktop too (no clamp) */
         }
       `}</style>
     </div>
