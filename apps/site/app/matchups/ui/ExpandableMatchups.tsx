@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import React, { useState } from "react";
+import Image from "next/image";
 
 /** Minimal local types so this file is self-contained */
 type Starter = { slot: string; name: string; pts: number };
@@ -16,18 +17,17 @@ export type Card = { id: number; a: Side; b: Side };
 // Allow either prop name to avoid page.tsx mismatch during rollouts
 type Props = { cards: Card[] } | { items: Card[] };
 
-export default function ExpandableMatchups(props: Props) {
+function ExpandableMatchups(props: Props) {
   const list: Card[] = "cards" in props ? props.cards : (props as any).items;
 
   const [open, setOpen] = useState<Set<number>>(new Set());
-  const toggle = (id: number) => {
+  const toggle = (id: number) =>
     setOpen((cur) => {
       const next = new Set(cur);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
-  };
 
   return (
     <div className="m-grid">
@@ -39,28 +39,34 @@ export default function ExpandableMatchups(props: Props) {
         const rightWins = c.b.pts > c.a.pts;
         const tie = c.a.pts === c.b.pts;
 
+        const rowId = `matchup-${c.id}-rows`;
+
         return (
-          <article
-            key={c.id}
-            className={`m-card ${isOpen ? "open" : ""}`}
-            aria-expanded={isOpen}
-          >
+          <article key={c.id} className={`m-card${isOpen ? " open" : ""}`}>
             {/* TOP ROW */}
             <button
               className="rowTop"
               onClick={() => toggle(c.id)}
-              aria-label="Toggle starters"
+              aria-expanded={isOpen}
+              aria-controls={rowId}
             >
-              <img
+              {/* Left avatar */}
+              <Image
                 className="av"
                 src={c.a.avatar || "/avatar-placeholder.png"}
                 alt=""
                 width={28}
                 height={28}
+                unoptimized
+                priority={false}
               />
+
+              {/* Left team name */}
               <span className="teamName teamNameLeft" title={c.a.name}>
                 {c.a.name}
               </span>
+
+              {/* Left score */}
               <span
                 className={
                   "scoreLeft " + (tie ? "neutral" : leftWins ? "win" : "lose")
@@ -68,7 +74,11 @@ export default function ExpandableMatchups(props: Props) {
               >
                 {c.a.pts.toFixed(2)}
               </span>
+
+              {/* VS */}
               <span className="vs">vs</span>
+
+              {/* Right score */}
               <span
                 className={
                   "scoreRight " + (tie ? "neutral" : rightWins ? "win" : "lose")
@@ -76,226 +86,246 @@ export default function ExpandableMatchups(props: Props) {
               >
                 {c.b.pts.toFixed(2)}
               </span>
+
+              {/* Right team name */}
               <span className="teamName teamNameRight" title={c.b.name}>
                 {c.b.name}
               </span>
-              <img
+
+              {/* Right avatar */}
+              <Image
                 className="av"
                 src={c.b.avatar || "/avatar-placeholder.png"}
                 alt=""
                 width={28}
                 height={28}
+                unoptimized
+                priority={false}
               />
             </button>
 
             {/* EXPANDED STARTERS */}
-            {isOpen && (
-              <div className="rows">
-                <div className="hdr">
-                  <span className="muted">STARTERS</span>
-                  <span className="muted ptsL">PTS</span>
-                  <span className="muted pos">POS</span>
-                  <span className="muted ptsR">PTS</span>
-                  <span className="muted">STARTERS</span>
-                </div>
-
-                {zipStarters(c.a.starters, c.b.starters).map((row, i) => (
-                  <div key={i} className="line">
-                    <div className="pname left" title={row.a?.name || ""}>
-                      {row.a?.name ?? ""}
-                    </div>
-                    <div className="ppts left">{fmt(row.a?.pts)}</div>
-                    <div className="slot">
-                      {row.a?.slot ?? row.b?.slot ?? ""}
-                    </div>
-                    <div className="ppts right">{fmt(row.b?.pts)}</div>
-                    <div className="pname right" title={row.b?.name || ""}>
-                      {row.b?.name ?? ""}
-                    </div>
-                  </div>
-                ))}
+            <div
+              id={rowId}
+              className="rows"
+              style={{ display: isOpen ? "block" : "none" }}
+            >
+              <div className="hdr">
+                <span className="muted">STARTERS</span>
+                <span className="muted ptsL">PTS</span>
+                <span className="muted pos">POS</span>
+                <span className="muted ptsR">PTS</span>
+                <span className="muted">STARTERS</span>
               </div>
-            )}
+
+              {zipStarters(c.a.starters, c.b.starters).map((row, i) => (
+                <div key={i} className="line">
+                  <div className="pname left" title={row.a?.name || ""}>
+                    {row.a?.name ?? ""}
+                  </div>
+                  <div className="ppts left">{fmt(row.a?.pts)}</div>
+                  <div className="slot">{row.a?.slot ?? row.b?.slot ?? ""}</div>
+                  <div className="ppts right">{fmt(row.b?.pts)}</div>
+                  <div className="pname right" title={row.b?.name || ""}>
+                    {row.b?.name ?? ""}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <style jsx>{`
+              .m-grid {
+                display: grid;
+                gap: 12px;
+              }
+
+              .m-card {
+                border: 1px solid #e5e7eb;
+                border-radius: 12px;
+                background: #fff;
+                overflow: hidden;
+              }
+
+              /* ---------- TEAM HEADER ROW ---------- */
+              .rowTop {
+                width: 100%;
+                display: grid;
+                align-items: center;
+                column-gap: 8px;
+
+                /* avatars | name | score | vs | score | name | avatar */
+                grid-template-columns:
+                  28px minmax(0, 1fr)
+                  72px 20px 72px minmax(0, 1fr) 28px;
+
+                padding: 10px 12px;
+                cursor: pointer;
+                background: #fff;
+                transition:
+                  background-color 120ms ease,
+                  box-shadow 120ms ease;
+              }
+              .rowTop:hover,
+              .rowTop:focus-visible {
+                background: #fafafa;
+              }
+
+              .av {
+                border-radius: 9999px;
+                width: 28px;
+                height: 28px;
+                object-fit: cover;
+                flex: 0 0 auto;
+              }
+
+              /* NAMES — wrap on mobile (2 lines), 1 line >= sm; never ellipsize */
+              .teamName {
+                min-width: 0;
+                overflow: hidden;
+
+                display: -webkit-box;
+                -webkit-box-orient: vertical;
+                -webkit-line-clamp: 2;
+                white-space: normal;
+                word-break: break-word;
+                line-height: 1.15;
+                font-weight: 600;
+                font-size: 15px;
+                color: #111827;
+              }
+              .teamNameLeft {
+                text-align: left;
+              }
+              .teamNameRight {
+                text-align: right;
+              }
+
+              .scoreLeft,
+              .scoreRight {
+                font-variant-numeric: tabular-nums;
+                font-weight: 600;
+                color: #111827;
+                transition: color 120ms ease;
+              }
+              .scoreLeft {
+                text-align: right;
+              }
+              .scoreRight {
+                text-align: left;
+              }
+
+              /* header: winner/loser coloring */
+              .win {
+                color: #059669; /* emerald-600 */
+              }
+              .lose {
+                color: #dc2626; /* red-600 */
+              }
+              .neutral {
+                color: #111827;
+              }
+
+              .vs {
+                text-align: center;
+                color: #6b7280;
+                font-weight: 600;
+              }
+
+              /* ---------- EXPANDED: headers ---------- */
+              .rows {
+                border-top: 1px solid #e5e7eb;
+                padding: 10px 12px 12px;
+              }
+              .hdr {
+                display: grid;
+                grid-template-columns: 1fr 70px 50px 70px 1fr;
+                column-gap: 8px;
+                align-items: center;
+                margin: 2px 0 6px;
+              }
+              .muted {
+                color: #6b7280;
+                font-size: 12px;
+                font-weight: 600;
+                letter-spacing: 0.02em;
+              }
+              .ptsL {
+                text-align: right;
+              }
+              .pos {
+                text-align: center;
+              }
+              .ptsR {
+                text-align: left;
+              }
+
+              /* ---------- EXPANDED: player rows ---------- */
+              .line {
+                display: grid;
+                grid-template-columns: 1fr 70px 50px 70px 1fr;
+                column-gap: 8px;
+                align-items: center;
+                padding: 6px 0;
+              }
+              .pname {
+                min-width: 0;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+              }
+              /* outside justification ONLY */
+              .pname.left {
+                text-align: left;
+                padding-right: 6px;
+              }
+              .pname.right {
+                text-align: right;
+                padding-left: 6px;
+              }
+
+              .ppts {
+                font-variant-numeric: tabular-nums;
+                font-weight: 600;
+              }
+              .ppts.left {
+                text-align: right;
+              }
+              .ppts.right {
+                text-align: left;
+              }
+              .slot {
+                text-align: center;
+                color: #6b7280;
+                font-weight: 600;
+                width: 50px;
+              }
+
+              /* ---------- responsive tweaks ---------- */
+              @media (max-width: 360px) {
+                .teamName {
+                  font-size: 14px; /* slightly smaller for tiny phones */
+                }
+              }
+              @media (min-width: 640px) {
+                .rowTop {
+                  grid-template-columns:
+                    36px minmax(0, 1fr) 88px 24px 88px minmax(0, 1fr)
+                    36px;
+                  padding: 12px 14px;
+                }
+                .av {
+                  width: 36px;
+                  height: 36px;
+                }
+                /* on larger screens, clamp names to a single line (classic look) */
+                .teamName {
+                  -webkit-line-clamp: 1;
+                }
+              }
+            `}</style>
           </article>
         );
       })}
-
-      <style jsx>{`
-        .m-grid {
-          display: grid;
-          gap: 12px;
-        }
-        .m-card {
-          border: 1px solid #e5e7eb;
-          border-radius: 12px;
-          background: #fff;
-          overflow: hidden;
-        }
-
-        /* ---------- TEAM HEADER ROW ---------- */
-        .rowTop {
-          width: 100%;
-          display: grid;
-          align-items: center;
-          column-gap: 8px;
-
-          /* avatars | name | score | vs | score | name | avatar */
-          grid-template-columns:
-            28px minmax(0, 1fr) 72px 20px 72px minmax(0, 1fr)
-            28px;
-
-          padding: 10px 12px;
-          cursor: pointer;
-          background: #fff;
-        }
-        .rowTop:hover {
-          background: #fafafa;
-        }
-
-        .av {
-          border-radius: 9999px;
-          width: 28px;
-          height: 28px;
-          object-fit: cover;
-          flex: 0 0 auto;
-        }
-
-        /* NAMES — ***NO CLAMP, NO ELLIPSIS*** allow full wrap */
-        .teamName {
-          min-width: 0; /* critical so the grid cell can shrink */
-          display: block;
-          white-space: normal; /* allow wrapping (was nowrap via clamp) */
-          word-break: break-word; /* break long tokens if needed */
-          overflow: visible; /* do not hide overflow */
-          line-height: 1.15;
-          font-weight: 600;
-          font-size: 15px;
-          color: #111827;
-        }
-        .teamNameLeft {
-          text-align: left;
-        }
-        .teamNameRight {
-          text-align: right;
-        }
-
-        .scoreLeft,
-        .scoreRight {
-          font-variant-numeric: tabular-nums;
-          font-weight: 600;
-          color: #111827; /* base; overridden by win/lose below */
-          transition: color 120ms ease;
-        }
-        .scoreLeft {
-          text-align: right;
-        }
-        .scoreRight {
-          text-align: left;
-        }
-
-        /* header: winner/loser coloring */
-        .win {
-          color: #059669; /* emerald-600 */
-        }
-        .lose {
-          color: #dc2626; /* red-600 */
-        }
-        .neutral {
-          color: #111827;
-        }
-
-        .vs {
-          text-align: center;
-          color: #6b7280;
-          font-weight: 600;
-        }
-
-        /* ---------- EXPANDED: headers ---------- */
-        .rows {
-          border-top: 1px solid #e5e7eb;
-          padding: 10px 12px 12px;
-        }
-        .hdr {
-          display: grid;
-          grid-template-columns: 1fr 70px 50px 70px 1fr;
-          column-gap: 8px;
-          align-items: center;
-          margin: 2px 0 6px;
-        }
-        .muted {
-          color: #6b7280;
-          font-size: 12px;
-          font-weight: 600;
-          letter-spacing: 0.02em;
-        }
-        .ptsL {
-          text-align: right;
-        }
-        .pos {
-          text-align: center;
-        }
-        .ptsR {
-          text-align: left;
-        }
-
-        /* ---------- EXPANDED: player rows ---------- */
-        .line {
-          display: grid;
-          grid-template-columns: 1fr 70px 50px 70px 1fr;
-          column-gap: 8px;
-          align-items: center;
-          padding: 6px 0;
-        }
-        .pname {
-          min-width: 0;
-          /* ***NO ELLIPSIS, NO NOWRAP*** show full player names */
-          white-space: normal;
-          overflow: visible;
-          text-overflow: clip;
-          word-break: break-word;
-        }
-        /* Outside justification stays as requested */
-        .pname.left {
-          text-align: left;
-          padding-right: 6px;
-        }
-        .pname.right {
-          text-align: right;
-          padding-left: 6px;
-        }
-
-        .ppts {
-          font-variant-numeric: tabular-nums;
-          font-weight: 600;
-        }
-        .ppts.left {
-          text-align: right;
-        }
-        .ppts.right {
-          text-align: left;
-        }
-        .slot {
-          text-align: center;
-          color: #6b7280;
-          font-weight: 600;
-          width: 50px;
-        }
-
-        /* ---------- responsive tweaks ---------- */
-        @media (min-width: 640px) {
-          .rowTop {
-            grid-template-columns:
-              36px minmax(0, 1fr) 88px 24px 88px minmax(0, 1fr)
-              36px;
-            padding: 12px 14px;
-          }
-          .av {
-            width: 36px;
-            height: 36px;
-          }
-          /* Keep full names on desktop too (no clamp) */
-        }
-      `}</style>
     </div>
   );
 }
@@ -312,3 +342,5 @@ function fmt(n?: number) {
   if (n == null || Number.isNaN(n)) return "";
   return Number(n).toFixed(2);
 }
+
+export default ExpandableMatchups;
