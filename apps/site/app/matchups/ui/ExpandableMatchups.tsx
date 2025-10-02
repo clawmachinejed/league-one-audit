@@ -35,9 +35,7 @@ function Card({ card }: { card: AnyCard }) {
   const left = normalizeSide(card?.left ?? card?.a);
   const right = normalizeSide(card?.right ?? card?.b);
 
-  const headerLabel =
-    (card?.state?.label as string) ||
-    "VS";
+  const headerLabel = (card?.state?.label as string) || "VS";
 
   const rows = pairStarters(left.starters, right.starters);
 
@@ -145,7 +143,9 @@ function pairStarters(left: any[], right: any[]): PairRow[] {
 function bucket(arr: any[]) {
   const m = new Map<string, any[]>();
   for (const it of arr || []) {
-    const p = (String(it?.pos || it?.slot || it?.position || "") || "FLEX").toUpperCase();
+    const p = (
+      String(it?.pos || it?.slot || it?.position || "") || "FLEX"
+    ).toUpperCase();
     const k = normalizePos(p);
     if (!m.has(k)) m.set(k, []);
     m.get(k)!.push(it);
