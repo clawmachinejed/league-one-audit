@@ -48,7 +48,13 @@ export default function ExpandableMatchups({ cards }: { cards: Card[] }) {
             {/* SUMMARY ROW */}
             <div className="sum-row">
               <div className="sum-left">
-                <img className="av" src={c.a.avatar} alt="" width={24} height={24} />
+                <img
+                  className="av"
+                  src={c.a.avatar}
+                  alt=""
+                  width={24}
+                  height={24}
+                />
                 <div className="t-name t-left">{c.a.name}</div>
               </div>
 
@@ -58,7 +64,13 @@ export default function ExpandableMatchups({ cards }: { cards: Card[] }) {
 
               <div className="sum-right">
                 <div className="t-name t-right">{c.b.name}</div>
-                <img className="av" src={c.b.avatar} alt="" width={24} height={24} />
+                <img
+                  className="av"
+                  src={c.b.avatar}
+                  alt=""
+                  width={24}
+                  height={24}
+                />
               </div>
             </div>
 
