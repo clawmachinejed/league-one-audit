@@ -4,7 +4,13 @@ import { useState } from "react";
 
 /** Minimal local types so this file is self-contained */
 type Starter = { slot: string; name: string; pts: number };
-type Side = { rid: number; name: string; avatar: string; pts: number; starters: Starter[] };
+type Side = {
+  rid: number;
+  name: string;
+  avatar: string;
+  pts: number;
+  starters: Starter[];
+};
 export type Card = { id: number; a: Side; b: Side };
 
 // Allow either prop name to avoid page.tsx mismatch during rollouts
@@ -29,11 +35,25 @@ export default function ExpandableMatchups(props: Props) {
       {list.map((c) => {
         const isOpen = open.has(c.id);
         return (
-          <article key={c.id} className={`m-card ${isOpen ? "open" : ""}`} aria-expanded={isOpen}>
+          <article
+            key={c.id}
+            className={`m-card ${isOpen ? "open" : ""}`}
+            aria-expanded={isOpen}
+          >
             {/* TOP ROW — team names now get most of the space */}
-            <button className="rowTop" onClick={() => toggle(c.id)} aria-label="Toggle starters">
+            <button
+              className="rowTop"
+              onClick={() => toggle(c.id)}
+              aria-label="Toggle starters"
+            >
               {/* Left avatar */}
-              <img className="av" src={c.a.avatar || "/avatar-placeholder.png"} alt="" width={28} height={28} />
+              <img
+                className="av"
+                src={c.a.avatar || "/avatar-placeholder.png"}
+                alt=""
+                width={28}
+                height={28}
+              />
 
               {/* Left team name */}
               <span className="teamNameLeft" title={c.a.name}>
@@ -55,7 +75,13 @@ export default function ExpandableMatchups(props: Props) {
               </span>
 
               {/* Right avatar */}
-              <img className="av" src={c.b.avatar || "/avatar-placeholder.png"} alt="" width={28} height={28} />
+              <img
+                className="av"
+                src={c.b.avatar || "/avatar-placeholder.png"}
+                alt=""
+                width={28}
+                height={28}
+              />
             </button>
 
             {/* EXPANDED STARTERS */}
@@ -75,7 +101,9 @@ export default function ExpandableMatchups(props: Props) {
                       {row.a?.name ?? ""}
                     </div>
                     <div className="ppts left">{fmt(row.a?.pts)}</div>
-                    <div className="slot">{row.a?.slot ?? row.b?.slot ?? ""}</div>
+                    <div className="slot">
+                      {row.a?.slot ?? row.b?.slot ?? ""}
+                    </div>
                     <div className="ppts right">{fmt(row.b?.pts)}</div>
                     <div className="pname right" title={row.b?.name || ""}>
                       {row.b?.name ?? ""}
@@ -108,7 +136,10 @@ export default function ExpandableMatchups(props: Props) {
           column-gap: 8px;
 
           /* avatars | team name | score | vs | score | team name | avatar */
-          grid-template-columns: 28px minmax(0, 1fr) 72px 20px 72px minmax(0, 1fr) 28px;
+          grid-template-columns: 28px minmax(0, 1fr) 72px 20px 72px minmax(
+              0,
+              1fr
+            ) 28px;
 
           padding: 10px 12px;
           cursor: pointer;
@@ -226,7 +257,10 @@ export default function ExpandableMatchups(props: Props) {
         /* ---------- responsive tweaks ---------- */
         @media (min-width: 640px) {
           .rowTop {
-            grid-template-columns: 36px minmax(0, 1fr) 88px 24px 88px minmax(0, 1fr) 36px;
+            grid-template-columns: 36px minmax(0, 1fr) 88px 24px 88px minmax(
+                0,
+                1fr
+              ) 36px;
             padding: 12px 14px;
           }
           .av {
@@ -252,5 +286,3 @@ function fmt(n?: number) {
   return Number(n).toFixed(2);
 }
 // deploy-touch:43d74eb4-80b4-4398-89d4-d4546650657e
-
-

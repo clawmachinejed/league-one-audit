@@ -285,4 +285,3 @@ export default async function MatchupsPage() {
     </main>
   );
 }
-
