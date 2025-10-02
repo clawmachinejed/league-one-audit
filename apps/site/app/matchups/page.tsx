@@ -277,7 +277,7 @@ export default async function MatchupsPage() {
         Reload to refresh scores. Click a card to expand starters.
       </p>
 
-      <ExpandableMatchups items={ui} />
+      <ExpandableMatchups cards={ui} />
 
       <style>{`
         .muted{color:#6b7280}
