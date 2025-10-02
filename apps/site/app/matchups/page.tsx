@@ -49,7 +49,7 @@ type Matchup = {
 type Player = {
   player_id: string;
   full_name?: string;
-  position?: string; // QB/RB/WR/TE/DEF/â€¦
+  position?: string; // QB/RB/WR/TE/DEF/…
   team?: string;
 };
 
@@ -172,7 +172,7 @@ function buildStarters(
       const [x] = labeled.splice(i, 1);
       result.push({ slot: want, name: x.name, pts: x.pts });
     } else {
-      result.push({ slot: want, name: "â€”", pts: 0 });
+      result.push({ slot: want, name: "—", pts: 0 });
     }
   };
 
@@ -185,7 +185,7 @@ function buildStarters(
       const [x] = labeled.splice(i, 1);
       result.push({ slot: "FLEX", name: x.name, pts: x.pts });
     } else {
-      result.push({ slot: "FLEX", name: "â€”", pts: 0 });
+      result.push({ slot: "FLEX", name: "—", pts: 0 });
     }
   };
 
@@ -243,7 +243,7 @@ export default async function MatchupsPage() {
     .filter((x) => x.a && x.b)
     .sort((x, y) => x.id - y.id);
 
-  // Player directory (weâ€™ll only read entries we need at render time; cached for 10 mins)
+  // Player directory (we’ll only read entries we need at render time; cached for 10 mins)
   const playersObj = await j<Record<string, Player>>(`/players/nfl`, 600);
   const playersById = new Map(Object.entries(playersObj));
 
@@ -272,7 +272,7 @@ export default async function MatchupsPage() {
 
   return (
     <main className="page" style={{ display: "grid", gap: 12 }}>
-      <h1 style={{ marginBottom: 4 }}>Matchups â€” Week {currentWeek}</h1>
+      <h1 style={{ marginBottom: 4 }}>Matchups — Week {currentWeek}</h1>
       <p style={{ color: "#6b7280", marginTop: -6 }}>
         Reload to refresh scores. Click a card to expand starters.
       </p>

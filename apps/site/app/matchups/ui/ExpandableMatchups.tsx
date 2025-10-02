@@ -40,7 +40,7 @@ export default function ExpandableMatchups(props: Props) {
             className={`m-card ${isOpen ? "open" : ""}`}
             aria-expanded={isOpen}
           >
-            {/* TOP ROW — team names now get most of the space */}
+            {/* TOP ROW — team names now wrap on mobile (2 lines) */}
             <button
               className="rowTop"
               onClick={() => toggle(c.id)}
@@ -56,7 +56,7 @@ export default function ExpandableMatchups(props: Props) {
               />
 
               {/* Left team name */}
-              <span className="teamNameLeft" title={c.a.name}>
+              <span className="teamName teamNameLeft" title={c.a.name}>
                 {c.a.name}
               </span>
 
@@ -70,7 +70,7 @@ export default function ExpandableMatchups(props: Props) {
               <span className="scoreRight">{c.b.pts.toFixed(2)}</span>
 
               {/* Right team name */}
-              <span className="teamNameRight" title={c.b.name}>
+              <span className="teamName teamNameRight" title={c.b.name}>
                 {c.b.name}
               </span>
 
@@ -153,17 +153,30 @@ export default function ExpandableMatchups(props: Props) {
           width: 28px;
           height: 28px;
           object-fit: cover;
+          flex: 0 0 auto;
         }
 
-        .teamNameLeft,
-        .teamNameRight {
+        /* NAMES — allow wrapping on mobile (2 lines), clamp to 1 line on >=640px */
+        .teamName {
           min-width: 0; /* critical so text can shrink inside the grid cell */
           overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
+
+          /* multi-line clamp (mobile) */
+          display: -webkit-box;
+          -webkit-box-orient: vertical;
+          -webkit-line-clamp: 2; /* two lines on small screens */
+          white-space: normal; /* allow wrapping */
+          word-break: break-word; /* break long tokens */
+          line-height: 1.15;
           font-weight: 600;
           font-size: 15px;
           color: #111827;
+        }
+        .teamNameLeft {
+          text-align: left;
+        }
+        .teamNameRight {
+          text-align: right;
         }
 
         .scoreLeft,
@@ -172,7 +185,6 @@ export default function ExpandableMatchups(props: Props) {
           font-weight: 600;
           color: #111827;
         }
-        /* Match your “left/right” alignment rule */
         .scoreLeft {
           text-align: right;
         }
@@ -264,6 +276,10 @@ export default function ExpandableMatchups(props: Props) {
           .av {
             width: 36px;
             height: 36px;
+          }
+          /* on larger screens, clamp names to a single line (classic look) */
+          .teamName {
+            -webkit-line-clamp: 1;
           }
         }
       `}</style>
