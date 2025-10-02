@@ -1,254 +1,281 @@
-// apps/site/app/matchups/ui/ExpandableMatchups.tsx
 "use client";
 
+import * as React from "react";
 import Image from "next/image";
-import { useState } from "react";
 
-/**
- * Extremely permissive typing so it won't block your build if the parent shape tweaks.
- */
-type AnyCard = any;
-
-export default function ExpandableMatchups({
-  cards,
-  items,
-}: {
-  cards?: AnyCard[];
-  items?: AnyCard[];
-}) {
-  // allow either prop name; prefer `cards`
-  const list = (cards ?? items ?? []) as AnyCard[];
-
-  return (
-    <div className="mx-wrap">
-      {list.map((card: AnyCard) => (
-        <Card key={String(card?.id ?? Math.random())} card={card} />
-      ))}
-      <style>{styles}</style>
-    </div>
-  );
-}
-
-function Card({ card }: { card: AnyCard }) {
-  const [open, setOpen] = useState(false);
-
-  const left = normalizeSide(card?.left ?? card?.a);
-  const right = normalizeSide(card?.right ?? card?.b);
-
-  const headerLabel = (card?.state?.label as string) || "VS";
-
-  const rows = pairStarters(left.starters, right.starters);
-
-  return (
-    <div className="mx-card">
-      <button
-        className="mx-head"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-      >
-        <div className="mx-head5">
-          <div className="mx-team-left mx-teamcell mx-justify-end">
-            {left.avatar && (
-              <Image
-                src={left.avatar}
-                alt=""
-                width={20}
-                height={20}
-                className="mx-avatar"
-              />
-            )}
-            <span className="mx-teamname">{left.name}</span>
-          </div>
-
-          <div className="mx-pts-left">{fmtPts(left.points)}</div>
-
-          <div className="mx-pos">{headerLabel}</div>
-
-          <div className="mx-pts-right">{fmtPts(right.points)}</div>
-
-          <div className="mx-team-right mx-teamcell mx-justify-start">
-            <span className="mx-teamname">{right.name}</span>
-            {right.avatar && (
-              <Image
-                src={right.avatar}
-                alt=""
-                width={20}
-                height={20}
-                className="mx-avatar"
-              />
-            )}
-          </div>
-        </div>
-      </button>
-
-      {open && (
-        <div className="mx-detail" role="region">
-          {rows.map((r, i) => (
-            <div className="mx-line5" key={i}>
-              <div className="mx-name-left">{r.left?.name ?? "—"}</div>
-              <div className="mx-pts-left">{fmtPts(r.left?.points)}</div>
-              <div className="mx-pos">{r.pos}</div>
-              <div className="mx-pts-right">{fmtPts(r.right?.points)}</div>
-              <div className="mx-name-right">{r.right?.name ?? "—"}</div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ---------- helpers ---------- */
-
-function fmtPts(v: unknown) {
-  const n = Number(v);
-  return Number.isFinite(n) ? n.toFixed(2) : "0.00";
-}
-
-function normalizeSide(side: any) {
-  return {
-    name: (side?.name as string) || "—",
-    avatar: (side?.avatar as string) || undefined,
-    points: side?.points ?? side?.pts ?? 0,
-    starters: Array.isArray(side?.starters) ? side.starters : [],
-  };
-}
-
-type PairRow = {
-  pos: string;
-  left?: { name: string; points?: number };
-  right?: { name: string; points?: number };
+type Starter = {
+  slot: string; // QB/RB/WR/TE/FLEX/DEF
+  name: string; // already shortened (e.g., "C. Olave")
+  pts: number; // fantasy points
 };
 
-const ORDER = ["QB", "RB", "RB", "WR", "WR", "TE", "FLEX", "FLEX", "DEF"];
+type Team = {
+  rid: number;
+  name: string;
+  avatar: string; // absolute url or /placeholder
+  pts: number;
+  starters: Starter[];
+};
 
-function pairStarters(left: any[], right: any[]): PairRow[] {
-  const L = bucket(left);
-  const R = bucket(right);
-  const rows: PairRow[] = [];
+type Card = {
+  id: number;
+  a: Team;
+  b: Team;
+};
 
-  for (const pos of ORDER) {
-    const l = shiftFirst(L, pos);
-    const r = shiftFirst(R, pos);
-    rows.push({
-      pos,
-      left: l ? { name: shortName(l.name), points: l.points } : undefined,
-      right: r ? { name: shortName(r.name), points: r.points } : undefined,
+export default function ExpandableMatchups({ cards }: { cards: Card[] }) {
+  const [open, setOpen] = React.useState<Set<number>>(new Set());
+
+  const toggle = (id: number) => {
+    setOpen((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
     });
-  }
-
-  return rows;
-}
-
-function bucket(arr: any[]) {
-  const m = new Map<string, any[]>();
-  for (const it of arr || []) {
-    const p = (
-      String(it?.pos || it?.slot || it?.position || "") || "FLEX"
-    ).toUpperCase();
-    const k = normalizePos(p);
-    if (!m.has(k)) m.set(k, []);
-    m.get(k)!.push(it);
-  }
-  return m;
-}
-
-function shiftFirst(map: Map<string, any[]>, pos: string) {
-  const list = map.get(pos);
-  if (!list || list.length === 0) return undefined;
-  const x = list.shift();
-  return {
-    name: String(x?.name ?? x?.player ?? "—"),
-    points: x?.points ?? x?.pts ?? 0,
   };
+
+  return (
+    <div className="xm-list">
+      {cards.map((m) => {
+        const isOpen = open.has(m.id);
+        return (
+          <section
+            key={m.id}
+            className={`xm-card ${isOpen ? "open" : ""}`}
+            onClick={() => toggle(m.id)}
+          >
+            {/* Collapsed header row */}
+            <div className="xm-head" role="button" aria-expanded={isOpen}>
+              <div className="xm-team xm-left">
+                <Image
+                  src={m.a.avatar || "/avatar-placeholder.png"}
+                  alt=""
+                  width={24}
+                  height={24}
+                  className="rounded-full"
+                />
+                <div className="xm-name">{m.a.name}</div>
+              </div>
+
+              <div className="xm-pts xm-left-pts">{m.a.pts.toFixed(2)}</div>
+              <div className="xm-vs">vs</div>
+              <div className="xm-pts xm-right-pts">{m.b.pts.toFixed(2)}</div>
+
+              <div className="xm-team xm-right">
+                <div className="xm-name">{m.b.name}</div>
+                <Image
+                  src={m.b.avatar || "/avatar-placeholder.png"}
+                  alt=""
+                  width={24}
+                  height={24}
+                  className="rounded-full"
+                />
+              </div>
+            </div>
+
+            {/* Expandable: 5-column mirrored starters */}
+            {isOpen && (
+              <div
+                className="xm-body"
+                onClick={(e) => {
+                  // allow clicking inside without collapsing parent
+                  e.stopPropagation();
+                }}
+              >
+                <div className="xm-grid5">
+                  {m.a.starters.map((la, i) => {
+                    const ra = m.b.starters[i];
+                    return (
+                      <React.Fragment key={`${m.id}-${i}-${la.slot}`}>
+                        {/* Left name (right-justified) */}
+                        <div className="xm-cell xm-name left">{la.name}</div>
+                        {/* Left score (right-justified) */}
+                        <div className="xm-cell xm-num left">
+                          {isFinite(la.pts) ? la.pts.toFixed(2) : "0.00"}
+                        </div>
+                        {/* POS center */}
+                        <div className="xm-cell xm-pos">{la.slot}</div>
+                        {/* Right score (left-justified) */}
+                        <div className="xm-cell xm-num right">
+                          {isFinite(ra?.pts) ? ra.pts.toFixed(2) : "0.00"}
+                        </div>
+                        {/* Right name (left-justified) */}
+                        <div className="xm-cell xm-name right">
+                          {ra?.name ?? "—"}
+                        </div>
+                      </React.Fragment>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </section>
+        );
+      })}
+
+      <style jsx>{`
+        /* Container */
+        .xm-list {
+          display: grid;
+          gap: 12px;
+        }
+
+        .xm-card {
+          border: 1px solid #e5e7eb;
+          border-radius: 12px;
+          background: #fff;
+          overflow: hidden;
+        }
+
+        /* Header (collapsed row) */
+        .xm-head {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto 22px auto minmax(0, 1fr);
+          align-items: center;
+          gap: 10px;
+          padding: 10px 12px;
+          cursor: pointer;
+        }
+
+        .xm-team {
+          display: grid;
+          grid-auto-flow: column;
+          align-items: center;
+          gap: 8px;
+          min-width: 0;
+        }
+
+        .xm-left {
+          justify-self: start;
+        }
+
+        .xm-right {
+          justify-self: end;
+        }
+
+        .xm-name {
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          font-weight: 600;
+          color: #111827;
+        }
+
+        .xm-pts {
+          font-variant-numeric: tabular-nums;
+          font-weight: 600;
+          color: #111827;
+          min-width: 4.5ch;
+        }
+
+        .xm-left-pts {
+          text-align: right;
+        }
+
+        .xm-right-pts {
+          text-align: left;
+        }
+
+        .xm-vs {
+          text-align: center;
+          color: #6b7280;
+          font-weight: 600;
+        }
+
+        /* Body with 5-column mirrored starters */
+        .xm-body {
+          padding: 8px 12px 12px;
+          border-top: 1px solid #e5e7eb;
+          background: #fafafa;
+        }
+
+        .xm-grid5 {
+          display: grid;
+          grid-template-columns:
+            minmax(0, 1fr) minmax(48px, auto) 36px minmax(48px, auto)
+            minmax(0, 1fr);
+          column-gap: 12px;
+          row-gap: 8px;
+        }
+
+        .xm-cell {
+          min-width: 0;
+        }
+
+        .xm-cell.xm-name.left {
+          text-align: right;
+          font-weight: 600;
+          color: #111827;
+        }
+
+        .xm-cell.xm-name.right {
+          text-align: left;
+          font-weight: 600;
+          color: #111827;
+        }
+
+        .xm-cell.xm-num.left {
+          text-align: right;
+          font-variant-numeric: tabular-nums;
+          color: #111827;
+        }
+
+        .xm-cell.xm-num.right {
+          text-align: left;
+          font-variant-numeric: tabular-nums;
+          color: #111827;
+        }
+
+        .xm-cell.xm-pos {
+          text-align: center;
+          color: #6b7280;
+          font-weight: 600;
+        }
+
+        /* ===== Mobile refinements ===== */
+
+        /* 440–520px: tighten middle columns a bit */
+        @media (max-width: 520px) {
+          .xm-head {
+            grid-template-columns: minmax(0, 1fr) auto 20px auto minmax(0, 1fr);
+            gap: 8px;
+          }
+          .xm-grid5 {
+            grid-template-columns:
+              minmax(0, 1fr) minmax(44px, auto) 30px minmax(44px, auto)
+              minmax(0, 1fr);
+            column-gap: 10px;
+          }
+        }
+
+        /* <= 420px: maximize name space + allow two-line clamp in header */
+        @media (max-width: 420px) {
+          .xm-head {
+            grid-template-columns: minmax(0, 1fr) auto 18px auto minmax(0, 1fr);
+            gap: 6px;
+          }
+          .xm-pts {
+            min-width: 4ch;
+          }
+          /* Let long names wrap to two lines in the header, then clamp */
+          .xm-name {
+            white-space: normal;
+            display: -webkit-box;
+            -webkit-line-clamp: 2; /* <= Two lines max */
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            line-height: 1.15;
+          }
+          .xm-grid5 {
+            grid-template-columns:
+              minmax(0, 1fr) minmax(42px, auto) 28px minmax(42px, auto)
+              minmax(0, 1fr);
+            column-gap: 8px;
+          }
+        }
+      `}</style>
+    </div>
+  );
 }
-
-function normalizePos(p: string) {
-  if (p.startsWith("WR")) return "WR";
-  if (p.startsWith("RB")) return "RB";
-  if (p.startsWith("TE")) return "TE";
-  if (p.startsWith("QB")) return "QB";
-  if (p.includes("FLEX")) return "FLEX";
-  if (p.includes("DST") || p.includes("DEF")) return "DEF";
-  return p;
-}
-
-function shortName(full: string) {
-  const s = (full || "").trim();
-  if (!s) return "—";
-  const parts = s.split(/\s+/);
-  if (parts.length === 1) return parts[0];
-  const last = parts.pop()!;
-  const first = parts[0] || "";
-  const initial = first ? first[0].toUpperCase() + "." : "";
-  return `${initial} ${last}`;
-}
-
-/* ---------- styles ---------- */
-
-const styles = `
-  .mx-wrap {
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 12px;
-  }
-
-  .mx-card {
-    border: 1px solid #e5e7eb;
-    border-radius: 12px;
-    background: #fff;
-    overflow: hidden;
-  }
-
-  .mx-head { all: unset; cursor: pointer; width: 100%; }
-
-  .mx-head5, .mx-line5 {
-    display: grid;
-    grid-template-columns: minmax(0,1fr) 90px 56px 90px minmax(0,1fr);
-    align-items: center;
-    gap: 6px;
-  }
-
-  .mx-head5 { padding: 12px 14px; }
-  .mx-head5:hover { background: #f8fafc; }
-
-  .mx-team-left, .mx-team-right { min-width: 0; }
-  .mx-teamcell { display: flex; align-items: center; gap: 8px; min-width: 0; }
-  .mx-justify-end { justify-content: flex-end; }
-  .mx-justify-start { justify-content: flex-start; }
-
-  .mx-teamname {
-    min-width: 0;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    font-weight: 600; color: #111827;
-  }
-
-  .mx-avatar { border-radius: 9999px; object-fit: cover; flex: 0 0 auto; width: 20px; height: 20px; }
-
-  .mx-pts-left  { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; }
-  .mx-pts-right { text-align: left;  font-variant-numeric: tabular-nums; font-weight: 700; }
-
-  .mx-pos {
-    text-align: center; font-size: 11px; color: #6b7280; font-weight: 600; letter-spacing: 0.02em;
-  }
-
-  .mx-detail { border-top: 1px solid #e5e7eb; background: #fafafa; padding: 8px 12px 10px; }
-  .mx-line5 { padding: 6px 0; }
-  .mx-line5 + .mx-line5 { border-top: 1px dashed #f3f4f6; }
-
-  .mx-name-left, .mx-name-right {
-    min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  }
-  .mx-name-left  { text-align: right; }
-  .mx-name-right { text-align: left;  }
-
-  /* Mobile tweaks — give names more space */
-  @media (max-width: 520px) {
-    .mx-head5, .mx-line5 {
-      grid-template-columns: minmax(0,1fr) 64px 40px 64px minmax(0,1fr);
-      gap: 4px;
-    }
-    .mx-avatar  { width: 16px; height: 16px; }
-    .mx-teamname { font-size: 14px; }
-  }
-`;
