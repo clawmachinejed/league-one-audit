@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 
 /** Minimal local types so this file is self-contained */
@@ -17,6 +17,80 @@ export type Card = { id: number; a: Side; b: Side };
 // Allow either prop name to avoid page.tsx mismatch during rollouts
 type Props = { cards: Card[] } | { items: Card[] };
 
+/** Fit a name to ≤ 2 lines inside its allocated box by shrinking font-size. */
+function useTwoLineAutosize() {
+  const targets = useRef<HTMLElement[]>([]);
+  const register = (el: HTMLElement | null) => {
+    if (!el) return;
+    targets.current.push(el);
+  };
+
+  useEffect(() => {
+    const els = targets.current;
+    const MAX_LINES = 2;
+    const MAX_FS = 15; // px (mobile base)
+    const MIN_FS = 10; // px floor so it never becomes unreadable
+    const LINE_HEIGHT = 1.15;
+
+    const fitOne = (el: HTMLElement) => {
+      // Reset to max before measuring
+      el.style.fontSize = `${MAX_FS}px`;
+      el.style.lineHeight = `${LINE_HEIGHT}`;
+      el.style.whiteSpace = "normal";
+      el.style.overflow = "visible";
+
+      // Compute the max allowed height in px for two lines
+      // We'll recompute each try because font size varies.
+      let lo = MIN_FS;
+      let hi = MAX_FS;
+      let best = MAX_FS;
+
+      // Binary search the largest font-size that still fits ≤ 2 lines
+      for (let i = 0; i < 8; i++) {
+        const mid = Math.round((lo + hi) / 2);
+        el.style.fontSize = `${mid}px`;
+        // Force layout read
+        const linePx = mid * LINE_HEIGHT;
+        const maxHeight = linePx * MAX_LINES + 0.5; // small buffer
+        const fits = el.scrollHeight <= maxHeight + 1; // tolerance
+
+        if (fits) {
+          best = mid;
+          lo = mid + 1;
+        } else {
+          hi = mid - 1;
+        }
+      }
+      el.style.fontSize = `${best}px`;
+
+      // After fit, prevent accidental overflow(just in case)
+      // but WITHOUT ellipses; it should never trigger now.
+      el.style.overflow = "hidden";
+    };
+
+    const fitAll = () => {
+      // Run left→right to avoid layout thrash
+      for (const el of els) fitOne(el);
+    };
+
+    fitAll();
+
+    // Refit on resize/orientation
+    const ro = new ResizeObserver(() => fitAll());
+    for (const el of els) ro.observe(el);
+    const onResize = () => fitAll();
+    window.addEventListener("resize", onResize);
+
+    return () => {
+      window.removeEventListener("resize", onResize);
+      ro.disconnect();
+      targets.current = [];
+    };
+  }, []);
+
+  return register;
+}
+
 function ExpandableMatchups(props: Props) {
   const list: Card[] = "cards" in props ? props.cards : (props as any).items;
 
@@ -28,6 +102,9 @@ function ExpandableMatchups(props: Props) {
       else next.add(id);
       return next;
     });
+
+  // ONLY header changes: introduce two-line autosize
+  const registerName = useTwoLineAutosize();
 
   return (
     <div className="m-grid">
@@ -43,14 +120,14 @@ function ExpandableMatchups(props: Props) {
 
         return (
           <article key={c.id} className={`m-card${isOpen ? " open" : ""}`}>
-            {/* TOP ROW */}
+            {/* TOP ROW (HEADER) */}
             <button
               className="rowTop"
               onClick={() => toggle(c.id)}
               aria-expanded={isOpen}
               aria-controls={rowId}
             >
-              {/* Left avatar */}
+              {/* Left avatar (Sleeper-style round, consistent) */}
               <Image
                 className="av"
                 src={c.a.avatar || "/avatar-placeholder.png"}
@@ -62,7 +139,11 @@ function ExpandableMatchups(props: Props) {
               />
 
               {/* Left team name */}
-              <span className="teamName teamNameLeft" title={c.a.name}>
+              <span
+                className="teamName teamNameLeft"
+                title={c.a.name}
+                ref={registerName as any}
+              >
                 {c.a.name}
               </span>
 
@@ -88,7 +169,11 @@ function ExpandableMatchups(props: Props) {
               </span>
 
               {/* Right team name */}
-              <span className="teamName teamNameRight" title={c.b.name}>
+              <span
+                className="teamName teamNameRight"
+                title={c.b.name}
+                ref={registerName as any}
+              >
                 {c.b.name}
               </span>
 
@@ -104,7 +189,7 @@ function ExpandableMatchups(props: Props) {
               />
             </button>
 
-            {/* EXPANDED STARTERS */}
+            {/* EXPANDED STARTERS (unchanged) */}
             <div
               id={rowId}
               className="rows"
@@ -158,6 +243,10 @@ function ExpandableMatchups(props: Props) {
                   28px minmax(0, 1fr)
                   72px 20px 72px minmax(0, 1fr) 28px;
 
+                /* Fixed header height for uniformity across all cards */
+                min-height: 64px;
+                max-height: 64px;
+
                 padding: 10px 12px;
                 cursor: pointer;
                 background: #fff;
@@ -171,25 +260,23 @@ function ExpandableMatchups(props: Props) {
               }
 
               .av {
-                border-radius: 9999px;
+                border-radius: 9999px; /* round like Sleeper */
                 width: 28px;
                 height: 28px;
                 object-fit: cover;
                 flex: 0 0 auto;
               }
 
-              /* NAMES — wrap on mobile (2 lines), 1 line >= sm; never ellipsize */
+              /* NAMES — always wrap, never ellipsize, autosized via JS to 2 lines */
               .teamName {
                 min-width: 0;
-                overflow: hidden;
-
-                display: -webkit-box;
-                -webkit-box-orient: vertical;
-                -webkit-line-clamp: 2;
+                overflow: visible; /* allow measuring, hidden after fit */
                 white-space: normal;
                 word-break: break-word;
                 line-height: 1.15;
                 font-weight: 600;
+
+                /* JS will set font-size between 10px and 15px to fit ≤ 2 lines */
                 font-size: 15px;
                 color: #111827;
               }
@@ -273,7 +360,6 @@ function ExpandableMatchups(props: Props) {
                 text-overflow: ellipsis;
                 white-space: nowrap;
               }
-              /* outside justification ONLY */
               .pname.left {
                 text-align: left;
                 padding-right: 6px;
@@ -303,7 +389,8 @@ function ExpandableMatchups(props: Props) {
               /* ---------- responsive tweaks ---------- */
               @media (max-width: 360px) {
                 .teamName {
-                  font-size: 14px; /* slightly smaller for tiny phones */
+                  /* JS still sizes within [10,15]; this just nudges defaults */
+                  font-size: 14px;
                 }
               }
               @media (min-width: 640px) {
@@ -312,15 +399,14 @@ function ExpandableMatchups(props: Props) {
                     36px minmax(0, 1fr) 88px 24px 88px minmax(0, 1fr)
                     36px;
                   padding: 12px 14px;
+                  min-height: 72px;
+                  max-height: 72px;
                 }
                 .av {
                   width: 36px;
                   height: 36px;
                 }
-                /* on larger screens, clamp names to a single line (classic look) */
-                .teamName {
-                  -webkit-line-clamp: 1;
-                }
+                /* Keep 2-line guarantee even on larger screens for consistency */
               }
             `}</style>
           </article>
