@@ -114,15 +114,14 @@ export default function ExpandableMatchups({ cards, items }: Props) {
           display:grid;
           align-items:center;
           gap:10px;
-          /* 8 strict columns:
-             [1] L avatar | [2] L name | [3] L score | [4] vs | [5] R score | [6] spacer | [7] R name | [8] R avatar */
+          /* 7 strict columns:
+             [1] L avatar | [2] L name | [3] L score | [4] vs | [5] R score | [6] R name | [7] R avatar */
           grid-template-columns:
             28px
             minmax(0,1.35fr)
             72px
             20px
             72px
-            8px
             minmax(0,1.35fr)
             28px;
         }
@@ -135,13 +134,13 @@ export default function ExpandableMatchups({ cards, items }: Props) {
           gap:8px;
         }
         .sum-left{  grid-column: 1 / span 2; grid-template-columns: 28px minmax(0,1fr); }
-        .sum-right{ grid-column: 7 / span 2; grid-template-columns: minmax(0,1fr) 28px; justify-items:start; }
+        .sum-right{ grid-column: 6 / span 2; grid-template-columns: minmax(0,1fr) 28px; }
 
         .av{
           width:24px; height:24px; border-radius:9999px; object-fit:cover; background:#f3f4f6;
         }
-        .avL{ justify-self:start; }
-        .avR{ justify-self:end;   }
+        .avL{ justify-self:start; }  /* left avatar to outer edge */
+        .avR{ justify-self:end;   }  /* right avatar to outer edge */
 
         .t-name{
           font-weight:500;
@@ -153,11 +152,15 @@ export default function ExpandableMatchups({ cards, items }: Props) {
         }
         .t-left{  text-align:left; }
 
-        /* Right-side team name: left-justified text, sits just left of the avatar */
+        /* Right-side team name:
+           left-align text, but push the box toward the avatar and shrink to content
+           so the left rag is clean and the block hugs the avatar */
         .t-name.t-right{
           text-align:left;
-          margin-left:0;
-          width:auto;
+          margin-left:auto;                 /* pushes the name block rightward */
+          width:-webkit-fit-content;
+          width:-moz-fit-content;
+          width:fit-content;                /* shrink-to-content */
           max-width:100%;
           min-width:0;
         }
@@ -167,8 +170,8 @@ export default function ExpandableMatchups({ cards, items }: Props) {
           font-variant-numeric: tabular-nums;
           white-space:nowrap;
         }
-        .t-score.t-left{  text-align:right; }
-        .t-score.t-right{ text-align:left;  }
+        .t-score.t-left{  text-align:right; } /* left score hugs vs from the left side */
+        .t-score.t-right{ text-align:left;  } /* right score hugs vs from the right side */
 
         .vs{
           grid-column: 4;
@@ -226,13 +229,13 @@ export default function ExpandableMatchups({ cards, items }: Props) {
               64px
               18px
               64px
-              6px
               minmax(0,1.4fr)
               24px;
           }
           .sum-left{  grid-template-columns: 24px minmax(0,1fr); }
-          .sum-right{ grid-template-columns: minmax(0,1fr) 24px; justify-items:start; }
+          .sum-right{ grid-template-columns: minmax(0,1fr) 24px; }
 
+          /* FORCE 2-line clamp with ellipsis on mobile; Firefox gets a hard cap */
           .t-name{
             white-space:normal !important;
             overflow:hidden;
@@ -240,7 +243,7 @@ export default function ExpandableMatchups({ cards, items }: Props) {
             display:-webkit-box !important;
             -webkit-box-orient:vertical;
             -webkit-line-clamp:2;
-            max-height:calc(2 * 1.2em); /* Firefox hard cap */
+            max-height:calc(2 * 1.2em);
           }
         }
       `}</style>
