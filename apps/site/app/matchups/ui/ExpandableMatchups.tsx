@@ -120,57 +120,70 @@ export default function ExpandableMatchups({ cards, items }: Props) {
         }
         .xm-card:focus-visible{ outline:2px solid #2563eb; outline-offset:2px; }
 
-        /* SUMMARY */
+        /* ===================== SUMMARY (STRICT GRID) ===================== */
         .sum-row{
           display:grid;
           align-items:center;
           gap:10px;
+
+          /* 7 strict columns — NO 'auto' anywhere
+             [1] avatar | [2] left name | [3] left score | [4] vs | [5] right score | [6] right name | [7] avatar */
           grid-template-columns:
-            auto minmax(0,1fr) /* left name block */
-            auto                 /* left score */
-            22px                 /* vs */
-            auto                 /* right score */
-            minmax(0,1fr) auto;  /* right name block */
+            28px                 /* [1] left avatar */
+            minmax(0,1.35fr)     /* [2] left name */
+            72px                 /* [3] left score */
+            20px                 /* [4] vs */
+            72px                 /* [5] right score */
+            minmax(0,1.35fr)     /* [6] right name */
+            28px;                /* [7] right avatar */
         }
-        .sum-left, .sum-right{
-          display:flex;
+
+        /* wrappers become tiny 2-col grids to center avatars within their fixed columns */
+        .sum-left,
+        .sum-right{
+          display:grid;
           align-items:center;
-          gap:8px;
           min-width:0;
+          gap:8px;
         }
-        .sum-left{ grid-column:1 / span 2; }
-        .sum-right{ grid-column:6 / span 2; justify-content:flex-end; }
+        .sum-left{  grid-column: 1 / span 2; grid-template-columns: 28px minmax(0,1fr); }
+        .sum-right{ grid-column: 6 / span 2; grid-template-columns: minmax(0,1fr) 28px; }
 
+        /* avatar centered in its 28px cell */
         .av{
-          width:24px; height:24px; border-radius:9999px; object-fit:cover;
-          background:#f3f4f6; flex:0 0 auto;
+          width:24px; height:24px; border-radius:9999px; object-fit:cover; background:#f3f4f6;
+          justify-self:center;
         }
 
+        /* names: desktop/tablet single line; align left/right appropriately */
         .t-name{
           font-weight:500;
           line-height:1.2;
           min-width:0;
           overflow:hidden;
           text-overflow:ellipsis;
-          white-space:nowrap; /* desktop/tablet: single line */
+          white-space:nowrap;
         }
-        .t-left{ text-align:left; }
+        .t-left{  text-align:left; }
         .t-right{ text-align:right; }
 
+        /* SCORES — strict alignment so digits line up down the column */
         .t-score{
           font-variant-numeric: tabular-nums;
           white-space:nowrap;
         }
-        .t-score.t-left{ text-align:left; }
-        .t-score.t-right{ text-align:right; }
+        .t-score.t-left{  text-align:right; } /* left score column is right-justified */
+        .t-score.t-right{ text-align:left;  } /* right score column is left-justified */
 
+        /* 'vs' has its own fixed column and stays centered */
         .vs{
+          grid-column: 4;
           text-align:center;
           color:#6b7280;
           font-weight:600;
         }
 
-        /* DETAILS */
+        /* ===================== DETAILS ===================== */
         .detail{
           margin-top:10px;
           border-top:1px dashed #e5e7eb;
@@ -184,9 +197,9 @@ export default function ExpandableMatchups({ cards, items }: Props) {
           gap:8px;
           grid-template-columns:
             minmax(0,1fr)  /* left name */
-            auto           /* left score */
+            70px           /* left score (fixed for alignment) */
             44px           /* POS */
-            auto           /* right score */
+            70px           /* right score (fixed for alignment) */
             minmax(0,1fr); /* right name */
         }
         .line.hdr{
@@ -207,31 +220,46 @@ export default function ExpandableMatchups({ cards, items }: Props) {
           color:#6b7280;
         }
 
-        /* ---------- MOBILE: 20% smaller + 2-line clamp with ellipsis ---------- */
+        /* ===================== MOBILE (≤480px) ===================== */
         @media (max-width: 480px){
-          /* 1) shrink ALL text ~20% via cascading font-size */
+          /* shrink ALL text ~20% via cascading font-size (your request) */
           .xm-card { font-size: 0.8rem; }
 
-          /* keep your wider name columns; no grid changes beyond what's already here */
+          /* keep strict columns for consistent alignment across cards */
           .sum-row{
-            grid-template-columns:
-              auto minmax(0,1.25fr)  /* left name grows */
-              auto                    /* left score (narrow) */
-              18px                    /* vs tight */
-              auto                    /* right score (narrow) */
-              minmax(0,1.25fr) auto;  /* right name grows */
             gap:8px;
+            grid-template-columns:
+              24px                 /* [1] left avatar (slightly tighter) */
+              minmax(0,1.4fr)      /* [2] left name */
+              64px                 /* [3] left score */
+              18px                 /* [4] vs */
+              64px                 /* [5] right score */
+              minmax(0,1.4fr)      /* [6] right name */
+              24px;                /* [7] right avatar */
           }
+          .sum-left{  grid-template-columns: 24px minmax(0,1fr); }
+          .sum-right{ grid-template-columns: minmax(0,1fr) 24px; }
 
-          /* 2) force names to max 2 lines with ellipses (CSS-only) */
+          /* force team names to max 2 lines with ellipses (Firefox gets a hard cap) */
           .t-name{
-            white-space:normal;                 /* allow wrapping */
+            white-space:normal;
             overflow:hidden;
             text-overflow:ellipsis;
-            display:-webkit-box;                /* WebKit/Chromium multi-line */
+            display:-webkit-box;
             -webkit-box-orient:vertical;
-            -webkit-line-clamp:2;               /* max 2 lines */
-            max-height:calc(2 * 1.2em);         /* Firefox fallback cap */
+            -webkit-line-clamp:2;
+            max-height:calc(2 * 1.2em);
+          }
+
+          /* details: keep score columns fixed; tighten gaps slightly */
+          .line{
+            grid-template-columns:
+              minmax(0,1fr)
+              64px
+              40px
+              64px
+              minmax(0,1fr);
+            gap:6px;
           }
         }
       `}</style>
