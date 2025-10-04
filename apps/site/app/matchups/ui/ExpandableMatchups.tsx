@@ -154,7 +154,19 @@ export default function ExpandableMatchups({ cards, items }: Props) {
           white-space:nowrap;
         }
         .t-left{  text-align:left; }
-        .t-right{ text-align:right; }
+
+        /* RIGHT-SIDE TEAM NAME:
+           - left-align text so each line starts flush left
+           - but push the box to the right and shrink-to-fit so it hugs the avatar */
+        .t-right{
+          text-align:left;
+          margin-left:auto;                  /* push box toward the avatar (right edge of its cell) */
+          width:-webkit-fit-content;
+          width:-moz-fit-content;
+          width:fit-content;                 /* shrink box to content width */
+          max-width:100%;                    /* never overflow the grid cell */
+          min-width:0;
+        }
 
         /* SCORES — strict alignment so digits line up down the column */
         .t-score{
