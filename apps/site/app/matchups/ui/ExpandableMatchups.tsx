@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useState } from "react";
 import Image from "next/image";
 
 /** Minimal local types so this file is self-contained */
@@ -17,80 +17,6 @@ export type Card = { id: number; a: Side; b: Side };
 // Allow either prop name to avoid page.tsx mismatch during rollouts
 type Props = { cards: Card[] } | { items: Card[] };
 
-/** Fit a name to ≤ 2 lines inside its allocated box by shrinking font-size. */
-function useTwoLineAutosize() {
-  const targets = useRef<HTMLElement[]>([]);
-  const register = (el: HTMLElement | null) => {
-    if (!el) return;
-    targets.current.push(el);
-  };
-
-  useEffect(() => {
-    const els = targets.current;
-    const MAX_LINES = 2;
-    const MAX_FS = 15; // px (mobile base)
-    const MIN_FS = 10; // px floor so it never becomes unreadable
-    const LINE_HEIGHT = 1.15;
-
-    const fitOne = (el: HTMLElement) => {
-      // Reset to max before measuring
-      el.style.fontSize = `${MAX_FS}px`;
-      el.style.lineHeight = `${LINE_HEIGHT}`;
-      el.style.whiteSpace = "normal";
-      el.style.overflow = "visible";
-
-      // Compute the max allowed height in px for two lines
-      // We'll recompute each try because font size varies.
-      let lo = MIN_FS;
-      let hi = MAX_FS;
-      let best = MAX_FS;
-
-      // Binary search the largest font-size that still fits ≤ 2 lines
-      for (let i = 0; i < 8; i++) {
-        const mid = Math.round((lo + hi) / 2);
-        el.style.fontSize = `${mid}px`;
-        // Force layout read
-        const linePx = mid * LINE_HEIGHT;
-        const maxHeight = linePx * MAX_LINES + 0.5; // small buffer
-        const fits = el.scrollHeight <= maxHeight + 1; // tolerance
-
-        if (fits) {
-          best = mid;
-          lo = mid + 1;
-        } else {
-          hi = mid - 1;
-        }
-      }
-      el.style.fontSize = `${best}px`;
-
-      // After fit, prevent accidental overflow(just in case)
-      // but WITHOUT ellipses; it should never trigger now.
-      el.style.overflow = "hidden";
-    };
-
-    const fitAll = () => {
-      // Run left→right to avoid layout thrash
-      for (const el of els) fitOne(el);
-    };
-
-    fitAll();
-
-    // Refit on resize/orientation
-    const ro = new ResizeObserver(() => fitAll());
-    for (const el of els) ro.observe(el);
-    const onResize = () => fitAll();
-    window.addEventListener("resize", onResize);
-
-    return () => {
-      window.removeEventListener("resize", onResize);
-      ro.disconnect();
-      targets.current = [];
-    };
-  }, []);
-
-  return register;
-}
-
 function ExpandableMatchups(props: Props) {
   const list: Card[] = "cards" in props ? props.cards : (props as any).items;
 
@@ -103,90 +29,74 @@ function ExpandableMatchups(props: Props) {
       return next;
     });
 
-  // ONLY header changes: introduce two-line autosize
-  const registerName = useTwoLineAutosize();
-
   return (
     <div className="m-grid">
       {list.map((c) => {
         const isOpen = open.has(c.id);
-
-        // header-only: winner/loser coloring
         const leftWins = c.a.pts > c.b.pts;
         const rightWins = c.b.pts > c.a.pts;
         const tie = c.a.pts === c.b.pts;
+
+        const leftClass = tie ? "neutral" : leftWins ? "win" : "lose";
+        const rightClass = tie ? "neutral" : rightWins ? "win" : "lose";
 
         const rowId = `matchup-${c.id}-rows`;
 
         return (
           <article key={c.id} className={`m-card${isOpen ? " open" : ""}`}>
-            {/* TOP ROW (HEADER) */}
+            {/* CLICK TARGET wraps a fixed-height header */}
             <button
-              className="rowTop"
+              className="headButton"
               onClick={() => toggle(c.id)}
               aria-expanded={isOpen}
               aria-controls={rowId}
             >
-              {/* Left avatar (Sleeper-style round, consistent) */}
-              <Image
-                className="av"
-                src={c.a.avatar || "/avatar-placeholder.png"}
-                alt=""
-                width={28}
-                height={28}
-                unoptimized
-                priority={false}
-              />
+              <div className="rowTop">
+                {/* Left avatar */}
+                <Image
+                  className="av"
+                  src={c.a.avatar || "/avatar-placeholder.png"}
+                  alt=""
+                  width={32}
+                  height={32}
+                  unoptimized
+                  priority={false}
+                />
 
-              {/* Left team name */}
-              <span
-                className="teamName teamNameLeft"
-                title={c.a.name}
-                ref={registerName as any}
-              >
-                {c.a.name}
-              </span>
+                {/* Left team name (2-line clamp, Android/Firefox-safe) */}
+                <span className="teamName teamNameLeft" title={c.a.name}>
+                  {c.a.name}
+                </span>
 
-              {/* Left score */}
-              <span
-                className={
-                  "scoreLeft " + (tie ? "neutral" : leftWins ? "win" : "lose")
-                }
-              >
-                {c.a.pts.toFixed(2)}
-              </span>
+                {/* Left score */}
+                <span className={`score scoreLeft ${leftClass}`}>
+                  {c.a.pts.toFixed(2)}
+                </span>
 
-              {/* VS */}
-              <span className="vs">vs</span>
+                {/* VS */}
+                <span className="vs">vs</span>
 
-              {/* Right score */}
-              <span
-                className={
-                  "scoreRight " + (tie ? "neutral" : rightWins ? "win" : "lose")
-                }
-              >
-                {c.b.pts.toFixed(2)}
-              </span>
+                {/* Right score */}
+                <span className={`score scoreRight ${rightClass}`}>
+                  {c.b.pts.toFixed(2)}
+                </span>
 
-              {/* Right team name */}
-              <span
-                className="teamName teamNameRight"
-                title={c.b.name}
-                ref={registerName as any}
-              >
-                {c.b.name}
-              </span>
+                {/* Right team name (2-line clamp, Android/Firefox-safe) */}
+                <span className="teamName teamNameRight" title={c.b.name}>
+                  {c.b.name}
+                </span>
 
-              {/* Right avatar */}
-              <Image
-                className="av"
-                src={c.b.avatar || "/avatar-placeholder.png"}
-                alt=""
-                width={28}
-                height={28}
-                unoptimized
-                priority={false}
-              />
+                {/* Right avatar */}
+                <Image
+                  className="av"
+                  src={c.b.avatar || "/avatar-placeholder.png"}
+                  alt=""
+                  width={32}
+                  height={32}
+                  unoptimized
+                  priority={false}
+                />
+              </div>
             </button>
 
             {/* EXPANDED STARTERS (unchanged) */}
@@ -231,54 +141,63 @@ function ExpandableMatchups(props: Props) {
                 overflow: hidden;
               }
 
+              .headButton {
+                width: 100%;
+                border: 0;
+                padding: 0;
+                background: transparent;
+                cursor: pointer;
+              }
+
               /* ---------- TEAM HEADER ROW ---------- */
               .rowTop {
-                width: 100%;
                 display: grid;
+                /* avatars | name | score | vs | score | name | avatar */
+                grid-template-columns: 32px minmax(0, 1fr) 68px 22px 68px minmax(
+                    0,
+                    1fr
+                  ) 32px;
                 align-items: center;
                 column-gap: 8px;
 
-                /* avatars | name | score | vs | score | name | avatar */
-                grid-template-columns:
-                  28px minmax(0, 1fr)
-                  72px 20px 72px minmax(0, 1fr) 28px;
-
-                /* Fixed header height for uniformity across all cards */
                 min-height: 64px;
                 max-height: 64px;
-
                 padding: 10px 12px;
-                cursor: pointer;
+
                 background: #fff;
-                transition:
-                  background-color 120ms ease,
-                  box-shadow 120ms ease;
+                transition: background-color 120ms ease;
               }
-              .rowTop:hover,
-              .rowTop:focus-visible {
+              .headButton:hover .rowTop,
+              .headButton:focus-visible .rowTop {
                 background: #fafafa;
               }
 
               .av {
-                border-radius: 9999px; /* round like Sleeper */
-                width: 28px;
-                height: 28px;
+                border-radius: 9999px;
+                width: 32px;
+                height: 32px;
                 object-fit: cover;
                 flex: 0 0 auto;
               }
 
-              /* NAMES — always wrap, never ellipsize, autosized via JS to 2 lines */
+              /* Two-line clamp with ellipsis — CSS-only, plus Firefox fallback */
               .teamName {
                 min-width: 0;
-                overflow: visible; /* allow measuring, hidden after fit */
-                white-space: normal;
-                word-break: break-word;
-                line-height: 1.15;
-                font-weight: 600;
-
-                /* JS will set font-size between 10px and 15px to fit ≤ 2 lines */
-                font-size: 15px;
+                font-weight: 700;
                 color: #111827;
+                line-height: 1.2;
+                font-size: 14px; /* smaller mobile baseline (~85% of 16px) */
+                word-break: break-word;
+
+                /* Primary (Chromium/WebKit: Android Chrome, Samsung Internet, iOS, etc.) */
+                display: -webkit-box;
+                -webkit-box-orient: vertical;
+                -webkit-line-clamp: 2;
+                overflow: hidden;
+                text-overflow: ellipsis;
+
+                /* Fallback for Firefox (no -webkit-line-clamp): hard cap at 2 lines */
+                max-height: calc(2 * 1.2em);
               }
               .teamNameLeft {
                 text-align: left;
@@ -287,12 +206,10 @@ function ExpandableMatchups(props: Props) {
                 text-align: right;
               }
 
-              .scoreLeft,
-              .scoreRight {
+              .score {
                 font-variant-numeric: tabular-nums;
-                font-weight: 600;
-                color: #111827;
-                transition: color 120ms ease;
+                font-weight: 700;
+                font-size: 15px; /* slightly smaller on mobile for balance */
               }
               .scoreLeft {
                 text-align: right;
@@ -300,8 +217,6 @@ function ExpandableMatchups(props: Props) {
               .scoreRight {
                 text-align: left;
               }
-
-              /* header: winner/loser coloring */
               .win {
                 color: #059669; /* emerald-600 */
               }
@@ -315,7 +230,7 @@ function ExpandableMatchups(props: Props) {
               .vs {
                 text-align: center;
                 color: #6b7280;
-                font-weight: 600;
+                font-weight: 700;
               }
 
               /* ---------- EXPANDED: headers ---------- */
@@ -387,26 +302,26 @@ function ExpandableMatchups(props: Props) {
               }
 
               /* ---------- responsive tweaks ---------- */
-              @media (max-width: 360px) {
-                .teamName {
-                  /* JS still sizes within [10,15]; this just nudges defaults */
-                  font-size: 14px;
-                }
-              }
               @media (min-width: 640px) {
                 .rowTop {
-                  grid-template-columns:
-                    36px minmax(0, 1fr) 88px 24px 88px minmax(0, 1fr)
-                    36px;
-                  padding: 12px 14px;
+                  grid-template-columns: 36px minmax(0, 1fr) 92px 28px 92px minmax(
+                      0,
+                      1fr
+                    ) 36px;
                   min-height: 72px;
                   max-height: 72px;
+                  padding: 12px 14px;
                 }
                 .av {
                   width: 36px;
                   height: 36px;
                 }
-                /* Keep 2-line guarantee even on larger screens for consistency */
+                .teamName {
+                  font-size: 16px; /* tasteful desktop size */
+                }
+                .score {
+                  font-size: 16px;
+                }
               }
             `}</style>
           </article>
