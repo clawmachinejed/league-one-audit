@@ -1,309 +1,260 @@
 ﻿"use client";
 
-import React, { useState } from "react";
-import Image from "next/image";
+import * as React from "react";
 
-type Starter = { slot: string; name: string; pts: number };
+type Starter = {
+  slot: string; // QB/RB/...
+  name: string; // "B. Purdy"
+  pts: number;
+};
+
 type Side = {
   rid: number;
   name: string;
-  avatar: string;
+  avatar: string; // url
   pts: number;
   starters: Starter[];
 };
-export type Card = { id: number; a: Side; b: Side };
-type Props = { cards: Card[] } | { items: Card[] };
 
-function ExpandableMatchups(props: Props) {
-  const list: Card[] = "cards" in props ? props.cards : (props as any).items;
+export type Card = {
+  id: number;
+  a: Side;
+  b: Side;
+};
 
-  const [open, setOpen] = useState<Set<number>>(new Set());
-  const toggle = (id: number) =>
-    setOpen((cur) => {
-      const next = new Set(cur);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+type Props = { cards?: Card[]; items?: Card[] };
+
+export default function ExpandableMatchups({ cards, items }: Props) {
+  const list = (cards ?? items ?? []) as Card[];
+  const [open, setOpen] = React.useState<Record<number, boolean>>({});
 
   return (
-    <div className="m-grid">
+    <div className="xm-wrap">
       {list.map((c) => {
-        const isOpen = open.has(c.id);
-        const leftWins = c.a.pts > c.b.pts;
-        const rightWins = c.b.pts > c.a.pts;
-        const tie = c.a.pts === c.b.pts;
-
-        const leftClass = tie ? "neutral" : leftWins ? "win" : "lose";
-        const rightClass = tie ? "neutral" : rightWins ? "win" : "lose";
-
-        const rowId = `matchup-${c.id}-rows`;
-
+        const isOpen = !!open[c.id];
         return (
-          <article key={c.id} className={`m-card${isOpen ? " open" : ""}`}>
-            <button
-              className="headButton"
-              onClick={() => toggle(c.id)}
-              aria-expanded={isOpen}
-              aria-controls={rowId}
-            >
-              <div className="rowTop">
-                <Image
+          <section
+            className={`xm-card ${isOpen ? "open" : ""}`}
+            key={c.id}
+            onClick={() => setOpen((s) => ({ ...s, [c.id]: !s[c.id] }))}
+            role="button"
+            aria-expanded={isOpen}
+            tabIndex={0}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                setOpen((s) => ({ ...s, [c.id]: !s[c.id] }));
+              }
+            }}
+          >
+            {/* SUMMARY ROW */}
+            <div className="sum-row">
+              <div className="sum-left">
+                <img
                   className="av"
-                  src={c.a.avatar || "/avatar-placeholder.png"}
+                  src={c.a.avatar}
                   alt=""
-                  width={32}
-                  height={32}
-                  unoptimized
+                  width={24}
+                  height={24}
                 />
-                <span className="teamName teamNameLeft" title={c.a.name}>
-                  {c.a.name}
-                </span>
-                <span className={`score scoreLeft ${leftClass}`}>
-                  {c.a.pts.toFixed(2)}
-                </span>
-                <span className="vs">vs</span>
-                <span className={`score scoreRight ${rightClass}`}>
-                  {c.b.pts.toFixed(2)}
-                </span>
-                <span className="teamName teamNameRight" title={c.b.name}>
-                  {c.b.name}
-                </span>
-                <Image
-                  className="av"
-                  src={c.b.avatar || "/avatar-placeholder.png"}
-                  alt=""
-                  width={32}
-                  height={32}
-                  unoptimized
-                />
-              </div>
-            </button>
-
-            <div
-              id={rowId}
-              className="rows"
-              style={{ display: isOpen ? "block" : "none" }}
-            >
-              <div className="hdr">
-                <span className="muted">STARTERS</span>
-                <span className="muted ptsL">PTS</span>
-                <span className="muted pos">POS</span>
-                <span className="muted ptsR">PTS</span>
-                <span className="muted">STARTERS</span>
+                <div className="t-name t-left">{c.a.name}</div>
               </div>
 
-              {zipStarters(c.a.starters, c.b.starters).map((row, i) => (
-                <div key={i} className="line">
-                  <div className="pname left" title={row.a?.name || ""}>
-                    {row.a?.name ?? ""}
-                  </div>
-                  <div className="ppts left">{fmt(row.a?.pts)}</div>
-                  <div className="slot">{row.a?.slot ?? row.b?.slot ?? ""}</div>
-                  <div className="ppts right">{fmt(row.b?.pts)}</div>
-                  <div className="pname right" title={row.b?.name || ""}>
-                    {row.b?.name ?? ""}
-                  </div>
-                </div>
-              ))}
+              <div className="t-score t-left">{c.a.pts.toFixed(2)}</div>
+              <div className="vs">vs</div>
+              <div className="t-score t-right">{c.b.pts.toFixed(2)}</div>
+
+              <div className="sum-right">
+                <div className="t-name t-right">{c.b.name}</div>
+                <img
+                  className="av"
+                  src={c.b.avatar}
+                  alt=""
+                  width={24}
+                  height={24}
+                />
+              </div>
             </div>
 
-            <style jsx>{`
-              .m-grid {
-                display: grid;
-                gap: 12px;
-              }
-              .m-card {
-                border: 1px solid #e5e7eb;
-                border-radius: 12px;
-                background: #fff;
-                overflow: hidden;
-              }
-              .headButton {
-                width: 100%;
-                border: 0;
-                padding: 0;
-                background: transparent;
-                cursor: pointer;
-              }
+            {/* DETAILS (expandable) */}
+            {isOpen && (
+              <div className="detail">
+                <div className="line hdr">
+                  <div className="col name left">Starters</div>
+                  <div className="col score left">Pts</div>
+                  <div className="col pos">POS</div>
+                  <div className="col score right">Pts</div>
+                  <div className="col name right">Starters</div>
+                </div>
 
-              /* Header: avatars | name | score | vs | score | name | avatar */
-              .rowTop {
-                display: grid;
-                grid-template-columns:
-                  32px minmax(0, 1fr)
-                  68px 22px 68px minmax(0, 1fr) 32px;
-                align-items: center;
-                column-gap: 8px;
-                min-height: 64px;
-                max-height: 64px;
-                padding: 10px 12px;
-                background: #fff;
-                transition: background-color 120ms ease;
-              }
-              .headButton:hover .rowTop,
-              .headButton:focus-visible .rowTop {
-                background: #fafafa;
-              }
-              .av {
-                border-radius: 9999px;
-                width: 32px;
-                height: 32px;
-                object-fit: cover;
-                flex: 0 0 auto;
-              }
-
-              /* CSS-only two-line clamp with ellipsis */
-              .teamName {
-                min-width: 0;
-                font-weight: 700;
-                color: #111827;
-                line-height: 1.2;
-                font-size: 14px; /* mobile smaller baseline */
-                word-break: break-word;
-                display: -webkit-box;
-                -webkit-box-orient: vertical;
-                -webkit-line-clamp: 2;
-                overflow: hidden;
-                text-overflow: ellipsis;
-                max-height: calc(2 * 1.2em); /* Firefox cap */
-              }
-              .teamNameLeft {
-                text-align: left;
-              }
-              .teamNameRight {
-                text-align: right;
-              }
-
-              .score {
-                font-variant-numeric: tabular-nums;
-                font-weight: 700;
-                font-size: 15px; /* mobile slightly smaller */
-              }
-              .scoreLeft {
-                text-align: right;
-              }
-              .scoreRight {
-                text-align: left;
-              }
-              .win {
-                color: #059669;
-              }
-              .lose {
-                color: #dc2626;
-              }
-              .neutral {
-                color: #111827;
-              }
-              .vs {
-                text-align: center;
-                color: #6b7280;
-                font-weight: 700;
-              }
-
-              /* Expanded section (unchanged) */
-              .rows {
-                border-top: 1px solid #e5e7eb;
-                padding: 10px 12px 12px;
-              }
-              .hdr {
-                display: grid;
-                grid-template-columns: 1fr 70px 50px 70px 1fr;
-                column-gap: 8px;
-                align-items: center;
-                margin: 2px 0 6px;
-              }
-              .muted {
-                color: #6b7280;
-                font-size: 12px;
-                font-weight: 600;
-                letter-spacing: 0.02em;
-              }
-              .ptsL {
-                text-align: right;
-              }
-              .pos {
-                text-align: center;
-              }
-              .ptsR {
-                text-align: left;
-              }
-              .line {
-                display: grid;
-                grid-template-columns: 1fr 70px 50px 70px 1fr;
-                column-gap: 8px;
-                align-items: center;
-                padding: 6px 0;
-              }
-              .pname {
-                min-width: 0;
-                overflow: hidden;
-                text-overflow: ellipsis;
-                white-space: nowrap;
-              }
-              .pname.left {
-                text-align: left;
-                padding-right: 6px;
-              }
-              .pname.right {
-                text-align: right;
-                padding-left: 6px;
-              }
-              .ppts {
-                font-variant-numeric: tabular-nums;
-                font-weight: 600;
-              }
-              .ppts.left {
-                text-align: right;
-              }
-              .ppts.right {
-                text-align: left;
-              }
-              .slot {
-                text-align: center;
-                color: #6b7280;
-                font-weight: 600;
-                width: 50px;
-              }
-
-              @media (min-width: 640px) {
-                .rowTop {
-                  grid-template-columns:
-                    36px minmax(0, 1fr)
-                    92px 28px 92px minmax(0, 1fr) 36px;
-                  min-height: 72px;
-                  max-height: 72px;
-                  padding: 12px 14px;
-                }
-                .av {
-                  width: 36px;
-                  height: 36px;
-                }
-                .teamName {
-                  font-size: 16px;
-                }
-                .score {
-                  font-size: 16px;
-                }
-              }
-            `}</style>
-          </article>
+                {zipStarters(c.a.starters, c.b.starters).map((row, i) => (
+                  <div className="line" key={i}>
+                    <div className="col name left">{row.al?.name ?? "—"}</div>
+                    <div className="col score left">
+                      {row.al ? row.al.pts.toFixed(2) : "—"}
+                    </div>
+                    <div className="col pos">{row.pos ?? ""}</div>
+                    <div className="col score right">
+                      {row.ar ? row.ar.pts.toFixed(2) : "—"}
+                    </div>
+                    <div className="col name right">{row.ar?.name ?? "—"}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
         );
       })}
+
+      <style>{`
+        .xm-wrap{
+          display:grid;
+          gap:12px;
+        }
+        .xm-card{
+          border:1px solid #e5e7eb;
+          border-radius:12px;
+          padding:10px 12px;
+          background:#fff;
+          cursor:pointer;
+        }
+        .xm-card:focus-visible{ outline:2px solid #2563eb; outline-offset:2px; }
+
+        /* SUMMARY */
+        .sum-row{
+          display:grid;
+          align-items:center;
+          gap:10px;
+          grid-template-columns:
+            auto minmax(0,1fr) /* left name block */
+            auto                 /* left score */
+            22px                 /* vs */
+            auto                 /* right score */
+            minmax(0,1fr) auto;  /* right name block */
+        }
+        .sum-left, .sum-right{
+          display:flex;
+          align-items:center;
+          gap:8px;
+          min-width:0;
+        }
+        .sum-left{ grid-column:1 / span 2; }
+        .sum-right{ grid-column:6 / span 2; justify-content:flex-end; }
+
+        .av{
+          width:24px; height:24px; border-radius:9999px; object-fit:cover;
+          background:#f3f4f6; flex:0 0 auto;
+        }
+
+        .t-name{
+          font-weight:500;
+          line-height:1.2;
+          min-width:0;
+          overflow:hidden;
+          text-overflow:ellipsis;
+          white-space:nowrap;
+        }
+        .t-left{ text-align:left; }
+        .t-right{ text-align:right; }
+
+        .t-score{
+          font-variant-numeric: tabular-nums;
+          white-space:nowrap;
+        }
+        .t-score.t-left{ text-align:left; }
+        .t-score.t-right{ text-align:right; }
+
+        .vs{
+          text-align:center;
+          color:#6b7280;
+          font-weight:600;
+        }
+
+        /* DETAILS */
+        .detail{
+          margin-top:10px;
+          border-top:1px dashed #e5e7eb;
+          padding-top:10px;
+          display:grid;
+          gap:6px;
+        }
+        .line{
+          display:grid;
+          align-items:center;
+          gap:8px;
+          grid-template-columns:
+            minmax(0,1fr)  /* left name */
+            auto           /* left score */
+            44px           /* POS */
+            auto           /* right score */
+            minmax(0,1fr); /* right name */
+        }
+        .line.hdr{
+          color:#6b7280;
+          font-size:12px;
+          text-transform:uppercase;
+          letter-spacing:.04em;
+          font-weight:600;
+        }
+        .col.name.left{ text-align:right; }
+        .col.name.right{ text-align:left; }
+        .col.score{ font-variant-numeric:tabular-nums; }
+        .col.score.left{ text-align:left; }
+        .col.score.right{ text-align:right; }
+        .col.pos{
+          text-align:center;
+          font-weight:600;
+          color:#6b7280;
+        }
+
+        /* ---------- MOBILE FIXES ---------- */
+        @media (max-width: 480px){
+          /* Give *more* room to names, shrink scores & "vs" */
+          .sum-row{
+            grid-template-columns:
+              auto minmax(0,1.25fr)  /* left name grows */
+              auto                    /* left score (narrow) */
+              18px                    /* vs tight */
+              auto                    /* right score (narrow) */
+              minmax(0,1.25fr) auto;  /* right name grows */
+            gap:8px;
+          }
+
+          /* Allow long team names to wrap, no ellipsis on mobile */
+          .t-name{
+            white-space:normal;
+            overflow:visible;
+            text-overflow:clip;
+          }
+
+          /* Details: more room to names, keep POS narrow */
+          .line{
+            grid-template-columns:
+              minmax(0,1.2fr)
+              auto
+              40px
+              auto
+              minmax(0,1.2fr);
+            gap:6px;
+          }
+        }
+      `}</style>
     </div>
   );
 }
 
+/** zip starters by the given order and pad if uneven */
 function zipStarters(a: Starter[], b: Starter[]) {
-  const max = Math.max(a?.length ?? 0, b?.length ?? 0);
-  const rows: { a?: Starter; b?: Starter }[] = [];
-  for (let i = 0; i < max; i++) rows.push({ a: a?.[i], b: b?.[i] });
+  const max = Math.max(a.length, b.length);
+  const rows: { al?: Starter; ar?: Starter; pos?: string }[] = [];
+  for (let i = 0; i < max; i++) {
+    const left = a[i];
+    const right = b[i];
+    rows.push({
+      al: left,
+      ar: right,
+      pos: left?.slot ?? right?.slot ?? "",
+    });
+  }
   return rows;
 }
-
-function fmt(n?: number) {
-  if (n == null || Number.isNaN(n)) return "";
-  return Number(n).toFixed(2);
-}
-
-export default ExpandableMatchups;
