@@ -1,5 +1,4 @@
-﻿// apps/site/app/matchups/page.tsx
-import Link from "next/link";
+﻿import Link from "next/link";
 import Image from "next/image";
 import ExpandableMatchups from "./ui/ExpandableMatchups";
 
@@ -209,9 +208,11 @@ export default async function MatchupsPage() {
     );
   }
 
+  // Week
   const league = await j<League>(`/league/${lid}`, 60);
   const currentWeek = asNum(league?.week, 1);
 
+  // Users & rosters
   const [users, rosters] = await Promise.all([
     j<SleeperUser[]>(`/league/${lid}/users`, 600),
     j<SleeperRoster[]>(`/league/${lid}/rosters`, 600),
@@ -219,6 +220,7 @@ export default async function MatchupsPage() {
   const usersById = new Map(users.map((u) => [u.user_id, u]));
   const rosterById = new Map(rosters.map((r) => [Number(r.roster_id), r]));
 
+  // Names/avatars per roster
   const nameByRosterId = new Map<number, string>();
   const avatarByRosterId = new Map<number, string | undefined>();
   for (const r of rosters) {
@@ -228,15 +230,18 @@ export default async function MatchupsPage() {
     avatarByRosterId.set(rid, pickAvatarUrl(r, u));
   }
 
+  // This week's matchups
   const list = await j<Matchup[]>(`/league/${lid}/matchups/${currentWeek}`, 30);
   const grouped = Array.from(groupByMatchup(list))
     .map(([mid, arr]) => ({ id: mid, a: arr[0], b: arr[1] }))
     .filter((x) => x.a && x.b)
     .sort((x, y) => x.id - y.id);
 
+  // Player directory
   const playersObj = await j<Record<string, Player>>(`/players/nfl`, 600);
   const playersById = new Map(Object.entries(playersObj));
 
+  // Prepare UI payload
   const ui = grouped.map((g) => {
     const aRid = Number(g.a.roster_id);
     const bRid = Number(g.b.roster_id);
@@ -266,9 +271,11 @@ export default async function MatchupsPage() {
         Reload to refresh scores. Click a card to expand starters.
       </p>
 
-      <ExpandableMatchups cards={ui} />
+      <ExpandableMatchups items={ui} />
 
-      <style>{`.muted{color:#6b7280}`}</style>
+      <style>{`
+        .muted{color:#6b7280}
+      `}</style>
     </main>
   );
 }
