@@ -2,26 +2,15 @@
 
 import * as React from "react";
 
-type Starter = {
-  slot: string; // QB/RB/...
-  name: string; // "B. Purdy"
-  pts: number;
-};
-
+type Starter = { slot: string; name: string; pts: number };
 type Side = {
   rid: number;
   name: string;
-  avatar: string; // url
+  avatar: string;
   pts: number;
   starters: Starter[];
 };
-
-export type Card = {
-  id: number;
-  a: Side;
-  b: Side;
-};
-
+export type Card = { id: number; a: Side; b: Side };
 type Props = { cards?: Card[]; items?: Card[] };
 
 export default function ExpandableMatchups({ cards, items }: Props) {
@@ -51,7 +40,7 @@ export default function ExpandableMatchups({ cards, items }: Props) {
             <div className="sum-row">
               <div className="sum-left">
                 <img
-                  className="av"
+                  className="av avL"
                   src={c.a.avatar}
                   alt=""
                   width={24}
@@ -67,7 +56,7 @@ export default function ExpandableMatchups({ cards, items }: Props) {
               <div className="sum-right">
                 <div className="t-name t-right">{c.b.name}</div>
                 <img
-                  className="av"
+                  className="av avR"
                   src={c.b.avatar}
                   alt=""
                   width={24}
@@ -114,7 +103,7 @@ export default function ExpandableMatchups({ cards, items }: Props) {
         .xm-card{
           border:1px solid #e5e7eb;
           border-radius:12px;
-          padding:10px 12px;
+          padding:10px 8px;            /* was 10px 12px — tighten sides to reduce wasted edge space */
           background:#fff;
           cursor:pointer;
         }
@@ -125,20 +114,19 @@ export default function ExpandableMatchups({ cards, items }: Props) {
           display:grid;
           align-items:center;
           gap:10px;
-
-          /* 7 strict columns — NO 'auto' anywhere
+          /* 7 strict columns — NO 'auto'
              [1] avatar | [2] left name | [3] left score | [4] vs | [5] right score | [6] right name | [7] avatar */
           grid-template-columns:
-            28px                 /* [1] left avatar */
+            28px                 /* [1] left avatar col */
             minmax(0,1.35fr)     /* [2] left name */
-            72px                 /* [3] left score */
+            72px                 /* [3] left score (right-aligned) */
             20px                 /* [4] vs */
-            72px                 /* [5] right score */
+            72px                 /* [5] right score (left-aligned) */
             minmax(0,1.35fr)     /* [6] right name */
-            28px;                /* [7] right avatar */
+            28px;                /* [7] right avatar col */
         }
 
-        /* wrappers become tiny 2-col grids to center avatars within their fixed columns */
+        /* wrappers: mini 2-col grids so avatars live in their fixed cells; no extra edge gap */
         .sum-left,
         .sum-right{
           display:grid;
@@ -149,11 +137,12 @@ export default function ExpandableMatchups({ cards, items }: Props) {
         .sum-left{  grid-column: 1 / span 2; grid-template-columns: 28px minmax(0,1fr); }
         .sum-right{ grid-column: 6 / span 2; grid-template-columns: minmax(0,1fr) 28px; }
 
-        /* avatar centered in its 28px cell */
+        /* avatars aligned to OUTER edges to reclaim space */
         .av{
           width:24px; height:24px; border-radius:9999px; object-fit:cover; background:#f3f4f6;
-          justify-self:center;
         }
+        .avL{ justify-self:start; }  /* left avatar hugs the left edge */
+        .avR{ justify-self:end;   }  /* right avatar hugs the right edge */
 
         /* names: desktop/tablet single line; align left/right appropriately */
         .t-name{
@@ -172,10 +161,10 @@ export default function ExpandableMatchups({ cards, items }: Props) {
           font-variant-numeric: tabular-nums;
           white-space:nowrap;
         }
-        .t-score.t-left{  text-align:right; } /* left score column is right-justified */
-        .t-score.t-right{ text-align:left;  } /* right score column is left-justified */
+        .t-score.t-left{  text-align:right; }
+        .t-score.t-right{ text-align:left;  }
 
-        /* 'vs' has its own fixed column and stays centered */
+        /* 'vs' column is fixed and centered */
         .vs{
           grid-column: 4;
           text-align:center;
@@ -196,11 +185,11 @@ export default function ExpandableMatchups({ cards, items }: Props) {
           align-items:center;
           gap:8px;
           grid-template-columns:
-            minmax(0,1fr)  /* left name */
-            70px           /* left score (fixed for alignment) */
-            44px           /* POS */
-            70px           /* right score (fixed for alignment) */
-            minmax(0,1fr); /* right name */
+            minmax(0,1fr)
+            70px
+            44px
+            70px
+            minmax(0,1fr);
         }
         .line.hdr{
           color:#6b7280;
@@ -222,44 +211,32 @@ export default function ExpandableMatchups({ cards, items }: Props) {
 
         /* ===================== MOBILE (≤480px) ===================== */
         @media (max-width: 480px){
-          /* shrink ALL text ~20% via cascading font-size (your request) */
-          .xm-card { font-size: 0.8rem; }
+          .xm-card { font-size: 0.8rem; padding:10px 6px; } /* shrink text & sides a bit more */
 
-          /* keep strict columns for consistent alignment across cards */
+          /* keep strict columns, but tighten values */
           .sum-row{
             gap:8px;
             grid-template-columns:
-              24px                 /* [1] left avatar (slightly tighter) */
-              minmax(0,1.4fr)      /* [2] left name */
-              64px                 /* [3] left score */
-              18px                 /* [4] vs */
-              64px                 /* [5] right score */
-              minmax(0,1.4fr)      /* [6] right name */
-              24px;                /* [7] right avatar */
+              24px
+              minmax(0,1.4fr)
+              64px
+              18px
+              64px
+              minmax(0,1.4fr)
+              24px;
           }
           .sum-left{  grid-template-columns: 24px minmax(0,1fr); }
           .sum-right{ grid-template-columns: minmax(0,1fr) 24px; }
 
-          /* force team names to max 2 lines with ellipses (Firefox gets a hard cap) */
+          /* FORCE 2-line clamp with ellipsis on mobile; defeat any upstream nowrap */
           .t-name{
-            white-space:normal;
+            white-space:normal !important;
             overflow:hidden;
             text-overflow:ellipsis;
-            display:-webkit-box;
+            display:-webkit-box !important;
             -webkit-box-orient:vertical;
             -webkit-line-clamp:2;
-            max-height:calc(2 * 1.2em);
-          }
-
-          /* details: keep score columns fixed; tighten gaps slightly */
-          .line{
-            grid-template-columns:
-              minmax(0,1fr)
-              64px
-              40px
-              64px
-              minmax(0,1fr);
-            gap:6px;
+            max-height:calc(2 * 1.2em); /* Firefox hard cap */
           }
         }
       `}</style>
@@ -274,11 +251,7 @@ function zipStarters(a: Starter[], b: Starter[]) {
   for (let i = 0; i < max; i++) {
     const left = a[i];
     const right = b[i];
-    rows.push({
-      al: left,
-      ar: right,
-      pos: left?.slot ?? right?.slot ?? "",
-    });
+    rows.push({ al: left, ar: right, pos: left?.slot ?? right?.slot ?? "" });
   }
   return rows;
 }
