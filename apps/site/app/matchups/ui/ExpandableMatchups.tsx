@@ -130,10 +130,9 @@ function ExpandableMatchups(props: Props) {
               /* Header: avatars | name | score | vs | score | name | avatar */
               .rowTop {
                 display: grid;
-                grid-template-columns: 32px minmax(
-                    0,
-                    1fr
-                  ) 68px 22px 68px minmax(0, 1fr) 32px;
+                grid-template-columns:
+                  32px minmax(0, 1fr)
+                  68px 22px 68px minmax(0, 1fr) 32px;
                 align-items: center;
                 column-gap: 8px;
                 min-height: 64px;
@@ -269,10 +268,9 @@ function ExpandableMatchups(props: Props) {
 
               @media (min-width: 640px) {
                 .rowTop {
-                  grid-template-columns: 36px minmax(
-                      0,
-                      1fr
-                    ) 92px 28px 92px minmax(0, 1fr) 36px;
+                  grid-template-columns:
+                    36px minmax(0, 1fr)
+                    92px 28px 92px minmax(0, 1fr) 36px;
                   min-height: 72px;
                   max-height: 72px;
                   padding: 12px 14px;
