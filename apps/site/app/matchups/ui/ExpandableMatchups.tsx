@@ -152,7 +152,7 @@ export default function ExpandableMatchups({ cards, items }: Props) {
           min-width:0;
           overflow:hidden;
           text-overflow:ellipsis;
-          white-space:nowrap;
+          white-space:nowrap; /* desktop/tablet: single line */
         }
         .t-left{ text-align:left; }
         .t-right{ text-align:right; }
@@ -207,9 +207,12 @@ export default function ExpandableMatchups({ cards, items }: Props) {
           color:#6b7280;
         }
 
-        /* ---------- MOBILE FIXES ---------- */
+        /* ---------- MOBILE: 20% smaller + 2-line clamp with ellipsis ---------- */
         @media (max-width: 480px){
-          /* Give *more* room to names, shrink scores & "vs" */
+          /* 1) shrink ALL text ~20% via cascading font-size */
+          .xm-card { font-size: 0.8rem; }
+
+          /* keep your wider name columns; no grid changes beyond what's already here */
           .sum-row{
             grid-template-columns:
               auto minmax(0,1.25fr)  /* left name grows */
@@ -220,22 +223,15 @@ export default function ExpandableMatchups({ cards, items }: Props) {
             gap:8px;
           }
 
-          /* Allow long team names to wrap, no ellipsis on mobile */
+          /* 2) force names to max 2 lines with ellipses (CSS-only) */
           .t-name{
-            white-space:normal;
-            overflow:visible;
-            text-overflow:clip;
-          }
-
-          /* Details: more room to names, keep POS narrow */
-          .line{
-            grid-template-columns:
-              minmax(0,1.2fr)
-              auto
-              40px
-              auto
-              minmax(0,1.2fr);
-            gap:6px;
+            white-space:normal;                 /* allow wrapping */
+            overflow:hidden;
+            text-overflow:ellipsis;
+            display:-webkit-box;                /* WebKit/Chromium multi-line */
+            -webkit-box-orient:vertical;
+            -webkit-line-clamp:2;               /* max 2 lines */
+            max-height:calc(2 * 1.2em);         /* Firefox fallback cap */
           }
         }
       `}</style>
