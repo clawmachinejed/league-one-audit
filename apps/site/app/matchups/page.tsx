@@ -1,11 +1,13 @@
 ﻿import Link from "next/link";
-import Image from "next/image";
 import ExpandableMatchups from "./ui/ExpandableMatchups";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 const API = "https://api.sleeper.app/v1";
+const MIN_WEEK = 1;
+const MAX_WEEK = 17;
+const PLAYOFF_WEEKS = new Set([15, 16, 17]);
 
 // small JSON fetch with Next revalidate hints
 async function j<T>(path: string, reval = 60): Promise<T> {
@@ -34,17 +36,13 @@ type SleeperRoster = {
     avatar?: string;
   };
 };
-
-// Sleeper /matchups/{week} model (subset)
 type Matchup = {
   roster_id: number;
   matchup_id: number;
   points: number;
-  starters?: string[]; // array of player_ids (strings)
+  starters?: string[];
   players_points?: Record<string, number>;
 };
-
-// Sleeper /players/nfl model (subset)
 type Player = {
   player_id: string;
   full_name?: string;
@@ -70,7 +68,6 @@ function isSleeperImagesPlaceholder(url: string): boolean {
   }
 }
 
-// display name preference
 function teamName(user: SleeperUser | undefined, rid: number): string {
   const meta = user?.metadata?.team_name?.trim?.();
   if (meta) return meta;
@@ -78,8 +75,6 @@ function teamName(user: SleeperUser | undefined, rid: number): string {
   if (disp) return disp;
   return `Team #${rid}`;
 }
-
-// standings-style user avatar normalization
 function pickUserAvatarUrl(user: SleeperUser | undefined): string | undefined {
   if (!user) return undefined;
   const meta = user.metadata?.avatar?.trim();
@@ -91,8 +86,6 @@ function pickUserAvatarUrl(user: SleeperUser | undefined): string | undefined {
   if (fromMeta) return fromMeta;
   return undefined;
 }
-
-// prefer roster avatar; else user; ignore placeholders/relative
 function pickAvatarUrl(
   roster: SleeperRoster | undefined,
   user: SleeperUser | undefined,
@@ -116,8 +109,6 @@ function pickAvatarUrl(
   }
   return pickUserAvatarUrl(user);
 }
-
-// group matchups by matchup_id
 function groupByMatchup(
   list: Matchup[] | null | undefined,
 ): Map<number, Matchup[]> {
@@ -143,7 +134,6 @@ const ORDER: ("QB" | "RB" | "WR" | "TE" | "FLEX" | "DEF")[] = [
   "DEF",
 ];
 
-// Take a team's matchup entry, return starters in the desired order
 function buildStarters(
   entry: Matchup,
   playersById: Map<string, Player>,
@@ -171,7 +161,6 @@ function buildStarters(
       result.push({ slot: want, name: "—", pts: 0 });
     }
   };
-
   const takeFlex = () => {
     const i = labeled.findIndex(
       (x) => x.pos === "RB" || x.pos === "WR" || x.pos === "TE",
@@ -193,7 +182,13 @@ function buildStarters(
   return result;
 }
 
-export default async function MatchupsPage() {
+function clampWeek(n: number) {
+  return Math.max(MIN_WEEK, Math.min(MAX_WEEK, n));
+}
+
+type PageProps = { searchParams?: { week?: string } };
+
+export default async function MatchupsPage({ searchParams }: PageProps) {
   const lid =
     process.env.SLEEPER_LEAGUE_ID || process.env.NEXT_PUBLIC_SLEEPER_LEAGUE_ID;
   if (!lid) {
@@ -208,9 +203,13 @@ export default async function MatchupsPage() {
     );
   }
 
-  // Week
+  // Current week from league (fallback if no query)
   const league = await j<League>(`/league/${lid}`, 60);
-  const currentWeek = asNum(league?.week, 1);
+  const leagueWeek = clampWeek(asNum(league?.week, 1));
+
+  // Resolve requested week from query (?week=) or fall back to league.week
+  const wParam = clampWeek(asNum(searchParams?.week, leagueWeek));
+  const week = wParam;
 
   // Users & rosters
   const [users, rosters] = await Promise.all([
@@ -218,9 +217,7 @@ export default async function MatchupsPage() {
     j<SleeperRoster[]>(`/league/${lid}/rosters`, 600),
   ]);
   const usersById = new Map(users.map((u) => [u.user_id, u]));
-  const rosterById = new Map(rosters.map((r) => [Number(r.roster_id), r]));
 
-  // Names/avatars per roster
   const nameByRosterId = new Map<number, string>();
   const avatarByRosterId = new Map<number, string | undefined>();
   for (const r of rosters) {
@@ -230,18 +227,17 @@ export default async function MatchupsPage() {
     avatarByRosterId.set(rid, pickAvatarUrl(r, u));
   }
 
-  // This week's matchups
-  const list = await j<Matchup[]>(`/league/${lid}/matchups/${currentWeek}`, 30);
+  // Matchups for selected week
+  const list = await j<Matchup[]>(`/league/${lid}/matchups/${week}`, 30);
   const grouped = Array.from(groupByMatchup(list))
     .map(([mid, arr]) => ({ id: mid, a: arr[0], b: arr[1] }))
     .filter((x) => x.a && x.b)
     .sort((x, y) => x.id - y.id);
 
-  // Player directory
+  // Players directory (used to label starters)
   const playersObj = await j<Record<string, Player>>(`/players/nfl`, 600);
   const playersById = new Map(Object.entries(playersObj));
 
-  // Prepare UI payload
   const ui = grouped.map((g) => {
     const aRid = Number(g.a.roster_id);
     const bRid = Number(g.b.roster_id);
@@ -264,17 +260,114 @@ export default async function MatchupsPage() {
     };
   });
 
+  const prevWeek = week > MIN_WEEK ? week - 1 : null;
+  const nextWeek = week < MAX_WEEK ? week + 1 : null;
+  const isPlayoffs = PLAYOFF_WEEKS.has(week);
+
   return (
     <main className="page" style={{ display: "grid", gap: 12 }}>
-      <h1 style={{ marginBottom: 4 }}>Matchups — Week {currentWeek}</h1>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          flexWrap: "wrap",
+        }}
+      >
+        <h1 style={{ margin: 0, lineHeight: 1 }}>Matchups</h1>
+        <div aria-hidden="true" style={{ color: "#6b7280" }}>
+          •
+        </div>
+        <strong>Week {week}</strong>
+        <div
+          style={{
+            marginLeft: "auto",
+            display: "flex",
+            gap: 8,
+            alignItems: "center",
+          }}
+        >
+          {/* Prev */}
+          {prevWeek ? (
+            <Link
+              href={{ pathname: "/matchups", query: { week: prevWeek } }}
+              prefetch={false}
+              className="wkbtn"
+            >
+              ◀ Prev
+            </Link>
+          ) : (
+            <span className="wkbtn disabled">◀ Prev</span>
+          )}
+
+          {/* Week select */}
+          <select
+            className="wkselect"
+            defaultValue={String(week)}
+            onChange={() => {}}
+            onClick={(e) => {
+              // prevent SSR hydration warning: this is server-rendered only; use links instead
+            }}
+          >
+            {Array.from({ length: MAX_WEEK }, (_, i) => i + 1).map((w) => (
+              <option key={w} value={w}>
+                Week {w}
+              </option>
+            ))}
+          </select>
+          <noscript>
+            {/* Progressive enhancement: plain links for no-JS; with JS you'd intercept change and push router */}
+          </noscript>
+          <Link
+            href={{ pathname: "/matchups", query: { week } }}
+            prefetch={false}
+            className="wkgo"
+          >
+            Go
+          </Link>
+
+          {/* Next */}
+          {nextWeek ? (
+            <Link
+              href={{ pathname: "/matchups", query: { week: nextWeek } }}
+              prefetch={false}
+              className="wkbtn"
+            >
+              Next ▶
+            </Link>
+          ) : (
+            <span className="wkbtn disabled">Next ▶</span>
+          )}
+        </div>
+      </div>
+
+      {isPlayoffs && (
+        <p style={{ color: "#6b7280", marginTop: -6 }}>
+          Weeks 15–17 are playoffs; some matchup details may be limited.
+        </p>
+      )}
+
       <p style={{ color: "#6b7280", marginTop: -6 }}>
         Reload to refresh scores. Click a card to expand starters.
       </p>
 
-      <ExpandableMatchups items={ui} />
+      <ExpandableMatchups items={ui as any} />
 
       <style>{`
-        .muted{color:#6b7280}
+        .wkbtn{
+          display:inline-flex; align-items:center; gap:6px;
+          padding:4px 8px; border:1px solid #e5e7eb; border-radius:8px;
+          text-decoration:none; color:#111827; background:#fff;
+        }
+        .wkbtn:hover{ background:#fafafa; }
+        .wkbtn.disabled{ opacity:.4; cursor:not-allowed; }
+        .wkselect{
+          padding:4px 8px; border:1px solid #e5e7eb; border-radius:8px; background:#fff;
+        }
+        .wkgo{
+          padding:4px 8px; border:1px solid #e5e7eb; border-radius:8px; text-decoration:none; color:#111827; background:#fff;
+        }
+        .wkgo:hover{ background:#fafafa; }
       `}</style>
     </main>
   );
