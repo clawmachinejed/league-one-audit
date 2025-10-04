@@ -3,7 +3,6 @@
 import React, { useState } from "react";
 import Image from "next/image";
 
-/** Minimal local types so this file is self-contained */
 type Starter = { slot: string; name: string; pts: number };
 type Side = {
   rid: number;
@@ -13,8 +12,6 @@ type Side = {
   starters: Starter[];
 };
 export type Card = { id: number; a: Side; b: Side };
-
-// Allow either prop name to avoid page.tsx mismatch during rollouts
 type Props = { cards: Card[] } | { items: Card[] };
 
 function ExpandableMatchups(props: Props) {
@@ -44,7 +41,6 @@ function ExpandableMatchups(props: Props) {
 
         return (
           <article key={c.id} className={`m-card${isOpen ? " open" : ""}`}>
-            {/* CLICK TARGET wraps a fixed-height header */}
             <button
               className="headButton"
               onClick={() => toggle(c.id)}
@@ -52,7 +48,6 @@ function ExpandableMatchups(props: Props) {
               aria-controls={rowId}
             >
               <div className="rowTop">
-                {/* Left avatar */}
                 <Image
                   className="av"
                   src={c.a.avatar || "/avatar-placeholder.png"}
@@ -60,33 +55,20 @@ function ExpandableMatchups(props: Props) {
                   width={32}
                   height={32}
                   unoptimized
-                  priority={false}
                 />
-
-                {/* Left team name (2-line clamp, Android/Firefox-safe) */}
                 <span className="teamName teamNameLeft" title={c.a.name}>
                   {c.a.name}
                 </span>
-
-                {/* Left score */}
                 <span className={`score scoreLeft ${leftClass}`}>
                   {c.a.pts.toFixed(2)}
                 </span>
-
-                {/* VS */}
                 <span className="vs">vs</span>
-
-                {/* Right score */}
                 <span className={`score scoreRight ${rightClass}`}>
                   {c.b.pts.toFixed(2)}
                 </span>
-
-                {/* Right team name (2-line clamp, Android/Firefox-safe) */}
                 <span className="teamName teamNameRight" title={c.b.name}>
                   {c.b.name}
                 </span>
-
-                {/* Right avatar */}
                 <Image
                   className="av"
                   src={c.b.avatar || "/avatar-placeholder.png"}
@@ -94,12 +76,10 @@ function ExpandableMatchups(props: Props) {
                   width={32}
                   height={32}
                   unoptimized
-                  priority={false}
                 />
               </div>
             </button>
 
-            {/* EXPANDED STARTERS (unchanged) */}
             <div
               id={rowId}
               className="rows"
@@ -133,14 +113,12 @@ function ExpandableMatchups(props: Props) {
                 display: grid;
                 gap: 12px;
               }
-
               .m-card {
                 border: 1px solid #e5e7eb;
                 border-radius: 12px;
                 background: #fff;
                 overflow: hidden;
               }
-
               .headButton {
                 width: 100%;
                 border: 0;
@@ -149,20 +127,17 @@ function ExpandableMatchups(props: Props) {
                 cursor: pointer;
               }
 
-              /* ---------- TEAM HEADER ROW ---------- */
+              /* Header: avatars | name | score | vs | score | name | avatar */
               .rowTop {
                 display: grid;
-                /* avatars | name | score | vs | score | name | avatar */
                 grid-template-columns:
                   32px minmax(0, 1fr)
                   68px 22px 68px minmax(0, 1fr) 32px;
                 align-items: center;
                 column-gap: 8px;
-
                 min-height: 64px;
                 max-height: 64px;
                 padding: 10px 12px;
-
                 background: #fff;
                 transition: background-color 120ms ease;
               }
@@ -170,7 +145,6 @@ function ExpandableMatchups(props: Props) {
               .headButton:focus-visible .rowTop {
                 background: #fafafa;
               }
-
               .av {
                 border-radius: 9999px;
                 width: 32px;
@@ -179,24 +153,20 @@ function ExpandableMatchups(props: Props) {
                 flex: 0 0 auto;
               }
 
-              /* Two-line clamp with ellipsis — CSS-only, plus Firefox fallback */
+              /* CSS-only two-line clamp with ellipsis */
               .teamName {
                 min-width: 0;
                 font-weight: 700;
                 color: #111827;
                 line-height: 1.2;
-                font-size: 14px; /* smaller mobile baseline (~85% of 16px) */
+                font-size: 14px; /* mobile smaller baseline */
                 word-break: break-word;
-
-                /* Primary (Chromium/WebKit: Android Chrome, Samsung Internet, iOS, etc.) */
                 display: -webkit-box;
                 -webkit-box-orient: vertical;
                 -webkit-line-clamp: 2;
                 overflow: hidden;
                 text-overflow: ellipsis;
-
-                /* Fallback for Firefox (no -webkit-line-clamp): hard cap at 2 lines */
-                max-height: calc(2 * 1.2em);
+                max-height: calc(2 * 1.2em); /* Firefox cap */
               }
               .teamNameLeft {
                 text-align: left;
@@ -208,7 +178,7 @@ function ExpandableMatchups(props: Props) {
               .score {
                 font-variant-numeric: tabular-nums;
                 font-weight: 700;
-                font-size: 15px; /* slightly smaller on mobile for balance */
+                font-size: 15px; /* mobile slightly smaller */
               }
               .scoreLeft {
                 text-align: right;
@@ -217,22 +187,21 @@ function ExpandableMatchups(props: Props) {
                 text-align: left;
               }
               .win {
-                color: #059669; /* emerald-600 */
+                color: #059669;
               }
               .lose {
-                color: #dc2626; /* red-600 */
+                color: #dc2626;
               }
               .neutral {
                 color: #111827;
               }
-
               .vs {
                 text-align: center;
                 color: #6b7280;
                 font-weight: 700;
               }
 
-              /* ---------- EXPANDED: headers ---------- */
+              /* Expanded section (unchanged) */
               .rows {
                 border-top: 1px solid #e5e7eb;
                 padding: 10px 12px 12px;
@@ -259,8 +228,6 @@ function ExpandableMatchups(props: Props) {
               .ptsR {
                 text-align: left;
               }
-
-              /* ---------- EXPANDED: player rows ---------- */
               .line {
                 display: grid;
                 grid-template-columns: 1fr 70px 50px 70px 1fr;
@@ -282,7 +249,6 @@ function ExpandableMatchups(props: Props) {
                 text-align: right;
                 padding-left: 6px;
               }
-
               .ppts {
                 font-variant-numeric: tabular-nums;
                 font-weight: 600;
@@ -300,7 +266,6 @@ function ExpandableMatchups(props: Props) {
                 width: 50px;
               }
 
-              /* ---------- responsive tweaks ---------- */
               @media (min-width: 640px) {
                 .rowTop {
                   grid-template-columns:
@@ -315,7 +280,7 @@ function ExpandableMatchups(props: Props) {
                   height: 36px;
                 }
                 .teamName {
-                  font-size: 16px; /* tasteful desktop size */
+                  font-size: 16px;
                 }
                 .score {
                   font-size: 16px;
@@ -329,7 +294,6 @@ function ExpandableMatchups(props: Props) {
   );
 }
 
-/** Pair up rows safely (QB,RB,RB,WR,WR,TE,FLEX,FLEX,DEF). */
 function zipStarters(a: Starter[], b: Starter[]) {
   const max = Math.max(a?.length ?? 0, b?.length ?? 0);
   const rows: { a?: Starter; b?: Starter }[] = [];
