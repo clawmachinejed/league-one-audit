@@ -9,14 +9,12 @@ const MIN_WEEK = 1;
 const MAX_WEEK = 17;
 const PLAYOFF_WEEKS = new Set([15, 16, 17]);
 
-// ---------- tiny fetch helper with guard ----------
 async function j<T>(path: string, reval = 60): Promise<T> {
   const res = await fetch(`${API}${path}`, { next: { revalidate: reval } });
-  if (!res.ok) {
+  if (!res.ok)
     throw new Error(
       `Sleeper fetch failed: ${res.status} ${res.statusText} ${path}`,
     );
-  }
   return res.json();
 }
 
@@ -44,12 +42,6 @@ type Matchup = {
   starters?: string[];
   players_points?: Record<string, number>;
 };
-type Player = {
-  player_id: string;
-  full_name?: string;
-  position?: string;
-  team?: string;
-};
 
 const asNum = (v: unknown, d = 0) =>
   Number.isFinite(Number(v)) ? Number(v) : d;
@@ -70,7 +62,6 @@ function isSleeperImagesPlaceholder(url: string): boolean {
   }
 }
 
-// ---------- naming & avatar helpers ----------
 function teamName(user: SleeperUser | undefined, rid: number): string {
   const meta = user?.metadata?.team_name?.trim?.();
   if (meta) return meta;
@@ -78,7 +69,6 @@ function teamName(user: SleeperUser | undefined, rid: number): string {
   if (disp) return disp;
   return `Team #${rid}`;
 }
-
 function pickUserAvatarUrl(user: SleeperUser | undefined): string | undefined {
   if (!user) return undefined;
   const meta = user.metadata?.avatar?.trim();
@@ -90,7 +80,6 @@ function pickUserAvatarUrl(user: SleeperUser | undefined): string | undefined {
   if (fromMeta) return fromMeta;
   return undefined;
 }
-
 function pickAvatarUrl(
   roster: SleeperRoster | undefined,
   user: SleeperUser | undefined,
@@ -114,7 +103,6 @@ function pickAvatarUrl(
   }
   return pickUserAvatarUrl(user);
 }
-
 function groupByMatchup(
   list: Matchup[] | null | undefined,
 ): Map<number, Matchup[]> {
@@ -127,67 +115,6 @@ function groupByMatchup(
   return m;
 }
 
-const ORDER: ("QB" | "RB" | "WR" | "TE" | "FLEX" | "DEF")[] = [
-  "QB",
-  "RB",
-  "RB",
-  "WR",
-  "WR",
-  "TE",
-  "FLEX",
-  "FLEX",
-  "DEF",
-];
-
-function buildStarters(
-  entry: Matchup,
-  playersById: Map<string, Player>,
-): { slot: string; name: string; pts: number }[] {
-  const starters = entry?.starters ?? [];
-  const ptsMap = entry?.players_points ?? {};
-  const labeled = starters
-    .map((pid) => {
-      const p = playersById.get(pid);
-      const pos = (p?.position || "").toUpperCase();
-      const name = p?.full_name || pid;
-      const pts = asNum(ptsMap[pid], 0);
-      return { pid, pos, name, pts };
-    })
-    .filter((x) => x.pos);
-
-  const result: { slot: string; name: string; pts: number }[] = [];
-
-  const take = (want: string) => {
-    const i = labeled.findIndex((x) => x.pos === want);
-    if (i >= 0) {
-      const [x] = labeled.splice(i, 1);
-      result.push({ slot: want, name: x.name, pts: x.pts });
-    } else {
-      result.push({ slot: want, name: "—", pts: 0 });
-    }
-  };
-
-  const takeFlex = () => {
-    const i = labeled.findIndex(
-      (x) => x.pos === "RB" || x.pos === "WR" || x.pos === "TE",
-    );
-    if (i >= 0) {
-      const [x] = labeled.splice(i, 1);
-      result.push({ slot: "FLEX", name: x.name, pts: x.pts });
-    } else {
-      result.push({ slot: "FLEX", name: "—", pts: 0 });
-    }
-  };
-
-  for (const slot of ORDER) {
-    if (slot === "FLEX") takeFlex();
-    else if (slot === "DEF") take("DEF");
-    else take(slot);
-  }
-
-  return result;
-}
-
 function clampWeek(n: number) {
   return Math.max(MIN_WEEK, Math.min(MAX_WEEK, n));
 }
@@ -198,21 +125,19 @@ export default async function MatchupsPage({ searchParams }: PageProps) {
   const lid =
     process.env.SLEEPER_LEAGUE_ID || process.env.NEXT_PUBLIC_SLEEPER_LEAGUE_ID;
 
-  // ====== fetch league week (guarded) ======
+  // League week (guarded)
   let leagueWeek = 1;
   try {
     if (!lid) throw new Error("Missing league id env");
     const league = await j<League>(`/league/${lid}`, 60);
     leagueWeek = clampWeek(asNum(league?.week, 1));
-  } catch (err) {
-    // leave leagueWeek=1; render an inline warning later
-    console.error("[matchups] league fetch error:", err);
+  } catch {
+    leagueWeek = 1;
   }
-
   const week = clampWeek(asNum(searchParams?.week, leagueWeek));
   const isPlayoffs = PLAYOFF_WEEKS.has(week);
 
-  // ====== fetch users & rosters (guarded) ======
+  // Users & rosters (guarded)
   let users: SleeperUser[] = [];
   let rosters: SleeperRoster[] = [];
   try {
@@ -221,8 +146,8 @@ export default async function MatchupsPage({ searchParams }: PageProps) {
       j<SleeperUser[]>(`/league/${lid}/users`, 600),
       j<SleeperRoster[]>(`/league/${lid}/rosters`, 600),
     ]);
-  } catch (err) {
-    console.error("[matchups] users/rosters fetch error:", err);
+  } catch {
+    // keep empty
   }
   const usersById = new Map(users.map((u) => [u.user_id, u]));
   const nameByRosterId = new Map<number, string>();
@@ -234,13 +159,13 @@ export default async function MatchupsPage({ searchParams }: PageProps) {
     avatarByRosterId.set(rid, pickAvatarUrl(r, u));
   }
 
-  // ====== fetch matchups for week (guarded) ======
+  // Matchups for selected week (guarded)
   let list: Matchup[] = [];
   try {
     if (!lid) throw new Error("Missing league id env");
     list = await j<Matchup[]>(`/league/${lid}/matchups/${week}`, 30);
-  } catch (err) {
-    console.error(`[matchups] matchups week=${week} fetch error:`, err);
+  } catch {
+    // keep empty
   }
 
   const grouped = Array.from(groupByMatchup(list))
@@ -248,37 +173,27 @@ export default async function MatchupsPage({ searchParams }: PageProps) {
     .filter((x) => x.a && x.b)
     .sort((x, y) => x.id - y.id);
 
-  // ====== players directory (SKIP for playoffs, guard for errors) ======
-  let playersById = new Map<string, Player>();
-  if (!isPlayoffs) {
-    try {
-      const playersObj = await j<Record<string, Player>>(`/players/nfl`, 600);
-      playersById = new Map(Object.entries(playersObj ?? {}));
-    } catch (err) {
-      console.error("[matchups] players fetch error:", err);
-      // leave playersById empty; buildStarters will fallback to "—"
-    }
-  }
-
-  // ====== build UI payload safely ======
+  // IMPORTANT: disable players & starters completely for now (crash isolation)
   const ui = grouped.map((g) => {
     const aRid = Number(g.a!.roster_id);
     const bRid = Number(g.b!.roster_id);
-    const a = {
-      rid: aRid,
-      name: nameByRosterId.get(aRid) || `Team #${aRid}`,
-      avatar: avatarByRosterId.get(aRid) || "/avatar-placeholder.png",
-      pts: asNum(g.a!.points, 0),
-      starters: isPlayoffs ? [] : buildStarters(g.a!, playersById),
+    return {
+      id: g.id,
+      a: {
+        rid: aRid,
+        name: nameByRosterId.get(aRid) || `Team #${aRid}`,
+        avatar: avatarByRosterId.get(aRid) || "/avatar-placeholder.png",
+        pts: asNum(g.a!.points, 0),
+        starters: [] as { slot: string; name: string; pts: number }[],
+      },
+      b: {
+        rid: bRid,
+        name: nameByRosterId.get(bRid) || `Team #${bRid}`,
+        avatar: avatarByRosterId.get(bRid) || "/avatar-placeholder.png",
+        pts: asNum(g.b!.points, 0),
+        starters: [] as { slot: string; name: string; pts: number }[],
+      },
     };
-    const b = {
-      rid: bRid,
-      name: nameByRosterId.get(bRid) || `Team #${bRid}`,
-      avatar: avatarByRosterId.get(bRid) || "/avatar-placeholder.png",
-      pts: asNum(g.b!.points, 0),
-      starters: isPlayoffs ? [] : buildStarters(g.b!, playersById),
-    };
-    return { id: g.id, a, b };
   });
 
   const prevWeek = week > MIN_WEEK ? week - 1 : null;
@@ -318,7 +233,6 @@ export default async function MatchupsPage({ searchParams }: PageProps) {
           ) : (
             <span className="wkbtn disabled">◀ Prev</span>
           )}
-
           <select
             className="wkselect"
             defaultValue={String(week)}
@@ -337,7 +251,6 @@ export default async function MatchupsPage({ searchParams }: PageProps) {
           >
             Go
           </Link>
-
           {nextWeek ? (
             <Link
               href={{ pathname: "/matchups", query: { week: nextWeek } }}
@@ -355,13 +268,6 @@ export default async function MatchupsPage({ searchParams }: PageProps) {
       {PLAYOFF_WEEKS.has(week) && (
         <p style={{ color: "#6b7280", marginTop: -6 }}>
           Weeks 15–17 are playoffs; matchup details may be limited.
-        </p>
-      )}
-
-      {!lid && (
-        <p style={{ color: "#dc2626" }}>
-          Missing league id. Set <code>SLEEPER_LEAGUE_ID</code> or{" "}
-          <code>NEXT_PUBLIC_SLEEPER_LEAGUE_ID</code>.
         </p>
       )}
 
