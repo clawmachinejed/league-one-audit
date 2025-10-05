@@ -69,6 +69,7 @@ function teamName(user: SleeperUser | undefined, rid: number): string {
   if (disp) return disp;
   return `Team #${rid}`;
 }
+
 function pickUserAvatarUrl(user: SleeperUser | undefined): string | undefined {
   if (!user) return undefined;
   const meta = user.metadata?.avatar?.trim();
@@ -80,6 +81,7 @@ function pickUserAvatarUrl(user: SleeperUser | undefined): string | undefined {
   if (fromMeta) return fromMeta;
   return undefined;
 }
+
 function pickAvatarUrl(
   roster: SleeperRoster | undefined,
   user: SleeperUser | undefined,
@@ -103,6 +105,7 @@ function pickAvatarUrl(
   }
   return pickUserAvatarUrl(user);
 }
+
 function groupByMatchup(
   list: Matchup[] | null | undefined,
 ): Map<number, Matchup[]> {
@@ -125,16 +128,18 @@ export default async function MatchupsPage({ searchParams }: PageProps) {
   const lid =
     process.env.SLEEPER_LEAGUE_ID || process.env.NEXT_PUBLIC_SLEEPER_LEAGUE_ID;
 
-  // League week (guarded)
-  let leagueWeek = 1;
+  // Resolve baseline week from the league (guarded)
+  let baselineWeek = 1;
   try {
     if (!lid) throw new Error("Missing league id env");
     const league = await j<League>(`/league/${lid}`, 60);
-    leagueWeek = clampWeek(asNum(league?.week, 1));
+    baselineWeek = clampWeek(asNum(league?.week, 1));
   } catch {
-    leagueWeek = 1;
+    baselineWeek = 1;
   }
-  const week = clampWeek(asNum(searchParams?.week, leagueWeek));
+
+  // Final selected week: query param if valid else baseline
+  const week = clampWeek(asNum(searchParams?.week, baselineWeek));
   const isPlayoffs = PLAYOFF_WEEKS.has(week);
 
   // Users & rosters (guarded)
@@ -167,13 +172,12 @@ export default async function MatchupsPage({ searchParams }: PageProps) {
   } catch {
     // keep empty
   }
-
   const grouped = Array.from(groupByMatchup(list))
     .map(([mid, arr]) => ({ id: mid, a: arr?.[0], b: arr?.[1] }))
     .filter((x) => x.a && x.b)
     .sort((x, y) => x.id - y.id);
 
-  // IMPORTANT: disable players & starters completely for now (crash isolation)
+  // UI payload (NO players/starter building; avoids heavy fetch)
   const ui = grouped.map((g) => {
     const aRid = Number(g.a!.roster_id);
     const bRid = Number(g.b!.roster_id);
@@ -233,24 +237,6 @@ export default async function MatchupsPage({ searchParams }: PageProps) {
           ) : (
             <span className="wkbtn disabled">◀ Prev</span>
           )}
-          <select
-            className="wkselect"
-            defaultValue={String(week)}
-            onChange={() => {}}
-          >
-            {Array.from({ length: MAX_WEEK }, (_, i) => i + 1).map((w) => (
-              <option key={w} value={w}>
-                Week {w}
-              </option>
-            ))}
-          </select>
-          <Link
-            href={{ pathname: "/matchups", query: { week } }}
-            prefetch={false}
-            className="wkgo"
-          >
-            Go
-          </Link>
           {nextWeek ? (
             <Link
               href={{ pathname: "/matchups", query: { week: nextWeek } }}
@@ -265,7 +251,7 @@ export default async function MatchupsPage({ searchParams }: PageProps) {
         </div>
       </div>
 
-      {PLAYOFF_WEEKS.has(week) && (
+      {isPlayoffs && (
         <p style={{ color: "#6b7280", marginTop: -6 }}>
           Weeks 15–17 are playoffs; matchup details may be limited.
         </p>
@@ -285,13 +271,6 @@ export default async function MatchupsPage({ searchParams }: PageProps) {
         }
         .wkbtn:hover{ background:#fafafa; }
         .wkbtn.disabled{ opacity:.4; cursor:not-allowed; }
-        .wkselect{
-          padding:4px 8px; border:1px solid #e5e7eb; border-radius:8px; background:#fff;
-        }
-        .wkgo{
-          padding:4px 8px; border:1px solid #e5e7eb; border-radius:8px; text-decoration:none; color:#111827; background:#fff;
-        }
-        .wkgo:hover{ background:#fafafa; }
       `}</style>
     </main>
   );
