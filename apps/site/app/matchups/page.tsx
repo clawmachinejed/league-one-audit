@@ -7,8 +7,8 @@ export const revalidate = 0;
 const API = "https://api.sleeper.app/v1";
 const MIN_WEEK = 1;
 const MAX_WEEK = 17;
-const PLAYOFF_WEEKS = new Set([15, 16, 17]);
 
+// ---------- small fetch helper ----------
 async function j<T>(path: string, reval = 60): Promise<T> {
   const res = await fetch(`${API}${path}`, { next: { revalidate: reval } });
   if (!res.ok)
@@ -18,6 +18,7 @@ async function j<T>(path: string, reval = 60): Promise<T> {
   return res.json();
 }
 
+// ---------- types ----------
 type League = { week?: number };
 type SleeperUser = {
   user_id: string;
@@ -42,7 +43,14 @@ type Matchup = {
   starters?: string[];
   players_points?: Record<string, number>;
 };
+type Player = {
+  player_id: string;
+  full_name?: string;
+  position?: string; // QB/RB/WR/TE/DEF/…
+  team?: string;
+};
 
+// ---------- utils ----------
 const asNum = (v: unknown, d = 0) =>
   Number.isFinite(Number(v)) ? Number(v) : d;
 const isUrl = (v?: string | null): v is string =>
@@ -52,7 +60,6 @@ const isHash = (v?: string | null): v is string =>
   !!v && !v.includes("/") && !v.includes(" ") && !v.startsWith("data:");
 const toCdn = (hash?: string | null): string | undefined =>
   isHash(hash) ? `https://sleepercdn.com/avatars/thumbs/${hash}` : undefined;
-
 function isSleeperImagesPlaceholder(url: string): boolean {
   try {
     const u = new URL(url);
@@ -61,7 +68,6 @@ function isSleeperImagesPlaceholder(url: string): boolean {
     return false;
   }
 }
-
 function teamName(user: SleeperUser | undefined, rid: number): string {
   const meta = user?.metadata?.team_name?.trim?.();
   if (meta) return meta;
@@ -69,7 +75,6 @@ function teamName(user: SleeperUser | undefined, rid: number): string {
   if (disp) return disp;
   return `Team #${rid}`;
 }
-
 function pickUserAvatarUrl(user: SleeperUser | undefined): string | undefined {
   if (!user) return undefined;
   const meta = user.metadata?.avatar?.trim();
@@ -81,7 +86,6 @@ function pickUserAvatarUrl(user: SleeperUser | undefined): string | undefined {
   if (fromMeta) return fromMeta;
   return undefined;
 }
-
 function pickAvatarUrl(
   roster: SleeperRoster | undefined,
   user: SleeperUser | undefined,
@@ -105,7 +109,6 @@ function pickAvatarUrl(
   }
   return pickUserAvatarUrl(user);
 }
-
 function groupByMatchup(
   list: Matchup[] | null | undefined,
 ): Map<number, Matchup[]> {
@@ -117,9 +120,71 @@ function groupByMatchup(
   }
   return m;
 }
-
 function clampWeek(n: number) {
   return Math.max(MIN_WEEK, Math.min(MAX_WEEK, n));
+}
+
+// Desired start order: QB, RB, RB, WR, WR, TE, FLEX, FLEX, DEF
+const ORDER: ("QB" | "RB" | "WR" | "TE" | "FLEX" | "DEF")[] = [
+  "QB",
+  "RB",
+  "RB",
+  "WR",
+  "WR",
+  "TE",
+  "FLEX",
+  "FLEX",
+  "DEF",
+];
+
+// Build starters with safe fallbacks (if players map is empty, show player_id)
+function buildStarters(
+  entry: Matchup,
+  playersById: Map<string, Player>,
+): { slot: string; name: string; pts: number }[] {
+  const starters = entry?.starters ?? [];
+  const ptsMap = entry?.players_points ?? {};
+
+  const labeled = starters
+    .map((pid) => {
+      const p = playersById.get(pid);
+      const pos = (p?.position || "").toUpperCase();
+      const name = p?.full_name || pid; // <— fallback to id if names unavailable
+      const pts = asNum(ptsMap[pid], 0);
+      return { pid, pos, name, pts };
+    })
+    .filter((x) => x.pos);
+
+  const result: { slot: string; name: string; pts: number }[] = [];
+
+  const take = (want: string) => {
+    const i = labeled.findIndex((x) => x.pos === want);
+    if (i >= 0) {
+      const [x] = labeled.splice(i, 1);
+      result.push({ slot: want, name: x.name, pts: x.pts });
+    } else {
+      result.push({ slot: want, name: "—", pts: 0 });
+    }
+  };
+  const takeFlex = () => {
+    const i = labeled.findIndex(
+      (x) => x.pos === "RB" || x.pos === "WR" || x.pos === "TE",
+    );
+    if (i >= 0) {
+      const [x] = labeled.splice(i, 1);
+      result.push({ slot: "FLEX", name: x.name, pts: x.pts });
+    } else {
+      result.push({ slot: "FLEX", name: "—", pts: 0 });
+    }
+  };
+
+  for (const slot of ORDER) {
+    if (slot === "FLEX") takeFlex();
+    else if (slot === "DEF") take("DEF");
+    else take(slot);
+  }
+
+  return result;
 }
 
 type PageProps = { searchParams?: { week?: string } };
@@ -128,7 +193,7 @@ export default async function MatchupsPage({ searchParams }: PageProps) {
   const lid =
     process.env.SLEEPER_LEAGUE_ID || process.env.NEXT_PUBLIC_SLEEPER_LEAGUE_ID;
 
-  // Resolve baseline week from the league (guarded)
+  // Resolve baseline week from league (guarded)
   let baselineWeek = 1;
   try {
     if (!lid) throw new Error("Missing league id env");
@@ -140,7 +205,6 @@ export default async function MatchupsPage({ searchParams }: PageProps) {
 
   // Final selected week: query param if valid else baseline
   const week = clampWeek(asNum(searchParams?.week, baselineWeek));
-  const isPlayoffs = PLAYOFF_WEEKS.has(week);
 
   // Users & rosters (guarded)
   let users: SleeperUser[] = [];
@@ -177,7 +241,28 @@ export default async function MatchupsPage({ searchParams }: PageProps) {
     .filter((x) => x.a && x.b)
     .sort((x, y) => x.id - y.id);
 
-  // UI payload (NO players/starter building; avoids heavy fetch)
+  // ===== Players: guarded fetch, but only keep the IDs we need =====
+  const neededIds = new Set<string>();
+  for (const g of grouped) {
+    (g.a?.starters ?? []).forEach((pid) => neededIds.add(pid));
+    (g.b?.starters ?? []).forEach((pid) => neededIds.add(pid));
+  }
+  let playersById = new Map<string, Player>();
+  try {
+    // Fetch the big directory; keep only those we actually need
+    const playersObj = await j<Record<string, Player>>(`/players/nfl`, 600);
+    const slim = new Map<string, Player>();
+    neededIds.forEach((pid) => {
+      const p = (playersObj as any)?.[pid];
+      if (p) slim.set(pid, p);
+    });
+    playersById = slim;
+    // Let GC drop playersObj by losing the reference here
+  } catch {
+    // If this fails, buildStarters will fall back to player_id as a name
+  }
+
+  // UI payload
   const ui = grouped.map((g) => {
     const aRid = Number(g.a!.roster_id);
     const bRid = Number(g.b!.roster_id);
@@ -188,14 +273,14 @@ export default async function MatchupsPage({ searchParams }: PageProps) {
         name: nameByRosterId.get(aRid) || `Team #${aRid}`,
         avatar: avatarByRosterId.get(aRid) || "/avatar-placeholder.png",
         pts: asNum(g.a!.points, 0),
-        starters: [] as { slot: string; name: string; pts: number }[],
+        starters: buildStarters(g.a!, playersById),
       },
       b: {
         rid: bRid,
         name: nameByRosterId.get(bRid) || `Team #${bRid}`,
         avatar: avatarByRosterId.get(bRid) || "/avatar-placeholder.png",
         pts: asNum(g.b!.points, 0),
-        starters: [] as { slot: string; name: string; pts: number }[],
+        starters: buildStarters(g.b!, playersById),
       },
     };
   });
@@ -250,12 +335,6 @@ export default async function MatchupsPage({ searchParams }: PageProps) {
           )}
         </div>
       </div>
-
-      {isPlayoffs && (
-        <p style={{ color: "#6b7280", marginTop: -6 }}>
-          Weeks 15–17 are playoffs; matchup details may be limited.
-        </p>
-      )}
 
       <p style={{ color: "#6b7280", marginTop: -6 }}>
         Reload to refresh scores. Click a card to expand starters.
