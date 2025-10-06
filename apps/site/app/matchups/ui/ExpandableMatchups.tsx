@@ -91,14 +91,6 @@ export default function ExpandableMatchups({ cards, items }: Props) {
             {/* ===================== DETAILS (EXPANDABLE) ===================== */}
             {isOpen && (
               <div className="detail">
-                <div className="line hdr">
-                  <div className="col name left">Starters</div>
-                  <div className="col score left">Pts</div>
-                  <div className="col pos">POS</div>
-                  <div className="col score right">Pts</div>
-                  <div className="col name right">Starters</div>
-                </div>
-
                 {zipStarters(c.a.starters, c.b.starters).map((row, i) => (
                   <div className="line" key={i}>
                     <div className="col name left">
@@ -184,13 +176,13 @@ export default function ExpandableMatchups({ cards, items }: Props) {
           min-width:0;
         }
 
-        /* Header scores: mirror the rules for detail rows */
+        /* Header scores mirror detail alignment rules */
         .t-score{
           font-variant-numeric: tabular-nums;
           white-space:nowrap;
         }
-        .t-score.t-left{  text-align:right; } /* hugs POS column from left side */
-        .t-score.t-right{ text-align:left;  } /* hugs POS column from right side */
+        .t-score.t-left{  text-align:right; }
+        .t-score.t-right{ text-align:left;  }
 
         .vs{
           grid-column: 4;
@@ -221,14 +213,6 @@ export default function ExpandableMatchups({ cards, items }: Props) {
             minmax(0,1fr);
         }
 
-        .line.hdr{
-          color:#6b7280;
-          font-size:12px;
-          text-transform:uppercase;
-          letter-spacing:.04em;
-          font-weight:600;
-        }
-
         /* Column alignment rules */
         .col.name{
           overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
@@ -237,15 +221,11 @@ export default function ExpandableMatchups({ cards, items }: Props) {
         .col.name.left{  text-align:left; }
         .col.name.right{ text-align:right; }
 
-        /* Numbers: left column right-justified; right column left-justified */
         .col.score{
           font-variant-numeric:tabular-nums; white-space:nowrap;
         }
-        .col.score.left{  text-align:right; }
-        .col.score.right{ text-align:left; }
-
-        /* Header PTS centered (without affecting rows) */
-        .line.hdr .col.score{ text-align:center; }
+        .col.score.left{  text-align:right; } /* hugs POS from the left side */
+        .col.score.right{ text-align:left;  } /* hugs POS from the right side */
 
         /* POS/slots centered in the middle column */
         .col.pos{
