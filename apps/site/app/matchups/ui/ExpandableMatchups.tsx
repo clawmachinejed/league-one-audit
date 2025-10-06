@@ -129,18 +129,17 @@ export default function ExpandableMatchups({ cards, items }: Props) {
         .xm-card:focus-visible{ outline:2px solid #2563eb; outline-offset:2px; }
 
         /* ===================== SUMMARY (STRICT GRID) ===================== */
+        /* IMPORTANT: POS column width matches detail rows exactly (44px desktop / 36px mobile) */
         .sum-row{
           display:grid;
           align-items:center;
           gap:10px;
-          /* 7 columns:
-             [1] L avatar | [2] L name | [3] L score | [4] vs | [5] R score | [6] R name | [7] R avatar */
           grid-template-columns:
             28px
             minmax(0,1.35fr)
-            72px
-            20px
-            72px
+            72px          /* left score */
+            44px          /* POS / 'vs' */
+            72px          /* right score */
             minmax(0,1.35fr)
             28px;
         }
@@ -176,7 +175,6 @@ export default function ExpandableMatchups({ cards, items }: Props) {
           min-width:0;
         }
 
-        /* Header scores mirror detail alignment rules */
         .t-score{
           font-variant-numeric: tabular-nums;
           white-space:nowrap;
@@ -186,9 +184,10 @@ export default function ExpandableMatchups({ cards, items }: Props) {
 
         .vs{
           grid-column: 4;
-          text-align:center;               /* centered 'vs' */
+          text-align:center;      /* centered 'vs' */
           color:#6b7280;
           font-weight:600;
+          white-space:nowrap;
         }
 
         /* ===================== DETAILS ===================== */
@@ -200,7 +199,7 @@ export default function ExpandableMatchups({ cards, items }: Props) {
           gap:6px;
         }
 
-        /* Mirrors header: name | score(72) | pos(20) | score(72) | name */
+        /* Mirrors header exactly: name | 72 | 44 | 72 | name */
         .line{
           display:grid;
           align-items:center;
@@ -208,12 +207,11 @@ export default function ExpandableMatchups({ cards, items }: Props) {
           grid-template-columns:
             minmax(0,1fr)
             72px
-            20px
+            44px
             72px
             minmax(0,1fr);
         }
 
-        /* Column alignment rules */
         .col.name{
           overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
           line-height:1.2; min-width:0;
@@ -224,14 +222,12 @@ export default function ExpandableMatchups({ cards, items }: Props) {
         .col.score{
           font-variant-numeric:tabular-nums; white-space:nowrap;
         }
-        .col.score.left{  text-align:right; } /* hugs POS from the left side */
-        .col.score.right{ text-align:left;  } /* hugs POS from the right side */
+        .col.score.left{  text-align:right; }
+        .col.score.right{ text-align:left;  }
 
-        /* POS/slots centered in the middle column */
         .col.pos{
-          text-align:center;
-          font-weight:600;
-          color:#6b7280;
+          text-align:center; white-space:nowrap;   /* centered & cannot wrap */
+          font-weight:600; color:#6b7280;
         }
 
         /* ===================== MOBILE (≤480px) ===================== */
@@ -243,27 +239,25 @@ export default function ExpandableMatchups({ cards, items }: Props) {
             grid-template-columns:
               24px
               minmax(0,1.4fr)
-              64px
-              18px
-              64px
+              64px        /* left score */
+              36px        /* POS / 'vs' */
+              64px        /* right score */
               minmax(0,1.4fr)
               24px;
           }
           .sum-left{  grid-template-columns: 24px minmax(0,1fr); }
           .sum-right{ grid-template-columns: minmax(0,1fr) 24px; }
 
-          /* Detail rows use the same tighter widths as header on mobile */
           .line{
             grid-template-columns:
               minmax(0,1fr)
               64px
-              18px
+              36px
               64px
               minmax(0,1fr);
             gap:6px;
           }
 
-          /* Ensure long names never collide into score/POS columns */
           .col.name{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
         }
       `}</style>
