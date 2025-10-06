@@ -2,16 +2,57 @@
 
 import * as React from "react";
 
-type Starter = { slot: string; name: string; pts: number };
+type Starter = {
+  slot: string; // QB/RB/...
+  name: string; // "Brock Purdy"
+  pts: number;
+};
+
 type Side = {
   rid: number;
   name: string;
-  avatar: string;
+  avatar: string; // url
   pts: number;
   starters: Starter[];
 };
-export type Card = { id: number; a: Side; b: Side };
+
+export type Card = {
+  id: number;
+  a: Side;
+  b: Side;
+};
+
 type Props = { cards?: Card[]; items?: Card[] };
+
+/** Format "First Last" -> "F. Last". Keeps D/ST or DEF-style names intact. */
+function formatName(n?: string, slot?: string) {
+  const name = (n || "").trim();
+  if (!name) return "—";
+  // Leave defenses or obviously special names untouched
+  if (slot === "DEF" || /D\/ST/i.test(name)) return name;
+  const parts = name.split(/\s+/).filter(Boolean);
+  if (parts.length === 1) return parts[0]; // single token (e.g., "Madonna" or a code)
+  const first = parts[0];
+  const last = parts[parts.length - 1];
+  const initial = first[0];
+  return `${initial}. ${last}`;
+}
+
+/** zip starters by the given order and pad if uneven */
+function zipStarters(a: Starter[], b: Starter[]) {
+  const max = Math.max(a.length, b.length);
+  const rows: { al?: Starter; ar?: Starter; pos?: string }[] = [];
+  for (let i = 0; i < max; i++) {
+    const left = a[i];
+    const right = b[i];
+    rows.push({
+      al: left,
+      ar: right,
+      pos: left?.slot ?? right?.slot ?? "",
+    });
+  }
+  return rows;
+}
 
 export default function ExpandableMatchups({ cards, items }: Props) {
   const list = (cards ?? items ?? []) as Card[];
@@ -36,7 +77,7 @@ export default function ExpandableMatchups({ cards, items }: Props) {
               }
             }}
           >
-            {/* SUMMARY ROW */}
+            {/* ===================== SUMMARY ROW (UNCHANGED) ===================== */}
             <div className="sum-row">
               <div className="sum-left">
                 <img
@@ -65,7 +106,7 @@ export default function ExpandableMatchups({ cards, items }: Props) {
               </div>
             </div>
 
-            {/* DETAILS (expandable) */}
+            {/* ===================== DETAILS (EXPANDABLE) ===================== */}
             {isOpen && (
               <div className="detail">
                 <div className="line hdr">
@@ -78,7 +119,9 @@ export default function ExpandableMatchups({ cards, items }: Props) {
 
                 {zipStarters(c.a.starters, c.b.starters).map((row, i) => (
                   <div className="line" key={i}>
-                    <div className="col name left">{row.al?.name ?? "—"}</div>
+                    <div className="col name left">
+                      {row.al ? formatName(row.al.name, row.al.slot) : "—"}
+                    </div>
                     <div className="col score left">
                       {row.al ? row.al.pts.toFixed(2) : "—"}
                     </div>
@@ -86,7 +129,9 @@ export default function ExpandableMatchups({ cards, items }: Props) {
                     <div className="col score right">
                       {row.ar ? row.ar.pts.toFixed(2) : "—"}
                     </div>
-                    <div className="col name right">{row.ar?.name ?? "—"}</div>
+                    <div className="col name right">
+                      {row.ar ? formatName(row.ar.name, row.ar.slot) : "—"}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -139,8 +184,8 @@ export default function ExpandableMatchups({ cards, items }: Props) {
         .av{
           width:24px; height:24px; border-radius:9999px; object-fit:cover; background:#f3f4f6;
         }
-        .avL{ justify-self:start; }  /* left avatar to outer edge */
-        .avR{ justify-self:end;   }  /* right avatar to outer edge */
+        .avL{ justify-self:start; }
+        .avR{ justify-self:end; }
 
         .t-name{
           font-weight:500;
@@ -152,15 +197,12 @@ export default function ExpandableMatchups({ cards, items }: Props) {
         }
         .t-left{  text-align:left; }
 
-        /* Right-side team name:
-           left-align text, but push the box toward the avatar and shrink to content
-           so the left rag is clean and the block hugs the avatar */
         .t-name.t-right{
           text-align:left;
-          margin-left:auto;                 /* pushes the name block rightward */
+          margin-left:auto;
           width:-webkit-fit-content;
           width:-moz-fit-content;
-          width:fit-content;                /* shrink-to-content */
+          width:fit-content;
           max-width:100%;
           min-width:0;
         }
@@ -170,8 +212,8 @@ export default function ExpandableMatchups({ cards, items }: Props) {
           font-variant-numeric: tabular-nums;
           white-space:nowrap;
         }
-        .t-score.t-left{  text-align:right; } /* left score hugs vs from the left side */
-        .t-score.t-right{ text-align:left;  } /* right score hugs vs from the right side */
+        .t-score.t-left{  text-align:right; }
+        .t-score.t-right{ text-align:left; }
 
         .vs{
           grid-column: 4;
@@ -188,17 +230,21 @@ export default function ExpandableMatchups({ cards, items }: Props) {
           display:grid;
           gap:6px;
         }
+
+        /* IMPORTANT: columns mirror the summary's middle section widths:
+           name | score(72) | pos(20) | score(72) | name  */
         .line{
           display:grid;
           align-items:center;
           gap:8px;
           grid-template-columns:
             minmax(0,1fr)
-            70px
-            44px
-            70px
+            72px
+            20px
+            72px
             minmax(0,1fr);
         }
+
         .line.hdr{
           color:#6b7280;
           font-size:12px;
@@ -206,13 +252,26 @@ export default function ExpandableMatchups({ cards, items }: Props) {
           letter-spacing:.04em;
           font-weight:600;
         }
-        .col.name.left{ text-align:right; }
-        .col.name.right{ text-align:left; }
-        .col.score{ font-variant-numeric:tabular-nums; }
-        .col.score.left{ text-align:left; }
-        .col.score.right{ text-align:right; }
+
+        /* Alignment rules you asked for */
+        .col.name{ 
+          overflow:hidden; 
+          text-overflow:ellipsis; 
+          white-space:nowrap;
+          line-height:1.2;
+        }
+        .col.name.left{  text-align:left; }
+        .col.name.right{ text-align:right; }
+
+        .col.score{ 
+          font-variant-numeric:tabular-nums; 
+          white-space:nowrap;
+        }
+        .col.score.left{  text-align:right; } /* aligns under left score in header */
+        .col.score.right{ text-align:left;  } /* aligns under right score in header */
+
         .col.pos{
-          text-align:center;
+          text-align:center;             /* aligns with 'vs' */
           font-weight:600;
           color:#6b7280;
         }
@@ -235,7 +294,18 @@ export default function ExpandableMatchups({ cards, items }: Props) {
           .sum-left{  grid-template-columns: 24px minmax(0,1fr); }
           .sum-right{ grid-template-columns: minmax(0,1fr) 24px; }
 
-          /* FORCE 2-line clamp with ellipsis on mobile; Firefox gets a hard cap */
+          /* Details follow the same tighter widths as header */
+          .line{
+            grid-template-columns:
+              minmax(0,1fr)
+              64px
+              18px
+              64px
+              minmax(0,1fr);
+            gap:6px;
+          }
+
+          /* Header name clamp (unchanged) */
           .t-name{
             white-space:normal !important;
             overflow:hidden;
@@ -249,16 +319,4 @@ export default function ExpandableMatchups({ cards, items }: Props) {
       `}</style>
     </div>
   );
-}
-
-/** zip starters by the given order and pad if uneven */
-function zipStarters(a: Starter[], b: Starter[]) {
-  const max = Math.max(a.length, b.length);
-  const rows: { al?: Starter; ar?: Starter; pos?: string }[] = [];
-  for (let i = 0; i < max; i++) {
-    const left = a[i];
-    const right = b[i];
-    rows.push({ al: left, ar: right, pos: left?.slot ?? right?.slot ?? "" });
-  }
-  return rows;
 }
