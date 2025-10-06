@@ -36,16 +36,44 @@ function zipStarters(a: Starter[], b: Starter[]) {
 }
 
 export default function ExpandableMatchups({ cards, items }: Props) {
-  const list = (cards ?? items ?? []) as Card[];
+  const initial = (cards ?? items ?? []) as Card[];
   const [open, setOpen] = React.useState<Record<number, boolean>>({});
+  const [list, setList] = React.useState<Card[]>(initial);
+  const [myRid, setMyRid] = React.useState<number | null>(null);
+
+  // Float "My Team" to the top if present in localStorage
+  React.useEffect(() => {
+    try {
+      // Accept either key; value expected to be roster_id
+      const raw =
+        localStorage.getItem("lo.myRid") ?? localStorage.getItem("lo.myTeam");
+      const rid = raw ? Number(raw) : NaN;
+      if (!Number.isFinite(rid)) return;
+
+      const idx = initial.findIndex((c) => c.a.rid === rid || c.b.rid === rid);
+      if (idx >= 0) {
+        const picked = initial[idx];
+        const rest = initial.filter((_, i) => i !== idx);
+        setList([picked, ...rest]);
+        setMyRid(rid);
+        return;
+      }
+    } catch {
+      // ignore
+    }
+    setList(initial);
+  }, [initial]);
 
   return (
     <div className="xm-wrap">
       {list.map((c) => {
         const isOpen = !!open[c.id];
+        const isMyMatch =
+          myRid != null && (c.a.rid === myRid || c.b.rid === myRid);
+
         return (
           <section
-            className={`xm-card ${isOpen ? "open" : ""}`}
+            className={`xm-card ${isOpen ? "open" : ""} ${isMyMatch ? "myteam" : ""}`}
             key={c.id}
             onClick={() => setOpen((s) => ({ ...s, [c.id]: !s[c.id] }))}
             role="button"
@@ -125,11 +153,21 @@ export default function ExpandableMatchups({ cards, items }: Props) {
           padding:10px 8px;
           background:#fff;
           cursor:pointer;
+          transition: border-color .15s ease, box-shadow .15s ease, background-color .15s ease;
+        }
+        .xm-card.myteam .sum-row{
+          background:#e8f0fe;             /* light blue header highlight */
+          border-radius:8px;
+          padding:6px;
+        }
+        .xm-card.myteam{
+          border-color:#3b82f6;           /* blue-500 border */
+          box-shadow:0 0 0 1px rgba(59,130,246,.15) inset;
         }
         .xm-card:focus-visible{ outline:2px solid #2563eb; outline-offset:2px; }
 
         /* ===================== SUMMARY (STRICT GRID) ===================== */
-        /* IMPORTANT: POS column width matches detail rows exactly (44px desktop / 36px mobile) */
+        /* POS/vs column = 44px desktop / 36px mobile; matches details */
         .sum-row{
           display:grid;
           align-items:center;
@@ -137,9 +175,9 @@ export default function ExpandableMatchups({ cards, items }: Props) {
           grid-template-columns:
             28px
             minmax(0,1.35fr)
-            72px          /* left score */
-            44px          /* POS / 'vs' */
-            72px          /* right score */
+            72px
+            44px
+            72px
             minmax(0,1.35fr)
             28px;
         }
@@ -226,7 +264,7 @@ export default function ExpandableMatchups({ cards, items }: Props) {
         .col.score.right{ text-align:left;  }
 
         .col.pos{
-          text-align:center; white-space:nowrap;   /* centered & cannot wrap */
+          text-align:center; white-space:nowrap;
           font-weight:600; color:#6b7280;
         }
 
@@ -239,9 +277,9 @@ export default function ExpandableMatchups({ cards, items }: Props) {
             grid-template-columns:
               24px
               minmax(0,1.4fr)
-              64px        /* left score */
-              36px        /* POS / 'vs' */
-              64px        /* right score */
+              64px
+              36px
+              64px
               minmax(0,1.4fr)
               24px;
           }

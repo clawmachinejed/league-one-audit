@@ -10,7 +10,7 @@ const API = "https://api.sleeper.app/v1";
 const MIN_WEEK = 1;
 const MAX_WEEK = 17;
 
-// ---------------- fetch helper ----------------
+// fetch helper
 async function j<T>(path: string, reval = 60): Promise<T> {
   const res = await fetch(`${API}${path}`, { next: { revalidate: reval } });
   if (!res.ok)
@@ -20,7 +20,7 @@ async function j<T>(path: string, reval = 60): Promise<T> {
   return res.json();
 }
 
-// ---------------- types ----------------
+// types
 type SleeperState = { week?: number };
 type SleeperUser = {
   user_id: string;
@@ -37,6 +37,12 @@ type SleeperRoster = {
     avatar_url?: string;
     avatar?: string;
   };
+  // ⬇️ added for standings sort
+  settings?: {
+    wins?: number;
+    fpts?: number;
+    fpts_decimal?: number | string;
+  };
 };
 type Matchup = {
   roster_id: number;
@@ -52,7 +58,7 @@ type Player = {
   team?: string;
 };
 
-// ---------------- utils ----------------
+// utils
 const asNum = (v: unknown, d = 0) =>
   Number.isFinite(Number(v)) ? Number(v) : d;
 const isUrl = (v?: string | null): v is string =>
@@ -116,7 +122,7 @@ function groupByMatchup(
   list: Matchup[] | null | undefined,
 ): Map<number, Matchup[]> {
   const m = new Map<number, Matchup[]>();
-  for (const it of list || []) {
+  for (const it of (list || []) as Matchup[]) {
     const id = Number(it.matchup_id);
     if (!m.has(id)) m.set(id, []);
     m.get(id)!.push(it);
@@ -127,7 +133,7 @@ function clampWeek(n: number) {
   return Math.max(MIN_WEEK, Math.min(MAX_WEEK, n));
 }
 
-// Desired start order: QB, RB, RB, WR, WR, TE, FLEX, FLEX, DEF
+// Desired start order
 const ORDER: Array<"QB" | "RB" | "WR" | "TE" | "FLEX" | "DEF"> = [
   "QB",
   "RB",
@@ -140,7 +146,7 @@ const ORDER: Array<"QB" | "RB" | "WR" | "TE" | "FLEX" | "DEF"> = [
   "DEF",
 ];
 
-// Build starters (safe fallbacks)
+// starters
 function buildStarters(
   entry: Matchup,
   playersById: Map<string, Player>,
@@ -190,32 +196,31 @@ function buildStarters(
   return result;
 }
 
-// ---------------- page ----------------
+// page
 type PageProps = { searchParams?: { week?: string } };
 
 export default async function MatchupsPage({ searchParams }: PageProps) {
   const lid =
     process.env.SLEEPER_LEAGUE_ID || process.env.NEXT_PUBLIC_SLEEPER_LEAGUE_ID;
 
-  // 1) True current NFL week from Sleeper state (dynamic, no hard-code)
+  // true current NFL week
   let currentWeek = 1;
   try {
     const state = await j<SleeperState>(`/state/nfl`, 30);
     currentWeek = clampWeek(asNum(state?.week, 1));
   } catch {
-    currentWeek = 1; // last-resort fallback only if state endpoint fails
+    currentWeek = 1;
   }
 
-  // 2) If no ?week, canonicalize to /matchups?week=<currentWeek>
+  // canonicalize ?week
   const hasWeekParam = typeof searchParams?.week !== "undefined";
   const requestedWeek = clampWeek(asNum(searchParams?.week, currentWeek));
   if (!hasWeekParam) {
-    // ensures refresh/bookmarks always carry the explicit week
     redirect(`/matchups?week=${requestedWeek}`);
   }
   const week = requestedWeek;
 
-  // 3) Users & rosters
+  // users & rosters
   let users: SleeperUser[] = [];
   let rosters: SleeperRoster[] = [];
   try {
@@ -237,7 +242,22 @@ export default async function MatchupsPage({ searchParams }: PageProps) {
     avatarByRosterId.set(rid, pickAvatarUrl(r, u));
   }
 
-  // 4) Matchups for this week
+  // standings ranking (wins desc, fpts desc, roster_id asc)
+  const standings = rosters.map((r) => {
+    const wins = asNum(r.settings?.wins, 0);
+    const fpts =
+      asNum(r.settings?.fpts, 0) + asNum(r.settings?.fpts_decimal, 0) / 100;
+    return { rid: Number(r.roster_id), wins, fpts };
+  });
+  standings.sort((a, b) => {
+    if (b.wins !== a.wins) return b.wins - a.wins;
+    if (b.fpts !== a.fpts) return b.fpts - a.fpts;
+    return a.rid - b.rid;
+  });
+  const rankByRid = new Map<number, number>();
+  standings.forEach((s, i) => rankByRid.set(s.rid, i + 1));
+
+  // week matchups
   let list: Matchup[] = [];
   try {
     if (!lid) throw new Error("Missing league id env");
@@ -246,12 +266,28 @@ export default async function MatchupsPage({ searchParams }: PageProps) {
     // keep empty
   }
 
+  // group + sort by standings order (default)
   const grouped = Array.from(groupByMatchup(list))
     .map(([mid, arr]) => ({ id: mid, a: arr?.[0], b: arr?.[1] }))
     .filter((x) => x.a && x.b)
-    .sort((x, y) => x.id - y.id);
+    .sort((x, y) => {
+      const ax =
+        Math.min(
+          rankByRid.get(Number(x.a!.roster_id)) ?? 999,
+          rankByRid.get(Number(x.b!.roster_id)) ?? 999,
+        ) || 999;
+      const ay =
+        Math.min(
+          rankByRid.get(Number(y.a!.roster_id)) ?? 999,
+          rankByRid.get(Number(y.b!.roster_id)) ?? 999,
+        ) || 999;
+      if (ax !== ay) return ax - ay;
+      const minRidX = Math.min(Number(x.a!.roster_id), Number(x.b!.roster_id));
+      const minRidY = Math.min(Number(y.a!.roster_id), Number(y.b!.roster_id));
+      return minRidX - minRidY;
+    });
 
-  // 5) Collect only the player IDs we actually need, then fetch the directory and slim it
+  // collect needed players only
   const neededIds = new Set<string>();
   for (const g of grouped) {
     (g.a?.starters ?? []).forEach((pid) => neededIds.add(pid));
@@ -268,10 +304,10 @@ export default async function MatchupsPage({ searchParams }: PageProps) {
     });
     playersById = slim;
   } catch {
-    // leave empty; starters will fall back to player_id strings
+    // leave empty
   }
 
-  // 6) Build UI payload
+  // UI payload
   const ui = grouped.map((g) => {
     const aRid = Number(g.a!.roster_id);
     const bRid = Number(g.b!.roster_id);
