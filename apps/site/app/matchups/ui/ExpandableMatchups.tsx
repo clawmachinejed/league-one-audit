@@ -2,53 +2,35 @@
 
 import * as React from "react";
 
-type Starter = {
-  slot: string; // QB/RB/...
-  name: string; // "Brock Purdy"
-  pts: number;
-};
-
+type Starter = { slot: string; name: string; pts: number };
 type Side = {
   rid: number;
   name: string;
-  avatar: string; // url
+  avatar: string;
   pts: number;
   starters: Starter[];
 };
-
-export type Card = {
-  id: number;
-  a: Side;
-  b: Side;
-};
-
+export type Card = { id: number; a: Side; b: Side };
 type Props = { cards?: Card[]; items?: Card[] };
 
-/** Format "First Last" -> "F. Last". Keeps D/ST or DEF-style names intact. */
+/** "First Last" -> "F. Last"; keep DEF/D/ST names as-is */
 function formatName(n?: string, slot?: string) {
   const name = (n || "").trim();
   if (!name) return "—";
   if (slot === "DEF" || /D\/ST/i.test(name)) return name;
   const parts = name.split(/\s+/).filter(Boolean);
   if (parts.length === 1) return parts[0];
-  const first = parts[0];
-  const last = parts[parts.length - 1];
-  const initial = first[0];
-  return `${initial}. ${last}`;
+  return `${parts[0][0]}. ${parts[parts.length - 1]}`;
 }
 
-/** zip starters by the given order and pad if uneven */
+/** zip starters by order and pad if uneven */
 function zipStarters(a: Starter[], b: Starter[]) {
   const max = Math.max(a.length, b.length);
   const rows: { al?: Starter; ar?: Starter; pos?: string }[] = [];
   for (let i = 0; i < max; i++) {
     const left = a[i];
     const right = b[i];
-    rows.push({
-      al: left,
-      ar: right,
-      pos: left?.slot ?? right?.slot ?? "",
-    });
+    rows.push({ al: left, ar: right, pos: left?.slot ?? right?.slot ?? "" });
   }
   return rows;
 }
@@ -89,7 +71,7 @@ export default function ExpandableMatchups({ cards, items }: Props) {
                 <div className="t-name t-left">{c.a.name}</div>
               </div>
 
-              {/* Scores: both right-aligned so detail rows can match exactly */}
+              {/* Scores: left = right-justified, right = left-justified */}
               <div className="t-score t-left">{c.a.pts.toFixed(2)}</div>
               <div className="vs">vs</div>
               <div className="t-score t-right">{c.b.pts.toFixed(2)}</div>
@@ -159,7 +141,7 @@ export default function ExpandableMatchups({ cards, items }: Props) {
           display:grid;
           align-items:center;
           gap:10px;
-          /* 7 strict columns:
+          /* 7 columns:
              [1] L avatar | [2] L name | [3] L score | [4] vs | [5] R score | [6] R name | [7] R avatar */
           grid-template-columns:
             28px
@@ -181,9 +163,7 @@ export default function ExpandableMatchups({ cards, items }: Props) {
         .sum-left{  grid-column: 1 / span 2; grid-template-columns: 28px minmax(0,1fr); }
         .sum-right{ grid-column: 6 / span 2; grid-template-columns: minmax(0,1fr) 28px; }
 
-        .av{
-          width:24px; height:24px; border-radius:9999px; object-fit:cover; background:#f3f4f6;
-        }
+        .av{ width:24px; height:24px; border-radius:9999px; object-fit:cover; background:#f3f4f6; }
         .avL{ justify-self:start; }
         .avR{ justify-self:end; }
 
@@ -195,28 +175,26 @@ export default function ExpandableMatchups({ cards, items }: Props) {
           text-overflow:ellipsis;
           white-space:nowrap;
         }
-        .t-left{  text-align:left; }
-
+        .t-left{ text-align:left; }
         .t-name.t-right{
           text-align:left;
           margin-left:auto;
-          width:-webkit-fit-content;
-          width:-moz-fit-content;
-          width:fit-content;
+          width:-webkit-fit-content; width:-moz-fit-content; width:fit-content;
           max-width:100%;
           min-width:0;
         }
 
-        /* SCORES — both right-aligned to match detail lines */
+        /* Header scores: mirror the rules for detail rows */
         .t-score{
           font-variant-numeric: tabular-nums;
           white-space:nowrap;
-          text-align:right;
         }
+        .t-score.t-left{  text-align:right; } /* hugs POS column from left side */
+        .t-score.t-right{ text-align:left;  } /* hugs POS column from right side */
 
         .vs{
           grid-column: 4;
-          text-align:center;
+          text-align:center;               /* centered 'vs' */
           color:#6b7280;
           font-weight:600;
         }
@@ -230,8 +208,7 @@ export default function ExpandableMatchups({ cards, items }: Props) {
           gap:6px;
         }
 
-        /* IMPORTANT: columns mirror the summary middle widths exactly:
-           name | score(72) | pos(20) | score(72) | name  */
+        /* Mirrors header: name | score(72) | pos(20) | score(72) | name */
         .line{
           display:grid;
           align-items:center;
@@ -252,25 +229,27 @@ export default function ExpandableMatchups({ cards, items }: Props) {
           font-weight:600;
         }
 
-        /* Alignment rules */
+        /* Column alignment rules */
         .col.name{
-          overflow:hidden;
-          text-overflow:ellipsis;
-          white-space:nowrap;
-          line-height:1.2;
-          min-width:0;
+          overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+          line-height:1.2; min-width:0;
         }
         .col.name.left{  text-align:left; }
         .col.name.right{ text-align:right; }
 
+        /* Numbers: left column right-justified; right column left-justified */
         .col.score{
-          font-variant-numeric:tabular-nums;
-          white-space:nowrap;
-          text-align:right; /* BOTH score columns right-justified */
+          font-variant-numeric:tabular-nums; white-space:nowrap;
         }
+        .col.score.left{  text-align:right; }
+        .col.score.right{ text-align:left; }
 
+        /* Header PTS centered (without affecting rows) */
+        .line.hdr .col.score{ text-align:center; }
+
+        /* POS/slots centered in the middle column */
         .col.pos{
-          text-align:center;             /* aligns with 'vs' */
+          text-align:center;
           font-weight:600;
           color:#6b7280;
         }
@@ -293,8 +272,7 @@ export default function ExpandableMatchups({ cards, items }: Props) {
           .sum-left{  grid-template-columns: 24px minmax(0,1fr); }
           .sum-right{ grid-template-columns: minmax(0,1fr) 24px; }
 
-          /* Details follow the same tighter widths as header.
-             Fixed widths here prevent overlap and force truncation. */
+          /* Detail rows use the same tighter widths as header on mobile */
           .line{
             grid-template-columns:
               minmax(0,1fr)
@@ -305,7 +283,7 @@ export default function ExpandableMatchups({ cards, items }: Props) {
             gap:6px;
           }
 
-          /* Ensure long names don't bleed into score/pos columns */
+          /* Ensure long names never collide into score/POS columns */
           .col.name{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
         }
       `}</style>
