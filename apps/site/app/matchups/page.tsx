@@ -1,6 +1,7 @@
 ﻿// apps/site/app/matchups/page.tsx
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
 import ExpandableMatchups from "./ui/ExpandableMatchups";
 
 export const dynamic = "force-dynamic";
@@ -25,7 +26,7 @@ type SleeperState = { week?: number };
 type SleeperUser = {
   user_id: string;
   display_name?: string;
-  avatar?: string; // hash or url
+  avatar?: string;
   metadata?: { team_name?: string; avatar?: string };
 };
 type SleeperRoster = {
@@ -37,7 +38,6 @@ type SleeperRoster = {
     avatar_url?: string;
     avatar?: string;
   };
-  // ⬇️ added for standings sort
   settings?: {
     wins?: number;
     fpts?: number;
@@ -54,7 +54,7 @@ type Matchup = {
 type Player = {
   player_id: string;
   full_name?: string;
-  position?: string; // QB/RB/WR/TE/DEF/…
+  position?: string;
   team?: string;
 };
 
@@ -68,7 +68,6 @@ const isHash = (v?: string | null): v is string =>
   !!v && !v.includes("/") && !v.includes(" ") && !v.startsWith("data:");
 const toCdn = (hash?: string | null): string | undefined =>
   isHash(hash) ? `https://sleepercdn.com/avatars/thumbs/${hash}` : undefined;
-
 function isSleeperImagesPlaceholder(url: string): boolean {
   try {
     const u = new URL(url);
@@ -219,6 +218,16 @@ export default async function MatchupsPage({ searchParams }: PageProps) {
     redirect(`/matchups?week=${requestedWeek}`);
   }
   const week = requestedWeek;
+
+  // read "My Team" roster id from cookie (match Standings behavior)
+  const cookieStore = await cookies();
+  const myTeamCookie =
+    cookieStore.get("l1.myTeamRosterId")?.value ??
+    cookieStore.get("myTeam")?.value ??
+    null;
+  const myRid = Number.isFinite(Number(myTeamCookie))
+    ? Number(myTeamCookie)
+    : null;
 
   // users & rosters
   let users: SleeperUser[] = [];
@@ -385,7 +394,8 @@ export default async function MatchupsPage({ searchParams }: PageProps) {
         Reload to refresh scores. Click a card to expand starters.
       </p>
 
-      <ExpandableMatchups items={ui as any} />
+      {/* Pass myRid from cookie to mirror Standings behavior */}
+      <ExpandableMatchups items={ui as any} myRid={myRid ?? undefined} />
 
       <style>{`
         .wkbtn{
