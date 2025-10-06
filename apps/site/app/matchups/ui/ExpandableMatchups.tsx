@@ -28,10 +28,9 @@ type Props = { cards?: Card[]; items?: Card[] };
 function formatName(n?: string, slot?: string) {
   const name = (n || "").trim();
   if (!name) return "—";
-  // Leave defenses or obviously special names untouched
   if (slot === "DEF" || /D\/ST/i.test(name)) return name;
   const parts = name.split(/\s+/).filter(Boolean);
-  if (parts.length === 1) return parts[0]; // single token (e.g., "Madonna" or a code)
+  if (parts.length === 1) return parts[0];
   const first = parts[0];
   const last = parts[parts.length - 1];
   const initial = first[0];
@@ -77,7 +76,7 @@ export default function ExpandableMatchups({ cards, items }: Props) {
               }
             }}
           >
-            {/* ===================== SUMMARY ROW (UNCHANGED) ===================== */}
+            {/* ===================== SUMMARY ROW ===================== */}
             <div className="sum-row">
               <div className="sum-left">
                 <img
@@ -90,6 +89,7 @@ export default function ExpandableMatchups({ cards, items }: Props) {
                 <div className="t-name t-left">{c.a.name}</div>
               </div>
 
+              {/* Scores: both right-aligned so detail rows can match exactly */}
               <div className="t-score t-left">{c.a.pts.toFixed(2)}</div>
               <div className="vs">vs</div>
               <div className="t-score t-right">{c.b.pts.toFixed(2)}</div>
@@ -207,13 +207,12 @@ export default function ExpandableMatchups({ cards, items }: Props) {
           min-width:0;
         }
 
-        /* SCORES — mirrored alignment */
+        /* SCORES — both right-aligned to match detail lines */
         .t-score{
           font-variant-numeric: tabular-nums;
           white-space:nowrap;
+          text-align:right;
         }
-        .t-score.t-left{  text-align:right; }
-        .t-score.t-right{ text-align:left; }
 
         .vs{
           grid-column: 4;
@@ -231,7 +230,7 @@ export default function ExpandableMatchups({ cards, items }: Props) {
           gap:6px;
         }
 
-        /* IMPORTANT: columns mirror the summary's middle section widths:
+        /* IMPORTANT: columns mirror the summary middle widths exactly:
            name | score(72) | pos(20) | score(72) | name  */
         .line{
           display:grid;
@@ -253,22 +252,22 @@ export default function ExpandableMatchups({ cards, items }: Props) {
           font-weight:600;
         }
 
-        /* Alignment rules you asked for */
-        .col.name{ 
-          overflow:hidden; 
-          text-overflow:ellipsis; 
+        /* Alignment rules */
+        .col.name{
+          overflow:hidden;
+          text-overflow:ellipsis;
           white-space:nowrap;
           line-height:1.2;
+          min-width:0;
         }
         .col.name.left{  text-align:left; }
         .col.name.right{ text-align:right; }
 
-        .col.score{ 
-          font-variant-numeric:tabular-nums; 
+        .col.score{
+          font-variant-numeric:tabular-nums;
           white-space:nowrap;
+          text-align:right; /* BOTH score columns right-justified */
         }
-        .col.score.left{  text-align:right; } /* aligns under left score in header */
-        .col.score.right{ text-align:left;  } /* aligns under right score in header */
 
         .col.pos{
           text-align:center;             /* aligns with 'vs' */
@@ -294,7 +293,8 @@ export default function ExpandableMatchups({ cards, items }: Props) {
           .sum-left{  grid-template-columns: 24px minmax(0,1fr); }
           .sum-right{ grid-template-columns: minmax(0,1fr) 24px; }
 
-          /* Details follow the same tighter widths as header */
+          /* Details follow the same tighter widths as header.
+             Fixed widths here prevent overlap and force truncation. */
           .line{
             grid-template-columns:
               minmax(0,1fr)
@@ -305,16 +305,8 @@ export default function ExpandableMatchups({ cards, items }: Props) {
             gap:6px;
           }
 
-          /* Header name clamp (unchanged) */
-          .t-name{
-            white-space:normal !important;
-            overflow:hidden;
-            text-overflow:ellipsis;
-            display:-webkit-box !important;
-            -webkit-box-orient:vertical;
-            -webkit-line-clamp:2;
-            max-height:calc(2 * 1.2em);
-          }
+          /* Ensure long names don't bleed into score/pos columns */
+          .col.name{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
         }
       `}</style>
     </div>
