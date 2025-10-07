@@ -38,7 +38,7 @@ type StatsMap = Record<
     def_sacks: number;
     def_to: number; // turnovers
     def_td: number;
-    // Game meta (optional if you have it)
+    // Game meta (optional)
     game_state: string; // "Final", "Q3 07:21", "Sun 1:00p"
     opp: string; // "DAL"
     venue: "home" | "away";
@@ -132,7 +132,7 @@ function formatStatBlip(slot: string, s?: StatsMap[string]): string {
     if (td != null) chips.push(`${td} TD`);
   }
 
-  // Optional game meta prefix/suffix if provided
+  // Optional game meta
   const meta: string[] = [];
   if (s.game_state) meta.push(s.game_state);
   if (s.opp) meta.push((s.venue === "away" ? "@ " : "vs ") + s.opp);
@@ -196,7 +196,7 @@ export default function ExpandableMatchups({
         exceptions: new Set(),
       };
       if (cur.cardOpen) {
-        // collapsing the card resets all player states
+        // collapsing resets all rows
         return {
           ...s,
           [cid]: { cardOpen: false, allOpen: false, exceptions: new Set() },
@@ -216,7 +216,7 @@ export default function ExpandableMatchups({
         allOpen: false,
         exceptions: new Set(),
       };
-      if (!cur.cardOpen) return s; // ignore if card closed
+      if (!cur.cardOpen) return s; // ignore if closed
       // if already "all open" with no exceptions -> close all
       const allOpen = !(cur.allOpen && cur.exceptions.size === 0);
       return {
@@ -265,7 +265,7 @@ export default function ExpandableMatchups({
             className={cls("xm-card", isMy && "myteam")}
             role="group"
           >
-            {/* ===================== HEADER (tap center to toggle card) ===================== */}
+            {/* ===================== HEADER ===================== */}
             <div className="sum-row">
               <div className="sum-left">
                 <img
@@ -280,7 +280,7 @@ export default function ExpandableMatchups({
                 </div>
               </div>
 
-              {/* Clickable CENTER band for card toggle */}
+              {/* center band toggles the entire card */}
               <button
                 type="button"
                 className="head-toggle t-score t-left"
@@ -328,16 +328,19 @@ export default function ExpandableMatchups({
             {/* ===================== DETAILS ===================== */}
             {cardOpen && (
               <div id={`card-${c.id}`} className="detail">
-                {/* Rows */}
                 {zipStarters(c.a.starters, c.b.starters).map((row, i) => {
                   const leftOpen = isRowOpen(c.id, "L", i);
                   const rightOpen = isRowOpen(c.id, "R", i);
+                  const anyOpen =
+                    leftOpen ||
+                    rightOpen ||
+                    (st?.allOpen && (st?.exceptions.size ?? 0) === 0);
 
                   const leftBlip =
                     formatStatBlip(
                       row.al?.slot ?? "",
                       row.al?.pid ? statsByPlayerId?.[row.al.pid] : undefined,
-                    ) || ""; // fallback empty
+                    ) || "";
                   const rightBlip =
                     formatStatBlip(
                       row.ar?.slot ?? "",
@@ -347,7 +350,7 @@ export default function ExpandableMatchups({
                   return (
                     <React.Fragment key={i}>
                       <div className="line">
-                        {/* Left name (tap to toggle just this row) */}
+                        {/* Left name (toggle just this side's row) */}
                         <button
                           type="button"
                           className="col name left row-toggle"
@@ -364,7 +367,7 @@ export default function ExpandableMatchups({
                           {row.al ? row.al.pts.toFixed(2) : "—"}
                         </div>
 
-                        {/* POS — tapping POS anywhere toggles ALL rows in this card */}
+                        {/* Center POS (toggle ALL rows for this card) */}
                         <button
                           type="button"
                           className="col pos all-toggle"
@@ -384,7 +387,7 @@ export default function ExpandableMatchups({
                           {row.ar ? row.ar.pts.toFixed(2) : "—"}
                         </div>
 
-                        {/* Right name (tap to toggle just this row) */}
+                        {/* Right name (toggle just this side's row) */}
                         <button
                           type="button"
                           className="col name right row-toggle"
@@ -398,19 +401,14 @@ export default function ExpandableMatchups({
                         </button>
                       </div>
 
-                      {/* Left sub-row */}
-                      {leftOpen && (
+                      {/* SINGLE subrow spanning the grid, with left & right blips on ONE line */}
+                      {anyOpen && (
                         <div className="subrow">
-                          <div className="sub blip-left" title={leftBlip}>
+                          <div className="sub sub-left" title={leftBlip}>
                             {leftBlip || "Schedule info"}
                           </div>
-                        </div>
-                      )}
-
-                      {/* Right sub-row */}
-                      {rightOpen && (
-                        <div className="subrow">
-                          <div className="sub blip-right" title={rightBlip}>
+                          <div className="sub-center" />
+                          <div className="sub sub-right" title={rightBlip}>
                             {rightBlip || "Schedule info"}
                           </div>
                         </div>
@@ -433,7 +431,7 @@ export default function ExpandableMatchups({
               .xm-wrap{ display:grid; gap:12px; }
               .xm-card:focus-visible{ outline:2px solid #2563eb; outline-offset:2px; }
 
-              /* ===================== HEADER GRID (center = toggle) ===================== */
+              /* ===================== HEADER ===================== */
               .sum-row{
                 display:grid; align-items:center; gap:10px;
                 grid-template-columns:
@@ -459,16 +457,10 @@ export default function ExpandableMatchups({
               .t-score.t-right{ text-align:left; }
               .vs{ text-align:center; color:#6b7280; font-weight:600; white-space:nowrap; }
 
-              /* Make center band clickable */
-              .head-toggle{
-                appearance:none; background:none; border:0; padding:4px 2px; cursor:pointer;
-              }
+              .head-toggle{ appearance:none; background:none; border:0; padding:4px 2px; cursor:pointer; }
 
               /* ===================== DETAILS ===================== */
-              .detail{
-                margin-top:10px; border-top:1px dashed #e5e7eb; padding-top:10px;
-                display:grid; gap:6px;
-              }
+              .detail{ margin-top:10px; border-top:1px dashed #e5e7eb; padding-top:10px; display:grid; gap:6px; }
               .line{
                 display:grid; align-items:center; gap:8px;
                 grid-template-columns:
@@ -481,22 +473,24 @@ export default function ExpandableMatchups({
               .col.name{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; line-height:1.2; min-width:0; }
               .col.name.left{ text-align:left; }
               .col.name.right{ text-align:right; }
-              .row-toggle{
-                appearance:none; background:none; border:0; padding:0; cursor:pointer; text-align:inherit;
-              }
+              .row-toggle{ appearance:none; background:none; border:0; padding:0; cursor:pointer; text-align:inherit; }
               .col.score{ font-variant-numeric:tabular-nums; white-space:nowrap; }
               .col.score.left{ text-align:right; }
               .col.score.right{ text-align:left; }
-              .col.pos{
-                text-align:center; white-space:nowrap; font-weight:600; color:#6b7280;
-              }
-              .all-toggle{
-                appearance:none; background:none; border:0; padding:2px 0; cursor:pointer;
-              }
+              .col.pos{ text-align:center; white-space:nowrap; font-weight:600; color:#6b7280; }
+              .all-toggle{ appearance:none; background:none; border:0; padding:2px 0; cursor:pointer; }
 
-              /* Stat sub-rows */
+              /* ---- SINGLE subrow with left & right blips on one line ---- */
               .subrow{
+                display:grid;
+                grid-template-columns:
+                  minmax(0,1fr)
+                  72px
+                  44px
+                  72px
+                  minmax(0,1fr);
                 grid-column:1 / -1;
+                gap:8px;
               }
               .sub{
                 margin:2px 0 6px 0;
@@ -507,8 +501,9 @@ export default function ExpandableMatchups({
                 line-height:1.2;
                 overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
               }
-              .blip-left{ text-align:left; }
-              .blip-right{ text-align:right; }
+              .sub-left{ grid-column:1 / span 2; text-align:left; }
+              .sub-center{ grid-column:3; } /* keeps the POS column perfectly centered */
+              .sub-right{ grid-column:4 / span 2; text-align:right; }
 
               /* ===================== MOBILE ===================== */
               @media (max-width: 480px){
@@ -527,6 +522,15 @@ export default function ExpandableMatchups({
                 .sum-left{  grid-template-columns:24px minmax(0,1fr); }
                 .sum-right{ grid-template-columns:minmax(0,1fr) 24px; }
                 .line{
+                  grid-template-columns:
+                    minmax(0,1fr)
+                    64px
+                    36px
+                    64px
+                    minmax(0,1fr);
+                  gap:6px;
+                }
+                .subrow{
                   grid-template-columns:
                     minmax(0,1fr)
                     64px
