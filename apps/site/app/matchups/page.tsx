@@ -11,7 +11,6 @@ const API = "https://api.sleeper.app/v1";
 const MIN_WEEK = 1;
 const MAX_WEEK = 17;
 
-// fetch helper
 async function j<T>(path: string, reval = 60): Promise<T> {
   const res = await fetch(`${API}${path}`, { next: { revalidate: reval } });
   if (!res.ok)
@@ -21,12 +20,12 @@ async function j<T>(path: string, reval = 60): Promise<T> {
   return res.json();
 }
 
-// types
 type SleeperState = { week?: number };
+type League = { week?: number };
 type SleeperUser = {
   user_id: string;
   display_name?: string;
-  avatar?: string;
+  avatar?: string; // hash or url
   metadata?: { team_name?: string; avatar?: string };
 };
 type SleeperRoster = {
@@ -58,9 +57,9 @@ type Player = {
   team?: string;
 };
 
-// utils
 const asNum = (v: unknown, d = 0) =>
   Number.isFinite(Number(v)) ? Number(v) : d;
+const clampWeek = (n: number) => Math.max(MIN_WEEK, Math.min(MAX_WEEK, n));
 const isUrl = (v?: string | null): v is string =>
   !!v && (v.startsWith("http://") || v.startsWith("https://"));
 const isRelative = (v?: string | null): v is string => !!v && v.startsWith("/");
@@ -121,18 +120,15 @@ function groupByMatchup(
   list: Matchup[] | null | undefined,
 ): Map<number, Matchup[]> {
   const m = new Map<number, Matchup[]>();
-  for (const it of (list || []) as Matchup[]) {
+  for (const it of list || []) {
     const id = Number(it.matchup_id);
     if (!m.has(id)) m.set(id, []);
     m.get(id)!.push(it);
   }
   return m;
 }
-function clampWeek(n: number) {
-  return Math.max(MIN_WEEK, Math.min(MAX_WEEK, n));
-}
 
-// Desired start order
+// desired starting slots order
 const ORDER: Array<"QB" | "RB" | "WR" | "TE" | "FLEX" | "DEF"> = [
   "QB",
   "RB",
@@ -145,14 +141,12 @@ const ORDER: Array<"QB" | "RB" | "WR" | "TE" | "FLEX" | "DEF"> = [
   "DEF",
 ];
 
-// starters
 function buildStarters(
   entry: Matchup,
   playersById: Map<string, Player>,
-): { slot: string; name: string; pts: number }[] {
-  const starters = entry?.starters ?? [];
-  const ptsMap = entry?.players_points ?? {};
-
+): { slot: string; name: string; pts: number; pid?: string }[] {
+  const starters = entry.starters ?? [];
+  const ptsMap = entry.players_points ?? {};
   const labeled = starters
     .map((pid) => {
       const p = playersById.get(pid);
@@ -163,13 +157,14 @@ function buildStarters(
     })
     .filter((x) => x.pos);
 
-  const result: { slot: string; name: string; pts: number }[] = [];
+  const result: { slot: string; name: string; pts: number; pid?: string }[] =
+    [];
 
   const take = (want: string) => {
     const i = labeled.findIndex((x) => x.pos === want);
     if (i >= 0) {
       const [x] = labeled.splice(i, 1);
-      result.push({ slot: want, name: x.name, pts: x.pts });
+      result.push({ slot: want, name: x.name, pts: x.pts, pid: x.pid });
     } else {
       result.push({ slot: want, name: "—", pts: 0 });
     }
@@ -180,7 +175,7 @@ function buildStarters(
     );
     if (i >= 0) {
       const [x] = labeled.splice(i, 1);
-      result.push({ slot: "FLEX", name: x.name, pts: x.pts });
+      result.push({ slot: "FLEX", name: x.name, pts: x.pts, pid: x.pid });
     } else {
       result.push({ slot: "FLEX", name: "—", pts: 0 });
     }
@@ -195,14 +190,13 @@ function buildStarters(
   return result;
 }
 
-// page
 type PageProps = { searchParams?: { week?: string } };
 
 export default async function MatchupsPage({ searchParams }: PageProps) {
   const lid =
     process.env.SLEEPER_LEAGUE_ID || process.env.NEXT_PUBLIC_SLEEPER_LEAGUE_ID;
 
-  // true current NFL week
+  // true current NFL week (server)
   let currentWeek = 1;
   try {
     const state = await j<SleeperState>(`/state/nfl`, 30);
@@ -215,11 +209,12 @@ export default async function MatchupsPage({ searchParams }: PageProps) {
   const hasWeekParam = typeof searchParams?.week !== "undefined";
   const requestedWeek = clampWeek(asNum(searchParams?.week, currentWeek));
   if (!hasWeekParam) {
-    redirect(`/matchups?week=${requestedWeek}`);
+    // redirect to ensure canonical URL / caching works cleanly
+    return redirect(`/matchups?week=${requestedWeek}`);
   }
   const week = requestedWeek;
 
-  // read "My Team" roster id from cookie (match Standings behavior)
+  // read "My Team" roster id from cookie (like Standings)
   const cookieStore = await cookies();
   const myTeamCookie =
     cookieStore.get("l1.myTeamRosterId")?.value ??
@@ -227,19 +222,20 @@ export default async function MatchupsPage({ searchParams }: PageProps) {
     null;
   const myRid = Number.isFinite(Number(myTeamCookie))
     ? Number(myTeamCookie)
-    : null;
+    : undefined;
 
   // users & rosters
   let users: SleeperUser[] = [];
   let rosters: SleeperRoster[] = [];
-  try {
-    if (!lid) throw new Error("Missing league id env");
-    [users, rosters] = await Promise.all([
-      j<SleeperUser[]>(`/league/${lid}/users`, 600),
-      j<SleeperRoster[]>(`/league/${lid}/rosters`, 600),
-    ]);
-  } catch {
-    // keep empty
+  if (lid) {
+    try {
+      [users, rosters] = await Promise.all([
+        j<SleeperUser[]>(`/league/${lid}/users`, 600),
+        j<SleeperRoster[]>(`/league/${lid}/rosters`, 600),
+      ]);
+    } catch {
+      // ignore
+    }
   }
   const usersById = new Map(users.map((u) => [u.user_id, u]));
   const nameByRosterId = new Map<number, string>();
@@ -251,7 +247,7 @@ export default async function MatchupsPage({ searchParams }: PageProps) {
     avatarByRosterId.set(rid, pickAvatarUrl(r, u));
   }
 
-  // standings ranking (wins desc, fpts desc, roster_id asc)
+  // standings order for default sorting
   const standings = rosters.map((r) => {
     const wins = asNum(r.settings?.wins, 0);
     const fpts =
@@ -266,16 +262,26 @@ export default async function MatchupsPage({ searchParams }: PageProps) {
   const rankByRid = new Map<number, number>();
   standings.forEach((s, i) => rankByRid.set(s.rid, i + 1));
 
-  // week matchups
+  // matchups for week
   let list: Matchup[] = [];
-  try {
-    if (!lid) throw new Error("Missing league id env");
-    list = await j<Matchup[]>(`/league/${lid}/matchups/${week}`, 30);
-  } catch {
-    // keep empty
+  if (lid) {
+    try {
+      list = await j<Matchup[]>(`/league/${lid}/matchups/${week}`, 30);
+    } catch {
+      // ignore
+    }
   }
 
-  // group + sort by standings order (default)
+  // players directory — cache for 24h per API guidance
+  let playersById = new Map<string, Player>();
+  try {
+    const playersObj = await j<Record<string, Player>>(`/players/nfl`, 86400);
+    playersById = new Map(Object.entries(playersObj || {}));
+  } catch {
+    // ignore
+  }
+
+  // group + sort by standings (lowest rank number first)
   const grouped = Array.from(groupByMatchup(list))
     .map(([mid, arr]) => ({ id: mid, a: arr?.[0], b: arr?.[1] }))
     .filter((x) => x.a && x.b)
@@ -296,27 +302,7 @@ export default async function MatchupsPage({ searchParams }: PageProps) {
       return minRidX - minRidY;
     });
 
-  // collect needed players only
-  const neededIds = new Set<string>();
-  for (const g of grouped) {
-    (g.a?.starters ?? []).forEach((pid) => neededIds.add(pid));
-    (g.b?.starters ?? []).forEach((pid) => neededIds.add(pid));
-  }
-
-  let playersById = new Map<string, Player>();
-  try {
-    const playersObj = await j<Record<string, Player>>(`/players/nfl`, 600);
-    const slim = new Map<string, Player>();
-    neededIds.forEach((pid) => {
-      const p = (playersObj as any)?.[pid];
-      if (p) slim.set(pid, p);
-    });
-    playersById = slim;
-  } catch {
-    // leave empty
-  }
-
-  // UI payload
+  // Prepare UI payload
   const ui = grouped.map((g) => {
     const aRid = Number(g.a!.roster_id);
     const bRid = Number(g.b!.roster_id);
@@ -391,11 +377,15 @@ export default async function MatchupsPage({ searchParams }: PageProps) {
       </div>
 
       <p style={{ color: "#6b7280", marginTop: -6 }}>
-        Reload to refresh scores. Click a card to expand starters.
+        Tap the center header to open a matchup. Tap the POS column to show/hide
+        all player stats. Tap a player name to toggle just that player.
       </p>
 
-      {/* Pass myRid from cookie to mirror Standings behavior */}
-      <ExpandableMatchups items={ui as any} myRid={myRid ?? undefined} />
+      <ExpandableMatchups
+        items={ui as any}
+        myRid={myRid}
+        // statsByPlayerId={...} // Optional: pass a weekly stats map here when available
+      />
 
       <style>{`
         .wkbtn{
