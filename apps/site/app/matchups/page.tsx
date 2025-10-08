@@ -144,7 +144,7 @@ const ORDER: Array<"QB" | "RB" | "WR" | "TE" | "FLEX" | "DEF"> = [
 function buildStarters(
   entry: Matchup,
   playersById: Map<string, Player>,
-): { slot: string; name: string; pts: number; pid?: string }[] {
+): { slot: string; name: string; pts: number; pid?: string; team?: string }[] {
   const starters = entry.starters ?? [];
   const ptsMap = entry.players_points ?? {};
   const labeled = starters
@@ -153,18 +153,30 @@ function buildStarters(
       const pos = (p?.position || "").toUpperCase();
       const name = p?.full_name || pid;
       const pts = asNum(ptsMap[pid], 0);
-      return { pid, pos, name, pts };
+      const team = (p?.team || "").toUpperCase();
+      return { pid, pos, name, pts, team };
     })
     .filter((x) => x.pos);
 
-  const result: { slot: string; name: string; pts: number; pid?: string }[] =
-    [];
+  const result: {
+    slot: string;
+    name: string;
+    pts: number;
+    pid?: string;
+    team?: string;
+  }[] = [];
 
   const take = (want: string) => {
     const i = labeled.findIndex((x) => x.pos === want);
     if (i >= 0) {
       const [x] = labeled.splice(i, 1);
-      result.push({ slot: want, name: x.name, pts: x.pts, pid: x.pid });
+      result.push({
+        slot: want,
+        name: x.name,
+        pts: x.pts,
+        pid: x.pid,
+        team: x.team,
+      });
     } else {
       result.push({ slot: want, name: "—", pts: 0 });
     }
@@ -175,7 +187,13 @@ function buildStarters(
     );
     if (i >= 0) {
       const [x] = labeled.splice(i, 1);
-      result.push({ slot: "FLEX", name: x.name, pts: x.pts, pid: x.pid });
+      result.push({
+        slot: "FLEX",
+        name: x.name,
+        pts: x.pts,
+        pid: x.pid,
+        team: x.team,
+      });
     } else {
       result.push({ slot: "FLEX", name: "—", pts: 0 });
     }
