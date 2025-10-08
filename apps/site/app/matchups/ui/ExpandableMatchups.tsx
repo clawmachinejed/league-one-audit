@@ -2,7 +2,13 @@
 
 import * as React from "react";
 
-type Starter = { slot: string; name: string; pts: number; pid?: string };
+type Starter = {
+  slot: string;
+  name: string;
+  pts: number;
+  pid?: string;
+  team?: string; // <-- added to show "POS - TEAM"
+};
 type Side = {
   rid: number;
   name: string;
@@ -64,6 +70,15 @@ function formatName(n?: string, slot?: string) {
   const parts = name.split(/\s+/).filter(Boolean);
   if (parts.length === 1) return parts[0];
   return `${parts[0][0]}. ${parts[parts.length - 1]}`;
+}
+
+/** Compose "F. Last POS - TEAM" (TEAM omitted if unknown) */
+function nameWithMeta(st?: Starter) {
+  if (!st) return "—";
+  const base = formatName(st.name, st.slot);
+  const pos = (st.slot || "").toUpperCase();
+  const team = (st.team || "").toUpperCase();
+  return team ? `${base} ${pos} - ${team}` : `${base} ${pos}`;
 }
 
 /** Compact, one-line blip by position with graceful omissions */
@@ -360,7 +375,7 @@ export default function ExpandableMatchups({
                           }}
                           aria-expanded={leftOpen}
                         >
-                          {row.al ? formatName(row.al.name, row.al.slot) : "—"}
+                          {nameWithMeta(row.al)}
                         </button>
 
                         <div className="col score left">
@@ -397,7 +412,7 @@ export default function ExpandableMatchups({
                           }}
                           aria-expanded={rightOpen}
                         >
-                          {row.ar ? formatName(row.ar.name, row.ar.slot) : "—"}
+                          {nameWithMeta(row.ar)}
                         </button>
                       </div>
 
