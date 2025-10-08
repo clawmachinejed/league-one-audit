@@ -7,7 +7,7 @@ type Starter = {
   name: string;
   pts: number;
   pid?: string;
-  team?: string; // <-- added to show "POS - TEAM"
+  team?: string; // used for "POS - TEAM"
 };
 type Side = {
   rid: number;
@@ -72,13 +72,33 @@ function formatName(n?: string, slot?: string) {
   return `${parts[0][0]}. ${parts[parts.length - 1]}`;
 }
 
-/** Compose "F. Last POS - TEAM" (TEAM omitted if unknown) */
-function nameWithMeta(st?: Starter) {
-  if (!st) return "—";
-  const base = formatName(st.name, st.slot);
+/** Build the "POS - TEAM" label (TEAM omitted if unknown) */
+function posTeam(st?: Starter) {
+  if (!st) return "";
   const pos = (st.slot || "").toUpperCase();
   const team = (st.team || "").toUpperCase();
-  return team ? `${base} ${pos} - ${team}` : `${base} ${pos}`;
+  return team ? `${pos} - ${team}` : pos;
+}
+
+/** LEFT: "Name  POS - TEAM"  |  RIGHT: "POS - TEAM  Name" */
+function renderNameCell(st: Starter | undefined, side: "L" | "R") {
+  const nm = formatName(st?.name, st?.slot);
+  const meta = posTeam(st);
+  if (side === "L") {
+    return (
+      <>
+        <span className="pname">{nm}</span>
+        {meta ? <span className="meta"> {meta}</span> : null}
+      </>
+    );
+  }
+  // Right side: meta first, then name
+  return (
+    <>
+      {meta ? <span className="meta">{meta} </span> : null}
+      <span className="pname">{nm}</span>
+    </>
+  );
 }
 
 /** Compact, one-line blip by position with graceful omissions */
@@ -375,7 +395,7 @@ export default function ExpandableMatchups({
                           }}
                           aria-expanded={leftOpen}
                         >
-                          {nameWithMeta(row.al)}
+                          {renderNameCell(row.al, "L")}
                         </button>
 
                         <div className="col score left">
@@ -412,7 +432,7 @@ export default function ExpandableMatchups({
                           }}
                           aria-expanded={rightOpen}
                         >
-                          {nameWithMeta(row.ar)}
+                          {renderNameCell(row.ar, "R")}
                         </button>
                       </div>
 
@@ -489,6 +509,13 @@ export default function ExpandableMatchups({
               .col.name.left{ text-align:left; }
               .col.name.right{ text-align:right; }
               .row-toggle{ appearance:none; background:none; border:0; padding:0; cursor:pointer; text-align:inherit; }
+
+              /* NEW: smaller, grey meta ("POS - TEAM"); name unchanged */
+              .col.name .meta{
+                color:#6b7280;
+                font-size:.85em;
+              }
+
               .col.score{ font-variant-numeric:tabular-nums; white-space:nowrap; }
               .col.score.left{ text-align:right; }
               .col.score.right{ text-align:left; }
