@@ -8,7 +8,6 @@ import {
   useCallback,
   useContext,
   useEffect,
-  useId,
   useMemo,
   useState,
   useSyncExternalStore,
@@ -17,8 +16,6 @@ import {
 } from 'react';
 import type {
   League,
-  Matchup,
-  MatchupSide,
   MatchupsData,
   OverviewData,
   OwnerData,
@@ -27,6 +24,8 @@ import type {
   Transaction,
   TransactionsData,
 } from '../lib/types';
+import { MatchupBoard, matchupStatus } from './matchup-board';
+import matchupStyles from './matchups.module.css';
 
 type IconName = 'matchups' | 'standings' | 'owners' | 'chevron' | 'arrow' | 'refresh' | 'check' | 'star';
 
@@ -65,6 +64,7 @@ function parsePreference(value: string | null): number | null {
 
 export function AppShell({ children, leagueId }: { children: ReactNode; leagueId: string }) {
   const pathname = usePathname();
+  const compactMatchups = pathname === '/matchups';
   const storageKey = `league-one:my-team:${leagueId}`;
   const [announcement, setAnnouncement] = useState('');
   const [storageWarning, setStorageWarning] = useState('');
@@ -114,7 +114,7 @@ export function AppShell({ children, leagueId }: { children: ReactNode; leagueId
 
   return <MyTeamContext.Provider value={preference}>
     <a className="skip-link" href="#main-content">Skip to content</a>
-    <header className="site-header">
+    <header className={`site-header ${compactMatchups ? 'matchups-site-header' : ''}`}>
       <div className="header-inner">
         <Link className="brand" href="/matchups" aria-label="League One home">
           <Image src="/logo.png" width={42} height={42} alt="" className="brand-mark" priority />
@@ -126,8 +126,8 @@ export function AppShell({ children, leagueId }: { children: ReactNode; leagueId
         <span className="header-edition">YOUR LEAGUE</span>
       </div>
     </header>
-    <main id="main-content" className="main-content" tabIndex={-1}>{children}</main>
-    <nav className="mobile-nav" aria-label="Mobile navigation">
+    <main id="main-content" className={`main-content ${compactMatchups ? 'matchups-main' : ''}`} tabIndex={-1}>{children}</main>
+    <nav className={`mobile-nav ${compactMatchups ? 'matchups-mobile-nav' : ''}`} aria-label="Mobile navigation">
       {nav.map(item => <Link key={item.href} href={item.href} aria-current={pathname.startsWith(item.href) ? 'page' : undefined}><Icon name={item.icon} /><span>{item.label}</span></Link>)}
     </nav>
     <span className="sr-only" role="status" aria-live="polite">{announcement}</span>
@@ -208,48 +208,6 @@ export function StandingsView({ data }: { data: OverviewData }) {
   </>;
 }
 
-function MatchupTeam({ side, selected, opposite = false }: { side: MatchupSide; selected: boolean; opposite?: boolean }) {
-  const score = number(side.points);
-  return <span className={`matchup-team ${opposite ? 'opposite' : ''}`}>
-    <span className="matchup-team-identity"><Avatar team={side.team} /><span className="matchup-owner">{side.team.ownerName}<span className="matchup-record">{record(side.team)}{selected ? ' · MY TEAM' : ''}</span></span></span>
-    <span className="matchup-team-name">{side.team.name}</span>
-    <span className="matchup-score"><span className="matchup-score-value" style={score.length > 6 ? { fontSize: `${6 / score.length}em` } : undefined}>{score}</span><span className="score-unit">PTS</span></span>
-  </span>;
-}
-
-function StarterCell({ player, right = false, high = false, opponentPending = false }: { player?: Player; right?: boolean; high?: boolean; opponentPending?: boolean }) {
-  return <div className={`starter-player ${right ? 'right-player' : ''}`}><div className="starter-player-name"><span>{player?.name || (opponentPending ? 'Not posted' : 'Empty slot')}</span><small>{player ? [player.position, player.nflTeam].filter(Boolean).join(' · ') || 'No NFL team' : opponentPending ? 'Opponent pending' : 'No player assigned'}</small></div><span className={`starter-points ${high ? 'higher-score' : ''}`}>{number(player?.points)}</span></div>;
-}
-
-function MatchupCard({ matchup, selected }: { matchup: Matchup; selected: number | null }) {
-  const [expanded, setExpanded] = useState(false);
-  const panelId = useId();
-  const left = matchup.sides[0];
-  const right = matchup.sides[1];
-  if (!left) return null;
-  const mine = matchup.sides.some(side => side.team.id === selected);
-  const count = Math.max(left.starters.length, right?.starters.length || 0);
-  const statusLabel = { upcoming: 'Upcoming', live: 'In progress', final: 'Final', unknown: 'Week matchup' }[matchup.status];
-  return <article className={`matchup-card ${mine ? 'my-matchup' : ''}`}>
-    <div className="matchup-kicker"><span className={`matchup-status status-${right ? matchup.status : 'unknown'}`}>{right && matchup.status === 'live' && <span className="live-dot" />}{right ? statusLabel : 'Matchup pending'}</span>{mine && <span className="matchup-mine"><Icon name="star" />My matchup</span>}</div>
-    <button type="button" className="matchup-toggle" aria-expanded={expanded} aria-controls={panelId} onClick={() => setExpanded(!expanded)} aria-label={`${expanded ? 'Collapse' : 'Expand'} starting lineups for ${left.team.name}${right ? ` versus ${right.team.name}` : ', opponent not posted'}`}>
-      <span className="matchup-scoreboard"><MatchupTeam side={left} selected={left.team.id === selected} /><span className="versus">VS</span>{right ? <MatchupTeam side={right} selected={right.team.id === selected} opposite /> : <span className="matchup-pending">Matchup pending<span>No opponent posted</span></span>}</span>
-      <span className="expand-label"><span>{expanded ? 'Hide starting lineups' : 'View starting lineups'}</span><Icon name="chevron" className={expanded ? 'rotated' : ''} /></span>
-    </button>
-    <div id={panelId} hidden={!expanded} className="lineup-panel">
-      {count ? <><div className="lineup-title"><span>Starting lineup</span><span>Player points</span></div><div className="starter-comparison">{Array.from({ length: count }, (_, index) => {
-        const leftPlayer = left.starters[index];
-        const rightPlayer = right?.starters[index];
-        const leftPoints = leftPlayer?.points;
-        const rightPoints = rightPlayer?.points;
-        const comparable = typeof leftPoints === 'number' && typeof rightPoints === 'number';
-        return <div className="starter-row" key={`${index}-${leftPlayer?.slot || rightPlayer?.slot || 'slot'}`}><StarterCell player={leftPlayer} high={comparable && leftPoints > rightPoints} /><span className="starter-slot">{leftPlayer?.slot || rightPlayer?.slot || '—'}</span><StarterCell player={rightPlayer} right opponentPending={!right} high={comparable && rightPoints > leftPoints} /></div>;
-      })}</div><p className="lineup-note">{matchup.status === 'upcoming' ? 'Lineups may change before kickoff.' : 'Scores reflect the latest data reported by Sleeper.'}</p></> : <p className="lineup-unavailable">Starting lineups have not been posted for this week.</p>}
-      <div className="matchup-profile-links"><Link href={`/owners/${left.team.id}`}>Team profile<Icon name="arrow" className="arrow-forward" /></Link>{right && <Link href={`/owners/${right.team.id}`}>Team profile<Icon name="arrow" className="arrow-forward" /></Link>}</div>
-    </div>
-  </article>;
-}
-
 export function MatchupsView({ data }: { data: MatchupsData }) {
   const { selected } = useTeamPreference(data.teams);
   const router = useRouter();
@@ -264,15 +222,24 @@ export function MatchupsView({ data }: { data: MatchupsData }) {
   const matchups = useMemo(() => [...data.matchups].sort((a, b) => Number(b.sides.some(side => side.team.id === selected)) - Number(a.sides.some(side => side.team.id === selected))), [data.matchups, selected]);
   const pendingCount = data.matchups.filter(matchup => matchup.sides.length === 1).length;
   const pairedCount = data.matchups.filter(matchup => matchup.sides.length > 1).length;
-  return <>
-    <PageHeading title="Matchups" description="Head to head. Down to every point." league={data.league} action={<button className="icon-button refresh-button" type="button" onClick={refresh} disabled={refreshing} aria-label={refreshing ? 'Refreshing matchups' : 'Refresh matchups'}><Icon name="refresh" className={refreshing ? 'spinning' : ''} /></button>} />
+  const statuses = [...new Set(data.matchups.map(matchup => matchup.status))];
+  return <div className={matchupStyles.page}>
+    <div className={matchupStyles.toolbar}>
+      <h1>Matchups</h1>
+      <div className={matchupStyles.weekControl}>
+        {data.week > 1 ? <Link className={matchupStyles.weekArrow} href={`/matchups?week=${data.week - 1}`} aria-label={`Previous week, week ${data.week - 1}`}><Icon name="arrow" /></Link> : <span className={`${matchupStyles.weekArrow} disabled`} aria-hidden="true"><Icon name="arrow" /></span>}
+        <label className={matchupStyles.weekSelect}><span className="sr-only">Matchup week</span><select value={data.week} onChange={event => router.push(`/matchups?week=${event.target.value}`)}>{Array.from({ length: data.league.maxWeek }, (_, index) => <option key={index + 1} value={index + 1}>Week {index + 1}</option>)}</select><Icon name="chevron" /></label>
+        {data.week < data.league.maxWeek ? <Link className={matchupStyles.weekArrow} href={`/matchups?week=${data.week + 1}`} aria-label={`Next week, week ${data.week + 1}`}><Icon name="arrow" className="arrow-forward" /></Link> : <span className={`${matchupStyles.weekArrow} disabled`} aria-hidden="true"><Icon name="arrow" /></span>}
+      </div>
+      <button className={matchupStyles.refresh} type="button" onClick={refresh} disabled={refreshing} aria-label={refreshing ? 'Refreshing matchups' : 'Refresh matchups'}><Icon name="refresh" className={refreshing ? 'spinning' : ''} /></button>
+    </div>
+    <div className={matchupStyles.context}><LeagueMeta league={data.league} /><span>{pairedCount} matchups{pendingCount > 0 ? ` · ${pendingCount} pending` : ''}</span></div>
+    <div className={matchupStyles.statusLine}><span>{statuses.length === 1 ? matchupStatus(statuses[0]) : 'Around the league'}{selected !== null ? ' · Your matchup first' : ''}</span>{!currentWeek && <Link href={`/matchups?week=${data.league.week}`}>Back to current</Link>}</div>
     <Warning message={data.warning} />
-    <div className="week-toolbar"><div className="week-control">{data.week > 1 ? <Link className="week-arrow" href={`/matchups?week=${data.week - 1}`} aria-label={`Previous week, week ${data.week - 1}`}><Icon name="arrow" /></Link> : <span className="week-arrow disabled" aria-hidden="true"><Icon name="arrow" /></span>}<label className="week-select-label"><span className="sr-only">Matchup week</span><select value={data.week} onChange={event => router.push(`/matchups?week=${event.target.value}`)}>{Array.from({ length: data.league.maxWeek }, (_, index) => <option key={index + 1} value={index + 1}>Week {index + 1}</option>)}</select><Icon name="chevron" /></label>{data.week < data.league.maxWeek ? <Link className="week-arrow" href={`/matchups?week=${data.week + 1}`} aria-label={`Next week, week ${data.week + 1}`}><Icon name="arrow" className="arrow-forward" /></Link> : <span className="week-arrow disabled" aria-hidden="true"><Icon name="arrow" className="arrow-forward" /></span>}</div><span className="week-context">{currentWeek ? 'Current week' : <Link href={`/matchups?week=${data.league.week}`}>Back to current</Link>}</span></div>
-    <div className="section-label matchup-section-label"><h2>{selected !== null ? 'Your matchup & the league' : 'Around the league'}</h2><span>{pairedCount} matchups{pendingCount > 0 ? ` · ${pendingCount} pending` : ''}</span></div>
-    {matchups.length ? <div className="matchup-grid">{matchups.map(matchup => <MatchupCard key={`${data.week}-${matchup.id}`} matchup={matchup} selected={selected} />)}</div> : <EmptyState title="No matchups posted yet">Week {data.week} matchups will appear when Sleeper publishes the schedule. You can still browse teams and standings.</EmptyState>}
+    {matchups.length ? <MatchupBoard key={data.week} matchups={matchups} selected={selected} avatar={team => <Avatar team={team} />} /> : <EmptyState title="No matchups posted yet">Week {data.week} matchups will appear when Sleeper publishes the schedule. You can still browse teams and standings.</EmptyState>}
     <Updated value={data.updatedAt} refreshing={refreshing} />
     {currentWeek && <p className="refresh-note">Refreshes every minute while this page is open.</p>}
-  </>;
+  </div>;
 }
 
 export function OwnersView({ data }: { data: OverviewData }) {
