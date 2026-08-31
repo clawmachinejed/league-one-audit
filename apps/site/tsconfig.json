@@ -1,33 +1,41 @@
 {
-  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "paths": {
-      "@l1/*": ["../../packages/*/src"]
-    },
-    "jsx": "preserve",
-    "jsxImportSource": "react",
-    "incremental": true,
+    "target": "ES2022",
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "esnext"
+    ],
+    "allowJs": false,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
     "isolatedModules": true,
+    "jsx": "react-jsx",
+    "incremental": true,
     "plugins": [
       {
         "name": "next"
       }
     ],
-    "lib": ["es2021", "dom"]
+    "paths": {
+      "@/*": [
+        "./*"
+      ]
+    }
   },
-  "include": ["**/*.ts", "**/*.tsx", "next-env.d.ts", ".next/types/**/*.ts"],
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts",
+    ".next/dev/types/**/*.ts"
+  ],
   "exclude": [
-    "node_modules",
-    "tests",
-    "tests/**",
-    "**/*.test.ts",
-    "**/*.test.tsx",
-    "**/*.spec.ts",
-    "**/*.spec.tsx",
-    ".next",
-    "\\.next",
-    "\\.next/**",
-    ".next/**",
-    ".next/types/**"
+    "node_modules"
   ]
 }

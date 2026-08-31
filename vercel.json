@@ -1,12 +1,14 @@
 {
-  "crons": [
-    {
-      "path": "/api/cron/live-hourly",
-      "schedule": "0 * * * THU,SUN,MON"
-    },
-    {
-      "path": "/api/cron/awards-weekly",
-      "schedule": "0 9 * * MON"
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "buildCommand": "pnpm build",
+  "outputDirectory": "apps/site/.next",
+  "build": {
+    "env": {
+      "ENABLE_EXPERIMENTAL_COREPACK": "1"
     }
-  ]
+  },
+  "env": {
+    "SLEEPER_LEAGUE_ID": "1378850182409490432"
+  }
 }

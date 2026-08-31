@@ -1,20 +1,13 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  images: {
-    remotePatterns: [
-      {
-        protocol: "https",
-        hostname: "sleepercdn.com",
-        pathname: "/uploads/**",
-      },
-      {
-        protocol: "https",
-        hostname: "sleepercdn.com",
-        pathname: "/avatars/**",
-      },
-      { protocol: "https", hostname: "cdn.sleepers.app", pathname: "/**" }, // if you ever see this host
-      { protocol: "https", hostname: "images.ctfassets.net", pathname: "/**" },
-    ],
+  poweredByHeader: false,
+  async headers() {
+    return [{ source: '/:path*', headers: [
+      { key: 'X-Content-Type-Options', value: 'nosniff' },
+      { key: 'X-Frame-Options', value: 'DENY' },
+      { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+      { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
+    ] }];
   },
 };
 export default nextConfig;
