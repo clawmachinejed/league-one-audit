@@ -13,6 +13,7 @@ let seasonType: string;
 let invalidLeague: boolean;
 let activeTransactionRequests: number;
 let maxTransactionRequests: number;
+let playerInjury: unknown;
 
 function valueFor(path: string): unknown {
   if (path === leaguePath) return invalidLeague ? null : {
@@ -22,8 +23,8 @@ function valueFor(path: string): unknown {
   if (path === `${leaguePath}/rosters`) return [{ roster_id: 1, owner_id: 'member-1', players: ['qb'], starters: ['qb'] }];
   if (path === `${leaguePath}/users`) return [{ user_id: 'member-1', display_name: 'Alex' }];
   if (path === '/state/nfl') return { season: '2026', season_type: seasonType, leg: 3, week: 3, display_week: 3 };
-  if (path === '/players/nfl') return { qb: { full_name: 'Quarter Back', position: 'QB', team: 'IND' } };
-  if (path.startsWith(`${leaguePath}/matchups/`)) return [{ roster_id: 1, matchup_id: null, points: null, starters: ['qb'] }];
+  if (path === '/players/nfl') return { qb: { full_name: 'Quarter Back', position: 'QB', team: 'IND', injury_status: playerInjury, status: 'Active' } };
+  if (path.startsWith(`${leaguePath}/matchups/`)) return [{ roster_id: 1, matchup_id: null, points: null, starters: ['qb'], starters_points: [12.34] }];
   if (path.startsWith(`${leaguePath}/transactions/`)) {
     const week = Number(path.split('/').at(-1));
     return week === 0 ? [{ transaction_id: 'week-zero', type: 'waiver', status: 'failed', roster_ids: [1], adds: { qb: 1 }, settings: { waiver_bid: 7 } }] : [];
@@ -37,6 +38,7 @@ beforeEach(() => {
   invalidLeague = false;
   activeTransactionRequests = 0;
   maxTransactionRequests = 0;
+  playerInjury = null;
   vi.stubGlobal('fetch', vi.fn(async (input: string) => {
     const path = new URL(input).pathname.replace(/^\/v1/, '');
     const transactionRequest = path.includes('/transactions/');
@@ -80,8 +82,8 @@ describe('Sleeper service error handling', () => {
   it('retains the roster with a visible player-catalog warning', async () => {
     failures.add('/players/nfl');
     const data = await getOwner(1);
-    expect(data?.warning).toContain('Player names are temporarily unavailable');
-    expect(data?.starters[0]).toMatchObject({ id: 'qb', name: 'Player qb', slot: 'QB' });
+    expect(data?.warning).toContain('Player names and injury designations are temporarily unavailable');
+    expect(data?.starters[0]).toMatchObject({ id: 'qb', name: 'Player qb', slot: 'QB', injuryStatus: null });
   });
 
   it('does not fall back to invented teams when the configured league is invalid', async () => {
@@ -109,4 +111,32 @@ describe('Sleeper service error handling', () => {
     expect(data.warning).toContain('NFL week information is temporarily unavailable');
     expect(data.matchups[0].status).toBe('unknown');
   });
+});
+
+describe('Sleeper current injury metadata', () => {
+  it('retains the injury field in the cached catalog for current and earlier matchup weeks', async () => {
+    playerInjury = ' Questionable ';
+    const current = await getMatchups(3);
+    const earlier = await getMatchups(1);
+    for (const data of [current, earlier]) {
+      expect(data.matchups[0].sides[0].starters[0]).toMatchObject({
+        id: 'qb', name: 'Quarter Back', position: 'QB', nflTeam: 'IND', slot: 'QB', points: 12.34, injuryStatus: 'Questionable',
+      });
+    }
+    expect(earlier.week).toBe(1);
+  });
+
+  it('shares current injury metadata with owner rosters', async () => {
+    playerInjury = 'Out';
+    const owner = await getOwner(1);
+    expect(owner?.starters[0]).toMatchObject({ name: 'Quarter Back', injuryStatus: 'Out', points: null });
+  });
+
+  it.each([null, undefined, '', false, 7, { status: 'Out' }])(
+    'does not substitute general player status for an absent or malformed injury_status (%j)', async (value) => {
+      playerInjury = value;
+      const data = await getMatchups();
+      expect(data.matchups[0].sides[0].starters[0]).toMatchObject({ name: 'Quarter Back', injuryStatus: null });
+    },
+  );
 });

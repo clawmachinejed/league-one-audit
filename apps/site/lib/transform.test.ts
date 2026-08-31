@@ -10,6 +10,7 @@ import {
   normalizeTransactions,
   numberOrNull,
   ownerLineup,
+  playerFromId,
   safeAvatar,
   seasonPoints,
   transactionEndWeek,
@@ -127,6 +128,16 @@ describe('standings, avatars and scores', () => {
 });
 
 describe('rosters and matchups', () => {
+  it('keeps injury metadata independent from lineup slots, player names and fractional scores', () => {
+    const players = lineup(['wr', '0', 'missing'], ['FLEX', 'FLEX', 'FLEX'], {
+      wr: { ...catalog.wr, injury_status: ' Questionable ' },
+    }, [-1.2, 4, 0]);
+    expect(players[0]).toMatchObject({ name: 'Wide Receiver', position: 'WR', slot: 'FLEX', points: -1.2, injuryStatus: 'Questionable' });
+    expect(players[1]).toMatchObject({ name: 'Empty slot', points: null, injuryStatus: null });
+    expect(players[2]).toMatchObject({ name: 'Player missing', points: 0, injuryStatus: null });
+    expect(playerFromId('wr', 'FLEX', { wr: { ...catalog.wr, injury_status: { status: 'Out' } } }).injuryStatus).toBeNull();
+  });
+
   it('keeps the actual player position separate from the FLEX lineup slot', () => {
     const players = lineup(['qb', 'rb', 'wr', '0', 'PIT'], league.rosterPositions, catalog, [20.42, 0, -1.2, null, 7]);
     expect(players).toHaveLength(5);

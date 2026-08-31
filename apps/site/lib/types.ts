@@ -29,6 +29,8 @@ export interface Player {
   name: string;
   position: string;
   nflTeam: string | null;
+  /** Current Sleeper metadata, including when viewing an earlier matchup week. */
+  injuryStatus: string | null;
   slot: string;
   points: number | null;
 }
