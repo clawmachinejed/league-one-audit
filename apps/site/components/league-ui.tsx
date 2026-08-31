@@ -24,7 +24,7 @@ import type {
   Transaction,
   TransactionsData,
 } from '../lib/types';
-import { MatchupBoard, matchupStatus } from './matchup-board';
+import { MatchupBoard } from './matchup-board';
 import matchupStyles from './matchups.module.css';
 
 type IconName = 'matchups' | 'standings' | 'owners' | 'chevron' | 'arrow' | 'refresh' | 'check' | 'star';
@@ -114,7 +114,7 @@ export function AppShell({ children, leagueId }: { children: ReactNode; leagueId
 
   return <MyTeamContext.Provider value={preference}>
     <a className="skip-link" href="#main-content">Skip to content</a>
-    <header className={`site-header ${compactMatchups ? 'matchups-site-header' : ''}`}>
+    <header className="site-header">
       <div className="header-inner">
         <Link className="brand" href="/matchups" aria-label="League One home">
           <Image src="/logo.png" width={42} height={42} alt="" className="brand-mark" priority />
@@ -123,7 +123,6 @@ export function AppShell({ children, leagueId }: { children: ReactNode; leagueId
         <nav className="desktop-nav" aria-label="Main navigation">
           {nav.map(item => <Link key={item.href} href={item.href} aria-current={pathname.startsWith(item.href) ? 'page' : undefined}><Icon name={item.icon} />{item.label}</Link>)}
         </nav>
-        <span className="header-edition">YOUR LEAGUE</span>
       </div>
     </header>
     <main id="main-content" className={`main-content ${compactMatchups ? 'matchups-main' : ''}`} tabIndex={-1}>{children}</main>
@@ -161,7 +160,7 @@ function Avatar({ team, large = false }: { team: Team; large?: boolean }) {
 }
 
 function LeagueMeta({ league }: { league: League }) {
-  return <p className="eyebrow"><span className="season-dot" />{league.season} season<span className="meta-divider">/</span>{league.scoringLabel || 'League One'}</p>;
+  return <p className="eyebrow">{league.season} season</p>;
 }
 
 function PageHeading({ title, description, league, action }: { title: string; description: string; league: League; action?: ReactNode }) {
@@ -220,12 +219,9 @@ export function MatchupsView({ data }: { data: MatchupsData }) {
     return () => window.clearInterval(timer);
   }, [currentWeek, refresh]);
   const matchups = useMemo(() => [...data.matchups].sort((a, b) => Number(b.sides.some(side => side.team.id === selected)) - Number(a.sides.some(side => side.team.id === selected))), [data.matchups, selected]);
-  const pendingCount = data.matchups.filter(matchup => matchup.sides.length === 1).length;
-  const pairedCount = data.matchups.filter(matchup => matchup.sides.length > 1).length;
-  const statuses = [...new Set(data.matchups.map(matchup => matchup.status))];
   return <div className={matchupStyles.page}>
     <div className={matchupStyles.toolbar}>
-      <h1>Matchups</h1>
+      <div className={matchupStyles.heading}><h1>Matchups</h1><p className={matchupStyles.season}>{data.league.season} season</p></div>
       <div className={matchupStyles.weekControl}>
         {data.week > 1 ? <Link className={matchupStyles.weekArrow} href={`/matchups?week=${data.week - 1}`} aria-label={`Previous week, week ${data.week - 1}`}><Icon name="arrow" /></Link> : <span className={`${matchupStyles.weekArrow} disabled`} aria-hidden="true"><Icon name="arrow" /></span>}
         <label className={matchupStyles.weekSelect}><span className="sr-only">Matchup week</span><select value={data.week} onChange={event => router.push(`/matchups?week=${event.target.value}`)}>{Array.from({ length: data.league.maxWeek }, (_, index) => <option key={index + 1} value={index + 1}>Week {index + 1}</option>)}</select><Icon name="chevron" /></label>
@@ -233,8 +229,7 @@ export function MatchupsView({ data }: { data: MatchupsData }) {
       </div>
       <button className={matchupStyles.refresh} type="button" onClick={refresh} disabled={refreshing} aria-label={refreshing ? 'Refreshing matchups' : 'Refresh matchups'}><Icon name="refresh" className={refreshing ? 'spinning' : ''} /></button>
     </div>
-    <div className={matchupStyles.context}><LeagueMeta league={data.league} /><span>{pairedCount} matchups{pendingCount > 0 ? ` · ${pendingCount} pending` : ''}</span></div>
-    <div className={matchupStyles.statusLine}><span>{statuses.length === 1 ? matchupStatus(statuses[0]) : 'Around the league'}{selected !== null ? ' · Your matchup first' : ''}</span>{!currentWeek && <Link href={`/matchups?week=${data.league.week}`}>Back to current</Link>}</div>
+    {!currentWeek && <Link className={matchupStyles.backToCurrent} href={`/matchups?week=${data.league.week}`}>Back to current</Link>}
     <Warning message={data.warning} />
     {matchups.length ? <MatchupBoard key={data.week} matchups={matchups} selected={selected} avatar={team => <Avatar team={team} />} /> : <EmptyState title="No matchups posted yet">Week {data.week} matchups will appear when Sleeper publishes the schedule. You can still browse teams and standings.</EmptyState>}
     <Updated value={data.updatedAt} refreshing={refreshing} />
@@ -247,10 +242,10 @@ export function OwnersView({ data }: { data: OverviewData }) {
   const myTeam = data.teams.find(team => team.id === selected);
   const teams = [...data.teams].sort((a, b) => a.ownerName.localeCompare(b.ownerName));
   return <>
-    <PageHeading title="Owners" description="The people. The teams. Your league." league={data.league} />
+    <PageHeading title="Owners" description="The people and teams of League One." league={data.league} />
     <Warning message={data.warning} />
     <Warning message={storageWarning} />
-    <div className={`preference-banner ${myTeam ? 'has-preference' : ''}`}><span className="preference-icon"><Icon name={myTeam ? 'check' : 'star'} /></span><div><h2>{myTeam ? `${myTeam.name} is your team` : 'Make it your league.'}</h2><p>{myTeam ? 'Saved on this browser. Highlighted across the league.' : 'Select your team below. We’ll remember it on this browser.'}</p></div>{myTeam && <button type="button" className="text-button" onClick={() => select(null)}>Clear</button>}</div>
+    <div className={`preference-banner ${myTeam ? 'has-preference' : ''}`}><span className="preference-icon"><Icon name={myTeam ? 'check' : 'star'} /></span><div><h2>{myTeam ? `${myTeam.name} is your team` : 'Choose your team.'}</h2><p>{myTeam ? 'Saved on this browser. Highlighted across the league.' : 'Select your team below. We’ll remember it on this browser.'}</p></div>{myTeam && <button type="button" className="text-button" onClick={() => select(null)}>Clear</button>}</div>
     <div className="section-label"><h2>The owners</h2><span>{teams.length} teams</span></div>
     {teams.length ? <div className="owners-grid">{teams.map(team => <article key={team.id} className={`owner-card ${selected === team.id ? 'selected-owner' : ''}`}><Link href={`/owners/${team.id}`} className="owner-card-link"><div className="owner-card-top"><Avatar team={team} /><span className="owner-card-record">{record(team)}<small>RECORD</small></span></div><h2>{team.name}</h2><p>{team.ownerName}</p><span className="owner-profile-cta">Roster & transactions<Icon name="arrow" className="arrow-forward" /></span></Link><div className="owner-card-bottom"><MyTeamButton team={team} compact /><span className="owner-pf">{number(team.pointsFor, 2)} <abbr title="Points for">PF</abbr></span></div></article>)}</div> : <EmptyState title="Owners are on their way">The directory will populate when league rosters are available from Sleeper.</EmptyState>}
     <Updated value={data.updatedAt} />
@@ -317,5 +312,5 @@ export function LoadingView() {
 
 export function ErrorView({ message, retry }: { message?: string; retry?: () => void }) {
   const router = useRouter();
-  return <div className="error-view"><p className="eyebrow">A QUICK TIMEOUT</p><h1>We couldn’t load the league.</h1><p>{message || 'Sleeper may be taking a moment. Your league and saved team selection are still here.'}</p><button className="primary-button" type="button" onClick={retry || (() => router.refresh())}><Icon name="refresh" />Try again</button><Link href="/matchups" className="text-button">Back to matchups</Link></div>;
+  return <div className="error-view"><p className="eyebrow">A QUICK TIMEOUT</p><h1>We couldn’t load the league.</h1><p>{message || 'Sleeper may be taking a moment. League One and your saved team selection are still here.'}</p><button className="primary-button" type="button" onClick={retry || (() => router.refresh())}><Icon name="refresh" />Try again</button><Link href="/matchups" className="text-button">Back to matchups</Link></div>;
 }

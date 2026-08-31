@@ -1,3 +1,4 @@
+import { normalizeInjuryStatus } from './injury-status';
 import type {
   League,
   Matchup,
@@ -52,6 +53,7 @@ export interface SleeperPlayer {
   last_name?: string;
   position?: string;
   team?: string | null;
+  injury_status?: unknown;
 }
 
 export type PlayerCatalog = Record<string, SleeperPlayer>;
@@ -228,7 +230,7 @@ export function playerFromId(
 ): Player {
   const id = rawId && rawId !== '0' ? String(rawId) : null;
   if (!id) {
-    return { id: `empty-${slot}-${emptyIndex}`, name: 'Empty slot', position: '—', nflTeam: null, slot, points: null };
+    return { id: `empty-${slot}-${emptyIndex}`, name: 'Empty slot', position: '—', nflTeam: null, injuryStatus: null, slot, points: null };
   }
   const player = catalog[id];
   const fullName = text(player?.full_name)
@@ -239,6 +241,7 @@ export function playerFromId(
     name: fullName ?? (isDefense ? `${id} Defense` : `Player ${id}`),
     position: text(player?.position) ?? (isDefense ? 'DEF' : '—'),
     nflTeam: text(player?.team) ?? (isDefense ? id : null),
+    injuryStatus: normalizeInjuryStatus(player?.injury_status),
     slot,
     points: numberOrNull(points),
   };

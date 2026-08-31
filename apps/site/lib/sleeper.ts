@@ -3,6 +3,7 @@ import 'server-only';
 import { cache } from 'react';
 import { unstable_cache } from 'next/cache';
 import { LEAGUE_ID } from './config';
+import { normalizeInjuryStatus } from './injury-status';
 import type { MatchupsData, OverviewData, OwnerData, TransactionsData } from './types';
 import {
   matchupStatus,
@@ -24,7 +25,8 @@ import {
 
 const API = 'https://api.sleeper.app/v1';
 const CORE_CACHE_SECONDS = 60;
-const PLAYER_CACHE_SECONDS = 86_400;
+// Injury designations change more frequently than names; refresh the catalog hourly.
+const PLAYER_CACHE_SECONDS = 3_600;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -90,6 +92,7 @@ const getCore = cache(async () => {
 
 // Cache the small fields we display, not Sleeper's entire multi-megabyte player response.
 // The raw endpoint is not placed in Next's response cache, whose entry size is limited.
+// /players/nfl supplies current metadata, not injury history for a requested week.
 const cachedPlayers = unstable_cache(async (): Promise<PlayerCatalog> => {
   const raw = await fetchJson('/players/nfl', 0);
   if (!isRecord(raw)) throw new Error('Sleeper did not return a valid player catalog.');
@@ -100,11 +103,13 @@ const cachedPlayers = unstable_cache(async (): Promise<PlayerCatalog> => {
     for (const field of ['full_name', 'first_name', 'last_name', 'position', 'team'] as const) {
       if (typeof value[field] === 'string') player[field] = value[field];
     }
+    const injuryStatus = normalizeInjuryStatus(value.injury_status);
+    if (injuryStatus) player.injury_status = injuryStatus;
     result[id] = player;
   }
   if (!Object.keys(result).length) throw new Error('Sleeper returned an empty player catalog.');
   return result;
-}, ['league-one-player-catalog-v1'], { revalidate: PLAYER_CACHE_SECONDS });
+}, ['league-one-player-catalog-v2'], { revalidate: PLAYER_CACHE_SECONDS });
 
 const getPlayers = cache(async () => {
   try {
@@ -112,7 +117,7 @@ const getPlayers = cache(async () => {
   } catch {
     return {
       catalog: {} as PlayerCatalog,
-      warning: 'Player names are temporarily unavailable. Sleeper player IDs are shown where necessary.',
+      warning: 'Player names and injury designations are temporarily unavailable. Sleeper player IDs are shown where necessary.',
     };
   }
 });

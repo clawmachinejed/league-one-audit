@@ -65,7 +65,7 @@ The built-in league default works without an environment file. To override it lo
 | `apps/site/lib/types.ts` | Shared application data contracts. |
 | `.github/workflows/verify.yml` | Pull request and main-branch verification. |
 
-League data is cached briefly to limit upstream requests; player metadata is cached longer. Displayed values can therefore lag Sleeper. The site is a league companion: roster moves and fantasy league administration remain in Sleeper.
+League data is cached briefly to limit upstream requests; player metadata refreshes hourly. Matchup injury labels use Sleeper's current `injury_status`, including when viewing an earlier matchup week; they are not historical injury reports. Questionable is shown as QUES in golden yellow, other designations in red, and missing values remain blank. Displayed values can lag Sleeper. The site is a league companion: roster moves and fantasy league administration remain in Sleeper.
 
 ## Vercel setup
 
