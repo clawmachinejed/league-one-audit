@@ -19,11 +19,12 @@ History, rivalries, awards, a separate statistics section, and a separate schedu
 | --- | --- |
 | GitHub repository | [clawmachinejed/league-one-audit](https://github.com/clawmachinejed/league-one-audit) |
 | Rebuild branch | `codex/mobile-first-2026` |
+| Mobile-first rebuild | [Pull request #136](https://github.com/clawmachinejed/league-one-audit/pull/136) |
 | Production branch | `main` |
-| Vercel project | `league_one_fantasy`, under `robert-finchums-projects` |
+| Vercel project | [league_one_fantasy overview](https://vercel.com/robert-finchums-projects/league_one_fantasy) |
 | Production address | [www.league1fantasy.com](https://www.league1fantasy.com) |
 
-GitHub linkage and Vercel access were verified during the August 31, 2026 rebuild. The existing project deploys `main` from `apps/site`, with access to files outside that root enabled for the pnpm workspace. At that check, production still served commit `df4a0e489be6e375637c515e663cca31e8c8c25a` from October 8, 2025; the rebuild had not yet been deployed. A release is complete only after its GitHub revision, successful deployment, and production behavior have been checked.
+The existing Vercel project is linked to this repository and deploys `main` from `apps/site`, with access to files outside that root enabled for the pnpm workspace. Use the Vercel project overview to check the current production deployment and revision, and the pull request for the rebuild's checks and review history. The [release validation record](docs/release-validation.md) documents the tested preview. A release is complete only after its GitHub revision, successful deployment, and production behavior have been checked.
 
 ## Local development
 
@@ -68,7 +69,7 @@ League data is cached briefly to limit upstream requests; player metadata is cac
 
 ## Vercel setup
 
-Use the existing Vercel project when access is available, rather than creating a duplicate project or moving its domain without a request. Recommended project settings:
+Use the existing Vercel project rather than creating a duplicate project or moving its domain without a request. These settings were configured and verified on August 31, 2026:
 
 | Setting | Value |
 | --- | --- |
@@ -82,10 +83,10 @@ Use the existing Vercel project when access is available, rather than creating a
 | Install command | `pnpm install --frozen-lockfile` using the repository workspace lockfile, with Corepack enabled |
 | Build command | `pnpm build` from the configured application root |
 | Output Directory | Next.js default, `.next` |
-| `SLEEPER_LEAGUE_ID` | `1378850182409490432`, for Preview and Production |
+| `SLEEPER_LEAGUE_ID` | `1378850182409490432`, for All Environments |
 | `ENABLE_EXPERIMENTAL_COREPACK` | `1`, available during builds for Preview and Production |
 
-Corepack must be enabled so Vercel uses pnpm 11.19.0 instead of inferring another pnpm version from the lockfile. Both Vercel configuration files include a build-time `ENABLE_EXPERIMENTAL_COREPACK=1` fallback. Vercel's schema still accepts `build.env`, but marks it as legacy; set the flag in the project's Preview and Production environment settings as well, following [Vercel's Corepack instructions](https://vercel.com/docs/builds/configure-a-build#corepack). Never use these committed files for private credentials.
+Corepack must remain enabled so Vercel uses pnpm 11.19.0 instead of inferring another pnpm version from the lockfile. The project's Preview and Production environments have `ENABLE_EXPERIMENTAL_COREPACK=1`, following [Vercel's Corepack instructions](https://vercel.com/docs/builds/configure-a-build#corepack). Both Vercel configuration files also include a build-time fallback. Vercel's schema still accepts `build.env`, but marks it as legacy, so retain the project-level setting. Never use these committed files for private credentials.
 
 There are Vercel configuration files at the repository root and application root. Match the effective configuration to the Vercel Root Directory: the repository-root configuration's `apps/site/.next` output path must not be applied relative to `apps/site`. Both package files pin the same Node major and pnpm version. Confirm the selected root, lockfile, actual Node and pnpm versions, and framework in the first preview's build logs.
 
