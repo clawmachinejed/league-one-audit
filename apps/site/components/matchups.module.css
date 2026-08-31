@@ -69,8 +69,6 @@
 .profileLinks a { display:flex; align-items:center; min-height:44px; font-size:11px; color:var(--green); }
 @media(max-width:359px) {
   .toolbar h1 { font-size:24px; }
-  .weekArrow { width:24px; }
-  .refresh { width:28px; }
   .toggle { column-gap:3px; padding-left:4px; padding-right:4px; }
   .teamName { font-size:12px; }
   .score { font-size:13px; }
