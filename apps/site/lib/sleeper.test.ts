@@ -30,6 +30,7 @@ let rawRosters: unknown[];
 let rawUsers: unknown[];
 let rawMatchups: unknown[];
 let playerCatalog: unknown | undefined;
+let testNow = 0;
 
 const rosterSettings = {
   wins: 0,
@@ -92,6 +93,8 @@ function valueFor(path: string): unknown {
 }
 
 beforeEach(() => {
+  testNow += 301_000;
+  vi.spyOn(Date, 'now').mockReturnValue(testNow);
   failures = new Set();
   seasonType = 'regular';
   invalidLeague = false;
@@ -121,12 +124,62 @@ beforeEach(() => {
   }));
 });
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
 
 describe('Sleeper service error handling', () => {
-  it('caches Sleeper\'s full player catalog for the recommended daily interval', () => {
+  it('caches Sleeper player catalogs for the recommended daily interval', () => {
     expect(nextCacheOptions.some((options) => options.revalidate === 86_400)).toBe(true);
-    expect(nextCacheOptions.some((options) => options.revalidate === 300)).toBe(true);
+  });
+
+  it('uses documented position filters instead of the oversized all-player response', async () => {
+    await getOwner(1);
+    const playerUrls = vi.mocked(fetch).mock.calls
+      .map(([url]) => new URL(String(url)))
+      .filter((url) => url.pathname.endsWith('/players/nfl'));
+    expect(playerUrls).toHaveLength(5);
+    expect(playerUrls.map((url) => url.searchParams.get('position')).sort())
+      .toEqual(['DEF', 'QB', 'RB', 'TE', 'WR']);
+    expect(playerUrls.every((url) => url.searchParams.has('position'))).toBe(true);
+  });
+
+  it('keeps successfully loaded player names when one position feed fails', async () => {
+    const original = valueFor;
+    vi.mocked(fetch).mockImplementation(async (input) => {
+      const url = new URL(input instanceof Request ? input.url : String(input));
+      if (url.pathname.endsWith('/players/nfl') && url.searchParams.get('position') === 'WR') {
+        return new Response('Unavailable', { status: 503 });
+      }
+      return Response.json(original(requestPath(input)));
+    });
+    const data = await getOwner(1);
+    expect(data?.starters[0].name).toBe('Quarter Back');
+    expect(data?.warning).toContain('(WR)');
+  });
+
+  it('briefly backs off a failed position feed before retrying it', async () => {
+    const original = valueFor;
+    vi.mocked(fetch).mockImplementation(async (input) => {
+      const url = new URL(input instanceof Request ? input.url : String(input));
+      if (url.pathname.endsWith('/players/nfl') && url.searchParams.get('position') === 'WR') {
+        return new Response('Unavailable', { status: 503 });
+      }
+      return Response.json(original(requestPath(input)));
+    });
+
+    await getOwner(1);
+    await getOwner(1);
+    const playerCalls = () => vi.mocked(fetch).mock.calls.filter(([url]) => {
+      const parsed = new URL(String(url));
+      return parsed.pathname.endsWith('/players/nfl') && parsed.searchParams.get('position') === 'WR';
+    });
+    expect(playerCalls()).toHaveLength(1);
+
+    vi.mocked(Date.now).mockReturnValue(testNow + 301_000);
+    await getOwner(1);
+    expect(playerCalls()).toHaveLength(2);
   });
 
   it('loads preseason week zero transactions and makes partial history visible', async () => {
