@@ -173,7 +173,9 @@ export async function getMatchups(requestedWeek?: number): Promise<MatchupsData>
   const [rows, players, nflSchedule] = await Promise.all([
     fetchRows<SleeperMatchup>(`/league/${LEAGUE_ID}/matchups/${week}`, 'roster_id'),
     getPlayers(),
-    getWeekSchedule(core.overview.league.season, week),
+    week < core.overview.league.week
+      ? Promise.resolve({ schedule: {} as WeekSchedule, canIdentifyByes: false, warning: undefined })
+      : getWeekSchedule(core.overview.league.season, week),
   ]);
   const matchups = addScheduleToMatchups(
     normalizeMatchups(rows, core.overview.teams, core.overview.league, players.catalog,
