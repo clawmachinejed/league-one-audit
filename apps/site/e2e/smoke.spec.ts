@@ -81,6 +81,7 @@ test('matchups fit supported widths and expanded lineup rows remain 52px', async
 });
 
 test('a matchup exposes scores to assistive technology and expands from the keyboard', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 800 });
   await page.goto('/matchups', { waitUntil: 'networkidle' });
   const toggle = page.locator('button[aria-controls]').first();
   test.skip((await toggle.count()) === 0, 'Sleeper has not posted matchup cards for the selected week.');
@@ -90,6 +91,18 @@ test('a matchup exposes scores to assistive technology and expands from the keyb
   for (const score of scores) {
     await expect(toggle).toHaveAccessibleName(score === '—' ? /score unavailable/i : new RegExp(escapeRegExp(score)));
   }
+  const projections = (await toggle.locator('[data-team-projection-number]').allTextContents()).map(score => score.trim());
+  expect(projections).toEqual(['—', '—']);
+  await expect(toggle).toHaveAccessibleName(/projected score unavailable.*projected score unavailable/i);
+
+  const teamAlignment = await toggle.locator('[data-score-side]').evaluateAll(stacks => stacks.map(stack => {
+    const official = stack.querySelector<HTMLElement>('[data-score-number]')!.getBoundingClientRect();
+    const projection = stack.querySelector<HTMLElement>('[data-team-projection-number]')!.getBoundingClientRect();
+    return stack.getAttribute('data-score-side') === 'left'
+      ? Math.abs(official.right - projection.right)
+      : Math.abs(official.left - projection.left);
+  }));
+  for (const difference of teamAlignment) expect(difference).toBeLessThanOrEqual(1);
 
   const panelId = await toggle.getAttribute('aria-controls');
   expect(panelId).toBeTruthy();
@@ -99,6 +112,34 @@ test('a matchup exposes scores to assistive technology and expands from the keyb
   await page.keyboard.press('Enter');
   await expect(toggle).toHaveAttribute('aria-expanded', 'true');
   await expect(panel).toBeVisible();
+
+  const playerProjections = panel.locator('[data-player-projection-number]');
+  if ((await playerProjections.count()) > 0) {
+    expect((await playerProjections.allTextContents()).map(score => score.trim()).every(score => score === '—')).toBe(true);
+    const playerScoreGroups = panel.locator('[data-player-score-side]');
+    for (let index = 0; index < await playerScoreGroups.count(); index += 1) {
+      await expect(playerScoreGroups.nth(index)).toHaveAccessibleName(/official score .*; projected score unavailable/i);
+    }
+    const playerAlignment = await panel.locator('[data-player-score-side]').evaluateAll(stacks => stacks.map(stack => {
+      const official = stack.querySelector<HTMLElement>('[data-player-score-number]')!.getBoundingClientRect();
+      const projection = stack.querySelector<HTMLElement>('[data-player-projection-number]')!.getBoundingClientRect();
+      return stack.getAttribute('data-player-score-side') === 'left'
+        ? Math.abs(official.right - projection.right)
+        : Math.abs(official.left - projection.left);
+    }));
+    for (const difference of playerAlignment) expect(difference).toBeLessThanOrEqual(1);
+  }
+
+  const toggles = page.locator('button[aria-controls]');
+  if ((await toggles.count()) > 1) {
+    const secondToggle = toggles.nth(1);
+    await secondToggle.click();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(secondToggle).toHaveAttribute('aria-expanded', 'true');
+    await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(secondToggle).toHaveAttribute('aria-expanded', 'true');
+  }
 });
 
 test('week navigation reaches the final week and returns to the prior week', async ({ page }) => {

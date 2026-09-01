@@ -55,7 +55,10 @@ function Starter({ player, opposite, high, pending }: { player?: Player; opposit
         {game && <span className={styles.game} data-player-game>{game}</span>}
       </small>
     </div>
-    <span className={`${styles.playerPoints} ${high ? styles.higherScore : ''}`}>{points(player?.points)}</span>
+    <span className={`${styles.playerPoints} ${high ? styles.higherScore : ''}`} data-player-score-side={opposite ? 'right' : 'left'} role="group" aria-label={`Official score ${spokenScore(player?.points)}; projected score unavailable`}>
+      <span className={styles.playerOfficial} data-player-score-number aria-hidden="true">{points(player?.points)}</span>
+      <span className={styles.playerProjection} data-player-projection-number aria-hidden="true">—</span>
+    </span>
   </div>;
 }
 
@@ -107,18 +110,18 @@ function MatchupCard({ matchup, selected, avatar }: { matchup: Matchup; selected
 
   if (!left) return null;
   const label = right ? statusLabel(matchup.status) : 'Opponent pending';
-  const leftSummary = `${left.team.name}, owned by ${left.team.ownerName}, record ${spokenRecord(left.team)}, ${spokenScore(left.points)}`;
+  const leftSummary = `${left.team.name}, owned by ${left.team.ownerName}, record ${spokenRecord(left.team)}, official score ${spokenScore(left.points)}, projected score unavailable`;
   const rightSummary = right
-    ? `${right.team.name}, owned by ${right.team.ownerName}, record ${spokenRecord(right.team)}, ${spokenScore(right.points)}`
-    : 'opponent not posted, score unavailable';
+    ? `${right.team.name}, owned by ${right.team.ownerName}, record ${spokenRecord(right.team)}, official score ${spokenScore(right.points)}, projected score unavailable`
+    : 'opponent not posted, official score unavailable, projected score unavailable';
   const accessibleLabel = `${leftSummary}; versus ${rightSummary}. ${label}${mine ? '. My matchup' : ''}. ${expanded ? 'Collapse' : 'Expand'} starting lineups.`;
   return <article className={`${styles.card} ${mine ? styles.myMatchup : ''}`} aria-label={`${left.team.name}${right ? ` versus ${right.team.name}` : ', opponent pending'}`}>
     <button className={styles.toggle} type="button" aria-expanded={expanded} aria-controls={panelId} onClick={() => setExpanded(value => !value)} aria-label={accessibleLabel}>
       <span className={styles.teamName} data-team-name>{left.team.name}</span>
-      <span className={styles.scorePair} aria-label={`${points(left.points)} to ${points(right?.points)}`}>
-        <span className={styles.score}><span data-score-number>{points(left.points)}</span></span>
+      <span className={styles.scorePair} aria-hidden="true">
+        <span className={styles.score} data-score-side="left"><span className={styles.teamOfficial} data-score-number>{points(left.points)}</span><span className={styles.teamProjection} data-team-projection-number aria-hidden="true">—</span></span>
         <span className={styles.scoreDivider} aria-hidden="true" />
-        <span className={styles.score}><span data-score-number>{points(right?.points)}</span></span>
+        <span className={styles.score} data-score-side="right"><span className={styles.teamOfficial} data-score-number>{points(right?.points)}</span><span className={styles.teamProjection} data-team-projection-number aria-hidden="true">—</span></span>
       </span>
       <span className={`${styles.teamName} ${styles.rightName}`} data-team-name>{right?.team.name || 'Opponent pending'}</span>
       <TeamMeta team={left.team} avatar={avatar} />
