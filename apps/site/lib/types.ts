@@ -31,9 +31,20 @@ export interface Player {
   nflTeam: string | null;
   /** Current Sleeper metadata, including when viewing an earlier matchup week. */
   injuryStatus: string | null;
+  game: NflGame | null;
   slot: string;
   points: number | null;
 }
+
+export type NflGame = {
+  kind: 'scheduled';
+  opponent: string;
+  location: 'home' | 'away';
+  date: string;
+  kickoffAt: string | null;
+} | {
+  kind: 'bye';
+};
 
 export interface OverviewData {
   league: League;

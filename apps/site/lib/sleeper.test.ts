@@ -15,6 +15,24 @@ let activeTransactionRequests: number;
 let maxTransactionRequests: number;
 let playerInjury: unknown;
 
+const schedulePairs = [
+  ['CAR', 'KC'], ['LAC', 'ARI'], ['IND', 'HOU'], ['ATL', 'BAL'],
+  ['BUF', 'CHI'], ['CIN', 'CLE'], ['DAL', 'DEN'], ['DET', 'GB'],
+  ['JAX', 'LAR'], ['LV', 'MIA'], ['MIN', 'NE'], ['NO', 'NYG'],
+  ['NYJ', 'PHI'], ['PIT', 'SEA'], ['SF', 'TB'], ['TEN', 'WAS'],
+] as const;
+
+function schedulePairsForWeek(week: number) {
+  return week >= 3 ? schedulePairs.filter((_, index) => index !== week - 3) : schedulePairs;
+}
+
+function seasonSchedule() {
+  return Array.from({ length: 18 }, (_, index) => index + 1)
+    .flatMap((week) => schedulePairsForWeek(week).map(([home, away]) => ({
+      status: 'pre_game', date: '2026-09-13', home, away, week, game_id: `${week}-${home}-${away}`,
+    })));
+}
+
 function valueFor(path: string): unknown {
   if (path === leaguePath) return invalidLeague ? null : {
     league_id: '1378850182409490432', name: 'League One', season: '2026', status: 'in_season',
@@ -24,6 +42,14 @@ function valueFor(path: string): unknown {
   if (path === `${leaguePath}/users`) return [{ user_id: 'member-1', display_name: 'Alex' }];
   if (path === '/state/nfl') return { season: '2026', season_type: seasonType, leg: 3, week: 3, display_week: 3 };
   if (path === '/players/nfl') return { qb: { full_name: 'Quarter Back', position: 'QB', team: 'IND', injury_status: playerInjury, status: 'Active' } };
+  if (path === '/schedule/nfl/regular/2026') return seasonSchedule();
+  if (path.startsWith('/scores/nfl/regular/2026/')) {
+    const week = Number(path.split('/').at(-1));
+    return schedulePairsForWeek(week).map(([home, away]) => ({
+      status: 'pre_game', date: '2026-09-13', metadata: { home_team: home, away_team: away, canceled: false },
+      start_time: Date.parse('2026-09-13T17:00:00Z'), week, season_type: 'regular', season: '2026',
+    }));
+  }
   if (path.startsWith(`${leaguePath}/matchups/`)) return [{ roster_id: 1, matchup_id: null, points: null, starters: ['qb'], starters_points: [12.34] }];
   if (path.startsWith(`${leaguePath}/transactions/`)) {
     const week = Number(path.split('/').at(-1));
@@ -110,6 +136,27 @@ describe('Sleeper service error handling', () => {
     const data = await getMatchups(1);
     expect(data.warning).toContain('NFL week information is temporarily unavailable');
     expect(data.matchups[0].status).toBe('unknown');
+  });
+
+  it('preserves matchup data and warns when NFL kickoff details are unavailable', async () => {
+    failures.add('/scores/nfl/regular/2026/3');
+    const data = await getMatchups(3);
+    expect(data.warning).toContain('Some NFL opponent or kickoff information is temporarily unavailable');
+    expect(data.matchups[0].sides[0].starters[0]).toMatchObject({
+      name: 'Quarter Back',
+      game: { kind: 'scheduled', opponent: 'HOU', location: 'home', kickoffAt: null },
+    });
+  });
+});
+
+describe('Sleeper NFL game details', () => {
+  it('adds the requested week opponent, location, and kickoff to each starter', async () => {
+    const data = await getMatchups(1);
+    expect(data.matchups[0].sides[0].starters[0].game).toEqual({
+      kind: 'scheduled', opponent: 'HOU', location: 'home', date: '2026-09-13', kickoffAt: '2026-09-13T17:00:00.000Z',
+    });
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).endsWith('/scores/nfl/regular/2026/1'))).toBe(true);
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).endsWith('/schedule/nfl/regular/2026'))).toBe(true);
   });
 });
 

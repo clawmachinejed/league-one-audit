@@ -230,7 +230,7 @@ export function playerFromId(
 ): Player {
   const id = rawId && rawId !== '0' ? String(rawId) : null;
   if (!id) {
-    return { id: `empty-${slot}-${emptyIndex}`, name: 'Empty slot', position: '—', nflTeam: null, injuryStatus: null, slot, points: null };
+    return { id: `empty-${slot}-${emptyIndex}`, name: 'Empty slot', position: '—', nflTeam: null, injuryStatus: null, game: null, slot, points: null };
   }
   const player = catalog[id];
   const fullName = text(player?.full_name)
@@ -242,6 +242,7 @@ export function playerFromId(
     position: text(player?.position) ?? (isDefense ? 'DEF' : '—'),
     nflTeam: text(player?.team) ?? (isDefense ? id : null),
     injuryStatus: normalizeInjuryStatus(player?.injury_status),
+    game: null,
     slot,
     points: numberOrNull(points),
   };

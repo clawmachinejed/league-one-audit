@@ -4,6 +4,11 @@ import { cache } from 'react';
 import { unstable_cache } from 'next/cache';
 import { LEAGUE_ID } from './config';
 import { normalizeInjuryStatus } from './injury-status';
+import {
+  addScheduleToMatchups,
+  resolveSleeperSchedule,
+  type WeekSchedule,
+} from './nfl-schedule';
 import type { MatchupsData, OverviewData, OwnerData, TransactionsData } from './types';
 import {
   matchupStatus,
@@ -24,7 +29,11 @@ import {
 } from './transform';
 
 const API = 'https://api.sleeper.app/v1';
+const SEASON_SCHEDULE_API = 'https://api.sleeper.com/schedule/nfl/regular';
+const SCORES_API = 'https://api.sleeper.com/scores/nfl/regular';
 const CORE_CACHE_SECONDS = 60;
+const SCHEDULE_CACHE_SECONDS = 300;
+const SEASON_SCHEDULE_CACHE_SECONDS = 3_600;
 // Injury designations change more frequently than names; refresh the catalog hourly.
 const PLAYER_CACHE_SECONDS = 3_600;
 
@@ -39,6 +48,16 @@ async function fetchJson(path: string, revalidate = CORE_CACHE_SECONDS): Promise
     headers: { Accept: 'application/json' },
   });
   if (!response.ok) throw new Error(`Sleeper could not load ${path} (HTTP ${response.status}).`);
+  return response.json();
+}
+
+async function fetchExternalJson(url: string, revalidate = SCHEDULE_CACHE_SECONDS): Promise<unknown> {
+  const response = await fetch(url, {
+    next: { revalidate },
+    signal: AbortSignal.timeout(12_000),
+    headers: { Accept: 'application/json' },
+  });
+  if (!response.ok) throw new Error(`NFL schedule data could not be loaded (HTTP ${response.status}).`);
   return response.json();
 }
 
@@ -122,6 +141,26 @@ const getPlayers = cache(async () => {
   }
 });
 
+async function getWeekSchedule(season: string, week: number): Promise<{
+  schedule: WeekSchedule;
+  canIdentifyByes: boolean;
+  warning?: string;
+}> {
+  if (!/^\d{4}$/u.test(season)) {
+    return { schedule: {}, canIdentifyByes: false, warning: 'NFL opponent and kickoff information is temporarily unavailable.' };
+  }
+  const [seasonScheduleValue, scoresValue] = await Promise.all([
+    fetchExternalJson(`${SEASON_SCHEDULE_API}/${season}`, SEASON_SCHEDULE_CACHE_SECONDS).catch(() => null),
+    fetchExternalJson(`${SCORES_API}/${season}/${week}`).catch(() => null),
+  ]);
+  const result = resolveSleeperSchedule(seasonScheduleValue, scoresValue, season, week);
+  return {
+    schedule: result.schedule,
+    canIdentifyByes: result.canIdentifyByes,
+    warning: result.complete ? undefined : 'Some NFL opponent or kickoff information is temporarily unavailable.',
+  };
+}
+
 export async function getOverview(): Promise<OverviewData> {
   return (await getCore()).overview;
 }
@@ -131,18 +170,23 @@ export async function getMatchups(requestedWeek?: number): Promise<MatchupsData>
   const week = requestedWeek === undefined ? core.overview.league.week
     : Number.isInteger(requestedWeek) && requestedWeek >= 1 && requestedWeek <= core.overview.league.maxWeek
       ? requestedWeek : core.overview.league.week;
-  const [rows, players] = await Promise.all([
+  const [rows, players, nflSchedule] = await Promise.all([
     fetchRows<SleeperMatchup>(`/league/${LEAGUE_ID}/matchups/${week}`, 'roster_id'),
     getPlayers(),
+    getWeekSchedule(core.overview.league.season, week),
   ]);
-  const matchups = normalizeMatchups(rows, core.overview.teams, core.overview.league, players.catalog,
-    matchupStatus(core.sourceLeague, core.state, week));
+  const matchups = addScheduleToMatchups(
+    normalizeMatchups(rows, core.overview.teams, core.overview.league, players.catalog,
+      matchupStatus(core.sourceLeague, core.state, week)),
+    nflSchedule.schedule,
+    nflSchedule.canIdentifyByes,
+  );
   const displayedRows = matchups.reduce((count, matchup) => count + matchup.sides.length, 0);
   return {
     ...core.overview,
     week,
     matchups,
-    warning: joinWarnings(core.overview.warning, players.warning,
+    warning: joinWarnings(core.overview.warning, players.warning, nflSchedule.warning,
       displayedRows < rows.length ? 'Some matchup entries could not be matched to a unique league roster.' : undefined),
   };
 }
