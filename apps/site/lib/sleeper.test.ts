@@ -79,6 +79,7 @@ const leagueOneScoringSettings = {
   rush_td_40p: 1,
   pts_allow_7_13: 4,
 };
+let activeScoringSettings: Record<string, unknown>;
 
 const zeroOffenseProjection: NormalizedTank01OffenseProjection = {
   kind: 'offense',
@@ -159,7 +160,7 @@ function valueFor(path: string): unknown {
     total_rosters: expectedRosterCount,
     roster_positions: ['QB', 'BN'],
     settings: { waiver_budget: 100, leg: leagueLeg, ...(lastScoredLeg === undefined ? {} : { last_scored_leg: lastScoredLeg }) },
-    scoring_settings: leagueOneScoringSettings,
+    scoring_settings: activeScoringSettings,
   };
   if (path === `${leaguePath}/rosters`) return rawRosters;
   if (path === `${leaguePath}/users`) return rawUsers;
@@ -197,6 +198,7 @@ beforeEach(() => {
   leagueLeg = 3;
   lastScoredLeg = undefined;
   stateSeason = '2026';
+  activeScoringSettings = { ...leagueOneScoringSettings };
   rawRosters = [{ roster_id: 1, owner_id: 'member-1', players: ['qb'], starters: ['qb'], settings: { ...rosterSettings } }];
   rawUsers = [{ user_id: 'member-1', display_name: 'Alex' }];
   rawMatchups = [{ roster_id: 1, matchup_id: null, points: null, starters: ['qb'], starters_points: [12.34] }];
@@ -636,6 +638,30 @@ describe('Sleeper matchup projection integration', () => {
     expect(data.matchups[0].sides[0].starters[0].projectedPoints).toBe(0);
     expect(data.matchups[0].sides[0].projectedPoints).toBe(0);
     expect(data.warning).toBeUndefined();
+  });
+
+  it('validates scoring settings before zero-filling a missing defense projection', async () => {
+    activeScoringSettings.def_td = 'invalid';
+    rawRosters = [{
+      roster_id: 1,
+      owner_id: 'member-1',
+      players: ['IND'],
+      starters: ['IND'],
+      settings: { ...rosterSettings },
+    }];
+    rawMatchups = [{
+      roster_id: 1, matchup_id: null, points: 6, starters: ['IND'], starters_points: [6],
+    }];
+    playerCatalog = {
+      IND: { full_name: 'Indianapolis Colts', position: 'DEF', team: 'IND' },
+    };
+    getTank01WeeklyProjectionsMock.mockResolvedValueOnce(availableTank01Projection([]));
+
+    const data = await getMatchups(3);
+
+    expect(data.matchups[0].sides[0].starters[0].projectedPoints).toBeNull();
+    expect(data.matchups[0].sides[0].projectedPoints).toBeNull();
+    expect(data.warning).toContain('Sleeper league scoring settings were invalid.');
   });
 
   it('preserves official matchup data and warns when the projection provider fails', async () => {

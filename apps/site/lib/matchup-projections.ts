@@ -1,5 +1,9 @@
 import type { Matchup, Player } from './types';
-import { scoreTank01Projection, type SleeperScoringSettings } from './projection-scoring';
+import {
+  auditProjectionScoringSettings,
+  scoreTank01Projection,
+  type SleeperScoringSettings,
+} from './projection-scoring';
 import type { Tank01PlayerProjection, Tank01ProjectionResult } from './tank01';
 
 export type PlayerProjectionPoints = Readonly<Record<string, number>>;
@@ -108,6 +112,12 @@ export function addTank01ProjectedPoints(
     return {
       matchups,
       warning: 'Projected scores are unavailable because Sleeper league scoring settings could not be loaded.',
+    };
+  }
+  if (auditProjectionScoringSettings(scoringSettings).invalidScoringKeys.length > 0) {
+    return {
+      matchups,
+      warning: 'Projected scores are unavailable because Sleeper league scoring settings were invalid.',
     };
   }
 
