@@ -16,12 +16,3 @@ test-results
 
 # TS incremental build artifacts
 *.tsbuildinfo
-packages/**/tsconfig.tsbuildinfo
-
-
-# TS build artifacts
-*.tsbuildinfo
-packages/**/tsconfig.tsbuildinfo
-
-
-**/tsconfig.tsbuildinfo

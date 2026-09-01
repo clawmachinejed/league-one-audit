@@ -11,6 +11,9 @@ import {
 } from './nfl-schedule';
 import type { MatchupsData, OverviewData, OwnerData, TransactionsData } from './types';
 import {
+  canDecorateMatchupWeek,
+  involvesRoster,
+  matchupSlateExpected,
   matchupStatus,
   normalizeLeague,
   normalizeMatchups,
@@ -34,8 +37,10 @@ const SCORES_API = 'https://api.sleeper.com/scores/nfl/regular';
 const CORE_CACHE_SECONDS = 60;
 const SCHEDULE_CACHE_SECONDS = 300;
 const SEASON_SCHEDULE_CACHE_SECONDS = 3_600;
-// Injury designations change more frequently than names; refresh the catalog hourly.
-const PLAYER_CACHE_SECONDS = 3_600;
+// Sleeper asks consumers to store the full player catalog and refresh it at most daily.
+const PLAYER_CACHE_SECONDS = 86_400;
+// Back off briefly after a catalog failure so an upstream outage does not trigger a large retry on every page request.
+const PLAYER_FAILURE_CACHE_SECONDS = 300;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -61,17 +66,185 @@ async function fetchExternalJson(url: string, revalidate = SCHEDULE_CACHE_SECOND
   return response.json();
 }
 
-async function fetchRows<T>(path: string, key: string): Promise<T[]> {
+function isOptionalString(value: unknown): boolean {
+  return value === undefined || value === null || typeof value === 'string';
+}
+
+function isOptionalRecord(value: unknown): boolean {
+  return value === undefined || value === null || isRecord(value);
+}
+
+function isStringArray(value: unknown): boolean {
+  return value === undefined || value === null
+    || (Array.isArray(value) && value.every((item) => typeof item === 'string'));
+}
+
+function isNumberArray(value: unknown): boolean {
+  return value === undefined || value === null
+    || (Array.isArray(value) && value.every((item) => typeof item === 'number' && Number.isInteger(item) && item > 0));
+}
+
+function isOptionalNumber(value: unknown, nullable = true): boolean {
+  return value === undefined || (nullable && value === null)
+    || (typeof value === 'number' && Number.isFinite(value));
+}
+
+function validRosterSettings(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  if (!['wins', 'losses', 'ties'].every((field) => {
+    const count = value[field];
+    return typeof count === 'number' && Number.isInteger(count) && count >= 0;
+  })) return false;
+  if (typeof value.fpts !== 'number' || !Number.isFinite(value.fpts)) return false;
+  const games = Number(value.wins) + Number(value.losses) + Number(value.ties);
+  if (games > 0 && (typeof value.fpts_against !== 'number' || !Number.isFinite(value.fpts_against))) return false;
+  return ['fpts_decimal', 'fpts_against', 'fpts_against_decimal']
+    .every((field) => value[field] === undefined
+      || (typeof value[field] === 'number' && Number.isFinite(value[field])));
+}
+
+function isSleeperRoster(value: unknown): value is SleeperRoster {
+  return isRecord(value) && typeof value.roster_id === 'number' && Number.isInteger(value.roster_id)
+    && value.roster_id > 0 && isOptionalString(value.owner_id)
+    && isStringArray(value.players) && isStringArray(value.starters)
+    && isStringArray(value.reserve) && isStringArray(value.taxi)
+    && validRosterSettings(value.settings) && isOptionalRecord(value.metadata);
+}
+
+function isSleeperUser(value: unknown): value is SleeperUser {
+  return isRecord(value) && typeof value.user_id === 'string' && Boolean(value.user_id.trim())
+    && isOptionalString(value.display_name) && isOptionalString(value.username)
+    && isOptionalString(value.avatar) && isOptionalRecord(value.metadata);
+}
+
+function isPointsMap(value: unknown): boolean {
+  return value === undefined || value === null || (isRecord(value)
+    && Object.values(value).every((points) => isOptionalNumber(points)));
+}
+
+function isSleeperMatchup(value: unknown): value is SleeperMatchup {
+  const matchupId = isRecord(value) ? value.matchup_id : undefined;
+  return isRecord(value) && typeof value.roster_id === 'number' && Number.isInteger(value.roster_id)
+    && value.roster_id > 0
+    && Object.prototype.hasOwnProperty.call(value, 'matchup_id')
+    && (matchupId === null || (typeof matchupId === 'number' && Number.isInteger(matchupId) && matchupId > 0))
+    && isStringArray(value.starters)
+    && (value.starters_points === undefined || value.starters_points === null
+      || (Array.isArray(value.starters_points) && value.starters_points.every((points) => isOptionalNumber(points))))
+    && isPointsMap(value.players_points) && isOptionalNumber(value.points) && isOptionalNumber(value.custom_points);
+}
+
+function isRosterMap(value: unknown): boolean {
+  return value === undefined || value === null || (isRecord(value)
+    && Object.entries(value).every(([playerId, rosterId]) => Boolean(playerId)
+      && typeof rosterId === 'number' && Number.isInteger(rosterId) && rosterId > 0));
+}
+
+function isDraftPick(value: unknown): boolean {
+  return isRecord(value) && typeof value.season === 'string' && Boolean(value.season.trim())
+    && ['round', 'roster_id', 'previous_owner_id', 'owner_id'].every((field) => {
+      const candidate = value[field];
+      return typeof candidate === 'number' && Number.isInteger(candidate) && candidate > 0;
+    });
+}
+
+function isWaiverBudgetMove(value: unknown): boolean {
+  return isRecord(value) && ['sender', 'receiver'].every((field) => {
+    const candidate = value[field];
+    return typeof candidate === 'number' && Number.isInteger(candidate) && candidate > 0;
+  }) && typeof value.amount === 'number' && Number.isFinite(value.amount) && value.amount >= 0;
+}
+
+function isSleeperTransaction(value: unknown): value is SleeperTransaction {
+  return isRecord(value) && typeof value.transaction_id === 'string' && Boolean(value.transaction_id.trim())
+    && isOptionalString(value.type) && isOptionalString(value.status)
+    && isOptionalNumber(value.created, false) && isOptionalNumber(value.status_updated, false)
+    && isNumberArray(value.roster_ids) && isNumberArray(value.consenter_ids)
+    && isRosterMap(value.adds) && isRosterMap(value.drops)
+    && (value.draft_picks === undefined || value.draft_picks === null
+      || (Array.isArray(value.draft_picks) && value.draft_picks.every(isDraftPick)))
+    && (value.waiver_budget === undefined || value.waiver_budget === null
+      || (Array.isArray(value.waiver_budget) && value.waiver_budget.every(isWaiverBudgetMove)))
+    && isOptionalRecord(value.settings) && isOptionalRecord(value.metadata);
+}
+
+function isSleeperLeague(value: unknown): value is SleeperLeague {
+  return isRecord(value) && typeof value.league_id === 'string' && Boolean(value.league_id.trim())
+    && typeof value.name === 'string' && Boolean(value.name.trim())
+    && typeof value.season === 'string' && /^\d{4}$/u.test(value.season)
+    && ['pre_draft', 'drafting', 'in_season', 'complete'].includes(String(value.status))
+    && typeof value.total_rosters === 'number' && Number.isInteger(value.total_rosters) && value.total_rosters > 0
+    && Array.isArray(value.roster_positions) && value.roster_positions.length > 0
+    && value.roster_positions.every((position) => typeof position === 'string' && Boolean(position.trim()))
+    && isRecord(value.settings);
+}
+
+function isSleeperState(value: unknown): value is SleeperState {
+  return isRecord(value) && typeof value.season === 'string' && /^\d{4}$/u.test(value.season)
+    && isOptionalString(value.season_type) && isOptionalString(value.season_start_date)
+    && ['week', 'leg', 'display_week'].every((field) => {
+      const candidate = value[field];
+      return candidate === undefined || (typeof candidate === 'number' && Number.isInteger(candidate));
+    });
+}
+
+async function fetchRows<T>(
+  path: string,
+  validate: (value: unknown) => value is T,
+  key: (row: T) => string,
+): Promise<T[]> {
   const value = await fetchJson(path);
-  if (!Array.isArray(value) || value.some((row) => {
-    if (!isRecord(row)) return true;
-    return key === 'roster_id'
-      ? typeof row[key] !== 'number' || !Number.isInteger(row[key]) || row[key] < 1
-      : typeof row[key] !== 'string' || !row[key].trim();
-  })) {
+  if (!Array.isArray(value) || value.some((row) => !validate(row))) {
     throw new Error(`Sleeper returned an invalid response for ${path}.`);
   }
-  return value as T[];
+  const rows = value as T[];
+  const keys = rows.map(key);
+  if (new Set(keys).size !== keys.length) {
+    throw new Error(`Sleeper returned duplicate entries for ${path}.`);
+  }
+  return rows;
+}
+
+function assertCoreCompleteness(league: SleeperLeague, rosters: SleeperRoster[], users: SleeperUser[]): void {
+  if (rosters.length !== league.total_rosters) {
+    throw new Error(`Sleeper returned ${rosters.length} of ${league.total_rosters} league rosters.`);
+  }
+  const userIds = new Set(users.map((user) => user.user_id));
+  if (rosters.some((roster) => roster.owner_id && !userIds.has(roster.owner_id))) {
+    throw new Error('Sleeper returned incomplete owner information for the league rosters.');
+  }
+}
+
+function assertMatchupCompleteness(
+  rows: SleeperMatchup[],
+  rosters: SleeperRoster[],
+  slateExpected: boolean,
+): void {
+  if (!rows.length) {
+    if (slateExpected) throw new Error('Sleeper returned an incomplete matchup slate for this league.');
+    return;
+  }
+  const rosterIds = new Set(rosters.map((roster) => roster.roster_id));
+  if (rows.length !== rosterIds.size || rows.some((row) => !rosterIds.has(row.roster_id))) {
+    throw new Error('Sleeper returned an incomplete matchup slate for this league.');
+  }
+  const pairedCounts = new Map<string, number>();
+  for (const row of rows) {
+    if (row.matchup_id === null || row.matchup_id === undefined) continue;
+    const id = String(row.matchup_id);
+    pairedCounts.set(id, (pairedCounts.get(id) ?? 0) + 1);
+  }
+  if ([...pairedCounts.values()].some((count) => count !== 2)) {
+    throw new Error('Sleeper returned an invalid matchup grouping for this league.');
+  }
+}
+
+function playerCoverageWarning(catalog: PlayerCatalog, ids: Iterable<string>): string | undefined {
+  const missing = new Set<string>();
+  for (const id of ids) {
+    if (id && id !== '0' && !catalog[id] && !/^[A-Z]{2,3}$/u.test(id)) missing.add(id);
+  }
+  return missing.size ? `Sleeper did not provide details for ${missing.size} player${missing.size === 1 ? '' : 's'} shown on this page.` : undefined;
 }
 
 function joinWarnings(...warnings: Array<string | undefined>): string | undefined {
@@ -81,22 +254,21 @@ function joinWarnings(...warnings: Array<string | undefined>): string | undefine
 const getCore = cache(async () => {
   const [rawLeague, rosters, users, stateResult] = await Promise.all([
     fetchJson(`/league/${LEAGUE_ID}`),
-    fetchRows<SleeperRoster>(`/league/${LEAGUE_ID}/rosters`, 'roster_id'),
-    fetchRows<SleeperUser>(`/league/${LEAGUE_ID}/users`, 'user_id'),
+    fetchRows<SleeperRoster>(`/league/${LEAGUE_ID}/rosters`, isSleeperRoster, (row) => String(row.roster_id)),
+    fetchRows<SleeperUser>(`/league/${LEAGUE_ID}/users`, isSleeperUser, (row) => row.user_id),
     fetchJson('/state/nfl').then(
       (value) => ({ value }),
       () => ({ value: null }),
     ),
   ]);
-  if (!isRecord(rawLeague) || typeof rawLeague.league_id !== 'string'
-    || typeof rawLeague.season !== 'string' || typeof rawLeague.status !== 'string') {
+  if (!isSleeperLeague(rawLeague) || rawLeague.league_id !== LEAGUE_ID) {
     throw new Error('Sleeper did not return a valid league. Please check the league configuration.');
   }
-  const sourceLeague = rawLeague as unknown as SleeperLeague;
-  const state = isRecord(stateResult.value) && typeof stateResult.value.season === 'string'
-    ? stateResult.value as SleeperState : null;
+  const sourceLeague = rawLeague;
+  assertCoreCompleteness(sourceLeague, rosters, users);
+  const state = isSleeperState(stateResult.value) ? stateResult.value : null;
   const league = normalizeLeague(sourceLeague, state);
-  const teams = normalizeTeams(rosters, users, league);
+  const teams = normalizeTeams(rosters, users);
   const overview: OverviewData = {
     league,
     teams,
@@ -120,17 +292,17 @@ const cachedPlayers = unstable_cache(async (): Promise<PlayerCatalog> => {
     if (!isRecord(value)) continue;
     const player: SleeperPlayer = {};
     for (const field of ['full_name', 'first_name', 'last_name', 'position', 'team'] as const) {
-      if (typeof value[field] === 'string') player[field] = value[field];
+      if (typeof value[field] === 'string' && value[field].trim()) player[field] = value[field].trim();
     }
     const injuryStatus = normalizeInjuryStatus(value.injury_status);
     if (injuryStatus) player.injury_status = injuryStatus;
-    result[id] = player;
+    if (player.full_name || player.first_name || player.last_name) result[id] = player;
   }
   if (!Object.keys(result).length) throw new Error('Sleeper returned an empty player catalog.');
   return result;
-}, ['league-one-player-catalog-v2'], { revalidate: PLAYER_CACHE_SECONDS });
+}, ['league-one-player-catalog-v3'], { revalidate: PLAYER_CACHE_SECONDS });
 
-const getPlayers = cache(async () => {
+const cachedPlayerResult = unstable_cache(async () => {
   try {
     return { catalog: await cachedPlayers(), warning: undefined };
   } catch {
@@ -139,7 +311,9 @@ const getPlayers = cache(async () => {
       warning: 'Player names and injury designations are temporarily unavailable. Sleeper player IDs are shown where necessary.',
     };
   }
-});
+}, ['league-one-player-result-v1'], { revalidate: PLAYER_FAILURE_CACHE_SECONDS });
+
+const getPlayers = cache(() => cachedPlayerResult());
 
 async function getWeekSchedule(season: string, week: number): Promise<{
   schedule: WeekSchedule;
@@ -170,16 +344,19 @@ export async function getMatchups(requestedWeek?: number): Promise<MatchupsData>
   const week = requestedWeek === undefined ? core.overview.league.week
     : Number.isInteger(requestedWeek) && requestedWeek >= 1 && requestedWeek <= core.overview.league.maxWeek
       ? requestedWeek : core.overview.league.week;
+  const status = matchupStatus(core.sourceLeague, core.state, week);
   const [rows, players, nflSchedule] = await Promise.all([
-    fetchRows<SleeperMatchup>(`/league/${LEAGUE_ID}/matchups/${week}`, 'roster_id'),
+    fetchRows<SleeperMatchup>(`/league/${LEAGUE_ID}/matchups/${week}`, isSleeperMatchup, (row) => String(row.roster_id)),
     getPlayers(),
-    week < core.overview.league.week
-      ? Promise.resolve({ schedule: {} as WeekSchedule, canIdentifyByes: false, warning: undefined })
-      : getWeekSchedule(core.overview.league.season, week),
+    canDecorateMatchupWeek(core.sourceLeague, core.state, week)
+      ? getWeekSchedule(core.overview.league.season, week)
+      : Promise.resolve({ schedule: {} as WeekSchedule, canIdentifyByes: false, warning: undefined }),
   ]);
+  const slateExpected = matchupSlateExpected(core.sourceLeague, core.state, week);
+  assertMatchupCompleteness(rows, core.rosters, slateExpected);
   const matchups = addScheduleToMatchups(
     normalizeMatchups(rows, core.overview.teams, core.overview.league, players.catalog,
-      matchupStatus(core.sourceLeague, core.state, week)),
+      status),
     nflSchedule.schedule,
     nflSchedule.canIdentifyByes,
   );
@@ -188,7 +365,9 @@ export async function getMatchups(requestedWeek?: number): Promise<MatchupsData>
     ...core.overview,
     week,
     matchups,
-    warning: joinWarnings(core.overview.warning, players.warning, nflSchedule.warning,
+    warning: joinWarnings(core.overview.warning, players.warning,
+      players.warning ? undefined : playerCoverageWarning(players.catalog, rows.flatMap((row) => row.starters ?? [])),
+      nflSchedule.warning,
       displayedRows < rows.length ? 'Some matchup entries could not be matched to a unique league roster.' : undefined),
   };
 }
@@ -204,7 +383,10 @@ export async function getOwner(id: number): Promise<OwnerData | null> {
     ...core.overview,
     team,
     ...ownerLineup(roster, core.overview.league, players.catalog),
-    warning: joinWarnings(core.overview.warning, players.warning),
+    warning: joinWarnings(core.overview.warning, players.warning,
+      players.warning ? undefined : playerCoverageWarning(players.catalog, [
+        ...(roster.players ?? []), ...(roster.starters ?? []), ...(roster.reserve ?? []), ...(roster.taxi ?? []),
+      ])),
   };
 }
 
@@ -219,7 +401,11 @@ const getTransactionWeeks = cache(async (lastWeek: number) => {
     while (next < weeks.length) {
       const week = weeks[next++];
       try {
-        rows.push(...await fetchRows<SleeperTransaction>(`/league/${LEAGUE_ID}/transactions/${week}`, 'transaction_id'));
+        rows.push(...await fetchRows<SleeperTransaction>(
+          `/league/${LEAGUE_ID}/transactions/${week}`,
+          isSleeperTransaction,
+          (row) => row.transaction_id,
+        ));
         succeeded += 1;
       } catch {
         failedWeeks.push(week);
@@ -240,12 +426,16 @@ export async function getTransactions(id: number): Promise<TransactionsData | nu
     getPlayers(),
   ]);
   const partial = history.failedWeeks.length > 0;
+  const transactionPlayerIds = history.rows
+    .filter((row) => involvesRoster(row, id))
+    .flatMap((row) => [...Object.keys(row.adds ?? {}), ...Object.keys(row.drops ?? {})]);
   return {
     ...core.overview,
     team,
     transactions: normalizeTransactions(history.rows, id, core.overview.teams, players.catalog),
-    partial,
-    warning: joinWarnings(core.overview.warning, players.warning, partial
+    warning: joinWarnings(core.overview.warning, players.warning,
+      players.warning ? undefined : playerCoverageWarning(players.catalog, transactionPlayerIds),
+      partial
       ? `Some transaction history could not be loaded (weeks ${history.failedWeeks.join(', ')}). The list may be incomplete.`
       : undefined),
   };

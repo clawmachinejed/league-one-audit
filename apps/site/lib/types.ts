@@ -1,18 +1,12 @@
 export interface League {
-  id: string;
-  name: string;
   season: string;
-  status: string;
   rosterPositions: string[];
   week: number;
   maxWeek: number;
-  faabBudget: number;
-  scoringLabel: string;
 }
 
 export interface Team {
   id: number;
-  ownerId: string | null;
   ownerName: string;
   name: string;
   avatar: string | null;
@@ -20,8 +14,7 @@ export interface Team {
   losses: number;
   ties: number;
   pointsFor: number;
-  pointsAgainst: number;
-  faabRemaining: number | null;
+  pointsAgainst: number | null;
 }
 
 export interface Player {
@@ -91,5 +84,4 @@ export interface Transaction {
 export interface TransactionsData extends OverviewData {
   team: Team;
   transactions: Transaction[];
-  partial: boolean;
 }

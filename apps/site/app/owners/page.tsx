@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { OwnersView } from '@/components/league-ui';
+import { OwnersView } from '@/components/owners-view';
 import { getOverview } from '@/lib/sleeper';
 export const metadata: Metadata = { title: 'Owners' };
 export const dynamic = 'force-dynamic';

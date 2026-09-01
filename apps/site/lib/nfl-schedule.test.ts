@@ -100,8 +100,8 @@ describe('Sleeper NFL schedule', () => {
 });
 
 const team: Team = {
-  id: 1, ownerId: 'owner', ownerName: 'Owner', name: 'Team', avatar: null,
-  wins: 0, losses: 0, ties: 0, pointsFor: 0, pointsAgainst: 0, faabRemaining: 100,
+  id: 1, ownerName: 'Owner', name: 'Team', avatar: null,
+  wins: 0, losses: 0, ties: 0, pointsFor: 0, pointsAgainst: 0,
 };
 
 function player(id: string, nflTeam: string | null): Player {

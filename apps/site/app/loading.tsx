@@ -1,2 +1,2 @@
-import { LoadingView } from '@/components/league-ui';
+import { LoadingView } from '@/components/loading-view';
 export default function Loading() { return <LoadingView />; }
