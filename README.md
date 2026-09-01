@@ -5,6 +5,7 @@ A mobile-first home for League One, powered by public Sleeper league data. The s
 ## What stays central
 
 - Expandable matchup cards: scan team scores, then open the player and lineup comparison.
+- Player projections derived from Tank01's raw weekly statistics using the league's Sleeper scoring settings.
 - A persistent My Team selection, scoped to the league and validated against its current teams.
 - Owner transaction history with adds, drops, trades, FAAB bids, and clearly labeled outcomes. Green, red, and muted result colors supplement the text.
 - Phone layouts that fit the screen, keep names and scores readable, and provide comfortable touch controls.
@@ -37,7 +38,14 @@ pnpm dev
 
 Open [localhost:3000](http://localhost:3000). No Sleeper API token is required for the public league data used here.
 
-The built-in league default works without an environment file. To override it locally, copy `.env.example` to `apps/site/.env.local`, then change `SLEEPER_LEAGUE_ID` there. Never commit private environment files, tokens, or account credentials. The league ID itself is public configuration.
+The built-in league default works without an environment file. To override it or enable projections locally, copy `.env.example` to `apps/site/.env.local`, then set the needed values there.
+
+| Environment variable | Purpose |
+| --- | --- |
+| `SLEEPER_LEAGUE_ID` | Optional public league override; defaults to `1378850182409490432`. |
+| `TANK01_API_KEY` | Private, server-only Tank01 credential used to load raw projection statistics. Keep it out of browser code, logs, and commits. |
+
+Sleeper remains the official source for league identity, rosters, lineups, live scores, and scoring rules. The application computes projections locally from Tank01's raw weekly statistics by applying the active Sleeper scoring settings; Tank01 does not replace Sleeper's official or live results. Tank data is cached for one hour. If Tank01 is unavailable, unconfigured, or has no projection for a player, the site continues to work and displays a dash for that projection.
 
 | Command | Purpose |
 | --- | --- |
@@ -87,6 +95,7 @@ Use the existing Vercel project rather than creating a duplicate project or movi
 | Build command | `pnpm build` from the configured application root |
 | Output Directory | Next.js default, `.next` |
 | `SLEEPER_LEAGUE_ID` | `1378850182409490432`, in Vercel Project Settings for Preview and Production |
+| `TANK01_API_KEY` | Private server-only secret, in Vercel Project Settings for Preview and Production; never commit it or expose it to the browser |
 | `ENABLE_EXPERIMENTAL_COREPACK` | `1`, available during builds for Preview and Production |
 
 Corepack must remain enabled so Vercel uses pnpm 11.19.0 instead of inferring another pnpm version from the lockfile. The project's Preview and Production environments have `ENABLE_EXPERIMENTAL_COREPACK=1`, following [Vercel's Corepack instructions](https://vercel.com/docs/builds/configure-a-build#corepack). `apps/site/vercel.json`, the only committed Vercel configuration, retains a build-time Corepack fallback. Vercel's schema still accepts `build.env`, but marks it as legacy, so retain the project-level setting as the durable control. Never use committed configuration for private credentials.

@@ -4,12 +4,14 @@ import { cache } from 'react';
 import { unstable_cache } from 'next/cache';
 import { LEAGUE_ID } from './config';
 import { normalizeInjuryStatus } from './injury-status';
+import { addTank01ProjectedPoints } from './matchup-projections';
 import {
   addScheduleToMatchups,
   resolveSleeperSchedule,
   type WeekSchedule,
 } from './nfl-schedule';
 import type { MatchupsData, OverviewData, OwnerData, TransactionsData } from './types';
+import { getTank01WeeklyProjections } from './tank01';
 import {
   canDecorateMatchupWeek,
   involvesRoster,
@@ -180,7 +182,7 @@ function isSleeperLeague(value: unknown): value is SleeperLeague {
     && typeof value.total_rosters === 'number' && Number.isInteger(value.total_rosters) && value.total_rosters > 0
     && Array.isArray(value.roster_positions) && value.roster_positions.length > 0
     && value.roster_positions.every((position) => typeof position === 'string' && Boolean(position.trim()))
-    && isRecord(value.settings);
+    && isRecord(value.settings) && isOptionalRecord(value.scoring_settings);
 }
 
 function isSleeperState(value: unknown): value is SleeperState {
@@ -395,21 +397,29 @@ export async function getMatchups(requestedWeek?: number): Promise<MatchupsData>
     : Number.isInteger(requestedWeek) && requestedWeek >= 1 && requestedWeek <= core.overview.league.maxWeek
       ? requestedWeek : core.overview.league.week;
   const status = matchupStatus(core.sourceLeague, core.state, week);
-  const [rows, players, nflSchedule] = await Promise.all([
+  const canDecorate = canDecorateMatchupWeek(core.sourceLeague, core.state, week);
+  const [rows, players, nflSchedule, tank01Projections] = await Promise.all([
     fetchRows<SleeperMatchup>(`/league/${LEAGUE_ID}/matchups/${week}`, isSleeperMatchup, (row) => String(row.roster_id)),
     getPlayers(),
-    canDecorateMatchupWeek(core.sourceLeague, core.state, week)
+    canDecorate
       ? getWeekSchedule(core.overview.league.season, week)
       : Promise.resolve({ schedule: {} as WeekSchedule, canIdentifyByes: false, warning: undefined }),
+    canDecorate
+      ? getTank01WeeklyProjections(core.overview.league.season, week)
+      : Promise.resolve(null),
   ]);
   const slateExpected = matchupSlateExpected(core.sourceLeague, core.state, week);
   assertMatchupCompleteness(rows, core.rosters, slateExpected);
-  const matchups = addScheduleToMatchups(
+  const scheduledMatchups = addScheduleToMatchups(
     normalizeMatchups(rows, core.overview.teams, core.overview.league, players.catalog,
       status),
     nflSchedule.schedule,
     nflSchedule.canIdentifyByes,
   );
+  const projectionDecoration = tank01Projections
+    ? addTank01ProjectedPoints(scheduledMatchups, tank01Projections, core.sourceLeague.scoring_settings)
+    : { matchups: scheduledMatchups, warning: undefined };
+  const matchups = projectionDecoration.matchups;
   const displayedRows = matchups.reduce((count, matchup) => count + matchup.sides.length, 0);
   return {
     ...core.overview,
@@ -418,6 +428,7 @@ export async function getMatchups(requestedWeek?: number): Promise<MatchupsData>
     warning: joinWarnings(core.overview.warning, players.warning,
       players.warning ? undefined : playerCoverageWarning(players.catalog, rows.flatMap((row) => row.starters ?? [])),
       nflSchedule.warning,
+      projectionDecoration.warning,
       displayedRows < rows.length ? 'Some matchup entries could not be matched to a unique league roster.' : undefined),
   };
 }

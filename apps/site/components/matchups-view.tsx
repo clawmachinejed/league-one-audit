@@ -36,6 +36,6 @@ export function MatchupsView({ data }: { data: MatchupsData }) {
     <Warning message={data.warning} />
     {matchups.length ? <MatchupBoard key={data.week} matchups={matchups} selected={selected} avatar={team => <Avatar team={team} />} /> : <EmptyState title="No matchups posted yet">Week {data.week} matchups will appear when Sleeper publishes the schedule. You can still browse teams and standings.</EmptyState>}
     <Updated value={data.updatedAt} refreshing={refreshing} />
-    {currentWeek && <p className="refresh-note">Checks for updated Sleeper data every minute while this page is open.</p>}
+    {currentWeek && <p className="refresh-note">Checks for updated Sleeper data every minute while this page is open. Tank01 projections refresh hourly when available.</p>}
   </div>;
 }
