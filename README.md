@@ -45,7 +45,7 @@ The built-in league default works without an environment file. To override it or
 | `SLEEPER_LEAGUE_ID` | Optional public league override; defaults to `1378850182409490432`. |
 | `TANK01_API_KEY` | Private, server-only Tank01 credential used to load raw projection statistics. Keep it out of browser code, logs, and commits. |
 
-Sleeper remains the official source for league identity, rosters, lineups, live scores, and scoring rules. The application computes projections locally from Tank01's raw weekly statistics by applying the active Sleeper scoring settings; Tank01 does not replace Sleeper's official or live results. Tank data is cached for one hour. If Tank01 is unavailable, unconfigured, or has no projection for a player, the site continues to work and displays a dash for that projection.
+Sleeper remains the official source for league identity, rosters, lineups, live scores, and scoring rules. The application computes projections locally from Tank01's raw weekly statistics by applying the active Sleeper scoring settings; Tank01 does not replace Sleeper's official or live results. Tank data is cached for one hour. If an available Tank01 slate omits a starter or has incomplete projected statistics for that starter, the site displays `0.00` and includes that zero in the team projection. Unsafe player-identity matches, invalid scoring settings, and Tank01 outages remain unavailable and display a dash.
 
 | Command | Purpose |
 | --- | --- |
