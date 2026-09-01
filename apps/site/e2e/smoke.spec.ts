@@ -92,8 +92,15 @@ test('a matchup exposes scores to assistive technology and expands from the keyb
     await expect(toggle).toHaveAccessibleName(score === '—' ? /score unavailable/i : new RegExp(escapeRegExp(score)));
   }
   const projections = (await toggle.locator('[data-team-projection-number]').allTextContents()).map(score => score.trim());
-  expect(projections).toEqual(['—', '—']);
-  await expect(toggle).toHaveAccessibleName(/projected score unavailable.*projected score unavailable/i);
+  expect(projections).toHaveLength(2);
+  const toggleName = await toggle.getAttribute('aria-label');
+  expect(toggleName?.match(/projected score/gi)).toHaveLength(2);
+  for (const projection of projections) {
+    expect(projection).toMatch(/^(?:—|-?\d+\.\d{2})$/u);
+    await expect(toggle).toHaveAccessibleName(projection === '—'
+      ? /projected score unavailable/i
+      : new RegExp(`projected score ${escapeRegExp(projection)}`));
+  }
 
   const teamAlignment = await toggle.locator('[data-score-side]').evaluateAll(stacks => stacks.map(stack => {
     const official = stack.querySelector<HTMLElement>('[data-score-number]')!.getBoundingClientRect();
@@ -115,10 +122,13 @@ test('a matchup exposes scores to assistive technology and expands from the keyb
 
   const playerProjections = panel.locator('[data-player-projection-number]');
   if ((await playerProjections.count()) > 0) {
-    expect((await playerProjections.allTextContents()).map(score => score.trim()).every(score => score === '—')).toBe(true);
     const playerScoreGroups = panel.locator('[data-player-score-side]');
     for (let index = 0; index < await playerScoreGroups.count(); index += 1) {
-      await expect(playerScoreGroups.nth(index)).toHaveAccessibleName(/official score .*; projected score unavailable/i);
+      const projection = (await playerScoreGroups.nth(index).locator('[data-player-projection-number]').textContent())?.trim() ?? '';
+      expect(projection).toMatch(/^(?:—|-?\d+\.\d{2})$/u);
+      await expect(playerScoreGroups.nth(index)).toHaveAccessibleName(projection === '—'
+        ? /official score .*; projected score unavailable/i
+        : new RegExp(`official score .*; projected score ${escapeRegExp(projection)}`));
     }
     const playerAlignment = await panel.locator('[data-player-score-side]').evaluateAll(stacks => stacks.map(stack => {
       const official = stack.querySelector<HTMLElement>('[data-player-score-number]')!.getBoundingClientRect();

@@ -2,14 +2,17 @@ import 'server-only';
 
 import { cache } from 'react';
 import { unstable_cache } from 'next/cache';
+import { after } from 'next/server';
 import { LEAGUE_ID } from './config';
 import { normalizeInjuryStatus } from './injury-status';
+import { addTank01ProjectedPoints } from './matchup-projections';
 import {
   addScheduleToMatchups,
   resolveSleeperSchedule,
   type WeekSchedule,
 } from './nfl-schedule';
 import type { MatchupsData, OverviewData, OwnerData, TransactionsData } from './types';
+import { getTank01WeeklyProjections, type Tank01ProjectionResult } from './tank01';
 import {
   canDecorateMatchupWeek,
   involvesRoster,
@@ -41,6 +44,8 @@ const SEASON_SCHEDULE_CACHE_SECONDS = 3_600;
 const PLAYER_CACHE_SECONDS = 86_400;
 // Back off briefly after a catalog failure so an upstream outage does not trigger a large retry on every page request.
 const PLAYER_FAILURE_CACHE_SECONDS = 300;
+// Keep optional projections from delaying authoritative Sleeper matchup data on a cold provider request.
+const MATCHUP_PROJECTION_WAIT_MS = 1_000;
 // League One uses these player positions. Sleeper's documented position filters keep
 // each response small enough to load reliably in a serverless function.
 const PLAYER_POSITIONS = ['QB', 'RB', 'WR', 'TE', 'DEF'] as const;
@@ -180,7 +185,7 @@ function isSleeperLeague(value: unknown): value is SleeperLeague {
     && typeof value.total_rosters === 'number' && Number.isInteger(value.total_rosters) && value.total_rosters > 0
     && Array.isArray(value.roster_positions) && value.roster_positions.length > 0
     && value.roster_positions.every((position) => typeof position === 'string' && Boolean(position.trim()))
-    && isRecord(value.settings);
+    && isRecord(value.settings) && isOptionalRecord(value.scoring_settings);
 }
 
 function isSleeperState(value: unknown): value is SleeperState {
@@ -389,27 +394,76 @@ export async function getOverview(): Promise<OverviewData> {
   return (await getCore()).overview;
 }
 
+function unavailableTank01Projections(season: string, week: number): Tank01ProjectionResult {
+  return {
+    status: 'unavailable',
+    season,
+    week,
+    reason: 'provider-error',
+    message: 'Player projections are temporarily unavailable.',
+  };
+}
+
+async function getSafeTank01Projections(season: string, week: number): Promise<Tank01ProjectionResult> {
+  try {
+    return await getTank01WeeklyProjections(season, week);
+  } catch {
+    // The provider normally converts upstream failures to this result. Keep projections optional
+    // if an unexpected cache or runtime rejection escapes that boundary.
+    return unavailableTank01Projections(season, week);
+  }
+}
+
+async function getOptionalTank01Projections(season: string, week: number): Promise<Tank01ProjectionResult> {
+  const projection = getSafeTank01Projections(season, week);
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const outcome = await Promise.race([
+    projection.then((value) => ({ kind: 'projection' as const, value })),
+    new Promise<{ kind: 'deadline' }>((resolve) => {
+      timeout = setTimeout(() => resolve({ kind: 'deadline' }), MATCHUP_PROJECTION_WAIT_MS);
+    }),
+  ]);
+
+  if (outcome.kind === 'projection') {
+    if (timeout !== undefined) clearTimeout(timeout);
+    return outcome.value;
+  }
+
+  // Register the already-running, rejection-safe promise with the request lifecycle. This lets a
+  // cold result populate Next's shared cache without holding the matchup response open.
+  after(() => projection);
+  return unavailableTank01Projections(season, week);
+}
+
 export async function getMatchups(requestedWeek?: number): Promise<MatchupsData> {
   const core = await getCore();
   const week = requestedWeek === undefined ? core.overview.league.week
     : Number.isInteger(requestedWeek) && requestedWeek >= 1 && requestedWeek <= core.overview.league.maxWeek
       ? requestedWeek : core.overview.league.week;
   const status = matchupStatus(core.sourceLeague, core.state, week);
-  const [rows, players, nflSchedule] = await Promise.all([
+  const canDecorate = canDecorateMatchupWeek(core.sourceLeague, core.state, week);
+  const [rows, players, nflSchedule, tank01Projections] = await Promise.all([
     fetchRows<SleeperMatchup>(`/league/${LEAGUE_ID}/matchups/${week}`, isSleeperMatchup, (row) => String(row.roster_id)),
     getPlayers(),
-    canDecorateMatchupWeek(core.sourceLeague, core.state, week)
+    canDecorate
       ? getWeekSchedule(core.overview.league.season, week)
       : Promise.resolve({ schedule: {} as WeekSchedule, canIdentifyByes: false, warning: undefined }),
+    canDecorate
+      ? getOptionalTank01Projections(core.overview.league.season, week)
+      : Promise.resolve(null),
   ]);
   const slateExpected = matchupSlateExpected(core.sourceLeague, core.state, week);
   assertMatchupCompleteness(rows, core.rosters, slateExpected);
-  const matchups = addScheduleToMatchups(
+  const scheduledMatchups = addScheduleToMatchups(
     normalizeMatchups(rows, core.overview.teams, core.overview.league, players.catalog,
       status),
     nflSchedule.schedule,
     nflSchedule.canIdentifyByes,
   );
+  const projectionDecoration = tank01Projections
+    ? addTank01ProjectedPoints(scheduledMatchups, tank01Projections, core.sourceLeague.scoring_settings)
+    : { matchups: scheduledMatchups, warning: undefined };
+  const matchups = projectionDecoration.matchups;
   const displayedRows = matchups.reduce((count, matchup) => count + matchup.sides.length, 0);
   return {
     ...core.overview,
@@ -418,6 +472,7 @@ export async function getMatchups(requestedWeek?: number): Promise<MatchupsData>
     warning: joinWarnings(core.overview.warning, players.warning,
       players.warning ? undefined : playerCoverageWarning(players.catalog, rows.flatMap((row) => row.starters ?? [])),
       nflSchedule.warning,
+      projectionDecoration.warning,
       displayedRows < rows.length ? 'Some matchup entries could not be matched to a unique league roster.' : undefined),
   };
 }

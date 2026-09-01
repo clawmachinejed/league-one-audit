@@ -27,6 +27,7 @@ export interface Player {
   game: NflGame | null;
   slot: string;
   points: number | null;
+  projectedPoints: number | null;
 }
 
 export type NflGame = {
@@ -49,6 +50,7 @@ export interface OverviewData {
 export interface MatchupSide {
   team: Team;
   points: number | null;
+  projectedPoints: number | null;
   starters: Player[];
 }
 

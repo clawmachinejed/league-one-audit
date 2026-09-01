@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const nextCacheOptions = vi.hoisted(() => [] as Array<{ revalidate?: number }>);
+const getTank01WeeklyProjectionsMock = vi.hoisted(() => vi.fn());
+const afterMock = vi.hoisted(() => vi.fn());
 
 vi.mock('server-only', () => ({}));
 vi.mock('react', () => ({ cache: <T,>(fn: T) => fn }));
@@ -10,7 +12,9 @@ vi.mock('next/cache', () => ({
     return fn;
   },
 }));
+vi.mock('next/server', () => ({ after: afterMock }));
 vi.mock('./config', () => ({ LEAGUE_ID: '1378850182409490432' }));
+vi.mock('./tank01', () => ({ getTank01WeeklyProjections: getTank01WeeklyProjectionsMock }));
 
 import { getMatchups, getOverview, getOwner, getTransactions } from './sleeper';
 
@@ -41,6 +45,91 @@ const rosterSettings = {
   waiver_budget_used: 0,
 };
 
+const leagueOneScoringSettings = {
+  sack: 1,
+  pass_int: -2,
+  pts_allow_0: 10,
+  pass_2pt: 2,
+  rec_td: 6,
+  rush_td: 6,
+  pass_td_40p: 1,
+  rec_2pt: 2,
+  rec: 0.5,
+  pts_allow_14_20: 1,
+  int: 2,
+  def_st_fum_rec: 2,
+  fum_lost: -2,
+  pts_allow_1_6: 7,
+  pts_allow_21_27: 0,
+  rush_2pt: 2,
+  fum_rec: 2,
+  def_st_td: 6,
+  def_td: 6,
+  rec_td_40p: 1,
+  safe: 2,
+  pass_yd: 0.04,
+  blk_kick: 2,
+  pass_td: 6,
+  rush_yd: 0.1,
+  pts_allow_28_34: -1,
+  pts_allow_35p: -4,
+  fum_rec_td: 6,
+  rec_yd: 0.1,
+  rush_td_40p: 1,
+  pts_allow_7_13: 4,
+};
+
+const zeroOffenseProjection = {
+  kind: 'offense' as const,
+  passingYards: 0,
+  passingTouchdowns: 0,
+  passingInterceptions: 0,
+  rushingYards: 0,
+  rushingTouchdowns: 0,
+  receptions: 0,
+  receivingYards: 0,
+  receivingTouchdowns: 0,
+  twoPointConversions: 0,
+  fumblesLost: 0,
+};
+
+function availableTank01Projection(playerIds: string[] = ['qb']) {
+  return {
+    status: 'available' as const,
+    season: '2026',
+    week: 3,
+    fetchedAt: '2026-09-01T12:00:00.000Z',
+    projections: {
+      bySleeperId: Object.fromEntries(playerIds.map((id) => [id, {
+        tank01PlayerId: `tank-${id}`,
+        sleeperPlayerId: id,
+        team: 'IND',
+        position: id === 'rb' ? 'RB' : 'QB',
+        stats: {},
+        scoringProjection: zeroOffenseProjection,
+        missingFields: [],
+      }])),
+      byDefenseTeam: {},
+    },
+    coverage: {
+      playerListRows: playerIds.length,
+      crosswalkEntries: playerIds.length,
+      malformedPlayerListRows: 0,
+      ambiguousPlayerListRows: 0,
+      playerProjectionRows: playerIds.length,
+      matchedPlayerProjections: playerIds.length,
+      unmatchedPlayerProjections: 0,
+      malformedPlayerProjections: 0,
+      incompletePlayerProjections: 0,
+      defenseProjectionRows: 0,
+      usableDefenseProjections: 0,
+      malformedDefenseProjections: 0,
+      incompleteDefenseProjections: 0,
+    },
+    warnings: [],
+  };
+}
+
 const schedulePairs = [
   ['CAR', 'KC'], ['LAC', 'ARI'], ['IND', 'HOU'], ['ATL', 'BAL'],
   ['BUF', 'CHI'], ['CIN', 'CLE'], ['DAL', 'DEN'], ['DET', 'GB'],
@@ -69,6 +158,7 @@ function valueFor(path: string): unknown {
     total_rosters: expectedRosterCount,
     roster_positions: ['QB', 'BN'],
     settings: { waiver_budget: 100, leg: leagueLeg, ...(lastScoredLeg === undefined ? {} : { last_scored_leg: lastScoredLeg }) },
+    scoring_settings: leagueOneScoringSettings,
   };
   if (path === `${leaguePath}/rosters`) return rawRosters;
   if (path === `${leaguePath}/users`) return rawUsers;
@@ -110,6 +200,9 @@ beforeEach(() => {
   rawUsers = [{ user_id: 'member-1', display_name: 'Alex' }];
   rawMatchups = [{ roster_id: 1, matchup_id: null, points: null, starters: ['qb'], starters_points: [12.34] }];
   playerCatalog = undefined;
+  getTank01WeeklyProjectionsMock.mockReset();
+  getTank01WeeklyProjectionsMock.mockResolvedValue(availableTank01Projection());
+  afterMock.mockReset();
   vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
     const path = requestPath(input);
     const transactionRequest = path.includes('/transactions/');
@@ -456,5 +549,158 @@ describe('Sleeper current injury metadata', () => {
     const owner = await getOwner(1);
     expect(owner?.warning).toContain('Player names and injury designations are temporarily unavailable');
     expect(owner?.starters[0].name).toBe('Player qb');
+  });
+});
+
+describe('Sleeper matchup projection integration', () => {
+  it('maps an available true-zero offense projection to the starter and team total', async () => {
+    getTank01WeeklyProjectionsMock.mockResolvedValueOnce(availableTank01Projection());
+
+    const data = await getMatchups(3);
+
+    expect(getTank01WeeklyProjectionsMock).toHaveBeenCalledWith('2026', 3);
+    expect(data.matchups[0].sides[0].starters[0]).toMatchObject({
+      id: 'qb', points: 12.34, projectedPoints: 0,
+    });
+    expect(data.matchups[0].sides[0].projectedPoints).toBe(0);
+  });
+
+  it('keeps the team projection unavailable when one real starter has no projection', async () => {
+    rawRosters = [{
+      roster_id: 1,
+      owner_id: 'member-1',
+      players: ['qb', 'rb'],
+      starters: ['qb', 'rb'],
+      settings: { ...rosterSettings },
+    }];
+    rawMatchups = [{
+      roster_id: 1, matchup_id: null, points: 20.34, starters: ['qb', 'rb'], starters_points: [12.34, 8],
+    }];
+    playerCatalog = {
+      qb: { full_name: 'Quarter Back', position: 'QB', team: 'IND' },
+      rb: { full_name: 'Running Back', position: 'RB', team: 'IND' },
+    };
+    getTank01WeeklyProjectionsMock.mockResolvedValueOnce(availableTank01Projection(['qb']));
+
+    const data = await getMatchups(3);
+    const side = data.matchups[0].sides[0];
+
+    expect(side.starters.map((player) => [player.id, player.projectedPoints])).toEqual([
+      ['qb', 0],
+      ['rb', null],
+    ]);
+    expect(side.projectedPoints).toBeNull();
+  });
+
+  it('preserves official matchup data and warns when the projection provider fails', async () => {
+    rawMatchups = [{
+      roster_id: 1, matchup_id: null, points: 55.5, starters: ['qb'], starters_points: [12.34],
+    }];
+    getTank01WeeklyProjectionsMock.mockResolvedValueOnce({
+      status: 'unavailable',
+      season: '2026',
+      week: 3,
+      reason: 'provider-error',
+      message: 'Player projections are temporarily unavailable.',
+    });
+
+    const data = await getMatchups(3);
+
+    expect(data.matchups[0].sides[0]).toMatchObject({
+      points: 55.5,
+      projectedPoints: null,
+      starters: [{ points: 12.34, projectedPoints: null }],
+    });
+    expect(data.warning).toContain('Projected scores are temporarily unavailable.');
+  });
+
+  it('returns at one second and retains the original projection work with Next after', async () => {
+    vi.useFakeTimers();
+    let activeProviderWork = 0;
+    let providerCompleted = false;
+    getTank01WeeklyProjectionsMock.mockImplementationOnce(() => {
+      activeProviderWork += 1;
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          activeProviderWork -= 1;
+          providerCompleted = true;
+          resolve(availableTank01Projection());
+        }, 15_000);
+      });
+    });
+
+    try {
+      let pageResolved = false;
+      const page = getMatchups(3);
+      void page.then(() => { pageResolved = true; });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(getTank01WeeklyProjectionsMock).toHaveBeenCalledWith('2026', 3);
+
+      await vi.advanceTimersByTimeAsync(999);
+      expect(pageResolved).toBe(false);
+      expect(afterMock).not.toHaveBeenCalled();
+      expect(activeProviderWork).toBe(1);
+
+      await vi.advanceTimersByTimeAsync(1);
+      const data = await page;
+      expect(data.matchups[0].sides[0]).toMatchObject({
+        projectedPoints: null,
+        starters: [{ points: 12.34, projectedPoints: null }],
+      });
+      expect(data.warning).toContain('Projected scores are temporarily unavailable.');
+      expect(afterMock).toHaveBeenCalledTimes(1);
+      expect(activeProviderWork).toBe(1);
+
+      const afterCallback = afterMock.mock.calls[0]?.[0] as () => Promise<unknown>;
+      expect(afterCallback).toEqual(expect.any(Function));
+      const afterTask = afterCallback();
+      let afterTaskCompleted = false;
+      void afterTask.then(() => { afterTaskCompleted = true; });
+      await vi.advanceTimersByTimeAsync(13_999);
+      expect(afterTaskCompleted).toBe(false);
+      expect(activeProviderWork).toBe(1);
+
+      await vi.advanceTimersByTimeAsync(1);
+      await afterTask;
+      expect(afterTaskCompleted).toBe(true);
+      expect(providerCompleted).toBe(true);
+      expect(activeProviderWork).toBe(0);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      await vi.runOnlyPendingTimersAsync();
+      vi.useRealTimers();
+    }
+  });
+
+  it('treats an unexpected projection rejection as optional decoration', async () => {
+    getTank01WeeklyProjectionsMock.mockRejectedValueOnce(new Error('Tank01 rejected unexpectedly'));
+
+    const data = await getMatchups(3);
+
+    expect(getTank01WeeklyProjectionsMock).toHaveBeenCalledWith('2026', 3);
+    expect(data.matchups[0].sides[0].starters[0]).toMatchObject({ points: 12.34, projectedPoints: null });
+    expect(data.warning).toContain('Projected scores are temporarily unavailable.');
+  });
+
+  it('rejects a stale player-ID crosswalk when Tank01 team metadata does not match Sleeper', async () => {
+    const result = availableTank01Projection();
+    result.projections.bySleeperId.qb.team = 'SEA';
+    getTank01WeeklyProjectionsMock.mockResolvedValueOnce(result);
+
+    const data = await getMatchups(3);
+
+    expect(data.matchups[0].sides[0].starters[0].projectedPoints).toBeNull();
+    expect(data.matchups[0].sides[0].projectedPoints).toBeNull();
+    expect(data.warning).toContain('Tank01 did not provide complete statistics for every starter.');
+  });
+
+  it('does not request current projections for a historical matchup week', async () => {
+    const data = await getMatchups(1);
+
+    expect(getTank01WeeklyProjectionsMock).not.toHaveBeenCalled();
+    expect(data.matchups[0].sides[0]).toMatchObject({
+      projectedPoints: null,
+      starters: [{ points: 12.34, projectedPoints: null }],
+    });
   });
 });

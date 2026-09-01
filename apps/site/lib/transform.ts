@@ -17,6 +17,7 @@ export interface SleeperLeague {
   total_rosters: number;
   roster_positions?: string[];
   settings?: Record<string, unknown>;
+  scoring_settings?: Record<string, unknown>;
 }
 
 export interface SleeperState {
@@ -246,7 +247,7 @@ export function playerFromId(
 ): Player {
   const id = rawId && rawId !== '0' ? String(rawId) : null;
   if (!id) {
-    return { id: `empty-${slot}-${emptyIndex}`, name: 'Empty slot', position: '—', nflTeam: null, injuryStatus: null, game: null, slot, points: null };
+    return { id: `empty-${slot}-${emptyIndex}`, name: 'Empty slot', position: '—', nflTeam: null, injuryStatus: null, game: null, slot, points: null, projectedPoints: null };
   }
   const player = catalog[id];
   const fullName = text(player?.full_name)
@@ -261,6 +262,7 @@ export function playerFromId(
     game: null,
     slot,
     points: numberOrNull(points),
+    projectedPoints: null,
   };
 }
 
@@ -358,6 +360,7 @@ export function normalizeMatchups(
     group.sides.push({
       team,
       points: numberOrNull(row.custom_points) ?? numberOrNull(row.points),
+      projectedPoints: null,
       starters: lineup(row.starters, league.rosterPositions, catalog, row.starters_points, row.players_points),
     });
     groups.set(id, group);

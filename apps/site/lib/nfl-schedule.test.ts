@@ -105,12 +105,12 @@ const team: Team = {
 };
 
 function player(id: string, nflTeam: string | null): Player {
-  return { id, name: id, position: 'RB', nflTeam, injuryStatus: null, game: null, slot: 'RB', points: null };
+  return { id, name: id, position: 'RB', nflTeam, injuryStatus: null, game: null, slot: 'RB', points: null, projectedPoints: null };
 }
 
 describe('matchup schedule decoration', () => {
   const matchup: Matchup = {
-    id: '1', status: 'upcoming', sides: [{ team, points: null, starters: [
+    id: '1', status: 'upcoming', sides: [{ team, points: null, projectedPoints: null, starters: [
       player('scheduled', 'LAC'), player('bye', 'KC'), player('free-agent', null),
     ] }],
   };
