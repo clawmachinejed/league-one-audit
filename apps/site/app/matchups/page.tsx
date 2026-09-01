@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { MatchupsView } from '@/components/league-ui';
+import { MatchupsView } from '@/components/matchups-view';
 import { getMatchups } from '@/lib/sleeper';
 export const metadata: Metadata = { title: 'Matchups' };
 export const dynamic = 'force-dynamic';

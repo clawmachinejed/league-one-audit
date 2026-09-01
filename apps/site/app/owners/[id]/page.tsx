@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
-import { OwnerView } from '@/components/league-ui';
+import { OwnerView } from '@/components/owner-view';
 import { getOwner } from '@/lib/sleeper';
 export const metadata: Metadata = { title: 'Team roster' };
 export const dynamic = 'force-dynamic';

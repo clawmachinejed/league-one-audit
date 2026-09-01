@@ -13,10 +13,10 @@ export interface SleeperLeague {
   league_id: string;
   name: string;
   season: string;
-  status: string;
+  status: 'pre_draft' | 'drafting' | 'in_season' | 'complete';
+  total_rosters: number;
   roster_positions?: string[];
   settings?: Record<string, unknown>;
-  scoring_settings?: Record<string, unknown>;
 }
 
 export interface SleeperState {
@@ -60,7 +60,7 @@ export type PlayerCatalog = Record<string, SleeperPlayer>;
 
 export interface SleeperMatchup {
   roster_id: number;
-  matchup_id?: number | string | null;
+  matchup_id: number | null;
   starters?: string[] | null;
   starters_points?: Array<number | null> | null;
   players_points?: Record<string, number | null> | null;
@@ -69,17 +69,17 @@ export interface SleeperMatchup {
 }
 
 export interface DraftPickMove {
-  season?: string;
-  round?: number;
-  roster_id?: number;
-  previous_owner_id?: number;
-  owner_id?: number;
+  season: string;
+  round: number;
+  roster_id: number;
+  previous_owner_id: number;
+  owner_id: number;
 }
 
 export interface WaiverBudgetMove {
-  sender?: number;
-  receiver?: number;
-  amount?: number;
+  sender: number;
+  receiver: number;
+  amount: number;
 }
 
 export interface SleeperTransaction {
@@ -116,16 +116,43 @@ function weekWithinSeason(value: unknown, fallback = 1): number {
   return parsed === null ? fallback : Math.max(1, Math.min(18, Math.floor(parsed)));
 }
 
+function lastLeagueWeek(league: SleeperLeague, sameSeasonState: SleeperState | null): number {
+  for (const candidate of [
+    league.settings?.last_scored_leg,
+    league.settings?.leg,
+    sameSeasonState?.display_week,
+    sameSeasonState?.leg,
+    sameSeasonState?.week,
+  ]) {
+    const parsed = numberOrNull(candidate);
+    if (parsed !== null && parsed >= 1) return weekWithinSeason(parsed);
+  }
+  return 1;
+}
+
 export function currentWeek(league: SleeperLeague, state: SleeperState | null): number {
   const leagueYear = numberOrNull(league.season);
   const stateYear = numberOrNull(state?.season);
-  if (league.status === 'complete' || (leagueYear !== null && stateYear !== null && leagueYear < stateYear)) {
-    return 18;
-  }
+  if (league.status === 'complete') return lastLeagueWeek(league, null);
+  if (leagueYear !== null && stateYear !== null && leagueYear < stateYear) return lastLeagueWeek(league, null);
   if (leagueYear !== null && stateYear !== null && leagueYear > stateYear) return 1;
-  if (state?.season_type === 'post') return 18;
+  if (state?.season_type === 'post') return lastLeagueWeek(league, state);
   if (state?.season_type === 'pre') return 1;
   return weekWithinSeason(state?.display_week ?? state?.leg ?? state?.week ?? league.settings?.leg);
+}
+
+/** Current player-team metadata is safe only for this season's active or future weeks. */
+export function canDecorateMatchupWeek(
+  league: SleeperLeague,
+  state: SleeperState | null,
+  week: number,
+): boolean {
+  if (!state || league.status === 'complete' || league.season !== state.season
+    || !Number.isInteger(week) || week < 1 || week > 18) return false;
+  if (state.season_type === 'pre') return true;
+  if (state.season_type !== 'regular') return false;
+  const scoringWeek = weekWithinSeason(state.leg ?? state.week ?? state.display_week ?? league.settings?.leg);
+  return week >= scoringWeek;
 }
 
 export function transactionEndWeek(league: SleeperLeague, state: SleeperState | null): number {
@@ -139,23 +166,12 @@ export function transactionEndWeek(league: SleeperLeague, state: SleeperState | 
 }
 
 export function normalizeLeague(raw: SleeperLeague, state: SleeperState | null): League {
-  const receptionPoints = numberOrNull(raw.scoring_settings?.rec);
-  const scoringLabel = receptionPoints === 0.5 ? 'Half PPR'
-    : receptionPoints === 1 ? 'PPR'
-    : receptionPoints === 0 ? 'Standard'
-    : receptionPoints === null ? 'League scoring'
-    : `${receptionPoints} PPR`;
   return {
-    id: raw.league_id,
-    name: text(raw.name) ?? 'League One',
     season: raw.season,
-    status: raw.status,
     rosterPositions: Array.isArray(raw.roster_positions) ? raw.roster_positions : [],
     week: currentWeek(raw, state),
     // The current league's playoff_week_start is 0. That is not a real last week.
     maxWeek: 18,
-    faabBudget: Math.max(0, numberOrNull(raw.settings?.waiver_budget) ?? 0),
-    scoringLabel,
   };
 }
 
@@ -183,17 +199,14 @@ export function seasonPoints(whole: unknown, decimal: unknown): number {
 export function normalizeTeams(
   rosters: SleeperRoster[],
   users: SleeperUser[],
-  league: League,
 ): Team[] {
   const userById = new Map(users.map((user) => [user.user_id, user]));
   return rosters.map((roster): Team => {
     const user = roster.owner_id ? userById.get(roster.owner_id) : undefined;
     const settings = roster.settings ?? {};
-    const budgetUsed = numberOrNull(settings.waiver_budget_used);
     const ownerName = text(user?.display_name) ?? text(user?.username) ?? 'Unassigned owner';
     return {
       id: roster.roster_id,
-      ownerId: roster.owner_id ?? null,
       ownerName,
       name: text(user?.metadata?.team_name) ?? text(roster.metadata?.team_name)
         ?? text(user?.display_name) ?? `Team ${roster.roster_id}`,
@@ -203,8 +216,8 @@ export function normalizeTeams(
       losses: numberOrNull(settings.losses) ?? 0,
       ties: numberOrNull(settings.ties) ?? 0,
       pointsFor: seasonPoints(settings.fpts, settings.fpts_decimal),
-      pointsAgainst: seasonPoints(settings.fpts_against, settings.fpts_against_decimal),
-      faabRemaining: budgetUsed === null ? null : Math.max(0, league.faabBudget - budgetUsed),
+      pointsAgainst: numberOrNull(settings.fpts_against) === null
+        ? null : seasonPoints(settings.fpts_against, settings.fpts_against_decimal),
     };
   }).sort(compareTeams);
 }
@@ -214,7 +227,10 @@ export function compareTeams(a: Team, b: Team): number {
   const gamesB = b.wins + b.losses + b.ties;
   const rateA = gamesA ? (a.wins + a.ties * 0.5) / gamesA : 0;
   const rateB = gamesB ? (b.wins + b.ties * 0.5) / gamesB : 0;
-  return rateB - rateA || b.pointsFor - a.pointsFor || a.name.localeCompare(b.name) || a.id - b.id;
+  const pointsAgainstDifference = a.pointsAgainst === null && b.pointsAgainst === null
+    ? 0 : (b.pointsAgainst ?? Number.NEGATIVE_INFINITY) - (a.pointsAgainst ?? Number.NEGATIVE_INFINITY);
+  return rateB - rateA || b.pointsFor - a.pointsFor || pointsAgainstDifference
+    || a.name.localeCompare(b.name) || a.id - b.id;
 }
 
 export function startingSlots(positions: string[]): string[] {
@@ -300,6 +316,26 @@ export function matchupStatus(
   if (week > scoringWeek) return 'upcoming';
   // A scoring week alone does not establish that an NFL game is live right now.
   return 'unknown';
+}
+
+export function matchupSlateExpected(
+  league: SleeperLeague,
+  state: SleeperState | null,
+  week: number,
+  now = Date.now(),
+): boolean {
+  if (!['in_season', 'complete'].includes(league.status)
+    || matchupStatus(league, state, week, now) === 'upcoming') return false;
+  const leagueYear = numberOrNull(league.season);
+  const stateYear = numberOrNull(state?.season);
+  const useLeagueHorizon = league.status === 'complete' || !state
+    || (leagueYear !== null && stateYear !== null && leagueYear !== stateYear);
+  const horizon = useLeagueHorizon
+    ? lastLeagueWeek(league, null)
+    : state?.season_type === 'regular'
+      ? weekWithinSeason(state.leg ?? state.week ?? league.settings?.leg)
+      : lastLeagueWeek(league, state);
+  return week <= horizon;
 }
 
 export function normalizeMatchups(

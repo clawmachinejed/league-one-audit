@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  canDecorateMatchupWeek,
   currentWeek,
   involvesRoster,
   lineup,
+  matchupSlateExpected,
   matchupStatus,
   normalizeLeague,
   normalizeMatchups,
@@ -25,9 +27,9 @@ const rawLeague: SleeperLeague = {
   name: 'League One',
   season: '2026',
   status: 'in_season',
+  total_rosters: 3,
   roster_positions: ['QB', 'RB', 'FLEX', 'FLEX', 'DEF', 'BN'],
   settings: { waiver_budget: 100, playoff_week_start: 0, leg: 1 },
-  scoring_settings: { rec: 0.5 },
 };
 const state = { season: '2026', season_type: 'regular', leg: 1, display_week: 1, season_start_date: '2026-09-09' };
 const league = normalizeLeague(rawLeague, state);
@@ -39,7 +41,7 @@ const teams = normalizeTeams([
   { user_id: 'owner-1', display_name: 'Alex', metadata: { team_name: 'The Owls' } },
   { user_id: 'owner-2', display_name: 'Sam', metadata: { team_name: 'The Bears' } },
   { user_id: 'owner-3', display_name: 'Jo', metadata: { team_name: 'The Foxes' } },
-], league);
+]);
 const catalog = {
   qb: { full_name: 'Quarter Back', position: 'QB', team: 'IND' },
   rb: { full_name: 'Running Back', position: 'RB', team: 'SEA' },
@@ -53,16 +55,32 @@ const transaction = (overrides: Partial<SleeperTransaction> = {}): SleeperTransa
 });
 
 describe('league timing and configuration', () => {
-  it('reads scoring, FAAB and slots without interpreting playoff week zero as a range', () => {
-    expect(league).toMatchObject({ id: rawLeague.league_id, scoringLabel: 'Half PPR', faabBudget: 100, maxWeek: 18 });
+  it('keeps only the league fields used by the site and does not treat playoff week zero as a range', () => {
+    expect(league).toEqual({ season: '2026', rosterPositions: rawLeague.roster_positions, week: 1, maxWeek: 18 });
     expect(league.rosterPositions).toEqual(rawLeague.roster_positions);
   });
 
-  it('chooses the right season when the global NFL state moves on', () => {
-    expect(currentWeek(rawLeague, { season: '2027', week: 4 })).toBe(18);
+  it('uses the league last-scored week after completion or when the NFL state moves on', () => {
+    const finishedLeague: SleeperLeague = {
+      ...rawLeague,
+      status: 'complete',
+      settings: { leg: 18, last_scored_leg: 17 },
+    };
+    expect(currentWeek(finishedLeague, { season: '2026', season_type: 'post', week: 18 })).toBe(17);
+    expect(currentWeek(finishedLeague, { season: '2027', week: 4 })).toBe(17);
+    expect(currentWeek({ ...finishedLeague, settings: {} }, { season: '2026', season_type: 'post', week: 18 })).toBe(1);
     expect(currentWeek(rawLeague, { season: '2025', week: 17 })).toBe(1);
-    expect(currentWeek(rawLeague, { ...state, season_type: 'post', week: 2 })).toBe(18);
+    expect(currentWeek({ ...rawLeague, settings: { leg: 16 } }, { ...state, season_type: 'post', week: 18 })).toBe(16);
     expect(currentWeek(rawLeague, { ...state, season_type: 'pre', week: 3 })).toBe(1);
+  });
+
+  it('decorates only active and future matchups with current player-team metadata', () => {
+    expect(canDecorateMatchupWeek(rawLeague, { ...state, leg: 3, display_week: 4 }, 2)).toBe(false);
+    expect(canDecorateMatchupWeek(rawLeague, { ...state, leg: 3, display_week: 4 }, 3)).toBe(true);
+    expect(canDecorateMatchupWeek({ ...rawLeague, status: 'complete' }, state, 18)).toBe(false);
+    expect(canDecorateMatchupWeek(rawLeague, { ...state, season: '2027' }, 18)).toBe(false);
+    expect(canDecorateMatchupWeek(rawLeague, { ...state, season_type: 'post' }, 18)).toBe(false);
+    expect(canDecorateMatchupWeek(rawLeague, { ...state, season_type: 'pre' }, 1)).toBe(true);
   });
 
   it('keeps displayed weeks in the NFL range', () => {
@@ -89,6 +107,17 @@ describe('league timing and configuration', () => {
     expect(matchupStatus(rawLeague, week, 4, now)).toBe('upcoming');
     expect(matchupStatus(rawLeague, null, 1, now)).toBe('unknown');
   });
+
+  it('expects matchup rows only through the scoring horizon', () => {
+    const now = Date.parse('2026-09-27T18:00:00Z');
+    const activeState = { ...state, leg: 3, week: 3, display_week: 4 };
+    expect(matchupSlateExpected(rawLeague, activeState, 3, now)).toBe(true);
+    expect(matchupSlateExpected(rawLeague, activeState, 4, now)).toBe(false);
+    expect(matchupSlateExpected({ ...rawLeague, status: 'pre_draft' }, { ...state, season_type: 'pre' }, 1, now)).toBe(false);
+    expect(matchupSlateExpected({ ...rawLeague, settings: { leg: 3 } }, null, 3, now)).toBe(true);
+    expect(matchupSlateExpected({ ...rawLeague, status: 'complete', settings: { leg: 18, last_scored_leg: 17 } }, null, 17, now)).toBe(true);
+    expect(matchupSlateExpected({ ...rawLeague, status: 'complete', settings: { leg: 18, last_scored_leg: 17 } }, null, 18, now)).toBe(false);
+  });
 });
 
 describe('standings, avatars and scores', () => {
@@ -101,20 +130,20 @@ describe('standings, avatars and scores', () => {
     expect(numberOrNull('0')).toBe(0);
   });
 
-  it('uses ties in win percentage and points as the tie break', () => {
+  it('uses record, points for, then higher points against as Sleeper standings tiebreakers', () => {
     const rows = normalizeTeams([
-      { roster_id: 1, settings: { wins: 2, losses: 1, ties: 1, fpts: 50, fpts_decimal: 2 } },
+      { roster_id: 1, settings: { wins: 2, losses: 1, ties: 1, fpts: 50, fpts_decimal: 2, fpts_against: 700 } },
       { roster_id: 2, settings: { wins: 2, losses: 2, ties: 0, fpts: 1000 } },
-      { roster_id: 3, settings: { wins: 2, losses: 1, ties: 1, fpts: 50, fpts_decimal: 3 } },
-    ], [], league);
-    expect(rows.map((row) => row.id)).toEqual([3, 1, 2]);
+      { roster_id: 3, settings: { wins: 2, losses: 1, ties: 1, fpts: 50, fpts_decimal: 2, fpts_against: 800 } },
+      { roster_id: 4, settings: { wins: 2, losses: 1, ties: 1, fpts: 50, fpts_decimal: 3, fpts_against: 100 } },
+    ], []);
+    expect(rows.map((row) => row.id)).toEqual([4, 3, 1, 2]);
   });
 
-  it('resolves team names and keeps an unavailable budget distinct from an exhausted one', () => {
-    expect(teams[0]).toMatchObject({ name: 'The Owls', ownerName: 'Alex', pointsFor: 310.42, faabRemaining: null });
-    const rows = normalizeTeams([{ roster_id: 4, settings: { waiver_budget_used: 100 } }], [], league);
-    expect(rows[0].faabRemaining).toBe(0);
-    expect(rows[0].ownerId).toBeNull();
+  it('resolves team and owner names without carrying unused upstream ownership fields', () => {
+    expect(teams[0]).toMatchObject({ name: 'The Owls', ownerName: 'Alex', pointsFor: 310.42 });
+    expect(teams[0]).not.toHaveProperty('ownerId');
+    expect(teams[0]).not.toHaveProperty('faabRemaining');
   });
 
   it('accepts Sleeper hashes and HTTPS avatars but rejects active and insecure URLs', () => {
@@ -194,7 +223,7 @@ describe('transaction completeness and outcome', () => {
   });
 
   it('includes trades represented only by draft pick or FAAB transfers', () => {
-    const pickTrade = transaction({ roster_ids: [], draft_picks: [{ previous_owner_id: 1, owner_id: 2, roster_id: 3 }] });
+    const pickTrade = transaction({ roster_ids: [], draft_picks: [{ season: '2027', round: 2, previous_owner_id: 1, owner_id: 2, roster_id: 3 }] });
     const budgetTrade = transaction({ roster_ids: null, waiver_budget: [{ sender: 1, receiver: 2, amount: 20 }] });
     expect(involvesRoster(pickTrade, 1)).toBe(true);
     expect(involvesRoster(pickTrade, 2)).toBe(true);

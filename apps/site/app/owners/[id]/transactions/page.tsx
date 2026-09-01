@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
-import { TransactionsView } from '@/components/league-ui';
+import { TransactionsView } from '@/components/transactions-view';
 import { getTransactions } from '@/lib/sleeper';
 export const metadata: Metadata = { title: 'Transactions' };
 export const dynamic = 'force-dynamic';

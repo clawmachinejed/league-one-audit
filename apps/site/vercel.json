@@ -5,8 +5,5 @@
     "env": {
       "ENABLE_EXPERIMENTAL_COREPACK": "1"
     }
-  },
-  "env": {
-    "SLEEPER_LEAGUE_ID": "1378850182409490432"
   }
 }

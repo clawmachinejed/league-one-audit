@@ -10,7 +10,7 @@ import styles from './matchups.module.css';
 
 type AvatarRenderer = (team: Team) => ReactNode;
 
-export function matchupStatus(status: Matchup['status']) {
+function statusLabel(status: Matchup['status']) {
   return { upcoming: 'Upcoming', live: 'In progress', final: 'Final', unknown: 'Week matchups' }[status];
 }
 
@@ -20,6 +20,14 @@ function points(value: number | null | undefined) {
 
 function record(team: Team) {
   return `${team.wins}–${team.losses}${team.ties ? `–${team.ties}` : ''}`;
+}
+
+function spokenRecord(team: Team) {
+  return `${team.wins} wins, ${team.losses} losses${team.ties ? `, ${team.ties} ties` : ''}`;
+}
+
+function spokenScore(value: number | null | undefined) {
+  return typeof value === 'number' && Number.isFinite(value) ? `${points(value)} points` : 'score unavailable';
 }
 
 function TeamMeta({ team, opposite, avatar }: { team: Team; opposite?: boolean; avatar: AvatarRenderer }) {
@@ -51,7 +59,7 @@ function Starter({ player, opposite, high, pending }: { player?: Player; opposit
   </div>;
 }
 
-function MatchupCard({ matchup, selected, avatar, showStatus }: { matchup: Matchup; selected: number | null; avatar: AvatarRenderer; showStatus: boolean }) {
+function MatchupCard({ matchup, selected, avatar }: { matchup: Matchup; selected: number | null; avatar: AvatarRenderer }) {
   const [expanded, setExpanded] = useState(false);
   const panelId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
@@ -98,9 +106,14 @@ function MatchupCard({ matchup, selected, avatar, showStatus }: { matchup: Match
   }, [expanded, matchup]);
 
   if (!left) return null;
-  const label = right ? matchupStatus(matchup.status) : 'Opponent pending';
+  const label = right ? statusLabel(matchup.status) : 'Opponent pending';
+  const leftSummary = `${left.team.name}, owned by ${left.team.ownerName}, record ${spokenRecord(left.team)}, ${spokenScore(left.points)}`;
+  const rightSummary = right
+    ? `${right.team.name}, owned by ${right.team.ownerName}, record ${spokenRecord(right.team)}, ${spokenScore(right.points)}`
+    : 'opponent not posted, score unavailable';
+  const accessibleLabel = `${leftSummary}; versus ${rightSummary}. ${label}${mine ? '. My matchup' : ''}. ${expanded ? 'Collapse' : 'Expand'} starting lineups.`;
   return <article className={`${styles.card} ${mine ? styles.myMatchup : ''}`} aria-label={`${left.team.name}${right ? ` versus ${right.team.name}` : ', opponent pending'}`}>
-    <button className={styles.toggle} type="button" aria-expanded={expanded} aria-controls={panelId} onClick={() => setExpanded(value => !value)} aria-label={`${expanded ? 'Collapse' : 'Expand'} starting lineups for ${left.team.name}${right ? ` versus ${right.team.name}` : ', opponent not posted'}`}>
+    <button className={styles.toggle} type="button" aria-expanded={expanded} aria-controls={panelId} onClick={() => setExpanded(value => !value)} aria-label={accessibleLabel}>
       <span className={styles.teamName} data-team-name>{left.team.name}</span>
       <span className={styles.scorePair} aria-label={`${points(left.points)} to ${points(right?.points)}`}>
         <span className={styles.score}><span data-score-number>{points(left.points)}</span></span>
@@ -110,7 +123,6 @@ function MatchupCard({ matchup, selected, avatar, showStatus }: { matchup: Match
       <span className={`${styles.teamName} ${styles.rightName}`} data-team-name>{right?.team.name || 'Opponent pending'}</span>
       <TeamMeta team={left.team} avatar={avatar} />
       <span className={styles.expandControl}>
-        {showStatus && <span className={styles.cardStatus}>{label}</span>}
         <svg className={`${styles.chevron} ${expanded ? styles.rotated : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
         <span className="sr-only">{label}{mine ? ' · My matchup' : ''}</span>
       </span>
@@ -130,7 +142,7 @@ function MatchupCard({ matchup, selected, avatar, showStatus }: { matchup: Match
         })}
         <p className={styles.lineupNote}>{matchup.status === 'upcoming' ? 'Lineups may change before kickoff.' : 'Scores reported by Sleeper.'}</p>
       </> : <p className={styles.unavailable}>Starting lineups have not been posted for this week.</p>}
-      <div className={styles.profileLinks}><Link href={`/owners/${left.team.id}`}>Team profile</Link>{right && <Link href={`/owners/${right.team.id}`}>Team profile</Link>}</div>
+      <div className={styles.profileLinks}><Link href={`/owners/${left.team.id}`} aria-label={`View ${left.team.name} profile`}>Team profile</Link>{right && <Link href={`/owners/${right.team.id}`} aria-label={`View ${right.team.name} profile`}>Team profile</Link>}</div>
     </div>
   </article>;
 }
@@ -160,6 +172,5 @@ export function MatchupBoard({ matchups, selected, avatar }: { matchups: Matchup
     void document.fonts.ready.then(align);
     return () => { active = false; observer.disconnect(); };
   }, [matchups]);
-  const showStatus = new Set(matchups.map(matchup => matchup.status)).size > 1;
-  return <div ref={boardRef} className={styles.board}>{matchups.map(matchup => <MatchupCard key={matchup.id} matchup={matchup} selected={selected} avatar={avatar} showStatus={showStatus} />)}</div>;
+  return <div ref={boardRef} className={styles.board}>{matchups.map(matchup => <MatchupCard key={matchup.id} matchup={matchup} selected={selected} avatar={avatar} />)}</div>;
 }
