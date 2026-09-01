@@ -11,7 +11,7 @@ import {
   type WeekSchedule,
 } from './nfl-schedule';
 import type { MatchupsData, OverviewData, OwnerData, TransactionsData } from './types';
-import { getTank01WeeklyProjections } from './tank01';
+import { getTank01WeeklyProjections, type Tank01ProjectionResult } from './tank01';
 import {
   canDecorateMatchupWeek,
   involvesRoster,
@@ -43,6 +43,9 @@ const SEASON_SCHEDULE_CACHE_SECONDS = 3_600;
 const PLAYER_CACHE_SECONDS = 86_400;
 // Back off briefly after a catalog failure so an upstream outage does not trigger a large retry on every page request.
 const PLAYER_FAILURE_CACHE_SECONDS = 300;
+// Projections are optional decoration. Give a concurrent cache/API lookup a short budget,
+// then render authoritative Sleeper data while the shared Tank01 cache continues to fill.
+const MATCHUP_PROJECTION_WAIT_MS = 1_000;
 // League One uses these player positions. Sleeper's documented position filters keep
 // each response small enough to load reliably in a serverless function.
 const PLAYER_POSITIONS = ['QB', 'RB', 'WR', 'TE', 'DEF'] as const;
@@ -391,6 +394,28 @@ export async function getOverview(): Promise<OverviewData> {
   return (await getCore()).overview;
 }
 
+async function getOptionalTank01Projections(season: string, week: number): Promise<Tank01ProjectionResult> {
+  const fallback: Tank01ProjectionResult = {
+    status: 'unavailable',
+    season,
+    week,
+    reason: 'provider-error',
+    message: 'Player projections are temporarily unavailable.',
+  };
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<Tank01ProjectionResult>((resolve) => {
+    timeout = setTimeout(() => resolve(fallback), MATCHUP_PROJECTION_WAIT_MS);
+  });
+  try {
+    // Keep a rejection handler attached even if the deadline wins. The underlying provider
+    // remains alive so a successful request can populate its shared cache for the next view.
+    const projection = getTank01WeeklyProjections(season, week).catch(() => fallback);
+    return await Promise.race([projection, deadline]);
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
+  }
+}
+
 export async function getMatchups(requestedWeek?: number): Promise<MatchupsData> {
   const core = await getCore();
   const week = requestedWeek === undefined ? core.overview.league.week
@@ -405,7 +430,7 @@ export async function getMatchups(requestedWeek?: number): Promise<MatchupsData>
       ? getWeekSchedule(core.overview.league.season, week)
       : Promise.resolve({ schedule: {} as WeekSchedule, canIdentifyByes: false, warning: undefined }),
     canDecorate
-      ? getTank01WeeklyProjections(core.overview.league.season, week)
+      ? getOptionalTank01Projections(core.overview.league.season, week)
       : Promise.resolve(null),
   ]);
   const slateExpected = matchupSlateExpected(core.sourceLeague, core.state, week);

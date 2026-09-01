@@ -611,6 +611,39 @@ describe('Sleeper matchup projection integration', () => {
     expect(data.warning).toContain('Projected scores are temporarily unavailable.');
   });
 
+  it('renders authoritative Sleeper matchup data after a one-second projection deadline', async () => {
+    vi.useFakeTimers();
+    try {
+      getTank01WeeklyProjectionsMock.mockImplementationOnce(() => new Promise((resolve) => {
+        setTimeout(() => resolve(availableTank01Projection()), 15_000);
+      }));
+
+      const page = getMatchups(3);
+      await vi.advanceTimersByTimeAsync(1_000);
+      const data = await page;
+
+      expect(getTank01WeeklyProjectionsMock).toHaveBeenCalledWith('2026', 3);
+      expect(data.matchups[0].sides[0]).toMatchObject({
+        points: null,
+        projectedPoints: null,
+        starters: [{ id: 'qb', points: 12.34, projectedPoints: null }],
+      });
+      expect(data.warning).toContain('Projected scores are temporarily unavailable.');
+      expect(vi.getTimerCount()).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('treats an unexpected projection rejection as optional decoration', async () => {
+    getTank01WeeklyProjectionsMock.mockRejectedValueOnce(new Error('Tank01 rejected unexpectedly'));
+
+    const data = await getMatchups(3);
+
+    expect(data.matchups[0].sides[0].starters[0]).toMatchObject({ points: 12.34, projectedPoints: null });
+    expect(data.warning).toContain('Projected scores are temporarily unavailable.');
+  });
+
   it('rejects a stale player-ID crosswalk when Tank01 team metadata does not match Sleeper', async () => {
     const result = availableTank01Projection();
     result.projections.bySleeperId.qb.team = 'SEA';
