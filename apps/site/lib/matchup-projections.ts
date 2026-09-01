@@ -52,38 +52,6 @@ function matchesSleeperPlayer(player: Player, projection: Tank01PlayerProjection
     && sleeperPosition !== null && tankPosition === sleeperPosition;
 }
 
-function limitationWarning(unsupportedKeys: Set<string>, usesPointsAllowedProxy: boolean): string | undefined {
-  const limitations: string[] = [];
-  if ([...unsupportedKeys].some((key) => key.endsWith('_td_40p'))) {
-    limitations.push('40+ yard touchdown bonuses');
-  }
-  if (unsupportedKeys.has('fum_rec') || unsupportedKeys.has('fum_rec_td')) {
-    limitations.push('player fumble-recovery scoring');
-  }
-  if (unsupportedKeys.has('def_3_and_out') || unsupportedKeys.has('def_4_and_stop')) {
-    limitations.push('defensive stops');
-  }
-  if (unsupportedKeys.has('def_2pt')) limitations.push('defensive two-point returns');
-  if (unsupportedKeys.has('st_td')) limitations.push('individual special-teams touchdowns');
-  if ([...unsupportedKeys].some((key) => key.startsWith('fgm_') || key.startsWith('bonus_fg'))) {
-    limitations.push('field-goal distance scoring');
-  }
-  const known = new Set([
-    'pass_td_40p', 'rush_td_40p', 'rec_td_40p', 'fum_rec', 'fum_rec_td',
-    'def_3_and_out', 'def_4_and_stop', 'def_2pt', 'st_td', 'fgm_yds_over_30',
-  ]);
-  if ([...unsupportedKeys].some((key) => !known.has(key))) limitations.push('other specialty scoring rules');
-
-  const parts: string[] = [];
-  if (limitations.length) {
-    parts.push(`Projected scores exclude ${limitations.join(', ')} because Tank01 does not project those events.`);
-  }
-  if (usesPointsAllowedProxy) {
-    parts.push("Defense points-allowed scoring uses Tank01's projection rounded to the nearest whole point.");
-  }
-  return parts.join(' ') || undefined;
-}
-
 export function addProjectedPoints(
   matchups: Matchup[],
   projections: PlayerProjectionPoints,
@@ -114,7 +82,9 @@ export function addProjectedPoints(
 /**
  * Scores only the real starters displayed in these matchups. Sleeper remains the
  * source of truth for lineups and official scores; Tank01 contributes stat
- * projections only. Partial projections never become a partial team total.
+ * projections only. When an available Tank01 slate lacks a usable projection
+ * for a starter, that starter contributes zero so every complete lineup still
+ * receives a team total. Provider outages remain unavailable.
  */
 export function addTank01ProjectedPoints(
   matchups: Matchup[],
@@ -142,9 +112,6 @@ export function addTank01ProjectedPoints(
   }
 
   const pointsByPlayer = Object.create(null) as Record<string, number>;
-  const unsupportedKeys = new Set<string>();
-  let usesPointsAllowedProxy = false;
-  let incompleteStarters = 0;
   let invalidScoringSettings = false;
   const starterCounts = new Map<string, number>();
   starters.forEach((player) => starterCounts.set(player.id, (starterCounts.get(player.id) ?? 0) + 1));
@@ -153,7 +120,6 @@ export function addTank01ProjectedPoints(
     if (processedIds.has(player.id)) continue;
     processedIds.add(player.id);
     if ((starterCounts.get(player.id) ?? 0) > 1) {
-      incompleteStarters += 1;
       continue;
     }
     const team = defenseTeam(player);
@@ -161,17 +127,16 @@ export function addTank01ProjectedPoints(
     const playerProjection = team ? undefined : result.projections.bySleeperId[player.id];
     if ((!team && (!playerProjection || !matchesSleeperPlayer(player, playerProjection)))
       || (team && !defenseProjection)) {
-      incompleteStarters += 1;
+      pointsByPlayer[player.id] = 0;
       continue;
     }
     const projection = defenseProjection ?? playerProjection!;
     const score = scoreTank01Projection(projection.scoringProjection, scoringSettings);
-    score.unsupportedScoringKeys.forEach((key) => unsupportedKeys.add(key));
-    usesPointsAllowedProxy ||= score.pointsAllowedProxy !== null;
     if (!score.available || !isProjection(score.points)) {
-      invalidScoringSettings ||= score.invalidScoringKeys.length > 0;
-      if (score.invalidScoringKeys.length === 0 || score.missingStats.length > 0 || score.invalidStats.length > 0) {
-        incompleteStarters += 1;
+      if (score.invalidScoringKeys.length > 0) {
+        invalidScoringSettings = true;
+      } else {
+        pointsByPlayer[player.id] = 0;
       }
       continue;
     }
@@ -180,14 +145,8 @@ export function addTank01ProjectedPoints(
 
   return {
     matchups: addProjectedPoints(matchups, pointsByPlayer),
-    warning: [
-      invalidScoringSettings
-        ? 'Some projected scores are unavailable because Sleeper league scoring settings were invalid.'
-        : undefined,
-      incompleteStarters > 0
-        ? 'Some projected scores are unavailable because Tank01 did not provide complete statistics for every starter.'
-        : undefined,
-      limitationWarning(unsupportedKeys, usesPointsAllowedProxy),
-    ].filter(Boolean).join(' ') || undefined,
+    warning: invalidScoringSettings
+      ? 'Some projected scores are unavailable because Sleeper league scoring settings were invalid.'
+      : undefined,
   };
 }

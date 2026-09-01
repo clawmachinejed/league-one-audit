@@ -17,6 +17,7 @@ vi.mock('./config', () => ({ LEAGUE_ID: '1378850182409490432' }));
 vi.mock('./tank01', () => ({ getTank01WeeklyProjections: getTank01WeeklyProjectionsMock }));
 
 import { getMatchups, getOverview, getOwner, getTransactions } from './sleeper';
+import type { NormalizedTank01OffenseProjection } from './projection-scoring';
 
 const leaguePath = '/league/1378850182409490432';
 let failures: Set<string>;
@@ -79,8 +80,8 @@ const leagueOneScoringSettings = {
   pts_allow_7_13: 4,
 };
 
-const zeroOffenseProjection = {
-  kind: 'offense' as const,
+const zeroOffenseProjection: NormalizedTank01OffenseProjection = {
+  kind: 'offense',
   passingYards: 0,
   passingTouchdowns: 0,
   passingInterceptions: 0,
@@ -565,7 +566,7 @@ describe('Sleeper matchup projection integration', () => {
     expect(data.matchups[0].sides[0].projectedPoints).toBe(0);
   });
 
-  it('keeps the team projection unavailable when one real starter has no projection', async () => {
+  it('uses zero for a starter missing from an available Tank01 slate and completes the team total', async () => {
     rawRosters = [{
       roster_id: 1,
       owner_id: 'member-1',
@@ -580,16 +581,60 @@ describe('Sleeper matchup projection integration', () => {
       qb: { full_name: 'Quarter Back', position: 'QB', team: 'IND' },
       rb: { full_name: 'Running Back', position: 'RB', team: 'IND' },
     };
-    getTank01WeeklyProjectionsMock.mockResolvedValueOnce(availableTank01Projection(['qb']));
+    const result = availableTank01Projection(['qb']);
+    result.projections.bySleeperId.qb.scoringProjection = {
+      ...zeroOffenseProjection,
+      passingYards: 100,
+    };
+    getTank01WeeklyProjectionsMock.mockResolvedValueOnce(result);
 
     const data = await getMatchups(3);
     const side = data.matchups[0].sides[0];
 
     expect(side.starters.map((player) => [player.id, player.projectedPoints])).toEqual([
-      ['qb', 0],
-      ['rb', null],
+      ['qb', 4],
+      ['rb', 0],
     ]);
-    expect(side.projectedPoints).toBeNull();
+    expect(side.projectedPoints).toBe(4);
+    expect(data.warning).toBeUndefined();
+  });
+
+  it('uses zero when Tank01 supplies incomplete projected statistics for a starter', async () => {
+    const result = availableTank01Projection();
+    result.projections.bySleeperId.qb.scoringProjection = {
+      ...zeroOffenseProjection,
+      passingYards: null,
+    };
+    getTank01WeeklyProjectionsMock.mockResolvedValueOnce(result);
+
+    const data = await getMatchups(3);
+
+    expect(data.matchups[0].sides[0].starters[0].projectedPoints).toBe(0);
+    expect(data.matchups[0].sides[0].projectedPoints).toBe(0);
+    expect(data.warning).toBeUndefined();
+  });
+
+  it('uses zero when an available Tank01 slate has no defense projection', async () => {
+    rawRosters = [{
+      roster_id: 1,
+      owner_id: 'member-1',
+      players: ['IND'],
+      starters: ['IND'],
+      settings: { ...rosterSettings },
+    }];
+    rawMatchups = [{
+      roster_id: 1, matchup_id: null, points: 6, starters: ['IND'], starters_points: [6],
+    }];
+    playerCatalog = {
+      IND: { full_name: 'Indianapolis Colts', position: 'DEF', team: 'IND' },
+    };
+    getTank01WeeklyProjectionsMock.mockResolvedValueOnce(availableTank01Projection([]));
+
+    const data = await getMatchups(3);
+
+    expect(data.matchups[0].sides[0].starters[0].projectedPoints).toBe(0);
+    expect(data.matchups[0].sides[0].projectedPoints).toBe(0);
+    expect(data.warning).toBeUndefined();
   });
 
   it('preserves official matchup data and warns when the projection provider fails', async () => {
@@ -682,16 +727,16 @@ describe('Sleeper matchup projection integration', () => {
     expect(data.warning).toContain('Projected scores are temporarily unavailable.');
   });
 
-  it('rejects a stale player-ID crosswalk when Tank01 team metadata does not match Sleeper', async () => {
+  it('uses zero when a stale player-ID crosswalk does not match Sleeper', async () => {
     const result = availableTank01Projection();
     result.projections.bySleeperId.qb.team = 'SEA';
     getTank01WeeklyProjectionsMock.mockResolvedValueOnce(result);
 
     const data = await getMatchups(3);
 
-    expect(data.matchups[0].sides[0].starters[0].projectedPoints).toBeNull();
-    expect(data.matchups[0].sides[0].projectedPoints).toBeNull();
-    expect(data.warning).toContain('Tank01 did not provide complete statistics for every starter.');
+    expect(data.matchups[0].sides[0].starters[0].projectedPoints).toBe(0);
+    expect(data.matchups[0].sides[0].projectedPoints).toBe(0);
+    expect(data.warning).toBeUndefined();
   });
 
   it('does not request current projections for a historical matchup week', async () => {
