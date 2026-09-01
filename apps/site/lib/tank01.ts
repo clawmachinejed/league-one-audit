@@ -624,6 +624,16 @@ async function fetchEnvelope(request: typeof fetch, path: string, apiKey: string
   }
 }
 
+async function waitForBoth<First, Second>(
+  first: Promise<First>,
+  second: Promise<Second>,
+): Promise<[First, Second]> {
+  const [firstResult, secondResult] = await Promise.allSettled([first, second]);
+  if (firstResult.status === 'rejected') throw firstResult.reason;
+  if (secondResult.status === 'rejected') throw secondResult.reason;
+  return [firstResult.value, secondResult.value];
+}
+
 function projectionPath(season: string, week: number, nowMs = Date.now()): string {
   const query = new URLSearchParams({ week: String(week), itemFormat: 'map' });
   // Tank01's archiveSeason switch is for older slates. Supplying the current
@@ -717,10 +727,10 @@ export function createTank01ProjectionProvider(options: Tank01ProviderOptions = 
     failureCache.delete(cacheKey);
 
     try {
-      const [slate, crosswalk] = await Promise.all([
+      const [slate, crosswalk] = await waitForBoth(
         projectionsFor(season, week, apiKey),
         playerCrosswalk(apiKey),
-      ]);
+      );
       return joinSlate(season, week, slate, crosswalk);
     } catch (error) {
       const reason = error instanceof Tank01ProviderFailure ? error.reason : 'provider-error';
@@ -776,10 +786,10 @@ export async function getTank01WeeklyProjections(season: string, week: number): 
   sharedFailureCache.delete(cacheKey);
 
   try {
-    const [slate, crosswalk] = await Promise.all([
+    const [slate, crosswalk] = await waitForBoth(
       sharedProjectionSlate(season, week),
       sharedPlayerCrosswalk(),
-    ]);
+    );
     return joinSlate(
       season,
       week,

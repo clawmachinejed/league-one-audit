@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const nextCacheOptions = vi.hoisted(() => [] as Array<{ revalidate?: number }>);
 const getTank01WeeklyProjectionsMock = vi.hoisted(() => vi.fn());
+const afterMock = vi.hoisted(() => vi.fn());
 
 vi.mock('server-only', () => ({}));
 vi.mock('react', () => ({ cache: <T,>(fn: T) => fn }));
@@ -11,6 +12,7 @@ vi.mock('next/cache', () => ({
     return fn;
   },
 }));
+vi.mock('next/server', () => ({ after: afterMock }));
 vi.mock('./config', () => ({ LEAGUE_ID: '1378850182409490432' }));
 vi.mock('./tank01', () => ({ getTank01WeeklyProjections: getTank01WeeklyProjectionsMock }));
 
@@ -200,6 +202,7 @@ beforeEach(() => {
   playerCatalog = undefined;
   getTank01WeeklyProjectionsMock.mockReset();
   getTank01WeeklyProjectionsMock.mockResolvedValue(availableTank01Projection());
+  afterMock.mockReset();
   vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
     const path = requestPath(input);
     const transactionRequest = path.includes('/transactions/');
@@ -611,26 +614,60 @@ describe('Sleeper matchup projection integration', () => {
     expect(data.warning).toContain('Projected scores are temporarily unavailable.');
   });
 
-  it('renders authoritative Sleeper matchup data after a one-second projection deadline', async () => {
+  it('returns at one second and retains the original projection work with Next after', async () => {
     vi.useFakeTimers();
+    let activeProviderWork = 0;
+    let providerCompleted = false;
+    getTank01WeeklyProjectionsMock.mockImplementationOnce(() => {
+      activeProviderWork += 1;
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          activeProviderWork -= 1;
+          providerCompleted = true;
+          resolve(availableTank01Projection());
+        }, 15_000);
+      });
+    });
+
     try {
-      getTank01WeeklyProjectionsMock.mockImplementationOnce(() => new Promise((resolve) => {
-        setTimeout(() => resolve(availableTank01Projection()), 15_000);
-      }));
-
+      let pageResolved = false;
       const page = getMatchups(3);
-      await vi.advanceTimersByTimeAsync(1_000);
-      const data = await page;
-
+      void page.then(() => { pageResolved = true; });
+      await vi.advanceTimersByTimeAsync(0);
       expect(getTank01WeeklyProjectionsMock).toHaveBeenCalledWith('2026', 3);
+
+      await vi.advanceTimersByTimeAsync(999);
+      expect(pageResolved).toBe(false);
+      expect(afterMock).not.toHaveBeenCalled();
+      expect(activeProviderWork).toBe(1);
+
+      await vi.advanceTimersByTimeAsync(1);
+      const data = await page;
       expect(data.matchups[0].sides[0]).toMatchObject({
-        points: null,
         projectedPoints: null,
-        starters: [{ id: 'qb', points: 12.34, projectedPoints: null }],
+        starters: [{ points: 12.34, projectedPoints: null }],
       });
       expect(data.warning).toContain('Projected scores are temporarily unavailable.');
-      expect(vi.getTimerCount()).toBe(1);
+      expect(afterMock).toHaveBeenCalledTimes(1);
+      expect(activeProviderWork).toBe(1);
+
+      const afterCallback = afterMock.mock.calls[0]?.[0] as () => Promise<unknown>;
+      expect(afterCallback).toEqual(expect.any(Function));
+      const afterTask = afterCallback();
+      let afterTaskCompleted = false;
+      void afterTask.then(() => { afterTaskCompleted = true; });
+      await vi.advanceTimersByTimeAsync(13_999);
+      expect(afterTaskCompleted).toBe(false);
+      expect(activeProviderWork).toBe(1);
+
+      await vi.advanceTimersByTimeAsync(1);
+      await afterTask;
+      expect(afterTaskCompleted).toBe(true);
+      expect(providerCompleted).toBe(true);
+      expect(activeProviderWork).toBe(0);
+      expect(vi.getTimerCount()).toBe(0);
     } finally {
+      await vi.runOnlyPendingTimersAsync();
       vi.useRealTimers();
     }
   });
@@ -640,6 +677,7 @@ describe('Sleeper matchup projection integration', () => {
 
     const data = await getMatchups(3);
 
+    expect(getTank01WeeklyProjectionsMock).toHaveBeenCalledWith('2026', 3);
     expect(data.matchups[0].sides[0].starters[0]).toMatchObject({ points: 12.34, projectedPoints: null });
     expect(data.warning).toContain('Projected scores are temporarily unavailable.');
   });

@@ -464,6 +464,63 @@ describe('Tank01 weekly projection provider', () => {
     expect(projectionRegistration?.loads).toBe(loadsBefore + 2);
   });
 
+  it('waits for sibling HTTP work to abort at the fifteen-second provider deadline', async () => {
+    vi.useFakeTimers();
+    const clock = Date.parse('2026-09-01T12:00:00Z');
+    let activeRequests = 0;
+    const timeout = vi.spyOn(AbortSignal, 'timeout').mockImplementation((milliseconds) => {
+      expect(milliseconds).toBe(15_000);
+      const controller = new AbortController();
+      setTimeout(() => controller.abort(new DOMException('Tank01 request timed out', 'TimeoutError')), milliseconds);
+      return controller.signal;
+    });
+    const fetch = vi.fn((input: string | URL | Request, init?: RequestInit) => {
+      if (String(input).includes('/getNFLProjections')) {
+        return Promise.reject(new Error('Projection endpoint failed immediately'));
+      }
+      activeRequests += 1;
+      return new Promise<Response>((_resolve, reject) => {
+        const signal = init?.signal;
+        const abort = () => {
+          activeRequests -= 1;
+          reject(signal?.reason ?? new Error('Request aborted'));
+        };
+        if (!signal || signal.aborted) abort();
+        else signal.addEventListener('abort', abort, { once: true });
+      });
+    });
+    const provider = createTank01ProjectionProvider({
+      apiKey: 'fixture-key', fetch: fetch as typeof globalThis.fetch, now: () => clock,
+    });
+
+    try {
+      let providerResolved = false;
+      const pending = provider.getWeeklyProjections('2026', 10);
+      void pending.then(() => { providerResolved = true; });
+
+      await vi.advanceTimersByTimeAsync(14_999);
+      expect(providerResolved).toBe(false);
+      expect(activeRequests).toBe(1);
+
+      await vi.advanceTimersByTimeAsync(1);
+      const first = await pending;
+      expect(first).toMatchObject({
+        status: 'unavailable', reason: 'provider-error', retryAt: '2026-09-01T12:01:00.000Z',
+      });
+      expect(timeout).toHaveBeenCalledTimes(2);
+      expect(timeout).toHaveBeenCalledWith(15_000);
+      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(activeRequests).toBe(0);
+
+      await expect(provider.getWeeklyProjections('2026', 10)).resolves.toEqual(first);
+      expect(fetch).toHaveBeenCalledTimes(2);
+    } finally {
+      await vi.runOnlyPendingTimersAsync();
+      timeout.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   it('coalesces concurrent requests for the same weekly slate', async () => {
     const fetch = mockFetch();
     const provider = createTank01ProjectionProvider({ apiKey: 'fixture-key', fetch: fetch as typeof globalThis.fetch });

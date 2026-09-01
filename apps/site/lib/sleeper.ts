@@ -2,6 +2,7 @@ import 'server-only';
 
 import { cache } from 'react';
 import { unstable_cache } from 'next/cache';
+import { after } from 'next/server';
 import { LEAGUE_ID } from './config';
 import { normalizeInjuryStatus } from './injury-status';
 import { addTank01ProjectedPoints } from './matchup-projections';
@@ -43,8 +44,7 @@ const SEASON_SCHEDULE_CACHE_SECONDS = 3_600;
 const PLAYER_CACHE_SECONDS = 86_400;
 // Back off briefly after a catalog failure so an upstream outage does not trigger a large retry on every page request.
 const PLAYER_FAILURE_CACHE_SECONDS = 300;
-// Projections are optional decoration. Give a concurrent cache/API lookup a short budget,
-// then render authoritative Sleeper data while the shared Tank01 cache continues to fill.
+// Keep optional projections from delaying authoritative Sleeper matchup data on a cold provider request.
 const MATCHUP_PROJECTION_WAIT_MS = 1_000;
 // League One uses these player positions. Sleeper's documented position filters keep
 // each response small enough to load reliably in a serverless function.
@@ -394,26 +394,45 @@ export async function getOverview(): Promise<OverviewData> {
   return (await getCore()).overview;
 }
 
-async function getOptionalTank01Projections(season: string, week: number): Promise<Tank01ProjectionResult> {
-  const fallback: Tank01ProjectionResult = {
+function unavailableTank01Projections(season: string, week: number): Tank01ProjectionResult {
+  return {
     status: 'unavailable',
     season,
     week,
     reason: 'provider-error',
     message: 'Player projections are temporarily unavailable.',
   };
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  const deadline = new Promise<Tank01ProjectionResult>((resolve) => {
-    timeout = setTimeout(() => resolve(fallback), MATCHUP_PROJECTION_WAIT_MS);
-  });
+}
+
+async function getSafeTank01Projections(season: string, week: number): Promise<Tank01ProjectionResult> {
   try {
-    // Keep a rejection handler attached even if the deadline wins. The underlying provider
-    // remains alive so a successful request can populate its shared cache for the next view.
-    const projection = getTank01WeeklyProjections(season, week).catch(() => fallback);
-    return await Promise.race([projection, deadline]);
-  } finally {
-    if (timeout !== undefined) clearTimeout(timeout);
+    return await getTank01WeeklyProjections(season, week);
+  } catch {
+    // The provider normally converts upstream failures to this result. Keep projections optional
+    // if an unexpected cache or runtime rejection escapes that boundary.
+    return unavailableTank01Projections(season, week);
   }
+}
+
+async function getOptionalTank01Projections(season: string, week: number): Promise<Tank01ProjectionResult> {
+  const projection = getSafeTank01Projections(season, week);
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const outcome = await Promise.race([
+    projection.then((value) => ({ kind: 'projection' as const, value })),
+    new Promise<{ kind: 'deadline' }>((resolve) => {
+      timeout = setTimeout(() => resolve({ kind: 'deadline' }), MATCHUP_PROJECTION_WAIT_MS);
+    }),
+  ]);
+
+  if (outcome.kind === 'projection') {
+    if (timeout !== undefined) clearTimeout(timeout);
+    return outcome.value;
+  }
+
+  // Register the already-running, rejection-safe promise with the request lifecycle. This lets a
+  // cold result populate Next's shared cache without holding the matchup response open.
+  after(() => projection);
+  return unavailableTank01Projections(season, week);
 }
 
 export async function getMatchups(requestedWeek?: number): Promise<MatchupsData> {
