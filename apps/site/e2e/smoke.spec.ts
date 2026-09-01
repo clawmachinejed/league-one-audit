@@ -128,7 +128,7 @@ test('a matchup exposes scores to assistive technology and expands from the keyb
       expect(projection).toMatch(/^(?:—|-?\d+\.\d{2})$/u);
       await expect(playerScoreGroups.nth(index)).toHaveAccessibleName(projection === '—'
         ? /official score .*; projected score unavailable/i
-        : new RegExp(`official score .*; projected score ${escapeRegExp(projection)}`));
+        : new RegExp(`official score .*; projected score ${escapeRegExp(projection)}`, 'i'));
     }
     const playerAlignment = await panel.locator('[data-player-score-side]').evaluateAll(stacks => stacks.map(stack => {
       const official = stack.querySelector<HTMLElement>('[data-player-score-number]')!.getBoundingClientRect();
