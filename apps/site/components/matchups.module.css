@@ -41,7 +41,7 @@
 .cardStatus { color:var(--muted); font-size:9px; line-height:12px; }
 .lineup { border-top:1px solid var(--line); padding:0 10px; }
 .lineup[hidden] { display:none; }
-.playerRow { display:grid; grid-template-columns:minmax(0,1fr) 30px minmax(0,1fr); gap:6px; align-items:center; height:40px; padding:4px 0; border-top:1px solid var(--line); }
+.playerRow { display:grid; grid-template-columns:minmax(0,1fr) 30px minmax(0,1fr); gap:6px; align-items:center; height:52px; padding:4px 0; border-top:1px solid var(--line); }
 .playerRow:first-child { border-top-color:transparent; }
 .player { min-width:0; display:grid; grid-template-columns:minmax(0,1fr) 31px; align-items:center; gap:4px; font-size:12px; line-height:16px; }
 .playerInfo { min-width:0; }
@@ -49,7 +49,9 @@
 .shortName { display:none; }
 .playerName[data-compact=true] .fullName { display:none; }
 .playerName[data-compact=true] .shortName { display:inline; }
-.playerMeta { display:flex; justify-content:flex-start; gap:5px; color:var(--muted); font-size:10px; line-height:14px; margin-top:1px; white-space:nowrap; font-weight:400; }
+.playerMeta { display:grid; justify-items:start; color:var(--muted); font-size:10px; line-height:13px; margin-top:1px; white-space:nowrap; font-weight:400; }
+.playerDetails { display:flex; gap:5px; min-width:0; white-space:nowrap; }
+.game { color:var(--ink); font-size:9px; line-height:12px; white-space:nowrap; }
 .injury { color:#cc3038; font-weight:400; }
 .questionable { color:#9b7100; }
 .playerPoints { font-size:11px; line-height:16px; font-variant-numeric:tabular-nums; text-align:center; }
@@ -57,12 +59,15 @@
 .rightPlayer { grid-template-columns:31px minmax(0,1fr); text-align:right; }
 .rightPlayer .playerInfo { grid-column:2; grid-row:1; }
 .rightPlayer .playerPoints { grid-column:1; grid-row:1; }
-.rightPlayer .playerMeta { flex-direction:row-reverse; }
+.rightPlayer .playerMeta { justify-items:end; }
+.rightPlayer .playerDetails { flex-direction:row-reverse; }
 .slot { text-align:center; padding:4px 0; border-radius:4px; color:var(--muted); background:var(--paper); font-size:9px; line-height:13px; }
 .lineup[data-roomy-names=true] .player { position:relative; grid-template-columns:minmax(0,1fr); }
 .lineup[data-roomy-names=true] .playerInfo { grid-column:1; }
-.lineup[data-roomy-names=true] .playerMeta { max-width:calc(100% - 35px); }
-.lineup[data-roomy-names=true] .playerPoints { position:absolute; bottom:0; right:0; width:31px; }
+.lineup[data-roomy-names=true] .playerName { max-width:calc(100% - 35px); }
+.lineup[data-roomy-names=true] .rightPlayer .playerName { margin-left:auto; }
+.lineup[data-roomy-names=true] .playerMeta { max-width:100%; }
+.lineup[data-roomy-names=true] .playerPoints { position:absolute; top:0; right:0; width:31px; }
 .lineup[data-roomy-names=true] .rightPlayer .playerPoints { left:0; right:auto; }
 .lineup[data-roomy-names=true] .rightPlayer .playerMeta { margin-left:auto; }
 .lineupNote { font-size:10px; line-height:14px; color:var(--muted); text-align:center; padding:8px 0; }

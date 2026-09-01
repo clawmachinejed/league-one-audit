@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { injuryStatusLabel } from '../lib/injury-status';
+import { formatNflGame } from '../lib/nfl-schedule';
 import { compactPlayerName } from '../lib/player-name';
 import type { Matchup, Player, Team } from '../lib/types';
 import styles from './matchups.module.css';
@@ -30,6 +31,7 @@ function TeamMeta({ team, opposite, avatar }: { team: Team; opposite?: boolean; 
 function Starter({ player, opposite, high, pending }: { player?: Player; opposite?: boolean; high?: boolean; pending?: boolean }) {
   const name = player?.name || (pending ? 'Not posted' : 'Empty slot');
   const injury = injuryStatusLabel(player?.injuryStatus);
+  const game = player?.game ? formatNflGame(player.game) : null;
   return <div className={`${styles.player} ${opposite ? styles.rightPlayer : ''}`}>
     <div className={styles.playerInfo}>
       <span className={styles.playerName} data-player-name>
@@ -37,9 +39,12 @@ function Starter({ player, opposite, high, pending }: { player?: Player; opposit
         <span className={styles.fullName} aria-hidden="true">{name}</span>
         <span className={styles.shortName} aria-hidden="true">{compactPlayerName(name, player?.position)}</span>
       </span>
-      <small className={styles.playerMeta}>
-        <span>{player ? [player.position, player.nflTeam].filter(Boolean).join(' · ') || 'No NFL team' : pending ? 'Opponent pending' : 'Empty slot'}</span>
-        {injury && <span className={`${styles.injury} ${injury === 'QUES' ? styles.questionable : ''}`} aria-label={`Current injury designation: ${player?.injuryStatus}`}>{injury}</span>}
+      <small className={styles.playerMeta} data-player-meta>
+        <span className={styles.playerDetails} data-player-details>
+          <span>{player ? [player.position, player.nflTeam].filter(Boolean).join(' · ') || 'No NFL team' : pending ? 'Opponent pending' : 'Empty slot'}</span>
+          {injury && <span className={`${styles.injury} ${injury === 'QUES' ? styles.questionable : ''}`} aria-label={`Current injury designation: ${player?.injuryStatus}`}>{injury}</span>}
+        </span>
+        {game && <span className={styles.game} data-player-game>{game}</span>}
       </small>
     </div>
     <span className={`${styles.playerPoints} ${high ? styles.higherScore : ''}`}>{points(player?.points)}</span>
@@ -71,9 +76,14 @@ function MatchupCard({ matchup, selected, avatar, showStatus }: { matchup: Match
         }
       };
       shorten();
+      const metadataNeedsRoom = [...panel.querySelectorAll<HTMLElement>('[data-player-meta]')].some((meta) => {
+        const details = meta.querySelector<HTMLElement>('[data-player-details]');
+        const game = meta.querySelector<HTMLElement>('[data-player-game]');
+        return (details?.scrollWidth ?? 0) > meta.clientWidth || (game?.scrollWidth ?? 0) > meta.clientWidth;
+      });
       // On narrow screens, keep the surname intact by moving both sides' points
-      // to their metadata line, consistently across the entire lineup.
-      if (names.some(name => name.scrollWidth > name.clientWidth)) {
+      // to their name line, consistently across the entire lineup.
+      if (metadataNeedsRoom || names.some(name => name.scrollWidth > name.clientWidth)) {
         panel.dataset.roomyNames = 'true';
         shorten();
       }
