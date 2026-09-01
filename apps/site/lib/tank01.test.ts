@@ -135,12 +135,28 @@ describe('Tank01 weekly projection provider', () => {
     const projectionCall = fetch.mock.calls.find(([input]) => new URL(String(input)).pathname === '/getNFLProjections');
     const projectionUrl = new URL(String(projectionCall?.[0]));
     expect(projectionUrl.hostname).toBe('tank01-nfl-live-in-game-real-time-statistics-nfl.p.rapidapi.com');
-    expect(Object.fromEntries(projectionUrl.searchParams)).toEqual({ week: '1', archiveSeason: '2026', itemFormat: 'map' });
+    expect(Object.fromEntries(projectionUrl.searchParams)).toEqual({ week: '1', itemFormat: 'map' });
     const headers = new Headers(projectionCall?.[1]?.headers);
     expect(headers.get('x-rapidapi-host')).toBe(projectionUrl.hostname);
     expect(headers.get('x-rapidapi-key')).toBe('fixture-key');
     expect(projectionCall?.[1]?.redirect).toBe('error');
     expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('uses archiveSeason only when explicitly loading an older season', async () => {
+    const fetch = mockFetch();
+    const provider = createTank01ProjectionProvider({
+      apiKey: 'fixture-key', fetch: fetch as typeof globalThis.fetch,
+      now: () => Date.parse('2026-09-01T12:00:00Z'),
+    });
+
+    await provider.getWeeklyProjections('2025', 1);
+
+    const projectionCall = fetch.mock.calls.find(([input]) => new URL(String(input)).pathname === '/getNFLProjections');
+    const projectionUrl = new URL(String(projectionCall?.[0]));
+    expect(Object.fromEntries(projectionUrl.searchParams)).toEqual({
+      week: '1', itemFormat: 'map', archiveSeason: '2025',
+    });
   });
 
   it('preserves reserved Tank01 and Sleeper IDs without changing record prototypes', async () => {

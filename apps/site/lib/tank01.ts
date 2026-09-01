@@ -624,8 +624,12 @@ async function fetchEnvelope(request: typeof fetch, path: string, apiKey: string
   }
 }
 
-function projectionPath(season: string, week: number): string {
-  return `/getNFLProjections?week=${week}&archiveSeason=${encodeURIComponent(season)}&itemFormat=map`;
+function projectionPath(season: string, week: number, nowMs = Date.now()): string {
+  const query = new URLSearchParams({ week: String(week), itemFormat: 'map' });
+  // Tank01's archiveSeason switch is for older slates. Supplying the current
+  // season can be rejected even though the same current-week request is valid.
+  if (Number(season) < new Date(nowMs).getUTCFullYear()) query.set('archiveSeason', season);
+  return `/getNFLProjections?${query.toString()}`;
 }
 
 /** Next's persistent cache deserializes records with Object.prototype; restore safe lookup tables at its boundary. */
@@ -670,7 +674,7 @@ export function createTank01ProjectionProvider(options: Tank01ProviderOptions = 
     if (pending) return pending;
 
     const loading = (async () => {
-      const envelope = await fetchEnvelope(request, projectionPath(season, week), apiKey);
+      const envelope = await fetchEnvelope(request, projectionPath(season, week, now()), apiKey);
       const fetchedAtMs = now();
       const normalized = normalizeProjectionSlate(envelope, fetchedAtMs);
       projectionCache.set(cacheKey, { value: normalized, expiresAt: fetchedAtMs + successCacheMs });
