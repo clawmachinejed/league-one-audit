@@ -37,10 +37,14 @@ const SCORES_API = 'https://api.sleeper.com/scores/nfl/regular';
 const CORE_CACHE_SECONDS = 60;
 const SCHEDULE_CACHE_SECONDS = 300;
 const SEASON_SCHEDULE_CACHE_SECONDS = 3_600;
-// Sleeper asks consumers to store the full player catalog and refresh it at most daily.
+// Sleeper asks consumers to store player data and refresh it at most daily.
 const PLAYER_CACHE_SECONDS = 86_400;
 // Back off briefly after a catalog failure so an upstream outage does not trigger a large retry on every page request.
 const PLAYER_FAILURE_CACHE_SECONDS = 300;
+// League One uses these player positions. Sleeper's documented position filters keep
+// each response small enough to load reliably in a serverless function.
+const PLAYER_POSITIONS = ['QB', 'RB', 'WR', 'TE', 'DEF'] as const;
+type PlayerPosition = typeof PLAYER_POSITIONS[number];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -49,7 +53,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 async function fetchJson(path: string, revalidate = CORE_CACHE_SECONDS): Promise<unknown> {
   const response = await fetch(`${API}${path}`, {
     ...(revalidate > 0 ? { next: { revalidate } } : { cache: 'no-store' as const }),
-    signal: AbortSignal.timeout(path === '/players/nfl' ? 20_000 : 12_000),
+    signal: AbortSignal.timeout(path.startsWith('/players/nfl') ? 20_000 : 12_000),
     headers: { Accept: 'application/json' },
   });
   if (!response.ok) throw new Error(`Sleeper could not load ${path} (HTTP ${response.status}).`);
@@ -281,11 +285,7 @@ const getCore = cache(async () => {
   return { overview, sourceLeague, state, rosters };
 });
 
-// Cache the small fields we display, not Sleeper's entire multi-megabyte player response.
-// The raw endpoint is not placed in Next's response cache, whose entry size is limited.
-// /players/nfl supplies current metadata, not injury history for a requested week.
-const cachedPlayers = unstable_cache(async (): Promise<PlayerCatalog> => {
-  const raw = await fetchJson('/players/nfl', 0);
+function projectPlayerCatalog(raw: unknown): PlayerCatalog {
   if (!isRecord(raw)) throw new Error('Sleeper did not return a valid player catalog.');
   const result: PlayerCatalog = {};
   for (const [id, value] of Object.entries(raw)) {
@@ -300,20 +300,70 @@ const cachedPlayers = unstable_cache(async (): Promise<PlayerCatalog> => {
   }
   if (!Object.keys(result).length) throw new Error('Sleeper returned an empty player catalog.');
   return result;
-}, ['league-one-player-catalog-v3'], { revalidate: PLAYER_CACHE_SECONDS });
+}
 
-const cachedPlayerResult = unstable_cache(async () => {
-  try {
-    return { catalog: await cachedPlayers(), warning: undefined };
-  } catch {
+// These maps are best-effort protection within a warm server instance. The
+// persistent successful result still comes from Next's daily Data Cache entry.
+const playerPositionFailures = new Map<PlayerPosition, number>();
+const playerPositionRequests = new Map<PlayerPosition, Promise<PlayerCatalog>>();
+
+async function fetchPlayerPosition(position: PlayerPosition): Promise<PlayerCatalog> {
+  const failedUntil = playerPositionFailures.get(position);
+  if (failedUntil && failedUntil > Date.now()) {
+    throw new Error(`Sleeper's ${position} player catalog is in a temporary retry backoff.`);
+  }
+  if (failedUntil) playerPositionFailures.delete(position);
+
+  const activeRequest = playerPositionRequests.get(position);
+  if (activeRequest) return activeRequest;
+
+  const request = fetchJson(`/players/nfl?position=${encodeURIComponent(position)}`, 0)
+    .then(projectPlayerCatalog)
+    .then((catalog) => {
+      playerPositionFailures.delete(position);
+      return catalog;
+    })
+    .catch((error: unknown) => {
+      playerPositionFailures.set(position, Date.now() + PLAYER_FAILURE_CACHE_SECONDS * 1_000);
+      console.warn(`Sleeper ${position} player catalog could not be loaded.`, error);
+      throw error;
+    })
+    .finally(() => playerPositionRequests.delete(position));
+  playerPositionRequests.set(position, request);
+  return request;
+}
+
+// Cache only the small fields we display. Position-filtered responses avoid the
+// full catalog's multi-megabyte cold request, and separate entries let one failed
+// position recover without removing names that loaded successfully. The retry
+// guard lives inside the cached callback so normal cache hits always remain usable.
+// /players/nfl supplies current metadata, not injury history for a requested week.
+const cachedPlayerPosition = unstable_cache(
+  fetchPlayerPosition,
+  ['league-one-player-position-catalog-v1'],
+  { revalidate: PLAYER_CACHE_SECONDS },
+);
+
+const getPlayers = cache(async () => {
+  const results = await Promise.allSettled(PLAYER_POSITIONS.map((position) => cachedPlayerPosition(position)));
+  const catalog = Object.assign(
+    {},
+    ...results.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []),
+  ) as PlayerCatalog;
+  const failedPositions = PLAYER_POSITIONS.filter((_, index) => results[index].status === 'rejected');
+  if (!Object.keys(catalog).length) {
     return {
-      catalog: {} as PlayerCatalog,
+      catalog,
       warning: 'Player names and injury designations are temporarily unavailable. Sleeper player IDs are shown where necessary.',
     };
   }
-}, ['league-one-player-result-v1'], { revalidate: PLAYER_FAILURE_CACHE_SECONDS });
-
-const getPlayers = cache(() => cachedPlayerResult());
+  return {
+    catalog,
+    warning: failedPositions.length
+      ? `Some player names and injury designations are temporarily unavailable (${failedPositions.join(', ')}). Sleeper player IDs are shown where necessary.`
+      : undefined,
+  };
+});
 
 async function getWeekSchedule(season: string, week: number): Promise<{
   schedule: WeekSchedule;
