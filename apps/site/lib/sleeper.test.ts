@@ -151,12 +151,18 @@ describe('Sleeper service error handling', () => {
 
 describe('Sleeper NFL game details', () => {
   it('adds the requested week opponent, location, and kickoff to each starter', async () => {
-    const data = await getMatchups(1);
+    const data = await getMatchups(3);
     expect(data.matchups[0].sides[0].starters[0].game).toEqual({
       kind: 'scheduled', opponent: 'HOU', location: 'home', date: '2026-09-13', kickoffAt: '2026-09-13T17:00:00.000Z',
     });
-    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).endsWith('/scores/nfl/regular/2026/1'))).toBe(true);
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).endsWith('/scores/nfl/regular/2026/3'))).toBe(true);
     expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).endsWith('/schedule/nfl/regular/2026'))).toBe(true);
+  });
+
+  it('does not apply the current player-team catalog to historical NFL weeks', async () => {
+    const data = await getMatchups(1);
+    expect(data.matchups[0].sides[0].starters[0].game).toBeNull();
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes('/scores/nfl/regular/2026/1'))).toBe(false);
   });
 });
 
