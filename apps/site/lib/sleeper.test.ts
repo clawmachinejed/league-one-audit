@@ -603,7 +603,8 @@ describe('Sleeper matchup projection integration', () => {
     const result = availableTank01Projection();
     result.projections.bySleeperId.qb.scoringProjection = {
       ...zeroOffenseProjection,
-      passingYards: null,
+      passingYards: 100,
+      rushingYards: null,
     };
     getTank01WeeklyProjectionsMock.mockResolvedValueOnce(result);
 
@@ -727,15 +728,15 @@ describe('Sleeper matchup projection integration', () => {
     expect(data.warning).toContain('Projected scores are temporarily unavailable.');
   });
 
-  it('uses zero when a stale player-ID crosswalk does not match Sleeper', async () => {
+  it('keeps a stale player-ID crosswalk unavailable when it does not match Sleeper', async () => {
     const result = availableTank01Projection();
     result.projections.bySleeperId.qb.team = 'SEA';
     getTank01WeeklyProjectionsMock.mockResolvedValueOnce(result);
 
     const data = await getMatchups(3);
 
-    expect(data.matchups[0].sides[0].starters[0].projectedPoints).toBe(0);
-    expect(data.matchups[0].sides[0].projectedPoints).toBe(0);
+    expect(data.matchups[0].sides[0].starters[0].projectedPoints).toBeNull();
+    expect(data.matchups[0].sides[0].projectedPoints).toBeNull();
     expect(data.warning).toBeUndefined();
   });
 

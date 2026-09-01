@@ -125,11 +125,13 @@ export function addTank01ProjectedPoints(
     const team = defenseTeam(player);
     const defenseProjection = team ? result.projections.byDefenseTeam[team] : undefined;
     const playerProjection = team ? undefined : result.projections.bySleeperId[player.id];
-    if ((!team && (!playerProjection || !matchesSleeperPlayer(player, playerProjection)))
-      || (team && !defenseProjection)) {
+    if ((!team && !playerProjection) || (team && !defenseProjection)) {
       pointsByPlayer[player.id] = 0;
       continue;
     }
+    // A row that conflicts with Sleeper's current identity is an unsafe ID match,
+    // not a missing projection. Keep it unavailable instead of scoring the wrong player.
+    if (!team && !matchesSleeperPlayer(player, playerProjection!)) continue;
     const projection = defenseProjection ?? playerProjection!;
     const score = scoreTank01Projection(projection.scoringProjection, scoringSettings);
     if (!score.available || !isProjection(score.points)) {
