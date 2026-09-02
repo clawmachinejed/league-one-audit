@@ -26,20 +26,14 @@ vi.mock('next/cache', () => ({
   },
 }));
 vi.mock('next/server', () => ({ after: afterMock }));
-vi.mock('./config', () => ({
-  LEAGUE_ID: '1378850182409490432',
-  LEAGUE_IDS: {
-    league1: '1378850182409490432',
-    league2: '1378850360529014784',
-  },
-}));
 vi.mock('./tank01', () => ({ getTank01WeeklyProjections: getTank01WeeklyProjectionsMock }));
 
+import { LEAGUE_IDS } from './config';
 import { getMatchups, getOverview, getOwner, getTransactions } from './sleeper';
 import type { NormalizedTank01OffenseProjection } from './projection-scoring';
 
-const leagueOneId = '1378850182409490432';
-const leagueTwoId = '1378850360529014784';
+const leagueOneId = LEAGUE_IDS.league1;
+const leagueTwoId = LEAGUE_IDS.league2;
 const leaguePath = `/league/${leagueOneId}`;
 const leagueTwoPath = `/league/${leagueTwoId}`;
 let failures: Set<string>;
@@ -178,7 +172,7 @@ function requestPath(input: string | URL | Request): string {
 
 function valueFor(path: string): unknown {
   if (path === leaguePath) return invalidLeague ? null : {
-    league_id: '1378850182409490432', name: 'League One', season: '2026', status: leagueStatus,
+    league_id: leagueOneId, name: 'League One', season: '2026', status: leagueStatus,
     total_rosters: expectedRosterCount,
     roster_positions: ['QB', 'BN'],
     settings: { waiver_budget: 100, leg: leagueLeg, ...(lastScoredLeg === undefined ? {} : { last_scored_leg: lastScoredLeg }) },

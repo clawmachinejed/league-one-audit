@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { LEAGUE_IDS } from '../lib/config';
 
 const phoneWidths = [360, 390, 430] as const;
 
@@ -121,8 +122,6 @@ test('My Team choices remain independent between League One and League Two', asy
   await expect(page.locator('button.my-team-button[aria-pressed="true"]')).toHaveCount(1);
 
   const storedKeys = await page.evaluate(() => Object.keys(localStorage).filter(key => key.startsWith('league-one:my-team:')).sort());
-  expect(storedKeys).toEqual([
-    'league-one:my-team:1378850182409490432',
-    'league-one:my-team:1378850360529014784',
-  ]);
+  const expectedKeys = Object.values(LEAGUE_IDS).map(id => `league-one:my-team:${id}`).sort();
+  expect(storedKeys).toEqual(expectedKeys);
 });
