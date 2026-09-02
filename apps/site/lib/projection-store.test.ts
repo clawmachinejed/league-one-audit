@@ -447,6 +447,9 @@ describe('projection persistence', () => {
     expect(resolution).toContain('mapped_game.week IS DISTINCT FROM input.week');
     expect(resolution).toContain('mapped_game.home_team IS DISTINCT FROM input.home_team');
     expect(resolution).toContain('mapped_game.away_team IS DISTINCT FROM input.away_team');
+    // NATURAL is a PostgreSQL join keyword and cannot be used as this alias.
+    expect(resolution).toContain('LEFT JOIN nfl_games natural_game');
+    expect(resolution).not.toMatch(/\bnatural\./u);
   });
 
   it('keeps corrected provider game IDs as aliases of one canonical game', async () => {

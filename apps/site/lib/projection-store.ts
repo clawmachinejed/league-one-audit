@@ -800,8 +800,8 @@ export function createProjectionStore(database: Database = getDatabase()): Proje
         )
         SELECT input.input_key, input.proposed_id,
           mapping.nfl_game_id AS mapped_game_id,
-          natural.id AS natural_game_id,
-          COALESCE(mapping.nfl_game_id, natural.id) AS game_id,
+          natural_game.id AS natural_game_id,
+          COALESCE(mapping.nfl_game_id, natural_game.id) AS game_id,
           (
             mapped_game.id IS NOT NULL AND (
               mapped_game.season IS DISTINCT FROM input.season
@@ -811,20 +811,20 @@ export function createProjectionStore(database: Database = getDatabase()): Proje
               OR mapped_game.away_team IS DISTINCT FROM input.away_team
             )
           ) OR (
-            mapping.nfl_game_id IS NOT NULL AND natural.id IS NOT NULL
-            AND mapping.nfl_game_id <> natural.id
+            mapping.nfl_game_id IS NOT NULL AND natural_game.id IS NOT NULL
+            AND mapping.nfl_game_id <> natural_game.id
           ) AS conflict
         FROM input
         LEFT JOIN external_game_ids mapping
           ON mapping.provider = input.provider
           AND mapping.external_game_id = input.external_game_id
         LEFT JOIN nfl_games mapped_game ON mapped_game.id = mapping.nfl_game_id
-        LEFT JOIN nfl_games natural
-          ON natural.season = input.season
-          AND natural.season_type = input.season_type
-          AND natural.week = input.week
-          AND natural.home_team = input.home_team
-          AND natural.away_team = input.away_team
+        LEFT JOIN nfl_games natural_game
+          ON natural_game.season = input.season
+          AND natural_game.season_type = input.season_type
+          AND natural_game.week = input.week
+          AND natural_game.home_team = input.home_team
+          AND natural_game.away_team = input.away_team
         ORDER BY input.ordinal`, [json(prepared)]);
 
       const proposedIdsToClean = rows
