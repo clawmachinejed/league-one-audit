@@ -1,16 +1,18 @@
-# League One
+# League One and League 2
 
-A mobile-first home for League One, powered by public Sleeper league data. The site keeps the weekly experience focused: Matchups, Standings, and Owners, with rosters and transaction history inside each owner profile.
+A mobile-first home for League One and its League 2 promotion and relegation league, powered by public Sleeper league data. The site keeps the weekly experience focused: Matchups, Standings, and Owners, with rosters and transaction history inside each owner profile.
 
 ## What stays central
 
 - Expandable matchup cards: scan team scores, then open the player and lineup comparison.
 - Player projections derived from Tank01's raw weekly statistics using the league's Sleeper scoring settings.
-- A persistent My Team selection, scoped to the league and validated against its current teams.
+- A persistent My Team selection, stored independently for each league and validated against that league's current teams.
 - Owner transaction history with adds, drops, trades, FAAB bids, and clearly labeled outcomes. Green, red, and muted result colors supplement the text.
 - Phone layouts that fit the screen, keep names and scores readable, and provide comfortable touch controls.
 
-The current league ID is `1378850182409490432`. Sleeper IDs must remain strings because they can exceed JavaScript's safe integer range. The default lives in `apps/site/lib/config.ts`; `SLEEPER_LEAGUE_ID` can override it. The site uses real data, shows empty states when appropriate, and reports unavailable or incomplete data without substituting demonstration teams or results.
+League One uses Sleeper ID `1378850182409490432`; League 2 uses `1188632897157021696`. Sleeper IDs must remain strings because they can exceed JavaScript's safe integer range. Both defaults live in `apps/site/lib/config.ts`; `SLEEPER_LEAGUE_ID` and `SLEEPER_LEAGUE_2_ID` can override them. The site uses real data, shows empty states when appropriate, and reports unavailable or incomplete data without substituting demonstration teams or results.
+
+League One keeps its existing routes, such as `/matchups`. League 2 mirrors the same experience under `/league2`, such as `/league2/matchups`. The league selector changes the active league across Matchups, Standings, and Owners. Switching from a team-specific page returns to the selected league's Owners page because Sleeper roster numbers are only unique within one league.
 
 History, rivalries, awards, a separate statistics section, and a separate schedule section are outside this rebuild's scope.
 
@@ -42,7 +44,8 @@ The built-in league default works without an environment file. To override it or
 
 | Environment variable | Purpose |
 | --- | --- |
-| `SLEEPER_LEAGUE_ID` | Optional public league override; defaults to `1378850182409490432`. |
+| `SLEEPER_LEAGUE_ID` | Optional League One override; defaults to `1378850182409490432`. |
+| `SLEEPER_LEAGUE_2_ID` | Optional League 2 override; defaults to `1188632897157021696`. |
 | `TANK01_API_KEY` | Private, server-only Tank01 credential used to load raw projection statistics. Keep it out of browser code, logs, and commits. |
 
 Sleeper remains the official source for league identity, rosters, lineups, live scores, and scoring rules. The application computes projections locally from Tank01's raw weekly statistics by applying the active Sleeper scoring settings; Tank01 does not replace Sleeper's official or live results. Tank data is cached for one hour. If an available Tank01 slate omits a starter or has incomplete projected statistics for that starter, the site displays `0.00` and includes that zero in the team projection. Unsafe player-identity matches, invalid scoring settings, and Tank01 outages remain unavailable and display a dash.
@@ -68,7 +71,8 @@ Install Playwright's Chromium browser once with `pnpm --filter @l1/site exec pla
 | --- | --- |
 | `apps/site/app` | Routes, metadata, loading, error, and not-found pages. |
 | `apps/site/components` | Shared website views and browser interactions. |
-| `apps/site/lib/config.ts` | League configuration. |
+| `apps/site/lib/config.ts` | Server-side Sleeper IDs and environment overrides. |
+| `apps/site/lib/leagues.ts` | Public league identity, artwork, and route prefixes. |
 | `apps/site/lib/sleeper.ts` | Server-side Sleeper requests, caching, and data availability handling. |
 | `apps/site/lib/transform.ts` | League, team, matchup, lineup, and transaction normalization. |
 | `apps/site/lib/types.ts` | Shared application data contracts. |
@@ -95,12 +99,13 @@ Use the existing Vercel project rather than creating a duplicate project or movi
 | Build command | `pnpm build` from the configured application root |
 | Output Directory | Next.js default, `.next` |
 | `SLEEPER_LEAGUE_ID` | `1378850182409490432`, in Vercel Project Settings for Preview and Production |
+| `SLEEPER_LEAGUE_2_ID` | `1188632897157021696`, in Vercel Project Settings for Preview and Production |
 | `TANK01_API_KEY` | Private server-only secret, in Vercel Project Settings for Preview and Production; never commit it or expose it to the browser |
 | `ENABLE_EXPERIMENTAL_COREPACK` | `1`, available during builds for Preview and Production |
 
 Corepack must remain enabled so Vercel uses pnpm 11.19.0 instead of inferring another pnpm version from the lockfile. The project's Preview and Production environments have `ENABLE_EXPERIMENTAL_COREPACK=1`, following [Vercel's Corepack instructions](https://vercel.com/docs/builds/configure-a-build#corepack). `apps/site/vercel.json`, the only committed Vercel configuration, retains a build-time Corepack fallback. Vercel's schema still accepts `build.env`, but marks it as legacy, so retain the project-level setting as the durable control. Never use committed configuration for private credentials.
 
-Because the Vercel Root Directory is `apps/site`, its `vercel.json` is the single effective configuration file. The league override is deliberately absent from that file: Vercel Project Settings is the single deployment source for `SLEEPER_LEAGUE_ID`. The application still has its documented built-in default for local development and safe startup. Both package files pin the same Node major and pnpm version. Confirm the selected root, lockfile, actual Node and pnpm versions, framework, and league environment value in the first preview's build logs and deployed behavior.
+Because the Vercel Root Directory is `apps/site`, its `vercel.json` is the single effective configuration file. The league overrides are deliberately absent from that file: Vercel Project Settings is the single deployment source for `SLEEPER_LEAGUE_ID` and `SLEEPER_LEAGUE_2_ID`. The application still has documented built-in defaults for local development and safe startup. Both package files pin the same Node major and pnpm version. Confirm the selected root, lockfile, actual Node and pnpm versions, framework, and league environment values in the first preview's build logs and deployed behavior.
 
 The rebuild does not require the former scheduled cron jobs. Do not restore old cron endpoints or schedules as part of deployment. The existing Git integration is connected; still inspect the actual preview and production deployment for each release rather than assuming a push succeeded.
 
@@ -113,7 +118,7 @@ The user describes the desired change in GPT. GPT carries it through the reposit
 3. Run `pnpm verify` and `pnpm test:browser`. Test the affected experience in a browser at 360, 390, and 430 pixels wide, with a desktop check. Check screen fit, wrapping, touch controls, navigation, and relevant empty or error states.
 4. Push the branch and open a pull request that explains the change and its validation. Inspect GitHub checks and the Vercel preview, including the deployed behavior.
 5. When the request authorizes release, merge through the repository's normal protected-branch process after its requirements pass. Do not request duplicate approval for an already authorized deployment, bypass required reviews, override protections, or force-push.
-6. Verify production after the merge. Confirm the deployed revision, league identity, core navigation, matchup expansion, My Team persistence, and owner transactions as relevant to the change.
+6. Verify production after the merge. Confirm the deployed revision, both league identities and route prefixes, core navigation, matchup expansion, independent My Team persistence, and owner transactions as relevant to the change.
 7. Report the pull request, final commit, preview and production links, completed checks, and any remaining limitations. If access or an account approval blocks release, finish all available work and state the exact remaining action; do not report a deployment that has not occurred.
 
 If a release needs to be undone, revert the offending commit through a reviewed pull request and verify the resulting deployment. Preserve history rather than resetting or force-pushing `main`.

@@ -129,7 +129,7 @@ test('matchups fit supported widths and expanded lineup rows remain 52px', async
         }
       }
 
-      const toggle = page.locator('button[aria-controls]').first();
+      const toggle = page.locator('button[data-matchup-toggle]').first();
       if ((await toggle.count()) === 0) {
         test.info().annotations.push({
           type: 'Sleeper data',
@@ -170,7 +170,7 @@ test('matchups fit supported widths and expanded lineup rows remain 52px', async
 test('a matchup exposes scores to assistive technology and expands from the keyboard', async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 800 });
   await page.goto('/matchups', { waitUntil: 'networkidle' });
-  const toggle = page.locator('button[aria-controls]').first();
+  const toggle = page.locator('button[data-matchup-toggle]').first();
   test.skip((await toggle.count()) === 0, 'Sleeper has not posted matchup cards for the selected week.');
 
   const scores = (await toggle.locator('[data-score-number]').allTextContents()).map(score => score.trim());
@@ -227,7 +227,7 @@ test('a matchup exposes scores to assistive technology and expands from the keyb
     for (const difference of playerAlignment) expect(difference).toBeLessThanOrEqual(1);
   }
 
-  const toggles = page.locator('button[aria-controls]');
+  const toggles = page.locator('button[data-matchup-toggle]');
   if ((await toggles.count()) > 1) {
     const secondToggle = toggles.nth(1);
     await secondToggle.click();

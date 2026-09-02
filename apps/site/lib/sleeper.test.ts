@@ -3,9 +3,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const nextCacheOptions = vi.hoisted(() => [] as Array<{ revalidate?: number }>);
 const getTank01WeeklyProjectionsMock = vi.hoisted(() => vi.fn());
 const afterMock = vi.hoisted(() => vi.fn());
+const reactCacheControl = vi.hoisted(() => ({ enabled: false, generation: 0 }));
 
 vi.mock('server-only', () => ({}));
-vi.mock('react', () => ({ cache: <T,>(fn: T) => fn }));
+vi.mock('react', () => ({
+  cache: <Arguments extends unknown[], Result>(fn: (...args: Arguments) => Result) => {
+    const values = new Map<string, Result>();
+    return (...args: Arguments): Result => {
+      if (!reactCacheControl.enabled) return fn(...args);
+      const key = JSON.stringify([reactCacheControl.generation, args]);
+      if (values.has(key)) return values.get(key)!;
+      const value = fn(...args);
+      values.set(key, value);
+      return value;
+    };
+  },
+}));
 vi.mock('next/cache', () => ({
   unstable_cache: <T,>(fn: T, _keys: string[], options: { revalidate?: number }) => {
     nextCacheOptions.push(options);
@@ -13,13 +26,22 @@ vi.mock('next/cache', () => ({
   },
 }));
 vi.mock('next/server', () => ({ after: afterMock }));
-vi.mock('./config', () => ({ LEAGUE_ID: '1378850182409490432' }));
+vi.mock('./config', () => ({
+  LEAGUE_ID: '1378850182409490432',
+  LEAGUE_IDS: {
+    league1: '1378850182409490432',
+    league2: '1188632897157021696',
+  },
+}));
 vi.mock('./tank01', () => ({ getTank01WeeklyProjections: getTank01WeeklyProjectionsMock }));
 
 import { getMatchups, getOverview, getOwner, getTransactions } from './sleeper';
 import type { NormalizedTank01OffenseProjection } from './projection-scoring';
 
-const leaguePath = '/league/1378850182409490432';
+const leagueOneId = '1378850182409490432';
+const leagueTwoId = '1188632897157021696';
+const leaguePath = `/league/${leagueOneId}`;
+const leagueTwoPath = `/league/${leagueTwoId}`;
 let failures: Set<string>;
 let seasonType: string;
 let invalidLeague: boolean;
@@ -181,10 +203,32 @@ function valueFor(path: string): unknown {
     const week = Number(path.split('/').at(-1));
     return week === 0 ? [{ transaction_id: 'week-zero', type: 'waiver', status: 'failed', roster_ids: [1], adds: { qb: 1 }, settings: { waiver_bid: 7 } }] : [];
   }
+  if (path === leagueTwoPath) return {
+    league_id: leagueTwoId, name: 'League 2', season: '2026', status: 'in_season',
+    total_rosters: 1,
+    roster_positions: ['QB', 'BN'],
+    settings: { waiver_budget: 100, leg: 3 },
+    scoring_settings: activeScoringSettings,
+  };
+  if (path === `${leagueTwoPath}/rosters`) return [{
+    roster_id: 1, owner_id: 'member-2', players: ['qb'], starters: ['qb'], settings: { ...rosterSettings },
+  }];
+  if (path === `${leagueTwoPath}/users`) return [{ user_id: 'member-2', display_name: 'Jordan' }];
+  if (path.startsWith(`${leagueTwoPath}/matchups/`)) return [
+    { roster_id: 1, matchup_id: null, points: 9.5, starters: ['qb'], starters_points: [9.5] },
+  ];
+  if (path.startsWith(`${leagueTwoPath}/transactions/`)) {
+    const week = Number(path.split('/').at(-1));
+    return week === 0 ? [{
+      transaction_id: 'league-two-week-zero', type: 'waiver', status: 'complete', roster_ids: [1], adds: { qb: 1 }, settings: { waiver_bid: 4 },
+    }] : [];
+  }
   throw new Error(`Unexpected test endpoint: ${path}`);
 }
 
 beforeEach(() => {
+  reactCacheControl.enabled = false;
+  reactCacheControl.generation += 1;
   testNow += 301_000;
   vi.spyOn(Date, 'now').mockReturnValue(testNow);
   failures = new Set();
@@ -228,6 +272,49 @@ afterEach(() => {
 describe('Sleeper service error handling', () => {
   it('caches Sleeper player catalogs for the recommended daily interval', () => {
     expect(nextCacheOptions.some((options) => options.revalidate === 86_400)).toBe(true);
+  });
+
+  it('loads League 2 core and matchup data from its own Sleeper endpoints', async () => {
+    const [overview, matchups] = await Promise.all([
+      getOverview(leagueTwoId),
+      getMatchups(3, leagueTwoId),
+    ]);
+
+    expect(overview.teams[0]).toMatchObject({ id: 1, ownerName: 'Jordan' });
+    expect(matchups.matchups[0].sides[0]).toMatchObject({
+      team: { id: 1, ownerName: 'Jordan' },
+      points: 9.5,
+    });
+    const paths = vi.mocked(fetch).mock.calls.map(([input]) => requestPath(input));
+    expect(paths).toEqual(expect.arrayContaining([
+      leagueTwoPath,
+      `${leagueTwoPath}/rosters`,
+      `${leagueTwoPath}/users`,
+      `${leagueTwoPath}/matchups/3`,
+    ]));
+  });
+
+  it('isolates cached transaction history when leagues share roster IDs and week horizons', async () => {
+    reactCacheControl.enabled = true;
+
+    const [leagueOne, leagueTwo] = await Promise.all([
+      getTransactions(1, leagueOneId),
+      getTransactions(1, leagueTwoId),
+    ]);
+
+    expect(leagueOne).toMatchObject({
+      team: { id: 1, ownerName: 'Alex' },
+      transactions: [{ id: 'week-zero', result: 'Lost', bid: 7 }],
+    });
+    expect(leagueTwo).toMatchObject({
+      team: { id: 1, ownerName: 'Jordan' },
+      transactions: [{ id: 'league-two-week-zero', result: 'Won', bid: 4 }],
+    });
+    const paths = vi.mocked(fetch).mock.calls.map(([input]) => requestPath(input));
+    expect(paths).toEqual(expect.arrayContaining([
+      `${leaguePath}/transactions/0`,
+      `${leagueTwoPath}/transactions/0`,
+    ]));
   });
 
   it('uses documented position filters instead of the oversized all-player response', async () => {
