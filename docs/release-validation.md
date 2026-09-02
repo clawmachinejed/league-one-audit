@@ -36,7 +36,7 @@ The original mobile-first rebuild remains documented in [pull request #136](http
 - Open the production domain through a fresh browser session and verify there is no parking-page redirect.
 - Confirm Matchups, Standings, Owners, one owner roster, and one owner transaction page load the intended league.
 - Open the league selector and confirm League One stays on root routes while League 2 stays under `/league2` across Matchups, Standings, Owners, roster, and transaction navigation.
-- Confirm League One uses Sleeper ID `1378850182409490432` and League 2 uses `1312138224994385920`, with no roster, matchup, or transaction data crossing between them.
+- Confirm League One uses Sleeper ID `1378850182409490432` and League 2 uses `1378850360529014784`, with no roster, matchup, or transaction data crossing between them.
 - Expand a matchup and inspect player-row fit on a phone-sized viewport.
 - Select My Team, reload, and confirm the same team remains selected.
 - Select different My Team choices in the two leagues and confirm each choice returns after switching and reloading.

@@ -10,7 +10,7 @@ A mobile-first home for League One and its League 2 promotion and relegation lea
 - Owner transaction history with adds, drops, trades, FAAB bids, and clearly labeled outcomes. Green, red, and muted result colors supplement the text.
 - Phone layouts that fit the screen, keep names and scores readable, and provide comfortable touch controls.
 
-League One uses Sleeper ID `1378850182409490432`; League 2 uses `1312138224994385920`. Sleeper IDs must remain strings because they can exceed JavaScript's safe integer range. Both defaults live in `apps/site/lib/config.ts`; `SLEEPER_LEAGUE_ID` and `SLEEPER_LEAGUE_2_ID` can override them. The site uses real data, shows empty states when appropriate, and reports unavailable or incomplete data without substituting demonstration teams or results.
+League One uses Sleeper ID `1378850182409490432`; League 2 uses `1378850360529014784`. Sleeper IDs must remain strings because they can exceed JavaScript's safe integer range. Both defaults live in `apps/site/lib/config.ts`; `SLEEPER_LEAGUE_ID` and `SLEEPER_LEAGUE_2_ID` can override them. The site uses real data, shows empty states when appropriate, and reports unavailable or incomplete data without substituting demonstration teams or results.
 
 League One keeps its existing routes, such as `/matchups`. League 2 mirrors the same experience under `/league2`, such as `/league2/matchups`. The league selector changes the active league across Matchups, Standings, and Owners. Switching from a team-specific page returns to the selected league's Owners page because Sleeper roster numbers are only unique within one league.
 
@@ -45,7 +45,7 @@ The built-in league default works without an environment file. To override it or
 | Environment variable | Purpose |
 | --- | --- |
 | `SLEEPER_LEAGUE_ID` | Optional League One override; defaults to `1378850182409490432`. |
-| `SLEEPER_LEAGUE_2_ID` | Optional League 2 override; defaults to `1312138224994385920`. |
+| `SLEEPER_LEAGUE_2_ID` | Optional League 2 override; defaults to `1378850360529014784`. |
 | `TANK01_API_KEY` | Private, server-only Tank01 credential used to load raw projection statistics. Keep it out of browser code, logs, and commits. |
 
 Sleeper remains the official source for league identity, rosters, lineups, live scores, and scoring rules. The application computes projections locally from Tank01's raw weekly statistics by applying the active Sleeper scoring settings; Tank01 does not replace Sleeper's official or live results. Tank data is cached for one hour. If an available Tank01 slate omits a starter or has incomplete projected statistics for that starter, the site displays `0.00` and includes that zero in the team projection. Unsafe player-identity matches, invalid scoring settings, and Tank01 outages remain unavailable and display a dash.
@@ -99,7 +99,7 @@ Use the existing Vercel project rather than creating a duplicate project or movi
 | Build command | `pnpm build` from the configured application root |
 | Output Directory | Next.js default, `.next` |
 | `SLEEPER_LEAGUE_ID` | `1378850182409490432`, in Vercel Project Settings for Preview and Production |
-| `SLEEPER_LEAGUE_2_ID` | `1312138224994385920`, in Vercel Project Settings for Preview and Production |
+| `SLEEPER_LEAGUE_2_ID` | `1378850360529014784`, in Vercel Project Settings for Preview and Production |
 | `TANK01_API_KEY` | Private server-only secret, in Vercel Project Settings for Preview and Production; never commit it or expose it to the browser |
 | `ENABLE_EXPERIMENTAL_COREPACK` | `1`, available during builds for Preview and Production |
 
