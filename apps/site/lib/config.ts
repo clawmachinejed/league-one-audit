@@ -1,10 +1,11 @@
 import type { LeagueKey } from './leagues';
 
-// Sleeper IDs exceed JavaScript's safe integer range. Always keep them as strings.
-export const LEAGUE_IDS: Readonly<Record<LeagueKey, string>> = {
-  league1: process.env.SLEEPER_LEAGUE_ID?.trim() || '1378850182409490432',
-  league2: process.env.SLEEPER_LEAGUE_2_ID?.trim() || '1378850360529014784',
-};
+// Golden source for both public Sleeper league IDs. They exceed JavaScript's safe
+// integer range, so keep them as strings and reference this registry everywhere.
+export const LEAGUE_IDS = {
+  league1: '1378850182409490432',
+  league2: '1378850360529014784',
+} as const satisfies Readonly<Record<LeagueKey, string>>;
 
 /** League One remains the default for existing routes and callers. */
-export const LEAGUE_ID = LEAGUE_IDS.league1;
+export const LEAGUE_ID: string = LEAGUE_IDS.league1;

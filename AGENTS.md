@@ -13,7 +13,7 @@ Preserve these defining behaviors:
 - Owner transaction details, including FAAB bids and outcomes, with green, red, and muted result colors and visible text labels.
 - Mobile screen fit, readable names and scores, and comfortable controls.
 
-League One uses Sleeper ID `1378850182409490432`; League 2 uses `1378850360529014784`. Keep these and all other Sleeper IDs as strings where they represent upstream identifiers. Use the central configuration in `apps/site/lib/config.ts` and its `SLEEPER_LEAGUE_ID` and `SLEEPER_LEAGUE_2_ID` environment overrides. Do not scatter league defaults through views. Read league settings and data from Sleeper; do not invent scores, dates, players, results, or a fallback demonstration league.
+The two public Sleeper league IDs have one golden source in `apps/site/lib/config.ts`. Keep them as strings, import that registry everywhere they are needed, and never repeat the production values in views, tests, documentation, environment files, or Vercel settings. Read league settings and data from Sleeper; do not invent scores, dates, players, results, or a fallback demonstration league.
 
 ## Working safely
 
@@ -47,6 +47,6 @@ For each substantive change:
 4. Confirm the production deployment belongs to the merged commit. Verify the live league ID and relevant core journeys, then report the pull request, commit hash, deployment links, and results.
 5. If blocked, distinguish local completion, branch publication, preview readiness, merge status, and production deployment. Never label a pending or inaccessible step complete.
 
-The recommended Vercel Root Directory is `apps/site`, using the Next.js framework preset, Node.js 24, the pnpm workspace lockfile, and the Next.js `.next` output default. Match the effective Vercel configuration to its selected root; the repository-root `apps/site/.next` path is not correct relative to an `apps/site` root. Configure both league IDs for Preview and Production and verify each one in deployed behavior. Do not assume a recorded domain or Git integration proves the current release is live.
+The recommended Vercel Root Directory is `apps/site`, using the Next.js framework preset, Node.js 24, the pnpm workspace lockfile, and the Next.js `.next` output default. Match the effective Vercel configuration to its selected root; the repository-root `apps/site/.next` path is not correct relative to an `apps/site` root. Do not configure league-ID overrides in Vercel; deploy the golden registry from `apps/site/lib/config.ts` and verify each league in production. Do not assume a recorded domain or Git integration proves the current release is live.
 
 For rollback, revert the relevant change through a pull request and verify the resulting production deployment. Do not reset or force-push `main`. If an urgent temporary Vercel rollback is separately authorized, keep Git history and the final deployed state reconciled afterward.
