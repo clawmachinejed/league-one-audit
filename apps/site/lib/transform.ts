@@ -277,7 +277,8 @@ export function lineup(
   const slots = startingSlots(positions);
   return Array.from({ length: Math.max(starters.length, slots.length) }, (_, index) => {
     const id = starters[index];
-    const points = scores && index < scores.length ? scores[index] : pointsByPlayer?.[id];
+    const starterPoints = scores && index < scores.length ? numberOrNull(scores[index]) : null;
+    const points = starterPoints ?? (id ? numberOrNull(pointsByPlayer?.[id]) : null);
     return playerFromId(id, slots[index] ?? 'UTIL', catalog, points, index);
   });
 }

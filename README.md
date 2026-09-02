@@ -5,7 +5,8 @@ A mobile-first home for League One and its League 2 promotion and relegation lea
 ## What stays central
 
 - Expandable matchup cards: scan team scores, then open the player and lineup comparison.
-- Player projections derived from Tank01's raw weekly statistics using the league's Sleeper scoring settings.
+- Pregame player projections derived from Tank01's raw weekly statistics using each league's Sleeper scoring settings.
+- Live projected finishes that combine official Sleeper points already scored with the frozen pregame projection scaled by the share of the NFL game remaining.
 - A persistent My Team selection, stored independently for each league and validated against that league's current teams.
 - Owner transaction history with adds, drops, trades, FAAB bids, and clearly labeled outcomes. Green, red, and muted result colors supplement the text.
 - Phone layouts that fit the screen, keep names and scores readable, and provide comfortable touch controls.
@@ -40,13 +41,24 @@ pnpm dev
 
 Open [localhost:3000](http://localhost:3000). No Sleeper API token is required for the public league data used here.
 
-The committed league registry works without an environment file. To enable projections locally, copy `.env.example` to `apps/site/.env.local`, then set the Tank01 key there.
+The committed league registry works without an environment file. To run the live projection pipeline locally, copy `.env.example` to `apps/site/.env.local` and supply its server-only values.
 
 | Environment variable | Purpose |
 | --- | --- |
-| `TANK01_API_KEY` | Private, server-only Tank01 credential used to load raw projection statistics. Keep it out of browser code, logs, and commits. |
+| `TANK01_API_KEY` | Private, server-only Tank01 credential used to load raw projection statistics and NFL game clocks. |
+| `DATABASE_URL` | Pooled, server-only Neon PostgreSQL connection for the restricted `league_one_runtime` role. |
+| `MIGRATION_DATABASE_URL` | Direct schema-owner Neon connection used only by the migration command; do not add it to the deployed application. |
+| `CRON_SECRET` | Long random secret Vercel sends as a bearer token when it runs the projection worker. |
 
-Sleeper remains the official source for league identity, rosters, lineups, live scores, and scoring rules. The application computes projections locally from Tank01's raw weekly statistics by applying the active Sleeper scoring settings; Tank01 does not replace Sleeper's official or live results. Tank data is cached for one hour. If an available Tank01 slate omits a starter or has incomplete projected statistics for that starter, the site displays `0.00` and includes that zero in the team projection. Unsafe player-identity matches, invalid scoring settings, and Tank01 outages remain unavailable and display a dash.
+For a new Neon database, set the schema owner's direct connection as `MIGRATION_DATABASE_URL` locally and run `pnpm db:migrate`. Then run `apps/site/scripts/provision-runtime-role.sql` in Neon's SQL Editor. That script creates the application role through SQL so it does not inherit Neon's administrative role, grants only the tables and operations the worker needs, and fails if the role can create database objects or read the migration ledger. Set a generated password with an unsaved SQL statement, rerun the provisioning script to verify its postconditions, and use that role's pooled connection as `DATABASE_URL`. Never use the schema-owner URL as the application's runtime credential.
+
+Sleeper remains the official source for league identity, rosters, lineups, live scores, and scoring rules. Tank01 supplies pregame projected statistics plus NFL game status and clock data. The application converts the projected statistics with the active Sleeper scoring settings, freezes the last safe pregame result at kickoff, and calculates each live offensive player or kicker as `official Sleeper points + frozen pregame points × game fraction remaining`. Team projections are exact sums of the displayed starter projections. Live D/ST projections hold their frozen baseline because adding Sleeper's provisional D/ST score would double-count points-allowed scoring; final projections become the exact Sleeper result.
+
+Neon stores normalized provider identities, scoring profiles, NFL games, raw observations, immutable kickoff baselines, job leases, and versioned matchup snapshots. It is a persistence and publication layer rather than the scoring authority. A failed or partial refresh never replaces the last complete snapshot. If an available Tank01 slate omits a starter or has incomplete projected statistics for that starter, the engine records a zero baseline and includes that zero in the team projection. Unsafe player-identity matches, invalid scoring settings, and provider outages fail closed.
+
+Vercel invokes the authenticated worker every minute. The worker exits without contacting Tank01 outside an active sync window, checks hourly before games to keep lineups and pregame projections warm, and runs each minute from two hours before through seven hours after a scheduled kickoff. All leagues for the same NFL week reuse the same Tank01 projection and game-state fetches. Browsers request one compact, already-calculated league snapshot every minute while the current matchup page is visible; they do not call Sleeper, Tank01, or Neon directly.
+
+The current worker is sized for the two-league MVP. Its provider grouping and tenant-aware schema avoid duplicating NFL data, but hundreds of leagues will require partitioned durable jobs rather than processing the whole fleet in one Vercel invocation.
 
 | Command | Purpose |
 | --- | --- |
@@ -55,6 +67,7 @@ Sleeper remains the official source for league identity, rosters, lineups, live 
 | `pnpm typecheck` | Generate Next.js route types and check TypeScript. |
 | `pnpm test` | Run the Vitest unit tests. |
 | `pnpm test:browser` | Run Playwright smoke tests against a local server, or against `BASE_URL` when supplied. |
+| `pnpm db:migrate` | Apply pending, checksummed Neon schema migrations using `apps/site/.env.local`. |
 | `pnpm build` | Create the production build. |
 | `pnpm start` | Run an existing production build locally. |
 | `pnpm verify` | Run lint, type checks, unit tests, and the production build, stopping on failure. |
@@ -72,11 +85,16 @@ Install Playwright's Chromium browser once with `pnpm --filter @l1/site exec pla
 | `apps/site/lib/config.ts` | Single source of truth for both public Sleeper league IDs. |
 | `apps/site/lib/leagues.ts` | Public league identity, artwork, and route prefixes. |
 | `apps/site/lib/sleeper.ts` | Server-side Sleeper requests, caching, and data availability handling. |
+| `apps/site/lib/tank01-game-state.ts` | Strict Tank01 weekly game-state and clock boundary. |
+| `apps/site/lib/live-projection.ts` | Pure, provider-independent clock-v1 projection calculation. |
+| `apps/site/lib/projection-store.ts` | Portable PostgreSQL persistence and atomic snapshot publication. |
+| `apps/site/lib/live-projection-worker.ts` | Scheduled synchronization and projection orchestration. |
 | `apps/site/lib/transform.ts` | League, team, matchup, lineup, and transaction normalization. |
 | `apps/site/lib/types.ts` | Shared application data contracts. |
 | `apps/site/e2e` | Playwright browser smoke journeys. |
 | `apps/site/playwright.config.ts` | Local-server and `BASE_URL` browser-test configuration. |
 | `.github/workflows/verify.yml` | Pull request and main-branch verification. |
+| `apps/site/migrations` | Ordered, immutable PostgreSQL schema migrations. |
 
 League data is cached to limit upstream requests; each feed's cache duration is defined beside its request in `apps/site/lib/sleeper.ts`. Matchup injury labels use Sleeper's current `injury_status`, including when viewing an earlier matchup week; they are not historical injury reports. Questionable is shown as QUES in golden yellow, other designations in red, and missing values remain blank. Displayed values can lag Sleeper. The site is a league companion: roster moves and fantasy league administration remain in Sleeper.
 
@@ -98,13 +116,15 @@ Use the existing Vercel project rather than creating a duplicate project or movi
 | Output Directory | Next.js default, `.next` |
 | Sleeper league IDs | Shipped from the single registry in `apps/site/lib/config.ts`; no Vercel overrides |
 | `TANK01_API_KEY` | Private server-only secret, in Vercel Project Settings for Preview and Production; never commit it or expose it to the browser |
+| `DATABASE_URL` | Pooled Neon connection for `league_one_runtime`; replace any integration-generated schema-owner URL and never expose it to the browser |
+| `CRON_SECRET` | Random Vercel Project secret of at least 16 characters, used only to authenticate the scheduled worker |
 | `ENABLE_EXPERIMENTAL_COREPACK` | `1`, available during builds for Preview and Production |
 
 Corepack must remain enabled so Vercel uses pnpm 11.19.0 instead of inferring another pnpm version from the lockfile. The project's Preview and Production environments have `ENABLE_EXPERIMENTAL_COREPACK=1`, following [Vercel's Corepack instructions](https://vercel.com/docs/builds/configure-a-build#corepack). `apps/site/vercel.json`, the only committed Vercel configuration, retains a build-time Corepack fallback. Vercel's schema still accepts `build.env`, but marks it as legacy, so retain the project-level setting as the durable control. Never use committed configuration for private credentials.
 
 Because the Vercel Root Directory is `apps/site`, its `vercel.json` is the single effective configuration file. Public league IDs are deliberately absent from environment files and Vercel Project Settings; the committed registry in `apps/site/lib/config.ts` is their sole authority. Both package files pin the same Node major and pnpm version. Confirm the selected root, lockfile, actual Node and pnpm versions, framework, and deployed league identities in the first preview's build logs and behavior.
 
-The rebuild does not require the former scheduled cron jobs. Do not restore old cron endpoints or schedules as part of deployment. The existing Git integration is connected; still inspect the actual preview and production deployment for each release rather than assuming a push succeeded.
+The projection engine has one scheduled job at `/api/cron/live-projections`, declared in `apps/site/vercel.json`. It is authenticated with `CRON_SECRET`, uses a database lease so overlapping invocations cannot publish conflicting work, and is the only browser-independent refresh path. The existing Git integration is connected; still inspect the actual preview and production deployment for each release rather than assuming a push succeeded.
 
 ## Making changes through GPT
 

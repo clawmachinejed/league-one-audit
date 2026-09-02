@@ -175,9 +175,9 @@ describe('rosters and matchups', () => {
     expect(players[4]).toMatchObject({ name: 'PIT Defense', position: 'DEF', nflTeam: 'PIT' });
   });
 
-  it('fills missing starter slots and preserves explicit unknown scores', () => {
+  it('fills missing starter slots and recovers partial starter scores from the player map', () => {
     const players = lineup(['qb', 'rb'], ['QB', 'RB', 'FLEX'], catalog, [null, 0], { qb: 8, rb: 2 });
-    expect(players[0].points).toBeNull();
+    expect(players[0].points).toBe(8);
     expect(players[1].points).toBe(0);
     expect(players[2].name).toBe('Empty slot');
     expect(lineup(['qb'], ['QB'], catalog, undefined, { qb: 12.34 })[0].points).toBe(12.34);

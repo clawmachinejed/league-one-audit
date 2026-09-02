@@ -159,6 +159,20 @@ describe('Tank01 weekly projection provider', () => {
     });
   });
 
+  it('keeps the active NFL season unarchived through January Week 18', async () => {
+    const fetch = mockFetch();
+    const provider = createTank01ProjectionProvider({
+      apiKey: 'fixture-key', fetch: fetch as typeof globalThis.fetch,
+      now: () => Date.parse('2027-01-03T12:00:00Z'),
+    });
+
+    await provider.getWeeklyProjections('2026', 18);
+
+    const projectionCall = fetch.mock.calls.find(([input]) => new URL(String(input)).pathname === '/getNFLProjections');
+    const url = new URL(String(projectionCall?.[0]));
+    expect(Object.fromEntries(url.searchParams)).toEqual({ week: '18', itemFormat: 'map' });
+  });
+
   it('preserves reserved Tank01 and Sleeper IDs without changing record prototypes', async () => {
     const playerProjections = Object.create(null) as Record<string, unknown>;
     playerProjections['__proto__'] = playerProjection({ playerID: '__proto__', pos: 'RB' });

@@ -1,7 +1,10 @@
 import 'server-only';
 
 import { notFound } from 'next/navigation';
-import { getMatchups, getOverview, getOwner, getTransactions } from '@/lib/sleeper';
+import { selectStoredMatchups } from '@/lib/projection-freshness';
+import { getProjectionStore } from '@/lib/projection-store';
+import { getOfficialMatchups, getOverview, getOwner, getTransactions } from '@/lib/sleeper';
+import type { MatchupsData } from '@/lib/types';
 import { MatchupsView } from './matchups-view';
 import { OwnerView } from './owner-view';
 import { OwnersView } from './owners-view';
@@ -10,6 +13,25 @@ import { TransactionsView } from './transactions-view';
 
 type MatchupSearchParams = Promise<{ week?: string }>;
 type OwnerParams = Promise<{ id: string }>;
+
+async function storedMatchups(leagueId: string, week?: number): Promise<MatchupsData | null> {
+  try {
+    const store = getProjectionStore();
+    const [snapshot, latest] = week === undefined
+      ? await store.readLatestCurrentSnapshotBySleeperLeagueId(leagueId)
+        .then((value) => [value, value] as const)
+      : await Promise.all([
+        store.readLatestCurrentSnapshotBySleeperLeagueId(leagueId, week),
+        store.readLatestCurrentSnapshotBySleeperLeagueId(leagueId),
+      ]);
+    const selected = selectStoredMatchups(snapshot, latest, week);
+    return selected.kind === 'usable' ? selected.payload : null;
+  } catch {
+    // Neon is an optional read-through layer. Preserve authoritative Sleeper
+    // scores when it is unconfigured or temporarily unavailable.
+    return null;
+  }
+}
 
 export async function LeagueMatchupsPage({
   leagueId,
@@ -20,7 +42,8 @@ export async function LeagueMatchupsPage({
 }) {
   const { week } = await searchParams;
   const parsed = week && /^\d{1,2}$/u.test(week) ? Number(week) : undefined;
-  return <MatchupsView data={await getMatchups(parsed, leagueId)} />;
+  const persisted = await storedMatchups(leagueId, parsed);
+  return <MatchupsView data={persisted ?? await getOfficialMatchups(parsed, leagueId)} />;
 }
 
 export async function LeagueStandingsPage({ leagueId }: { leagueId: string }) {

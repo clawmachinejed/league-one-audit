@@ -29,7 +29,15 @@ vi.mock('next/server', () => ({ after: afterMock }));
 vi.mock('./tank01', () => ({ getTank01WeeklyProjections: getTank01WeeklyProjectionsMock }));
 
 import { LEAGUE_IDS } from './config';
-import { getMatchups, getOverview, getOwner, getTransactions } from './sleeper';
+import {
+  getMatchups,
+  getOfficialMatchups,
+  getOverview,
+  getOwner,
+  getProjectionCadenceInput,
+  getProjectionSyncInput,
+  getTransactions,
+} from './sleeper';
 import type { NormalizedTank01OffenseProjection } from './projection-scoring';
 
 const leagueOneId = LEAGUE_IDS.league1;
@@ -268,6 +276,57 @@ describe('Sleeper service error handling', () => {
     expect(nextCacheOptions.some((options) => options.revalidate === 86_400)).toBe(true);
   });
 
+  it('loads the cadence preflight without rosters, owners, players, or matchup scores', async () => {
+    const preflight = await getProjectionCadenceInput(leagueOneId);
+    expect(preflight).toMatchObject({
+      sleeperLeagueId: leagueOneId,
+      season: '2026',
+      week: 3,
+      currentNflSeason: '2026',
+      currentNflWeek: 3,
+    });
+    expect(Object.keys(preflight.schedule).length).toBeGreaterThan(0);
+    const paths = vi.mocked(fetch).mock.calls.map(([input]) => requestPath(input));
+    expect(paths).toContain(leaguePath);
+    expect(paths).toContain('/state/nfl');
+    expect(paths.some((path) => path.includes('/rosters') || path.includes('/users')
+      || path.includes('/players/nfl') || path.includes('/matchups/'))).toBe(false);
+  });
+
+  it('includes every rostered player once in projection sync input', async () => {
+    rawRosters = [{
+      roster_id: 1,
+      owner_id: 'member-1',
+      players: ['qb', 'rb'],
+      starters: ['qb'],
+      reserve: ['ir'],
+      taxi: ['taxi'],
+      settings: { ...rosterSettings },
+    }];
+    playerCatalog = {
+      qb: { full_name: 'Quarter Back', position: 'QB', team: 'IND' },
+      rb: { full_name: 'Bench Back', position: 'RB', team: 'IND' },
+      ir: { full_name: 'Reserve Back', position: 'RB', team: 'IND' },
+      taxi: { full_name: 'Taxi Back', position: 'RB', team: 'IND' },
+    };
+
+    const input = await getProjectionSyncInput(leagueOneId);
+
+    expect(input.rosteredPlayers.map((player) => player.id)).toEqual(['qb', 'rb', 'ir', 'taxi']);
+    expect(input.rosteredPlayers.map((player) => player.game)).toEqual([
+      input.schedule.IND,
+      input.schedule.IND,
+      input.schedule.IND,
+      input.schedule.IND,
+    ]);
+    const matchupRequest = vi.mocked(fetch).mock.calls.find(([request]) => (
+      requestPath(request) === `${leaguePath}/matchups/3`
+    ));
+    expect(matchupRequest?.[1]).toMatchObject({ cache: 'no-store' });
+    expect(Date.parse(input.requestStartedAt)).not.toBeNaN();
+    expect(Date.parse(input.requestCompletedAt)).toBeGreaterThanOrEqual(Date.parse(input.requestStartedAt));
+  });
+
   it('loads League 2 core and matchup data from its own Sleeper endpoints', async () => {
     const [overview, matchups] = await Promise.all([
       getOverview(leagueTwoId),
@@ -316,9 +375,9 @@ describe('Sleeper service error handling', () => {
     const playerUrls = vi.mocked(fetch).mock.calls
       .map(([url]) => new URL(String(url)))
       .filter((url) => url.pathname.endsWith('/players/nfl'));
-    expect(playerUrls).toHaveLength(5);
+    expect(playerUrls).toHaveLength(6);
     expect(playerUrls.map((url) => url.searchParams.get('position')).sort())
-      .toEqual(['DEF', 'QB', 'RB', 'TE', 'WR']);
+      .toEqual(['DEF', 'K', 'QB', 'RB', 'TE', 'WR']);
     expect(playerUrls.every((url) => url.searchParams.has('position'))).toBe(true);
   });
 
@@ -637,6 +696,17 @@ describe('Sleeper current injury metadata', () => {
 });
 
 describe('Sleeper matchup projection integration', () => {
+  it('loads current official scores without a static projection on the degraded fallback path', async () => {
+    const data = await getOfficialMatchups(3);
+
+    expect(getTank01WeeklyProjectionsMock).not.toHaveBeenCalled();
+    expect(data.matchups[0].sides[0]).toMatchObject({
+      points: null,
+      projectedPoints: null,
+      starters: [{ points: 12.34, projectedPoints: null }],
+    });
+  });
+
   it('maps an available true-zero offense projection to the starter and team total', async () => {
     getTank01WeeklyProjectionsMock.mockResolvedValueOnce(availableTank01Projection());
 
