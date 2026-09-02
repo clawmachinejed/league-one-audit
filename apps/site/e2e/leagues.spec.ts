@@ -122,7 +122,7 @@ test('My Team choices remain independent between League One and League Two', asy
 
   const storedKeys = await page.evaluate(() => Object.keys(localStorage).filter(key => key.startsWith('league-one:my-team:')).sort());
   expect(storedKeys).toEqual([
-    'league-one:my-team:1312138224994385920',
     'league-one:my-team:1378850182409490432',
+    'league-one:my-team:1378850360529014784',
   ]);
 });
