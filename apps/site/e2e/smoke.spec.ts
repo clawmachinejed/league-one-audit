@@ -25,6 +25,93 @@ async function expectTouchHeight(locator: Locator) {
   expect(box!.height, 'touch controls should be at least 44px tall').toBeGreaterThanOrEqual(44);
 }
 
+function relativeLuminance(color: string) {
+  const match = /^#([\da-f]{2})([\da-f]{2})([\da-f]{2})$/iu.exec(color);
+  if (!match) throw new Error(`Expected a six-digit hex color, received ${color}.`);
+  const channels = match.slice(1).map(value => Number.parseInt(value, 16) / 255)
+    .map(value => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4);
+  return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+}
+
+function contrastRatio(foreground: string, background: string) {
+  const lighter = Math.max(relativeLuminance(foreground), relativeLuminance(background));
+  const darker = Math.min(relativeLuminance(foreground), relativeLuminance(background));
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+test('the site follows the system color scheme while it is open', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.goto('/matchups', { waitUntil: 'networkidle' });
+
+  const readTheme = () => page.evaluate(() => {
+    const root = getComputedStyle(document.documentElement);
+    const body = getComputedStyle(document.body);
+    const header = getComputedStyle(document.querySelector<HTMLElement>('.site-header')!);
+    const tokens = [
+      '--paper', '--surface', '--ink', '--navy', '--muted', '--green', '--warning-bg', '--warning-ink',
+      '--positive-bg', '--positive-ink', '--negative-bg', '--negative-ink', '--neutral-bg', '--neutral-ink',
+      '--injury', '--questionable',
+    ];
+    return {
+      darkPreference: matchMedia('(prefers-color-scheme: dark)').matches,
+      colorScheme: root.colorScheme,
+      bodyBackground: body.backgroundColor,
+      bodyColor: body.color,
+      headerBackground: header.backgroundColor,
+      tokens: Object.fromEntries(tokens.map(token => [token, root.getPropertyValue(token).trim()])),
+    };
+  });
+
+  const light = await readTheme();
+  expect(light.darkPreference).toBe(false);
+  expect(light.colorScheme).toBe('light');
+
+  await page.emulateMedia({ colorScheme: 'dark' });
+  const dark = await readTheme();
+  expect(dark.darkPreference).toBe(true);
+  expect(dark.colorScheme).toBe('dark');
+  expect(dark.bodyBackground).not.toBe(light.bodyBackground);
+  expect(dark.bodyColor).not.toBe(light.bodyColor);
+  expect(dark.headerBackground).not.toBe(light.headerBackground);
+  expect(dark.tokens['--paper']).not.toBe(light.tokens['--paper']);
+  expect(dark.tokens['--surface']).not.toBe(light.tokens['--surface']);
+
+  const readablePairs = [
+    ['--ink', '--paper'],
+    ['--ink', '--surface'],
+    ['--muted', '--paper'],
+    ['--muted', '--surface'],
+    ['--green', '--paper'],
+    ['--green', '--surface'],
+    ['--warning-ink', '--warning-bg'],
+    ['--positive-ink', '--positive-bg'],
+    ['--negative-ink', '--negative-bg'],
+    ['--neutral-ink', '--neutral-bg'],
+    ['--injury', '--surface'],
+    ['--questionable', '--surface'],
+  ] as const;
+  for (const [foreground, background] of readablePairs) {
+    expect(
+      contrastRatio(dark.tokens[foreground], dark.tokens[background]),
+      `${foreground} should remain readable against ${background} in dark mode`,
+    ).toBeGreaterThanOrEqual(4.5);
+  }
+
+  const themeColors = await page.locator('meta[name="theme-color"]').evaluateAll(elements => elements.map(element => ({
+    color: element.getAttribute('content'),
+    media: element.getAttribute('media'),
+  })));
+  expect(themeColors).toEqual(expect.arrayContaining([
+    { color: '#f6f5f0', media: '(prefers-color-scheme: light)' },
+    { color: '#0e1511', media: '(prefers-color-scheme: dark)' },
+  ]));
+  await expectNoPageOverflow(page);
+
+  await page.emulateMedia({ colorScheme: 'light' });
+  expect(await readTheme()).toEqual(light);
+});
+
 test('matchups fit supported widths and expanded lineup rows remain 52px', async ({ page }) => {
   for (const viewport of viewports) {
     await test.step(viewport.name, async () => {
