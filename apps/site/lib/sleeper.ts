@@ -260,17 +260,17 @@ function joinWarnings(...warnings: Array<string | undefined>): string | undefine
   return warnings.filter(Boolean).join(' ') || undefined;
 }
 
-const getCore = cache(async () => {
+const getCore = cache(async (leagueId: string) => {
   const [rawLeague, rosters, users, stateResult] = await Promise.all([
-    fetchJson(`/league/${LEAGUE_ID}`),
-    fetchRows<SleeperRoster>(`/league/${LEAGUE_ID}/rosters`, isSleeperRoster, (row) => String(row.roster_id)),
-    fetchRows<SleeperUser>(`/league/${LEAGUE_ID}/users`, isSleeperUser, (row) => row.user_id),
+    fetchJson(`/league/${leagueId}`),
+    fetchRows<SleeperRoster>(`/league/${leagueId}/rosters`, isSleeperRoster, (row) => String(row.roster_id)),
+    fetchRows<SleeperUser>(`/league/${leagueId}/users`, isSleeperUser, (row) => row.user_id),
     fetchJson('/state/nfl').then(
       (value) => ({ value }),
       () => ({ value: null }),
     ),
   ]);
-  if (!isSleeperLeague(rawLeague) || rawLeague.league_id !== LEAGUE_ID) {
+  if (!isSleeperLeague(rawLeague) || rawLeague.league_id !== leagueId) {
     throw new Error('Sleeper did not return a valid league. Please check the league configuration.');
   }
   const sourceLeague = rawLeague;
@@ -390,8 +390,8 @@ async function getWeekSchedule(season: string, week: number): Promise<{
   };
 }
 
-export async function getOverview(): Promise<OverviewData> {
-  return (await getCore()).overview;
+export async function getOverview(leagueId = LEAGUE_ID): Promise<OverviewData> {
+  return (await getCore(leagueId)).overview;
 }
 
 function unavailableTank01Projections(season: string, week: number): Tank01ProjectionResult {
@@ -435,15 +435,15 @@ async function getOptionalTank01Projections(season: string, week: number): Promi
   return unavailableTank01Projections(season, week);
 }
 
-export async function getMatchups(requestedWeek?: number): Promise<MatchupsData> {
-  const core = await getCore();
+export async function getMatchups(requestedWeek?: number, leagueId = LEAGUE_ID): Promise<MatchupsData> {
+  const core = await getCore(leagueId);
   const week = requestedWeek === undefined ? core.overview.league.week
     : Number.isInteger(requestedWeek) && requestedWeek >= 1 && requestedWeek <= core.overview.league.maxWeek
       ? requestedWeek : core.overview.league.week;
   const status = matchupStatus(core.sourceLeague, core.state, week);
   const canDecorate = canDecorateMatchupWeek(core.sourceLeague, core.state, week);
   const [rows, players, nflSchedule, tank01Projections] = await Promise.all([
-    fetchRows<SleeperMatchup>(`/league/${LEAGUE_ID}/matchups/${week}`, isSleeperMatchup, (row) => String(row.roster_id)),
+    fetchRows<SleeperMatchup>(`/league/${leagueId}/matchups/${week}`, isSleeperMatchup, (row) => String(row.roster_id)),
     getPlayers(),
     canDecorate
       ? getWeekSchedule(core.overview.league.season, week)
@@ -477,9 +477,9 @@ export async function getMatchups(requestedWeek?: number): Promise<MatchupsData>
   };
 }
 
-export async function getOwner(id: number): Promise<OwnerData | null> {
+export async function getOwner(id: number, leagueId = LEAGUE_ID): Promise<OwnerData | null> {
   if (!Number.isInteger(id) || id < 1) return null;
-  const core = await getCore();
+  const core = await getCore(leagueId);
   const team = core.overview.teams.find((candidate) => candidate.id === id);
   const roster = core.rosters.find((candidate) => candidate.roster_id === id);
   if (!team || !roster) return null;
@@ -495,7 +495,7 @@ export async function getOwner(id: number): Promise<OwnerData | null> {
   };
 }
 
-const getTransactionWeeks = cache(async (lastWeek: number) => {
+const getTransactionWeeks = cache(async (leagueId: string, lastWeek: number) => {
   const weeks = Array.from({ length: lastWeek + 1 }, (_, week) => week);
   const rows: SleeperTransaction[] = [];
   const failedWeeks: number[] = [];
@@ -507,7 +507,7 @@ const getTransactionWeeks = cache(async (lastWeek: number) => {
       const week = weeks[next++];
       try {
         rows.push(...await fetchRows<SleeperTransaction>(
-          `/league/${LEAGUE_ID}/transactions/${week}`,
+          `/league/${leagueId}/transactions/${week}`,
           isSleeperTransaction,
           (row) => row.transaction_id,
         ));
@@ -521,13 +521,13 @@ const getTransactionWeeks = cache(async (lastWeek: number) => {
   return { rows, failedWeeks: failedWeeks.sort((a, b) => a - b) };
 });
 
-export async function getTransactions(id: number): Promise<TransactionsData | null> {
+export async function getTransactions(id: number, leagueId = LEAGUE_ID): Promise<TransactionsData | null> {
   if (!Number.isInteger(id) || id < 1) return null;
-  const core = await getCore();
+  const core = await getCore(leagueId);
   const team = core.overview.teams.find((candidate) => candidate.id === id);
   if (!team) return null;
   const [history, players] = await Promise.all([
-    getTransactionWeeks(transactionEndWeek(core.sourceLeague, core.state)),
+    getTransactionWeeks(leagueId, transactionEndWeek(core.sourceLeague, core.state)),
     getPlayers(),
   ]);
   const partial = history.failedWeeks.length > 0;

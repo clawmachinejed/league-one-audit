@@ -11,7 +11,7 @@ Use this record for every production change. A local build, GitHub push, or succ
 | Browser smoke verification | Successful `browser-smoke` job covering the defining browser journeys in Chromium. |
 | Preview | Vercel preview address tied to the proposed commit, plus manual checks of behavior affected by the change. |
 | Production | Production deployment tied to the merged commit and a successful check of [www.league1fantasy.com](https://www.league1fantasy.com). |
-| Configuration | `apps/site` Root Directory, Node.js 24, pnpm 11.19.0 through Corepack, and the intended `SLEEPER_LEAGUE_ID` in Vercel Project Settings. |
+| Configuration | `apps/site` Root Directory, Node.js 24, pnpm 11.19.0 through Corepack, and the intended `SLEEPER_LEAGUE_ID` and `SLEEPER_LEAGUE_2_ID` in Vercel Project Settings. |
 
 The automated browser suite checks matchup expansion and accessible score information, document fit at 360, 390, 430, and 1280 pixels, 52px player rows when lineups are available, primary touch targets, My Team persistence after reload, transaction presentation and filtering when data permits, and the not-found route back to Owners. It consumes public Sleeper data. A test records an explicit annotation when an upstream empty state makes a data-dependent measurement inapplicable.
 
@@ -35,8 +35,11 @@ The original mobile-first rebuild remains documented in [pull request #136](http
 - Confirm the Vercel deployment identifies the merged commit.
 - Open the production domain through a fresh browser session and verify there is no parking-page redirect.
 - Confirm Matchups, Standings, Owners, one owner roster, and one owner transaction page load the intended league.
+- Open the league selector and confirm League One stays on root routes while League 2 stays under `/league2` across Matchups, Standings, Owners, roster, and transaction navigation.
+- Confirm League One uses Sleeper ID `1378850182409490432` and League 2 uses `1188632897157021696`, with no roster, matchup, or transaction data crossing between them.
 - Expand a matchup and inspect player-row fit on a phone-sized viewport.
 - Select My Team, reload, and confirm the same team remains selected.
+- Select different My Team choices in the two leagues and confirm each choice returns after switching and reloading.
 - Check that transaction result labels, colors, movements, and FAAB values are readable when transactions exist.
 - Record any Sleeper outage, missing schedule, empty transaction history, protected-preview limitation, or other condition that prevented a check.
 

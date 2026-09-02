@@ -6,6 +6,7 @@ import { injuryStatusLabel } from '../lib/injury-status';
 import { formatNflGame } from '../lib/nfl-schedule';
 import { compactPlayerName } from '../lib/player-name';
 import type { Matchup, Player, Team } from '../lib/types';
+import { useLeagueSite } from './league-context';
 import styles from './matchups.module.css';
 
 type AvatarRenderer = (team: Team) => ReactNode;
@@ -69,6 +70,7 @@ function Starter({ player, opposite, high, pending }: { player?: Player; opposit
 }
 
 function MatchupCard({ matchup, selected, avatar }: { matchup: Matchup; selected: number | null; avatar: AvatarRenderer }) {
+  const site = useLeagueSite();
   const [expanded, setExpanded] = useState(false);
   const panelId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
@@ -122,7 +124,7 @@ function MatchupCard({ matchup, selected, avatar }: { matchup: Matchup; selected
     : 'opponent not posted, official score unavailable, projected score unavailable';
   const accessibleLabel = `${leftSummary}; versus ${rightSummary}. ${label}${mine ? '. My matchup' : ''}. ${expanded ? 'Collapse' : 'Expand'} starting lineups.`;
   return <article className={`${styles.card} ${mine ? styles.myMatchup : ''}`} aria-label={`${left.team.name}${right ? ` versus ${right.team.name}` : ', opponent pending'}`}>
-    <button className={styles.toggle} type="button" aria-expanded={expanded} aria-controls={panelId} onClick={() => setExpanded(value => !value)} aria-label={accessibleLabel}>
+    <button className={styles.toggle} type="button" data-matchup-toggle aria-expanded={expanded} aria-controls={panelId} onClick={() => setExpanded(value => !value)} aria-label={accessibleLabel}>
       <span className={styles.teamName} data-team-name>{left.team.name}</span>
       <span className={styles.scorePair} aria-hidden="true">
         <span className={styles.score} data-score-side="left"><span className={styles.teamOfficial} data-score-number>{points(left.points)}</span><span className={styles.teamProjection} data-team-projection-number aria-hidden="true">{points(left.projectedPoints)}</span></span>
@@ -151,7 +153,7 @@ function MatchupCard({ matchup, selected, avatar }: { matchup: Matchup; selected
         })}
         <p className={styles.lineupNote}>{matchup.status === 'upcoming' ? 'Lineups may change before kickoff.' : 'Scores reported by Sleeper.'}</p>
       </> : <p className={styles.unavailable}>Starting lineups have not been posted for this week.</p>}
-      <div className={styles.profileLinks}><Link href={`/owners/${left.team.id}`} aria-label={`View ${left.team.name} profile`}>Team profile</Link>{right && <Link href={`/owners/${right.team.id}`} aria-label={`View ${right.team.name} profile`}>Team profile</Link>}</div>
+      <div className={styles.profileLinks}><Link href={`${site.prefix}/owners/${left.team.id}`} aria-label={`View ${left.team.name} profile`}>Team profile</Link>{right && <Link href={`${site.prefix}/owners/${right.team.id}`} aria-label={`View ${right.team.name} profile`}>Team profile</Link>}</div>
     </div>
   </article>;
 }

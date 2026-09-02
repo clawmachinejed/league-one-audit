@@ -4,7 +4,7 @@
 
 The user wants GPT to implement website changes, publish them to GitHub, and deploy them to Vercel through a repeatable process. Carry an authorized request to completion with the available tools. Do not stop at a plan or make the user perform routine implementation steps.
 
-This is the mobile-first League One website. Keep the primary navigation focused on Matchups, Standings, and Owners. Rosters and Transactions belong within owner profiles. Do not reintroduce history, rivalries, awards, separate statistics or schedule sections, demo content, or cron jobs without a new request.
+This is the mobile-first League One and League 2 website. Keep the primary navigation focused on Matchups, Standings, and Owners. Rosters and Transactions belong within owner profiles. Do not reintroduce history, rivalries, awards, separate statistics or schedule sections, demo content, or cron jobs without a new request.
 
 Preserve these defining behaviors:
 
@@ -13,7 +13,7 @@ Preserve these defining behaviors:
 - Owner transaction details, including FAAB bids and outcomes, with green, red, and muted result colors and visible text labels.
 - Mobile screen fit, readable names and scores, and comfortable controls.
 
-The Sleeper league is `1378850182409490432`. Keep this and all other Sleeper IDs as strings where they represent upstream identifiers. Use the central configuration in `apps/site/lib/config.ts` and its `SLEEPER_LEAGUE_ID` environment override. Do not scatter new league defaults through views. Read league settings and data from Sleeper; do not invent scores, dates, players, results, or a fallback demonstration league.
+League One uses Sleeper ID `1378850182409490432`; League 2 uses `1188632897157021696`. Keep these and all other Sleeper IDs as strings where they represent upstream identifiers. Use the central configuration in `apps/site/lib/config.ts` and its `SLEEPER_LEAGUE_ID` and `SLEEPER_LEAGUE_2_ID` environment overrides. Do not scatter league defaults through views. Read league settings and data from Sleeper; do not invent scores, dates, players, results, or a fallback demonstration league.
 
 ## Working safely
 
@@ -47,6 +47,6 @@ For each substantive change:
 4. Confirm the production deployment belongs to the merged commit. Verify the live league ID and relevant core journeys, then report the pull request, commit hash, deployment links, and results.
 5. If blocked, distinguish local completion, branch publication, preview readiness, merge status, and production deployment. Never label a pending or inaccessible step complete.
 
-The recommended Vercel Root Directory is `apps/site`, using the Next.js framework preset, Node.js 24, the pnpm workspace lockfile, and the Next.js `.next` output default. Match the effective Vercel configuration to its selected root; the repository-root `apps/site/.next` path is not correct relative to an `apps/site` root. Configure the new league ID for Preview and Production and verify it in deployed behavior. Do not assume a recorded domain or Git integration proves the current release is live.
+The recommended Vercel Root Directory is `apps/site`, using the Next.js framework preset, Node.js 24, the pnpm workspace lockfile, and the Next.js `.next` output default. Match the effective Vercel configuration to its selected root; the repository-root `apps/site/.next` path is not correct relative to an `apps/site` root. Configure both league IDs for Preview and Production and verify each one in deployed behavior. Do not assume a recorded domain or Git integration proves the current release is live.
 
 For rollback, revert the relevant change through a pull request and verify the resulting production deployment. Do not reset or force-push `main`. If an urgent temporary Vercel rollback is separately authorized, keep Git history and the final deployed state reconciled afterward.
