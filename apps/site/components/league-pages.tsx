@@ -3,7 +3,7 @@ import 'server-only';
 import { notFound } from 'next/navigation';
 import { selectStoredMatchups } from '@/lib/projection-freshness';
 import { getProjectionStore } from '@/lib/projection-store';
-import { getOfficialMatchups, getOverview, getOwner, getTransactions } from '@/lib/sleeper';
+import { getCurrentLeagueWeek, getOfficialMatchups, getOverview, getOwner, getTransactions } from '@/lib/sleeper';
 import type { MatchupsData } from '@/lib/types';
 import { MatchupsView } from './matchups-view';
 import { OwnerView } from './owner-view';
@@ -42,8 +42,17 @@ export async function LeagueMatchupsPage({
 }) {
   const { week } = await searchParams;
   const parsed = week && /^\d{1,2}$/u.test(week) ? Number(week) : undefined;
-  const persisted = await storedMatchups(leagueId, parsed);
-  return <MatchupsView data={persisted ?? await getOfficialMatchups(parsed, leagueId)} />;
+  let selectedWeek = parsed;
+  if (selectedWeek === undefined) {
+    try {
+      selectedWeek = await getCurrentLeagueWeek(leagueId);
+    } catch {
+      // A freshness-checked latest snapshot can keep scores available through a
+      // brief Sleeper calendar outage. The full Sleeper path remains the fallback.
+    }
+  }
+  const persisted = await storedMatchups(leagueId, selectedWeek);
+  return <MatchupsView data={persisted ?? await getOfficialMatchups(selectedWeek, leagueId)} />;
 }
 
 export async function LeagueStandingsPage({ leagueId }: { leagueId: string }) {

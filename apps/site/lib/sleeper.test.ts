@@ -30,6 +30,7 @@ vi.mock('./tank01', () => ({ getTank01WeeklyProjections: getTank01WeeklyProjecti
 
 import { LEAGUE_IDS } from './config';
 import {
+  getCurrentLeagueWeek,
   getMatchups,
   getOfficialMatchups,
   getOverview,
@@ -284,6 +285,7 @@ describe('Sleeper service error handling', () => {
       week: 3,
       currentNflSeason: '2026',
       currentNflWeek: 3,
+      currentNflSeasonType: 'regular',
     });
     expect(Object.keys(preflight.schedule).length).toBeGreaterThan(0);
     const paths = vi.mocked(fetch).mock.calls.map(([input]) => requestPath(input));
@@ -291,6 +293,17 @@ describe('Sleeper service error handling', () => {
     expect(paths).toContain('/state/nfl');
     expect(paths.some((path) => path.includes('/rosters') || path.includes('/users')
       || path.includes('/players/nfl') || path.includes('/matchups/'))).toBe(false);
+  });
+
+  it('loads the current league week from only cached league and NFL-state inputs', async () => {
+    await expect(getCurrentLeagueWeek(leagueOneId)).resolves.toBe(3);
+
+    const calls = vi.mocked(fetch).mock.calls;
+    expect(calls.map(([input]) => requestPath(input))).toEqual([leaguePath, '/state/nfl']);
+    expect(calls.map(([, init]) => init)).toEqual([
+      expect.objectContaining({ next: { revalidate: 60 } }),
+      expect.objectContaining({ next: { revalidate: 60 } }),
+    ]);
   });
 
   it('includes every rostered player once in projection sync input', async () => {

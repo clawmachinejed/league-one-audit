@@ -56,6 +56,7 @@ export type ProjectionCadenceInput = Readonly<{
   schedule: WeekSchedule;
   currentNflSeason: string | null;
   currentNflWeek: number | null;
+  currentNflSeasonType: string | null;
 }>;
 
 const API = 'https://api.sleeper.app/v1';
@@ -285,12 +286,10 @@ function joinWarnings(...warnings: Array<string | undefined>): string | undefine
   return warnings.filter(Boolean).join(' ') || undefined;
 }
 
-const getCore = cache(async (leagueId: string) => {
-  const [rawLeague, rosters, users, stateResult] = await Promise.all([
-    fetchJson(`/league/${leagueId}`),
-    fetchRows<SleeperRoster>(`/league/${leagueId}/rosters`, isSleeperRoster, (row) => String(row.roster_id)),
-    fetchRows<SleeperUser>(`/league/${leagueId}/users`, isSleeperUser, (row) => row.user_id),
-    fetchJson('/state/nfl').then(
+const getLeagueCalendar = cache(async (leagueId: string, revalidate: number) => {
+  const [rawLeague, stateResult] = await Promise.all([
+    fetchJson(`/league/${leagueId}`, revalidate),
+    fetchJson('/state/nfl', revalidate).then(
       (value) => ({ value }),
       () => ({ value: null }),
     ),
@@ -298,10 +297,22 @@ const getCore = cache(async (leagueId: string) => {
   if (!isSleeperLeague(rawLeague) || rawLeague.league_id !== leagueId) {
     throw new Error('Sleeper did not return a valid league. Please check the league configuration.');
   }
-  const sourceLeague = rawLeague;
-  assertCoreCompleteness(sourceLeague, rosters, users);
   const state = isSleeperState(stateResult.value) ? stateResult.value : null;
-  const league = normalizeLeague(sourceLeague, state);
+  return {
+    sourceLeague: rawLeague,
+    state,
+    league: normalizeLeague(rawLeague, state),
+  };
+});
+
+const getCore = cache(async (leagueId: string) => {
+  const [calendar, rosters, users] = await Promise.all([
+    getLeagueCalendar(leagueId, CORE_CACHE_SECONDS),
+    fetchRows<SleeperRoster>(`/league/${leagueId}/rosters`, isSleeperRoster, (row) => String(row.roster_id)),
+    fetchRows<SleeperUser>(`/league/${leagueId}/users`, isSleeperUser, (row) => row.user_id),
+  ]);
+  const { sourceLeague, state, league } = calendar;
+  assertCoreCompleteness(sourceLeague, rosters, users);
   const teams = normalizeTeams(rosters, users);
   const overview: OverviewData = {
     league,
@@ -573,19 +584,8 @@ export async function getProjectionSyncInput(leagueId = LEAGUE_ID): Promise<Proj
  * five-minute cache and deliberately omit rosters, owners, players, and scores.
  */
 export async function getProjectionCadenceInput(leagueId = LEAGUE_ID): Promise<ProjectionCadenceInput> {
-  const [rawLeague, stateResult] = await Promise.all([
-    fetchJson(`/league/${leagueId}`, SCHEDULE_CACHE_SECONDS),
-    fetchJson('/state/nfl', SCHEDULE_CACHE_SECONDS).then(
-      (value) => ({ value }),
-      () => ({ value: null }),
-    ),
-  ]);
-  if (!isSleeperLeague(rawLeague) || rawLeague.league_id !== leagueId) {
-    throw new Error('Sleeper did not return a valid league. Please check the league configuration.');
-  }
-  const state = isSleeperState(stateResult.value) ? stateResult.value : null;
-  const league = normalizeLeague(rawLeague, state);
-  const schedule = canDecorateMatchupWeek(rawLeague, state, league.week)
+  const { sourceLeague, state, league } = await getLeagueCalendar(leagueId, SCHEDULE_CACHE_SECONDS);
+  const schedule = canDecorateMatchupWeek(sourceLeague, state, league.week)
     ? (await getWeekSchedule(league.season, league.week)).schedule
     : {};
   const currentNflWeek = state
@@ -600,7 +600,13 @@ export async function getProjectionCadenceInput(leagueId = LEAGUE_ID): Promise<P
     schedule,
     currentNflSeason: state?.season ?? null,
     currentNflWeek,
+    currentNflSeasonType: state?.season_type ?? null,
   };
+}
+
+/** Returns the current league week without loading rosters, owners, players, scores, or schedules. */
+export async function getCurrentLeagueWeek(leagueId = LEAGUE_ID): Promise<number> {
+  return (await getLeagueCalendar(leagueId, CORE_CACHE_SECONDS)).league.week;
 }
 
 export async function getMatchups(requestedWeek?: number, leagueId = LEAGUE_ID): Promise<MatchupsData> {

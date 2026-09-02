@@ -44,6 +44,7 @@ const LEAGUE_LOAD_CONCURRENCY = 8;
 const PROVIDER_GROUP_CONCURRENCY = 4;
 const LEAGUE_PROCESS_CONCURRENCY = 8;
 const HOURLY_WINDOW_MINUTES = 5;
+const UPCOMING_SCHEDULE_LOOKAHEAD_MS = 7 * 24 * 60 * 60 * 1_000;
 const ACTIVITY_WINDOW_BEFORE_KICKOFF_MS = 2 * 60 * 60 * 1_000;
 const ACTIVITY_WINDOW_AFTER_KICKOFF_MS = 7 * 60 * 60 * 1_000;
 
@@ -196,10 +197,14 @@ function workerCadence(
   schedule: ProjectionCadenceInput['schedule'],
   now: Date,
   force: boolean,
+  allowHourly: boolean,
 ): ProjectionSyncCadence {
   const cadence = projectionSyncCadenceForSchedule(schedule, now, force);
-  if (cadence !== 'idle') return cadence;
-  return now.getUTCMinutes() < HOURLY_WINDOW_MINUTES ? 'hourly' : 'idle';
+  if (cadence === 'forced' || cadence === 'live-window') return cadence;
+  if (!allowHourly) return 'idle';
+  return cadence === 'hourly' || now.getUTCMinutes() < HOURLY_WINDOW_MINUTES
+    ? 'hourly'
+    : 'idle';
 }
 
 function isCurrentNflPeriod(input: ProjectionCadenceInput): boolean {
@@ -207,6 +212,19 @@ function isCurrentNflPeriod(input: ProjectionCadenceInput): boolean {
     && input.currentNflWeek !== null
     && input.season === input.currentNflSeason
     && input.week === input.currentNflWeek;
+}
+
+function allowsHourlyFallback(input: ProjectionCadenceInput, now: Date): boolean {
+  if (isCurrentNflPeriod(input) && input.currentNflSeasonType === 'regular') return true;
+  const nowMs = now.getTime();
+  if (!Number.isFinite(nowMs)) return false;
+  return Object.values(input.schedule).some((game) => {
+    if (game.kind !== 'scheduled' || !game.kickoffAt) return false;
+    const kickoffMs = Date.parse(game.kickoffAt);
+    return Number.isFinite(kickoffMs)
+      && kickoffMs >= nowMs
+      && kickoffMs - nowMs <= UPCOMING_SCHEDULE_LOOKAHEAD_MS;
+  });
 }
 
 function activityWindowsForSchedule(schedule: ProjectionSyncInput['schedule']): Array<Readonly<{
@@ -775,8 +793,13 @@ async function runWithDependencies(
       try {
         const candidate = await dependencies.getProjectionCadenceInput(configuration.sleeperLeagueId);
         if (candidate.sleeperLeagueId !== configuration.sleeperLeagueId) continue;
-        const candidateCadence = workerCadence(candidate.schedule, now, options.force === true);
-        if (options.force === true || isCurrentNflPeriod(candidate)) {
+        const candidateCadence = workerCadence(
+          candidate.schedule,
+          now,
+          options.force === true,
+          allowsHourlyFallback(candidate, now),
+        );
+        if (isCurrentNflPeriod(candidate)) {
           // Sleeper's NFL state is global. Once a league points at that same
           // season/week, its complete NFL schedule is a sufficient cheap cadence
           // source for every configured league, including an idle result.
@@ -794,7 +817,7 @@ async function runWithDependencies(
         projectionLog('warn', { stage: 'preflight', outcome: 'failed', leagueKey: configuration.key });
       }
     }
-    if (!cadenceInput && staleFallback) {
+    if (!cadenceInput && staleFallback && options.force !== true) {
       cadenceInput = staleFallback.input;
       preflightCadence = staleFallback.cadence;
     }
@@ -835,7 +858,12 @@ async function runWithDependencies(
       return {
         configuration,
         source,
-        cadence: workerCadence(source.schedule, now, options.force === true),
+        cadence: workerCadence(
+          source.schedule,
+          now,
+          options.force === true,
+          preflightCadence === 'hourly',
+        ),
       };
     };
     const sourceResults = await mapWithConcurrency(
@@ -853,10 +881,29 @@ async function runWithDependencies(
     const sources = sourceResults.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []);
     let failedLeagues = sourceResults.length - sources.length;
     if (sources.length === 0) throw new Error('No league source could be loaded.');
-    const cadence = highestCadence([preflightCadence, ...sources.map((source) => source.cadence)]);
+    const eligibleSources = sources.filter(
+      (source) => source.source.data.league.season === cadenceInput.season
+        && source.source.data.week === cadenceInput.week,
+    );
+    for (const source of sources) {
+      if (!eligibleSources.includes(source)) {
+        failedLeagues += 1;
+        projectionLog('info', {
+          stage: 'league-load', outcome: 'skipped', leagueKey: source.configuration.key,
+          season: source.source.data.league.season, week: source.source.data.week,
+        });
+      }
+    }
+    if (eligibleSources.length === 0) {
+      throw new Error('No league source matched the selected NFL period.');
+    }
+    const cadence = highestCadence([
+      preflightCadence,
+      ...eligibleSources.map((source) => source.cadence),
+    ]);
 
     stage = 'provider-load';
-    const groups = groupLeagues(sources);
+    const groups = groupLeagues(eligibleSources);
     const providerResults = await mapWithConcurrency(groups, PROVIDER_GROUP_CONCURRENCY, async (group) => {
       try {
         const [projections, games] = await Promise.all([
