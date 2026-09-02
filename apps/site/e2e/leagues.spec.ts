@@ -68,7 +68,7 @@ test('switching leagues changes identity, data routes, and every primary tab', a
   await mobileNav.getByRole('link', { name: 'Standings' }).click();
   await expect(page).toHaveURL(/\/league2\/standings$/u);
   await expect(page.getByRole('heading', { level: 1, name: 'Standings' })).toBeVisible();
-  await expect(page.getByText('2025 season', { exact: true })).toBeVisible();
+  await expect(page.getByText('2026 season', { exact: true })).toBeVisible();
 
   await page.getByRole('navigation', { name: 'Mobile navigation' }).getByRole('link', { name: 'Owners' }).click();
   await expect(page).toHaveURL(/\/league2\/owners$/u);
