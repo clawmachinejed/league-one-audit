@@ -1,4 +1,5 @@
 import type { Matchup, Player } from './types';
+import { canonicalNflTeam } from './nfl-teams';
 import {
   auditProjectionScoringSettings,
   scoreTank01Projection,
@@ -8,16 +9,19 @@ import type { Tank01PlayerProjection, Tank01ProjectionResult } from './tank01';
 
 export type PlayerProjectionPoints = Readonly<Record<string, number>>;
 
+export type PregameProjectionPointQuality = 'complete' | 'missing';
+
+export type PregameProjectionPointMapResult = Readonly<{
+  status: 'available' | 'unavailable' | 'empty';
+  pointsByPlayer: PlayerProjectionPoints;
+  qualityByPlayer: Readonly<Record<string, PregameProjectionPointQuality>>;
+  warning?: string;
+}>;
+
 export type ProjectionDecoration = Readonly<{
   matchups: Matchup[];
   warning?: string;
 }>;
-
-const defenseAliases: Readonly<Record<string, string>> = {
-  JAC: 'JAX',
-  LA: 'LAR',
-  WSH: 'WAS',
-};
 
 function isProjection(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
@@ -29,14 +33,7 @@ function isEmptySlot(player: Player): boolean {
 
 function defenseTeam(player: Player): string | null {
   if (player.position !== 'DEF' && player.slot !== 'DEF') return null;
-  const value = (player.nflTeam ?? player.id).trim().toUpperCase();
-  return (defenseAliases[value] ?? value) || null;
-}
-
-function canonicalTeam(value: string | null): string | null {
-  if (!value) return null;
-  const normalized = value.trim().toUpperCase();
-  return (defenseAliases[normalized] ?? normalized) || null;
+  return canonicalNflTeam(player.nflTeam ?? player.id);
 }
 
 function canonicalPosition(value: string | null): string | null {
@@ -48,9 +45,9 @@ function canonicalPosition(value: string | null): string | null {
 }
 
 function matchesSleeperPlayer(player: Player, projection: Tank01PlayerProjection): boolean {
-  const sleeperTeam = canonicalTeam(player.nflTeam);
+  const sleeperTeam = canonicalNflTeam(player.nflTeam);
   const sleeperPosition = canonicalPosition(player.position);
-  const tankTeam = canonicalTeam(projection.team);
+  const tankTeam = canonicalNflTeam(projection.team);
   const tankPosition = canonicalPosition(projection.position);
   return sleeperTeam !== null && tankTeam === sleeperTeam
     && sleeperPosition !== null && tankPosition === sleeperPosition;
@@ -84,25 +81,28 @@ export function addProjectedPoints(
 }
 
 /**
- * Scores only the real starters displayed in these matchups. Sleeper remains the
- * source of truth for lineups and official scores; Tank01 contributes stat
- * projections only. When an available Tank01 slate lacks a usable projection
- * for a starter, that starter contributes zero so every complete lineup still
- * receives a team total. Provider outages remain unavailable.
+ * Scores a caller-selected set of Sleeper players. Sleeper remains the source
+ * of truth for identity and league scoring; Tank01 contributes projected stats.
+ * A missing usable projection is an explicit zero with missing quality, while
+ * provider outages remain unavailable.
  */
-export function addTank01ProjectedPoints(
-  matchups: Matchup[],
+export function scoreTank01PlayersPointMap(
+  players: readonly Player[],
   result: Tank01ProjectionResult,
   scoringSettings: SleeperScoringSettings | null | undefined,
-): ProjectionDecoration {
-  const starters = matchups.flatMap((matchup) => matchup.sides)
-    .flatMap((side) => side.starters)
-    .filter((player) => !isEmptySlot(player));
-  if (!starters.length) return { matchups };
+): PregameProjectionPointMapResult {
+  const realPlayers = players.filter((player) => !isEmptySlot(player));
+  const emptyPoints = Object.create(null) as Record<string, number>;
+  const emptyQuality = Object.create(null) as Record<string, PregameProjectionPointQuality>;
+  if (!realPlayers.length) {
+    return { status: 'empty', pointsByPlayer: emptyPoints, qualityByPlayer: emptyQuality };
+  }
 
   if (result.status === 'unavailable') {
     return {
-      matchups,
+      status: 'unavailable',
+      pointsByPlayer: emptyPoints,
+      qualityByPlayer: emptyQuality,
       warning: result.reason === 'missing-api-key'
         ? 'Projected scores are not configured.'
         : 'Projected scores are temporarily unavailable.',
@@ -110,26 +110,31 @@ export function addTank01ProjectedPoints(
   }
   if (!scoringSettings || Object.keys(scoringSettings).length === 0) {
     return {
-      matchups,
+      status: 'unavailable',
+      pointsByPlayer: emptyPoints,
+      qualityByPlayer: emptyQuality,
       warning: 'Projected scores are unavailable because Sleeper league scoring settings could not be loaded.',
     };
   }
   if (auditProjectionScoringSettings(scoringSettings).invalidScoringKeys.length > 0) {
     return {
-      matchups,
+      status: 'unavailable',
+      pointsByPlayer: emptyPoints,
+      qualityByPlayer: emptyQuality,
       warning: 'Projected scores are unavailable because Sleeper league scoring settings were invalid.',
     };
   }
 
   const pointsByPlayer = Object.create(null) as Record<string, number>;
+  const qualityByPlayer = Object.create(null) as Record<string, PregameProjectionPointQuality>;
   let invalidScoringSettings = false;
-  const starterCounts = new Map<string, number>();
-  starters.forEach((player) => starterCounts.set(player.id, (starterCounts.get(player.id) ?? 0) + 1));
+  const playerCounts = new Map<string, number>();
+  realPlayers.forEach((player) => playerCounts.set(player.id, (playerCounts.get(player.id) ?? 0) + 1));
   const processedIds = new Set<string>();
-  for (const player of starters) {
+  for (const player of realPlayers) {
     if (processedIds.has(player.id)) continue;
     processedIds.add(player.id);
-    if ((starterCounts.get(player.id) ?? 0) > 1) {
+    if ((playerCounts.get(player.id) ?? 0) > 1) {
       continue;
     }
     const team = defenseTeam(player);
@@ -137,6 +142,7 @@ export function addTank01ProjectedPoints(
     const playerProjection = team ? undefined : result.projections.bySleeperId[player.id];
     if ((!team && !playerProjection) || (team && !defenseProjection)) {
       pointsByPlayer[player.id] = 0;
+      qualityByPlayer[player.id] = 'missing';
       continue;
     }
     // A row that conflicts with Sleeper's current identity is an unsafe ID match,
@@ -149,16 +155,44 @@ export function addTank01ProjectedPoints(
         invalidScoringSettings = true;
       } else {
         pointsByPlayer[player.id] = 0;
+        qualityByPlayer[player.id] = 'missing';
       }
       continue;
     }
     pointsByPlayer[player.id] = score.points;
+    qualityByPlayer[player.id] = 'complete';
   }
 
   return {
-    matchups: addProjectedPoints(matchups, pointsByPlayer),
+    status: 'available',
+    pointsByPlayer,
+    qualityByPlayer,
     warning: invalidScoringSettings
       ? 'Some projected scores are unavailable because Sleeper league scoring settings were invalid.'
       : undefined,
+  };
+}
+
+export function scoreTank01PregamePointMap(
+  matchups: Matchup[],
+  result: Tank01ProjectionResult,
+  scoringSettings: SleeperScoringSettings | null | undefined,
+): PregameProjectionPointMapResult {
+  const starters = matchups.flatMap((matchup) => matchup.sides)
+    .flatMap((side) => side.starters);
+  return scoreTank01PlayersPointMap(starters, result, scoringSettings);
+}
+
+export function addTank01ProjectedPoints(
+  matchups: Matchup[],
+  result: Tank01ProjectionResult,
+  scoringSettings: SleeperScoringSettings | null | undefined,
+): ProjectionDecoration {
+  const scored = scoreTank01PregamePointMap(matchups, result, scoringSettings);
+  return {
+    matchups: scored.status === 'available'
+      ? addProjectedPoints(matchups, scored.pointsByPlayer)
+      : matchups,
+    warning: scored.warning,
   };
 }

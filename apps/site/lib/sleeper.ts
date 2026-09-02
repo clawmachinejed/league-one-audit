@@ -8,10 +8,11 @@ import { normalizeInjuryStatus } from './injury-status';
 import { addTank01ProjectedPoints } from './matchup-projections';
 import {
   addScheduleToMatchups,
+  addScheduleToPlayers,
   resolveSleeperSchedule,
   type WeekSchedule,
 } from './nfl-schedule';
-import type { MatchupsData, OverviewData, OwnerData, TransactionsData } from './types';
+import type { MatchupsData, OverviewData, OwnerData, Player, TransactionsData } from './types';
 import { getTank01WeeklyProjections, type Tank01ProjectionResult } from './tank01';
 import {
   canDecorateMatchupWeek,
@@ -23,6 +24,7 @@ import {
   normalizeTeams,
   normalizeTransactions,
   ownerLineup,
+  playerFromId,
   transactionEndWeek,
   type PlayerCatalog,
   type SleeperLeague,
@@ -33,6 +35,29 @@ import {
   type SleeperTransaction,
   type SleeperUser,
 } from './transform';
+
+export type ProjectionSyncInput = Readonly<{
+  sleeperLeagueId: string;
+  leagueName: string;
+  scoringSettings: Readonly<Record<string, unknown>> | null;
+  data: MatchupsData;
+  /** Every player currently rostered in the league, including bench, IR, and taxi players. */
+  rosteredPlayers: readonly Player[];
+  /** Complete weekly NFL schedule, including games without a displayed starter. */
+  schedule: WeekSchedule;
+  requestStartedAt: string;
+  requestCompletedAt: string;
+}>;
+
+export type ProjectionCadenceInput = Readonly<{
+  sleeperLeagueId: string;
+  season: string;
+  week: number;
+  schedule: WeekSchedule;
+  currentNflSeason: string | null;
+  currentNflWeek: number | null;
+  currentNflSeasonType: string | null;
+}>;
 
 const API = 'https://api.sleeper.app/v1';
 const SEASON_SCHEDULE_API = 'https://api.sleeper.com/schedule/nfl/regular';
@@ -48,7 +73,7 @@ const PLAYER_FAILURE_CACHE_SECONDS = 300;
 const MATCHUP_PROJECTION_WAIT_MS = 1_000;
 // League One uses these player positions. Sleeper's documented position filters keep
 // each response small enough to load reliably in a serverless function.
-const PLAYER_POSITIONS = ['QB', 'RB', 'WR', 'TE', 'DEF'] as const;
+const PLAYER_POSITIONS = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'] as const;
 type PlayerPosition = typeof PLAYER_POSITIONS[number];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -201,8 +226,9 @@ async function fetchRows<T>(
   path: string,
   validate: (value: unknown) => value is T,
   key: (row: T) => string,
+  revalidate = CORE_CACHE_SECONDS,
 ): Promise<T[]> {
-  const value = await fetchJson(path);
+  const value = await fetchJson(path, revalidate);
   if (!Array.isArray(value) || value.some((row) => !validate(row))) {
     throw new Error(`Sleeper returned an invalid response for ${path}.`);
   }
@@ -260,12 +286,10 @@ function joinWarnings(...warnings: Array<string | undefined>): string | undefine
   return warnings.filter(Boolean).join(' ') || undefined;
 }
 
-const getCore = cache(async (leagueId: string) => {
-  const [rawLeague, rosters, users, stateResult] = await Promise.all([
-    fetchJson(`/league/${leagueId}`),
-    fetchRows<SleeperRoster>(`/league/${leagueId}/rosters`, isSleeperRoster, (row) => String(row.roster_id)),
-    fetchRows<SleeperUser>(`/league/${leagueId}/users`, isSleeperUser, (row) => row.user_id),
-    fetchJson('/state/nfl').then(
+const getLeagueCalendar = cache(async (leagueId: string, revalidate: number) => {
+  const [rawLeague, stateResult] = await Promise.all([
+    fetchJson(`/league/${leagueId}`, revalidate),
+    fetchJson('/state/nfl', revalidate).then(
       (value) => ({ value }),
       () => ({ value: null }),
     ),
@@ -273,10 +297,22 @@ const getCore = cache(async (leagueId: string) => {
   if (!isSleeperLeague(rawLeague) || rawLeague.league_id !== leagueId) {
     throw new Error('Sleeper did not return a valid league. Please check the league configuration.');
   }
-  const sourceLeague = rawLeague;
-  assertCoreCompleteness(sourceLeague, rosters, users);
   const state = isSleeperState(stateResult.value) ? stateResult.value : null;
-  const league = normalizeLeague(sourceLeague, state);
+  return {
+    sourceLeague: rawLeague,
+    state,
+    league: normalizeLeague(rawLeague, state),
+  };
+});
+
+const getCore = cache(async (leagueId: string) => {
+  const [calendar, rosters, users] = await Promise.all([
+    getLeagueCalendar(leagueId, CORE_CACHE_SECONDS),
+    fetchRows<SleeperRoster>(`/league/${leagueId}/rosters`, isSleeperRoster, (row) => String(row.roster_id)),
+    fetchRows<SleeperUser>(`/league/${leagueId}/users`, isSleeperUser, (row) => row.user_id),
+  ]);
+  const { sourceLeague, state, league } = calendar;
+  assertCoreCompleteness(sourceLeague, rosters, users);
   const teams = normalizeTeams(rosters, users);
   const overview: OverviewData = {
     league,
@@ -435,23 +471,42 @@ async function getOptionalTank01Projections(season: string, week: number): Promi
   return unavailableTank01Projections(season, week);
 }
 
-export async function getMatchups(requestedWeek?: number, leagueId = LEAGUE_ID): Promise<MatchupsData> {
+async function loadMatchupSource(
+  requestedWeek: number | undefined,
+  leagueId: string,
+  includeOptionalProjection: boolean,
+  freshMatchups = false,
+): Promise<{
+  data: MatchupsData;
+  rosteredPlayers: readonly Player[];
+  sourceLeague: SleeperLeague;
+  tank01Projections: Tank01ProjectionResult | null;
+  schedule: WeekSchedule;
+  requestStartedAt: string;
+  requestCompletedAt: string;
+}> {
   const core = await getCore(leagueId);
   const week = requestedWeek === undefined ? core.overview.league.week
     : Number.isInteger(requestedWeek) && requestedWeek >= 1 && requestedWeek <= core.overview.league.maxWeek
       ? requestedWeek : core.overview.league.week;
   const status = matchupStatus(core.sourceLeague, core.state, week);
   const canDecorate = canDecorateMatchupWeek(core.sourceLeague, core.state, week);
-  const [rows, players, nflSchedule, tank01Projections] = await Promise.all([
-    fetchRows<SleeperMatchup>(`/league/${leagueId}/matchups/${week}`, isSleeperMatchup, (row) => String(row.roster_id)),
+  const [matchupObservation, players, nflSchedule, tank01Projections] = await Promise.all([
+    fetchObservedRows<SleeperMatchup>(
+      `/league/${leagueId}/matchups/${week}`,
+      isSleeperMatchup,
+      (row) => String(row.roster_id),
+      freshMatchups ? 0 : CORE_CACHE_SECONDS,
+    ),
     getPlayers(),
     canDecorate
       ? getWeekSchedule(core.overview.league.season, week)
       : Promise.resolve({ schedule: {} as WeekSchedule, canIdentifyByes: false, warning: undefined }),
-    canDecorate
+    canDecorate && includeOptionalProjection
       ? getOptionalTank01Projections(core.overview.league.season, week)
       : Promise.resolve(null),
   ]);
+  const { rows, requestStartedAt, requestCompletedAt } = matchupObservation;
   const slateExpected = matchupSlateExpected(core.sourceLeague, core.state, week);
   assertMatchupCompleteness(rows, core.rosters, slateExpected);
   const scheduledMatchups = addScheduleToMatchups(
@@ -460,21 +515,122 @@ export async function getMatchups(requestedWeek?: number, leagueId = LEAGUE_ID):
     nflSchedule.schedule,
     nflSchedule.canIdentifyByes,
   );
-  const projectionDecoration = tank01Projections
-    ? addTank01ProjectedPoints(scheduledMatchups, tank01Projections, core.sourceLeague.scoring_settings)
-    : { matchups: scheduledMatchups, warning: undefined };
-  const matchups = projectionDecoration.matchups;
-  const displayedRows = matchups.reduce((count, matchup) => count + matchup.sides.length, 0);
+  const rosteredPlayerIds = [...new Set(core.rosters.flatMap((roster) => [
+    ...(roster.players ?? []),
+    ...(roster.starters ?? []),
+    ...(roster.reserve ?? []),
+    ...(roster.taxi ?? []),
+  ]).filter((id): id is string => typeof id === 'string' && id !== '0'))];
+  const rosteredPlayers = addScheduleToPlayers(
+    rosteredPlayerIds.map((id, index) => playerFromId(id, 'BN', players.catalog, null, index)),
+    nflSchedule.schedule,
+    nflSchedule.canIdentifyByes,
+  );
+  const displayedRows = scheduledMatchups.reduce((count, matchup) => count + matchup.sides.length, 0);
   return {
-    ...core.overview,
-    week,
-    matchups,
-    warning: joinWarnings(core.overview.warning, players.warning,
-      players.warning ? undefined : playerCoverageWarning(players.catalog, rows.flatMap((row) => row.starters ?? [])),
-      nflSchedule.warning,
-      projectionDecoration.warning,
-      displayedRows < rows.length ? 'Some matchup entries could not be matched to a unique league roster.' : undefined),
+    data: {
+      ...core.overview,
+      updatedAt: requestCompletedAt,
+      week,
+      matchups: scheduledMatchups,
+      warning: joinWarnings(core.overview.warning, players.warning,
+        players.warning ? undefined : playerCoverageWarning(players.catalog, rows.flatMap((row) => row.starters ?? [])),
+        nflSchedule.warning,
+        displayedRows < rows.length ? 'Some matchup entries could not be matched to a unique league roster.' : undefined),
+    },
+    rosteredPlayers,
+    sourceLeague: core.sourceLeague,
+    tank01Projections,
+    schedule: nflSchedule.schedule,
+    requestStartedAt,
+    requestCompletedAt,
   };
+}
+
+async function fetchObservedRows<T>(
+  path: string,
+  validate: (value: unknown) => value is T,
+  key: (row: T) => string,
+  revalidate = CORE_CACHE_SECONDS,
+): Promise<Readonly<{ rows: T[]; requestStartedAt: string; requestCompletedAt: string }>> {
+  const requestStartedAt = new Date().toISOString();
+  const rows = await fetchRows(path, validate, key, revalidate);
+  const requestCompletedAt = new Date().toISOString();
+  return { rows, requestStartedAt, requestCompletedAt };
+}
+
+/**
+ * Loads one authoritative Sleeper matchup slate without calculating projections. The projection
+ * worker uses this boundary so provider synchronization and database writes remain outside the
+ * presentation path.
+ */
+export async function getProjectionSyncInput(leagueId = LEAGUE_ID): Promise<ProjectionSyncInput> {
+  const source = await loadMatchupSource(undefined, leagueId, false, true);
+  return {
+    sleeperLeagueId: leagueId,
+    leagueName: source.sourceLeague.name,
+    scoringSettings: source.sourceLeague.scoring_settings ?? null,
+    data: source.data,
+    rosteredPlayers: source.rosteredPlayers,
+    schedule: source.schedule,
+    requestStartedAt: source.requestStartedAt,
+    requestCompletedAt: source.requestCompletedAt,
+  };
+}
+
+/**
+ * Loads only the global calendar inputs needed to decide whether the scheduled
+ * worker should wake Neon and fan out across leagues. These requests use a
+ * five-minute cache and deliberately omit rosters, owners, players, and scores.
+ */
+export async function getProjectionCadenceInput(leagueId = LEAGUE_ID): Promise<ProjectionCadenceInput> {
+  const { sourceLeague, state, league } = await getLeagueCalendar(leagueId, SCHEDULE_CACHE_SECONDS);
+  const schedule = canDecorateMatchupWeek(sourceLeague, state, league.week)
+    ? (await getWeekSchedule(league.season, league.week)).schedule
+    : {};
+  const currentNflWeek = state
+    ? [state.display_week, state.leg, state.week]
+      .find((value): value is number => typeof value === 'number'
+        && Number.isInteger(value) && value >= 1 && value <= 18) ?? null
+    : null;
+  return {
+    sleeperLeagueId: leagueId,
+    season: league.season,
+    week: league.week,
+    schedule,
+    currentNflSeason: state?.season ?? null,
+    currentNflWeek,
+    currentNflSeasonType: state?.season_type ?? null,
+  };
+}
+
+/** Returns the current league week without loading rosters, owners, players, scores, or schedules. */
+export async function getCurrentLeagueWeek(leagueId = LEAGUE_ID): Promise<number> {
+  return (await getLeagueCalendar(leagueId, CORE_CACHE_SECONDS)).league.week;
+}
+
+export async function getMatchups(requestedWeek?: number, leagueId = LEAGUE_ID): Promise<MatchupsData> {
+  const source = await loadMatchupSource(requestedWeek, leagueId, true);
+  const projectionDecoration = source.tank01Projections
+    ? addTank01ProjectedPoints(source.data.matchups, source.tank01Projections, source.sourceLeague.scoring_settings)
+    : { matchups: source.data.matchups, warning: undefined };
+  return {
+    ...source.data,
+    matchups: projectionDecoration.matchups,
+    warning: joinWarnings(source.data.warning, projectionDecoration.warning),
+  };
+}
+
+/**
+ * Loads authoritative Sleeper matchup scores and lineups without attaching a
+ * static Tank01 pregame estimate. This is the safe degraded path when the live
+ * projection worker has not recently verified its stored snapshot.
+ */
+export async function getOfficialMatchups(
+  requestedWeek?: number,
+  leagueId = LEAGUE_ID,
+): Promise<MatchupsData> {
+  return (await loadMatchupSource(requestedWeek, leagueId, false)).data;
 }
 
 export async function getOwner(id: number, leagueId = LEAGUE_ID): Promise<OwnerData | null> {

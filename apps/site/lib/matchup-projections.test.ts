@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { Matchup, Player, Team } from './types';
-import { addProjectedPoints } from './matchup-projections';
+import {
+  addProjectedPoints,
+  scoreTank01PregamePointMap,
+  scoreTank01PlayersPointMap,
+} from './matchup-projections';
+import type { Tank01AvailableResult } from './tank01';
 
 const team: Team = {
   id: 1,
@@ -75,4 +80,116 @@ describe('matchup projections', () => {
     const [result] = addProjectedPoints([matchup([player('empty-QB-0')])], {});
     expect(result.sides[0].projectedPoints).toBeNull();
   });
+
+  it('exposes full-precision pregame points and source quality independently of UI decoration', () => {
+    const sourcePlayer = player('sleeper-running-back');
+    const result = scoreTank01PregamePointMap(
+      [matchup([sourcePlayer, player('missing-from-slate')])],
+      availableTank01Result({
+        'sleeper-running-back': {
+          tank01PlayerId: 'tank-running-back',
+          sleeperPlayerId: 'sleeper-running-back',
+          team: 'IND',
+          position: 'RB',
+          stats: emptyPlayerStats,
+          scoringProjection: { kind: 'offense', rushingYards: 101.25 },
+          missingFields: [],
+        },
+      }),
+      { rush_yd: 0.1 },
+    );
+
+    expect(result.status).toBe('available');
+    expect({ ...result.pointsByPlayer }).toEqual({
+      'sleeper-running-back': 10.125,
+      'missing-from-slate': 0,
+    });
+    expect({ ...result.qualityByPlayer }).toEqual({
+      'sleeper-running-back': 'complete',
+      'missing-from-slate': 'missing',
+    });
+  });
+
+  it('withholds an unsafe identity match from the reusable pregame map', () => {
+    const result = scoreTank01PregamePointMap(
+      [matchup([player('sleeper-running-back')])],
+      availableTank01Result({
+        'sleeper-running-back': {
+          tank01PlayerId: 'tank-wide-receiver',
+          sleeperPlayerId: 'sleeper-running-back',
+          team: 'IND',
+          position: 'WR',
+          stats: emptyPlayerStats,
+          scoringProjection: { kind: 'offense', rushingYards: 100 },
+          missingFields: [],
+        },
+      }),
+      { rush_yd: 0.1 },
+    );
+
+    expect(result.status).toBe('available');
+    expect(Object.keys(result.pointsByPlayer)).toEqual([]);
+    expect(Object.keys(result.qualityByPlayer)).toEqual([]);
+  });
+
+  it('scores rostered bench players without fabricating matchup rows', () => {
+    const bench = player('bench-running-back');
+    const result = scoreTank01PlayersPointMap(
+      [bench],
+      availableTank01Result({
+        'bench-running-back': {
+          tank01PlayerId: 'tank-bench-running-back',
+          sleeperPlayerId: 'bench-running-back',
+          team: 'IND',
+          position: 'RB',
+          stats: emptyPlayerStats,
+          scoringProjection: { kind: 'offense', rushingYards: 55.5 },
+          missingFields: [],
+        },
+      }),
+      { rush_yd: 0.1 },
+    );
+    expect(result.status).toBe('available');
+    expect(result.pointsByPlayer['bench-running-back']).toBeCloseTo(5.55, 10);
+    expect(result.qualityByPlayer['bench-running-back']).toBe('complete');
+  });
 });
+
+const emptyPlayerStats = {
+  passing: { attempts: null, completions: null, yards: null, touchdowns: null, interceptions: null },
+  rushing: { carries: null, yards: null, touchdowns: null },
+  receiving: { targets: null, receptions: null, yards: null, touchdowns: null },
+  kicking: {
+    fieldGoalsMade: null, fieldGoalsMissed: null, extraPointsMade: null, extraPointsMissed: null,
+  },
+  twoPointConversions: null,
+  fumblesLost: null,
+} as const;
+
+function availableTank01Result(
+  bySleeperId: Tank01AvailableResult['projections']['bySleeperId'],
+): Tank01AvailableResult {
+  return {
+    status: 'available',
+    season: '2026',
+    week: 1,
+    fetchedAt: '2026-09-01T12:00:00.000Z',
+    projections: { bySleeperId, byDefenseTeam: {} },
+    coverage: {
+      playerListRows: 0,
+      crosswalkEntries: 0,
+      malformedPlayerListRows: 0,
+      ambiguousPlayerListRows: 0,
+      playerProjectionRows: 0,
+      matchedPlayerProjections: 0,
+      unmatchedPlayerProjections: 0,
+      malformedPlayerProjections: 0,
+      incompletePlayerProjections: 0,
+      defenseProjectionRows: 0,
+      usableDefenseProjections: 0,
+      malformedDefenseProjections: 0,
+      incompleteDefenseProjections: 0,
+    },
+    warnings: [],
+  };
+}

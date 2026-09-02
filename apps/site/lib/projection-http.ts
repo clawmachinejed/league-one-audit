@@ -1,0 +1,112 @@
+import 'server-only';
+
+import { timingSafeEqual } from 'node:crypto';
+import { LEAGUE_IDS } from './config';
+import type { LeagueKey } from './leagues';
+import { isMatchupsData } from './matchups-response';
+import { selectStoredMatchups } from './projection-freshness';
+import { getProjectionStore, type ProjectionStore } from './projection-store';
+import { runLiveProjectionSync, type LiveProjectionSyncResult } from './live-projection-worker';
+
+type CronRunner = (options?: Readonly<{ force?: boolean }>) => Promise<LiveProjectionSyncResult>;
+
+const NO_STORE_HEADERS = { 'Cache-Control': 'no-store' } as const;
+const CURRENT_SNAPSHOT_HEADERS = {
+  'Cache-Control': 'public, s-maxage=15, stale-while-revalidate=30',
+} as const;
+const HISTORICAL_SNAPSHOT_HEADERS = {
+  'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=3600',
+} as const;
+
+function response(
+  body: Readonly<Record<string, unknown>>,
+  status: number,
+  headers: HeadersInit = NO_STORE_HEADERS,
+): Response {
+  return Response.json(body, { status, headers });
+}
+
+function validLeagueKey(value: string): value is LeagueKey {
+  return Object.prototype.hasOwnProperty.call(LEAGUE_IDS, value);
+}
+
+function validWeek(request: Request): number | null {
+  const raw = new URL(request.url).searchParams.get('week');
+  if (!raw || !/^\d{1,2}$/u.test(raw)) return null;
+  const week = Number(raw);
+  return Number.isInteger(week) && week >= 1 && week <= 18 ? week : null;
+}
+
+function authorized(header: string | null, secret: string): boolean {
+  const expected = Buffer.from(`Bearer ${secret}`, 'utf8');
+  const actual = Buffer.from(header ?? '', 'utf8');
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+
+export async function handleProjectionCronRequest(
+  request: Request,
+  options: Readonly<{
+    secret?: string;
+    run?: CronRunner;
+  }> = {},
+): Promise<Response> {
+  const secret = options.secret ?? process.env.CRON_SECRET;
+  if (!secret) return response({ status: 'unavailable' }, 503);
+  if (!authorized(request.headers.get('authorization'), secret)) {
+    return response({ status: 'unauthorized' }, 401);
+  }
+
+  const force = new URL(request.url).searchParams.get('force') === '1';
+  let result: LiveProjectionSyncResult;
+  try {
+    result = await (options.run ?? runLiveProjectionSync)({ force });
+  } catch {
+    return response({ status: 'failed' }, 500);
+  }
+
+  if (result.status === 'disabled') return response({ status: 'unavailable' }, 503);
+  if (result.status === 'failed') return response({ status: 'failed' }, 500);
+  if (result.status === 'skipped') {
+    return response({ status: 'skipped', reason: result.reason, cadence: result.cadence }, 200);
+  }
+  return response({
+    status: 'completed',
+    cadence: result.cadence,
+    publishedLeagues: result.publishedLeagues,
+    failedLeagues: result.failedLeagues,
+    providerGroups: result.providerGroups,
+  // Keep successfully published leagues, but surface any partial fleet failure
+  // to Vercel's function health and logs instead of reporting a silent success.
+  }, result.failedLeagues > 0 ? 503 : 200);
+}
+
+export async function handleMatchupsSnapshotRequest(
+  request: Request,
+  leagueKey: string,
+  store: ProjectionStore = getProjectionStore(),
+  now = new Date(),
+): Promise<Response> {
+  if (!validLeagueKey(leagueKey)) return response({ status: 'not-found' }, 404);
+  const week = validWeek(request);
+  if (week === null) return response({ status: 'invalid-week' }, 400);
+  if (!store.enabled) return response({ status: 'unavailable' }, 503);
+
+  try {
+    const [snapshot, latest] = await Promise.all([
+      store.readLatestCurrentSnapshotBySleeperLeagueId(LEAGUE_IDS[leagueKey], week),
+      store.readLatestCurrentSnapshotBySleeperLeagueId(LEAGUE_IDS[leagueKey]),
+    ]);
+    if (!snapshot) return response({ status: 'not-found' }, 404);
+    if (snapshot.week !== week || snapshot.payload.week !== week || !isMatchupsData(snapshot.payload)) {
+      return response({ status: 'unavailable' }, 503);
+    }
+    const selected = selectStoredMatchups(snapshot, latest, week, now);
+    if (selected.kind !== 'usable') return response({ status: 'unavailable' }, 503);
+    return Response.json(selected.payload, {
+      status: 200,
+      headers: selected.historical ? HISTORICAL_SNAPSHOT_HEADERS : CURRENT_SNAPSHOT_HEADERS,
+    });
+  } catch {
+    return response({ status: 'unavailable' }, 503);
+  }
+}

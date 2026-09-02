@@ -15,6 +15,7 @@
     "typecheck": "pnpm --filter @l1/site typecheck",
     "test": "pnpm --filter @l1/site test",
     "test:browser": "pnpm --filter @l1/site test:browser",
+    "db:migrate": "pnpm --filter @l1/site db:migrate",
     "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm build"
   }
 }

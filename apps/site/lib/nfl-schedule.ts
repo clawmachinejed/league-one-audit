@@ -1,4 +1,5 @@
-import type { Matchup, NflGame } from './types';
+import type { Matchup, NflGame, Player } from './types';
+import { canonicalNflTeam, isNflTeam, NFL_TEAM_COUNT } from './nfl-teams';
 
 export type WeekSchedule = Record<string, NflGame>;
 
@@ -7,19 +8,6 @@ export type WeekScheduleResolution = {
   canIdentifyByes: boolean;
   complete: boolean;
 };
-
-const teamAliases: Readonly<Record<string, string>> = {
-  JAC: 'JAX',
-  LA: 'LAR',
-  WSH: 'WAS',
-};
-
-const nflTeams = new Set([
-  'ARI', 'ATL', 'BAL', 'BUF', 'CAR', 'CHI', 'CIN', 'CLE',
-  'DAL', 'DEN', 'DET', 'GB', 'HOU', 'IND', 'JAX', 'KC',
-  'LAC', 'LAR', 'LV', 'MIA', 'MIN', 'NE', 'NO', 'NYG',
-  'NYJ', 'PHI', 'PIT', 'SEA', 'SF', 'TB', 'TEN', 'WAS',
-]);
 
 const regularSeasonGames = 272;
 const regularSeasonWeeks = 18;
@@ -33,8 +21,7 @@ function text(value: unknown): string | null {
 }
 
 function team(value: unknown): string | null {
-  const normalized = text(value)?.toUpperCase();
-  return normalized ? teamAliases[normalized] ?? normalized : null;
+  return canonicalNflTeam(value);
 }
 
 function date(value: unknown): string | null {
@@ -67,7 +54,7 @@ export function normalizeSleeperScores(value: unknown, season: string, week: num
     const home = team(row.metadata.home_team);
     const away = team(row.metadata.away_team);
     const gameDate = date(row.date) ?? date(row.metadata.day);
-    if (!home || !away || home === away || !gameDate || !nflTeams.has(home) || !nflTeams.has(away)) continue;
+    if (!home || !away || home === away || !gameDate) continue;
     if (result[home] || result[away]) return {};
     const kickoffAt = kickoff(row.start_time);
     result[home] = gameFor(home, home, away, gameDate, kickoffAt);
@@ -92,7 +79,7 @@ export function normalizeSleeperSeasonSchedule(value: unknown, week: number): We
     const gameDate = date(row.date);
     const gameId = text(row.game_id);
     if (!gameWeek || gameWeek < 1 || gameWeek > regularSeasonWeeks || !home || !away || home === away
-      || !gameDate || !gameId || !nflTeams.has(home) || !nflTeams.has(away) || gameIds.has(gameId)
+      || !gameDate || !gameId || gameIds.has(gameId)
       || teamsByWeek[gameWeek].has(home) || teamsByWeek[gameWeek].has(away)) return {};
     gameIds.add(gameId);
     teamsByWeek[gameWeek].add(home);
@@ -102,7 +89,7 @@ export function normalizeSleeperSeasonSchedule(value: unknown, week: number): We
     games.push({ week: gameWeek, home, away, date: gameDate });
   }
 
-  if (games.length !== regularSeasonGames || teamAppearances.size !== nflTeams.size
+  if (games.length !== regularSeasonGames || teamAppearances.size !== NFL_TEAM_COUNT
     || [...teamAppearances.values()].some((appearances) => appearances !== 17)
     || teamsByWeek.slice(1).some((teams) => teams.size < 26 || teams.size > 32 || teams.size % 2 !== 0)) return {};
 
@@ -156,13 +143,29 @@ export function addScheduleToMatchups(
         const playerTeam = team(player.nflTeam);
         return {
           ...player,
-          game: playerTeam && nflTeams.has(playerTeam)
+          game: playerTeam && isNflTeam(playerTeam)
             ? schedule[playerTeam] ?? (canIdentifyByes ? ({ kind: 'bye' } as const) : null)
             : null,
         };
       }),
     })),
   }));
+}
+
+export function addScheduleToPlayers(
+  players: readonly Player[],
+  schedule: WeekSchedule,
+  canIdentifyByes = false,
+): Player[] {
+  return players.map((player) => {
+    const playerTeam = team(player.nflTeam);
+    return {
+      ...player,
+      game: playerTeam && isNflTeam(playerTeam)
+        ? schedule[playerTeam] ?? (canIdentifyByes ? ({ kind: 'bye' } as const) : null)
+        : null,
+    };
+  });
 }
 
 const dayFormatter = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: 'America/New_York' });

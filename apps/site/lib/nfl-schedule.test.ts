@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   addScheduleToMatchups,
+  addScheduleToPlayers,
   formatNflGame,
   normalizeSleeperSeasonSchedule,
   normalizeSleeperScores,
@@ -130,5 +131,15 @@ describe('matchup schedule decoration', () => {
     const starters = addScheduleToMatchups([matchup], partial)[0].sides[0].starters;
     expect(starters[0].game).toEqual(partial.LAC);
     expect(starters[1].game).toBeNull();
+  });
+
+  it('uses the same schedule rules for rostered bench players', () => {
+    const result = resolveSleeperSchedule(completeSeasonSchedule(), completeWeekScores(3), '2026', 3);
+    const players = addScheduleToPlayers([
+      player('scheduled', 'LAC'), player('bye', 'KC'), player('free-agent', null),
+    ], result.schedule, result.canIdentifyByes);
+    expect(players[0].game).toEqual(result.schedule.LAC);
+    expect(players[1].game).toEqual({ kind: 'bye' });
+    expect(players[2].game).toBeNull();
   });
 });

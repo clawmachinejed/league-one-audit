@@ -6,6 +6,7 @@ import type {
   NormalizedTank01KickerProjection,
   NormalizedTank01OffenseProjection,
 } from './projection-scoring';
+import { canonicalNflTeam as canonicalTeam } from './nfl-teams';
 
 const RAPID_API_HOST = 'tank01-nfl-live-in-game-real-time-statistics-nfl.p.rapidapi.com';
 const RAPID_API_ORIGIN = `https://${RAPID_API_HOST}`;
@@ -13,19 +14,6 @@ const SUCCESS_CACHE_SECONDS = 60 * 60;
 const SUCCESS_CACHE_MS = SUCCESS_CACHE_SECONDS * 1_000;
 const FAILURE_BACKOFF_MS = 60 * 1_000;
 const REQUEST_TIMEOUT_MS = 15_000;
-
-const teamAliases = new Map([
-  ['JAC', 'JAX'],
-  ['LA', 'LAR'],
-  ['WSH', 'WAS'],
-]);
-
-const nflTeams = new Set([
-  'ARI', 'ATL', 'BAL', 'BUF', 'CAR', 'CHI', 'CIN', 'CLE',
-  'DAL', 'DEN', 'DET', 'GB', 'HOU', 'IND', 'JAX', 'KC',
-  'LAC', 'LAR', 'LV', 'MIA', 'MIN', 'NE', 'NO', 'NYG',
-  'NYJ', 'PHI', 'PIT', 'SEA', 'SF', 'TB', 'TEN', 'WAS',
-]);
 
 export type Tank01PlayerStats = Readonly<{
   passing: Readonly<{
@@ -202,13 +190,6 @@ function copyToNullRecord<T>(source: Readonly<Record<string, T>>): Record<string
 
 function nonEmptyText(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
-}
-
-function canonicalTeam(value: unknown): string | null {
-  const abbreviation = nonEmptyText(value)?.toUpperCase();
-  if (!abbreviation) return null;
-  const canonical = teamAliases.get(abbreviation) ?? abbreviation;
-  return nflTeams.has(canonical) ? canonical : null;
 }
 
 function finiteNumber(value: unknown): number | null {
@@ -638,7 +619,13 @@ function projectionPath(season: string, week: number, nowMs = Date.now()): strin
   const query = new URLSearchParams({ week: String(week), itemFormat: 'map' });
   // Tank01's archiveSeason switch is for older slates. Supplying the current
   // season can be rejected even though the same current-week request is valid.
-  if (Number(season) < new Date(nowMs).getUTCFullYear()) query.set('archiveSeason', season);
+  const now = new Date(nowMs);
+  // The NFL season keeps the kickoff year's label through January and February.
+  // Calendar-year comparison would incorrectly archive Week 18 in January.
+  const currentNflSeason = now.getUTCMonth() < 2
+    ? now.getUTCFullYear() - 1
+    : now.getUTCFullYear();
+  if (Number(season) < currentNflSeason) query.set('archiveSeason', season);
   return `/getNFLProjections?${query.toString()}`;
 }
 
