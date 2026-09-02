@@ -175,7 +175,7 @@ h1{font-weight:800;font-size:38px;line-height:1.12;letter-spacing:-.055em;overfl
 .standings-team .avatar{display:none}
 .team-text{min-width:0}
 .team-name{display:block;font-size:12px;font-weight:700;line-height:1.4;overflow-wrap:anywhere}
-.owner-name{display:block;color:var(--muted);font-size:9px;line-height:1.5;font-weight:400;overflow-wrap:anywhere;margin-top:3px}
+.manager-name{display:block;color:var(--muted);font-size:9px;line-height:1.5;font-weight:400;overflow-wrap:anywhere;margin-top:3px}
 .my-team-label{font-size:8px;color:var(--green);font-weight:800;letter-spacing:.03em}
 .standings-table .selected-row{background:var(--green-soft)}
 .selected-row .rank-cell{box-shadow:inset 3px 0 var(--green)}
@@ -195,37 +195,37 @@ h1{font-weight:800;font-size:38px;line-height:1.12;letter-spacing:-.055em;overfl
 .preference-banner>.text-button{margin-left:auto;font-size:11px;flex-shrink:0;padding:8px}
 .text-button{display:inline-flex;align-items:center;justify-content:center;background:transparent;min-height:44px;padding:10px 14px;font-size:12px;font-weight:700;color:var(--green);text-decoration:underline;text-underline-offset:3px}
 .not-found-link{margin-top:12px}
-.owners-grid{display:grid;gap:12px}
-.owner-card{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);overflow:hidden;min-width:0}
-.owner-card.selected-owner{border-color:var(--selected-border)}
-.owner-card-link{display:block;padding:17px 17px 12px}
-.owner-card-link:hover h2{color:var(--green)}
-.owner-card-top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
-.owner-card-top .avatar{width:43px;height:43px;font-size:14px}
-.owner-card-record{font-size:18px;font-weight:700;text-align:right;font-variant-numeric:tabular-nums;line-height:1.3;letter-spacing:-.045em}
-.owner-card-record small{display:block;color:var(--muted);font-size:8px;font-weight:600;letter-spacing:.06em;margin-top:2px}
-.owner-card-link h2{font-size:19px;letter-spacing:-.04em;line-height:1.35;overflow-wrap:anywhere;font-weight:750}
-.owner-card-link>p{font-size:11px;color:var(--muted);margin-top:3px;overflow-wrap:anywhere}
-.owner-profile-cta{display:flex;align-items:center;gap:5px;font-size:10px;color:var(--green);font-weight:600;margin-top:14px}
-.owner-profile-cta .icon{width:13px;height:13px}
-.owner-card-bottom{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 13px;background:var(--surface-subtle);border-top:1px solid var(--line-card)}
-.selected-owner .owner-card-bottom{background:var(--green-soft)}
+.managers-grid{display:grid;gap:12px}
+.manager-card{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);overflow:hidden;min-width:0}
+.manager-card.selected-manager{border-color:var(--selected-border)}
+.manager-card-link{display:block;padding:17px 17px 12px}
+.manager-card-link:hover h2{color:var(--green)}
+.manager-card-top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
+.manager-card-top .avatar{width:43px;height:43px;font-size:14px}
+.manager-card-record{font-size:18px;font-weight:700;text-align:right;font-variant-numeric:tabular-nums;line-height:1.3;letter-spacing:-.045em}
+.manager-card-record small{display:block;color:var(--muted);font-size:8px;font-weight:600;letter-spacing:.06em;margin-top:2px}
+.manager-card-link h2{font-size:19px;letter-spacing:-.04em;line-height:1.35;overflow-wrap:anywhere;font-weight:750}
+.manager-card-link>p{font-size:11px;color:var(--muted);margin-top:3px;overflow-wrap:anywhere}
+.manager-profile-cta{display:flex;align-items:center;gap:5px;font-size:10px;color:var(--green);font-weight:600;margin-top:14px}
+.manager-profile-cta .icon{width:13px;height:13px}
+.manager-card-bottom{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 13px;background:var(--surface-subtle);border-top:1px solid var(--line-card)}
+.selected-manager .manager-card-bottom{background:var(--green-soft)}
 .my-team-button{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:44px;padding:9px 13px;border:1px solid var(--line);border-radius:7px;background:var(--surface);font-size:12px;font-weight:700;line-height:1.3;text-align:center}
 .my-team-button .icon{width:16px;height:16px}
 .my-team-button:hover{border-color:var(--hover-border);color:var(--green)}
 .my-team-button.is-selected{background:var(--green-soft);border-color:var(--selected-control-border);color:var(--green)}
 .my-team-button.compact{font-size:10px;padding:8px 10px}
 .my-team-button.compact .icon{height:14px;width:14px}
-.owner-pf{font-size:10px;white-space:nowrap;font-variant-numeric:tabular-nums;color:var(--muted)}
-.owner-pf abbr{font-size:8px;margin-left:2px}
+.manager-pf{font-size:10px;white-space:nowrap;font-variant-numeric:tabular-nums;color:var(--muted)}
+.manager-pf abbr{font-size:8px;margin-left:2px}
 .back-link{display:inline-flex;align-items:center;gap:4px;color:var(--muted);font-size:11px;min-height:44px;margin-top:-12px;margin-bottom:8px}
 .back-link .icon{width:15px;height:15px}
-.owner-heading>.eyebrow{margin-bottom:14px}
+.manager-heading>.eyebrow{margin-bottom:14px}
 .profile-identity{display:flex;align-items:center;gap:14px;min-width:0}
 .profile-identity>div{min-width:0}
 .profile-identity h1{font-size:29px;line-height:1.16;letter-spacing:-.045em}
 .profile-identity p{color:var(--muted);font-size:12px;line-height:1.5;margin-top:6px;overflow-wrap:anywhere}
-.owner-heading>.my-team-button{margin-top:18px}
+.manager-heading>.my-team-button{margin-top:18px}
 .team-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:18px 0;margin:23px 0 24px;gap:0}
 .team-summary>div{padding:0 10px;text-align:center;min-width:0}
 .team-summary>div+div{border-left:1px solid var(--line)}
@@ -291,9 +291,9 @@ h1{font-weight:800;font-size:38px;line-height:1.12;letter-spacing:-.055em;overfl
 @keyframes spin{to{transform:rotate(360deg)}}
 @keyframes shimmer{to{background-position:-200% 0}}
 @media(min-width:390px){.main-content{padding-left:20px;padding-right:20px}.standings-team .avatar{display:inline-flex;width:29px;height:29px;font-size:9px}.standings-table .rank-cell{width:29px}.team-name{font-size:12px}}
-@media(min-width:540px){.owners-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.standings-table .rank-cell{width:40px;font-size:13px}.standings-table .number-cell{width:60px;font-size:12px}.standings-table .number-cell.points-cell,.standings-table thead .number-cell:nth-child(4){width:86px;font-size:12px}.standings-extra{display:table-cell}.standings-extra-inline{display:inline}.standings-team .avatar{width:36px;height:36px;font-size:11px}.team-name{font-size:14px}.owner-name{font-size:10px}.standings-team{gap:11px}.standings-table th,.standings-table td{padding:16px 10px}.standings-table thead th{font-size:10px}.profile-identity h1{font-size:36px}.transaction-lines>div{grid-template-columns:78px minmax(0,1fr)}.transaction-lines dd{font-size:13px}.transaction-lines dt{font-size:10px}.transaction-date{font-size:10px}.transaction-header,.transaction-body{padding:18px 20px}.result-badge{font-size:11px}.team-summary dd{font-size:29px}}
-@media(min-width:760px){.header-inner{min-height:90px;padding:20px 32px}.brand-mark{width:44px;height:44px}.brand-name{font-size:21px}.brand-caption{font-size:9px}.header-actions{gap:8px}.league-switcher-desktop{display:flex}.desktop-nav{display:flex;align-items:center;gap:8px}.desktop-nav a{display:flex;align-items:center;justify-content:center;gap:7px;padding:11px 14px;min-height:44px;font-size:12px;font-weight:700;border-radius:7px;color:var(--muted)}.desktop-nav a[aria-current=page]{background:var(--green-soft);color:var(--green)}.desktop-nav .icon{width:17px;height:17px}.mobile-nav{display:none}.main-content{padding:43px 32px 60px}.page-heading{margin-bottom:32px}h1{font-size:48px}.eyebrow{font-size:11px}.page-description{font-size:14px}.section-label h2{font-size:16px}.section-label>span{font-size:12px}.standings-table th,.standings-table td{padding-top:17px;padding-bottom:17px}.standings-table .rank-cell{width:54px}.standings-table .number-cell{width:100px}.standings-table .number-cell.points-cell,.standings-table thead .number-cell:nth-child(4){width:120px}.standings-table th:last-child,.standings-table td:last-child{padding-right:24px}.table-note>span{display:inline}.table-note>span:before{content:' '}.preference-banner{padding:17px 19px}.preference-banner h2{font-size:14px}.preference-banner p{font-size:12px}.owners-grid{gap:18px}.owner-card-link{padding:20px}.owner-card-link h2{font-size:21px}.owner-card-bottom{padding:12px 17px}.owner-heading{position:relative;padding-right:180px}.owner-heading>.my-team-button{position:absolute;right:0;bottom:0}.profile-identity h1{font-size:38px}.team-summary{margin-top:29px}.profile-tabs{max-width:380px}.roster-layout{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px}.team-summary>div{text-align:left;padding-left:24px}.team-summary>div:first-child{padding-left:0}.transactions-list{max-width:760px}.transactions-heading{max-width:760px}.transaction-body{flex-direction:row;align-items:stretch}.transaction-lines{flex:1}.faab-bid{border-top:0;border-left:1px solid var(--line-soft);min-width:95px;flex-direction:column;justify-content:center;gap:7px;padding:3px 0 3px 18px}.faab-bid>strong{font-size:24px}.loading-skeleton{grid-template-columns:repeat(2,minmax(0,1fr))}.loading-skeleton>span:last-child{display:none}}
-@media(min-width:940px){.owners-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.owner-card-link h2{font-size:20px}.owner-card-bottom{padding:11px}.my-team-button.compact{font-size:9px;padding:8px}.owner-pf{font-size:9px}}
+@media(min-width:540px){.managers-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.standings-table .rank-cell{width:40px;font-size:13px}.standings-table .number-cell{width:60px;font-size:12px}.standings-table .number-cell.points-cell,.standings-table thead .number-cell:nth-child(4){width:86px;font-size:12px}.standings-extra{display:table-cell}.standings-extra-inline{display:inline}.standings-team .avatar{width:36px;height:36px;font-size:11px}.team-name{font-size:14px}.manager-name{font-size:10px}.standings-team{gap:11px}.standings-table th,.standings-table td{padding:16px 10px}.standings-table thead th{font-size:10px}.profile-identity h1{font-size:36px}.transaction-lines>div{grid-template-columns:78px minmax(0,1fr)}.transaction-lines dd{font-size:13px}.transaction-lines dt{font-size:10px}.transaction-date{font-size:10px}.transaction-header,.transaction-body{padding:18px 20px}.result-badge{font-size:11px}.team-summary dd{font-size:29px}}
+@media(min-width:760px){.header-inner{min-height:90px;padding:20px 32px}.brand-mark{width:44px;height:44px}.brand-name{font-size:21px}.brand-caption{font-size:9px}.header-actions{gap:8px}.league-switcher-desktop{display:flex}.desktop-nav{display:flex;align-items:center;gap:8px}.desktop-nav a{display:flex;align-items:center;justify-content:center;gap:7px;padding:11px 14px;min-height:44px;font-size:12px;font-weight:700;border-radius:7px;color:var(--muted)}.desktop-nav a[aria-current=page]{background:var(--green-soft);color:var(--green)}.desktop-nav .icon{width:17px;height:17px}.mobile-nav{display:none}.main-content{padding:43px 32px 60px}.page-heading{margin-bottom:32px}h1{font-size:48px}.eyebrow{font-size:11px}.page-description{font-size:14px}.section-label h2{font-size:16px}.section-label>span{font-size:12px}.standings-table th,.standings-table td{padding-top:17px;padding-bottom:17px}.standings-table .rank-cell{width:54px}.standings-table .number-cell{width:100px}.standings-table .number-cell.points-cell,.standings-table thead .number-cell:nth-child(4){width:120px}.standings-table th:last-child,.standings-table td:last-child{padding-right:24px}.table-note>span{display:inline}.table-note>span:before{content:' '}.preference-banner{padding:17px 19px}.preference-banner h2{font-size:14px}.preference-banner p{font-size:12px}.managers-grid{gap:18px}.manager-card-link{padding:20px}.manager-card-link h2{font-size:21px}.manager-card-bottom{padding:12px 17px}.manager-heading{position:relative;padding-right:180px}.manager-heading>.my-team-button{position:absolute;right:0;bottom:0}.profile-identity h1{font-size:38px}.team-summary{margin-top:29px}.profile-tabs{max-width:380px}.roster-layout{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px}.team-summary>div{text-align:left;padding-left:24px}.team-summary>div:first-child{padding-left:0}.transactions-list{max-width:760px}.transactions-heading{max-width:760px}.transaction-body{flex-direction:row;align-items:stretch}.transaction-lines{flex:1}.faab-bid{border-top:0;border-left:1px solid var(--line-soft);min-width:95px;flex-direction:column;justify-content:center;gap:7px;padding:3px 0 3px 18px}.faab-bid>strong{font-size:24px}.loading-skeleton{grid-template-columns:repeat(2,minmax(0,1fr))}.loading-skeleton>span:last-child{display:none}}
+@media(min-width:940px){.managers-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.manager-card-link h2{font-size:20px}.manager-card-bottom{padding:11px}.my-team-button.compact{font-size:9px;padding:8px}.manager-pf{font-size:9px}}
 .main-content.matchups-main{padding:10px 8px calc(80px + env(safe-area-inset-bottom))}
 @media(max-width:759px){.matchups-mobile-nav{padding-top:4px;padding-bottom:calc(4px + env(safe-area-inset-bottom))}.matchups-mobile-nav a{min-height:44px;font-size:10px}.matchups-mobile-nav .icon{width:19px;height:19px}}
 @media(min-width:760px){.main-content.matchups-main{padding:28px 24px 50px}}

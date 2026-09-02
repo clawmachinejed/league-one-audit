@@ -13,7 +13,7 @@ Use this record for every production change. A local build, GitHub push, or succ
 | Production | Production deployment tied to the merged commit and a successful check of [www.league1fantasy.com](https://www.league1fantasy.com). |
 | Configuration | `apps/site` Root Directory, Node.js 24, pnpm 11.19.0 through Corepack, and the canonical league registry shipped from `apps/site/lib/config.ts` without Vercel league-ID overrides. |
 
-The automated browser suite checks matchup expansion and accessible score information, document fit at 360, 390, 430, and 1280 pixels, 52px player rows when lineups are available, primary touch targets, My Team persistence after reload, transaction presentation and filtering when data permits, and the not-found route back to Owners. It consumes public Sleeper data. A test records an explicit annotation when an upstream empty state makes a data-dependent measurement inapplicable.
+The automated browser suite checks matchup expansion and accessible score information, document fit at 360, 390, 430, and 1280 pixels, 52px player rows when lineups are available, primary touch targets, My Team persistence after reload, transaction presentation and filtering when data permits, and the not-found route back to Managers. It consumes public Sleeper data. A test records an explicit annotation when an upstream empty state makes a data-dependent measurement inapplicable.
 
 Run it locally after installing Chromium once:
 
@@ -34,8 +34,8 @@ The original mobile-first rebuild remains documented in [pull request #136](http
 
 - Confirm the Vercel deployment identifies the merged commit.
 - Open the production domain through a fresh browser session and verify there is no parking-page redirect.
-- Confirm Matchups, Standings, Owners, one owner roster, and one owner transaction page load the intended league.
-- Open the league selector and confirm League One stays on root routes while League 2 stays under `/league2` across Matchups, Standings, Owners, roster, and transaction navigation.
+- Confirm Matchups, Standings, Managers, one manager roster, and one manager transaction page load the intended league.
+- Open the league selector and confirm League One stays on root routes while League 2 stays under `/league2` across Matchups, Standings, Managers, roster, and transaction navigation.
 - Confirm League One and League 2 each match the canonical registry in `apps/site/lib/config.ts`, with no roster, matchup, or transaction data crossing between them.
 - Expand a matchup and inspect player-row fit on a phone-sized viewport.
 - Select My Team, reload, and confirm the same team remains selected.

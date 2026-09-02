@@ -4,7 +4,7 @@ import { isMatchupsData } from './matchups-response';
 const validSnapshot = {
   league: { season: '2026', rosterPositions: ['QB'], week: 1, maxWeek: 18 },
   teams: [{
-    id: 1, ownerName: 'Owner', name: 'Team', avatar: null, wins: 0, losses: 0,
+    id: 1, managerName: 'Manager', name: 'Team', avatar: null, wins: 0, losses: 0,
     ties: 0, pointsFor: 0, pointsAgainst: null,
   }],
   updatedAt: '2026-09-10T00:00:00.000Z',
@@ -14,7 +14,7 @@ const validSnapshot = {
     status: 'live',
     sides: [{
       team: {
-        id: 1, ownerName: 'Owner', name: 'Team', avatar: null, wins: 0, losses: 0,
+        id: 1, managerName: 'Manager', name: 'Team', avatar: null, wins: 0, losses: 0,
         ties: 0, pointsFor: 0, pointsAgainst: null,
       },
       points: 10,
@@ -31,6 +31,19 @@ const validSnapshot = {
 describe('matchup response validation', () => {
   it('accepts a complete matchup snapshot', () => {
     expect(isMatchupsData(validSnapshot)).toBe(true);
+  });
+
+  it('rejects the retired participant-name field at the snapshot boundary', () => {
+    const legacyTeam = { ...validSnapshot.teams[0], ownerName: 'Legacy participant' };
+    delete (legacyTeam as Partial<typeof legacyTeam>).managerName;
+    expect(isMatchupsData({
+      ...validSnapshot,
+      teams: [legacyTeam],
+      matchups: [{
+        ...validSnapshot.matchups[0],
+        sides: [{ ...validSnapshot.matchups[0].sides[0], team: legacyTeam }],
+      }],
+    })).toBe(false);
   });
 
   it('rejects a partial nested snapshot instead of replacing valid screen state', () => {

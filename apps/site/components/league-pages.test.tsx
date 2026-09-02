@@ -20,12 +20,12 @@ vi.mock('@/lib/sleeper', () => ({
   getCurrentLeagueWeek: mocks.getCurrentLeagueWeek,
   getOfficialMatchups: mocks.getOfficialMatchups,
   getOverview: mocks.getOverview,
-  getOwner: vi.fn(),
+  getManager: vi.fn(),
   getTransactions: vi.fn(),
 }));
 vi.mock('./matchups-view', () => ({ MatchupsView: () => null }));
-vi.mock('./owner-view', () => ({ OwnerView: () => null }));
-vi.mock('./owners-view', () => ({ OwnersView: () => null }));
+vi.mock('./manager-view', () => ({ ManagerView: () => null }));
+vi.mock('./managers-view', () => ({ ManagersView: () => null }));
 vi.mock('./standings-view', () => ({ StandingsView: () => null }));
 vi.mock('./transactions-view', () => ({ TransactionsView: () => null }));
 

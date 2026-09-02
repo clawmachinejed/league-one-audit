@@ -19,7 +19,7 @@ function nullableString(value: unknown): value is string | null {
 function isTeam(value: unknown): value is Team {
   return record(value)
     && finiteNumber(value.id)
-    && typeof value.ownerName === 'string'
+    && typeof value.managerName === 'string'
     && typeof value.name === 'string'
     && nullableString(value.avatar)
     && finiteNumber(value.wins)

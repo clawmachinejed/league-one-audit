@@ -9,14 +9,14 @@ import { Icon, type IconName } from './icon';
 import { LeagueSiteProvider } from './league-context';
 import { TeamPreferenceProvider } from './team-preference';
 
-type LeagueSection = '/matchups' | '/standings' | '/owners';
+type LeagueSection = '/matchups' | '/standings' | '/managers';
 
 function currentSection(pathname: string, site: LeagueSite): LeagueSection {
   const localPath = site.prefix && pathname.startsWith(site.prefix)
     ? pathname.slice(site.prefix.length)
     : pathname;
   if (localPath === '/standings' || localPath.startsWith('/standings/')) return '/standings';
-  if (localPath === '/owners' || localPath.startsWith('/owners/')) return '/owners';
+  if (localPath === '/managers' || localPath.startsWith('/managers/')) return '/managers';
   return '/matchups';
 }
 
@@ -91,7 +91,7 @@ export function AppShell({ children, leagueIds }: { children: ReactNode; leagueI
   const nav: { href: string; label: string; icon: IconName }[] = [
     { href: leagueHref(site, '/matchups'), label: 'Matchups', icon: 'matchups' },
     { href: leagueHref(site, '/standings'), label: 'Standings', icon: 'standings' },
-    { href: leagueHref(site, '/owners'), label: 'Owners', icon: 'owners' },
+    { href: leagueHref(site, '/managers'), label: 'Managers', icon: 'managers' },
   ];
   const isCurrent = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
 

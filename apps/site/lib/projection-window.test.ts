@@ -6,7 +6,7 @@ function dataWithGame(game: NflGame): MatchupsData {
   return {
     league: { season: '2026', week: 1, maxWeek: 18, rosterPositions: ['QB'] },
     teams: [{
-      id: 1, name: 'One', ownerName: 'Owner', wins: 0, losses: 0, ties: 0,
+      id: 1, name: 'One', managerName: 'Manager', wins: 0, losses: 0, ties: 0,
       avatar: null, pointsFor: 0, pointsAgainst: 0,
     }],
     week: 1,
@@ -16,7 +16,7 @@ function dataWithGame(game: NflGame): MatchupsData {
       status: 'upcoming',
       sides: [{
         team: {
-          id: 1, name: 'One', ownerName: 'Owner', wins: 0, losses: 0, ties: 0,
+          id: 1, name: 'One', managerName: 'Manager', wins: 0, losses: 0, ties: 0,
           avatar: null, pointsFor: 0, pointsAgainst: 0,
         },
         points: 0,

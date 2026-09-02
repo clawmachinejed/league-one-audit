@@ -34,7 +34,7 @@ import {
   getMatchups,
   getOfficialMatchups,
   getOverview,
-  getOwner,
+  getManager,
   getProjectionCadenceInput,
   getProjectionSyncInput,
   getTransactions,
@@ -277,7 +277,7 @@ describe('Sleeper service error handling', () => {
     expect(nextCacheOptions.some((options) => options.revalidate === 86_400)).toBe(true);
   });
 
-  it('loads the cadence preflight without rosters, owners, players, or matchup scores', async () => {
+  it('loads the cadence preflight without rosters, managers, players, or matchup scores', async () => {
     const preflight = await getProjectionCadenceInput(leagueOneId);
     expect(preflight).toMatchObject({
       sleeperLeagueId: leagueOneId,
@@ -346,9 +346,9 @@ describe('Sleeper service error handling', () => {
       getMatchups(3, leagueTwoId),
     ]);
 
-    expect(overview.teams[0]).toMatchObject({ id: 1, ownerName: 'Jordan' });
+    expect(overview.teams[0]).toMatchObject({ id: 1, managerName: 'Jordan' });
     expect(matchups.matchups[0].sides[0]).toMatchObject({
-      team: { id: 1, ownerName: 'Jordan' },
+      team: { id: 1, managerName: 'Jordan' },
       points: 9.5,
     });
     const paths = vi.mocked(fetch).mock.calls.map(([input]) => requestPath(input));
@@ -369,11 +369,11 @@ describe('Sleeper service error handling', () => {
     ]);
 
     expect(leagueOne).toMatchObject({
-      team: { id: 1, ownerName: 'Alex' },
+      team: { id: 1, managerName: 'Alex' },
       transactions: [{ id: 'week-zero', result: 'Lost', bid: 7 }],
     });
     expect(leagueTwo).toMatchObject({
-      team: { id: 1, ownerName: 'Jordan' },
+      team: { id: 1, managerName: 'Jordan' },
       transactions: [{ id: 'league-two-week-zero', result: 'Won', bid: 4 }],
     });
     const paths = vi.mocked(fetch).mock.calls.map(([input]) => requestPath(input));
@@ -384,7 +384,7 @@ describe('Sleeper service error handling', () => {
   });
 
   it('uses documented position filters instead of the oversized all-player response', async () => {
-    await getOwner(1);
+    await getManager(1);
     const playerUrls = vi.mocked(fetch).mock.calls
       .map(([url]) => new URL(String(url)))
       .filter((url) => url.pathname.endsWith('/players/nfl'));
@@ -403,7 +403,7 @@ describe('Sleeper service error handling', () => {
       }
       return Response.json(original(requestPath(input)));
     });
-    const data = await getOwner(1);
+    const data = await getManager(1);
     expect(data?.starters[0].name).toBe('Quarter Back');
     expect(data?.warning).toContain('(WR)');
   });
@@ -418,8 +418,8 @@ describe('Sleeper service error handling', () => {
       return Response.json(original(requestPath(input)));
     });
 
-    await getOwner(1);
-    await getOwner(1);
+    await getManager(1);
+    await getManager(1);
     const playerCalls = () => vi.mocked(fetch).mock.calls.filter(([url]) => {
       const parsed = new URL(String(url));
       return parsed.pathname.endsWith('/players/nfl') && parsed.searchParams.get('position') === 'WR';
@@ -427,7 +427,7 @@ describe('Sleeper service error handling', () => {
     expect(playerCalls()).toHaveLength(1);
 
     vi.mocked(Date.now).mockReturnValue(testNow + 301_000);
-    await getOwner(1);
+    await getManager(1);
     expect(playerCalls()).toHaveLength(2);
   });
 
@@ -455,7 +455,7 @@ describe('Sleeper service error handling', () => {
 
   it('retains the roster with a visible player-catalog warning', async () => {
     failures.add('/players/nfl');
-    const data = await getOwner(1);
+    const data = await getManager(1);
     expect(data?.warning).toContain('Player names and injury designations are temporarily unavailable');
     expect(data?.starters[0]).toMatchObject({ id: 'qb', name: 'Player qb', slot: 'QB', injuryStatus: null });
   });
@@ -516,9 +516,9 @@ describe('Sleeper service error handling', () => {
     await expect(getOverview()).rejects.toThrow(`invalid response for ${leaguePath}/rosters`);
   });
 
-  it('rejects incomplete owner data for assigned rosters', async () => {
+  it('rejects incomplete manager data for assigned rosters', async () => {
     rawUsers = [];
-    await expect(getOverview()).rejects.toThrow('incomplete owner information');
+    await expect(getOverview()).rejects.toThrow('incomplete manager information');
   });
 
   it('rejects a partial matchup slate after Sleeper has returned matchup rows', async () => {
@@ -594,11 +594,11 @@ describe('Sleeper service error handling', () => {
     expect(data?.warning).toContain('weeks 0');
   });
 
-  it('rejects invalid owner IDs without network requests and returns null for absent owners', async () => {
-    expect(await getOwner(0)).toBeNull();
+  it('rejects invalid roster IDs without network requests and returns null for absent managers', async () => {
+    expect(await getManager(0)).toBeNull();
     expect(await getTransactions(NaN)).toBeNull();
     expect(fetch).not.toHaveBeenCalled();
-    expect(await getOwner(999)).toBeNull();
+    expect(await getManager(999)).toBeNull();
   });
 
   it('falls back to a bounded display week when a query contains an invalid week', async () => {
@@ -679,10 +679,10 @@ describe('Sleeper current injury metadata', () => {
     expect(earlier.week).toBe(1);
   });
 
-  it('shares current injury metadata with owner rosters', async () => {
+  it('shares current injury metadata with manager rosters', async () => {
     playerInjury = 'Out';
-    const owner = await getOwner(1);
-    expect(owner?.starters[0]).toMatchObject({ name: 'Quarter Back', injuryStatus: 'Out', points: null });
+    const manager = await getManager(1);
+    expect(manager?.starters[0]).toMatchObject({ name: 'Quarter Back', injuryStatus: 'Out', points: null });
   });
 
   it.each([null, undefined, '', false, 7, { status: 'Out' }])(
@@ -695,16 +695,16 @@ describe('Sleeper current injury metadata', () => {
 
   it('warns when a successful catalog response omits a shown player', async () => {
     playerCatalog = { other: { full_name: 'Other Player', position: 'RB', team: 'SEA' } };
-    const owner = await getOwner(1);
-    expect(owner?.warning).toContain('did not provide details for 1 player');
-    expect(owner?.starters[0].name).toBe('Player qb');
+    const manager = await getManager(1);
+    expect(manager?.warning).toContain('did not provide details for 1 player');
+    expect(manager?.starters[0].name).toBe('Player qb');
   });
 
   it('treats a catalog with no usable player identities as unavailable', async () => {
     playerCatalog = { qb: {} };
-    const owner = await getOwner(1);
-    expect(owner?.warning).toContain('Player names and injury designations are temporarily unavailable');
-    expect(owner?.starters[0].name).toBe('Player qb');
+    const manager = await getManager(1);
+    expect(manager?.warning).toContain('Player names and injury designations are temporarily unavailable');
+    expect(manager?.starters[0].name).toBe('Player qb');
   });
 });
 

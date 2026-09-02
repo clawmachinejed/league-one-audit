@@ -9,7 +9,7 @@ import type { Tank01AvailableResult } from './tank01';
 
 const team: Team = {
   id: 1,
-  ownerName: 'Owner',
+  managerName: 'Manager',
   name: 'Team',
   avatar: null,
   wins: 0,

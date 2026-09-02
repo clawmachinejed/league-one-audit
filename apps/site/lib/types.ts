@@ -7,7 +7,7 @@ export interface League {
 
 export interface Team {
   id: number;
-  ownerName: string;
+  managerName: string;
   name: string;
   avatar: string | null;
   wins: number;
@@ -65,7 +65,7 @@ export interface MatchupsData extends OverviewData {
   matchups: Matchup[];
 }
 
-export interface OwnerData extends OverviewData {
+export interface ManagerData extends OverviewData {
   team: Team;
   starters: Player[];
   bench: Player[];

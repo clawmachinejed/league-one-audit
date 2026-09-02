@@ -37,13 +37,13 @@ const snapshot: MatchupsData = {
 const scheduledSnapshot: MatchupsData = {
   ...snapshot,
   teams: [{
-    id: 1, ownerName: 'Owner', name: 'Team', avatar: null,
+    id: 1, managerName: 'Manager', name: 'Team', avatar: null,
     wins: 0, losses: 0, ties: 0, pointsFor: 0, pointsAgainst: null,
   }],
   matchups: [{
     id: '1', status: 'upcoming', sides: [{
       team: {
-        id: 1, ownerName: 'Owner', name: 'Team', avatar: null,
+        id: 1, managerName: 'Manager', name: 'Team', avatar: null,
         wins: 0, losses: 0, ties: 0, pointsFor: 0, pointsAgainst: null,
       },
       points: 0, projectedPoints: 20,

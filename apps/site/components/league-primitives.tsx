@@ -18,7 +18,7 @@ export function teamRecord(team: Team) {
 export function Avatar({ team, large = false }: { team: Team; large?: boolean }) {
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
   const failed = failedUrl === team.avatar;
-  const initials = (team.ownerName || team.name).split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('').toUpperCase();
+  const initials = (team.managerName || team.name).split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('').toUpperCase();
   return <span className={`avatar ${large ? 'avatar-large' : ''}`} aria-hidden="true">
     {team.avatar && !failed ? <Image src={team.avatar} alt="" width={large ? 64 : 40} height={large ? 64 : 40} unoptimized onError={() => setFailedUrl(team.avatar)} /> : <span>{initials || 'FF'}</span>}
   </span>;

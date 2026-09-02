@@ -13,7 +13,7 @@ import type { MatchupsData } from './types';
 function matchupPayload(): MatchupsData {
   const team = {
     id: 1,
-    ownerName: 'Owner',
+    managerName: 'Manager',
     name: 'Team',
     avatar: null,
     wins: 0,

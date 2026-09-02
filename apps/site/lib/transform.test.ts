@@ -11,7 +11,7 @@ import {
   normalizeTeams,
   normalizeTransactions,
   numberOrNull,
-  ownerLineup,
+  managerLineup,
   playerFromId,
   safeAvatar,
   seasonPoints,
@@ -34,13 +34,13 @@ const rawLeague: SleeperLeague = {
 const state = { season: '2026', season_type: 'regular', leg: 1, display_week: 1, season_start_date: '2026-09-09' };
 const league = normalizeLeague(rawLeague, state);
 const teams = normalizeTeams([
-  { roster_id: 1, owner_id: 'owner-1', settings: { wins: 2, losses: 1, fpts: 310, fpts_decimal: 42 } },
-  { roster_id: 2, owner_id: 'owner-2', settings: { wins: 1, losses: 2, fpts: 299, fpts_decimal: 81 } },
-  { roster_id: 3, owner_id: 'owner-3' },
+  { roster_id: 1, owner_id: 'manager-1', settings: { wins: 2, losses: 1, fpts: 310, fpts_decimal: 42 } },
+  { roster_id: 2, owner_id: 'manager-2', settings: { wins: 1, losses: 2, fpts: 299, fpts_decimal: 81 } },
+  { roster_id: 3, owner_id: 'manager-3' },
 ], [
-  { user_id: 'owner-1', display_name: 'Alex', metadata: { team_name: 'The Owls' } },
-  { user_id: 'owner-2', display_name: 'Sam', metadata: { team_name: 'The Bears' } },
-  { user_id: 'owner-3', display_name: 'Jo', metadata: { team_name: 'The Foxes' } },
+  { user_id: 'manager-1', display_name: 'Alex', metadata: { team_name: 'The Owls' } },
+  { user_id: 'manager-2', display_name: 'Sam', metadata: { team_name: 'The Bears' } },
+  { user_id: 'manager-3', display_name: 'Jo', metadata: { team_name: 'The Foxes' } },
 ]);
 const catalog = {
   qb: { full_name: 'Quarter Back', position: 'QB', team: 'IND' },
@@ -140,9 +140,9 @@ describe('standings, avatars and scores', () => {
     expect(rows.map((row) => row.id)).toEqual([4, 3, 1, 2]);
   });
 
-  it('resolves team and owner names without carrying unused upstream ownership fields', () => {
-    expect(teams[0]).toMatchObject({ name: 'The Owls', ownerName: 'Alex', pointsFor: 310.42 });
-    expect(teams[0]).not.toHaveProperty('ownerId');
+  it('resolves team and manager names without carrying unused upstream identity fields', () => {
+    expect(teams[0]).toMatchObject({ name: 'The Owls', managerName: 'Alex', pointsFor: 310.42 });
+    expect(teams[0]).not.toHaveProperty('owner_id');
     expect(teams[0]).not.toHaveProperty('faabRemaining');
   });
 
@@ -184,7 +184,7 @@ describe('rosters and matchups', () => {
   });
 
   it('keeps IR and taxi players out of the bench and preserves their labels', () => {
-    const result = ownerLineup({ roster_id: 1, starters: ['qb'], players: ['qb', 'rb', 'reserve', 'taxi'], reserve: ['reserve'], taxi: ['taxi'] }, league, catalog);
+    const result = managerLineup({ roster_id: 1, starters: ['qb'], players: ['qb', 'rb', 'reserve', 'taxi'], reserve: ['reserve'], taxi: ['taxi'] }, league, catalog);
     expect(result.bench.map((player) => player.id)).toEqual(['rb']);
     expect(result.reserve.map((player) => player.slot)).toEqual(['IR', 'TAXI']);
   });

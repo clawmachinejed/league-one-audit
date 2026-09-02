@@ -205,10 +205,10 @@ export function normalizeTeams(
   return rosters.map((roster): Team => {
     const user = roster.owner_id ? userById.get(roster.owner_id) : undefined;
     const settings = roster.settings ?? {};
-    const ownerName = text(user?.display_name) ?? text(user?.username) ?? 'Unassigned owner';
+    const managerName = text(user?.display_name) ?? text(user?.username) ?? 'Unassigned manager';
     return {
       id: roster.roster_id,
-      ownerName,
+      managerName,
       name: text(user?.metadata?.team_name) ?? text(roster.metadata?.team_name)
         ?? text(user?.display_name) ?? `Team ${roster.roster_id}`,
       avatar: safeAvatar(user?.metadata?.avatar) ?? safeAvatar(user?.avatar)
@@ -283,7 +283,7 @@ export function lineup(
   });
 }
 
-export function ownerLineup(roster: SleeperRoster, league: League, catalog: PlayerCatalog) {
+export function managerLineup(roster: SleeperRoster, league: League, catalog: PlayerCatalog) {
   const starterIds = new Set(roster.starters ?? []);
   const reserveIds = new Set(roster.reserve ?? []);
   const taxiIds = new Set(roster.taxi ?? []);
@@ -447,7 +447,7 @@ export function normalizeTransactions(
     .map((row): Transaction => {
       const lines: TransactionLine[] = [];
       const assetsFor = (assets: Record<string, number> | null | undefined, id: number) => Object.entries(assets ?? {})
-        .filter(([, owner]) => numberOrNull(owner) === id).map(([playerId]) => describePlayer(playerId));
+        .filter(([, recipientRosterId]) => numberOrNull(recipientRosterId) === id).map(([playerId]) => describePlayer(playerId));
       if (row.type === 'trade') {
         const receivers = Array.from(new Set(Object.values(row.adds ?? {}).map(numberOrNull)))
           .filter((id): id is number => id !== null)

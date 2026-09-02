@@ -5,7 +5,7 @@ export interface LeagueSite {
   name: 'League One' | 'League Two';
   brand: 'LEAGUE ONE' | 'LEAGUE TWO';
   prefix: '' | '/league2';
-  logo: '/logo.png' | '/league2-logo.jpg';
+  logo: '/logo.png' | '/league2-logo.png';
 }
 
 export const LEAGUE_SITES: Record<LeagueKey, LeagueSite> = {
@@ -21,7 +21,7 @@ export const LEAGUE_SITES: Record<LeagueKey, LeagueSite> = {
     name: 'League Two',
     brand: 'LEAGUE TWO',
     prefix: '/league2',
-    logo: '/league2-logo.jpg',
+    logo: '/league2-logo.png',
   },
 };
 

@@ -39,7 +39,7 @@ function spokenProjection(value: number | null | undefined) {
 
 function TeamMeta({ team, opposite, avatar }: { team: Team; opposite?: boolean; avatar: AvatarRenderer }) {
   return <span className={`${styles.teamMeta} ${opposite ? styles.oppositeMeta : ''}`}>
-    {avatar(team)}<span className={styles.owner}>{team.ownerName}</span><span className={styles.record} aria-label={`${team.wins} wins, ${team.losses} losses${team.ties ? `, ${team.ties} ties` : ''}`}>{record(team)}</span>
+    {avatar(team)}<span className={styles.manager}>{team.managerName}</span><span className={styles.record} aria-label={`${team.wins} wins, ${team.losses} losses${team.ties ? `, ${team.ties} ties` : ''}`}>{record(team)}</span>
   </span>;
 }
 
@@ -118,9 +118,9 @@ function MatchupCard({ matchup, selected, avatar }: { matchup: Matchup; selected
 
   if (!left) return null;
   const label = right ? statusLabel(matchup.status) : 'Opponent pending';
-  const leftSummary = `${left.team.name}, owned by ${left.team.ownerName}, record ${spokenRecord(left.team)}, official score ${spokenScore(left.points)}, ${spokenProjection(left.projectedPoints)}`;
+  const leftSummary = `${left.team.name}, managed by ${left.team.managerName}, record ${spokenRecord(left.team)}, official score ${spokenScore(left.points)}, ${spokenProjection(left.projectedPoints)}`;
   const rightSummary = right
-    ? `${right.team.name}, owned by ${right.team.ownerName}, record ${spokenRecord(right.team)}, official score ${spokenScore(right.points)}, ${spokenProjection(right.projectedPoints)}`
+    ? `${right.team.name}, managed by ${right.team.managerName}, record ${spokenRecord(right.team)}, official score ${spokenScore(right.points)}, ${spokenProjection(right.projectedPoints)}`
     : 'opponent not posted, official score unavailable, projected score unavailable';
   const accessibleLabel = `${leftSummary}; versus ${rightSummary}. ${label}${mine ? '. My matchup' : ''}. ${expanded ? 'Collapse' : 'Expand'} starting lineups.`;
   return <article className={`${styles.card} ${mine ? styles.myMatchup : ''}`} aria-label={`${left.team.name}${right ? ` versus ${right.team.name}` : ', opponent pending'}`}>
@@ -153,7 +153,7 @@ function MatchupCard({ matchup, selected, avatar }: { matchup: Matchup; selected
         })}
         <p className={styles.lineupNote}>{matchup.status === 'upcoming' ? 'Lineups may change before kickoff.' : 'Scores reported by Sleeper.'}</p>
       </> : <p className={styles.unavailable}>Starting lineups have not been posted for this week.</p>}
-      <div className={styles.profileLinks}><Link href={`${site.prefix}/owners/${left.team.id}`} aria-label={`View ${left.team.name} profile`}>Team profile</Link>{right && <Link href={`${site.prefix}/owners/${right.team.id}`} aria-label={`View ${right.team.name} profile`}>Team profile</Link>}</div>
+      <div className={styles.profileLinks}><Link href={`${site.prefix}/managers/${left.team.id}`} aria-label={`View ${left.team.name} profile`}>Team profile</Link>{right && <Link href={`${site.prefix}/managers/${right.team.id}`} aria-label={`View ${right.team.name} profile`}>Team profile</Link>}</div>
     </div>
   </article>;
 }

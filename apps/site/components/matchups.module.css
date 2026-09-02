@@ -31,11 +31,11 @@
 .scoreDivider { height:18px; width:1px; margin-top:1px; background:var(--line); justify-self:center; }
 .teamMeta { grid-column:1 / -1; grid-row:2; justify-self:start; width:calc(50% - 14px); min-width:0; display:grid; grid-template-columns:14px minmax(0,1fr) max-content; gap:3px; align-items:center; font-size:10px; line-height:13px; color:var(--muted); }
 .teamMeta :global(.avatar) { width:14px; height:14px; font-size:8px; }
-.owner { min-width:0; overflow-wrap:anywhere; }
+.manager { min-width:0; overflow-wrap:anywhere; }
 .record { white-space:nowrap; font-variant-numeric:tabular-nums; color:var(--ink); }
 .oppositeMeta { justify-self:end; grid-template-columns:max-content minmax(0,1fr) 14px; text-align:right; }
 .oppositeMeta :global(.avatar) { grid-column:3; grid-row:1; }
-.oppositeMeta .owner { grid-column:2; grid-row:1; }
+.oppositeMeta .manager { grid-column:2; grid-row:1; }
 .oppositeMeta .record { grid-column:1; grid-row:1; }
 .expandControl { grid-column:2; grid-row:2; display:flex; align-items:center; justify-content:center; gap:3px; min-width:0; }
 .chevron { width:16px; height:16px; color:var(--muted); transition:transform .14s ease; }
