@@ -5,7 +5,7 @@ import type { Matchup, MatchupsData } from './types';
 
 function payload(overrides: Partial<MatchupsData> = {}, matchups?: Matchup[]): MatchupsData {
   const team = {
-    id: 1, ownerName: 'Owner', name: 'Team', avatar: null,
+    id: 1, managerName: 'Manager', name: 'Team', avatar: null,
     wins: 0, losses: 0, ties: 0, pointsFor: 0, pointsAgainst: 0,
   };
   return {

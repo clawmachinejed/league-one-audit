@@ -3,16 +3,16 @@ import 'server-only';
 import { notFound } from 'next/navigation';
 import { selectStoredMatchups } from '@/lib/projection-freshness';
 import { getProjectionStore } from '@/lib/projection-store';
-import { getCurrentLeagueWeek, getOfficialMatchups, getOverview, getOwner, getTransactions } from '@/lib/sleeper';
+import { getCurrentLeagueWeek, getOfficialMatchups, getOverview, getManager, getTransactions } from '@/lib/sleeper';
 import type { MatchupsData } from '@/lib/types';
 import { MatchupsView } from './matchups-view';
-import { OwnerView } from './owner-view';
-import { OwnersView } from './owners-view';
+import { ManagerView } from './manager-view';
+import { ManagersView } from './managers-view';
 import { StandingsView } from './standings-view';
 import { TransactionsView } from './transactions-view';
 
 type MatchupSearchParams = Promise<{ week?: string }>;
-type OwnerParams = Promise<{ id: string }>;
+type ManagerParams = Promise<{ id: string }>;
 
 async function storedMatchups(leagueId: string, week?: number): Promise<MatchupsData | null> {
   try {
@@ -59,19 +59,19 @@ export async function LeagueStandingsPage({ leagueId }: { leagueId: string }) {
   return <StandingsView data={await getOverview(leagueId)} />;
 }
 
-export async function LeagueOwnersPage({ leagueId }: { leagueId: string }) {
-  return <OwnersView data={await getOverview(leagueId)} />;
+export async function LeagueManagersPage({ leagueId }: { leagueId: string }) {
+  return <ManagersView data={await getOverview(leagueId)} />;
 }
 
-export async function LeagueOwnerPage({ leagueId, params }: { leagueId: string; params: OwnerParams }) {
+export async function LeagueManagerPage({ leagueId, params }: { leagueId: string; params: ManagerParams }) {
   const { id } = await params;
   if (!/^\d+$/u.test(id)) notFound();
-  const data = await getOwner(Number(id), leagueId);
+  const data = await getManager(Number(id), leagueId);
   if (!data) notFound();
-  return <OwnerView data={data} />;
+  return <ManagerView data={data} />;
 }
 
-export async function LeagueTransactionsPage({ leagueId, params }: { leagueId: string; params: OwnerParams }) {
+export async function LeagueTransactionsPage({ leagueId, params }: { leagueId: string; params: ManagerParams }) {
   const { id } = await params;
   if (!/^\d+$/u.test(id)) notFound();
   const data = await getTransactions(Number(id), leagueId);

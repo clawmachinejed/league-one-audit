@@ -59,24 +59,25 @@ test('switching leagues changes identity, data routes, and every primary tab', a
   const leagueTwoHome = page.getByRole('link', { name: 'League Two home' });
   await expect(leagueTwoHome).toBeVisible();
   await expect(leagueTwoHome).toContainText('LEAGUE TWO.');
+  await expect(leagueTwoHome.locator('img')).toHaveAttribute('src', /league2-logo\.png/u);
   await expect(page.getByRole('heading', { level: 1, name: 'Matchups' })).toBeVisible();
 
   const mobileNav = page.getByRole('navigation', { name: 'Mobile navigation' });
   await expect(mobileNav.getByRole('link', { name: 'Matchups' })).toHaveAttribute('href', '/league2/matchups');
   await expect(mobileNav.getByRole('link', { name: 'Standings' })).toHaveAttribute('href', '/league2/standings');
-  await expect(mobileNav.getByRole('link', { name: 'Owners' })).toHaveAttribute('href', '/league2/owners');
+  await expect(mobileNav.getByRole('link', { name: 'Managers' })).toHaveAttribute('href', '/league2/managers');
 
   await mobileNav.getByRole('link', { name: 'Standings' }).click();
   await expect(page).toHaveURL(/\/league2\/standings$/u);
   await expect(page.getByRole('heading', { level: 1, name: 'Standings' })).toBeVisible();
   await expect(page.getByText('2026 season', { exact: true })).toBeVisible();
 
-  await page.getByRole('navigation', { name: 'Mobile navigation' }).getByRole('link', { name: 'Owners' }).click();
-  await expect(page).toHaveURL(/\/league2\/owners$/u);
-  await expect(page.getByRole('heading', { level: 1, name: 'Owners' })).toBeVisible();
+  await page.getByRole('navigation', { name: 'Mobile navigation' }).getByRole('link', { name: 'Managers' }).click();
+  await expect(page).toHaveURL(/\/league2\/managers$/u);
+  await expect(page.getByRole('heading', { level: 1, name: 'Managers' })).toBeVisible();
   await expect(page.getByText('The people and teams of League Two.')).toBeVisible();
-  const ownerLink = page.locator('a[href^="/league2/owners/"]').first();
-  if (await ownerLink.count()) await expect(ownerLink).toBeVisible();
+  const managerLink = page.locator('a[href^="/league2/managers/"]').first();
+  if (await managerLink.count()) await expect(managerLink).toBeVisible();
   await expectNoPageOverflow(page);
 });
 
@@ -95,22 +96,22 @@ test('selecting the active league preserves the viewed matchup week', async ({ p
 
 test('My Team choices remain independent between League One and League Two', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto('/owners', { waitUntil: 'networkidle' });
+  await page.goto('/managers', { waitUntil: 'networkidle' });
   await page.evaluate(() => localStorage.clear());
   await page.reload({ waitUntil: 'networkidle' });
 
   const leagueOneButton = page.locator('.my-team-button').first();
-  test.skip((await leagueOneButton.count()) === 0, 'Sleeper has not returned League One owner cards.');
+  test.skip((await leagueOneButton.count()) === 0, 'Sleeper has not returned League One manager cards.');
   await leagueOneButton.click();
   await expect(leagueOneButton).toHaveAttribute('aria-pressed', 'true');
 
   const mobileNav = page.getByRole('navigation', { name: 'Mobile navigation' });
   await mobileNav.getByRole('button', { name: 'Choose league, current League One' }).click();
   await page.getByRole('link', { name: 'View League Two' }).click();
-  await expect(page).toHaveURL(/\/league2\/owners$/u);
+  await expect(page).toHaveURL(/\/league2\/managers$/u);
 
   const leagueTwoButton = page.locator('.my-team-button').first();
-  test.skip((await leagueTwoButton.count()) === 0, 'Sleeper has not returned League Two owner cards.');
+  test.skip((await leagueTwoButton.count()) === 0, 'Sleeper has not returned League Two manager cards.');
   await expect(page.locator('button.my-team-button[aria-pressed="true"]')).toHaveCount(0);
   await leagueTwoButton.click();
   await expect(leagueTwoButton).toHaveAttribute('aria-pressed', 'true');
@@ -118,7 +119,7 @@ test('My Team choices remain independent between League One and League Two', asy
   await page.getByRole('navigation', { name: 'Mobile navigation' })
     .getByRole('button', { name: 'Choose league, current League Two' }).click();
   await page.getByRole('link', { name: 'View League One' }).click();
-  await expect(page).toHaveURL(/\/owners$/u);
+  await expect(page).toHaveURL(/\/managers$/u);
   await expect(page.locator('button.my-team-button[aria-pressed="true"]')).toHaveCount(1);
 
   const storedKeys = await page.evaluate(() => Object.keys(localStorage).filter(key => key.startsWith('league-one:my-team:')).sort());

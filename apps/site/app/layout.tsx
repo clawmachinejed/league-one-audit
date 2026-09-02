@@ -4,7 +4,7 @@ import { LEAGUE_IDS } from '@/lib/config';
 import './globals.css';
 export const metadata: Metadata = {
   title: { default: 'League One · Fantasy Football', template: '%s · League One' },
-  description: 'The home of League One fantasy football. Matchups, standings, owners, and team activity.',
+  description: 'The home of League One fantasy football. Matchups, standings, managers, and team activity.',
   robots: process.env.VERCEL_ENV && process.env.VERCEL_ENV !== 'production' ? { index: false, follow: false } : { index: true, follow: true },
 };
 export const viewport: Viewport = {

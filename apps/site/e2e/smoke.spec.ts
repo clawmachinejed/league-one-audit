@@ -124,7 +124,7 @@ test('matchups fit supported widths and expanded lineup rows remain 52px', async
       await expectTouchHeight(page.getByLabel('Matchup week'));
 
       if (viewport.width < 760) {
-        for (const label of ['Matchups', 'Standings', 'Owners']) {
+        for (const label of ['Matchups', 'Standings', 'Managers']) {
           await expectTouchHeight(page.getByRole('navigation', { name: 'Mobile navigation' }).getByRole('link', { name: label }));
         }
       }
@@ -181,6 +181,8 @@ test('a matchup exposes scores to assistive technology and expands from the keyb
   const projections = (await toggle.locator('[data-team-projection-number]').allTextContents()).map(score => score.trim());
   expect(projections).toHaveLength(2);
   const toggleName = await toggle.getAttribute('aria-label');
+  expect(toggleName).toMatch(/managed by/i);
+  expect(toggleName).not.toMatch(/owned by/i);
   expect(toggleName?.match(/projected score/gi)).toHaveLength(2);
   for (const projection of projections) {
     expect(projection).toMatch(/^(?:—|-?\d+\.\d{2})$/u);
@@ -254,12 +256,12 @@ test('week navigation reaches the final week and returns to the prior week', asy
 });
 
 test('My Team remains selected after a reload', async ({ page }) => {
-  await page.goto('/owners', { waitUntil: 'networkidle' });
+  await page.goto('/managers', { waitUntil: 'networkidle' });
   await page.evaluate(() => localStorage.clear());
   await page.reload({ waitUntil: 'networkidle' });
 
   const selectButton = page.locator('.my-team-button').first();
-  test.skip((await selectButton.count()) === 0, 'Sleeper has not returned any owner cards.');
+  test.skip((await selectButton.count()) === 0, 'Sleeper has not returned any manager cards.');
 
   await expect(selectButton).toHaveAttribute('aria-pressed', 'false');
   await selectButton.click();
@@ -270,13 +272,13 @@ test('My Team remains selected after a reload', async ({ page }) => {
   await expect(page.getByText('Saved in this browser. Highlighted across the league.')).toBeVisible();
 });
 
-test('owner transactions remain readable and filtering works when available', async ({ page }) => {
+test('manager transactions remain readable and filtering works when available', async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 800 });
-  await page.goto('/owners', { waitUntil: 'networkidle' });
-  const ownerLink = page.locator('a[href^="/owners/"]').first();
-  test.skip((await ownerLink.count()) === 0, 'Sleeper has not returned any owner cards.');
-  await ownerLink.click();
-  await expect(page).toHaveURL(/\/owners\/\d+$/);
+  await page.goto('/managers', { waitUntil: 'networkidle' });
+  const managerLink = page.locator('a[href^="/managers/"]').first();
+  test.skip((await managerLink.count()) === 0, 'Sleeper has not returned any manager cards.');
+  await managerLink.click();
+  await expect(page).toHaveURL(/\/managers\/\d+$/);
   await page.getByRole('navigation', { name: 'Team pages' }).getByRole('link', { name: 'Transactions', exact: true }).click();
 
   await expect(page.getByRole('heading', { level: 2, name: 'Team activity' })).toBeVisible();
@@ -303,13 +305,43 @@ test('owner transactions remain readable and filtering works when available', as
   await expectNoPageOverflow(page);
 });
 
-test('the not-found page offers a usable route back to Owners', async ({ page }) => {
+test('the not-found page offers a usable route back to Managers', async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 800 });
   await page.goto('/this-page-does-not-exist', { waitUntil: 'networkidle' });
   await expect(page.getByRole('heading', { level: 1, name: 'Page not found' })).toBeVisible();
-  const backLink = page.getByRole('link', { name: 'Back to owners' });
+  const backLink = page.getByRole('link', { name: 'Back to managers' });
   await expectTouchHeight(backLink);
   await backLink.click();
-  await expect(page).toHaveURL(/\/owners$/);
-  await expect(page.getByRole('heading', { level: 1, name: 'Owners' })).toBeVisible();
+  await expect(page).toHaveURL(/\/managers$/);
+  await expect(page.getByRole('heading', { level: 1, name: 'Managers' })).toBeVisible();
+});
+
+test('League Two not-found pages return to League Two Managers', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 800 });
+  const response = await page.goto('/league2/this-page-does-not-exist', { waitUntil: 'networkidle' });
+  expect(response?.status()).toBe(404);
+  await expect(page.getByRole('heading', { level: 1, name: 'Page not found' })).toBeVisible();
+  const backLink = page.getByRole('link', { name: 'Back to managers' });
+  await expectTouchHeight(backLink);
+  await backLink.click();
+  await expect(page).toHaveURL(/\/league2\/managers$/);
+  await expect(page.getByRole('heading', { level: 1, name: 'Managers' })).toBeVisible();
+});
+
+test('former participant routes return 404 and are never redirected', async ({ request }) => {
+  const removedRoutes = [
+    '/owners',
+    '/owners/1',
+    '/owners/1/transactions',
+    '/league2/owners',
+    '/league2/owners/1',
+    '/league2/owners/1/transactions',
+  ];
+
+  for (const route of removedRoutes) {
+    const response = await request.get(route, { maxRedirects: 0 });
+    expect(response.status(), `${route} should not remain routable`).toBe(404);
+    expect(response.headers().location, `${route} should not redirect`).toBeUndefined();
+    expect(new URL(response.url()).pathname).toBe(route);
+  }
 });

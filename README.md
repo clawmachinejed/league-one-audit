@@ -1,6 +1,6 @@
 # League One and League 2
 
-A mobile-first home for League One and its League 2 promotion and relegation league, powered by public Sleeper league data. The site keeps the weekly experience focused: Matchups, Standings, and Owners, with rosters and transaction history inside each owner profile.
+A mobile-first home for League One and its League 2 promotion and relegation league, powered by public Sleeper league data. The site keeps the weekly experience focused: Matchups, Standings, and Managers, with rosters and transaction history inside each manager profile.
 
 ## What stays central
 
@@ -8,12 +8,12 @@ A mobile-first home for League One and its League 2 promotion and relegation lea
 - Pregame player projections derived from Tank01's raw weekly statistics using each league's Sleeper scoring settings.
 - Live projected finishes that combine official Sleeper points already scored with the frozen pregame projection scaled by the share of the NFL game remaining.
 - A persistent My Team selection, stored independently for each league and validated against that league's current teams.
-- Owner transaction history with adds, drops, trades, FAAB bids, and clearly labeled outcomes. Green, red, and muted result colors supplement the text.
+- Manager transaction history with adds, drops, trades, FAAB bids, and clearly labeled outcomes. Green, red, and muted result colors supplement the text.
 - Phone layouts that fit the screen, keep names and scores readable, and provide comfortable touch controls.
 
 The two public Sleeper league IDs have one canonical source in [`apps/site/lib/config.ts`](apps/site/lib/config.ts). Change a league ID only in that registry; every route and browser storage key references it. Sleeper IDs remain strings because they can exceed JavaScript's safe integer range. The site uses real data, shows empty states when appropriate, and reports unavailable or incomplete data without substituting demonstration teams or results.
 
-League One keeps its existing routes, such as `/matchups`. League 2 mirrors the same experience under `/league2`, such as `/league2/matchups`. The league selector changes the active league across Matchups, Standings, and Owners. Switching from a team-specific page returns to the selected league's Owners page because Sleeper roster numbers are only unique within one league.
+League One keeps its existing routes, such as `/matchups`. League 2 mirrors the same experience under `/league2`, such as `/league2/matchups`. The league selector changes the active league across Matchups, Standings, and Managers. Switching from a team-specific page returns to the selected league's Managers page because Sleeper roster numbers are only unique within one league.
 
 History, rivalries, awards, a separate statistics section, and a separate schedule section are outside this rebuild's scope.
 
@@ -135,7 +135,7 @@ The user describes the desired change in GPT. GPT carries it through the reposit
 3. Run `pnpm verify` and `pnpm test:browser`. Test the affected experience in a browser at 360, 390, and 430 pixels wide, with a desktop check. Check screen fit, wrapping, touch controls, navigation, and relevant empty or error states.
 4. Push the branch and open a pull request that explains the change and its validation. Inspect GitHub checks and the Vercel preview, including the deployed behavior.
 5. When the request authorizes release, merge through the repository's normal protected-branch process after its requirements pass. Do not request duplicate approval for an already authorized deployment, bypass required reviews, override protections, or force-push.
-6. Verify production after the merge. Confirm the deployed revision, both league identities and route prefixes, core navigation, matchup expansion, independent My Team persistence, and owner transactions as relevant to the change.
+6. Verify production after the merge. Confirm the deployed revision, both league identities and route prefixes, core navigation, matchup expansion, independent My Team persistence, and manager transactions as relevant to the change.
 7. Report the pull request, final commit, preview and production links, completed checks, and any remaining limitations. If access or an account approval blocks release, finish all available work and state the exact remaining action; do not report a deployment that has not occurred.
 
 If a release needs to be undone, revert the offending commit through a reviewed pull request and verify the resulting deployment. Preserve history rather than resetting or force-pushing `main`.

@@ -24,8 +24,8 @@ const NOW = new Date('2026-09-13T18:00:10.000Z');
 const KICKOFF = '2026-09-13T17:00:00.000Z';
 
 const teams: readonly Team[] = [
-  { id: 1, ownerName: 'Left Owner', name: 'Left Team', avatar: null, wins: 0, losses: 0, ties: 0, pointsFor: 0, pointsAgainst: 0 },
-  { id: 2, ownerName: 'Right Owner', name: 'Right Team', avatar: null, wins: 0, losses: 0, ties: 0, pointsFor: 0, pointsAgainst: 0 },
+  { id: 1, managerName: 'Left Manager', name: 'Left Team', avatar: null, wins: 0, losses: 0, ties: 0, pointsFor: 0, pointsAgainst: 0 },
+  { id: 2, managerName: 'Right Manager', name: 'Right Team', avatar: null, wins: 0, losses: 0, ties: 0, pointsFor: 0, pointsAgainst: 0 },
 ];
 
 function player(

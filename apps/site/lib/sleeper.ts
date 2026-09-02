@@ -12,7 +12,7 @@ import {
   resolveSleeperSchedule,
   type WeekSchedule,
 } from './nfl-schedule';
-import type { MatchupsData, OverviewData, OwnerData, Player, TransactionsData } from './types';
+import type { MatchupsData, OverviewData, ManagerData, Player, TransactionsData } from './types';
 import { getTank01WeeklyProjections, type Tank01ProjectionResult } from './tank01';
 import {
   canDecorateMatchupWeek,
@@ -23,7 +23,7 @@ import {
   normalizeMatchups,
   normalizeTeams,
   normalizeTransactions,
-  ownerLineup,
+  managerLineup,
   playerFromId,
   transactionEndWeek,
   type PlayerCatalog,
@@ -246,7 +246,7 @@ function assertCoreCompleteness(league: SleeperLeague, rosters: SleeperRoster[],
   }
   const userIds = new Set(users.map((user) => user.user_id));
   if (rosters.some((roster) => roster.owner_id && !userIds.has(roster.owner_id))) {
-    throw new Error('Sleeper returned incomplete owner information for the league rosters.');
+    throw new Error('Sleeper returned incomplete manager information for the league rosters.');
   }
 }
 
@@ -581,7 +581,7 @@ export async function getProjectionSyncInput(leagueId = LEAGUE_ID): Promise<Proj
 /**
  * Loads only the global calendar inputs needed to decide whether the scheduled
  * worker should wake Neon and fan out across leagues. These requests use a
- * five-minute cache and deliberately omit rosters, owners, players, and scores.
+ * five-minute cache and deliberately omit rosters, managers, players, and scores.
  */
 export async function getProjectionCadenceInput(leagueId = LEAGUE_ID): Promise<ProjectionCadenceInput> {
   const { sourceLeague, state, league } = await getLeagueCalendar(leagueId, SCHEDULE_CACHE_SECONDS);
@@ -604,7 +604,7 @@ export async function getProjectionCadenceInput(leagueId = LEAGUE_ID): Promise<P
   };
 }
 
-/** Returns the current league week without loading rosters, owners, players, scores, or schedules. */
+/** Returns the current league week without loading rosters, managers, players, scores, or schedules. */
 export async function getCurrentLeagueWeek(leagueId = LEAGUE_ID): Promise<number> {
   return (await getLeagueCalendar(leagueId, CORE_CACHE_SECONDS)).league.week;
 }
@@ -633,7 +633,7 @@ export async function getOfficialMatchups(
   return (await loadMatchupSource(requestedWeek, leagueId, false)).data;
 }
 
-export async function getOwner(id: number, leagueId = LEAGUE_ID): Promise<OwnerData | null> {
+export async function getManager(id: number, leagueId = LEAGUE_ID): Promise<ManagerData | null> {
   if (!Number.isInteger(id) || id < 1) return null;
   const core = await getCore(leagueId);
   const team = core.overview.teams.find((candidate) => candidate.id === id);
@@ -643,7 +643,7 @@ export async function getOwner(id: number, leagueId = LEAGUE_ID): Promise<OwnerD
   return {
     ...core.overview,
     team,
-    ...ownerLineup(roster, core.overview.league, players.catalog),
+    ...managerLineup(roster, core.overview.league, players.catalog),
     warning: joinWarnings(core.overview.warning, players.warning,
       players.warning ? undefined : playerCoverageWarning(players.catalog, [
         ...(roster.players ?? []), ...(roster.starters ?? []), ...(roster.reserve ?? []), ...(roster.taxi ?? []),

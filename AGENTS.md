@@ -4,13 +4,13 @@
 
 The user wants GPT to implement website changes, publish them to GitHub, and deploy them to Vercel through a repeatable process. Carry an authorized request to completion with the available tools. Do not stop at a plan or make the user perform routine implementation steps.
 
-This is the mobile-first League One and League 2 website. Keep the primary navigation focused on Matchups, Standings, and Owners. Rosters and Transactions belong within owner profiles. Do not reintroduce history, rivalries, awards, separate statistics or schedule sections, demo content, or cron jobs without a new request.
+This is the mobile-first League One and League 2 website. Keep the primary navigation focused on Matchups, Standings, and Managers. Rosters and Transactions belong within manager profiles. Do not reintroduce history, rivalries, awards, separate statistics or schedule sections, demo content, or cron jobs without a new request.
 
 Preserve these defining behaviors:
 
 - Expandable matchup cards with readable player and lineup comparisons.
-- My Team selection that persists in the browser, is scoped to the current league, and does not silently select a different owner when leagues change.
-- Owner transaction details, including FAAB bids and outcomes, with green, red, and muted result colors and visible text labels.
+- My Team selection that persists in the browser, is scoped to the current league, and does not silently select a different manager when leagues change.
+- Manager transaction details, including FAAB bids and outcomes, with green, red, and muted result colors and visible text labels.
 - Mobile screen fit, readable names and scores, and comfortable controls.
 
 The two public Sleeper league IDs have one golden source in `apps/site/lib/config.ts`. Keep them as strings, import that registry everywhere they are needed, and never repeat the production values in views, tests, documentation, environment files, or Vercel settings. Read league settings and data from Sleeper; do not invent scores, dates, players, results, or a fallback demonstration league.
@@ -37,7 +37,7 @@ For each substantive change:
 2. Add or update meaningful tests for changed calculations, data normalization, transaction outcomes, or other behavior with regression risk. Avoid tests that merely mirror trivial presentation code.
 3. Run `pnpm verify` from the repository root. It runs lint, Next.js route type generation and TypeScript checks, Vitest, and a production build. Do not claim checks passed unless they actually did.
 4. Inspect the affected pages in a browser at 360, 390, and 430 pixels wide, plus a desktop width. Check for horizontal page overflow, clipped names or scores, usable touch targets, wrapping, focus visibility, and state changes. Test expansion, week navigation, team selection after reload, and transaction readability whenever affected.
-5. Check relevant loading, empty, partial-data, error, and invalid-owner states. Do not depend on fabricated production data to make a test look complete.
+5. Check relevant loading, empty, partial-data, error, and invalid-manager states. Do not depend on fabricated production data to make a test look complete.
 
 ## GitHub and Vercel release process
 
