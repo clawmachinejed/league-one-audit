@@ -68,7 +68,7 @@ test('switching leagues changes identity, data routes, and every primary tab', a
   await mobileNav.getByRole('link', { name: 'Standings' }).click();
   await expect(page).toHaveURL(/\/league2\/standings$/u);
   await expect(page.getByRole('heading', { level: 1, name: 'Standings' })).toBeVisible();
-  await expect(page.getByText('2025 season', { exact: true })).toBeVisible();
+  await expect(page.getByText('2026 season', { exact: true })).toBeVisible();
 
   await page.getByRole('navigation', { name: 'Mobile navigation' }).getByRole('link', { name: 'Owners' }).click();
   await expect(page).toHaveURL(/\/league2\/owners$/u);
@@ -122,7 +122,7 @@ test('My Team choices remain independent between League One and League Two', asy
 
   const storedKeys = await page.evaluate(() => Object.keys(localStorage).filter(key => key.startsWith('league-one:my-team:')).sort());
   expect(storedKeys).toEqual([
-    'league-one:my-team:1188632897157021696',
+    'league-one:my-team:1312138224994385920',
     'league-one:my-team:1378850182409490432',
   ]);
 });

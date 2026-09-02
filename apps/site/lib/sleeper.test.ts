@@ -30,7 +30,7 @@ vi.mock('./config', () => ({
   LEAGUE_ID: '1378850182409490432',
   LEAGUE_IDS: {
     league1: '1378850182409490432',
-    league2: '1188632897157021696',
+    league2: '1312138224994385920',
   },
 }));
 vi.mock('./tank01', () => ({ getTank01WeeklyProjections: getTank01WeeklyProjectionsMock }));
@@ -39,7 +39,7 @@ import { getMatchups, getOverview, getOwner, getTransactions } from './sleeper';
 import type { NormalizedTank01OffenseProjection } from './projection-scoring';
 
 const leagueOneId = '1378850182409490432';
-const leagueTwoId = '1188632897157021696';
+const leagueTwoId = '1312138224994385920';
 const leaguePath = `/league/${leagueOneId}`;
 const leagueTwoPath = `/league/${leagueTwoId}`;
 let failures: Set<string>;

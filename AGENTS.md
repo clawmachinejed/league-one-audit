@@ -13,7 +13,7 @@ Preserve these defining behaviors:
 - Owner transaction details, including FAAB bids and outcomes, with green, red, and muted result colors and visible text labels.
 - Mobile screen fit, readable names and scores, and comfortable controls.
 
-League One uses Sleeper ID `1378850182409490432`; League 2 uses `1188632897157021696`. Keep these and all other Sleeper IDs as strings where they represent upstream identifiers. Use the central configuration in `apps/site/lib/config.ts` and its `SLEEPER_LEAGUE_ID` and `SLEEPER_LEAGUE_2_ID` environment overrides. Do not scatter league defaults through views. Read league settings and data from Sleeper; do not invent scores, dates, players, results, or a fallback demonstration league.
+League One uses Sleeper ID `1378850182409490432`; League 2 uses `1312138224994385920`. Keep these and all other Sleeper IDs as strings where they represent upstream identifiers. Use the central configuration in `apps/site/lib/config.ts` and its `SLEEPER_LEAGUE_ID` and `SLEEPER_LEAGUE_2_ID` environment overrides. Do not scatter league defaults through views. Read league settings and data from Sleeper; do not invent scores, dates, players, results, or a fallback demonstration league.
 
 ## Working safely
 
