@@ -75,7 +75,10 @@ function LeagueSwitcher({ activeSite, pathname, placement }: {
         aria-label={`View ${site.name}`}
         aria-current={site.key === activeSite.key ? 'page' : undefined}
         title={site.name}
-        onClick={() => setOpen(false)}
+        onClick={(event) => {
+          if (site.key === activeSite.key) event.preventDefault();
+          setOpen(false);
+        }}
       ><Image src={site.logo} width={30} height={30} alt="" /><span className="sr-only">{site.name}</span></Link>)}
     </div>}
   </div>;

@@ -55,8 +55,9 @@ test('switching leagues changes identity, data routes, and every primary tab', a
   await page.getByRole('link', { name: 'View League Two' }).click();
 
   await expect(page).toHaveURL(/\/league2\/matchups$/u);
-  await expect(page.getByRole('link', { name: 'League Two home' })).toBeVisible();
-  await expect(page.getByText('LEAGUE TWO', { exact: true })).toBeVisible();
+  const leagueTwoHome = page.getByRole('link', { name: 'League Two home' });
+  await expect(leagueTwoHome).toBeVisible();
+  await expect(leagueTwoHome).toContainText('LEAGUE TWO.');
   await expect(page.getByRole('heading', { level: 1, name: 'Matchups' })).toBeVisible();
 
   const mobileNav = page.getByRole('navigation', { name: 'Mobile navigation' });
@@ -76,6 +77,19 @@ test('switching leagues changes identity, data routes, and every primary tab', a
   const ownerLink = page.locator('a[href^="/league2/owners/"]').first();
   if (await ownerLink.count()) await expect(ownerLink).toBeVisible();
   await expectNoPageOverflow(page);
+});
+
+test('selecting the active league preserves the viewed matchup week', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/matchups?week=5', { waitUntil: 'networkidle' });
+  await expect(page.getByLabel('Matchup week')).toHaveValue('5');
+
+  const mobileNav = page.getByRole('navigation', { name: 'Mobile navigation' });
+  await mobileNav.getByRole('button', { name: 'Choose league, current League One' }).click();
+  await mobileNav.getByRole('link', { name: 'View League One' }).click();
+
+  await expect(page).toHaveURL(/\/matchups\?week=5$/u);
+  await expect(page.getByLabel('Matchup week')).toHaveValue('5');
 });
 
 test('My Team choices remain independent between League One and League Two', async ({ page }) => {
