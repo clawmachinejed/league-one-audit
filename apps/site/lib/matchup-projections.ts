@@ -18,11 +18,6 @@ export type PregameProjectionPointMapResult = Readonly<{
   warning?: string;
 }>;
 
-export type ProjectionDecoration = Readonly<{
-  matchups: Matchup[];
-  warning?: string;
-}>;
-
 function isProjection(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
@@ -170,29 +165,5 @@ export function scoreTank01PlayersPointMap(
     warning: invalidScoringSettings
       ? 'Some projected scores are unavailable because Sleeper league scoring settings were invalid.'
       : undefined,
-  };
-}
-
-export function scoreTank01PregamePointMap(
-  matchups: Matchup[],
-  result: Tank01ProjectionResult,
-  scoringSettings: SleeperScoringSettings | null | undefined,
-): PregameProjectionPointMapResult {
-  const starters = matchups.flatMap((matchup) => matchup.sides)
-    .flatMap((side) => side.starters);
-  return scoreTank01PlayersPointMap(starters, result, scoringSettings);
-}
-
-export function addTank01ProjectedPoints(
-  matchups: Matchup[],
-  result: Tank01ProjectionResult,
-  scoringSettings: SleeperScoringSettings | null | undefined,
-): ProjectionDecoration {
-  const scored = scoreTank01PregamePointMap(matchups, result, scoringSettings);
-  return {
-    matchups: scored.status === 'available'
-      ? addProjectedPoints(matchups, scored.pointsByPlayer)
-      : matchups,
-    warning: scored.warning,
   };
 }

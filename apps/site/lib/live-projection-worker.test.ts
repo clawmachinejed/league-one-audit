@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('server-only', () => ({}));
 vi.mock('next/cache', () => ({ unstable_cache: <Value,>(value: Value) => value }));
-vi.mock('next/server', () => ({ after: vi.fn() }));
 
 import type { WeekSchedule } from './nfl-schedule';
 import { NFL_TEAMS, type NflTeam } from './nfl-teams';

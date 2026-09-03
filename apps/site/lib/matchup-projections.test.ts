@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import type { Matchup, Player, Team } from './types';
 import {
   addProjectedPoints,
-  scoreTank01PregamePointMap,
   scoreTank01PlayersPointMap,
 } from './matchup-projections';
 import type { Tank01AvailableResult } from './tank01';
@@ -81,10 +80,10 @@ describe('matchup projections', () => {
     expect(result.sides[0].projectedPoints).toBeNull();
   });
 
-  it('exposes full-precision pregame points and source quality independently of UI decoration', () => {
+  it('exposes full-precision points and source quality independently of UI decoration', () => {
     const sourcePlayer = player('sleeper-running-back');
-    const result = scoreTank01PregamePointMap(
-      [matchup([sourcePlayer, player('missing-from-slate')])],
+    const result = scoreTank01PlayersPointMap(
+      [sourcePlayer, player('missing-from-slate')],
       availableTank01Result({
         'sleeper-running-back': {
           tank01PlayerId: 'tank-running-back',
@@ -110,9 +109,9 @@ describe('matchup projections', () => {
     });
   });
 
-  it('withholds an unsafe identity match from the reusable pregame map', () => {
-    const result = scoreTank01PregamePointMap(
-      [matchup([player('sleeper-running-back')])],
+  it('withholds an unsafe identity match from the reusable player map', () => {
+    const result = scoreTank01PlayersPointMap(
+      [player('sleeper-running-back')],
       availableTank01Result({
         'sleeper-running-back': {
           tank01PlayerId: 'tank-wide-receiver',

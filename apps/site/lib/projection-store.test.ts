@@ -64,6 +64,28 @@ const activityWindows = [{
   endsAt: '2026-09-14T00:00:00.000Z',
 }] as const;
 
+function snapshotRow(
+  payload: MatchupsData,
+  latestRank: number,
+  requestedWeekRank = 1,
+): DatabaseRow {
+  return {
+    snapshot_id: `snapshot-${payload.week}`,
+    league_season_id: `season-${payload.league.season}`,
+    week: payload.week,
+    model_version: 'clock-v1',
+    revision_key: `revision-${payload.week}`,
+    calculated_at: payload.updatedAt,
+    published_at: payload.updatedAt,
+    verified_at: payload.updatedAt,
+    activity_windows: [],
+    is_current: true,
+    payload,
+    latest_rank: latestRank,
+    requested_week_rank: requestedWeekRank,
+  };
+}
+
 describe('optional database connection', () => {
   it('keeps reads and writes safe when DATABASE_URL is absent', async () => {
     expect(createDatabase(undefined)).toEqual({ enabled: false, reason: 'missing-database-url' });
@@ -75,12 +97,10 @@ describe('optional database connection', () => {
     const store = createProjectionStore({ enabled: false, reason: 'missing-database-url' });
     expect(store.enabled).toBe(false);
     await expect(store.readCurrentSnapshot('season-id', 1)).resolves.toBeNull();
-    await expect(store.readCurrentSnapshotBySleeperLeagueId('league-id', 2026, 1))
-      .resolves.toBeNull();
-    await expect(store.readLatestCurrentSnapshotBySleeperLeagueId('league-id', 1))
-      .resolves.toBeNull();
-    await expect(store.readLatestCurrentSnapshotBySleeperLeagueId('league-id'))
-      .resolves.toBeNull();
+    await expect(store.readSnapshotSelectionBySleeperLeagueId('league-id', 1))
+      .resolves.toEqual({ selected: null, latest: null });
+    await expect(store.readSnapshotSelectionBySleeperLeagueId('league-id'))
+      .resolves.toEqual({ selected: null, latest: null });
     await expect(store.readFrozenBaselinesBySleeperIds({
       leagueSeasonId: 'season-id', season: 2026, seasonType: 'reg', week: 1,
       provider: 'tank01', modelVersion: 'tank01-pregame-v1', sleeperPlayerIds: ['player-id'],
@@ -108,6 +128,57 @@ describe('optional database connection', () => {
 });
 
 describe('projection persistence', () => {
+  it('reads an explicit week and the latest league snapshot in one database operation', async () => {
+    const requested = snapshot;
+    const latest = {
+      ...snapshot,
+      league: { ...snapshot.league, week: 2 },
+      week: 2,
+      updatedAt: '2026-09-20T17:00:00.000Z',
+    };
+    const fake = fakeDatabase(() => [snapshotRow(requested, 2), snapshotRow(latest, 1)]);
+    const store = createProjectionStore(fake.database);
+
+    await expect(store.readSnapshotSelectionBySleeperLeagueId('league-id', 1))
+      .resolves.toMatchObject({
+        selected: { snapshotId: 'snapshot-1', week: 1 },
+        latest: { snapshotId: 'snapshot-2', week: 2 },
+      });
+    expect(fake.calls).toHaveLength(1);
+    expect(fake.calls[0].parameters).toEqual(['league-id', 1]);
+    expect(fake.calls[0].statement).toContain('row_number() OVER');
+    expect(fake.calls[0].statement).toContain('PARTITION BY current.week');
+  });
+
+  it('uses the one latest row as both values when no week is requested', async () => {
+    const fake = fakeDatabase(() => [snapshotRow(snapshot, 1)]);
+    const store = createProjectionStore(fake.database);
+
+    const selection = await store.readSnapshotSelectionBySleeperLeagueId('league-id');
+    expect(selection.selected).toEqual(selection.latest);
+    expect(selection.latest).toMatchObject({ snapshotId: 'snapshot-1', week: 1 });
+    expect(fake.calls).toHaveLength(1);
+    expect(fake.calls[0].parameters).toEqual(['league-id', null]);
+  });
+
+  it('returns a missing requested week alongside the available latest snapshot', async () => {
+    const latest = {
+      ...snapshot,
+      league: { ...snapshot.league, week: 2 },
+      week: 2,
+      updatedAt: '2026-09-20T17:00:00.000Z',
+    };
+    const fake = fakeDatabase(() => [snapshotRow(latest, 1)]);
+    const store = createProjectionStore(fake.database);
+
+    await expect(store.readSnapshotSelectionBySleeperLeagueId('league-id', 1))
+      .resolves.toMatchObject({
+        selected: null,
+        latest: { snapshotId: 'snapshot-2', week: 2 },
+      });
+    expect(fake.calls).toHaveLength(1);
+  });
+
   it('registers runtime league IDs and hashes equivalent scoring rules identically', async () => {
     const fake = fakeDatabase(() => [{
       league_id: 'league-id', league_season_id: 'season-id', scoring_profile_id: 'profile-id',
@@ -621,10 +692,10 @@ describe('projection migration', () => {
   });
 
   it('migrates every stored team name without replacing snapshot history or pointers', async () => {
-    const migration = await readFile(
+    const migration = (await readFile(
       new URL('../migrations/002_manager_snapshot_payloads.sql', import.meta.url),
       'utf8',
-    );
+    )).replace(/\r\n?/gu, '\n');
 
     expect(migration).toContain("jsonb_set(snapshot_payload, '{teams}'");
     expect(migration).toContain("jsonb_set(snapshot_matchup, '{sides}'");

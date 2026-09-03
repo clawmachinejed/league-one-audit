@@ -2,11 +2,7 @@ import 'server-only';
 
 import { cache } from 'react';
 import { unstable_cache } from 'next/cache';
-import { after } from 'next/server';
-import { LEAGUE_ID } from './config';
 import { normalizeInjuryStatus } from './injury-status';
-import { addTank01ProjectedPoints } from './matchup-projections';
-import { assessTank01ProjectionSlate } from './projection-slate';
 import {
   addScheduleToMatchups,
   addScheduleToPlayers,
@@ -14,7 +10,6 @@ import {
   type WeekSchedule,
 } from './nfl-schedule';
 import type { MatchupsData, OverviewData, ManagerData, Player, TransactionsData } from './types';
-import { getTank01WeeklyProjections, type Tank01ProjectionResult } from './tank01';
 import {
   canDecorateMatchupWeek,
   involvesRoster,
@@ -70,9 +65,7 @@ const SEASON_SCHEDULE_CACHE_SECONDS = 3_600;
 const PLAYER_CACHE_SECONDS = 86_400;
 // Back off briefly after a catalog failure so an upstream outage does not trigger a large retry on every page request.
 const PLAYER_FAILURE_CACHE_SECONDS = 300;
-// Keep optional projections from delaying authoritative Sleeper matchup data on a cold provider request.
-const MATCHUP_PROJECTION_WAIT_MS = 1_000;
-// League One uses these player positions. Sleeper's documented position filters keep
+// The public leagues use these player positions. Sleeper's documented position filters keep
 // each response small enough to load reliably in a serverless function.
 const PLAYER_POSITIONS = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'] as const;
 type PlayerPosition = typeof PLAYER_POSITIONS[number];
@@ -427,72 +420,35 @@ async function getWeekSchedule(season: string, week: number): Promise<{
   };
 }
 
-export async function getOverview(leagueId = LEAGUE_ID): Promise<OverviewData> {
+export async function getOverview(leagueId: string): Promise<OverviewData> {
   return (await getCore(leagueId)).overview;
 }
 
-function unavailableTank01Projections(season: string, week: number): Tank01ProjectionResult {
-  return {
-    status: 'unavailable',
-    season,
-    week,
-    reason: 'provider-error',
-    message: 'Player projections are temporarily unavailable.',
-  };
-}
-
-async function getSafeTank01Projections(season: string, week: number): Promise<Tank01ProjectionResult> {
-  try {
-    return await getTank01WeeklyProjections(season, week);
-  } catch {
-    // The provider normally converts upstream failures to this result. Keep projections optional
-    // if an unexpected cache or runtime rejection escapes that boundary.
-    return unavailableTank01Projections(season, week);
-  }
-}
-
-async function getOptionalTank01Projections(season: string, week: number): Promise<Tank01ProjectionResult> {
-  const projection = getSafeTank01Projections(season, week);
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  const outcome = await Promise.race([
-    projection.then((value) => ({ kind: 'projection' as const, value })),
-    new Promise<{ kind: 'deadline' }>((resolve) => {
-      timeout = setTimeout(() => resolve({ kind: 'deadline' }), MATCHUP_PROJECTION_WAIT_MS);
-    }),
-  ]);
-
-  if (outcome.kind === 'projection') {
-    if (timeout !== undefined) clearTimeout(timeout);
-    return outcome.value;
-  }
-
-  // Register the already-running, rejection-safe promise with the request lifecycle. This lets a
-  // cold result populate Next's shared cache without holding the matchup response open.
-  after(() => projection);
-  return unavailableTank01Projections(season, week);
-}
+type MatchupSourceOptions = Readonly<{
+  requestedWeek?: number;
+  freshMatchups?: boolean;
+  includeRosteredPlayers?: boolean;
+}>;
 
 async function loadMatchupSource(
-  requestedWeek: number | undefined,
   leagueId: string,
-  includeOptionalProjection: boolean,
-  freshMatchups = false,
+  options: MatchupSourceOptions = {},
 ): Promise<{
   data: MatchupsData;
   rosteredPlayers: readonly Player[];
   sourceLeague: SleeperLeague;
-  tank01Projections: Tank01ProjectionResult | null;
   schedule: WeekSchedule;
   requestStartedAt: string;
   requestCompletedAt: string;
 }> {
+  const { requestedWeek, freshMatchups = false, includeRosteredPlayers = false } = options;
   const core = await getCore(leagueId);
   const week = requestedWeek === undefined ? core.overview.league.week
     : Number.isInteger(requestedWeek) && requestedWeek >= 1 && requestedWeek <= core.overview.league.maxWeek
       ? requestedWeek : core.overview.league.week;
   const status = matchupStatus(core.sourceLeague, core.state, week);
   const canDecorate = canDecorateMatchupWeek(core.sourceLeague, core.state, week);
-  const [matchupObservation, players, nflSchedule, tank01Projections] = await Promise.all([
+  const [matchupObservation, players, nflSchedule] = await Promise.all([
     fetchObservedRows<SleeperMatchup>(
       `/league/${leagueId}/matchups/${week}`,
       isSleeperMatchup,
@@ -503,9 +459,6 @@ async function loadMatchupSource(
     canDecorate
       ? getWeekSchedule(core.overview.league.season, week)
       : Promise.resolve({ schedule: {} as WeekSchedule, canIdentifyByes: false, warning: undefined }),
-    canDecorate && includeOptionalProjection
-      ? getOptionalTank01Projections(core.overview.league.season, week)
-      : Promise.resolve(null),
   ]);
   const { rows, requestStartedAt, requestCompletedAt } = matchupObservation;
   const slateExpected = matchupSlateExpected(core.sourceLeague, core.state, week);
@@ -516,17 +469,19 @@ async function loadMatchupSource(
     nflSchedule.schedule,
     nflSchedule.canIdentifyByes,
   );
-  const rosteredPlayerIds = [...new Set(core.rosters.flatMap((roster) => [
-    ...(roster.players ?? []),
-    ...(roster.starters ?? []),
-    ...(roster.reserve ?? []),
-    ...(roster.taxi ?? []),
-  ]).filter((id): id is string => typeof id === 'string' && id !== '0'))];
-  const rosteredPlayers = addScheduleToPlayers(
-    rosteredPlayerIds.map((id, index) => playerFromId(id, 'BN', players.catalog, null, index)),
-    nflSchedule.schedule,
-    nflSchedule.canIdentifyByes,
-  );
+  const rosteredPlayers = includeRosteredPlayers
+    ? addScheduleToPlayers(
+      [...new Set(core.rosters.flatMap((roster) => [
+        ...(roster.players ?? []),
+        ...(roster.starters ?? []),
+        ...(roster.reserve ?? []),
+        ...(roster.taxi ?? []),
+      ]).filter((id): id is string => typeof id === 'string' && id !== '0'))]
+        .map((id, index) => playerFromId(id, 'BN', players.catalog, null, index)),
+      nflSchedule.schedule,
+      nflSchedule.canIdentifyByes,
+    )
+    : [];
   const displayedRows = scheduledMatchups.reduce((count, matchup) => count + matchup.sides.length, 0);
   return {
     data: {
@@ -541,7 +496,6 @@ async function loadMatchupSource(
     },
     rosteredPlayers,
     sourceLeague: core.sourceLeague,
-    tank01Projections,
     schedule: nflSchedule.schedule,
     requestStartedAt,
     requestCompletedAt,
@@ -565,8 +519,11 @@ async function fetchObservedRows<T>(
  * worker uses this boundary so provider synchronization and database writes remain outside the
  * presentation path.
  */
-export async function getProjectionSyncInput(leagueId = LEAGUE_ID): Promise<ProjectionSyncInput> {
-  const source = await loadMatchupSource(undefined, leagueId, false, true);
+export async function getProjectionSyncInput(leagueId: string): Promise<ProjectionSyncInput> {
+  const source = await loadMatchupSource(leagueId, {
+    freshMatchups: true,
+    includeRosteredPlayers: true,
+  });
   return {
     sleeperLeagueId: leagueId,
     leagueName: source.sourceLeague.name,
@@ -584,7 +541,7 @@ export async function getProjectionSyncInput(leagueId = LEAGUE_ID): Promise<Proj
  * worker should wake Neon and fan out across leagues. These requests use a
  * five-minute cache and deliberately omit rosters, managers, players, and scores.
  */
-export async function getProjectionCadenceInput(leagueId = LEAGUE_ID): Promise<ProjectionCadenceInput> {
+export async function getProjectionCadenceInput(leagueId: string): Promise<ProjectionCadenceInput> {
   const { sourceLeague, state, league } = await getLeagueCalendar(leagueId, SCHEDULE_CACHE_SECONDS);
   const schedule = canDecorateMatchupWeek(sourceLeague, state, league.week)
     ? (await getWeekSchedule(league.season, league.week)).schedule
@@ -606,24 +563,8 @@ export async function getProjectionCadenceInput(leagueId = LEAGUE_ID): Promise<P
 }
 
 /** Returns the current league week without loading rosters, managers, players, scores, or schedules. */
-export async function getCurrentLeagueWeek(leagueId = LEAGUE_ID): Promise<number> {
+export async function getCurrentLeagueWeek(leagueId: string): Promise<number> {
   return (await getLeagueCalendar(leagueId, CORE_CACHE_SECONDS)).league.week;
-}
-
-export async function getMatchups(requestedWeek?: number, leagueId = LEAGUE_ID): Promise<MatchupsData> {
-  const source = await loadMatchupSource(requestedWeek, leagueId, true);
-  const tank01Projections = source.tank01Projections?.status === 'available'
-    && !assessTank01ProjectionSlate(source.tank01Projections, source.schedule).complete
-    ? unavailableTank01Projections(source.data.league.season, source.data.week)
-    : source.tank01Projections;
-  const projectionDecoration = tank01Projections
-    ? addTank01ProjectedPoints(source.data.matchups, tank01Projections, source.sourceLeague.scoring_settings)
-    : { matchups: source.data.matchups, warning: undefined };
-  return {
-    ...source.data,
-    matchups: projectionDecoration.matchups,
-    warning: joinWarnings(source.data.warning, projectionDecoration.warning),
-  };
 }
 
 /**
@@ -632,13 +573,13 @@ export async function getMatchups(requestedWeek?: number, leagueId = LEAGUE_ID):
  * projection worker has not recently verified its stored snapshot.
  */
 export async function getOfficialMatchups(
+  leagueId: string,
   requestedWeek?: number,
-  leagueId = LEAGUE_ID,
 ): Promise<MatchupsData> {
-  return (await loadMatchupSource(requestedWeek, leagueId, false)).data;
+  return (await loadMatchupSource(leagueId, { requestedWeek })).data;
 }
 
-export async function getManager(id: number, leagueId = LEAGUE_ID): Promise<ManagerData | null> {
+export async function getManager(leagueId: string, id: number): Promise<ManagerData | null> {
   if (!Number.isInteger(id) || id < 1) return null;
   const core = await getCore(leagueId);
   const team = core.overview.teams.find((candidate) => candidate.id === id);
@@ -682,7 +623,7 @@ const getTransactionWeeks = cache(async (leagueId: string, lastWeek: number) => 
   return { rows, failedWeeks: failedWeeks.sort((a, b) => a - b) };
 });
 
-export async function getTransactions(id: number, leagueId = LEAGUE_ID): Promise<TransactionsData | null> {
+export async function getTransactions(leagueId: string, id: number): Promise<TransactionsData | null> {
   if (!Number.isInteger(id) || id < 1) return null;
   const core = await getCore(leagueId);
   const team = core.overview.teams.find((candidate) => candidate.id === id);

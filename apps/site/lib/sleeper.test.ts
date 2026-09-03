@@ -1,8 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const nextCacheOptions = vi.hoisted(() => [] as Array<{ revalidate?: number }>);
-const getTank01WeeklyProjectionsMock = vi.hoisted(() => vi.fn());
-const afterMock = vi.hoisted(() => vi.fn());
 const reactCacheControl = vi.hoisted(() => ({ enabled: false, generation: 0 }));
 
 vi.mock('server-only', () => ({}));
@@ -25,13 +23,9 @@ vi.mock('next/cache', () => ({
     return fn;
   },
 }));
-vi.mock('next/server', () => ({ after: afterMock }));
-vi.mock('./tank01', () => ({ getTank01WeeklyProjections: getTank01WeeklyProjectionsMock }));
-
 import { LEAGUE_IDS } from './config';
 import {
   getCurrentLeagueWeek,
-  getMatchups,
   getOfficialMatchups,
   getOverview,
   getManager,
@@ -39,7 +33,6 @@ import {
   getProjectionSyncInput,
   getTransactions,
 } from './sleeper';
-import type { NormalizedTank01OffenseProjection } from './projection-scoring';
 
 const leagueOneId = LEAGUE_IDS.league1;
 const leagueTwoId = LEAGUE_IDS.league2;
@@ -105,95 +98,6 @@ const leagueOneScoringSettings = {
   pts_allow_7_13: 4,
 };
 let activeScoringSettings: Record<string, unknown>;
-
-const zeroOffenseProjection: NormalizedTank01OffenseProjection = {
-  kind: 'offense',
-  passingYards: 0,
-  passingTouchdowns: 0,
-  passingInterceptions: 0,
-  rushingYards: 0,
-  rushingTouchdowns: 0,
-  receptions: 0,
-  receivingYards: 0,
-  receivingTouchdowns: 0,
-  twoPointConversions: 0,
-  fumblesLost: 0,
-};
-const zeroDefenseProjection = {
-  kind: 'defense' as const,
-  sacks: 0,
-  interceptions: 0,
-  fumbleRecoveries: 0,
-  defensiveTouchdowns: 0,
-  specialTeamsTouchdowns: 0,
-  safeties: 0,
-  blockedKicks: 0,
-  pointsAllowed: 0,
-};
-
-function availableTank01Projection(playerIds: string[] = ['qb']) {
-  const playingTeams = schedulePairsForWeek(3).flatMap(([home, away]) => [home, away]);
-  const coveragePlayers = Object.fromEntries(playingTeams.flatMap((team) => (
-    (['QB', 'RB', 'WR', 'TE'] as const).map((position) => {
-      const id = `coverage-${team}-${position}`;
-      return [id, {
-        tank01PlayerId: `tank-${id}`,
-        sleeperPlayerId: id,
-        team,
-        position,
-        stats: {},
-        scoringProjection: zeroOffenseProjection,
-        missingFields: [],
-      }] as const;
-    })
-  )));
-  // Deliberately leave IND's D/ST absent. The complete-slate guard must tolerate
-  // an isolated omission so the existing missing-individual-is-zero policy remains valid.
-  const coverageDefenses = Object.fromEntries(playingTeams.flatMap((team) => team === 'IND' ? [] : [[team, {
-    team,
-    stats: {},
-    scoringProjection: zeroDefenseProjection,
-    missingFields: [],
-  }] as const]));
-  const players = {
-    ...coveragePlayers,
-    ...Object.fromEntries(playerIds.map((id) => [id, {
-      tank01PlayerId: `tank-${id}`,
-      sleeperPlayerId: id,
-      team: 'IND',
-      position: id === 'rb' ? 'RB' : 'QB',
-      stats: {},
-      scoringProjection: zeroOffenseProjection,
-      missingFields: [],
-    }])),
-  };
-  return {
-    status: 'available' as const,
-    season: '2026',
-    week: 3,
-    fetchedAt: '2026-09-01T12:00:00.000Z',
-    projections: {
-      bySleeperId: players,
-      byDefenseTeam: coverageDefenses,
-    },
-    coverage: {
-      playerListRows: Object.keys(players).length,
-      crosswalkEntries: Object.keys(players).length,
-      malformedPlayerListRows: 0,
-      ambiguousPlayerListRows: 0,
-      playerProjectionRows: Object.keys(players).length,
-      matchedPlayerProjections: Object.keys(players).length,
-      unmatchedPlayerProjections: 0,
-      malformedPlayerProjections: 0,
-      incompletePlayerProjections: 0,
-      defenseProjectionRows: Object.keys(coverageDefenses).length,
-      usableDefenseProjections: Object.keys(coverageDefenses).length,
-      malformedDefenseProjections: 0,
-      incompleteDefenseProjections: 0,
-    },
-    warnings: [],
-  };
-}
 
 const schedulePairs = [
   ['CAR', 'KC'], ['LAC', 'ARI'], ['IND', 'HOU'], ['ATL', 'BAL'],
@@ -288,9 +192,6 @@ beforeEach(() => {
   rawUsers = [{ user_id: 'member-1', display_name: 'Alex' }];
   rawMatchups = [{ roster_id: 1, matchup_id: null, points: null, starters: ['qb'], starters_points: [12.34] }];
   playerCatalog = undefined;
-  getTank01WeeklyProjectionsMock.mockReset();
-  getTank01WeeklyProjectionsMock.mockResolvedValue(availableTank01Projection());
-  afterMock.mockReset();
   vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
     const path = requestPath(input);
     const transactionRequest = path.includes('/transactions/');
@@ -381,7 +282,7 @@ describe('Sleeper service error handling', () => {
   it('loads League 2 core and matchup data from its own Sleeper endpoints', async () => {
     const [overview, matchups] = await Promise.all([
       getOverview(leagueTwoId),
-      getMatchups(3, leagueTwoId),
+      getOfficialMatchups(leagueTwoId, 3),
     ]);
 
     expect(overview.teams[0]).toMatchObject({ id: 1, managerName: 'Jordan' });
@@ -402,8 +303,8 @@ describe('Sleeper service error handling', () => {
     reactCacheControl.enabled = true;
 
     const [leagueOne, leagueTwo] = await Promise.all([
-      getTransactions(1, leagueOneId),
-      getTransactions(1, leagueTwoId),
+      getTransactions(leagueOneId, 1),
+      getTransactions(leagueTwoId, 1),
     ]);
 
     expect(leagueOne).toMatchObject({
@@ -422,7 +323,7 @@ describe('Sleeper service error handling', () => {
   });
 
   it('uses documented position filters instead of the oversized all-player response', async () => {
-    await getManager(1);
+    await getManager(leagueOneId, 1);
     const playerUrls = vi.mocked(fetch).mock.calls
       .map(([url]) => new URL(String(url)))
       .filter((url) => url.pathname.endsWith('/players/nfl'));
@@ -441,7 +342,7 @@ describe('Sleeper service error handling', () => {
       }
       return Response.json(original(requestPath(input)));
     });
-    const data = await getManager(1);
+    const data = await getManager(leagueOneId, 1);
     expect(data?.starters[0].name).toBe('Quarter Back');
     expect(data?.warning).toContain('(WR)');
   });
@@ -456,8 +357,8 @@ describe('Sleeper service error handling', () => {
       return Response.json(original(requestPath(input)));
     });
 
-    await getManager(1);
-    await getManager(1);
+    await getManager(leagueOneId, 1);
+    await getManager(leagueOneId, 1);
     const playerCalls = () => vi.mocked(fetch).mock.calls.filter(([url]) => {
       const parsed = new URL(String(url));
       return parsed.pathname.endsWith('/players/nfl') && parsed.searchParams.get('position') === 'WR';
@@ -465,13 +366,13 @@ describe('Sleeper service error handling', () => {
     expect(playerCalls()).toHaveLength(1);
 
     vi.mocked(Date.now).mockReturnValue(testNow + 301_000);
-    await getManager(1);
+    await getManager(leagueOneId, 1);
     expect(playerCalls()).toHaveLength(2);
   });
 
   it('loads preseason week zero transactions and makes partial history visible', async () => {
     failures.add(`${leaguePath}/transactions/1`);
-    const data = await getTransactions(1);
+    const data = await getTransactions(leagueOneId, 1);
     expect(data?.warning).toContain('weeks 1');
     expect(data?.transactions).toHaveLength(1);
     expect(data?.transactions[0]).toMatchObject({ id: 'week-zero', result: 'Lost', bid: 7 });
@@ -479,12 +380,12 @@ describe('Sleeper service error handling', () => {
 
   it('fails visibly instead of returning an empty activity feed when every history request fails', async () => {
     failures.add('all-transactions');
-    await expect(getTransactions(1)).rejects.toThrow('transaction history is temporarily unavailable');
+    await expect(getTransactions(leagueOneId, 1)).rejects.toThrow('transaction history is temporarily unavailable');
   });
 
   it('caps concurrent history calls and stops at the league\'s last active week', async () => {
     seasonType = 'post';
-    const data = await getTransactions(1);
+    const data = await getTransactions(leagueOneId, 1);
     const calls = vi.mocked(fetch).mock.calls.filter(([url]) => String(url).includes('/transactions/'));
     expect(calls).toHaveLength(4);
     expect(maxTransactionRequests).toBeLessThanOrEqual(4);
@@ -493,24 +394,24 @@ describe('Sleeper service error handling', () => {
 
   it('retains the roster with a visible player-catalog warning', async () => {
     failures.add('/players/nfl');
-    const data = await getManager(1);
+    const data = await getManager(leagueOneId, 1);
     expect(data?.warning).toContain('Player names and injury designations are temporarily unavailable');
     expect(data?.starters[0]).toMatchObject({ id: 'qb', name: 'Player qb', slot: 'QB', injuryStatus: null });
   });
 
   it('does not fall back to invented teams when the configured league is invalid', async () => {
     invalidLeague = true;
-    await expect(getOverview()).rejects.toThrow('valid league');
+    await expect(getOverview(leagueOneId)).rejects.toThrow('valid league');
   });
 
   it('rejects an unknown league status instead of treating its matchup data as unpublished', async () => {
     leagueStatus = 'unknown_status';
-    await expect(getOverview()).rejects.toThrow('valid league');
+    await expect(getOverview(leagueOneId)).rejects.toThrow('valid league');
   });
 
   it('rejects a partial roster response instead of presenting it as the complete league', async () => {
     expectedRosterCount = 2;
-    await expect(getOverview()).rejects.toThrow('1 of 2 league rosters');
+    await expect(getOverview(leagueOneId)).rejects.toThrow('1 of 2 league rosters');
   });
 
   it('rejects malformed nested roster standings instead of converting them to zero', async () => {
@@ -521,7 +422,7 @@ describe('Sleeper service error handling', () => {
       starters: ['qb'],
       settings: { ...rosterSettings, wins: 'not-a-number' },
     }];
-    await expect(getOverview()).rejects.toThrow(`invalid response for ${leaguePath}/rosters`);
+    await expect(getOverview(leagueOneId)).rejects.toThrow(`invalid response for ${leaguePath}/rosters`);
   });
 
   it.each([
@@ -535,7 +436,7 @@ describe('Sleeper service error handling', () => {
       starters: ['qb'],
       settings: { ...rosterSettings, ...invalidCount },
     }];
-    await expect(getOverview()).rejects.toThrow(`invalid response for ${leaguePath}/rosters`);
+    await expect(getOverview(leagueOneId)).rejects.toThrow(`invalid response for ${leaguePath}/rosters`);
   });
 
   it('requires points against once a roster has a played game', async () => {
@@ -546,17 +447,17 @@ describe('Sleeper service error handling', () => {
       starters: ['qb'],
       settings: { wins: 1, losses: 0, ties: 0, fpts: 100 },
     }];
-    await expect(getOverview()).rejects.toThrow(`invalid response for ${leaguePath}/rosters`);
+    await expect(getOverview(leagueOneId)).rejects.toThrow(`invalid response for ${leaguePath}/rosters`);
   });
 
   it('rejects an empty roster settings object instead of presenting a fabricated 0–0 record', async () => {
     rawRosters = [{ roster_id: 1, owner_id: 'member-1', players: ['qb'], starters: ['qb'], settings: {} }];
-    await expect(getOverview()).rejects.toThrow(`invalid response for ${leaguePath}/rosters`);
+    await expect(getOverview(leagueOneId)).rejects.toThrow(`invalid response for ${leaguePath}/rosters`);
   });
 
   it('rejects incomplete manager data for assigned rosters', async () => {
     rawUsers = [];
-    await expect(getOverview()).rejects.toThrow('incomplete manager information');
+    await expect(getOverview(leagueOneId)).rejects.toThrow('incomplete manager information');
   });
 
   it('rejects a partial matchup slate after Sleeper has returned matchup rows', async () => {
@@ -569,17 +470,17 @@ describe('Sleeper service error handling', () => {
       settings: { ...rosterSettings },
     });
     rawUsers.push({ user_id: 'member-2', display_name: 'Sam' });
-    await expect(getMatchups()).rejects.toThrow('incomplete matchup slate');
+    await expect(getOfficialMatchups(leagueOneId)).rejects.toThrow('incomplete matchup slate');
   });
 
   it('rejects an empty matchup response for the current active week', async () => {
     rawMatchups = [];
-    await expect(getMatchups()).rejects.toThrow('incomplete matchup slate');
+    await expect(getOfficialMatchups(leagueOneId)).rejects.toThrow('incomplete matchup slate');
   });
 
   it('allows an empty matchup response for a future week that has not been posted', async () => {
     rawMatchups = [];
-    await expect(getMatchups(18)).resolves.toMatchObject({ week: 18, matchups: [] });
+    await expect(getOfficialMatchups(leagueOneId, 18)).resolves.toMatchObject({ week: 18, matchups: [] });
   });
 
   it('requires each posted matchup ID to identify exactly two teams', async () => {
@@ -596,12 +497,12 @@ describe('Sleeper service error handling', () => {
       { roster_id: 1, matchup_id: 1, starters: ['qb'] },
       { roster_id: 2, matchup_id: null, starters: [] },
     ];
-    await expect(getMatchups()).rejects.toThrow('invalid matchup grouping');
+    await expect(getOfficialMatchups(leagueOneId)).rejects.toThrow('invalid matchup grouping');
   });
 
   it('rejects a matchup row whose matchup ID field is missing', async () => {
     rawMatchups = [{ roster_id: 1, starters: ['qb'] }];
-    await expect(getMatchups()).rejects.toThrow(`invalid response for ${leaguePath}/matchups/3`);
+    await expect(getOfficialMatchups(leagueOneId)).rejects.toThrow(`invalid response for ${leaguePath}/matchups/3`);
   });
 
   it('treats malformed nested transaction assets as a visibly partial history week', async () => {
@@ -614,7 +515,7 @@ describe('Sleeper service error handling', () => {
       }
       return Response.json(original(path));
     });
-    const data = await getTransactions(1);
+    const data = await getTransactions(leagueOneId, 1);
     expect(data?.warning).toContain('weeks 0');
   });
 
@@ -628,19 +529,19 @@ describe('Sleeper service error handling', () => {
       if (path === `${leaguePath}/transactions/0`) return Response.json([malformed]);
       return Response.json(original(path));
     });
-    const data = await getTransactions(1);
+    const data = await getTransactions(leagueOneId, 1);
     expect(data?.warning).toContain('weeks 0');
   });
 
   it('rejects invalid roster IDs without network requests and returns null for absent managers', async () => {
-    expect(await getManager(0)).toBeNull();
-    expect(await getTransactions(NaN)).toBeNull();
+    expect(await getManager(leagueOneId, 0)).toBeNull();
+    expect(await getTransactions(leagueOneId, NaN)).toBeNull();
     expect(fetch).not.toHaveBeenCalled();
-    expect(await getManager(999)).toBeNull();
+    expect(await getManager(leagueOneId, 999)).toBeNull();
   });
 
   it('falls back to a bounded display week when a query contains an invalid week', async () => {
-    const data = await getMatchups(Infinity);
+    const data = await getOfficialMatchups(leagueOneId, Infinity);
     expect(data.week).toBe(3);
     expect(data.matchups[0].sides[0].points).toBeNull();
     expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).endsWith('/matchups/3'))).toBe(true);
@@ -648,14 +549,14 @@ describe('Sleeper service error handling', () => {
 
   it('warns when state is missing and avoids asserting a live or final matchup', async () => {
     failures.add('/state/nfl');
-    const data = await getMatchups(1);
+    const data = await getOfficialMatchups(leagueOneId, 1);
     expect(data.warning).toContain('NFL week information is temporarily unavailable');
     expect(data.matchups[0].status).toBe('unknown');
   });
 
   it('preserves matchup data and warns when NFL kickoff details are unavailable', async () => {
     failures.add('/scores/nfl/regular/2026/3');
-    const data = await getMatchups(3);
+    const data = await getOfficialMatchups(leagueOneId, 3);
     expect(data.warning).toContain('Some NFL opponent or kickoff information is temporarily unavailable');
     expect(data.matchups[0].sides[0].starters[0]).toMatchObject({
       name: 'Quarter Back',
@@ -666,7 +567,7 @@ describe('Sleeper service error handling', () => {
 
 describe('Sleeper NFL game details', () => {
   it('adds the requested week opponent, location, and kickoff to each starter', async () => {
-    const data = await getMatchups(3);
+    const data = await getOfficialMatchups(leagueOneId, 3);
     expect(data.matchups[0].sides[0].starters[0].game).toEqual({
       kind: 'scheduled', opponent: 'HOU', location: 'home', date: '2026-09-13', kickoffAt: '2026-09-13T17:00:00.000Z',
     });
@@ -675,7 +576,7 @@ describe('Sleeper NFL game details', () => {
   });
 
   it('does not apply the current player-team catalog to historical NFL weeks', async () => {
-    const data = await getMatchups(1);
+    const data = await getOfficialMatchups(leagueOneId, 1);
     expect(data.matchups[0].sides[0].starters[0].game).toBeNull();
     expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes('/scores/nfl/regular/2026/1'))).toBe(false);
   });
@@ -685,8 +586,8 @@ describe('Sleeper NFL game details', () => {
     leagueLeg = 18;
     lastScoredLeg = 17;
     stateSeason = '2027';
-    const latest = await getMatchups();
-    const week18 = await getMatchups(18);
+    const latest = await getOfficialMatchups(leagueOneId);
+    const week18 = await getOfficialMatchups(leagueOneId, 18);
     expect(latest.week).toBe(17);
     expect(latest.matchups[0].sides[0].starters[0].game).toBeNull();
     expect(week18.matchups[0].sides[0].starters[0].game).toBeNull();
@@ -700,15 +601,15 @@ describe('Sleeper NFL game details', () => {
     lastScoredLeg = 17;
     stateSeason = '2027';
     rawMatchups = [];
-    await expect(getMatchups(18)).resolves.toMatchObject({ week: 18, matchups: [] });
+    await expect(getOfficialMatchups(leagueOneId, 18)).resolves.toMatchObject({ week: 18, matchups: [] });
   });
 });
 
 describe('Sleeper current injury metadata', () => {
   it('retains the injury field in the cached catalog for current and earlier matchup weeks', async () => {
     playerInjury = ' Questionable ';
-    const current = await getMatchups(3);
-    const earlier = await getMatchups(1);
+    const current = await getOfficialMatchups(leagueOneId, 3);
+    const earlier = await getOfficialMatchups(leagueOneId, 1);
     for (const data of [current, earlier]) {
       expect(data.matchups[0].sides[0].starters[0]).toMatchObject({
         id: 'qb', name: 'Quarter Back', position: 'QB', nflTeam: 'IND', slot: 'QB', points: 12.34, injuryStatus: 'Questionable',
@@ -719,333 +620,45 @@ describe('Sleeper current injury metadata', () => {
 
   it('shares current injury metadata with manager rosters', async () => {
     playerInjury = 'Out';
-    const manager = await getManager(1);
+    const manager = await getManager(leagueOneId, 1);
     expect(manager?.starters[0]).toMatchObject({ name: 'Quarter Back', injuryStatus: 'Out', points: null });
   });
 
   it.each([null, undefined, '', false, 7, { status: 'Out' }])(
     'does not substitute general player status for an absent or malformed injury_status (%j)', async (value) => {
       playerInjury = value;
-      const data = await getMatchups();
+      const data = await getOfficialMatchups(leagueOneId);
       expect(data.matchups[0].sides[0].starters[0]).toMatchObject({ name: 'Quarter Back', injuryStatus: null });
     },
   );
 
   it('warns when a successful catalog response omits a shown player', async () => {
     playerCatalog = { other: { full_name: 'Other Player', position: 'RB', team: 'SEA' } };
-    const manager = await getManager(1);
+    const manager = await getManager(leagueOneId, 1);
     expect(manager?.warning).toContain('did not provide details for 1 player');
     expect(manager?.starters[0].name).toBe('Player qb');
   });
 
   it('treats a catalog with no usable player identities as unavailable', async () => {
     playerCatalog = { qb: {} };
-    const manager = await getManager(1);
+    const manager = await getManager(leagueOneId, 1);
     expect(manager?.warning).toContain('Player names and injury designations are temporarily unavailable');
     expect(manager?.starters[0].name).toBe('Player qb');
   });
 });
 
-describe('Sleeper matchup projection integration', () => {
+describe('Sleeper official matchup fallback', () => {
   it('loads current official scores without a static projection on the degraded fallback path', async () => {
-    const data = await getOfficialMatchups(3);
+    const data = await getOfficialMatchups(leagueOneId, 3);
 
-    expect(getTank01WeeklyProjectionsMock).not.toHaveBeenCalled();
     expect(data.matchups[0].sides[0]).toMatchObject({
       points: null,
       projectedPoints: null,
       starters: [{ points: 12.34, projectedPoints: null }],
     });
-  });
-
-  it('maps an available true-zero offense projection to the starter and team total', async () => {
-    getTank01WeeklyProjectionsMock.mockResolvedValueOnce(availableTank01Projection());
-
-    const data = await getMatchups(3);
-
-    expect(getTank01WeeklyProjectionsMock).toHaveBeenCalledWith('2026', 3);
-    expect(data.matchups[0].sides[0].starters[0]).toMatchObject({
-      id: 'qb', points: 12.34, projectedPoints: 0,
-    });
-    expect(data.matchups[0].sides[0].projectedPoints).toBe(0);
-  });
-
-  it('uses zero for a starter missing from an available Tank01 slate and completes the team total', async () => {
-    rawRosters = [{
-      roster_id: 1,
-      owner_id: 'member-1',
-      players: ['qb', 'rb'],
-      starters: ['qb', 'rb'],
-      settings: { ...rosterSettings },
-    }];
-    rawMatchups = [{
-      roster_id: 1, matchup_id: null, points: 20.34, starters: ['qb', 'rb'], starters_points: [12.34, 8],
-    }];
-    playerCatalog = {
-      qb: { full_name: 'Quarter Back', position: 'QB', team: 'IND' },
-      rb: { full_name: 'Running Back', position: 'RB', team: 'IND' },
-    };
-    const result = availableTank01Projection(['qb']);
-    getTank01WeeklyProjectionsMock.mockResolvedValueOnce({
-      ...result,
-      projections: {
-        ...result.projections,
-        bySleeperId: {
-          ...result.projections.bySleeperId,
-          qb: {
-            ...result.projections.bySleeperId.qb,
-            scoringProjection: { ...zeroOffenseProjection, passingYards: 100 },
-          },
-        },
-      },
-    });
-
-    const data = await getMatchups(3);
-    const side = data.matchups[0].sides[0];
-
-    expect(side.starters.map((player) => [player.id, player.projectedPoints])).toEqual([
-      ['qb', 4],
-      ['rb', 0],
-    ]);
-    expect(side.projectedPoints).toBe(4);
-    expect(data.warning).toBeUndefined();
-  });
-
-  it('does not zero-fill starters when the overall Tank01 projection slate is broadly truncated', async () => {
-    const complete = availableTank01Projection();
-    getTank01WeeklyProjectionsMock.mockResolvedValueOnce({
-      ...complete,
-      projections: {
-        ...complete.projections,
-        bySleeperId: { qb: complete.projections.bySleeperId.qb },
-      },
-      coverage: {
-        ...complete.coverage,
-        playerProjectionRows: 1,
-        matchedPlayerProjections: 1,
-      },
-    });
-
-    const data = await getMatchups(3);
-
-    expect(data.matchups[0].sides[0]).toMatchObject({
-      projectedPoints: null,
-      starters: [{ points: 12.34, projectedPoints: null }],
-    });
-    expect(data.warning).toContain('Projected scores are temporarily unavailable.');
-  });
-
-  it('does not zero-fill starters when broad projection identities have unusable stat lines', async () => {
-    const complete = availableTank01Projection();
-    getTank01WeeklyProjectionsMock.mockResolvedValueOnce({
-      ...complete,
-      projections: {
-        ...complete.projections,
-        bySleeperId: Object.fromEntries(Object.entries(complete.projections.bySleeperId).map(
-          ([id, projection]) => [id, {
-            ...projection,
-            scoringProjection: { ...projection.scoringProjection, passingTouchdowns: null },
-          }],
-        )),
-      },
-    });
-
-    const data = await getMatchups(3);
-
-    expect(data.matchups[0].sides[0]).toMatchObject({
-      projectedPoints: null,
-      starters: [{ points: 12.34, projectedPoints: null }],
-    });
-    expect(data.warning).toContain('Projected scores are temporarily unavailable.');
-  });
-
-  it('uses zero when Tank01 supplies incomplete projected statistics for a starter', async () => {
-    const result = availableTank01Projection();
-    getTank01WeeklyProjectionsMock.mockResolvedValueOnce({
-      ...result,
-      projections: {
-        ...result.projections,
-        bySleeperId: {
-          ...result.projections.bySleeperId,
-          qb: {
-            ...result.projections.bySleeperId.qb,
-            scoringProjection: { ...zeroOffenseProjection, passingYards: 100, rushingYards: null },
-          },
-        },
-      },
-    });
-
-    const data = await getMatchups(3);
-
-    expect(data.matchups[0].sides[0].starters[0].projectedPoints).toBe(0);
-    expect(data.matchups[0].sides[0].projectedPoints).toBe(0);
-    expect(data.warning).toBeUndefined();
-  });
-
-  it('uses zero when an available Tank01 slate has no defense projection', async () => {
-    rawRosters = [{
-      roster_id: 1,
-      owner_id: 'member-1',
-      players: ['IND'],
-      starters: ['IND'],
-      settings: { ...rosterSettings },
-    }];
-    rawMatchups = [{
-      roster_id: 1, matchup_id: null, points: 6, starters: ['IND'], starters_points: [6],
-    }];
-    playerCatalog = {
-      IND: { full_name: 'Indianapolis Colts', position: 'DEF', team: 'IND' },
-    };
-    getTank01WeeklyProjectionsMock.mockResolvedValueOnce(availableTank01Projection([]));
-
-    const data = await getMatchups(3);
-
-    expect(data.matchups[0].sides[0].starters[0].projectedPoints).toBe(0);
-    expect(data.matchups[0].sides[0].projectedPoints).toBe(0);
-    expect(data.warning).toBeUndefined();
-  });
-
-  it('validates scoring settings before zero-filling a missing defense projection', async () => {
-    activeScoringSettings.def_td = 'invalid';
-    rawRosters = [{
-      roster_id: 1,
-      owner_id: 'member-1',
-      players: ['IND'],
-      starters: ['IND'],
-      settings: { ...rosterSettings },
-    }];
-    rawMatchups = [{
-      roster_id: 1, matchup_id: null, points: 6, starters: ['IND'], starters_points: [6],
-    }];
-    playerCatalog = {
-      IND: { full_name: 'Indianapolis Colts', position: 'DEF', team: 'IND' },
-    };
-    getTank01WeeklyProjectionsMock.mockResolvedValueOnce(availableTank01Projection([]));
-
-    const data = await getMatchups(3);
-
-    expect(data.matchups[0].sides[0].starters[0].projectedPoints).toBeNull();
-    expect(data.matchups[0].sides[0].projectedPoints).toBeNull();
-    expect(data.warning).toContain('Sleeper league scoring settings were invalid.');
-  });
-
-  it('preserves official matchup data and warns when the projection provider fails', async () => {
-    rawMatchups = [{
-      roster_id: 1, matchup_id: null, points: 55.5, starters: ['qb'], starters_points: [12.34],
-    }];
-    getTank01WeeklyProjectionsMock.mockResolvedValueOnce({
-      status: 'unavailable',
-      season: '2026',
-      week: 3,
-      reason: 'provider-error',
-      message: 'Player projections are temporarily unavailable.',
-    });
-
-    const data = await getMatchups(3);
-
-    expect(data.matchups[0].sides[0]).toMatchObject({
-      points: 55.5,
-      projectedPoints: null,
-      starters: [{ points: 12.34, projectedPoints: null }],
-    });
-    expect(data.warning).toContain('Projected scores are temporarily unavailable.');
-  });
-
-  it('returns at one second and retains the original projection work with Next after', async () => {
-    vi.useFakeTimers();
-    let activeProviderWork = 0;
-    let providerCompleted = false;
-    getTank01WeeklyProjectionsMock.mockImplementationOnce(() => {
-      activeProviderWork += 1;
-      return new Promise((resolve) => {
-        setTimeout(() => {
-          activeProviderWork -= 1;
-          providerCompleted = true;
-          resolve(availableTank01Projection());
-        }, 15_000);
-      });
-    });
-
-    try {
-      let pageResolved = false;
-      const page = getMatchups(3);
-      void page.then(() => { pageResolved = true; });
-      await vi.advanceTimersByTimeAsync(0);
-      expect(getTank01WeeklyProjectionsMock).toHaveBeenCalledWith('2026', 3);
-
-      await vi.advanceTimersByTimeAsync(999);
-      expect(pageResolved).toBe(false);
-      expect(afterMock).not.toHaveBeenCalled();
-      expect(activeProviderWork).toBe(1);
-
-      await vi.advanceTimersByTimeAsync(1);
-      const data = await page;
-      expect(data.matchups[0].sides[0]).toMatchObject({
-        projectedPoints: null,
-        starters: [{ points: 12.34, projectedPoints: null }],
-      });
-      expect(data.warning).toContain('Projected scores are temporarily unavailable.');
-      expect(afterMock).toHaveBeenCalledTimes(1);
-      expect(activeProviderWork).toBe(1);
-
-      const afterCallback = afterMock.mock.calls[0]?.[0] as () => Promise<unknown>;
-      expect(afterCallback).toEqual(expect.any(Function));
-      const afterTask = afterCallback();
-      let afterTaskCompleted = false;
-      void afterTask.then(() => { afterTaskCompleted = true; });
-      await vi.advanceTimersByTimeAsync(13_999);
-      expect(afterTaskCompleted).toBe(false);
-      expect(activeProviderWork).toBe(1);
-
-      await vi.advanceTimersByTimeAsync(1);
-      await afterTask;
-      expect(afterTaskCompleted).toBe(true);
-      expect(providerCompleted).toBe(true);
-      expect(activeProviderWork).toBe(0);
-      expect(vi.getTimerCount()).toBe(0);
-    } finally {
-      await vi.runOnlyPendingTimersAsync();
-      vi.useRealTimers();
-    }
-  });
-
-  it('treats an unexpected projection rejection as optional decoration', async () => {
-    getTank01WeeklyProjectionsMock.mockRejectedValueOnce(new Error('Tank01 rejected unexpectedly'));
-
-    const data = await getMatchups(3);
-
-    expect(getTank01WeeklyProjectionsMock).toHaveBeenCalledWith('2026', 3);
-    expect(data.matchups[0].sides[0].starters[0]).toMatchObject({ points: 12.34, projectedPoints: null });
-    expect(data.warning).toContain('Projected scores are temporarily unavailable.');
-  });
-
-  it('keeps a stale player-ID crosswalk unavailable when it does not match Sleeper', async () => {
-    const result = availableTank01Projection();
-    getTank01WeeklyProjectionsMock.mockResolvedValueOnce({
-      ...result,
-      projections: {
-        ...result.projections,
-        bySleeperId: {
-          ...result.projections.bySleeperId,
-          qb: { ...result.projections.bySleeperId.qb, team: 'SEA' },
-        },
-      },
-    });
-
-    const data = await getMatchups(3);
-
-    expect(data.matchups[0].sides[0].starters[0].projectedPoints).toBeNull();
-    expect(data.matchups[0].sides[0].projectedPoints).toBeNull();
-    expect(data.warning).toBeUndefined();
-  });
-
-  it('does not request current projections for a historical matchup week', async () => {
-    const data = await getMatchups(1);
-
-    expect(getTank01WeeklyProjectionsMock).not.toHaveBeenCalled();
-    expect(data.matchups[0].sides[0]).toMatchObject({
-      projectedPoints: null,
-      starters: [{ points: 12.34, projectedPoints: null }],
-    });
+    const matchupRequest = vi.mocked(fetch).mock.calls.find(([request]) => (
+      requestPath(request) === `${leaguePath}/matchups/3`
+    ));
+    expect(matchupRequest?.[1]).toMatchObject({ next: { revalidate: 60 } });
   });
 });

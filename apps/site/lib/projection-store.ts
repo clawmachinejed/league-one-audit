@@ -188,6 +188,18 @@ export type StoredProjectionSnapshot = Readonly<{
   payload: MatchupsData;
 }>;
 
+export type StoredProjectionSnapshotSelection = Readonly<{
+  selected: StoredProjectionSnapshot | null;
+  latest: StoredProjectionSnapshot | null;
+}>;
+
+export class InvalidStoredProjectionSnapshotError extends Error {
+  constructor(cause: unknown) {
+    super('Stored projection snapshot is malformed.', { cause });
+    this.name = 'InvalidStoredProjectionSnapshotError';
+  }
+}
+
 export type PublishSnapshotInput = Readonly<{
   leagueSeasonId: string;
   week: number;
@@ -294,15 +306,10 @@ export type ProjectionStore = Readonly<{
     leagueSeasonId: string,
     week: number,
   ) => Promise<StoredProjectionSnapshot | null>;
-  readCurrentSnapshotBySleeperLeagueId: (
+  readSnapshotSelectionBySleeperLeagueId: (
     sleeperLeagueId: string,
-    season: number,
-    week: number,
-  ) => Promise<StoredProjectionSnapshot | null>;
-  readLatestCurrentSnapshotBySleeperLeagueId: (
-    sleeperLeagueId: string,
-    week?: number,
-  ) => Promise<StoredProjectionSnapshot | null>;
+    requestedWeek?: number,
+  ) => Promise<StoredProjectionSnapshotSelection>;
 }>;
 
 function provider(value: string): string {
@@ -471,19 +478,24 @@ function asPlayerProjection(row: DatabaseRow): PlayerProjectionRecord {
 }
 
 function snapshotFromRow(row: DatabaseRow): StoredProjectionSnapshot {
-  return {
-    snapshotId: rowText(row, 'snapshot_id'),
-    leagueSeasonId: rowText(row, 'league_season_id'),
-    week: rowNumber(row, 'week'),
-    modelVersion: rowText(row, 'model_version'),
-    revisionKey: rowText(row, 'revision_key'),
-    calculatedAt: rowText(row, 'calculated_at'),
-    publishedAt: rowNullableText(row, 'published_at'),
-    verifiedAt: rowText(row, 'verified_at'),
-    activityWindows: rowActivityWindows(row),
-    isCurrent: rowBoolean(row, 'is_current'),
-    payload: rowMatchupsPayload(row),
-  };
+  try {
+    return {
+      snapshotId: rowText(row, 'snapshot_id'),
+      leagueSeasonId: rowText(row, 'league_season_id'),
+      week: rowNumber(row, 'week'),
+      modelVersion: rowText(row, 'model_version'),
+      revisionKey: rowText(row, 'revision_key'),
+      calculatedAt: rowText(row, 'calculated_at'),
+      publishedAt: rowNullableText(row, 'published_at'),
+      verifiedAt: rowText(row, 'verified_at'),
+      activityWindows: rowActivityWindows(row),
+      isCurrent: rowBoolean(row, 'is_current'),
+      payload: rowMatchupsPayload(row),
+    };
+  } catch (error) {
+    if (error instanceof InvalidStoredProjectionSnapshotError) throw error;
+    throw new InvalidStoredProjectionSnapshotError(error);
+  }
 }
 
 function disabled<Value>(): PersistenceOutcome<Value> {
@@ -1687,46 +1699,43 @@ export function createProjectionStore(database: Database = getDatabase()): Proje
       return rows[0] ? snapshotFromRow(rows[0]) : null;
     },
 
-    async readCurrentSnapshotBySleeperLeagueId(sleeperLeagueId, season, week) {
-      if (!client) return null;
-      const rows = await client.query(`/* projection-store:read-current-snapshot-by-sleeper-id */
-        SELECT snapshot.id AS snapshot_id,
-          snapshot.league_season_id, snapshot.week, snapshot.model_version,
-          snapshot.revision_key, snapshot.calculated_at::text,
-          snapshot.payload, snapshot.activity_windows,
-          current.published_at::text, current.verified_at::text,
-          true AS is_current
-        FROM league_source_connections connection
-        JOIN league_seasons season
-          ON season.id = connection.league_season_id AND season.season = $2
-        JOIN current_projection_snapshots current
-          ON current.league_season_id = season.id AND current.week = $3
-        JOIN projection_snapshots snapshot ON snapshot.id = current.snapshot_id
-        WHERE connection.provider = 'sleeper' AND connection.external_league_id = $1`, [
-        requiredText(sleeperLeagueId, 'Sleeper league ID'), season, week,
+    async readSnapshotSelectionBySleeperLeagueId(sleeperLeagueId, requestedWeek) {
+      if (!client) return { selected: null, latest: null };
+      const rows = await client.query(`/* projection-store:read-snapshot-selection-by-sleeper-id */
+        WITH ranked AS (
+          SELECT snapshot.id AS snapshot_id,
+            snapshot.league_season_id, snapshot.week, snapshot.model_version,
+            snapshot.revision_key, snapshot.calculated_at::text,
+            snapshot.payload, snapshot.activity_windows,
+            current.published_at::text, current.verified_at::text,
+            true AS is_current,
+            row_number() OVER (
+              ORDER BY season.season DESC, current.week DESC, current.calculated_at DESC
+            ) AS latest_rank,
+            row_number() OVER (
+              PARTITION BY current.week
+              ORDER BY season.season DESC, current.calculated_at DESC
+            ) AS requested_week_rank
+          FROM league_source_connections connection
+          JOIN league_seasons season ON season.id = connection.league_season_id
+          JOIN current_projection_snapshots current
+            ON current.league_season_id = season.id
+          JOIN projection_snapshots snapshot ON snapshot.id = current.snapshot_id
+          WHERE connection.provider = 'sleeper' AND connection.external_league_id = $1
+        )
+        SELECT * FROM ranked
+        WHERE latest_rank = 1
+          OR ($2::smallint IS NOT NULL AND week = $2 AND requested_week_rank = 1)`, [
+        requiredText(sleeperLeagueId, 'Sleeper league ID'), requestedWeek ?? null,
       ]);
-      return rows[0] ? snapshotFromRow(rows[0]) : null;
-    },
-
-    async readLatestCurrentSnapshotBySleeperLeagueId(sleeperLeagueId, week) {
-      if (!client) return null;
-      const rows = await client.query(`/* projection-store:read-latest-current-snapshot-by-sleeper-id */
-        SELECT snapshot.id AS snapshot_id,
-          snapshot.league_season_id, snapshot.week, snapshot.model_version,
-          snapshot.revision_key, snapshot.calculated_at::text,
-          snapshot.payload, snapshot.activity_windows,
-          current.published_at::text, current.verified_at::text,
-          true AS is_current
-        FROM league_source_connections connection
-        JOIN league_seasons season ON season.id = connection.league_season_id
-        JOIN current_projection_snapshots current
-          ON current.league_season_id = season.id
-        JOIN projection_snapshots snapshot ON snapshot.id = current.snapshot_id
-        WHERE connection.provider = 'sleeper' AND connection.external_league_id = $1
-          AND ($2::smallint IS NULL OR current.week = $2)
-        ORDER BY season.season DESC, current.week DESC, current.calculated_at DESC
-        LIMIT 1`, [requiredText(sleeperLeagueId, 'Sleeper league ID'), week ?? null]);
-      return rows[0] ? snapshotFromRow(rows[0]) : null;
+      const parsed = rows.map((row) => ({ row, snapshot: snapshotFromRow(row) }));
+      const latest = parsed.find(({ row }) => rowNumber(row, 'latest_rank') === 1)?.snapshot ?? null;
+      const selected = requestedWeek === undefined
+        ? latest
+        : parsed.find(({ row, snapshot }) => (
+          snapshot.week === requestedWeek && rowNumber(row, 'requested_week_rank') === 1
+        ))?.snapshot ?? null;
+      return { selected, latest };
     },
   };
 }
