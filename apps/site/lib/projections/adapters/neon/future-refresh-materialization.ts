@@ -124,6 +124,7 @@ export function createMaterializationFutureRefreshMethods(
           JOIN leagues league ON league.id = season.league_id
           WHERE league.league_key = $1 AND season.season = $3
             AND observation.week = $5 AND observation.source_revision = $11
+            AND observation.provider = 'sleeper'
             AND observation.quality = 'complete'
           LIMIT 1
         ), valid_snapshot AS (
@@ -168,6 +169,7 @@ export function createMaterializationFutureRefreshMethods(
           AND snapshot.verified_at >= COALESCE(
             materialization.last_succeeded_at, materialization.created_at
           )
+          AND snapshot.verified_at >= source.observed_at
           AND (
             materialization.last_projection_slate_content_id IS DISTINCT FROM
               slate.projection_slate_content_id

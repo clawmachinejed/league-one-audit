@@ -78,9 +78,12 @@ export function futurePeriodsForAuthorities(
   if (anchor.seasonType !== 'regular' || first.defaultDisplayPeriod.seasonType !== 'regular') {
     return [];
   }
-  const firstFutureWeek = first.lifecycle === 'preseason'
-    ? first.defaultDisplayPeriod.week
-    : anchor.week + 1;
+  const firstFutureWeek = Math.max(
+    2,
+    first.lifecycle === 'preseason'
+      ? first.defaultDisplayPeriod.week + 1
+      : anchor.week + 1,
+  );
   const periods: LeaguePeriod[] = [];
   for (let week = firstFutureWeek; week <= FINAL_REGULAR_SEASON_WEEK; week += 1) {
     periods.push({ season: anchor.season, seasonType: 'regular', week });

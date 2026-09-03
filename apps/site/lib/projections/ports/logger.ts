@@ -27,6 +27,8 @@ export type ProjectionLogEntry = Readonly<{
   outcome: ProjectionLogOutcome;
   runId?: string;
   cadence?: string;
+  futureAction?: 'projection-ingest' | 'materialize';
+  weekDistance?: number;
   leagueKey?: string;
   period?: LeaguePeriod;
   providerGroup?: string;

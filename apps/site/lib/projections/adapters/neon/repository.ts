@@ -30,7 +30,6 @@ import {
   type ExternalScoringEntityRef,
   type ProviderKey,
 } from '../../shared/provider-identity';
-import { PROJECTION_SLATE_NORMALIZER_VERSION } from '../../shared/projection-versions';
 
 type RepositoryStore = Pick<ProjectionStore,
   | 'enabled'
@@ -65,6 +64,7 @@ export type NeonProjectionRepositoryOptions = Readonly<{
   officialProvider: ProviderKey;
   projectionProvider: ProviderKey;
   gameStateProvider: ProviderKey;
+  normalizerVersion: string;
 }>;
 
 function storeSeasonType(value: 'preseason' | 'regular' | 'postseason'): 'pre' | 'reg' | 'post' {
@@ -219,7 +219,12 @@ export function createNeonProjectionRepository(
   options: NeonProjectionRepositoryOptions,
 ): ProjectionRepositoryPort & FutureRefreshRepositoryPort {
   if (!store.enabled) return createDisabledRepository();
-  const { officialProvider, projectionProvider, gameStateProvider } = options;
+  const {
+    officialProvider,
+    projectionProvider,
+    gameStateProvider,
+    normalizerVersion,
+  } = options;
   return {
     enabled: true,
 
@@ -443,7 +448,7 @@ export function createNeonProjectionRepository(
         season: slate.period.season,
         seasonType: storeSeasonType(slate.period.seasonType),
         week: slate.period.week,
-        normalizerVersion: PROJECTION_SLATE_NORMALIZER_VERSION,
+        normalizerVersion,
         sourceRevision: slate.sourceRevision,
         requestStartedAt: slate.requestStartedAt,
         requestCompletedAt: slate.requestCompletedAt,
@@ -487,7 +492,7 @@ export function createNeonProjectionRepository(
         season: period.season,
         seasonType: storeSeasonType(period.seasonType),
         week: period.week,
-        normalizerVersion: PROJECTION_SLATE_NORMALIZER_VERSION,
+        normalizerVersion,
       });
       if (!stored) return null;
       if (stored.provider !== projectionProvider) {

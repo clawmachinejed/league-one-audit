@@ -22,6 +22,9 @@ import {
   type FutureRefreshPlan,
 } from './future-work-policy';
 import {
+  FUTURE_DEADLINE_CLEANUP_MS,
+  FutureWorkError,
+  createFutureWorkDeadline,
   futureElapsedMs,
   futureMayStart,
   type FutureWorkTiming,
@@ -88,26 +91,51 @@ async function failGlobalJob(
   ).catch(() => false);
 }
 
-/**
- * Runs at most one future-period action after the current scoring period has
- * either gone idle or already completed its hourly job.
- */
-export async function runFutureWork(
+async function releaseTimedOutGlobalJob(
   dependencies: LiveProjectionWorkerDependencies,
-  input: Readonly<{
-    configurations: readonly LeagueConfiguration[];
-    authorities: readonly LeaguePeriodAuthority[];
-    now: Date;
-    calculatedAt: string;
-    runId: string;
-    timing: FutureWorkTiming;
-  }>,
+  runId: string,
+): Promise<void> {
+  const controller = new AbortController();
+  let releaseWait: (() => void) | null = null;
+  const timeout = new Promise<void>((resolve) => {
+    releaseWait = resolve;
+  });
+  const timer = setTimeout(() => {
+    controller.abort(new FutureWorkError('deadline-exceeded'));
+    releaseWait?.();
+  }, FUTURE_DEADLINE_CLEANUP_MS);
+  timer.unref?.();
+  try {
+    const scoped = dependencies.futurePersistence.scope(controller.signal);
+    await Promise.race([
+      scoped.repository.failJob(
+        GLOBAL_JOB_KEY,
+        runId,
+        'future-refresh:deadline-exceeded',
+      ).then(() => undefined, () => undefined),
+      timeout,
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+type FutureWorkInput = Readonly<{
+  configurations: readonly LeagueConfiguration[];
+  authorities: readonly LeaguePeriodAuthority[];
+  now: Date;
+  calculatedAt: string;
+  runId: string;
+  timing: FutureWorkTiming;
+}>;
+
+async function runFutureWorkWithinDeadline(
+  dependencies: LiveProjectionWorkerDependencies,
+  input: FutureWorkInput,
+  periods: readonly FutureRefreshPlanPeriod['period'][],
 ): Promise<LiveProjectionSyncResult | null> {
   const expectedLeagueKeys = input.configurations.map((configuration) => configuration.key);
-  const periods = futurePeriodsForAuthorities(input.authorities, expectedLeagueKeys);
-  if (!periods || periods.length === 0) return null;
   let globalJobAcquired = false;
-
   try {
     const targets = periods.map((period) => ({
       period,
@@ -166,6 +194,8 @@ export async function runFutureWork(
       outcome: 'started',
       runId: input.runId,
       cadence: 'hourly',
+      futureAction: selection.kind,
+      weekDistance: selection.weekDistance,
       period: selection.period,
       modelVersion: LIVE_PROJECTION_MODEL_VERSION,
       leaseOutcome: 'acquired',
@@ -195,6 +225,8 @@ export async function runFutureWork(
         outcome: 'failed',
         runId: input.runId,
         cadence: 'hourly',
+        futureAction: selection.kind,
+        weekDistance: selection.weekDistance,
         period: selection.period,
         failedLeagues,
         totalDurationMs: futureElapsedMs(dependencies, input.timing),
@@ -232,6 +264,8 @@ export async function runFutureWork(
       outcome: 'completed',
       runId: input.runId,
       cadence: 'hourly',
+      futureAction: selection.kind,
+      weekDistance: selection.weekDistance,
       period: selection.period,
       modelVersion: LIVE_PROJECTION_MODEL_VERSION,
       totalDurationMs: futureElapsedMs(dependencies, input.timing),
@@ -260,4 +294,49 @@ export async function runFutureWork(
     });
     return { status: 'failed' };
   }
+}
+
+/**
+ * Runs at most one future-period action after the current scoring period has
+ * either gone idle or already completed its hourly job.
+ */
+export async function runFutureWork(
+  dependencies: LiveProjectionWorkerDependencies,
+  input: FutureWorkInput,
+): Promise<LiveProjectionSyncResult | null> {
+  const expectedLeagueKeys = input.configurations.map((configuration) => configuration.key);
+  const periods = futurePeriodsForAuthorities(input.authorities, expectedLeagueKeys);
+  if (!periods || periods.length === 0 || !futureMayStart(dependencies, input.timing)) return null;
+
+  const deadline = createFutureWorkDeadline(dependencies, input.timing);
+  const scopedPersistence = dependencies.futurePersistence.scope(deadline.signal);
+  const scopedDependencies: LiveProjectionWorkerDependencies = {
+    ...dependencies,
+    ...scopedPersistence,
+  };
+  try {
+    const result = await deadline.run(runFutureWorkWithinDeadline(
+      scopedDependencies,
+      input,
+      periods,
+    ));
+    if (!deadline.signal.aborted) return result;
+  } catch (error) {
+    if (!(error instanceof FutureWorkError) || error.failureCode !== 'deadline-exceeded') {
+      throw error;
+    }
+  } finally {
+    deadline.dispose();
+  }
+
+  await releaseTimedOutGlobalJob(dependencies, input.runId);
+  log(dependencies, 'error', {
+    stage: 'future-run',
+    outcome: 'failed',
+    runId: input.runId,
+    modelVersion: LIVE_PROJECTION_MODEL_VERSION,
+    totalDurationMs: futureElapsedMs(dependencies, input.timing),
+    failureCode: 'deadline-exceeded',
+  });
+  return { status: 'failed' };
 }

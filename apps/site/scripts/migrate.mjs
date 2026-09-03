@@ -1,8 +1,8 @@
-import { createHash } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Pool } from '@neondatabase/serverless';
+import { migrationChecksum, normalizeMigrationText } from './migration-text.mjs';
 
 const databaseUrl = process.env.MIGRATION_DATABASE_URL?.trim();
 if (!databaseUrl) {
@@ -47,8 +47,10 @@ try {
   `);
 
   for (const name of migrationNames) {
-    const statement = await readFile(join(migrationsDirectory, name), 'utf8');
-    const checksum = createHash('sha256').update(statement).digest('hex');
+    const statement = normalizeMigrationText(
+      await readFile(join(migrationsDirectory, name), 'utf8'),
+    );
+    const checksum = migrationChecksum(statement);
     const client = await pool.connect();
 
     try {

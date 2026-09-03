@@ -28,8 +28,11 @@ import {
   FutureWorkError,
   assertFutureMayStart,
   assertFutureWithinDeadline,
+  futureElapsedMs,
   futureMayStart,
+  futureProviderGroup,
   futureTimestamp,
+  logFuture,
   mapFutureWithConcurrency,
   nextFutureRefreshAt,
   sameFuturePeriod,
@@ -141,6 +144,7 @@ export async function runFutureMaterializationStage(
   const due = dueMaterializations(plan);
   const claimed: ClaimedMaterialization[] = [];
   let claimFailures = 0;
+  const claimStartedAt = dependencies.clock.monotonicNow();
   for (const state of due) {
     if (!futureMayStart(dependencies, timing)) break;
     const configuration = configurationByKey.get(state.leagueKey);
@@ -176,6 +180,19 @@ export async function runFutureMaterializationStage(
       ? { status: 'failed', failureCode: 'unexpected', failedLeagues: claimFailures }
       : { status: 'skipped' };
   }
+  logFuture(dependencies, 'info', {
+    stage: 'future-materialization-claim',
+    outcome: 'completed',
+    runId,
+    futureAction: selection.kind,
+    weekDistance: selection.weekDistance,
+    period: selection.period,
+    providerGroup: futureProviderGroup(selection.period),
+    stageDurationMs: Math.max(0, dependencies.clock.monotonicNow() - claimStartedAt),
+    eligibleLeagues: due.length,
+    loadedLeagues: claimed.length,
+    failedLeagues: claimFailures,
+  });
 
   let stored: StoredProjectionSlate;
   try {
@@ -197,6 +214,7 @@ export async function runFutureMaterializationStage(
     return { status: 'failed', failureCode, failedLeagues: claimed.length };
   }
 
+  const leagueLoadStartedAt = dependencies.clock.monotonicNow();
   const loaded = await mapFutureWithConcurrency(
     claimed,
     LEAGUE_CONCURRENCY,
@@ -257,17 +275,33 @@ export async function runFutureMaterializationStage(
     );
   }
   const ready = loaded.flatMap((outcome) => outcome.ready ? [outcome.ready] : []);
+  logFuture(dependencies, ready.length > 0 ? 'info' : 'warn', {
+    stage: 'future-league-load',
+    outcome: ready.length > 0 ? 'completed' : 'failed',
+    runId,
+    futureAction: selection.kind,
+    weekDistance: selection.weekDistance,
+    period: selection.period,
+    providerGroup: futureProviderGroup(selection.period),
+    stageDurationMs: Math.max(0, dependencies.clock.monotonicNow() - leagueLoadStartedAt),
+    loadedLeagues: ready.length,
+    eligibleLeagues: claimed.length,
+    failedLeagues,
+  });
   if (ready.length === 0) {
+    const failureCodes = loaded.flatMap((outcome) => (
+      outcome.failureCode ? [outcome.failureCode] : []
+    ));
     return {
       status: 'failed',
-      failureCode: loaded.some((outcome) => outcome.failureCode === 'deadline-exceeded')
-        ? 'deadline-exceeded'
-        : 'league-source-unavailable',
+      failureCode: failureCodes.includes('deadline-exceeded')
+        ? 'deadline-exceeded' : failureCodes[0] ?? 'unexpected',
       failedLeagues,
     };
   }
 
   let games: GameStateSlate;
+  const gameFeedStartedAt = dependencies.clock.monotonicNow();
   try {
     assertFutureMayStart(dependencies, timing);
     const result = await dependencies.gameStateFeed.getGameStateSlate(selection.period);
@@ -277,11 +311,42 @@ export async function runFutureMaterializationStage(
       throw new FutureWorkError('game-state-incomplete');
     }
     games = result.slate;
+    logFuture(dependencies, 'info', {
+      stage: 'future-game-state-feed',
+      outcome: 'completed',
+      runId,
+      futureAction: selection.kind,
+      weekDistance: selection.weekDistance,
+      period: selection.period,
+      providerGroup: futureProviderGroup(selection.period),
+      providerDurationMs: Math.max(
+        0,
+        dependencies.clock.monotonicNow() - gameFeedStartedAt,
+      ),
+      providerOutcome: 'available',
+      gameCount: games.games.length,
+    });
   } catch (error) {
     const failureCode = error instanceof FutureWorkError
       ? error.failureCode
       : 'game-state-unavailable';
     await failClaims(dependencies, selection, ready, timing, failureCode);
+    logFuture(dependencies, 'warn', {
+      stage: 'future-game-state-feed',
+      outcome: 'failed',
+      runId,
+      futureAction: selection.kind,
+      weekDistance: selection.weekDistance,
+      period: selection.period,
+      providerGroup: futureProviderGroup(selection.period),
+      providerDurationMs: Math.max(
+        0,
+        dependencies.clock.monotonicNow() - gameFeedStartedAt,
+      ),
+      providerOutcome: failureCode === 'game-state-unavailable'
+        ? 'unavailable' : 'invalid',
+      failureCode,
+    });
     return {
       status: 'failed',
       failureCode,
@@ -308,6 +373,7 @@ export async function runFutureMaterializationStage(
   }
 
   let persisted: PersistedGroup;
+  const providerPersistStartedAt = dependencies.clock.monotonicNow();
   try {
     assertFutureMayStart(dependencies, timing);
     const group = { period: selection.period, leagues: gameReady.map((value) => value.league) };
@@ -323,11 +389,43 @@ export async function runFutureMaterializationStage(
       },
     );
     assertFutureWithinDeadline(dependencies, timing);
+    logFuture(dependencies, 'info', {
+      stage: 'future-provider-persist',
+      outcome: 'completed',
+      runId,
+      futureAction: selection.kind,
+      weekDistance: selection.weekDistance,
+      period: selection.period,
+      providerGroup: futureProviderGroup(selection.period),
+      stageDurationMs: Math.max(
+        0,
+        dependencies.clock.monotonicNow() - providerPersistStartedAt,
+      ),
+      projectionRows: stored.slate.coverage.playerRows + stored.slate.coverage.defenseRows,
+      matchedProjectionRows: stored.slate.coverage.matchedPlayers
+        + stored.slate.coverage.usableDefenses,
+      gameCount: games.games.length,
+      identityConflictCount: persisted.identityConflictCount,
+    });
   } catch (error) {
     const failureCode = error instanceof FutureWorkError
       ? error.failureCode
       : 'unexpected';
     await failClaims(dependencies, selection, gameReady, timing, failureCode);
+    logFuture(dependencies, 'warn', {
+      stage: 'future-provider-persist',
+      outcome: 'failed',
+      runId,
+      futureAction: selection.kind,
+      weekDistance: selection.weekDistance,
+      period: selection.period,
+      providerGroup: futureProviderGroup(selection.period),
+      stageDurationMs: Math.max(
+        0,
+        dependencies.clock.monotonicNow() - providerPersistStartedAt,
+      ),
+      failureCode,
+    });
     return {
       status: 'failed',
       failureCode,
@@ -343,6 +441,7 @@ export async function runFutureMaterializationStage(
     gameReady,
     LEAGUE_CONCURRENCY,
     async (value) => {
+      const leagueStartedAt = dependencies.clock.monotonicNow();
       try {
         if (!futureMayStart(dependencies, timing)) {
           throw new FutureWorkError('deadline-exceeded');
@@ -376,12 +475,53 @@ export async function runFutureMaterializationStage(
         if (completed.kind !== 'updated') {
           throw new FutureWorkError('snapshot-publication-failed');
         }
+        logFuture(dependencies, 'info', {
+          stage: 'future-league-publish',
+          outcome: 'completed',
+          runId,
+          futureAction: selection.kind,
+          weekDistance: selection.weekDistance,
+          leagueKey: value.configuration.key,
+          period: selection.period,
+          providerGroup: futureProviderGroup(selection.period),
+          stageDurationMs: Math.max(
+            0,
+            dependencies.clock.monotonicNow() - leagueStartedAt,
+          ),
+          starterCount: result.starterCount,
+          candidateCount: result.candidateCount,
+          frozenBaselineCount: result.frozenBaselineCount,
+          missingBaselineCount: result.missingBaselineCount,
+          ...(result.applicableSourceSkewSeconds === null
+            ? {}
+            : { applicableSourceSkewSeconds: result.applicableSourceSkewSeconds }),
+          identityConflictCount: persisted.identityConflictCount,
+          snapshotRevision: result.snapshotRevision,
+          publicationOutcome: result.publicationOutcome,
+        });
         return { status: 'completed' as const, publicationOutcome: result.publicationOutcome };
       } catch (error) {
         const failureCode = error instanceof FutureWorkError
           ? error.failureCode
           : 'snapshot-rejected';
         await failClaim(dependencies, selection, value, timing, failureCode);
+        logFuture(dependencies, 'warn', {
+          stage: 'future-league-publish',
+          outcome: 'failed',
+          runId,
+          futureAction: selection.kind,
+          weekDistance: selection.weekDistance,
+          leagueKey: value.configuration.key,
+          period: selection.period,
+          providerGroup: futureProviderGroup(selection.period),
+          stageDurationMs: Math.max(
+            0,
+            dependencies.clock.monotonicNow() - leagueStartedAt,
+          ),
+          publicationOutcome: 'rejected',
+          totalDurationMs: futureElapsedMs(dependencies, timing),
+          failureCode,
+        });
         return { status: 'failed' as const, failureCode };
       }
     },

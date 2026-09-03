@@ -80,7 +80,7 @@ describe('future work policy', () => {
     ], ['league1', 'league2'])?.[0].week).toBe(2);
   });
 
-  it('includes Week 1 during preseason and stops after completion or Week 18', () => {
+  it('starts the future horizon at Week 2 during preseason and stops after completion or Week 18', () => {
     const preseason = {
       lifecycle: 'preseason' as const,
       activeScoringPeriod: null,
@@ -88,7 +88,7 @@ describe('future work policy', () => {
     };
     expect(futurePeriodsForAuthorities([
       authority('league1', preseason), authority('league2', preseason),
-    ], ['league1', 'league2'])?.[0].week).toBe(1);
+    ], ['league1', 'league2'])?.[0].week).toBe(2);
     expect(futurePeriodsForAuthorities([
       authority('league1', { lifecycle: 'complete', activeScoringPeriod: null }),
       authority('league2', { lifecycle: 'complete', activeScoringPeriod: null }),

@@ -789,6 +789,7 @@ export type WorkerTestDependencies = LiveProjectionWorkerDependencies & Readonly
   monotonicMock: ReturnType<typeof vi.fn>;
   workerIdMock: ReturnType<typeof vi.fn>;
   loggerMock: ReturnType<typeof vi.fn>;
+  futureScopeMock: ReturnType<typeof vi.fn>;
 }>;
 
 export function workerDependencies(
@@ -833,9 +834,14 @@ export function workerDependencies(
     else if (level === 'warn') console.warn(line);
     else console.info(line);
   });
+  const futureScopeMock = vi.fn(() => ({
+    repository: fake.repository,
+    identityCrosswalk: fake.identityCrosswalk,
+  }));
   return {
     repository: fake.repository,
     identityCrosswalk: fake.identityCrosswalk,
+    futurePersistence: { scope: futureScopeMock },
     leagueRegistry: { listActiveLeagues: () => configurations },
     nflCalendar: { getCadenceState: cadenceMock },
     leagueSource: { getLeagueWeek: sourceMock },
@@ -858,5 +864,6 @@ export function workerDependencies(
     monotonicMock,
     workerIdMock,
     loggerMock,
+    futureScopeMock,
   };
 }

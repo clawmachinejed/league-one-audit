@@ -189,14 +189,15 @@ export function createProjectionSlateMethods(client: DatabaseClient): Projection
       );
       const rows = await client.query(`/* projection-store:record-projection-slate */
         WITH context_lock AS (
-          SELECT pg_advisory_xact_lock(hashtextextended($2 || ':' || $3::text || ':'
-            || $4 || ':' || $5::text || ':' || $6, 0))
+          SELECT pg_advisory_xact_lock(hashtextextended($2 || ':' || $3::smallint::text || ':'
+            || $4 || ':' || $5::smallint::text || ':' || $6, 0))
         ), inserted_content AS (
           INSERT INTO projection_slate_contents (
             id, provider, season, season_type, week, normalizer_version,
             semantic_hash, quality, coverage, warnings, entry_count
           )
-          SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11
+          SELECT $1, $2, $3::smallint, $4, $5::smallint, $6,
+            $7, $8, $9::jsonb, $10::jsonb, $11
           FROM context_lock
           ON CONFLICT (provider, season, season_type, week, normalizer_version, semantic_hash)
           DO NOTHING
@@ -205,8 +206,8 @@ export function createProjectionSlateMethods(client: DatabaseClient): Projection
           SELECT * FROM inserted_content
           UNION ALL
           SELECT existing.* FROM projection_slate_contents existing, context_lock
-          WHERE existing.provider = $2 AND existing.season = $3
-            AND existing.season_type = $4 AND existing.week = $5
+          WHERE existing.provider = $2 AND existing.season = $3::smallint
+            AND existing.season_type = $4 AND existing.week = $5::smallint
             AND existing.normalizer_version = $6 AND existing.semantic_hash = $7
           LIMIT 1
         ), valid_content AS (
@@ -240,7 +241,8 @@ export function createProjectionSlateMethods(client: DatabaseClient): Projection
             normalizer_version, source_revision, request_started_at,
             request_completed_at, observed_at, quality
           )
-          SELECT $13, content.id, $2, $3, $4, $5, $6, $14, $15, $16, $17, $8
+          SELECT $13, content.id, $2, $3::smallint, $4, $5::smallint,
+            $6, $14, $15, $16, $17, $8
           FROM valid_content content
           ON CONFLICT (provider, season, season_type, week, normalizer_version, source_revision)
           DO NOTHING
@@ -249,8 +251,8 @@ export function createProjectionSlateMethods(client: DatabaseClient): Projection
           SELECT * FROM inserted_observation
           UNION ALL
           SELECT existing.* FROM projection_slate_observations existing, context_lock
-          WHERE existing.provider = $2 AND existing.season = $3
-            AND existing.season_type = $4 AND existing.week = $5
+          WHERE existing.provider = $2 AND existing.season = $3::smallint
+            AND existing.season_type = $4 AND existing.week = $5::smallint
             AND existing.normalizer_version = $6 AND existing.source_revision = $14
           LIMIT 1
         ), valid_observation AS (
@@ -263,15 +265,15 @@ export function createProjectionSlateMethods(client: DatabaseClient): Projection
             AND observation.quality = $8
         ), old_pointer AS (
           SELECT current.* FROM current_projection_slates current, context_lock
-          WHERE current.provider = $2 AND current.season = $3
-            AND current.season_type = $4 AND current.week = $5
+          WHERE current.provider = $2 AND current.season = $3::smallint
+            AND current.season_type = $4 AND current.week = $5::smallint
             AND current.normalizer_version = $6
         ), pointer AS (
           INSERT INTO current_projection_slates (
             provider, season, season_type, week, normalizer_version,
             projection_slate_observation_id, projection_slate_content_id, observed_at
           )
-          SELECT $2, $3, $4, $5, $6, observation.id,
+          SELECT $2, $3::smallint, $4, $5::smallint, $6, observation.id,
             observation.projection_slate_content_id, observation.observed_at
           FROM valid_observation observation
           LEFT JOIN old_pointer current ON true

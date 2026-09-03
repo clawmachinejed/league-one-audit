@@ -32,7 +32,12 @@ type RepositoryStore = Parameters<typeof createNeonProjectionRepository>[0];
 const officialProvider = providerKey('official-source');
 const projectionProvider = providerKey('projection-source');
 const gameStateProvider = providerKey('game-state-source');
-const options = { officialProvider, projectionProvider, gameStateProvider };
+const options = {
+  officialProvider,
+  projectionProvider,
+  gameStateProvider,
+  normalizerVersion: 'test-normalizer-v1',
+};
 const period: LeaguePeriod = { season: 2026, seasonType: 'regular', week: 1 };
 const leagueRef = externalLeagueRef(officialProvider, 'league-opaque');
 const rosterRef = externalRosterRef(leagueRef, 'roster-opaque');
@@ -413,6 +418,40 @@ describe('Neon canonical projection repository', () => {
       modelVersion: 'clock-v1', projectionProvider: 'projection-source',
       gameProvider: 'game-state-source', externalGameIds: ['game-opaque'],
       frozenAt: '2026-09-13T16:00:00.000Z',
+    });
+  });
+
+  it('uses the configured normalizer for both projection-slate writes and reads', async () => {
+    const store = createStore();
+    const repository = createNeonProjectionRepository(store, options);
+    const coverage = {
+      crosswalkRows: 0, crosswalkEntries: 0, malformedCrosswalkRows: 0,
+      ambiguousCrosswalkRows: 0, playerRows: 0, matchedPlayers: 0,
+      unmatchedPlayers: 0, malformedPlayers: 0, incompletePlayers: 0,
+      defenseRows: 0, usableDefenses: 0, malformedDefenses: 0,
+      incompleteDefenses: 0,
+    };
+
+    await repository.recordProjectionSlate({
+      source: projectionProvider,
+      period,
+      quality: 'complete',
+      requestStartedAt: '2026-09-13T15:59:58.000Z',
+      requestCompletedAt: '2026-09-13T15:59:59.000Z',
+      observedAt: '2026-09-13T15:59:59.000Z',
+      sourceRevision: 'slate-revision',
+      projections: [],
+      coverage,
+      warnings: [],
+    });
+    await repository.readCurrentProjectionSlate(projectionProvider, period);
+
+    expect(store.recordProjectionSlate).toHaveBeenCalledWith(expect.objectContaining({
+      normalizerVersion: 'test-normalizer-v1',
+    }));
+    expect(store.readCurrentProjectionSlate).toHaveBeenCalledWith({
+      provider: 'projection-source', season: 2026, seasonType: 'reg', week: 1,
+      normalizerVersion: 'test-normalizer-v1',
     });
   });
 

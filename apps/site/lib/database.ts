@@ -4,11 +4,16 @@ import { neon } from '@neondatabase/serverless';
 
 export type DatabaseRow = Readonly<Record<string, unknown>>;
 
+export type DatabaseQueryOptions = Readonly<{
+  signal?: AbortSignal;
+}>;
+
 export type DatabaseClient = Readonly<{
   enabled: true;
   query: <Row extends DatabaseRow = DatabaseRow>(
     statement: string,
     parameters?: readonly unknown[],
+    options?: DatabaseQueryOptions,
   ) => Promise<readonly Row[]>;
 }>;
 
@@ -55,9 +60,31 @@ export function createDatabase(databaseUrl: string | undefined = process.env.DAT
   const sql = neon(url);
   return {
     enabled: true,
-    async query<Row extends DatabaseRow = DatabaseRow>(statement: string, parameters: readonly unknown[] = []) {
-      const rows = await sql.query(statement, [...parameters]);
+    async query<Row extends DatabaseRow = DatabaseRow>(
+      statement: string,
+      parameters: readonly unknown[] = [],
+      options: DatabaseQueryOptions = {},
+    ) {
+      const rows = await sql.query(
+        statement,
+        [...parameters],
+        options.signal ? { fetchOptions: { signal: options.signal } } : {},
+      );
       return rows as readonly Row[];
+    },
+  };
+}
+
+/** Applies one operation deadline to every query made through this database view. */
+export function withDatabaseAbortSignal(database: Database, signal: AbortSignal): Database {
+  if (!database.enabled) return database;
+  return {
+    enabled: true,
+    query(statement, parameters, options = {}) {
+      const querySignal = options.signal
+        ? AbortSignal.any([signal, options.signal])
+        : signal;
+      return database.query(statement, parameters, { signal: querySignal });
     },
   };
 }

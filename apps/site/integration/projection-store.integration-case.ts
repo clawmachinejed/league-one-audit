@@ -397,6 +397,119 @@ describe.sequential('projection store against an isolated Neon database', () => 
     });
   });
 
+  it('completes future materialization after a changed source verifies unchanged content', async () => {
+    // Keep synthetic source timestamps after the database-created refresh row.
+    const baseMs = Date.now() + 10_000;
+    const at = (offsetMs: number) => new Date(baseMs + offsetMs).toISOString();
+    const normalizerVersion = 'materialization-proof-v1';
+    const period = { season: 2026, seasonType: 'reg' as const, week: 2 };
+    const target = { period, weekDistance: 1 };
+    await expect(store.ensureFutureRefreshStates({
+      projectionProvider: 'tank01', normalizerVersion, modelVersion: 'clock-v1',
+      targets: [target], leagueKeys: ['integration-league'], seededAt: at(0),
+    })).resolves.toMatchObject({ kind: 'stored' });
+
+    const projectionAttempt = randomUUID();
+    await expect(store.beginFutureProjectionRefresh({
+      projectionProvider: 'tank01', normalizerVersion, period,
+      attemptId: projectionAttempt, attemptedAt: at(1_000), leaseSeconds: 60,
+    })).resolves.toMatchObject({ kind: 'acquired' });
+    const slate = storedValue(await store.recordProjectionSlate({
+      provider: 'tank01', season: 2026, seasonType: 'reg', week: 2,
+      normalizerVersion, sourceRevision: 'materialization-proof-slate',
+      requestStartedAt: at(1_100), requestCompletedAt: at(1_200), observedAt: at(1_200),
+      quality: 'complete', coverage: { playerRows: 0, matchedPlayers: 0 },
+      warnings: [], entries: [],
+    }));
+    await expect(store.completeFutureProjectionRefresh({
+      projectionProvider: 'tank01', normalizerVersion, period,
+      attemptId: projectionAttempt, completedAt: at(2_000),
+      nextRefreshAt: at(6 * 60 * 60 * 1_000),
+      slate: { observationId: slate.observationId, contentId: slate.contentId },
+    })).resolves.toMatchObject({ kind: 'updated', materializationsWoken: 1 });
+
+    const recordSource = async (sourceRevision: string, observedAt: string) => storedValue(
+      await store.recordLeagueWeekObservation({
+        leagueSeasonId: league.leagueSeasonId, week: 2, sourceRevision,
+        requestStartedAt: observedAt, requestCompletedAt: observedAt, observedAt,
+        quality: 'complete', sourceData: { state: 'unchanged' },
+        expectedTank01GameIds: [], playerPoints: [], rosterPoints: [],
+      }),
+    );
+    const publishEmpty = (
+      source: Awaited<ReturnType<typeof recordSource>>,
+      revisionKey: string,
+      calculatedAt: string,
+    ) => store.publishSnapshot({
+      leagueSeasonId: league.leagueSeasonId, week: 2, modelVersion: 'clock-v1',
+      revisionKey, leagueWeekObservationId: source.observationId,
+      gameStateObservationIds: [], calculatedAt,
+      payload: emptyPayload(2, calculatedAt), activityWindows: [], maxSourceSkewSeconds: 90,
+    });
+
+    const firstSource = await recordSource('materialization-proof-source-1', at(3_000));
+    const firstPublished = await publishEmpty(
+      firstSource,
+      'materialization-proof-snapshot-1',
+      at(3_000),
+    );
+    expect(firstPublished.kind).toBe('published');
+    if (firstPublished.kind !== 'published') throw new Error('Proof snapshot was not published.');
+    const firstAttempt = randomUUID();
+    await expect(store.beginFutureMaterializationRefresh({
+      leagueKey: 'integration-league', projectionProvider: 'tank01', normalizerVersion,
+      modelVersion: 'clock-v1', period, attemptId: firstAttempt,
+      attemptedAt: at(3_500), leaseSeconds: 60,
+    })).resolves.toMatchObject({ kind: 'acquired' });
+    await expect(store.completeFutureMaterializationRefresh({
+      leagueKey: 'integration-league', projectionProvider: 'tank01', normalizerVersion,
+      modelVersion: 'clock-v1', period, attemptId: firstAttempt,
+      completedAt: at(4_000), nextRefreshAt: at(60 * 60 * 1_000 + 4_000),
+      sourceRevision: 'materialization-proof-source-1',
+      slate: { observationId: slate.observationId, contentId: slate.contentId },
+      snapshotRevision: firstPublished.snapshot.revisionKey,
+    })).resolves.toMatchObject({ kind: 'updated' });
+
+    const secondAttempt = randomUUID();
+    await expect(store.beginFutureMaterializationRefresh({
+      leagueKey: 'integration-league', projectionProvider: 'tank01', normalizerVersion,
+      modelVersion: 'clock-v1', period, attemptId: secondAttempt,
+      attemptedAt: at(60 * 60 * 1_000 + 5_000), leaseSeconds: 60,
+    })).resolves.toMatchObject({ kind: 'acquired' });
+    const secondSourceAt = at(60 * 60 * 1_000 + 6_000);
+    const secondSource = await recordSource('materialization-proof-source-2', secondSourceAt);
+    await ownerQuery(`
+      UPDATE current_projection_snapshots SET verified_at = $1::timestamptz
+      WHERE league_season_id = $2::uuid AND week = 2
+    `, [at(30 * 60 * 1_000), league.leagueSeasonId]);
+    await expect(store.completeFutureMaterializationRefresh({
+      leagueKey: 'integration-league', projectionProvider: 'tank01', normalizerVersion,
+      modelVersion: 'clock-v1', period, attemptId: secondAttempt,
+      completedAt: at(60 * 60 * 1_000 + 6_500),
+      nextRefreshAt: at(2 * 60 * 60 * 1_000 + 6_500),
+      sourceRevision: 'materialization-proof-source-2',
+      slate: { observationId: slate.observationId, contentId: slate.contentId },
+      snapshotRevision: firstPublished.snapshot.revisionKey,
+    })).resolves.toEqual({ kind: 'stale' });
+    const unchanged = await publishEmpty(
+      secondSource,
+      'materialization-proof-snapshot-2',
+      secondSourceAt,
+    );
+    expect(unchanged.kind).toBe('unchanged');
+    if (unchanged.kind !== 'unchanged') throw new Error('Proof snapshot content changed.');
+    expect(unchanged.snapshot.revisionKey).toBe(firstPublished.snapshot.revisionKey);
+    await expect(store.completeFutureMaterializationRefresh({
+      leagueKey: 'integration-league', projectionProvider: 'tank01', normalizerVersion,
+      modelVersion: 'clock-v1', period, attemptId: secondAttempt,
+      completedAt: at(60 * 60 * 1_000 + 7_000),
+      nextRefreshAt: at(2 * 60 * 60 * 1_000 + 7_000),
+      sourceRevision: 'materialization-proof-source-2',
+      slate: { observationId: slate.observationId, contentId: slate.contentId },
+      snapshotRevision: unchanged.snapshot.revisionKey,
+    })).resolves.toMatchObject({ kind: 'updated', consecutiveFailures: 0 });
+  });
+
   it('rejects every partial future-refresh lease tuple and inconsistent failure tuple', async () => {
     const attemptId = randomUUID();
     const leaseTuples = [
@@ -784,34 +897,6 @@ describe.sequential('projection store against an isolated Neon database', () => 
       ...run, sourceRevision: 'flex-invalid', fetchedAt: '2026-09-30T16:30:00.000Z',
       candidates: [{ ...candidate, projectionPoints: 99, quality: 'invalid' }],
     }));
-    const nullKickoffGame = only(storedValue(await store.upsertNflGames([{
-      key: 'null-kickoff-game', provider: 'tank01', externalGameId: 'null-kickoff-game',
-      season: 2026, seasonType: 'reg', week: 3,
-      homeTeam: 'BAL', awayTeam: 'PIT', kickoffAt: null,
-    }])), 'Null-kickoff game');
-    const recentGame = only(storedValue(await store.upsertNflGames([{
-      key: 'recent-game', provider: 'tank01', externalGameId: 'recent-game',
-      season: 2026, seasonType: 'reg', week: 3,
-      homeTeam: 'DET', awayTeam: 'GB', kickoffAt: '2026-09-02T17:00:00.000Z',
-    }])), 'Recent game');
-    const nullKickoff = storedValue(await store.recordProjectionCandidates({
-      ...run,
-      sourceRevision: 'null-kickoff-candidate',
-      requestStartedAt: '2026-08-30T15:59:59.000Z',
-      requestCompletedAt: '2026-08-30T16:00:00.000Z',
-      fetchedAt: '2026-08-30T16:00:00.000Z',
-      candidates: [{
-        ...candidate, gameId: nullKickoffGame.gameId, projectionPoints: 30,
-      }],
-    }));
-    const recent = storedValue(await store.recordProjectionCandidates({
-      ...run,
-      sourceRevision: 'recent-game-candidate',
-      requestStartedAt: '2026-08-30T15:59:59.000Z',
-      requestCompletedAt: '2026-08-30T16:00:00.000Z',
-      fetchedAt: '2026-08-30T16:00:00.000Z',
-      candidates: [{ ...candidate, gameId: recentGame.gameId, projectionPoints: 40 }],
-    }));
     const readInput = {
       leagueSeasonId: league.leagueSeasonId, season: 2026, seasonType: 'reg' as const,
       week: 3, provider: 'tank01', modelVersion: 'integration-flex-v1',
@@ -871,6 +956,38 @@ describe.sequential('projection store against an isolated Neon database', () => 
     }]);
     expect(only(await store.readLatestCandidatesBySleeperIds(readInput), 'Repaired flex pointer'))
       .toMatchObject({ projectionPoints: 10, sourceProjectionRunId: early.runId });
+
+    // These extra histories exercise retention only. Add them after the flex
+    // pointer assertions so one synthetic player is never treated as if it were
+    // scheduled in several NFL games during the same week.
+    const nullKickoffGame = only(storedValue(await store.upsertNflGames([{
+      key: 'null-kickoff-game', provider: 'tank01', externalGameId: 'null-kickoff-game',
+      season: 2026, seasonType: 'reg', week: 3,
+      homeTeam: 'BAL', awayTeam: 'PIT', kickoffAt: null,
+    }])), 'Null-kickoff game');
+    const recentGame = only(storedValue(await store.upsertNflGames([{
+      key: 'recent-game', provider: 'tank01', externalGameId: 'recent-game',
+      season: 2026, seasonType: 'reg', week: 3,
+      homeTeam: 'DET', awayTeam: 'GB', kickoffAt: '2026-09-02T17:00:00.000Z',
+    }])), 'Recent game');
+    const nullKickoff = storedValue(await store.recordProjectionCandidates({
+      ...run,
+      sourceRevision: 'null-kickoff-candidate',
+      requestStartedAt: '2026-08-30T15:59:59.000Z',
+      requestCompletedAt: '2026-08-30T16:00:00.000Z',
+      fetchedAt: '2026-08-30T16:00:00.000Z',
+      candidates: [{
+        ...candidate, gameId: nullKickoffGame.gameId, projectionPoints: 30,
+      }],
+    }));
+    const recent = storedValue(await store.recordProjectionCandidates({
+      ...run,
+      sourceRevision: 'recent-game-candidate',
+      requestStartedAt: '2026-08-30T15:59:59.000Z',
+      requestCompletedAt: '2026-08-30T16:00:00.000Z',
+      fetchedAt: '2026-08-30T16:00:00.000Z',
+      candidates: [{ ...candidate, gameId: recentGame.gameId, projectionPoints: 40 }],
+    }));
 
     await ownerQuery(`
       UPDATE pregame_projection_runs SET created_at = '2000-01-01T00:00:00.000Z'
@@ -1383,6 +1500,83 @@ describe.sequential('projection store against an isolated Neon database', () => 
     } finally {
       await counted.close();
     }
+  });
+
+  it('reads future freshness only from the explicitly configured projection lineage', async () => {
+    const activeNormalizer = 'canonical-projection-slate-v1';
+    const decoyNormalizer = 'legacy-decoy-v0';
+    const at = time(51);
+    const recordSlate = (normalizerVersion: string, sourceRevision: string) => (
+      store.recordProjectionSlate({
+        provider: 'tank01', season: 2026, seasonType: 'reg', week: 4,
+        normalizerVersion, sourceRevision,
+        requestStartedAt: at, requestCompletedAt: at, observedAt: at,
+        quality: 'complete', coverage: { playerRows: 0, matchedPlayers: 0 },
+        warnings: [], entries: [],
+      })
+    );
+    const activeSlate = storedValue(await recordSlate(activeNormalizer, 'reader-active-slate'));
+    const decoySlate = storedValue(await recordSlate(decoyNormalizer, 'reader-decoy-slate'));
+    const target = {
+      period: { season: 2026, seasonType: 'reg' as const, week: 4 },
+      weekDistance: 3,
+    };
+    for (const normalizerVersion of [activeNormalizer, decoyNormalizer]) {
+      await expect(store.ensureFutureRefreshStates({
+        projectionProvider: 'tank01', normalizerVersion, modelVersion: 'clock-v1',
+        targets: [target], leagueKeys: ['integration-league'], seededAt: at,
+      })).resolves.toMatchObject({ kind: 'stored' });
+    }
+    const acknowledge = async (
+      normalizerVersion: string,
+      slate: typeof activeSlate,
+      lastSucceededAt: string,
+      nextRefreshAt: string,
+    ) => ownerQuery(`
+      UPDATE league_week_materialization_states SET
+        attempt_count = 1, last_attempted_at = $1, last_succeeded_at = $1,
+        last_source_revision = 'reader-source',
+        last_projection_slate_observation_id = $2,
+        last_projection_slate_content_id = $3,
+        last_snapshot_revision = 'snapshot-valid-changed',
+        next_refresh_at = $4
+      WHERE league_key = 'integration-league'
+        AND projection_provider = 'tank01'
+        AND season = 2026 AND season_type = 'reg' AND week = 4
+        AND normalizer_version = $5 AND model_version = 'clock-v1'
+    `, [lastSucceededAt, slate.observationId, slate.contentId, nextRefreshAt, normalizerVersion]);
+    await acknowledge(activeNormalizer, activeSlate, time(51), time(52));
+    await acknowledge(decoyNormalizer, decoySlate, time(52), '2030-01-01T00:00:00.000Z');
+
+    const selected = await store.readMatchupSnapshotByLeagueKey(
+      'integration-league',
+      4,
+      {
+        projectionProvider: 'tank01',
+        normalizerVersion: activeNormalizer,
+        modelVersion: 'clock-v1',
+      },
+    );
+    expect(selected).toMatchObject({
+      snapshot: { snapshotId: currentSnapshotId, modelVersion: 'clock-v1' },
+      futureRefresh: {
+        lastProjectionSlateContentId: activeSlate.contentId,
+        currentProjectionSlateContentId: activeSlate.contentId,
+        lastSnapshotRevision: 'snapshot-valid-changed',
+      },
+    });
+    expect(Date.parse(selected?.futureRefresh?.nextRefreshAt ?? '')).toBe(Date.parse(time(52)));
+
+    const incompatibleModel = await store.readMatchupSnapshotByLeagueKey(
+      'integration-league',
+      4,
+      {
+        projectionProvider: 'tank01',
+        normalizerVersion: activeNormalizer,
+        modelVersion: 'clock-v2',
+      },
+    );
+    expect(incompatibleModel).toMatchObject({ snapshot: null, futureRefresh: null });
   });
 
   it('rejects a structurally valid JSON row whose stored matchup payload is malformed', async () => {

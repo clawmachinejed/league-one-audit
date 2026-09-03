@@ -11,7 +11,10 @@ import {
   assertFutureWithinDeadline,
   futureFailureCode,
   futureMayStart,
+  futureElapsedMs,
+  futureProviderGroup,
   futureTimestamp,
+  logFuture,
   nextFutureRefreshAt,
   sameFuturePeriod,
   type FutureWorkTiming,
@@ -50,8 +53,11 @@ export async function runFutureProjectionStage(
   if (claim.kind !== 'acquired') return { status: 'skipped' };
 
   let failureCode: FutureRefreshFailureCode = 'unexpected';
+  let activeStage = 'future-projection-feed';
+  let activeStageStartedAt = dependencies.clock.monotonicNow();
   try {
     assertFutureMayStart(dependencies, timing);
+    activeStageStartedAt = dependencies.clock.monotonicNow();
     const result = await dependencies.projectionFeed.getProjectionSlate(selection.period)
       .catch(() => {
         throw new FutureWorkError('provider-unavailable');
@@ -67,8 +73,27 @@ export async function runFutureProjectionStage(
     if (result.slate.quality !== 'complete') {
       throw new FutureWorkError('projection-slate-incomplete');
     }
+    logFuture(dependencies, 'info', {
+      stage: activeStage,
+      outcome: 'completed',
+      runId,
+      futureAction: selection.kind,
+      weekDistance: selection.weekDistance,
+      period: selection.period,
+      providerGroup: futureProviderGroup(selection.period),
+      providerDurationMs: Math.max(
+        0,
+        dependencies.clock.monotonicNow() - activeStageStartedAt,
+      ),
+      providerOutcome: 'available',
+      projectionRows: result.slate.coverage.playerRows + result.slate.coverage.defenseRows,
+      matchedProjectionRows: result.slate.coverage.matchedPlayers
+        + result.slate.coverage.usableDefenses,
+    });
 
     assertFutureMayStart(dependencies, timing);
+    activeStage = 'future-projection-persist';
+    activeStageStartedAt = dependencies.clock.monotonicNow();
     const stored = await dependencies.repository.recordProjectionSlate(result.slate)
       .catch(() => {
         throw new FutureWorkError('projection-slate-persistence-failed');
@@ -98,9 +123,49 @@ export async function runFutureProjectionStage(
     if (completed.kind !== 'updated') {
       throw new FutureWorkError('projection-slate-persistence-failed');
     }
+    logFuture(dependencies, 'info', {
+      stage: activeStage,
+      outcome: 'completed',
+      runId,
+      futureAction: selection.kind,
+      weekDistance: selection.weekDistance,
+      period: selection.period,
+      providerGroup: futureProviderGroup(selection.period),
+      stageDurationMs: Math.max(
+        0,
+        dependencies.clock.monotonicNow() - activeStageStartedAt,
+      ),
+      projectionRows: stored.value.entryCount,
+    });
     return { status: 'completed', providerGroups: 1 };
   } catch (error) {
     failureCode = futureFailureCode(error);
+    logFuture(dependencies, 'warn', {
+      stage: activeStage,
+      outcome: 'failed',
+      runId,
+      futureAction: selection.kind,
+      weekDistance: selection.weekDistance,
+      period: selection.period,
+      providerGroup: futureProviderGroup(selection.period),
+      ...(activeStage === 'future-projection-feed'
+        ? {
+            providerDurationMs: Math.max(
+              0,
+              dependencies.clock.monotonicNow() - activeStageStartedAt,
+            ),
+            providerOutcome: failureCode === 'provider-unavailable'
+              ? 'unavailable' as const : 'invalid' as const,
+          }
+        : {
+            stageDurationMs: Math.max(
+              0,
+              dependencies.clock.monotonicNow() - activeStageStartedAt,
+            ),
+          }),
+      totalDurationMs: futureElapsedMs(dependencies, timing),
+      failureCode,
+    });
   }
 
   const failedAt = futureTimestamp(dependencies, timing);

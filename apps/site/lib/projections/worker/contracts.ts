@@ -42,6 +42,12 @@ export type ScoringProfileNormalization =
 export type LiveProjectionWorkerDependencies = Readonly<{
   repository: ProjectionRepositoryPort & FutureRefreshRepositoryPort;
   identityCrosswalk: IdentityCrosswalkPort;
+  futurePersistence: Readonly<{
+    scope: (signal: AbortSignal) => Readonly<{
+      repository: ProjectionRepositoryPort & FutureRefreshRepositoryPort;
+      identityCrosswalk: IdentityCrosswalkPort;
+    }>;
+  }>;
   leagueRegistry: LeagueRegistryPort;
   nflCalendar: NflCalendarPort;
   leagueSource: LeagueSourcePort;

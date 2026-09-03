@@ -3,7 +3,13 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('server-only', () => ({}));
 
-import { createDatabase, type DatabaseClient, type DatabaseRow } from './database';
+import {
+  createDatabase,
+  withDatabaseAbortSignal,
+  type DatabaseClient,
+  type DatabaseQueryOptions,
+  type DatabaseRow,
+} from './database';
 import { createProjectionStore } from './projection-store';
 import type { MatchupsData } from './types';
 
@@ -124,6 +130,32 @@ describe('optional database connection', () => {
       'postgresql://runtime:secret@example.neon.tech/database?sslmode=require',
     ).enabled).toBe(true);
     expect(createDatabase('postgresql://runtime:secret@localhost/database').enabled).toBe(true);
+  });
+
+  it('applies and composes an abort signal across every scoped database query', async () => {
+    const observed: DatabaseQueryOptions[] = [];
+    const database: DatabaseClient = {
+      enabled: true,
+      async query(_statement, _parameters, options = {}) {
+        observed.push(options);
+        return [];
+      },
+    };
+    const operation = new AbortController();
+    const caller = new AbortController();
+    const scoped = withDatabaseAbortSignal(database, operation.signal);
+    if (!scoped.enabled) throw new Error('The scoped test database was unexpectedly disabled.');
+
+    await scoped.query('SELECT 1');
+    await scoped.query('SELECT 2', [], { signal: caller.signal });
+
+    expect(observed).toHaveLength(2);
+    expect(observed[0].signal).toBe(operation.signal);
+    expect(observed[1].signal).not.toBe(operation.signal);
+    expect(observed[1].signal?.aborted).toBe(false);
+    operation.abort();
+    expect(observed[0].signal?.aborted).toBe(true);
+    expect(observed[1].signal?.aborted).toBe(true);
   });
 });
 

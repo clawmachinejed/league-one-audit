@@ -437,6 +437,9 @@ async function runScaleScenario(leagueCount: number): Promise<ScaleRun> {
   const dependencies: LiveProjectionWorkerDependencies = {
     repository,
     identityCrosswalk,
+    futurePersistence: {
+      scope: () => ({ repository, identityCrosswalk }),
+    },
     leagueRegistry: { listActiveLeagues: () => configurations },
     nflCalendar: {
       getCadenceState: (configuration) => meter.run(

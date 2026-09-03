@@ -293,7 +293,8 @@ async function applyMigrations(pool: Pool): Promise<readonly string[]> {
     )
   `);
   for (const name of names) {
-    const statement = await readFile(join(migrationsDirectory, name), 'utf8');
+    const statement = (await readFile(join(migrationsDirectory, name), 'utf8'))
+      .replace(/\r\n?/gu, '\n');
     const checksum = createHash('sha256').update(statement).digest('hex');
     const client = await pool.connect();
     try {
