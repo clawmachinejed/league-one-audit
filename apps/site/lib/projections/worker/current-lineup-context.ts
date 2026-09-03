@@ -32,5 +32,7 @@ export async function refreshCurrentLineupContext(dependencies: LiveProjectionWo
     configurations.map((value) => value.key), dependencies.clock.now(), LINEUP_AUTHORITY_MAX_AGE_MS,
   );
   const context = await synchronizeLineupWatches(dependencies.lineupRepository, configurations, results, dependencies.clock.now());
-  return { context, cadenceByKey: new Map(cadence.flatMap((value) => value ? [[value.configuration.key, value] as const] : [])) };
+  return { context,
+    failedCadenceLeagueKeys: configurations.filter((_configuration, index) => cadence[index] === null).map((configuration) => configuration.key),
+    cadenceByKey: new Map(cadence.flatMap((value) => value ? [[value.configuration.key, value] as const] : [])) };
 }

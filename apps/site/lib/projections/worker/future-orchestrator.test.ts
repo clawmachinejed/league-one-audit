@@ -246,6 +246,22 @@ describe('future projection orchestration', () => {
     expect(dependencies.projectionMock).not.toHaveBeenCalled();
   });
 
+  it('reports a missing league authority when healthy sibling leagues have no due work', async () => {
+    const store = fakeStore(); const dependencies = configureFutureDependencies(store);
+    store.readFuturePlan.mockResolvedValue(plansWithWeekTwo({ due: false }));
+    const authorities = await dependencies.authorityMock();
+    dependencies.authorityMock.mockResolvedValue(authorities.map((result) => result.leagueKey === 'league2'
+      ? { kind: 'missing' as const, leagueKey: result.leagueKey } : result));
+    await expect(createFutureProjectionWorker(dependencies).run()).resolves.toEqual({ status: 'failed' });
+    expect(dependencies.logger.write).toHaveBeenCalledWith('warn', expect.objectContaining({
+      stage: 'future-authority', outcome: 'failed', failedLeagues: 1,
+    }));
+    expect(store.acquired).not.toHaveBeenCalled();
+    expect(dependencies.sourceMock).not.toHaveBeenCalled();
+    expect(dependencies.projectionMock).not.toHaveBeenCalled();
+    expect(dependencies.gamesMock).not.toHaveBeenCalled();
+  });
+
   it('accepts authority verified during the read by validating against the post-read clock', async () => {
     const store = fakeStore(); const dependencies = configureFutureDependencies(store);
     const values = await dependencies.authorityMock();

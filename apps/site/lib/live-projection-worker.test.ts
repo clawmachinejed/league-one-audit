@@ -48,6 +48,16 @@ function completedPriorSeasonCadence(configuration: LeagueConfiguration, weeklyS
       activeScoringPeriod: null, lifecycle: 'complete' as const, observedAt: at.toISOString(), verifiedAt: at.toISOString() } };
 }
 
+async function seedDurableAuthorities(dependencies: ReturnType<typeof workerDependencies>) {
+  for (const configuration of dependencies.leagueRegistry.listActiveLeagues()) {
+    const value = await dependencies.nflCalendar.getCadenceState(configuration);
+    await dependencies.repository.upsertPeriodAuthority(value.periodAuthority, {
+      shape: value.lineupShape, defaultPeriodCadence: value.defaultPeriodCadence,
+    });
+  }
+  dependencies.cadenceMock.mockClear();
+}
+
 describe('live projection worker', () => {
   afterEach(() => vi.restoreAllMocks());
 
@@ -102,6 +112,56 @@ describe('live projection worker', () => {
     expect(dependencies.sourceMock).not.toHaveBeenCalled();
     expect(dependencies.projectionMock).not.toHaveBeenCalled();
     expect(dependencies.gamesMock).not.toHaveBeenCalled();
+  });
+
+  it.each(['active', 'preseason'] as const)('reports a failed %s cadence refresh despite still-fresh durable authorities', async (lifecycle) => {
+    const store = fakeStore();
+    const value = cadenceInput('l1');
+    const dependencies = workerDependencies(store, { cadence: { ...value,
+      periodAuthority: { ...value.periodAuthority, lifecycle,
+        activeScoringPeriod: lifecycle === 'active' ? value.periodAuthority.activeScoringPeriod : null } } });
+    await seedDurableAuthorities(dependencies);
+    dependencies.cadenceMock.mockRejectedValue(new Error('temporary calendar outage'));
+    expect(await createLiveProjectionWorker(dependencies).run()).toEqual({ status: 'failed' });
+    expect(dependencies.sourceMock).not.toHaveBeenCalled();
+    expect(dependencies.lineupSource.getLineup).not.toHaveBeenCalled();
+    expect(store.acquired).not.toHaveBeenCalled();
+    expect(store.completed).not.toHaveBeenCalled();
+  });
+
+  it('counts one failed cadence refresh once while publishing the healthy league against fresh persisted authorities', async () => {
+    const store = fakeStore();
+    const dependencies = workerDependencies(store);
+    await seedDurableAuthorities(dependencies);
+    const original = dependencies.cadenceMock.getMockImplementation()! as typeof dependencies.nflCalendar.getCadenceState;
+    dependencies.cadenceMock.mockImplementation(async (configuration) => {
+      if (leagueId(configuration) === 'l1') throw new Error('temporary calendar outage');
+      return original(configuration);
+    });
+    expect(await createLiveProjectionWorker(dependencies).run()).toMatchObject({
+      status: 'completed', publishedLeagues: 1, failedLeagues: 1,
+    });
+    expect(dependencies.sourceMock).toHaveBeenCalledTimes(1);
+    expect(leagueId(dependencies.sourceMock.mock.calls[0][0])).toBe('l2');
+  });
+
+  it('continues healthy thin checks but does not report successful idle for a partial cadence outage', async () => {
+    const store = fakeStore();
+    const dependencies = workerDependencies(store, {
+      cadence: cadenceInput('l1', fullWeekSchedule('2026-09-20T17:00:00.000Z')),
+      now: new Date('2026-09-13T18:10:10.000Z'),
+    });
+    await seedDurableAuthorities(dependencies);
+    const original = dependencies.cadenceMock.getMockImplementation()! as typeof dependencies.nflCalendar.getCadenceState;
+    dependencies.cadenceMock.mockImplementation(async (configuration) => {
+      if (leagueId(configuration) === 'l1') throw new Error('temporary calendar outage');
+      return original(configuration);
+    });
+    expect(await createLiveProjectionWorker(dependencies).run()).toEqual({ status: 'failed' });
+    expect(dependencies.lineupSource.getLineup).toHaveBeenCalledTimes(1);
+    expect(dependencies.sourceMock).not.toHaveBeenCalled();
+    expect(store.completed).not.toHaveBeenCalled();
+    expect(store.failed).toHaveBeenCalledExactlyOnceWith('live-projection-sync', 'worker-1', 'current-projection-failed');
   });
 
   it('does not use the hourly fallback throughout the offseason', async () => {

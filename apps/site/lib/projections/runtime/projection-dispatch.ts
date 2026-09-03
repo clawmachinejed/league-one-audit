@@ -26,7 +26,10 @@ export async function runProductionProjectionSync(
     if (value.context.kind === 'disabled') return { status: 'disabled' };
     if (value.context.kind !== 'stored' || !value.context.authorities.length) return { status: 'failed' };
     const prepared: PreparedCurrentPreflight = { runId, now, runStartedAt, value };
-    const defaults = value.context.states.filter((state) => state.watchClass === 'current' && state.retiredAt === null);
+    const failedPreflightKeys = new Set([...value.failedCadenceLeagueKeys, ...value.context.skippedLeagueKeys]);
+    const defaults = value.context.states.filter((state) => state.watchClass === 'current' && state.retiredAt === null
+      && !failedPreflightKeys.has(state.configuration.key));
+    if (!defaults.length && failedPreflightKeys.size > 0) return { status: 'failed' };
     const currentDefaults = defaults.filter((state) => state.materializationLane === 'current');
     const futureDefaults = defaults.filter((state) => state.materializationLane === 'future');
     if (!futureDefaults.length) return runWithDependencies(current, options, prepared);
@@ -47,7 +50,7 @@ export async function runProductionProjectionSync(
     const successful = result.publishedLeagues + result.unchangedLeagues;
     if (result.action !== 'materialize' || successful === 0) return { status: 'failed' };
     return { status: 'completed', cadence: 'forced', publishedLeagues: successful,
-      failedLeagues: result.failedLeagues + value.context.skippedLeagueKeys.length, providerGroups: 1 };
+      failedLeagues: result.failedLeagues + failedPreflightKeys.size, providerGroups: 1 };
   } catch {
     safeProjectionLog(current, 'error', { stage: 'forced-dispatch', outcome: 'failed', runId,
       cadence: 'forced', failureCode: 'current-projection-failed' });

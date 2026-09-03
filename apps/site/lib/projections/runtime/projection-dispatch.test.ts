@@ -29,6 +29,7 @@ function preflight(lane: 'current' | 'future') {
       states: ['league1', 'league2'].map((key) => ({ configuration: { key }, period,
         materializationLane: lane, watchClass: 'current', retiredAt: null })),
     },
+    failedCadenceLeagueKeys: [] as string[],
     cadenceByKey: new Map(),
   };
 }
@@ -120,6 +121,25 @@ describe('existing force maintenance dispatch', () => {
       status: 'completed', cadence: 'forced', publishedLeagues: 1, failedLeagues: 1, providerGroups: 1,
     });
     expect(runtime.runFuture.mock.calls[0][1].leagueKeys).toEqual(['league1']);
+  });
+  it('does not send a stale cached preseason default to forced work after its cadence refresh failed', async () => {
+    const prepared = preflight('future');
+    prepared.failedCadenceLeagueKeys = ['league2'];
+    runtime.preflight.mockResolvedValue(prepared);
+    runtime.runFuture.mockResolvedValue({ status: 'completed', action: 'materialize', period,
+      publishedLeagues: 1, unchangedLeagues: 0, failedLeagues: 0 });
+    expect(await runProductionProjectionSync({ force: true })).toEqual({
+      status: 'completed', cadence: 'forced', publishedLeagues: 1, failedLeagues: 1, providerGroups: 1,
+    });
+    expect(runtime.runFuture.mock.calls[0][1].leagueKeys).toEqual(['league1']);
+  });
+  it('reports failed force when all preseason cadence refreshes fail despite fresh stored defaults', async () => {
+    const prepared = preflight('future');
+    prepared.failedCadenceLeagueKeys = ['league1', 'league2'];
+    runtime.preflight.mockResolvedValue(prepared);
+    expect(await runProductionProjectionSync({ force: true })).toEqual({ status: 'failed' });
+    expect(runtime.runCurrent).not.toHaveBeenCalled();
+    expect(runtime.runFuture).not.toHaveBeenCalled();
   });
 
   it.each([

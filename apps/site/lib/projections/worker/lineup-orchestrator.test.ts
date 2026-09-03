@@ -52,6 +52,18 @@ describe('independent lineup observation worker', () => {
     expect(h.lineupSource.getLineup).not.toHaveBeenCalled();
     expect(h.repository.completeJob).not.toHaveBeenCalled();
   });
+  it.each(['missing', 'stale', 'malformed', 'provider-mismatch', 'database-error'] as const)(
+    'reports partial failure for one %s authority while checking the healthy league', async (kind) => {
+      const h = lineupHarness();
+      h.periodAuthorityReader.readAuthorities.mockResolvedValue([
+        lineupAuthorityResult(lineupAuthority(h.configurations[0])), { kind, leagueKey: h.configurations[1].key },
+      ]);
+      expect(await runLineupObservation(h.dependencies)).toMatchObject({ status: 'partial', checked: 17,
+        changed: 17, failed: 1, skipped: 0 });
+      expect(h.lineupSource.getLineup.mock.calls.every(([input]) => input.configuration.key === h.configurations[0].key)).toBe(true);
+      expect(h.repository.completeJob).toHaveBeenCalledTimes(1);
+    },
+  );
   it('isolates unavailable rows and uses normal cadence as first failure backoff', async () => {
     const h = lineupHarness();
     h.lineupSource.getLineup.mockResolvedValueOnce({ status: 'unavailable', reason: 'source-unavailable',

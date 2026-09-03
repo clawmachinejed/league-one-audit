@@ -63,7 +63,14 @@ async function executeFutureWork(
   const prepared = forced ? { ...loaded, unavailableAuthorityCount: forced.leagueKeys.filter((key) =>
     !loaded.authorities.some((authority) => authority.configuration.key === key)).length } : loaded;
   const selection = forced ? forcedSelection(prepared, forced) : selectFutureWork(prepared.policy, now);
-  if (!selection) return { status: 'skipped', reason: 'idle' };
+  if (!selection) {
+    if (prepared.unavailableAuthorityCount > 0) {
+      logFuture(dependencies, 'warn', { stage: 'future-authority', outcome: 'failed', runId,
+        failedLeagues: prepared.unavailableAuthorityCount });
+      return { status: 'failed' };
+    }
+    return { status: 'skipped', reason: 'idle' };
+  }
   if (!futureMayStart(dependencies, timing)) return { status: 'skipped', reason: 'deadline' };
   const claim = await dependencies.repository.acquireJob({
     jobKey: GLOBAL_JOB_KEY, jobType: GLOBAL_JOB_KEY,

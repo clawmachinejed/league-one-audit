@@ -284,3 +284,12 @@ Adding instrumentation to a persistent cache loader can cause a normal first-loa
 
 The full gate caught concrete provider-name literals in the new logger port. The port now accepts a provider name generically, while the concrete monitoring boundary retains its safe fixed provider set. The architecture test was not weakened. The complete rerun passed lint, TypeScript, all architecture checks, 994 tests in 75 files, and production build.
 - Corrected-head browser regression: all 13 tests passed (28.9 seconds).
+
+- Read-only production-source check before activation: Sleeper returned 12 roster rows with nine starter slots each for both leagues at Weeks 1 and 18. These four diagnostic GETs did not change either league or the website; no raw responses were retained.
+
+### PR3 GitHub review resolution
+
+Review comments 3928686176 and 3928686183 identified failure classifications that could hide an outage. Current preflight now records failed cadence refreshes even when older persisted authority remains usable; unique league failure keys prevent double counting. Healthy full and thin work continues, but an outage cannot be labeled successful idle. Forced preseason dispatch excludes failed-refresh defaults. The observer counts missing/stale/invalid/error authority as failed and returns partial failure while healthy leagues continue. The equivalent future no-action-with-missing-authority case now fails explicitly. Healthy idle, successful watch-only responses, scoring and request cadence remain unchanged.
+
+Final full verify after these corrections passed: 1,006 unit tests in 75 files, lint, TypeScript, architecture and production build.
+- Final isolated Neon rerun: 104 tests passed (72.77 seconds). Final browser rerun: 13 passed (29.4 seconds).

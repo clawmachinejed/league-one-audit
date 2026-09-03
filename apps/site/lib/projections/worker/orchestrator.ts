@@ -28,6 +28,7 @@ export async function runWithDependencies(
   let acquired = false;
   let markers: readonly CurrentWorkTarget[] = [];
   let markersSettled = false;
+  let failedPreflightLeagues = 0;
   let stage = 'preflight';
   try {
     const preflight = prepared?.value ?? await refreshCurrentLineupContext(dependencies, runId);
@@ -38,10 +39,14 @@ export async function runWithDependencies(
       throw new Error('Lineup capacity exceeded.');
     }
     const context = preflight.context;
+    const failedPreflightKeys = new Set([...preflight.failedCadenceLeagueKeys, ...context.skippedLeagueKeys]);
+    failedPreflightLeagues = failedPreflightKeys.size;
     if (!context.authorities.length && context.skippedLeagueKeys.length) throw new Error('No usable league authority.');
+    if (!preflight.cadenceByKey.size && failedPreflightLeagues > 0) throw new Error('No operational cadence could be refreshed.');
     const current = context.states.filter((state) => state.materializationLane === 'current'
       && state.watchClass === 'current' && state.retiredAt === null);
     if (!current.length) {
+      if (failedPreflightLeagues > 0) throw new Error('Operational cadence refresh was incomplete.');
       if (options.force) throw new Error('No owned current period is eligible.');
       log(dependencies, 'info', { stage, outcome: 'skipped', runId, cadence: 'idle', totalDurationMs: elapsed(dependencies, runStartedAt) });
       return { status: 'skipped', reason: 'idle', cadence: 'idle' };
@@ -68,6 +73,7 @@ export async function runWithDependencies(
         notReady: counts.notReady, failedLeagues: counts.failed, pending: counts.pending });
     }
     if (!plan.full.length) {
+      if (failedPreflightLeagues > 0) throw new Error('Operational cadence refresh was incomplete.');
       if (!await dependencies.repository.completeJob(jobKey, runId)) throw new Error('Current observation lease lost.');
       acquired = false;
       return { status: 'skipped', reason: 'idle', cadence: 'idle' };
@@ -86,7 +92,7 @@ export async function runWithDependencies(
     }
     if (!await dependencies.repository.completeJob(jobKey, runId)) throw new Error('Current projection lease lost.');
     acquired = false;
-    const failedLeagues = result.failedLeagues + loaded.failedLeagues + context.skippedLeagueKeys.length;
+    const failedLeagues = result.failedLeagues + loaded.failedLeagues + failedPreflightLeagues;
     log(dependencies, 'info', { stage: 'run', outcome: 'completed', runId, cadence,
       totalDurationMs: elapsed(dependencies, runStartedAt), loadedLeagues: loaded.sources.length,
       publishedLeagues: result.publishedLeagues, unchangedLeagues: result.unchangedLeagues,
@@ -97,7 +103,8 @@ export async function runWithDependencies(
     if (!markersSettled) await settleCurrentHourlyMarkers(dependencies, markers, new Set(), runId).catch(() => undefined);
     if (acquired) await dependencies.repository.failJob(jobKey, runId, 'current-projection-failed').catch(() => false);
     log(dependencies, 'error', { stage, outcome: 'failed', runId,
-      totalDurationMs: elapsed(dependencies, runStartedAt), failureCode: 'current-projection-failed' });
+      totalDurationMs: elapsed(dependencies, runStartedAt), failedLeagues: failedPreflightLeagues,
+      failureCode: 'current-projection-failed' });
     return { status: 'failed' };
   }
 }

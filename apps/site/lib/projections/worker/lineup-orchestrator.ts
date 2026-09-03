@@ -50,6 +50,7 @@ export async function runLineupObservation(
       return { status: 'unavailable' };
     }
     const healthyKeys = context.authorities.map((authority) => authority.configuration.key);
+    counts.failed += context.skippedLeagueKeys.length;
     if (healthyKeys.length === 0 && context.skippedLeagueKeys.length > 0) {
       await scoped.repository.failJob(LINEUP_OBSERVATION_JOB_KEY, runId, 'lineup-authority-unavailable');
       ownsJob = false;
@@ -57,7 +58,6 @@ export async function runLineupObservation(
     }
     const periodAnchorWeeks = new Map(context.authorities.map((authority) => [authority.configuration.key,
       (authority.authority.activeScoringPeriod ?? authority.authority.defaultDisplayPeriod).week]));
-    counts.skipped += context.skippedLeagueKeys.length;
     const active = context.states.filter((state) => state.retiredAt === null && state.watchClass !== 'completed');
     const eligible = active.filter((state) => state.materializationLane === 'future');
     // Active current work runs in the separate current lane and reserves its share of the fixed request budget.
