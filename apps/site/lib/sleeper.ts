@@ -6,6 +6,7 @@ import { after } from 'next/server';
 import { LEAGUE_ID } from './config';
 import { normalizeInjuryStatus } from './injury-status';
 import { addTank01ProjectedPoints } from './matchup-projections';
+import { assessTank01ProjectionSlate } from './projection-slate';
 import {
   addScheduleToMatchups,
   addScheduleToPlayers,
@@ -611,8 +612,12 @@ export async function getCurrentLeagueWeek(leagueId = LEAGUE_ID): Promise<number
 
 export async function getMatchups(requestedWeek?: number, leagueId = LEAGUE_ID): Promise<MatchupsData> {
   const source = await loadMatchupSource(requestedWeek, leagueId, true);
-  const projectionDecoration = source.tank01Projections
-    ? addTank01ProjectedPoints(source.data.matchups, source.tank01Projections, source.sourceLeague.scoring_settings)
+  const tank01Projections = source.tank01Projections?.status === 'available'
+    && !assessTank01ProjectionSlate(source.tank01Projections, source.schedule).complete
+    ? unavailableTank01Projections(source.data.league.season, source.data.week)
+    : source.tank01Projections;
+  const projectionDecoration = tank01Projections
+    ? addTank01ProjectedPoints(source.data.matchups, tank01Projections, source.sourceLeague.scoring_settings)
     : { matchups: source.data.matchups, warning: undefined };
   return {
     ...source.data,

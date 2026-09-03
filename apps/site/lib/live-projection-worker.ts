@@ -11,6 +11,7 @@ import {
 } from './matchup-projections';
 import { canonicalNflTeam } from './nfl-teams';
 import { projectionSyncCadenceForSchedule, type ProjectionSyncCadence } from './projection-window';
+import { assessTank01ProjectionSlate } from './projection-slate';
 import {
   getProjectionStore,
   type PlayerProjectionRecord,
@@ -914,6 +915,11 @@ async function runWithDependencies(
           || projections.season !== group.season || projections.week !== group.week
           || games.season !== group.season || games.week !== group.week) {
           throw new Error('A required Tank01 source is unavailable.');
+        }
+        if (group.leagues.some(({ source }) => (
+          !assessTank01ProjectionSlate(projections, source.schedule).complete
+        ))) {
+          throw new Error('Tank01 returned an incomplete weekly projection slate.');
         }
         return { status: 'fulfilled' as const, group, projections, games };
       } catch {

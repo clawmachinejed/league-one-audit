@@ -121,35 +121,62 @@ const zeroOffenseProjection: NormalizedTank01OffenseProjection = {
 };
 
 function availableTank01Projection(playerIds: string[] = ['qb']) {
+  const playingTeams = schedulePairsForWeek(3).flatMap(([home, away]) => [home, away]);
+  const coveragePlayers = Object.fromEntries(playingTeams.flatMap((team) => (
+    (['QB', 'RB', 'WR', 'TE'] as const).map((position) => {
+      const id = `coverage-${team}-${position}`;
+      return [id, {
+        tank01PlayerId: `tank-${id}`,
+        sleeperPlayerId: id,
+        team,
+        position,
+        stats: {},
+        scoringProjection: zeroOffenseProjection,
+        missingFields: [],
+      }] as const;
+    })
+  )));
+  // Deliberately leave IND's D/ST absent. The complete-slate guard must tolerate
+  // an isolated omission so the existing missing-individual-is-zero policy remains valid.
+  const coverageDefenses = Object.fromEntries(playingTeams.flatMap((team) => team === 'IND' ? [] : [[team, {
+    team,
+    stats: {},
+    scoringProjection: { kind: 'defense' as const },
+    missingFields: [],
+  }] as const]));
+  const players = {
+    ...coveragePlayers,
+    ...Object.fromEntries(playerIds.map((id) => [id, {
+      tank01PlayerId: `tank-${id}`,
+      sleeperPlayerId: id,
+      team: 'IND',
+      position: id === 'rb' ? 'RB' : 'QB',
+      stats: {},
+      scoringProjection: zeroOffenseProjection,
+      missingFields: [],
+    }])),
+  };
   return {
     status: 'available' as const,
     season: '2026',
     week: 3,
     fetchedAt: '2026-09-01T12:00:00.000Z',
     projections: {
-      bySleeperId: Object.fromEntries(playerIds.map((id) => [id, {
-        tank01PlayerId: `tank-${id}`,
-        sleeperPlayerId: id,
-        team: 'IND',
-        position: id === 'rb' ? 'RB' : 'QB',
-        stats: {},
-        scoringProjection: zeroOffenseProjection,
-        missingFields: [],
-      }])),
-      byDefenseTeam: {},
+      bySleeperId: players,
+      byDefenseTeam: coverageDefenses,
     },
     coverage: {
-      playerListRows: playerIds.length,
-      crosswalkEntries: playerIds.length,
+      playerListRows: Object.keys(players).length,
+      crosswalkEntries: Object.keys(players).length,
       malformedPlayerListRows: 0,
       ambiguousPlayerListRows: 0,
-      playerProjectionRows: playerIds.length,
-      matchedPlayerProjections: playerIds.length,
+      playerProjectionRows: Object.keys(players).length,
+      matchedPlayerProjections: Object.keys(players).length,
       unmatchedPlayerProjections: 0,
       malformedPlayerProjections: 0,
       incompletePlayerProjections: 0,
-      defenseProjectionRows: 0,
-      usableDefenseProjections: 0,
+      defenseProjectionRows: Object.keys(coverageDefenses).length,
+      usableDefenseProjections: Object.keys(coverageDefenses).length,
       malformedDefenseProjections: 0,
       incompleteDefenseProjections: 0,
     },
@@ -748,11 +775,19 @@ describe('Sleeper matchup projection integration', () => {
       rb: { full_name: 'Running Back', position: 'RB', team: 'IND' },
     };
     const result = availableTank01Projection(['qb']);
-    result.projections.bySleeperId.qb.scoringProjection = {
-      ...zeroOffenseProjection,
-      passingYards: 100,
-    };
-    getTank01WeeklyProjectionsMock.mockResolvedValueOnce(result);
+    getTank01WeeklyProjectionsMock.mockResolvedValueOnce({
+      ...result,
+      projections: {
+        ...result.projections,
+        bySleeperId: {
+          ...result.projections.bySleeperId,
+          qb: {
+            ...result.projections.bySleeperId.qb,
+            scoringProjection: { ...zeroOffenseProjection, passingYards: 100 },
+          },
+        },
+      },
+    });
 
     const data = await getMatchups(3);
     const side = data.matchups[0].sides[0];
@@ -765,14 +800,45 @@ describe('Sleeper matchup projection integration', () => {
     expect(data.warning).toBeUndefined();
   });
 
+  it('does not zero-fill starters when the overall Tank01 projection slate is broadly truncated', async () => {
+    const complete = availableTank01Projection();
+    getTank01WeeklyProjectionsMock.mockResolvedValueOnce({
+      ...complete,
+      projections: {
+        ...complete.projections,
+        bySleeperId: { qb: complete.projections.bySleeperId.qb },
+      },
+      coverage: {
+        ...complete.coverage,
+        playerProjectionRows: 1,
+        matchedPlayerProjections: 1,
+      },
+    });
+
+    const data = await getMatchups(3);
+
+    expect(data.matchups[0].sides[0]).toMatchObject({
+      projectedPoints: null,
+      starters: [{ points: 12.34, projectedPoints: null }],
+    });
+    expect(data.warning).toContain('Projected scores are temporarily unavailable.');
+  });
+
   it('uses zero when Tank01 supplies incomplete projected statistics for a starter', async () => {
     const result = availableTank01Projection();
-    result.projections.bySleeperId.qb.scoringProjection = {
-      ...zeroOffenseProjection,
-      passingYards: 100,
-      rushingYards: null,
-    };
-    getTank01WeeklyProjectionsMock.mockResolvedValueOnce(result);
+    getTank01WeeklyProjectionsMock.mockResolvedValueOnce({
+      ...result,
+      projections: {
+        ...result.projections,
+        bySleeperId: {
+          ...result.projections.bySleeperId,
+          qb: {
+            ...result.projections.bySleeperId.qb,
+            scoringProjection: { ...zeroOffenseProjection, passingYards: 100, rushingYards: null },
+          },
+        },
+      },
+    });
 
     const data = await getMatchups(3);
 
@@ -920,8 +986,16 @@ describe('Sleeper matchup projection integration', () => {
 
   it('keeps a stale player-ID crosswalk unavailable when it does not match Sleeper', async () => {
     const result = availableTank01Projection();
-    result.projections.bySleeperId.qb.team = 'SEA';
-    getTank01WeeklyProjectionsMock.mockResolvedValueOnce(result);
+    getTank01WeeklyProjectionsMock.mockResolvedValueOnce({
+      ...result,
+      projections: {
+        ...result.projections,
+        bySleeperId: {
+          ...result.projections.bySleeperId,
+          qb: { ...result.projections.bySleeperId.qb, team: 'SEA' },
+        },
+      },
+    });
 
     const data = await getMatchups(3);
 

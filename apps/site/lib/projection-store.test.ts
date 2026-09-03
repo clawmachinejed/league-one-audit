@@ -619,4 +619,46 @@ describe('projection migration', () => {
     expect(migration).toContain('regulation clock increased');
     expect(migration).toContain('game_state_observations_no_regression');
   });
+
+  it('migrates every stored team name without replacing snapshot history or pointers', async () => {
+    const migration = await readFile(
+      new URL('../migrations/002_manager_snapshot_payloads.sql', import.meta.url),
+      'utf8',
+    );
+
+    expect(migration).toContain("jsonb_set(snapshot_payload, '{teams}'");
+    expect(migration).toContain("jsonb_set(snapshot_matchup, '{sides}'");
+    expect(migration).toContain("jsonb_set(\n    snapshot_side,\n    '{team}'");
+    expect(migration).toContain("snapshot_team - 'ownerName'");
+    expect(migration).toContain("jsonb_build_object('managerName', snapshot_team -> 'ownerName')");
+    expect(migration).toContain('conflicting managerName and ownerName values');
+    expect(migration).toContain('manager snapshot migration self-check failed');
+    expect(migration).toContain('UPDATE projection_snapshots AS snapshot');
+    expect(migration).not.toMatch(/DELETE\s+FROM\s+projection_snapshots/iu);
+    expect(migration).not.toMatch(/UPDATE\s+current_projection_snapshots/iu);
+    expect(migration).toContain('current projection snapshot pointers were not preserved');
+    expect(migration).toContain("team.value ? 'ownerName'");
+    expect(migration).toContain("jsonb_typeof(team.value -> 'managerName') IS DISTINCT FROM 'string'");
+    expect(migration).toContain("side.value -> 'team' ? 'ownerName'");
+    expect(migration).toContain(
+      "jsonb_typeof(side.value #> '{team,managerName}') IS DISTINCT FROM 'string'",
+    );
+    expect(migration).toContain('a root snapshot team was not migrated to managerName');
+    expect(migration).toContain('a matchup-side snapshot team was not migrated to managerName');
+  });
+
+  it('recomputes migrated snapshot hashes and restores their immutability guard', async () => {
+    const migration = await readFile(
+      new URL('../migrations/002_manager_snapshot_payloads.sql', import.meta.url),
+      'utf8',
+    );
+
+    expect(migration).toContain('pg_temp.canonical_snapshot_json');
+    expect(migration).toContain("migrated.payload - 'updatedAt'");
+    expect(migration).toContain("'activityWindows', snapshot.activity_windows");
+    expect(migration).toContain("'sha256'");
+    expect(migration).toContain('DROP TRIGGER IF EXISTS projection_snapshots_immutable');
+    expect(migration).toContain('CREATE TRIGGER projection_snapshots_immutable');
+    expect(migration).toContain('prevent_projection_snapshot_update()');
+  });
 });

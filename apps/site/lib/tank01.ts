@@ -6,6 +6,7 @@ import type {
   NormalizedTank01KickerProjection,
   NormalizedTank01OffenseProjection,
 } from './projection-scoring';
+import { hasPlausibleTank01ProjectionEnvelope } from './projection-slate';
 import { canonicalNflTeam as canonicalTeam } from './nfl-teams';
 
 const RAPID_API_HOST = 'tank01-nfl-live-in-game-real-time-statistics-nfl.p.rapidapi.com';
@@ -738,9 +739,16 @@ const sharedProjectionSlate = unstable_cache(
     const apiKey = nonEmptyText(process.env.TANK01_API_KEY);
     if (!apiKey) throw new Tank01ProviderFailure('provider-error');
     const envelope = await fetchEnvelope(globalThis.fetch, projectionPath(season, week), apiKey);
-    return normalizeProjectionSlate(envelope, Date.now());
+    const slate = normalizeProjectionSlate(envelope, Date.now());
+    if (!hasPlausibleTank01ProjectionEnvelope(
+      Object.values(slate.playersByTank01Id),
+      Object.keys(slate.defensesByTeam),
+    )) throw new Tank01ProviderFailure('invalid-response');
+    return slate;
   },
-  ['tank01-normalized-projection-slate-v1'],
+  // Bump the key whenever the pre-cache validation contract changes so an older,
+  // less strictly validated payload cannot survive in the persistent cache.
+  ['tank01-normalized-projection-slate-v2'],
   { revalidate: SUCCESS_CACHE_SECONDS },
 );
 
