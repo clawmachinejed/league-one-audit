@@ -1,10 +1,9 @@
 import 'server-only';
 
 import { notFound } from 'next/navigation';
-import { selectStoredMatchups } from '@/lib/projection-freshness';
-import { getProjectionStore } from '@/lib/projection-store';
+import { parseMatchupWeek } from '@/lib/matchup-week';
+import { readStoredMatchups } from '@/lib/projection-reader';
 import { getCurrentLeagueWeek, getOfficialMatchups, getOverview, getManager, getTransactions } from '@/lib/sleeper';
-import type { MatchupsData } from '@/lib/types';
 import { MatchupsView } from './matchups-view';
 import { ManagerView } from './manager-view';
 import { ManagersView } from './managers-view';
@@ -14,25 +13,6 @@ import { TransactionsView } from './transactions-view';
 type MatchupSearchParams = Promise<{ week?: string }>;
 type ManagerParams = Promise<{ id: string }>;
 
-async function storedMatchups(leagueId: string, week?: number): Promise<MatchupsData | null> {
-  try {
-    const store = getProjectionStore();
-    const [snapshot, latest] = week === undefined
-      ? await store.readLatestCurrentSnapshotBySleeperLeagueId(leagueId)
-        .then((value) => [value, value] as const)
-      : await Promise.all([
-        store.readLatestCurrentSnapshotBySleeperLeagueId(leagueId, week),
-        store.readLatestCurrentSnapshotBySleeperLeagueId(leagueId),
-      ]);
-    const selected = selectStoredMatchups(snapshot, latest, week);
-    return selected.kind === 'usable' ? selected.payload : null;
-  } catch {
-    // Neon is an optional read-through layer. Preserve authoritative Sleeper
-    // scores when it is unconfigured or temporarily unavailable.
-    return null;
-  }
-}
-
 export async function LeagueMatchupsPage({
   leagueId,
   searchParams,
@@ -41,8 +21,7 @@ export async function LeagueMatchupsPage({
   searchParams: MatchupSearchParams;
 }) {
   const { week } = await searchParams;
-  const parsed = week && /^\d{1,2}$/u.test(week) ? Number(week) : undefined;
-  let selectedWeek = parsed;
+  let selectedWeek = parseMatchupWeek(week) ?? undefined;
   if (selectedWeek === undefined) {
     try {
       selectedWeek = await getCurrentLeagueWeek(leagueId);
@@ -51,8 +30,11 @@ export async function LeagueMatchupsPage({
       // brief Sleeper calendar outage. The full Sleeper path remains the fallback.
     }
   }
-  const persisted = await storedMatchups(leagueId, selectedWeek);
-  return <MatchupsView data={persisted ?? await getOfficialMatchups(selectedWeek, leagueId)} />;
+  const persisted = await readStoredMatchups(leagueId, selectedWeek);
+  const data = persisted.kind === 'usable'
+    ? persisted.payload
+    : await getOfficialMatchups(leagueId, selectedWeek);
+  return <MatchupsView data={data} />;
 }
 
 export async function LeagueStandingsPage({ leagueId }: { leagueId: string }) {
@@ -66,7 +48,7 @@ export async function LeagueManagersPage({ leagueId }: { leagueId: string }) {
 export async function LeagueManagerPage({ leagueId, params }: { leagueId: string; params: ManagerParams }) {
   const { id } = await params;
   if (!/^\d+$/u.test(id)) notFound();
-  const data = await getManager(Number(id), leagueId);
+  const data = await getManager(leagueId, Number(id));
   if (!data) notFound();
   return <ManagerView data={data} />;
 }
@@ -74,7 +56,7 @@ export async function LeagueManagerPage({ leagueId, params }: { leagueId: string
 export async function LeagueTransactionsPage({ leagueId, params }: { leagueId: string; params: ManagerParams }) {
   const { id } = await params;
   if (!/^\d+$/u.test(id)) notFound();
-  const data = await getTransactions(Number(id), leagueId);
+  const data = await getTransactions(leagueId, Number(id));
   if (!data) notFound();
   return <TransactionsView data={data} />;
 }
