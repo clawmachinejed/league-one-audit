@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import type { ReactElement } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -95,7 +96,48 @@ describe('LeagueMatchupsPage', () => {
     expect(rendered.props.data).toBe(current);
   });
 
-  it.each(['2<script>', '0', '19', '99'])(
+  it.each(['missing', 'stale', 'disabled', 'malformed', 'database-error'] as const)(
+    'safely falls back to official data when the stored snapshot reader reports %s',
+    async (kind) => {
+      const current = matchups(2);
+      mocks.getCurrentLeagueWeek.mockResolvedValue(2);
+      mocks.readStoredMatchups.mockResolvedValue({ kind });
+      mocks.getOfficialMatchups.mockResolvedValue(current);
+
+      const rendered = await LeagueMatchupsPage({
+        leagueId: 'league-id',
+        searchParams: Promise.resolve({}),
+      }) as ReactElement<{ data: MatchupsData }>;
+
+      expect(mocks.readStoredMatchups).toHaveBeenCalledWith('league-id', 2);
+      expect(mocks.getOfficialMatchups).toHaveBeenCalledOnce();
+      expect(mocks.getOfficialMatchups).toHaveBeenCalledWith('league-id', 2);
+      expect(rendered.props.data).toBe(current);
+    },
+  );
+
+  it.each(['missing', 'stale', 'disabled', 'malformed', 'database-error'] as const)(
+    'keeps an explicit historical week when the stored snapshot reader reports %s',
+    async (kind) => {
+      const requested = matchups(1);
+      mocks.readStoredMatchups.mockResolvedValue({ kind });
+      mocks.getOfficialMatchups.mockResolvedValue(requested);
+
+      const rendered = await LeagueMatchupsPage({
+        leagueId: 'league-id',
+        searchParams: Promise.resolve({ week: '1' }),
+      }) as ReactElement<{ data: MatchupsData }>;
+
+      expect(mocks.getCurrentLeagueWeek).not.toHaveBeenCalled();
+      expect(mocks.readStoredMatchups).toHaveBeenCalledOnce();
+      expect(mocks.readStoredMatchups).toHaveBeenCalledWith('league-id', 1);
+      expect(mocks.getOfficialMatchups).toHaveBeenCalledOnce();
+      expect(mocks.getOfficialMatchups).toHaveBeenCalledWith('league-id', 1);
+      expect(rendered.props.data).toBe(requested);
+    },
+  );
+
+  it.each(['2<script>', '0', '19', '99', '-1', '1.5', 'abc', ''])(
     'treats invalid week %s as the current week without passing it to storage',
     async (week) => {
       const current = matchups(2);
@@ -132,5 +174,24 @@ describe('LeagueMatchupsPage', () => {
     expect(mocks.readStoredMatchups).toHaveBeenCalledWith('league-id', 1);
     expect(mocks.getOfficialMatchups).not.toHaveBeenCalled();
     expect(rendered.props.data).toBe(requested);
+  });
+
+  it('has no direct Tank01 import in the current page, Sleeper fallback, or snapshot reader', () => {
+    const requestPathModules = [
+      ['league page', new URL('./league-pages.tsx', import.meta.url)],
+      ['official Sleeper fallback', new URL('../lib/sleeper.ts', import.meta.url)],
+      ['stored snapshot reader', new URL('../lib/projection-reader.ts', import.meta.url)],
+    ] as const;
+
+    for (const [label, path] of requestPathModules) {
+      const source = readFileSync(path, 'utf8');
+      const importSpecifiers = [...source.matchAll(
+        /(?:from\s+|import\s*)['"]([^'"]+)['"]/gu,
+      )].map((match) => match[1]);
+      expect(
+        importSpecifiers.filter((specifier) => /(?:^|\/)tank01(?:$|[-/])/u.test(specifier)),
+        label,
+      ).toEqual([]);
+    }
   });
 });
