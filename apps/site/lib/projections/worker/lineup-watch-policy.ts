@@ -43,15 +43,6 @@ function checkedPhase(phase: number): LineupWatchPhase {
   return phase as LineupWatchPhase;
 }
 
-export function lineupPhaseAt(now: Date): LineupWatchPhase {
-  return ((epochMinute(now) % 3 + 3) % 3) as LineupWatchPhase;
-}
-
-export function lineupObservationIntervalMs(watchClass: LineupWatchPeriodClass): number | null {
-  if (watchClass === 'completed') return null;
-  return watchClass === 'current' ? CURRENT_LINEUP_INTERVAL_MS : FUTURE_LINEUP_INTERVAL_MS;
-}
-
 /** Schedules absolute buckets, never completion + interval (which can skip a phase). */
 export function nextLineupCheckAt(
   watchClass: LineupWatchPeriodClass,
@@ -79,17 +70,12 @@ export function initialLineupCheckAt(
   return new Date((minute + wait) * CURRENT_LINEUP_INTERVAL_MS).toISOString();
 }
 
-export function lineupFailureRetryDelayMs(
-  watchClass: Exclude<LineupWatchPeriodClass, 'completed'>,
-  consecutiveFailures: number,
-): number {
-  if (!Number.isInteger(consecutiveFailures) || consecutiveFailures < 1) {
-    throw new Error('Lineup failure count must be a positive integer.');
-  }
-  if (consecutiveFailures === 1) return lineupObservationIntervalMs(watchClass)!;
-  if (consecutiveFailures === 2) return 5 * 60_000;
-  if (consecutiveFailures === 3) return 15 * 60_000;
-  return 60 * 60_000;
+/** PostgreSQL indexes this retry schedule; claims separately exclude completed targets. */
+export function lineupFailureRetryDelaysSeconds(
+  watchClass: LineupWatchPeriodClass,
+): readonly [number, number, number, number] {
+  const firstDelay = watchClass === 'current' ? CURRENT_LINEUP_INTERVAL_MS : FUTURE_LINEUP_INTERVAL_MS;
+  return [firstDelay / 1000, 300, 900, 3600];
 }
 
 export type LineupWatchCapacity = Readonly<{
@@ -121,49 +107,4 @@ export function assessLineupWatchCapacity(
     maximumFutureChecks: Math.min(FUTURE_LINEUP_CATCHUP_LIMIT, Math.max(0, LINEUP_MATCHUP_REQUEST_LIMIT - currentTargets)),
     maximumTotalChecks: LINEUP_MATCHUP_REQUEST_LIMIT,
   };
-}
-
-export type DueLineupTarget = Readonly<{
-  targetKey: string;
-  watchClass: LineupWatchPeriodClass;
-  phase: LineupWatchPhase;
-  nextCheckAt: string | null;
-  leaseExpiresAt: string | null;
-}>;
-
-/** A planning aid; the repository must repeat eligibility under its atomic claim. */
-export function selectDueLineupTargets(
-  targets: readonly DueLineupTarget[],
-  now: Date,
-  options: Readonly<{ catchUp?: boolean; currentRequestReservations?: number }> = {},
-): readonly DueLineupTarget[] {
-  const nowMs = now.getTime();
-  const currentMinute = epochMinute(now);
-  const phase = lineupPhaseAt(now);
-  const reserved = options.currentRequestReservations ?? 0;
-  if (!Number.isInteger(reserved) || reserved < 0 || reserved > LINEUP_MATCHUP_REQUEST_LIMIT) {
-    throw new Error('Lineup request reservation is invalid.');
-  }
-  const due = targets.filter((target) => {
-    if (target.watchClass === 'completed' || target.nextCheckAt === null) return false;
-    const nextAt = Date.parse(target.nextCheckAt);
-    const leaseAt = target.leaseExpiresAt === null ? null : Date.parse(target.leaseExpiresAt);
-    if (!Number.isFinite(nextAt) || nextAt > nowMs
-      || (leaseAt !== null && (!Number.isFinite(leaseAt) || leaseAt > nowMs))) return false;
-    return target.watchClass === 'current' || target.phase === phase
-      || (options.catchUp === true && Math.floor(nextAt / 60_000) < currentMinute - 2);
-  }).sort((left, right) => {
-    if (left.watchClass !== right.watchClass) return left.watchClass === 'current' ? -1 : 1;
-    return Date.parse(left.nextCheckAt!) - Date.parse(right.nextCheckAt!)
-      || compareText(left.targetKey, right.targetKey);
-  });
-  const selected: DueLineupTarget[] = [];
-  let futureCount = 0;
-  for (const target of due) {
-    if (selected.length + reserved >= LINEUP_MATCHUP_REQUEST_LIMIT) break;
-    if (target.watchClass === 'future' && futureCount >= FUTURE_LINEUP_CATCHUP_LIMIT) continue;
-    selected.push(target);
-    if (target.watchClass === 'future') futureCount += 1;
-  }
-  return selected;
 }

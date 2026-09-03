@@ -4,6 +4,7 @@ import type { MatchupsData, Player, Team } from '../../../types';
 import {
   externalLeagueRef,
   externalPlayerRef,
+  externalMatchupRef,
   externalRosterRef,
   externalTeamDefenseRef,
 } from '../../shared/provider-identity';
@@ -171,7 +172,7 @@ describe('Sleeper league-source adapter', () => {
       },
     ]);
     expect(result.matchups[0]).toMatchObject({
-      matchupId: '7',
+      matchupRef: externalMatchupRef(leagueRef, targetPeriod, '7'),
       status: 'live',
       sides: [
         {

@@ -24,6 +24,12 @@ export function createFakeProjectionDatabase(
   };
 }
 
+export const projectionStoreLineupFence = {
+  watchId: '11111111-1111-4111-8111-111111111111',
+  watchGeneration: 1, authorityGeneration: 1, ownerLane: 'current',
+  runId: 'fixture-worker',
+} as const;
+
 export const projectionStoreSnapshot: MatchupsData = {
   league: { season: '2026', rosterPositions: ['QB'], week: 1, maxWeek: 18 },
   teams: [],
@@ -192,7 +198,6 @@ export const projectionStoreSqlMarkers = [
   'clean-orphan-nfl-games',
   'clean-orphan-scoring-entities',
   'complete-future-materialization-and-acknowledge-lineup',
-  'complete-future-materialization-refresh',
   'complete-future-projection-refresh',
   'complete-job',
   'ensure-future-refresh-states',

@@ -85,7 +85,7 @@ export type {
 } from './projections/adapters/neon/lineup-publication-contracts';
 export type {
   LineupWatchTarget, StoredLineupWatchState, StoredLineupWatchSchedule, LineupWatchFence, LineupObservationClaim,
-  CompleteLineupObservationInput, FullLineupObservationInput, LineupObservationWriteOutcome,
+  CompleteLineupObservationInput, LineupObservationWriteOutcome,
   LineupWatchTransition, LineupWatchSyncInput, ClaimDueLineupObservationsInput, WakeFutureLineupInput,
 } from './projections/adapters/neon/lineup-watch-contracts';
 
@@ -125,7 +125,6 @@ export function createProjectionStore(database: Database = getDatabase()): Proje
     completeLineupObservation: lineupObservations.completeLineupObservation,
     recordLineupObservationNotReady: lineupObservations.recordLineupObservationNotReady,
     failLineupObservation: lineupObservations.failLineupObservation,
-    supersedeLineupClaimWithFullObservation: lineupObservations.supersedeLineupClaimWithFullObservation,
     readPendingCurrentLineups: lineupReads.readPendingCurrentLineups,
     readPendingFutureLineups: lineupReads.readPendingFutureLineups,
     readLineupWatchStates: lineupReads.readLineupWatchStates,
@@ -142,7 +141,6 @@ export function createProjectionStore(database: Database = getDatabase()): Proje
     completeFutureProjectionRefresh: futureRefresh.completeFutureProjectionRefresh,
     failFutureProjectionRefresh: futureRefresh.failFutureProjectionRefresh,
     beginFutureMaterializationRefresh: futureRefresh.beginFutureMaterializationRefresh,
-    completeFutureMaterializationRefresh: futureRefresh.completeFutureMaterializationRefresh,
     failFutureMaterializationRefresh: futureRefresh.failFutureMaterializationRefresh,
     recordProjectionCandidates: projections.recordProjectionCandidates,
     readLatestCandidatesBySleeperIds: projections.readLatestCandidatesBySleeperIds,

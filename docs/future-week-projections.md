@@ -1,98 +1,92 @@
 # Future-week projection operations
 
-This document describes the production policy for preparing projected matchup scores after the active scoring week. It covers Weeks 2–18 of the 2026 regular season and later seasons that use the same 18-week format. It does not change `clock-v1`, current-week live scoring, the public matchup payload, URLs, or presentation.
+The independent future lane prepares periods owned by future materialization, including the preseason default display week. It uses the existing scoring engine, `clock-v1`, snapshot payload, and publication path. The [lineup freshness runbook](lineup-freshness.md) describes the full three-lane architecture, browser protocol, and operational recovery. The [implementation ledger](lineup-freshness-plan.md) records release evidence and approved clarifications.
 
-## Period authority
+## Authority and ownership
 
-Sleeper remains the active league authority during this phase of the product. Two values have distinct jobs:
+The current lane refreshes operational NFL and league authority approximately every minute. The future and observation lanes read that persisted authority in a batch; they do not fetch the calendar independently. Authority older than ten minutes, contradictory identity, or invalid state prevents work for the affected league. Another healthy league can continue.
 
-- The league display week is the website's default matchup week.
-- The active scoring week is the period eligible for official live points.
+The default display period and active scoring period are distinct. The highest stored snapshot never defines the current week. During preseason, the default display period is observed every minute but is materialized by the future lane. Later configured periods receive three-minute observation. During the active season, the active scoring period belongs to the current lane and later periods belong to the future lane. Earlier periods, or all periods of a completed league, receive no automatic observation. An NFL game becoming final does not by itself advance the fantasy week.
 
-Both values are normalized into a durable `LeaguePeriodAuthority`. The future horizon begins after the authoritative current period and never before Week 2. The worker fails closed if the configured leagues disagree about the season, season type, lifecycle, display period, or active period. It never infers the current week from the largest week stored in Neon.
+Runtime supplies each league's matchup range; the current configuration covers Weeks 1–18. Scheduling uses that supplied range rather than a second hardcoded horizon. Ownership changes invalidate incompatible in-flight work.
 
-This boundary is portable: a future first-party league service can implement the same calendar and league-source ports without changing future scheduling, scoring, or snapshot publication.
+## Two separate preparation actions
 
-## Two-stage preparation
-
-Future preparation has two durable actions.
+Each future invocation selects at most one provider-period action. Healthy leagues in that period share the action's provider data.
 
 ### Projection ingestion
 
-The worker requests the selected weekly projection response from Tank01, validates the full provider slate, normalizes it once, and records it as immutable content plus an observed version in Neon. A current pointer advances only to a complete and chronologically valid observation. Equal normalized content creates a new observation for freshness proof while reusing the same content identity.
+The worker requests the selected weekly Tank01 projection slate, validates its provider envelope, normalizes it once, and stores immutable content plus an observation in Neon. A current pointer advances only to a valid observation. Equal normalized content may create a new observation for freshness while reusing the content identity. Schedule-aware completeness is also required before materialization can use the slate.
 
-The stored slate is provider-native and league-independent. Both leagues, and leagues added later, share the same weekly slate. This action does not load fantasy lineups or calculate team totals.
+The stored slate is league-independent. Ingestion does not load fantasy lineups or calculate team totals. Current and future runtime compositions use the same cached projection-feed implementation and existing cache policy.
 
 ### League materialization
 
-The worker reads the current stored slate, loads the selected week's lineup and scoring settings from Sleeper, and requests one fresh Tank01 game-state slate shared by all ready leagues. It validates matchup completeness, lineup slots, schedule coverage, source identity, and the exact selected period. It then:
+The worker reads the stored slate, reserves full-source observation, loads fresh Sleeper lineup and scoring data, and requests one fresh Tank01 game-state slate shared by ready leagues. It validates lineup shape, completeness, schedule coverage, identities, and the selected period. Then the shared pipeline:
 
 1. Resolves player, defense, and NFL-game identities.
-2. Stores the shared game-state and provider observations.
-3. Normalizes each distinct raw Sleeper scoring profile once.
-4. Scores each provider stat line for that profile.
-5. Freezes eligible baselines under the existing kickoff rules.
-6. Builds the existing `MatchupsData` payload.
-7. Publishes one immutable league snapshot and advances or verifies its current pointer atomically.
+2. Stores shared game-state and provider observations.
+3. Normalizes and scores each distinct raw scoring profile once for the action.
+4. Preserves eligible kickoff baselines and the existing live calculation.
+5. Records the complete official league observation with its actual lineup revision.
+6. Builds and publishes the existing `MatchupsData` snapshot with an ownership fence.
+7. Atomically completes future materialization and acknowledges the lineup revision proved by that official observation.
 
-Materialization makes no Tank01 projection request. A missing participant projection becomes zero only after the full slate has passed its provider-level and schedule-aware validation. Incomplete fantasy matchups or unresolved playoff pairings do not publish a fabricated team snapshot.
+Materialization makes no Tank01 projection-feed request. It does request game states. An absent individual projection becomes zero only after slate-level validation succeeds. Incomplete fantasy matchups, contradictory schedules, and unresolved pairings cannot publish fabricated snapshots.
 
-## Freshness and lineage
+## Dirty-lineup priority
 
-Future snapshots are last-known-good data. Their usability is not determined by a fixed snapshot-age rule.
+The thin observer records a changed lineup as durable pending work. Pending is the difference between the latest accepted lineup revision and the last successfully materialized lineup revision; it is not a browser request or an in-memory flag.
 
-A future materialization is current only when its durable state proves all of the following:
+Eligible pending groups with a usable stored slate are selected before groups requiring ingestion, then before routine work. Within the same priority class, the oldest pending change wins, with deterministic period and league tie-breakers. Leased and backed-off work is skipped so it cannot starve another eligible group.
 
-- It uses the active projection provider, normalizer version, and `clock-v1` model identity.
-- Its recorded projection observation and content match the current provider-slate pointer.
-- Its recorded Sleeper source revision matches the official observation used by the snapshot.
-- Its recorded snapshot revision matches the current league/week pointer.
-- The current pointer was published or reverified after that official observation.
-- No attempt is currently active and its next refresh date has not arrived.
+An eligible stored slate is reused for a pending lineup even when its routine refresh is due. If the slate is missing or has been rejected, projection ingestion and materialization are awakened together. Ingestion consumes one invocation; materialization remains due for a later invocation. Pending changes may bypass the routine Week+1 canary and initial staggering, but never validation or failure backoff.
 
-If refreshed sources produce identical public content, publication returns `unchanged` and advances `verifiedAt`; this new verification is still required before the durable materialization is marked complete. A failed, partial, stale, or contradictory run leaves the previous valid snapshot intact and records a bounded retry state.
+## Routine reconciliation
 
-## Scheduling policy
+Routine preparation continues even when no lineup changed. For ordinary later weeks:
 
-Current-week work always has priority. The worker may perform at most one future action after the current period is idle or its hourly job has already completed.
-
-Week 2 is the initial canary. No later week is eligible until all configured leagues have completed one Week 2 materialization.
-
-| Distance from authoritative period | Projection slate | League materialization |
+| Distance from authoritative active/default period | Projection-slate interval | Broad materialization interval |
 | --- | --- | --- |
-| Week + 1 | Every 6 hours | Every hour |
-| Weeks + 2 through + 4 | Every 24 hours | Every 24 hours |
-| Week + 5 and farther | Every 7 days | Every 7 days |
+| Week + 1 | 6 hours | 1 hour |
+| Weeks + 2 through + 4 | 24 hours | 24 hours |
+| Week + 5 and farther | 7 days | 7 days |
 
-Initial work for later periods is staggered by 15 minutes per week of distance. A failed action retries after 5 minutes, 15 minutes, 1 hour, and then 6 hours for subsequent failures. Durable claims make duplicate cron delivery safe and allow expired attempts to recover.
+Initial later-week work is staggered by 15 minutes per distance step. Routine work beyond Week+1 uses the existing canary eligibility; each eligible league must have its Week+1 materialization. It is not a global block on a different healthy league's pending change.
 
-## Execution safety
+The preseason default is a special case: its routine eligibility uses the existing hourly/live-window preparation policy from persisted cadence facts, rather than treating it as an ordinary distant week. Its pending lineup work remains immediately eligible under the normal safety rules. The one-action-per-invocation split still applies.
 
-The Vercel route has a 60-second execution limit. Future work uses stricter internal limits:
+When leagues share a provider period but have different distances, shared projection refresh uses the closest eligible distance. Each league retains its own materialization distance and cadence.
 
-- No new future stage may begin after 45 seconds of total worker time.
-- The whole future operation is aborted at 50 seconds using a monotonic clock.
-- Every Neon query in that future operation receives the same abort signal.
-- Provider promises are raced by the whole-operation deadline even when a cached provider interface cannot accept that signal directly.
-- A separate cleanup attempt is limited to four seconds.
-- Individual future claims expire after 55 seconds; the global job lease remains 120 seconds.
+## Freshness and acknowledgment
 
-The timeout cannot publish partial state. Immutable observations already completed before a timeout may remain safely stored, while the current snapshot pointer moves only through the existing atomic publication check.
+Future snapshots remain last-known-good data. A valid older snapshot can be usable with `refreshDue: true`; snapshot age alone does not discard it.
 
-## Failure boundaries and logging
+Freshness checks use active provider/normalizer/model identity, projection content and observation, the complete official observation, the published snapshot revision, and durable attempt/due state. If identical public content is revalidated, publication returns `unchanged` and advances `verifiedAt`. Future completion must prove that the matching snapshot was published or verified after the complete official observation.
 
-One league's Sleeper, scoring, observation, or publication failure does not block a healthy peer league. A shared projection-slate, game-state, identity, or provider-persistence failure rejects every league that depends on that provider group.
+The requested pending revision and the actual full-source revision may differ. If revision B is selected but the full load sees C, acknowledgment records C. If a newer thin C arrives after a valid B full load, B may finish while C remains pending and due. A stale lane, retired row, expired claim, or incompatible ownership generation cannot publish or acknowledge. A failure for old work cannot delay a newer pending change.
 
-Logs retain the existing stage and outcome fields and add safe future-action context: run ID, selected period and distance, provider group, durations, provider outcome, coverage, game count, league counts, starter and candidate counts, baseline counts, source skew, identity conflicts, snapshot revision, publication outcome, lease result, and stable failure code. Logs never include credentials, database URLs, authorization headers, raw provider payloads, or provider error bodies.
+## Failure and execution limits
 
-## Verification and capacity limits
+Observation failures and future-action failures have different retry policies:
 
-The isolated Neon suite validates migrations, permissions, immutable slate content, observation lineage, claims, retries, snapshot verification, unchanged publication, kickoff protection, retention, and safe reads against a disposable database.
+| Failure type | Retry schedule |
+| --- | --- |
+| Invalid/unavailable lineup observation | Normal 60/180-second interval, then 5 minutes, 15 minutes, and 60 minutes |
+| Future ingestion/materialization action | 5 minutes, 15 minutes, 1 hour, then 6 hours |
 
-Synthetic future-path tests use twelve managers, six matchups per league, and all 16 NFL games. They cover 2, 3, 50, and 300 leagues and verify one projection feed per period, one shared game-state feed for materialization, zero materialization projection calls, one stored-slate read, bounded concurrency, bounded outstanding work, and deterministic results.
+A complete or healthy not-ready lineup response clears its observation-failure count. Not-ready matchups retain accepted data and retry at their normal observation cadence. Failed actions preserve the prior snapshot and pending lineage.
 
-These tests prove the shape of the work, not production capacity. Production remains configured for two leagues. Supporting approximately 50 or 300 active leagues requires later remote load testing, provider-rate validation, a database-backed registry, partitioned durable tasks, renewable and fenced leases, and backlog monitoring.
+Each future run has a 120-second global job lease. Individual future attempts use 55-second leases. No new future stage begins after 45 seconds of total execution; the operation aborts at 50 seconds, with a separate cleanup attempt bounded to four seconds. Scoped Neon work shares cancellation, and provider waits are bounded by the operation deadline. The Vercel function limit is 60 seconds. Database ownership and publication fences remain necessary even when cancellation is requested.
 
-Before operating across multiple completed seasons, add a reviewed retirement policy for old provider-slate pointers, current-candidate pointers, and durable future-refresh state. Their immutable history is safe for the 2026 two-league launch, but the current pruning path does not retire every season-scoped pointer during future-only or offseason runs.
+One league's loading, scoring, or publication failure does not block a healthy peer. A failed shared provider slate, identity resolution, or shared persistence stage affects the leagues relying on that group. Missing authority is reported as a failure, not successful idle. No failed or incomplete refresh replaces a valid snapshot.
 
-Real-game validation remains an operational follow-up for the first available 2026 games: kickoff, live clock movement, halftime, final convergence, missing-player behavior, D/ST behavior, team sums, both leagues, provider-call counts, source skew, worker duration, publication, and browser polling.
+## Capacity and validation
+
+Three-minute observation is a source-check target, not a promise of publication every three minutes. Future changes also wait for the selected action, any projection prerequisite, and the browser's next visible 60-second revision check. With no backlog and healthy sources, the contract targets approximately four to six minutes end to end, with a more conservative seven-to-eight-minute operating envelope. These are objectives to validate, not guaranteed latency measurements; Sleeper does not expose the manager's lineup-mutation timestamp.
+
+The two-league configuration is within the observation budget. Week 1 demand for 50 or 300 leagues is explicitly unsupported by the production gate; synthetic tests prove bounded behavior, sharing, and rejection, not those fleets' three-minute cadence. Distributed tasks, a database-backed registry, rate-limit and remote-load testing, and renewable distributed claims remain deferred. Existing publication fences are already implemented.
+
+Obsolete watch rows are retired when provider/version, league identity, season, range, or ownership changes. That watch lifecycle is not a complete retention policy for every older provider-slate pointer or future-refresh record. A broader multi-season retention policy remains separate work.
+
+The isolated Neon suite covers source ordering, atomic acknowledgment, identity and lifecycle fences, immutable content, claims, retries, snapshot verification, permissions, and safe reads. Real-game verification remains open until live 2026 transitions can be observed: kickoff, clocks, halftime, final convergence, future lineup changes during current games, missing projections, empty slots, byes, D/ST, team sums, both leagues, request counts, duration, skew, and browser adoption.

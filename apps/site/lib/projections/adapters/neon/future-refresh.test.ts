@@ -15,6 +15,8 @@ const attemptTwo = '22222222-2222-4222-8222-222222222222';
 const attemptThree = '55555555-5555-4555-8555-555555555555';
 const observationId = '33333333-3333-4333-8333-333333333333';
 const contentId = '44444444-4444-4444-8444-444444444444';
+const lineupTarget = { watchId: attemptThree, watchGeneration: 1, authorityGeneration: 1,
+  observedVersion: 1, lineupRevision: 'a'.repeat(64) };
 
 function marker(statement: string): string | null {
   return statement.match(/projection-store:([a-z0-9-]+)/u)?.[1] ?? null;
@@ -81,7 +83,7 @@ describe('durable future refresh persistence', () => {
       attemptedAt:'2026-09-13T18:00:00.000Z',leaseSeconds:55};
     await store.beginFutureProjectionRefresh(base);
     await store.beginFutureProjectionRefresh({...base,force:true});
-    await store.beginFutureMaterializationRefresh({...base,leagueKey:'league1',modelVersion:'clock-v1',force:true});
+    await store.beginFutureMaterializationRefresh({...base,leagueKey:'league1',modelVersion:'clock-v1',target:lineupTarget,force:true});
     expect(fake.calls[0].parameters.at(-1)).toBe(false);
     expect(fake.calls[1].parameters.at(-1)).toBe(true);
     expect(fake.calls[2].parameters.at(-1)).toBe(true);
@@ -282,7 +284,7 @@ describe('durable future refresh persistence', () => {
     expect(fake.calls).toEqual([]);
   });
 
-  it('requires newly observed provider work and supports unchanged snapshot publication', async () => {
+  it('requires newly observed provider work before completing projection ingestion', async () => {
     const fake = createFakeProjectionDatabase(() => [{
       consecutive_failures: 0,
       next_refresh_at: '2026-09-14T00:00:00.000Z',
@@ -294,29 +296,8 @@ describe('durable future refresh persistence', () => {
       attemptId: attemptOne, completedAt: '2026-09-13T18:00:00.000Z',
       nextRefreshAt: '2026-09-14T00:00:00.000Z', slate: { observationId, contentId },
     });
-    await store.completeFutureMaterializationRefresh({
-      leagueKey: 'league1', projectionProvider: 'tank01', normalizerVersion: 'v1',
-      modelVersion: 'clock-v1', period, attemptId: attemptTwo,
-      completedAt: '2026-09-13T18:00:00.000Z',
-      nextRefreshAt: '2026-09-14T00:00:00.000Z',
-      sourceRevision: 'new-source-revision', slate: { observationId, contentId },
-      snapshotRevision: 'stored-current-revision',
-    });
-
-    const projectionSql = fake.calls[0].statement;
-    const materializationSql = fake.calls[1].statement;
-    expect(projectionSql).toContain(
-      'slate.observed_at >= COALESCE(',
-    );
-    expect(materializationSql).toContain(
-      'snapshot.verified_at >= COALESCE(',
-    );
-    expect(materializationSql).toContain(
-      'OR source.observed_at >= COALESCE(',
-    );
-    expect(materializationSql).not.toContain(
-      'source.id = snapshot.league_week_observation_id',
-    );
+    expect(fake.calls).toHaveLength(1);
+    expect(fake.calls[0].statement).toContain('slate.observed_at >= COALESCE(');
   });
 
   it('locks migration lineage, retryability, identities, and runtime grants', () => {

@@ -32,6 +32,7 @@ import {
   externalGameRef,
   externalLeagueRef,
   externalPlayerRef,
+  externalMatchupRef,
   externalRosterRef,
 } from '../shared/provider-identity';
 import { compatibleRevision } from '../shared/revision-compatibility';
@@ -151,7 +152,7 @@ function scaleSource(configuration: LeagueConfiguration): LeagueWeekState {
     };
   });
   const matchups = Array.from({ length: MANAGER_TEAMS.length / 2 }, (_, matchupIndex) => ({
-    matchupId: String(matchupIndex + 1),
+    matchupRef: externalMatchupRef(configuration.leagueRef, PERIOD, String(matchupIndex + 1)),
     status: 'live' as const,
     sides: [matchupIndex * 2, (matchupIndex * 2) + 1].map((index) => ({
       rosterRef: participants[index].rosterRef,
@@ -485,10 +486,6 @@ async function runScaleScenario(leagueCount: number): Promise<ScaleRun> {
           return { status: 'available' as const, slate: { ...games, period } };
         }).finally(markProviderPartComplete);
       },
-    },
-    projectionStorage: {
-      source: projectionResult().source,
-      normalizerVersion: 'canonical-projection-slate-v1',
     },
     normalizeScoringProfile: (settings) => {
       normalizationCalls += 1;

@@ -96,12 +96,14 @@ function plansWithWeekTwo(
   });
 }
 
-function futureSource(configuration: LeagueConfiguration): LeagueWeekState {
+function futureSource(configuration: LeagueConfiguration, period = FUTURE_PERIOD): LeagueWeekState {
   const base = source(String(configuration.leagueRef.externalId));
   return {
     ...base,
     configuration,
-    period: FUTURE_PERIOD,
+    period,
+    matchups: base.matchups.map((matchup) => ({ ...matchup, matchupRef: { ...matchup.matchupRef,
+      league: configuration.leagueRef, period } })),
     schedule: FUTURE_SCHEDULE,
     requestStartedAt: '2026-09-13T18:10:05.000Z',
     requestCompletedAt: '2026-09-13T18:10:06.000Z',
@@ -326,7 +328,7 @@ describe('future projection orchestration', () => {
       projection:{...base.projection,currentSlate:STORED_LINEAGE},
     },...plansWithWeekTwo({due:false})]);
     dependencies.projectionMock.mockResolvedValue({status:'available',slate:projectionResult(period)});
-    dependencies.sourceMock.mockImplementation(async(configuration:LeagueConfiguration)=>({...futureSource(configuration),period}));
+    dependencies.sourceMock.mockImplementation(async(configuration:LeagueConfiguration)=>futureSource(configuration,period));
     dependencies.gamesMock.mockResolvedValue({status:'available',slate:gameStates({...futureGame(),period})});
     await expect(createFutureProjectionWorker(dependencies).run({period,leagueKeys:['league1','league2'],
       execution:{now:FUTURE_NOW,runId:'original-force-run',timing:{wallStartedAtMs:FUTURE_NOW.getTime(),monotonicStartedAt:0}}}))

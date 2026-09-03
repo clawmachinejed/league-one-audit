@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { databaseTime, lineageFixture } from './lineup-lineage-fixture';
 import type { LineupObservationClaim, LineupWatchTarget, StoredLineupWatchState } from '../lib/projections/adapters/neon/lineup-watch-contracts';
 import { createLineupWatchSyncMethods } from '../lib/projections/adapters/neon/lineup-watch-sync';
 import { createLineupWatchClaimMethods } from '../lib/projections/adapters/neon/lineup-watch-claims';
@@ -50,8 +51,11 @@ function times(base: string, offset: number) {
   const instant = Date.parse(base) + offset;
   return { requestStartedAt: new Date(instant).toISOString(), requestCompletedAt: new Date(instant + 1).toISOString(), nextCheckAt: new Date(instant + 60_000).toISOString() };
 }
-async function full(state: StoredLineupWatchState, base: string, offset: number, revision: string) {
-  return createLineupWatchObservationMethods(first.database).supersedeLineupClaimWithFullObservation({ fence: fence(state), lineupRevision: revision.repeat(64), ...times(base, offset) });
+async function accept(state: StoredLineupWatchState, base: string, offset: number, revision: string) {
+  await ownerQuery('UPDATE league_week_lineup_watch_states SET next_check_at = now() WHERE id=$1', [state.id]);
+  const active = (await take(state))[0];
+  if (!active) throw new Error('Fixture observation could not acquire its claim.');
+  return createLineupWatchObservationMethods(first.database).completeLineupObservation({ claim: claim(active), lineupRevision: revision.repeat(64), ...times(base, offset) });
 }
 
 describe.sequential('isolated durable lineup watch coordination', () => {
@@ -80,6 +84,40 @@ describe.sequential('isolated durable lineup watch coordination', () => {
     expect(winner.claimGeneration).toBe(1);
     expect(Date.parse(winner.leaseExpiresAt!) - Date.parse(winner.attemptStartedAt!)).toBe(120_000);
   });
+  it('selects due phases and bounded oldest catch-up work without taking wrong-phase or future-due rows', async () => {
+    const { target, state } = await fixture();
+    const targets = Array.from({ length: 7 }, (_, index): LineupWatchTarget => ({ ...target,
+      period: { ...target.period, week: index + 1 }, watchClass: index === 0 ? 'current' : 'future',
+    }));
+    await createLineupWatchSyncMethods(first.database).synchronizeLineupWatchStates({ registeredLeagueKeys: await registryKeys(), targets });
+    // Transaction time keeps phase boundaries deterministic without changing application clocks.
+    await first.database.query('BEGIN');
+    try {
+      const [{ at, phase }] = await first.database.query<{ at: string; phase: number }>(
+        "SELECT now()::text AS at, mod(floor(extract(epoch FROM now())/60)::bigint,3)::integer AS phase");
+      await ownerQuery(`UPDATE league_week_lineup_watch_states SET
+        phase=CASE WHEN week IN (1,3,4) THEN $3::integer ELSE mod($3::integer+1,3) END,
+        next_check_at=CASE week
+          WHEN 1 THEN $2::timestamptz-interval '1 second'
+          WHEN 2 THEN $2::timestamptz-interval '1 second'
+          WHEN 3 THEN $2::timestamptz+interval '1 minute'
+          WHEN 4 THEN $2::timestamptz-interval '1 second'
+          WHEN 5 THEN $2::timestamptz-interval '4 minutes'
+          WHEN 6 THEN $2::timestamptz-interval '5 minutes'
+          ELSE $2::timestamptz-interval '6 minutes' END WHERE league_key=$1`, [state.leagueKey, at, phase]);
+      const methods = createLineupWatchClaimMethods(first.database);
+      const input = { leagueKeys: [state.leagueKey], materializationLane: 'future' as const,
+        workerId: randomUUID(), leaseSeconds: 120, limit: 20, futureLimit: 18 };
+      const ordinary = await methods.claimDueLineupObservations({ ...input, catchUp: false });
+      expect(ordinary.map((row) => row.period.week).sort()).toEqual([1, 4]);
+      const bounded = await methods.claimDueLineupObservations({ ...input, limit: 2, futureLimit: 2, catchUp: true });
+      expect(bounded.map((row) => row.period.week).sort()).toEqual([6, 7]);
+      const last = await methods.claimDueLineupObservations({ ...input, futureLimit: 1, catchUp: true });
+      expect(last.map((row) => row.period.week)).toEqual([5]);
+      expect(await methods.claimDueLineupObservations({ ...input, catchUp: true })).toEqual([]);
+    } finally { await first.database.query('ROLLBACK'); }
+  });
+
   it('rechecks a newly active lease after waiting on an authority lock with an older statement snapshot', async () => {
     const { state } = await fixture();
     const blocker = createIndependentDatabase(integrationEnvironment().ownerDatabaseUrl);
@@ -116,7 +154,7 @@ describe.sequential('isolated durable lineup watch coordination', () => {
   });
   it('preserves state and phases across duplicate synchronization and ignores unhealthy omitted authorities', async () => {
     const { target, state, clock } = await fixture();
-    await full(state, clock, 10, 'a');
+    await accept(state, clock, 10, 'a');
     const sync = createLineupWatchSyncMethods(first.database);
     const repeated = await sync.synchronizeLineupWatchStates({ registeredLeagueKeys: await registryKeys(), targets: [target] });
     expect(repeated.kind === 'stored' && repeated.states[0].id).toBe(state.id);
@@ -125,32 +163,39 @@ describe.sequential('isolated durable lineup watch coordination', () => {
   });
   it('advances request ordering without incrementing semantic version for an unchanged revision', async () => {
     const { state, clock } = await fixture();
-    const a = await full(state, clock, 10, 'a');
-    const repeated = await full(state, clock, 20, 'a');
+    const a = await accept(state, clock, 10, 'a');
+    const repeated = await accept(state, clock, 20, 'a');
     expect(a.kind === 'stored' && a.state.observedVersion).toBe(1);
     expect(repeated.kind === 'stored' && repeated.state.observedVersion).toBe(1);
     expect(repeated.kind === 'stored' && repeated.state.pendingSince).toBe(a.kind === 'stored' && a.state.pendingSince);
-    expect(await full(state, clock, 15, 'b')).toEqual({ kind: 'stale' });
+    expect(await accept(state, clock, 15, 'b')).toEqual({ kind: 'stale' });
   });
   it('rejects older request starts even when their responses complete later', async () => {
     const { state, clock } = await fixture();
-    await full(state, clock, 1000, 'a');
-    const stale = await createLineupWatchObservationMethods(first.database).supersedeLineupClaimWithFullObservation({
-      fence: fence(state), lineupRevision: 'b'.repeat(64), requestStartedAt: times(clock, 500).requestStartedAt,
+    await accept(state, clock, 1000, 'a');
+    await ownerQuery('UPDATE league_week_lineup_watch_states SET next_check_at = now() WHERE id=$1', [state.id]);
+    const active = (await take(state))[0];
+    const stale = await createLineupWatchObservationMethods(first.database).completeLineupObservation({
+      claim: claim(active), lineupRevision: 'b'.repeat(64), requestStartedAt: times(clock, 500).requestStartedAt,
       requestCompletedAt: times(clock, 2000).requestCompletedAt, nextCheckAt: times(clock, 2000).nextCheckAt,
     });
     expect(stale).toEqual({ kind: 'stale' });
   });
   it('full loading supersedes an older thin claim and its later failure cannot back off', async () => {
-    const { state } = await fixture();
-    const active = (await take(state))[0];
-    const accepted = await full(state, active.attemptStartedAt!, 10, 'a');
+    const f = await lineageFixture(first);
+    const [active] = await f.store.claimDueLineupObservations({ leagueKeys: [f.leagueKey], materializationLane: 'current',
+      workerId: 'old-thin-worker', leaseSeconds: 120, limit: 1, futureLimit: 0, catchUp: true });
+    const reserved = await f.store.reserveFullLineupObservation({ fence: f.fence, modelVersion: 'clock-v1', leaseSeconds: 55 });
+    if (reserved.kind !== 'stored') throw new Error('Full source did not reserve ownership.');
+    expect(reserved.state.claimGeneration).toBeGreaterThan(active.claimGeneration);
+    const at = await databaseTime();
+    const accepted = await f.store.completeLineupObservation({ claim: claim(reserved.state), lineupRevision: 'a'.repeat(64), ...times(at, 0) });
     expect(accepted.kind === 'stored' && accepted.state.activeAttemptId).toBeNull();
     expect(await createLineupWatchObservationMethods(first.database).failLineupObservation({ claim: claim(active), failureCode: 'provider-unavailable', retryDelaysSeconds: [60, 300, 900, 3600] })).toEqual({ kind: 'stale' });
   });
   it('not-ready is healthy and preserves the prior accepted pending revision', async () => {
     const { state, clock } = await fixture();
-    await full(state, clock, 1, 'a');
+    await accept(state, clock, 1, 'a');
     await ownerQuery('UPDATE league_week_lineup_watch_states SET next_check_at = now() WHERE id = $1', [state.id]);
     const active = (await take(state))[0];
     expect(await createLineupWatchObservationMethods(first.database).recordLineupObservationNotReady({ claim: claim(active), checkedAt: times(clock, 100).requestCompletedAt, nextCheckAt: times(clock, 100).nextCheckAt })).toEqual({ kind: 'stored' });
@@ -161,19 +206,19 @@ describe.sequential('isolated durable lineup watch coordination', () => {
   });
   it('A to B to A clears pending when A was already materialized', async () => {
     const { state, clock } = await fixture();
-    await full(state, clock, 1, 'a');
+    await accept(state, clock, 1, 'a');
     await ownerQuery(`UPDATE league_week_lineup_watch_states SET
       last_materialized_lineup_revision = $2, last_materialized_snapshot_revision = 'fixture-snapshot',
       last_materialized_verified_at = now(), pending_since = NULL WHERE id = $1`, [state.id, 'a'.repeat(64)]);
-    const b = await full(state, clock, 2, 'b');
-    const a = await full(state, clock, 3, 'a');
+    const b = await accept(state, clock, 2, 'b');
+    const a = await accept(state, clock, 3, 'a');
     expect(b.kind === 'stored' && b.state.pendingSince).not.toBeNull();
     expect(a.kind === 'stored' && a.state.pendingSince).toBeNull();
     expect(a.kind === 'stored' && a.state.observedVersion).toBe(3);
   });
   it('a wake atomically creates both prerequisites and does not reset a repeated-version backoff', async () => {
     const { state, clock } = await fixture();
-    await full(state, clock, 1, 'a');
+    await accept(state, clock, 1, 'a');
     const wake = { watchId: state.id, watchGeneration: 1, authorityGeneration: 1, projectionProvider: `fixture-${randomUUID()}`, normalizerVersion: 'normalizer-v1', modelVersion: 'clock-v1', weekDistance: 1, wakeProjection: true };
     const methods = createLineupWatchReadMethods(first.database);
     expect(await methods.wakeFutureProjectionAndMaterialization(wake)).toEqual({ kind: 'stored' });
@@ -184,7 +229,7 @@ describe.sequential('isolated durable lineup watch coordination', () => {
       (SELECT next_refresh_at > now() + interval '50 minutes' FROM league_week_materialization_states WHERE league_key = $1) material,
       (SELECT next_refresh_at > now() + interval '50 minutes' FROM projection_period_refresh_states WHERE projection_provider = $2) projection`, [state.leagueKey, wake.projectionProvider]);
     expect(before[0]).toEqual({ material: true, projection: true });
-    await full(state, clock, 2, 'b');
+    await accept(state, clock, 2, 'b');
     await methods.wakeFutureProjectionAndMaterialization(wake);
     expect((await ownerQuery<{ due: boolean }>('SELECT next_refresh_at <= now() AS due FROM league_week_materialization_states WHERE league_key = $1', [state.leagueKey]))[0].due).toBe(true);
   });
@@ -209,19 +254,23 @@ describe.sequential('isolated durable lineup watch coordination', () => {
       expect(Number(result.delay)).toBeLessThanOrEqual(delay);
     }
   });
-  it('a failure cannot postpone a newer accepted revision when its observation lease still exists', async () => {
+  it('the defensive target-version guard preserves a newer accepted revision even if an older lease survives', async () => {
     const { state, clock } = await fixture();
-    await full(state, clock, -2000, 'a');
+    await accept(state, clock, -2000, 'a');
     await ownerQuery('UPDATE league_week_lineup_watch_states SET next_check_at = now() WHERE id = $1', [state.id]);
     const active = (await take(state))[0];
-    // The full request started before the thin claim but finished after it: keep that newer thin claim.
-    const accepted = await full(state, clock, -1000, 'b');
-    expect(accepted.kind === 'stored' && accepted.state.activeAttemptId).toBe(active.activeAttemptId);
+    // Privileged fixture creates the defensive stale-target state. Production full loads
+    // now reserve a new generation before fetching and cannot use this former bypass.
+    const newer = times(clock, -1000);
+    await ownerQuery(`UPDATE league_week_lineup_watch_states SET observed_version=observed_version+1,
+      latest_lineup_revision=$2, accepted_request_started_at=$3, accepted_request_completed_at=$4,
+      last_complete_observation_at=$4, next_check_at=$5 WHERE id=$1`,
+    [state.id, 'b'.repeat(64), newer.requestStartedAt, newer.requestCompletedAt, newer.nextCheckAt]);
     await createLineupWatchObservationMethods(first.database).failLineupObservation({ claim: claim(active), failureCode: 'provider-unavailable', retryDelaysSeconds: [60, 300, 900, 3600] });
     const result = (await createLineupWatchReadMethods(first.database).readLineupWatchStates([state.leagueKey]))[0];
     expect(result.consecutiveFailures).toBe(0);
     expect(result.activeAttemptId).toBeNull();
-    expect(result.nextCheckAt).toBe(accepted.kind === 'stored' && accepted.state.nextCheckAt);
+    expect(Date.parse(result.nextCheckAt!)).toBe(Date.parse(newer.nextCheckAt));
     expect(result.latestLineupRevision).toBe('b'.repeat(64));
   });
   it('rollover changes ownership generation and invalidates the prior observer', async () => {
@@ -245,7 +294,7 @@ describe.sequential('isolated durable lineup watch coordination', () => {
   });
   it('retirement removes completed rows from due, pending and wake selectors', async () => {
     const { state, target, clock } = await fixture();
-    await full(state, clock, 1, 'a');
+    await accept(state, clock, 1, 'a');
     await createLineupWatchSyncMethods(first.database).synchronizeLineupWatchStates({ registeredLeagueKeys: await registryKeys(), targets: [{ ...target, watchClass: 'completed', materializationLane: null, initialNextCheckAt: null }] });
     expect(await take(state)).toEqual([]);
     expect(await createLineupWatchReadMethods(first.database).readPendingFutureLineups([state.leagueKey])).toEqual([]);

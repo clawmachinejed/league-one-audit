@@ -9,6 +9,7 @@ import {
   externalReferenceKey,
   externalLeagueRef,
   externalPlayerRef,
+  externalMatchupRef,
   externalRosterRef,
   externalTeamDefenseRef,
   providerKey,
@@ -67,7 +68,7 @@ function leagueSource(): LeagueWeekState {
     rosterPositions: ['RB', 'FLEX', 'DEF'],
     participants: [],
     matchups: [{
-      matchupId: '1',
+      matchupRef: externalMatchupRef(leagueRef, period, '1'),
       status: 'upcoming',
       sides: [
         {

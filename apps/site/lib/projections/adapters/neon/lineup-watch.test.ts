@@ -84,11 +84,13 @@ describe('durable lineup watch repository', () => {
     expect(calls[0].sql).toContain('COALESCE(w.pending_since');
     expect(calls[0].values).toHaveLength(13);
   });
-  it('full source shares the acceptance logic but clears only an older thin lease', async () => {
+  it('every accepted source must own the active reservation before releasing its lease', async () => {
     const { database, calls } = fake();
-    await createLineupWatchObservationMethods(database).supersedeLineupClaimWithFullObservation({ ...observation, fence: claim });
-    expect(calls[0].sql).toContain('w.attempt_started_at <= $11::timestamptz');
-    expect(calls[0].values.slice(5, 9)).toEqual([null, null, null, null]);
+    await createLineupWatchObservationMethods(database).completeLineupObservation(observation);
+    expect(calls[0].sql).toContain('w.active_attempt_id = $6::uuid');
+    expect(calls[0].sql).toContain('w.claim_generation = $7::bigint');
+    expect(calls[0].sql).not.toContain('w.attempt_started_at <=');
+    expect(calls[0].values.slice(5, 9)).toEqual([claim.attemptId, claim.claimGeneration, claim.workerId, claim.targetObservedVersion]);
   });
   it('rejects invalid hashes and reversed observation time without querying', async () => {
     const { database, calls } = fake();

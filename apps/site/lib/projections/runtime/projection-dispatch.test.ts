@@ -4,8 +4,8 @@ const runtime = vi.hoisted(() => ({ current: vi.fn(), future: vi.fn(), preflight
 vi.mock('server-only', () => ({}));
 vi.mock('./projection-composition', () => ({
   createProductionProjectionDependencies: runtime.current,
-  createProductionFutureProjectionDependencies: runtime.future,
 }));
+vi.mock('./future-projection-composition', () => ({ createProductionFutureProjectionDependencies: runtime.future }));
 vi.mock('../worker/current-lineup-context', () => ({ refreshCurrentLineupContext: runtime.preflight }));
 vi.mock('../worker/orchestrator', () => ({ runWithDependencies: runtime.runCurrent }));
 vi.mock('../worker/future-orchestrator', () => ({ runFutureWithDependencies: runtime.runFuture }));

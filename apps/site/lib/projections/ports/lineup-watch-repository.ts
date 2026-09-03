@@ -102,9 +102,7 @@ export type LineupWatchRepositoryPort = Readonly<{
     failureCode: string;
     retryDelaysSeconds: readonly [number, number, number, number];
   }>): Promise<LineupWatchTransition>;
-  readPendingCurrentLineups(leagueKeys: readonly string[]): Promise<readonly LineupWatchState[]>;
   readPendingFutureLineups(leagueKeys: readonly string[]): Promise<readonly LineupWatchState[]>;
-  readLineupWatchStates(leagueKeys: readonly string[]): Promise<readonly LineupWatchState[]>;
   wakeFutureProjectionAndMaterialization(input: Readonly<{
     watchId: string;
     watchGeneration: number;

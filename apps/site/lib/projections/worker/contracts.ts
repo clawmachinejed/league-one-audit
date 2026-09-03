@@ -47,22 +47,11 @@ export type LiveProjectionWorkerDependencies = Readonly<{
   periodAuthorityReader: PeriodAuthorityReaderPort;
   lineupSource: LineupSourcePort;
   identityCrosswalk: IdentityCrosswalkPort;
-  persistence: Readonly<{
-    scope: (signal: AbortSignal) => Readonly<{
-      repository: ProjectionRepositoryPort;
-      lineupRepository: LineupWatchRepositoryPort;
-      periodAuthorityReader: PeriodAuthorityReaderPort;
-    }>;
-  }>;
   leagueRegistry: LeagueRegistryPort;
   nflCalendar: NflCalendarPort;
   leagueSource: LeagueSourcePort;
   projectionFeed: ProjectionFeedPort;
   gameStateFeed: GameStateFeedPort;
-  projectionStorage: Readonly<{
-    source: ProjectionSlate['source'];
-    normalizerVersion: string;
-  }>;
   normalizeScoringProfile: (source: SourceScoringSettings) => ScoringProfileNormalization;
   clock: ClockPort;
   idGenerator: IdGeneratorPort;

@@ -67,11 +67,8 @@ export function createLineupWorkerTestPorts(clock: Pick<ClockPort, 'now'>, persi
     }),
     recordLineupObservationNotReady: vi.fn<LineupWatchRepositoryPort['recordLineupObservationNotReady']>(async () => ({ kind: 'stored' })),
     failLineupObservation: vi.fn<LineupWatchRepositoryPort['failLineupObservation']>(async () => ({ kind: 'stored' })),
-    readPendingCurrentLineups: vi.fn<LineupWatchRepositoryPort['readPendingCurrentLineups']>(async (keys) => [...states.values()].filter((state) => keys.includes(state.configuration.key)
-      && state.materializationLane === 'current' && state.pendingSince !== null)),
     readPendingFutureLineups: vi.fn<LineupWatchRepositoryPort['readPendingFutureLineups']>(async (keys) => [...states.values()].filter((state) => keys.includes(state.configuration.key)
       && state.materializationLane === 'future' && state.pendingSince !== null)),
-    readLineupWatchStates: vi.fn<LineupWatchRepositoryPort['readLineupWatchStates']>(async (keys) => [...states.values()].filter((state) => keys.includes(state.configuration.key))),
     wakeFutureProjectionAndMaterialization: vi.fn<LineupWatchRepositoryPort['wakeFutureProjectionAndMaterialization']>(async () => ({ kind: 'stored' })),
     acknowledgeCurrentLineup: vi.fn<LineupWatchRepositoryPort['acknowledgeCurrentLineup']>(async () => ({ kind: 'updated' })),
     completeFutureMaterializationAndAcknowledgeLineup: vi.fn<LineupWatchRepositoryPort['completeFutureMaterializationAndAcknowledgeLineup']>(async () => ({ kind: 'updated',

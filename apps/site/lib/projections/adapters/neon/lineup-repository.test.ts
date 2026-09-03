@@ -49,9 +49,7 @@ function fixture(row = stored(), enabled = true) {
     completeLineupObservation: vi.fn(async () => ({ kind: 'stored' as const, state: row })),
     recordLineupObservationNotReady: vi.fn(async () => ({ kind: 'stored' as const })),
     failLineupObservation: vi.fn(async () => ({ kind: 'stored' as const })),
-    readPendingCurrentLineups: vi.fn(async () => [row]),
     readPendingFutureLineups: vi.fn(async () => [row]),
-    readLineupWatchStates: vi.fn(async () => [row]),
     readLineupWatchSchedule: vi.fn(async () => [{ leagueKey: row.leagueKey, sourceProvider: row.sourceProvider,
       externalLeagueId: row.externalLeagueId, period: row.period, phase: row.phase, watchClass: 'future' as const }]),
     wakeFutureProjectionAndMaterialization: vi.fn(async () => ({ kind: 'stored' as const })),
@@ -60,14 +58,14 @@ function fixture(row = stored(), enabled = true) {
       consecutiveFailures: 0, nextRefreshAt: timestamp, materializationsWoken: 0 })),
   } satisfies Pick<ProjectionStore, 'enabled' | 'synchronizeLineupWatchStates' | 'claimDueLineupObservations'
     | 'reserveFullLineupObservation' | 'completeLineupObservation' | 'recordLineupObservationNotReady'
-    | 'failLineupObservation' | 'readPendingCurrentLineups' | 'readPendingFutureLineups' | 'readLineupWatchStates'
+    | 'failLineupObservation' | 'readPendingFutureLineups'
     | 'readLineupWatchSchedule' | 'wakeFutureProjectionAndMaterialization' | 'acknowledgeCurrentLineup'
     | 'completeFutureMaterializationAndAcknowledgeLineup'>;
   const listActiveLeagues = vi.fn(() => [configuration]);
   return { store, listActiveLeagues, adapter: createNeonLineupRepository(store, { listActiveLeagues }, options) };
 }
 
-function assertCanonicalState(state: Awaited<ReturnType<LineupWatchRepositoryPort['readLineupWatchStates']>>[number]) {
+function assertCanonicalState(state: Awaited<ReturnType<LineupWatchRepositoryPort['readPendingFutureLineups']>>[number]) {
   expect(state.configuration).toBe(configuration);
   expect(state.configuration.matchupWeekRange).toEqual({ firstWeek: 1, lastWeek: 18 });
   expect(state).toMatchObject({ watchId: 'watch-alpha', period, latestLineupRevision: actualLineup.lineupRevision,
@@ -106,7 +104,7 @@ describe('canonical Neon lineup repository boundary', () => {
   });
   it('preserves canonical state on all complete-state reads', async () => {
     const { adapter, store } = fixture();
-    for (const method of ['readPendingCurrentLineups', 'readPendingFutureLineups', 'readLineupWatchStates'] as const) {
+    for (const method of ['readPendingFutureLineups'] as const) {
       assertCanonicalState((await adapter[method](['alpha']))[0]);
       expect(store[method]).toHaveBeenCalledExactlyOnceWith(['alpha']);
     }
@@ -119,7 +117,7 @@ describe('canonical Neon lineup repository boundary', () => {
     'translates %s periods in both state and planning-only schedule reads', async (storedType, canonicalType) => {
       const { adapter, store } = fixture(stored({ period: { season: 2026, seasonType: storedType, week: 5 },
         lastCompleteObservationAt: '2026-01-01T00:00:00.000Z' }));
-      expect((await adapter.readLineupWatchStates(['alpha']))[0].period.seasonType).toBe(canonicalType);
+      expect((await adapter.readPendingFutureLineups(['alpha']))[0].period.seasonType).toBe(canonicalType);
       expect(await adapter.readLineupWatchSchedule(['alpha'])).toEqual([{ leagueKey: 'alpha', leagueRef: configuration.leagueRef,
         period: { ...period, seasonType: canonicalType }, phase: 2, watchClass: 'future' }]);
       expect(store.readLineupWatchSchedule).toHaveBeenCalledExactlyOnceWith(['alpha']);
@@ -133,7 +131,7 @@ describe('canonical Neon lineup repository boundary', () => {
   it.each([{ leagueKey: 'unregistered' }, { sourceProvider: 'replacement' }, { externalLeagueId: 'replacement' },
     { lineupRevisionVersion: 'lineup-v2' }])('rejects complete-state identity mismatch %j', async (overrides) => {
     const { adapter } = fixture(stored(overrides));
-    await expect(adapter.readLineupWatchStates(['alpha'])).rejects.toThrow('Stored lineup identity does not match its registry.');
+    await expect(adapter.readPendingFutureLineups(['alpha'])).rejects.toThrow('Stored lineup identity does not match its registry.');
   });
   it('translates the complete synchronization target and keeps the configured horizon', async () => {
     const { adapter, store } = fixture();
@@ -206,8 +204,8 @@ describe('canonical Neon lineup repository boundary', () => {
   it('exits every disabled method before inspecting inputs, configuration, or low-level store operations', async () => {
     const { adapter, store, listActiveLeagues } = fixture(stored(), false);
     expect(adapter.enabled).toBe(false);
-    const reads = new Set(['claimDueLineupObservations', 'readPendingCurrentLineups', 'readPendingFutureLineups',
-      'readLineupWatchStates', 'readLineupWatchSchedule']);
+    const reads = new Set(['claimDueLineupObservations', 'readPendingFutureLineups',
+      'readLineupWatchSchedule']);
     for (const [name, method] of Object.entries(adapter)) {
       if (typeof method !== 'function') continue;
       expect(await method(undefined as never)).toEqual(reads.has(name) ? [] : { kind: 'disabled' });

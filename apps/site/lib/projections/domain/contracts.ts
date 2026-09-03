@@ -1,6 +1,7 @@
 import type {
   ExternalGameRef,
   ExternalLeagueRef,
+  ExternalMatchupRef,
   ExternalPlayerRef,
   ExternalRosterRef,
   ExternalScoringEntityRef,
@@ -112,7 +113,7 @@ export type OfficialMatchupSide = Readonly<{
 export type MatchupStatus = 'upcoming' | 'live' | 'final' | 'unknown';
 
 export type OfficialMatchup = Readonly<{
-  matchupId: string;
+  matchupRef: ExternalMatchupRef;
   status: MatchupStatus;
   sides: readonly OfficialMatchupSide[];
 }>;
@@ -357,7 +358,7 @@ export type ProjectedMatchupSide = Readonly<{
 }>;
 
 export type ProjectedMatchup = Readonly<{
-  matchupId: string;
+  matchupRef: ExternalMatchupRef;
   status: MatchupStatus;
   sides: readonly ProjectedMatchupSide[];
 }>;

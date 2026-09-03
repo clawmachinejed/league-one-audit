@@ -8,7 +8,6 @@ import {
   futureRefreshClaim,
   futureRefreshFailureCode,
   futureRefreshLeaseSeconds,
-  futureRefreshNextAfter,
   futureRefreshPeriod,
   futureRefreshTimestamp,
   futureRefreshTransition,
@@ -18,7 +17,6 @@ import {
 type MaterializationFutureRefreshMethods = Pick<
   ProjectionStore,
   | 'beginFutureMaterializationRefresh'
-  | 'completeFutureMaterializationRefresh'
   | 'failFutureMaterializationRefresh'
 >;
 
@@ -38,10 +36,7 @@ export function createMaterializationFutureRefreshMethods(
           WHERE watch.season = $3 AND watch.season_type = $4 AND watch.week = $5
             AND watch.retired_at IS NULL FOR UPDATE OF watch
         ), valid_target AS (
-          SELECT true WHERE ($11::jsonb IS NULL AND NOT EXISTS (
-            SELECT 1 FROM league_week_lineup_watch_states
-            WHERE league_key = $1 AND season = $3 AND season_type = $4 AND week = $5))
-            OR EXISTS (SELECT 1 FROM watch JOIN authority USING (league_key)
+          SELECT true WHERE EXISTS (SELECT 1 FROM watch JOIN authority USING (league_key)
               WHERE watch.id = ($11::jsonb->>'watchId')::uuid
                 AND watch.watch_generation = ($11::jsonb->>'watchGeneration')::bigint
                 AND watch.authority_generation = ($11::jsonb->>'authorityGeneration')::bigint
@@ -135,127 +130,10 @@ export function createMaterializationFutureRefreshMethods(
         futureRefreshUuid(input.attemptId, 'Future materialization attempt ID'),
         futureRefreshTimestamp(input.attemptedAt, 'Future materialization attempt time'),
         futureRefreshLeaseSeconds(input.leaseSeconds),
-        input.target === undefined ? null : json(materializationTargetValue(input.target)),
+        json(materializationTargetValue(input.target)),
         input.force === true,
       ]);
       return futureRefreshClaim(rows);
-    },
-
-    async completeFutureMaterializationRefresh(input) {
-      const period = futureRefreshPeriod(input.period);
-      const completedAt = futureRefreshTimestamp(
-        input.completedAt,
-        'Future materialization completion time',
-      );
-      const rows = await client.query(`/* projection-store:complete-future-materialization-refresh */
-        WITH valid_slate AS (
-          SELECT current.projection_slate_observation_id,
-            current.projection_slate_content_id
-          FROM current_projection_slates current
-          JOIN projection_slate_observations observation
-            ON observation.id = current.projection_slate_observation_id
-            AND observation.projection_slate_content_id
-              = current.projection_slate_content_id
-            AND observation.provider = current.provider
-            AND observation.season = current.season
-            AND observation.season_type = current.season_type
-            AND observation.week = current.week
-            AND observation.normalizer_version = current.normalizer_version
-          WHERE current.provider = $2 AND current.season = $3
-            AND current.season_type = $4 AND current.week = $5
-            AND current.normalizer_version = $6
-            AND current.projection_slate_observation_id = $12::uuid
-            AND current.projection_slate_content_id = $13::uuid
-            AND observation.quality = 'complete'
-        ), valid_league_source AS (
-          SELECT observation.id, observation.observed_at
-          FROM league_week_observations observation
-          JOIN league_seasons season ON season.id = observation.league_season_id
-          JOIN leagues league ON league.id = season.league_id
-          WHERE league.league_key = $1 AND season.season = $3
-            AND observation.week = $5 AND observation.source_revision = $11
-            AND observation.provider = 'sleeper'
-            AND observation.quality = 'complete'
-          LIMIT 1
-        ), valid_snapshot AS (
-          SELECT snapshot.id, current.verified_at
-          FROM projection_snapshots snapshot
-          JOIN current_projection_snapshots current
-            ON current.snapshot_id = snapshot.id
-            AND current.league_season_id = snapshot.league_season_id
-            AND current.week = snapshot.week
-          JOIN league_seasons season ON season.id = snapshot.league_season_id
-          JOIN leagues league ON league.id = season.league_id
-          WHERE league.league_key = $1 AND season.season = $3
-            AND snapshot.week = $5 AND snapshot.model_version = $7
-            AND snapshot.revision_key = $14
-            AND current.verification_source_observation_id = (SELECT id FROM valid_league_source)
-          LIMIT 1
-        )
-        UPDATE league_week_materialization_states materialization SET
-          active_attempt_id = NULL,
-          active_attempt_started_at = NULL,
-          active_attempt_expires_at = NULL,
-            active_watch_id = NULL, active_watch_generation = NULL,
-            active_authority_generation = NULL, active_target_observed_version = NULL,
-            active_target_lineup_revision = NULL,
-          last_succeeded_at = $9::timestamptz,
-          last_source_revision = $11,
-          last_projection_slate_observation_id
-            = slate.projection_slate_observation_id,
-          last_projection_slate_content_id = slate.projection_slate_content_id,
-          last_snapshot_revision = $14,
-          consecutive_failures = 0,
-          last_failure_code = NULL,
-          next_refresh_at = $10::timestamptz,
-          updated_at = now()
-        FROM valid_slate slate, valid_league_source source, valid_snapshot snapshot
-        WHERE materialization.league_key = $1
-          AND materialization.projection_provider = $2
-          AND materialization.season = $3 AND materialization.season_type = $4
-          AND materialization.week = $5 AND materialization.normalizer_version = $6
-          AND materialization.model_version = $7
-          AND materialization.active_attempt_id = $8::uuid
-          AND materialization.active_watch_id IS NULL
-          AND NOT EXISTS (SELECT 1 FROM league_week_lineup_watch_states watch
-            WHERE watch.league_key = materialization.league_key
-              AND watch.season = materialization.season
-              AND watch.season_type = materialization.season_type
-              AND watch.week = materialization.week)
-          AND materialization.active_attempt_started_at <= now()
-          AND materialization.active_attempt_expires_at > now()
-          AND (materialization.last_succeeded_at IS NULL
-            OR materialization.last_succeeded_at <= $9::timestamptz)
-          AND snapshot.verified_at >= COALESCE(
-            materialization.last_succeeded_at, materialization.created_at
-          )
-          AND snapshot.verified_at >= source.observed_at
-          AND (
-            materialization.last_projection_slate_content_id IS DISTINCT FROM
-              slate.projection_slate_content_id
-            OR source.observed_at >= COALESCE(
-              materialization.last_succeeded_at, materialization.created_at
-            )
-          )
-        RETURNING 0::integer AS consecutive_failures,
-          materialization.next_refresh_at::text,
-          0::integer AS materializations_woken`, [
-        requiredText(input.leagueKey, 'League key'),
-        provider(input.projectionProvider),
-        period.season,
-        period.seasonType,
-        period.week,
-        requiredText(input.normalizerVersion, 'Projection normalizer version'),
-        requiredText(input.modelVersion, 'Projection model version'),
-        futureRefreshUuid(input.attemptId, 'Future materialization attempt ID'),
-        completedAt,
-        futureRefreshNextAfter(input.nextRefreshAt, completedAt),
-        requiredText(input.sourceRevision, 'League source revision'),
-        futureRefreshUuid(input.slate.observationId, 'Projection slate observation ID'),
-        futureRefreshUuid(input.slate.contentId, 'Projection slate content ID'),
-        requiredText(input.snapshotRevision, 'Snapshot revision'),
-      ]);
-      return futureRefreshTransition(rows);
     },
 
     async failFutureMaterializationRefresh(input) {
@@ -287,9 +165,7 @@ export function createMaterializationFutureRefreshMethods(
             AND materialization.week = $5 AND materialization.normalizer_version = $6
             AND materialization.model_version = $7 AND materialization.active_attempt_id = $8::uuid
             AND materialization.active_attempt_expires_at > now()
-            AND (watch.id IS NOT NULL OR (materialization.active_watch_id IS NULL
-              AND NOT EXISTS (SELECT 1 FROM league_week_lineup_watch_states old
-                WHERE old.league_key = $1 AND old.season = $3 AND old.season_type = $4 AND old.week = $5)))
+            AND watch.id IS NOT NULL
           FOR UPDATE OF materialization
         ) UPDATE league_week_materialization_states materialization SET
           active_attempt_id = NULL,

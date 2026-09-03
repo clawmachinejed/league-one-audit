@@ -14,6 +14,7 @@ import type { LeagueSourcePort } from '../../ports/league-source';
 import {
   externalPlayerRef,
   externalReferenceKey,
+  externalMatchupRef,
   externalRosterRef,
   externalTeamDefenseRef,
   type ProviderKey,
@@ -24,7 +25,7 @@ import { sleeperLineupObservationShape, translateSleeperLineupObservation } from
 import {
   sleeperRegularSeasonPeriod,
   translateSleeperWeekSchedule,
-} from './nfl-calendar';
+} from './schedule';
 
 export type SleeperLeagueWeekLoader = (
   leagueId: string,
@@ -183,7 +184,7 @@ export function createSleeperLeagueSource(
         rosterPositions: source.data.league.rosterPositions,
         participants: participants(source, configuration),
         matchups: source.data.matchups.map((matchup) => ({
-          matchupId: matchup.id,
+          matchupRef: externalMatchupRef(configuration.leagueRef, period, matchup.id),
           status: matchup.status,
           sides: matchup.sides.map((side) => ({
             rosterRef: externalRosterRef(configuration.leagueRef, String(side.team.id)),

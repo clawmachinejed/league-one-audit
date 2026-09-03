@@ -5,7 +5,7 @@ import { sameExternalReference } from '../shared/provider-identity';
 import { LIVE_PROJECTION_MODEL_VERSION, type LiveProjectionWorkerDependencies, type LoadedLeague } from './contracts';
 import type { CurrentWorkTarget } from './current-work-plan';
 import { lineupObservationClaim } from './lineup-watch-context';
-import { nextLineupCheckAt } from './lineup-watch-policy';
+import { lineupFailureRetryDelaysSeconds, nextLineupCheckAt } from './lineup-watch-policy';
 import { elapsed, mapWithConcurrency, safeProjectionLog } from './worker-operations';
 
 /** The full weekly response is this minute's observation; no separate thin request. */
@@ -44,7 +44,7 @@ export async function loadCurrentLeagues(
       return { league, fence };
     } catch {
       if (claim) await dependencies.lineupRepository.failLineupObservation({ claim,
-        failureCode: 'full-league-source-unavailable', retryDelaysSeconds: [60, 300, 900, 3600] }).catch(() => undefined);
+        failureCode: 'full-league-source-unavailable', retryDelaysSeconds: lineupFailureRetryDelaysSeconds('current') }).catch(() => undefined);
       safeProjectionLog(dependencies, 'warn', { stage: 'league-load', outcome: 'failed', runId,
         leagueKey: state.configuration.key, failureCode: 'league-source-unavailable' });
       return null;

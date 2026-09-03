@@ -131,7 +131,7 @@ They are not scoring, visual, provider, or cadence scope additions.
 - [x] PR1: shared raw parser, scoped identities, lineup-v1, classification, balanced policy, parity tests; no route/cadence change.
 - [x] PR2: migration 007, guarded repository operations, authority batch reader, compact reader/API and full revision protocol.
 - [x] PR3: three-lane cutover, ownership, thin/full deduplication, independent future work, exact HTTP and capacity gates.
-- [ ] PR4: current/future revision polling, visibility/race/manual/fallback behavior.
+- [x] PR4: current/future revision polling, visibility/race/manual/fallback behavior.
 - [ ] PR5: obsolete code reconciliation, runbook, final production evidence and retrospective.
 
 For every PR record: head and merged commit, GitHub checks, actual preview, production
@@ -360,3 +360,39 @@ The visual presentation, URLs, score calculation and API payload remain unchange
   32.1 seconds (13 existing plus 15 protocol cases). Isolated Neon passed 104 tests.
 - Browser fixtures intercept test-page responses only. No application fixture route,
   feature flag, production payload, dependency, migration, or environment change was added.
+
+
+### PR4 release verification
+
+- PR #167: https://github.com/clawmachinejed/league-one-audit/pull/167
+- Head: 1ae2767ef8118952c4a7e1b1e5efa74bf8ae4f95.
+- Merged commit: bc51d7628d2c65045bcce0fb7c083c1a4a9ad64d at 2026-09-03T22:05:00Z.
+- GitHub run 33810314811: verify and browser-smoke succeeded; Vercel checks succeeded.
+- Actual preview 3PaRQKQkLy9qQkYAD1iKnMbTUX2V, URL https://leagueonefantasy-b2lts3ep6-robert-finchums-projects.vercel.app.
+- Production 5Wog1AP3zDiLQ6TqtUndAFLAD3o1, URL https://leagueonefantasy-lfqajgz0u-robert-finchums-projects.vercel.app, Ready and tied to bc51d762.
+- Both actual preview and live domain showed six readable matchup cards with projected totals, League One Week 1 and League Two Week 5.
+- Read-only public API verification: both Week 5 compact endpoints returned 200/no-store with valid revisions and verification times; versioned full endpoints returned 200. The actual full revision header is x-projection-snapshot-revision and matched the compact value. Vercel exposes browser cache-control public after consuming shared-cache directives; route tests retain exact shared-cache policy assertions.
+- No preview worker was authenticated against production. PR4 contains no worker or persistence runtime change; scheduled jobs remain the independently verified PR3 lanes.
+
+## PR5 implementation and reconciliation
+
+Final cleanup starts from bc51d762 on codex/lineup-freshness-pr5. The goal is to remove transitional write entry points and duplicate test-only policy while preserving established production behavior. Migration 007 and all earlier migrations remain immutable.
+
+
+### Final cleanup evidence
+
+- Current, future, and thin-observer construction are separate. Shared full projection services preserve exactly one cached projection-feed factory and its existing arguments. Future construction receives durable authority, not a calendar adapter. Two pure schedule translators moved intact into the Sleeper schedule module to remove transitive calendar coupling.
+- Removed the unused current persistence scope/storage capability, legacy full-observation supersession entry point, legacy future completion method/SQL, optional publication fence, optional materialization target, and all no-watch write bypasses. The actual worker reservation/completion flow remains unchanged.
+- New writes require ownership and actual official-observation lineage. Historical nullable lineage remains readable; no migration or database reset is included in PR5.
+- The low-level SQL inventory is now 52 markers (53 minus the obsolete complete-future-materialization-refresh). Publication remains one atomic statement with 13 parameters; materialization begin retains 12; accepted lineup observation retains 13.
+- Canonical official/projected matchup identities now carry provider, league and period. Presentation unwraps the identical opaque ID; source hashing still uses the existing raw persistence DTO. Scope rejection and fixed revision/payload parity tests pass.
+- Authority validation uses the configured league horizon. Unused canonical watch-read exposure was removed while supported low-level read operations remain.
+- Removed the test-only due selector and interval/backoff calculator, so SQL is the sole claiming/eligibility implementation. Real multirow Neon tests now cover phase selection, not-yet-due exclusion, oldest overdue catch-up and bounded claims. The three production observation paths share one unchanged retry tuple policy.
+- Replaced the obsolete future-completion integration test with actual fenced unchanged publication and atomic acknowledgment proof. Existing immutable history, pointer, source revision and retention assertions remain.
+- Independent reviews found no blocking issue in browser races/fallback, write ownership, scoped identity translation, runtime separation or provider-call parity.
+- Full local verify passed: lint, TypeScript, architecture, 1,043 unit tests in 76 files, and production build. Browser suite: 28 passed in 34.9 seconds. Isolated Neon: 105 passed in eight files, 76.23 seconds. Existing 2/3/50/300 synthetic sharing/concurrency/output-parity and unsupported-capacity checks are included in the unit gate.
+- The first isolated run identified fixture-only regressions: the broad legacy publication fixture had to populate the required source identity/shape, and a defensive test compared equivalent SQL/ISO timestamps as text. Four publication/reader/retention failures shared the first cause. Fixtures were corrected; no production guard or assertion was weakened. The complete rerun passed.
+- Production dependencies, environment configuration, all migration checksums, cache keys/TTL, formula, model, presentation and provider endpoint sets remain unchanged in PR5.
+- At approximately 22:13 UTC, read-only production watch health still showed 18/18 observed targets per league, zero pending and zero failing, with oldest observations approximately 151 seconds. This is a point-in-time operational sample, not a latency percentile guarantee.
+- Permanent guidance now lives in docs/lineup-freshness.md, with future projection and release guides aligned. Historical architecture evidence is marked superseded, not rewritten.
+- This ledger records pre-merge evidence. The final PR timeline and delivery report record the resulting merge/deployment IDs and post-release checks.
