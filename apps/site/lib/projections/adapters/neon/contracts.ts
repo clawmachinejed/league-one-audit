@@ -299,4 +299,3 @@ export type ProjectionStore = Readonly<{
     requestedWeek?: number,
   ) => Promise<StoredProjectionSnapshotSelection>;
 }>;
-

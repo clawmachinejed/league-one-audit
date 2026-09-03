@@ -224,7 +224,7 @@ Update this table in the pull request evidence without rewriting the behavioral 
 | Step | Revision/PR | Verification | Runtime/schema drift | Deployment evidence |
 | --- | --- | --- | --- | --- |
 | Baseline | `c9e8204`, PR #158 | 385 unit; 13 browser | Baseline | Production Ready; both routes healthy |
-| PR1 | Current working change | 434 unit tests across 26 files, 36 focused HTTP/page cases, full lint/TypeScript/build verification, and 13 browser tests passed. | No runtime or schema change | Preview and production verification pending |
-| PR2 | Planned store split | Store parity, exact query, snapshot compatibility, and full verification gates | Must be none | Preview and first eligible production run |
+| PR1 | `35f8649`, PR #159 | 434 unit tests across 26 files, 36 focused HTTP/page cases, full lint/TypeScript/build verification, 13 local browser tests, and both GitHub jobs passed. | None; tests and documentation only | Vercel production `8AnBRLi7eb6dK7u8EdLeNha8Zdvm`; both live league routes verified |
+| PR2 | Current store split | 434 unit tests across 26 files, 13 browser tests, 13 isolated Neon integration cases, store/SQL parity audit, full lint/TypeScript/build verification, and independent review passed. | None; mechanical store extraction and test infrastructure only | Preview and production verification pending |
 | PR3 | Planned worker split | Worker parity, provider/store call-count, structured-outcome, and full verification gates | Must be none | Preview and first eligible production run |
 | PR4 | Planned canonical cutover | Provider-contract, import-boundary, end-to-end parity, and full verification gates | Must be none | Preview and first eligible production run |
