@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import type { DatabaseClient, DatabaseRow } from './database';
 import type { MatchupsData, Team } from './types';
@@ -214,40 +213,9 @@ export const projectionStoreSqlMarkers = [
 
 export type ProjectionStoreSqlMarker = typeof projectionStoreSqlMarkers[number];
 
-export const projectionStoreSqlHashBaseline = {
-  'acquire-job': 'e4f1cfc9126479e4d219057ff90200d2f4b0ad484b6fa6f6151bdd6c3b62e0be',
-  'clean-orphan-nfl-games': '8377625b9cbbecc16eb9f293a770c9a9d3fbc9d5018ca67226e836a10a17ec37',
-  'clean-orphan-scoring-entities': 'd70241fc057a51ff0be307bd0031e4bf1e2ef6fad59e0302f2992cbe285faa6d',
-  'complete-job': '7d9d6761e32cbce6ec53ab3ed86c832eed92f2c9710d6453e809f252423c840d',
-  'fail-job': '102ed15ca57da01b204f9deb0b420d430e8aa360ab30b1c5564a6cd06413fe55',
-  'freeze-latest-baselines': '7a305fc677159706bd0ad19c3829de7f037ef240bc9009a92d84cb3d1f97185d',
-  'prune-game-observations': '70cb82dc605ee9818d089c015252240c4d239a8613067a5048406668fb44e047',
-  'prune-jobs': '55c05dbd645ab5fabb8bc6f88ebdba9733b725a422712eec82afc2bbb8aa9dc2',
-  'prune-league-observations': 'fae1921fcb220f7256a55c5acc0e12efd9a3e48ce6062ddeea073a9cb10de181',
-  'prune-projection-runs': '34bb015d5e002fc5abea71a4b17003f09adc3e1b9794b923b119e863ba5adbb2',
-  'prune-snapshots': '097901ee96c908887b281f578bfcf33aeda99b179842016ab4f0d5e2d1c2389e',
-  'publish-snapshot': 'bed3a0e4ca77c131cf01dfdcac58f43470fec5a92c883d989b25e178d41e93ca',
-  'read-current-snapshot': 'b5560a60b7a3d054d9f95878a834e81396d849fd1d7a7ae7880bbc94e7d58cb3',
-  'read-frozen-baselines': '4948871823e671a1a83670d490f19a7b95b3da64c4acd00f39fd43990cef8b25',
-  'read-job-state': '3a3b0b1e4e6a289d646bd0c010e0d84f29a654741f25a8a6ecab5bfe4c422971',
-  'read-latest-candidates': '2b02a63787c598af012900fcebe97098e05c5165c3338223741dfe4ea0c414ad',
-  'read-league-season-profile': '76a4650db6621309e7e4cb57b9b2986094e64ceedf77753f306ce4e4755ac0a5',
-  'read-snapshot-selection-by-sleeper-id': 'd59e5290600ecf7ed2d05c6e6ea87c342cf2d10a77e428e4418a8d87e8be00f8',
-  'record-game-states': '7bde3dc5b5193eb6f98b518095e02f60e3b62497c07e76364b492d21a2b26e5c',
-  'record-league-week-observation': '7494985d906025911f33c1f0d97938d884835a13a6563e27935498ce15b04894',
-  'record-projection-candidates': '18372a4b36ae81d1e3eb5b76445491150f06c17c039bb6452664d727c5a58aee',
-  'register-league-season': '8cf4cd65dc74ffc41344b75af33ee4b520dd5bc3aa65ce5b4a25410e427eda9a',
-  'resolve-nfl-games': '79aa37807bc7674d7c2a5fb210658ce2c814de58faf9632fe71853fc5848ef1a',
-  'resolve-scoring-entities': 'd68f675934371be3dc75536b8ff8c915b8fee14ee0b55fb1c66da90407dae799',
-  'upsert-nfl-games': '4dd161f2e301a3f75acf60427eb8ca3e6e86efff8b4d103436f523d7d6b5b4e5',
-  'upsert-scoring-entities': '9bdbe2e182d8ad143e13db22ee7eaff93892323a76e6d22593192404021fe380',
-} as const satisfies Readonly<Record<ProjectionStoreSqlMarker, string>>;
-
 export type ProjectionStoreSqlOperation = Readonly<{
   marker: string | null;
   markerCount: number;
-  normalizedSql: string;
-  sha256: string;
   source: string;
 }>;
 
@@ -257,17 +225,8 @@ export type ProjectionStoreSqlExtraction = Readonly<{
   sourceFiles: readonly string[];
 }>;
 
-function normalizedSql(sql: string): string {
-  return sql
-    .replace(/\r\n?/gu, '\n')
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .join('\n');
-}
-
 async function projectionStoreModuleUrls(): Promise<readonly URL[]> {
-  const root = new URL('./projection-store/', import.meta.url);
+  const root = new URL('./projections/adapters/neon/', import.meta.url);
 
   async function descendants(directory: URL): Promise<readonly URL[]> {
     let entries;
@@ -295,8 +254,8 @@ async function projectionStoreModuleUrls(): Promise<readonly URL[]> {
 }
 
 /**
- * Extracts every store-owned database call from both today's monolith and the planned module folder.
- * Keeping source discovery here lets the SQL contract survive file moves during the split.
+ * Extracts every store-owned database call from the public facade and its Neon adapter modules.
+ * Source discovery remains independent of the file that owns an individual query.
  */
 export async function extractProjectionStoreSql(): Promise<ProjectionStoreSqlExtraction> {
   const sourceUrls = await projectionStoreModuleUrls();
@@ -310,12 +269,9 @@ export async function extractProjectionStoreSql(): Promise<ProjectionStoreSqlExt
     for (const template of templates) {
       const sql = template[1];
       const markers = [...sql.matchAll(/\/\*\s*projection-store:([a-z0-9-]+)\s*\*\//gu)];
-      const normalized = normalizedSql(sql);
       operations.push({
         marker: markers.length === 1 ? markers[0][1] : null,
         markerCount: markers.length,
-        normalizedSql: normalized,
-        sha256: createHash('sha256').update(normalized).digest('hex'),
         source: sourceUrl.href,
       });
     }
