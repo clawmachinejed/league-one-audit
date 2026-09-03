@@ -1,499 +1,62 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('server-only', () => ({}));
 vi.mock('next/cache', () => ({ unstable_cache: <Value,>(value: Value) => value }));
 
 import type { WeekSchedule } from './nfl-schedule';
-import { NFL_TEAMS, type NflTeam } from './nfl-teams';
+import { createLiveProjectionWorker, LIVE_PROJECTION_MODEL_VERSION } from './live-projection-worker';
+import type { Tank01GameState } from './tank01-game-state';
+import type { Player } from './types';
 import {
-  createLiveProjectionWorker,
-  LIVE_PROJECTION_MODEL_VERSION,
-  type LiveProjectionWorkerDependencies,
-} from './live-projection-worker';
-import type {
-  PlayerProjectionRecord,
-  ProjectionStore,
-  StoredProjectionSnapshot,
-} from './projection-store';
-import type { ProjectionCadenceInput, ProjectionSyncInput } from './sleeper';
-import type { Tank01GameState, Tank01GameStatesAvailable } from './tank01-game-state';
-import type {
-  Tank01AvailableResult,
-  Tank01DefenseProjection,
-  Tank01PlayerProjection,
-  Tank01PlayerStats,
-} from './tank01';
-import type { MatchupsData, Player, Team } from './types';
-
-const NOW = new Date('2026-09-13T18:00:10.000Z');
-const KICKOFF = '2026-09-13T17:00:00.000Z';
-
-const teams: readonly Team[] = [
-  { id: 1, managerName: 'Left Manager', name: 'Left Team', avatar: null, wins: 0, losses: 0, ties: 0, pointsFor: 0, pointsAgainst: 0 },
-  { id: 2, managerName: 'Right Manager', name: 'Right Team', avatar: null, wins: 0, losses: 0, ties: 0, pointsFor: 0, pointsAgainst: 0 },
-];
-
-function player(
-  id: string,
-  name: string,
-  position: string,
-  nflTeam: 'LAC' | 'KC',
-  points: number,
-): Player {
-  return {
-    id,
-    name,
-    position,
-    nflTeam,
-    injuryStatus: null,
-    slot: position,
-    points,
-    projectedPoints: null,
-    game: {
-      kind: 'scheduled',
-      opponent: nflTeam === 'LAC' ? 'KC' : 'LAC',
-      location: nflTeam === 'LAC' ? 'away' : 'home',
-      date: '2026-09-13',
-      kickoffAt: KICKOFF,
-    },
-  };
-}
-
-const weekTeams = [
-  'LAC', 'KC', 'BUF', 'MIA',
-  ...NFL_TEAMS.filter((team) => !['LAC', 'KC', 'BUF', 'MIA'].includes(team)),
-] as readonly NflTeam[];
-
-function fullWeekSchedule(kickoffAt = KICKOFF): WeekSchedule {
-  const value: WeekSchedule = {};
-  for (let index = 0; index < weekTeams.length; index += 2) {
-    const away = weekTeams[index];
-    const home = weekTeams[index + 1];
-    value[away] = { kind: 'scheduled', opponent: home, location: 'away', date: '2026-09-13', kickoffAt };
-    value[home] = { kind: 'scheduled', opponent: away, location: 'home', date: '2026-09-13', kickoffAt };
-  }
-  return value;
-}
-
-const schedule = fullWeekSchedule();
-
-function matchupData(leftPoints = [8, 2], rightPoints = [6]): MatchupsData {
-  return {
-    league: { season: '2026', rosterPositions: ['QB', 'FLEX'], week: 1, maxWeek: 18 },
-    teams: [...teams],
-    updatedAt: '2026-09-13T18:00:01.000Z',
-    week: 1,
-    matchups: [{
-      id: '1',
-      status: 'unknown',
-      sides: [
-        {
-          team: teams[0],
-          points: leftPoints.reduce((sum, value) => sum + value, 0),
-          projectedPoints: null,
-          starters: [
-            player('p1', 'Quarter Back', 'QB', 'LAC', leftPoints[0]),
-            player('p2', 'Running Back', 'RB', 'LAC', leftPoints[1]),
-          ],
-        },
-        {
-          team: teams[1],
-          points: rightPoints[0],
-          projectedPoints: null,
-          starters: [player('p3', 'Other Quarterback', 'QB', 'KC', rightPoints[0])],
-        },
-      ],
-    }],
-  };
-}
-
-function source(leagueId: string, data = matchupData()): ProjectionSyncInput {
-  return {
-    sleeperLeagueId: leagueId,
-    leagueName: leagueId === 'l1' ? 'League One' : 'League Two',
-    scoringSettings: { pass_yd: 0.04, rush_yd: 0.1 },
-    data,
-    rosteredPlayers: data.matchups.flatMap((matchup) => matchup.sides.flatMap((side) => side.starters)),
-    schedule,
-    requestStartedAt: '2026-09-13T18:00:00.000Z',
-    requestCompletedAt: '2026-09-13T18:00:01.000Z',
-  };
-}
-
-function cadenceInput(leagueId: string, weeklySchedule = schedule): ProjectionCadenceInput {
-  return {
-    sleeperLeagueId: leagueId,
-    season: '2026',
-    week: 1,
-    schedule: weeklySchedule,
-    currentNflSeason: '2026',
-    currentNflWeek: 1,
-    currentNflSeasonType: 'regular',
-  };
-}
-
-function emptyStats(): Tank01PlayerStats {
-  return {
-    passing: { attempts: null, completions: null, yards: null, touchdowns: null, interceptions: null },
-    rushing: { carries: null, yards: null, touchdowns: null },
-    receiving: { targets: null, receptions: null, yards: null, touchdowns: null },
-    kicking: { fieldGoalsMade: null, fieldGoalsMissed: null, extraPointsMade: null, extraPointsMissed: null },
-    twoPointConversions: null,
-    fumblesLost: null,
-  };
-}
-
-function tankPlayer(
-  sleeperPlayerId: string,
-  team: NflTeam,
-  position: 'QB' | 'RB' | 'WR' | 'TE',
-  projection: Readonly<{ passingYards?: number; rushingYards?: number }>,
-): Tank01PlayerProjection {
-  const stats = emptyStats();
-  return {
-    tank01PlayerId: `tank-${sleeperPlayerId}`,
-    sleeperPlayerId,
-    team,
-    position,
-    stats: {
-      ...stats,
-      passing: { ...stats.passing, yards: projection.passingYards ?? 0 },
-      rushing: { ...stats.rushing, yards: projection.rushingYards ?? 0 },
-    },
-    scoringProjection: {
-      kind: 'offense',
-      passingYards: projection.passingYards ?? 0,
-      passingTouchdowns: 0,
-      passingInterceptions: 0,
-      rushingYards: projection.rushingYards ?? 0,
-      rushingTouchdowns: 0,
-      receptions: 0,
-      receivingYards: 0,
-      receivingTouchdowns: 0,
-      twoPointConversions: 0,
-      fumblesLost: 0,
-    },
-    missingFields: [],
-  };
-}
-
-function tankDefense(team: NflTeam): Tank01DefenseProjection {
-  return {
-    team,
-    stats: {
-      returnTouchdowns: 0, defensiveTouchdowns: 0, safeties: 0, fumbleRecoveries: 0,
-      pointsAllowed: 0, interceptions: 0, sacks: 0, blockedKicks: 0,
-    },
-    scoringProjection: {
-      kind: 'defense',
-      sacks: 0,
-      interceptions: 0,
-      fumbleRecoveries: 0,
-      defensiveTouchdowns: 0,
-      specialTeamsTouchdowns: 0,
-      safeties: 0,
-      blockedKicks: 0,
-      pointsAllowed: 0,
-    },
-    missingFields: [],
-  };
-}
-
-function projectionResult(): Tank01AvailableResult {
-  const coveragePlayers = Object.fromEntries(weekTeams.flatMap((team) => (
-    (['QB', 'RB', 'WR', 'TE'] as const).map((position) => {
-      const id = `coverage-${team}-${position}`;
-      return [id, tankPlayer(id, team, position, {})] as const;
-    })
-  )));
-  const defenses = Object.fromEntries(weekTeams.map((team) => [team, tankDefense(team)] as const));
-  const players = {
-    ...coveragePlayers,
-    p1: tankPlayer('p1', 'LAC', 'QB', { passingYards: 250 }),
-    p2: tankPlayer('p2', 'LAC', 'RB', { rushingYards: 50 }),
-    p3: tankPlayer('p3', 'KC', 'QB', { passingYards: 250 }),
-  };
-  return {
-    status: 'available',
-    season: '2026',
-    week: 1,
-    fetchedAt: '2026-09-13T16:59:59.000Z',
-    projections: {
-      bySleeperId: players,
-      byDefenseTeam: defenses,
-    },
-    coverage: {
-      playerListRows: Object.keys(players).length,
-      crosswalkEntries: Object.keys(players).length,
-      malformedPlayerListRows: 0,
-      ambiguousPlayerListRows: 0,
-      playerProjectionRows: Object.keys(players).length,
-      matchedPlayerProjections: Object.keys(players).length,
-      unmatchedPlayerProjections: 0,
-      malformedPlayerProjections: 0,
-      incompletePlayerProjections: 0,
-      defenseProjectionRows: Object.keys(defenses).length,
-      usableDefenseProjections: Object.keys(defenses).length,
-      malformedDefenseProjections: 0,
-      incompleteDefenseProjections: 0,
-    },
-    warnings: [],
-  };
-}
-
-function gameState(): Tank01GameState {
-  return {
-    gameId: 'game-1',
-    season: '2026',
-    week: 1,
-    homeTeam: 'KC',
-    awayTeam: 'LAC',
-    statusCode: 1,
-    statusText: 'Halftime',
-    period: 'Halftime',
-    clock: null,
-    phase: 'halftime',
-    clockSeconds: null,
-    remainingFraction: 0.5,
-    requestStartedAt: '2026-09-13T18:00:01.000Z',
-    requestCompletedAt: '2026-09-13T18:00:02.000Z',
-    fetchedAt: '2026-09-13T18:00:02.000Z',
-  };
-}
-
-function gameStates(game = gameState()): Tank01GameStatesAvailable {
-  return {
-    status: 'available',
-    season: '2026',
-    week: 1,
-    requestStartedAt: game.requestStartedAt,
-    requestCompletedAt: game.requestCompletedAt,
-    fetchedAt: game.fetchedAt,
-    games: [game],
-    byTeam: { [game.homeTeam]: game, [game.awayTeam]: game },
-  };
-}
-
-type FakeStore = Readonly<{
-  store: ProjectionStore;
-  acquired: ReturnType<typeof vi.fn>;
-  completed: ReturnType<typeof vi.fn>;
-  failed: ReturnType<typeof vi.fn>;
-  frozen: ReturnType<typeof vi.fn>;
-  recordedStates: ReturnType<typeof vi.fn>;
-  pruned: ReturnType<typeof vi.fn>;
-  gamesUpserted: Array<Readonly<{ key: string; kickoffAt: string | null }>>;
-  published: MatchupsData[];
-  activityWindows: Array<readonly Readonly<{ startsAt: string; endsAt: string }>[]>;
-}>;
-
-function fakeStore(freezeBaselines = true): FakeStore {
-  const acquired = vi.fn(async () => ({ kind: 'acquired' as const, attempt: 1, leaseUntil: '2026-09-13T18:02:00.000Z' }));
-  const completed = vi.fn(async () => true);
-  const failed = vi.fn(async () => true);
-  const frozen = vi.fn();
-  const recordedStates = vi.fn(async (input: {
-    states: ReadonlyArray<{ externalGameId: string; sourceRevision: string }>;
-  }) => ({
-    kind: 'stored' as const,
-    value: input.states.map((state) => ({
-      externalGameId: state.externalGameId,
-      sourceRevision: state.sourceRevision,
-      observationId: `observation-${state.externalGameId}`,
-    })),
-  }));
-  const pruned = vi.fn(async () => ({
-    kind: 'stored' as const,
-    value: { snapshotsDeleted: 0, leagueObservationsDeleted: 0, gameObservationsDeleted: 0, projectionRunsDeleted: 0, jobsDeleted: 0 },
-  }));
-  const gamesUpserted: Array<Readonly<{ key: string; kickoffAt: string | null }>> = [];
-  const published: MatchupsData[] = [];
-  const activityWindows: Array<readonly Readonly<{ startsAt: string; endsAt: string }>[]> = [];
-  const entityPlayer = new Map<string, string>();
-  const entityIds = new Map<string, string>();
-  const gameExternal = new Map<string, string>();
-  const leagueProfiles = new Map<string, string>();
-  const latest = new Map<string, PlayerProjectionRecord>();
-  const baselines = new Map<string, PlayerProjectionRecord>();
-
-  const store = {
-    enabled: true,
-    acquireJob: acquired,
-    completeJob: completed,
-    failJob: failed,
-    async registerLeagueSeason(input: { leagueKey: string }) {
-      const leagueSeasonId = `season-${input.leagueKey}`;
-      const profile = `profile-${input.leagueKey}`;
-      leagueProfiles.set(leagueSeasonId, profile);
-      return { kind: 'stored' as const, value: { leagueId: `league-${input.leagueKey}`, leagueSeasonId, scoringProfileId: profile } };
-    },
-    async upsertScoringEntities(inputs: ReadonlyArray<{ key: string; providerIds: ReadonlyArray<{ provider: string; externalId: string }> }>) {
-      return {
-        kind: 'stored' as const,
-        value: inputs.map((input) => {
-          const id = entityIds.get(input.key) ?? `entity-${input.key}`;
-          entityIds.set(input.key, id);
-          const sleeper = input.providerIds.find((provider) => provider.provider === 'sleeper');
-          if (sleeper) entityPlayer.set(id, sleeper.externalId);
-          return { key: input.key, entityId: id, conflict: false };
-        }),
-      };
-    },
-    async upsertNflGames(inputs: ReadonlyArray<{ key: string; kickoffAt: string | null }>) {
-      gamesUpserted.push(...inputs);
-      return {
-        kind: 'stored' as const,
-        value: inputs.map((input) => {
-          const gameId = `stored-${input.key}`;
-          gameExternal.set(gameId, input.key);
-          return { key: input.key, gameId };
-        }),
-      };
-    },
-    recordGameStates: recordedStates,
-    async recordProjectionCandidates(input: {
-      modelVersion: string;
-      fetchedAt: string;
-      candidates: ReadonlyArray<{
-        gameId: string;
-        entityId: string;
-        scoringProfileId: string;
-        projectionPoints: number;
-        projectedStats: Readonly<Record<string, unknown>>;
-        quality: 'complete' | 'missing' | 'invalid';
-      }>;
-    }) {
-      input.candidates.forEach((candidate) => {
-        const sleeperPlayerId = entityPlayer.get(candidate.entityId)!;
-        const key = `${candidate.scoringProfileId}:${sleeperPlayerId}`;
-        latest.set(key, {
-          sleeperPlayerId,
-          entityId: candidate.entityId,
-          entityKind: candidate.entityId.includes('team_defense') ? 'team_defense' : 'player',
-          displayName: sleeperPlayerId,
-          nflTeam: sleeperPlayerId === 'p3' ? 'KC' : 'LAC',
-          gameId: candidate.gameId,
-          tank01GameId: gameExternal.get(candidate.gameId) ?? null,
-          projectionProvider: 'tank01',
-          projectionPoints: candidate.projectionPoints,
-          projectedStats: candidate.projectedStats,
-          quality: candidate.quality,
-          sourceProjectionRunId: 'run-1',
-          modelVersion: input.modelVersion,
-          fetchedAt: input.fetchedAt,
-          frozenAt: null,
-        });
-      });
-      return { kind: 'stored' as const, value: { runId: 'run-1', candidatesStored: input.candidates.length, candidateCount: input.candidates.length } };
-    },
-    async readLatestCandidatesBySleeperIds(input: { leagueSeasonId: string; sleeperPlayerIds: readonly string[] }) {
-      const profile = leagueProfiles.get(input.leagueSeasonId)!;
-      return input.sleeperPlayerIds.flatMap((id) => {
-        const record = latest.get(`${profile}:${id}`);
-        return record ? [record] : [];
-      });
-    },
-    async freezeLatestBaselines(input: { leagueSeasonId: string; externalGameIds: readonly string[]; frozenAt: string }) {
-      frozen(input);
-      const profile = leagueProfiles.get(input.leagueSeasonId)!;
-      if (freezeBaselines) {
-        for (const [key, record] of latest) {
-          if (key.startsWith(`${profile}:`) && record.tank01GameId && input.externalGameIds.includes(record.tank01GameId)) {
-            baselines.set(key, { ...record, frozenAt: input.frozenAt });
-          }
-        }
-      }
-      return { kind: 'stored' as const, value: [...baselines.values()] };
-    },
-    async readFrozenBaselinesBySleeperIds(input: { leagueSeasonId: string; sleeperPlayerIds: readonly string[] }) {
-      const profile = leagueProfiles.get(input.leagueSeasonId)!;
-      return input.sleeperPlayerIds.flatMap((id) => {
-        const record = baselines.get(`${profile}:${id}`);
-        return record ? [record] : [];
-      });
-    },
-    async readCurrentSnapshot() { return null; },
-    pruneHistory: pruned,
-    async recordLeagueWeekObservation(input: { expectedTank01GameIds: readonly string[] }) {
-      return {
-        kind: 'stored' as const,
-        value: {
-          observationId: 'league-observation',
-          playerPointsStored: 3,
-          rosterPointsStored: 2,
-          unmappedSleeperPlayerIds: [],
-          expectedGamesStored: input.expectedTank01GameIds.length,
-          unmappedTank01GameIds: [],
-        },
-      };
-    },
-    async publishSnapshot(input: {
-      payload: MatchupsData;
-      leagueSeasonId: string;
-      week: number;
-      modelVersion: string;
-      revisionKey: string;
-      calculatedAt: string;
-      activityWindows: readonly Readonly<{ startsAt: string; endsAt: string }>[];
-    }) {
-      published.push(input.payload);
-      activityWindows.push(input.activityWindows);
-      const snapshot: StoredProjectionSnapshot = {
-        snapshotId: `snapshot-${published.length}`,
-        leagueSeasonId: input.leagueSeasonId,
-        week: input.week,
-        modelVersion: input.modelVersion,
-        revisionKey: input.revisionKey,
-        calculatedAt: input.calculatedAt,
-        publishedAt: input.calculatedAt,
-        verifiedAt: input.calculatedAt,
-        activityWindows: input.activityWindows,
-        isCurrent: true,
-        payload: input.payload,
-      };
-      return { kind: 'published' as const, snapshot };
-    },
-  } as unknown as ProjectionStore;
-  return {
-    store, acquired, completed, failed, frozen, recordedStates, pruned,
-    gamesUpserted, published, activityWindows,
-  };
-}
-
-function workerDependencies(
-  fake: FakeStore,
-  options: Readonly<{
-    cadence?: ProjectionCadenceInput;
-    games?: Tank01GameStatesAvailable;
-    now?: Date;
-  }> = {},
-): LiveProjectionWorkerDependencies & Readonly<{
-  cadenceMock: ReturnType<typeof vi.fn>;
-  sourceMock: ReturnType<typeof vi.fn>;
-  projectionMock: ReturnType<typeof vi.fn>;
-  gamesMock: ReturnType<typeof vi.fn>;
-}> {
-  const cadenceMock = vi.fn(async (leagueId: string) => options.cadence ?? cadenceInput(leagueId));
-  const sourceMock = vi.fn(async (leagueId: string) => source(leagueId));
-  const projectionMock = vi.fn(async () => projectionResult());
-  const gamesMock = vi.fn(async () => options.games ?? gameStates());
-  return {
-    store: fake.store,
-    leagues: [{ key: 'league1', sleeperLeagueId: 'l1' }, { key: 'league2', sleeperLeagueId: 'l2' }],
-    getProjectionCadenceInput: cadenceMock,
-    getProjectionSyncInput: sourceMock,
-    getWeeklyProjections: projectionMock,
-    getWeeklyGameStates: gamesMock,
-    now: () => new Date(options.now ?? NOW),
-    workerId: () => 'worker-1',
-    cadenceMock,
-    sourceMock,
-    projectionMock,
-    gamesMock,
-  };
-}
+  NOW,
+  cadenceInput,
+  fakeStore,
+  fullWeekSchedule,
+  gameState,
+  gameStates,
+  matchupData,
+  player,
+  projectionResult,
+  schedule,
+  source,
+  workerDependencies,
+} from './live-projection-worker.fixtures';
 
 describe('live projection worker', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('returns disabled without loading cadence, claiming a job, or calling providers', async () => {
+    const store = fakeStore(true, false);
+    const dependencies = workerDependencies(store);
+
+    await expect(createLiveProjectionWorker(dependencies).run()).resolves.toEqual({ status: 'disabled' });
+    expect(dependencies.cadenceMock).not.toHaveBeenCalled();
+    expect(dependencies.sourceMock).not.toHaveBeenCalled();
+    expect(dependencies.projectionMock).not.toHaveBeenCalled();
+    expect(dependencies.gamesMock).not.toHaveBeenCalled();
+    expect(store.acquired).not.toHaveBeenCalled();
+    expect(store.operations).toEqual([]);
+  });
+
+  it.each(['busy', 'completed'] as const)(
+    'returns the lease %s outcome without loading league or provider data',
+    async (kind) => {
+      const store = fakeStore();
+      store.acquired.mockResolvedValueOnce({ kind });
+      const dependencies = workerDependencies(store);
+
+      await expect(createLiveProjectionWorker(dependencies).run()).resolves.toEqual({
+        status: 'skipped', reason: kind, cadence: null,
+      });
+      expect(dependencies.cadenceMock).toHaveBeenCalledOnce();
+      expect(dependencies.sourceMock).not.toHaveBeenCalled();
+      expect(dependencies.projectionMock).not.toHaveBeenCalled();
+      expect(dependencies.gamesMock).not.toHaveBeenCalled();
+      expect(store.completed).not.toHaveBeenCalled();
+      expect(store.failed).not.toHaveBeenCalled();
+    },
+  );
+
   it('preflights one seed league and makes no Neon or provider calls while idle', async () => {
     const store = fakeStore();
     const idleSchedule = fullWeekSchedule('2026-09-20T17:00:00.000Z');
@@ -589,7 +152,8 @@ describe('live projection worker', () => {
     expect(dependencies.gamesMock).not.toHaveBeenCalled();
   });
 
-  it('shares Tank01 calls, freezes kickoff baselines, and publishes exact team sums for both leagues', async () => {
+  it('shares Tank01 calls, accepts halftime without a raw clock, and publishes one coherent two-league run', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
     const store = fakeStore();
     const dependencies = workerDependencies(store);
     const result = await createLiveProjectionWorker(dependencies).run();
@@ -597,12 +161,41 @@ describe('live projection worker', () => {
     expect(result).toEqual({
       status: 'completed', cadence: 'live-window', publishedLeagues: 2, failedLeagues: 0, providerGroups: 1,
     });
-    expect(store.acquired).toHaveBeenCalledWith(expect.objectContaining({ jobKey: 'live-projection-sync' }));
+    expect(store.acquired).toHaveBeenCalledWith({
+      jobKey: 'live-projection-sync',
+      jobType: 'live-projection-sync',
+      scheduledFor: '2026-09-13T18:00:00.000Z',
+      payload: { modelVersion: 'clock-v1', forced: false },
+      workerId: 'worker-1',
+      leaseSeconds: 120,
+    });
     expect(dependencies.sourceMock).toHaveBeenCalledTimes(2);
     expect(dependencies.projectionMock).toHaveBeenCalledOnce();
     expect(dependencies.gamesMock).toHaveBeenCalledOnce();
     expect(store.frozen).toHaveBeenCalledTimes(2);
     expect(store.published).toHaveLength(2);
+    expect(store.publishInputs.map((input) => ({
+      leagueSeasonId: input.leagueSeasonId,
+      week: input.week,
+      modelVersion: input.modelVersion,
+      calculatedAt: input.calculatedAt,
+      revisionKey: input.revisionKey,
+    }))).toEqual([
+      {
+        leagueSeasonId: 'season-league1',
+        week: 1,
+        modelVersion: 'clock-v1',
+        calculatedAt: NOW.toISOString(),
+        revisionKey: '085f88d9c1d808d29099dc4b7c013f4946fde0bddd56dc1a4429a3e16752fdb1',
+      },
+      {
+        leagueSeasonId: 'season-league2',
+        week: 1,
+        modelVersion: 'clock-v1',
+        calculatedAt: NOW.toISOString(),
+        revisionKey: '085f88d9c1d808d29099dc4b7c013f4946fde0bddd56dc1a4429a3e16752fdb1',
+      },
+    ]);
     expect(store.activityWindows).toEqual([
       [{ startsAt: '2026-09-13T15:00:00.000Z', endsAt: '2026-09-14T00:00:00.000Z' }],
       [{ startsAt: '2026-09-13T15:00:00.000Z', endsAt: '2026-09-14T00:00:00.000Z' }],
@@ -618,6 +211,36 @@ describe('live projection worker', () => {
     }
     expect(store.completed).toHaveBeenCalledOnce();
     expect(store.failed).not.toHaveBeenCalled();
+    expect(store.operations).toEqual([
+      'acquire-job',
+      'upsert-nfl-games',
+      'record-game-states',
+      'upsert-scoring-entities',
+      'register-league-season',
+      'register-league-season',
+      'record-projection-candidates',
+      'record-projection-candidates',
+      'freeze-latest-baselines',
+      'freeze-latest-baselines',
+      'read-latest-candidates',
+      'read-frozen-baselines',
+      'read-current-snapshot',
+      'read-latest-candidates',
+      'read-frozen-baselines',
+      'read-current-snapshot',
+      'record-league-week-observation',
+      'record-league-week-observation',
+      'publish-snapshot',
+      'publish-snapshot',
+      'complete-job',
+    ]);
+    expect(info.mock.calls.map(([entry]) => JSON.parse(String(entry)))).toEqual([
+      { service: 'live-projection-sync', stage: 'lease', outcome: 'started' },
+      {
+        service: 'live-projection-sync', stage: 'run', outcome: 'completed',
+        publishedLeagues: 2, failedLeagues: 0,
+      },
+    ]);
     expect(LIVE_PROJECTION_MODEL_VERSION).toBe('clock-v1');
   });
 
@@ -667,6 +290,37 @@ describe('live projection worker', () => {
     expect(store.published).toHaveLength(0);
     expect(store.completed).not.toHaveBeenCalled();
     expect(store.failed).toHaveBeenCalledOnce();
+  });
+
+  it('calls both shared providers once and fails the whole provider group when both are unavailable', async () => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const store = fakeStore();
+    const dependencies = workerDependencies(store);
+    dependencies.projectionMock.mockResolvedValue({
+      status: 'unavailable', season: '2026', week: 1,
+      reason: 'provider-error', message: 'projection provider unavailable',
+    });
+    dependencies.gamesMock.mockResolvedValue({
+      status: 'unavailable', season: '2026', week: 1,
+      reason: 'provider-error', message: 'game provider unavailable',
+    });
+
+    await expect(createLiveProjectionWorker(dependencies).run()).resolves.toEqual({ status: 'failed' });
+    expect(dependencies.projectionMock).toHaveBeenCalledOnce();
+    expect(dependencies.projectionMock).toHaveBeenCalledWith('2026', 1);
+    expect(dependencies.gamesMock).toHaveBeenCalledOnce();
+    expect(dependencies.gamesMock).toHaveBeenCalledWith('2026', 1);
+    expect(store.gamesUpserted).toEqual([]);
+    expect(store.published).toEqual([]);
+    expect(store.completed).not.toHaveBeenCalled();
+    expect(store.failed).toHaveBeenCalledOnce();
+    expect(warning.mock.calls.map(([entry]) => JSON.parse(String(entry)))).toEqual([{
+      service: 'live-projection-sync', stage: 'provider-load', outcome: 'failed', season: '2026', week: 1,
+    }]);
+    expect(error.mock.calls.map(([entry]) => JSON.parse(String(entry)))).toEqual([{
+      service: 'live-projection-sync', stage: 'league-publish', outcome: 'failed',
+    }]);
   });
 
   it('persists kickoff time for a game represented only by a rostered bench player', async () => {
@@ -726,6 +380,60 @@ describe('live projection worker', () => {
 
     await expect(createLiveProjectionWorker(dependencies).run()).resolves.toEqual({ status: 'failed' });
     expect(store.published).toHaveLength(0);
+    expect(store.completed).not.toHaveBeenCalled();
+    expect(store.failed).toHaveBeenCalledOnce();
+  });
+
+  it('rejects a live game without a normalized phase or remaining fraction after shared provider persistence', async () => {
+    const store = fakeStore();
+    const invalidLiveState: Tank01GameState = {
+      ...gameState(),
+      statusText: 'In Progress',
+      period: null,
+      phase: 'unknown',
+      remainingFraction: null,
+    };
+    const dependencies = workerDependencies(store, { games: gameStates(invalidLiveState) });
+
+    await expect(createLiveProjectionWorker(dependencies).run()).resolves.toEqual({ status: 'failed' });
+    expect(dependencies.projectionMock).toHaveBeenCalledOnce();
+    expect(dependencies.gamesMock).toHaveBeenCalledOnce();
+    expect(store.gamesUpserted).toHaveLength(1);
+    expect(store.recordedStates).toHaveBeenCalledOnce();
+    expect(store.published).toEqual([]);
+    expect(store.completed).not.toHaveBeenCalled();
+    expect(store.failed).toHaveBeenCalledOnce();
+  });
+
+  it('does not publish a final matchup when Sleeper omits one starter official score', async () => {
+    const store = fakeStore();
+    const finalGame: Tank01GameState = {
+      ...gameState(),
+      statusCode: 2,
+      statusText: 'Final',
+      period: 'Final',
+      phase: 'final',
+      remainingFraction: 0,
+    };
+    const dependencies = workerDependencies(store, { games: gameStates(finalGame) });
+    dependencies.sourceMock.mockImplementation(async (leagueId: string) => {
+      const data = matchupData();
+      return source(leagueId, {
+        ...data,
+        matchups: data.matchups.map((matchup) => ({
+          ...matchup,
+          sides: matchup.sides.map((side) => ({
+            ...side,
+            starters: side.starters.map((starter) => (
+              starter.id === 'p1' ? { ...starter, points: null } : starter
+            )),
+          })),
+        })),
+      });
+    });
+
+    await expect(createLiveProjectionWorker(dependencies).run()).resolves.toEqual({ status: 'failed' });
+    expect(store.published).toEqual([]);
     expect(store.completed).not.toHaveBeenCalled();
     expect(store.failed).toHaveBeenCalledOnce();
   });
@@ -820,6 +528,92 @@ describe('live projection worker', () => {
     expect(store.failed).not.toHaveBeenCalled();
   });
 
+  it('fails the acquired job before provider work when every league source load fails', async () => {
+    const store = fakeStore();
+    const dependencies = workerDependencies(store);
+    dependencies.sourceMock.mockRejectedValue(new Error('Sleeper unavailable'));
+
+    await expect(createLiveProjectionWorker(dependencies).run()).resolves.toEqual({ status: 'failed' });
+    expect(dependencies.sourceMock).toHaveBeenCalledTimes(2);
+    expect(dependencies.projectionMock).not.toHaveBeenCalled();
+    expect(dependencies.gamesMock).not.toHaveBeenCalled();
+    expect(store.published).toEqual([]);
+    expect(store.completed).not.toHaveBeenCalled();
+    expect(store.failed).toHaveBeenCalledOnce();
+  });
+
+  it('isolates a mismatched Sleeper source identity and publishes the valid configured league', async () => {
+    const store = fakeStore();
+    const dependencies = workerDependencies(store);
+    dependencies.sourceMock.mockImplementation(async (leagueId: string) => (
+      leagueId === 'l1' ? { ...source(leagueId), sleeperLeagueId: 'unexpected-league' } : source(leagueId)
+    ));
+
+    await expect(createLiveProjectionWorker(dependencies).run()).resolves.toEqual({
+      status: 'completed', cadence: 'live-window', publishedLeagues: 1, failedLeagues: 1, providerGroups: 1,
+    });
+    expect(dependencies.sourceMock).toHaveBeenCalledTimes(2);
+    expect(dependencies.projectionMock).toHaveBeenCalledOnce();
+    expect(dependencies.gamesMock).toHaveBeenCalledOnce();
+    expect(store.publishInputs.map((input) => input.leagueSeasonId)).toEqual(['season-league2']);
+    expect(store.completed).toHaveBeenCalledOnce();
+    expect(store.failed).not.toHaveBeenCalled();
+  });
+
+  it('isolates one league publication failure and reports persisted provider-group semantics', async () => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const store = fakeStore();
+    const publishSnapshot = store.store.publishSnapshot;
+    vi.spyOn(store.store, 'publishSnapshot').mockImplementation(async (input) => {
+      if (input.leagueSeasonId === 'season-league1') throw new Error('publication unavailable');
+      return publishSnapshot(input);
+    });
+    const dependencies = workerDependencies(store);
+
+    await expect(createLiveProjectionWorker(dependencies).run()).resolves.toEqual({
+      status: 'completed', cadence: 'live-window', publishedLeagues: 1, failedLeagues: 1, providerGroups: 1,
+    });
+    expect(dependencies.projectionMock).toHaveBeenCalledOnce();
+    expect(dependencies.gamesMock).toHaveBeenCalledOnce();
+    expect(store.publishInputs.map((input) => input.leagueSeasonId)).toEqual(['season-league2']);
+    expect(store.completed).toHaveBeenCalledOnce();
+    expect(store.failed).not.toHaveBeenCalled();
+    expect(warning.mock.calls.map(([entry]) => JSON.parse(String(entry)))).toContainEqual({
+      service: 'live-projection-sync', stage: 'league-publish', outcome: 'failed',
+      leagueKey: 'league1', season: '2026', week: 1,
+    });
+  });
+
+  it('records an isolated missing starter candidate as zero without rejecting a complete weekly slate', async () => {
+    const store = fakeStore();
+    const dependencies = workerDependencies(store);
+    const complete = projectionResult();
+    dependencies.projectionMock.mockResolvedValue({
+      ...complete,
+      projections: {
+        ...complete.projections,
+        bySleeperId: Object.fromEntries(
+          Object.entries(complete.projections.bySleeperId).filter(([id]) => id !== 'p1'),
+        ),
+      },
+    });
+
+    await expect(createLiveProjectionWorker(dependencies).run()).resolves.toEqual({
+      status: 'completed', cadence: 'live-window', publishedLeagues: 2, failedLeagues: 0, providerGroups: 1,
+    });
+    expect(store.candidateBatches).toHaveLength(2);
+    for (const candidates of store.candidateBatches) {
+      expect(candidates).toContainEqual({
+        entityId: 'entity-player:p1', projectionPoints: 0, quality: 'missing',
+      });
+    }
+    for (const payload of store.published) {
+      const left = payload.matchups[0].sides[0];
+      expect(left.starters.find((starter) => starter.id === 'p1')?.projectedPoints).toBe(8);
+      expect(left.projectedPoints).toBe(12.5);
+    }
+  });
+
   it('uses the explicit zero baseline after kickoff when no eligible pregame candidate was frozen', async () => {
     const store = fakeStore(false);
     const dependencies = workerDependencies(store);
@@ -857,6 +651,19 @@ describe('live projection worker', () => {
       before: '2026-09-11T18:03:10.000Z', keepRecentSnapshotsPerLeagueWeek: 3,
     });
     expect(store.completed).toHaveBeenCalledOnce();
+  });
+
+  it('marks the run failed when the acquired lease is lost or expires before completion', async () => {
+    const store = fakeStore();
+    store.completed.mockResolvedValueOnce(false);
+    const dependencies = workerDependencies(store);
+
+    await expect(createLiveProjectionWorker(dependencies).run()).resolves.toEqual({ status: 'failed' });
+    expect(store.published).toHaveLength(2);
+    expect(store.completed).toHaveBeenCalledWith('live-projection-sync', 'worker-1');
+    expect(store.failed).toHaveBeenCalledWith(
+      'live-projection-sync', 'worker-1', 'Projection job lease was lost.',
+    );
   });
 
   it('allows hourly preparation when a regular-season kickoff is within one week', async () => {
