@@ -36,6 +36,7 @@ vi.mock('next/cache', () => ({
   },
 }));
 
+import { NFL_TEAMS } from './nfl-teams';
 import { createTank01ProjectionProvider, getTank01WeeklyProjections } from './tank01';
 
 const playerProjection = (overrides: Record<string, unknown> = {}) => ({
@@ -66,6 +67,51 @@ const defenseProjection = (overrides: Record<string, unknown> = {}) => ({
   blockKick: '0.1',
   ...overrides,
 });
+
+const coveragePositions = ['QB', 'RB', 'WR', 'TE'] as const;
+
+function completePlayerProjectionRows(): Record<string, unknown> {
+  return Object.fromEntries(NFL_TEAMS.flatMap((team) => coveragePositions.map((position) => {
+    const playerID = `tank-${team}-${position}`;
+    return [playerID, playerProjection({ playerID, team, pos: position })] as const;
+  })));
+}
+
+function incompletePlayerProjectionRows(): Record<string, unknown> {
+  return Object.fromEntries(NFL_TEAMS.flatMap((team) => coveragePositions.map((position) => {
+    const playerID = `tank-${team}-${position}`;
+    return [playerID, playerProjection({
+      playerID,
+      team,
+      pos: position,
+      Passing: { passYds: '100' },
+      Rushing: undefined,
+      Receiving: undefined,
+      twoPointConversion: undefined,
+      fumblesLost: undefined,
+    })] as const;
+  })));
+}
+
+function completeDefenseProjectionRows(): Record<string, unknown> {
+  return Object.fromEntries(NFL_TEAMS.map((team) => [team, defenseProjection({ teamAbv: team })]));
+}
+
+function completePlayerListRows(): unknown[] {
+  return NFL_TEAMS.flatMap((team) => coveragePositions.map((position) => {
+    const playerID = `tank-${team}-${position}`;
+    return { playerID, sleeperBotID: `sleeper-${team}-${position}` };
+  }));
+}
+
+function completeProjectionEnvelope() {
+  return projectionEnvelope({
+    body: {
+      playerProjections: completePlayerProjectionRows(),
+      teamDefenseProjections: completeDefenseProjectionRows(),
+    },
+  });
+}
 
 const projectionEnvelope = (overrides: Record<string, unknown> = {}) => ({
   statusCode: 200,
@@ -363,7 +409,7 @@ describe('Tank01 weekly projection provider', () => {
 
   it('uses two one-hour shared caches for normalized production data without putting the credential in a key', async () => {
     const projectionRegistration = nextCacheRegistrations.find(({ keyParts }) => (
-      keyParts.includes('tank01-normalized-projection-slate-v1')
+      keyParts.includes('tank01-normalized-projection-slate-v3')
     ));
     const crosswalkRegistration = nextCacheRegistrations.find(({ keyParts }) => (
       keyParts.includes('tank01-normalized-player-crosswalk-v1')
@@ -375,6 +421,7 @@ describe('Tank01 weekly projection provider', () => {
     const originalFetch = globalThis.fetch;
     const secret = 'must-not-enter-a-cache-key';
     const sharedPlayerProjections = Object.create(null) as Record<string, unknown>;
+    Object.assign(sharedPlayerProjections, completePlayerProjectionRows());
     sharedPlayerProjections['tank-qb'] = playerProjection();
     sharedPlayerProjections['__proto__'] = playerProjection({ playerID: '__proto__', pos: 'RB' });
     Object.defineProperty(sharedPlayerProjections, 'constructor', {
@@ -383,9 +430,10 @@ describe('Tank01 weekly projection provider', () => {
     const fetch = mockFetch(projectionEnvelope({
       body: {
         playerProjections: sharedPlayerProjections,
-        teamDefenseProjections: { JAC: defenseProjection() },
+        teamDefenseProjections: completeDefenseProjectionRows(),
       },
     }), playerEnvelope([
+      ...completePlayerListRows(),
       { playerID: 'tank-qb', sleeperBotID: 'sleeper-qb' },
       { playerID: '__proto__', sleeperBotID: 'constructor' },
       { playerID: 'constructor', sleeperBotID: '__proto__' },
@@ -423,7 +471,8 @@ describe('Tank01 weekly projection provider', () => {
     expect(projectionRegistration?.values[0]).not.toHaveProperty('body');
     expect(projectionRegistration?.values[0]).not.toHaveProperty('statusCode');
     expect(crosswalkRegistration?.values[0]).toMatchObject({
-      sleeperIdByTank01Id: { 'tank-qb': 'sleeper-qb', constructor: '__proto__' }, playerListRows: 3,
+      sleeperIdByTank01Id: { 'tank-qb': 'sleeper-qb', constructor: '__proto__' },
+      playerListRows: completePlayerListRows().length + 3,
     });
     const cachedCrosswalk = crosswalkRegistration?.values[0] as {
       sleeperIdByTank01Id: Record<string, string>;
@@ -436,7 +485,7 @@ describe('Tank01 weekly projection provider', () => {
 
   it('does not persist provider failures in the one-hour shared cache and retains the short retry backoff', async () => {
     const projectionRegistration = nextCacheRegistrations.find(({ keyParts }) => (
-      keyParts.includes('tank01-normalized-projection-slate-v1')
+      keyParts.includes('tank01-normalized-projection-slate-v3')
     ));
     const loadsBefore = projectionRegistration?.loads ?? 0;
     const originalKey = process.env.TANK01_API_KEY;
@@ -447,7 +496,7 @@ describe('Tank01 weekly projection provider', () => {
     const fetch = vi.fn(async (input: string | URL | Request) => {
       const url = new URL(String(input));
       if (url.pathname === '/getNFLProjections') {
-        return projectionFails ? new Response(null, { status: 503 }) : Response.json(projectionEnvelope());
+        return projectionFails ? new Response(null, { status: 503 }) : Response.json(completeProjectionEnvelope());
       }
       if (url.pathname === '/getNFLPlayerList') return Response.json(playerEnvelope());
       return new Response(null, { status: 404 });
@@ -476,6 +525,85 @@ describe('Tank01 weekly projection provider', () => {
     }
 
     expect(projectionRegistration?.loads).toBe(loadsBefore + 2);
+  });
+
+  it('rejects a truncated raw production slate before success caching and recovers after failure backoff', async () => {
+    const projectionRegistration = nextCacheRegistrations.find(({ keyParts }) => (
+      keyParts.includes('tank01-normalized-projection-slate-v3')
+    ));
+    const loadsBefore = projectionRegistration?.loads ?? 0;
+    const valuesBefore = projectionRegistration?.values.length ?? 0;
+    const originalKey = process.env.TANK01_API_KEY;
+    const originalFetch = globalThis.fetch;
+    let clock = Date.parse('2026-09-01T12:00:00Z');
+    let truncated = true;
+    const now = vi.spyOn(Date, 'now').mockImplementation(() => clock);
+    const fetch = vi.fn(async (input: string | URL | Request) => {
+      const url = new URL(String(input));
+      if (url.pathname === '/getNFLProjections') {
+        return Response.json(truncated ? projectionEnvelope() : completeProjectionEnvelope());
+      }
+      if (url.pathname === '/getNFLPlayerList') return Response.json(playerEnvelope(completePlayerListRows()));
+      return new Response(null, { status: 404 });
+    });
+    process.env.TANK01_API_KEY = 'truncated-slate-secret';
+    globalThis.fetch = fetch as typeof globalThis.fetch;
+
+    try {
+      const first = await getTank01WeeklyProjections('2026', 17);
+      expect(first).toMatchObject({
+        status: 'unavailable', reason: 'invalid-response', retryAt: '2026-09-01T12:01:00.000Z',
+      });
+      const callsAfterFailure = fetch.mock.calls.length;
+      await expect(getTank01WeeklyProjections('2026', 17)).resolves.toEqual(first);
+      expect(fetch).toHaveBeenCalledTimes(callsAfterFailure);
+
+      clock += 60_001;
+      truncated = false;
+      await expect(getTank01WeeklyProjections('2026', 17)).resolves.toMatchObject({ status: 'available' });
+      const callsAfterRecovery = fetch.mock.calls.length;
+      await expect(getTank01WeeklyProjections('2026', 17)).resolves.toMatchObject({ status: 'available' });
+      expect(fetch).toHaveBeenCalledTimes(callsAfterRecovery);
+    } finally {
+      now.mockRestore();
+      globalThis.fetch = originalFetch;
+      if (originalKey === undefined) delete process.env.TANK01_API_KEY;
+      else process.env.TANK01_API_KEY = originalKey;
+    }
+
+    expect(projectionRegistration?.loads).toBe(loadsBefore + 2);
+    expect(projectionRegistration?.values).toHaveLength(valuesBefore + 1);
+  });
+
+  it('rejects identity-complete rows with unusable statistics before success caching', async () => {
+    const projectionRegistration = nextCacheRegistrations.find(({ keyParts }) => (
+      keyParts.includes('tank01-normalized-projection-slate-v3')
+    ));
+    const loadsBefore = projectionRegistration?.loads ?? 0;
+    const valuesBefore = projectionRegistration?.values.length ?? 0;
+    const originalKey = process.env.TANK01_API_KEY;
+    const originalFetch = globalThis.fetch;
+    const fetch = mockFetch(projectionEnvelope({
+      body: {
+        playerProjections: incompletePlayerProjectionRows(),
+        teamDefenseProjections: completeDefenseProjectionRows(),
+      },
+    }), playerEnvelope(completePlayerListRows()));
+    process.env.TANK01_API_KEY = 'unusable-slate-secret';
+    globalThis.fetch = fetch as typeof globalThis.fetch;
+
+    try {
+      await expect(getTank01WeeklyProjections('2026', 15)).resolves.toMatchObject({
+        status: 'unavailable', reason: 'invalid-response',
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+      if (originalKey === undefined) delete process.env.TANK01_API_KEY;
+      else process.env.TANK01_API_KEY = originalKey;
+    }
+
+    expect(projectionRegistration?.loads).toBe(loadsBefore + 1);
+    expect(projectionRegistration?.values).toHaveLength(valuesBefore);
   });
 
   it('waits for sibling HTTP work to abort at the fifteen-second provider deadline', async () => {

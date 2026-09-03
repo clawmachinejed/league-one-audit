@@ -5,6 +5,7 @@ vi.mock('next/cache', () => ({ unstable_cache: <Value,>(value: Value) => value }
 vi.mock('next/server', () => ({ after: vi.fn() }));
 
 import type { WeekSchedule } from './nfl-schedule';
+import { NFL_TEAMS, type NflTeam } from './nfl-teams';
 import {
   createLiveProjectionWorker,
   LIVE_PROJECTION_MODEL_VERSION,
@@ -17,7 +18,12 @@ import type {
 } from './projection-store';
 import type { ProjectionCadenceInput, ProjectionSyncInput } from './sleeper';
 import type { Tank01GameState, Tank01GameStatesAvailable } from './tank01-game-state';
-import type { Tank01AvailableResult, Tank01PlayerProjection, Tank01PlayerStats } from './tank01';
+import type {
+  Tank01AvailableResult,
+  Tank01DefenseProjection,
+  Tank01PlayerProjection,
+  Tank01PlayerStats,
+} from './tank01';
 import type { MatchupsData, Player, Team } from './types';
 
 const NOW = new Date('2026-09-13T18:00:10.000Z');
@@ -54,10 +60,23 @@ function player(
   };
 }
 
-const schedule: WeekSchedule = {
-  LAC: { kind: 'scheduled', opponent: 'KC', location: 'away', date: '2026-09-13', kickoffAt: KICKOFF },
-  KC: { kind: 'scheduled', opponent: 'LAC', location: 'home', date: '2026-09-13', kickoffAt: KICKOFF },
-};
+const weekTeams = [
+  'LAC', 'KC', 'BUF', 'MIA',
+  ...NFL_TEAMS.filter((team) => !['LAC', 'KC', 'BUF', 'MIA'].includes(team)),
+] as readonly NflTeam[];
+
+function fullWeekSchedule(kickoffAt = KICKOFF): WeekSchedule {
+  const value: WeekSchedule = {};
+  for (let index = 0; index < weekTeams.length; index += 2) {
+    const away = weekTeams[index];
+    const home = weekTeams[index + 1];
+    value[away] = { kind: 'scheduled', opponent: home, location: 'away', date: '2026-09-13', kickoffAt };
+    value[home] = { kind: 'scheduled', opponent: away, location: 'home', date: '2026-09-13', kickoffAt };
+  }
+  return value;
+}
+
+const schedule = fullWeekSchedule();
 
 function matchupData(leftPoints = [8, 2], rightPoints = [6]): MatchupsData {
   return {
@@ -127,8 +146,8 @@ function emptyStats(): Tank01PlayerStats {
 
 function tankPlayer(
   sleeperPlayerId: string,
-  team: 'LAC' | 'KC',
-  position: 'QB' | 'RB',
+  team: NflTeam,
+  position: 'QB' | 'RB' | 'WR' | 'TE',
   projection: Readonly<{ passingYards?: number; rushingYards?: number }>,
 ): Tank01PlayerProjection {
   const stats = emptyStats();
@@ -145,38 +164,77 @@ function tankPlayer(
     scoringProjection: {
       kind: 'offense',
       passingYards: projection.passingYards ?? 0,
+      passingTouchdowns: 0,
+      passingInterceptions: 0,
       rushingYards: projection.rushingYards ?? 0,
+      rushingTouchdowns: 0,
+      receptions: 0,
+      receivingYards: 0,
+      receivingTouchdowns: 0,
+      twoPointConversions: 0,
+      fumblesLost: 0,
+    },
+    missingFields: [],
+  };
+}
+
+function tankDefense(team: NflTeam): Tank01DefenseProjection {
+  return {
+    team,
+    stats: {
+      returnTouchdowns: 0, defensiveTouchdowns: 0, safeties: 0, fumbleRecoveries: 0,
+      pointsAllowed: 0, interceptions: 0, sacks: 0, blockedKicks: 0,
+    },
+    scoringProjection: {
+      kind: 'defense',
+      sacks: 0,
+      interceptions: 0,
+      fumbleRecoveries: 0,
+      defensiveTouchdowns: 0,
+      specialTeamsTouchdowns: 0,
+      safeties: 0,
+      blockedKicks: 0,
+      pointsAllowed: 0,
     },
     missingFields: [],
   };
 }
 
 function projectionResult(): Tank01AvailableResult {
+  const coveragePlayers = Object.fromEntries(weekTeams.flatMap((team) => (
+    (['QB', 'RB', 'WR', 'TE'] as const).map((position) => {
+      const id = `coverage-${team}-${position}`;
+      return [id, tankPlayer(id, team, position, {})] as const;
+    })
+  )));
+  const defenses = Object.fromEntries(weekTeams.map((team) => [team, tankDefense(team)] as const));
+  const players = {
+    ...coveragePlayers,
+    p1: tankPlayer('p1', 'LAC', 'QB', { passingYards: 250 }),
+    p2: tankPlayer('p2', 'LAC', 'RB', { rushingYards: 50 }),
+    p3: tankPlayer('p3', 'KC', 'QB', { passingYards: 250 }),
+  };
   return {
     status: 'available',
     season: '2026',
     week: 1,
     fetchedAt: '2026-09-13T16:59:59.000Z',
     projections: {
-      bySleeperId: {
-        p1: tankPlayer('p1', 'LAC', 'QB', { passingYards: 250 }),
-        p2: tankPlayer('p2', 'LAC', 'RB', { rushingYards: 50 }),
-        p3: tankPlayer('p3', 'KC', 'QB', { passingYards: 250 }),
-      },
-      byDefenseTeam: {},
+      bySleeperId: players,
+      byDefenseTeam: defenses,
     },
     coverage: {
-      playerListRows: 3,
-      crosswalkEntries: 3,
+      playerListRows: Object.keys(players).length,
+      crosswalkEntries: Object.keys(players).length,
       malformedPlayerListRows: 0,
       ambiguousPlayerListRows: 0,
-      playerProjectionRows: 3,
-      matchedPlayerProjections: 3,
+      playerProjectionRows: Object.keys(players).length,
+      matchedPlayerProjections: Object.keys(players).length,
       unmatchedPlayerProjections: 0,
       malformedPlayerProjections: 0,
       incompletePlayerProjections: 0,
-      defenseProjectionRows: 0,
-      usableDefenseProjections: 0,
+      defenseProjectionRows: Object.keys(defenses).length,
+      usableDefenseProjections: Object.keys(defenses).length,
       malformedDefenseProjections: 0,
       incompleteDefenseProjections: 0,
     },
@@ -439,9 +497,7 @@ function workerDependencies(
 describe('live projection worker', () => {
   it('preflights one seed league and makes no Neon or provider calls while idle', async () => {
     const store = fakeStore();
-    const idleSchedule: WeekSchedule = {
-      LAC: { kind: 'scheduled', opponent: 'KC', location: 'away', date: '2026-09-20', kickoffAt: '2026-09-20T17:00:00.000Z' },
-    };
+    const idleSchedule = fullWeekSchedule('2026-09-20T17:00:00.000Z');
     const dependencies = workerDependencies(store, {
       cadence: cadenceInput('l1', idleSchedule),
       now: new Date('2026-09-13T18:10:10.000Z'),
@@ -564,6 +620,54 @@ describe('live projection worker', () => {
     expect(store.completed).toHaveBeenCalledOnce();
     expect(store.failed).not.toHaveBeenCalled();
     expect(LIVE_PROJECTION_MODEL_VERSION).toBe('clock-v1');
+  });
+
+  it('fails closed before persistence when Tank01 returns a broadly truncated projection slate', async () => {
+    const store = fakeStore();
+    const dependencies = workerDependencies(store);
+    const partial = projectionResult();
+    dependencies.projectionMock.mockResolvedValue({
+      ...partial,
+      projections: {
+        ...partial.projections,
+        bySleeperId: { p1: partial.projections.bySleeperId.p1 },
+      },
+      coverage: {
+        ...partial.coverage,
+        playerProjectionRows: 1,
+        matchedPlayerProjections: 1,
+      },
+    });
+
+    await expect(createLiveProjectionWorker(dependencies).run()).resolves.toEqual({ status: 'failed' });
+    expect(store.gamesUpserted).toHaveLength(0);
+    expect(store.published).toHaveLength(0);
+    expect(store.completed).not.toHaveBeenCalled();
+    expect(store.failed).toHaveBeenCalledOnce();
+  });
+
+  it('fails closed before persistence when broad player identities have unusable stat lines', async () => {
+    const store = fakeStore();
+    const dependencies = workerDependencies(store);
+    const partial = projectionResult();
+    dependencies.projectionMock.mockResolvedValue({
+      ...partial,
+      projections: {
+        ...partial.projections,
+        bySleeperId: Object.fromEntries(Object.entries(partial.projections.bySleeperId).map(
+          ([id, projection]) => [id, {
+            ...projection,
+            scoringProjection: { ...projection.scoringProjection, passingTouchdowns: null },
+          }],
+        )),
+      },
+    });
+
+    await expect(createLiveProjectionWorker(dependencies).run()).resolves.toEqual({ status: 'failed' });
+    expect(store.gamesUpserted).toHaveLength(0);
+    expect(store.published).toHaveLength(0);
+    expect(store.completed).not.toHaveBeenCalled();
+    expect(store.failed).toHaveBeenCalledOnce();
   });
 
   it('persists kickoff time for a game represented only by a rostered bench player', async () => {
@@ -733,9 +837,7 @@ describe('live projection worker', () => {
   it('uses one hourly job bucket throughout the startup window and treats pruning as noncritical', async () => {
     const store = fakeStore();
     store.pruned.mockRejectedValueOnce(new Error('maintenance unavailable'));
-    const idleSchedule: WeekSchedule = {
-      LAC: { kind: 'scheduled', opponent: 'KC', location: 'away', date: '2026-09-20', kickoffAt: '2026-09-20T17:00:00.000Z' },
-    };
+    const idleSchedule = fullWeekSchedule('2026-09-20T17:00:00.000Z');
     const dependencies = workerDependencies(store, {
       cadence: cadenceInput('l1', idleSchedule),
       now: new Date('2026-09-13T18:03:10.000Z'),
@@ -760,12 +862,7 @@ describe('live projection worker', () => {
 
   it('allows hourly preparation when a regular-season kickoff is within one week', async () => {
     const store = fakeStore();
-    const upcomingSchedule: WeekSchedule = {
-      LAC: {
-        kind: 'scheduled', opponent: 'KC', location: 'away', date: '2026-09-20',
-        kickoffAt: '2026-09-20T17:00:00.000Z',
-      },
-    };
+    const upcomingSchedule = fullWeekSchedule('2026-09-20T17:00:00.000Z');
     const dependencies = workerDependencies(store, {
       cadence: {
         ...cadenceInput('l1', upcomingSchedule),
