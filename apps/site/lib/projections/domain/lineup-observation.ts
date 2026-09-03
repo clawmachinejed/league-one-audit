@@ -11,6 +11,8 @@ import {
 export type LineupShape = Readonly<{
   expectedRosterCount: number;
   expectedStarterSlotCount: number;
+  /** Exact roster membership from authoritative league configuration, never inferred from row count. */
+  expectedRosterRefs: readonly ExternalRosterRef[];
 }>;
 
 export type LineupObservationRow = Readonly<{
@@ -45,7 +47,14 @@ export type TimedLineupObservation = LineupObservationResult & Readonly<{
 
 export function validLineupShape(shape: LineupShape): boolean {
   return Number.isInteger(shape.expectedRosterCount) && shape.expectedRosterCount > 0
-    && Number.isInteger(shape.expectedStarterSlotCount) && shape.expectedStarterSlotCount > 0;
+    && Number.isInteger(shape.expectedStarterSlotCount) && shape.expectedStarterSlotCount > 0
+    && Array.isArray(shape.expectedRosterRefs)
+    && shape.expectedRosterRefs.length === shape.expectedRosterCount
+    && shape.expectedRosterRefs.every((reference) => reference?.resource === 'roster'
+      && typeof reference.provider === 'string' && Boolean(reference.provider.trim())
+      && typeof reference.externalId === 'string' && Boolean(reference.externalId.trim())
+      && validLeague(reference.league))
+    && new Set(shape.expectedRosterRefs.map(externalReferenceKey)).size === shape.expectedRosterCount;
 }
 
 function samePeriod(left: LeaguePeriod, right: LeaguePeriod): boolean {
@@ -54,15 +63,17 @@ function samePeriod(left: LeaguePeriod, right: LeaguePeriod): boolean {
 }
 
 function validLeague(reference: ExternalLeagueRef): boolean {
-  return reference.resource === 'league' && Boolean(reference.provider.trim())
-    && Boolean(reference.externalId.trim());
+  return reference?.resource === 'league'
+    && typeof reference.provider === 'string' && Boolean(reference.provider.trim())
+    && typeof reference.externalId === 'string' && Boolean(reference.externalId.trim());
 }
 
 function validScopedIdentity(
   reference: ExternalRosterRef | ExternalMatchupRef | ExternalLineupEntryRef,
   league: ExternalLeagueRef,
 ): boolean {
-  return Boolean(reference.externalId.trim()) && reference.provider === league.provider
+  return typeof reference.externalId === 'string' && Boolean(reference.externalId.trim())
+    && reference.provider === league.provider
     && validLeague(reference.league) && sameExternalReference(reference.league, league);
 }
 
@@ -77,6 +88,10 @@ export function validateLineupObservation(input: LineupObservationInput): Lineup
     return invalid('period-invalid');
   }
   if (!validLeague(leagueRef)) return invalid('identity-invalid');
+  if (input.shape.expectedRosterRefs.some((reference) => !validScopedIdentity(reference, leagueRef))) {
+    return invalid('identity-invalid');
+  }
+  const expectedRosterKeys = new Set(input.shape.expectedRosterRefs.map(externalReferenceKey));
   if (input.rows.length === 0) return { status: 'not-ready', reason: 'empty' };
   if (input.rows.length !== input.shape.expectedRosterCount) return invalid('roster-population-incomplete');
   const rosterKeys = new Set<string>();
@@ -88,6 +103,7 @@ export function validateLineupObservation(input: LineupObservationInput): Lineup
       return invalid('identity-invalid');
     }
     const rosterKey = externalReferenceKey(row.rosterRef);
+    if (!expectedRosterKeys.has(rosterKey)) return invalid('roster-population-incomplete');
     if (rosterKeys.has(rosterKey)) return invalid('duplicate-roster');
     rosterKeys.add(rosterKey);
     if (row.starters.length !== input.shape.expectedStarterSlotCount) return invalid('starter-shape-invalid');

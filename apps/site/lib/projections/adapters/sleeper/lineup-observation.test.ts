@@ -8,19 +8,25 @@ import {
   createRawSleeperMatchupLoader,
   sleeperMatchupShape,
 } from './raw-matchups';
-import { translateSleeperLineupObservation } from './lineup-observation';
+import { sleeperLineupObservationShape, translateSleeperLineupObservation } from './lineup-observation';
 
 const league = externalLeagueRef('sleeper', 'raw-parity-test-league');
 const period = { season: 2026, seasonType: 'regular' as const, week: 5 };
 const rosters = [{ roster_id: 1 }, { roster_id: 2 }];
 const positions = ['QB', 'RB', 'FLEX', 'DEF', 'BN', 'IR', 'TAXI'];
-const shape = sleeperMatchupShape(rosters, positions);
+const shape = sleeperLineupObservationShape(league, sleeperMatchupShape(rosters, positions));
 const rawRows = [
   { roster_id: 1, matchup_id: 7, starters: ['qb-a', 'rb-a', 'flex-a', 'NYJ'], points: 15.75 },
   { roster_id: 2, matchup_id: 7, starters: ['qb-b', 'rb-b', '0', 'BAL'], points: -1.25 },
 ];
 
 describe('one raw lineup normalization for full and thin consumers', () => {
+  it('retains authoritative roster membership instead of accepting only the same row count', () => {
+    const foreignRows = rawRows.map((row) => ({ ...row, roster_id: row.roster_id + 10 }));
+    expect(shape.expectedRosterRefs.map((reference) => String(reference.externalId))).toEqual(['1', '2']);
+    expect(translateSleeperLineupObservation(league, period, shape, foreignRows))
+      .toEqual({ status: 'invalid', reason: 'roster-population-incomplete' });
+  });
   it('produces identical lineup-v1 revisions from the shared full and thin raw boundary', async () => {
     const readJson = vi.fn(async () => rawRows);
     const load = createRawSleeperMatchupLoader({ readJson, now: () => '2026-09-03T12:00:00.000Z' });

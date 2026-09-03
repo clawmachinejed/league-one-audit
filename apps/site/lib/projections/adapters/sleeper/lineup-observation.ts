@@ -10,6 +10,19 @@ import {
   externalLineupEntryRef, externalMatchupRef, externalRosterRef,
   type ExternalLeagueRef,
 } from '../../shared/provider-identity';
+import type { SleeperMatchupShape } from './raw-matchups';
+
+/** Preserve exact authoritative roster membership when adapting the provider's league shape. */
+export function sleeperLineupObservationShape(
+  leagueRef: ExternalLeagueRef,
+  source: Pick<SleeperMatchupShape, 'rosterIds' | 'expectedRosterCount' | 'expectedStarterSlotCount'>,
+): LineupShape {
+  return {
+    expectedRosterCount: source.expectedRosterCount,
+    expectedStarterSlotCount: source.expectedStarterSlotCount,
+    expectedRosterRefs: source.rosterIds.map((id) => externalRosterRef(leagueRef, String(id))),
+  };
+}
 
 /** Translate once from validated raw rows, before player or presentation normalization. */
 export function translateSleeperLineupObservation(

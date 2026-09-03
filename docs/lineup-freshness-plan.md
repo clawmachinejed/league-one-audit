@@ -62,9 +62,12 @@ These resolve details required to satisfy the approved safety and compatibility 
 They are not scoring, visual, provider, or cadence scope additions.
 
 1. **Authoritative shape and identity.** Current durable authority lacks external league
-   identity and expected roster/slot counts. Migration 007 will add nullable metadata,
+   identity, authoritative roster IDs and expected roster/slot counts. Migration 007 will add nullable metadata,
    populated from the already required league metadata response. Unknown or mismatched
    shape fails closed; bootstrap cannot depend on a prior successful full materialization.
+   PR review additionally confirmed that count-only validation is insufficient: a same-sized
+   foreign roster set must reject. The canonical shape now requires scoped roster references
+   obtained from trusted roster metadata, never inferred from a numeric ID sequence.
 2. **Source age.** A new wrapper timestamp around cached provider data does not make the
    source fresh. Operational NFL/league authority must use a fresh shared request or a
    timestamped cached envelope with a maximum 60-second source age. Schedule caches stay unchanged.
@@ -120,8 +123,6 @@ For every PR record: head and merged commit, GitHub checks, actual preview, prod
 deployment, local/unit/browser/Neon evidence, request counts, deviations and residual risks.
 No stage is complete merely because code exists locally.
 
-## Deferred work
-
 ## PR1 verification record
 
 - Full local verification: 56 files / 697 unit tests passed; lint, TypeScript and build passed.
@@ -131,10 +132,20 @@ No stage is complete merely because code exists locally.
   No assertion failed. This is recorded rather than represented as 13 passes; inspect
   actual preview manager pages and rerun the check before closing the release gate.
 - Independent code review found no blocking defect for valid contract inputs.
+- GitHub automated review found count-only roster membership insufficient. Corrected before
+  merge with required authoritative roster references and both raw/canonical regression tests.
+- After that correction, the full local gate passed 702 tests in 56 files and all 13 browser
+  tests passed (29.3 seconds), including independent per-league My Team selection.
+- Initial head 800a64a: GitHub 697 unit tests and all 13 browser tests passed; Vercel preview
+  Cv7yNAN6Cro7cFs1F6zCs1MrYJH6 ready. Both leagues' actual manager and matchup pages rendered.
+  Standalone preview Playwright encountered Vercel login protection and was stopped; authenticated
+  browser inspection was used without bypassing deployment protection.
 - Do not use run-start calculatedAt as authority validation time after a newer database
   authority read; sample the injected clock after reading authority.
 - Unpublished null starter arrays require explicit provider-state recognition in the thin
   adapter; they may never produce an accepted complete revision.
+
+## Deferred work
 
 Real-game transitions, provider delays and end-to-end freshness require live operational
 verification. Synthetic 50/300-league tests demonstrate bounded work/backlog, not production

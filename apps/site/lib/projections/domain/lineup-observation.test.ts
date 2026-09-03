@@ -16,7 +16,10 @@ function observation(): LineupObservationInput {
   return {
     leagueRef: league,
     period,
-    shape: { expectedRosterCount: 2, expectedStarterSlotCount: 3 },
+    shape: {
+      expectedRosterCount: 2, expectedStarterSlotCount: 3,
+      expectedRosterRefs: [externalRosterRef(league, '1'), externalRosterRef(league, '2')],
+    },
     rows: [1, 2].map((roster) => ({
       rosterRef: externalRosterRef(league, String(roster)),
       matchupRef: matchup,
@@ -44,8 +47,34 @@ describe('canonical lineup observation', () => {
   });
 
   it('requires known authoritative shape even when the provider returns no rows', () => {
-    expect(validateLineupObservation({ ...observation(), shape: { expectedRosterCount: 0, expectedStarterSlotCount: 3 }, rows: [] }))
+    expect(validateLineupObservation({ ...observation(), shape: { expectedRosterCount: 0, expectedStarterSlotCount: 3, expectedRosterRefs: [] }, rows: [] }))
       .toEqual({ status: 'invalid', reason: 'shape-unavailable' });
+  });
+
+  it('rejects a well-paired same-count slate containing stale or foreign roster IDs', async () => {
+    const input = observation();
+    const foreign = {
+      ...input,
+      rows: input.rows.map((row, index) => ({ ...row, rosterRef: externalRosterRef(league, String(index + 11)) })),
+    };
+    expect(validateLineupObservation(foreign)).toEqual({ status: 'invalid', reason: 'roster-population-incomplete' });
+    await expect(calculateLineupRevision(foreign)).rejects.toThrow('complete lineup observation');
+  });
+
+  it('fails closed without a unique complete authoritative membership set', () => {
+    const input = observation();
+    for (const expectedRosterRefs of [undefined, [], [input.shape.expectedRosterRefs[0]], [input.shape.expectedRosterRefs[0], input.shape.expectedRosterRefs[0]]]) {
+      const shape = { ...input.shape, expectedRosterRefs } as LineupObservationInput['shape'];
+      expect(validateLineupObservation({ ...input, shape })).toEqual({ status: 'invalid', reason: 'shape-unavailable' });
+    }
+  });
+
+  it('rejects authoritative membership belonging to another provider or league', () => {
+    const input = observation();
+    for (const foreignLeague of [externalLeagueRef(league.provider, 'league-B'), externalLeagueRef('another-provider', String(league.externalId))]) {
+      const shape = { ...input.shape, expectedRosterRefs: ['1', '2'].map((id) => externalRosterRef(foreignLeague, id)) };
+      expect(validateLineupObservation({ ...input, shape })).toEqual({ status: 'invalid', reason: 'identity-invalid' });
+    }
   });
 
   it('treats a structurally complete unpublished pairing as not-ready', () => {
@@ -125,6 +154,13 @@ describe('lineup-v1 revision semantics', () => {
   it('ignores roster input ordering', async () => {
     const input = observation();
     expect(await calculateLineupRevision({ ...input, rows: [...input.rows].reverse() })).toEqual(await calculateLineupRevision(input));
+  });
+
+  it('keeps lineup-v1 stable when only authoritative membership ordering changes', async () => {
+    const input = observation();
+    const reordered = { ...input, shape: { ...input.shape, expectedRosterRefs: [...input.shape.expectedRosterRefs].reverse() } };
+    expect(await calculateLineupRevision(reordered)).toEqual(await calculateLineupRevision(input));
+    expect(canonicalLineupRevisionInput(input)).not.toContain('expectedRosterRefs');
   });
 
   it('ignores fantasy scores, timestamps, names, injuries, and arbitrary presentation data', async () => {
