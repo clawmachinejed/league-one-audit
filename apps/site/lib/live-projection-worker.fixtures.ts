@@ -1,25 +1,55 @@
 import { vi } from 'vitest';
 
-import type { WeekSchedule } from './nfl-schedule';
-import { NFL_TEAMS, type NflTeam } from './nfl-teams';
+import type {
+  GameStateObservation,
+  GameStateSlate,
+  LeagueCadenceState,
+  LeagueConfiguration,
+  LeaguePeriod,
+  LeagueWeekState,
+  NflTeam,
+  NflWeekSchedule,
+  ProjectionObservation,
+  ProjectionSlate,
+  ScoringEntity,
+} from './projections/domain/contracts';
+import { normalizeSleeperScoringProfile } from './projections/adapters/sleeper/scoring-profile';
+import { assessProjectionSlate } from './projections/adapters/tank01/slate-validation';
 import type { LiveProjectionWorkerDependencies } from './live-projection-worker';
 import type {
-  PlayerProjectionRecord,
-  ProjectionStore,
-  StoredProjectionSnapshot,
-} from './projection-store';
-import type { ProjectionCadenceInput, ProjectionSyncInput } from './sleeper';
-import type { Tank01GameState, Tank01GameStatesAvailable } from './tank01-game-state';
+  IdentityCrosswalkPort,
+  NflGameId,
+  ScoringEntityId,
+} from './projections/ports/identity-crosswalk';
 import type {
-  Tank01AvailableResult,
-  Tank01DefenseProjection,
-  Tank01PlayerProjection,
-  Tank01PlayerStats,
-} from './tank01';
+  LeagueSeasonId,
+  ObservationId,
+  ProjectionBaselineRecord,
+  ProjectionRepositoryPort,
+  ProjectionRunId,
+  PublishSnapshotInput,
+  ScoringProfileId,
+  StoredProjectionSnapshot,
+} from './projections/ports/projection-repository';
+import {
+  externalGameRef,
+  externalLeagueRef,
+  externalPlayerRef,
+  externalReferenceKey,
+  externalRosterRef,
+  externalTeamDefenseRef,
+  providerKey,
+} from './projections/shared/provider-identity';
+import { compatibleRevision } from './projections/shared/revision-compatibility';
+import { NFL_TEAMS } from './nfl-teams';
 import type { MatchupsData, Player, Team } from './types';
 
 export const NOW = new Date('2026-09-13T18:00:10.000Z');
 export const KICKOFF = '2026-09-13T17:00:00.000Z';
+export const PERIOD: LeaguePeriod = { season: 2026, seasonType: 'regular', week: 1 };
+export const OFFICIAL_PROVIDER = providerKey('sleeper');
+export const PROJECTION_PROVIDER = providerKey('tank01');
+export const GAME_STATE_PROVIDER = PROJECTION_PROVIDER;
 
 const teams: readonly Team[] = [
   { id: 1, managerName: 'Left Manager', name: 'Left Team', avatar: null, wins: 0, losses: 0, ties: 0, pointsFor: 0, pointsAgainst: 0 },
@@ -57,8 +87,8 @@ const weekTeams = [
   ...NFL_TEAMS.filter((team) => !['LAC', 'KC', 'BUF', 'MIA'].includes(team)),
 ] as readonly NflTeam[];
 
-export function fullWeekSchedule(kickoffAt = KICKOFF): WeekSchedule {
-  const value: WeekSchedule = {};
+export function fullWeekSchedule(kickoffAt = KICKOFF): NflWeekSchedule {
+  const value: Partial<Record<NflTeam, NflWeekSchedule[NflTeam]>> = {};
   for (let index = 0; index < weekTeams.length; index += 2) {
     const away = weekTeams[index];
     const home = weekTeams[index + 1];
@@ -100,84 +130,168 @@ export function matchupData(leftPoints = [8, 2], rightPoints = [6]): MatchupsDat
   };
 }
 
-export function source(leagueId: string, data = matchupData()): ProjectionSyncInput {
+export function configuration(leagueId: string): LeagueConfiguration {
+  const key = leagueId === 'l1' ? 'league1' : 'league2';
   return {
-    sleeperLeagueId: leagueId,
-    leagueName: leagueId === 'l1' ? 'League One' : 'League Two',
-    scoringSettings: { pass_yd: 0.04, rush_yd: 0.1 },
-    data,
-    rosteredPlayers: data.matchups.flatMap((matchup) => matchup.sides.flatMap((side) => side.starters)),
+    key,
+    displayName: leagueId === 'l1' ? 'League One' : 'League Two',
+    leagueRef: externalLeagueRef(OFFICIAL_PROVIDER, leagueId),
+  };
+}
+
+export function scoringEntity(value: Player): ScoringEntity {
+  const nflTeam = value.nflTeam as NflTeam | null;
+  if (value.position.toUpperCase() === 'DEF' && nflTeam) {
+    return {
+      kind: 'team-defense',
+      externalRef: externalTeamDefenseRef(OFFICIAL_PROVIDER, value.id),
+      displayName: value.name,
+      nflTeam,
+      position: value.position,
+      injuryStatus: value.injuryStatus,
+    };
+  }
+  return {
+    kind: 'player',
+    externalRef: externalPlayerRef(OFFICIAL_PROVIDER, value.id),
+    displayName: value.name,
+    nflTeam,
+    position: value.position,
+    injuryStatus: value.injuryStatus,
+  };
+}
+
+export function source(leagueId: string, data = matchupData()): LeagueWeekState {
+  const leagueConfiguration = configuration(leagueId);
+  const participantByRoster = new Map(data.teams.map((team) => [
+    team.id,
+    externalRosterRef(leagueConfiguration.leagueRef, String(team.id)),
+  ]));
+  const rosteredEntities = new Map<string, ScoringEntity>();
+  const matchups = data.matchups.map((matchup) => ({
+    matchupId: matchup.id,
+    status: matchup.status,
+    sides: matchup.sides.map((side) => ({
+      rosterRef: participantByRoster.get(side.team.id)!,
+      officialPoints: side.points,
+      starters: side.starters.map((starter) => {
+        const entity = scoringEntity(starter);
+        rosteredEntities.set(externalReferenceKey(entity.externalRef), entity);
+        return {
+          kind: 'occupied' as const,
+          slot: starter.slot,
+          entity,
+          officialPoints: starter.points,
+        };
+      }),
+    })),
+  }));
+  const requestStartedAt = '2026-09-13T18:00:00.000Z';
+  const requestCompletedAt = '2026-09-13T18:00:01.000Z';
+  return {
+    configuration: leagueConfiguration,
+    leagueName: leagueConfiguration.displayName,
+    period: PERIOD,
+    maxWeek: data.league.maxWeek,
+    rosterPositions: data.league.rosterPositions,
+    participants: data.teams.map((team) => ({
+      rosterRef: participantByRoster.get(team.id)!,
+      managerName: team.managerName,
+      teamName: team.name,
+      avatarUrl: team.avatar,
+      wins: team.wins,
+      losses: team.losses,
+      ties: team.ties,
+      pointsFor: team.pointsFor,
+      pointsAgainst: team.pointsAgainst,
+    })),
+    matchups,
+    rosteredEntities: [...rosteredEntities.values()],
     schedule,
-    requestStartedAt: '2026-09-13T18:00:00.000Z',
-    requestCompletedAt: '2026-09-13T18:00:01.000Z',
+    scoringSettings: {
+      provider: OFFICIAL_PROVIDER,
+      rawRules: { pass_yd: 0.04, rush_yd: 0.1 },
+    },
+    requestStartedAt,
+    requestCompletedAt,
+    observedAt: requestCompletedAt,
+    sourceRevision: compatibleRevision({ requestStartedAt, requestCompletedAt, data }),
+    ...(data.warning ? { warning: data.warning } : {}),
   };
 }
 
-export function cadenceInput(leagueId: string, weeklySchedule = schedule): ProjectionCadenceInput {
+export function cadenceInput(
+  leagueId: string,
+  weeklySchedule = schedule,
+): LeagueCadenceState {
   return {
-    sleeperLeagueId: leagueId,
-    season: '2026',
-    week: 1,
+    configuration: configuration(leagueId),
+    period: PERIOD,
+    currentPeriod: { season: 2026, week: 1, seasonType: 'regular' },
     schedule: weeklySchedule,
-    currentNflSeason: '2026',
-    currentNflWeek: 1,
-    currentNflSeasonType: 'regular',
   };
 }
 
-function emptyStats(): Tank01PlayerStats {
+function offenseStats(
+  projection: Readonly<{ passingYards?: number; rushingYards?: number }>,
+): Extract<ProjectionObservation['scoringStats'], { kind: 'offense' }> {
   return {
-    passing: { attempts: null, completions: null, yards: null, touchdowns: null, interceptions: null },
-    rushing: { carries: null, yards: null, touchdowns: null },
-    receiving: { targets: null, receptions: null, yards: null, touchdowns: null },
-    kicking: { fieldGoalsMade: null, fieldGoalsMissed: null, extraPointsMade: null, extraPointsMissed: null },
-    twoPointConversions: null,
-    fumblesLost: null,
+    kind: 'offense',
+    passingYards: projection.passingYards ?? 0,
+    passingTouchdowns: 0,
+    passingInterceptions: 0,
+    rushingYards: projection.rushingYards ?? 0,
+    rushingTouchdowns: 0,
+    receptions: 0,
+    receivingYards: 0,
+    receivingTouchdowns: 0,
+    twoPointConversions: 0,
+    fumblesLost: 0,
   };
 }
 
-function tankPlayer(
-  sleeperPlayerId: string,
+function projectionPlayer(
+  officialPlayerId: string,
   team: NflTeam,
   position: 'QB' | 'RB' | 'WR' | 'TE',
   projection: Readonly<{ passingYards?: number; rushingYards?: number }>,
-): Tank01PlayerProjection {
-  const stats = emptyStats();
+): ProjectionObservation {
+  const scoringStats = offenseStats(projection);
   return {
-    tank01PlayerId: `tank-${sleeperPlayerId}`,
-    sleeperPlayerId,
-    team,
+    identity: {
+      primary: externalPlayerRef(PROJECTION_PROVIDER, `tank-${officialPlayerId}`),
+      aliases: [externalPlayerRef(OFFICIAL_PROVIDER, officialPlayerId)],
+    },
+    nflTeam: team,
     position,
     stats: {
-      ...stats,
-      passing: { ...stats.passing, yards: projection.passingYards ?? 0 },
-      rushing: { ...stats.rushing, yards: projection.rushingYards ?? 0 },
+      passing: { yards: scoringStats.passingYards },
+      rushing: { yards: scoringStats.rushingYards },
     },
-    scoringProjection: {
-      kind: 'offense',
-      passingYards: projection.passingYards ?? 0,
-      passingTouchdowns: 0,
-      passingInterceptions: 0,
-      rushingYards: projection.rushingYards ?? 0,
-      rushingTouchdowns: 0,
-      receptions: 0,
-      receivingYards: 0,
-      receivingTouchdowns: 0,
-      twoPointConversions: 0,
-      fumblesLost: 0,
-    },
+    scoringStats,
     missingFields: [],
   };
 }
 
-function tankDefense(team: NflTeam): Tank01DefenseProjection {
+function projectionDefense(team: NflTeam): ProjectionObservation {
   return {
-    team,
-    stats: {
-      returnTouchdowns: 0, defensiveTouchdowns: 0, safeties: 0, fumbleRecoveries: 0,
-      pointsAllowed: 0, interceptions: 0, sacks: 0, blockedKicks: 0,
+    identity: {
+      primary: externalTeamDefenseRef(PROJECTION_PROVIDER, team),
+      aliases: [],
     },
-    scoringProjection: {
+    nflTeam: team,
+    position: 'DEF',
+    stats: {
+      returnTouchdowns: 0,
+      defensiveTouchdowns: 0,
+      safeties: 0,
+      fumbleRecoveries: 0,
+      pointsAllowed: 0,
+      interceptions: 0,
+      sacks: 0,
+      blockedKicks: 0,
+    },
+    scoringStats: {
       kind: 'defense',
       sacks: 0,
       interceptions: 0,
@@ -192,78 +306,82 @@ function tankDefense(team: NflTeam): Tank01DefenseProjection {
   };
 }
 
-export function projectionResult(): Tank01AvailableResult {
-  const coveragePlayers = Object.fromEntries(weekTeams.flatMap((team) => (
+export function projectionResult(
+  sourcePeriod: LeaguePeriod = PERIOD,
+): ProjectionSlate {
+  const coveragePlayers = weekTeams.flatMap((team) => (
     (['QB', 'RB', 'WR', 'TE'] as const).map((position) => {
       const id = `coverage-${team}-${position}`;
-      return [id, tankPlayer(id, team, position, {})] as const;
+      return projectionPlayer(id, team, position, {});
     })
-  )));
-  const defenses = Object.fromEntries(weekTeams.map((team) => [team, tankDefense(team)] as const));
-  const players = {
+  ));
+  const projections = [
     ...coveragePlayers,
-    p1: tankPlayer('p1', 'LAC', 'QB', { passingYards: 250 }),
-    p2: tankPlayer('p2', 'LAC', 'RB', { rushingYards: 50 }),
-    p3: tankPlayer('p3', 'KC', 'QB', { passingYards: 250 }),
-  };
+    ...weekTeams.map(projectionDefense),
+    projectionPlayer('p1', 'LAC', 'QB', { passingYards: 250 }),
+    projectionPlayer('p2', 'LAC', 'RB', { rushingYards: 50 }),
+    projectionPlayer('p3', 'KC', 'QB', { passingYards: 250 }),
+  ];
   return {
-    status: 'available',
-    season: '2026',
-    week: 1,
-    fetchedAt: '2026-09-13T16:59:59.000Z',
-    projections: {
-      bySleeperId: players,
-      byDefenseTeam: defenses,
-    },
+    source: PROJECTION_PROVIDER,
+    period: sourcePeriod,
+    quality: 'complete',
+    requestStartedAt: '2026-09-13T16:59:59.000Z',
+    requestCompletedAt: '2026-09-13T16:59:59.000Z',
+    observedAt: '2026-09-13T16:59:59.000Z',
+    sourceRevision: '7c9136b166b67d9cda4c0658cd98bdc621ea150ac96c8ccf4b129a6a1f6a015e',
+    projections,
     coverage: {
-      playerListRows: Object.keys(players).length,
-      crosswalkEntries: Object.keys(players).length,
-      malformedPlayerListRows: 0,
-      ambiguousPlayerListRows: 0,
-      playerProjectionRows: Object.keys(players).length,
-      matchedPlayerProjections: Object.keys(players).length,
-      unmatchedPlayerProjections: 0,
-      malformedPlayerProjections: 0,
-      incompletePlayerProjections: 0,
-      defenseProjectionRows: Object.keys(defenses).length,
-      usableDefenseProjections: Object.keys(defenses).length,
-      malformedDefenseProjections: 0,
-      incompleteDefenseProjections: 0,
+      crosswalkRows: projections.length,
+      crosswalkEntries: projections.length,
+      malformedCrosswalkRows: 0,
+      ambiguousCrosswalkRows: 0,
+      playerRows: coveragePlayers.length + 3,
+      matchedPlayers: coveragePlayers.length + 3,
+      unmatchedPlayers: 0,
+      malformedPlayers: 0,
+      incompletePlayers: 0,
+      defenseRows: weekTeams.length,
+      usableDefenses: weekTeams.length,
+      malformedDefenses: 0,
+      incompleteDefenses: 0,
     },
     warnings: [],
   };
 }
 
-export function gameState(): Tank01GameState {
+export function gameState(
+  sourcePeriod: LeaguePeriod = PERIOD,
+): GameStateObservation {
   return {
-    gameId: 'game-1',
-    season: '2026',
-    week: 1,
+    gameRef: externalGameRef(GAME_STATE_PROVIDER, 'game-1'),
+    period: sourcePeriod,
     homeTeam: 'KC',
     awayTeam: 'LAC',
     statusCode: 1,
     statusText: 'Halftime',
-    period: 'Halftime',
-    clock: null,
+    sourcePeriod: 'Halftime',
+    gameClock: null,
     phase: 'halftime',
     clockSeconds: null,
     remainingFraction: 0.5,
+    homeScore: null,
+    awayScore: null,
     requestStartedAt: '2026-09-13T18:00:01.000Z',
     requestCompletedAt: '2026-09-13T18:00:02.000Z',
-    fetchedAt: '2026-09-13T18:00:02.000Z',
+    observedAt: '2026-09-13T18:00:02.000Z',
+    sourceRevision: '448be1f64c4fe89b075678410679c3d2095db9fbf0aacc7c54ef53c6e9395cb9',
   };
 }
 
-export function gameStates(game = gameState()): Tank01GameStatesAvailable {
+export function gameStates(game = gameState()): GameStateSlate {
   return {
-    status: 'available',
-    season: '2026',
-    week: 1,
+    source: GAME_STATE_PROVIDER,
+    period: game.period,
     requestStartedAt: game.requestStartedAt,
     requestCompletedAt: game.requestCompletedAt,
-    fetchedAt: game.fetchedAt,
+    observedAt: game.observedAt,
     games: [game],
-    byTeam: { [game.homeTeam]: game, [game.awayTeam]: game },
   };
 }
 
@@ -284,14 +402,7 @@ export type WorkerStoreOperation =
   | 'publish-snapshot'
   | 'prune-history';
 
-export type CapturedPublishInput = Readonly<{
-  leagueSeasonId: string;
-  week: number;
-  modelVersion: string;
-  revisionKey: string;
-  calculatedAt: string;
-  payload: MatchupsData;
-}>;
+export type CapturedPublishInput = PublishSnapshotInput;
 
 export type CapturedProjectionCandidate = Readonly<{
   entityId: string;
@@ -300,7 +411,10 @@ export type CapturedProjectionCandidate = Readonly<{
 }>;
 
 export type FakeStore = Readonly<{
-  store: ProjectionStore;
+  repository: ProjectionRepositoryPort;
+  /** Compatibility name retained for tests that spy on repository operations. */
+  store: ProjectionRepositoryPort;
+  identityCrosswalk: IdentityCrosswalkPort;
   acquired: ReturnType<typeof vi.fn>;
   completed: ReturnType<typeof vi.fn>;
   failed: ReturnType<typeof vi.fn>;
@@ -330,16 +444,16 @@ export function fakeStore(freezeBaselines = true, enabled = true): FakeStore {
     return true;
   });
   const frozen = vi.fn();
-  const recordedStates = vi.fn(async (input: {
-    states: ReadonlyArray<{ externalGameId: string; sourceRevision: string }>;
-  }) => {
+  const recordedStates = vi.fn(async (
+    input: Parameters<ProjectionRepositoryPort['recordGameStates']>[0],
+  ) => {
     operations.push('record-game-states');
     return {
       kind: 'stored' as const,
       value: input.states.map((state) => ({
-        externalGameId: state.externalGameId,
+        gameRef: state.gameRef,
         sourceRevision: state.sourceRevision,
-        observationId: `observation-${state.externalGameId}`,
+        observationId: `observation-${String(state.gameRef.externalId)}` as ObservationId,
       })),
     };
   });
@@ -355,151 +469,156 @@ export function fakeStore(freezeBaselines = true, enabled = true): FakeStore {
   const published: MatchupsData[] = [];
   const publishInputs: CapturedPublishInput[] = [];
   const activityWindows: Array<readonly Readonly<{ startsAt: string; endsAt: string }>[]> = [];
-  const entityPlayer = new Map<string, string>();
-  const entityIds = new Map<string, string>();
-  const gameExternal = new Map<string, string>();
-  const leagueProfiles = new Map<string, string>();
-  const latest = new Map<string, PlayerProjectionRecord>();
-  const baselines = new Map<string, PlayerProjectionRecord>();
+  const entitiesById = new Map<ScoringEntityId, ScoringEntity>();
+  const gameRefsById = new Map<NflGameId, ReturnType<typeof externalGameRef>>();
+  const leagueProfiles = new Map<LeagueSeasonId, ScoringProfileId>();
+  const latest = new Map<string, ProjectionBaselineRecord>();
+  const baselines = new Map<string, ProjectionBaselineRecord>();
 
-  const store = {
+  const resolveScoringEntitiesImplementation: IdentityCrosswalkPort['resolveScoringEntities'] = async (inputs) => {
+    operations.push('upsert-scoring-entities');
+    return {
+      kind: 'resolved',
+      value: inputs.map((input) => {
+        const kind = input.entity.kind === 'team-defense' ? 'team_defense' : 'player';
+        const entityId = `entity-${kind}:${String(input.entity.externalRef.externalId)}` as ScoringEntityId;
+        entitiesById.set(entityId, input.entity);
+        return { key: input.key, status: 'known' as const, entityId };
+      }),
+    };
+  };
+  const resolveScoringEntities = vi.fn(resolveScoringEntitiesImplementation);
+  const resolveNflGamesImplementation: IdentityCrosswalkPort['resolveNflGames'] = async (inputs) => {
+    operations.push('upsert-nfl-games');
+    gamesUpserted.push(...inputs.map((input) => ({
+      key: String(input.primaryRef.externalId),
+      kickoffAt: input.kickoffAt,
+    })));
+    return {
+      kind: 'resolved',
+      value: inputs.map((input) => {
+        const gameId = `stored-${String(input.primaryRef.externalId)}` as NflGameId;
+        gameRefsById.set(gameId, input.primaryRef);
+        return { key: input.key, status: 'known' as const, gameId };
+      }),
+    };
+  };
+  const resolveNflGames = vi.fn(resolveNflGamesImplementation);
+  const identityCrosswalk: IdentityCrosswalkPort = {
+    enabled,
+    resolveScoringEntities,
+    resolveNflGames,
+  };
+
+  const repository: ProjectionRepositoryPort = {
     enabled,
     acquireJob: acquired,
     completeJob: completed,
     failJob: failed,
-    async registerLeagueSeason(input: { leagueKey: string }) {
+    async registerLeagueSeason(input) {
       operations.push('register-league-season');
-      const leagueSeasonId = `season-${input.leagueKey}`;
-      const profile = `profile-${input.leagueKey}`;
-      leagueProfiles.set(leagueSeasonId, profile);
-      return { kind: 'stored' as const, value: { leagueId: `league-${input.leagueKey}`, leagueSeasonId, scoringProfileId: profile } };
-    },
-    async upsertScoringEntities(inputs: ReadonlyArray<{ key: string; providerIds: ReadonlyArray<{ provider: string; externalId: string }> }>) {
-      operations.push('upsert-scoring-entities');
+      const leagueSeasonId = `season-${input.configuration.key}` as LeagueSeasonId;
+      const scoringProfileId = `profile-${input.configuration.key}` as ScoringProfileId;
+      leagueProfiles.set(leagueSeasonId, scoringProfileId);
       return {
-        kind: 'stored' as const,
-        value: inputs.map((input) => {
-          const id = entityIds.get(input.key) ?? `entity-${input.key}`;
-          entityIds.set(input.key, id);
-          const sleeper = input.providerIds.find((provider) => provider.provider === 'sleeper');
-          if (sleeper) entityPlayer.set(id, sleeper.externalId);
-          return { key: input.key, entityId: id, conflict: false };
-        }),
+        kind: 'stored',
+        value: { leagueSeasonId, scoringProfileId, leagueRef: input.configuration.leagueRef },
       };
     },
-    async upsertNflGames(inputs: ReadonlyArray<{ key: string; kickoffAt: string | null }>) {
-      operations.push('upsert-nfl-games');
-      gamesUpserted.push(...inputs);
-      return {
-        kind: 'stored' as const,
-        value: inputs.map((input) => {
-          const gameId = `stored-${input.key}`;
-          gameExternal.set(gameId, input.key);
-          return { key: input.key, gameId };
-        }),
-      };
-    },
-    recordGameStates: recordedStates,
-    async recordProjectionCandidates(input: {
-      modelVersion: string;
-      fetchedAt: string;
-      candidates: ReadonlyArray<{
-        gameId: string;
-        entityId: string;
-        scoringProfileId: string;
-        projectionPoints: number;
-        projectedStats: Readonly<Record<string, unknown>>;
-        quality: 'complete' | 'missing' | 'invalid';
-      }>;
-    }) {
+    async recordProjectionCandidates(input) {
       operations.push('record-projection-candidates');
       candidateBatches.push(input.candidates.map((candidate) => ({
-        entityId: candidate.entityId,
+        entityId: String(candidate.entityId),
         projectionPoints: candidate.projectionPoints,
         quality: candidate.quality,
       })));
-      input.candidates.forEach((candidate) => {
-        const sleeperPlayerId = entityPlayer.get(candidate.entityId)!;
-        const key = `${candidate.scoringProfileId}:${sleeperPlayerId}`;
+      for (const candidate of input.candidates) {
+        const entity = entitiesById.get(candidate.entityId)!;
+        const projectionGameRef = gameRefsById.get(candidate.gameId) ?? null;
+        const key = `${String(candidate.scoringProfileId)}:${externalReferenceKey(entity.externalRef)}`;
         latest.set(key, {
-          sleeperPlayerId,
+          officialEntityRef: entity.externalRef,
           entityId: candidate.entityId,
-          entityKind: candidate.entityId.includes('team_defense') ? 'team_defense' : 'player',
-          displayName: sleeperPlayerId,
-          nflTeam: sleeperPlayerId === 'p3' ? 'KC' : 'LAC',
+          entityKind: entity.kind,
+          displayName: entity.displayName,
+          nflTeam: entity.nflTeam,
           gameId: candidate.gameId,
-          tank01GameId: gameExternal.get(candidate.gameId) ?? null,
-          projectionProvider: 'tank01',
+          projectionGameRef,
           projectionPoints: candidate.projectionPoints,
           projectedStats: candidate.projectedStats,
           quality: candidate.quality,
-          sourceProjectionRunId: 'run-1',
+          sourceProjectionRunId: 'run-1' as ProjectionRunId,
+          projectionSource: input.source,
           modelVersion: input.modelVersion,
-          fetchedAt: input.fetchedAt,
+          observedAt: input.observedAt,
           frozenAt: null,
         });
-      });
-      return { kind: 'stored' as const, value: { runId: 'run-1', candidatesStored: input.candidates.length, candidateCount: input.candidates.length } };
+      }
+      return {
+        kind: 'stored',
+        value: {
+          runId: 'run-1' as ProjectionRunId,
+          candidatesStored: input.candidates.length,
+          candidateCount: input.candidates.length,
+        },
+      };
     },
-    async readLatestCandidatesBySleeperIds(input: { leagueSeasonId: string; sleeperPlayerIds: readonly string[] }) {
+    async readLatestCandidates(input) {
       operations.push('read-latest-candidates');
       const profile = leagueProfiles.get(input.leagueSeasonId)!;
-      return input.sleeperPlayerIds.flatMap((id) => {
-        const record = latest.get(`${profile}:${id}`);
+      return input.officialEntityRefs.flatMap((reference) => {
+        const record = latest.get(`${String(profile)}:${externalReferenceKey(reference)}`);
         return record ? [record] : [];
       });
     },
-    async freezeLatestBaselines(input: { leagueSeasonId: string; externalGameIds: readonly string[]; frozenAt: string }) {
+    async freezeLatestBaselines(input) {
       operations.push('freeze-latest-baselines');
       frozen(input);
       const profile = leagueProfiles.get(input.leagueSeasonId)!;
+      const gameKeys = new Set(input.gameRefs.map(externalReferenceKey));
       if (freezeBaselines) {
         for (const [key, record] of latest) {
-          if (key.startsWith(`${profile}:`) && record.tank01GameId && input.externalGameIds.includes(record.tank01GameId)) {
+          if (key.startsWith(`${String(profile)}:`)
+            && record.projectionGameRef
+            && gameKeys.has(externalReferenceKey(record.projectionGameRef))) {
             baselines.set(key, { ...record, frozenAt: input.frozenAt });
           }
         }
       }
-      return { kind: 'stored' as const, value: [...baselines.values()] };
+      return { kind: 'stored', value: [...baselines.values()] };
     },
-    async readFrozenBaselinesBySleeperIds(input: { leagueSeasonId: string; sleeperPlayerIds: readonly string[] }) {
+    async readFrozenBaselines(input) {
       operations.push('read-frozen-baselines');
       const profile = leagueProfiles.get(input.leagueSeasonId)!;
-      return input.sleeperPlayerIds.flatMap((id) => {
-        const record = baselines.get(`${profile}:${id}`);
+      return input.officialEntityRefs.flatMap((reference) => {
+        const record = baselines.get(`${String(profile)}:${externalReferenceKey(reference)}`);
         return record ? [record] : [];
       });
     },
-    async readCurrentSnapshot() {
-      operations.push('read-current-snapshot');
-      return null;
-    },
-    pruneHistory: pruned,
-    async recordLeagueWeekObservation(input: { expectedTank01GameIds: readonly string[] }) {
+    recordGameStates: recordedStates,
+    async recordLeagueWeekObservation(input) {
       operations.push('record-league-week-observation');
       return {
-        kind: 'stored' as const,
+        kind: 'stored',
         value: {
-          observationId: 'league-observation',
-          playerPointsStored: 3,
-          rosterPointsStored: 2,
-          unmappedSleeperPlayerIds: [],
-          expectedGamesStored: input.expectedTank01GameIds.length,
-          unmappedTank01GameIds: [],
+          observationId: 'league-observation' as ObservationId,
+          entityPointsStored: input.entityPoints.length,
+          rosterPointsStored: input.rosterPoints.length,
+          unmappedEntityRefs: [],
+          expectedGamesStored: input.expectedGameRefs.length,
+          unmappedGameRefs: [],
         },
       };
     },
-    async publishSnapshot(input: CapturedPublishInput & Readonly<{
-      activityWindows: readonly Readonly<{ startsAt: string; endsAt: string }>[];
-    }>) {
+    async publishSnapshot(input) {
       operations.push('publish-snapshot');
       published.push(input.payload);
       publishInputs.push(input);
       activityWindows.push(input.activityWindows);
       const snapshot: StoredProjectionSnapshot = {
-        snapshotId: `snapshot-${published.length}`,
+        snapshotId: `snapshot-${published.length}` as StoredProjectionSnapshot['snapshotId'],
         leagueSeasonId: input.leagueSeasonId,
-        week: input.week,
+        period: input.period,
         modelVersion: input.modelVersion,
         revisionKey: input.revisionKey,
         calculatedAt: input.calculatedAt,
@@ -509,44 +628,106 @@ export function fakeStore(freezeBaselines = true, enabled = true): FakeStore {
         isCurrent: true,
         payload: input.payload,
       };
-      return { kind: 'published' as const, snapshot };
+      return { kind: 'published', snapshot };
     },
-  } as unknown as ProjectionStore;
+    pruneHistory: pruned,
+    async readCurrentSnapshot() {
+      operations.push('read-current-snapshot');
+      return null;
+    },
+    async readSnapshotSelection() {
+      return { selected: null, latest: null };
+    },
+  };
   return {
-    store, acquired, completed, failed, frozen, recordedStates, pruned, operations,
-    gamesUpserted, candidateBatches, published, publishInputs, activityWindows,
+    repository,
+    store: repository,
+    identityCrosswalk,
+    acquired,
+    completed,
+    failed,
+    frozen,
+    recordedStates,
+    pruned,
+    operations,
+    gamesUpserted,
+    candidateBatches,
+    published,
+    publishInputs,
+    activityWindows,
   };
 }
 
-export function workerDependencies(
-  fake: FakeStore,
-  options: Readonly<{
-    cadence?: ProjectionCadenceInput;
-    games?: Tank01GameStatesAvailable;
-    now?: Date;
-  }> = {},
-): LiveProjectionWorkerDependencies & Readonly<{
+export type WorkerTestDependencies = LiveProjectionWorkerDependencies & Readonly<{
   cadenceMock: ReturnType<typeof vi.fn>;
   sourceMock: ReturnType<typeof vi.fn>;
   projectionMock: ReturnType<typeof vi.fn>;
   gamesMock: ReturnType<typeof vi.fn>;
-}> {
-  const cadenceMock = vi.fn(async (leagueId: string) => options.cadence ?? cadenceInput(leagueId));
-  const sourceMock = vi.fn(async (leagueId: string) => source(leagueId));
-  const projectionMock = vi.fn(async () => projectionResult());
-  const gamesMock = vi.fn(async () => options.games ?? gameStates());
+  assessmentMock: ReturnType<typeof vi.fn>;
+  clockMock: ReturnType<typeof vi.fn>;
+  monotonicMock: ReturnType<typeof vi.fn>;
+  workerIdMock: ReturnType<typeof vi.fn>;
+  loggerMock: ReturnType<typeof vi.fn>;
+}>;
+
+export function workerDependencies(
+  fake: FakeStore,
+  options: Readonly<{
+    cadence?: LeagueCadenceState;
+    games?: GameStateSlate;
+    projections?: ProjectionSlate;
+    now?: Date;
+  }> = {},
+): WorkerTestDependencies {
+  const configurations = [configuration('l1'), configuration('l2')];
+  const cadenceMock = vi.fn(async (leagueConfiguration: LeagueConfiguration) => (
+    options.cadence ?? cadenceInput(String(leagueConfiguration.leagueRef.externalId))
+  ));
+  const sourceMock = vi.fn(async (leagueConfiguration: LeagueConfiguration) => (
+    source(String(leagueConfiguration.leagueRef.externalId))
+  ));
+  const projectionMock = vi.fn(async () => ({
+    status: 'available' as const,
+    slate: options.projections ?? projectionResult(),
+  }));
+  const gamesMock = vi.fn(async () => ({
+    status: 'available' as const,
+    slate: options.games ?? gameStates(),
+  }));
+  const assessmentMock = vi.fn(assessProjectionSlate);
+  const clockMock = vi.fn(() => new Date(options.now ?? NOW));
+  let monotonicValue = 0;
+  const monotonicMock = vi.fn(() => {
+    monotonicValue += 1;
+    return monotonicValue;
+  });
+  const workerIdMock = vi.fn(() => 'worker-1');
+  const loggerMock = vi.fn((level: 'info' | 'warn' | 'error', entry: Parameters<LiveProjectionWorkerDependencies['logger']['write']>[1]) => {
+    const line = JSON.stringify({ service: 'live-projection-sync', ...entry });
+    if (level === 'error') console.error(line);
+    else if (level === 'warn') console.warn(line);
+    else console.info(line);
+  });
   return {
-    store: fake.store,
-    leagues: [{ key: 'league1', sleeperLeagueId: 'l1' }, { key: 'league2', sleeperLeagueId: 'l2' }],
-    getProjectionCadenceInput: cadenceMock,
-    getProjectionSyncInput: sourceMock,
-    getWeeklyProjections: projectionMock,
-    getWeeklyGameStates: gamesMock,
-    now: () => new Date(options.now ?? NOW),
-    workerId: () => 'worker-1',
+    repository: fake.repository,
+    identityCrosswalk: fake.identityCrosswalk,
+    leagueRegistry: { listActiveLeagues: () => configurations },
+    nflCalendar: { getCadenceState: cadenceMock },
+    leagueSource: { getLeagueWeek: sourceMock },
+    projectionFeed: { getProjectionSlate: projectionMock, assessProjectionSlate: assessmentMock },
+    gameStateFeed: { getGameStateSlate: gamesMock },
+    normalizeScoringProfile: normalizeSleeperScoringProfile,
+    clock: { now: clockMock, monotonicNow: monotonicMock },
+    idGenerator: { generate: workerIdMock },
+    logger: { write: loggerMock },
     cadenceMock,
     sourceMock,
     projectionMock,
     gamesMock,
+    assessmentMock,
+    clockMock,
+    monotonicMock,
+    workerIdMock,
+    loggerMock,
   };
 }

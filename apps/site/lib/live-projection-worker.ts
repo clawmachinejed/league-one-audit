@@ -1,12 +1,6 @@
 import 'server-only';
 
-import { randomUUID } from 'node:crypto';
-import { LEAGUE_IDS } from './config';
-import type { LeagueKey } from './leagues';
-import { getProjectionStore } from './projection-store';
-import { getProjectionCadenceInput, getProjectionSyncInput } from './sleeper';
-import { getTank01WeeklyGameStates } from './tank01-game-state';
-import { getTank01WeeklyProjections } from './tank01';
+import { createProductionProjectionDependencies } from './projections/runtime/projection-composition';
 import type {
   LiveProjectionSyncResult,
   LiveProjectionWorkerDependencies,
@@ -20,22 +14,6 @@ export type {
   ProjectionLeagueConfiguration,
 } from './projections/worker/contracts';
 
-function defaultDependencies(): LiveProjectionWorkerDependencies {
-  return {
-    store: getProjectionStore(),
-    leagues: (Object.keys(LEAGUE_IDS) as LeagueKey[]).map((key) => ({
-      key,
-      sleeperLeagueId: LEAGUE_IDS[key],
-    })),
-    getProjectionCadenceInput,
-    getProjectionSyncInput,
-    getWeeklyProjections: getTank01WeeklyProjections,
-    getWeeklyGameStates: getTank01WeeklyGameStates,
-    now: () => new Date(),
-    workerId: randomUUID,
-  };
-}
-
 export function createLiveProjectionWorker(dependencies: LiveProjectionWorkerDependencies): Readonly<{
   run: (options?: Readonly<{ force?: boolean }>) => Promise<LiveProjectionSyncResult>;
 }> {
@@ -45,5 +23,5 @@ export function createLiveProjectionWorker(dependencies: LiveProjectionWorkerDep
 export async function runLiveProjectionSync(
   options: Readonly<{ force?: boolean }> = {},
 ): Promise<LiveProjectionSyncResult> {
-  return runWithDependencies(defaultDependencies(), options);
+  return runWithDependencies(createProductionProjectionDependencies(), options);
 }

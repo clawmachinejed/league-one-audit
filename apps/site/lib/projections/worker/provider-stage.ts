@@ -1,8 +1,14 @@
-import 'server-only';
-
-import { createHash } from 'node:crypto';
-import type { Tank01GameStatesAvailable } from '../../tank01-game-state';
-import type { Tank01AvailableResult } from '../../tank01';
+import type {
+  GameStateSlate,
+  LeaguePeriod,
+  ProjectionSlate,
+} from '../domain/contracts';
+import type { IdentityCrosswalkPort } from '../ports/identity-crosswalk';
+import type { ProjectionRepositoryPort } from '../ports/projection-repository';
+import {
+  externalReferenceKey,
+  type ExternalGameRef,
+} from '../shared/provider-identity';
 import type {
   LiveProjectionWorkerDependencies,
   LoadedLeague,
@@ -10,115 +16,143 @@ import type {
   ProviderGroup,
 } from './contracts';
 import { kickoffForGame } from './game-context';
-import { scoringEntities } from './roster-context';
+import { scoringIdentityInputs } from './roster-context';
 
-function canonicalValue(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonicalValue);
-  if (value && typeof value === 'object') {
-    return Object.fromEntries(Object.entries(value)
-      .filter(([, item]) => item !== undefined)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, item]) => [key, canonicalValue(item)]));
-  }
-  return value;
+type ProviderLoadDependencies = Pick<
+  LiveProjectionWorkerDependencies,
+  'projectionFeed' | 'gameStateFeed'
+>;
+
+type ProviderPersistenceDependencies = Readonly<{
+  repository: Pick<ProjectionRepositoryPort, 'recordGameStates'>;
+  identityCrosswalk: Pick<
+    IdentityCrosswalkPort,
+    'resolveNflGames' | 'resolveScoringEntities'
+  >;
+}>;
+
+export type LoadedProviderGroup = Readonly<{
+  projections: ProjectionSlate;
+  games: GameStateSlate;
+}>;
+
+function validPeriod(period: LeaguePeriod): boolean {
+  return /^20\d{2}$/u.test(String(period.season))
+    && Number.isInteger(period.week)
+    && period.week >= 1
+    && period.week <= 18
+    && ['preseason', 'regular', 'postseason'].includes(period.seasonType);
 }
 
-export function revision(value: unknown): string {
-  return createHash('sha256').update(JSON.stringify(canonicalValue(value))).digest('hex');
+function samePeriod(left: LeaguePeriod, right: LeaguePeriod): boolean {
+  return left.season === right.season
+    && left.seasonType === right.seasonType
+    && left.week === right.week;
 }
 
 export function groupLeagues(leagues: readonly LoadedLeague[]): ProviderGroup[] {
-  const groups = new Map<string, { season: string; week: number; leagues: LoadedLeague[] }>();
+  const groups = new Map<string, { period: LeaguePeriod; leagues: LoadedLeague[] }>();
   for (const league of leagues) {
-    const { season } = league.source.data.league;
-    const { week } = league.source.data;
-    if (!/^20\d{2}$/u.test(season) || !Number.isInteger(week) || week < 1 || week > 18) {
-      throw new Error('Sleeper returned an invalid projection season or week.');
+    const { period } = league.source;
+    if (!validPeriod(period)) {
+      throw new Error('The official league source returned an invalid projection period.');
     }
-    const key = `${season}:${week}`;
-    const group = groups.get(key) ?? { season, week, leagues: [] };
+    const key = JSON.stringify([period.season, period.seasonType, period.week]);
+    const group = groups.get(key) ?? { period, leagues: [] };
     group.leagues.push(league);
     groups.set(key, group);
   }
   return [...groups.values()];
 }
 
-export async function persistProviderGroup(
-  dependencies: LiveProjectionWorkerDependencies,
+/** Loads each shared provider feed exactly once and validates it for every league schedule. */
+export async function loadProviderGroup(
+  dependencies: ProviderLoadDependencies,
   group: ProviderGroup,
-  games: Tank01GameStatesAvailable,
-  projections: Tank01AvailableResult,
+): Promise<LoadedProviderGroup> {
+  const [projectionResult, gameStateResult] = await Promise.all([
+    dependencies.projectionFeed.getProjectionSlate(group.period),
+    dependencies.gameStateFeed.getGameStateSlate(group.period),
+  ]);
+  if (projectionResult.status !== 'available' || gameStateResult.status !== 'available') {
+    throw new Error('A required projection provider source is unavailable.');
+  }
+
+  const projections = projectionResult.slate;
+  const games = gameStateResult.slate;
+  if (!samePeriod(projections.period, group.period) || !samePeriod(games.period, group.period)) {
+    throw new Error('A provider returned data for an unexpected projection period.');
+  }
+  if (group.leagues.some(({ source }) => (
+    !dependencies.projectionFeed.assessProjectionSlate(projections, source.schedule).complete
+  ))) {
+    throw new Error('The projection provider returned an incomplete weekly projection slate.');
+  }
+
+  return { projections, games };
+}
+
+function gameIdentityKey(reference: ExternalGameRef): string {
+  return externalReferenceKey(reference);
+}
+
+/**
+ * Persists shared provider state once per period. Projection candidates remain a
+ * per-league operation because they require that league's scoring profile.
+ */
+export async function persistProviderGroup(
+  dependencies: ProviderPersistenceDependencies,
+  group: ProviderGroup,
+  games: GameStateSlate,
+  projections: ProjectionSlate,
 ): Promise<PersistedGroup> {
-  const storedGames = await dependencies.store.upsertNflGames(games.games.map((game) => ({
-    key: game.gameId,
-    provider: 'tank01',
-    externalGameId: game.gameId,
-    season: Number(group.season),
-    seasonType: 'reg',
-    week: group.week,
+  const gameInputs = games.games.map((game) => ({
+    key: gameIdentityKey(game.gameRef),
+    primaryRef: game.gameRef,
+    aliasRefs: [],
+    period: group.period,
     homeTeam: game.homeTeam,
     awayTeam: game.awayTeam,
     kickoffAt: kickoffForGame(game, group.leagues),
-  })));
-  if (storedGames.kind !== 'stored' || storedGames.value.length !== games.games.length) {
+  }));
+  const resolvedGames = await dependencies.identityCrosswalk.resolveNflGames(gameInputs);
+  if (resolvedGames.kind !== 'resolved' || resolvedGames.value.length !== games.games.length
+    || resolvedGames.value.some((game) => game.status !== 'known')) {
     throw new Error('NFL games could not be persisted completely.');
   }
-  const gameIdsByExternalId = new Map(storedGames.value.map((game) => [game.key, game.gameId]));
+  const gameIdsByReferenceKey = new Map(resolvedGames.value.map((game) => {
+    if (game.status !== 'known') throw new Error('NFL games could not be persisted completely.');
+    return [game.key, game.gameId] as const;
+  }));
 
-  const states = await dependencies.store.recordGameStates({
-    provider: 'tank01',
-    states: games.games.map((game) => ({
-      externalGameId: game.gameId,
-      sourceRevision: revision({
-        gameId: game.gameId,
-        fetchedAt: game.fetchedAt,
-        statusCode: game.statusCode,
-        phase: game.phase,
-        clock: game.clock,
-        remainingFraction: game.remainingFraction,
-      }),
-      requestStartedAt: game.requestStartedAt,
-      requestCompletedAt: game.requestCompletedAt,
-      observedAt: game.fetchedAt,
-      statusCode: game.statusCode,
-      period: game.period,
-      gameClock: game.clock,
-      homeScore: null,
-      awayScore: null,
-      sourceData: {
-        statusText: game.statusText,
-        phase: game.phase,
-        clockSeconds: game.clockSeconds,
-        remainingFraction: game.remainingFraction,
-      },
-    })),
+  const storedStates = await dependencies.repository.recordGameStates({
+    source: games.source,
+    states: games.games,
   });
-  if (states.kind !== 'stored' || states.value.length !== games.games.length) {
+  if (storedStates.kind !== 'stored' || storedStates.value.length !== games.games.length) {
     throw new Error('NFL game states could not be persisted completely.');
   }
-  const gameObservationIdsByExternalId = new Map(
-    states.value.map((state) => [state.externalGameId, state.observationId]),
-  );
+  const gameObservationIdsByReferenceKey = new Map(storedStates.value.map((state) => [
+    gameIdentityKey(state.gameRef),
+    state.observationId,
+  ]));
 
-  const storedEntities = await dependencies.store.upsertScoringEntities(scoringEntities(group, projections));
-  if (storedEntities.kind !== 'stored') {
-    throw new Error('Player identities could not be resolved safely.');
+  const identityInputs = scoringIdentityInputs(group, projections);
+  const resolvedEntities = await dependencies.identityCrosswalk.resolveScoringEntities(identityInputs);
+  if (resolvedEntities.kind !== 'resolved') {
+    throw new Error('Scoring identities could not be resolved.');
   }
-  const entityIdsByKey = new Map(storedEntities.value.flatMap((entity) => (
-    entity.conflict || !entity.entityId ? [] : [[entity.key, entity.entityId] as const]
+  const entityIdsByReferenceKey = new Map(resolvedEntities.value.flatMap((entity) => (
+    entity.status === 'known' ? [[entity.key, entity.entityId] as const] : []
   )));
+
   return {
     games,
     projections,
-    gameIdsByExternalId,
-    gameObservationIdsByExternalId,
-    entityIdsByKey,
-    projectionSourceRevision: revision({
-      season: group.season,
-      week: group.week,
-      fetchedAt: projections.fetchedAt,
-      coverage: projections.coverage,
-      projections: projections.projections,
-    }),
+    gameIdsByReferenceKey,
+    gameObservationIdsByReferenceKey,
+    entityIdsByReferenceKey,
+    identityConflictCount: resolvedEntities.value.filter((entity) => entity.status !== 'known').length,
+    projectionSourceRevision: projections.sourceRevision,
   };
 }
