@@ -28,7 +28,8 @@ export async function LeagueMatchupsPage({
   const requestedWeek = parseMatchupWeek(week) ?? undefined;
   const persisted = await readStoredMatchups(leagueKey, requestedWeek);
   if (persisted.kind === 'usable') {
-    return <MatchupsView data={persisted.payload} periodContext={persisted.context} />;
+    return <MatchupsView data={persisted.payload} periodContext={persisted.context}
+      snapshotRevision={persisted.snapshotRevision} verifiedAt={persisted.verifiedAt} />;
   }
 
   let periodContext: MatchupPeriodContext | undefined = 'context' in persisted
@@ -53,7 +54,7 @@ export async function LeagueMatchupsPage({
       : data.week > data.league.week ? 'future' : 'active',
     refreshDue: false,
   };
-  return <MatchupsView data={data} periodContext={periodContext} />;
+  return <MatchupsView data={data} periodContext={periodContext} snapshotRevision={null} verifiedAt={null} />;
 }
 
 export async function LeagueStandingsPage({ leagueId }: { leagueId: string }) {

@@ -47,6 +47,27 @@ describe('LeagueMatchupsPage', () => {
       lifecycle: 'active', nflPhase: 'regular', temporalState: 'active', refreshDue: false,
     });
   });
+  it('supplies the exact stored revision lineage to the browser without a provider request', async () => {
+    const current = matchups(2);
+    const snapshotRevision = 'a'.repeat(64);
+    const verifiedAt = '2026-09-03T12:01:00.000Z';
+    mocks.readStoredMatchups.mockResolvedValue({ kind: 'usable', payload: current, snapshotRevision, verifiedAt,
+      context: { defaultSeason: 2026, defaultWeek: 2, activeSeason: 2026, activeWeek: 2,
+        lifecycle: 'active', nflPhase: 'regular', temporalState: 'active', refreshDue: false } });
+    const rendered = await LeagueMatchupsPage({ leagueKey: 'league1', leagueId: 'fixture-league', searchParams: Promise.resolve({}) }) as
+      ReactElement<{ data: MatchupsData; snapshotRevision: string; verifiedAt: string }>;
+    expect(rendered.props.snapshotRevision).toBe(snapshotRevision);
+    expect(rendered.props.verifiedAt).toBe(verifiedAt);
+    expect(mocks.getOfficialMatchups).not.toHaveBeenCalled();
+  });
+  it('supplies null lineage for direct Sleeper fallback', async () => {
+    mocks.readStoredMatchups.mockResolvedValue({ kind: 'missing' });
+    mocks.getOfficialMatchups.mockResolvedValue(matchups(2));
+    const rendered = await LeagueMatchupsPage({ leagueKey: 'league2', leagueId: 'fixture-league', searchParams: Promise.resolve({}) }) as
+      ReactElement<{ snapshotRevision: string | null; verifiedAt: string | null }>;
+    expect(rendered.props.snapshotRevision).toBeNull();
+    expect(rendered.props.verifiedAt).toBeNull();
+  });
 
   it('does not serve the prior stored week after Sleeper advances the default week', async () => {
     const current = matchups(2);
