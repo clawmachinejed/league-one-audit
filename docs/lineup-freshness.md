@@ -88,7 +88,7 @@ Provider-scoped roster, matchup, player, and defense references are distinct. Ra
 
 The snapshot **content hash** is a separate value, not another name for snapshot revision. It hashes the material payload, ignoring only `updatedAt`, plus normalized activity windows. If new calculation inputs produce identical content, publication retains the selected snapshot and its existing revision while advancing verification. This is why an unchanged browser revision can have a newer `verifiedAt`.
 
-Watch state stores the latest accepted revision separately from the last materialized revision. Different values mean pending work. First complete observation can create pending work during bounded bootstrap. An unchanged accepted check updates observation freshness without Tank01, scoring, or snapshot publication. An A → B → A sequence resolves against what was actually materialized, not merely the last requested target.
+Watch state stores the latest accepted revision separately from the last materialized revision. Different values mean pending work. First complete observation can create pending work during bounded bootstrap. An unchanged thin check updates observation freshness without Tank01, scoring, or snapshot publication; independently due full scoring work still runs. An A → B → A sequence resolves against what was actually materialized, not merely the last requested target.
 
 Each claim is protected by database time, worker identity, attempt generation, authority/ownership generation, and expiry. A later full-source reservation supersedes an older thin claim. Full completion uses the actual source revision it read; the requested target is not proof of what was published.
 
