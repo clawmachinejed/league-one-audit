@@ -707,13 +707,15 @@ describe('future projection orchestration', () => {
       const store = fakeStore();
       store.readFuturePlan.mockResolvedValue(plansWithWeekTwo({ due: true }));
       const dependencies = configureFutureDependencies(store);
-      dependencies.projectionMock.mockImplementation(() => new Promise(() => undefined));
+      let notifyProviderEntered!: () => void;
+      const providerEntered = new Promise<void>((resolve) => { notifyProviderEntered = resolve; });
+      dependencies.projectionMock.mockImplementation(() => {
+        notifyProviderEntered();
+        return new Promise(() => undefined);
+      });
 
       const result = createFutureProjectionWorker(dependencies).run();
-      for (let index = 0; index < 1000 && dependencies.projectionMock.mock.calls.length === 0;
-        index += 1) {
-        await new Promise<void>((resolve) => setImmediate(resolve));
-      }
+      await providerEntered;
       expect(dependencies.projectionMock).toHaveBeenCalledOnce();
       const operationSignal = dependencies.futureScopeMock.mock.calls[0]?.[0] as AbortSignal;
       expect(operationSignal.aborted).toBe(false);

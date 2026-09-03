@@ -130,7 +130,7 @@ They are not scoring, visual, provider, or cadence scope additions.
 - [x] Stage 0: clean synchronized baseline, pushed backup, deployment/configuration and database metadata, complete existing gates.
 - [x] PR1: shared raw parser, scoped identities, lineup-v1, classification, balanced policy, parity tests; no route/cadence change.
 - [x] PR2: migration 007, guarded repository operations, authority batch reader, compact reader/API and full revision protocol.
-- [ ] PR3: three-lane cutover, ownership, thin/full deduplication, independent future work, exact HTTP and capacity gates.
+- [x] PR3: three-lane cutover, ownership, thin/full deduplication, independent future work, exact HTTP and capacity gates.
 - [ ] PR4: current/future revision polling, visibility/race/manual/fallback behavior.
 - [ ] PR5: obsolete code reconciliation, runbook, final production evidence and retrospective.
 
@@ -293,3 +293,70 @@ Review comments 3928686176 and 3928686183 identified failure classifications tha
 
 Final full verify after these corrections passed: 1,006 unit tests in 75 files, lint, TypeScript, architecture and production build.
 - Final isolated Neon rerun: 104 tests passed (72.77 seconds). Final browser rerun: 13 passed (29.4 seconds).
+
+## PR3 production release
+
+- PR: https://github.com/clawmachinejed/league-one-audit/pull/166.
+- Heads: `48790e2f7a1761c22fd09756e68c219b9bc8e0aa`,
+  `ef9d72c6239e5428422346b6a7c65e8e47a24afd`, and
+  `9bad16900c4acebef42c674c29b06d5614d138f7`.
+- Squash merge: `c398a422ab54d2313943c842dd82786de43422f8` at 21:22:47 UTC.
+- GitHub run `33807307086`: verify and browser-smoke passed.
+- Final preview: `A3kmQtsmjgTaeZz8dP5NNMWRup2j`; both leagues inspected without invoking a preview worker.
+- Production: `7vDSo6eFGtRN6MaNRhuEmcf3ZxJb`, Ready for the merged commit.
+- Both live league pages rendered six matchup cards with projections. Public revision
+  endpoints returned 200/no-store; the previous snapshots remained readable during bootstrap.
+- Read-only production verification at approximately 21:29 UTC found all 36 active
+  league/week watch targets observed, no consecutive observation failures, current
+  observations aged 58 seconds, and future observations no older than 149 seconds.
+  Initial pending work was draining through the ordinary scheduled future lane.
+- The naturally scheduled 21:29 UTC executions of `live-projection-sync`,
+  `lineup-observation-sync`, and `future-projection-sync` all completed without a last
+  error. No worker was forced and no manual production snapshot mutation was used.
+- Runtime logs independently confirmed current thin checks of both leagues, future
+  observation batches of 10-12 targets, and one future period materialized for both
+  leagues per successful scheduled action. Sample Week 8 materialization took about
+  2.22 seconds; its trace showed one shared Tank01 game-state request and cached
+  Sleeper metadata. The observer's sampled application duration was 0.22-0.32 seconds.
+- The first future invocation during bootstrap at 21:24 UTC returned a safe failure
+  before the first new authority/watch synchronization completed. Subsequent natural
+  executions recovered without intervention. This initial failure is retained in the
+  evidence; it is not represented as an uninterrupted successful bootstrap.
+  Code inspection identifies absent pre-cutover authority shape/cadence metadata as
+  the likely cause: the new reader rejects it until the first current refresh supplies
+  it. The generic `unexpected` log code does not prove that cause retrospectively.
+- A read-only sweep of all 18 public revision endpoints for each league returned
+  36/36 HTTP 200 responses with valid revision hashes and no-store caching while
+  bootstrap materialization continued. Older, still-usable future snapshots were
+  retained until their queued refresh rather than disappearing during the rollout.
+- At 21:43 UTC the read-only production check found 18/18 observed targets in each
+  league, zero pending changes, zero observation failures, and a maximum observation
+  age of 152 seconds. Bounded bootstrap completed naturally without a forced sweep.
+
+## PR4 implementation
+
+Browser revision polling is being implemented from the verified PR3 production commit.
+The visual presentation, URLs, score calculation and API payload remain unchanged.
+- Isolated Neon regression: 104 tests in eight files passed (73.67 seconds). PR4 adds
+  no database or worker changes.
+- Browser state is scoped to league, season, week, and request generation. Compact
+  responses validate strict period and revision metadata. Full responses validate
+  both payload week fields, season, response URL and actual revision headers. A
+  compact verification timestamp is transferable only to the exact same revision.
+- Same-content checks update freshness and period context without replacing payloads.
+  The interval remains fixed while responses arrive. Hidden/unmounted or superseded
+  requests are cancelled; current failures retain official fallback, future automatic
+  failures retain last-known-good data, and manual failures use route refresh.
+- Independent review corrected stale server-response adoption, same-revision temporal
+  regression, and interval drift. The browser tests cover delayed responses, bounded
+  409 recovery, both league routes, week navigation, timeout and visibility races.
+- The complete gate exposed a PR3 test synchronization race: a fixed count of
+  `setImmediate` turns could finish before asynchronous preflight reached its mocked
+  provider under full-suite load. The test now awaits an explicit
+  provider-start signal before advancing the fake deadline. This is a test-only gate
+  stabilization; production worker code and every deadline assertion remain unchanged.
+- Final local gate: lint, TypeScript, architecture, all 1,044 unit tests in 76 files,
+  and the production build passed. The full browser suite passed all 28 tests in
+  32.1 seconds (13 existing plus 15 protocol cases). Isolated Neon passed 104 tests.
+- Browser fixtures intercept test-page responses only. No application fixture route,
+  feature flag, production payload, dependency, migration, or environment change was added.
