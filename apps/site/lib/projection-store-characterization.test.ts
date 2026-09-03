@@ -11,6 +11,7 @@ import {
   createFakeProjectionDatabase,
   extractProjectionStoreSql,
   projectionStoreActivityWindows,
+  projectionStoreLineupFence,
   projectionStorePlayerProjection,
   projectionStorePlayerProjectionRow,
   projectionStoreProductionSnapshot,
@@ -20,6 +21,7 @@ import {
 } from './projection-store-test-support';
 
 const publishInput: PublishSnapshotInput = {
+  lineupFence: projectionStoreLineupFence,
   leagueSeasonId: 'season-id',
   week: 1,
   modelVersion: 'clock-v1',
@@ -71,8 +73,6 @@ describe('projection-store public behavior characterization', () => {
     await expect(store.failFutureProjectionRefresh(undefined as never))
       .resolves.toEqual({ kind: 'disabled' });
     await expect(store.beginFutureMaterializationRefresh(undefined as never))
-      .resolves.toEqual({ kind: 'disabled' });
-    await expect(store.completeFutureMaterializationRefresh(undefined as never))
       .resolves.toEqual({ kind: 'disabled' });
     await expect(store.failFutureMaterializationRefresh(undefined as never))
       .resolves.toEqual({ kind: 'disabled' });
@@ -133,7 +133,7 @@ describe('projection-store public behavior characterization', () => {
       readLeagueLineupAuthorities: [], readMatchupSnapshotRevisionByLeagueKey: null,
       synchronizeLineupWatchStates: { kind: 'disabled' }, claimDueLineupObservations: [],
       completeLineupObservation: { kind: 'disabled' }, recordLineupObservationNotReady: { kind: 'disabled' },
-      failLineupObservation: { kind: 'disabled' }, supersedeLineupClaimWithFullObservation: { kind: 'disabled' },
+      failLineupObservation: { kind: 'disabled' },
       readPendingCurrentLineups: [], readPendingFutureLineups: [], readLineupWatchStates: [],
       wakeFutureProjectionAndMaterialization: { kind: 'disabled' },
       acknowledgeCurrentLineup: { kind: 'disabled' }, completeFutureMaterializationAndAcknowledgeLineup: { kind: 'disabled' },
@@ -144,17 +144,17 @@ describe('projection-store public behavior characterization', () => {
     }
   });
 
-  it('keeps all 53 store-owned SQL operations marked and unique across adapter modules', async () => {
+  it('keeps all 52 store-owned SQL operations marked and unique across adapter modules', async () => {
     const extraction = await extractProjectionStoreSql();
 
     // A non-template or unmarked database call must fail this audit instead of escaping the baseline.
     expect(extraction.operations).toHaveLength(extraction.queryCallCount);
-    expect(extraction.operations).toHaveLength(53);
+    expect(extraction.operations).toHaveLength(52);
     expect(extraction.operations.every(({ markerCount }) => markerCount === 1)).toBe(true);
 
     const markers = extraction.operations.map(({ marker }) => marker);
     expect(markers.every((value): value is string => value !== null)).toBe(true);
-    expect(new Set(markers).size).toBe(53);
+    expect(new Set(markers).size).toBe(52);
     expect(markers.toSorted()).toEqual([...projectionStoreSqlMarkers]);
   });
 
@@ -266,7 +266,7 @@ describe('projection-store public behavior characterization', () => {
       90,
       2026,
       '[]',
-      null,
+      '{"authorityGeneration":1,"ownerLane":"current","runId":"fixture-worker","watchGeneration":1,"watchId":"11111111-1111-4111-8111-111111111111"}',
     ]);
     expect(call.statement).toContain('INSERT INTO projection_snapshots');
     expect(call.statement).toContain('INSERT INTO current_projection_snapshots');

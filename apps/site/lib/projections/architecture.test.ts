@@ -508,6 +508,9 @@ describe('projection architecture', () => {
       resolve(libRoot, 'live-projection-worker.ts'),
       resolve(libRoot, 'future-projection-worker.ts'),
       runtimePath,
+      resolve(runtimeRoot, 'future-projection-composition.ts'),
+      resolve(runtimeRoot, 'projection-services.ts'),
+      resolve(runtimeRoot, 'projection-persistence.ts'),
       resolve(projectionRoot, 'domain', 'scoring.ts'),
       resolve(projectionRoot, 'domain', 'scoring-events.ts'),
       resolve(projectionRoot, 'domain', 'live-calculation.ts'),
@@ -530,6 +533,34 @@ describe('projection architecture', () => {
       runtimeDependencyViolations([resolve(projectionRoot, 'worker', 'orchestrator.ts')], (path) => (
         isInside(path, join(projectionRoot, 'worker')) && /\/future-[^/]+\.ts$/u.test(slashPath(path))
       )));
+  });
+
+  it('keeps lane-specific construction separate and shares one production projection cache', () => {
+    const current = modules.get(runtimePath)!;
+    const futurePath = resolve(runtimeRoot, 'future-projection-composition.ts');
+    const future = modules.get(futurePath)!;
+    const sharedServicesPath = resolve(runtimeRoot, 'projection-services.ts');
+    const sharedPersistencePath = resolve(runtimeRoot, 'projection-persistence.ts');
+    expect(current).toBeDefined();
+    expect(future).toBeDefined();
+    expect(current.source).not.toMatch(/FutureProjection|futurePersistence|projectionStorage|withDatabaseAbortSignal/u);
+    expect(future.source).not.toMatch(/nflCalendar|createSleeperNflCalendar|createProductionProjectionDependencies/u);
+    for (const sharedPath of [sharedServicesPath, sharedPersistencePath]) {
+      const shared = modules.get(sharedPath)!;
+      expect(shared).toBeDefined();
+      expect(shared.imports.some((dependency) => dependency.resolved !== null
+        && isInside(dependency.resolved, join(projectionRoot, 'worker')))).toBe(false);
+    }
+    const cacheFactories = modulesIn(runtimeRoot).flatMap((module) =>
+      [...module.source.matchAll(/createCachedTank01ProjectionFeed\s*\(/gu)].map(() => module.absolutePath));
+    expect(cacheFactories).toEqual([sharedServicesPath]);
+    expectNoViolations('Current construction must not load future execution capabilities.',
+      runtimeDependencyViolations([runtimePath], (path) => path === futurePath
+        || path === resolve(projectionRoot, 'worker', 'future-orchestrator.ts')));
+    expectNoViolations('Future construction must not load current calendar or authority refresh capabilities.',
+      runtimeDependencyViolations([futurePath], (path) => path === runtimePath
+        || path === resolve(projectionRoot, 'adapters', 'sleeper', 'nfl-calendar.ts')
+        || path === resolve(projectionRoot, 'worker', 'current-lineup-context.ts')));
   });
 
   it('keeps future orchestration away from calendar fetching and authority writers', () => {
@@ -590,7 +621,7 @@ describe('projection architecture', () => {
       const visit = (node: ts.Node) => {
         if ((ts.isPropertySignature(node) || ts.isParameter(node))
           && ts.isIdentifier(node.name)
-          && /^(?:league|roster|player|externalLeague|externalRoster|externalPlayer|externalGame)Id$/u.test(node.name.text)
+          && /^(?:league|roster|player|matchup|externalLeague|externalRoster|externalPlayer|externalGame|externalMatchup)Id$/u.test(node.name.text)
           && node.type?.kind === ts.SyntaxKind.StringKeyword) {
           const line = sourceModule.sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceModule.sourceFile)).line + 1;
           violations.push(`${location(sourceModule, line)}: exposes unscoped string ${node.name.text}`);
@@ -609,6 +640,22 @@ describe('projection architecture', () => {
       violations.push('lib/projections/shared/provider-identity.ts: external refs must retain provider, resource, opaque ID, and roster league scope');
     }
     expectNoViolations('Canonical boundaries may expose opaque provider refs or branded internal IDs, not raw provider IDs.', violations);
+  });
+
+  it('retains provider, league, and period scope in official and projected matchup contracts', () => {
+    const contracts = modules.get(resolve(projectionRoot, 'domain/contracts.ts'))!;
+    for (const name of ['OfficialMatchup', 'ProjectedMatchup']) {
+      const declaration = contracts.sourceFile.statements.find((node): node is ts.TypeAliasDeclaration =>
+        ts.isTypeAliasDeclaration(node) && node.name.text === name);
+      expect(declaration?.type.getText(contracts.sourceFile)).toMatch(/matchupRef:\s*ExternalMatchupRef/u);
+      expect(declaration?.type.getText(contracts.sourceFile)).not.toMatch(/matchupId/u);
+    }
+    const identity = modules.get(providerIdentityPath)!;
+    const matchup = identity.sourceFile.statements.find((node): node is ts.TypeAliasDeclaration =>
+      ts.isTypeAliasDeclaration(node) && node.name.text === 'ExternalMatchupRef');
+    expect(matchup?.type.getText(identity.sourceFile)).toMatch(/ExternalRef<'matchup'>/u);
+    expect(matchup?.type.getText(identity.sourceFile)).toMatch(/league:\s*ExternalLeagueRef/u);
+    expect(matchup?.type.getText(identity.sourceFile)).toMatch(/period:\s*ExternalPeriodScope/u);
   });
 
   it('has no dependency cycles across production TypeScript modules', () => {

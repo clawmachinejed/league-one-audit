@@ -19,7 +19,7 @@ describe.sequential('atomic lineup provenance and materialization in isolated Ne
   it('rejects absent and stale publication fences; current acknowledgment proves the exact source', async () => {
     const f = await lineageFixture(database);
     const source = await f.observe();
-    expect(await f.publish(source, null)).toMatchObject({ kind: 'rejected' });
+    await expect(f.publish(source, null as never)).rejects.toThrow();
     expect(await f.publish(source, { ...f.fence, watchGeneration: 2 })).toMatchObject({ kind: 'rejected' });
     const result = await f.publish(source);
     if (result.kind !== 'published') throw new Error('Fenced snapshot was not published.');
@@ -49,6 +49,33 @@ describe.sequential('atomic lineup provenance and materialization in isolated Ne
     if (f.fence.ownerLane !== 'current') throw new Error('Incorrect fixture lane.');
     expect(await f.store.acknowledgeCurrentLineup({ ...f.acknowledgeInput(firstSource, first.snapshot.revisionKey), fence: f.fence })).toEqual({ kind: 'stale' });
     expect(await f.store.acknowledgeCurrentLineup({ ...f.acknowledgeInput(laterSource, later.snapshot.revisionKey), fence: f.fence })).toEqual({ kind: 'updated' });
+  });
+
+  it('completes a future attempt only after unchanged publication verifies its actual official source', async () => {
+    const f = await lineageFixture(database, 'future');
+    const firstSource = await f.observe();
+    const first = await f.publish(firstSource);
+    if (first.kind !== 'published') throw new Error('Initial future snapshot was not published.');
+    const actualSource = await f.observe();
+    expect(await f.store.completeFutureMaterializationAndAcknowledgeLineup(await f.fullAckInput(actualSource, first.snapshot.revisionKey))).toEqual({ kind: 'stale' });
+    expect((await ownerQuery('SELECT active_attempt_id FROM league_week_materialization_states WHERE league_key=$1', [f.leagueKey]))[0].active_attempt_id).toBe(f.attemptId);
+    const verified = await f.publish(actualSource);
+    if (verified.kind !== 'unchanged') throw new Error('Identical future content should retain its snapshot.');
+    expect(verified.snapshot.snapshotId).toBe(first.snapshot.snapshotId);
+    expect((await ownerQuery(`SELECT current.verification_source_observation_id, snapshot.league_week_observation_id
+      FROM current_projection_snapshots current JOIN projection_snapshots snapshot ON snapshot.id=current.snapshot_id
+      WHERE current.league_season_id=$1 AND current.week=$2`, [f.league.leagueSeasonId, f.period.week]))[0]).toMatchObject({
+      verification_source_observation_id: actualSource.value.observationId, league_week_observation_id: firstSource.value.observationId,
+    });
+    expect(await f.store.completeFutureMaterializationAndAcknowledgeLineup(await f.fullAckInput(firstSource, verified.snapshot.revisionKey))).toEqual({ kind: 'stale' });
+    expect(await f.store.completeFutureMaterializationAndAcknowledgeLineup(await f.fullAckInput(actualSource, verified.snapshot.revisionKey))).toMatchObject({ kind: 'updated' });
+    expect((await ownerQuery(`SELECT watch.pending_since, watch.last_materialized_lineup_revision,
+      materialization.active_attempt_id, materialization.last_source_revision
+      FROM league_week_lineup_watch_states watch JOIN league_week_materialization_states materialization
+      USING(league_key,season,season_type,week) WHERE watch.id=$1`, [f.watchId]))[0]).toMatchObject({
+      pending_since: null, last_materialized_lineup_revision: LINEUP_B, active_attempt_id: null,
+      last_source_revision: actualSource.input.sourceRevision,
+    });
   });
 
   it('switches verification provenance with a delayed changed snapshot after A-to-B-to-A', async () => {
@@ -104,7 +131,7 @@ describe.sequential('atomic lineup provenance and materialization in isolated Ne
     expect(await f.publish(source)).toMatchObject({ kind: 'rejected' });
     await ownerQuery(`UPDATE league_week_lineup_watch_states SET retired_at=now(), retirement_reason='completed',
       watch_class='completed', materialization_lane=NULL, next_check_at=NULL, pending_since=NULL WHERE id=$1`, [f.watchId]);
-    expect(await f.publish(source, null)).toMatchObject({ kind: 'rejected' });
+    expect(await f.publish(source)).toMatchObject({ kind: 'rejected' });
   });
 
   it('acknowledges actual B while a newer C remains immediately due', async () => {

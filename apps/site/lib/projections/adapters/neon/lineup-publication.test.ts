@@ -23,6 +23,7 @@ describe('official lineup lineage and atomic publication boundaries', () => {
     expect(() => observationLineupValues('lineup-v1')).toThrow();
     expect(() => observationLineupValues(undefined, revisionA)).toThrow();
     expect(() => observationLineupValues('lineup-v1', 'invalid')).toThrow();
+    expect(() => publicationFenceJson(undefined as never)).toThrow('ownership fence is required');
     expect(() => publicationFenceJson({ watchId, watchGeneration: 0, authorityGeneration: 1, ownerLane: 'current', runId: 'run' })).toThrow();
   });
 
@@ -54,6 +55,25 @@ describe('official lineup lineage and atomic publication boundaries', () => {
     expect(fake.calls[0].statement).toContain('verification_source_observation_id = CASE');
     expect(fake.calls[0].statement).toContain('FOR UPDATE OF authority');
     expect(fake.calls[0].statement).not.toContain('latest_lineup_revision =');
+    expect(fake.calls[0].statement).not.toContain('$13::jsonb IS NULL');
+    expect(JSON.parse(fake.calls[0].parameters[12] as string)).toEqual({
+      watchId, watchGeneration: 1, authorityGeneration: 2, ownerLane: 'current', runId: 'run',
+    });
+  });
+
+  it('rejects new unfenced publication and unscoped materialization before querying', async () => {
+    const fake = createFakeProjectionDatabase();
+    await expect(createSnapshotMethods(fake.database).publishSnapshot({
+      leagueSeasonId: watchId, week: 1, modelVersion: 'clock-v1', revisionKey: 'snapshot',
+      leagueWeekObservationId: observationId, gameStateObservationIds: [], calculatedAt: at,
+      payload: projectionStoreSnapshot, activityWindows: [], lineupFence: undefined as never,
+    })).rejects.toThrow('ownership fence is required');
+    await expect(createMaterializationFutureRefreshMethods(fake.database).beginFutureMaterializationRefresh({
+      leagueKey: 'league', projectionProvider: 'tank01', normalizerVersion: 'slate-v1', modelVersion: 'clock-v1',
+      period: { season: 2026, seasonType: 'reg', week: 2 }, attemptId,
+      attemptedAt: at, leaseSeconds: 60, target: undefined as never,
+    })).rejects.toThrow('lineup target is required');
+    expect(fake.calls).toHaveLength(0);
   });
 
   it('keeps the claimed target independent of actual full-source lineage in one atomic completion', async () => {
@@ -84,5 +104,10 @@ describe('official lineup lineage and atomic publication boundaries', () => {
     expect(fake.calls[1].statement).toContain('materialization.active_attempt_expires_at > now()');
     expect(fake.calls[1].statement).toContain("WHEN target.newer_lineup THEN interval '0 seconds'");
     expect(fake.calls[1].statement).not.toContain('active_attempt_expires_at >= $9');
+    expect(fake.calls[0].parameters).toHaveLength(12);
+    expect(JSON.parse(fake.calls[0].parameters[10] as string)).toEqual(target);
+    expect(fake.calls[0].statement).not.toContain('$11::jsonb IS NULL');
+    expect(fake.calls[1].statement).toContain('AND watch.id IS NOT NULL');
+    expect(fake.calls[1].statement).not.toContain('materialization.active_watch_id IS NULL');
   });
 });

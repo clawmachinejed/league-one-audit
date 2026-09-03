@@ -6,9 +6,9 @@ import { runFutureWithDependencies } from '../worker/future-orchestrator';
 import { runWithDependencies, type PreparedCurrentPreflight } from '../worker/orchestrator';
 import { safeProjectionLog } from '../worker/worker-operations';
 import {
-  createProductionFutureProjectionDependencies,
   createProductionProjectionDependencies,
 } from './projection-composition';
+import { createProductionFutureProjectionDependencies } from './future-projection-composition';
 
 /** Only the established authenticated force operation may hand a preseason default to its future owner. */
 export async function runProductionProjectionSync(

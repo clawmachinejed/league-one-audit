@@ -34,6 +34,7 @@ import {
   externalLeagueRef,
   externalGameRef,
   externalPlayerRef,
+  externalMatchupRef,
   externalRosterRef,
 } from '../shared/provider-identity';
 import { compatibleRevision } from '../shared/revision-compatibility';
@@ -165,7 +166,7 @@ function futureSource(configuration: LeagueConfiguration): LeagueWeekState {
     rosterPositions: [...POSITIONS],
     participants,
     matchups: Array.from({ length: MANAGER_TEAMS.length / 2 }, (_, matchupIndex) => ({
-      matchupId: String(matchupIndex + 1),
+      matchupRef: externalMatchupRef(configuration.leagueRef, FUTURE_PERIOD, String(matchupIndex + 1)),
       status: 'unknown' as const,
       sides: [matchupIndex * 2, (matchupIndex * 2) + 1].map((index) => ({
         rosterRef: participants[index].rosterRef,

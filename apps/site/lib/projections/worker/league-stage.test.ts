@@ -23,6 +23,7 @@ import {
   externalLeagueRef,
   externalPlayerRef,
   externalReferenceKey,
+  externalMatchupRef,
   externalRosterRef,
   externalTeamDefenseRef,
   providerKey,
@@ -111,7 +112,7 @@ const source: LeagueWeekState = {
     },
   ],
   matchups: [{
-    matchupId: '1',
+    matchupRef: externalMatchupRef(leagueRef, period, '1'),
     status: 'live',
     sides: [
       {

@@ -64,7 +64,6 @@ export type CompleteLineupObservationInput = Readonly<{
   requestCompletedAt: string;
   nextCheckAt: string;
 }>;
-export type FullLineupObservationInput = Omit<CompleteLineupObservationInput, 'claim'> & Readonly<{ fence: LineupWatchFence }>;
 export type LineupObservationWriteOutcome =
   | Readonly<{ kind: 'stored'; state: StoredLineupWatchState }>
   | Readonly<{ kind: 'stale' | 'disabled' }>;
@@ -104,7 +103,6 @@ export type LineupWatchMethods = {
   completeLineupObservation(input: CompleteLineupObservationInput): Promise<LineupObservationWriteOutcome>;
   recordLineupObservationNotReady(input: Readonly<{ claim: LineupObservationClaim; checkedAt: string; nextCheckAt: string }>): Promise<LineupWatchTransition>;
   failLineupObservation(input: Readonly<{ claim: LineupObservationClaim; failureCode: string; retryDelaysSeconds: readonly [number, number, number, number] }>): Promise<LineupWatchTransition>;
-  supersedeLineupClaimWithFullObservation(input: FullLineupObservationInput): Promise<LineupObservationWriteOutcome>;
   readPendingCurrentLineups(leagueKeys: readonly string[]): Promise<readonly StoredLineupWatchState[]>;
   readPendingFutureLineups(leagueKeys: readonly string[]): Promise<readonly StoredLineupWatchState[]>;
   readLineupWatchStates(leagueKeys: readonly string[]): Promise<readonly StoredLineupWatchState[]>;

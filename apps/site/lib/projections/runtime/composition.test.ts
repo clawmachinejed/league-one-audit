@@ -13,7 +13,8 @@ import { LEAGUE_IDS } from '../../config';
 import { FIRST_MATCHUP_WEEK, LAST_MATCHUP_WEEK } from '../../matchup-week';
 import { externalGameRef, providerKey } from '../shared/provider-identity';
 import { createProductionLineupObservationDependencies } from './lineup-observation-composition';
-import { createProductionFutureProjectionDependencies, createProductionProjectionDependencies } from './projection-composition';
+import { createProductionProjectionDependencies } from './projection-composition';
+import { createProductionFutureProjectionDependencies } from './future-projection-composition';
 
 beforeEach(() => { calls.query.mockClear(); vi.stubGlobal('fetch', vi.fn()); });
 afterEach(() => { vi.unstubAllGlobals(); });
@@ -54,7 +55,9 @@ describe('production worker capability composition', () => {
       && String(keyParts[0]).startsWith('tank01-normalized-'))).toHaveLength(2);
     expect(current).toHaveProperty('nflCalendar');
     expect(current).toHaveProperty('lineupSource');
-    expect(current).toHaveProperty('persistence');
+    expect(current).not.toHaveProperty('persistence');
+    expect(current).not.toHaveProperty('projectionStorage');
+    expect(future).toHaveProperty('projectionStorage');
     expect(current).not.toHaveProperty('futurePersistence');
     expect(future).not.toHaveProperty('nflCalendar');
     expect(future).not.toHaveProperty('lineupSource');
@@ -71,18 +74,6 @@ describe('production worker capability composition', () => {
     const keys = dependencies.leagueRegistry.listActiveLeagues().map((league) => league.key);
     await scoped.repository.completeJob('lineup-observations:fixture', 'fixture-worker');
     await scoped.lineupRepository.readPendingFutureLineups(keys);
-    await scoped.periodAuthorityReader.readAuthorities(keys, new Date('2026-09-03T12:00:00Z'), 180_000);
-    expectScopedQueries(controller.signal, 3);
-  });
-
-  it('binds current persistence without leaking an identity or future scope capability', async () => {
-    const dependencies = createProductionProjectionDependencies();
-    const controller = new AbortController();
-    const scoped = dependencies.persistence.scope(controller.signal);
-    expect(Object.keys(scoped).sort()).toEqual(['lineupRepository', 'periodAuthorityReader', 'repository']);
-    const keys = dependencies.leagueRegistry.listActiveLeagues().map((league) => league.key);
-    await scoped.repository.completeJob('live-projection-sync:fixture', 'fixture-worker');
-    await scoped.lineupRepository.readPendingCurrentLineups(keys);
     await scoped.periodAuthorityReader.readAuthorities(keys, new Date('2026-09-03T12:00:00Z'), 180_000);
     expectScopedQueries(controller.signal, 3);
   });

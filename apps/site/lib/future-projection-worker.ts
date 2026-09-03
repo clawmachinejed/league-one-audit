@@ -1,5 +1,5 @@
 import 'server-only';
-import { createProductionFutureProjectionDependencies } from './projections/runtime/projection-composition';
+import { createProductionFutureProjectionDependencies } from './projections/runtime/future-projection-composition';
 import type { ForcedFuturePeriod, FutureProjectionSyncResult, FutureProjectionWorkerDependencies } from './projections/worker/future-contracts';
 import { runFutureWithDependencies } from './projections/worker/future-orchestrator';
 

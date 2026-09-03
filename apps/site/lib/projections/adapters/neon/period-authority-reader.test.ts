@@ -26,6 +26,11 @@ function reader(rows: readonly StoredLeagueAuthorityRead[], now = asOf) {
 }
 
 describe('canonical durable period authority reader', () => {
+  it('uses each registered league horizon rather than an independent scheduling range', async () => {
+    const adapter = createNeonPeriodAuthorityReader({ readLeagueLineupAuthorities: async () => [stored()] },
+      { listActiveLeagues: () => [{ ...configurations[0], matchupWeekRange: { firstWeek: 1, lastWeek: 1 } }] }, { now: () => asOf });
+    expect(await adapter.readAuthorities(['alpha'], asOf, 600_000)).toEqual([{ kind: 'malformed', leagueKey: 'alpha' }]);
+  });
   it('reads all requested authorities once and converts provider-scoped identities without losing the active period', async () => {
     const { adapter, readLeagueLineupAuthorities } = reader([stored('beta'), stored('alpha')]);
     const result = await adapter.readAuthorities(['alpha', 'beta'], asOf, 600_000);

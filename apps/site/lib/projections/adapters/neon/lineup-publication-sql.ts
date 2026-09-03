@@ -39,13 +39,7 @@ export const LINEUP_PUBLICATION_CTES = `
             AND materialization.active_attempt_expires_at > now()
           FOR UPDATE OF materialization
         ), publication_lineup_guard AS (
-          SELECT true AS accepted WHERE
-            ($13::jsonb IS NULL AND NOT EXISTS (
-              SELECT 1 FROM league_week_lineup_watch_states watch JOIN league_source source
-                ON source.league_key = watch.league_key AND source.season = watch.season
-              WHERE watch.season_type = 'reg' AND watch.week = $3
-            ))
-            OR EXISTS (
+          SELECT true AS accepted WHERE EXISTS (
               SELECT 1 FROM publication_watch watch
               JOIN publication_authority authority ON authority.league_key = watch.league_key
               JOIN league_source source ON source.league_key = watch.league_key

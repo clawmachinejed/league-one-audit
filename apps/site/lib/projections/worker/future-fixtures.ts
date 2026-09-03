@@ -1,5 +1,5 @@
 import { vi, type Mock } from 'vitest';
-import { cadenceInput, source, type FakeStore, type WorkerTestDependencies } from '../../live-projection-worker.fixtures';
+import { PROJECTION_PROVIDER, cadenceInput, source, type FakeStore, type WorkerTestDependencies } from '../../live-projection-worker.fixtures';
 import type { LineupWatchState, LineupWatchTarget, LineupWatchRepositoryPort } from '../ports/lineup-watch-repository';
 import type { PeriodAuthorityReadResult } from '../ports/period-authority-reader';
 import type { FuturePersistence, FutureProjectionWorkerDependencies } from './future-contracts';
@@ -64,9 +64,7 @@ export function futureDependencies(base: WorkerTestDependencies, store: FakeStor
     }),
     recordLineupObservationNotReady: vi.fn(async () => ({ kind: 'stored' as const })),
     failLineupObservation: vi.fn(async () => ({ kind: 'stored' as const })),
-    readPendingCurrentLineups: vi.fn(async () => []),
     readPendingFutureLineups: vi.fn(async () => []),
-    readLineupWatchStates: vi.fn(async () => [...states.values()]),
     readLineupWatchSchedule: vi.fn(async () => []),
     wakeFutureProjectionAndMaterialization: vi.fn(async () => ({ kind: 'stored' as const })),
     acknowledgeCurrentLineup: vi.fn(async () => ({ kind: 'updated' as const })),
@@ -77,6 +75,7 @@ export function futureDependencies(base: WorkerTestDependencies, store: FakeStor
     lineupRepository, periodAuthorityReader }));
   const result = { ...base, repository: store.repository, identityCrosswalk: store.identityCrosswalk,
     leagueRegistry, lineupRepository, periodAuthorityReader, states, authorityMock,
+    projectionStorage: { source: PROJECTION_PROVIDER, normalizerVersion: 'canonical-projection-slate-v1' },
     futurePersistence: { scope: (signal: AbortSignal) => scope(signal) },
   };
   return result satisfies FutureProjectionWorkerDependencies;

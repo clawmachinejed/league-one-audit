@@ -1,3 +1,4 @@
+import { lineupFailureRetryDelaysSeconds } from './lineup-watch-policy';
 import type { FutureProjectionWorkerDependencies, FutureMaterializationStageResult } from './future-contracts';
 import type {
   LeagueConfiguration,
@@ -254,7 +255,7 @@ export async function prepareFutureMaterializations(
       } catch (error) {
         if (reserved) await dependencies.lineupRepository.failLineupObservation({
           claim: reserved.claim, failureCode: 'source-unavailable',
-          retryDelaysSeconds: [reserved.state.watchClass === 'current' ? 60 : 180, 300, 900, 3600],
+          retryDelaysSeconds: lineupFailureRetryDelaysSeconds(reserved.state.watchClass),
         }).catch(() => ({ kind: 'stale' as const }));
         return {
           claimed: value,

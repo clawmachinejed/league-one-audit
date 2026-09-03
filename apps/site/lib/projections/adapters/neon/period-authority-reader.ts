@@ -56,7 +56,7 @@ export function createNeonPeriodAuthorityReader(
           observedAt: stored.sourceObservedAt, verifiedAt: stored.verifiedAt,
         };
         const classification = classifyLineupWatchPeriod(authority, authority.defaultDisplayPeriod, {
-          now, range: { firstWeek: 1, lastWeek: 18 }, expectedLeagueRef: configuration.leagueRef,
+          now, range: configuration.matchupWeekRange, expectedLeagueRef: configuration.leagueRef,
           maxAuthorityAgeMs: Math.min(maxAgeMs, LINEUP_AUTHORITY_MAX_AGE_MS),
         });
         if (classification.kind === 'unavailable') {

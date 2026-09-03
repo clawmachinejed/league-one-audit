@@ -20,6 +20,7 @@ export function positiveGeneration(value: number, label: string, allowZero = fal
 }
 
 export function materializationTargetValue(target: StoreLineupMaterializationTarget) {
+  if (!target) throw new Error('Materialization lineup target is required.');
   return {
     watchId: futureRefreshUuid(target.watchId, 'Lineup watch ID'),
     watchGeneration: positiveGeneration(target.watchGeneration, 'Watch generation'),
@@ -29,8 +30,8 @@ export function materializationTargetValue(target: StoreLineupMaterializationTar
   };
 }
 
-export function publicationFenceJson(fence: StoreLineupPublicationFence | undefined): string | null {
-  if (fence === undefined) return null;
+export function publicationFenceJson(fence: StoreLineupPublicationFence): string {
+  if (!fence) throw new Error('Publication ownership fence is required.');
   const base = {
     watchId: futureRefreshUuid(fence.watchId, 'Lineup watch ID'),
     watchGeneration: positiveGeneration(fence.watchGeneration, 'Watch generation'),

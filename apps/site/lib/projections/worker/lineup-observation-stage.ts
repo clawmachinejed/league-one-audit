@@ -4,7 +4,7 @@ import type { LineupWatchState } from '../ports/lineup-watch-repository';
 import type { ProjectionFailureCode, ProjectionLogOutcome } from '../ports/logger';
 import { sameExternalReference } from '../shared/provider-identity';
 import { lineupObservationClaim } from './lineup-watch-context';
-import { nextLineupCheckAt } from './lineup-watch-policy';
+import { lineupFailureRetryDelaysSeconds, nextLineupCheckAt } from './lineup-watch-policy';
 import { emptyLineupObservationCounts, type LineupObservationCounts, type LineupObservationWorkerDependencies } from './lineup-contracts';
 
 export const LINEUP_OBSERVATION_CONCURRENCY = 8;
@@ -39,7 +39,7 @@ export async function observeLineupClaims(
     const failure = async (code: ProjectionFailureCode) => {
       failureCode = code; outcome = 'failed';
       const result = await dependencies.lineupRepository.failLineupObservation({ claim, failureCode: code,
-        retryDelaysSeconds: [state.watchClass === 'current' ? 60 : 180, 300, 900, 3600] });
+        retryDelaysSeconds: lineupFailureRetryDelaysSeconds(state.watchClass) });
       if (result.kind === 'stored') counts.failed += 1;
       else { counts.skipped += 1; outcome = 'skipped'; failureCode = 'claim-stale'; }
     };

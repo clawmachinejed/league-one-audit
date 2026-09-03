@@ -426,7 +426,7 @@ export type PublishSnapshotInput = Readonly<{
   /** Maximum age difference among Sleeper and Tank01 observations. Defaults to 90 seconds. */
   maxSourceSkewSeconds?: number;
   /** Required by SQL as soon as an active watch exists for this league and period. */
-  lineupFence?: StoreLineupPublicationFence;
+  lineupFence: StoreLineupPublicationFence;
 }>;
 
 export type PublishSnapshotOutcome =
@@ -541,22 +541,9 @@ export type ProjectionStore = LineupWatchMethods & LineupAcknowledgmentMethods &
     attemptId: string;
     attemptedAt: string;
     leaseSeconds: number;
-    target?: StoreLineupMaterializationTarget;
+    target: StoreLineupMaterializationTarget;
     force?: true;
   }>) => Promise<StoreFutureRefreshClaim>;
-  completeFutureMaterializationRefresh: (input: Readonly<{
-    leagueKey: string;
-    projectionProvider: string;
-    normalizerVersion: string;
-    modelVersion: string;
-    period: StoreFutureRefreshPeriod;
-    attemptId: string;
-    completedAt: string;
-    nextRefreshAt: string;
-    sourceRevision: string;
-    slate: StoreFutureProjectionSlateLineage;
-    snapshotRevision: string;
-  }>) => Promise<StoreFutureRefreshTransition>;
   failFutureMaterializationRefresh: (input: Readonly<{
     leagueKey: string;
     projectionProvider: string;

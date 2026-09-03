@@ -74,13 +74,13 @@ export async function lineageFixture(database: IndependentDatabase, lane: 'curre
       lineupRevisionVersion: 'lineup-v1', lineupRevision };
     return { input, value: stored(await store.recordLeagueWeekObservation(input)) };
   };
-  const publish = async (observation: Awaited<ReturnType<typeof observe>>, overrideFence: StoreLineupPublicationFence | null = fence) => {
+  const publish = async (observation: Awaited<ReturnType<typeof observe>>, overrideFence: StoreLineupPublicationFence = fence) => {
     const payload = { league: { season: '2026', rosterPositions: ['QB'], week, maxWeek: 18 }, teams: [],
       updatedAt: observation.input.observedAt, week, matchups: [] };
     return store.publishSnapshot({ leagueSeasonId: league.leagueSeasonId, week, modelVersion: 'clock-v1',
       revisionKey: randomUUID(), leagueWeekObservationId: observation.value.observationId,
       gameStateObservationIds: [], calculatedAt: observation.input.observedAt, payload, activityWindows: [],
-      ...(overrideFence ? { lineupFence: overrideFence } : {}) });
+      lineupFence: overrideFence });
   };
   const acknowledgeInput = (observation: Awaited<ReturnType<typeof observe>>, snapshotRevision: string) => ({
     leagueKey, period, modelVersion: 'clock-v1', sourceRevision: observation.input.sourceRevision,

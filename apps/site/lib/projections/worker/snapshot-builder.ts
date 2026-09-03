@@ -4,12 +4,13 @@ import type {
   LeagueWeekState,
   NflWeekSchedule,
   ProjectedLineupSlot,
+  ProjectedMatchup,
   ProjectedMatchupSnapshot,
   ProjectionPointQuality,
   ScoringEntity,
 } from '../domain/contracts';
 import type { ProjectionBaselineRecord } from '../ports/projection-repository';
-import { externalReferenceKey } from '../shared/provider-identity';
+import { externalReferenceKey, sameExternalReference } from '../shared/provider-identity';
 import type { MatchupsData, NflGame, Player, Team } from '../../types';
 import { matchupStatus, startedGame, stateForEntity } from './game-context';
 import type { PregameProjectionSet } from './contracts';
@@ -115,9 +116,10 @@ function projectedPlayerMap(input: BuildSnapshotInput): Map<string, Readonly<{
 export function buildProjectedMatchupSnapshot(
   input: BuildSnapshotInput,
 ): ProjectedMatchupSnapshot {
+  assertMatchupScopes(input.source);
   const projections = projectedPlayerMap(input);
   const matchups = input.source.matchups.map((matchup) => ({
-    matchupId: matchup.matchupId,
+    matchupRef: matchup.matchupRef,
     status: matchupStatus(matchup, input.source.schedule, input.games),
     sides: matchup.sides.map((side) => {
       const starters: ProjectedLineupSlot[] = side.starters.map((slot) => {
@@ -222,13 +224,14 @@ export function toMatchupsData(
   snapshot: ProjectedMatchupSnapshot,
   schedule: NflWeekSchedule,
 ): MatchupsData {
+  assertMatchupScopes(snapshot);
   const teams = snapshot.participants.map(presentationTeam);
   const teamByRoster = new Map(snapshot.participants.map((participant, index) => [
     externalReferenceKey(participant.rosterRef),
     teams[index],
   ]));
   const matchups = snapshot.matchups.map((matchup) => ({
-    id: matchup.matchupId,
+    id: matchup.matchupRef.externalId,
     status: matchup.status,
     sides: matchup.sides.map((side) => {
       const team = teamByRoster.get(externalReferenceKey(side.rosterRef));
@@ -254,6 +257,21 @@ export function toMatchupsData(
     matchups,
     warning: snapshot.warning,
   };
+}
+
+/** Canonical matchup IDs repeat between leagues and weeks; only the scoped identity is safe. */
+function assertMatchupScopes(snapshot: Pick<ProjectedMatchupSnapshot, 'configuration' | 'period'>
+  & Readonly<{ matchups: readonly Pick<ProjectedMatchup, 'matchupRef'>[] }>) {
+  const { leagueRef } = snapshot.configuration;
+  for (const { matchupRef } of snapshot.matchups) {
+    if (matchupRef.resource !== 'matchup' || matchupRef.provider !== leagueRef.provider
+      || !sameExternalReference(matchupRef.league, leagueRef)
+      || matchupRef.period.season !== snapshot.period.season
+      || matchupRef.period.seasonType !== snapshot.period.seasonType
+      || matchupRef.period.week !== snapshot.period.week) {
+      throw new Error('A matchup identity does not belong to this league period.');
+    }
+  }
 }
 
 /** Builds canonical state first, then performs one presentation conversion. */

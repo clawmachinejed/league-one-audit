@@ -8,8 +8,8 @@ import { storedLineupPeriod, storedLineupPublicationFence } from './lineup-repos
 
 type LineupStore = Pick<ProjectionStore, 'enabled' | 'synchronizeLineupWatchStates'
   | 'claimDueLineupObservations' | 'reserveFullLineupObservation' | 'completeLineupObservation'
-  | 'recordLineupObservationNotReady' | 'failLineupObservation' | 'readPendingCurrentLineups'
-  | 'readPendingFutureLineups' | 'readLineupWatchStates' | 'readLineupWatchSchedule' | 'wakeFutureProjectionAndMaterialization'
+  | 'recordLineupObservationNotReady' | 'failLineupObservation'
+  | 'readPendingFutureLineups' | 'readLineupWatchSchedule' | 'wakeFutureProjectionAndMaterialization'
   | 'acknowledgeCurrentLineup' | 'completeFutureMaterializationAndAcknowledgeLineup'>;
 
 function disabledLineupRepository(): LineupWatchRepositoryPort {
@@ -21,9 +21,7 @@ function disabledLineupRepository(): LineupWatchRepositoryPort {
     completeLineupObservation: async () => ({ kind: 'disabled' }),
     recordLineupObservationNotReady: async () => ({ kind: 'disabled' }),
     failLineupObservation: async () => ({ kind: 'disabled' }),
-    readPendingCurrentLineups: async () => [],
     readPendingFutureLineups: async () => [],
-    readLineupWatchStates: async () => [],
     readLineupWatchSchedule: async () => [],
     wakeFutureProjectionAndMaterialization: async () => ({ kind: 'disabled' }),
     acknowledgeCurrentLineup: async () => ({ kind: 'disabled' }),
@@ -99,9 +97,7 @@ export function createNeonLineupRepository(
     },
     recordLineupObservationNotReady: (input) => store.recordLineupObservationNotReady(input),
     failLineupObservation: (input) => store.failLineupObservation(input),
-    async readPendingCurrentLineups(keys) { return (await store.readPendingCurrentLineups(keys)).map(state); },
     async readPendingFutureLineups(keys) { return (await store.readPendingFutureLineups(keys)).map(state); },
-    async readLineupWatchStates(keys) { return (await store.readLineupWatchStates(keys)).map(state); },
     async readLineupWatchSchedule(keys) {
       return (await store.readLineupWatchSchedule(keys)).map((row) => ({ leagueKey: row.leagueKey,
         leagueRef: externalLeagueRef(row.sourceProvider, row.externalLeagueId), phase: row.phase, watchClass: row.watchClass,

@@ -11,6 +11,7 @@ import {
   type DatabaseRow,
 } from './database';
 import { createProjectionStore } from './projection-store';
+import { projectionStoreLineupFence } from './projection-store-test-support';
 import type { MatchupsData } from './types';
 
 type QueryCall = Readonly<{ statement: string; parameters: readonly unknown[] }>;
@@ -383,6 +384,7 @@ describe('projection persistence', () => {
     }] : []);
     const store = createProjectionStore(fake.database);
     const result = await store.publishSnapshot({
+      lineupFence: projectionStoreLineupFence,
       leagueSeasonId: 'season-id', week: 1, modelVersion: 'clock-v1',
       revisionKey: 'revision-1', leagueWeekObservationId: 'league-observation-id',
       gameStateObservationIds: ['game-observation-1', 'game-observation-1', 'game-observation-2'],
@@ -414,6 +416,7 @@ describe('projection persistence', () => {
     const fake = fakeDatabase(() => { throw new Error('Database should not be called.'); });
     const store = createProjectionStore(fake.database);
     await expect(store.publishSnapshot({
+      lineupFence: projectionStoreLineupFence,
       leagueSeasonId: 'season-id', week: 1, modelVersion: 'clock-v1',
       revisionKey: 'revision-1', leagueWeekObservationId: 'league-observation-id',
       gameStateObservationIds: [], calculatedAt: scheduledSnapshot.updatedAt,
@@ -447,9 +450,11 @@ describe('projection persistence', () => {
       calculatedAt: snapshot.updatedAt, activityWindows: [],
     } as const;
     const first = await store.publishSnapshot({
+      lineupFence: projectionStoreLineupFence,
       ...base, revisionKey: 'revision-1', payload: snapshot,
     });
     const second = await store.publishSnapshot({
+      lineupFence: projectionStoreLineupFence,
       ...base,
       revisionKey: 'revision-2',
       payload: { ...snapshot, updatedAt: '2026-09-13T17:01:00.000Z' },
@@ -474,6 +479,7 @@ describe('projection persistence', () => {
     const fake = fakeDatabase(() => { throw new Error('Database should not be called.'); });
     const store = createProjectionStore(fake.database);
     await expect(store.publishSnapshot({
+      lineupFence: projectionStoreLineupFence,
       leagueSeasonId: 'season-id', week: 2, modelVersion: 'clock-v1',
       revisionKey: 'revision-1', leagueWeekObservationId: 'league-observation-id',
       gameStateObservationIds: [], calculatedAt: snapshot.updatedAt,
@@ -486,6 +492,7 @@ describe('projection persistence', () => {
     const fake = fakeDatabase(() => { throw new Error('Database should not be called.'); });
     const store = createProjectionStore(fake.database);
     await expect(store.publishSnapshot({
+      lineupFence: projectionStoreLineupFence,
       leagueSeasonId: 'season-id', week: 1, modelVersion: 'clock-v1',
       revisionKey: 'revision-1', leagueWeekObservationId: 'league-observation-id',
       gameStateObservationIds: [], calculatedAt: snapshot.updatedAt, payload: snapshot,
@@ -704,6 +711,7 @@ describe('projection persistence', () => {
     const fake = fakeDatabase();
     const store = createProjectionStore(fake.database);
     await expect(store.publishSnapshot({
+      lineupFence: projectionStoreLineupFence,
       leagueSeasonId: 'season-id', week: 1, modelVersion: 'clock-v1',
       revisionKey: 'revision-1', leagueWeekObservationId: 'partial-observation',
       gameStateObservationIds: [], calculatedAt: snapshot.updatedAt,

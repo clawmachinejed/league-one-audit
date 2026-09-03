@@ -1,5 +1,7 @@
 # Projection architecture plan and anti-drift contract
 
+> Historical refactor contract and evidence. Scheduling, worker ownership, publication fencing, browser polling, and capacity descriptions below record that earlier implementation and are superseded by the [current lineup freshness architecture and runbook](lineup-freshness.md). Use the [current release ledger](lineup-freshness-plan.md) and [release validation guide](release-validation.md) for deployment status and operations. Historical counts and pending statements are preserved as recorded; they are not a claim about today's production state.
+
 ## Status
 
 This document fixes the behavior and evidence baseline for the projection refactor. It is an acceptance contract, not permission to change projection behavior. Every implementation PR must remain independently reviewable, releasable, and reversible.

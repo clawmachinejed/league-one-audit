@@ -14,7 +14,6 @@ export type FutureRefreshMethods = Pick<
   | 'completeFutureProjectionRefresh'
   | 'failFutureProjectionRefresh'
   | 'beginFutureMaterializationRefresh'
-  | 'completeFutureMaterializationRefresh'
   | 'failFutureMaterializationRefresh'
 >;
 
@@ -29,7 +28,6 @@ export function createFutureRefreshMethods(client: DatabaseClient): FutureRefres
     completeFutureProjectionRefresh: projection.completeFutureProjectionRefresh,
     failFutureProjectionRefresh: projection.failFutureProjectionRefresh,
     beginFutureMaterializationRefresh: materialization.beginFutureMaterializationRefresh,
-    completeFutureMaterializationRefresh: materialization.completeFutureMaterializationRefresh,
     failFutureMaterializationRefresh: materialization.failFutureMaterializationRefresh,
   } satisfies FutureRefreshMethods;
 }

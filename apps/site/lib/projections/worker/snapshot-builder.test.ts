@@ -14,6 +14,7 @@ import {
   externalGameRef,
   externalLeagueRef,
   externalPlayerRef,
+  externalMatchupRef,
   externalRosterRef,
   externalTeamDefenseRef,
   providerKey,
@@ -103,7 +104,7 @@ function source(): LeagueWeekState {
       },
     ],
     matchups: [{
-      matchupId: '4',
+      matchupRef: externalMatchupRef(leagueRef, period, '4'),
       status: 'unknown',
       sides: [
         {
@@ -328,9 +329,25 @@ describe('canonical worker game context and snapshot builder', () => {
     }])).toBeNull();
   });
 
+  it('rejects cross-league, cross-period, and inconsistent-provider matchup references at both boundaries', () => {
+    const input = snapshotInput();
+    for (const matchupRef of [
+      externalMatchupRef(externalLeagueRef(official, 'other-league'), period, '4'),
+      externalMatchupRef(leagueRef, { ...period, week: 2 }, '4'),
+      { ...externalMatchupRef(leagueRef, period, '4'), provider: gameProvider },
+    ]) {
+      const changed = { ...input.source, matchups: input.source.matchups.map((matchup) => ({ ...matchup, matchupRef })) };
+      expect(() => buildSnapshot({ ...input, source: changed })).toThrow('matchup identity');
+      const canonical = buildProjectedMatchupSnapshot(input);
+      expect(() => toMatchupsData({ ...canonical,
+        matchups: canonical.matchups.map((matchup) => ({ ...matchup, matchupRef })) }, input.source.schedule)).toThrow('matchup identity');
+    }
+  });
+
   it('builds canonical projections and converts once to the existing complete public payload', () => {
     const input = snapshotInput();
     const canonical = buildProjectedMatchupSnapshot(input);
+    expect(canonical.matchups[0].matchupRef).toEqual(externalMatchupRef(leagueRef, period, '4'));
     const firstSide = canonical.matchups[0].sides[0];
     expect(canonical.matchups[0].status).toBe('live');
     expect(firstSide.projectedPoints).toBe(64);
@@ -348,6 +365,7 @@ describe('canonical worker game context and snapshot builder', () => {
     expect(canonical.matchups[0].sides[1].projectedPoints).toBeNull();
 
     const payload = toMatchupsData(canonical, input.source.schedule);
+    expect(payload.matchups[0].id).toBe('4');
     expect(buildSnapshot(input)).toEqual(payload);
     expect(payload).toEqual({
       league: {

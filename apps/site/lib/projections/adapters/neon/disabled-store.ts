@@ -20,7 +20,6 @@ export function createDisabledProjectionStore(): ProjectionStore {
     async completeLineupObservation() { return { kind: 'disabled' }; },
     async recordLineupObservationNotReady() { return { kind: 'disabled' }; },
     async failLineupObservation() { return { kind: 'disabled' }; },
-    async supersedeLineupClaimWithFullObservation() { return { kind: 'disabled' }; },
     async readPendingCurrentLineups() { return []; },
     async readPendingFutureLineups() { return []; },
     async readLineupWatchStates() { return []; },
@@ -59,9 +58,6 @@ export function createDisabledProjectionStore(): ProjectionStore {
       return { kind: 'disabled' };
     },
     async beginFutureMaterializationRefresh() {
-      return { kind: 'disabled' };
-    },
-    async completeFutureMaterializationRefresh() {
       return { kind: 'disabled' };
     },
     async failFutureMaterializationRefresh() {

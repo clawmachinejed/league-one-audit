@@ -42,6 +42,7 @@ import type {
 import {
   externalGameRef,
   externalLeagueRef,
+  externalMatchupRef,
   externalPlayerRef,
   externalReferenceKey,
   externalRosterRef,
@@ -178,7 +179,8 @@ export function source(leagueId: string, data = matchupData()): LeagueWeekState 
   ]));
   const rosteredEntities = new Map<string, ScoringEntity>();
   const matchups = data.matchups.map((matchup) => ({
-    matchupId: matchup.id,
+    matchupRef: externalMatchupRef(leagueConfiguration.leagueRef,
+      { season: Number(data.league.season), seasonType: 'regular', week: data.week }, matchup.id),
     status: matchup.status,
     sides: matchup.sides.map((side) => ({
       rosterRef: participantByRoster.get(side.team.id)!,
@@ -857,16 +859,11 @@ export function workerDependencies(
     lineupSource: { getLineup: vi.fn(async () => ({ status: 'not-ready' as const, reason: 'empty' as const,
       requestStartedAt: clockMock().toISOString(), requestCompletedAt: clockMock().toISOString() })) },
     identityCrosswalk: fake.identityCrosswalk,
-    persistence: { scope: futureScopeMock },
     leagueRegistry: { listActiveLeagues: () => configurations },
     nflCalendar: { getCadenceState: cadenceMock },
     leagueSource: { getLeagueWeek: sourceMock },
     projectionFeed: { getProjectionSlate: projectionMock, assessProjectionSlate: assessmentMock },
     gameStateFeed: { getGameStateSlate: gamesMock },
-    projectionStorage: {
-      source: PROJECTION_PROVIDER,
-      normalizerVersion: 'canonical-projection-slate-v1',
-    },
     normalizeScoringProfile: normalizeSleeperScoringProfile,
     clock: { now: clockMock, monotonicNow: monotonicMock },
     idGenerator: { generate: workerIdMock },
