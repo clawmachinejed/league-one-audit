@@ -19,6 +19,7 @@ export type FutureMaterializationState = Readonly<{
   lastSucceededAt: string | null;
   lastProjectionSlateContentId: string | null;
   consecutiveFailures: number;
+  due: boolean;
 }>;
 
 export type FutureRefreshPlan = Readonly<{
@@ -27,6 +28,7 @@ export type FutureRefreshPlan = Readonly<{
   projectionLastSucceededAt: string | null;
   projectionConsecutiveFailures: number;
   currentProjectionSlateContentId: string | null;
+  projectionDue: boolean;
   materializations: readonly FutureMaterializationState[];
 }>;
 
@@ -129,11 +131,6 @@ export function initialFutureRefreshAt(
   return new Date(seededAtMs + Math.max(0, weekDistance - 1) * 15 * MINUTE_MS).toISOString();
 }
 
-function parsedTime(value: string): number | null {
-  const parsed = Date.parse(value);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
 function allExpectedMaterializations(
   plan: FutureRefreshPlan,
   expectedLeagueKeys: readonly string[],
@@ -145,18 +142,13 @@ function allExpectedMaterializations(
     && expected.every((key, index) => key === actual[index]);
 }
 
-function projectionDue(plan: FutureRefreshPlan, nowMs: number): boolean {
-  const next = parsedTime(plan.projectionNextRefreshAt);
-  return plan.currentProjectionSlateContentId === null || next === null || next <= nowMs;
+function projectionDue(plan: FutureRefreshPlan): boolean {
+  return plan.projectionDue;
 }
 
-function materializationDue(plan: FutureRefreshPlan, nowMs: number): boolean {
+function materializationDue(plan: FutureRefreshPlan): boolean {
   if (plan.currentProjectionSlateContentId === null) return false;
-  return plan.materializations.some((state) => {
-    const next = parsedTime(state.nextRefreshAt);
-    return state.lastProjectionSlateContentId !== plan.currentProjectionSlateContentId
-      || next === null || next <= nowMs;
-  });
+  return plan.materializations.some((state) => state.due);
 }
 
 /**
@@ -172,6 +164,7 @@ export function selectFutureWork(
 ): FutureWorkSelection | null {
   const nowMs = now.getTime();
   if (!Number.isFinite(nowMs) || authoritativeFuturePeriods.length === 0) return null;
+  if (plans.length !== authoritativeFuturePeriods.length) return null;
   const ordered = authoritativeFuturePeriods.map((period) => (
     plans.find((candidate) => samePeriod(candidate.period, period)) ?? null
   ));
@@ -186,10 +179,10 @@ export function selectFutureWork(
   const eligible = canaryComplete ? completePlans : [canary];
   for (const plan of eligible) {
     const weekDistance = futureWeekDistance(plan.period, authoritativeFuturePeriods);
-    if (projectionDue(plan, nowMs)) {
+    if (projectionDue(plan)) {
       return { kind: 'projection-ingest', period: plan.period, weekDistance };
     }
-    if (materializationDue(plan, nowMs)) {
+    if (materializationDue(plan)) {
       return { kind: 'materialize', period: plan.period, weekDistance };
     }
   }

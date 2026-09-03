@@ -1,9 +1,11 @@
 import type { LeaguePeriod } from '../domain/contracts';
+import type { FutureRefreshFailureCode } from './future-refresh-repository';
 
 export type LogLevel = 'info' | 'warn' | 'error';
 export type ProjectionLogOutcome = 'started' | 'completed' | 'skipped' | 'failed';
 
 export type ProjectionFailureCode =
+  | FutureRefreshFailureCode
   | 'cadence-source-unavailable'
   | 'lease-lost'
   | 'projection-slate-incomplete'

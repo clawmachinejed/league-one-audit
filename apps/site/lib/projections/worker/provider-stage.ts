@@ -4,7 +4,11 @@ import type {
   ProjectionSlate,
 } from '../domain/contracts';
 import type { IdentityCrosswalkPort } from '../ports/identity-crosswalk';
-import type { ProjectionRepositoryPort } from '../ports/projection-repository';
+import type {
+  ProjectionRepositoryPort,
+  ProjectionSlateContentId,
+  ProjectionSlateObservationId,
+} from '../ports/projection-repository';
 import {
   externalReferenceKey,
   type ExternalGameRef,
@@ -35,6 +39,14 @@ export type LoadedProviderGroup = Readonly<{
   projections: ProjectionSlate;
   games: GameStateSlate;
 }>;
+
+export type ProjectionSlatePersistence =
+  | Readonly<{ kind: 'incoming' }>
+  | Readonly<{
+      kind: 'stored';
+      observationId: ProjectionSlateObservationId;
+      contentId: ProjectionSlateContentId;
+    }>;
 
 function validPeriod(period: LeaguePeriod): boolean {
   return /^20\d{2}$/u.test(String(period.season))
@@ -105,6 +117,7 @@ export async function persistProviderGroup(
   group: ProviderGroup,
   games: GameStateSlate,
   projections: ProjectionSlate,
+  projectionPersistence: ProjectionSlatePersistence = { kind: 'incoming' },
 ): Promise<PersistedGroup> {
   const gameInputs = games.games.map((game) => ({
     key: gameIdentityKey(game.gameRef),
@@ -146,11 +159,20 @@ export async function persistProviderGroup(
     entity.status === 'known' ? [[entity.key, entity.entityId] as const] : []
   )));
 
-  const storedProjectionSlate = await dependencies.repository.recordProjectionSlate(projections);
-  if (storedProjectionSlate.kind !== 'stored'
-    || storedProjectionSlate.value.entryCount !== projections.projections.length) {
-    throw new Error('The provider projection slate could not be persisted completely.');
-  }
+  const projectionLineage = projectionPersistence.kind === 'stored'
+    ? projectionPersistence
+    : await (async () => {
+        const storedProjectionSlate = await dependencies.repository.recordProjectionSlate(projections);
+        if (storedProjectionSlate.kind !== 'stored'
+          || storedProjectionSlate.value.entryCount !== projections.projections.length) {
+          throw new Error('The provider projection slate could not be persisted completely.');
+        }
+        return {
+          kind: 'stored' as const,
+          observationId: storedProjectionSlate.value.observationId,
+          contentId: storedProjectionSlate.value.contentId,
+        };
+      })();
 
   return {
     games,
@@ -160,6 +182,7 @@ export async function persistProviderGroup(
     entityIdsByReferenceKey,
     identityConflictCount: resolvedEntities.value.filter((entity) => entity.status !== 'known').length,
     projectionSourceRevision: projections.sourceRevision,
-    projectionSlateObservationId: storedProjectionSlate.value.observationId,
+    projectionSlateObservationId: projectionLineage.observationId,
+    projectionSlateContentId: projectionLineage.contentId,
   };
 }

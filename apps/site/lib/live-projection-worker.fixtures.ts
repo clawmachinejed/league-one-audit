@@ -22,6 +22,10 @@ import type {
   ScoringEntityId,
 } from './projections/ports/identity-crosswalk';
 import type {
+  FutureRefreshRepositoryPort,
+  FutureRefreshPlanPeriod,
+} from './projections/ports/future-refresh-repository';
+import type {
   LeagueSeasonId,
   ObservationId,
   ProjectionBaselineRecord,
@@ -32,6 +36,7 @@ import type {
   PublishSnapshotInput,
   ScoringProfileId,
   StoredProjectionSnapshot,
+  StoredProjectionSlate,
 } from './projections/ports/projection-repository';
 import {
   externalGameRef,
@@ -425,9 +430,9 @@ export type CapturedProjectionCandidate = Readonly<{
 }>;
 
 export type FakeStore = Readonly<{
-  repository: ProjectionRepositoryPort;
+  repository: ProjectionRepositoryPort & FutureRefreshRepositoryPort;
   /** Compatibility name retained for tests that spy on repository operations. */
-  store: ProjectionRepositoryPort;
+  store: ProjectionRepositoryPort & FutureRefreshRepositoryPort;
   identityCrosswalk: IdentityCrosswalkPort;
   acquired: ReturnType<typeof vi.fn>;
   completed: ReturnType<typeof vi.fn>;
@@ -435,6 +440,14 @@ export type FakeStore = Readonly<{
   frozen: ReturnType<typeof vi.fn>;
   recordedStates: ReturnType<typeof vi.fn>;
   pruned: ReturnType<typeof vi.fn>;
+  ensureFuture: ReturnType<typeof vi.fn>;
+  readFuturePlan: ReturnType<typeof vi.fn>;
+  beginFutureProjection: ReturnType<typeof vi.fn>;
+  completeFutureProjection: ReturnType<typeof vi.fn>;
+  failFutureProjection: ReturnType<typeof vi.fn>;
+  beginFutureMaterialization: ReturnType<typeof vi.fn>;
+  completeFutureMaterialization: ReturnType<typeof vi.fn>;
+  failFutureMaterialization: ReturnType<typeof vi.fn>;
   operations: WorkerStoreOperation[];
   gamesUpserted: Array<Readonly<{ key: string; kickoffAt: string | null }>>;
   candidateBatches: CapturedProjectionCandidate[][];
@@ -496,6 +509,48 @@ export function fakeStore(freezeBaselines = true, enabled = true): FakeStore {
   const leagueProfiles = new Map<LeagueSeasonId, ScoringProfileId>();
   const latest = new Map<string, ProjectionBaselineRecord>();
   const baselines = new Map<string, ProjectionBaselineRecord>();
+  let currentProjectionSlate: StoredProjectionSlate | null = null;
+  const ensureFuture = vi.fn(async () => ({
+    kind: 'stored' as const,
+    value: { projectionPeriodsInserted: 0, materializationsInserted: 0 },
+  }));
+  const readFuturePlan = vi.fn(async (): Promise<readonly FutureRefreshPlanPeriod[]> => []);
+  const beginFutureProjection = vi.fn(async () => ({
+    kind: 'acquired' as const,
+    attempt: 1,
+    attemptId: 'worker-1' as import('./projections/ports/future-refresh-repository').FutureRefreshAttemptId,
+    leaseUntil: '2026-09-13T18:01:05.000Z',
+  }));
+  const completeFutureProjection = vi.fn(async () => ({
+    kind: 'updated' as const,
+    consecutiveFailures: 0,
+    nextRefreshAt: '2026-09-14T00:00:00.000Z',
+    materializationsWoken: 2,
+  }));
+  const failFutureProjection = vi.fn(async () => ({
+    kind: 'updated' as const,
+    consecutiveFailures: 1,
+    nextRefreshAt: '2026-09-13T18:05:00.000Z',
+    materializationsWoken: 0,
+  }));
+  const beginFutureMaterialization = vi.fn(async () => ({
+    kind: 'acquired' as const,
+    attempt: 1,
+    attemptId: 'worker-1' as import('./projections/ports/future-refresh-repository').FutureRefreshAttemptId,
+    leaseUntil: '2026-09-13T18:01:05.000Z',
+  }));
+  const completeFutureMaterialization = vi.fn(async () => ({
+    kind: 'updated' as const,
+    consecutiveFailures: 0,
+    nextRefreshAt: '2026-09-13T19:00:00.000Z',
+    materializationsWoken: 0,
+  }));
+  const failFutureMaterialization = vi.fn(async () => ({
+    kind: 'updated' as const,
+    consecutiveFailures: 1,
+    nextRefreshAt: '2026-09-13T18:05:00.000Z',
+    materializationsWoken: 0,
+  }));
 
   const resolveScoringEntitiesImplementation: IdentityCrosswalkPort['resolveScoringEntities'] = async (inputs) => {
     operations.push('upsert-scoring-entities');
@@ -532,7 +587,7 @@ export function fakeStore(freezeBaselines = true, enabled = true): FakeStore {
     resolveNflGames,
   };
 
-  const repository: ProjectionRepositoryPort = {
+  const repository: ProjectionRepositoryPort & FutureRefreshRepositoryPort = {
     enabled,
     async upsertPeriodAuthority() {
       return { kind: enabled ? 'stored' as const : 'disabled' as const };
@@ -552,6 +607,14 @@ export function fakeStore(freezeBaselines = true, enabled = true): FakeStore {
     },
     async recordProjectionSlate(input) {
       operations.push('record-projection-slate');
+      currentProjectionSlate = {
+        observationId: 'projection-slate-observation' as ProjectionSlateObservationId,
+        contentId: 'projection-slate-content' as ProjectionSlateContentId,
+        semanticHash: 'semantic-hash',
+        slate: input,
+        verifiedAt: input.observedAt,
+        materialChangedAt: input.observedAt,
+      };
       return {
         kind: 'stored',
         value: {
@@ -565,8 +628,16 @@ export function fakeStore(freezeBaselines = true, enabled = true): FakeStore {
       };
     },
     async readCurrentProjectionSlate() {
-      return null;
+      return currentProjectionSlate;
     },
+    ensureFutureRefreshStates: ensureFuture,
+    readFutureRefreshPlan: readFuturePlan,
+    beginFutureProjectionRefresh: beginFutureProjection,
+    completeFutureProjectionRefresh: completeFutureProjection,
+    failFutureProjectionRefresh: failFutureProjection,
+    beginFutureMaterializationRefresh: beginFutureMaterialization,
+    completeFutureMaterializationRefresh: completeFutureMaterialization,
+    failFutureMaterializationRefresh: failFutureMaterialization,
     async recordProjectionCandidates(input) {
       operations.push('record-projection-candidates');
       candidateBatches.push(input.candidates.map((candidate) => ({
@@ -691,6 +762,14 @@ export function fakeStore(freezeBaselines = true, enabled = true): FakeStore {
     frozen,
     recordedStates,
     pruned,
+    ensureFuture,
+    readFuturePlan,
+    beginFutureProjection,
+    completeFutureProjection,
+    failFutureProjection,
+    beginFutureMaterialization,
+    completeFutureMaterialization,
+    failFutureMaterialization,
     operations,
     gamesUpserted,
     candidateBatches,
@@ -762,6 +841,10 @@ export function workerDependencies(
     leagueSource: { getLeagueWeek: sourceMock },
     projectionFeed: { getProjectionSlate: projectionMock, assessProjectionSlate: assessmentMock },
     gameStateFeed: { getGameStateSlate: gamesMock },
+    projectionStorage: {
+      source: PROJECTION_PROVIDER,
+      normalizerVersion: 'canonical-projection-slate-v1',
+    },
     normalizeScoringProfile: normalizeSleeperScoringProfile,
     clock: { now: clockMock, monotonicNow: monotonicMock },
     idGenerator: { generate: workerIdMock },

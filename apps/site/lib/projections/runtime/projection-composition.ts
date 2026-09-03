@@ -9,6 +9,7 @@ import { getProjectionCadenceInput, getProjectionSyncInput } from '../../sleeper
 import { createLeagueRegistry } from '../adapters/configuration/league-registry';
 import { createNeonIdentityCrosswalk } from '../adapters/neon/identity-crosswalk';
 import { createNeonProjectionRepository } from '../adapters/neon/repository';
+import { PROJECTION_SLATE_NORMALIZER_VERSION } from '../adapters/neon/projection-slates';
 import { createSleeperLeagueSource } from '../adapters/sleeper/league-source';
 import { createSleeperNflCalendar } from '../adapters/sleeper/nfl-calendar';
 import { normalizeSleeperScoringProfile } from '../adapters/sleeper/scoring-profile';
@@ -72,6 +73,10 @@ export function createProductionProjectionDependencies(): LiveProjectionWorkerDe
       fetch: globalThis.fetch,
       now: Date.now,
     }),
+    projectionStorage: {
+      source: projectionProvider,
+      normalizerVersion: PROJECTION_SLATE_NORMALIZER_VERSION,
+    },
     normalizeScoringProfile: normalizeSleeperScoringProfile,
     clock: { now: () => new Date(), monotonicNow: Date.now },
     idGenerator: { generate: randomUUID },

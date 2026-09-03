@@ -14,6 +14,7 @@ import type {
   ObservationId,
   ProjectionRepositoryPort,
   ProjectionRunId,
+  ProjectionSlateContentId,
   ProjectionSlateObservationId,
   ScoringProfileId,
 } from '../ports/projection-repository';
@@ -246,6 +247,7 @@ const persisted: PersistedGroup = {
   identityConflictCount: 0,
   projectionSourceRevision: 'projection-revision',
   projectionSlateObservationId: 'projection-slate-observation' as ProjectionSlateObservationId,
+  projectionSlateContentId: 'projection-slate-content' as ProjectionSlateContentId,
 };
 
 function repositoryHarness() {

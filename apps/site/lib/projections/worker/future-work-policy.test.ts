@@ -46,12 +46,14 @@ function plan(
     projectionLastSucceededAt: '2026-09-03T10:00:00.000Z',
     projectionConsecutiveFailures: 0,
     currentProjectionSlateContentId: `content-${week}`,
+    projectionDue: true,
     materializations: ['league1', 'league2'].map((leagueKey) => ({
       leagueKey,
       nextRefreshAt: '2026-09-03T11:00:00.000Z',
       lastSucceededAt: '2026-09-03T10:00:00.000Z',
       lastProjectionSlateContentId: `content-${week}`,
       consecutiveFailures: 0,
+      due: true,
     })),
     ...overrides,
   };
@@ -159,6 +161,7 @@ describe('future work policy', () => {
     const periods = [{ season: 2026, seasonType: 'regular' as const, week: 2 }];
     const candidate = plan(2, {
       projectionNextRefreshAt: '2026-09-03T18:00:00.000Z',
+      projectionDue: false,
       materializations: plan(2).materializations.map((state) => ({
         ...state, lastSucceededAt: null, lastProjectionSlateContentId: null,
       })),
@@ -167,12 +170,13 @@ describe('future work policy', () => {
       new Date('2026-09-03T12:00:00.000Z'))?.kind).toBe('materialize');
   });
 
-  it('uses content identity, not observation identity, to force rematerialization', () => {
+  it('uses only durable due decisions for projection and materialization selection', () => {
     const periods = [{ season: 2026, seasonType: 'regular' as const, week: 2 }];
     const upToDate = plan(2, {
       projectionNextRefreshAt: '2026-09-03T18:00:00.000Z',
+      projectionDue: false,
       materializations: plan(2).materializations.map((state) => ({
-        ...state, nextRefreshAt: '2026-09-03T18:00:00.000Z',
+        ...state, nextRefreshAt: '2026-09-03T18:00:00.000Z', due: false,
       })),
     });
     expect(selectFutureWork([upToDate], periods, ['league1', 'league2'],
@@ -182,7 +186,52 @@ describe('future work policy', () => {
       currentProjectionSlateContentId: 'changed-content',
     };
     expect(selectFutureWork([changed], periods, ['league1', 'league2'],
-      new Date('2026-09-03T12:00:00.000Z'))?.kind).toBe('materialize');
+      new Date('2026-09-03T12:00:00.000Z'))).toBeNull();
+    expect(selectFutureWork([{
+      ...changed,
+      materializations: changed.materializations.map((state, index) => ({
+        ...state, due: index === 0,
+      })),
+    }], periods, ['league1', 'league2'],
+    new Date('2026-09-03T12:00:00.000Z'))?.kind).toBe('materialize');
+  });
+
+  it('honors durable backoff and active-lease decisions even when no slate exists', () => {
+    const periods = [{ season: 2026, seasonType: 'regular' as const, week: 2 }];
+    const backedOff = plan(2, {
+      currentProjectionSlateContentId: null,
+      projectionDue: false,
+      projectionNextRefreshAt: '2026-09-03T11:00:00.000Z',
+      materializations: plan(2).materializations.map((state) => ({
+        ...state, due: false, lastSucceededAt: null, lastProjectionSlateContentId: null,
+      })),
+    });
+    expect(selectFutureWork([backedOff], periods, ['league1', 'league2'],
+      new Date('2026-09-03T12:00:00.000Z'))).toBeNull();
+  });
+
+  it('runs an unseeded later week when the durable reader marks it due', () => {
+    const periods = [
+      { season: 2026, seasonType: 'regular' as const, week: 2 },
+      { season: 2026, seasonType: 'regular' as const, week: 3 },
+    ];
+    const canary = plan(2, {
+      projectionDue: false,
+      materializations: plan(2).materializations.map((state) => ({ ...state, due: false })),
+    });
+    const later = plan(3, {
+      currentProjectionSlateContentId: null,
+      projectionDue: true,
+      projectionNextRefreshAt: '2026-09-04T12:00:00.000Z',
+      projectionLastSucceededAt: null,
+      materializations: plan(3).materializations.map((state) => ({
+        ...state, due: false, lastSucceededAt: null, lastProjectionSlateContentId: null,
+      })),
+    });
+    expect(selectFutureWork([canary, later], periods, ['league1', 'league2'],
+      new Date('2026-09-03T12:00:00.000Z'))).toEqual({
+      kind: 'projection-ingest', period: periods[1], weekDistance: 2,
+    });
   });
 
   it('opens later periods only after every current league completes the canary', () => {
@@ -192,18 +241,21 @@ describe('future work policy', () => {
     ];
     const waiting = plan(2, {
       projectionNextRefreshAt: '2026-09-03T18:00:00.000Z',
+      projectionDue: false,
       materializations: plan(2).materializations.map((state, index) => ({
         ...state,
         nextRefreshAt: '2026-09-03T18:00:00.000Z',
         lastSucceededAt: index === 0 ? state.lastSucceededAt : null,
+        due: false,
       })),
     });
     expect(selectFutureWork([waiting, plan(3)], periods, ['league1', 'league2'],
       new Date('2026-09-03T12:00:00.000Z'))).toBeNull();
     expect(selectFutureWork([plan(2, {
       projectionNextRefreshAt: '2026-09-03T18:00:00.000Z',
+      projectionDue: false,
       materializations: plan(2).materializations.map((state) => ({
-        ...state, nextRefreshAt: '2026-09-03T18:00:00.000Z',
+        ...state, nextRefreshAt: '2026-09-03T18:00:00.000Z', due: false,
       })),
     }), plan(3)], periods, ['league1', 'league2'],
     new Date('2026-09-03T12:00:00.000Z'))?.period.week).toBe(3);
@@ -214,5 +266,7 @@ describe('future work policy', () => {
     expect(selectFutureWork([plan(2, {
       materializations: plan(2).materializations.slice(0, 1),
     })], periods, ['league1', 'league2'], new Date())).toBeNull();
+    expect(selectFutureWork([plan(2), plan(2)], periods, ['league1', 'league2'], new Date()))
+      .toBeNull();
   });
 });

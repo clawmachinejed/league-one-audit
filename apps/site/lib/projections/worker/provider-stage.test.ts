@@ -372,6 +372,7 @@ describe('canonical provider persistence stage', () => {
       identityConflictCount: 0,
       projectionSourceRevision: 'legacy-compatible-projection-revision',
       projectionSlateObservationId: 'projection-slate-observation',
+      projectionSlateContentId: 'projection-slate-content',
     });
   });
 

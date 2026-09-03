@@ -340,6 +340,6 @@ export async function processLeague(
     frozenBaselineCount: frozen.length,
     missingBaselineCount: missingFrozenBaselineCount,
     applicableSourceSkewSeconds: sourceSkewSeconds,
-    snapshotRevision: revisionKey,
+    snapshotRevision: published.snapshot.revisionKey,
   };
 }

@@ -20,6 +20,7 @@ import {
 import { processLeague } from './league-stage';
 import { groupLeagues, loadProviderGroup, persistProviderGroup } from './provider-stage';
 import { createProviderGroupScoringCache } from './scoring-cache';
+import { runFutureWork } from './future-orchestrator';
 
 const JOB_LEASE_SECONDS = 120;
 const LEAGUE_LOAD_CONCURRENCY = 8;
@@ -106,6 +107,10 @@ export async function runWithDependencies(
       input: LeagueCadenceState;
       cadence: Cadence;
     }> | null = null;
+    const currentCadenceCandidates: Array<Readonly<{
+      input: LeagueCadenceState;
+      cadence: Cadence;
+    }>> = [];
     const periodAuthorities: LeagueCadenceState['periodAuthority'][] = [];
 
     for (const configuration of configurations) {
@@ -119,16 +124,28 @@ export async function runWithDependencies(
           });
           continue;
         }
-        periodAuthorities.push(candidate.periodAuthority);
+        if (candidate.periodAuthority
+          && sameConfiguration(configuration, candidate.periodAuthority.configuration)) {
+          periodAuthorities.push(candidate.periodAuthority);
+        } else {
+          log(dependencies, 'warn', {
+            stage: 'period-authority', outcome: 'failed', runId,
+            leagueKey: configuration.key,
+            failureCode: 'period-authority-unavailable',
+          });
+        }
         const candidateCadence = workerCadence(
           candidate.schedule,
           now,
           options.force === true,
           allowsHourlyFallback(candidate, now),
         );
-        if (!cadenceInput && isCurrentNflPeriod(candidate)) {
-          cadenceInput = candidate;
-          preflightCadence = candidateCadence;
+        if (isCurrentNflPeriod(candidate)) {
+          currentCadenceCandidates.push({ input: candidate, cadence: candidateCadence });
+          if (!cadenceInput) {
+            cadenceInput = candidate;
+            preflightCadence = candidateCadence;
+          }
         }
         staleFallback ??= { input: candidate, cadence: candidateCadence };
       } catch {
@@ -144,10 +161,18 @@ export async function runWithDependencies(
       cadenceInput = staleFallback.input;
       preflightCadence = staleFallback.cadence;
     }
+    if (cadenceInput && currentCadenceCandidates.length > 0) {
+      preflightCadence = highestCadence(currentCadenceCandidates
+        .filter(({ input }) => samePeriod(input.period, cadenceInput.period))
+        .map(({ cadence }) => cadence));
+    }
     if (!cadenceInput || !preflightCadence) {
       throw new Error('No projection cadence source could be loaded.');
     }
-    await mapWithConcurrency(periodAuthorities, LEAGUE_LOAD_CONCURRENCY, async (authority) => {
+    const authorityResults = await mapWithConcurrency(
+      periodAuthorities,
+      LEAGUE_LOAD_CONCURRENCY,
+      async (authority) => {
       try {
         const outcome = await dependencies.repository.upsertPeriodAuthority(authority);
         if (outcome.kind === 'conflict') {
@@ -158,6 +183,7 @@ export async function runWithDependencies(
             failureCode: 'period-authority-conflict',
           });
         }
+        return outcome.kind === 'stored' || outcome.kind === 'verified' ? authority : null;
       } catch {
         log(dependencies, 'warn', {
           stage: 'period-authority', outcome: 'failed', runId,
@@ -165,9 +191,25 @@ export async function runWithDependencies(
           period: authority.defaultDisplayPeriod,
           failureCode: 'period-authority-unavailable',
         });
+        return null;
       }
-    });
+      },
+    );
+    const trustedPeriodAuthorities = authorityResults.filter(
+      (authority): authority is LeagueCadenceState['periodAuthority'] => authority !== null,
+    );
     if (preflightCadence === 'idle') {
+      if (options.force !== true) {
+        const future = await runFutureWork(dependencies, {
+          configurations,
+          authorities: trustedPeriodAuthorities,
+          now,
+          calculatedAt,
+          runId,
+          timing: { wallStartedAtMs: now.getTime(), monotonicStartedAt: runStartedAt },
+        });
+        if (future) return future;
+      }
       log(dependencies, 'info', {
         stage: 'preflight', outcome: 'skipped', runId,
         cadence: 'idle', period: cadenceInput.period,
@@ -190,6 +232,18 @@ export async function runWithDependencies(
     });
     if (claim.kind === 'disabled') return { status: 'disabled' };
     if (claim.kind === 'busy' || claim.kind === 'completed') {
+      if (claim.kind === 'completed' && preflightCadence === 'hourly'
+        && options.force !== true) {
+        const future = await runFutureWork(dependencies, {
+          configurations,
+          authorities: trustedPeriodAuthorities,
+          now,
+          calculatedAt,
+          runId,
+          timing: { wallStartedAtMs: now.getTime(), monotonicStartedAt: runStartedAt },
+        });
+        if (future) return future;
+      }
       log(dependencies, 'info', {
         stage: 'lease', outcome: 'skipped', runId,
         leaseOutcome: claim.kind,

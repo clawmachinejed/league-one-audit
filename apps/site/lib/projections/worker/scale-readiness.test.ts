@@ -25,6 +25,7 @@ import { normalizeSleeperScoringProfile } from '../adapters/sleeper/scoring-prof
 import { assessProjectionSlate } from '../adapters/tank01/slate-validation';
 import type { IdentityCrosswalkPort } from '../ports/identity-crosswalk';
 import type { ProjectionLogEntry, LogLevel } from '../ports/logger';
+import type { FutureRefreshRepositoryPort } from '../ports/future-refresh-repository';
 import type { ProjectionRepositoryPort, PublishSnapshotInput } from '../ports/projection-repository';
 import {
   externalGameRef,
@@ -330,7 +331,7 @@ async function runScaleScenario(leagueCount: number): Promise<ScaleRun> {
     }
   };
 
-  const repository: ProjectionRepositoryPort = {
+  const repository: ProjectionRepositoryPort & FutureRefreshRepositoryPort = {
     ...fake.repository,
     acquireJob: (input) => meter.run('repository.acquireJob', () => fake.repository.acquireJob(input)),
     completeJob: (jobKey, workerId) => meter.run(
@@ -473,6 +474,10 @@ async function runScaleScenario(leagueCount: number): Promise<ScaleRun> {
           return { status: 'available' as const, slate: { ...games, period } };
         }).finally(markProviderPartComplete);
       },
+    },
+    projectionStorage: {
+      source: projectionResult().source,
+      normalizerVersion: 'canonical-projection-slate-v1',
     },
     normalizeScoringProfile: (settings) => {
       normalizationCalls += 1;
