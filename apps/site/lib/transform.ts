@@ -1,4 +1,6 @@
 import { normalizeInjuryStatus } from './injury-status';
+import { sleeperLineupEntryId, startingSlots } from './sleeper-lineup';
+export { startingSlots } from './sleeper-lineup';
 import type {
   League,
   Matchup,
@@ -269,10 +271,6 @@ export function compareTeams(a: Team, b: Team): number {
     || a.name.localeCompare(b.name) || a.id - b.id;
 }
 
-export function startingSlots(positions: string[]): string[] {
-  return positions.filter((position) => !['BN', 'IR', 'TAXI'].includes(position));
-}
-
 export function playerFromId(
   rawId: string | null | undefined,
   slot: string,
@@ -280,7 +278,7 @@ export function playerFromId(
   points: unknown = null,
   emptyIndex = 0,
 ): Player {
-  const id = rawId && rawId !== '0' ? String(rawId) : null;
+  const id = sleeperLineupEntryId(rawId);
   if (!id) {
     return { id: `empty-${slot}-${emptyIndex}`, name: 'Empty slot', position: '—', nflTeam: null, injuryStatus: null, game: null, slot, points: null, projectedPoints: null };
   }
