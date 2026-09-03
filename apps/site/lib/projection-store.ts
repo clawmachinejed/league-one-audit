@@ -4,6 +4,7 @@ import { getDatabase, type Database } from './database';
 import type { ProjectionStore } from './projections/adapters/neon/contracts';
 import { connected } from './projections/adapters/neon/database-values';
 import { createDisabledProjectionStore } from './projections/adapters/neon/disabled-store';
+import { createFutureRefreshMethods } from './projections/adapters/neon/future-refresh';
 import { createIdentityMethods } from './projections/adapters/neon/identities';
 import { createJobMethods } from './projections/adapters/neon/jobs';
 import { createObservationMethods } from './projections/adapters/neon/observations';
@@ -15,6 +16,7 @@ import { createSnapshotMethods } from './projections/adapters/neon/snapshots';
 
 export type {
   ExternalIdentity,
+  FutureRefreshFailureCode,
   GameStateInput,
   HistoryRetentionResult,
   JobClaim,
@@ -49,6 +51,14 @@ export type {
   StoredLeagueWeekObservation,
   StoredLeaguePeriodAuthority,
   StoredMatchupSnapshotContext,
+  StoreFutureMaterializationRefreshState,
+  StoreFutureProjectionRefreshState,
+  StoreFutureProjectionSlateLineage,
+  StoreFutureRefreshClaim,
+  StoreFutureRefreshPeriod,
+  StoreFutureRefreshPlanPeriod,
+  StoreFutureRefreshTarget,
+  StoreFutureRefreshTransition,
   StoredProjectionRun,
   StoredProjectionSlate,
   StoredProjectionSlateObservation,
@@ -62,6 +72,7 @@ export function createProjectionStore(database: Database = getDatabase()): Proje
   if (!client) return createDisabledProjectionStore();
 
   const identities = createIdentityMethods(client);
+  const futureRefresh = createFutureRefreshMethods(client);
   const projections = createProjectionMethods(client);
   const projectionSlates = createProjectionSlateMethods(client);
   const observations = createObservationMethods(client);
@@ -79,6 +90,14 @@ export function createProjectionStore(database: Database = getDatabase()): Proje
     upsertNflGames: identities.upsertNflGames,
     recordProjectionSlate: projectionSlates.recordProjectionSlate,
     readCurrentProjectionSlate: projectionSlates.readCurrentProjectionSlate,
+    ensureFutureRefreshStates: futureRefresh.ensureFutureRefreshStates,
+    readFutureRefreshPlan: futureRefresh.readFutureRefreshPlan,
+    beginFutureProjectionRefresh: futureRefresh.beginFutureProjectionRefresh,
+    completeFutureProjectionRefresh: futureRefresh.completeFutureProjectionRefresh,
+    failFutureProjectionRefresh: futureRefresh.failFutureProjectionRefresh,
+    beginFutureMaterializationRefresh: futureRefresh.beginFutureMaterializationRefresh,
+    completeFutureMaterializationRefresh: futureRefresh.completeFutureMaterializationRefresh,
+    failFutureMaterializationRefresh: futureRefresh.failFutureMaterializationRefresh,
     recordProjectionCandidates: projections.recordProjectionCandidates,
     readLatestCandidatesBySleeperIds: projections.readLatestCandidatesBySleeperIds,
     freezeLatestBaselines: projections.freezeLatestBaselines,

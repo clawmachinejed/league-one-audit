@@ -35,7 +35,7 @@ function normalizedSeason(value: number): number {
 }
 
 function normalizedWeek(value: number): number {
-  if (!Number.isInteger(value) || value < 0 || value > 30) {
+  if (!Number.isInteger(value) || value < 1 || value > 18) {
     throw new Error('Projection slate week is invalid.');
   }
   return value;

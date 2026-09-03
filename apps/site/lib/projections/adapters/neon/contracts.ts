@@ -1,4 +1,9 @@
 import type { MatchupsData } from '../../../types';
+import type {
+  FutureRefreshFailureCode as CanonicalFutureRefreshFailureCode,
+} from '../../ports/future-refresh-repository';
+
+export type FutureRefreshFailureCode = CanonicalFutureRefreshFailureCode;
 
 export type SeasonType = 'pre' | 'reg' | 'post';
 export type ScoringEntityKind = 'player' | 'team_defense';
@@ -284,6 +289,80 @@ export type StoredMatchupSnapshotContext = Readonly<{
   snapshot: StoredProjectionSnapshot | null;
 }>;
 
+export type StoreFutureRefreshPeriod = Readonly<{
+  season: number;
+  seasonType: SeasonType;
+  week: number;
+}>;
+
+export type StoreFutureRefreshTarget = Readonly<{
+  period: StoreFutureRefreshPeriod;
+  weekDistance: number;
+}>;
+
+export type StoreFutureProjectionSlateLineage = Readonly<{
+  observationId: string;
+  contentId: string;
+}>;
+
+export type StoreFutureProjectionRefreshState = Readonly<{
+  nextRefreshAt: string;
+  lastAttemptedAt: string | null;
+  lastSucceededAt: string | null;
+  consecutiveFailures: number;
+  lastFailureCode: FutureRefreshFailureCode | null;
+  activeAttemptExpiresAt: string | null;
+  lastSlate: StoreFutureProjectionSlateLineage | null;
+  currentSlate: StoreFutureProjectionSlateLineage | null;
+  due: boolean;
+}>;
+
+export type StoreFutureMaterializationRefreshState = Readonly<{
+  leagueKey: string;
+  nextRefreshAt: string;
+  lastAttemptedAt: string | null;
+  lastSucceededAt: string | null;
+  lastSourceRevision: string | null;
+  lastSlate: StoreFutureProjectionSlateLineage | null;
+  lastSnapshotRevision: string | null;
+  consecutiveFailures: number;
+  lastFailureCode: FutureRefreshFailureCode | null;
+  activeAttemptExpiresAt: string | null;
+  due: boolean;
+}>;
+
+export type StoreFutureRefreshPlanPeriod = Readonly<{
+  period: StoreFutureRefreshPeriod;
+  weekDistance: number;
+  projection: StoreFutureProjectionRefreshState;
+  materializations: readonly StoreFutureMaterializationRefreshState[];
+  successfulMaterializations: number;
+  expectedMaterializations: number;
+}>;
+
+export type StoreFutureRefreshClaim =
+  | Readonly<{
+      kind: 'acquired';
+      attempt: number;
+      attemptId: string;
+      leaseUntil: string;
+    }>
+  | Readonly<{
+      kind: 'backed-off';
+      consecutiveFailures: number;
+      nextRefreshAt: string;
+    }>
+  | Readonly<{ kind: 'unavailable' | 'disabled' }>;
+
+export type StoreFutureRefreshTransition =
+  | Readonly<{
+      kind: 'updated';
+      consecutiveFailures: number;
+      nextRefreshAt: string;
+      materializationsWoken: number;
+    }>
+  | Readonly<{ kind: 'stale' | 'disabled' }>;
+
 export type PublishSnapshotInput = Readonly<{
   leagueSeasonId: string;
   week: number;
@@ -350,6 +429,83 @@ export type ProjectionStore = Readonly<{
     week: number;
     normalizerVersion: string;
   }>) => Promise<StoredProjectionSlate | null>;
+  ensureFutureRefreshStates: (input: Readonly<{
+    projectionProvider: string;
+    normalizerVersion: string;
+    modelVersion: string;
+    targets: readonly StoreFutureRefreshTarget[];
+    leagueKeys: readonly string[];
+    seededAt: string;
+  }>) => Promise<PersistenceOutcome<Readonly<{
+    projectionPeriodsInserted: number;
+    materializationsInserted: number;
+  }>>>;
+  readFutureRefreshPlan: (input: Readonly<{
+    projectionProvider: string;
+    normalizerVersion: string;
+    modelVersion: string;
+    targets: readonly StoreFutureRefreshTarget[];
+    leagueKeys: readonly string[];
+    asOf: string;
+  }>) => Promise<readonly StoreFutureRefreshPlanPeriod[]>;
+  beginFutureProjectionRefresh: (input: Readonly<{
+    projectionProvider: string;
+    normalizerVersion: string;
+    period: StoreFutureRefreshPeriod;
+    attemptId: string;
+    attemptedAt: string;
+    leaseSeconds: number;
+  }>) => Promise<StoreFutureRefreshClaim>;
+  completeFutureProjectionRefresh: (input: Readonly<{
+    projectionProvider: string;
+    normalizerVersion: string;
+    period: StoreFutureRefreshPeriod;
+    attemptId: string;
+    completedAt: string;
+    nextRefreshAt: string;
+    slate: StoreFutureProjectionSlateLineage;
+  }>) => Promise<StoreFutureRefreshTransition>;
+  failFutureProjectionRefresh: (input: Readonly<{
+    projectionProvider: string;
+    normalizerVersion: string;
+    period: StoreFutureRefreshPeriod;
+    attemptId: string;
+    failedAt: string;
+    failureCode: FutureRefreshFailureCode;
+  }>) => Promise<StoreFutureRefreshTransition>;
+  beginFutureMaterializationRefresh: (input: Readonly<{
+    leagueKey: string;
+    projectionProvider: string;
+    normalizerVersion: string;
+    modelVersion: string;
+    period: StoreFutureRefreshPeriod;
+    attemptId: string;
+    attemptedAt: string;
+    leaseSeconds: number;
+  }>) => Promise<StoreFutureRefreshClaim>;
+  completeFutureMaterializationRefresh: (input: Readonly<{
+    leagueKey: string;
+    projectionProvider: string;
+    normalizerVersion: string;
+    modelVersion: string;
+    period: StoreFutureRefreshPeriod;
+    attemptId: string;
+    completedAt: string;
+    nextRefreshAt: string;
+    sourceRevision: string;
+    slate: StoreFutureProjectionSlateLineage;
+    snapshotRevision: string;
+  }>) => Promise<StoreFutureRefreshTransition>;
+  failFutureMaterializationRefresh: (input: Readonly<{
+    leagueKey: string;
+    projectionProvider: string;
+    normalizerVersion: string;
+    modelVersion: string;
+    period: StoreFutureRefreshPeriod;
+    attemptId: string;
+    failedAt: string;
+    failureCode: FutureRefreshFailureCode;
+  }>) => Promise<StoreFutureRefreshTransition>;
   recordProjectionCandidates: (
     input: ProjectionRunInput,
   ) => Promise<PersistenceOutcome<StoredProjectionRun>>;

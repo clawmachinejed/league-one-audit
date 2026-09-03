@@ -59,6 +59,21 @@ describe('projection-store public behavior characterization', () => {
     }])).resolves.toEqual({ kind: 'disabled' });
     await expect(store.recordProjectionSlate(undefined as never)).resolves.toEqual({ kind: 'disabled' });
     await expect(store.readCurrentProjectionSlate(undefined as never)).resolves.toBeNull();
+    await expect(store.ensureFutureRefreshStates(undefined as never))
+      .resolves.toEqual({ kind: 'disabled' });
+    await expect(store.readFutureRefreshPlan(undefined as never)).resolves.toEqual([]);
+    await expect(store.beginFutureProjectionRefresh(undefined as never))
+      .resolves.toEqual({ kind: 'disabled' });
+    await expect(store.completeFutureProjectionRefresh(undefined as never))
+      .resolves.toEqual({ kind: 'disabled' });
+    await expect(store.failFutureProjectionRefresh(undefined as never))
+      .resolves.toEqual({ kind: 'disabled' });
+    await expect(store.beginFutureMaterializationRefresh(undefined as never))
+      .resolves.toEqual({ kind: 'disabled' });
+    await expect(store.completeFutureMaterializationRefresh(undefined as never))
+      .resolves.toEqual({ kind: 'disabled' });
+    await expect(store.failFutureMaterializationRefresh(undefined as never))
+      .resolves.toEqual({ kind: 'disabled' });
     await expect(store.recordProjectionCandidates({
       provider: '', season: 2026, seasonType: 'reg', week: 1, modelVersion: '',
       sourceRevision: '', requestStartedAt: '', requestCompletedAt: '', fetchedAt: '',
@@ -109,17 +124,17 @@ describe('projection-store public behavior characterization', () => {
     });
   });
 
-  it('keeps all 32 store-owned SQL operations marked and unique across adapter modules', async () => {
+  it('keeps all 40 store-owned SQL operations marked and unique across adapter modules', async () => {
     const extraction = await extractProjectionStoreSql();
 
     // A non-template or unmarked database call must fail this audit instead of escaping the baseline.
     expect(extraction.operations).toHaveLength(extraction.queryCallCount);
-    expect(extraction.operations).toHaveLength(32);
+    expect(extraction.operations).toHaveLength(40);
     expect(extraction.operations.every(({ markerCount }) => markerCount === 1)).toBe(true);
 
     const markers = extraction.operations.map(({ marker }) => marker);
     expect(markers.every((value): value is string => value !== null)).toBe(true);
-    expect(new Set(markers).size).toBe(32);
+    expect(new Set(markers).size).toBe(40);
     expect(markers.toSorted()).toEqual([...projectionStoreSqlMarkers]);
   });
 

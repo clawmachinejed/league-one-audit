@@ -27,6 +27,30 @@ export function createDisabledProjectionStore(): ProjectionStore {
     async readCurrentProjectionSlate() {
       return null;
     },
+    async ensureFutureRefreshStates() {
+      return { kind: 'disabled' };
+    },
+    async readFutureRefreshPlan() {
+      return [];
+    },
+    async beginFutureProjectionRefresh() {
+      return { kind: 'disabled' };
+    },
+    async completeFutureProjectionRefresh() {
+      return { kind: 'disabled' };
+    },
+    async failFutureProjectionRefresh() {
+      return { kind: 'disabled' };
+    },
+    async beginFutureMaterializationRefresh() {
+      return { kind: 'disabled' };
+    },
+    async completeFutureMaterializationRefresh() {
+      return { kind: 'disabled' };
+    },
+    async failFutureMaterializationRefresh() {
+      return { kind: 'disabled' };
+    },
     async recordProjectionCandidates() {
       return { kind: 'disabled' };
     },

@@ -44,8 +44,11 @@ GRANT SELECT, INSERT, UPDATE ON TABLE
   leagues,
   league_seasons,
   league_source_connections,
+  league_period_authorities,
   current_projection_snapshots,
-  current_projection_slates
+  current_projection_slates,
+  projection_period_refresh_states,
+  league_week_materialization_states
 TO league_one_runtime;
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE

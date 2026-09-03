@@ -80,6 +80,14 @@ export function createRetentionMethods(client: DatabaseClient): RetentionMethods
             SELECT 1 FROM pregame_projection_runs run
             WHERE run.projection_slate_observation_id = observation.id
           )
+          AND NOT EXISTS (
+            SELECT 1 FROM projection_period_refresh_states refresh
+            WHERE refresh.last_projection_slate_observation_id = observation.id
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM league_week_materialization_states materialization
+            WHERE materialization.last_projection_slate_observation_id = observation.id
+          )
         RETURNING observation.id`, [input.before]);
       const projectionSlateContents = await client.query(`/* projection-store:prune-projection-slate-contents */
         DELETE FROM projection_slate_contents content
@@ -91,6 +99,14 @@ export function createRetentionMethods(client: DatabaseClient): RetentionMethods
           AND NOT EXISTS (
             SELECT 1 FROM current_projection_slates current
             WHERE current.projection_slate_content_id = content.id
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM projection_period_refresh_states refresh
+            WHERE refresh.last_projection_slate_content_id = content.id
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM league_week_materialization_states materialization
+            WHERE materialization.last_projection_slate_content_id = content.id
           )
         RETURNING content.id`, [input.before]);
       const jobs = await client.query(`/* projection-store:prune-jobs */

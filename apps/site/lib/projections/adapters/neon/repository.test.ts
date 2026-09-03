@@ -132,6 +132,17 @@ function createStore(overrides: Partial<RepositoryStore> = {}): RepositoryStore 
       },
     })),
     readCurrentProjectionSlate: vi.fn(async () => null),
+    ensureFutureRefreshStates: vi.fn(async () => ({
+      kind: 'stored' as const,
+      value: { projectionPeriodsInserted: 0, materializationsInserted: 0 },
+    })),
+    readFutureRefreshPlan: vi.fn(async () => []),
+    beginFutureProjectionRefresh: vi.fn(async () => ({ kind: 'unavailable' as const })),
+    completeFutureProjectionRefresh: vi.fn(async () => ({ kind: 'stale' as const })),
+    failFutureProjectionRefresh: vi.fn(async () => ({ kind: 'stale' as const })),
+    beginFutureMaterializationRefresh: vi.fn(async () => ({ kind: 'unavailable' as const })),
+    completeFutureMaterializationRefresh: vi.fn(async () => ({ kind: 'stale' as const })),
+    failFutureMaterializationRefresh: vi.fn(async () => ({ kind: 'stale' as const })),
     recordProjectionCandidates: vi.fn(async () => ({
       kind: 'stored' as const,
       value: { runId: String(runId), candidatesStored: 1, candidateCount: 1 },
@@ -190,6 +201,14 @@ describe('Neon canonical projection repository', () => {
     await expect(repository.registerLeagueSeason(undefined as never)).resolves.toEqual({ kind: 'disabled' });
     await expect(repository.recordProjectionSlate(undefined as never)).resolves.toEqual({ kind: 'disabled' });
     await expect(repository.readCurrentProjectionSlate(undefined as never, undefined as never)).resolves.toBeNull();
+    await expect(repository.ensureFutureRefreshStates(undefined as never)).resolves.toEqual({ kind: 'disabled' });
+    await expect(repository.readFutureRefreshPlan(undefined as never)).resolves.toEqual([]);
+    await expect(repository.beginFutureProjectionRefresh(undefined as never)).resolves.toEqual({ kind: 'disabled' });
+    await expect(repository.completeFutureProjectionRefresh(undefined as never)).resolves.toEqual({ kind: 'disabled' });
+    await expect(repository.failFutureProjectionRefresh(undefined as never)).resolves.toEqual({ kind: 'disabled' });
+    await expect(repository.beginFutureMaterializationRefresh(undefined as never)).resolves.toEqual({ kind: 'disabled' });
+    await expect(repository.completeFutureMaterializationRefresh(undefined as never)).resolves.toEqual({ kind: 'disabled' });
+    await expect(repository.failFutureMaterializationRefresh(undefined as never)).resolves.toEqual({ kind: 'disabled' });
     await expect(repository.recordProjectionCandidates(undefined as never)).resolves.toEqual({ kind: 'disabled' });
     await expect(repository.readLatestCandidates(undefined as never)).resolves.toEqual([]);
     await expect(repository.freezeLatestBaselines(undefined as never)).resolves.toEqual({ kind: 'disabled' });
