@@ -200,6 +200,11 @@ const runtimeRoot = join(projectionRoot, 'runtime');
 const runtimePath = resolve(projectionRoot, 'runtime', 'projection-composition.ts');
 const publicPayloadPath = resolve(libRoot, 'types.ts');
 const providerIdentityPath = resolve(projectionRoot, 'shared', 'provider-identity.ts');
+const domainSharedPaths = new Set([
+  providerIdentityPath,
+  resolve(projectionRoot, 'shared', 'stable-json.ts'),
+  resolve(projectionRoot, 'shared', 'sha256.ts'),
+]);
 
 describe('projection architecture', () => {
   it('does not retain the superseded root projection pipeline', () => {
@@ -253,14 +258,32 @@ describe('projection architecture', () => {
       for (const dependency of sourceModule.imports) {
         const concreteExternal = /^(?:next(?:\/|$)|react(?:\/|$)|server-only$|node:)/u.test(dependency.specifier);
         const concreteLocal = dependency.resolved !== null
-          && dependency.resolved !== providerIdentityPath
+          && !domainSharedPaths.has(dependency.resolved)
           && !isInside(dependency.resolved, join(projectionRoot, 'domain'));
         if (concreteExternal || concreteLocal) {
           violations.push(`${location(sourceModule, dependency.line)}: imports ${dependency.specifier}`);
         }
       }
     }
-    expectNoViolations('The domain may depend only on itself and provider-neutral identity types.', violations);
+    expectNoViolations('The domain may depend only on itself and explicitly allowed provider-neutral helpers.', violations);
+  });
+
+  it('keeps domain-shared helpers free of provider and infrastructure dependencies', () => {
+    const violations: string[] = [];
+    for (const path of domainSharedPaths) {
+      const sourceModule = modules.get(path);
+      if (!sourceModule) { violations.push(`${displayPath(path)}: required helper is missing`); continue; }
+      for (const dependency of sourceModule.imports) {
+        if (!dependency.resolved || !domainSharedPaths.has(dependency.resolved)) {
+          violations.push(`${location(sourceModule, dependency.line)}: imports ${dependency.specifier}`);
+        }
+      }
+      violations.push(...checkPattern([sourceModule],
+        /\b(?:process\.env|import\.meta\.env|Deno\.env|fetch\s*\(|XMLHttpRequest|Date\.now|Math\.random|randomUUID)\b/u,
+        'uses environment, HTTP, clock, or randomness'));
+      violations.push(...checkPattern([sourceModule], /\.query\s*\(/u, 'queries a database'));
+    }
+    expectNoViolations('Domain-shared helpers must remain deterministic and infrastructure-free.', violations);
   });
 
   it('keeps ports declaration-only and dependent only on canonical types', () => {

@@ -4,6 +4,11 @@ import { cache } from 'react';
 import { unstable_cache } from 'next/cache';
 import { normalizeInjuryStatus } from './injury-status';
 import {
+  assertMatchupCompleteness,
+  assertProjectionMatchupReadiness,
+  createRawSleeperMatchupLoader,
+} from './projections/adapters/sleeper/raw-matchups';
+import {
   addScheduleToMatchups,
   addScheduleToPlayers,
   resolveSleeperSchedule,
@@ -22,13 +27,11 @@ import {
   normalizeTransactions,
   managerLineup,
   playerFromId,
-  startingSlots,
   sleeperActiveScoringWeek,
   sleeperLeagueLifecycle,
   transactionEndWeek,
   type PlayerCatalog,
   type SleeperLeague,
-  type SleeperMatchup,
   type SleeperPlayer,
   type SleeperRoster,
   type SleeperState,
@@ -163,23 +166,6 @@ function isSleeperUser(value: unknown): value is SleeperUser {
     && isOptionalString(value.avatar) && isOptionalRecord(value.metadata);
 }
 
-function isPointsMap(value: unknown): boolean {
-  return value === undefined || value === null || (isRecord(value)
-    && Object.values(value).every((points) => isOptionalNumber(points)));
-}
-
-function isSleeperMatchup(value: unknown): value is SleeperMatchup {
-  const matchupId = isRecord(value) ? value.matchup_id : undefined;
-  return isRecord(value) && typeof value.roster_id === 'number' && Number.isInteger(value.roster_id)
-    && value.roster_id > 0
-    && Object.prototype.hasOwnProperty.call(value, 'matchup_id')
-    && (matchupId === null || (typeof matchupId === 'number' && Number.isInteger(matchupId) && matchupId > 0))
-    && isStringArray(value.starters)
-    && (value.starters_points === undefined || value.starters_points === null
-      || (Array.isArray(value.starters_points) && value.starters_points.every((points) => isOptionalNumber(points))))
-    && isPointsMap(value.players_points) && isOptionalNumber(value.points) && isOptionalNumber(value.custom_points);
-}
-
 function isRosterMap(value: unknown): boolean {
   return value === undefined || value === null || (isRecord(value)
     && Object.entries(value).every(([playerId, rosterId]) => Boolean(playerId)
@@ -262,30 +248,6 @@ function assertCoreCompleteness(league: SleeperLeague, rosters: SleeperRoster[],
   }
 }
 
-function assertMatchupCompleteness(
-  rows: SleeperMatchup[],
-  rosters: SleeperRoster[],
-  slateExpected: boolean,
-): void {
-  if (!rows.length) {
-    if (slateExpected) throw new Error('Sleeper returned an incomplete matchup slate for this league.');
-    return;
-  }
-  const rosterIds = new Set(rosters.map((roster) => roster.roster_id));
-  if (rows.length !== rosterIds.size || rows.some((row) => !rosterIds.has(row.roster_id))) {
-    throw new Error('Sleeper returned an incomplete matchup slate for this league.');
-  }
-  const pairedCounts = new Map<string, number>();
-  for (const row of rows) {
-    if (row.matchup_id === null || row.matchup_id === undefined) continue;
-    const id = String(row.matchup_id);
-    pairedCounts.set(id, (pairedCounts.get(id) ?? 0) + 1);
-  }
-  if ([...pairedCounts.values()].some((count) => count !== 2)) {
-    throw new Error('Sleeper returned an invalid matchup grouping for this league.');
-  }
-}
-
 function projectionTargetWeek(
   targetPeriod: ProjectionTargetPeriod,
   league: SleeperLeague,
@@ -306,24 +268,6 @@ function projectionTargetWeek(
     throw new Error('The requested projection season does not match the configured Sleeper league.');
   }
   return targetPeriod.week;
-}
-
-function assertProjectionMatchupReadiness(
-  rows: SleeperMatchup[],
-  rosters: SleeperRoster[],
-  rosterPositions: string[],
-): void {
-  assertMatchupCompleteness(rows, rosters, true);
-  if (rows.some((row) => row.matchup_id === null || row.matchup_id === undefined)) {
-    throw new Error('Sleeper has not resolved every matchup pairing for the requested projection week.');
-  }
-
-  const requiredSlots = startingSlots(rosterPositions);
-  if (!requiredSlots.length || rows.some((row) => !Array.isArray(row.starters)
-    || row.starters.length !== requiredSlots.length
-    || row.starters.some((starter) => !starter.trim()))) {
-    throw new Error('Sleeper has not published complete lineups for the requested projection week.');
-  }
 }
 
 function playerCoverageWarning(catalog: PlayerCatalog, ids: Iterable<string>): string | undefined {
@@ -493,6 +437,11 @@ type MatchupSourceOptions = Readonly<{
   includeRosteredPlayers?: boolean;
 }>;
 
+const loadRawMatchups = createRawSleeperMatchupLoader({
+  readJson: fetchJson,
+  now: () => new Date().toISOString(),
+});
+
 async function loadMatchupSource(
   leagueId: string,
   options: MatchupSourceOptions = {},
@@ -522,10 +471,9 @@ async function loadMatchupSource(
   const status = matchupStatus(core.sourceLeague, core.state, week);
   const canDecorate = canDecorateMatchupWeek(core.sourceLeague, core.state, week);
   const [matchupObservation, players, nflSchedule] = await Promise.all([
-    fetchObservedRows<SleeperMatchup>(
-      `/league/${leagueId}/matchups/${week}`,
-      isSleeperMatchup,
-      (row) => String(row.roster_id),
+    loadRawMatchups(
+      leagueId,
+      week,
       freshMatchups ? 0 : CORE_CACHE_SECONDS,
     ),
     getPlayers(),
@@ -577,18 +525,6 @@ async function loadMatchupSource(
     requestStartedAt,
     requestCompletedAt,
   };
-}
-
-async function fetchObservedRows<T>(
-  path: string,
-  validate: (value: unknown) => value is T,
-  key: (row: T) => string,
-  revalidate = CORE_CACHE_SECONDS,
-): Promise<Readonly<{ rows: T[]; requestStartedAt: string; requestCompletedAt: string }>> {
-  const requestStartedAt = new Date().toISOString();
-  const rows = await fetchRows(path, validate, key, revalidate);
-  const requestCompletedAt = new Date().toISOString();
-  return { rows, requestStartedAt, requestCompletedAt };
 }
 
 /**

@@ -436,6 +436,50 @@ describe('matchup snapshot HTTP boundary', () => {
     expect(response.status).toBe(503);
   });
 
+  it.each([
+    {
+      field: 'nested manager name',
+      corrupt: (data: MatchupsData) => {
+        const side = data.matchups[0].sides[0];
+        side.team = { ...side.team };
+        Object.assign(side.team, { managerName: 42 });
+      },
+    },
+    {
+      field: 'starter points',
+      corrupt: (data: MatchupsData) => {
+        Object.assign(data.matchups[0].sides[0].starters[0], { points: '12.4' });
+      },
+    },
+    {
+      field: 'starter game location',
+      corrupt: (data: MatchupsData) => {
+        Object.assign(data.matchups[0].sides[0].starters[0].game!, { location: 'neutral' });
+      },
+    },
+    {
+      field: 'starter collection',
+      corrupt: (data: MatchupsData) => {
+        Object.assign(data.matchups[0].sides[0], { starters: null });
+      },
+    },
+  ])('rejects malformed $field even when snapshot metadata and timestamps are valid', async ({ corrupt }) => {
+    const data = matchupPayload();
+    expect(isMatchupsData(data)).toBe(true);
+    corrupt(data);
+    const database = readStore(snapshot(data));
+    await expectResponse(await handleMatchupsSnapshotRequest(
+      new Request('https://example.test/api/matchups/league1?week=1'),
+      'league1', database.store, new Date('2026-09-13T18:02:00.000Z'),
+    ), {
+      status: 503,
+      cacheControl: 'no-store',
+      body: { status: 'unavailable' },
+    });
+    expect(database.read).toHaveBeenCalledOnce();
+    expect(defaultCronRun).not.toHaveBeenCalled();
+  });
+
   it('rejects a stale current snapshot so the client can refresh official data from Sleeper', async () => {
     const database = readStore(snapshot());
     const response = await handleMatchupsSnapshotRequest(
