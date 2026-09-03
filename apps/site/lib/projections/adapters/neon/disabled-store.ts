@@ -15,6 +15,12 @@ export function createDisabledProjectionStore(): ProjectionStore {
     async upsertNflGames() {
       return { kind: 'disabled' };
     },
+    async recordProjectionSlate() {
+      return { kind: 'disabled' };
+    },
+    async readCurrentProjectionSlate() {
+      return null;
+    },
     async recordProjectionCandidates() {
       return { kind: 'disabled' };
     },

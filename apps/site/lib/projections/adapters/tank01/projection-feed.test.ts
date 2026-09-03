@@ -509,8 +509,13 @@ describe('Tank01 canonical projection feed', () => {
     ]));
     expect(result.status).toBe('available');
     if (result.status !== 'available') return;
-    expect(result.slate.projections.filter(({ identity }) => identity.primary.entityKind === 'player'))
-      .toHaveLength(0);
+    const unmatchedPlayers = result.slate.projections.filter(({ identity }) => (
+      identity.primary.entityKind === 'player'
+    ));
+    expect(unmatchedPlayers).toHaveLength(2);
+    expect(unmatchedPlayers.map(({ identity }) => identity.primary.externalId).sort())
+      .toEqual(['tank-other', 'tank-qb']);
+    expect(unmatchedPlayers.every(({ identity }) => identity.aliases.length === 0)).toBe(true);
     expect(result.slate.coverage).toMatchObject({
       crosswalkRows: 4, crosswalkEntries: 1, malformedCrosswalkRows: 1,
       ambiguousCrosswalkRows: 2, playerRows: 2, matchedPlayers: 0, unmatchedPlayers: 2,

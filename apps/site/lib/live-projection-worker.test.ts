@@ -237,6 +237,7 @@ describe('live projection worker', () => {
       'upsert-nfl-games',
       'record-game-states',
       'upsert-scoring-entities',
+      'record-projection-slate',
       'register-league-season',
       'register-league-season',
       'record-projection-candidates',

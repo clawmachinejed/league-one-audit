@@ -8,6 +8,7 @@ import { createIdentityMethods } from './projections/adapters/neon/identities';
 import { createJobMethods } from './projections/adapters/neon/jobs';
 import { createObservationMethods } from './projections/adapters/neon/observations';
 import { createProjectionMethods } from './projections/adapters/neon/projections';
+import { createProjectionSlateMethods } from './projections/adapters/neon/projection-slates';
 import { createRetentionMethods } from './projections/adapters/neon/retention';
 import { createSnapshotMethods } from './projections/adapters/neon/snapshots';
 
@@ -28,6 +29,9 @@ export type {
   ProjectionCandidateInput,
   ProjectionQuality,
   ProjectionRunInput,
+  ProjectionSlateEntryInput,
+  ProjectionSlateInput,
+  ProjectionSlatePointerOutcome,
   ProjectionStore,
   PublishSnapshotInput,
   PublishSnapshotOutcome,
@@ -39,6 +43,8 @@ export type {
   StoredGameState,
   StoredLeagueWeekObservation,
   StoredProjectionRun,
+  StoredProjectionSlate,
+  StoredProjectionSlateObservation,
   StoredProjectionSnapshot,
   StoredProjectionSnapshotSelection,
 } from './projections/adapters/neon/contracts';
@@ -50,6 +56,7 @@ export function createProjectionStore(database: Database = getDatabase()): Proje
 
   const identities = createIdentityMethods(client);
   const projections = createProjectionMethods(client);
+  const projectionSlates = createProjectionSlateMethods(client);
   const observations = createObservationMethods(client);
   const jobs = createJobMethods(client);
   const snapshots = createSnapshotMethods(client);
@@ -60,6 +67,8 @@ export function createProjectionStore(database: Database = getDatabase()): Proje
     registerLeagueSeason: identities.registerLeagueSeason,
     upsertScoringEntities: identities.upsertScoringEntities,
     upsertNflGames: identities.upsertNflGames,
+    recordProjectionSlate: projectionSlates.recordProjectionSlate,
+    readCurrentProjectionSlate: projectionSlates.readCurrentProjectionSlate,
     recordProjectionCandidates: projections.recordProjectionCandidates,
     readLatestCandidatesBySleeperIds: projections.readLatestCandidatesBySleeperIds,
     freezeLatestBaselines: projections.freezeLatestBaselines,

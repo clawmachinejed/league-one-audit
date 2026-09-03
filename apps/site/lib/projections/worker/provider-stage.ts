@@ -24,7 +24,7 @@ type ProviderLoadDependencies = Pick<
 >;
 
 type ProviderPersistenceDependencies = Readonly<{
-  repository: Pick<ProjectionRepositoryPort, 'recordGameStates'>;
+  repository: Pick<ProjectionRepositoryPort, 'recordGameStates' | 'recordProjectionSlate'>;
   identityCrosswalk: Pick<
     IdentityCrosswalkPort,
     'resolveNflGames' | 'resolveScoringEntities'
@@ -146,6 +146,12 @@ export async function persistProviderGroup(
     entity.status === 'known' ? [[entity.key, entity.entityId] as const] : []
   )));
 
+  const storedProjectionSlate = await dependencies.repository.recordProjectionSlate(projections);
+  if (storedProjectionSlate.kind !== 'stored'
+    || storedProjectionSlate.value.entryCount !== projections.projections.length) {
+    throw new Error('The provider projection slate could not be persisted completely.');
+  }
+
   return {
     games,
     projections,
@@ -154,5 +160,6 @@ export async function persistProviderGroup(
     entityIdsByReferenceKey,
     identityConflictCount: resolvedEntities.value.filter((entity) => entity.status !== 'known').length,
     projectionSourceRevision: projections.sourceRevision,
+    projectionSlateObservationId: storedProjectionSlate.value.observationId,
   };
 }

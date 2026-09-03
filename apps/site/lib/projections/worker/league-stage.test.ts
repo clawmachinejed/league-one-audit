@@ -14,6 +14,7 @@ import type {
   ObservationId,
   ProjectionRepositoryPort,
   ProjectionRunId,
+  ProjectionSlateObservationId,
   ScoringProfileId,
 } from '../ports/projection-repository';
 import {
@@ -243,6 +244,7 @@ const persisted: PersistedGroup = {
   ]),
   identityConflictCount: 0,
   projectionSourceRevision: 'projection-revision',
+  projectionSlateObservationId: 'projection-slate-observation' as ProjectionSlateObservationId,
 };
 
 function repositoryHarness() {
@@ -393,6 +395,7 @@ describe('canonical league projection stage', () => {
       requestCompletedAt: observedAt,
       observedAt,
       quality: 'complete',
+      projectionSlateObservationId: 'projection-slate-observation',
       candidates: [
         {
           gameId: 'live-game-id', entityId: 'player-entity-id', scoringProfileId,

@@ -27,6 +27,8 @@ import type {
   ProjectionBaselineRecord,
   ProjectionRepositoryPort,
   ProjectionRunId,
+  ProjectionSlateContentId,
+  ProjectionSlateObservationId,
   PublishSnapshotInput,
   ScoringProfileId,
   StoredProjectionSnapshot,
@@ -393,6 +395,7 @@ export type WorkerStoreOperation =
   | 'upsert-scoring-entities'
   | 'upsert-nfl-games'
   | 'record-game-states'
+  | 'record-projection-slate'
   | 'record-projection-candidates'
   | 'freeze-latest-baselines'
   | 'read-latest-candidates'
@@ -461,7 +464,15 @@ export function fakeStore(freezeBaselines = true, enabled = true): FakeStore {
     operations.push('prune-history');
     return {
       kind: 'stored' as const,
-      value: { snapshotsDeleted: 0, leagueObservationsDeleted: 0, gameObservationsDeleted: 0, projectionRunsDeleted: 0, jobsDeleted: 0 },
+      value: {
+        snapshotsDeleted: 0,
+        leagueObservationsDeleted: 0,
+        gameObservationsDeleted: 0,
+        projectionRunsDeleted: 0,
+        projectionSlateObservationsDeleted: 0,
+        projectionSlateContentsDeleted: 0,
+        jobsDeleted: 0,
+      },
     };
   });
   const gamesUpserted: Array<Readonly<{ key: string; kickoffAt: string | null }>> = [];
@@ -524,6 +535,23 @@ export function fakeStore(freezeBaselines = true, enabled = true): FakeStore {
         kind: 'stored',
         value: { leagueSeasonId, scoringProfileId, leagueRef: input.configuration.leagueRef },
       };
+    },
+    async recordProjectionSlate(input) {
+      operations.push('record-projection-slate');
+      return {
+        kind: 'stored',
+        value: {
+          observationId: 'projection-slate-observation' as ProjectionSlateObservationId,
+          contentId: 'projection-slate-content' as ProjectionSlateContentId,
+          semanticHash: 'semantic-hash',
+          entriesStored: input.projections.length,
+          entryCount: input.projections.length,
+          pointerOutcome: 'advanced',
+        },
+      };
+    },
+    async readCurrentProjectionSlate() {
+      return null;
     },
     async recordProjectionCandidates(input) {
       operations.push('record-projection-candidates');

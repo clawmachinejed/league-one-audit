@@ -375,6 +375,10 @@ async function runScaleScenario(leagueCount: number): Promise<ScaleRun> {
         return fake.repository.recordGameStates(input);
       },
     ),
+    recordProjectionSlate: (input) => meter.run(
+      'repository.recordProjectionSlate',
+      () => fake.repository.recordProjectionSlate(input),
+    ),
     recordLeagueWeekObservation: (input) => meter.run(
       'repository.recordLeagueWeekObservation',
       () => fake.repository.recordLeagueWeekObservation(input),
@@ -582,6 +586,7 @@ describe.each(SCALE_POINTS)('canonical worker scale readiness: %i leagues', (lea
     expect(first.candidateBatchSizes.every((size) => size === 12)).toBe(true);
     expect(meter.count('repository.acquireJob')).toBe(1);
     expect(meter.count('repository.recordGameStates')).toBe(1);
+    expect(meter.count('repository.recordProjectionSlate')).toBe(1);
     expect(meter.count('repository.completeJob')).toBe(1);
     expect(meter.count('repository.failJob')).toBe(0);
     expect(meter.count('repository.pruneHistory')).toBe(0);
@@ -597,7 +602,7 @@ describe.each(SCALE_POINTS)('canonical worker scale readiness: %i leagues', (lea
     ]) {
       expect(meter.count(operation), operation).toBe(leagueCount);
     }
-    expect(first.operationCount).toBe((8 * leagueCount) + 5);
+    expect(first.operationCount).toBe((8 * leagueCount) + 6);
 
     expect(meter.peak('leagueSource.getLeagueWeek')).toBe(expectedParallelLeagues);
     expect(first.metrics.leaguePeak).toBe(expectedParallelLeagues);
@@ -633,6 +638,8 @@ describe.each(SCALE_POINTS)('canonical worker scale readiness: %i leagues', (lea
     expect(lastFinish(trace, 'repository.recordGameStates'))
       .toBeLessThan(firstStart(trace, 'identity.resolveScoringEntities'));
     expect(lastFinish(trace, 'identity.resolveScoringEntities'))
+      .toBeLessThan(firstStart(trace, 'repository.recordProjectionSlate'));
+    expect(lastFinish(trace, 'repository.recordProjectionSlate'))
       .toBeLessThan(firstStart(trace, 'repository.registerLeagueSeason'));
     expect(lastFinish(trace, 'repository.publishSnapshot'))
       .toBeLessThan(firstStart(trace, 'repository.completeJob'));

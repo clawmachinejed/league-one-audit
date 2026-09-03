@@ -60,6 +60,69 @@ export type ProjectionCandidateInput = Readonly<{
   quality: ProjectionQuality;
 }>;
 
+export type ProjectionSlateEntryInput = Readonly<{
+  entityKind: ScoringEntityKind;
+  providerExternalId: string;
+  aliases: readonly ExternalIdentity[];
+  nflTeam: string | null;
+  position: string | null;
+  stats: Readonly<Record<string, unknown>>;
+  scoringStats: Readonly<Record<string, unknown>>;
+  missingFields: readonly string[];
+}>;
+
+export type ProjectionSlateInput = Readonly<{
+  provider: string;
+  season: number;
+  seasonType: SeasonType;
+  week: number;
+  normalizerVersion: string;
+  sourceRevision: string;
+  requestStartedAt: string;
+  requestCompletedAt: string;
+  observedAt: string;
+  quality: ObservationQuality;
+  coverage: Readonly<Record<string, unknown>>;
+  warnings: readonly string[];
+  entries: readonly ProjectionSlateEntryInput[];
+}>;
+
+export type ProjectionSlatePointerOutcome =
+  | 'advanced'
+  | 'verified'
+  | 'superseded'
+  | 'ineligible';
+
+export type StoredProjectionSlateObservation = Readonly<{
+  observationId: string;
+  contentId: string;
+  semanticHash: string;
+  entriesStored: number;
+  entryCount: number;
+  pointerOutcome: ProjectionSlatePointerOutcome;
+}>;
+
+export type StoredProjectionSlate = Readonly<{
+  observationId: string;
+  contentId: string;
+  provider: string;
+  season: number;
+  seasonType: SeasonType;
+  week: number;
+  normalizerVersion: string;
+  semanticHash: string;
+  sourceRevision: string;
+  requestStartedAt: string;
+  requestCompletedAt: string;
+  observedAt: string;
+  quality: ObservationQuality;
+  coverage: Readonly<Record<string, unknown>>;
+  warnings: readonly string[];
+  entries: readonly ProjectionSlateEntryInput[];
+  verifiedAt: string;
+  materialChangedAt: string;
+}>;
+
 export type ProjectionRunInput = Readonly<{
   provider: string;
   season: number;
@@ -71,6 +134,8 @@ export type ProjectionRunInput = Readonly<{
   requestCompletedAt: string;
   fetchedAt: string;
   quality: ObservationQuality;
+  /** Exact provider observation used to create this scored run. */
+  projectionSlateObservationId?: string;
   candidates: readonly ProjectionCandidateInput[];
 }>;
 
@@ -217,6 +282,8 @@ export type HistoryRetentionResult = Readonly<{
   leagueObservationsDeleted: number;
   gameObservationsDeleted: number;
   projectionRunsDeleted: number;
+  projectionSlateObservationsDeleted: number;
+  projectionSlateContentsDeleted: number;
   jobsDeleted: number;
 }>;
 
@@ -235,6 +302,16 @@ export type ProjectionStore = Readonly<{
   upsertNflGames: (
     inputs: readonly NflGameIdentityInput[],
   ) => Promise<PersistenceOutcome<readonly ResolvedNflGame[]>>;
+  recordProjectionSlate: (
+    input: ProjectionSlateInput,
+  ) => Promise<PersistenceOutcome<StoredProjectionSlateObservation>>;
+  readCurrentProjectionSlate: (input: Readonly<{
+    provider: string;
+    season: number;
+    seasonType: SeasonType;
+    week: number;
+    normalizerVersion: string;
+  }>) => Promise<StoredProjectionSlate | null>;
   recordProjectionCandidates: (
     input: ProjectionRunInput,
   ) => Promise<PersistenceOutcome<StoredProjectionRun>>;

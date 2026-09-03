@@ -184,6 +184,7 @@ export async function processLeague(
     requestCompletedAt: persisted.projections.requestCompletedAt,
     observedAt: persisted.projections.observedAt,
     quality: 'complete',
+    projectionSlateObservationId: persisted.projectionSlateObservationId,
     candidates,
   });
   if (storedRun.kind !== 'stored' || storedRun.value.candidateCount < candidates.length) {

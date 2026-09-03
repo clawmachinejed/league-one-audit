@@ -127,6 +127,7 @@ describe.sequential('projection store against an isolated Neon database', () => 
       migrationNames: [
         '001_projection_foundation.sql',
         '002_manager_snapshot_payloads.sql',
+        '004_durable_projection_slates.sql',
       ],
     });
     const rows = await ownerQuery<{ name: string; checksum_length: number }>(`
@@ -136,6 +137,7 @@ describe.sequential('projection store against an isolated Neon database', () => 
     expect(rows).toEqual([
       { name: '001_projection_foundation.sql', checksum_length: 64 },
       { name: '002_manager_snapshot_payloads.sql', checksum_length: 64 },
+      { name: '004_durable_projection_slates.sql', checksum_length: 64 },
     ]);
   });
 

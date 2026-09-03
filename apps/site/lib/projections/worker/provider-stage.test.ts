@@ -17,7 +17,11 @@ import type {
   ScoringEntityId,
 } from '../ports/identity-crosswalk';
 import type { ProjectionFeedPort } from '../ports/projection-feed';
-import type { ObservationId } from '../ports/projection-repository';
+import type {
+  ObservationId,
+  ProjectionSlateContentId,
+  ProjectionSlateObservationId,
+} from '../ports/projection-repository';
 import {
   externalGameRef,
   externalLeagueRef,
@@ -172,6 +176,20 @@ function providerGroup(leagues: readonly LoadedLeague[] = [leagueFor('league-one
   return { period, leagues };
 }
 
+function projectionSlateStore() {
+  return vi.fn(async (slate: ProjectionSlate) => ({
+    kind: 'stored' as const,
+    value: {
+      observationId: 'projection-slate-observation' as ProjectionSlateObservationId,
+      contentId: 'projection-slate-content' as ProjectionSlateContentId,
+      semanticHash: 'semantic-hash',
+      entriesStored: slate.projections.length,
+      entryCount: slate.projections.length,
+      pointerOutcome: 'advanced' as const,
+    },
+  }));
+}
+
 describe('canonical provider stage grouping and loading', () => {
   it('groups leagues by the complete period and preserves first-seen group order', () => {
     const otherPeriod = { ...period, seasonType: 'preseason' as const };
@@ -301,6 +319,7 @@ describe('canonical provider persistence stage', () => {
         value: [{ gameRef: games.games[0].gameRef, sourceRevision: 'legacy-compatible-game-revision', observationId }],
       };
     });
+    const recordProjectionSlate = projectionSlateStore();
     const resolveScoringEntities = vi.fn(async (inputs: readonly ScoringEntityIdentityInput[]) => {
       order.push('scoring-identity');
       return {
@@ -315,10 +334,11 @@ describe('canonical provider persistence stage', () => {
 
     const result = await persistProviderGroup({
       identityCrosswalk: { resolveNflGames, resolveScoringEntities },
-      repository: { recordGameStates },
+      repository: { recordGameStates, recordProjectionSlate },
     }, providerGroup(), games, projections);
 
     expect(order).toEqual(['game-identity', 'game-state', 'scoring-identity']);
+    expect(recordProjectionSlate).toHaveBeenCalledWith(projections);
     expect(resolveNflGames).toHaveBeenCalledWith([{
       key: gameKey,
       primaryRef: games.games[0].gameRef,
@@ -351,6 +371,7 @@ describe('canonical provider persistence stage', () => {
       ]),
       identityConflictCount: 0,
       projectionSourceRevision: 'legacy-compatible-projection-revision',
+      projectionSlateObservationId: 'projection-slate-observation',
     });
   });
 
@@ -370,6 +391,7 @@ describe('canonical provider persistence stage', () => {
         })),
       },
       repository: {
+        recordProjectionSlate: projectionSlateStore(),
         recordGameStates: vi.fn(async () => ({
           kind: 'stored' as const,
           value: [{ gameRef: games.games[0].gameRef, sourceRevision: 'game-revision', observationId }],
@@ -389,7 +411,7 @@ describe('canonical provider persistence stage', () => {
         resolveNflGames: vi.fn(async () => ({ kind: 'resolved' as const, value: [] })),
         resolveScoringEntities,
       },
-      repository: { recordGameStates },
+      repository: { recordGameStates, recordProjectionSlate: projectionSlateStore() },
     }, providerGroup(), games, projectionSlate())).rejects.toThrow('NFL games could not be persisted completely');
     expect(recordGameStates).not.toHaveBeenCalled();
     expect(resolveScoringEntities).not.toHaveBeenCalled();
@@ -407,6 +429,7 @@ describe('canonical provider persistence stage', () => {
         resolveScoringEntities,
       },
       repository: {
+        recordProjectionSlate: projectionSlateStore(),
         recordGameStates: vi.fn(async () => ({ kind: 'stored' as const, value: [] })),
       },
     }, providerGroup(), games, projectionSlate())).rejects.toThrow('game states could not be persisted completely');

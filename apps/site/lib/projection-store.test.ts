@@ -298,11 +298,13 @@ describe('projection persistence', () => {
     });
     expect(fake.calls).toHaveLength(1);
     expect(fake.calls[0].statement).toContain(
-      'DO UPDATE SET source_revision = pregame_projection_runs.source_revision',
+      'DO UPDATE SET projection_slate_observation_id = COALESCE',
     );
+    expect(fake.calls[0].statement).toContain('current_pregame_projection_candidates');
     expect(fake.calls[0].statement).toMatch(/count\(\*\) FROM input/u);
     expect(fake.calls[0].parameters[0]).toBe('tank01');
-    const candidates = JSON.parse(String(fake.calls[0].parameters[10])) as Array<{
+    expect(fake.calls[0].parameters[10]).toBeNull();
+    const candidates = JSON.parse(String(fake.calls[0].parameters[11])) as Array<{
       projection_points: number; quality: string;
     }>;
     expect(candidates).toMatchObject([
@@ -601,9 +603,13 @@ describe('projection persistence', () => {
       before: '2026-08-01T00:00:00.000Z', keepRecentSnapshotsPerLeagueWeek: 3,
     })).resolves.toEqual({ kind: 'stored', value: {
       snapshotsDeleted: 2, leagueObservationsDeleted: 1,
-      gameObservationsDeleted: 1, projectionRunsDeleted: 0, jobsDeleted: 1,
+      gameObservationsDeleted: 1,
+      projectionRunsDeleted: 0,
+      projectionSlateObservationsDeleted: 0,
+      projectionSlateContentsDeleted: 0,
+      jobsDeleted: 1,
     } });
-    expect(fake.calls).toHaveLength(5);
+    expect(fake.calls).toHaveLength(7);
     expect(fake.calls[0].statement).toContain('current_projection_snapshots');
     expect(fake.calls[0].parameters[1]).toBe(3);
   });
