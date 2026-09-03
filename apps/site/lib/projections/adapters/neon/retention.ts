@@ -61,6 +61,13 @@ export function createRetentionMethods(client: DatabaseClient): RetentionMethods
             SELECT 1 FROM current_pregame_projection_candidates current
             WHERE current.projection_run_id = run.id
           )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM pregame_projection_candidates candidate
+            JOIN nfl_games game ON game.id = candidate.nfl_game_id
+            WHERE candidate.projection_run_id = run.id
+              AND (game.kickoff_at IS NULL OR game.kickoff_at >= $1::timestamptz)
+          )
         RETURNING run.id`, [input.before]);
       const projectionSlateObservations = await client.query(`/* projection-store:prune-projection-slate-observations */
         DELETE FROM projection_slate_observations observation

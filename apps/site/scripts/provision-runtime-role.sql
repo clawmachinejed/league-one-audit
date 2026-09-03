@@ -45,7 +45,10 @@ GRANT SELECT, INSERT, UPDATE ON TABLE
   league_seasons,
   league_source_connections,
   current_projection_snapshots,
-  current_projection_slates,
+  current_projection_slates
+TO league_one_runtime;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
   current_pregame_projection_candidates
 TO league_one_runtime;
 
@@ -105,6 +108,11 @@ BEGIN
     'league_one_runtime', 'public.app_schema_migrations', 'SELECT'
   ) THEN
     RAISE EXCEPTION 'league_one_runtime can read the migration ledger';
+  END IF;
+  IF NOT has_table_privilege(
+    'league_one_runtime', 'public.current_pregame_projection_candidates', 'DELETE'
+  ) THEN
+    RAISE EXCEPTION 'league_one_runtime cannot repair pregame candidate pointers';
   END IF;
 END;
 $$;

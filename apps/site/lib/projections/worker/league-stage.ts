@@ -1,10 +1,8 @@
 import type {
-  CanonicalScoringProfile,
   ProjectionObservation,
   ProjectionSlate,
   ScoringEntity,
 } from '../domain/contracts';
-import { scoreProjection } from '../domain/scoring';
 import type { ProjectionRepositoryPort } from '../ports/projection-repository';
 import {
   externalReferenceKey,
@@ -13,7 +11,6 @@ import {
 } from '../shared/provider-identity';
 import { compatibleRevision } from '../shared/revision-compatibility';
 import type {
-  LiveProjectionWorkerDependencies,
   LeagueStageResult,
   LoadedLeague,
   PersistedGroup,
@@ -36,6 +33,10 @@ import {
   projectionObservationForEntity,
   projectionStats,
 } from './roster-context';
+import {
+  type ProviderGroupScoringCache,
+  type ScoredProjectionSlate,
+} from './scoring-cache';
 import { baselineMap, buildSnapshot } from './snapshot-builder';
 
 type LeagueStageDependencies = Readonly<{
@@ -49,7 +50,6 @@ type LeagueStageDependencies = Readonly<{
     | 'recordLeagueWeekObservation'
     | 'publishSnapshot'
   >;
-  normalizeScoringProfile: LiveProjectionWorkerDependencies['normalizeScoringProfile'];
 }>;
 
 function observationReferences(
@@ -76,7 +76,7 @@ function unsafeUnmatchedProjection(
 function scorePregameProjections(
   entities: readonly ScoringEntity[],
   slate: ProjectionSlate,
-  profile: CanonicalScoringProfile,
+  scores: ScoredProjectionSlate,
 ): PregameProjectionSet {
   if (entities.length === 0) return { status: 'empty', projections: [] };
   if (slate.quality !== 'complete') {
@@ -96,7 +96,8 @@ function scorePregameProjections(
       }
       continue;
     }
-    const scored = scoreProjection(observation.scoringStats, profile.rules);
+    const scored = scores.get(observation);
+    if (!scored) throw new Error('The provider scoring cache is incomplete.');
     if (!scored.available || !finite(scored.points)) {
       projections.push({ entityRef: entity.externalRef, points: 0, quality: 'missing' });
       continue;
@@ -123,11 +124,12 @@ export async function processLeague(
   league: LoadedLeague,
   persisted: PersistedGroup,
   calculatedAt: string,
+  scoringCache: ProviderGroupScoringCache,
 ): Promise<LeagueStageResult> {
   const { source, configuration } = league;
   assertCompleteGameCoverage(league, persisted.games);
 
-  const normalized = dependencies.normalizeScoringProfile(source.scoringSettings);
+  const normalized = scoringCache.resolve(source.scoringSettings);
   if (normalized.status !== 'available') {
     throw new Error('League scoring settings could not be normalized.');
   }
@@ -143,7 +145,11 @@ export async function processLeague(
   const starters = activeStarters(source);
   assertUniqueStarters(starters);
   const candidateEntities = projectionEntities(source);
-  const scored = scorePregameProjections(candidateEntities, persisted.projections, scoringProfile);
+  const scored = scorePregameProjections(
+    candidateEntities,
+    persisted.projections,
+    normalized.scores,
+  );
   if (candidateEntities.length > 0 && scored.status !== 'available') {
     throw new Error('Pregame fantasy projections could not be scored.');
   }

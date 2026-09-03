@@ -127,7 +127,9 @@ describe.sequential('projection store against an isolated Neon database', () => 
       migrationNames: [
         '001_projection_foundation.sql',
         '002_manager_snapshot_payloads.sql',
+        '003_league_period_authority.sql',
         '004_durable_projection_slates.sql',
+        '006_flexed_kickoff_candidate_index.sql',
       ],
     });
     const rows = await ownerQuery<{ name: string; checksum_length: number }>(`
@@ -137,7 +139,9 @@ describe.sequential('projection store against an isolated Neon database', () => 
     expect(rows).toEqual([
       { name: '001_projection_foundation.sql', checksum_length: 64 },
       { name: '002_manager_snapshot_payloads.sql', checksum_length: 64 },
+      { name: '003_league_period_authority.sql', checksum_length: 64 },
       { name: '004_durable_projection_slates.sql', checksum_length: 64 },
+      { name: '006_flexed_kickoff_candidate_index.sql', checksum_length: 64 },
     ]);
   });
 
@@ -353,6 +357,9 @@ describe.sequential('projection store against an isolated Neon database', () => 
     `);
     expect(only(aliases, 'Game aliases')).toEqual({ game_count: 1, alias_count: 2 });
 
+    const gameCountBeforeConflict = only(await ownerQuery<{ value: number }>(`
+      SELECT count(*)::integer AS value FROM nfl_games
+    `), 'Game count before conflict').value;
     await expect(store.upsertNflGames([{
       key: 'conflicting-game',
       provider: 'tank01',
@@ -364,6 +371,16 @@ describe.sequential('projection store against an isolated Neon database', () => 
       awayTeam: 'NE',
       kickoffAt: '2026-09-13T17:00:00.000Z',
     }])).rejects.toThrow(/conflicts/iu);
+    const conflictState = only(await ownerQuery<{ game_count: number; conflicting_games: number }>(`
+      SELECT count(*)::integer AS game_count,
+        count(*) FILTER (WHERE home_team = 'NYJ' AND away_team = 'NE')::integer
+          AS conflicting_games
+      FROM nfl_games
+    `), 'Game state after conflict');
+    expect(conflictState).toEqual({
+      game_count: gameCountBeforeConflict,
+      conflicting_games: 0,
+    });
   });
 
   it('keeps projection runs idempotent, filters ineligible rows, and freezes a baseline once', async () => {
@@ -474,6 +491,148 @@ describe.sequential('projection store against an isolated Neon database', () => 
       UPDATE pregame_projection_baselines SET projection_points = 999
       WHERE nfl_game_id = $1 AND scoring_entity_id = $2
     `, [projectionGameId, playerEntityId])).rejects.toThrow(/immutable/iu);
+  });
+
+  it('rebuilds candidate pointers across earlier and later kickoff flexes and protects history', async () => {
+    const flexGame = only(storedValue(await store.upsertNflGames([{
+      key: 'flex-game', provider: 'tank01', externalGameId: 'flex-game',
+      season: 2026, seasonType: 'reg', week: 3,
+      homeTeam: 'LAC', awayTeam: 'KC', kickoffAt: '2026-09-30T18:00:00.000Z',
+    }])), 'Flex game');
+    const candidate = {
+      gameId: flexGame.gameId,
+      entityId: playerEntityId,
+      scoringProfileId: league.scoringProfileId,
+      projectedStats: { passingYards: 250 },
+      quality: 'complete' as const,
+    };
+    const run = {
+      provider: 'tank01', season: 2026, seasonType: 'reg' as const, week: 3,
+      modelVersion: 'integration-flex-v1', requestStartedAt: '2026-09-30T15:59:59.000Z',
+      requestCompletedAt: '2026-09-30T16:00:00.000Z', quality: 'complete' as const,
+    };
+    const early = storedValue(await store.recordProjectionCandidates({
+      ...run, sourceRevision: 'flex-early', fetchedAt: '2026-09-30T16:00:00.000Z',
+      candidates: [{ ...candidate, projectionPoints: 10 }],
+    }));
+    const later = storedValue(await store.recordProjectionCandidates({
+      ...run, sourceRevision: 'flex-later', fetchedAt: '2026-09-30T17:30:00.000Z',
+      candidates: [{ ...candidate, projectionPoints: 20 }],
+    }));
+    const invalid = storedValue(await store.recordProjectionCandidates({
+      ...run, sourceRevision: 'flex-invalid', fetchedAt: '2026-09-30T16:30:00.000Z',
+      candidates: [{ ...candidate, projectionPoints: 99, quality: 'invalid' }],
+    }));
+    const nullKickoffGame = only(storedValue(await store.upsertNflGames([{
+      key: 'null-kickoff-game', provider: 'tank01', externalGameId: 'null-kickoff-game',
+      season: 2026, seasonType: 'reg', week: 3,
+      homeTeam: 'BAL', awayTeam: 'PIT', kickoffAt: null,
+    }])), 'Null-kickoff game');
+    const recentGame = only(storedValue(await store.upsertNflGames([{
+      key: 'recent-game', provider: 'tank01', externalGameId: 'recent-game',
+      season: 2026, seasonType: 'reg', week: 3,
+      homeTeam: 'DET', awayTeam: 'GB', kickoffAt: '2026-09-02T17:00:00.000Z',
+    }])), 'Recent game');
+    const nullKickoff = storedValue(await store.recordProjectionCandidates({
+      ...run,
+      sourceRevision: 'null-kickoff-candidate',
+      requestStartedAt: '2026-08-30T15:59:59.000Z',
+      requestCompletedAt: '2026-08-30T16:00:00.000Z',
+      fetchedAt: '2026-08-30T16:00:00.000Z',
+      candidates: [{
+        ...candidate, gameId: nullKickoffGame.gameId, projectionPoints: 30,
+      }],
+    }));
+    const recent = storedValue(await store.recordProjectionCandidates({
+      ...run,
+      sourceRevision: 'recent-game-candidate',
+      requestStartedAt: '2026-08-30T15:59:59.000Z',
+      requestCompletedAt: '2026-08-30T16:00:00.000Z',
+      fetchedAt: '2026-08-30T16:00:00.000Z',
+      candidates: [{ ...candidate, gameId: recentGame.gameId, projectionPoints: 40 }],
+    }));
+    const readInput = {
+      leagueSeasonId: league.leagueSeasonId, season: 2026, seasonType: 'reg' as const,
+      week: 3, provider: 'tank01', modelVersion: 'integration-flex-v1',
+      sleeperPlayerIds: ['integration-player'],
+    };
+    expect(only(await store.readLatestCandidatesBySleeperIds(readInput), 'Initial flex pointer'))
+      .toMatchObject({ projectionPoints: 20, sourceProjectionRunId: later.runId });
+
+    // Inject an invalid pointer to prove the identity-safe rebuild repairs rather
+    // than trusts mutable pointer state.
+    await ownerQuery(`
+      UPDATE current_pregame_projection_candidates current
+      SET projection_run_id = $1,
+        source_fetched_at = '2026-09-30T16:30:00.000Z',
+        source_run_created_at = run.created_at
+      FROM pregame_projection_runs run
+      WHERE run.id = $1 AND current.nfl_game_id = $2
+        AND current.scoring_entity_id = $3
+        AND current.scoring_profile_id = $4
+        AND current.projection_provider = 'tank01'
+        AND current.model_version = 'integration-flex-v1'
+    `, [invalid.runId, flexGame.gameId, playerEntityId, league.scoringProfileId]);
+
+    await store.upsertNflGames([{
+      key: 'flex-game-earlier', provider: 'tank01', externalGameId: 'flex-game',
+      season: 2026, seasonType: 'reg', week: 3,
+      homeTeam: 'LAC', awayTeam: 'KC', kickoffAt: '2026-09-30T17:00:00.000Z',
+    }]);
+    expect(only(await store.readLatestCandidatesBySleeperIds(readInput), 'Earlier flex pointer'))
+      .toMatchObject({ projectionPoints: 10, sourceProjectionRunId: early.runId });
+    expect(only(await ownerQuery<{ kickoff_at: string }>(`
+      SELECT kickoff_at::text FROM nfl_games WHERE id = $1
+    `, [flexGame.gameId]), 'Earlier flex kickoff').kickoff_at)
+      .toBe('2026-09-30 17:00:00+00');
+
+    // Reproduce the only unsafe-looking state a concurrent candidate write can
+    // leave behind: the mutable pointer references a complete run observed
+    // after the newly earlier kickoff. The authoritative read predicate must
+    // fail closed until the next ordinary game upsert repairs the pointer.
+    await ownerQuery(`
+      UPDATE current_pregame_projection_candidates current
+      SET projection_run_id = $1,
+        source_fetched_at = '2026-09-30T17:30:00.000Z',
+        source_run_created_at = run.created_at
+      FROM pregame_projection_runs run
+      WHERE run.id = $1 AND current.nfl_game_id = $2
+        AND current.scoring_entity_id = $3
+        AND current.scoring_profile_id = $4
+        AND current.projection_provider = 'tank01'
+        AND current.model_version = 'integration-flex-v1'
+    `, [later.runId, flexGame.gameId, playerEntityId, league.scoringProfileId]);
+    expect(await store.readLatestCandidatesBySleeperIds(readInput)).toEqual([]);
+    await store.upsertNflGames([{
+      key: 'flex-game-repair', provider: 'tank01', externalGameId: 'flex-game',
+      season: 2026, seasonType: 'reg', week: 3,
+      homeTeam: 'LAC', awayTeam: 'KC', kickoffAt: '2026-09-30T17:00:00.000Z',
+    }]);
+    expect(only(await store.readLatestCandidatesBySleeperIds(readInput), 'Repaired flex pointer'))
+      .toMatchObject({ projectionPoints: 10, sourceProjectionRunId: early.runId });
+
+    await ownerQuery(`
+      UPDATE pregame_projection_runs SET created_at = '2000-01-01T00:00:00.000Z'
+      WHERE id = ANY($1::uuid[])
+    `, [[early.runId, later.runId, invalid.runId, nullKickoff.runId, recent.runId]]);
+    await store.pruneHistory({
+      before: '2026-09-01T00:00:00.000Z', keepRecentSnapshotsPerLeagueWeek: 3,
+    });
+    const retained = only(await ownerQuery<{ value: number }>(`
+      SELECT count(*)::integer AS value FROM pregame_projection_runs
+      WHERE id = ANY($1::uuid[])
+    `, [[
+      early.runId, later.runId, invalid.runId, nullKickoff.runId, recent.runId,
+    ]]), 'Retained flex runs');
+    expect(retained.value).toBe(5);
+
+    await store.upsertNflGames([{
+      key: 'flex-game-later', provider: 'tank01', externalGameId: 'flex-game',
+      season: 2026, seasonType: 'reg', week: 3,
+      homeTeam: 'LAC', awayTeam: 'KC', kickoffAt: '2026-09-30T19:00:00.000Z',
+    }]);
+    expect(only(await store.readLatestCandidatesBySleeperIds(readInput), 'Later flex pointer'))
+      .toMatchObject({ projectionPoints: 20, sourceProjectionRunId: later.runId });
   });
 
   it('accepts forward game progress and rejects clock, period, and final-state regression', async () => {
@@ -1026,6 +1185,7 @@ describe.sequential('projection store against an isolated Neon database', () => 
       can_read_migrations: boolean;
       can_insert_snapshots: boolean;
       can_update_snapshots: boolean;
+      can_delete_candidate_pointers: boolean;
     }>(`
       SELECT current_user AS database_user,
         has_schema_privilege(current_user, 'public', 'CREATE') AS can_create_schema_objects,
@@ -1036,7 +1196,10 @@ describe.sequential('projection store against an isolated Neon database', () => 
         has_table_privilege(current_user, 'public.projection_snapshots', 'INSERT')
           AS can_insert_snapshots,
         has_table_privilege(current_user, 'public.projection_snapshots', 'UPDATE')
-          AS can_update_snapshots
+          AS can_update_snapshots,
+        has_table_privilege(
+          current_user, 'public.current_pregame_projection_candidates', 'DELETE'
+        ) AS can_delete_candidate_pointers
     `), 'Runtime privileges');
     expect(identity).toEqual({
       database_user: 'league_one_runtime',
@@ -1045,6 +1208,7 @@ describe.sequential('projection store against an isolated Neon database', () => 
       can_read_migrations: false,
       can_insert_snapshots: true,
       can_update_snapshots: false,
+      can_delete_candidate_pointers: true,
     });
     await expect(runtimeQuery('SELECT * FROM app_schema_migrations')).rejects.toThrow(/permission/iu);
     await expect(runtimeQuery('CREATE TABLE integration_forbidden (id integer)'))

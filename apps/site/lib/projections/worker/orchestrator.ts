@@ -19,6 +19,7 @@ import {
 } from './cadence';
 import { processLeague } from './league-stage';
 import { groupLeagues, loadProviderGroup, persistProviderGroup } from './provider-stage';
+import { createProviderGroupScoringCache } from './scoring-cache';
 
 const JOB_LEASE_SECONDS = 120;
 const LEAGUE_LOAD_CONCURRENCY = 8;
@@ -359,13 +360,23 @@ export async function runWithDependencies(
     let publishedLeagues = 0;
     let unchangedLeagues = 0;
     for (const { group, persisted } of persistedGroups) {
+      const scoringCache = createProviderGroupScoringCache(
+        persisted.projections,
+        dependencies.normalizeScoringProfile,
+      );
       const outcomes = await mapWithConcurrency(
         group.leagues,
         LEAGUE_PROCESS_CONCURRENCY,
         async (league) => {
           const leagueStartedAt = dependencies.clock.monotonicNow();
           try {
-            const result = await processLeague(dependencies, league, persisted, calculatedAt);
+            const result = await processLeague(
+              dependencies,
+              league,
+              persisted,
+              calculatedAt,
+              scoringCache,
+            );
             log(dependencies, 'info', {
               stage: 'league-publish', outcome: 'completed', runId,
               leagueKey: league.configuration.key,

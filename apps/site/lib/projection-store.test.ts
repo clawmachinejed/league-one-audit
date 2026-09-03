@@ -484,6 +484,8 @@ describe('projection persistence', () => {
 
     expect(fake.calls).toHaveLength(3);
     expect(fake.calls[0].statement).toContain('run.provider = $7');
+    expect(fake.calls[0].statement).toContain('current_pregame_projection_candidates current');
+    expect(fake.calls[0].statement).toContain('run.fetched_at <= game.kickoff_at');
     expect(fake.calls[0].parameters[6]).toBe('tank01');
     expect(fake.calls[1].statement).toContain('run.provider = $8');
     expect(fake.calls[1].statement).toContain('game.kickoff_at IS NOT NULL');
@@ -553,12 +555,59 @@ describe('projection persistence', () => {
 
     expect(fake.calls).toHaveLength(3);
     expect(fake.calls[0].statement).toContain(
-      'ON CONFLICT (season, season_type, week, home_team, away_team) DO UPDATE',
+      'ON CONFLICT (season, season_type, week, home_team, away_team) DO NOTHING',
     );
     expect(fake.calls[0].statement).toContain(
       'INSERT INTO external_game_ids (provider, external_game_id, nfl_game_id)',
     );
+    expect(fake.calls[0].statement).toContain('ON CONFLICT (season, season_type, week, home_team, away_team) DO NOTHING');
+    expect(fake.calls[0].statement).toContain('AND NOT EXISTS (SELECT 1 FROM conflicts)');
+    expect(fake.calls[1].statement).toContain('UPDATE nfl_games game');
+    expect(fake.calls[1].statement).toContain('SET kickoff_at = targets.kickoff_at');
+    expect(fake.calls[1].statement).toContain('latest_candidates AS');
+    expect(fake.calls[1].statement).toContain('run.season = targets.season');
+    expect(fake.calls[1].statement).toContain('removed_ineligible_candidates AS');
+    expect(fake.calls[1].statement).toContain('AND NOT EXISTS (SELECT 1 FROM conflicts)');
     expect(fake.calls[2].statement).toContain('clean-orphan-nfl-games');
+  });
+
+  it('passes both earlier and later kickoff corrections through the identity-safe rebuild', async () => {
+    const canonicalGameId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const fake = fakeDatabase(({ statement, parameters }) => {
+      if (!statement.includes('resolve-nfl-games')) return [];
+      const [input] = JSON.parse(String(parameters[0])) as Array<{
+        input_key: string; proposed_id: string;
+      }>;
+      return [{
+        input_key: input.input_key,
+        proposed_id: input.proposed_id,
+        mapped_game_id: canonicalGameId,
+        natural_game_id: canonicalGameId,
+        game_id: canonicalGameId,
+        conflict: false,
+      }];
+    });
+    const store = createProjectionStore(fake.database);
+    const game = {
+      key: 'flexed-game', provider: 'tank01', externalGameId: 'flexed-game',
+      season: 2026, seasonType: 'reg' as const, week: 1,
+      homeTeam: 'LAC', awayTeam: 'KC',
+    };
+
+    await store.upsertNflGames([{ ...game, kickoffAt: '2026-09-13T16:00:00.000Z' }]);
+    await store.upsertNflGames([{ ...game, kickoffAt: '2026-09-13T20:00:00.000Z' }]);
+
+    const writes = fake.calls.filter(({ statement }) => statement.includes('resolve-nfl-games'));
+    expect(writes).toHaveLength(2);
+    expect(JSON.parse(String(writes[0].parameters[0]))[0].kickoff_at)
+      .toBe('2026-09-13T16:00:00.000Z');
+    expect(JSON.parse(String(writes[1].parameters[0]))[0].kickoff_at)
+      .toBe('2026-09-13T20:00:00.000Z');
+    for (const write of writes) {
+      expect(write.statement).toContain('game.kickoff_at IS DISTINCT FROM targets.kickoff_at');
+      expect(write.statement).not.toMatch(/GREATEST\([^)]*kickoff/iu);
+      expect(write.statement).not.toMatch(/LEAST\([^)]*kickoff/iu);
+    }
   });
 
   it('requires expected Tank01 games for scheduled source data', async () => {
@@ -612,6 +661,11 @@ describe('projection persistence', () => {
     expect(fake.calls).toHaveLength(7);
     expect(fake.calls[0].statement).toContain('current_projection_snapshots');
     expect(fake.calls[0].parameters[1]).toBe(3);
+    const projectionRetention = fake.calls.find(({ statement }) => (
+      statement.includes('prune-projection-runs')
+    ));
+    expect(projectionRetention?.statement).toContain('game.kickoff_at IS NULL');
+    expect(projectionRetention?.statement).toContain('game.kickoff_at >= $1::timestamptz');
   });
 
   it('rejects a snapshot when the database cannot validate all sources', async () => {
@@ -679,8 +733,23 @@ describe('projection migration', () => {
     expect(grants).toContain('CREATE ROLE league_one_runtime');
     expect(grants).toContain("pg_has_role('league_one_runtime', 'neon_superuser', 'MEMBER')");
     expect(grants).toContain('league_one_runtime still has object-creation privileges');
+    expect(grants).toMatch(
+      /GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE\s+current_pregame_projection_candidates/iu,
+    );
+    expect(grants).toContain('league_one_runtime cannot repair pregame candidate pointers');
     expect(grants).toContain('MIGRATION_DATABASE_URL');
     expect(grants).not.toMatch(/PASSWORD\s+['"]/iu);
+  });
+
+  it('indexes immutable candidate history by game for targeted kickoff repair', async () => {
+    const migration = await readFile(
+      new URL('../migrations/006_flexed_kickoff_candidate_index.sql', import.meta.url),
+      'utf8',
+    );
+    expect(migration).toContain('pregame_projection_candidates_game_run_idx');
+    expect(migration).toMatch(
+      /ON pregame_projection_candidates\s*\(nfl_game_id, projection_run_id\)/iu,
+    );
   });
 
   it('serializes and rejects regressive provider game states', async () => {

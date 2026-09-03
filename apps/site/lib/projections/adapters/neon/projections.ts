@@ -151,11 +151,17 @@ export function createProjectionMethods(client: DatabaseClient): ProjectionMetho
           NULL::text AS frozen_at
         FROM external_scoring_entity_ids sleeper
         JOIN scoring_entities entity ON entity.id = sleeper.scoring_entity_id
-        JOIN pregame_projection_candidates candidate ON candidate.scoring_entity_id = entity.id
-        JOIN pregame_projection_runs run ON run.id = candidate.projection_run_id
-        JOIN nfl_games game ON game.id = candidate.nfl_game_id
+        JOIN current_pregame_projection_candidates current
+          ON current.scoring_entity_id = entity.id
         JOIN league_seasons season
-          ON season.id = $1 AND season.scoring_profile_id = candidate.scoring_profile_id
+          ON season.id = $1 AND season.scoring_profile_id = current.scoring_profile_id
+        JOIN pregame_projection_candidates candidate
+          ON candidate.projection_run_id = current.projection_run_id
+          AND candidate.nfl_game_id = current.nfl_game_id
+          AND candidate.scoring_entity_id = current.scoring_entity_id
+          AND candidate.scoring_profile_id = current.scoring_profile_id
+        JOIN pregame_projection_runs run ON run.id = current.projection_run_id
+        JOIN nfl_games game ON game.id = current.nfl_game_id
         LEFT JOIN LATERAL (
           SELECT mapping.external_game_id
           FROM external_game_ids mapping
@@ -168,8 +174,11 @@ export function createProjectionMethods(client: DatabaseClient): ProjectionMetho
           AND run.season = $3 AND run.season_type = $4 AND run.week = $5
           AND run.model_version = $6 AND run.quality = 'complete'
           AND run.provider = $7
+          AND current.model_version = $6 AND current.projection_provider = $7
           AND candidate.quality <> 'invalid'
-        ORDER BY sleeper.external_id, run.fetched_at DESC, run.created_at DESC`, [
+          AND game.kickoff_at IS NOT NULL AND run.fetched_at <= game.kickoff_at
+        ORDER BY sleeper.external_id, current.source_fetched_at DESC,
+          current.source_run_created_at DESC, current.projection_run_id DESC`, [
         input.leagueSeasonId, sleeperIds, input.season, input.seasonType,
         input.week, input.modelVersion, provider(input.provider),
       ]);
