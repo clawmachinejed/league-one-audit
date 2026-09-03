@@ -51,6 +51,49 @@ describe.sequential('atomic lineup provenance and materialization in isolated Ne
     expect(await f.store.acknowledgeCurrentLineup({ ...f.acknowledgeInput(laterSource, later.snapshot.revisionKey), fence: f.fence })).toEqual({ kind: 'updated' });
   });
 
+  it('switches verification provenance with a delayed changed snapshot after A-to-B-to-A', async () => {
+    const f = await lineageFixture(database);
+    if (f.fence.ownerLane !== 'current') throw new Error('Incorrect fixture lane.');
+    await f.acceptWatch(LINEUP_A);
+    const firstA = await f.observe(LINEUP_A);
+    const publishedA = await f.publish(firstA);
+    if (publishedA.kind !== 'published') throw new Error('Initial A was not published.');
+    expect(await f.store.acknowledgeCurrentLineup({ ...f.acknowledgeInput(firstA, publishedA.snapshot.revisionKey), fence: f.fence })).toEqual({ kind: 'updated' });
+
+    await f.acceptWatch(LINEUP_B);
+    const delayedB = await f.observe(LINEUP_B);
+    await f.acceptWatch(LINEUP_A);
+    const laterA = await f.observe(LINEUP_A);
+    const verifiedA = await f.publish(laterA);
+    if (verifiedA.kind !== 'unchanged') throw new Error('Repeated A should verify the existing snapshot.');
+    expect(Date.parse(laterA.input.observedAt)).toBeGreaterThan(Date.parse(delayedB.input.observedAt));
+    // Rechecking older A may not regress provenance while the selected snapshot remains A.
+    const oldVerification = await f.publish(firstA);
+    if (oldVerification.kind !== 'unchanged') throw new Error('Older A should remain an unchanged verification.');
+    expect(Date.parse(oldVerification.snapshot.verifiedAt)).toBe(Date.parse(laterA.input.observedAt));
+
+    const publishedB = await f.store.publishSnapshot({
+      leagueSeasonId: f.league.leagueSeasonId, week: f.period.week, modelVersion: 'clock-v1',
+      revisionKey: 'delayed-B-fixture', leagueWeekObservationId: delayedB.value.observationId,
+      gameStateObservationIds: [], calculatedAt: delayedB.input.observedAt, activityWindows: [], lineupFence: f.fence,
+      payload: { league: { season: '2026', rosterPositions: ['QB'], week: f.period.week, maxWeek: 18 },
+        teams: [], updatedAt: delayedB.input.observedAt, week: f.period.week, matchups: [], warning: 'Changed lineup fixture' },
+    });
+    if (publishedB.kind !== 'published') throw new Error('Delayed changed B was not published.');
+    const pointer = (await ownerQuery<{ snapshot_id: string; verification_source_observation_id: string; verified_at: string }>(`
+      SELECT snapshot_id, verification_source_observation_id, verified_at::text
+      FROM current_projection_snapshots WHERE league_season_id=$1 AND week=$2`, [f.league.leagueSeasonId, f.period.week]))[0];
+    expect(pointer.snapshot_id).toBe(publishedB.snapshot.snapshotId);
+    expect(pointer.verification_source_observation_id).toBe(delayedB.value.observationId);
+    expect(Date.parse(pointer.verified_at)).toBe(Date.parse(delayedB.input.observedAt));
+    expect(Date.parse(publishedB.snapshot.verifiedAt)).toBe(Date.parse(delayedB.input.observedAt));
+    expect(await f.store.acknowledgeCurrentLineup({ ...f.acknowledgeInput(laterA, publishedB.snapshot.revisionKey), fence: f.fence })).toEqual({ kind: 'stale' });
+    expect(await f.store.acknowledgeCurrentLineup({ ...f.acknowledgeInput(delayedB, publishedB.snapshot.revisionKey), fence: f.fence })).toEqual({ kind: 'updated' });
+    expect((await ownerQuery(`SELECT latest_lineup_revision,last_materialized_lineup_revision,
+      pending_since IS NOT NULL AS pending FROM league_week_lineup_watch_states WHERE id=$1`, [f.watchId]))[0])
+      .toMatchObject({ latest_lineup_revision: LINEUP_A, last_materialized_lineup_revision: LINEUP_B, pending: true });
+  });
+
   it('rejects authority rollover, expired global ownership and retired-watch bypasses', async () => {
     const f = await lineageFixture(database);
     const source = await f.observe();

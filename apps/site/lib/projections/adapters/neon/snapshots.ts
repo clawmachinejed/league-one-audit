@@ -204,13 +204,14 @@ export function createSnapshotMethods(client: DatabaseClient): SnapshotMethods {
             calculated_at = EXCLUDED.calculated_at,
             published_at = EXCLUDED.published_at,
             verification_source_observation_id = CASE
-              WHEN EXCLUDED.verified_at >= current_projection_snapshots.verified_at
+              WHEN EXCLUDED.snapshot_id IS DISTINCT FROM current_projection_snapshots.snapshot_id
+                OR EXCLUDED.verified_at >= current_projection_snapshots.verified_at
                 THEN EXCLUDED.verification_source_observation_id
               ELSE current_projection_snapshots.verification_source_observation_id END,
-            verified_at = GREATEST(
-              current_projection_snapshots.verified_at,
-              EXCLUDED.verified_at
-            )
+            verified_at = CASE
+              WHEN EXCLUDED.snapshot_id IS DISTINCT FROM current_projection_snapshots.snapshot_id
+                THEN EXCLUDED.verified_at
+              ELSE GREATEST(current_projection_snapshots.verified_at, EXCLUDED.verified_at) END
           WHERE EXCLUDED.calculated_at >= current_projection_snapshots.calculated_at
           RETURNING snapshot_id, published_at, verified_at
         ), verified AS (

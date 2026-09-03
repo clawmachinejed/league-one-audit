@@ -176,7 +176,7 @@ written for verification. Existing naturally updated snapshots remained readable
 ## PR2 verification record
 
 - Final local gate: 838 tests in 62 files; lint, TypeScript, architecture and production build passed.
-- Isolated Neon: 96 tests in five files passed, including the forced authority-lock/claim
+- Isolated Neon: 97 tests in five files passed, including the forced authority-lock/claim
   race, A-B-A pending state, full-source C after claimed B, expiration, lifecycle fencing,
   exact verification lineage, permissions, and shared full/compact SQL parity.
 - Browser regression: all 13 tests passed (30.4 seconds). No UI or browser cadence changed.
@@ -192,6 +192,12 @@ written for verification. Existing naturally updated snapshots remained readable
 - An initial release safety review used the earlier refactor's no-migration restriction.
   It accepted the same action after checking this contract's explicit PR2 migration and
   Section 20 permission requirements. No alternate execution path or bypass was used.
+
+- Automated PR review identified a delayed-content publication after a newer unchanged
+  verification. Corrected the atomic pointer update so a changed snapshot replaces both
+  verification source and time; same-snapshot verification remains monotonic. The real
+  Neon A-B-A/delayed-B test proves exact acknowledgment and reopening pending A.
+- Corrected-head local verification remains 838 tests / 62 files; isolated Neon 97 passed.
 
 ## Deferred work
 
