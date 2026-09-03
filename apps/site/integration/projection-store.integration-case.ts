@@ -139,7 +139,7 @@ describe.sequential('projection store against an isolated Neon database', () => 
     ]);
   });
 
-  it('stores canonical scoring rules and hash and keeps the season profile immutable', async () => {
+  it('registers both leagues, stores canonical scoring rules and hash, and keeps season profiles immutable', async () => {
     const repeated = storedValue(await store.registerLeagueSeason({
       leagueKey: 'integration-league',
       leagueName: 'Integration League',
@@ -148,6 +148,46 @@ describe.sequential('projection store against an isolated Neon database', () => 
       scoringRules: { pass_int: -2, pass_yd: 0.04, pass_td: 4 },
     }));
     expect(repeated).toEqual(league);
+
+    const secondLeague = storedValue(await store.registerLeagueSeason({
+      leagueKey: 'integration-league-two',
+      leagueName: 'Integration League Two',
+      season: 2026,
+      sleeperLeagueId: 'integration-sleeper-league-two',
+      scoringRules: { pass_int: -2, pass_yd: 0.04, pass_td: 4 },
+    }));
+    expect(secondLeague.leagueSeasonId).not.toBe(league.leagueSeasonId);
+    expect(secondLeague.scoringProfileId).toBe(league.scoringProfileId);
+    const registrations = await ownerQuery<{
+      league_count: number;
+      season_count: number;
+      connection_count: number;
+      scoring_profile_count: number;
+    }>(`
+      SELECT
+        (SELECT count(*)::integer FROM leagues
+          WHERE league_key IN ('integration-league', 'integration-league-two')) AS league_count,
+        (SELECT count(*)::integer FROM league_seasons season
+          JOIN leagues league ON league.id = season.league_id
+          WHERE league.league_key IN ('integration-league', 'integration-league-two')
+            AND season.season = 2026) AS season_count,
+        (SELECT count(*)::integer FROM league_source_connections
+          WHERE provider = 'sleeper'
+            AND external_league_id IN (
+              'integration-sleeper-league', 'integration-sleeper-league-two'
+            )) AS connection_count,
+        (SELECT count(DISTINCT season.scoring_profile_id)::integer
+          FROM league_seasons season
+          JOIN leagues league ON league.id = season.league_id
+          WHERE league.league_key IN ('integration-league', 'integration-league-two')
+            AND season.season = 2026) AS scoring_profile_count
+    `);
+    expect(only(registrations, 'League registration counts')).toEqual({
+      league_count: 2,
+      season_count: 2,
+      connection_count: 2,
+      scoring_profile_count: 1,
+    });
 
     const rows = await ownerQuery<{
       id: string;
@@ -516,6 +556,13 @@ describe.sequential('projection store against an isolated Neon database', () => 
         points: 1,
         isStarter: false,
         lineupSlot: 'BN',
+      }, {
+        sleeperPlayerId: 'unmapped-defense',
+        entityKind: 'team_defense' as const,
+        externalRosterId: 'roster-1',
+        points: 5,
+        isStarter: true,
+        lineupSlot: 'DEF',
       }],
       rosterPoints: [{ externalRosterId: 'roster-1', points: 12.5 }],
     };
@@ -525,7 +572,7 @@ describe.sequential('projection store against an isolated Neon database', () => 
     expect(first).toMatchObject({
       playerPointsStored: 1,
       rosterPointsStored: 1,
-      unmappedSleeperPlayerIds: ['unmapped-player'],
+      unmappedSleeperPlayerIds: ['unmapped-defense', 'unmapped-player'],
       expectedGamesStored: 1,
       unmappedTank01GameIds: ['unmapped-game'],
     });
@@ -609,6 +656,31 @@ describe.sequential('projection store against an isolated Neon database', () => 
       expect(next.kind).toBe('acquired');
       expect(await loser.store.failJob(jobKey, loser.workerId, 'controlled integration failure'))
         .toBe(true);
+
+      const expiredJobKey = `integration-expired-job-${randomUUID()}`;
+      const expiring = await left.acquireJob({
+        jobKey: expiredJobKey,
+        jobType: 'projection-sync',
+        scheduledFor: time(37),
+        payload: { league: 'integration-expired' },
+        workerId: 'worker-expired',
+        leaseSeconds: 120,
+      });
+      expect(expiring.kind).toBe('acquired');
+      await ownerQuery(`
+        UPDATE projection_jobs SET lease_until = now() - interval '1 second'
+        WHERE job_key = $1
+      `, [expiredJobKey]);
+      const reclaimed = await right.acquireJob({
+        jobKey: expiredJobKey,
+        jobType: 'projection-sync',
+        scheduledFor: time(37),
+        payload: { league: 'integration-reclaimed' },
+        workerId: 'worker-reclaimed',
+        leaseSeconds: 120,
+      });
+      expect(reclaimed).toMatchObject({ kind: 'acquired', attempt: 2 });
+      expect(await right.completeJob(expiredJobKey, 'worker-reclaimed')).toBe(true);
     } finally {
       await Promise.allSettled([leftDatabase.close(), rightDatabase.close()]);
     }
@@ -689,11 +761,32 @@ describe.sequential('projection store against an isolated Neon database', () => 
       setTime,
     );
     await expect(publish(
+      'snapshot-missing-source-set',
+      setTime,
+      scheduledPayload(4, setTime, 20),
+      exactLeague.observationId,
+      [],
+    )).resolves.toEqual({ kind: 'rejected', reason: 'incomplete-or-mismatched-sources' });
+    await expect(publish(
       'snapshot-wrong-source-set',
       setTime,
       scheduledPayload(4, setTime, 20),
       exactLeague.observationId,
       [exactGame.observationId, extraGame.observationId],
+    )).resolves.toEqual({ kind: 'rejected', reason: 'incomplete-or-mismatched-sources' });
+
+    const secondExactGame = await recordGameSource(
+      'snapshot-game',
+      'snapshot-game-set-second-observation',
+      setTime,
+    );
+    expect(secondExactGame.observationId).not.toBe(exactGame.observationId);
+    await expect(publish(
+      'snapshot-duplicate-game-observations',
+      setTime,
+      scheduledPayload(4, setTime, 20),
+      exactLeague.observationId,
+      [exactGame.observationId, secondExactGame.observationId],
     )).resolves.toEqual({ kind: 'rejected', reason: 'incomplete-or-mismatched-sources' });
 
     const skewLeagueTime = time(41);
@@ -716,11 +809,28 @@ describe.sequential('projection store against an isolated Neon database', () => 
       firstTime,
       scheduledPayload(4, firstTime, 20),
       firstLeague.observationId,
-      [firstGame.observationId],
+      [firstGame.observationId, firstGame.observationId, firstGame.observationId],
     );
     expect(first.kind).toBe('published');
     if (first.kind !== 'published') throw new Error('The first snapshot was not published.');
     firstSnapshotId = first.snapshot.snapshotId;
+    const firstRows = await ownerQuery<{
+      revision_key: string;
+      content_hash: string;
+      source_count: number;
+      source_id: string;
+    }>(`
+      SELECT revision_key, content_hash,
+        cardinality(game_state_observation_ids)::integer AS source_count,
+        game_state_observation_ids[1]::text AS source_id
+      FROM projection_snapshots WHERE id = $1
+    `, [firstSnapshotId]);
+    expect(only(firstRows, 'First snapshot hash and normalized sources')).toEqual({
+      revision_key: 'snapshot-valid-first',
+      content_hash: 'feb06d8bb810fd4d315948e2a3e32f3cef284d898a057d7da10a509e9a60d756',
+      source_count: 1,
+      source_id: firstGame.observationId,
+    });
 
     const verificationTime = time(46);
     const verificationLeague = await recordLeagueSource(
