@@ -1,37 +1,59 @@
-import 'server-only';
-
-import type { LeagueKey } from '../../leagues';
-import type { ProjectionSyncCadence } from '../../projection-window';
-import type { ProjectionStore } from '../../projection-store';
-import type { ProjectionCadenceInput, ProjectionSyncInput } from '../../sleeper';
-import type { Tank01GameStatesAvailable, Tank01GameStatesResult } from '../../tank01-game-state';
-import type { Tank01AvailableResult, Tank01ProjectionResult } from '../../tank01';
-import type { Player } from '../../types';
+import type {
+  Cadence,
+  CanonicalScoringProfile,
+  GameStateSlate,
+  LeagueConfiguration,
+  LeaguePeriod,
+  LeagueWeekState,
+  OccupiedLineupSlot,
+  ProjectionSlate,
+  SourceScoringSettings,
+} from '../domain/contracts';
+import type { ClockPort } from '../ports/clock';
+import type { GameStateFeedPort } from '../ports/game-state-feed';
+import type { IdGeneratorPort } from '../ports/id-generator';
+import type { IdentityCrosswalkPort, NflGameId, ScoringEntityId } from '../ports/identity-crosswalk';
+import type { LeagueRegistryPort } from '../ports/league-registry';
+import type { LeagueSourcePort } from '../ports/league-source';
+import type { ProjectionLogEntry, ProjectionLoggerPort } from '../ports/logger';
+import type { NflCalendarPort } from '../ports/nfl-calendar';
+import type { ProjectionFeedPort } from '../ports/projection-feed';
+import type { ObservationId, ProjectionRepositoryPort } from '../ports/projection-repository';
+import type { ExternalRosterRef, ExternalScoringEntityRef } from '../shared/provider-identity';
 
 export const LIVE_PROJECTION_MODEL_VERSION = 'clock-v1';
 
-export type ProjectionLeagueConfiguration = Readonly<{
-  key: LeagueKey;
-  sleeperLeagueId: string;
-}>;
+/** Public worker configuration is the provider-neutral league registry entry. */
+export type ProjectionLeagueConfiguration = LeagueConfiguration;
+
+export type ScoringProfileNormalization =
+  | Readonly<{ status: 'available'; profile: CanonicalScoringProfile }>
+  | Readonly<{
+      status: 'unavailable';
+      reason: 'missing' | 'invalid';
+      invalidSourceKeys: readonly string[];
+    }>;
 
 export type LiveProjectionWorkerDependencies = Readonly<{
-  store: ProjectionStore;
-  leagues: readonly ProjectionLeagueConfiguration[];
-  getProjectionCadenceInput: (leagueId: string) => Promise<ProjectionCadenceInput>;
-  getProjectionSyncInput: (leagueId: string) => Promise<ProjectionSyncInput>;
-  getWeeklyProjections: (season: string, week: number) => Promise<Tank01ProjectionResult>;
-  getWeeklyGameStates: (season: string, week: number) => Promise<Tank01GameStatesResult>;
-  now: () => Date;
-  workerId: () => string;
+  repository: ProjectionRepositoryPort;
+  identityCrosswalk: IdentityCrosswalkPort;
+  leagueRegistry: LeagueRegistryPort;
+  nflCalendar: NflCalendarPort;
+  leagueSource: LeagueSourcePort;
+  projectionFeed: ProjectionFeedPort;
+  gameStateFeed: GameStateFeedPort;
+  normalizeScoringProfile: (source: SourceScoringSettings) => ScoringProfileNormalization;
+  clock: ClockPort;
+  idGenerator: IdGeneratorPort;
+  logger: ProjectionLoggerPort;
 }>;
 
 export type LiveProjectionSyncResult =
   | Readonly<{ status: 'disabled' }>
-  | Readonly<{ status: 'skipped'; reason: 'busy' | 'completed' | 'idle'; cadence: ProjectionSyncCadence | null }>
+  | Readonly<{ status: 'skipped'; reason: 'busy' | 'completed' | 'idle'; cadence: Cadence | null }>
   | Readonly<{
       status: 'completed';
-      cadence: ProjectionSyncCadence;
+      cadence: Cadence;
       publishedLeagues: number;
       failedLeagues: number;
       providerGroups: number;
@@ -40,36 +62,50 @@ export type LiveProjectionSyncResult =
 
 export type LoadedLeague = Readonly<{
   configuration: ProjectionLeagueConfiguration;
-  source: ProjectionSyncInput;
-  cadence: ProjectionSyncCadence;
+  source: LeagueWeekState;
+  cadence: Cadence;
 }>;
 
 export type ProviderGroup = Readonly<{
-  season: string;
-  week: number;
+  period: LeaguePeriod;
   leagues: readonly LoadedLeague[];
 }>;
 
 export type ActiveStarter = Readonly<{
-  rosterId: string;
-  player: Player;
+  rosterRef: ExternalRosterRef;
+  starter: OccupiedLineupSlot;
+}>;
+
+export type PregameProjectionPoint = Readonly<{
+  entityRef: ExternalScoringEntityRef;
+  points: number;
+  quality: 'complete' | 'missing';
+}>;
+
+export type PregameProjectionSet = Readonly<{
+  status: 'available' | 'unavailable' | 'empty';
+  projections: readonly PregameProjectionPoint[];
+  warning?: string;
 }>;
 
 export type PersistedGroup = Readonly<{
-  games: Tank01GameStatesAvailable;
-  projections: Tank01AvailableResult;
-  gameIdsByExternalId: ReadonlyMap<string, string>;
-  gameObservationIdsByExternalId: ReadonlyMap<string, string>;
-  entityIdsByKey: ReadonlyMap<string, string>;
+  games: GameStateSlate;
+  projections: ProjectionSlate;
+  gameIdsByReferenceKey: ReadonlyMap<string, NflGameId>;
+  gameObservationIdsByReferenceKey: ReadonlyMap<string, ObservationId>;
+  entityIdsByReferenceKey: ReadonlyMap<string, ScoringEntityId>;
+  identityConflictCount: number;
   projectionSourceRevision: string;
 }>;
 
-export type ProjectionLogContext = Readonly<{
-  stage: string;
-  outcome: 'started' | 'completed' | 'skipped' | 'failed';
-  leagueKey?: LeagueKey;
-  season?: string;
-  week?: number;
-  publishedLeagues?: number;
-  failedLeagues?: number;
+export type LeagueStageResult = Readonly<{
+  publicationOutcome: 'published' | 'unchanged';
+  starterCount: number;
+  candidateCount: number;
+  frozenBaselineCount: number;
+  missingBaselineCount: number;
+  applicableSourceSkewSeconds: number | null;
+  snapshotRevision: string;
 }>;
+
+export type ProjectionLogContext = ProjectionLogEntry;

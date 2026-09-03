@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { calculateLiveProjection, type LiveProjectionInput } from './live-projection';
+import {
+  calculateLiveProjection,
+  type LiveProjectionInput,
+} from './projections/domain/live-calculation';
 
 const completeBaseline = (points: number) => ({ points, quality: 'complete' as const });
 

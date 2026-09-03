@@ -4,73 +4,28 @@ import {
   normalizeGamePhase,
   parseGameClockSeconds,
   resolveGameTime,
-  type NflGamePhase,
-  type NflGameStatusCode,
-} from './game-time';
-import { canonicalNflTeam, type NflTeam } from './nfl-teams';
+} from '../../../game-time';
+import { canonicalNflTeam } from '../../../nfl-teams';
+import type {
+  GameStateObservation,
+  GameStateSlate,
+  LeaguePeriod,
+  NflGameStatusCode,
+} from '../../domain/contracts';
+import type { GameStateFeedPort, GameStateFeedResult } from '../../ports/game-state-feed';
+import { externalGameRef, type ProviderKey } from '../../shared/provider-identity';
+import { compatibleRevision } from '../../shared/revision-compatibility';
 
 const RAPID_API_HOST = 'tank01-nfl-live-in-game-real-time-statistics-nfl.p.rapidapi.com';
 const RAPID_API_ORIGIN = `https://${RAPID_API_HOST}`;
 const REQUEST_TIMEOUT_MS = 15_000;
 
-export type Tank01GameState = Readonly<{
-  /** Opaque Tank01 identifier. Consumers must never parse or construct this value. */
-  gameId: string;
-  season: string;
-  week: number;
-  homeTeam: NflTeam;
-  awayTeam: NflTeam;
-  statusCode: NflGameStatusCode;
-  statusText: string | null;
-  /** Raw provider period retained for diagnostics; phase is the normalized value. */
-  period: string | null;
-  /** Raw provider clock retained for diagnostics when its sources agree. */
-  clock: string | null;
-  phase: NflGamePhase;
-  clockSeconds: number | null;
-  /** Null requires the projection worker to retain the last valid calculated result. */
-  remainingFraction: number | null;
-  requestStartedAt: string;
-  requestCompletedAt: string;
-  fetchedAt: string;
-}>;
-
-export type Tank01GameStatesAvailable = Readonly<{
-  status: 'available';
-  season: string;
-  week: number;
-  requestStartedAt: string;
-  requestCompletedAt: string;
-  fetchedAt: string;
-  games: readonly Tank01GameState[];
-  byTeam: Readonly<Record<string, Tank01GameState>>;
-}>;
-
-export type Tank01GameStatesUnavailableReason =
-  | 'invalid-request'
-  | 'missing-api-key'
-  | 'provider-error'
-  | 'invalid-response';
-
-export type Tank01GameStatesUnavailable = Readonly<{
-  status: 'unavailable';
-  season: string;
-  week: number;
-  reason: Tank01GameStatesUnavailableReason;
-  message: string;
-}>;
-
-export type Tank01GameStatesResult = Tank01GameStatesAvailable | Tank01GameStatesUnavailable;
-
-export type Tank01GameStateProvider = Readonly<{
-  getWeeklyGameStates: (season: string, week: number) => Promise<Tank01GameStatesResult>;
-}>;
-
-export type Tank01GameStateProviderOptions = Readonly<{
-  /** Undefined reads TANK01_API_KEY at request time; null deliberately disables the provider. */
-  apiKey?: string | null;
-  fetch?: typeof fetch;
-  now?: () => number;
+export type Tank01GameStateFeedOptions = Readonly<{
+  /** Credentials are injected by runtime composition. */
+  apiKey: string | null;
+  provider: ProviderKey;
+  fetch: typeof fetch;
+  now: () => number;
   requestTimeoutMs?: number;
 }>;
 
@@ -156,11 +111,11 @@ function gameIdFrom(mapKey: string, row: Record<string, unknown>): string | null
  */
 export function normalizeTank01GameStates(
   envelope: unknown,
-  season: string,
-  week: number,
+  period: LeaguePeriod,
   requestStartedAtMs: number,
   requestCompletedAtMs: number,
-): Tank01GameStatesAvailable {
+  provider: ProviderKey,
+): GameStateSlate {
   if (!isRecord(envelope)) throw new Tank01GameStateFailure('invalid-response');
   const status = providerStatus(envelope.statusCode);
   if (status === null) throw new Tank01GameStateFailure('invalid-response');
@@ -176,8 +131,8 @@ export function normalizeTank01GameStates(
   const requestStartedAt = isoTime(requestStartedAtMs);
   const requestCompletedAt = isoTime(requestCompletedAtMs);
   const fetchedAt = requestCompletedAt;
-  const games: Tank01GameState[] = [];
-  const byTeam = nullRecord<Tank01GameState>();
+  const games: GameStateObservation[] = [];
+  const byTeam = nullRecord<GameStateObservation>();
   const gameIds = new Set<string>();
 
   for (const [mapKey, value] of rows) {
@@ -192,24 +147,33 @@ export function normalizeTank01GameStates(
     }
 
     const lineScore = optionalRecord(value.lineScore);
-    const period = periodFrom(value, lineScore);
+    const sourcePeriod = periodFrom(value, lineScore);
     const clock = clockFrom(value, lineScore);
     const statusText = nonEmptyText(value.gameStatus);
-    const time = resolveGameTime({ statusCode, period, statusText, clock });
-    const game: Tank01GameState = {
-      gameId,
-      season,
-      week,
+    const time = resolveGameTime({ statusCode, period: sourcePeriod, statusText, clock });
+    const game: GameStateObservation = {
+      gameRef: externalGameRef(provider, gameId),
+      period,
       homeTeam,
       awayTeam,
       statusCode,
       statusText,
-      period,
-      clock,
+      sourcePeriod,
+      gameClock: clock,
       ...time,
+      homeScore: null,
+      awayScore: null,
       requestStartedAt,
       requestCompletedAt,
-      fetchedAt,
+      observedAt: fetchedAt,
+      sourceRevision: compatibleRevision({
+        gameId,
+        fetchedAt,
+        statusCode,
+        phase: time.phase,
+        clock,
+        remainingFraction: time.remainingFraction,
+      }),
     };
     games.push(game);
     gameIds.add(gameId);
@@ -218,36 +182,34 @@ export function normalizeTank01GameStates(
   }
 
   return {
-    status: 'available',
-    season,
-    week,
+    source: provider,
+    period,
     requestStartedAt,
     requestCompletedAt,
-    fetchedAt,
+    observedAt: fetchedAt,
     games,
-    byTeam,
   };
 }
 
-function validSeason(value: string): boolean {
-  return /^20\d{2}$/u.test(value);
-}
-
-function validWeek(value: number): boolean {
-  return Number.isInteger(value) && value >= 1 && value <= 18;
+function validPeriod(value: LeaguePeriod): boolean {
+  return Number.isInteger(value.season)
+    && /^20\d{2}$/u.test(String(value.season))
+    && value.seasonType === 'regular'
+    && Number.isInteger(value.week)
+    && value.week >= 1
+    && value.week <= 18;
 }
 
 function unavailable(
-  season: string,
-  week: number,
-  reason: Tank01GameStatesUnavailableReason,
-): Tank01GameStatesUnavailable {
-  const message = reason === 'missing-api-key'
+  period: LeaguePeriod,
+  reason: Extract<GameStateFeedResult, { status: 'unavailable' }>['reason'],
+): GameStateFeedResult {
+  const message = reason === 'not-configured'
     ? 'Live game states are not configured.'
     : reason === 'invalid-request'
       ? 'Live game states are unavailable for the requested season or week.'
       : 'Live game states are temporarily unavailable.';
-  return { status: 'unavailable', season, week, reason, message };
+  return { status: 'unavailable', period, reason, message };
 }
 
 function weeklyGameStatesPath(season: string, week: number): string {
@@ -260,27 +222,27 @@ function weeklyGameStatesPath(season: string, week: number): string {
   return `/getNFLScoresOnly?${query.toString()}`;
 }
 
-export function createTank01GameStateProvider(
-  options: Tank01GameStateProviderOptions = {},
-): Tank01GameStateProvider {
-  const request = options.fetch ?? globalThis.fetch;
-  const now = options.now ?? Date.now;
+export function createTank01GameStateFeed(
+  options: Tank01GameStateFeedOptions,
+): GameStateFeedPort {
+  const request = options.fetch;
+  const now = options.now;
   const timeoutMs = options.requestTimeoutMs ?? REQUEST_TIMEOUT_MS;
 
-  const configuredKey = (): string | null => {
-    const value = options.apiKey === undefined ? process.env.TANK01_API_KEY : options.apiKey;
-    return nonEmptyText(value);
-  };
+  const configuredKey = (): string | null => nonEmptyText(options.apiKey);
 
-  const getWeeklyGameStates = async (season: string, week: number): Promise<Tank01GameStatesResult> => {
-    if (!validSeason(season) || !validWeek(week)) return unavailable(season, week, 'invalid-request');
+  const getGameStateSlate = async (period: LeaguePeriod): Promise<GameStateFeedResult> => {
+    if (!validPeriod(period)) return unavailable(period, 'invalid-request');
     const apiKey = configuredKey();
-    if (!apiKey) return unavailable(season, week, 'missing-api-key');
+    if (!apiKey) return unavailable(period, 'not-configured');
 
     const requestStartedAtMs = now();
     let response: Response;
     try {
-      response = await request(`${RAPID_API_ORIGIN}${weeklyGameStatesPath(season, week)}`, {
+      response = await request(`${RAPID_API_ORIGIN}${weeklyGameStatesPath(
+        String(period.season),
+        period.week,
+      )}`, {
         method: 'GET',
         cache: 'no-store',
         redirect: 'error',
@@ -292,29 +254,33 @@ export function createTank01GameStateProvider(
         },
       });
     } catch {
-      return unavailable(season, week, 'provider-error');
+      return unavailable(period, 'provider-error');
     }
-    if (!response.ok) return unavailable(season, week, 'provider-error');
+    if (!response.ok) return unavailable(period, 'provider-error');
 
     let envelope: unknown;
     try {
       envelope = await response.json();
     } catch {
-      return unavailable(season, week, 'invalid-response');
+      return unavailable(period, 'invalid-response');
     }
     const requestCompletedAtMs = now();
     try {
-      return normalizeTank01GameStates(envelope, season, week, requestStartedAtMs, requestCompletedAtMs);
+      return {
+        status: 'available',
+        slate: normalizeTank01GameStates(
+          envelope,
+          period,
+          requestStartedAtMs,
+          requestCompletedAtMs,
+          options.provider,
+        ),
+      };
     } catch (error) {
       const reason = error instanceof Tank01GameStateFailure ? error.reason : 'invalid-response';
-      return unavailable(season, week, reason);
+      return unavailable(period, reason);
     }
   };
 
-  return { getWeeklyGameStates };
-}
-
-/** Loads one uncached weekly NFL game-state observation from Tank01. */
-export async function getTank01WeeklyGameStates(season: string, week: number): Promise<Tank01GameStatesResult> {
-  return createTank01GameStateProvider().getWeeklyGameStates(season, week);
+  return { getGameStateSlate };
 }

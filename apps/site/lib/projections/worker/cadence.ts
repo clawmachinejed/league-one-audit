@@ -1,12 +1,48 @@
-import 'server-only';
-
-import { projectionSyncCadenceForSchedule, type ProjectionSyncCadence } from '../../projection-window';
-import type { ProjectionCadenceInput, ProjectionSyncInput } from '../../sleeper';
+import type { Cadence, LeagueCadenceState, NflWeekSchedule, TeamWeek } from '../domain/contracts';
+import type { ProjectionActivityWindow } from '../ports/projection-repository';
 
 const HOURLY_WINDOW_MINUTES = 5;
 const UPCOMING_SCHEDULE_LOOKAHEAD_MS = 7 * 24 * 60 * 60 * 1_000;
 const ACTIVITY_WINDOW_BEFORE_KICKOFF_MS = 2 * 60 * 60 * 1_000;
 const ACTIVITY_WINDOW_AFTER_KICKOFF_MS = 7 * 60 * 60 * 1_000;
+
+const easternDate = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'America/New_York',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
+
+function easternCalendarDate(value: Date): string {
+  const parts = Object.fromEntries(
+    easternDate.formatToParts(value).map((part) => [part.type, part.value]),
+  );
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function scheduleCadence(
+  games: readonly TeamWeek[],
+  now: Date,
+  force: boolean,
+): Cadence {
+  if (force) return 'forced';
+  const nowMs = now.getTime();
+  if (!Number.isFinite(nowMs)) return 'idle';
+
+  for (const game of games) {
+    if (game.kind !== 'scheduled') continue;
+    if (game.kickoffAt) {
+      const kickoffMs = Date.parse(game.kickoffAt);
+      if (Number.isFinite(kickoffMs)
+        && nowMs >= kickoffMs - ACTIVITY_WINDOW_BEFORE_KICKOFF_MS
+        && nowMs <= kickoffMs + ACTIVITY_WINDOW_AFTER_KICKOFF_MS) return 'live-window';
+    } else if (easternCalendarDate(now) === game.date && now.getUTCMinutes() % 2 === 0) {
+      return 'live-window';
+    }
+  }
+
+  return now.getUTCMinutes() === 0 ? 'hourly' : 'idle';
+}
 
 export function minuteBoundary(now: Date): string {
   const value = new Date(now);
@@ -21,12 +57,12 @@ export function hourBoundary(now: Date): string {
 }
 
 export function workerCadence(
-  schedule: ProjectionCadenceInput['schedule'],
+  schedule: NflWeekSchedule,
   now: Date,
   force: boolean,
   allowHourly: boolean,
-): ProjectionSyncCadence {
-  const cadence = projectionSyncCadenceForSchedule(schedule, now, force);
+): Cadence {
+  const cadence = scheduleCadence(Object.values(schedule), now, force);
   if (cadence === 'forced' || cadence === 'live-window') return cadence;
   if (!allowHourly) return 'idle';
   return cadence === 'hourly' || now.getUTCMinutes() < HOURLY_WINDOW_MINUTES
@@ -34,15 +70,15 @@ export function workerCadence(
     : 'idle';
 }
 
-export function isCurrentNflPeriod(input: ProjectionCadenceInput): boolean {
-  return input.currentNflSeason !== null
-    && input.currentNflWeek !== null
-    && input.season === input.currentNflSeason
-    && input.week === input.currentNflWeek;
+export function isCurrentNflPeriod(input: LeagueCadenceState): boolean {
+  return input.currentPeriod.season !== null
+    && input.currentPeriod.week !== null
+    && input.period.season === input.currentPeriod.season
+    && input.period.week === input.currentPeriod.week;
 }
 
-export function allowsHourlyFallback(input: ProjectionCadenceInput, now: Date): boolean {
-  if (isCurrentNflPeriod(input) && input.currentNflSeasonType === 'regular') return true;
+export function allowsHourlyFallback(input: LeagueCadenceState, now: Date): boolean {
+  if (isCurrentNflPeriod(input) && input.currentPeriod.seasonType === 'regular') return true;
   const nowMs = now.getTime();
   if (!Number.isFinite(nowMs)) return false;
   return Object.values(input.schedule).some((game) => {
@@ -54,11 +90,10 @@ export function allowsHourlyFallback(input: ProjectionCadenceInput, now: Date): 
   });
 }
 
-export function activityWindowsForSchedule(schedule: ProjectionSyncInput['schedule']): Array<Readonly<{
-  startsAt: string;
-  endsAt: string;
-}>> {
-  const windows = new Map<string, Readonly<{ startsAt: string; endsAt: string }>>();
+export function activityWindowsForSchedule(
+  schedule: NflWeekSchedule,
+): ProjectionActivityWindow[] {
+  const windows = new Map<string, ProjectionActivityWindow>();
   for (const game of Object.values(schedule)) {
     if (game.kind !== 'scheduled' || !game.kickoffAt) continue;
     const kickoff = Date.parse(game.kickoffAt);
@@ -72,7 +107,7 @@ export function activityWindowsForSchedule(schedule: ProjectionSyncInput['schedu
   return [...windows.values()].sort((left, right) => left.startsAt.localeCompare(right.startsAt));
 }
 
-export function highestCadence(values: readonly ProjectionSyncCadence[]): ProjectionSyncCadence {
+export function highestCadence(values: readonly Cadence[]): Cadence {
   if (values.includes('forced')) return 'forced';
   if (values.includes('live-window')) return 'live-window';
   if (values.includes('hourly')) return 'hourly';

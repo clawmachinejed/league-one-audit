@@ -7,10 +7,10 @@ This document fixes the behavior and evidence baseline for the projection refact
 | Step | Scope | Status |
 | --- | --- | --- |
 | Baseline | Record production state and a recovery point before the four-PR sequence | Complete |
-| PR1 | Document the contract and add characterization coverage without changing runtime code | Implementation complete; full-PR validation pending |
-| PR2 | Mechanically split the projection store behind its stable facade | Planned |
-| PR3 | Mechanically split the projection worker behind its stable entry point | Planned |
-| PR4 | Cut the canonical pipeline over to provider-neutral ports and concrete adapters | Planned |
+| PR1 | Document the contract and add characterization coverage without changing runtime code | Complete and released |
+| PR2 | Mechanically split the projection store behind its stable facade | Complete and released |
+| PR3 | Mechanically split the projection worker behind its stable entry point | Complete and released |
+| PR4 | Cut the canonical pipeline over to provider-neutral ports and concrete adapters | Implementation, local/isolated-data, GitHub, and first preview gates complete; release pending |
 
 The four PRs must remain separate. Each one needs a green verification result and reviewable evidence before the next begins.
 
@@ -45,7 +45,47 @@ The current system has one production writer and one shared stored-snapshot read
 4. Neon stores provider identities, observations, immutable baselines, worker leases, immutable snapshot history, and current snapshot pointers.
 5. The server-rendered matchup page and polling API use the same snapshot reader. When a snapshot cannot safely be used, the page falls back to official Sleeper matchup data without projections.
 
-Existing useful seams include the pure live projection calculation, injectable worker dependencies, Tank01 provider factories, generic external-identity database tables, and the shared snapshot reader. The main refactor target is provider knowledge that currently leaks into orchestration and TypeScript persistence contracts.
+The PR4 working tree has one canonical writer path and retains one shared reader path. The canonical worker is provider-neutral; concrete configuration and adapters are assembled only by the production runtime. The existing public matchup DTO, worker facade, low-level store facade, database schema, SQL behavior, and snapshot format remain the compatibility boundaries.
+
+### Current module boundaries
+
+| Boundary | Current responsibility |
+| --- | --- |
+| `projections/domain` | Provider-neutral league, schedule, lineup, projection, game-state, scoring, and snapshot types; canonical scoring; the sole `clock-v1` calculation. |
+| `projections/ports` | Interfaces for league registry, NFL calendar, official league source, projection feed, game-state feed, identity resolution, projection repository, clock, ID generation, and structured logging. |
+| `projections/shared` | Resource-scoped provider references, deterministic stable JSON, and compatibility hashing/identity helpers shared by canonical boundaries. |
+| `projections/adapters/configuration` | Builds the active-league registry from configurations supplied by runtime; it does not import branding, environment variables, or the application's `LeagueKey`. |
+| `projections/adapters/sleeper` | Calls injected low-level Sleeper loaders and translates calendar, league-week, roster, lineup, official-point, and raw scoring data to canonical contracts. It owns Sleeper scoring-key interpretation. |
+| `projections/adapters/tank01` | Owns Tank01 HTTP shapes, requests, success caches, failure backoff, envelope validation, player crosswalk, schedule-aware slate assessment, game-state parsing, and canonical feed output. |
+| `projections/adapters/neon` | Translates canonical identity and repository operations to the unchanged low-level store. Provider-specific SQL columns, filters, and existing DTOs remain private compatibility details in this package. |
+| `projections/worker` | Owns provider-neutral cadence, bounded orchestration, provider grouping, identity and observation coordination, per-league scoring/publication, and canonical snapshot construction. It imports no concrete provider client, environment, application config, Next/React, or database module. |
+| `projections/runtime/projection-composition.ts` | Sole production composition root. It supplies golden league configuration, provider keys, concrete adapters, server-only environment values, UUID generation, system time, and the monotonic duration clock. |
+| `live-projection-worker.ts` | Stable worker facade and public entry point over the canonical orchestrator. |
+| `projection-store.ts` | Stable low-level store facade used by existing consumers and wrapped by the canonical Neon adapters. It does not represent a second projection pipeline. |
+| `projection-reader.ts` | Shared website boundary for selecting, validating, and freshness-checking stored snapshots through the stable store facade. |
+
+The architecture test enforces these dependency directions, prevents the deleted provider-coupled pipeline from returning, confines projection-store SQL to the low-level Neon package, and checks production TypeScript modules for cycles. Its passing result is a PR4 gate, not a substitute for the behavioral and release gates later in this contract.
+
+### Provider responsibilities and identities
+
+- Sleeper remains authoritative for the league, participants, rosters, starters, official fantasy points, scoring settings, player metadata, and schedule/cadence context.
+- Tank01 supplies raw weekly projected statistics, the `sleeperBotID` player crosswalk, and NFL game phase and clock observations. It does not supply the league's scoring result.
+- Neon resolves external aliases to canonical identities and persists provider observations, immutable kickoff baselines, job leases, immutable snapshot history, and current pointers. It does not decide scoring policy.
+- Canonical external references are scoped by resource, provider, and opaque external ID. Roster references additionally carry their league, and scoring-entity references distinguish players from team defenses. This prevents a roster ID from colliding across leagues and prevents identical strings from colliding across resource or provider domains.
+- The Tank01 player crosswalk may attach a proven Sleeper player alias. Tank01's team-defense feed supplies no equivalent proven alias, so defenses reconcile by canonical NFL team through the identity layer rather than by inventing a Sleeper ID.
+- The public matchup payload intentionally retains Sleeper player and roster IDs. Removing that public dependency requires a later route/read-model migration and is outside this refactor.
+
+### Raw scoring, canonical calculation, and compatibility
+
+The Sleeper league source carries raw scoring settings without validating or rewriting them. At the per-league publication stage, the Sleeper scoring adapter validates that source object and maps supported Sleeper keys to canonical scoring events. The canonical scorer then applies those rules to normalized Tank01 statistics. Unsupported active source keys remain recorded in provenance. The adapter also records whether the three source two-point-conversion weights can be represented by Tank01's aggregate statistic and whether defense scoring uses the rounded points-allowed bucket proxy.
+
+The exact validated numeric Sleeper rules remain the audit and persistence input, including the existing stable scoring-rules hash. Unsupported active rules remain in provenance but are excluded from the calculation. The canonical profile is an in-memory calculation shape, not another persisted source of truth. `compatibleRevision` and the shared stable-JSON rules deliberately retain the pre-cutover source and snapshot revision algorithms. The Neon adapter translates canonical references to the existing store DTOs, SQL, provider fields, and deterministic identity values. The snapshot builder first constructs a `ProjectedMatchupSnapshot`, then performs one canonical-to-public conversion to the unchanged `MatchupsData` payload. These measures keep existing Neon snapshots readable and prevent the refactor from creating a parallel format.
+
+### Isolated Neon integration safety
+
+The destructive store integration suite is excluded from normal unit tests and can run only through `pnpm test:integration`. It requires a local, ignored `.env.integration.local`, an exact reset-authorization phrase, TLS, distinct schema-owner and restricted `league_one_runtime` credentials, explicit test database and branch names, a production identity denylist, and matching owner/runtime targets. Before either setup or teardown can reset `public`, the harness compares normalized URL identities with server-reported database and role identities and verifies a durable JSON database comment containing the expected purpose, random sentinel, Neon branch ID, and branch name. It rejects production-like names, configured production URLs, denylisted database/endpoint/branch identities, role reuse, and identity mismatch.
+
+The final PR4 isolated run passed all 13 grouped integration cases, mapping every one of the contract's 42 database scenarios. That evidence covers empty-schema migration, restricted-role privileges, identity concurrency, immutable scoring/baseline/snapshot data, source-set and skew rejection, snapshot deduplication and pointer ordering, leases, observation replay, malformed JSON handling, revision/scoring parity, credential-safe logs, and pruning. Safety preflight and teardown both passed, and the disposable database's `public` schema contained zero relations afterward. This database evidence does not replace provider, worker, browser, preview, or live-game verification. An authenticated preview synchronization must never point at production Neon.
 
 ## Behavior that must not drift
 
@@ -64,17 +104,19 @@ Existing useful seams include the pure live projection calculation, injectable w
 ### Missing and partial source data
 
 - A broadly truncated, internally contradictory, or unsafe Tank01 slate must fail the whole-slate gate and must not replace a valid snapshot.
-- Once the whole-slate gate has established that the weekly slate is trustworthy, an isolated missing player or defense projection uses the existing explicit zero policy.
+- Once the whole-slate gate has established that the weekly slate is trustworthy and identity matching is safe, an isolated absent or unscorable player or defense projection uses the existing explicit zero policy. Ambiguous or conflicting identities do not become zeroes.
 - After kickoff, if no eligible pregame candidate was frozen for a starter, the calculation substitutes a zero baseline. The worker records the aggregate `missingFrozenBaselineCount` and `missingBaselinePolicy: "zero"` in the league observation source metadata, and includes the count in the revision input. It does not insert a synthetic frozen-baseline row or add that calculated per-player missing-baseline quality to the public snapshot. The complete result may still be accepted as published or materially unchanged.
 - Unsafe identity matches, invalid league scoring settings, missing required active-starter game identity, incomplete live clocks, and missing final official starter points fail closed.
-- A failed Sleeper league load and a later per-league publication failure are isolated from other leagues. A schedule/slate assessment failure inside a shared season/week provider group currently rejects that whole provider group; the refactor must not silently claim or introduce stronger isolation.
+- A failed Sleeper league load and a later per-league scoring, observation, or publication failure are isolated from other leagues. A projection/game-state load, schedule/slate assessment, shared identity, or provider-persistence failure rejects that whole provider group. A completed run with at least one accepted league retains its failed-league count and makes cron return 503; zero accepted leagues fails the run. The refactor must not silently claim or introduce stronger isolation.
 
 ### Timing, cadence, and provider calls
 
-- Current Sleeper matchup observations, Tank01 game-state observations, and calculation time remain subject to the 90-second synchronization limit.
+- Current Sleeper matchup observations, every applicable Tank01 game-state observation, and calculation time remain subject to the 90-second synchronization limit. `calculatedAt` is captured at run start before preflight, lease acquisition, and source work, so a slow run can be rejected at publication even when the provider reads are mutually close.
 - Tank01 pregame projection data is separate from that live skew rule and may legitimately come from its one-hour success cache.
-- The worker invokes the projection provider once and the game-state provider once for each distinct eligible season/week group. On a cold projection-provider cache, that invocation may make one weekly projection request and one player-crosswalk request.
-- The worker uses one database lease to prevent overlapping publication work.
+- The worker invokes the projection provider once and the game-state provider once for each distinct eligible season/season-type/week group. On a cold projection-provider cache, that invocation may make one weekly projection request and one player-crosswalk request.
+- Eligible sources are filtered to the one selected period before grouping, so the current run has at most one provider group. The four-group concurrency cap is future-facing.
+- A fully cold group can have the weekly projection, player-crosswalk, and uncached game-state requests in flight together. Each Tank01 request retains its 15-second timeout. Projection-side successes retain separate one-hour caches; failures use a 60-second process-local backoff, rejected persistent loaders are not retained, and sibling projection/crosswalk requests settle before an unavailable result is returned.
+- The worker uses one fixed 120-second database lease to suppress overlapping runs while the lease remains valid. It has no renewal and does not fence publication by lease owner, so it must not be treated as an absolute overlapping-write guarantee.
 - The existing `publishedLeagues` worker and cron field counts every league whose complete snapshot was accepted, including a store result of either `published` or `unchanged`. Its name must not be reinterpreted as a count of newly inserted snapshot rows during this refactor.
 - Live activity windows remain two hours before through seven hours after each scheduled kickoff. Hourly preparation, missing-kickoff recovery behavior, force behavior, offseason behavior, and history pruning remain unchanged.
 - The browser polls the compact matchup API once per minute only for the displayed current week while the document is visible. Its request timeout remains 15 seconds.
@@ -102,9 +144,27 @@ The matchup API response contract is:
 
 The cron API remains bearer-authenticated and no-store. Missing configuration or a disabled worker returns 503, authorization failure returns 401, worker failure or an unexpected throw returns 500, a legitimate skip returns 200, a complete fleet success returns 200, and a completed run with one or more failed leagues returns 503.
 
-## Known provider coupling
+## Current scale-readiness evidence and limits
 
-The following coupling is real and must be moved deliberately rather than hidden by renamed files:
+The PR4 working tree includes deterministic canonical-orchestrator scenarios for 3, 50, and 300 leagues, with 12 managers and one starter per manager. They use fixed clocks and provider data and repeat each run to compare complete publication inputs, league-specific revisions, identities, output counts, and stable hashes. The suite records actual local execution duration and structured per-stage duration fields but deliberately sets no performance threshold.
+
+| Leagues | Managers | League-source calls | Projection/game feed calls | Repository calls | Crosswalk calls | Peak source/publish concurrency | Peak outstanding async port calls | Retained provider-group slate pairs |
+| ---: | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| 3 | 36 | 3 | 1 / 1 | 27 | 2 | 3 / 3 | 9 | 1 |
+| 50 | 600 | 50 | 1 / 1 | 403 | 2 | 8 / 8 | 24 | 1 |
+| 300 | 3,600 | 300 | 1 / 1 | 2,403 | 2 | 8 / 8 | 24 | 1 |
+
+The repository count is `8 × leagues + 3`: one lease acquisition, one shared game-state write, eight store operations per league, and one lease completion. Two shared identity-resolution calls bring the total observed persistence/crosswalk operations to `8 × leagues + 5`. The scenario's eligible leagues all share one selected regular-season week, so one projection slate and one game-state slate are fetched concurrently and only one group pair is retained. The test separately verifies 16 shared game rows, 12 shared scoring identities, 12 projection candidates per league, and one schedule assessment and scoring normalization per league. The same 12 scoring identities are reused across every synthetic league. Its first configured league supplies the current period, so calendar preflight is one call; production preflight remains sequential and can inspect more configurations when earlier calendars fail or report a stale period.
+
+This port-level scale suite does not simulate Tank01's HTTP cache. Tank01 adapter tests independently lock the current behavior: a cold projection-feed call can make two requests, one weekly projection and one player crosswalk, while a warm success-cache call makes zero additional HTTP requests. The uncached game-state feed makes one request. The scale suite also does not benchmark complete fantasy rosters, distinct player pools per league, bench/reserve/taxi collections, the unchunked fleet identity-resolution batch, repeated linear projection-slate scans for every rostered entity, Sleeper latency, Neon throughput, Vercel cold starts, or Vercel capacity.
+
+These results prove bounded concurrency, shared provider work, linear repository work, and deterministic outputs. They do not prove that 50 or 300 leagues can finish within the current 60-second Vercel function limit or fixed, non-renewing 120-second global lease. At 300 leagues, the eight-league publication cap requires about 38 waves, each with several sequential database stages. The current worker also has no whole-run deadline, cancellation, repository timeout, or lease renewal. Sharded or partitioned durable jobs, renewable and publication-fenced lease ownership, explicit deadlines, backpressure, bounded identity work, more efficient projection lookup, and real remote-load measurements remain required before supporting that fleet size. No production concurrency, cadence, or lease behavior is changed by the synthetic tests.
+
+Real 2026 game traffic also remains an explicit deferred gate. Synthetic cases cover pregame, live quarters, halftime, overtime, final, missing baselines, byes, empty slots, and failure paths, but they cannot establish Tank01's actual status/clock transition quality or end-to-end provider timing during NFL games. The first real-game validation must observe those transitions without changing the `clock-v1` policy or forcing an otherwise idle production write. Live matchup win probabilities and opportunity-based projection adjustments remain outside the MVP.
+
+## Provider-coupling baseline and current disposition
+
+The following list records the coupling that existed when this contract was approved. It remains part of the acceptance baseline rather than being rewritten after implementation:
 
 1. `Player.id` is a Sleeper player ID throughout the current read model.
 2. `Team.id` and manager route parameters are Sleeper roster IDs.
@@ -120,6 +180,8 @@ The following coupling is real and must be moved deliberately rather than hidden
 12. The MVP assumes regular-season Weeks 1–18, one global worker lease, and the currently configured league set.
 
 Removing Sleeper from public identity and league administration is a later data-model project. It is not achieved merely by introducing provider interfaces.
+
+In the PR4 working tree, items 4 through 8 have been removed from the canonical domain and worker boundaries: raw source scoring is translated by the Sleeper adapter, Tank01 source types remain in Tank01 adapters, the worker imports ports, and canonical repository contracts use resource-scoped references. Existing provider-specific SQL column names, filters, and low-level store DTOs remain intentionally encapsulated in the Neon adapter package so the schema and persisted data do not change. Items 1 through 3 and 9 through 12 remain intentional product or data-model constraints, including Sleeper-derived public IDs, Tank01's proven player crosswalk, canonical NFL-team schedule reconciliation, D/ST behavior, regular-season Weeks 1–18, and one global lease.
 
 ## Four-PR refactor scope
 
@@ -158,12 +220,25 @@ Removing Sleeper from public identity and league administration is a later data-
 - Cut every production writer, page reader, polling reader, and cron entry point to the one canonical composition path in the same PR. Delete superseded provider-coupled runnable paths after cutover; do not leave dual reads, dual writes, shadow publication, or permanent forwarding wrappers.
 - Preserve the public matchup payload, `ProjectionStore` facade, worker result and HTTP contracts, stored snapshot compatibility, calculation behavior, provider call counts, persistence behavior, logging, cadence, and failure isolation defined above.
 
-The intended dependency direction is:
+The Tank01 adapter is divided by responsibility so its public feeds remain reviewable:
+
+- `projections/adapters/tank01/projection-feed.ts` composes the canonical projection feed, provider caches, crosswalk join, canonical output, and legacy-compatible source revision.
+- `projections/adapters/tank01/projection-client.ts` owns projection endpoint requests, archive-season query policy, sibling-request settling, and persistent-cache rehydration.
+- `projections/adapters/tank01/projection-normalization.ts` validates and normalizes projection and player-list response envelopes exactly once.
+- `projections/adapters/tank01/projection-internals.ts` contains private Tank01 source shapes, cache constants, and shared adapter-only primitives.
+- `projections/adapters/tank01/game-state-feed.ts` owns the uncached canonical game-state feed and strict atomic game-state normalization.
+- `projections/adapters/tank01/slate-validation.ts` owns the pre-cache envelope gate and schedule-aware whole-slate assessment.
+
+The current production write and read flows are:
 
 ```text
-UI and HTTP routes -> orchestration -> provider-neutral ports and domain policy
-                                      ^
-                         Sleeper, Tank01, and Neon adapters
+Cron route -> stable worker facade -> runtime composition -> canonical orchestrator
+                                                        -> canonical ports/domain policy
+                                                        -> Sleeper/Tank01/Neon adapters
+
+Browser -> polling API -> shared projection reader -> stable store facade -> Neon
+SSR page -------------> shared projection reader -> stable store facade -> Neon
+SSR fallback --------------------------------------> official Sleeper loader
 ```
 
 After PR4, domain policy must not import concrete provider clients, HTTP/cache frameworks, environment variables, or database implementations. Provider-specific validation is allowed and required inside the relevant adapter.
@@ -219,12 +294,12 @@ After rollback, confirm that the pre-PR snapshot format and any compatible post-
 
 ## Progress record
 
-Update this table in the pull request evidence without rewriting the behavioral contract. PR1 brings the freshly verified unit suite to 434 tests across 26 files, including the HTTP/page matrices and the expanded store characterization gate.
+Update this table in the pull request evidence without rewriting the behavioral contract. PR1 established the HTTP/page characterization baseline, PR2 added the isolated store evidence, and PR3 preserved worker behavior through the mechanical split. PR4 evidence below describes only work and checks actually completed at the time of this edit; it does not mark the remote preview or production gate complete.
 
 | Step | Revision/PR | Verification | Runtime/schema drift | Deployment evidence |
 | --- | --- | --- | --- | --- |
 | Baseline | `c9e8204`, PR #158 | 385 unit; 13 browser | Baseline | Production Ready; both routes healthy |
 | PR1 | `35f8649`, PR #159 | 434 unit tests across 26 files, 36 focused HTTP/page cases, full lint/TypeScript/build verification, 13 local browser tests, and both GitHub jobs passed. | None; tests and documentation only | Vercel production `8AnBRLi7eb6dK7u8EdLeNha8Zdvm`; both live league routes verified |
 | PR2 | `3f9273f`, PR #160 | 434 unit tests across 26 files, 13 browser tests, 13 isolated Neon integration cases, store/SQL parity audit, full lint/TypeScript/build verification, and both GitHub jobs passed. | None; mechanical store extraction and test infrastructure only | Vercel production `5MQN1L9t1SyCLhMZA4RhhR6ftpAb`; both live league routes verified |
-| PR3 | Current worker split | 441 unit tests across 27 files, 13 browser tests, 13 isolated Neon integration cases, worker concurrency/revision parity, full lint/TypeScript/build verification, and independent review. | Must be none | Preview and production verification pending |
-| PR4 | Planned canonical cutover | Provider-contract, import-boundary, end-to-end parity, and full verification gates | Must be none | Preview and first eligible production run |
+| PR3 | `ea81425`, PR #161 | 441 unit tests across 27 files, 13 browser tests, 13 isolated Neon integration cases, worker concurrency/revision parity, full lint/TypeScript/build verification, and independent review. | None; mechanical worker extraction only | Merged and released to production from `ea81425eabeb74998adcabb858c3efbcd6ae0232` |
+| PR4 | PR #162 canonical cutover | Final local gate: 518 unit tests across 41 files, 13 browser tests, lint, TypeScript, production build, canonical architecture/cycle checks, deterministic 3/50/300-league scale tests, and 13 isolated Neon cases covering all 42 contracted database scenarios. Independent review found a duplicate runnable Tank01 test feed and a contradictory bye-game edge case; both were removed or corrected before release and protected by regression tests. GitHub `verify` and `browser-smoke` passed. | No schema, migration, dependency, league-ID, payload, model, URL, UI, HTTP, cache, cadence, concurrency, provider-call, or persistence-format change. One Tank01 projection-feed orchestration, formula, snapshot builder, and writer pipeline remain. | Vercel preview `6M25EQJz3qSjocg6WiJxh7qRhNJ9` passed. League One and League Two matchup, standings, manager, and Week 18 routes were inspected with correct identities and data. Production and first naturally eligible production-run evidence pending. |

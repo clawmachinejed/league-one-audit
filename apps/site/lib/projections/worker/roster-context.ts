@@ -1,103 +1,165 @@
-import 'server-only';
-
-import type { LiveProjectionKind } from '../../live-projection';
-import { canonicalNflTeam } from '../../nfl-teams';
-import type { ScoringEntityIdentityInput } from '../../projection-store';
-import type { ProjectionSyncInput } from '../../sleeper';
-import type { Tank01AvailableResult } from '../../tank01';
-import type { MatchupsData, Player } from '../../types';
+import type { LiveProjectionKind } from '../domain/live-calculation';
+import type {
+  LeagueWeekState,
+  LineupSlot,
+  OccupiedLineupSlot,
+  ProjectionObservation,
+  ProjectionSlate,
+  ScoringEntity,
+} from '../domain/contracts';
+import type { ScoringEntityIdentityInput } from '../ports/identity-crosswalk';
+import {
+  externalReferenceKey,
+  sameExternalReference,
+  type ExternalScoringEntityRef,
+} from '../shared/provider-identity';
 import type { ActiveStarter, ProviderGroup } from './contracts';
 
 export function finite(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
-export function isEmptySlot(player: Player): boolean {
-  return player.id.startsWith('empty-');
+export function isEmptySlot(slot: LineupSlot): slot is Extract<LineupSlot, { kind: 'empty' }> {
+  return slot.kind === 'empty';
 }
 
-export function isDefense(player: Player): boolean {
-  return player.position.trim().toUpperCase() === 'DEF' || player.slot.trim().toUpperCase() === 'DEF';
+export function isDefense(entity: ScoringEntity): boolean {
+  return entity.kind === 'team-defense';
 }
 
-export function projectionKind(player: Player): LiveProjectionKind {
-  if (isDefense(player)) return 'defense';
-  return player.position.trim().toUpperCase() === 'K' ? 'kicker' : 'offense';
+export function projectionKind(entity: ScoringEntity): LiveProjectionKind {
+  if (entity.kind === 'team-defense') return 'defense';
+  return entity.position.trim().toUpperCase() === 'K' ? 'kicker' : 'offense';
 }
 
-export function entityKind(player: Player): 'player' | 'team_defense' {
-  return isDefense(player) ? 'team_defense' : 'player';
+export function entityKind(entity: ScoringEntity): ScoringEntity['kind'] {
+  return entity.kind;
 }
 
-export function entityKey(player: Player): string {
-  return `${entityKind(player)}:${player.id}`;
+export function entityKey(entity: ScoringEntity): string {
+  return externalReferenceKey(entity.externalRef);
 }
 
-export function activeStarters(data: MatchupsData): ActiveStarter[] {
-  return data.matchups.flatMap((matchup) => matchup.sides.flatMap((side) => side.starters
-    .filter((player) => !isEmptySlot(player))
-    .map((player) => ({ rosterId: String(side.team.id), player }))));
+export function activeStarters(source: LeagueWeekState): ActiveStarter[] {
+  return source.matchups.flatMap((matchup) => matchup.sides.flatMap((side) => side.starters
+    .filter((slot): slot is OccupiedLineupSlot => slot.kind === 'occupied')
+    .map((starter) => ({ rosterRef: side.rosterRef, starter }))));
 }
 
-export function projectionPlayers(source: ProjectionSyncInput): Player[] {
-  const players = new Map<string, Player>();
-  for (const player of source.rosteredPlayers) {
-    if (!isEmptySlot(player)) players.set(player.id, player);
-  }
-  for (const { player } of activeStarters(source.data)) players.set(player.id, player);
-  return [...players.values()];
-}
-
-export function assertUniqueStarters(starters: readonly ActiveStarter[]): void {
-  const seen = new Set<string>();
-  for (const { player } of starters) {
-    if (seen.has(player.id)) throw new Error('Sleeper returned a duplicate starter.');
-    seen.add(player.id);
-  }
-}
-
-export function numericScoringRules(value: Readonly<Record<string, unknown>> | null): Readonly<Record<string, number>> {
-  if (!value || Object.keys(value).length === 0) {
-    throw new Error('Sleeper scoring settings are unavailable.');
-  }
-  const result: Record<string, number> = Object.create(null) as Record<string, number>;
-  for (const [key, points] of Object.entries(value)) {
-    if (!finite(points)) throw new Error('Sleeper scoring settings contain an invalid value.');
-    result[key] = points;
-  }
-  return result;
-}
-
-export function scoringEntities(group: ProviderGroup, projections: Tank01AvailableResult): ScoringEntityIdentityInput[] {
-  const entities = new Map<string, ScoringEntityIdentityInput>();
-  for (const league of group.leagues) {
-    for (const player of projectionPlayers(league.source)) {
-      const key = entityKey(player);
-      if (entities.has(key)) continue;
-      const kind = entityKind(player);
-      const team = canonicalNflTeam(player.nflTeam);
-      const tank01Id = kind === 'team_defense'
-        ? team
-        : projections.projections.bySleeperId[player.id]?.tank01PlayerId ?? null;
-      entities.set(key, {
-        key,
-        kind,
-        displayName: player.name,
-        nflTeam: team,
-        providerIds: [
-          { provider: 'sleeper', externalId: player.id },
-          ...(tank01Id ? [{ provider: 'tank01', externalId: tank01Id }] : []),
-        ],
-      });
-    }
+export function projectionEntities(source: LeagueWeekState): ScoringEntity[] {
+  const entities = new Map<string, ScoringEntity>();
+  for (const entity of source.rosteredEntities) entities.set(entityKey(entity), entity);
+  for (const { starter } of activeStarters(source)) {
+    entities.set(entityKey(starter.entity), starter.entity);
   }
   return [...entities.values()];
 }
 
-export function projectionStats(player: Player, result: Tank01AvailableResult): Readonly<Record<string, unknown>> {
-  const team = canonicalNflTeam(player.nflTeam);
-  const value = isDefense(player)
-    ? (team ? result.projections.byDefenseTeam[team] : undefined)
-    : result.projections.bySleeperId[player.id];
-  return value?.stats ?? {};
+export function assertUniqueStarters(starters: readonly ActiveStarter[]): void {
+  const seen = new Set<string>();
+  for (const { starter } of starters) {
+    const key = entityKey(starter.entity);
+    if (seen.has(key)) throw new Error('The league source returned a duplicate starter.');
+    seen.add(key);
+  }
+}
+
+function canonicalPosition(value: string | null): string | null {
+  if (!value) return null;
+  const normalized = value.trim().toUpperCase();
+  if (normalized === 'PK') return 'K';
+  if (normalized === 'D/ST' || normalized === 'DST') return 'DEF';
+  return normalized || null;
+}
+
+function observationReferences(observation: ProjectionObservation): readonly ExternalScoringEntityRef[] {
+  return [observation.identity.primary, ...observation.identity.aliases];
+}
+
+function compatibleObservation(
+  entity: ScoringEntity,
+  observation: ProjectionObservation,
+): boolean {
+  if (entity.kind === 'team-defense') {
+    return observation.identity.primary.entityKind === 'team-defense'
+      && observation.nflTeam === entity.nflTeam;
+  }
+  return observation.identity.primary.entityKind === 'player'
+    && entity.nflTeam !== null
+    && observation.nflTeam === entity.nflTeam
+    && canonicalPosition(observation.position) === canonicalPosition(entity.position);
+}
+
+/**
+ * Resolves a provider observation only when both its explicit alias and current
+ * football identity agree. Team defenses without a provider crosswalk may use
+ * one unique canonical NFL-team match.
+ */
+export function projectionObservationForEntity(
+  entity: ScoringEntity,
+  slate: ProjectionSlate,
+): ProjectionObservation | null {
+  const direct = slate.projections.filter((observation) => (
+    observationReferences(observation).some((reference) => (
+      sameExternalReference(reference, entity.externalRef)
+    )) && compatibleObservation(entity, observation)
+  ));
+  if (direct.length === 1) return direct[0];
+  if (direct.length > 1 || entity.kind !== 'team-defense') return null;
+
+  const byTeam = slate.projections.filter((observation) => compatibleObservation(entity, observation));
+  return byTeam.length === 1 ? byTeam[0] : null;
+}
+
+/**
+ * Resolves the provider identity independently from scoring eligibility. An
+ * explicit provider crosswalk remains valid while a projection row carries
+ * stale team or position metadata; the stricter scoring lookup above still
+ * rejects that row until its football metadata agrees with the league source.
+ */
+function identityObservationForEntity(
+  entity: ScoringEntity,
+  slate: ProjectionSlate,
+): ProjectionObservation | null {
+  const direct = slate.projections.filter((observation) => (
+    observationReferences(observation).some((reference) => (
+      sameExternalReference(reference, entity.externalRef)
+    ))
+  ));
+  if (direct.length === 1) return direct[0];
+  if (direct.length > 1 || entity.kind !== 'team-defense') return null;
+
+  const byTeam = slate.projections.filter((observation) => compatibleObservation(entity, observation));
+  return byTeam.length === 1 ? byTeam[0] : null;
+}
+
+export function scoringIdentityInputs(
+  group: ProviderGroup,
+  projections: ProjectionSlate,
+): ScoringEntityIdentityInput[] {
+  const result = new Map<string, ScoringEntityIdentityInput>();
+  for (const league of group.leagues) {
+    for (const entity of projectionEntities(league.source)) {
+      const key = entityKey(entity);
+      if (result.has(key)) continue;
+      const observation = identityObservationForEntity(entity, projections);
+      const references = [
+        entity.externalRef,
+        ...(observation ? observationReferences(observation) : []),
+      ];
+      const providerRefs = [...new Map(references.map((reference) => [
+        externalReferenceKey(reference),
+        reference,
+      ])).values()];
+      result.set(key, { key, entity, providerRefs });
+    }
+  }
+  return [...result.values()];
+}
+
+export function projectionStats(
+  entity: ScoringEntity,
+  result: ProjectionSlate,
+): Readonly<Record<string, unknown>> {
+  return projectionObservationForEntity(entity, result)?.stats ?? {};
 }

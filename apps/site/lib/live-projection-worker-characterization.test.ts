@@ -1,11 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('server-only', () => ({}));
-vi.mock('next/cache', () => ({ unstable_cache: <Value,>(value: Value) => value }));
 
+import type { GameStateSlate, ProjectionSlate } from './projections/domain/contracts';
 import { createLiveProjectionWorker } from './live-projection-worker';
 import {
+  GAME_STATE_PROVIDER,
   NOW,
+  PERIOD,
+  PROJECTION_PROVIDER,
   fakeStore,
   gameStates,
   projectionResult,
@@ -30,16 +33,26 @@ async function waitForCallCount(mock: ReturnType<typeof vi.fn>, count: number): 
   await vi.waitFor(() => expect(mock).toHaveBeenCalledTimes(count), { timeout: 1_000 });
 }
 
-describe('live projection worker mechanical parity characterization', () => {
+function externalId(reference: Readonly<{ externalId: unknown }>): string {
+  return String(reference.externalId);
+}
+
+describe('live projection worker canonical parity characterization', () => {
   afterEach(() => vi.restoreAllMocks());
 
   it('starts projection and game-state provider requests before either request resolves', async () => {
     const fake = fakeStore();
     const dependencies = workerDependencies(fake);
-    const projections = deferred<ReturnType<typeof projectionResult>>();
-    const games = deferred<ReturnType<typeof gameStates>>();
-    dependencies.projectionMock.mockImplementation(() => projections.promise);
-    dependencies.gamesMock.mockImplementation(() => games.promise);
+    const projections = deferred<ProjectionSlate>();
+    const games = deferred<GameStateSlate>();
+    dependencies.projectionMock.mockImplementation(async () => ({
+      status: 'available',
+      slate: await projections.promise,
+    }));
+    dependencies.gamesMock.mockImplementation(async () => ({
+      status: 'available',
+      slate: await games.promise,
+    }));
 
     const running = createLiveProjectionWorker(dependencies).run();
     let startFailure: unknown;
@@ -63,17 +76,18 @@ describe('live projection worker mechanical parity characterization', () => {
     const fake = fakeStore();
     const dependencies = workerDependencies(fake);
     const release = deferred<void>();
-    dependencies.sourceMock.mockImplementation(async (leagueId: string) => {
+    dependencies.sourceMock.mockImplementation(async (configuration) => {
       await release.promise;
-      return source(leagueId);
+      return source(externalId(configuration.leagueRef));
     });
 
     const running = createLiveProjectionWorker(dependencies).run();
     let startFailure: unknown;
     try {
       await waitForCallCount(dependencies.sourceMock, 2);
-      expect(dependencies.sourceMock.mock.calls.map(([leagueId]) => leagueId).toSorted())
-        .toEqual(['l1', 'l2']);
+      expect(dependencies.sourceMock.mock.calls.map(([configuration]) => (
+        externalId(configuration.leagueRef)
+      )).toSorted()).toEqual(['l1', 'l2']);
       expect(dependencies.projectionMock).not.toHaveBeenCalled();
       expect(dependencies.gamesMock).not.toHaveBeenCalled();
     } catch (error) {
@@ -89,8 +103,8 @@ describe('live projection worker mechanical parity characterization', () => {
     const fake = fakeStore();
     const dependencies = workerDependencies(fake);
     const release = deferred<void>();
-    const originalRegister = fake.store.registerLeagueSeason.bind(fake.store);
-    const register = vi.spyOn(fake.store, 'registerLeagueSeason');
+    const originalRegister = fake.repository.registerLeagueSeason.bind(fake.repository);
+    const register = vi.spyOn(fake.repository, 'registerLeagueSeason');
     register.mockImplementation(async (input) => {
       await release.promise;
       return originalRegister(input);
@@ -100,7 +114,7 @@ describe('live projection worker mechanical parity characterization', () => {
     let startFailure: unknown;
     try {
       await waitForCallCount(register, 2);
-      expect(register.mock.calls.map(([input]) => input.leagueKey).toSorted())
+      expect(register.mock.calls.map(([input]) => input.configuration.key).toSorted())
         .toEqual(['league1', 'league2']);
       expect(fake.publishInputs).toEqual([]);
     } catch (error) {
@@ -122,7 +136,11 @@ describe('live projection worker mechanical parity characterization', () => {
       .mockReturnValueOnce('characterized-worker')
       .mockReturnValue('unexpected-second-worker');
 
-    const result = await createLiveProjectionWorker({ ...base, now, workerId }).run();
+    const result = await createLiveProjectionWorker({
+      ...base,
+      clock: { ...base.clock, now },
+      idGenerator: { generate: workerId },
+    }).run();
 
     expect(result).toMatchObject({ status: 'completed' });
     expect(now).toHaveBeenCalledOnce();
@@ -138,13 +156,13 @@ describe('live projection worker mechanical parity characterization', () => {
   });
 
   it('counts unchanged snapshots as accepted and preserves the complete mixed-result log sequence', async () => {
-    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
-    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const fake = fakeStore();
-    const originalPublish = fake.store.publishSnapshot;
-    vi.spyOn(fake.store, 'publishSnapshot').mockImplementation(async (input) => {
-      if (input.leagueSeasonId === 'season-league1') {
+    const originalPublish = fake.repository.publishSnapshot;
+    vi.spyOn(fake.repository, 'publishSnapshot').mockImplementation(async (input) => {
+      if (String(input.leagueSeasonId) === 'season-league1') {
         throw new Error('controlled League One publication failure');
       }
       const published = await originalPublish(input);
@@ -160,39 +178,87 @@ describe('live projection worker mechanical parity characterization', () => {
       failedLeagues: 1,
       providerGroups: 1,
     });
-    expect(warning.mock.calls.map(([entry]) => JSON.parse(String(entry)))).toEqual([{
-      service: 'live-projection-sync',
-      stage: 'league-publish',
-      outcome: 'failed',
+    expect(dependencies.loggerMock.mock.calls.map(([level, entry]) => [
+      level,
+      entry.stage,
+      entry.outcome,
+    ])).toEqual([
+      ['info', 'lease', 'started'],
+      ['info', 'league-load', 'completed'],
+      ['info', 'provider-load', 'completed'],
+      ['info', 'provider-persist', 'completed'],
+      ['warn', 'league-publish', 'failed'],
+      ['info', 'league-publish', 'completed'],
+      ['info', 'run', 'completed'],
+    ]);
+    const publicationFailure = dependencies.loggerMock.mock.calls[4][1];
+    expect(publicationFailure).toMatchObject({
+      runId: 'worker-1',
       leagueKey: 'league1',
-      season: '2026',
-      week: 1,
-    }]);
-    expect(info.mock.calls.map(([entry]) => JSON.parse(String(entry)))).toEqual([{
-      service: 'live-projection-sync', stage: 'lease', outcome: 'started',
-    }, {
-      service: 'live-projection-sync', stage: 'run', outcome: 'completed',
-      publishedLeagues: 1, failedLeagues: 1,
-    }]);
-    expect(error).not.toHaveBeenCalled();
+      period: PERIOD,
+      publicationOutcome: 'rejected',
+      failureCode: 'snapshot-rejected',
+    });
+    const completed = dependencies.loggerMock.mock.calls[6][1];
+    expect(completed).toMatchObject({
+      runId: 'worker-1',
+      publishedLeagues: 1,
+      failedLeagues: 1,
+    });
     expect(fake.completed).toHaveBeenCalledOnce();
     expect(fake.failed).not.toHaveBeenCalled();
   });
 
-  it('keeps projection caching in the provider while requesting uncached game state on every run', async () => {
+  it('keeps credentials, authorization, database URLs, and raw provider payloads out of captured logs', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const fake = fakeStore();
+    const dependencies = workerDependencies(fake);
+    const sensitive = {
+      providerCredential: 'tank01-private-api-key',
+      databaseUrl: 'postgresql://runtime:private-password@example.neon.tech/production',
+      authorization: 'Bearer private-cron-authorization',
+      rawPayload: '{"body":{"private-player-data":"must-not-be-logged"}}',
+    };
+    const providerFailure = new Error(JSON.stringify(sensitive));
+    dependencies.projectionMock.mockRejectedValue(providerFailure);
+    dependencies.gamesMock.mockRejectedValue(providerFailure);
+
+    await expect(createLiveProjectionWorker(dependencies).run()).resolves.toEqual({
+      status: 'failed',
+    });
+    expect(dependencies.loggerMock.mock.calls.map(([level, entry]) => [
+      level,
+      entry.stage,
+      entry.outcome,
+    ])).toEqual([
+      ['info', 'lease', 'started'],
+      ['info', 'league-load', 'completed'],
+      ['warn', 'provider-load', 'failed'],
+      ['error', 'league-publish', 'failed'],
+    ]);
+    const captured = JSON.stringify({
+      structured: dependencies.loggerMock.mock.calls,
+      console: [...info.mock.calls, ...warning.mock.calls, ...error.mock.calls],
+    });
+    for (const value of Object.values(sensitive)) expect(captured).not.toContain(value);
+  });
+
+  it('keeps projection caching in the feed while requesting uncached game state on every run', async () => {
     const projectionCalls = vi.fn();
     const gameCalls = vi.fn();
-    let cachedProjection: ReturnType<typeof projectionResult> | undefined;
-    const getWeeklyProjections = async () => {
+    let cachedProjection: ProjectionSlate | undefined;
+    const getProjectionSlate = async () => {
       if (!cachedProjection) {
         projectionCalls();
         cachedProjection = projectionResult();
       }
-      return cachedProjection;
+      return { status: 'available' as const, slate: cachedProjection };
     };
-    const getWeeklyGameStates = async () => {
+    const getGameStateSlate = async () => {
       gameCalls();
-      return gameStates();
+      return { status: 'available' as const, slate: gameStates() };
     };
 
     for (let run = 0; run < 2; run += 1) {
@@ -200,8 +266,8 @@ describe('live projection worker mechanical parity characterization', () => {
       const base = workerDependencies(fake);
       await expect(createLiveProjectionWorker({
         ...base,
-        getWeeklyProjections,
-        getWeeklyGameStates,
+        projectionFeed: { ...base.projectionFeed, getProjectionSlate },
+        gameStateFeed: { getGameStateSlate },
       }).run()).resolves.toMatchObject({ status: 'completed' });
     }
 
@@ -211,98 +277,118 @@ describe('live projection worker mechanical parity characterization', () => {
 
   it('pins every persistence-bound source revision and observation metadata field', async () => {
     const fake = fakeStore();
-    const gameStatesSpy = vi.spyOn(fake.store, 'recordGameStates');
-    const candidatesSpy = vi.spyOn(fake.store, 'recordProjectionCandidates');
-    const observationsSpy = vi.spyOn(fake.store, 'recordLeagueWeekObservation');
+    const gameStatesSpy = vi.spyOn(fake.repository, 'recordGameStates');
+    const candidatesSpy = vi.spyOn(fake.repository, 'recordProjectionCandidates');
+    const observationsSpy = vi.spyOn(fake.repository, 'recordLeagueWeekObservation');
     const dependencies = workerDependencies(fake);
 
     await expect(createLiveProjectionWorker(dependencies).run()).resolves.toMatchObject({
       status: 'completed',
     });
 
-    const captured = {
-      gameStates: gameStatesSpy.mock.calls.map(([input]) => input),
-      projectionRuns: candidatesSpy.mock.calls.map(([input]) => ({
-        provider: input.provider,
-        season: input.season,
-        seasonType: input.seasonType,
-        week: input.week,
-        modelVersion: input.modelVersion,
-        sourceRevision: input.sourceRevision,
-        requestStartedAt: input.requestStartedAt,
-        requestCompletedAt: input.requestCompletedAt,
-        fetchedAt: input.fetchedAt,
-        quality: input.quality,
-        candidateCount: input.candidates.length,
+    const capturedGameStates = gameStatesSpy.mock.calls.map(([input]) => ({
+      source: String(input.source),
+      states: input.states.map((state) => ({
+        gameId: externalId(state.gameRef),
+        sourceRevision: state.sourceRevision,
+        requestStartedAt: state.requestStartedAt,
+        requestCompletedAt: state.requestCompletedAt,
+        observedAt: state.observedAt,
+        statusCode: state.statusCode,
+        sourcePeriod: state.sourcePeriod,
+        gameClock: state.gameClock,
+        homeScore: state.homeScore,
+        awayScore: state.awayScore,
+        statusText: state.statusText,
+        phase: state.phase,
+        clockSeconds: state.clockSeconds,
+        remainingFraction: state.remainingFraction,
       })),
-      leagueObservations: observationsSpy.mock.calls.map(([input]) => ({
-        leagueSeasonId: input.leagueSeasonId,
-        week: input.week,
-        sourceRevision: input.sourceRevision,
-        requestStartedAt: input.requestStartedAt,
-        requestCompletedAt: input.requestCompletedAt,
-        observedAt: input.observedAt,
-        quality: input.quality,
-        sourceData: input.sourceData,
-        expectedTank01GameIds: input.expectedTank01GameIds,
-        playerPoints: input.playerPoints,
-        rosterPoints: input.rosterPoints,
-      })),
-    };
-    expect(captured.gameStates).toEqual([{
-      provider: 'tank01',
+    }));
+    expect(capturedGameStates).toEqual([{
+      source: String(GAME_STATE_PROVIDER),
       states: [{
-        externalGameId: 'game-1',
+        gameId: 'game-1',
         sourceRevision: '448be1f64c4fe89b075678410679c3d2095db9fbf0aacc7c54ef53c6e9395cb9',
         requestStartedAt: '2026-09-13T18:00:01.000Z',
         requestCompletedAt: '2026-09-13T18:00:02.000Z',
         observedAt: '2026-09-13T18:00:02.000Z',
         statusCode: 1,
-        period: 'Halftime',
+        sourcePeriod: 'Halftime',
         gameClock: null,
         homeScore: null,
         awayScore: null,
-        sourceData: {
-          statusText: 'Halftime',
-          phase: 'halftime',
-          clockSeconds: null,
-          remainingFraction: 0.5,
-        },
+        statusText: 'Halftime',
+        phase: 'halftime',
+        clockSeconds: null,
+        remainingFraction: 0.5,
       }],
     }]);
 
+    const projectionRuns = candidatesSpy.mock.calls.map(([input]) => ({
+      source: String(input.source),
+      period: input.period,
+      modelVersion: input.modelVersion,
+      sourceRevision: input.sourceRevision,
+      requestStartedAt: input.requestStartedAt,
+      requestCompletedAt: input.requestCompletedAt,
+      observedAt: input.observedAt,
+      quality: input.quality,
+      candidateCount: input.candidates.length,
+    }));
     const expectedProjectionRun = {
-      provider: 'tank01',
-      season: 2026,
-      seasonType: 'reg',
-      week: 1,
+      source: String(PROJECTION_PROVIDER),
+      period: PERIOD,
       modelVersion: 'clock-v1',
       sourceRevision: '7c9136b166b67d9cda4c0658cd98bdc621ea150ac96c8ccf4b129a6a1f6a015e',
       requestStartedAt: '2026-09-13T16:59:59.000Z',
       requestCompletedAt: '2026-09-13T16:59:59.000Z',
-      fetchedAt: '2026-09-13T16:59:59.000Z',
+      observedAt: '2026-09-13T16:59:59.000Z',
       quality: 'complete',
       candidateCount: 3,
     };
-    expect(captured.projectionRuns).toEqual([expectedProjectionRun, expectedProjectionRun]);
+    expect(projectionRuns).toEqual([expectedProjectionRun, expectedProjectionRun]);
 
-    const expectedPlayerPoints = [{
-      sleeperPlayerId: 'p1', entityKind: 'player', externalRosterId: '1',
+    const leagueObservations = observationsSpy.mock.calls.map(([input]) => ({
+      leagueSeasonId: String(input.leagueSeasonId),
+      period: input.period,
+      sourceRevision: input.sourceRevision,
+      requestStartedAt: input.requestStartedAt,
+      requestCompletedAt: input.requestCompletedAt,
+      observedAt: input.observedAt,
+      quality: input.quality,
+      sourceData: input.sourceData,
+      expectedGameIds: input.expectedGameRefs.map(externalId),
+      entityPoints: input.entityPoints.map((point) => ({
+        entityId: externalId(point.entityRef),
+        entityKind: point.entityRef.entityKind,
+        rosterId: externalId(point.rosterRef),
+        points: point.points,
+        isStarter: point.isStarter,
+        lineupSlot: point.lineupSlot,
+      })),
+      rosterPoints: input.rosterPoints.map((point) => ({
+        rosterId: externalId(point.rosterRef),
+        points: point.points,
+      })),
+    }));
+    const expectedEntityPoints = [{
+      entityId: 'p1', entityKind: 'player', rosterId: '1',
       points: 8, isStarter: true, lineupSlot: 'QB',
     }, {
-      sleeperPlayerId: 'p2', entityKind: 'player', externalRosterId: '1',
+      entityId: 'p2', entityKind: 'player', rosterId: '1',
       points: 2, isStarter: true, lineupSlot: 'RB',
     }, {
-      sleeperPlayerId: 'p3', entityKind: 'player', externalRosterId: '2',
+      entityId: 'p3', entityKind: 'player', rosterId: '2',
       points: 6, isStarter: true, lineupSlot: 'QB',
     }];
     const expectedRosterPoints = [
-      { externalRosterId: '1', points: 10 },
-      { externalRosterId: '2', points: 6 },
+      { rosterId: '1', points: 10 },
+      { rosterId: '2', points: 6 },
     ];
-    expect(captured.leagueObservations).toEqual(['league1', 'league2'].map((leagueKey) => ({
+    expect(leagueObservations).toEqual(['league1', 'league2'].map((leagueKey) => ({
       leagueSeasonId: `season-${leagueKey}`,
-      week: 1,
+      period: PERIOD,
       sourceRevision: '5c5f5b7cdd91c86471babb1aa3b71d65fdee84f90462fb001b9d645aa3e6bd8f',
       requestStartedAt: '2026-09-13T18:00:00.000Z',
       requestCompletedAt: '2026-09-13T18:00:01.000Z',
@@ -320,8 +406,8 @@ describe('live projection worker mechanical parity characterization', () => {
         rosterIds: ['1', '2'],
         warning: null,
       },
-      expectedTank01GameIds: ['game-1'],
-      playerPoints: expectedPlayerPoints,
+      expectedGameIds: ['game-1'],
+      entityPoints: expectedEntityPoints,
       rosterPoints: expectedRosterPoints,
     })));
   });

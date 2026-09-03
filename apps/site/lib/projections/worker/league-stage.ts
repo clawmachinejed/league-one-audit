@@ -1,84 +1,188 @@
-import 'server-only';
-
-import { LEAGUE_SITES } from '../../leagues';
-import { scoreTank01PlayersPointMap } from '../../matchup-projections';
-import type { LiveProjectionWorkerDependencies, LoadedLeague, PersistedGroup } from './contracts';
+import type {
+  CanonicalScoringProfile,
+  ProjectionObservation,
+  ProjectionSlate,
+  ScoringEntity,
+} from '../domain/contracts';
+import { scoreProjection } from '../domain/scoring';
+import type { ProjectionRepositoryPort } from '../ports/projection-repository';
+import {
+  externalReferenceKey,
+  sameExternalReference,
+  type ExternalGameRef,
+} from '../shared/provider-identity';
+import { compatibleRevision } from '../shared/revision-compatibility';
+import type {
+  LiveProjectionWorkerDependencies,
+  LeagueStageResult,
+  LoadedLeague,
+  PersistedGroup,
+  PregameProjectionSet,
+} from './contracts';
 import { LIVE_PROJECTION_MODEL_VERSION } from './contracts';
 import { activityWindowsForSchedule } from './cadence';
-import { assertCompleteGameCoverage, MAX_SOURCE_SKEW_MS, startedGame, stateForPlayer } from './game-context';
-import { revision } from './provider-stage';
+import {
+  applicableSourceSkewSeconds,
+  assertCompleteGameCoverage,
+  MAX_SOURCE_SKEW_MS,
+  startedGame,
+  stateForEntity,
+} from './game-context';
 import {
   activeStarters,
   assertUniqueStarters,
-  entityKey,
-  entityKind,
   finite,
-  numericScoringRules,
-  projectionPlayers,
+  projectionEntities,
+  projectionObservationForEntity,
   projectionStats,
 } from './roster-context';
 import { baselineMap, buildSnapshot } from './snapshot-builder';
 
+type LeagueStageDependencies = Readonly<{
+  repository: Pick<ProjectionRepositoryPort,
+    | 'registerLeagueSeason'
+    | 'recordProjectionCandidates'
+    | 'freezeLatestBaselines'
+    | 'readLatestCandidates'
+    | 'readFrozenBaselines'
+    | 'readCurrentSnapshot'
+    | 'recordLeagueWeekObservation'
+    | 'publishSnapshot'
+  >;
+  normalizeScoringProfile: LiveProjectionWorkerDependencies['normalizeScoringProfile'];
+}>;
+
+function observationReferences(
+  observation: ProjectionObservation,
+): readonly ProjectionObservation['identity']['primary'][] {
+  return [observation.identity.primary, ...observation.identity.aliases];
+}
+
+function unsafeUnmatchedProjection(
+  entity: ScoringEntity,
+  slate: ProjectionSlate,
+): boolean {
+  if (slate.projections.some((observation) => observationReferences(observation)
+    .some((reference) => sameExternalReference(reference, entity.externalRef)))) {
+    return true;
+  }
+  if (entity.kind !== 'team-defense') return false;
+  return slate.projections.filter((observation) => (
+    observation.identity.primary.entityKind === 'team-defense'
+    && observation.nflTeam === entity.nflTeam
+  )).length > 1;
+}
+
+function scorePregameProjections(
+  entities: readonly ScoringEntity[],
+  slate: ProjectionSlate,
+  profile: CanonicalScoringProfile,
+): PregameProjectionSet {
+  if (entities.length === 0) return { status: 'empty', projections: [] };
+  if (slate.quality !== 'complete') {
+    return {
+      status: 'unavailable',
+      projections: [],
+      warning: 'The projection feed did not provide a complete weekly slate.',
+    };
+  }
+
+  const projections: PregameProjectionSet['projections'][number][] = [];
+  for (const entity of entities) {
+    const observation = projectionObservationForEntity(entity, slate);
+    if (!observation) {
+      if (!unsafeUnmatchedProjection(entity, slate)) {
+        projections.push({ entityRef: entity.externalRef, points: 0, quality: 'missing' });
+      }
+      continue;
+    }
+    const scored = scoreProjection(observation.scoringStats, profile.rules);
+    if (!scored.available || !finite(scored.points)) {
+      projections.push({ entityRef: entity.externalRef, points: 0, quality: 'missing' });
+      continue;
+    }
+    projections.push({ entityRef: entity.externalRef, points: scored.points, quality: 'complete' });
+  }
+  return { status: 'available', projections };
+}
+
+function uniqueRelevantGames(
+  league: LoadedLeague,
+  persisted: PersistedGroup,
+): ExternalGameRef[] {
+  const games = new Map<string, ExternalGameRef>();
+  for (const { starter } of activeStarters(league.source)) {
+    const game = stateForEntity(starter.entity, persisted.games, league.source.schedule);
+    if (game) games.set(externalReferenceKey(game.gameRef), game.gameRef);
+  }
+  return [...games.values()];
+}
+
 export async function processLeague(
-  dependencies: LiveProjectionWorkerDependencies,
+  dependencies: LeagueStageDependencies,
   league: LoadedLeague,
   persisted: PersistedGroup,
   calculatedAt: string,
-): Promise<void> {
+): Promise<LeagueStageResult> {
   const { source, configuration } = league;
   assertCompleteGameCoverage(league, persisted.games);
-  const season = Number(source.data.league.season);
-  const { week } = source.data;
-  const scoringRules = numericScoringRules(source.scoringSettings);
-  const leagueSeason = await dependencies.store.registerLeagueSeason({
-    leagueKey: configuration.key,
-    leagueName: source.leagueName || LEAGUE_SITES[configuration.key].name,
-    season,
-    sleeperLeagueId: configuration.sleeperLeagueId,
-    scoringRules,
+
+  const normalized = dependencies.normalizeScoringProfile(source.scoringSettings);
+  if (normalized.status !== 'available') {
+    throw new Error('League scoring settings could not be normalized.');
+  }
+  const scoringProfile = normalized.profile;
+  const leagueSeason = await dependencies.repository.registerLeagueSeason({
+    configuration,
+    leagueName: source.leagueName,
+    period: source.period,
+    scoringProfile,
   });
   if (leagueSeason.kind !== 'stored') throw new Error('League season could not be persisted.');
 
-  const starters = activeStarters(source.data);
+  const starters = activeStarters(source);
   assertUniqueStarters(starters);
-  const candidatePlayers = projectionPlayers(source);
-  const scored = scoreTank01PlayersPointMap(candidatePlayers, persisted.projections, source.scoringSettings);
-  if (candidatePlayers.length > 0 && scored.status !== 'available') {
+  const candidateEntities = projectionEntities(source);
+  const scored = scorePregameProjections(candidateEntities, persisted.projections, scoringProfile);
+  if (candidateEntities.length > 0 && scored.status !== 'available') {
     throw new Error('Pregame fantasy projections could not be scored.');
   }
-  for (const { player } of starters) {
-    if (!finite(scored.pointsByPlayer[player.id]) || !scored.qualityByPlayer[player.id]) {
+  const scoredByReference = new Map(scored.projections.map((projection) => [
+    externalReferenceKey(projection.entityRef),
+    projection,
+  ]));
+  for (const { starter } of starters) {
+    if (!scoredByReference.has(externalReferenceKey(starter.entity.externalRef))) {
       throw new Error('A starter projection could not be matched safely.');
     }
   }
 
-  const candidates = candidatePlayers.flatMap((player) => {
-    if (!finite(scored.pointsByPlayer[player.id]) || !scored.qualityByPlayer[player.id]) return [];
-    const state = stateForPlayer(player, persisted.games);
+  const candidates = candidateEntities.flatMap((entity) => {
+    const projection = scoredByReference.get(externalReferenceKey(entity.externalRef));
+    if (!projection || !finite(projection.points)) return [];
+    const state = stateForEntity(entity, persisted.games, source.schedule);
     if (!state) return [];
-    const gameId = persisted.gameIdsByExternalId.get(state.gameId);
-    const entityId = persisted.entityIdsByKey.get(entityKey(player));
+    const gameId = persisted.gameIdsByReferenceKey.get(externalReferenceKey(state.gameRef));
+    const entityId = persisted.entityIdsByReferenceKey.get(externalReferenceKey(entity.externalRef));
     if (!gameId || !entityId) throw new Error('A projection candidate identity is missing.');
     return [{
       gameId,
       entityId,
       scoringProfileId: leagueSeason.value.scoringProfileId,
-      projectionPoints: scored.pointsByPlayer[player.id],
-      projectedStats: projectionStats(player, persisted.projections),
-      quality: scored.qualityByPlayer[player.id],
+      projectionPoints: projection.points,
+      projectedStats: projectionStats(entity, persisted.projections),
+      quality: projection.quality,
     }];
   });
   const projectionSourceRevision = persisted.projectionSourceRevision;
-  const storedRun = await dependencies.store.recordProjectionCandidates({
-    provider: 'tank01',
-    season,
-    seasonType: 'reg',
-    week,
+  const storedRun = await dependencies.repository.recordProjectionCandidates({
+    source: persisted.projections.source,
+    period: source.period,
     modelVersion: LIVE_PROJECTION_MODEL_VERSION,
     sourceRevision: projectionSourceRevision,
-    requestStartedAt: persisted.projections.fetchedAt,
-    requestCompletedAt: persisted.projections.fetchedAt,
-    fetchedAt: persisted.projections.fetchedAt,
+    requestStartedAt: persisted.projections.requestStartedAt,
+    requestCompletedAt: persisted.projections.requestCompletedAt,
+    observedAt: persisted.projections.observedAt,
     quality: 'complete',
     candidates,
   });
@@ -86,102 +190,97 @@ export async function processLeague(
     throw new Error('Pregame projection candidates could not be persisted completely.');
   }
 
-  const sleeperPlayerIds = starters.map(({ player }) => player.id);
-  const startedExternalGameIds = persisted.games.games
-    .filter(startedGame)
-    .map((game) => game.gameId);
-  if (startedExternalGameIds.length > 0) {
-    const frozen = await dependencies.store.freezeLatestBaselines({
+  const officialEntityRefs = starters.map(({ starter }) => starter.entity.externalRef);
+  const startedGameRefs = persisted.games.games.filter(startedGame).map((game) => game.gameRef);
+  if (startedGameRefs.length > 0) {
+    const frozen = await dependencies.repository.freezeLatestBaselines({
       leagueSeasonId: leagueSeason.value.leagueSeasonId,
-      season,
-      seasonType: 'reg',
-      week,
+      period: source.period,
       modelVersion: LIVE_PROJECTION_MODEL_VERSION,
-      projectionProvider: 'tank01',
-      gameProvider: 'tank01',
-      externalGameIds: startedExternalGameIds,
+      projectionSource: persisted.projections.source,
+      gameStateSource: persisted.games.source,
+      gameRefs: startedGameRefs,
       frozenAt: calculatedAt,
     });
     if (frozen.kind !== 'stored') throw new Error('Pregame projection baselines could not be frozen.');
   }
   const [latest, frozen, prior] = await Promise.all([
-    dependencies.store.readLatestCandidatesBySleeperIds({
+    dependencies.repository.readLatestCandidates({
       leagueSeasonId: leagueSeason.value.leagueSeasonId,
-      season,
-      seasonType: 'reg',
-      week,
-      provider: 'tank01',
+      period: source.period,
+      source: persisted.projections.source,
       modelVersion: LIVE_PROJECTION_MODEL_VERSION,
-      sleeperPlayerIds,
+      officialEntityRefs,
     }),
-    dependencies.store.readFrozenBaselinesBySleeperIds({
+    dependencies.repository.readFrozenBaselines({
       leagueSeasonId: leagueSeason.value.leagueSeasonId,
-      season,
-      seasonType: 'reg',
-      week,
-      provider: 'tank01',
+      period: source.period,
+      source: persisted.projections.source,
       modelVersion: LIVE_PROJECTION_MODEL_VERSION,
-      sleeperPlayerIds,
+      officialEntityRefs,
     }),
-    dependencies.store.readCurrentSnapshot(leagueSeason.value.leagueSeasonId, week),
+    dependencies.repository.readCurrentSnapshot(leagueSeason.value.leagueSeasonId, source.period),
   ]);
 
-  const sourceRevision = revision({
-    requestStartedAt: source.requestStartedAt,
-    requestCompletedAt: source.requestCompletedAt,
-    data: source.data,
-  });
-  const relevantExternalGameIds = [...new Set(starters.flatMap(({ player }) => {
-    const game = stateForPlayer(player, persisted.games);
-    return game ? [game.gameId] : [];
-  }))];
-  const frozenByPlayer = baselineMap(frozen);
-  const missingFrozenBaselineCount = starters.filter(({ player }) => {
-    const game = stateForPlayer(player, persisted.games);
-    return game && startedGame(game) && !frozenByPlayer.has(player.id);
+  const relevantGameRefs = uniqueRelevantGames(league, persisted);
+  const relevantGameReferenceKeys = new Set(relevantGameRefs.map(externalReferenceKey));
+  const sourceSkewSeconds = applicableSourceSkewSeconds(
+    source.requestCompletedAt,
+    persisted.games.games.filter((game) => (
+      relevantGameReferenceKeys.has(externalReferenceKey(game.gameRef))
+    )),
+    calculatedAt,
+  );
+  const frozenByEntity = baselineMap(frozen);
+  const missingFrozenBaselineCount = starters.filter(({ starter }) => {
+    const game = stateForEntity(starter.entity, persisted.games, source.schedule);
+    return game
+      && startedGame(game)
+      && !frozenByEntity.has(externalReferenceKey(starter.entity.externalRef));
   }).length;
-  const rosterPoints = source.data.matchups.flatMap((matchup) => matchup.sides.map((side) => ({
-    externalRosterId: String(side.team.id),
-    points: finite(side.points) ? side.points : null,
+  const rosterPoints = source.matchups.flatMap((matchup) => matchup.sides.map((side) => ({
+    rosterRef: side.rosterRef,
+    points: finite(side.officialPoints) ? side.officialPoints : null,
   })));
-  const observation = await dependencies.store.recordLeagueWeekObservation({
+  const observation = await dependencies.repository.recordLeagueWeekObservation({
     leagueSeasonId: leagueSeason.value.leagueSeasonId,
-    week,
-    sourceRevision,
+    period: source.period,
+    sourceRevision: source.sourceRevision,
     requestStartedAt: source.requestStartedAt,
     requestCompletedAt: source.requestCompletedAt,
-    observedAt: source.requestCompletedAt,
+    observedAt: source.observedAt,
     quality: 'complete',
     sourceData: {
       leagueKey: configuration.key,
-      season: source.data.league.season,
-      week,
-      updatedAt: source.data.updatedAt,
-      matchupCount: source.data.matchups.length,
-      rosteredPlayerCount: candidatePlayers.length,
+      season: String(source.period.season),
+      week: source.period.week,
+      updatedAt: source.observedAt,
+      matchupCount: source.matchups.length,
+      rosteredPlayerCount: candidateEntities.length,
       missingFrozenBaselineCount,
       missingBaselinePolicy: 'zero',
-      rosterIds: source.data.matchups.flatMap((matchup) => matchup.sides.map((side) => String(side.team.id))),
-      warning: source.data.warning ?? null,
+      rosterIds: source.matchups.flatMap((matchup) => matchup.sides.map((side) => (
+        String(side.rosterRef.externalId)
+      ))),
+      warning: source.warning ?? null,
     },
-    expectedTank01GameIds: relevantExternalGameIds,
-    playerPoints: starters.map(({ rosterId, player }) => ({
-      sleeperPlayerId: player.id,
-      entityKind: entityKind(player),
-      externalRosterId: rosterId,
-      points: finite(player.points) ? player.points : null,
+    expectedGameRefs: relevantGameRefs,
+    entityPoints: starters.map(({ rosterRef, starter }) => ({
+      entityRef: starter.entity.externalRef,
+      rosterRef,
+      points: finite(starter.officialPoints) ? starter.officialPoints : null,
       isStarter: true,
-      lineupSlot: player.slot || null,
+      lineupSlot: starter.slot || null,
     })),
     rosterPoints,
   });
   if (observation.kind !== 'stored'
-    || observation.value.playerPointsStored !== starters.length
+    || observation.value.entityPointsStored !== starters.length
     || observation.value.rosterPointsStored !== rosterPoints.length
-    || observation.value.unmappedSleeperPlayerIds.length > 0
-    || observation.value.unmappedTank01GameIds.length > 0
-    || observation.value.expectedGamesStored !== relevantExternalGameIds.length) {
-    throw new Error('Official Sleeper observations could not be persisted completely.');
+    || observation.value.unmappedEntityRefs.length > 0
+    || observation.value.unmappedGameRefs.length > 0
+    || observation.value.expectedGamesStored !== relevantGameRefs.length) {
+    throw new Error('Official source observations could not be persisted completely.');
   }
 
   const payload = buildSnapshot({
@@ -193,25 +292,30 @@ export async function processLeague(
     prior: prior?.payload ?? null,
     calculatedAt,
   });
-  const gameStateObservationIds = relevantExternalGameIds.map((externalId) => {
-    const observationId = persisted.gameObservationIdsByExternalId.get(externalId);
+  const gameStateObservationIds = relevantGameRefs.map((reference) => {
+    const observationId = persisted.gameObservationIdsByReferenceKey.get(
+      externalReferenceKey(reference),
+    );
     if (!observationId) throw new Error('A relevant game-state observation is missing.');
     return observationId;
   });
-  const published = await dependencies.store.publishSnapshot({
-    leagueSeasonId: leagueSeason.value.leagueSeasonId,
-    week,
+  const revisionKey = compatibleRevision({
     modelVersion: LIVE_PROJECTION_MODEL_VERSION,
-    revisionKey: revision({
-      modelVersion: LIVE_PROJECTION_MODEL_VERSION,
-      sourceRevision,
-      projectionSourceRevision,
-      missingFrozenBaselineCount,
-      games: relevantExternalGameIds.map((id) => ({
-        id,
-        observationId: persisted.gameObservationIdsByExternalId.get(id),
-      })),
-    }),
+    sourceRevision: source.sourceRevision,
+    projectionSourceRevision,
+    missingFrozenBaselineCount,
+    games: relevantGameRefs.map((reference) => ({
+      id: String(reference.externalId),
+      observationId: persisted.gameObservationIdsByReferenceKey.get(
+        externalReferenceKey(reference),
+      ),
+    })),
+  });
+  const published = await dependencies.repository.publishSnapshot({
+    leagueSeasonId: leagueSeason.value.leagueSeasonId,
+    period: source.period,
+    modelVersion: LIVE_PROJECTION_MODEL_VERSION,
+    revisionKey,
     leagueWeekObservationId: observation.value.observationId,
     gameStateObservationIds,
     calculatedAt,
@@ -222,4 +326,13 @@ export async function processLeague(
   if (published.kind !== 'published' && published.kind !== 'unchanged') {
     throw new Error('The projection snapshot was not published.');
   }
+  return {
+    publicationOutcome: published.kind,
+    starterCount: starters.length,
+    candidateCount: candidates.length,
+    frozenBaselineCount: frozen.length,
+    missingBaselineCount: missingFrozenBaselineCount,
+    applicableSourceSkewSeconds: sourceSkewSeconds,
+    snapshotRevision: revisionKey,
+  };
 }

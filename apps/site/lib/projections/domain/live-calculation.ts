@@ -1,4 +1,4 @@
-import type { NflGamePhase } from './game-time';
+import type { NflGamePhase, ProjectionPointQuality } from './contracts';
 
 export type LiveProjectionKind = 'offense' | 'kicker' | 'defense';
 
@@ -8,35 +8,21 @@ export type LiveProjectionGameState = Readonly<{
 }>;
 
 export type PregameProjectionBaseline = Readonly<{
-  /** Full-precision fantasy points calculated from the frozen pregame stat line. */
   points: number;
-  /** Missing source data is deliberately represented by a zero-point baseline. */
   quality: 'complete' | 'missing';
-}>;
-
-export type LiveProjectionQuality =
-  | 'estimated'
-  | 'official-final'
-  | 'pregame-baseline'
-  | 'defense-baseline-held'
-  | 'missing-baseline'
-  | 'retained-prior'
-  | 'unavailable';
-
-export type LiveProjectionResult = Readonly<{
-  /** Null means the caller must retain its last published aggregate rather than publish a partial result. */
-  projectedPoints: number | null;
-  quality: LiveProjectionQuality;
 }>;
 
 export type LiveProjectionInput = Readonly<{
   kind: LiveProjectionKind;
   gameState: LiveProjectionGameState;
   baseline: PregameProjectionBaseline | null;
-  /** Sleeper's official fantasy points through the current observation. */
   officialPoints: number | null;
-  /** The last complete value published for this player, if one exists. */
   priorProjectedPoints?: number | null;
+}>;
+
+export type LiveProjectionResult = Readonly<{
+  projectedPoints: number | null;
+  quality: ProjectionPointQuality;
 }>;
 
 function finite(value: number | null | undefined): value is number {
@@ -78,9 +64,8 @@ function retainPriorOrUnavailable(input: LiveProjectionInput): LiveProjectionRes
 }
 
 /**
- * Applies the clock-v1 projection policy without fetching, persistence, rounding,
- * or presentation behavior. The caller must provide observations that belong to
- * the same synchronized calculation run.
+ * The sole clock-v1 calculation. It performs no fetching, persistence,
+ * presentation rounding, or provider-specific interpretation.
  */
 export function calculateLiveProjection(input: LiveProjectionInput): LiveProjectionResult {
   const { gameState } = input;
@@ -100,8 +85,6 @@ export function calculateLiveProjection(input: LiveProjectionInput): LiveProject
     return retainPriorOrBaseline(input);
   }
 
-  // Sleeper's live D/ST points can contain provisional points-allowed scoring.
-  // Combining them with a partial baseline would double-count that component.
   if (input.kind === 'defense') {
     const baseline = baselineResult(input.baseline);
     return baseline.quality === 'missing-baseline'
