@@ -39,6 +39,11 @@ REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 REVOKE CREATE ON SCHEMA public FROM league_one_runtime;
 GRANT USAGE ON SCHEMA public TO league_one_runtime;
 
+-- Watch history has no runtime deletion or DDL use. Revoke inherited/default grants first.
+REVOKE ALL ON TABLE league_week_lineup_watch_states FROM PUBLIC;
+REVOKE ALL ON TABLE league_week_lineup_watch_states FROM league_one_runtime;
+GRANT SELECT, INSERT, UPDATE ON TABLE league_week_lineup_watch_states TO league_one_runtime;
+
 GRANT SELECT, INSERT, UPDATE ON TABLE
   scoring_profiles,
   leagues,
@@ -116,6 +121,19 @@ BEGIN
     'league_one_runtime', 'public.current_pregame_projection_candidates', 'DELETE'
   ) THEN
     RAISE EXCEPTION 'league_one_runtime cannot repair pregame candidate pointers';
+  END IF;
+  IF has_table_privilege('league_one_runtime', 'public.league_week_lineup_watch_states', 'DELETE')
+    OR has_table_privilege('league_one_runtime', 'public.league_week_lineup_watch_states', 'TRUNCATE')
+    OR has_table_privilege('league_one_runtime', 'public.league_week_lineup_watch_states', 'REFERENCES')
+    OR has_table_privilege('league_one_runtime', 'public.league_week_lineup_watch_states', 'TRIGGER') THEN
+    RAISE EXCEPTION 'league_one_runtime has excessive lineup-watch privileges';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_class c JOIN pg_roles r ON r.oid = c.relowner
+    WHERE c.oid = 'public.league_week_lineup_watch_states'::regclass AND r.rolname = 'league_one_runtime')
+    OR EXISTS (SELECT 1 FROM pg_proc p JOIN pg_roles r ON r.oid = p.proowner
+      WHERE p.proname IN ('prevent_lineup_watch_identity_change', 'valid_lineup_roster_ids')
+        AND r.rolname = 'league_one_runtime') THEN
+    RAISE EXCEPTION 'league_one_runtime owns protected lineup-watch objects';
   END IF;
 END;
 $$;

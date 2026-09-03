@@ -4,6 +4,8 @@ import type { DatabaseClient } from '../../../database';
 import { isMatchupsData } from '../../../matchups-response';
 import type { ProjectionStore } from './contracts';
 import { json, normalizeIds, requiredText, rowNumber, rowText } from './database-values';
+import { publicationFenceJson } from './lineup-publication-values';
+import { LINEUP_PUBLICATION_CTES } from './lineup-publication-sql';
 import {
   canonicalActivityWindows,
   containsScheduledGame,
@@ -44,9 +46,15 @@ export function createSnapshotMethods(client: DatabaseClient): SnapshotMethods {
       const rows = await client.query(`/* projection-store:publish-snapshot */
         WITH league_source AS (
           SELECT observation.id, observation.observed_at, observation.request_completed_at,
-            observation.expected_game_count, observation.source_data, season.season
+            observation.expected_game_count, observation.source_data, season.season,
+            league.league_key, connection.provider AS source_provider,
+            connection.external_league_id, observation.lineup_revision_version,
+            observation.lineup_revision
           FROM league_week_observations observation
           JOIN league_seasons season ON season.id = observation.league_season_id
+          JOIN leagues league ON league.id = season.league_id
+          JOIN league_source_connections connection ON connection.league_season_id = season.id
+            AND connection.provider = observation.provider
           WHERE observation.id = $1 AND observation.league_season_id = $2
             AND observation.provider = 'sleeper'
             AND observation.week = $3 AND observation.quality = 'complete'
@@ -58,7 +66,7 @@ export function createSnapshotMethods(client: DatabaseClient): SnapshotMethods {
                 '$.** ? (@.kind == "scheduled")'::jsonpath
               )
             )
-        ), expected_games AS (
+        ), ${LINEUP_PUBLICATION_CTES}, expected_games AS (
           SELECT expected.nfl_game_id
           FROM league_week_expected_games expected
           JOIN league_source ON league_source.id = expected.league_week_observation_id
@@ -126,6 +134,7 @@ export function createSnapshotMethods(client: DatabaseClient): SnapshotMethods {
           WHERE league_ok AND expected_set_registered AND every_source_valid
             AND complete_count AND one_source_per_game AND exact_game_set
             AND source_times_aligned AND calculation_time_aligned
+            AND EXISTS (SELECT 1 FROM publication_lineup_guard)
         ), existing_revision AS (
           SELECT snapshot.* FROM projection_snapshots snapshot
           WHERE snapshot.league_season_id = $2 AND snapshot.week = $3
@@ -183,25 +192,34 @@ export function createSnapshotMethods(client: DatabaseClient): SnapshotMethods {
           LIMIT 1
         ), published AS (
           INSERT INTO current_projection_snapshots (
-            league_season_id, week, snapshot_id, calculated_at, published_at, verified_at
+            league_season_id, week, snapshot_id, calculated_at, published_at, verified_at,
+            verification_source_observation_id
           )
           SELECT $2, $3, selected.id, selected.calculated_at, now(),
-            selected.source_verified_at
+            selected.source_verified_at, $1
           FROM selected
           WHERE selected.result_kind = 'published'
           ON CONFLICT (league_season_id, week) DO UPDATE SET
             snapshot_id = EXCLUDED.snapshot_id,
             calculated_at = EXCLUDED.calculated_at,
             published_at = EXCLUDED.published_at,
-            verified_at = GREATEST(
-              current_projection_snapshots.verified_at,
-              EXCLUDED.verified_at
-            )
+            verification_source_observation_id = CASE
+              WHEN EXCLUDED.snapshot_id IS DISTINCT FROM current_projection_snapshots.snapshot_id
+                OR EXCLUDED.verified_at >= current_projection_snapshots.verified_at
+                THEN EXCLUDED.verification_source_observation_id
+              ELSE current_projection_snapshots.verification_source_observation_id END,
+            verified_at = CASE
+              WHEN EXCLUDED.snapshot_id IS DISTINCT FROM current_projection_snapshots.snapshot_id
+                THEN EXCLUDED.verified_at
+              ELSE GREATEST(current_projection_snapshots.verified_at, EXCLUDED.verified_at) END
           WHERE EXCLUDED.calculated_at >= current_projection_snapshots.calculated_at
           RETURNING snapshot_id, published_at, verified_at
         ), verified AS (
           UPDATE current_projection_snapshots current
-          SET verified_at = GREATEST(current.verified_at, selected.source_verified_at)
+          SET verified_at = GREATEST(current.verified_at, selected.source_verified_at),
+            verification_source_observation_id = CASE
+              WHEN selected.source_verified_at >= current.verified_at THEN $1::uuid
+              ELSE current.verification_source_observation_id END
           FROM selected
           WHERE selected.result_kind = 'unchanged'
             AND current.league_season_id = selected.league_season_id
@@ -228,7 +246,7 @@ export function createSnapshotMethods(client: DatabaseClient): SnapshotMethods {
         requiredText(input.modelVersion, 'Snapshot model version'),
         requiredText(input.revisionKey, 'Snapshot revision key'),
         input.calculatedAt, json(input.payload), contentHash, maxSourceSkewSeconds,
-        payloadSeason, json(activityWindows),
+        payloadSeason, json(activityWindows), publicationFenceJson(input.lineupFence),
       ]);
       const row = rows[0];
       if (!row) return { kind: 'rejected', reason: 'incomplete-or-mismatched-sources' };

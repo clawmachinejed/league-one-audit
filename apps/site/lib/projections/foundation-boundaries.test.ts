@@ -14,6 +14,7 @@ const expectedPorts = [
   'league-source.ts',
   'logger.ts',
   'nfl-calendar.ts',
+  'period-authority-reader.ts',
   'projection-feed.ts',
   'projection-repository.ts',
 ];

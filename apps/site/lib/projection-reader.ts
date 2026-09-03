@@ -5,7 +5,8 @@ import {
   matchupTemporalState,
   type MatchupPeriodContext,
 } from './matchup-period';
-import { selectStoredMatchups } from './projection-freshness';
+import { selectSnapshotMetadata, snapshotFreshnessMetadata, snapshotPayloadAtVerification } from './projection-freshness';
+import type { SnapshotFreshnessMetadata } from './matchup-snapshot-metadata';
 import { ACTIVE_PROJECTION_SOURCE } from './projection-source-config';
 import {
   getProjectionStore,
@@ -13,7 +14,6 @@ import {
   type ProjectionStore,
   type StoredFutureMaterializationFreshness,
   type StoredLeaguePeriodAuthority,
-  type StoredProjectionSnapshot,
 } from './projection-store';
 import type { LeaguePeriod, SeasonType } from './projections/domain/contracts';
 import type { MatchupsData } from './types';
@@ -23,12 +23,24 @@ export type StoredMatchupsReadResult = Readonly<{
   payload: MatchupsData;
   historical: boolean;
   context: MatchupPeriodContext;
+  snapshotRevision: string;
+  verifiedAt: string;
 }> | Readonly<{
   kind: 'stale';
   context: MatchupPeriodContext;
 }> | Readonly<{
   kind: 'missing' | 'disabled' | 'malformed' | 'database-error' | 'authority-stale';
   context?: MatchupPeriodContext;
+}>;
+
+export type StoredMatchupRevisionReadResult =
+  | Omit<Extract<StoredMatchupsReadResult, { kind: 'usable' }>, 'payload'>
+  | Exclude<StoredMatchupsReadResult, { kind: 'usable' }>;
+
+type ReadContext = Readonly<{
+  authority: StoredLeaguePeriodAuthority;
+  snapshot: Readonly<{ revisionKey: string; verifiedAt: string }> | null;
+  futureRefresh: StoredFutureMaterializationFreshness | null;
 }>;
 
 const PERIOD_AUTHORITY_MAX_AGE_MS = 10 * 60 * 1_000;
@@ -72,20 +84,19 @@ function contextFor(
 }
 
 function validSnapshot(
-  snapshot: StoredProjectionSnapshot,
+  snapshot: SnapshotFreshnessMetadata,
   authority: StoredLeaguePeriodAuthority,
   expectedWeek: number,
 ): boolean {
   return snapshot.week === expectedWeek
-    && isMatchupsData(snapshot.payload)
-    && snapshot.payload.week === expectedWeek
-    && snapshot.payload.league.week === expectedWeek
-    && Number(snapshot.payload.league.season) === authority.defaultSeason;
+    && snapshot.payloadWeek === expectedWeek
+    && snapshot.payloadLeagueWeek === expectedWeek
+    && Number(snapshot.payloadSeason) === authority.defaultSeason;
 }
 
 function futureRefreshDue(
   refresh: StoredFutureMaterializationFreshness | null,
-  snapshot: StoredProjectionSnapshot,
+  snapshot: Readonly<{ revisionKey: string }>,
   now: Date,
 ): boolean {
   if (!refresh) return true;
@@ -111,6 +122,46 @@ function futureRefreshDue(
   return true;
 }
 
+/** One ordering, context, and freshness policy for both database read projections. */
+function selectRead(
+  stored: ReadContext | null,
+  requestedWeek: number | undefined,
+  now: Date,
+  readMetadata: () => SnapshotFreshnessMetadata | null,
+): StoredMatchupRevisionReadResult {
+  if (!stored) return { kind: 'missing' };
+  const targetWeek = requestedWeek ?? stored.authority.defaultWeek;
+  const context = contextFor(stored.authority, targetWeek);
+  if (!stored.snapshot) {
+    return periodAuthorityIsFresh(stored.authority, now) ? { kind: 'missing', context } : { kind: 'missing' };
+  }
+  if (!periodAuthorityIsFresh(stored.authority, now)) return { kind: 'authority-stale' };
+  const metadata = readMetadata();
+  if (!metadata || !validSnapshot(metadata, stored.authority, targetWeek)) return { kind: 'malformed', context };
+  const selected = selectSnapshotMetadata(metadata, context, now, {
+    ...(context.temporalState === 'future'
+      ? { futureRefreshDue: futureRefreshDue(stored.futureRefresh, stored.snapshot, now) } : {}),
+  });
+  if (selected.kind !== 'usable') return selected;
+  return {
+    ...selected,
+    historical: context.temporalState === 'past',
+    snapshotRevision: stored.snapshot.revisionKey,
+    verifiedAt: stored.snapshot.verifiedAt,
+  };
+}
+
+function readFailure(error: unknown): Exclude<StoredMatchupsReadResult, { kind: 'usable' }> {
+  return error instanceof InvalidStoredProjectionSnapshotError
+    ? { kind: 'malformed' } : { kind: 'database-error' };
+}
+
+const projectionIdentity = {
+  projectionProvider: ACTIVE_PROJECTION_SOURCE.provider,
+  normalizerVersion: ACTIVE_PROJECTION_SOURCE.normalizerVersion,
+  modelVersion: ACTIVE_PROJECTION_SOURCE.modelVersion,
+};
+
 function periodAuthorityIsFresh(authority: StoredLeaguePeriodAuthority, now: Date): boolean {
   const nowMs = now.getTime();
   const verifiedAtMs = Date.parse(authority.verifiedAt);
@@ -132,32 +183,30 @@ export async function readStoredMatchups(
   if (!store.enabled) return { kind: 'disabled' };
 
   try {
-    const stored = await store.readMatchupSnapshotByLeagueKey(leagueKey, requestedWeek, {
-      projectionProvider: ACTIVE_PROJECTION_SOURCE.provider,
-      normalizerVersion: ACTIVE_PROJECTION_SOURCE.normalizerVersion,
-      modelVersion: ACTIVE_PROJECTION_SOURCE.modelVersion,
-    });
-    if (!stored) return { kind: 'missing' };
-    const now = options.now ?? new Date();
-    const targetWeek = requestedWeek ?? stored.authority.defaultWeek;
-    const context = contextFor(stored.authority, targetWeek);
-    if (!stored.snapshot) {
-      return periodAuthorityIsFresh(stored.authority, now)
-        ? { kind: 'missing', context }
-        : { kind: 'missing' };
-    }
-    if (!periodAuthorityIsFresh(stored.authority, now)) return { kind: 'authority-stale' };
-    if (!validSnapshot(stored.snapshot, stored.authority, targetWeek)) {
-      return { kind: 'malformed', context };
-    }
-    return selectStoredMatchups(stored.snapshot, context, now, {
-      ...(context.temporalState === 'future'
-        ? { futureRefreshDue: futureRefreshDue(stored.futureRefresh, stored.snapshot, now) }
-        : {}),
-    });
+    const stored = await store.readMatchupSnapshotByLeagueKey(leagueKey, requestedWeek, projectionIdentity);
+    const selected = selectRead(stored, requestedWeek, options.now ?? new Date(), () => (
+      stored?.snapshot && isMatchupsData(stored.snapshot.payload)
+        ? snapshotFreshnessMetadata(stored.snapshot) : null
+    ));
+    if (selected.kind !== 'usable') return selected;
+    return { ...selected, payload: snapshotPayloadAtVerification(stored!.snapshot!, selected.context) };
   } catch (error) {
-    return error instanceof InvalidStoredProjectionSnapshotError
-      ? { kind: 'malformed' }
-      : { kind: 'database-error' };
+    return readFailure(error);
+  }
+}
+
+/** Reads validation and freshness metadata only; never transfers the matchup payload. */
+export async function readStoredMatchupRevision(
+  leagueKey: string,
+  requestedWeek?: number,
+  options: Readonly<{ store?: ProjectionStore; now?: Date }> = {},
+): Promise<StoredMatchupRevisionReadResult> {
+  const store = options.store ?? getProjectionStore();
+  if (!store.enabled) return { kind: 'disabled' };
+  try {
+    const stored = await store.readMatchupSnapshotRevisionByLeagueKey(leagueKey, requestedWeek, projectionIdentity);
+    return selectRead(stored, requestedWeek, options.now ?? new Date(), () => stored?.snapshot ?? null);
+  } catch (error) {
+    return readFailure(error);
   }
 }

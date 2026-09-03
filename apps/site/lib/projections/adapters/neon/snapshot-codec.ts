@@ -57,7 +57,7 @@ function rowMatchupsPayload(row: DatabaseRow): MatchupsData {
   return payload;
 }
 
-function rowActivityWindows(row: DatabaseRow): readonly ProjectionActivityWindow[] {
+export function rowActivityWindows(row: DatabaseRow): readonly ProjectionActivityWindow[] {
   const raw = typeof row.activity_windows === 'string'
     ? JSON.parse(row.activity_windows) as unknown
     : row.activity_windows;

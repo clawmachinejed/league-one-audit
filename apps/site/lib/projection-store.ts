@@ -9,6 +9,13 @@ import { createIdentityMethods } from './projections/adapters/neon/identities';
 import { createJobMethods } from './projections/adapters/neon/jobs';
 import { createObservationMethods } from './projections/adapters/neon/observations';
 import { createPeriodMethods } from './projections/adapters/neon/periods';
+import { createAuthorityReadMethods } from './projections/adapters/neon/authority-reader';
+import { createSnapshotRevisionMethods } from './projections/adapters/neon/snapshot-revision';
+import { createLineupAcknowledgmentMethods } from './projections/adapters/neon/lineup-acknowledgment';
+import { createLineupWatchSyncMethods } from './projections/adapters/neon/lineup-watch-sync';
+import { createLineupWatchClaimMethods } from './projections/adapters/neon/lineup-watch-claims';
+import { createLineupWatchObservationMethods } from './projections/adapters/neon/lineup-watch-observations';
+import { createLineupWatchReadMethods } from './projections/adapters/neon/lineup-watch-read';
 import { createProjectionMethods } from './projections/adapters/neon/projections';
 import { createProjectionSlateMethods } from './projections/adapters/neon/projection-slates';
 import { createRetentionMethods } from './projections/adapters/neon/retention';
@@ -52,6 +59,10 @@ export type {
   StoredLeagueWeekObservation,
   StoredLeaguePeriodAuthority,
   StoredMatchupSnapshotContext,
+  StoredMatchupRevisionContext,
+  StoredMatchupRevisionSnapshot,
+  StoredLeagueLineupAuthority,
+  StoredLeagueAuthorityRead,
   StoreFutureMaterializationRefreshState,
   StoreFutureProjectionRefreshState,
   StoreFutureProjectionSlateLineage,
@@ -67,6 +78,15 @@ export type {
   StoredProjectionSnapshotSelection,
 } from './projections/adapters/neon/contracts';
 export { InvalidStoredProjectionSnapshotError } from './projections/adapters/neon/snapshot-codec';
+export type {
+  StoreLineupPublicationFence, StoreLineupMaterializationTarget,
+  StoreCompleteFutureLineupInput, StoreAcknowledgeCurrentLineupInput,
+} from './projections/adapters/neon/lineup-publication-contracts';
+export type {
+  LineupWatchTarget, StoredLineupWatchState, LineupWatchFence, LineupObservationClaim,
+  CompleteLineupObservationInput, FullLineupObservationInput, LineupObservationWriteOutcome,
+  LineupWatchTransition, LineupWatchSyncInput, ClaimDueLineupObservationsInput, WakeFutureLineupInput,
+} from './projections/adapters/neon/lineup-watch-contracts';
 
 export function createProjectionStore(database: Database = getDatabase()): ProjectionStore {
   const client = connected(database);
@@ -78,6 +98,13 @@ export function createProjectionStore(database: Database = getDatabase()): Proje
   const projectionSlates = createProjectionSlateMethods(client);
   const observations = createObservationMethods(client);
   const periods = createPeriodMethods(client);
+  const authorityReads = createAuthorityReadMethods(client);
+  const snapshotRevisions = createSnapshotRevisionMethods(client);
+  const lineupAcknowledgments = createLineupAcknowledgmentMethods(client);
+  const lineupSync = createLineupWatchSyncMethods(client);
+  const lineupClaims = createLineupWatchClaimMethods(client);
+  const lineupObservations = createLineupWatchObservationMethods(client);
+  const lineupReads = createLineupWatchReadMethods(client);
   const jobs = createJobMethods(client);
   const snapshots = createSnapshotMethods(client);
   const retention = createRetentionMethods(client);
@@ -86,6 +113,20 @@ export function createProjectionStore(database: Database = getDatabase()): Proje
     enabled: true,
     upsertLeaguePeriodAuthority: periods.upsertLeaguePeriodAuthority,
     readMatchupSnapshotByLeagueKey: periods.readMatchupSnapshotByLeagueKey,
+    readLeagueLineupAuthorities: authorityReads.readLeagueLineupAuthorities,
+    readMatchupSnapshotRevisionByLeagueKey: snapshotRevisions.readMatchupSnapshotRevisionByLeagueKey,
+    acknowledgeCurrentLineup: lineupAcknowledgments.acknowledgeCurrentLineup,
+    completeFutureMaterializationAndAcknowledgeLineup: lineupAcknowledgments.completeFutureMaterializationAndAcknowledgeLineup,
+    synchronizeLineupWatchStates: lineupSync.synchronizeLineupWatchStates,
+    claimDueLineupObservations: lineupClaims.claimDueLineupObservations,
+    completeLineupObservation: lineupObservations.completeLineupObservation,
+    recordLineupObservationNotReady: lineupObservations.recordLineupObservationNotReady,
+    failLineupObservation: lineupObservations.failLineupObservation,
+    supersedeLineupClaimWithFullObservation: lineupObservations.supersedeLineupClaimWithFullObservation,
+    readPendingCurrentLineups: lineupReads.readPendingCurrentLineups,
+    readPendingFutureLineups: lineupReads.readPendingFutureLineups,
+    readLineupWatchStates: lineupReads.readLineupWatchStates,
+    wakeFutureProjectionAndMaterialization: lineupReads.wakeFutureProjectionAndMaterialization,
     registerLeagueSeason: identities.registerLeagueSeason,
     upsertScoringEntities: identities.upsertScoringEntities,
     upsertNflGames: identities.upsertNflGames,

@@ -12,6 +12,20 @@ export function createDisabledProjectionStore(): ProjectionStore {
     async readMatchupSnapshotByLeagueKey() {
       return null;
     },
+    async readLeagueLineupAuthorities() { return []; },
+    async readMatchupSnapshotRevisionByLeagueKey() { return null; },
+    async synchronizeLineupWatchStates() { return { kind: 'disabled' }; },
+    async claimDueLineupObservations() { return []; },
+    async completeLineupObservation() { return { kind: 'disabled' }; },
+    async recordLineupObservationNotReady() { return { kind: 'disabled' }; },
+    async failLineupObservation() { return { kind: 'disabled' }; },
+    async supersedeLineupClaimWithFullObservation() { return { kind: 'disabled' }; },
+    async readPendingCurrentLineups() { return []; },
+    async readPendingFutureLineups() { return []; },
+    async readLineupWatchStates() { return []; },
+    async wakeFutureProjectionAndMaterialization() { return { kind: 'disabled' }; },
+    async acknowledgeCurrentLineup() { return { kind: 'disabled' }; },
+    async completeFutureMaterializationAndAcknowledgeLineup() { return { kind: 'disabled' }; },
     async registerLeagueSeason() {
       return { kind: 'disabled' };
     },

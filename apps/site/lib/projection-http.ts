@@ -5,7 +5,8 @@ import { LEAGUE_IDS } from './config';
 import type { LeagueKey } from './leagues';
 import { parseMatchupWeek } from './matchup-week';
 import { matchupPeriodHeaders } from './matchup-period';
-import { readStoredMatchups } from './projection-reader';
+import { SNAPSHOT_REVISION_HEADER, SNAPSHOT_VERIFIED_AT_HEADER, validSnapshotRevision } from './matchup-snapshot-metadata';
+import { readStoredMatchups, readStoredMatchupRevision } from './projection-reader';
 import { getProjectionStore, type ProjectionStore } from './projection-store';
 import { runLiveProjectionSync, type LiveProjectionSyncResult } from './live-projection-worker';
 
@@ -84,13 +85,25 @@ export async function handleMatchupsSnapshotRequest(
   now = new Date(),
 ): Promise<Response> {
   if (!validLeagueKey(leagueKey)) return response({ status: 'not-found' }, 404);
-  const week = parseMatchupWeek(new URL(request.url).searchParams.get('week'));
+  const query = new URL(request.url).searchParams;
+  const week = parseMatchupWeek(query.get('week'));
   if (week === null) return response({ status: 'invalid-week' }, 400);
+  const revision = query.get('rev');
+  if (revision !== null && !validSnapshotRevision(revision)) {
+    return response({ status: 'invalid-revision' }, 400);
+  }
 
   const selected = await readStoredMatchups(leagueKey, week, { store, now });
   if (selected.kind === 'missing') return response({ status: 'not-found' }, 404);
   if (selected.kind !== 'usable') return response({ status: 'unavailable' }, 503);
+  if (revision !== null && revision !== selected.snapshotRevision) {
+    return response({ status: 'revision-mismatch' }, 409);
+  }
   const headers = matchupPeriodHeaders(selected.context);
+  headers.set(SNAPSHOT_REVISION_HEADER, selected.snapshotRevision);
+  const verificationTime = Date.parse(selected.verifiedAt);
+  headers.set(SNAPSHOT_VERIFIED_AT_HEADER, Number.isFinite(verificationTime)
+    ? new Date(verificationTime).toISOString() : selected.verifiedAt);
   const cache = selected.context.temporalState === 'past'
     ? HISTORICAL_SNAPSHOT_HEADERS
     : selected.context.temporalState === 'future'
@@ -101,4 +114,27 @@ export async function handleMatchupsSnapshotRequest(
     status: 200,
     headers,
   });
+}
+
+export async function handleMatchupsRevisionRequest(
+  request: Request,
+  leagueKey: string,
+  store: ProjectionStore = getProjectionStore(),
+  now = new Date(),
+): Promise<Response> {
+  if (!validLeagueKey(leagueKey)) return response({ status: 'not-found' }, 404);
+  const week = parseMatchupWeek(new URL(request.url).searchParams.get('week'));
+  if (week === null) return response({ status: 'invalid-week' }, 400);
+  const selected = await readStoredMatchupRevision(leagueKey, week, { store, now });
+  if (selected.kind === 'missing') return response({ status: 'not-found' }, 404);
+  if (selected.kind !== 'usable' || !validSnapshotRevision(selected.snapshotRevision)
+    || !Number.isFinite(Date.parse(selected.verifiedAt))) {
+    return response({ status: 'unavailable' }, 503);
+  }
+  const headers = matchupPeriodHeaders(selected.context);
+  headers.set('Cache-Control', 'no-store');
+  return response({
+    status: 'ok', revision: selected.snapshotRevision,
+    verifiedAt: new Date(selected.verifiedAt).toISOString(),
+  }, 200, headers);
 }

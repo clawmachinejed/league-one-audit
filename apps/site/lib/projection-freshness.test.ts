@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { MatchupPeriodContext } from './matchup-period';
 import type { StoredProjectionSnapshot } from './projection-store';
-import { selectStoredMatchups } from './projection-freshness';
+import { selectSnapshotMetadata, snapshotFreshnessMetadata, snapshotPayloadAtVerification } from './projection-freshness';
 import type { Matchup, MatchupsData, NflGame } from './types';
+
+function selectSnapshot(stored: StoredProjectionSnapshot | null, period: MatchupPeriodContext, now = new Date()) {
+  return selectSnapshotMetadata(stored ? snapshotFreshnessMetadata(stored) : null, period, now);
+}
 
 function payload(week = 1): MatchupsData {
   return {
@@ -71,7 +75,7 @@ describe('period-aware projection freshness', () => {
   ])('keeps the exact three-minute active boundary at $elapsedMs ms', ({ elapsedMs, expected }) => {
     const stored = snapshot();
     const now = new Date(Date.parse(stored.verifiedAt) + elapsedMs);
-    expect(selectStoredMatchups(stored, context('active'), now).kind).toBe(expected);
+    expect(selectSnapshot(stored, context('active'), now).kind).toBe(expected);
   });
 
   it.each([
@@ -80,7 +84,7 @@ describe('period-aware projection freshness', () => {
   ])('keeps the exact 75-minute idle boundary at $elapsedMs ms', ({ elapsedMs, expected }) => {
     const stored = { ...snapshot(), activityWindows: [] };
     const now = new Date(Date.parse(stored.verifiedAt) + elapsedMs);
-    expect(selectStoredMatchups(stored, context('active'), now).kind).toBe(expected);
+    expect(selectSnapshot(stored, context('active'), now).kind).toBe(expected);
   });
 
   it.each([
@@ -89,15 +93,15 @@ describe('period-aware projection freshness', () => {
   ])('keeps the exact future verification tolerance at $aheadMs ms', ({ aheadMs, expected }) => {
     const now = new Date('2026-09-13T18:00:00.000Z');
     const stored = snapshot(1, new Date(now.getTime() + aheadMs).toISOString());
-    expect(selectStoredMatchups(stored, context('active'), now).kind).toBe(expected);
+    expect(selectSnapshot(stored, context('active'), now).kind).toBe(expected);
   });
 
   it('applies live freshness from the payload even when no stored activity window is active', () => {
     const stored = withStarterGame(null, 'live');
-    expect(selectStoredMatchups(
+    expect(selectSnapshot(
       stored, context('active'), new Date('2026-09-13T18:03:00.001Z'),
     ).kind).toBe('stale');
-    expect(selectStoredMatchups(
+    expect(selectSnapshot(
       withStarterGame(null, 'upcoming'), context('active'), new Date('2026-09-13T18:03:00.001Z'),
     ).kind).toBe('usable');
   });
@@ -115,7 +119,7 @@ describe('period-aware projection freshness', () => {
       }),
       verifiedAt: '2026-09-13T17:56:00.000Z',
     };
-    expect(selectStoredMatchups(
+    expect(selectSnapshot(
       stored, context('active'), new Date('2026-09-13T18:00:00.000Z'),
     ).kind).toBe(expected);
   });
@@ -131,86 +135,89 @@ describe('period-aware projection freshness', () => {
       verifiedAt: '2026-09-14T00:56:00.000Z',
     };
     // The UTC date is September 14, but it is still September 13 in New York.
-    expect(selectStoredMatchups(
+    expect(selectSnapshot(
       stored, context('active'), new Date('2026-09-14T01:00:00.000Z'),
     ).kind).toBe(expected);
   });
 
   it('strictly rejects an active game-window snapshot after three minutes', () => {
-    expect(selectStoredMatchups(
+    expect(selectSnapshot(
       snapshot(), context('active'), new Date('2026-09-13T18:03:01.000Z'),
     )).toEqual({ kind: 'stale', context: { ...context('active'), refreshDue: true } });
   });
 
   it('accepts and advances the visible verification time for a fresh active snapshot', () => {
     const stored = snapshot(1, '2026-09-13T18:01:00.000Z');
-    const result = selectStoredMatchups(stored, context('active'), new Date('2026-09-13T18:03:30.000Z'));
+    const result = selectSnapshot(stored, context('active'), new Date('2026-09-13T18:03:30.000Z'));
     expect(result).toEqual({
-      kind: 'usable', historical: false,
+      kind: 'usable',
       context: context('active'),
-      payload: { ...stored.payload, updatedAt: stored.verifiedAt },
     });
+    expect(snapshotPayloadAtVerification(stored, context('active')))
+      .toEqual({ ...stored.payload, updatedAt: stored.verifiedAt });
   });
 
   it('advances verification time without changing revision or mutating the stored payload', () => {
     const initial = snapshot();
     const verified = { ...initial, verifiedAt: '2026-09-13T18:02:00.000Z' };
     const now = new Date('2026-09-13T18:02:30.000Z');
-    const before = selectStoredMatchups(initial, context('active'), now);
-    const after = selectStoredMatchups(verified, context('active'), now);
+    const before = selectSnapshot(initial, context('active'), now);
+    const after = selectSnapshot(verified, context('active'), now);
     expect(before.kind).toBe('usable');
     expect(after.kind).toBe('usable');
     if (before.kind !== 'usable' || after.kind !== 'usable') return;
     expect(verified.revisionKey).toBe(initial.revisionKey);
-    expect(after.payload).toEqual({ ...before.payload, updatedAt: verified.verifiedAt });
+    expect(snapshotPayloadAtVerification(verified, context('active'))).toEqual({
+      ...snapshotPayloadAtVerification(initial, context('active')), updatedAt: verified.verifiedAt,
+    });
     expect(initial.payload.updatedAt).toBe('2026-09-13T18:00:00.000Z');
     expect(verified.payload).toBe(initial.payload);
   });
 
   it('does not move visible payload time backward when verification time is older', () => {
     const stored = snapshot(1, '2026-09-13T17:59:00.000Z');
-    const result = selectStoredMatchups(stored, context('active'), new Date('2026-09-13T18:00:00.000Z'));
+    const result = selectSnapshot(stored, context('active'), new Date('2026-09-13T18:00:00.000Z'));
     expect(result.kind).toBe('usable');
-    if (result.kind === 'usable') expect(result.payload).toBe(stored.payload);
+    expect(snapshotPayloadAtVerification(stored, context('active'))).toBe(stored.payload);
   });
 
   it('keeps a stale future snapshot as last-known-good and marks refresh due', () => {
     const stored = snapshot(2, '2026-09-01T00:00:00.000Z');
-    const result = selectStoredMatchups(
+    const result = selectSnapshot(
       stored, context('future', 2), new Date('2026-09-13T18:00:00.000Z'),
     );
     expect(result).toEqual({
-      kind: 'usable', historical: false,
+      kind: 'usable',
       context: { ...context('future', 2), refreshDue: true },
-      payload: stored.payload,
     });
+    expect(snapshotPayloadAtVerification(stored, context('future', 2))).toBe(stored.payload);
   });
 
   it('keeps past snapshots indefinitely without rewriting their target week', () => {
     const stored = snapshot(1, '2026-09-01T00:00:00.000Z');
-    const result = selectStoredMatchups(
+    const result = selectSnapshot(
       stored, context('past', 2), new Date('2027-01-01T00:00:00.000Z'),
     );
     expect(result).toEqual({
-      kind: 'usable', historical: true, context: context('past', 2), payload: stored.payload,
+      kind: 'usable', context: context('past', 2),
     });
-    if (result.kind === 'usable') expect(result.payload.league.week).toBe(1);
+    expect(snapshotPayloadAtVerification(stored, context('past', 2)).league.week).toBe(1);
   });
 
   it('preserves the historical display timestamp even when verification is much newer', () => {
     const stored = snapshot(1, '2027-01-01T00:00:00.000Z');
-    const result = selectStoredMatchups(stored, context('past', 2), new Date('2027-01-02T00:00:00.000Z'));
+    const result = selectSnapshot(stored, context('past', 2), new Date('2027-01-02T00:00:00.000Z'));
     expect(result.kind).toBe('usable');
     if (result.kind !== 'usable') return;
-    expect(result.payload).toBe(stored.payload);
-    expect(result.payload.updatedAt).toBe('2026-09-13T18:00:00.000Z');
+    expect(snapshotPayloadAtVerification(stored, context('past', 2))).toBe(stored.payload);
+    expect(snapshotPayloadAtVerification(stored, context('past', 2)).updatedAt).toBe('2026-09-13T18:00:00.000Z');
     expect(result.context.refreshDue).toBe(false);
   });
 
   it('rejects missing or period-mismatched payloads', () => {
-    expect(selectStoredMatchups(null, context('active'))).toEqual({ kind: 'missing' });
+    expect(selectSnapshot(null, context('active'))).toEqual({ kind: 'missing' });
     const stored = snapshot();
-    expect(selectStoredMatchups(
+    expect(selectSnapshot(
       { ...stored, payload: payload(2) }, context('active'),
     )).toEqual({ kind: 'missing' });
   });

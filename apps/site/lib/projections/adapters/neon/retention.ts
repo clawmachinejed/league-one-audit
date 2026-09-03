@@ -41,6 +41,10 @@ export function createRetentionMethods(client: DatabaseClient): RetentionMethods
             SELECT 1 FROM projection_snapshots snapshot
             WHERE snapshot.league_week_observation_id = observation.id
           )
+          AND NOT EXISTS (
+            SELECT 1 FROM current_projection_snapshots current
+            WHERE current.verification_source_observation_id = observation.id
+          )
         RETURNING observation.id`, [input.before]);
       const gameObservations = await client.query(`/* projection-store:prune-game-observations */
         DELETE FROM game_state_observations observation
