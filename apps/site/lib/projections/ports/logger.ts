@@ -20,10 +20,40 @@ export type ProjectionFailureCode =
   | 'provider-persistence-failed'
   | 'period-authority-conflict'
   | 'period-authority-unavailable'
-  | 'unexpected-worker-failure';
+  | 'unexpected-worker-failure'
+  | 'authority-missing' | 'authority-stale' | 'authority-provider-mismatch'
+  | 'lineup-source-unavailable' | 'lineup-response-invalid' | 'lineup-not-ready' | 'lineup-shape-unavailable'
+  | 'claim-superseded' | 'claim-stale' | 'capacity-exceeded' | 'snapshot-publication-failed'
+  | 'current-projection-failed';
 
 export type ProjectionLogEntry = Readonly<{
   stage: string;
+  lane?: 'current' | 'future' | 'lineup-observation';
+  cadencePolicyVersion?: string;
+  lineupRevisionVersion?: string;
+  watchClass?: 'current' | 'future' | 'completed';
+  phase?: number;
+  batchSize?: number;
+  attemptGeneration?: number;
+  checked?: number;
+  changed?: number;
+  unchanged?: number;
+  notReady?: number;
+  pending?: number;
+  skipped?: number;
+  failed?: number;
+  providerAdapterInvocations?: number;
+  upstreamRequests?: number | null;
+  cacheHits?: number | null;
+  cacheMisses?: number | null;
+  fetchInvocations?: number;
+  requestMetric?: 'adapter' | 'cache' | 'http';
+  provider?: string;
+  endpointFamily?: string;
+  cacheStatus?: 'hit' | 'miss' | 'bypass' | 'framework-managed';
+  authorityAgeMs?: number;
+  backlogAgeMs?: number;
+  capacityStatus?: 'supported' | 'capacity-exceeded';
   outcome: ProjectionLogOutcome;
   runId?: string;
   cadence?: string;
@@ -36,7 +66,7 @@ export type ProjectionLogEntry = Readonly<{
   stageDurationMs?: number;
   totalDurationMs?: number;
   providerDurationMs?: number;
-  providerOutcome?: 'available' | 'unavailable' | 'invalid';
+  providerOutcome?: 'available' | 'unavailable' | 'invalid' | 'not-ready';
   projectionRows?: number;
   matchedProjectionRows?: number;
   gameCount?: number;

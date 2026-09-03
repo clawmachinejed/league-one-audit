@@ -1,4 +1,5 @@
-import type { Cadence, LeagueCadenceState, NflWeekSchedule, TeamWeek } from '../domain/contracts';
+import type { Cadence, LeagueCadenceState, NflWeekSchedule } from '../domain/contracts';
+import type { PeriodCadenceTiming } from '../domain/period-cadence-timing';
 import type { ProjectionActivityWindow } from '../ports/projection-repository';
 
 const HOURLY_WINDOW_MINUTES = 5;
@@ -21,7 +22,7 @@ function easternCalendarDate(value: Date): string {
 }
 
 function scheduleCadence(
-  games: readonly TeamWeek[],
+  games: PeriodCadenceTiming['games'],
   now: Date,
   force: boolean,
 ): Cadence {
@@ -30,7 +31,6 @@ function scheduleCadence(
   if (!Number.isFinite(nowMs)) return 'idle';
 
   for (const game of games) {
-    if (game.kind !== 'scheduled') continue;
     if (game.kickoffAt) {
       const kickoffMs = Date.parse(game.kickoffAt);
       if (Number.isFinite(kickoffMs)
@@ -62,7 +62,7 @@ export function workerCadence(
   force: boolean,
   allowHourly: boolean,
 ): Cadence {
-  const cadence = scheduleCadence(Object.values(schedule), now, force);
+  const cadence = scheduleCadence(Object.values(schedule).filter((game) => game.kind === 'scheduled'), now, force);
   if (cadence === 'forced' || cadence === 'live-window') return cadence;
   if (!allowHourly) return 'idle';
   return cadence === 'hourly' || now.getUTCMinutes() < HOURLY_WINDOW_MINUTES
@@ -78,16 +78,31 @@ export function isCurrentNflPeriod(input: LeagueCadenceState): boolean {
 }
 
 export function allowsHourlyFallback(input: LeagueCadenceState, now: Date): boolean {
-  if (isCurrentNflPeriod(input) && input.currentPeriod.seasonType === 'regular') return true;
+  return allowsPeriodHourlyFallback({
+    isCurrentRegularPeriod: isCurrentNflPeriod(input) && input.currentPeriod.seasonType === 'regular',
+    games: Object.values(input.schedule).filter((game) => game.kind === 'scheduled'),
+  }, now);
+}
+
+/** The durable default-period facts use exactly the current worker's cadence policy. */
+export function allowsPeriodHourlyFallback(input: PeriodCadenceTiming, now: Date): boolean {
+  if (input.isCurrentRegularPeriod) return true;
   const nowMs = now.getTime();
   if (!Number.isFinite(nowMs)) return false;
-  return Object.values(input.schedule).some((game) => {
-    if (game.kind !== 'scheduled' || !game.kickoffAt) return false;
+  return input.games.some((game) => {
+    if (!game.kickoffAt) return false;
     const kickoffMs = Date.parse(game.kickoffAt);
     return Number.isFinite(kickoffMs)
       && kickoffMs >= nowMs
       && kickoffMs - nowMs <= UPCOMING_SCHEDULE_LOOKAHEAD_MS;
   });
+}
+
+export function periodTimingCadence(input: PeriodCadenceTiming, now: Date, force = false): Cadence {
+  const cadence = scheduleCadence(input.games, now, force);
+  if (cadence === 'forced' || cadence === 'live-window') return cadence;
+  return allowsPeriodHourlyFallback(input, now) && now.getUTCMinutes() < HOURLY_WINDOW_MINUTES
+    ? 'hourly' : 'idle';
 }
 
 export function activityWindowsForSchedule(

@@ -6,9 +6,10 @@ vi.mock('next/cache', () => ({ unstable_cache: <Value,>(value: Value) => value }
 import { createLiveProjectionWorker, LIVE_PROJECTION_MODEL_VERSION } from './live-projection-worker';
 import type {
   GameStateObservation,
+  LeagueConfiguration,
   NflWeekSchedule,
 } from './projections/domain/contracts';
-import { externalGameRef } from './projections/shared/provider-identity';
+import { externalGameRef, externalRosterRef } from './projections/shared/provider-identity';
 import type { Player } from './types';
 import {
   GAME_STATE_PROVIDER,
@@ -39,6 +40,24 @@ function hasOfficialId(
   return projection.identity.aliases.some((reference) => String(reference.externalId) === id);
 }
 
+function completedPriorSeasonCadence(configuration: LeagueConfiguration, weeklySchedule: NflWeekSchedule = {}, at = NOW) {
+  const input = cadenceInput(leagueId(configuration), weeklySchedule);
+  const prior = { season: 2025, seasonType: 'regular' as const, week: 18 };
+  return { ...input, configuration, period: prior,
+    periodAuthority: { ...input.periodAuthority, configuration, defaultDisplayPeriod: prior,
+      activeScoringPeriod: null, lifecycle: 'complete' as const, observedAt: at.toISOString(), verifiedAt: at.toISOString() } };
+}
+
+async function seedDurableAuthorities(dependencies: ReturnType<typeof workerDependencies>) {
+  for (const configuration of dependencies.leagueRegistry.listActiveLeagues()) {
+    const value = await dependencies.nflCalendar.getCadenceState(configuration);
+    await dependencies.repository.upsertPeriodAuthority(value.periodAuthority, {
+      shape: value.lineupShape, defaultPeriodCadence: value.defaultPeriodCadence,
+    });
+  }
+  dependencies.cadenceMock.mockClear();
+}
+
 describe('live projection worker', () => {
   afterEach(() => vi.restoreAllMocks());
 
@@ -67,6 +86,7 @@ describe('live projection worker', () => {
       });
       expect(dependencies.cadenceMock).toHaveBeenCalledTimes(2);
       expect(dependencies.sourceMock).not.toHaveBeenCalled();
+      expect(dependencies.lineupSource.getLineup).not.toHaveBeenCalled();
       expect(dependencies.projectionMock).not.toHaveBeenCalled();
       expect(dependencies.gamesMock).not.toHaveBeenCalled();
       expect(store.completed).not.toHaveBeenCalled();
@@ -87,10 +107,61 @@ describe('live projection worker', () => {
     });
     expect(dependencies.cadenceMock).toHaveBeenCalledTimes(2);
     expect(leagueId(dependencies.cadenceMock.mock.calls[0][0])).toBe('l1');
-    expect(store.acquired).not.toHaveBeenCalled();
+    expect(store.acquired).toHaveBeenCalledOnce();
+    expect(dependencies.lineupSource.getLineup).toHaveBeenCalledTimes(2);
     expect(dependencies.sourceMock).not.toHaveBeenCalled();
     expect(dependencies.projectionMock).not.toHaveBeenCalled();
     expect(dependencies.gamesMock).not.toHaveBeenCalled();
+  });
+
+  it.each(['active', 'preseason'] as const)('reports a failed %s cadence refresh despite still-fresh durable authorities', async (lifecycle) => {
+    const store = fakeStore();
+    const value = cadenceInput('l1');
+    const dependencies = workerDependencies(store, { cadence: { ...value,
+      periodAuthority: { ...value.periodAuthority, lifecycle,
+        activeScoringPeriod: lifecycle === 'active' ? value.periodAuthority.activeScoringPeriod : null } } });
+    await seedDurableAuthorities(dependencies);
+    dependencies.cadenceMock.mockRejectedValue(new Error('temporary calendar outage'));
+    expect(await createLiveProjectionWorker(dependencies).run()).toEqual({ status: 'failed' });
+    expect(dependencies.sourceMock).not.toHaveBeenCalled();
+    expect(dependencies.lineupSource.getLineup).not.toHaveBeenCalled();
+    expect(store.acquired).not.toHaveBeenCalled();
+    expect(store.completed).not.toHaveBeenCalled();
+  });
+
+  it('counts one failed cadence refresh once while publishing the healthy league against fresh persisted authorities', async () => {
+    const store = fakeStore();
+    const dependencies = workerDependencies(store);
+    await seedDurableAuthorities(dependencies);
+    const original = dependencies.cadenceMock.getMockImplementation()! as typeof dependencies.nflCalendar.getCadenceState;
+    dependencies.cadenceMock.mockImplementation(async (configuration) => {
+      if (leagueId(configuration) === 'l1') throw new Error('temporary calendar outage');
+      return original(configuration);
+    });
+    expect(await createLiveProjectionWorker(dependencies).run()).toMatchObject({
+      status: 'completed', publishedLeagues: 1, failedLeagues: 1,
+    });
+    expect(dependencies.sourceMock).toHaveBeenCalledTimes(1);
+    expect(leagueId(dependencies.sourceMock.mock.calls[0][0])).toBe('l2');
+  });
+
+  it('continues healthy thin checks but does not report successful idle for a partial cadence outage', async () => {
+    const store = fakeStore();
+    const dependencies = workerDependencies(store, {
+      cadence: cadenceInput('l1', fullWeekSchedule('2026-09-20T17:00:00.000Z')),
+      now: new Date('2026-09-13T18:10:10.000Z'),
+    });
+    await seedDurableAuthorities(dependencies);
+    const original = dependencies.cadenceMock.getMockImplementation()! as typeof dependencies.nflCalendar.getCadenceState;
+    dependencies.cadenceMock.mockImplementation(async (configuration) => {
+      if (leagueId(configuration) === 'l1') throw new Error('temporary calendar outage');
+      return original(configuration);
+    });
+    expect(await createLiveProjectionWorker(dependencies).run()).toEqual({ status: 'failed' });
+    expect(dependencies.lineupSource.getLineup).toHaveBeenCalledTimes(1);
+    expect(dependencies.sourceMock).not.toHaveBeenCalled();
+    expect(store.completed).not.toHaveBeenCalled();
+    expect(store.failed).toHaveBeenCalledExactlyOnceWith('live-projection-sync', 'worker-1', 'current-projection-failed');
   });
 
   it('does not use the hourly fallback throughout the offseason', async () => {
@@ -104,6 +175,7 @@ describe('live projection worker', () => {
     const dependencies = workerDependencies(store, {
       cadence: {
         ...cadenceInput('l1', distantWeekOneSchedule),
+        periodAuthority: { ...cadenceInput('l1').periodAuthority, lifecycle: 'preseason', activeScoringPeriod: null },
         currentPeriod: {
           ...cadenceInput('l1', distantWeekOneSchedule).currentPeriod,
           seasonType: 'off',
@@ -130,12 +202,7 @@ describe('live projection worker', () => {
       },
     };
     const dependencies = workerDependencies(store, { now: new Date('2026-03-01T18:00:10.000Z') });
-    dependencies.cadenceMock.mockImplementation(async (configuration) => ({
-      configuration,
-      period: { season: 2025, seasonType: 'regular', week: 18 },
-      schedule: staleSchedule,
-      currentPeriod: { season: 2026, week: 1, seasonType: 'pre' },
-    }));
+    dependencies.cadenceMock.mockImplementation(async (configuration) => completedPriorSeasonCadence(configuration, staleSchedule, new Date('2026-03-01T18:00:10.000Z')));
 
     await expect(createLiveProjectionWorker(dependencies).run()).resolves.toEqual({
       status: 'skipped', reason: 'idle', cadence: 'idle',
@@ -150,12 +217,7 @@ describe('live projection worker', () => {
   it('refuses a forced run when no configured league matches the current NFL period', async () => {
     const store = fakeStore();
     const dependencies = workerDependencies(store);
-    dependencies.cadenceMock.mockImplementation(async (configuration) => ({
-      configuration,
-      period: { season: 2025, seasonType: 'regular', week: 18 },
-      schedule: {},
-      currentPeriod: { season: 2026, week: 1, seasonType: 'pre' },
-    }));
+    dependencies.cadenceMock.mockImplementation(async (configuration) => completedPriorSeasonCadence(configuration));
 
     await expect(createLiveProjectionWorker(dependencies).run({ force: true }))
       .resolves.toEqual({ status: 'failed' });
@@ -184,6 +246,7 @@ describe('live projection worker', () => {
       leaseSeconds: 120,
     });
     expect(dependencies.sourceMock).toHaveBeenCalledTimes(2);
+    expect(dependencies.lineupSource.getLineup).not.toHaveBeenCalled();
     expect(dependencies.sourceMock.mock.calls.map(([configuration, targetPeriod]) => ({
       leagueId: String(configuration.leagueRef.externalId),
       targetPeriod,
@@ -261,6 +324,7 @@ describe('live projection worker', () => {
       return [value.stage, value.outcome];
     })).toEqual([
       ['lease', 'started'],
+      ['current-lineup-plan', 'completed'],
       ['league-load', 'completed'],
       ['provider-load', 'completed'],
       ['provider-persist', 'completed'],
@@ -323,6 +387,37 @@ describe('live projection worker', () => {
     expect(store.published).toHaveLength(0);
     expect(store.completed).not.toHaveBeenCalled();
     expect(store.failed).toHaveBeenCalledOnce();
+  });
+
+  it('rejects a same-count authoritative roster replacement between reservation and full fetch', async () => {
+    const store = fakeStore();
+    const dependencies = workerDependencies(store);
+    dependencies.sourceMock.mockImplementation(async (configuration) => {
+      const value = source(leagueId(configuration));
+      return configuration.key === 'league1' ? { ...value, lineupShape: { ...value.lineupShape,
+        expectedRosterRefs: ['foreign-a', 'foreign-b'].map((id) => externalRosterRef(configuration.leagueRef, id)) } } : value;
+    });
+    expect(await createLiveProjectionWorker(dependencies).run()).toMatchObject({ status: 'completed', publishedLeagues: 1, failedLeagues: 1 });
+    expect(dependencies.lineupRepository.completeLineupObservation).toHaveBeenCalledTimes(1);
+    expect(dependencies.lineupSource.getLineup).not.toHaveBeenCalled();
+    expect(store.published).toHaveLength(1);
+  });
+
+  it('loads fresh full-source starters for pending current work even outside routine projection cadence', async () => {
+    const store = fakeStore();
+    const dependencies = workerDependencies(store, { cadence: cadenceInput('l1', {}), now: new Date('2026-09-13T18:10:10.000Z') });
+    const original = vi.mocked(dependencies.lineupRepository.synchronizeLineupWatchStates).getMockImplementation()!;
+    vi.mocked(dependencies.lineupRepository.synchronizeLineupWatchStates).mockImplementation(async (input) => {
+      const result = await original(input);
+      return result.kind !== 'stored' ? result : { ...result, states: result.states.map((state) => state.materializationLane === 'current'
+        ? { ...state, pendingSince: NOW.toISOString(), latestLineupRevision: 'b'.repeat(64) } : state) };
+    });
+    expect(await createLiveProjectionWorker(dependencies).run()).toMatchObject({ status: 'completed', publishedLeagues: 2 });
+    expect(dependencies.sourceMock).toHaveBeenCalledTimes(2);
+    expect(dependencies.lineupSource.getLineup).not.toHaveBeenCalled();
+    for (const [input] of vi.mocked(dependencies.lineupRepository.completeLineupObservation).mock.calls) {
+      expect(input.actualLineup).toEqual({ revisionVersion: 'lineup-v1', lineupRevision: 'a'.repeat(64) });
+    }
   });
 
   it('calls both shared providers once and fails the whole provider group when both are unavailable', async () => {
@@ -507,16 +602,11 @@ describe('live projection worker', () => {
     };
     const dependencies = workerDependencies(store);
     dependencies.cadenceMock.mockImplementation(async (configuration) => leagueId(configuration) === 'l1'
-      ? {
-          configuration,
-          period: { season: 2025, seasonType: 'regular' as const, week: 18 },
-          schedule: staleSchedule,
-          currentPeriod: { season: 2026, week: 1, seasonType: 'regular' },
-        }
+      ? completedPriorSeasonCadence(configuration, staleSchedule)
       : cadenceInput(leagueId(configuration)));
 
     await expect(createLiveProjectionWorker(dependencies).run()).resolves.toMatchObject({
-      status: 'completed', cadence: 'live-window', publishedLeagues: 2,
+      status: 'completed', cadence: 'live-window', publishedLeagues: 1,
     });
     expect(leagueId(dependencies.cadenceMock.mock.calls[0][0])).toBe('l1');
     expect(leagueId(dependencies.cadenceMock.mock.calls[1][0])).toBe('l2');
@@ -675,7 +765,7 @@ describe('live projection worker', () => {
     expect(right.projectedPoints).toBe(6);
   });
 
-  it('uses one hourly job bucket throughout the startup window and treats pruning as noncritical', async () => {
+  it('uses a minute execution lease plus hourly completion markers and treats pruning as noncritical', async () => {
     const store = fakeStore();
     store.pruned.mockRejectedValueOnce(new Error('maintenance unavailable'));
     const idleSchedule = fullWeekSchedule('2026-09-20T17:00:00.000Z');
@@ -693,12 +783,17 @@ describe('live projection worker', () => {
       status: 'completed', cadence: 'hourly', publishedLeagues: 2, failedLeagues: 0, providerGroups: 1,
     });
     expect(store.acquired).toHaveBeenCalledWith(expect.objectContaining({
-      jobKey: 'live-projection-sync', scheduledFor: '2026-09-13T18:00:00.000Z',
+      jobKey: 'live-projection-sync', scheduledFor: '2026-09-13T18:03:00.000Z',
     }));
     expect(store.pruned).toHaveBeenCalledWith({
       before: '2026-09-11T18:03:10.000Z', keepRecentSnapshotsPerLeagueWeek: 3,
     });
-    expect(store.completed).toHaveBeenCalledOnce();
+    expect(store.completed).toHaveBeenCalledTimes(3);
+    expect(store.completed.mock.calls.map(([key]) => key)).toEqual([
+      'current-projection-hourly:league1:2026:regular:1',
+      'current-projection-hourly:league2:2026:regular:1',
+      'live-projection-sync',
+    ]);
   });
 
   it('marks the run failed when the acquired lease is lost or expires before completion', async () => {
@@ -710,7 +805,7 @@ describe('live projection worker', () => {
     expect(store.published).toHaveLength(2);
     expect(store.completed).toHaveBeenCalledWith('live-projection-sync', 'worker-1');
     expect(store.failed).toHaveBeenCalledWith(
-      'live-projection-sync', 'worker-1', 'Projection job lease was lost.',
+      'live-projection-sync', 'worker-1', 'current-projection-failed',
     );
   });
 
@@ -742,12 +837,7 @@ describe('live projection worker', () => {
     const store = fakeStore();
     const dependencies = workerDependencies(store);
     dependencies.cadenceMock.mockImplementation(async (configuration) => leagueId(configuration) === 'l1'
-      ? {
-          configuration,
-          period: { season: 2025, seasonType: 'regular' as const, week: 18 },
-          schedule: {},
-          currentPeriod: { season: 2026, week: 1, seasonType: 'regular' },
-        }
+      ? completedPriorSeasonCadence(configuration)
       : cadenceInput(leagueId(configuration)));
     dependencies.sourceMock.mockImplementation(async (configuration) => {
       const id = leagueId(configuration);
@@ -761,7 +851,7 @@ describe('live projection worker', () => {
     });
     await expect(createLiveProjectionWorker(dependencies).run({ force: true })).resolves.toEqual({
       status: 'completed', cadence: 'forced', publishedLeagues: 1,
-      failedLeagues: 1, providerGroups: 1,
+      failedLeagues: 0, providerGroups: 1,
     });
     expect(dependencies.projectionMock).toHaveBeenCalledOnce();
     expect(dependencies.projectionMock).toHaveBeenCalledWith(PERIOD);

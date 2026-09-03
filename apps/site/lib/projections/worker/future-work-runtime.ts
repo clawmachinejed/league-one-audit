@@ -1,14 +1,13 @@
 import type { LeaguePeriod } from '../domain/contracts';
 import type { FutureRefreshFailureCode } from '../ports/future-refresh-repository';
-import type {
-  LiveProjectionWorkerDependencies,
-  ProjectionLogContext,
-} from './contracts';
+import type { ProjectionLogContext } from './contracts';
+import type { FutureProjectionWorkerDependencies } from './future-contracts';
 import {
   FUTURE_WORK_DEADLINE_MS,
-  FUTURE_WORK_START_DEADLINE_MS,
+  futureWorkMayStart,
   futureRefreshIntervalMs,
   type FutureRefreshKind,
+  type FutureWorkSelection,
 } from './future-work-policy';
 
 export const FUTURE_ATTEMPT_LEASE_SECONDS = 55;
@@ -31,7 +30,7 @@ export function futureProviderGroup(period: LeaguePeriod): string {
 }
 
 export function logFuture(
-  dependencies: Pick<LiveProjectionWorkerDependencies, 'logger'>,
+  dependencies: Pick<FutureProjectionWorkerDependencies, 'logger'>,
   level: 'info' | 'warn' | 'error',
   context: ProjectionLogContext,
 ): void {
@@ -54,7 +53,7 @@ export type FutureWorkDeadline = Readonly<{
  * expose cancellation through their cached interface.
  */
 export function createFutureWorkDeadline(
-  dependencies: Pick<LiveProjectionWorkerDependencies, 'clock'>,
+  dependencies: Pick<FutureProjectionWorkerDependencies, 'clock'>,
   timing: FutureWorkTiming,
 ): FutureWorkDeadline {
   const controller = new AbortController();
@@ -87,28 +86,28 @@ export function sameFuturePeriod(left: LeaguePeriod, right: LeaguePeriod): boole
 }
 
 export function futureElapsedMs(
-  dependencies: Pick<LiveProjectionWorkerDependencies, 'clock'>,
+  dependencies: Pick<FutureProjectionWorkerDependencies, 'clock'>,
   timing: FutureWorkTiming,
 ): number {
   return Math.max(0, dependencies.clock.monotonicNow() - timing.monotonicStartedAt);
 }
 
 export function futureTimestamp(
-  dependencies: Pick<LiveProjectionWorkerDependencies, 'clock'>,
+  dependencies: Pick<FutureProjectionWorkerDependencies, 'clock'>,
   timing: FutureWorkTiming,
 ): string {
   return new Date(timing.wallStartedAtMs + futureElapsedMs(dependencies, timing)).toISOString();
 }
 
 export function futureMayStart(
-  dependencies: Pick<LiveProjectionWorkerDependencies, 'clock'>,
+  dependencies: Pick<FutureProjectionWorkerDependencies, 'clock'>,
   timing: FutureWorkTiming,
 ): boolean {
-  return futureElapsedMs(dependencies, timing) < FUTURE_WORK_START_DEADLINE_MS;
+  return futureWorkMayStart(timing.monotonicStartedAt, dependencies.clock.monotonicNow());
 }
 
 export function assertFutureMayStart(
-  dependencies: Pick<LiveProjectionWorkerDependencies, 'clock'>,
+  dependencies: Pick<FutureProjectionWorkerDependencies, 'clock'>,
   timing: FutureWorkTiming,
 ): void {
   if (!futureMayStart(dependencies, timing)) {
@@ -117,7 +116,7 @@ export function assertFutureMayStart(
 }
 
 export function assertFutureWithinDeadline(
-  dependencies: Pick<LiveProjectionWorkerDependencies, 'clock'>,
+  dependencies: Pick<FutureProjectionWorkerDependencies, 'clock'>,
   timing: FutureWorkTiming,
 ): void {
   if (futureElapsedMs(dependencies, timing) >= FUTURE_WORK_DEADLINE_MS) {
@@ -129,9 +128,14 @@ export function nextFutureRefreshAt(
   completedAt: string,
   kind: FutureRefreshKind,
   weekDistance: number,
+  selection?: Pick<FutureWorkSelection, 'defaultPeriod' | 'cadence'>,
 ): string {
   const timestamp = Date.parse(completedAt);
   if (!Number.isFinite(timestamp)) throw new FutureWorkError('unexpected');
+  if (selection?.defaultPeriod) {
+    const bucket = kind === 'materialization' && selection.cadence === 'live-window' ? 60_000 : 3_600_000;
+    return new Date((Math.floor(timestamp / bucket) + 1) * bucket).toISOString();
+  }
   return new Date(timestamp + futureRefreshIntervalMs(kind, weekDistance)).toISOString();
 }
 

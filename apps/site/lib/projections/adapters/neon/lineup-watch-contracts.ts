@@ -1,3 +1,5 @@
+import type { StoreLineupPublicationFence } from './lineup-publication-contracts';
+
 export type LineupWatchPeriod = Readonly<{ season: number; seasonType: 'pre' | 'reg' | 'post'; week: number }>;
 export type LineupWatchClass = 'current' | 'future';
 export type LineupMaterializationLane = 'current' | 'future';
@@ -93,6 +95,10 @@ export type WakeFutureLineupInput = Readonly<{
   wakeProjection: boolean;
 }>;
 export type LineupWatchMethods = {
+  readLineupWatchSchedule(leagueKeys: readonly string[]): Promise<readonly StoredLineupWatchSchedule[]>;
+  reserveFullLineupObservation(input: Readonly<{
+    fence: StoreLineupPublicationFence; modelVersion: string; leaseSeconds: number;
+  }>): Promise<LineupObservationWriteOutcome>;
   synchronizeLineupWatchStates(input: LineupWatchSyncInput): Promise<Readonly<{ kind: 'stored'; states: readonly StoredLineupWatchState[] }> | Readonly<{ kind: 'disabled' }>>;
   claimDueLineupObservations(input: ClaimDueLineupObservationsInput): Promise<readonly StoredLineupWatchState[]>;
   completeLineupObservation(input: CompleteLineupObservationInput): Promise<LineupObservationWriteOutcome>;
@@ -104,3 +110,7 @@ export type LineupWatchMethods = {
   readLineupWatchStates(leagueKeys: readonly string[]): Promise<readonly StoredLineupWatchState[]>;
   wakeFutureProjectionAndMaterialization(input: WakeFutureLineupInput): Promise<LineupWatchTransition>;
 };
+
+/** Planning-only identities. Fresh authority is still required by every claim/read/publication path. */
+export type StoredLineupWatchSchedule = Pick<StoredLineupWatchState,
+  'leagueKey' | 'sourceProvider' | 'externalLeagueId' | 'period' | 'phase'> & Readonly<{ watchClass: LineupWatchClass }>;

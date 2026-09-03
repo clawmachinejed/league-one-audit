@@ -58,7 +58,9 @@ export function createProjectionFutureRefreshMethods(
           WHERE projection_provider = $1 AND season = $2 AND season_type = $3
             AND week = $4 AND normalizer_version = $5
             AND NOT EXISTS (SELECT 1 FROM expired)
-            AND next_refresh_at <= now()
+            AND (next_refresh_at <= now() OR ($9::boolean AND EXISTS (
+              SELECT 1 FROM projection_jobs WHERE job_key = 'future-projection-sync'
+                AND lease_owner = $6::text AND state = 'running' AND lease_until > now())))
             AND active_attempt_id IS NULL
             AND (last_attempted_at IS NULL OR last_attempted_at <= now())
           RETURNING attempt_count, active_attempt_id, active_attempt_expires_at
@@ -83,6 +85,7 @@ export function createProjectionFutureRefreshMethods(
         futureRefreshUuid(input.attemptId, 'Future projection attempt ID'),
         futureRefreshTimestamp(input.attemptedAt, 'Future projection attempt time'),
         futureRefreshLeaseSeconds(input.leaseSeconds),
+        input.force === true,
       ]);
       return futureRefreshClaim(rows);
     },

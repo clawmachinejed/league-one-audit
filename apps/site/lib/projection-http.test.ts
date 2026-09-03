@@ -7,7 +7,8 @@ vi.mock('next/cache', () => ({ unstable_cache: <Value,>(value: Value) => value }
 vi.mock('./live-projection-worker', () => ({ runLiveProjectionSync: defaultCronRun }));
 
 import { isMatchupsData } from './matchups-response';
-import { handleMatchupsSnapshotRequest, handleProjectionCronRequest } from './projection-http';
+import { handleMatchupsSnapshotRequest } from './projection-http';
+import { handleProjectionCronRequest } from './projection-cron-http';
 import { ACTIVE_PROJECTION_SOURCE } from './projection-source-config';
 import type { ProjectionStore, StoredProjectionSnapshot } from './projection-store';
 import type { MatchupsData } from './types';

@@ -56,23 +56,23 @@ export function createFutureRefreshPlanMethods(
         WITH periods AS (
           SELECT * FROM jsonb_to_recordset($1::jsonb) AS value(
             season smallint, season_type text, week smallint,
-            week_distance smallint
+            week_distance smallint, projection_week_distance smallint
           )
         ), projection_rows AS (
           INSERT INTO projection_period_refresh_states (
             projection_provider, season, season_type, week,
             normalizer_version, week_distance, next_refresh_at
           )
-          SELECT $2, season, season_type, week, $3, week_distance,
-            $5::timestamptz + ((week_distance - 1) * interval '15 minutes')
+          SELECT $2, season, season_type, week, $3, projection_week_distance,
+            $5::timestamptz + ((projection_week_distance - 1) * interval '15 minutes')
           FROM periods
           ON CONFLICT DO NOTHING
           RETURNING projection_provider
         ), projection_rollovers AS (
           UPDATE projection_period_refresh_states refresh SET
-            week_distance = period.week_distance,
+            week_distance = period.projection_week_distance,
             next_refresh_at = CASE
-              WHEN period.week_distance < refresh.week_distance
+              WHEN period.projection_week_distance < refresh.week_distance
               THEN LEAST(refresh.next_refresh_at, $5::timestamptz)
               ELSE refresh.next_refresh_at
             END,
@@ -83,7 +83,7 @@ export function createFutureRefreshPlanMethods(
             AND refresh.season_type = period.season_type
             AND refresh.week = period.week
             AND refresh.normalizer_version = $3
-            AND refresh.week_distance IS DISTINCT FROM period.week_distance
+            AND refresh.week_distance IS DISTINCT FROM period.projection_week_distance
           RETURNING refresh.projection_provider
         ), materialization_rows AS (
           INSERT INTO league_week_materialization_states (
@@ -125,6 +125,7 @@ export function createFutureRefreshPlanMethods(
           season_type: value.period.seasonType,
           week: value.period.week,
           week_distance: value.weekDistance,
+          projection_week_distance: value.projectionWeekDistance,
         }))),
         provider(input.projectionProvider),
         requiredText(input.normalizerVersion, 'Projection normalizer version'),
@@ -150,7 +151,8 @@ export function createFutureRefreshPlanMethods(
       const rows = await client.query(`/* projection-store:read-future-refresh-plan */
         WITH requested_periods AS (
           SELECT * FROM jsonb_to_recordset($1::jsonb) AS value(
-            season smallint, season_type text, week smallint, week_distance smallint
+            season smallint, season_type text, week smallint, week_distance smallint,
+            projection_week_distance smallint
           )
         ), requested_leagues AS (
           SELECT unnest($5::text[]) AS league_key
@@ -190,7 +192,7 @@ export function createFutureRefreshPlanMethods(
           AND refresh.season_type = period.season_type
           AND refresh.week = period.week
           AND refresh.normalizer_version = $3
-          AND refresh.week_distance = period.week_distance
+          AND refresh.week_distance = period.projection_week_distance
         CROSS JOIN requested_leagues league
         JOIN league_week_materialization_states material
           ON material.league_key = league.league_key
@@ -200,7 +202,7 @@ export function createFutureRefreshPlanMethods(
           AND material.week = refresh.week
           AND material.normalizer_version = refresh.normalizer_version
           AND material.model_version = $4
-          AND material.week_distance = refresh.week_distance
+          AND material.week_distance = period.week_distance
         LEFT JOIN current_projection_slates current_slate
           ON current_slate.provider = refresh.projection_provider
           AND current_slate.season = refresh.season
@@ -224,6 +226,7 @@ export function createFutureRefreshPlanMethods(
           season_type: value.period.seasonType,
           week: value.period.week,
           week_distance: value.weekDistance,
+          projection_week_distance: value.projectionWeekDistance,
         }))),
         provider(input.projectionProvider),
         requiredText(input.normalizerVersion, 'Projection normalizer version'),

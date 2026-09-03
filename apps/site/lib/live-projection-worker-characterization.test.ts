@@ -126,12 +126,12 @@ describe('live projection worker canonical parity characterization', () => {
     if (startFailure) throw startFailure;
   });
 
-  it('captures the calculation clock and worker identity once and reuses both across the run', async () => {
+  it('reuses the initial calculation time and identity while sampling fresh authority validation time', async () => {
     const fake = fakeStore();
     const base = workerDependencies(fake);
     const now = vi.fn()
       .mockReturnValueOnce(new Date(NOW))
-      .mockReturnValue(new Date('2026-09-13T19:00:10.000Z'));
+      .mockReturnValue(new Date('2026-09-13T18:00:12.000Z'));
     const workerId = vi.fn()
       .mockReturnValueOnce('characterized-worker')
       .mockReturnValue('unexpected-second-worker');
@@ -143,7 +143,7 @@ describe('live projection worker canonical parity characterization', () => {
     }).run();
 
     expect(result).toMatchObject({ status: 'completed' });
-    expect(now).toHaveBeenCalledOnce();
+    expect(now.mock.calls.length).toBeGreaterThan(1);
     expect(workerId).toHaveBeenCalledOnce();
     expect(fake.acquired).toHaveBeenCalledWith(expect.objectContaining({
       workerId: 'characterized-worker',
@@ -184,6 +184,7 @@ describe('live projection worker canonical parity characterization', () => {
       entry.outcome,
     ])).toEqual([
       ['info', 'lease', 'started'],
+      ['info', 'current-lineup-plan', 'completed'],
       ['info', 'league-load', 'completed'],
       ['info', 'provider-load', 'completed'],
       ['info', 'provider-persist', 'completed'],
@@ -191,7 +192,7 @@ describe('live projection worker canonical parity characterization', () => {
       ['info', 'league-publish', 'completed'],
       ['info', 'run', 'completed'],
     ]);
-    const publicationFailure = dependencies.loggerMock.mock.calls[4][1];
+    const publicationFailure = dependencies.loggerMock.mock.calls.find(([, entry]) => entry.stage === 'league-publish' && entry.outcome === 'failed')![1];
     expect(publicationFailure).toMatchObject({
       runId: 'worker-1',
       leagueKey: 'league1',
@@ -199,7 +200,7 @@ describe('live projection worker canonical parity characterization', () => {
       publicationOutcome: 'rejected',
       failureCode: 'snapshot-rejected',
     });
-    const completed = dependencies.loggerMock.mock.calls[6][1];
+    const completed = dependencies.loggerMock.mock.calls.find(([, entry]) => entry.stage === 'run' && entry.outcome === 'completed')![1];
     expect(completed).toMatchObject({
       runId: 'worker-1',
       publishedLeagues: 1,
@@ -234,6 +235,7 @@ describe('live projection worker canonical parity characterization', () => {
       entry.outcome,
     ])).toEqual([
       ['info', 'lease', 'started'],
+      ['info', 'current-lineup-plan', 'completed'],
       ['info', 'league-load', 'completed'],
       ['warn', 'provider-load', 'failed'],
       ['error', 'league-publish', 'failed'],

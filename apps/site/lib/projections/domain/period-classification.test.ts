@@ -9,7 +9,7 @@ const period = { season: 2026, seasonType: 'regular' as const, week: 5 };
 const options = { now, expectedLeagueRef: leagueRef, range: { firstWeek: 1, lastWeek: 18 } };
 function authority(overrides: Partial<LeaguePeriodAuthority> = {}): LeaguePeriodAuthority {
   return {
-    configuration: { key: 'league-A', displayName: 'A', leagueRef },
+    configuration: { key: 'league-A', displayName: 'A', leagueRef, matchupWeekRange: options.range },
     defaultDisplayPeriod: period, activeScoringPeriod: period,
     lifecycle: 'active', nflPhase: 'regular', source: leagueRef.provider,
     sourceRevision: 'test-source', observedAt: now.toISOString(), verifiedAt: now.toISOString(),

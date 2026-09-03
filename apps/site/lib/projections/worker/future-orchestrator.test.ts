@@ -3,7 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('server-only', () => ({}));
 vi.mock('next/cache', () => ({ unstable_cache: <Value,>(value: Value) => value }));
 
-import { createLiveProjectionWorker } from '../../live-projection-worker';
+import { createFutureProjectionWorker } from '../../future-projection-worker';
+import { futureDependencies, watchState } from './future-fixtures';
 import {
   PROJECTION_PROVIDER,
   cadenceInput,
@@ -15,7 +16,6 @@ import {
   source,
   workerDependencies,
   type FakeStore,
-  type WorkerTestDependencies,
 } from '../../live-projection-worker.fixtures';
 import type {
   GameStateObservation,
@@ -107,6 +107,10 @@ function futureSource(configuration: LeagueConfiguration): LeagueWeekState {
     requestCompletedAt: '2026-09-13T18:10:06.000Z',
     observedAt: '2026-09-13T18:10:06.000Z',
     sourceRevision: `future-source-${configuration.key}`,
+    lineup: { revisionVersion: 'lineup-v1', lineupRevision: 'actual-full-lineup' },
+    lineupShape: { expectedRosterCount: base.participants.length,
+      expectedStarterSlotCount: base.matchups[0].sides[0].starters.length,
+      expectedRosterRefs: base.participants.map((participant) => participant.rosterRef) },
   };
 }
 
@@ -132,7 +136,7 @@ function futureGame(): GameStateObservation {
 function configureFutureDependencies(
   store: FakeStore,
   now = FUTURE_NOW,
-): WorkerTestDependencies {
+) {
   const dependencies = workerDependencies(store, { now });
   dependencies.cadenceMock.mockImplementation(async (configuration: LeagueConfiguration) => {
     const value = cadenceInput(String(configuration.leagueRef.externalId), FUTURE_SCHEDULE);
@@ -153,7 +157,7 @@ function configureFutureDependencies(
     status: 'available',
     slate: gameStates(futureGame()),
   });
-  return dependencies;
+  return futureDependencies(dependencies, store);
 }
 
 async function primeStoredProjection(store: FakeStore): Promise<void> {
@@ -164,29 +168,188 @@ async function primeStoredProjection(store: FakeStore): Promise<void> {
 describe('future projection orchestration', () => {
   beforeEach(() => vi.restoreAllMocks());
 
-  it('gives live current-period work priority over all durable future work', async () => {
+  it('reserves full-source ownership first and acknowledges actual C separately from claimed B', async () => {
     const store = fakeStore();
-    store.readFuturePlan.mockResolvedValue(plansWithWeekTwo({ due: true }));
-    const dependencies = workerDependencies(store, { now: FUTURE_NOW });
-    dependencies.cadenceMock.mockImplementation(async (configuration: LeagueConfiguration) => {
-      const value = cadenceInput(
-        String(configuration.leagueRef.externalId),
-        configuration.key === 'league1' ? FUTURE_SCHEDULE : fullWeekSchedule(),
-      );
-      return {
-        ...value,
-        configuration,
-        periodAuthority: { ...value.periodAuthority, configuration },
-      };
+    await primeStoredProjection(store);
+    store.readFuturePlan.mockResolvedValue(plansWithWeekTwo({ currentSlate: STORED_LINEAGE, due: true }, { due: true }));
+    const dependencies = configureFutureDependencies(store);
+    dependencies.lineupRepository.synchronizeLineupWatchStates.mockImplementationOnce(async ({ targets }) => {
+      const states = targets.map((target) => watchState(target, target.period.week === 2 ? {
+        observedVersion: 4, latestLineupRevision: 'B', lastMaterializedLineupRevision: 'A', pendingSince: FUTURE_NOW.toISOString(),
+      } : {}));
+      for (const state of states) dependencies.states.set(state.watchId, state);
+      return { kind: 'stored' as const, states };
     });
+    await expect(createFutureProjectionWorker(dependencies).run()).resolves.toMatchObject({status:'completed',action:'materialize',publishedLeagues:2});
+    expect(dependencies.projectionMock).not.toHaveBeenCalled();
+    expect(dependencies.lineupRepository.reserveFullLineupObservation.mock.invocationCallOrder[0])
+      .toBeLessThan(dependencies.sourceMock.mock.invocationCallOrder[0]);
+    expect(store.beginFutureMaterialization).toHaveBeenCalledWith(expect.objectContaining({target:expect.objectContaining({observedVersion:4,lineupRevision:'B'})}));
+    expect(store.completeFutureMaterialization).toHaveBeenCalledWith(expect.objectContaining({
+      target:expect.objectContaining({observedVersion:4,lineupRevision:'B'}),
+      actualLineup:{revisionVersion:'lineup-v1',lineupRevision:'actual-full-lineup'},
+    }));
+    expect(dependencies.lineupRepository.completeLineupObservation).toHaveBeenCalledTimes(2);
+  });
 
-    await expect(createLiveProjectionWorker(dependencies).run()).resolves.toMatchObject({
-      status: 'completed', cadence: 'live-window', publishedLeagues: 2,
+  it('rejects full-source roster-shape drift before accepting or publishing the lineup', async () => {
+    const store=fakeStore(); await primeStoredProjection(store);
+    store.readFuturePlan.mockResolvedValue(plansWithWeekTwo({currentSlate:STORED_LINEAGE,due:false},{due:true}));
+    const dependencies=configureFutureDependencies(store);
+    dependencies.sourceMock.mockImplementation(async (configuration:LeagueConfiguration)=>{
+      const value=futureSource(configuration);
+      return {...value,lineupShape:{...value.lineupShape,expectedStarterSlotCount:value.lineupShape.expectedStarterSlotCount+1}};
     });
-    expect(store.ensureFuture).not.toHaveBeenCalled();
-    expect(store.readFuturePlan).not.toHaveBeenCalled();
+    await expect(createFutureProjectionWorker(dependencies).run()).resolves.toEqual({status:'failed'});
+    expect(dependencies.lineupRepository.completeLineupObservation).not.toHaveBeenCalled();
+    expect(dependencies.lineupRepository.failLineupObservation).toHaveBeenCalledTimes(2);
+    expect(store.publishInputs).toHaveLength(0);
+  });
+
+  it('does not start a full source request when reservation crosses the start deadline', async () => {
+    const store = fakeStore(); await primeStoredProjection(store);
+    store.readFuturePlan.mockResolvedValue(plansWithWeekTwo({ currentSlate: STORED_LINEAGE, due: false }, { due: true }));
+    const dependencies = configureFutureDependencies(store);
+    dependencies.monotonicMock.mockReturnValue(0);
+    const reserve = dependencies.lineupRepository.reserveFullLineupObservation.getMockImplementation()!;
+    dependencies.lineupRepository.reserveFullLineupObservation.mockImplementation(async (input) => {
+      const result = await reserve(input);
+      dependencies.monotonicMock.mockReturnValue(47_000);
+      return result;
+    });
+    await expect(createFutureProjectionWorker(dependencies).run()).resolves.toEqual({ status: 'failed' });
+    expect(dependencies.lineupRepository.reserveFullLineupObservation).toHaveBeenCalled();
+    expect(dependencies.sourceMock).not.toHaveBeenCalled();
+    expect(dependencies.gamesMock).not.toHaveBeenCalled();
+    expect(dependencies.projectionMock).not.toHaveBeenCalled();
+    expect(dependencies.lineupRepository.failLineupObservation).toHaveBeenCalled();
+    expect(store.failFutureMaterialization).toHaveBeenCalledWith(expect.objectContaining({ failureCode: 'deadline-exceeded' }));
+    expect(store.publishInputs).toHaveLength(0);
+  });
+
+  it('does not allow one missing durable authority to block the healthy league', async () => {
+    const store=fakeStore(); await primeStoredProjection(store);
+    store.readFuturePlan.mockResolvedValue(plansWithWeekTwo({currentSlate:STORED_LINEAGE,due:false},{due:true}));
+    const dependencies=configureFutureDependencies(store);
+    const results=await dependencies.authorityMock();
+    dependencies.authorityMock.mockResolvedValue(results.map((result)=>result.leagueKey==='league2'
+      ? {kind:'missing' as const,leagueKey:result.leagueKey}:result));
+    await expect(createFutureProjectionWorker(dependencies).run()).resolves.toMatchObject({status:'completed',publishedLeagues:1,failedLeagues:1});
+    expect(store.ensureFuture).toHaveBeenCalledWith(expect.objectContaining({leagueKeys:['league1']}));
+    expect(dependencies.sourceMock).toHaveBeenCalledTimes(1);
+  });
+  it('reports unavailable authority as failure rather than healthy idle when every league is affected', async () => {
+    const store=fakeStore(); const dependencies=configureFutureDependencies(store);
+    dependencies.authorityMock.mockResolvedValue(['league1','league2'].map((leagueKey)=>({kind:'database-error' as const,leagueKey})));
+    await expect(createFutureProjectionWorker(dependencies).run()).resolves.toEqual({status:'failed'});
+    expect(store.acquired).not.toHaveBeenCalled();
+    expect(dependencies.projectionMock).not.toHaveBeenCalled();
+  });
+
+  it('reports a missing league authority when healthy sibling leagues have no due work', async () => {
+    const store = fakeStore(); const dependencies = configureFutureDependencies(store);
+    store.readFuturePlan.mockResolvedValue(plansWithWeekTwo({ due: false }));
+    const authorities = await dependencies.authorityMock();
+    dependencies.authorityMock.mockResolvedValue(authorities.map((result) => result.leagueKey === 'league2'
+      ? { kind: 'missing' as const, leagueKey: result.leagueKey } : result));
+    await expect(createFutureProjectionWorker(dependencies).run()).resolves.toEqual({ status: 'failed' });
+    expect(dependencies.logger.write).toHaveBeenCalledWith('warn', expect.objectContaining({
+      stage: 'future-authority', outcome: 'failed', failedLeagues: 1,
+    }));
+    expect(store.acquired).not.toHaveBeenCalled();
+    expect(dependencies.sourceMock).not.toHaveBeenCalled();
+    expect(dependencies.projectionMock).not.toHaveBeenCalled();
+    expect(dependencies.gamesMock).not.toHaveBeenCalled();
+  });
+
+  it('accepts authority verified during the read by validating against the post-read clock', async () => {
+    const store = fakeStore(); const dependencies = configureFutureDependencies(store);
+    const values = await dependencies.authorityMock();
+    const later = new Date(FUTURE_NOW.getTime() + 1_000);
+    const clock = vi.spyOn(dependencies.clock, 'now').mockReturnValue(FUTURE_NOW);
+    dependencies.authorityMock.mockImplementation(async () => {
+      clock.mockReturnValue(later);
+      return values.map((value) => value.kind === 'present' ? { ...value, value: { ...value.value,
+        authority: { ...value.value.authority, observedAt: later.toISOString(), verifiedAt: later.toISOString() },
+      } } : value);
+    });
+    store.readFuturePlan.mockResolvedValue(plansWithWeekTwo({ due: false }));
+    await expect(createFutureProjectionWorker(dependencies).run()).resolves.toEqual({ status: 'skipped', reason: 'idle' });
+    expect(store.ensureFuture).toHaveBeenCalledWith(expect.objectContaining({ leagueKeys: ['league1', 'league2'] }));
+  });
+
+  it('seeds only each healthy league horizon instead of a union cross-product during rollover', async () => {
+    const store=fakeStore(); const dependencies=configureFutureDependencies(store);
+    const authorities=await dependencies.authorityMock();
+    dependencies.authorityMock.mockResolvedValue(authorities.map((result)=>result.kind==='present' && result.leagueKey==='league2'?{
+      ...result,value:{...result.value,authority:{...result.value.authority,
+        defaultDisplayPeriod:{...FUTURE_PERIOD,week:5},activeScoringPeriod:{...FUTURE_PERIOD,week:5}}},
+    }:result));
+    store.readFuturePlan.mockImplementation(async(input:{targets:readonly {period:LeaguePeriod}[];leagueKeys:readonly string[]})=>input.targets.map(({period})=>{
+      const value=planForWeek(period.week);return {...value,materializations:value.materializations.filter((state)=>input.leagueKeys.includes(state.leagueKey))};
+    }));
+    await expect(createFutureProjectionWorker(dependencies).run()).resolves.toEqual({status:'skipped',reason:'idle'});
+    const calls=store.ensureFuture.mock.calls.map(([input])=>input);
+    expect(calls).toHaveLength(2);
+    expect(calls.find((input)=>input.leagueKeys.includes('league1')).targets[0].period.week).toBe(2);
+    expect(calls.find((input)=>input.leagueKeys.includes('league2')).targets[0].period.week).toBe(6);
+    expect(calls.every((input)=>input.leagueKeys.length===1)).toBe(true);
+    expect(calls.find((input)=>input.leagueKeys.includes('league1')).targets.find((target: {period:LeaguePeriod})=>target.period.week===6))
+      .toMatchObject({weekDistance:5,projectionWeekDistance:1});
+    expect(calls.find((input)=>input.leagueKeys.includes('league2')).targets.find((target: {period:LeaguePeriod})=>target.period.week===6))
+      .toMatchObject({weekDistance:1,projectionWeekDistance:1});
+  });
+
+  it('preserves the original request deadline when forced future work follows current preflight', async () => {
+    const store=fakeStore();
+    const dependencies=configureFutureDependencies(store);
+    dependencies.monotonicMock.mockReturnValue(46_000);
+    await expect(createFutureProjectionWorker(dependencies).run({period:FUTURE_PERIOD,leagueKeys:['league1'],
+      execution:{now:FUTURE_NOW,runId:'original-run',timing:{wallStartedAtMs:FUTURE_NOW.getTime(),monotonicStartedAt:0}}}))
+      .resolves.toEqual({status:'skipped',reason:'deadline'});
+    expect(dependencies.authorityMock).not.toHaveBeenCalled();
+    expect(dependencies.projectionMock).not.toHaveBeenCalled();
+    expect(dependencies.workerIdMock).not.toHaveBeenCalled();
+  });
+
+  it('routes forced preseason default work through one ingest and the existing materialization stages', async () => {
+    const store=fakeStore();
+    const dependencies=configureFutureDependencies(store);
+    const period={...FUTURE_PERIOD,week:1};
+    const authorities=await dependencies.authorityMock();
+    dependencies.authorityMock.mockResolvedValue(authorities.map((result)=>result.kind==='present'?{
+      ...result,value:{...result.value,authority:{...result.value.authority,lifecycle:'preseason' as const,
+        activeScoringPeriod:null,nflPhase:'preseason' as const}},
+    }:result));
+    const base=planForWeek(1);
+    store.readFuturePlan.mockResolvedValue([{...base,weekDistance:1,
+      projection:{...base.projection,currentSlate:STORED_LINEAGE},
+    },...plansWithWeekTwo({due:false})]);
+    dependencies.projectionMock.mockResolvedValue({status:'available',slate:projectionResult(period)});
+    dependencies.sourceMock.mockImplementation(async(configuration:LeagueConfiguration)=>({...futureSource(configuration),period}));
+    dependencies.gamesMock.mockResolvedValue({status:'available',slate:gameStates({...futureGame(),period})});
+    await expect(createFutureProjectionWorker(dependencies).run({period,leagueKeys:['league1','league2'],
+      execution:{now:FUTURE_NOW,runId:'original-force-run',timing:{wallStartedAtMs:FUTURE_NOW.getTime(),monotonicStartedAt:0}}}))
+      .resolves.toMatchObject({status:'completed',action:'materialize',period,publishedLeagues:2});
     expect(dependencies.projectionMock).toHaveBeenCalledOnce();
     expect(dependencies.gamesMock).toHaveBeenCalledOnce();
+    expect(dependencies.sourceMock).toHaveBeenCalledTimes(2);
+    expect(store.beginFutureProjection).toHaveBeenCalledWith(expect.objectContaining({force:true,attemptId:'original-force-run'}));
+    expect(store.beginFutureMaterialization).toHaveBeenCalledWith(expect.objectContaining({force:true}));
+    expect(store.acquired).toHaveBeenCalledOnce();
+    expect(dependencies.cadenceMock).not.toHaveBeenCalled();
+    expect(dependencies.workerIdMock).not.toHaveBeenCalled();
+  });
+
+  it('does not call the current calendar and can run independently of current live work', async () => {
+    const store = fakeStore();
+    store.readFuturePlan.mockResolvedValue(plansWithWeekTwo({ due: true }));
+    const dependencies = configureFutureDependencies(store);
+    await expect(createFutureProjectionWorker(dependencies).run()).resolves.toMatchObject({
+      status: 'completed', action: 'projection-ingest', period: FUTURE_PERIOD,
+    });
+    expect(dependencies.cadenceMock).not.toHaveBeenCalled();
+    expect(dependencies.periodAuthorityReader.readAuthorities).toHaveBeenCalledOnce();
   });
 
   it('ingests one future canary with a minute-scoped claim and no other provider calls', async () => {
@@ -194,9 +357,9 @@ describe('future projection orchestration', () => {
     store.readFuturePlan.mockResolvedValue(plansWithWeekTwo({ due: true }));
     const dependencies = configureFutureDependencies(store);
 
-    await expect(createLiveProjectionWorker(dependencies).run()).resolves.toEqual({
-      status: 'completed', cadence: 'hourly', publishedLeagues: 0,
-      failedLeagues: 0, providerGroups: 1,
+    await expect(createFutureProjectionWorker(dependencies).run()).resolves.toEqual({
+      status: 'completed', action: 'projection-ingest', period: FUTURE_PERIOD, publishedLeagues: 0,
+      unchangedLeagues: 0, failedLeagues: 0,
     });
     expect(store.acquired).toHaveBeenCalledOnce();
     expect(store.acquired).toHaveBeenCalledWith(expect.objectContaining({
@@ -207,10 +370,10 @@ describe('future projection orchestration', () => {
     expect(store.ensureFuture).toHaveBeenCalledWith(expect.objectContaining({
       leagueKeys: ['league1', 'league2'],
       targets: expect.arrayContaining([
-        { period: FUTURE_PERIOD, weekDistance: 1 },
+        { period: FUTURE_PERIOD, weekDistance: 1, projectionWeekDistance: 1 },
         {
           period: { season: 2026, seasonType: 'regular', week: 18 },
-          weekDistance: 17,
+          weekDistance: 17, projectionWeekDistance: 17,
         },
       ]),
     }));
@@ -232,27 +395,14 @@ describe('future projection orchestration', () => {
     }));
   });
 
-  it('falls through from an already-completed hourly current job to future work', async () => {
+  it('uses only its independent execution lease and treats an already-completed minute as busy', async () => {
     const store = fakeStore();
-    store.acquired
-      .mockResolvedValueOnce({ kind: 'completed' })
-      .mockResolvedValueOnce({
-        kind: 'acquired', attempt: 1, leaseUntil: '2026-09-13T18:02:00.000Z',
-      });
     store.readFuturePlan.mockResolvedValue(plansWithWeekTwo({ due: true }));
-    const dependencies = configureFutureDependencies(
-      store,
-      new Date('2026-09-13T18:00:10.000Z'),
-    );
-
-    await expect(createLiveProjectionWorker(dependencies).run()).resolves.toMatchObject({
-      status: 'completed', cadence: 'hourly', providerGroups: 1,
-    });
-    expect(store.acquired).toHaveBeenCalledTimes(2);
-    expect(store.acquired.mock.calls.map(([input]) => input.jobKey)).toEqual([
-      'live-projection-sync', 'future-projection-sync',
-    ]);
-    expect(dependencies.projectionMock).toHaveBeenCalledOnce();
+    store.acquired.mockResolvedValueOnce({kind:'completed'});
+    const dependencies = configureFutureDependencies(store);
+    await expect(createFutureProjectionWorker(dependencies).run()).resolves.toEqual({status:'skipped',reason:'busy'});
+    expect(dependencies.projectionMock).not.toHaveBeenCalled();
+    expect(store.acquired).toHaveBeenCalledOnce();
   });
 
   it('completes a future projection refresh when unchanged content verifies the current slate', async () => {
@@ -269,8 +419,8 @@ describe('future projection orchestration', () => {
       };
     });
 
-    await expect(createLiveProjectionWorker(dependencies).run()).resolves.toMatchObject({
-      status: 'completed', providerGroups: 1,
+    await expect(createFutureProjectionWorker(dependencies).run()).resolves.toMatchObject({
+      status: 'completed', action: 'projection-ingest',
     });
     expect(store.completeFutureProjection).toHaveBeenCalledWith(expect.objectContaining({
       slate: STORED_LINEAGE,
@@ -287,9 +437,9 @@ describe('future projection orchestration', () => {
     ));
     const dependencies = configureFutureDependencies(store);
 
-    await expect(createLiveProjectionWorker(dependencies).run()).resolves.toEqual({
-      status: 'completed', cadence: 'hourly', publishedLeagues: 2,
-      failedLeagues: 0, providerGroups: 1,
+    await expect(createFutureProjectionWorker(dependencies).run()).resolves.toEqual({
+      status: 'completed', action: 'materialize', period: FUTURE_PERIOD, publishedLeagues: 2,
+      unchangedLeagues: 0, failedLeagues: 0,
     });
     expect(dependencies.projectionMock).not.toHaveBeenCalled();
     expect(dependencies.gamesMock).toHaveBeenCalledOnce();
@@ -334,8 +484,8 @@ describe('future projection orchestration', () => {
       return { kind: 'unchanged', snapshot };
     });
 
-    await expect(createLiveProjectionWorker(dependencies).run()).resolves.toMatchObject({
-      status: 'completed', publishedLeagues: 2,
+    await expect(createFutureProjectionWorker(dependencies).run()).resolves.toMatchObject({
+      status: 'completed', publishedLeagues: 0, unchangedLeagues: 2,
     });
     expect(store.completeFutureMaterialization.mock.calls.map(([input]) => ({
       sourceRevision: input.sourceRevision,
@@ -355,7 +505,7 @@ describe('future projection orchestration', () => {
       slate: { ...projectionResult(FUTURE_PERIOD), quality: 'partial' },
     });
 
-    await expect(createLiveProjectionWorker(dependencies).run()).resolves.toEqual({ status: 'failed' });
+    await expect(createFutureProjectionWorker(dependencies).run()).resolves.toEqual({ status: 'failed' });
     expect(store.failFutureProjection).toHaveBeenCalledWith(expect.objectContaining({
       failureCode: 'projection-slate-incomplete',
     }));
@@ -373,7 +523,7 @@ describe('future projection orchestration', () => {
       slate: projectionResult({ ...FUTURE_PERIOD, week: 3 }),
     });
 
-    await expect(createLiveProjectionWorker(dependencies).run()).resolves.toEqual({ status: 'failed' });
+    await expect(createFutureProjectionWorker(dependencies).run()).resolves.toEqual({ status: 'failed' });
     expect(store.failFutureProjection).toHaveBeenCalledWith(expect.objectContaining({
       failureCode: 'projection-slate-invalid',
     }));
@@ -393,9 +543,9 @@ describe('future projection orchestration', () => {
       return futureSource(configuration);
     });
 
-    await expect(createLiveProjectionWorker(dependencies).run()).resolves.toEqual({
-      status: 'completed', cadence: 'hourly', publishedLeagues: 1,
-      failedLeagues: 1, providerGroups: 1,
+    await expect(createFutureProjectionWorker(dependencies).run()).resolves.toEqual({
+      status: 'completed', action: 'materialize', period: FUTURE_PERIOD, publishedLeagues: 1,
+      unchangedLeagues: 0, failedLeagues: 1,
     });
     expect(store.completeFutureMaterialization).toHaveBeenCalledOnce();
     expect(store.failFutureMaterialization).toHaveBeenCalledWith(expect.objectContaining({
@@ -416,7 +566,7 @@ describe('future projection orchestration', () => {
       period: { ...FUTURE_PERIOD, week: 3 },
     }));
 
-    await expect(createLiveProjectionWorker(dependencies).run()).resolves.toEqual({ status: 'failed' });
+    await expect(createFutureProjectionWorker(dependencies).run()).resolves.toEqual({ status: 'failed' });
     expect(store.failFutureMaterialization).toHaveBeenCalledTimes(2);
     expect(store.failFutureMaterialization).toHaveBeenCalledWith(expect.objectContaining({
       failureCode: 'league-period-mismatch',
@@ -439,7 +589,7 @@ describe('future projection orchestration', () => {
     ));
     const dependencies = configureFutureDependencies(store);
 
-    await expect(createLiveProjectionWorker(dependencies).run()).resolves.toEqual({ status: 'failed' });
+    await expect(createFutureProjectionWorker(dependencies).run()).resolves.toEqual({ status: 'failed' });
     expect(store.failFutureMaterialization).toHaveBeenCalledTimes(2);
     expect(store.failFutureMaterialization).toHaveBeenCalledWith(expect.objectContaining({
       failureCode: 'projection-slate-unavailable',
@@ -467,7 +617,7 @@ describe('future projection orchestration', () => {
       slate: gameStates(stale),
     });
 
-    await expect(createLiveProjectionWorker(dependencies).run()).resolves.toEqual({ status: 'failed' });
+    await expect(createFutureProjectionWorker(dependencies).run()).resolves.toEqual({ status: 'failed' });
     expect(store.failFutureMaterialization).toHaveBeenCalledTimes(2);
     expect(store.failFutureMaterialization).toHaveBeenCalledWith(expect.objectContaining({
       failureCode: 'game-state-incomplete',
@@ -488,8 +638,8 @@ describe('future projection orchestration', () => {
     store.readFuturePlan.mockResolvedValue(plans);
     const dependencies = configureFutureDependencies(store);
 
-    await expect(createLiveProjectionWorker(dependencies).run()).resolves.toEqual({
-      status: 'skipped', reason: 'idle', cadence: 'idle',
+    await expect(createFutureProjectionWorker(dependencies).run()).resolves.toEqual({
+      status: 'skipped', reason: 'idle',
     });
     expect(store.acquired).not.toHaveBeenCalled();
     expect(dependencies.projectionMock).not.toHaveBeenCalled();
@@ -504,8 +654,8 @@ describe('future projection orchestration', () => {
     });
     const dependencies = configureFutureDependencies(store);
 
-    await expect(createLiveProjectionWorker(dependencies).run()).resolves.toEqual({
-      status: 'skipped', reason: 'busy', cadence: null,
+    await expect(createFutureProjectionWorker(dependencies).run()).resolves.toEqual({
+      status: 'skipped', reason: 'busy',
     });
     expect(dependencies.projectionMock).not.toHaveBeenCalled();
     expect(store.completed).toHaveBeenCalledWith('future-projection-sync', 'worker-1');
@@ -525,7 +675,7 @@ describe('future projection orchestration', () => {
     });
     dependencies.monotonicMock.mockImplementation(() => claimCompleted ? 46_000 : 0);
 
-    await expect(createLiveProjectionWorker(dependencies).run()).resolves.toEqual({ status: 'failed' });
+    await expect(createFutureProjectionWorker(dependencies).run()).resolves.toEqual({ status: 'failed' });
     expect(dependencies.projectionMock).not.toHaveBeenCalled();
     expect(store.failFutureProjection).toHaveBeenCalledWith(expect.objectContaining({
       failureCode: 'deadline-exceeded',
@@ -543,7 +693,7 @@ describe('future projection orchestration', () => {
     });
     dependencies.monotonicMock.mockImplementation(() => providerCompleted ? 51_000 : 0);
 
-    await expect(createLiveProjectionWorker(dependencies).run()).resolves.toEqual({ status: 'failed' });
+    await expect(createFutureProjectionWorker(dependencies).run()).resolves.toEqual({ status: 'failed' });
     expect(dependencies.projectionMock).toHaveBeenCalledOnce();
     expect(store.operations).not.toContain('record-projection-slate');
     expect(store.failFutureProjection).toHaveBeenCalledWith(expect.objectContaining({
@@ -552,17 +702,17 @@ describe('future projection orchestration', () => {
   });
 
   it('aborts scoped persistence and returns while a provider promise remains pending', async () => {
-    vi.useFakeTimers();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     try {
       const store = fakeStore();
       store.readFuturePlan.mockResolvedValue(plansWithWeekTwo({ due: true }));
       const dependencies = configureFutureDependencies(store);
       dependencies.projectionMock.mockImplementation(() => new Promise(() => undefined));
 
-      const result = createLiveProjectionWorker(dependencies).run();
-      for (let index = 0; index < 50 && dependencies.projectionMock.mock.calls.length === 0;
+      const result = createFutureProjectionWorker(dependencies).run();
+      for (let index = 0; index < 1000 && dependencies.projectionMock.mock.calls.length === 0;
         index += 1) {
-        await Promise.resolve();
+        await new Promise<void>((resolve) => setImmediate(resolve));
       }
       expect(dependencies.projectionMock).toHaveBeenCalledOnce();
       const operationSignal = dependencies.futureScopeMock.mock.calls[0]?.[0] as AbortSignal;
@@ -589,7 +739,7 @@ describe('future projection orchestration', () => {
     const dependencies = configureFutureDependencies(store);
     dependencies.projectionMock.mockRejectedValue(new Error('secret raw provider failure'));
 
-    await expect(createLiveProjectionWorker(dependencies).run()).resolves.toEqual({ status: 'failed' });
+    await expect(createFutureProjectionWorker(dependencies).run()).resolves.toEqual({ status: 'failed' });
     expect(store.failFutureProjection).toHaveBeenCalledWith(expect.objectContaining({
       failureCode: 'provider-unavailable',
       projectionSource: PROJECTION_PROVIDER,

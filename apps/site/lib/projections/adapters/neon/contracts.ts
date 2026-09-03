@@ -346,6 +346,7 @@ export type StoreFutureRefreshPeriod = Readonly<{
 export type StoreFutureRefreshTarget = Readonly<{
   period: StoreFutureRefreshPeriod;
   weekDistance: number;
+  projectionWeekDistance?: number;
 }>;
 
 export type StoreFutureProjectionSlateLineage = Readonly<{
@@ -512,6 +513,7 @@ export type ProjectionStore = LineupWatchMethods & LineupAcknowledgmentMethods &
     attemptId: string;
     attemptedAt: string;
     leaseSeconds: number;
+    force?: true;
   }>) => Promise<StoreFutureRefreshClaim>;
   completeFutureProjectionRefresh: (input: Readonly<{
     projectionProvider: string;
@@ -540,6 +542,7 @@ export type ProjectionStore = LineupWatchMethods & LineupAcknowledgmentMethods &
     attemptedAt: string;
     leaseSeconds: number;
     target?: StoreLineupMaterializationTarget;
+    force?: true;
   }>) => Promise<StoreFutureRefreshClaim>;
   completeFutureMaterializationRefresh: (input: Readonly<{
     leagueKey: string;

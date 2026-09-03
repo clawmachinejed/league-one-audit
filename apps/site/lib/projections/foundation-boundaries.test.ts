@@ -12,6 +12,8 @@ const expectedPorts = [
   'identity-crosswalk.ts',
   'league-registry.ts',
   'league-source.ts',
+  'lineup-source.ts',
+  'lineup-watch-repository.ts',
   'logger.ts',
   'nfl-calendar.ts',
   'period-authority-reader.ts',

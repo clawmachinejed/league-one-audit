@@ -5,7 +5,8 @@ vi.mock('server-only', () => ({}));
 import { createNeonPeriodAuthorityReader } from './period-authority-reader';
 
 const asOf = new Date('2026-09-03T12:00:00Z');
-const configurations = ['alpha', 'beta'].map((key) => ({ key, displayName: key, leagueRef: externalLeagueRef('sleeper', `source-${key}`) }));
+const configurations = ['alpha', 'beta'].map((key) => ({ key, displayName: key,
+  leagueRef: externalLeagueRef('sleeper', `source-${key}`), matchupWeekRange: { firstWeek: 1, lastWeek: 18 } }));
 function stored(leagueKey = 'alpha', overrides: Partial<StoredLeagueLineupAuthority> = {}): StoredLeagueAuthorityRead {
   return { kind: 'available', leagueKey, authority: {
     leagueKey, defaultSeason: 2026, defaultSeasonType: 'reg', defaultWeek: 2,

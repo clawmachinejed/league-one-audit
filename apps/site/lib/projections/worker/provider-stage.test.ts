@@ -69,7 +69,8 @@ const defense: ScoringEntity = {
 function sourceFor(key: string, sourcePeriod: LeaguePeriod = period): LeagueWeekState {
   const leagueRef = externalLeagueRef(officialProvider, key);
   return {
-    configuration: { key, displayName: key, leagueRef },
+    configuration: { key, displayName: key, leagueRef, matchupWeekRange: { firstWeek: 1, lastWeek: 18 } },
+    lineupShape: { expectedRosterCount: 0, expectedStarterSlotCount: 2, expectedRosterRefs: [] },
     leagueName: key,
     period: sourcePeriod,
     maxWeek: 18,
@@ -83,6 +84,7 @@ function sourceFor(key: string, sourcePeriod: LeaguePeriod = period): LeagueWeek
     requestCompletedAt: '2026-09-01T00:00:01.000Z',
     observedAt: '2026-09-01T00:00:01.000Z',
     sourceRevision: `source-${key}`,
+    lineup: { revisionVersion: 'lineup-v1', lineupRevision: '1'.repeat(64) },
   };
 }
 

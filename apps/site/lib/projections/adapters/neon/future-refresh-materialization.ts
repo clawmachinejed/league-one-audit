@@ -106,7 +106,9 @@ export function createMaterializationFutureRefreshMethods(
             AND normalizer_version = $6 AND model_version = $7
             AND NOT EXISTS (SELECT 1 FROM expired)
             AND EXISTS (SELECT 1 FROM valid_target)
-            AND next_refresh_at <= now()
+            AND (next_refresh_at <= now() OR ($12::boolean AND EXISTS (
+              SELECT 1 FROM projection_jobs WHERE job_key = 'future-projection-sync'
+                AND lease_owner = $8::text AND state = 'running' AND lease_until > now())))
             AND active_attempt_id IS NULL
             AND (last_attempted_at IS NULL OR last_attempted_at <= now())
           RETURNING attempt_count, active_attempt_id, active_attempt_expires_at
@@ -134,6 +136,7 @@ export function createMaterializationFutureRefreshMethods(
         futureRefreshTimestamp(input.attemptedAt, 'Future materialization attempt time'),
         futureRefreshLeaseSeconds(input.leaseSeconds),
         input.target === undefined ? null : json(materializationTargetValue(input.target)),
+        input.force === true,
       ]);
       return futureRefreshClaim(rows);
     },

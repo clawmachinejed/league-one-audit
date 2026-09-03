@@ -13,6 +13,8 @@ import type {
 } from '../../domain/contracts';
 import type { NflCalendarPort } from '../../ports/nfl-calendar';
 import { compatibleRevision } from '../../shared/revision-compatibility';
+import { validLineupShape } from '../../domain/lineup-observation';
+import { sleeperLineupObservationShape } from './lineup-observation';
 
 export type SleeperCadenceLoader = (
   leagueId: string,
@@ -115,6 +117,10 @@ export function createSleeperNflCalendar(
       if (source.sleeperLeagueId !== leagueId) {
         throw new Error('Sleeper returned cadence data for a different league.');
       }
+      const lineupShape = sleeperLineupObservationShape(configuration.leagueRef, source.matchupShape);
+      if (!validLineupShape(lineupShape)) throw new Error('Sleeper did not return a valid authoritative lineup shape.');
+      const schedule = translateSleeperWeekSchedule(source.schedule);
+      const isDefaultPeriod = source.defaultDisplayWeek === source.week;
 
       return {
         configuration,
@@ -125,7 +131,15 @@ export function createSleeperNflCalendar(
           week: source.currentNflWeek,
           seasonType: source.currentNflSeasonType,
         },
-        schedule: translateSleeperWeekSchedule(source.schedule),
+        schedule,
+        lineupShape,
+        defaultPeriodCadence: {
+          isCurrentRegularPeriod: isDefaultPeriod && source.currentNflSeasonType === 'regular'
+            && source.currentNflSeason === source.season && source.currentNflWeek === source.week,
+          // An advanced display week does not borrow the active scoring week's timing.
+          games: isDefaultPeriod ? Object.values(schedule).flatMap((game) => game.kind === 'scheduled'
+            ? [{ kickoffAt: game.kickoffAt, date: game.date }] : []) : [],
+        },
       };
     },
   };

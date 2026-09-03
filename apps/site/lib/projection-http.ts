@@ -1,6 +1,5 @@
 import 'server-only';
 
-import { timingSafeEqual } from 'node:crypto';
 import { LEAGUE_IDS } from './config';
 import type { LeagueKey } from './leagues';
 import { parseMatchupWeek } from './matchup-week';
@@ -8,9 +7,7 @@ import { matchupPeriodHeaders } from './matchup-period';
 import { SNAPSHOT_REVISION_HEADER, SNAPSHOT_VERIFIED_AT_HEADER, validSnapshotRevision } from './matchup-snapshot-metadata';
 import { readStoredMatchups, readStoredMatchupRevision } from './projection-reader';
 import { getProjectionStore, type ProjectionStore } from './projection-store';
-import { runLiveProjectionSync, type LiveProjectionSyncResult } from './live-projection-worker';
 
-type CronRunner = (options?: Readonly<{ force?: boolean }>) => Promise<LiveProjectionSyncResult>;
 
 const NO_STORE_HEADERS = { 'Cache-Control': 'no-store' } as const;
 const CURRENT_SNAPSHOT_HEADERS = {
@@ -33,49 +30,6 @@ function response(
 
 function validLeagueKey(value: string): value is LeagueKey {
   return Object.prototype.hasOwnProperty.call(LEAGUE_IDS, value);
-}
-
-function authorized(header: string | null, secret: string): boolean {
-  const expected = Buffer.from(`Bearer ${secret}`, 'utf8');
-  const actual = Buffer.from(header ?? '', 'utf8');
-  return actual.length === expected.length && timingSafeEqual(actual, expected);
-}
-
-export async function handleProjectionCronRequest(
-  request: Request,
-  options: Readonly<{
-    secret?: string;
-    run?: CronRunner;
-  }> = {},
-): Promise<Response> {
-  const secret = options.secret ?? process.env.CRON_SECRET;
-  if (!secret) return response({ status: 'unavailable' }, 503);
-  if (!authorized(request.headers.get('authorization'), secret)) {
-    return response({ status: 'unauthorized' }, 401);
-  }
-
-  const force = new URL(request.url).searchParams.get('force') === '1';
-  let result: LiveProjectionSyncResult;
-  try {
-    result = await (options.run ?? runLiveProjectionSync)({ force });
-  } catch {
-    return response({ status: 'failed' }, 500);
-  }
-
-  if (result.status === 'disabled') return response({ status: 'unavailable' }, 503);
-  if (result.status === 'failed') return response({ status: 'failed' }, 500);
-  if (result.status === 'skipped') {
-    return response({ status: 'skipped', reason: result.reason, cadence: result.cadence }, 200);
-  }
-  return response({
-    status: 'completed',
-    cadence: result.cadence,
-    publishedLeagues: result.publishedLeagues,
-    failedLeagues: result.failedLeagues,
-    providerGroups: result.providerGroups,
-  // Keep successfully published leagues, but surface any partial fleet failure
-  // to Vercel's function health and logs instead of reporting a silent success.
-  }, result.failedLeagues > 0 ? 503 : 200);
 }
 
 export async function handleMatchupsSnapshotRequest(

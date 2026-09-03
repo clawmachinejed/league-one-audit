@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { createProductionProjectionDependencies } from './projections/runtime/projection-composition';
+import { runProductionProjectionSync } from './projections/runtime/projection-dispatch';
 import type {
   LiveProjectionSyncResult,
   LiveProjectionWorkerDependencies,
@@ -23,5 +23,5 @@ export function createLiveProjectionWorker(dependencies: LiveProjectionWorkerDep
 export async function runLiveProjectionSync(
   options: Readonly<{ force?: boolean }> = {},
 ): Promise<LiveProjectionSyncResult> {
-  return runWithDependencies(createProductionProjectionDependencies(), options);
+  return runProductionProjectionSync(options);
 }

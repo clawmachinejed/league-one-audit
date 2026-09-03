@@ -1,12 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ProjectionCadenceInput } from '../../../sleeper';
-import { externalLeagueRef } from '../../shared/provider-identity';
+import { externalLeagueRef, externalRosterRef } from '../../shared/provider-identity';
 import { createSleeperNflCalendar } from './nfl-calendar';
 
 const configuration = {
   key: 'premier',
   displayName: 'Premier League',
   leagueRef: externalLeagueRef('official-source', 'league-001'),
+  matchupWeekRange: { firstWeek: 1, lastWeek: 18 },
 };
 
 function cadence(
@@ -14,6 +15,7 @@ function cadence(
 ): ProjectionCadenceInput {
   return {
     sleeperLeagueId: 'league-001',
+    matchupShape: { rosterIds: [1, 2], expectedRosterCount: 2, expectedStarterSlotCount: 1, starterSlots: ['QB'] },
     season: '2026',
     defaultDisplayWeek: 1,
     week: 1,
@@ -69,6 +71,11 @@ describe('Sleeper NFL calendar adapter', () => {
         verifiedAt: '2026-09-13T16:00:00.000Z',
       }),
       currentPeriod: { season: 2026, week: 1, seasonType: 'regular' },
+      lineupShape: { expectedRosterCount: 2, expectedStarterSlotCount: 1,
+        expectedRosterRefs: [externalRosterRef(configuration.leagueRef, '1'), externalRosterRef(configuration.leagueRef, '2')] },
+      defaultPeriodCadence: { isCurrentRegularPeriod: true,
+        games: [{ kickoffAt: '2026-09-13T17:00:00.000Z', date: '2026-09-13' },
+          { kickoffAt: '2026-09-13T17:00:00.000Z', date: '2026-09-13' }] },
       schedule: cadence().schedule,
     });
   });
@@ -99,6 +106,7 @@ describe('Sleeper NFL calendar adapter', () => {
 
     expect(result.period).toEqual({ season: 2026, seasonType: 'regular', week: 1 });
     expect(result.schedule).toEqual(activeSchedule);
+    expect(result.defaultPeriodCadence).toEqual({ isCurrentRegularPeriod: false, games: [] });
     expect(result.periodAuthority).toMatchObject({
       defaultDisplayPeriod: { season: 2026, seasonType: 'regular', week: 2 },
       activeScoringPeriod: { season: 2026, seasonType: 'regular', week: 1 },

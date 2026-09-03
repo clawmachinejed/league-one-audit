@@ -1,4 +1,5 @@
 import 'server-only';
+import { startProviderHttp } from '../../../provider-request-telemetry';
 
 import {
   normalizeGamePhase,
@@ -237,6 +238,7 @@ export function createTank01GameStateFeed(
     if (!apiKey) return unavailable(period, 'not-configured');
 
     const requestStartedAtMs = now();
+    const finished = startProviderHttp('tank01', 'game-states', 'bypass');
     let response: Response;
     try {
       response = await request(`${RAPID_API_ORIGIN}${weeklyGameStatesPath(
@@ -254,17 +256,20 @@ export function createTank01GameStateFeed(
         },
       });
     } catch {
+      finished('unavailable');
       return unavailable(period, 'provider-error');
     }
-    if (!response.ok) return unavailable(period, 'provider-error');
+    if (!response.ok) { finished('unavailable'); return unavailable(period, 'provider-error'); }
 
     let envelope: unknown;
     try {
       envelope = await response.json();
     } catch {
+      finished('invalid');
       return unavailable(period, 'invalid-response');
     }
     const requestCompletedAtMs = now();
+    finished('available');
     try {
       return {
         status: 'available',

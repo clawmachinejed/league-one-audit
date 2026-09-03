@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { LeagueCadenceState, NflWeekSchedule } from '../domain/contracts';
-import { externalLeagueRef } from '../shared/provider-identity';
+import { externalLeagueRef, externalRosterRef } from '../shared/provider-identity';
 import {
   activityWindowsForSchedule,
   allowsHourlyFallback,
@@ -22,7 +22,10 @@ function cadenceState(overrides: Partial<LeagueCadenceState> = {}): LeagueCadenc
   const configuration = {
     key: 'league', displayName: 'League',
     leagueRef: externalLeagueRef('official-source', 'league-1'),
+    matchupWeekRange: { firstWeek: 1, lastWeek: 18 },
   };
+  const currentPeriod = overrides.currentPeriod ?? { season: 2026, week: 1, seasonType: 'regular' };
+  const sourceSchedule = overrides.schedule ?? schedule;
   return {
     configuration,
     period: { season: 2026, seasonType: 'regular', week: 1 },
@@ -34,8 +37,15 @@ function cadenceState(overrides: Partial<LeagueCadenceState> = {}): LeagueCadenc
       sourceRevision: 'period-revision', observedAt: '2026-09-13T16:00:00.000Z',
       verifiedAt: '2026-09-13T16:00:00.000Z',
     },
-    currentPeriod: { season: 2026, week: 1, seasonType: 'regular' },
+    currentPeriod,
     schedule,
+    lineupShape: { expectedRosterCount: 2, expectedStarterSlotCount: 1,
+      expectedRosterRefs: ['1', '2'].map((id) => externalRosterRef(configuration.leagueRef, id)) },
+    defaultPeriodCadence: {
+      isCurrentRegularPeriod: currentPeriod.season === 2026 && currentPeriod.week === 1 && currentPeriod.seasonType === 'regular',
+      games: Object.values(sourceSchedule).flatMap((game) => game?.kind === 'scheduled'
+        ? [{ kickoffAt: game.kickoffAt, date: game.date }] : []),
+    },
     ...overrides,
   };
 }

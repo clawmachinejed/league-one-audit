@@ -2,10 +2,10 @@ import 'server-only';
 
 import type { DatabaseClient } from '../../../database';
 import type { LineupWatchMethods } from './lineup-watch-contracts';
-import { normalizeIds, provider, requiredText } from './database-values';
+import { normalizeIds, provider, requiredText, rowText, rowNumber } from './database-values';
 import { lineupInteger, lineupUuid, lineupWatchFromRow, LINEUP_AUTHORITY_FRESH_SQL, LINEUP_WATCH_RETURNING_SQL } from './lineup-watch-values';
 
-type ReadMethods = Pick<LineupWatchMethods, 'readLineupWatchStates' | 'readPendingCurrentLineups' | 'readPendingFutureLineups' | 'wakeFutureProjectionAndMaterialization'>;
+type ReadMethods = Pick<LineupWatchMethods, 'readLineupWatchSchedule' | 'readLineupWatchStates' | 'readPendingCurrentLineups' | 'readPendingFutureLineups' | 'wakeFutureProjectionAndMaterialization'>;
 
 export function createLineupWatchReadMethods(client: DatabaseClient): ReadMethods {
   async function read(leagueKeys: readonly string[], lane: 'current' | 'future' | null) {
@@ -23,6 +23,25 @@ export function createLineupWatchReadMethods(client: DatabaseClient): ReadMethod
     return rows.map(lineupWatchFromRow);
   }
   return {
+    async readLineupWatchSchedule(leagueKeys) {
+      const keys = normalizeIds(leagueKeys);
+      if (!keys.length) return [];
+      const rows = await client.query(`/* projection-store:read-lineup-watch-schedule */
+        SELECT league_key, source_provider, external_league_id, season, season_type, week, watch_class, phase
+        FROM league_week_lineup_watch_states
+        WHERE league_key = ANY($1::text[]) AND retired_at IS NULL AND watch_class IN ('current', 'future')
+        ORDER BY league_key, season, season_type, week`, [keys]);
+      return rows.map((row) => {
+        const seasonType = rowText(row, 'season_type');
+        const watchClass = rowText(row, 'watch_class');
+        const phase = lineupInteger(rowNumber(row, 'phase'), 0, 2, 'lineup phase') as 0 | 1 | 2;
+        if (!['pre', 'reg', 'post'].includes(seasonType) || !['current', 'future'].includes(watchClass)) throw new Error('Invalid stored lineup schedule.');
+        return { leagueKey: rowText(row, 'league_key'), sourceProvider: rowText(row, 'source_provider'),
+          externalLeagueId: rowText(row, 'external_league_id'), phase, watchClass: watchClass as 'current' | 'future',
+          period: { season: lineupInteger(rowNumber(row, 'season'), 1920, 2200, 'season'),
+            seasonType: seasonType as 'pre' | 'reg' | 'post', week: lineupInteger(rowNumber(row, 'week'), 1, 18, 'week') } };
+      });
+    },
     readLineupWatchStates: (keys) => read(keys, null),
     readPendingCurrentLineups: (keys) => read(keys, 'current'),
     readPendingFutureLineups: (keys) => read(keys, 'future'),

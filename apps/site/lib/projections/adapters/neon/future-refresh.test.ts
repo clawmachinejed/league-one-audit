@@ -54,6 +54,44 @@ function planRow(leagueKey: string, overrides: Readonly<Record<string, unknown>>
 }
 
 describe('durable future refresh persistence', () => {
+  it('validates the shared projection distance independently from each materialization distance', async () => {
+    const fake = createFakeProjectionDatabase(() => [{ projection_count: 1, materialization_count: 1 }]);
+    const store = createFutureRefreshMethods(fake.database);
+    const base = { projectionProvider: 'tank01', normalizerVersion: 'v1', modelVersion: 'clock-v1',
+      leagueKeys: ['far-league'], seededAt: '2026-09-13T18:00:00.000Z' };
+    await store.ensureFutureRefreshStates({ ...base, targets: [{ period, weekDistance: 5, projectionWeekDistance: 1 }] });
+    expect(JSON.parse(String(fake.calls[0].parameters[0]))).toEqual([
+      { season: 2026, season_type: 'reg', week: 2, week_distance: 5, projection_week_distance: 1 },
+    ]);
+    expect(fake.calls[0].statement).toContain('week_distance = period.projection_week_distance');
+    expect(fake.calls[0].statement).toContain('week_distance = period.week_distance');
+    for (const projectionWeekDistance of [0, 1.5, 6, NaN]) {
+      await expect(store.ensureFutureRefreshStates({ ...base,
+        targets: [{ period, weekDistance: 5, projectionWeekDistance }] })).rejects.toThrow('Shared projection week distance');
+    }
+    await expect(store.ensureFutureRefreshStates({ ...base, targets: [
+      { period, weekDistance: 5, projectionWeekDistance: 1 }, { period, weekDistance: 5, projectionWeekDistance: 2 },
+    ] })).rejects.toThrow('conflicting week distances');
+    expect(fake.calls).toHaveLength(1);
+  });
+  it('permits only explicit forced due overrides while retaining active-lease and execution ownership guards', async () => {
+    const fake=createFakeProjectionDatabase(()=>[]);
+    const store=createFutureRefreshMethods(fake.database);
+    const base={projectionProvider:'tank01',normalizerVersion:'tank01-week-v1',period,attemptId:attemptOne,
+      attemptedAt:'2026-09-13T18:00:00.000Z',leaseSeconds:55};
+    await store.beginFutureProjectionRefresh(base);
+    await store.beginFutureProjectionRefresh({...base,force:true});
+    await store.beginFutureMaterializationRefresh({...base,leagueKey:'league1',modelVersion:'clock-v1',force:true});
+    expect(fake.calls[0].parameters.at(-1)).toBe(false);
+    expect(fake.calls[1].parameters.at(-1)).toBe(true);
+    expect(fake.calls[2].parameters.at(-1)).toBe(true);
+    for(const call of fake.calls){
+      expect(call.statement).toContain("job_key = 'future-projection-sync'");
+      expect(call.statement).toContain("state = 'running' AND lease_until > now()");
+      expect(call.statement).toContain('AND active_attempt_id IS NULL');
+      expect(call.statement).toContain('AND NOT EXISTS (SELECT 1 FROM expired)');
+    }
+  });
   it('seeds by week distance, preserves same-tier due dates, and expedites closer tiers', async () => {
     const fake = createFakeProjectionDatabase(() => [{
       projection_count: 2,
@@ -78,8 +116,8 @@ describe('durable future refresh persistence', () => {
 
     expect(fake.calls[0].parameters).toEqual([
       JSON.stringify([
-        { season: 2026, season_type: 'reg', week: 2, week_distance: 1 },
-        { season: 2026, season_type: 'reg', week: 3, week_distance: 2 },
+        { projection_week_distance: 1, season: 2026, season_type: 'reg', week: 2, week_distance: 1 },
+        { projection_week_distance: 2, season: 2026, season_type: 'reg', week: 3, week_distance: 2 },
       ]),
       'tank01',
       'tank01-week-v1',
@@ -87,12 +125,12 @@ describe('durable future refresh persistence', () => {
       '2026-09-13T17:00:00.000Z',
       ['league1', 'league2'],
     ]);
-    expect(fake.calls[0].statement).toContain("(week_distance - 1) * interval '15 minutes'");
+    expect(fake.calls[0].statement).toContain("(projection_week_distance - 1) * interval '15 minutes'");
     expect(fake.calls[0].statement).toContain(
       'week_distance IS DISTINCT FROM period.week_distance',
     );
     expect(fake.calls[0].statement).toContain(
-      'WHEN period.week_distance < refresh.week_distance',
+      'WHEN period.projection_week_distance < refresh.week_distance',
     );
     expect(fake.calls[0].statement).toContain(
       'THEN LEAST(refresh.next_refresh_at, $5::timestamptz)',

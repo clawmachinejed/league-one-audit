@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { unstable_cache } from 'next/cache';
+import { recordProviderCache } from '../../../provider-request-telemetry';
 import type {
   LeaguePeriod,
   ProjectionObservation,
@@ -240,6 +241,7 @@ export function createCachedTank01ProjectionFeed(
 
   const sharedProjectionSlate = unstable_cache(
     async (season: string, week: number): Promise<NormalizedProjectionSlate> => {
+      recordProviderCache('tank01', 'projection-slate', 'miss');
       const apiKey = configuredKey();
       if (!apiKey) throw new Tank01ProviderFailure('provider-error');
       const envelope = await fetchTank01Envelope(request, projectionPath(season, week, now()), apiKey);
@@ -264,6 +266,7 @@ export function createCachedTank01ProjectionFeed(
 
   const sharedPlayerCrosswalk = unstable_cache(
     async (): Promise<NormalizedCrosswalk> => {
+      recordProviderCache('tank01', 'player-crosswalk', 'miss');
       const apiKey = configuredKey();
       if (!apiKey) throw new Tank01ProviderFailure('provider-error');
       const envelope = await fetchTank01Envelope(request, '/getNFLPlayerList', apiKey);
@@ -283,10 +286,15 @@ export function createCachedTank01ProjectionFeed(
     const cacheKey = `${season}:${period.week}`;
     const timestamp = now();
     const recentFailure = failureCache.get(cacheKey);
-    if (recentFailure && recentFailure.expiresAt > timestamp) return recentFailure.value;
+    if (recentFailure && recentFailure.expiresAt > timestamp) {
+      recordProviderCache('tank01', 'projection-slate', 'hit');
+      return recentFailure.value;
+    }
     failureCache.delete(cacheKey);
 
     try {
+      recordProviderCache('tank01', 'projection-slate', 'framework-managed');
+      recordProviderCache('tank01', 'player-crosswalk', 'framework-managed');
       const [slate, crosswalk] = await waitForBoth(
         sharedProjectionSlate(season, period.week),
         sharedPlayerCrosswalk(),

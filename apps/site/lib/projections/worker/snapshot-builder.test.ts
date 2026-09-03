@@ -71,8 +71,10 @@ function source(): LeagueWeekState {
       key: 'league',
       displayName: 'League',
       leagueRef,
+      matchupWeekRange: { firstWeek: 1, lastWeek: 18 },
     },
     leagueName: 'League API Name',
+    lineupShape: { expectedRosterCount: 2, expectedStarterSlotCount: 7, expectedRosterRefs: [rosterOne, rosterTwo] },
     period,
     maxWeek: 18,
     rosterPositions: ['RB', 'RB', 'FLEX', 'FLEX', 'DEF', 'FLEX', 'FLEX'],
@@ -148,6 +150,7 @@ function source(): LeagueWeekState {
     requestStartedAt,
     requestCompletedAt,
     observedAt: requestCompletedAt,
+    lineup: { revisionVersion: 'lineup-v1', lineupRevision: '1'.repeat(64) },
     sourceRevision: 'source-revision',
     warning: undefined,
   };

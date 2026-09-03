@@ -10,9 +10,11 @@ export type RawSleeperMatchupObservation = Readonly<{
 }>;
 
 export type RawSleeperMatchupClient = Readonly<{
-  readJson: (path: string, revalidate: number) => Promise<unknown>;
+  readJson: (path: string, revalidate: number, signal?: AbortSignal) => Promise<unknown>;
   now: () => string;
 }>;
+
+export class InvalidRawSleeperMatchupsError extends Error {}
 
 export type SleeperMatchupShape = Readonly<{
   rosterIds: readonly number[];
@@ -57,12 +59,12 @@ function isSleeperMatchup(value: unknown): value is SleeperMatchup {
 /** Validate without rewriting IDs, slot order, points, or source response order. */
 export function parseRawSleeperMatchups(value: unknown, path: string): SleeperMatchup[] {
   if (!Array.isArray(value) || value.some((row) => !isSleeperMatchup(row))) {
-    throw new Error(`Sleeper returned an invalid response for ${path}.`);
+    throw new InvalidRawSleeperMatchupsError(`Sleeper returned an invalid response for ${path}.`);
   }
   const rows = value as SleeperMatchup[];
   const keys = rows.map((row) => String(row.roster_id));
   if (new Set(keys).size !== keys.length) {
-    throw new Error(`Sleeper returned duplicate entries for ${path}.`);
+    throw new InvalidRawSleeperMatchupsError(`Sleeper returned duplicate entries for ${path}.`);
   }
   return rows;
 }
@@ -73,10 +75,12 @@ export function createRawSleeperMatchupLoader(client: RawSleeperMatchupClient) {
     leagueId: string,
     week: number,
     revalidate: number,
+    signal?: AbortSignal,
   ): Promise<RawSleeperMatchupObservation> => {
     const path = `/league/${leagueId}/matchups/${week}`;
     const requestStartedAt = client.now();
-    const rows = parseRawSleeperMatchups(await client.readJson(path, revalidate), path);
+    const value = signal ? await client.readJson(path, revalidate, signal) : await client.readJson(path, revalidate);
+    const rows = parseRawSleeperMatchups(value, path);
     const requestCompletedAt = client.now();
     return { rows, requestStartedAt, requestCompletedAt };
   };

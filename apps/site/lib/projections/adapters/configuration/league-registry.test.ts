@@ -2,17 +2,21 @@ import { describe, expect, it } from 'vitest';
 import { externalLeagueRef } from '../../shared/provider-identity';
 import { createLeagueRegistry } from './league-registry';
 
+const matchupWeekRange = { firstWeek: 1, lastWeek: 18 };
+
 describe('canonical active-league registry', () => {
   it('preserves caller order and accepts provider-neutral league keys', () => {
     const first = {
       key: 'premier',
       displayName: 'Premier League',
       leagueRef: externalLeagueRef('official-source', 'opaque-1'),
+      matchupWeekRange,
     };
     const second = {
       key: 'relegation',
       displayName: 'Relegation League',
       leagueRef: externalLeagueRef('official-source', 'opaque-2'),
+      matchupWeekRange,
     };
 
     const registry = createLeagueRegistry([first, second]);
@@ -26,6 +30,7 @@ describe('canonical active-league registry', () => {
       key: ' league-a ',
       displayName: ' League A ',
       leagueRef: externalLeagueRef('source', ' 001 '),
+      matchupWeekRange,
     }]);
 
     expect(registry.listActiveLeagues()[0]).toMatchObject({
@@ -38,12 +43,12 @@ describe('canonical active-league registry', () => {
   it('rejects duplicate keys and duplicate provider-scoped league references', () => {
     const leagueRef = externalLeagueRef('source', 'league-1');
     expect(() => createLeagueRegistry([
-      { key: 'one', displayName: 'One', leagueRef },
-      { key: 'one', displayName: 'Two', leagueRef: externalLeagueRef('source', 'league-2') },
+      { key: 'one', displayName: 'One', leagueRef, matchupWeekRange },
+      { key: 'one', displayName: 'Two', leagueRef: externalLeagueRef('source', 'league-2'), matchupWeekRange },
     ])).toThrow('Duplicate league key: one');
     expect(() => createLeagueRegistry([
-      { key: 'one', displayName: 'One', leagueRef },
-      { key: 'two', displayName: 'Two', leagueRef },
+      { key: 'one', displayName: 'One', leagueRef, matchupWeekRange },
+      { key: 'two', displayName: 'Two', leagueRef, matchupWeekRange },
     ])).toThrow('An external league reference was configured more than once.');
   });
 
@@ -55,6 +60,7 @@ describe('canonical active-league registry', () => {
       key,
       displayName,
       leagueRef: externalLeagueRef('source', 'league-1'),
+      matchupWeekRange,
     }])).toThrow(/must not be blank/u);
   });
 });

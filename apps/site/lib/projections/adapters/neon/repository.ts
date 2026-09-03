@@ -1,7 +1,10 @@
 import 'server-only';
+import { createNeonJobRepository } from './job-repository';
 
 import type { ProjectionStore, PlayerProjectionRecord, StoredProjectionSnapshot as StoreSnapshot } from './contracts';
 import { NFL_TEAM_CODES, type NflTeam, type ProjectionSlate } from '../../domain/contracts';
+import { sameExternalReference } from '../../shared/provider-identity';
+import { storedLineupPublicationFence } from './lineup-repository-values';
 import type {
   FutureProjectionSlateContentId,
   FutureProjectionSlateObservationId,
@@ -43,7 +46,6 @@ type RepositoryStore = Pick<ProjectionStore,
   | 'completeFutureProjectionRefresh'
   | 'failFutureProjectionRefresh'
   | 'beginFutureMaterializationRefresh'
-  | 'completeFutureMaterializationRefresh'
   | 'failFutureMaterializationRefresh'
   | 'recordProjectionCandidates'
   | 'readLatestCandidatesBySleeperIds'
@@ -160,7 +162,6 @@ function createDisabledRepository(): ProjectionRepositoryPort & FutureRefreshRep
     async completeFutureProjectionRefresh() { return { kind: 'disabled' }; },
     async failFutureProjectionRefresh() { return { kind: 'disabled' }; },
     async beginFutureMaterializationRefresh() { return { kind: 'disabled' }; },
-    async completeFutureMaterializationRefresh() { return { kind: 'disabled' }; },
     async failFutureMaterializationRefresh() { return { kind: 'disabled' }; },
     async recordProjectionCandidates() { return { kind: 'disabled' }; },
     async readLatestCandidates() { return []; },
@@ -219,6 +220,7 @@ export function createNeonProjectionRepository(
   options: NeonProjectionRepositoryOptions,
 ): ProjectionRepositoryPort & FutureRefreshRepositoryPort {
   if (!store.enabled) return createDisabledRepository();
+  const jobs = createNeonJobRepository(store);
   const {
     officialProvider,
     projectionProvider,
@@ -228,9 +230,19 @@ export function createNeonProjectionRepository(
   return {
     enabled: true,
 
-    async upsertPeriodAuthority(authority) {
+    async upsertPeriodAuthority(authority, metadata) {
       assertProvider({ provider: authority.source }, officialProvider, 'Period authority source');
+      if (metadata.shape.expectedRosterRefs.some((ref) => !sameExternalReference(ref.league, authority.configuration.leagueRef))) {
+        throw new Error('Authority roster shape belongs to a different league.');
+      }
       const result = await store.upsertLeaguePeriodAuthority({
+        lineupShape: {
+          sourceExternalLeagueId: String(authority.configuration.leagueRef.externalId),
+          expectedRosterCount: metadata.shape.expectedRosterCount,
+          expectedStarterSlotCount: metadata.shape.expectedStarterSlotCount,
+          expectedRosterIds: metadata.shape.expectedRosterRefs.map((ref) => String(ref.externalId)),
+        },
+        defaultPeriodCadence: metadata.defaultPeriodCadence,
         leagueKey: authority.configuration.key,
         defaultSeason: authority.defaultDisplayPeriod.season,
         defaultSeasonType: storeSeasonType(authority.defaultDisplayPeriod.seasonType),
@@ -282,6 +294,7 @@ export function createNeonProjectionRepository(
             week: target.period.week,
           },
           weekDistance: target.weekDistance,
+          projectionWeekDistance: target.projectionWeekDistance,
         })),
         leagueKeys: input.leagueKeys,
         seededAt: input.seededAt,
@@ -301,6 +314,7 @@ export function createNeonProjectionRepository(
             week: target.period.week,
           },
           weekDistance: target.weekDistance,
+          projectionWeekDistance: target.projectionWeekDistance,
         })),
         leagueKeys: input.leagueKeys,
         asOf: input.asOf,
@@ -332,6 +346,7 @@ export function createNeonProjectionRepository(
     async beginFutureProjectionRefresh(input) {
       assertProvider({ provider: input.projectionSource }, projectionProvider, 'Projection source');
       return canonicalFutureClaim(await store.beginFutureProjectionRefresh({
+        force: input.force,
         projectionProvider: String(input.projectionSource),
         normalizerVersion: input.normalizerVersion,
         period: {
@@ -384,6 +399,8 @@ export function createNeonProjectionRepository(
     async beginFutureMaterializationRefresh(input) {
       assertProvider({ provider: input.projectionSource }, projectionProvider, 'Projection source');
       return canonicalFutureClaim(await store.beginFutureMaterializationRefresh({
+        force: input.force,
+        target: input.target,
         leagueKey: input.leagueKey,
         projectionProvider: String(input.projectionSource),
         normalizerVersion: input.normalizerVersion,
@@ -397,30 +414,6 @@ export function createNeonProjectionRepository(
         attemptedAt: input.attemptedAt,
         leaseSeconds: input.leaseSeconds,
       }));
-    },
-
-    async completeFutureMaterializationRefresh(input) {
-      assertProvider({ provider: input.projectionSource }, projectionProvider, 'Projection source');
-      return store.completeFutureMaterializationRefresh({
-        leagueKey: input.leagueKey,
-        projectionProvider: String(input.projectionSource),
-        normalizerVersion: input.normalizerVersion,
-        modelVersion: input.modelVersion,
-        period: {
-          season: input.period.season,
-          seasonType: storeSeasonType(input.period.seasonType),
-          week: input.period.week,
-        },
-        attemptId: String(input.attemptId),
-        completedAt: input.completedAt,
-        nextRefreshAt: input.nextRefreshAt,
-        sourceRevision: input.sourceRevision,
-        slate: {
-          observationId: String(input.slate.observationId),
-          contentId: String(input.slate.contentId),
-        },
-        snapshotRevision: input.snapshotRevision,
-      });
     },
 
     async failFutureMaterializationRefresh(input) {
@@ -682,6 +675,8 @@ export function createNeonProjectionRepository(
         String(reference.externalId), reference,
       ]));
       const result = await store.recordLeagueWeekObservation({
+        lineupRevisionVersion: input.lineup.revisionVersion,
+        lineupRevision: input.lineup.lineupRevision,
         leagueSeasonId: String(input.leagueSeasonId),
         week: input.period.week,
         sourceRevision: input.sourceRevision,
@@ -729,12 +724,13 @@ export function createNeonProjectionRepository(
       };
     },
 
-    acquireJob: (input) => store.acquireJob(input),
-    completeJob: (jobKey, workerId) => store.completeJob(jobKey, workerId),
-    failJob: (jobKey, workerId, message) => store.failJob(jobKey, workerId, message),
+    acquireJob: jobs.acquireJob,
+    completeJob: jobs.completeJob,
+    failJob: jobs.failJob,
 
     async publishSnapshot(input) {
       const result = await store.publishSnapshot({
+        lineupFence: storedLineupPublicationFence(input.lineupFence),
         leagueSeasonId: String(input.leagueSeasonId),
         week: input.period.week,
         modelVersion: input.modelVersion,
