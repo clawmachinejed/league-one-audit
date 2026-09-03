@@ -42,7 +42,19 @@ function playerProjection(team: NflTeam, position: typeof CORE_POSITIONS[number]
       twoPointConversions: 0,
       fumblesLost: 0,
     },
-    scoringProjection: { kind: 'offense' },
+    scoringProjection: {
+      kind: 'offense',
+      passingYards: 0,
+      passingTouchdowns: 0,
+      passingInterceptions: 0,
+      rushingYards: 0,
+      rushingTouchdowns: 0,
+      receptions: 0,
+      receivingYards: 0,
+      receivingTouchdowns: 0,
+      twoPointConversions: 0,
+      fumblesLost: 0,
+    },
     missingFields: [],
   };
 }
@@ -54,7 +66,17 @@ function defenseProjection(team: NflTeam): Tank01DefenseProjection {
       returnTouchdowns: 0, defensiveTouchdowns: 0, safeties: 0, fumbleRecoveries: 0,
       pointsAllowed: 0, interceptions: 0, sacks: 0, blockedKicks: 0,
     },
-    scoringProjection: { kind: 'defense' },
+    scoringProjection: {
+      kind: 'defense',
+      sacks: 0,
+      interceptions: 0,
+      fumbleRecoveries: 0,
+      defensiveTouchdowns: 0,
+      specialTeamsTouchdowns: 0,
+      safeties: 0,
+      blockedKicks: 0,
+      pointsAllowed: 0,
+    },
     missingFields: [],
   };
 }
@@ -64,16 +86,30 @@ function resultFor(
   options: Readonly<{
     positions?: readonly typeof CORE_POSITIONS[number][];
     omit?: readonly string[];
+    incomplete?: readonly string[];
   }> = {},
 ): Tank01AvailableResult {
   const positions = options.positions ?? CORE_POSITIONS;
   const omitted = new Set(options.omit ?? []);
+  const incomplete = new Set(options.incomplete ?? []);
   const players = Object.fromEntries(teams.flatMap((team) => positions.flatMap((position) => {
     const key = `${team}-${position}`;
-    return omitted.has(key) ? [] : [[key, playerProjection(team, position)] as const];
+    if (omitted.has(key)) return [];
+    const projection = playerProjection(team, position);
+    return [[key, incomplete.has(key)
+      ? {
+          ...projection,
+          scoringProjection: { ...projection.scoringProjection, passingTouchdowns: null },
+        }
+      : projection] as const];
   })));
   const defenses = Object.fromEntries(teams.flatMap((team) => (
-    omitted.has(`${team}-DEF`) ? [] : [[team, defenseProjection(team)] as const]
+    omitted.has(`${team}-DEF`) ? [] : [[team, incomplete.has(`${team}-DEF`)
+      ? {
+          ...defenseProjection(team),
+          scoringProjection: { ...defenseProjection(team).scoringProjection, sacks: null },
+        }
+      : defenseProjection(team)] as const]
   )));
   return {
     status: 'available',
@@ -103,7 +139,7 @@ function resultFor(
 describe('Tank01 whole-slate assessment', () => {
   it('accepts distributed weekly coverage while tolerating isolated player-position and defense omissions', () => {
     const result = resultFor(NFL_TEAMS, {
-      omit: ['ARI-RB', 'ATL-RB', 'BUF-TE', 'ARI-DEF', 'ATL-DEF'],
+      omit: ['ARI-RB', 'ATL-RB', 'BUF-TE', 'CAR-DEF', 'CHI-DEF'],
     });
 
     expect(assessTank01ProjectionSlate(result, scheduleFor())).toEqual({
@@ -111,6 +147,55 @@ describe('Tank01 whole-slate assessment', () => {
       expectedTeams: 32,
       requiredTeamsPerCategory: 30,
       coveredTeams: { QB: 32, RB: 30, WR: 32, TE: 31, DEF: 30 },
+    });
+  });
+
+  it('rejects the same teams being absent across the entire weekly slate', () => {
+    const result = resultFor(NFL_TEAMS, {
+      omit: CORE_POSITIONS.flatMap((position) => [
+        `ARI-${position}`,
+        `ATL-${position}`,
+      ]).concat(['ARI-DEF', 'ATL-DEF']),
+    });
+
+    expect(assessTank01ProjectionSlate(result, scheduleFor())).toMatchObject({
+      complete: false,
+      coveredTeams: { QB: 30, RB: 30, WR: 30, TE: 30, DEF: 30 },
+    });
+  });
+
+  it('rejects a team whose offense is absent even when its defense is present', () => {
+    const result = resultFor(NFL_TEAMS, {
+      omit: CORE_POSITIONS.map((position) => `ARI-${position}`),
+    });
+
+    expect(assessTank01ProjectionSlate(result, scheduleFor())).toMatchObject({
+      complete: false,
+      coveredTeams: { QB: 31, RB: 31, WR: 31, TE: 31, DEF: 32 },
+    });
+  });
+
+  it('rejects identity-bearing rows whose projected statistics are incomplete', () => {
+    const incomplete = NFL_TEAMS.flatMap((team) => CORE_POSITIONS.map((position) => (
+      `${team}-${position}`
+    ))).concat(NFL_TEAMS.map((team) => `${team}-DEF`));
+
+    expect(assessTank01ProjectionSlate(
+      resultFor(NFL_TEAMS, { incomplete }),
+      scheduleFor(),
+    )).toMatchObject({
+      complete: false,
+      coveredTeams: { QB: 0, RB: 0, WR: 0, TE: 0, DEF: 0 },
+    });
+  });
+
+  it('accepts an isolated unusable scoring row after excluding it from coverage', () => {
+    expect(assessTank01ProjectionSlate(
+      resultFor(NFL_TEAMS, { incomplete: ['ARI-RB'] }),
+      scheduleFor(),
+    )).toMatchObject({
+      complete: true,
+      coveredTeams: { QB: 32, RB: 31, WR: 32, TE: 32, DEF: 32 },
     });
   });
 

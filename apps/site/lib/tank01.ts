@@ -742,13 +742,13 @@ const sharedProjectionSlate = unstable_cache(
     const slate = normalizeProjectionSlate(envelope, Date.now());
     if (!hasPlausibleTank01ProjectionEnvelope(
       Object.values(slate.playersByTank01Id),
-      Object.keys(slate.defensesByTeam),
+      Object.values(slate.defensesByTeam),
     )) throw new Tank01ProviderFailure('invalid-response');
     return slate;
   },
   // Bump the key whenever the pre-cache validation contract changes so an older,
   // less strictly validated payload cannot survive in the persistent cache.
-  ['tank01-normalized-projection-slate-v2'],
+  ['tank01-normalized-projection-slate-v3'],
   { revalidate: SUCCESS_CACHE_SECONDS },
 );
 

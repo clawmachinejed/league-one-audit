@@ -164,7 +164,15 @@ function tankPlayer(
     scoringProjection: {
       kind: 'offense',
       passingYards: projection.passingYards ?? 0,
+      passingTouchdowns: 0,
+      passingInterceptions: 0,
       rushingYards: projection.rushingYards ?? 0,
+      rushingTouchdowns: 0,
+      receptions: 0,
+      receivingYards: 0,
+      receivingTouchdowns: 0,
+      twoPointConversions: 0,
+      fumblesLost: 0,
     },
     missingFields: [],
   };
@@ -177,7 +185,17 @@ function tankDefense(team: NflTeam): Tank01DefenseProjection {
       returnTouchdowns: 0, defensiveTouchdowns: 0, safeties: 0, fumbleRecoveries: 0,
       pointsAllowed: 0, interceptions: 0, sacks: 0, blockedKicks: 0,
     },
-    scoringProjection: { kind: 'defense' },
+    scoringProjection: {
+      kind: 'defense',
+      sacks: 0,
+      interceptions: 0,
+      fumbleRecoveries: 0,
+      defensiveTouchdowns: 0,
+      specialTeamsTouchdowns: 0,
+      safeties: 0,
+      blockedKicks: 0,
+      pointsAllowed: 0,
+    },
     missingFields: [],
   };
 }
@@ -618,6 +636,30 @@ describe('live projection worker', () => {
         ...partial.coverage,
         playerProjectionRows: 1,
         matchedPlayerProjections: 1,
+      },
+    });
+
+    await expect(createLiveProjectionWorker(dependencies).run()).resolves.toEqual({ status: 'failed' });
+    expect(store.gamesUpserted).toHaveLength(0);
+    expect(store.published).toHaveLength(0);
+    expect(store.completed).not.toHaveBeenCalled();
+    expect(store.failed).toHaveBeenCalledOnce();
+  });
+
+  it('fails closed before persistence when broad player identities have unusable stat lines', async () => {
+    const store = fakeStore();
+    const dependencies = workerDependencies(store);
+    const partial = projectionResult();
+    dependencies.projectionMock.mockResolvedValue({
+      ...partial,
+      projections: {
+        ...partial.projections,
+        bySleeperId: Object.fromEntries(Object.entries(partial.projections.bySleeperId).map(
+          ([id, projection]) => [id, {
+            ...projection,
+            scoringProjection: { ...projection.scoringProjection, passingTouchdowns: null },
+          }],
+        )),
       },
     });
 

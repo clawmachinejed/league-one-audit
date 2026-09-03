@@ -119,6 +119,17 @@ const zeroOffenseProjection: NormalizedTank01OffenseProjection = {
   twoPointConversions: 0,
   fumblesLost: 0,
 };
+const zeroDefenseProjection = {
+  kind: 'defense' as const,
+  sacks: 0,
+  interceptions: 0,
+  fumbleRecoveries: 0,
+  defensiveTouchdowns: 0,
+  specialTeamsTouchdowns: 0,
+  safeties: 0,
+  blockedKicks: 0,
+  pointsAllowed: 0,
+};
 
 function availableTank01Projection(playerIds: string[] = ['qb']) {
   const playingTeams = schedulePairsForWeek(3).flatMap(([home, away]) => [home, away]);
@@ -141,7 +152,7 @@ function availableTank01Projection(playerIds: string[] = ['qb']) {
   const coverageDefenses = Object.fromEntries(playingTeams.flatMap((team) => team === 'IND' ? [] : [[team, {
     team,
     stats: {},
-    scoringProjection: { kind: 'defense' as const },
+    scoringProjection: zeroDefenseProjection,
     missingFields: [],
   }] as const]));
   const players = {
@@ -812,6 +823,30 @@ describe('Sleeper matchup projection integration', () => {
         ...complete.coverage,
         playerProjectionRows: 1,
         matchedPlayerProjections: 1,
+      },
+    });
+
+    const data = await getMatchups(3);
+
+    expect(data.matchups[0].sides[0]).toMatchObject({
+      projectedPoints: null,
+      starters: [{ points: 12.34, projectedPoints: null }],
+    });
+    expect(data.warning).toContain('Projected scores are temporarily unavailable.');
+  });
+
+  it('does not zero-fill starters when broad projection identities have unusable stat lines', async () => {
+    const complete = availableTank01Projection();
+    getTank01WeeklyProjectionsMock.mockResolvedValueOnce({
+      ...complete,
+      projections: {
+        ...complete.projections,
+        bySleeperId: Object.fromEntries(Object.entries(complete.projections.bySleeperId).map(
+          ([id, projection]) => [id, {
+            ...projection,
+            scoringProjection: { ...projection.scoringProjection, passingTouchdowns: null },
+          }],
+        )),
       },
     });
 

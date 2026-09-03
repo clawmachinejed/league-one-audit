@@ -1,14 +1,31 @@
 import { canonicalNflTeam, type NflTeam } from './nfl-teams';
 import type { WeekSchedule } from './nfl-schedule';
+import {
+  scoreTank01Projection,
+  SUPPORTED_PROJECTION_SCORING_KEYS,
+  type NormalizedTank01Projection,
+} from './projection-scoring';
 import type { Tank01AvailableResult } from './tank01';
 
 const MIN_REGULAR_SEASON_TEAMS = 26;
 const MAX_REGULAR_SEASON_TEAMS = 32;
 const MISSING_TEAM_TOLERANCE = 2;
 const CORE_OFFENSE_POSITIONS = ['QB', 'RB', 'WR', 'TE'] as const;
+const SLATE_VALIDATION_SCORING_SETTINGS = Object.fromEntries(
+  SUPPORTED_PROJECTION_SCORING_KEYS.map((key) => [key, 1]),
+);
 
 type ProjectionCoverageCategory = typeof CORE_OFFENSE_POSITIONS[number] | 'DEF';
-type ProjectionIdentity = Readonly<{ team: unknown; position: unknown }>;
+type ProjectionIdentity = Readonly<{
+  team: unknown;
+  position: unknown;
+  scoringProjection: NormalizedTank01Projection;
+}>;
+type DefenseProjectionIdentity = Readonly<{
+  team: unknown;
+  scoringProjection: NormalizedTank01Projection;
+}>;
+type CoveredTeamSets = Record<ProjectionCoverageCategory, Set<NflTeam>>;
 
 export type ProjectionSlateAssessment = Readonly<{
   complete: boolean;
@@ -21,11 +38,19 @@ function emptyCoverage(): Record<ProjectionCoverageCategory, number> {
   return { QB: 0, RB: 0, WR: 0, TE: 0, DEF: 0 };
 }
 
+function hasCompleteScoringLine(
+  projection: NormalizedTank01Projection,
+  expectedKind: 'offense' | 'defense',
+): boolean {
+  return projection.kind === expectedKind
+    && scoreTank01Projection(projection, SLATE_VALIDATION_SCORING_SETTINGS).available;
+}
+
 function categoryCoverage(
   players: readonly ProjectionIdentity[],
-  defenseTeams: readonly unknown[],
+  defenses: readonly DefenseProjectionIdentity[],
   expected?: ReadonlySet<NflTeam>,
-): Record<ProjectionCoverageCategory, number> {
+): CoveredTeamSets {
   const covered = {
     QB: new Set<NflTeam>(),
     RB: new Set<NflTeam>(),
@@ -34,6 +59,7 @@ function categoryCoverage(
     DEF: new Set<NflTeam>(),
   };
   for (const projection of players) {
+    if (!hasCompleteScoringLine(projection.scoringProjection, 'offense')) continue;
     const team = canonicalNflTeam(projection.team);
     const position = typeof projection.position === 'string'
       ? projection.position.trim().toUpperCase()
@@ -43,10 +69,15 @@ function categoryCoverage(
     )) continue;
     covered[position as typeof CORE_OFFENSE_POSITIONS[number]].add(team);
   }
-  for (const value of defenseTeams) {
-    const team = canonicalNflTeam(value);
+  for (const projection of defenses) {
+    if (!hasCompleteScoringLine(projection.scoringProjection, 'defense')) continue;
+    const team = canonicalNflTeam(projection.team);
     if (team && (!expected || expected.has(team))) covered.DEF.add(team);
   }
+  return covered;
+}
+
+function coverageCounts(covered: CoveredTeamSets): Record<ProjectionCoverageCategory, number> {
   return {
     QB: covered.QB.size,
     RB: covered.RB.size,
@@ -56,6 +87,12 @@ function categoryCoverage(
   };
 }
 
+function everyTeamHasOffenseCoverage(covered: CoveredTeamSets, expected: ReadonlySet<NflTeam>): boolean {
+  return [...expected].every((team) => CORE_OFFENSE_POSITIONS.some((position) => (
+    covered[position].has(team)
+  )));
+}
+
 /**
  * Cheap raw-response guard used before the hour-long production cache. In the
  * 18-week NFL format at least 26 teams play in a regular-season week; applying
@@ -63,10 +100,10 @@ function categoryCoverage(
  */
 export function hasPlausibleTank01ProjectionEnvelope(
   players: readonly ProjectionIdentity[],
-  defenseTeams: readonly unknown[],
+  defenses: readonly DefenseProjectionIdentity[],
 ): boolean {
   const minimumTeamsPerCategory = MIN_REGULAR_SEASON_TEAMS - MISSING_TEAM_TOLERANCE;
-  return Object.values(categoryCoverage(players, defenseTeams))
+  return Object.values(coverageCounts(categoryCoverage(players, defenses)))
     .every((count) => count >= minimumTeamsPerCategory);
 }
 
@@ -97,10 +134,10 @@ function scheduledTeams(schedule: WeekSchedule): Set<NflTeam> | null {
  * Verifies that an available Tank01 response represents a broadly complete weekly
  * slate before callers may interpret an absent individual projection as zero.
  *
- * Every scheduled NFL offense should be represented at each core fantasy position,
- * and every scheduled defense should be represented. A two-team tolerance permits
- * isolated provider omissions (including one missing starter or D/ST) without
- * allowing a one-row or broadly truncated response to replace a good snapshot.
+ * Only rows whose complete scoring line can be calculated count toward coverage.
+ * Each category may omit two teams, but every scheduled team must still have an
+ * offensive projection. This permits an isolated missing starter or D/ST without
+ * allowing one or two entire NFL teams to hide inside every category's tolerance.
  */
 export function assessTank01ProjectionSlate(
   result: Tank01AvailableResult,
@@ -117,20 +154,22 @@ export function assessTank01ProjectionSlate(
     };
   }
 
-  const validDefenseTeams = Object.entries(result.projections.byDefenseTeam).flatMap(([key, projection]) => {
+  const validDefenses = Object.entries(result.projections.byDefenseTeam).flatMap(([key, projection]) => {
     const keyTeam = canonicalNflTeam(key);
     const rowTeam = canonicalNflTeam(projection.team);
-    return keyTeam && rowTeam === keyTeam ? [keyTeam] : [];
+    return keyTeam && rowTeam === keyTeam ? [projection] : [];
   });
 
   const requiredTeamsPerCategory = expected.size - MISSING_TEAM_TOLERANCE;
-  const coveredTeams = categoryCoverage(
+  const covered = categoryCoverage(
     Object.values(result.projections.bySleeperId),
-    validDefenseTeams,
+    validDefenses,
     expected,
   );
+  const coveredTeams = coverageCounts(covered);
   return {
-    complete: Object.values(coveredTeams).every((count) => count >= requiredTeamsPerCategory),
+    complete: Object.values(coveredTeams).every((count) => count >= requiredTeamsPerCategory)
+      && everyTeamHasOffenseCoverage(covered, expected),
     expectedTeams: expected.size,
     requiredTeamsPerCategory,
     coveredTeams,

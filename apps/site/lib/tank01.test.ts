@@ -77,6 +77,22 @@ function completePlayerProjectionRows(): Record<string, unknown> {
   })));
 }
 
+function incompletePlayerProjectionRows(): Record<string, unknown> {
+  return Object.fromEntries(NFL_TEAMS.flatMap((team) => coveragePositions.map((position) => {
+    const playerID = `tank-${team}-${position}`;
+    return [playerID, playerProjection({
+      playerID,
+      team,
+      pos: position,
+      Passing: { passYds: '100' },
+      Rushing: undefined,
+      Receiving: undefined,
+      twoPointConversion: undefined,
+      fumblesLost: undefined,
+    })] as const;
+  })));
+}
+
 function completeDefenseProjectionRows(): Record<string, unknown> {
   return Object.fromEntries(NFL_TEAMS.map((team) => [team, defenseProjection({ teamAbv: team })]));
 }
@@ -393,7 +409,7 @@ describe('Tank01 weekly projection provider', () => {
 
   it('uses two one-hour shared caches for normalized production data without putting the credential in a key', async () => {
     const projectionRegistration = nextCacheRegistrations.find(({ keyParts }) => (
-      keyParts.includes('tank01-normalized-projection-slate-v2')
+      keyParts.includes('tank01-normalized-projection-slate-v3')
     ));
     const crosswalkRegistration = nextCacheRegistrations.find(({ keyParts }) => (
       keyParts.includes('tank01-normalized-player-crosswalk-v1')
@@ -469,7 +485,7 @@ describe('Tank01 weekly projection provider', () => {
 
   it('does not persist provider failures in the one-hour shared cache and retains the short retry backoff', async () => {
     const projectionRegistration = nextCacheRegistrations.find(({ keyParts }) => (
-      keyParts.includes('tank01-normalized-projection-slate-v2')
+      keyParts.includes('tank01-normalized-projection-slate-v3')
     ));
     const loadsBefore = projectionRegistration?.loads ?? 0;
     const originalKey = process.env.TANK01_API_KEY;
@@ -513,7 +529,7 @@ describe('Tank01 weekly projection provider', () => {
 
   it('rejects a truncated raw production slate before success caching and recovers after failure backoff', async () => {
     const projectionRegistration = nextCacheRegistrations.find(({ keyParts }) => (
-      keyParts.includes('tank01-normalized-projection-slate-v2')
+      keyParts.includes('tank01-normalized-projection-slate-v3')
     ));
     const loadsBefore = projectionRegistration?.loads ?? 0;
     const valuesBefore = projectionRegistration?.values.length ?? 0;
@@ -557,6 +573,37 @@ describe('Tank01 weekly projection provider', () => {
 
     expect(projectionRegistration?.loads).toBe(loadsBefore + 2);
     expect(projectionRegistration?.values).toHaveLength(valuesBefore + 1);
+  });
+
+  it('rejects identity-complete rows with unusable statistics before success caching', async () => {
+    const projectionRegistration = nextCacheRegistrations.find(({ keyParts }) => (
+      keyParts.includes('tank01-normalized-projection-slate-v3')
+    ));
+    const loadsBefore = projectionRegistration?.loads ?? 0;
+    const valuesBefore = projectionRegistration?.values.length ?? 0;
+    const originalKey = process.env.TANK01_API_KEY;
+    const originalFetch = globalThis.fetch;
+    const fetch = mockFetch(projectionEnvelope({
+      body: {
+        playerProjections: incompletePlayerProjectionRows(),
+        teamDefenseProjections: completeDefenseProjectionRows(),
+      },
+    }), playerEnvelope(completePlayerListRows()));
+    process.env.TANK01_API_KEY = 'unusable-slate-secret';
+    globalThis.fetch = fetch as typeof globalThis.fetch;
+
+    try {
+      await expect(getTank01WeeklyProjections('2026', 15)).resolves.toMatchObject({
+        status: 'unavailable', reason: 'invalid-response',
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+      if (originalKey === undefined) delete process.env.TANK01_API_KEY;
+      else process.env.TANK01_API_KEY = originalKey;
+    }
+
+    expect(projectionRegistration?.loads).toBe(loadsBefore + 1);
+    expect(projectionRegistration?.values).toHaveLength(valuesBefore);
   });
 
   it('waits for sibling HTTP work to abort at the fifteen-second provider deadline', async () => {
