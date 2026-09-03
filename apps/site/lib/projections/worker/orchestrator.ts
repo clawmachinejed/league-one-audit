@@ -188,7 +188,10 @@ export async function runWithDependencies(
     const loadLeague = async (
       configuration: ProjectionLeagueConfiguration,
     ): Promise<LoadedLeague> => {
-      const source = await dependencies.leagueSource.getLeagueWeek(configuration);
+      const source = await dependencies.leagueSource.getLeagueWeek(
+        configuration,
+        cadenceInput.period,
+      );
       if (!sameConfiguration(configuration, source.configuration)) {
         throw new Error('The official source returned data for an unexpected league.');
       }

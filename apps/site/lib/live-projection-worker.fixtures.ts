@@ -683,9 +683,13 @@ export function workerDependencies(
   const cadenceMock = vi.fn(async (leagueConfiguration: LeagueConfiguration) => (
     options.cadence ?? cadenceInput(String(leagueConfiguration.leagueRef.externalId))
   ));
-  const sourceMock = vi.fn(async (leagueConfiguration: LeagueConfiguration) => (
-    source(String(leagueConfiguration.leagueRef.externalId))
-  ));
+  const sourceMock = vi.fn(async (
+    leagueConfiguration: LeagueConfiguration,
+    targetPeriod: LeaguePeriod,
+  ) => {
+    void targetPeriod;
+    return source(String(leagueConfiguration.leagueRef.externalId));
+  });
   const projectionMock = vi.fn(async () => ({
     status: 'available' as const,
     slate: options.projections ?? projectionResult(),

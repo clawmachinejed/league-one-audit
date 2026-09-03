@@ -184,6 +184,13 @@ describe('live projection worker', () => {
       leaseSeconds: 120,
     });
     expect(dependencies.sourceMock).toHaveBeenCalledTimes(2);
+    expect(dependencies.sourceMock.mock.calls.map(([configuration, targetPeriod]) => ({
+      leagueId: String(configuration.leagueRef.externalId),
+      targetPeriod,
+    }))).toEqual([
+      { leagueId: 'l1', targetPeriod: PERIOD },
+      { leagueId: 'l2', targetPeriod: PERIOD },
+    ]);
     expect(dependencies.projectionMock).toHaveBeenCalledOnce();
     expect(dependencies.gamesMock).toHaveBeenCalledOnce();
     expect(store.frozen).toHaveBeenCalledTimes(2);

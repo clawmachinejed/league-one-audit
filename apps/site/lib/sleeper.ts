@@ -21,6 +21,7 @@ import {
   normalizeTransactions,
   managerLineup,
   playerFromId,
+  startingSlots,
   transactionEndWeek,
   type PlayerCatalog,
   type SleeperLeague,
@@ -43,6 +44,12 @@ export type ProjectionSyncInput = Readonly<{
   schedule: WeekSchedule;
   requestStartedAt: string;
   requestCompletedAt: string;
+}>;
+
+export type ProjectionTargetPeriod = Readonly<{
+  season: number;
+  seasonType: 'preseason' | 'regular' | 'postseason';
+  week: number;
 }>;
 
 export type ProjectionCadenceInput = Readonly<{
@@ -268,6 +275,46 @@ function assertMatchupCompleteness(
   }
 }
 
+function projectionTargetWeek(
+  targetPeriod: ProjectionTargetPeriod,
+  league: SleeperLeague,
+  maxWeek: number,
+): number {
+  if (!Number.isInteger(targetPeriod.season)
+    || targetPeriod.season < 2000
+    || targetPeriod.season > 2099
+    || !Number.isInteger(targetPeriod.week)
+    || targetPeriod.week < 1
+    || targetPeriod.week > maxWeek) {
+    throw new Error('The requested projection period is invalid.');
+  }
+  if (targetPeriod.seasonType !== 'regular') {
+    throw new Error('Sleeper league projections require an NFL regular-season period.');
+  }
+  if (String(targetPeriod.season) !== league.season) {
+    throw new Error('The requested projection season does not match the configured Sleeper league.');
+  }
+  return targetPeriod.week;
+}
+
+function assertProjectionMatchupReadiness(
+  rows: SleeperMatchup[],
+  rosters: SleeperRoster[],
+  rosterPositions: string[],
+): void {
+  assertMatchupCompleteness(rows, rosters, true);
+  if (rows.some((row) => row.matchup_id === null || row.matchup_id === undefined)) {
+    throw new Error('Sleeper has not resolved every matchup pairing for the requested projection week.');
+  }
+
+  const requiredSlots = startingSlots(rosterPositions);
+  if (!requiredSlots.length || rows.some((row) => !Array.isArray(row.starters)
+    || row.starters.length !== requiredSlots.length
+    || row.starters.some((starter) => !starter.trim()))) {
+    throw new Error('Sleeper has not published complete lineups for the requested projection week.');
+  }
+}
+
 function playerCoverageWarning(catalog: PlayerCatalog, ids: Iterable<string>): string | undefined {
   const missing = new Set<string>();
   for (const id of ids) {
@@ -426,6 +473,7 @@ export async function getOverview(leagueId: string): Promise<OverviewData> {
 
 type MatchupSourceOptions = Readonly<{
   requestedWeek?: number;
+  projectionTarget?: ProjectionTargetPeriod;
   freshMatchups?: boolean;
   includeRosteredPlayers?: boolean;
 }>;
@@ -441,11 +489,21 @@ async function loadMatchupSource(
   requestStartedAt: string;
   requestCompletedAt: string;
 }> {
-  const { requestedWeek, freshMatchups = false, includeRosteredPlayers = false } = options;
+  const {
+    requestedWeek,
+    projectionTarget,
+    freshMatchups = false,
+    includeRosteredPlayers = false,
+  } = options;
+  if (projectionTarget && requestedWeek !== undefined) {
+    throw new Error('A matchup load cannot combine website and projection week selection.');
+  }
   const core = await getCore(leagueId);
-  const week = requestedWeek === undefined ? core.overview.league.week
-    : Number.isInteger(requestedWeek) && requestedWeek >= 1 && requestedWeek <= core.overview.league.maxWeek
-      ? requestedWeek : core.overview.league.week;
+  const week = projectionTarget
+    ? projectionTargetWeek(projectionTarget, core.sourceLeague, core.overview.league.maxWeek)
+    : requestedWeek === undefined ? core.overview.league.week
+      : Number.isInteger(requestedWeek) && requestedWeek >= 1 && requestedWeek <= core.overview.league.maxWeek
+        ? requestedWeek : core.overview.league.week;
   const status = matchupStatus(core.sourceLeague, core.state, week);
   const canDecorate = canDecorateMatchupWeek(core.sourceLeague, core.state, week);
   const [matchupObservation, players, nflSchedule] = await Promise.all([
@@ -461,8 +519,12 @@ async function loadMatchupSource(
       : Promise.resolve({ schedule: {} as WeekSchedule, canIdentifyByes: false, warning: undefined }),
   ]);
   const { rows, requestStartedAt, requestCompletedAt } = matchupObservation;
-  const slateExpected = matchupSlateExpected(core.sourceLeague, core.state, week);
-  assertMatchupCompleteness(rows, core.rosters, slateExpected);
+  if (projectionTarget) {
+    assertProjectionMatchupReadiness(rows, core.rosters, core.overview.league.rosterPositions);
+  } else {
+    const slateExpected = matchupSlateExpected(core.sourceLeague, core.state, week);
+    assertMatchupCompleteness(rows, core.rosters, slateExpected);
+  }
   const scheduledMatchups = addScheduleToMatchups(
     normalizeMatchups(rows, core.overview.teams, core.overview.league, players.catalog,
       status),
@@ -519,8 +581,12 @@ async function fetchObservedRows<T>(
  * worker uses this boundary so provider synchronization and database writes remain outside the
  * presentation path.
  */
-export async function getProjectionSyncInput(leagueId: string): Promise<ProjectionSyncInput> {
+export async function getProjectionSyncInput(
+  leagueId: string,
+  targetPeriod: ProjectionTargetPeriod,
+): Promise<ProjectionSyncInput> {
   const source = await loadMatchupSource(leagueId, {
+    projectionTarget: targetPeriod,
     freshMatchups: true,
     includeRosteredPlayers: true,
   });
