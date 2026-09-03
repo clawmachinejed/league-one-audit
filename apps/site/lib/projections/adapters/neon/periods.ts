@@ -3,6 +3,7 @@ import 'server-only';
 import type { DatabaseClient, DatabaseRow } from '../../../database';
 import type {
   LeaguePeriodAuthorityInput,
+  MatchupProjectionIdentity,
   PeriodAuthorityWriteOutcome,
   ProjectionStore,
   SeasonType,
@@ -58,6 +59,16 @@ function nullableTimestamp(row: DatabaseRow, key: string, label: string): string
 function nullableSeasonType(row: DatabaseRow, key: string): SeasonType | null {
   if (row[key] === null || row[key] === undefined) return null;
   return member(rowText(row, key), SEASON_TYPES, key);
+}
+
+function projectionIdentityValues(
+  identity: MatchupProjectionIdentity,
+): readonly [string, string, string] {
+  return [
+    provider(identity.projectionProvider),
+    requiredText(identity.normalizerVersion, 'Projection normalizer version'),
+    requiredText(identity.modelVersion, 'Projection model version'),
+  ];
 }
 
 function authorityFromRow(row: DatabaseRow): StoredLeaguePeriodAuthority {
@@ -205,8 +216,11 @@ export function createPeriodMethods(client: DatabaseClient): PeriodMethods {
       return { kind: resultKind, value: authorityFromRow(row) };
     },
 
-    async readMatchupSnapshotByLeagueKey(leagueKey, requestedWeek) {
+    async readMatchupSnapshotByLeagueKey(leagueKey, requestedWeek, projectionIdentity) {
       if (requestedWeek !== undefined) wholeNumber(requestedWeek, 1, 18, 'Requested week');
+      const [projectionProvider, normalizerVersion, modelVersion] = projectionIdentityValues(
+        projectionIdentity,
+      );
       const rows = await client.query(`/* projection-store:read-matchup-snapshot-by-league-key */
         WITH target AS (
           SELECT authority.*, COALESCE($2::smallint, authority.default_week) AS target_week
@@ -235,6 +249,7 @@ export function createPeriodMethods(client: DatabaseClient): PeriodMethods {
         LEFT JOIN current_projection_snapshots current
           ON current.league_season_id = season.id AND current.week = target.target_week
         LEFT JOIN projection_snapshots snapshot ON snapshot.id = current.snapshot_id
+          AND snapshot.model_version = $5
         LEFT JOIN LATERAL (
           SELECT material.next_refresh_at, material.last_succeeded_at,
             material.active_attempt_expires_at,
@@ -252,17 +267,14 @@ export function createPeriodMethods(client: DatabaseClient): PeriodMethods {
             AND material.season = target.default_season
             AND material.season_type = target.default_season_type
             AND material.week = target.target_week
+            AND material.projection_provider = $3
+            AND material.normalizer_version = $4
             AND material.model_version = snapshot.model_version
-          ORDER BY
-            (material.last_snapshot_revision = snapshot.revision_key
-              AND material.last_projection_slate_content_id
-                = slate.projection_slate_content_id) DESC,
-            material.last_succeeded_at DESC NULLS LAST,
-            material.projection_provider,
-            material.normalizer_version
+            AND material.model_version = $5
           LIMIT 1
         ) future ON snapshot.id IS NOT NULL`, [
         requiredText(leagueKey, 'League key'), requestedWeek ?? null,
+        projectionProvider, normalizerVersion, modelVersion,
       ]);
       const row = rows[0];
       if (!row) return null;

@@ -24,8 +24,7 @@ import type {
   ProjectionSlateObservationId,
 } from '../ports/projection-repository';
 import type { ExternalRosterRef, ExternalScoringEntityRef } from '../shared/provider-identity';
-
-export const LIVE_PROJECTION_MODEL_VERSION = 'clock-v1';
+export { LIVE_PROJECTION_MODEL_VERSION } from '../shared/projection-versions';
 
 /** Public worker configuration is the provider-neutral league registry entry. */
 export type ProjectionLeagueConfiguration = LeagueConfiguration;

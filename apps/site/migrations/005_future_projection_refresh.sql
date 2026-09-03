@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS projection_period_refresh_states (
       AND active_attempt_expires_at IS NULL)
     OR (active_attempt_id IS NOT NULL
       AND active_attempt_started_at IS NOT NULL
+      AND active_attempt_expires_at IS NOT NULL
       AND active_attempt_expires_at > active_attempt_started_at)
   ),
   CHECK (
@@ -51,7 +52,8 @@ CREATE TABLE IF NOT EXISTS projection_period_refresh_states (
   ),
   CHECK (
     active_attempt_started_at IS NULL
-    OR active_attempt_started_at = last_attempted_at
+    OR (last_attempted_at IS NOT NULL
+      AND active_attempt_started_at = last_attempted_at)
   ),
   CHECK (last_succeeded_at IS NULL OR last_attempted_at IS NOT NULL),
   CHECK (
@@ -64,7 +66,9 @@ CREATE TABLE IF NOT EXISTS projection_period_refresh_states (
   ),
   CHECK (
     (consecutive_failures = 0 AND last_failure_code IS NULL)
-    OR (consecutive_failures > 0 AND last_failure_code IN (
+    OR (consecutive_failures > 0
+      AND last_failure_code IS NOT NULL
+      AND last_failure_code IN (
       'provider-unavailable',
       'projection-slate-incomplete',
       'projection-slate-invalid',
@@ -91,6 +95,12 @@ CREATE INDEX IF NOT EXISTS projection_period_refresh_due_idx
   ON projection_period_refresh_states (
     next_refresh_at, season, season_type, week, projection_provider, normalizer_version
   );
+
+CREATE INDEX IF NOT EXISTS projection_period_refresh_last_slate_idx
+  ON projection_period_refresh_states (
+    last_projection_slate_observation_id, last_projection_slate_content_id
+  )
+  WHERE last_projection_slate_observation_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS league_week_materialization_states (
   league_key text NOT NULL REFERENCES league_period_authorities(league_key),
@@ -133,6 +143,7 @@ CREATE TABLE IF NOT EXISTS league_week_materialization_states (
       AND active_attempt_expires_at IS NULL)
     OR (active_attempt_id IS NOT NULL
       AND active_attempt_started_at IS NOT NULL
+      AND active_attempt_expires_at IS NOT NULL
       AND active_attempt_expires_at > active_attempt_started_at)
   ),
   CHECK (
@@ -141,7 +152,8 @@ CREATE TABLE IF NOT EXISTS league_week_materialization_states (
   ),
   CHECK (
     active_attempt_started_at IS NULL
-    OR active_attempt_started_at = last_attempted_at
+    OR (last_attempted_at IS NOT NULL
+      AND active_attempt_started_at = last_attempted_at)
   ),
   CHECK (last_succeeded_at IS NULL OR last_attempted_at IS NOT NULL),
   CHECK (
@@ -158,7 +170,9 @@ CREATE TABLE IF NOT EXISTS league_week_materialization_states (
   ),
   CHECK (
     (consecutive_failures = 0 AND last_failure_code IS NULL)
-    OR (consecutive_failures > 0 AND last_failure_code IN (
+    OR (consecutive_failures > 0
+      AND last_failure_code IS NOT NULL
+      AND last_failure_code IN (
       'provider-unavailable',
       'projection-slate-incomplete',
       'projection-slate-invalid',
@@ -186,6 +200,17 @@ CREATE INDEX IF NOT EXISTS league_week_materialization_due_idx
     next_refresh_at, season, season_type, week,
     projection_provider, normalizer_version, model_version, league_key
   );
+
+CREATE INDEX IF NOT EXISTS league_week_materialization_wake_idx
+  ON league_week_materialization_states (
+    projection_provider, season, season_type, week, normalizer_version
+  );
+
+CREATE INDEX IF NOT EXISTS league_week_materialization_last_slate_idx
+  ON league_week_materialization_states (
+    last_projection_slate_observation_id, last_projection_slate_content_id
+  )
+  WHERE last_projection_slate_observation_id IS NOT NULL;
 
 -- Scheduling identities are immutable even though due dates and attempt state are mutable.
 CREATE OR REPLACE FUNCTION prevent_future_refresh_identity_change()

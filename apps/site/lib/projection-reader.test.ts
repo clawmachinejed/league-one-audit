@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('server-only', () => ({}));
 
 import { readStoredMatchups } from './projection-reader';
+import { ACTIVE_PROJECTION_SOURCE } from './projection-source-config';
 import type {
   ProjectionStore,
   StoredFutureMaterializationFreshness,
@@ -67,18 +68,27 @@ describe('period-aware stored matchup reader', () => {
   it('resolves an omitted week to the authority default, never the latest stored week', async () => {
     const database = store({ authority: authority(), snapshot: snapshot(2), futureRefresh: null });
     const result = await readStoredMatchups('league1', undefined, {
-      store: database, now: new Date('2026-09-20T18:00:00.000Z'),
+      store: database, now: new Date('2026-09-13T18:05:00.000Z'),
     });
     expect(result).toMatchObject({
       kind: 'usable', historical: false,
       context: { defaultWeek: 2, activeWeek: 1, temporalState: 'future' },
     });
-    expect(database.readMatchupSnapshotByLeagueKey).toHaveBeenCalledWith('league1', undefined);
+    expect(database.readMatchupSnapshotByLeagueKey).toHaveBeenCalledWith('league1', undefined, {
+      projectionProvider: ACTIVE_PROJECTION_SOURCE.provider,
+      normalizerVersion: ACTIVE_PROJECTION_SOURCE.normalizerVersion,
+      modelVersion: ACTIVE_PROJECTION_SOURCE.modelVersion,
+    });
   });
 
   it('preserves an exact explicit past week and does not rewrite its payload context', async () => {
     const database = store({
-      authority: authority({ activeWeek: 2 }), snapshot: snapshot(1), futureRefresh: null,
+      authority: authority({
+        activeWeek: 2,
+        sourceObservedAt: '2027-01-01T00:00:00.000Z',
+        verifiedAt: '2027-01-01T00:00:00.000Z',
+      }),
+      snapshot: snapshot(1), futureRefresh: null,
     });
     const result = await readStoredMatchups('league1', 1, {
       store: database, now: new Date('2027-01-01T00:00:00.000Z'),
@@ -95,7 +105,10 @@ describe('period-aware stored matchup reader', () => {
     const now = new Date('2026-09-20T18:00:00.000Z');
     const scheduled = await readStoredMatchups('league1', 2, {
       store: store({
-        authority: authority(), snapshot: snapshot(2), futureRefresh: futureRefresh(),
+        authority: authority({
+          sourceObservedAt: '2026-09-20T17:59:00.000Z',
+          verifiedAt: '2026-09-20T17:59:00.000Z',
+        }), snapshot: snapshot(2), futureRefresh: futureRefresh(),
       }),
       now,
     });
@@ -105,7 +118,10 @@ describe('period-aware stored matchup reader', () => {
 
     const changedSlate = await readStoredMatchups('league1', 2, {
       store: store({
-        authority: authority(),
+        authority: authority({
+          sourceObservedAt: '2026-09-20T17:59:00.000Z',
+          verifiedAt: '2026-09-20T17:59:00.000Z',
+        }),
         snapshot: snapshot(2),
         futureRefresh: futureRefresh({ currentProjectionSlateContentId: 'new-content' }),
       }),
@@ -117,7 +133,10 @@ describe('period-aware stored matchup reader', () => {
 
     const refreshing = await readStoredMatchups('league1', 2, {
       store: store({
-        authority: authority(),
+        authority: authority({
+          sourceObservedAt: '2026-09-20T17:59:00.000Z',
+          verifiedAt: '2026-09-20T17:59:00.000Z',
+        }),
         snapshot: snapshot(2),
         futureRefresh: futureRefresh({
           nextRefreshAt: '2026-09-20T17:00:00.000Z',
@@ -129,6 +148,74 @@ describe('period-aware stored matchup reader', () => {
     expect(refreshing).toMatchObject({
       kind: 'usable', context: { temporalState: 'future', refreshDue: false },
     });
+
+    const refreshingChangedSlate = await readStoredMatchups('league1', 2, {
+      store: store({
+        authority: authority({
+          sourceObservedAt: '2026-09-20T17:59:00.000Z',
+          verifiedAt: '2026-09-20T17:59:00.000Z',
+        }),
+        snapshot: snapshot(2),
+        futureRefresh: futureRefresh({
+          currentProjectionSlateContentId: 'new-content',
+          activeAttemptExpiresAt: '2026-09-20T18:01:00.000Z',
+        }),
+      }),
+      now,
+    });
+    expect(refreshingChangedSlate).toMatchObject({
+      kind: 'usable', context: { temporalState: 'future', refreshDue: false },
+    });
+
+    const implausibleSuccessTime = await readStoredMatchups('league1', 2, {
+      store: store({
+        authority: authority({
+          sourceObservedAt: '2026-09-20T17:59:00.000Z',
+          verifiedAt: '2026-09-20T17:59:00.000Z',
+        }),
+        snapshot: snapshot(2),
+        futureRefresh: futureRefresh({
+          lastSucceededAt: '2026-09-20T18:05:00.001Z',
+        }),
+      }),
+      now,
+    });
+    expect(implausibleSuccessTime).toMatchObject({
+      kind: 'usable', context: { temporalState: 'future', refreshDue: true },
+    });
+  });
+
+  it('rejects expired or implausibly future period authority so pages can consult Sleeper', async () => {
+    await expect(readStoredMatchups('league1', 2, {
+      store: store({ authority: authority(), snapshot: snapshot(2), futureRefresh: futureRefresh() }),
+      now: new Date('2026-09-13T18:10:00.000Z'),
+    })).resolves.toMatchObject({ kind: 'usable' });
+    await expect(readStoredMatchups('league1', 2, {
+      store: store({ authority: authority(), snapshot: snapshot(2), futureRefresh: futureRefresh() }),
+      now: new Date('2026-09-13T18:10:00.001Z'),
+    })).resolves.toEqual({ kind: 'authority-stale' });
+    await expect(readStoredMatchups('league1', 2, {
+      store: store({
+        authority: authority({
+          sourceObservedAt: '2026-09-13T18:05:00.000Z',
+          verifiedAt: '2026-09-13T18:05:00.000Z',
+        }),
+        snapshot: snapshot(2),
+        futureRefresh: futureRefresh(),
+      }),
+      now: new Date('2026-09-13T18:00:00.000Z'),
+    })).resolves.toMatchObject({ kind: 'usable' });
+    await expect(readStoredMatchups('league1', 2, {
+      store: store({
+        authority: authority({
+          sourceObservedAt: '2026-09-13T18:05:00.001Z',
+          verifiedAt: '2026-09-13T18:05:00.001Z',
+        }),
+        snapshot: snapshot(2),
+        futureRefresh: futureRefresh(),
+      }),
+      now: new Date('2026-09-13T18:00:00.000Z'),
+    })).resolves.toEqual({ kind: 'authority-stale' });
   });
 
   it('distinguishes disabled, missing authority, missing exact week, and stale active data', async () => {
@@ -138,10 +225,21 @@ describe('period-aware stored matchup reader', () => {
       .resolves.toEqual({ kind: 'missing' });
     await expect(readStoredMatchups('league1', 2, {
       store: store({ authority: authority(), snapshot: null, futureRefresh: null }),
+      now: new Date('2026-09-13T18:05:00.000Z'),
     })).resolves.toMatchObject({ kind: 'missing', context: { temporalState: 'future' } });
+    await expect(readStoredMatchups('league1', 2, {
+      store: store({ authority: authority(), snapshot: null, futureRefresh: null }),
+      now: new Date('2026-09-13T18:10:00.001Z'),
+    })).resolves.toEqual({ kind: 'missing' });
     await expect(readStoredMatchups('league1', 1, {
       store: store({
-        authority: authority({ defaultWeek: 1 }), snapshot: snapshot(1), futureRefresh: null,
+        authority: authority({
+          defaultWeek: 1,
+          sourceObservedAt: '2026-09-13T19:15:00.000Z',
+          verifiedAt: '2026-09-13T19:15:00.000Z',
+        }),
+        snapshot: snapshot(1),
+        futureRefresh: null,
       }),
       now: new Date('2026-09-13T19:16:00.000Z'),
     })).resolves.toMatchObject({ kind: 'stale', context: { refreshDue: true } });
@@ -151,6 +249,7 @@ describe('period-aware stored matchup reader', () => {
     const wrongWeek = { ...snapshot(1), payload: payload(2) };
     await expect(readStoredMatchups('league1', 1, {
       store: store({ authority: authority(), snapshot: wrongWeek, futureRefresh: null }),
+      now: new Date('2026-09-13T18:05:00.000Z'),
     })).resolves.toMatchObject({ kind: 'malformed' });
     const wrongSeasonPayload = payload(1);
     wrongSeasonPayload.league.season = '2025';
@@ -160,6 +259,7 @@ describe('period-aware stored matchup reader', () => {
         snapshot: { ...snapshot(1), payload: wrongSeasonPayload },
         futureRefresh: null,
       }),
+      now: new Date('2026-09-13T18:05:00.000Z'),
     })).resolves.toMatchObject({ kind: 'malformed' });
   });
 

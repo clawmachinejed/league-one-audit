@@ -96,7 +96,7 @@ export function createProjectionFutureRefreshMethods(
       const rows = await client.query(`/* projection-store:complete-future-projection-refresh */
         WITH valid_slate AS (
           SELECT current.projection_slate_observation_id,
-            current.projection_slate_content_id
+            current.projection_slate_content_id, observation.observed_at
           FROM current_projection_slates current
           JOIN projection_slate_observations observation
             ON observation.id = current.projection_slate_observation_id
@@ -135,6 +135,9 @@ export function createProjectionFutureRefreshMethods(
             AND refresh.active_attempt_expires_at >= $7::timestamptz
             AND (refresh.last_succeeded_at IS NULL
               OR refresh.last_succeeded_at <= $7::timestamptz)
+            AND slate.observed_at >= COALESCE(
+              refresh.last_succeeded_at, refresh.created_at
+            )
           RETURNING refresh.next_refresh_at
         ), woken AS (
           UPDATE league_week_materialization_states materialization SET

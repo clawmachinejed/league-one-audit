@@ -49,7 +49,9 @@ describe('projection-store public behavior characterization', () => {
       leagueLifecycle: 'active', nflPhase: 'regular', sourceProvider: '',
       sourceRevision: '', sourceObservedAt: '', verifiedAt: '',
     })).resolves.toEqual({ kind: 'disabled' });
-    await expect(store.readMatchupSnapshotByLeagueKey('', 0)).resolves.toBeNull();
+    await expect(store.readMatchupSnapshotByLeagueKey('', 0, {
+      projectionProvider: '', normalizerVersion: '', modelVersion: '',
+    })).resolves.toBeNull();
     await expect(store.upsertScoringEntities([{
       key: '', kind: 'player', displayName: '', nflTeam: null, providerIds: [],
     }])).resolves.toEqual({ kind: 'disabled' });

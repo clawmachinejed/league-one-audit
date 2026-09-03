@@ -129,6 +129,7 @@ describe.sequential('projection store against an isolated Neon database', () => 
         '002_manager_snapshot_payloads.sql',
         '003_league_period_authority.sql',
         '004_durable_projection_slates.sql',
+        '005_future_projection_refresh.sql',
         '006_flexed_kickoff_candidate_index.sql',
       ],
     });
@@ -141,6 +142,7 @@ describe.sequential('projection store against an isolated Neon database', () => 
       { name: '002_manager_snapshot_payloads.sql', checksum_length: 64 },
       { name: '003_league_period_authority.sql', checksum_length: 64 },
       { name: '004_durable_projection_slates.sql', checksum_length: 64 },
+      { name: '005_future_projection_refresh.sql', checksum_length: 64 },
       { name: '006_flexed_kickoff_candidate_index.sql', checksum_length: 64 },
     ]);
   });
@@ -220,6 +222,265 @@ describe.sequential('projection store against an isolated Neon database', () => 
       sleeperLeagueId: 'integration-sleeper-league',
       scoringRules: { pass_td: 6, pass_yd: 0.04, pass_int: -2 },
     })).rejects.toThrow(/immutable/iu);
+  });
+
+  it('persists a future projection success, later retry, and recovered success', async () => {
+    const baseMs = Date.now() + 1_000;
+    const at = (offsetMs: number) => new Date(baseMs + offsetMs).toISOString();
+    await expect(store.upsertLeaguePeriodAuthority({
+      leagueKey: 'integration-league',
+      defaultSeason: 2026,
+      defaultSeasonType: 'reg',
+      defaultWeek: 1,
+      activeSeason: 2026,
+      activeSeasonType: 'reg',
+      activeWeek: 1,
+      leagueLifecycle: 'active',
+      nflPhase: 'regular',
+      sourceProvider: 'sleeper',
+      sourceRevision: 'future-integration-authority',
+      sourceObservedAt: at(0),
+      verifiedAt: at(0),
+    })).resolves.toMatchObject({ kind: 'stored' });
+    const target = {
+      period: { season: 2026, seasonType: 'reg' as const, week: 2 },
+      weekDistance: 1,
+    };
+    await expect(store.ensureFutureRefreshStates({
+      projectionProvider: 'tank01',
+      normalizerVersion: 'canonical-projection-slate-v1',
+      modelVersion: 'clock-v1',
+      targets: [target],
+      leagueKeys: ['integration-league'],
+      seededAt: at(0),
+    })).resolves.toMatchObject({ kind: 'stored' });
+
+    const firstAttempt = randomUUID();
+    await expect(store.beginFutureProjectionRefresh({
+      projectionProvider: 'tank01',
+      normalizerVersion: 'canonical-projection-slate-v1',
+      period: target.period,
+      attemptId: firstAttempt,
+      attemptedAt: at(0),
+      leaseSeconds: 60,
+    })).resolves.toMatchObject({ kind: 'acquired', attempt: 1, attemptId: firstAttempt });
+
+    const slate = storedValue(await store.recordProjectionSlate({
+      provider: 'tank01',
+      season: 2026,
+      seasonType: 'reg',
+      week: 2,
+      normalizerVersion: 'canonical-projection-slate-v1',
+      sourceRevision: 'future-integration-slate-1',
+      requestStartedAt: at(1_000),
+      requestCompletedAt: at(2_000),
+      observedAt: at(2_000),
+      quality: 'complete',
+      coverage: { playerRows: 1, matchedPlayers: 1 },
+      warnings: [],
+      entries: [{
+        entityKind: 'player',
+        providerExternalId: 'future-tank-player',
+        aliases: [{ provider: 'sleeper', externalId: 'future-sleeper-player' }],
+        nflTeam: 'IND',
+        position: 'QB',
+        stats: { passingYards: 250 },
+        scoringStats: { kind: 'offense', passingYards: 250 },
+        missingFields: [],
+      }],
+    }));
+    await expect(store.completeFutureProjectionRefresh({
+      projectionProvider: 'tank01',
+      normalizerVersion: 'canonical-projection-slate-v1',
+      period: target.period,
+      attemptId: firstAttempt,
+      completedAt: at(3_000),
+      nextRefreshAt: at(6 * 60 * 60 * 1_000 + 3_000),
+      slate: { observationId: slate.observationId, contentId: slate.contentId },
+    })).resolves.toMatchObject({
+      kind: 'updated', consecutiveFailures: 0, materializationsWoken: 1,
+    });
+
+    const failedAttempt = randomUUID();
+    await expect(store.beginFutureProjectionRefresh({
+      projectionProvider: 'tank01',
+      normalizerVersion: 'canonical-projection-slate-v1',
+      period: target.period,
+      attemptId: failedAttempt,
+      attemptedAt: at(6 * 60 * 60 * 1_000 + 3_000),
+      leaseSeconds: 60,
+    })).resolves.toMatchObject({ kind: 'acquired', attempt: 2, attemptId: failedAttempt });
+    await expect(store.failFutureProjectionRefresh({
+      projectionProvider: 'tank01',
+      normalizerVersion: 'canonical-projection-slate-v1',
+      period: target.period,
+      attemptId: failedAttempt,
+      failedAt: at(6 * 60 * 60 * 1_000 + 4_000),
+      failureCode: 'provider-unavailable',
+    })).resolves.toMatchObject({ kind: 'updated', consecutiveFailures: 1 });
+
+    const recoveredAttempt = randomUUID();
+    await expect(store.beginFutureProjectionRefresh({
+      projectionProvider: 'tank01',
+      normalizerVersion: 'canonical-projection-slate-v1',
+      period: target.period,
+      attemptId: recoveredAttempt,
+      attemptedAt: at(6 * 60 * 60 * 1_000 + 5 * 60 * 1_000 + 4_000),
+      leaseSeconds: 60,
+    })).resolves.toMatchObject({ kind: 'acquired', attempt: 3, attemptId: recoveredAttempt });
+    await expect(store.completeFutureProjectionRefresh({
+      projectionProvider: 'tank01',
+      normalizerVersion: 'canonical-projection-slate-v1',
+      period: target.period,
+      attemptId: recoveredAttempt,
+      completedAt: at(6 * 60 * 60 * 1_000 + 5 * 60 * 1_000 + 5_000),
+      nextRefreshAt: at(12 * 60 * 60 * 1_000 + 5_000),
+      slate: { observationId: slate.observationId, contentId: slate.contentId },
+    })).resolves.toEqual({ kind: 'stale' });
+    const recoveredSlate = storedValue(await store.recordProjectionSlate({
+      provider: 'tank01',
+      season: 2026,
+      seasonType: 'reg',
+      week: 2,
+      normalizerVersion: 'canonical-projection-slate-v1',
+      sourceRevision: 'future-integration-slate-2',
+      requestStartedAt: at(6 * 60 * 60 * 1_000 + 5 * 60 * 1_000 + 4_250),
+      requestCompletedAt: at(6 * 60 * 60 * 1_000 + 5 * 60 * 1_000 + 4_500),
+      observedAt: at(6 * 60 * 60 * 1_000 + 5 * 60 * 1_000 + 4_500),
+      quality: 'complete',
+      coverage: { playerRows: 1, matchedPlayers: 1 },
+      warnings: [],
+      entries: [{
+        entityKind: 'player',
+        providerExternalId: 'future-tank-player',
+        aliases: [{ provider: 'sleeper', externalId: 'future-sleeper-player' }],
+        nflTeam: 'IND',
+        position: 'QB',
+        stats: { passingYards: 250 },
+        scoringStats: { kind: 'offense', passingYards: 250 },
+        missingFields: [],
+      }],
+    }));
+    expect(recoveredSlate.contentId).toBe(slate.contentId);
+    expect(recoveredSlate.observationId).not.toBe(slate.observationId);
+    await expect(store.completeFutureProjectionRefresh({
+      projectionProvider: 'tank01',
+      normalizerVersion: 'canonical-projection-slate-v1',
+      period: target.period,
+      attemptId: recoveredAttempt,
+      completedAt: at(6 * 60 * 60 * 1_000 + 5 * 60 * 1_000 + 5_000),
+      nextRefreshAt: at(12 * 60 * 60 * 1_000 + 5 * 60 * 1_000 + 5_000),
+      slate: { observationId: recoveredSlate.observationId, contentId: recoveredSlate.contentId },
+    })).resolves.toMatchObject({ kind: 'updated', consecutiveFailures: 0 });
+
+    const plan = await store.readFutureRefreshPlan({
+      projectionProvider: 'tank01',
+      normalizerVersion: 'canonical-projection-slate-v1',
+      modelVersion: 'clock-v1',
+      targets: [target],
+      leagueKeys: ['integration-league'],
+      asOf: at(6 * 60 * 60 * 1_000 + 5 * 60 * 1_000 + 6_000),
+    });
+    expect(plan).toHaveLength(1);
+    expect(plan[0].projection).toMatchObject({
+      consecutiveFailures: 0,
+      lastFailureCode: null,
+      lastSlate: {
+        observationId: recoveredSlate.observationId,
+        contentId: recoveredSlate.contentId,
+      },
+      currentSlate: {
+        observationId: recoveredSlate.observationId,
+        contentId: recoveredSlate.contentId,
+      },
+      due: false,
+    });
+  });
+
+  it('rejects every partial future-refresh lease tuple and inconsistent failure tuple', async () => {
+    const attemptId = randomUUID();
+    const leaseTuples = [
+      [true, false, false],
+      [false, true, false],
+      [false, false, true],
+      [true, true, false],
+      [true, false, true],
+      [false, true, true],
+    ] as const;
+    for (const [index, tuple] of leaseTuples.entries()) {
+      const [hasId, hasStart, hasExpiry] = tuple;
+      await expect(ownerQuery(`
+        INSERT INTO projection_period_refresh_states (
+          projection_provider, season, season_type, week, normalizer_version,
+          week_distance, next_refresh_at, attempt_count, last_attempted_at,
+          active_attempt_id, active_attempt_started_at, active_attempt_expires_at
+        ) VALUES ($1, 2026, 'reg', 10, 'constraint-v1', 9, now(), 1, now(),
+          $2::uuid, $3::timestamptz, $4::timestamptz)
+      `, [
+        `invalid-projection-lease-${index}`,
+        hasId ? attemptId : null,
+        hasStart ? new Date().toISOString() : null,
+        hasExpiry ? new Date(Date.now() + 60_000).toISOString() : null,
+      ])).rejects.toThrow(/check constraint/iu);
+      await expect(ownerQuery(`
+        INSERT INTO league_week_materialization_states (
+          league_key, projection_provider, season, season_type, week,
+          normalizer_version, model_version, week_distance, next_refresh_at,
+          attempt_count, last_attempted_at, active_attempt_id,
+          active_attempt_started_at, active_attempt_expires_at
+        ) VALUES ('integration-league', $1, 2026, 'reg', 10,
+          'constraint-v1', 'clock-v1', 9, now(), 1, now(),
+          $2::uuid, $3::timestamptz, $4::timestamptz)
+      `, [
+        `invalid-materialization-lease-${index}`,
+        hasId ? attemptId : null,
+        hasStart ? new Date().toISOString() : null,
+        hasExpiry ? new Date(Date.now() + 60_000).toISOString() : null,
+      ])).rejects.toThrow(/check constraint/iu);
+    }
+
+    await expect(ownerQuery(`
+      INSERT INTO projection_period_refresh_states (
+        projection_provider, season, season_type, week, normalizer_version,
+        week_distance, next_refresh_at, attempt_count, last_attempted_at,
+        active_attempt_id, active_attempt_started_at, active_attempt_expires_at
+      ) VALUES ('invalid-projection-link', 2026, 'reg', 11, 'constraint-v1',
+        10, now(), 1, now() - interval '1 minute', $1::uuid, now(),
+        now() + interval '1 minute')
+    `, [attemptId])).rejects.toThrow(/check constraint/iu);
+    await expect(ownerQuery(`
+      INSERT INTO league_week_materialization_states (
+        league_key, projection_provider, season, season_type, week,
+        normalizer_version, model_version, week_distance, next_refresh_at,
+        attempt_count, last_attempted_at, active_attempt_id,
+        active_attempt_started_at, active_attempt_expires_at
+      ) VALUES ('integration-league', 'invalid-materialization-link', 2026,
+        'reg', 11, 'constraint-v1', 'clock-v1', 10, now(), 1,
+        now() - interval '1 minute', $1::uuid, now(), now() + interval '1 minute')
+    `, [attemptId])).rejects.toThrow(/check constraint/iu);
+
+    for (const failureCode of [null, 'provider-unavailable'] as const) {
+      const failureCount = failureCode === null ? 1 : 0;
+      const suffix = failureCode === null ? 'missing-code' : 'unexpected-code';
+      await expect(ownerQuery(`
+        INSERT INTO projection_period_refresh_states (
+          projection_provider, season, season_type, week, normalizer_version,
+          week_distance, next_refresh_at, attempt_count, last_attempted_at,
+          consecutive_failures, last_failure_code
+        ) VALUES ($1, 2026, 'reg', 12, 'constraint-v1', 11, now(), 1,
+          now(), $2, $3)
+      `, [`invalid-projection-${suffix}`, failureCount, failureCode]))
+        .rejects.toThrow(/check constraint/iu);
+      await expect(ownerQuery(`
+        INSERT INTO league_week_materialization_states (
+          league_key, projection_provider, season, season_type, week,
+          normalizer_version, model_version, week_distance, next_refresh_at,
+          attempt_count, last_attempted_at, consecutive_failures, last_failure_code
+        ) VALUES ('integration-league', $1, 2026, 'reg', 12,
+          'constraint-v1', 'clock-v1', 11, now(), 1, now(), $2, $3)
+      `, [`invalid-materialization-${suffix}`, failureCount, failureCode]))
+        .rejects.toThrow(/check constraint/iu);
+    }
   });
 
   it('resolves concurrent provider identity upserts to one entity without an orphan', async () => {

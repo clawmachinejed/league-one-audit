@@ -18,6 +18,12 @@ const input: LeaguePeriodAuthorityInput = {
   verifiedAt: '2026-09-13T18:00:01.000Z',
 };
 
+const projectionIdentity = {
+  projectionProvider: 'tank01',
+  normalizerVersion: 'canonical-projection-slate-v1',
+  modelVersion: 'clock-v1',
+} as const;
+
 function authorityRow(overrides: Readonly<Record<string, unknown>> = {}): DatabaseRow {
   return {
     league_key: 'league1', default_season: 2026, default_season_type: 'reg', default_week: 2,
@@ -70,15 +76,17 @@ describe('Neon period authority methods', () => {
     }]);
     const methods = createPeriodMethods(fake.database);
 
-    await expect(methods.readMatchupSnapshotByLeagueKey('league1'))
+    await expect(methods.readMatchupSnapshotByLeagueKey('league1', undefined, projectionIdentity))
       .resolves.toMatchObject({ authority: { defaultWeek: 2 }, snapshot: null });
-    await expect(methods.readMatchupSnapshotByLeagueKey('league1', 1))
+    await expect(methods.readMatchupSnapshotByLeagueKey('league1', 1, projectionIdentity))
       .resolves.toMatchObject({ authority: { activeWeek: 1 }, snapshot: { week: 1 } });
     expect(fake.calls.map((call) => call.parameters)).toEqual([
-      ['league1', null], ['league1', 1],
+      ['league1', null, 'tank01', 'canonical-projection-slate-v1', 'clock-v1'],
+      ['league1', 1, 'tank01', 'canonical-projection-slate-v1', 'clock-v1'],
     ]);
     expect(fake.calls[0].statement).toContain('COALESCE($2::smallint, authority.default_week)');
     expect(fake.calls[0].statement).toContain('current.week = target.target_week');
+    expect(fake.calls[0].statement).toContain('snapshot.model_version = $5');
     expect(fake.calls[0].statement).not.toMatch(/ORDER BY[^;]*week/iu);
   });
 
@@ -94,7 +102,7 @@ describe('Neon period authority methods', () => {
       future_last_snapshot_revision: 'snapshot-revision',
     }]);
     const result = await createPeriodMethods(fake.database)
-      .readMatchupSnapshotByLeagueKey('league1', 1);
+      .readMatchupSnapshotByLeagueKey('league1', 1, projectionIdentity);
 
     expect(result?.futureRefresh).toEqual({
       nextRefreshAt: '2026-09-14T00:00:00.000Z',
@@ -105,14 +113,16 @@ describe('Neon period authority methods', () => {
       lastSnapshotRevision: 'snapshot-revision',
     });
     expect(fake.calls[0].statement).toContain('LEFT JOIN LATERAL');
-    expect(fake.calls[0].statement).toContain(
-      'material.last_projection_slate_content_id = slate.projection_slate_content_id',
-    );
+    expect(fake.calls[0].statement).toContain('material.projection_provider = $3');
+    expect(fake.calls[0].statement).toContain('material.normalizer_version = $4');
+    expect(fake.calls[0].statement).toContain('material.model_version = $5');
+    expect(fake.calls[0].statement).not.toContain('ORDER BY');
   });
 
   it('rejects malformed active-period rows', async () => {
     const fake = createFakeProjectionDatabase(() => [authorityRow({ active_week: 19 })]);
-    await expect(createPeriodMethods(fake.database).readMatchupSnapshotByLeagueKey('league1', 1))
+    await expect(createPeriodMethods(fake.database)
+      .readMatchupSnapshotByLeagueKey('league1', 1, projectionIdentity))
       .rejects.toThrow('Active week is invalid.');
   });
 });

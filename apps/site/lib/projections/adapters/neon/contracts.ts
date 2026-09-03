@@ -299,6 +299,12 @@ export type StoredMatchupSnapshotContext = Readonly<{
   futureRefresh: StoredFutureMaterializationFreshness | null;
 }>;
 
+export type MatchupProjectionIdentity = Readonly<{
+  projectionProvider: string;
+  normalizerVersion: string;
+  modelVersion: string;
+}>;
+
 export type StoreFutureRefreshPeriod = Readonly<{
   season: number;
   seasonType: SeasonType;
@@ -414,7 +420,8 @@ export type ProjectionStore = Readonly<{
   ) => Promise<PeriodAuthorityWriteOutcome>;
   readMatchupSnapshotByLeagueKey: (
     leagueKey: string,
-    requestedWeek?: number,
+    requestedWeek: number | undefined,
+    projectionIdentity: MatchupProjectionIdentity,
   ) => Promise<StoredMatchupSnapshotContext | null>;
   registerLeagueSeason: (input: Readonly<{
     leagueKey: string;

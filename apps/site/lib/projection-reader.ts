@@ -6,6 +6,7 @@ import {
   type MatchupPeriodContext,
 } from './matchup-period';
 import { selectStoredMatchups } from './projection-freshness';
+import { ACTIVE_PROJECTION_SOURCE } from './projection-source-config';
 import {
   getProjectionStore,
   InvalidStoredProjectionSnapshotError,
@@ -26,9 +27,12 @@ export type StoredMatchupsReadResult = Readonly<{
   kind: 'stale';
   context: MatchupPeriodContext;
 }> | Readonly<{
-  kind: 'missing' | 'disabled' | 'malformed' | 'database-error';
+  kind: 'missing' | 'disabled' | 'malformed' | 'database-error' | 'authority-stale';
   context?: MatchupPeriodContext;
 }>;
+
+const PERIOD_AUTHORITY_MAX_AGE_MS = 10 * 60 * 1_000;
+const MAX_FUTURE_TIMESTAMP_SKEW_MS = 5 * 60 * 1_000;
 
 function canonicalSeasonType(value: 'pre' | 'reg' | 'post'): SeasonType {
   return value === 'pre' ? 'preseason' : value === 'post' ? 'postseason' : 'regular';
@@ -84,22 +88,35 @@ function futureRefreshDue(
   snapshot: StoredProjectionSnapshot,
   now: Date,
 ): boolean {
-  if (!refresh || refresh.lastSucceededAt === null
+  if (!refresh) return true;
+  const nowMs = now.getTime();
+  if (!Number.isFinite(nowMs)) return true;
+  if (refresh.activeAttemptExpiresAt !== null) {
+    const attemptExpiresMs = Date.parse(refresh.activeAttemptExpiresAt);
+    if (Number.isFinite(attemptExpiresMs) && attemptExpiresMs > nowMs) return false;
+  }
+  if (refresh.lastSucceededAt === null
     || refresh.lastSnapshotRevision !== snapshot.revisionKey
     || refresh.lastProjectionSlateContentId === null
     || refresh.currentProjectionSlateContentId === null
     || refresh.lastProjectionSlateContentId !== refresh.currentProjectionSlateContentId) {
     return true;
   }
-  const nowMs = now.getTime();
   const nextRefreshMs = Date.parse(refresh.nextRefreshAt);
   const lastSucceededMs = Date.parse(refresh.lastSucceededAt);
   if (!Number.isFinite(nowMs) || !Number.isFinite(nextRefreshMs)
     || !Number.isFinite(lastSucceededMs)) return true;
+  if (lastSucceededMs > nowMs + MAX_FUTURE_TIMESTAMP_SKEW_MS) return true;
   if (nextRefreshMs > nowMs) return false;
-  if (refresh.activeAttemptExpiresAt === null) return true;
-  const attemptExpiresMs = Date.parse(refresh.activeAttemptExpiresAt);
-  return !Number.isFinite(attemptExpiresMs) || attemptExpiresMs <= nowMs;
+  return true;
+}
+
+function periodAuthorityIsFresh(authority: StoredLeaguePeriodAuthority, now: Date): boolean {
+  const nowMs = now.getTime();
+  const verifiedAtMs = Date.parse(authority.verifiedAt);
+  return Number.isFinite(nowMs) && Number.isFinite(verifiedAtMs)
+    && verifiedAtMs <= nowMs + MAX_FUTURE_TIMESTAMP_SKEW_MS
+    && nowMs - verifiedAtMs <= PERIOD_AUTHORITY_MAX_AGE_MS;
 }
 
 /**
@@ -115,15 +132,24 @@ export async function readStoredMatchups(
   if (!store.enabled) return { kind: 'disabled' };
 
   try {
-    const stored = await store.readMatchupSnapshotByLeagueKey(leagueKey, requestedWeek);
+    const stored = await store.readMatchupSnapshotByLeagueKey(leagueKey, requestedWeek, {
+      projectionProvider: ACTIVE_PROJECTION_SOURCE.provider,
+      normalizerVersion: ACTIVE_PROJECTION_SOURCE.normalizerVersion,
+      modelVersion: ACTIVE_PROJECTION_SOURCE.modelVersion,
+    });
     if (!stored) return { kind: 'missing' };
+    const now = options.now ?? new Date();
     const targetWeek = requestedWeek ?? stored.authority.defaultWeek;
     const context = contextFor(stored.authority, targetWeek);
-    if (!stored.snapshot) return { kind: 'missing', context };
+    if (!stored.snapshot) {
+      return periodAuthorityIsFresh(stored.authority, now)
+        ? { kind: 'missing', context }
+        : { kind: 'missing' };
+    }
+    if (!periodAuthorityIsFresh(stored.authority, now)) return { kind: 'authority-stale' };
     if (!validSnapshot(stored.snapshot, stored.authority, targetWeek)) {
       return { kind: 'malformed', context };
     }
-    const now = options.now ?? new Date();
     return selectStoredMatchups(stored.snapshot, context, now, {
       ...(context.temporalState === 'future'
         ? { futureRefreshDue: futureRefreshDue(stored.futureRefresh, stored.snapshot, now) }

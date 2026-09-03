@@ -3,6 +3,7 @@ import 'server-only';
 import { randomUUID } from 'node:crypto';
 import { LEAGUE_IDS } from '../../config';
 import { LEAGUE_SITES, type LeagueKey } from '../../leagues';
+import { ACTIVE_PROJECTION_SOURCE } from '../../projection-source-config';
 import { getProjectionStore } from '../../projection-store';
 import { getProjectionCadenceInput, getProjectionSyncInput } from '../../sleeper';
 import { createLeagueRegistry } from '../adapters/configuration/league-registry';
@@ -19,7 +20,7 @@ import { externalLeagueRef, providerKey } from '../shared/provider-identity';
 import type { LiveProjectionWorkerDependencies } from '../worker/contracts';
 
 const officialProvider = providerKey('sleeper');
-const projectionProvider = providerKey('tank01');
+const projectionProvider = ACTIVE_PROJECTION_SOURCE.provider;
 const gameStateProvider = projectionProvider;
 let cachedProjectionFeed: ProjectionFeedPort | null = null;
 

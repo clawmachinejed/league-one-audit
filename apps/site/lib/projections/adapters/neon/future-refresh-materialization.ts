@@ -118,7 +118,7 @@ export function createMaterializationFutureRefreshMethods(
             AND current.projection_slate_content_id = $13::uuid
             AND observation.quality = 'complete'
         ), valid_league_source AS (
-          SELECT observation.id
+          SELECT observation.id, observation.observed_at
           FROM league_week_observations observation
           JOIN league_seasons season ON season.id = observation.league_season_id
           JOIN leagues league ON league.id = season.league_id
@@ -127,7 +127,7 @@ export function createMaterializationFutureRefreshMethods(
             AND observation.quality = 'complete'
           LIMIT 1
         ), valid_snapshot AS (
-          SELECT snapshot.id
+          SELECT snapshot.id, current.verified_at
           FROM projection_snapshots snapshot
           JOIN current_projection_snapshots current
             ON current.snapshot_id = snapshot.id
@@ -154,7 +154,7 @@ export function createMaterializationFutureRefreshMethods(
           last_failure_code = NULL,
           next_refresh_at = $10::timestamptz,
           updated_at = now()
-        FROM valid_slate slate, valid_league_source, valid_snapshot
+        FROM valid_slate slate, valid_league_source source, valid_snapshot snapshot
         WHERE materialization.league_key = $1
           AND materialization.projection_provider = $2
           AND materialization.season = $3 AND materialization.season_type = $4
@@ -165,6 +165,16 @@ export function createMaterializationFutureRefreshMethods(
           AND materialization.active_attempt_expires_at >= $9::timestamptz
           AND (materialization.last_succeeded_at IS NULL
             OR materialization.last_succeeded_at <= $9::timestamptz)
+          AND snapshot.verified_at >= COALESCE(
+            materialization.last_succeeded_at, materialization.created_at
+          )
+          AND (
+            materialization.last_projection_slate_content_id IS DISTINCT FROM
+              slate.projection_slate_content_id
+            OR source.observed_at >= COALESCE(
+              materialization.last_succeeded_at, materialization.created_at
+            )
+          )
         RETURNING 0::integer AS consecutive_failures,
           materialization.next_refresh_at::text,
           0::integer AS materializations_woken`, [

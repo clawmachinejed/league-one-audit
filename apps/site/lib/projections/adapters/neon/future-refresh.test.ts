@@ -244,6 +244,43 @@ describe('durable future refresh persistence', () => {
     expect(fake.calls).toEqual([]);
   });
 
+  it('requires newly observed provider work and supports unchanged snapshot publication', async () => {
+    const fake = createFakeProjectionDatabase(() => [{
+      consecutive_failures: 0,
+      next_refresh_at: '2026-09-14T00:00:00.000Z',
+      materializations_woken: 0,
+    }]);
+    const store = createFutureRefreshMethods(fake.database);
+    await store.completeFutureProjectionRefresh({
+      projectionProvider: 'tank01', normalizerVersion: 'v1', period,
+      attemptId: attemptOne, completedAt: '2026-09-13T18:00:00.000Z',
+      nextRefreshAt: '2026-09-14T00:00:00.000Z', slate: { observationId, contentId },
+    });
+    await store.completeFutureMaterializationRefresh({
+      leagueKey: 'league1', projectionProvider: 'tank01', normalizerVersion: 'v1',
+      modelVersion: 'clock-v1', period, attemptId: attemptTwo,
+      completedAt: '2026-09-13T18:00:00.000Z',
+      nextRefreshAt: '2026-09-14T00:00:00.000Z',
+      sourceRevision: 'new-source-revision', slate: { observationId, contentId },
+      snapshotRevision: 'stored-current-revision',
+    });
+
+    const projectionSql = fake.calls[0].statement;
+    const materializationSql = fake.calls[1].statement;
+    expect(projectionSql).toContain(
+      'slate.observed_at >= COALESCE(',
+    );
+    expect(materializationSql).toContain(
+      'snapshot.verified_at >= COALESCE(',
+    );
+    expect(materializationSql).toContain(
+      'OR source.observed_at >= COALESCE(',
+    );
+    expect(materializationSql).not.toContain(
+      'source.id = snapshot.league_week_observation_id',
+    );
+  });
+
   it('locks migration lineage, retryability, identities, and runtime grants', () => {
     const directory = dirname(fileURLToPath(import.meta.url));
     const migration = readFileSync(join(

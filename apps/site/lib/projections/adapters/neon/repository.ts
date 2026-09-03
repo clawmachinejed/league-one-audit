@@ -30,7 +30,7 @@ import {
   type ExternalScoringEntityRef,
   type ProviderKey,
 } from '../../shared/provider-identity';
-import { PROJECTION_SLATE_NORMALIZER_VERSION } from './projection-slates';
+import { PROJECTION_SLATE_NORMALIZER_VERSION } from '../../shared/projection-versions';
 
 type RepositoryStore = Pick<ProjectionStore,
   | 'enabled'

@@ -17,8 +17,7 @@ import {
   rowObject,
   rowText,
 } from './database-values';
-
-export const PROJECTION_SLATE_NORMALIZER_VERSION = 'canonical-projection-slate-v1';
+export { PROJECTION_SLATE_NORMALIZER_VERSION } from '../../shared/projection-versions';
 
 type ProjectionSlateMethods = Pick<
   ProjectionStore,
