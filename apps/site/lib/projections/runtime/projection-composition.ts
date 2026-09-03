@@ -3,7 +3,9 @@ import 'server-only';
 import { randomUUID } from 'node:crypto';
 import { LEAGUE_IDS } from '../../config';
 import { LEAGUE_SITES, type LeagueKey } from '../../leagues';
-import { getProjectionStore } from '../../projection-store';
+import { ACTIVE_PROJECTION_SOURCE } from '../../projection-source-config';
+import { getDatabase, withDatabaseAbortSignal } from '../../database';
+import { createProjectionStore, getProjectionStore } from '../../projection-store';
 import { getProjectionCadenceInput, getProjectionSyncInput } from '../../sleeper';
 import { createLeagueRegistry } from '../adapters/configuration/league-registry';
 import { createNeonIdentityCrosswalk } from '../adapters/neon/identity-crosswalk';
@@ -19,7 +21,7 @@ import { externalLeagueRef, providerKey } from '../shared/provider-identity';
 import type { LiveProjectionWorkerDependencies } from '../worker/contracts';
 
 const officialProvider = providerKey('sleeper');
-const projectionProvider = providerKey('tank01');
+const projectionProvider = ACTIVE_PROJECTION_SOURCE.provider;
 const gameStateProvider = projectionProvider;
 let cachedProjectionFeed: ProjectionFeedPort | null = null;
 
@@ -48,6 +50,12 @@ function productionLogger(): ProjectionLoggerPort {
 /** The sole production composition root for the projection worker. */
 export function createProductionProjectionDependencies(): LiveProjectionWorkerDependencies {
   const store = getProjectionStore();
+  const repositoryOptions = {
+    officialProvider,
+    projectionProvider,
+    gameStateProvider,
+    normalizerVersion: ACTIVE_PROJECTION_SOURCE.normalizerVersion,
+  };
   const configurations = (Object.keys(LEAGUE_IDS) as LeagueKey[]).map((key) => ({
     key,
     displayName: LEAGUE_SITES[key].name,
@@ -55,12 +63,17 @@ export function createProductionProjectionDependencies(): LiveProjectionWorkerDe
   }));
 
   return {
-    repository: createNeonProjectionRepository(store, {
-      officialProvider,
-      projectionProvider,
-      gameStateProvider,
-    }),
+    repository: createNeonProjectionRepository(store, repositoryOptions),
     identityCrosswalk: createNeonIdentityCrosswalk(store),
+    futurePersistence: {
+      scope(signal) {
+        const scopedStore = createProjectionStore(withDatabaseAbortSignal(getDatabase(), signal));
+        return {
+          repository: createNeonProjectionRepository(scopedStore, repositoryOptions),
+          identityCrosswalk: createNeonIdentityCrosswalk(scopedStore),
+        };
+      },
+    },
     leagueRegistry: createLeagueRegistry(configurations),
     nflCalendar: createSleeperNflCalendar(getProjectionCadenceInput),
     leagueSource: createSleeperLeagueSource(getProjectionSyncInput),
@@ -71,8 +84,12 @@ export function createProductionProjectionDependencies(): LiveProjectionWorkerDe
       fetch: globalThis.fetch,
       now: Date.now,
     }),
+    projectionStorage: {
+      source: projectionProvider,
+      normalizerVersion: ACTIVE_PROJECTION_SOURCE.normalizerVersion,
+    },
     normalizeScoringProfile: normalizeSleeperScoringProfile,
-    clock: { now: () => new Date(), monotonicNow: Date.now },
+    clock: { now: () => new Date(), monotonicNow: () => performance.now() },
     idGenerator: { generate: randomUUID },
     logger: productionLogger(),
   };

@@ -4,6 +4,10 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { isMatchupsData } from '../lib/matchups-response';
+import {
+  matchupPeriodContextFromHeaders,
+  type MatchupPeriodContext,
+} from '../lib/matchup-period';
 import type { MatchupsData } from '../lib/types';
 import { Icon } from './icon';
 import { useLeagueSite } from './league-context';
@@ -26,18 +30,28 @@ function SnapshotUpdated({ value, refreshing }: { value: string; refreshing: boo
   </p>;
 }
 
-export function MatchupsView({ data: initialData }: { data: MatchupsData }) {
+export function MatchupsView({
+  data: initialData,
+  periodContext: initialPeriodContext,
+}: {
+  data: MatchupsData;
+  periodContext: MatchupPeriodContext;
+}) {
   const site = useLeagueSite();
   const matchupsPath = `${site.prefix}/matchups`;
   const [polledData, setPolledData] = useState<MatchupsData | null>(null);
+  const [polledPeriodContext, setPolledPeriodContext] = useState<MatchupPeriodContext | null>(null);
+  const polledDataMatchesRoute = polledData?.week === initialData.week
+    && polledData.league.season === initialData.league.season;
+  const periodContext = polledDataMatchesRoute
+    ? polledPeriodContext ?? initialPeriodContext
+    : initialPeriodContext;
   const data = useMemo(() => {
-    if (!polledData
-      || polledData.week !== initialData.week
-      || polledData.league.season !== initialData.league.season) return initialData;
+    if (!polledDataMatchesRoute || !polledData) return initialData;
     return Date.parse(polledData.updatedAt) >= Date.parse(initialData.updatedAt)
       ? polledData
       : initialData;
-  }, [initialData, polledData]);
+  }, [initialData, polledData, polledDataMatchesRoute]);
   const { selected } = useTeamPreference(data.teams);
   const router = useRouter();
   const [fetching, setFetching] = useState(false);
@@ -66,7 +80,13 @@ export function MatchupsView({ data: initialData }: { data: MatchupsData }) {
       if (!response.ok) return false;
       const snapshot: unknown = await response.json();
       if (!isMatchupsData(snapshot) || snapshot.week !== data.week) return false;
-      if (sequence === requestSequence.current) setPolledData(snapshot);
+      if (sequence === requestSequence.current) {
+        setPolledData(snapshot);
+        setPolledPeriodContext(matchupPeriodContextFromHeaders(
+          response.headers,
+          initialPeriodContext,
+        ));
+      }
       return true;
     } catch (error) {
       // A superseded or unmounted request needs no fallback. A timeout does:
@@ -79,7 +99,7 @@ export function MatchupsView({ data: initialData }: { data: MatchupsData }) {
         setFetching(false);
       }
     }
-  }, [data.week, site.key]);
+  }, [data.week, initialPeriodContext, site.key]);
 
   const refreshRoute = useCallback(() => {
     startTransition(() => router.refresh());
@@ -90,9 +110,9 @@ export function MatchupsView({ data: initialData }: { data: MatchupsData }) {
     refreshRoute();
   }, [fetchSnapshot, refreshRoute]);
 
-  const currentWeek = data.week === data.league.week;
+  const activeWeek = periodContext.temporalState === 'active';
   useEffect(() => {
-    if (!currentWeek) return;
+    if (!activeWeek) return;
     let active = true;
     const timer = window.setInterval(() => {
       if (document.visibilityState !== 'visible') return;
@@ -107,7 +127,7 @@ export function MatchupsView({ data: initialData }: { data: MatchupsData }) {
       active = false;
       window.clearInterval(timer);
     };
-  }, [currentWeek, fetchSnapshot, refreshRoute]);
+  }, [activeWeek, fetchSnapshot, refreshRoute]);
   useEffect(() => () => activeRequest.current?.abort(), []);
   const matchups = useMemo(() => [...data.matchups].sort((a, b) => Number(b.sides.some(side => side.team.id === selected)) - Number(a.sides.some(side => side.team.id === selected))), [data.matchups, selected]);
   return <div className={matchupStyles.page}>
@@ -120,10 +140,10 @@ export function MatchupsView({ data: initialData }: { data: MatchupsData }) {
       </div>
       <button className={matchupStyles.refresh} type="button" onClick={() => void refresh()} disabled={refreshing} aria-label={refreshing ? 'Refreshing matchups' : 'Refresh matchups'}><Icon name="refresh" className={refreshing ? 'spinning' : ''} /></button>
     </div>
-    {!currentWeek && <Link className={matchupStyles.backToCurrent} href={`${matchupsPath}?week=${data.league.week}`}>Back to current</Link>}
+    {data.week !== periodContext.defaultWeek && <Link className={matchupStyles.backToCurrent} href={`${matchupsPath}?week=${periodContext.defaultWeek}`}>Back to current</Link>}
     <Warning message={data.warning} />
     {matchups.length ? <MatchupBoard key={data.week} matchups={matchups} selected={selected} avatar={team => <Avatar team={team} />} /> : <EmptyState title="No matchups posted yet">Week {data.week} matchups will appear when Sleeper publishes the schedule. You can still browse teams and standings.</EmptyState>}
     <SnapshotUpdated value={data.updatedAt} refreshing={refreshing} />
-    {currentWeek && <p className="refresh-note">Checks for a newer matchup snapshot every minute while this page is open.</p>}
+    {activeWeek && <p className="refresh-note">Checks for a newer matchup snapshot every minute while this page is open.</p>}
   </div>;
 }

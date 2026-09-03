@@ -267,11 +267,41 @@ export function createIdentityMethods(client: DatabaseClient): IdentityMethods {
             home_team text, away_team text, kickoff_at timestamptz
           )
         ), existing_mappings AS (
-          SELECT input.ordinal, mapping.nfl_game_id
+          SELECT input.ordinal, mapping.nfl_game_id,
+            game.season, game.season_type, game.week,
+            game.home_team, game.away_team, game.kickoff_at
           FROM input
           JOIN external_game_ids mapping
             ON mapping.provider = input.provider
             AND mapping.external_game_id = input.external_game_id
+          JOIN nfl_games game ON game.id = mapping.nfl_game_id
+        ), natural_games AS (
+          SELECT input.ordinal, game.id AS nfl_game_id, game.kickoff_at
+          FROM input
+          JOIN nfl_games game
+            ON game.season = input.season
+            AND game.season_type = input.season_type
+            AND game.week = input.week
+            AND game.home_team = input.home_team
+            AND game.away_team = input.away_team
+        ), conflicts AS (
+          SELECT input.ordinal
+          FROM input
+          LEFT JOIN existing_mappings USING (ordinal)
+          LEFT JOIN natural_games USING (ordinal)
+          WHERE (
+            existing_mappings.nfl_game_id IS NOT NULL AND (
+              existing_mappings.season IS DISTINCT FROM input.season
+              OR existing_mappings.season_type IS DISTINCT FROM input.season_type
+              OR existing_mappings.week IS DISTINCT FROM input.week
+              OR existing_mappings.home_team IS DISTINCT FROM input.home_team
+              OR existing_mappings.away_team IS DISTINCT FROM input.away_team
+            )
+          ) OR (
+            existing_mappings.nfl_game_id IS NOT NULL
+            AND natural_games.nfl_game_id IS NOT NULL
+            AND existing_mappings.nfl_game_id <> natural_games.nfl_game_id
+          )
         ), inserted_games AS (
           INSERT INTO nfl_games
             (id, season, season_type, week, home_team, away_team, kickoff_at)
@@ -279,15 +309,19 @@ export function createIdentityMethods(client: DatabaseClient): IdentityMethods {
             input.home_team, input.away_team, input.kickoff_at
           FROM input LEFT JOIN existing_mappings USING (ordinal)
           WHERE existing_mappings.nfl_game_id IS NULL
-          ON CONFLICT (season, season_type, week, home_team, away_team) DO UPDATE
-          SET kickoff_at = COALESCE(EXCLUDED.kickoff_at, nfl_games.kickoff_at),
-              updated_at = now()
-          RETURNING id, season, season_type, week, home_team, away_team
+            AND NOT EXISTS (SELECT 1 FROM conflicts)
+          ON CONFLICT (season, season_type, week, home_team, away_team) DO NOTHING
+          RETURNING id, season, season_type, week, home_team, away_team, kickoff_at
         ), targets AS (
           SELECT input.*,
-            COALESCE(existing_mappings.nfl_game_id, inserted_games.id) AS target_id
+            COALESCE(
+              existing_mappings.nfl_game_id,
+              inserted_games.id,
+              natural_games.nfl_game_id
+            ) AS target_id
           FROM input
           LEFT JOIN existing_mappings USING (ordinal)
+          LEFT JOIN natural_games USING (ordinal)
           LEFT JOIN inserted_games
             ON inserted_games.season = input.season
             AND inserted_games.season_type = input.season_type
@@ -297,15 +331,15 @@ export function createIdentityMethods(client: DatabaseClient): IdentityMethods {
         ), inserted_mappings AS (
           INSERT INTO external_game_ids (provider, external_game_id, nfl_game_id)
           SELECT provider, external_game_id, target_id FROM targets
-          WHERE target_id IS NOT NULL
+          WHERE target_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM conflicts)
           ON CONFLICT (provider, external_game_id) DO NOTHING
           RETURNING nfl_game_id
         ), write_gate AS (
-          SELECT count(*) FROM inserted_mappings
+          SELECT count(*) AS writes FROM inserted_mappings
         )
         SELECT input_key, target_id AS game_id
         FROM targets CROSS JOIN write_gate
-        WHERE target_id IS NOT NULL
+        WHERE target_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM conflicts)
         ORDER BY ordinal`, [json(prepared)]);
 
       const rows = await client.query(`/* projection-store:resolve-nfl-games */
@@ -315,35 +349,123 @@ export function createIdentityMethods(client: DatabaseClient): IdentityMethods {
             external_game_id text, season smallint, season_type text, week smallint,
             home_team text, away_team text, kickoff_at timestamptz
           )
-        )
-        SELECT input.input_key, input.proposed_id,
-          mapping.nfl_game_id AS mapped_game_id,
-          natural_game.id AS natural_game_id,
-          COALESCE(mapping.nfl_game_id, natural_game.id) AS game_id,
-          (
-            mapped_game.id IS NOT NULL AND (
-              mapped_game.season IS DISTINCT FROM input.season
-              OR mapped_game.season_type IS DISTINCT FROM input.season_type
-              OR mapped_game.week IS DISTINCT FROM input.week
-              OR mapped_game.home_team IS DISTINCT FROM input.home_team
-              OR mapped_game.away_team IS DISTINCT FROM input.away_team
+        ), resolved AS (
+          SELECT input.*,
+            mapping.nfl_game_id AS mapped_game_id,
+            natural_game.id AS natural_game_id,
+            COALESCE(mapping.nfl_game_id, natural_game.id) AS game_id,
+            (
+              mapped_game.id IS NOT NULL AND (
+                mapped_game.season IS DISTINCT FROM input.season
+                OR mapped_game.season_type IS DISTINCT FROM input.season_type
+                OR mapped_game.week IS DISTINCT FROM input.week
+                OR mapped_game.home_team IS DISTINCT FROM input.home_team
+                OR mapped_game.away_team IS DISTINCT FROM input.away_team
+              )
+            ) OR (
+              mapping.nfl_game_id IS NOT NULL AND natural_game.id IS NOT NULL
+              AND mapping.nfl_game_id <> natural_game.id
+            ) AS conflict
+          FROM input
+          LEFT JOIN external_game_ids mapping
+            ON mapping.provider = input.provider
+            AND mapping.external_game_id = input.external_game_id
+          LEFT JOIN nfl_games mapped_game ON mapped_game.id = mapping.nfl_game_id
+          LEFT JOIN nfl_games natural_game
+            ON natural_game.season = input.season
+            AND natural_game.season_type = input.season_type
+            AND natural_game.week = input.week
+            AND natural_game.home_team = input.home_team
+            AND natural_game.away_team = input.away_team
+        ), conflicts AS (
+          SELECT ordinal FROM resolved WHERE conflict
+        ), targets AS (
+          SELECT resolved.*,
+            COALESCE(resolved.kickoff_at, game.kickoff_at) AS effective_kickoff_at
+          FROM resolved
+          LEFT JOIN nfl_games game ON game.id = resolved.game_id
+        ), updated_games AS (
+          UPDATE nfl_games game
+          SET kickoff_at = targets.kickoff_at, updated_at = now()
+          FROM targets
+          WHERE game.id = targets.game_id
+            AND targets.kickoff_at IS NOT NULL
+            AND game.kickoff_at IS DISTINCT FROM targets.kickoff_at
+            AND NOT EXISTS (SELECT 1 FROM conflicts)
+          RETURNING game.id
+        ), latest_candidates AS (
+          SELECT DISTINCT ON (
+              candidate.nfl_game_id, candidate.scoring_entity_id,
+              candidate.scoring_profile_id, run.provider, run.model_version
             )
-          ) OR (
-            mapping.nfl_game_id IS NOT NULL AND natural_game.id IS NOT NULL
-            AND mapping.nfl_game_id <> natural_game.id
-          ) AS conflict
-        FROM input
-        LEFT JOIN external_game_ids mapping
-          ON mapping.provider = input.provider
-          AND mapping.external_game_id = input.external_game_id
-        LEFT JOIN nfl_games mapped_game ON mapped_game.id = mapping.nfl_game_id
-        LEFT JOIN nfl_games natural_game
-          ON natural_game.season = input.season
-          AND natural_game.season_type = input.season_type
-          AND natural_game.week = input.week
-          AND natural_game.home_team = input.home_team
-          AND natural_game.away_team = input.away_team
-        ORDER BY input.ordinal`, [json(prepared)]);
+            candidate.nfl_game_id, candidate.scoring_entity_id,
+            candidate.scoring_profile_id, run.provider, run.model_version,
+            run.id AS projection_run_id, run.fetched_at, run.created_at
+          FROM targets
+          JOIN pregame_projection_candidates candidate
+            ON candidate.nfl_game_id = targets.game_id
+          JOIN pregame_projection_runs run ON run.id = candidate.projection_run_id
+          WHERE targets.effective_kickoff_at IS NOT NULL
+            AND run.season = targets.season
+            AND run.season_type = targets.season_type
+            AND run.week = targets.week
+            AND run.quality = 'complete' AND candidate.quality <> 'invalid'
+            AND run.fetched_at <= targets.effective_kickoff_at
+            AND NOT EXISTS (SELECT 1 FROM conflicts)
+          ORDER BY candidate.nfl_game_id, candidate.scoring_entity_id,
+            candidate.scoring_profile_id, run.provider, run.model_version,
+            run.fetched_at DESC, run.created_at DESC, run.id DESC
+        ), rebuilt_candidates AS (
+          INSERT INTO current_pregame_projection_candidates (
+            nfl_game_id, scoring_entity_id, scoring_profile_id,
+            projection_provider, model_version, projection_run_id,
+            source_fetched_at, source_run_created_at
+          )
+          SELECT nfl_game_id, scoring_entity_id, scoring_profile_id,
+            provider, model_version, projection_run_id, fetched_at, created_at
+          FROM latest_candidates
+          ON CONFLICT (
+            nfl_game_id, scoring_entity_id, scoring_profile_id,
+            projection_provider, model_version
+          ) DO UPDATE SET
+            projection_run_id = EXCLUDED.projection_run_id,
+            source_fetched_at = EXCLUDED.source_fetched_at,
+            source_run_created_at = EXCLUDED.source_run_created_at,
+            updated_at = now()
+          WHERE (
+            current_pregame_projection_candidates.projection_run_id,
+            current_pregame_projection_candidates.source_fetched_at,
+            current_pregame_projection_candidates.source_run_created_at
+          ) IS DISTINCT FROM (
+            EXCLUDED.projection_run_id,
+            EXCLUDED.source_fetched_at,
+            EXCLUDED.source_run_created_at
+          )
+          RETURNING projection_run_id
+        ), removed_ineligible_candidates AS (
+          DELETE FROM current_pregame_projection_candidates current
+          USING targets
+          WHERE current.nfl_game_id = targets.game_id
+            AND NOT EXISTS (SELECT 1 FROM conflicts)
+            AND NOT EXISTS (
+              SELECT 1 FROM latest_candidates latest
+              WHERE latest.nfl_game_id = current.nfl_game_id
+                AND latest.scoring_entity_id = current.scoring_entity_id
+                AND latest.scoring_profile_id = current.scoring_profile_id
+                AND latest.provider = current.projection_provider
+                AND latest.model_version = current.model_version
+            )
+          RETURNING current.projection_run_id
+        ), write_gate AS (
+          SELECT
+            (SELECT count(*) FROM updated_games)
+            + (SELECT count(*) FROM rebuilt_candidates)
+            + (SELECT count(*) FROM removed_ineligible_candidates) AS writes
+        )
+        SELECT input_key, proposed_id, mapped_game_id, natural_game_id,
+          game_id, conflict
+        FROM resolved CROSS JOIN write_gate
+        ORDER BY ordinal`, [json(prepared)]);
 
       const proposedIdsToClean = rows
         .filter((row) => rowNullableText(row, 'game_id') !== rowText(row, 'proposed_id'))

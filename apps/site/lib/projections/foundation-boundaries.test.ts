@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 const projectionRoot = dirname(fileURLToPath(import.meta.url));
 const expectedPorts = [
   'clock.ts',
+  'future-refresh-repository.ts',
   'game-state-feed.ts',
   'id-generator.ts',
   'identity-crosswalk.ts',

@@ -4,30 +4,41 @@ import { getDatabase, type Database } from './database';
 import type { ProjectionStore } from './projections/adapters/neon/contracts';
 import { connected } from './projections/adapters/neon/database-values';
 import { createDisabledProjectionStore } from './projections/adapters/neon/disabled-store';
+import { createFutureRefreshMethods } from './projections/adapters/neon/future-refresh';
 import { createIdentityMethods } from './projections/adapters/neon/identities';
 import { createJobMethods } from './projections/adapters/neon/jobs';
 import { createObservationMethods } from './projections/adapters/neon/observations';
+import { createPeriodMethods } from './projections/adapters/neon/periods';
 import { createProjectionMethods } from './projections/adapters/neon/projections';
+import { createProjectionSlateMethods } from './projections/adapters/neon/projection-slates';
 import { createRetentionMethods } from './projections/adapters/neon/retention';
 import { createSnapshotMethods } from './projections/adapters/neon/snapshots';
 
 export type {
   ExternalIdentity,
+  FutureRefreshFailureCode,
   GameStateInput,
   HistoryRetentionResult,
   JobClaim,
   LeagueSeasonReference,
+  LeagueLifecycle,
+  LeaguePeriodAuthorityInput,
   LeagueWeekObservationInput,
   NflGameIdentityInput,
   ObservationQuality,
+  NflPhase,
   OfficialPlayerPointInput,
   OfficialRosterPointInput,
   PersistenceOutcome,
+  PeriodAuthorityWriteOutcome,
   PlayerProjectionRecord,
   ProjectionActivityWindow,
   ProjectionCandidateInput,
   ProjectionQuality,
   ProjectionRunInput,
+  ProjectionSlateEntryInput,
+  ProjectionSlateInput,
+  ProjectionSlatePointerOutcome,
   ProjectionStore,
   PublishSnapshotInput,
   PublishSnapshotOutcome,
@@ -37,8 +48,21 @@ export type {
   ScoringEntityKind,
   SeasonType,
   StoredGameState,
+  StoredFutureMaterializationFreshness,
   StoredLeagueWeekObservation,
+  StoredLeaguePeriodAuthority,
+  StoredMatchupSnapshotContext,
+  StoreFutureMaterializationRefreshState,
+  StoreFutureProjectionRefreshState,
+  StoreFutureProjectionSlateLineage,
+  StoreFutureRefreshClaim,
+  StoreFutureRefreshPeriod,
+  StoreFutureRefreshPlanPeriod,
+  StoreFutureRefreshTarget,
+  StoreFutureRefreshTransition,
   StoredProjectionRun,
+  StoredProjectionSlate,
+  StoredProjectionSlateObservation,
   StoredProjectionSnapshot,
   StoredProjectionSnapshotSelection,
 } from './projections/adapters/neon/contracts';
@@ -49,17 +73,32 @@ export function createProjectionStore(database: Database = getDatabase()): Proje
   if (!client) return createDisabledProjectionStore();
 
   const identities = createIdentityMethods(client);
+  const futureRefresh = createFutureRefreshMethods(client);
   const projections = createProjectionMethods(client);
+  const projectionSlates = createProjectionSlateMethods(client);
   const observations = createObservationMethods(client);
+  const periods = createPeriodMethods(client);
   const jobs = createJobMethods(client);
   const snapshots = createSnapshotMethods(client);
   const retention = createRetentionMethods(client);
 
   return {
     enabled: true,
+    upsertLeaguePeriodAuthority: periods.upsertLeaguePeriodAuthority,
+    readMatchupSnapshotByLeagueKey: periods.readMatchupSnapshotByLeagueKey,
     registerLeagueSeason: identities.registerLeagueSeason,
     upsertScoringEntities: identities.upsertScoringEntities,
     upsertNflGames: identities.upsertNflGames,
+    recordProjectionSlate: projectionSlates.recordProjectionSlate,
+    readCurrentProjectionSlate: projectionSlates.readCurrentProjectionSlate,
+    ensureFutureRefreshStates: futureRefresh.ensureFutureRefreshStates,
+    readFutureRefreshPlan: futureRefresh.readFutureRefreshPlan,
+    beginFutureProjectionRefresh: futureRefresh.beginFutureProjectionRefresh,
+    completeFutureProjectionRefresh: futureRefresh.completeFutureProjectionRefresh,
+    failFutureProjectionRefresh: futureRefresh.failFutureProjectionRefresh,
+    beginFutureMaterializationRefresh: futureRefresh.beginFutureMaterializationRefresh,
+    completeFutureMaterializationRefresh: futureRefresh.completeFutureMaterializationRefresh,
+    failFutureMaterializationRefresh: futureRefresh.failFutureMaterializationRefresh,
     recordProjectionCandidates: projections.recordProjectionCandidates,
     readLatestCandidatesBySleeperIds: projections.readLatestCandidatesBySleeperIds,
     freezeLatestBaselines: projections.freezeLatestBaselines,

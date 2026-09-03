@@ -142,6 +142,9 @@ export function assessProjectionSlate(
 
   const players = slate.projections.filter((projection) => (
     projection.identity.primary.entityKind === 'player'
+      // Preserve the existing crosswalk-completeness safety gate. Provider-native
+      // unmatched rows are durable, but cannot prove an official player match.
+      && projection.identity.aliases.length > 0
   ));
   const defenses = slate.projections.filter((projection) => {
     if (projection.identity.primary.entityKind !== 'team-defense') return false;

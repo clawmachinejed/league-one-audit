@@ -1,13 +1,22 @@
 import 'server-only';
 
 import type { ProjectionStore, PlayerProjectionRecord, StoredProjectionSnapshot as StoreSnapshot } from './contracts';
-import { NFL_TEAM_CODES, type NflTeam } from '../../domain/contracts';
+import { NFL_TEAM_CODES, type NflTeam, type ProjectionSlate } from '../../domain/contracts';
+import type {
+  FutureProjectionSlateContentId,
+  FutureProjectionSlateObservationId,
+  FutureRefreshAttemptId,
+  FutureRefreshClaim,
+  FutureRefreshRepositoryPort,
+} from '../../ports/future-refresh-repository';
 import type {
   LeagueSeasonId,
   ObservationId,
   ProjectionBaselineRecord,
   ProjectionRepositoryPort,
   ProjectionRunId,
+  ProjectionSlateContentId,
+  ProjectionSlateObservationId,
   ScoringProfileId,
   StoredProjectionSnapshot,
 } from '../../ports/projection-repository';
@@ -24,7 +33,18 @@ import {
 
 type RepositoryStore = Pick<ProjectionStore,
   | 'enabled'
+  | 'upsertLeaguePeriodAuthority'
   | 'registerLeagueSeason'
+  | 'recordProjectionSlate'
+  | 'readCurrentProjectionSlate'
+  | 'ensureFutureRefreshStates'
+  | 'readFutureRefreshPlan'
+  | 'beginFutureProjectionRefresh'
+  | 'completeFutureProjectionRefresh'
+  | 'failFutureProjectionRefresh'
+  | 'beginFutureMaterializationRefresh'
+  | 'completeFutureMaterializationRefresh'
+  | 'failFutureMaterializationRefresh'
   | 'recordProjectionCandidates'
   | 'readLatestCandidatesBySleeperIds'
   | 'freezeLatestBaselines'
@@ -44,10 +64,15 @@ export type NeonProjectionRepositoryOptions = Readonly<{
   officialProvider: ProviderKey;
   projectionProvider: ProviderKey;
   gameStateProvider: ProviderKey;
+  normalizerVersion: string;
 }>;
 
 function storeSeasonType(value: 'preseason' | 'regular' | 'postseason'): 'pre' | 'reg' | 'post' {
   return value === 'preseason' ? 'pre' : value === 'postseason' ? 'post' : 'reg';
+}
+
+function canonicalSeasonType(value: 'pre' | 'reg' | 'post'): 'preseason' | 'regular' | 'postseason' {
+  return value === 'pre' ? 'preseason' : value === 'post' ? 'postseason' : 'regular';
 }
 
 function assertProvider(reference: { provider: ProviderKey }, expected: ProviderKey, label: string): void {
@@ -122,10 +147,21 @@ function canonicalSnapshot(
   };
 }
 
-function createDisabledRepository(): ProjectionRepositoryPort {
+function createDisabledRepository(): ProjectionRepositoryPort & FutureRefreshRepositoryPort {
   return {
     enabled: false,
+    async upsertPeriodAuthority() { return { kind: 'disabled' }; },
     async registerLeagueSeason() { return { kind: 'disabled' }; },
+    async recordProjectionSlate() { return { kind: 'disabled' }; },
+    async readCurrentProjectionSlate() { return null; },
+    async ensureFutureRefreshStates() { return { kind: 'disabled' }; },
+    async readFutureRefreshPlan() { return []; },
+    async beginFutureProjectionRefresh() { return { kind: 'disabled' }; },
+    async completeFutureProjectionRefresh() { return { kind: 'disabled' }; },
+    async failFutureProjectionRefresh() { return { kind: 'disabled' }; },
+    async beginFutureMaterializationRefresh() { return { kind: 'disabled' }; },
+    async completeFutureMaterializationRefresh() { return { kind: 'disabled' }; },
+    async failFutureMaterializationRefresh() { return { kind: 'disabled' }; },
     async recordProjectionCandidates() { return { kind: 'disabled' }; },
     async readLatestCandidates() { return []; },
     async freezeLatestBaselines() { return { kind: 'disabled' }; },
@@ -159,6 +195,20 @@ function externalGameIds(references: readonly ExternalGameRef[], provider: Provi
   });
 }
 
+function canonicalFutureClaim(
+  claim: Awaited<ReturnType<RepositoryStore['beginFutureProjectionRefresh']>>,
+): FutureRefreshClaim {
+  if (claim.kind !== 'acquired') return claim;
+  return { ...claim, attemptId: claim.attemptId as FutureRefreshAttemptId };
+}
+
+function canonicalFutureLineage(lineage: Readonly<{ observationId: string; contentId: string }>) {
+  return {
+    observationId: lineage.observationId as FutureProjectionSlateObservationId,
+    contentId: lineage.contentId as FutureProjectionSlateContentId,
+  };
+}
+
 /**
  * Canonical projection persistence adapter over the stable low-level Neon store.
  * It owns translation only: SQL, schema behavior, and environment configuration
@@ -167,11 +217,37 @@ function externalGameIds(references: readonly ExternalGameRef[], provider: Provi
 export function createNeonProjectionRepository(
   store: RepositoryStore,
   options: NeonProjectionRepositoryOptions,
-): ProjectionRepositoryPort {
+): ProjectionRepositoryPort & FutureRefreshRepositoryPort {
   if (!store.enabled) return createDisabledRepository();
-  const { officialProvider, projectionProvider, gameStateProvider } = options;
+  const {
+    officialProvider,
+    projectionProvider,
+    gameStateProvider,
+    normalizerVersion,
+  } = options;
   return {
     enabled: true,
+
+    async upsertPeriodAuthority(authority) {
+      assertProvider({ provider: authority.source }, officialProvider, 'Period authority source');
+      const result = await store.upsertLeaguePeriodAuthority({
+        leagueKey: authority.configuration.key,
+        defaultSeason: authority.defaultDisplayPeriod.season,
+        defaultSeasonType: storeSeasonType(authority.defaultDisplayPeriod.seasonType),
+        defaultWeek: authority.defaultDisplayPeriod.week,
+        activeSeason: authority.activeScoringPeriod?.season ?? null,
+        activeSeasonType: authority.activeScoringPeriod
+          ? storeSeasonType(authority.activeScoringPeriod.seasonType) : null,
+        activeWeek: authority.activeScoringPeriod?.week ?? null,
+        leagueLifecycle: authority.lifecycle,
+        nflPhase: authority.nflPhase,
+        sourceProvider: String(authority.source),
+        sourceRevision: authority.sourceRevision,
+        sourceObservedAt: authority.observedAt,
+        verifiedAt: authority.verifiedAt,
+      });
+      return { kind: result.kind };
+    },
 
     async registerLeagueSeason(input) {
       assertProvider(input.configuration.leagueRef, officialProvider, 'League reference');
@@ -193,6 +269,280 @@ export function createNeonProjectionRepository(
       };
     },
 
+    async ensureFutureRefreshStates(input) {
+      assertProvider({ provider: input.projectionSource }, projectionProvider, 'Projection source');
+      return store.ensureFutureRefreshStates({
+        projectionProvider: String(input.projectionSource),
+        normalizerVersion: input.normalizerVersion,
+        modelVersion: input.modelVersion,
+        targets: input.targets.map((target) => ({
+          period: {
+            season: target.period.season,
+            seasonType: storeSeasonType(target.period.seasonType),
+            week: target.period.week,
+          },
+          weekDistance: target.weekDistance,
+        })),
+        leagueKeys: input.leagueKeys,
+        seededAt: input.seededAt,
+      });
+    },
+
+    async readFutureRefreshPlan(input) {
+      assertProvider({ provider: input.projectionSource }, projectionProvider, 'Projection source');
+      const plan = await store.readFutureRefreshPlan({
+        projectionProvider: String(input.projectionSource),
+        normalizerVersion: input.normalizerVersion,
+        modelVersion: input.modelVersion,
+        targets: input.targets.map((target) => ({
+          period: {
+            season: target.period.season,
+            seasonType: storeSeasonType(target.period.seasonType),
+            week: target.period.week,
+          },
+          weekDistance: target.weekDistance,
+        })),
+        leagueKeys: input.leagueKeys,
+        asOf: input.asOf,
+      });
+      return plan.map((candidate) => ({
+        period: {
+          season: candidate.period.season,
+          seasonType: canonicalSeasonType(candidate.period.seasonType),
+          week: candidate.period.week,
+        },
+        weekDistance: candidate.weekDistance,
+        projection: {
+          ...candidate.projection,
+          lastSlate: candidate.projection.lastSlate
+            ? canonicalFutureLineage(candidate.projection.lastSlate) : null,
+          currentSlate: candidate.projection.currentSlate
+            ? canonicalFutureLineage(candidate.projection.currentSlate) : null,
+        },
+        materializations: candidate.materializations.map((materialization) => ({
+          ...materialization,
+          lastSlate: materialization.lastSlate
+            ? canonicalFutureLineage(materialization.lastSlate) : null,
+        })),
+        successfulMaterializations: candidate.successfulMaterializations,
+        expectedMaterializations: candidate.expectedMaterializations,
+      }));
+    },
+
+    async beginFutureProjectionRefresh(input) {
+      assertProvider({ provider: input.projectionSource }, projectionProvider, 'Projection source');
+      return canonicalFutureClaim(await store.beginFutureProjectionRefresh({
+        projectionProvider: String(input.projectionSource),
+        normalizerVersion: input.normalizerVersion,
+        period: {
+          season: input.period.season,
+          seasonType: storeSeasonType(input.period.seasonType),
+          week: input.period.week,
+        },
+        attemptId: String(input.attemptId),
+        attemptedAt: input.attemptedAt,
+        leaseSeconds: input.leaseSeconds,
+      }));
+    },
+
+    async completeFutureProjectionRefresh(input) {
+      assertProvider({ provider: input.projectionSource }, projectionProvider, 'Projection source');
+      return store.completeFutureProjectionRefresh({
+        projectionProvider: String(input.projectionSource),
+        normalizerVersion: input.normalizerVersion,
+        period: {
+          season: input.period.season,
+          seasonType: storeSeasonType(input.period.seasonType),
+          week: input.period.week,
+        },
+        attemptId: String(input.attemptId),
+        completedAt: input.completedAt,
+        nextRefreshAt: input.nextRefreshAt,
+        slate: {
+          observationId: String(input.slate.observationId),
+          contentId: String(input.slate.contentId),
+        },
+      });
+    },
+
+    async failFutureProjectionRefresh(input) {
+      assertProvider({ provider: input.projectionSource }, projectionProvider, 'Projection source');
+      return store.failFutureProjectionRefresh({
+        projectionProvider: String(input.projectionSource),
+        normalizerVersion: input.normalizerVersion,
+        period: {
+          season: input.period.season,
+          seasonType: storeSeasonType(input.period.seasonType),
+          week: input.period.week,
+        },
+        attemptId: String(input.attemptId),
+        failedAt: input.failedAt,
+        failureCode: input.failureCode,
+      });
+    },
+
+    async beginFutureMaterializationRefresh(input) {
+      assertProvider({ provider: input.projectionSource }, projectionProvider, 'Projection source');
+      return canonicalFutureClaim(await store.beginFutureMaterializationRefresh({
+        leagueKey: input.leagueKey,
+        projectionProvider: String(input.projectionSource),
+        normalizerVersion: input.normalizerVersion,
+        modelVersion: input.modelVersion,
+        period: {
+          season: input.period.season,
+          seasonType: storeSeasonType(input.period.seasonType),
+          week: input.period.week,
+        },
+        attemptId: String(input.attemptId),
+        attemptedAt: input.attemptedAt,
+        leaseSeconds: input.leaseSeconds,
+      }));
+    },
+
+    async completeFutureMaterializationRefresh(input) {
+      assertProvider({ provider: input.projectionSource }, projectionProvider, 'Projection source');
+      return store.completeFutureMaterializationRefresh({
+        leagueKey: input.leagueKey,
+        projectionProvider: String(input.projectionSource),
+        normalizerVersion: input.normalizerVersion,
+        modelVersion: input.modelVersion,
+        period: {
+          season: input.period.season,
+          seasonType: storeSeasonType(input.period.seasonType),
+          week: input.period.week,
+        },
+        attemptId: String(input.attemptId),
+        completedAt: input.completedAt,
+        nextRefreshAt: input.nextRefreshAt,
+        sourceRevision: input.sourceRevision,
+        slate: {
+          observationId: String(input.slate.observationId),
+          contentId: String(input.slate.contentId),
+        },
+        snapshotRevision: input.snapshotRevision,
+      });
+    },
+
+    async failFutureMaterializationRefresh(input) {
+      assertProvider({ provider: input.projectionSource }, projectionProvider, 'Projection source');
+      return store.failFutureMaterializationRefresh({
+        leagueKey: input.leagueKey,
+        projectionProvider: String(input.projectionSource),
+        normalizerVersion: input.normalizerVersion,
+        modelVersion: input.modelVersion,
+        period: {
+          season: input.period.season,
+          seasonType: storeSeasonType(input.period.seasonType),
+          week: input.period.week,
+        },
+        attemptId: String(input.attemptId),
+        failedAt: input.failedAt,
+        failureCode: input.failureCode,
+      });
+    },
+
+    async recordProjectionSlate(slate) {
+      assertProvider({ provider: slate.source }, projectionProvider, 'Projection source');
+      const result = await store.recordProjectionSlate({
+        provider: String(slate.source),
+        season: slate.period.season,
+        seasonType: storeSeasonType(slate.period.seasonType),
+        week: slate.period.week,
+        normalizerVersion,
+        sourceRevision: slate.sourceRevision,
+        requestStartedAt: slate.requestStartedAt,
+        requestCompletedAt: slate.requestCompletedAt,
+        observedAt: slate.observedAt,
+        quality: slate.quality,
+        coverage: slate.coverage,
+        warnings: slate.warnings,
+        entries: slate.projections.map((projection) => {
+          assertProvider(projection.identity.primary, projectionProvider, 'Projection identity');
+          return {
+            entityKind: projection.identity.primary.entityKind === 'team-defense'
+              ? 'team_defense' as const : 'player' as const,
+            providerExternalId: String(projection.identity.primary.externalId),
+            aliases: projection.identity.aliases.map((alias) => ({
+              provider: String(alias.provider),
+              externalId: String(alias.externalId),
+            })),
+            nflTeam: projection.nflTeam,
+            position: projection.position,
+            stats: projection.stats,
+            scoringStats: projection.scoringStats,
+            missingFields: projection.missingFields,
+          };
+        }),
+      });
+      if (result.kind === 'disabled') return result;
+      return {
+        kind: 'stored',
+        value: {
+          ...result.value,
+          observationId: result.value.observationId as ProjectionSlateObservationId,
+          contentId: result.value.contentId as ProjectionSlateContentId,
+        },
+      };
+    },
+
+    async readCurrentProjectionSlate(source, period) {
+      assertProvider({ provider: source }, projectionProvider, 'Projection source');
+      const stored = await store.readCurrentProjectionSlate({
+        provider: String(source),
+        season: period.season,
+        seasonType: storeSeasonType(period.seasonType),
+        week: period.week,
+        normalizerVersion,
+      });
+      if (!stored) return null;
+      if (stored.provider !== projectionProvider) {
+        throw new Error('Stored projection slate belongs to an unexpected provider.');
+      }
+      if (stored.quality !== 'complete') {
+        throw new Error('The current projection slate is not complete.');
+      }
+      const projections = stored.entries.map((entry) => {
+        const primary = entry.entityKind === 'team_defense'
+          ? externalTeamDefenseRef(projectionProvider, entry.providerExternalId)
+          : externalPlayerRef(projectionProvider, entry.providerExternalId);
+        const aliases = entry.aliases.map((alias) => (
+          entry.entityKind === 'team_defense'
+            ? externalTeamDefenseRef(alias.provider, alias.externalId)
+            : externalPlayerRef(alias.provider, alias.externalId)
+        ));
+        if (entry.nflTeam !== null && !NFL_TEAM_CODES.includes(entry.nflTeam as NflTeam)) {
+          throw new Error('Stored projection slate has an invalid NFL team.');
+        }
+        return {
+          identity: { primary, aliases },
+          nflTeam: entry.nflTeam as NflTeam | null,
+          position: entry.position,
+          stats: entry.stats,
+          scoringStats: entry.scoringStats as ProjectionSlate['projections'][number]['scoringStats'],
+          missingFields: entry.missingFields,
+        };
+      });
+      return {
+        observationId: stored.observationId as ProjectionSlateObservationId,
+        contentId: stored.contentId as ProjectionSlateContentId,
+        semanticHash: stored.semanticHash,
+        verifiedAt: stored.verifiedAt,
+        materialChangedAt: stored.materialChangedAt,
+        slate: {
+          source,
+          period,
+          quality: 'complete',
+          requestStartedAt: stored.requestStartedAt,
+          requestCompletedAt: stored.requestCompletedAt,
+          observedAt: stored.observedAt,
+          sourceRevision: stored.sourceRevision,
+          projections,
+          coverage: stored.coverage as ProjectionSlate['coverage'],
+          warnings: stored.warnings,
+        },
+      };
+    },
+
     async recordProjectionCandidates(input) {
       assertProvider({ provider: input.source }, projectionProvider, 'Projection source');
       const result = await store.recordProjectionCandidates({
@@ -206,6 +556,7 @@ export function createNeonProjectionRepository(
         requestCompletedAt: input.requestCompletedAt,
         fetchedAt: input.observedAt,
         quality: input.quality,
+        projectionSlateObservationId: String(input.projectionSlateObservationId),
         candidates: input.candidates.map((candidate) => ({
           gameId: String(candidate.gameId),
           entityId: String(candidate.entityId),
@@ -417,5 +768,5 @@ export function createNeonProjectionRepository(
         latest: selection.latest ? canonicalSnapshot(selection.latest) : null,
       };
     },
-  } satisfies ProjectionRepositoryPort;
+  } satisfies ProjectionRepositoryPort & FutureRefreshRepositoryPort;
 }

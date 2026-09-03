@@ -14,6 +14,8 @@ import type {
   ObservationId,
   ProjectionRepositoryPort,
   ProjectionRunId,
+  ProjectionSlateContentId,
+  ProjectionSlateObservationId,
   ScoringProfileId,
 } from '../ports/projection-repository';
 import {
@@ -33,6 +35,7 @@ import type {
   ScoringProfileNormalization,
 } from './contracts';
 import { processLeague } from './league-stage';
+import { createProviderGroupScoringCache } from './scoring-cache';
 
 const officialProvider = providerKey('official-source');
 const projectionProvider = providerKey('projection-source');
@@ -243,6 +246,8 @@ const persisted: PersistedGroup = {
   ]),
   identityConflictCount: 0,
   projectionSourceRevision: 'projection-revision',
+  projectionSlateObservationId: 'projection-slate-observation' as ProjectionSlateObservationId,
+  projectionSlateContentId: 'projection-slate-content' as ProjectionSlateContentId,
 };
 
 function repositoryHarness() {
@@ -367,11 +372,28 @@ function dependencies(
   } as unknown as LiveProjectionWorkerDependencies;
 }
 
+function processTestLeague(
+  workerDependencies: LiveProjectionWorkerDependencies,
+  selectedLeague = league,
+  selectedGroup = persisted,
+) {
+  return processLeague(
+    workerDependencies,
+    selectedLeague,
+    selectedGroup,
+    calculatedAt,
+    createProviderGroupScoringCache(
+      selectedGroup.projections,
+      workerDependencies.normalizeScoringProfile,
+    ),
+  );
+}
+
 describe('canonical league projection stage', () => {
-  it('preserves the complete write/read/publish contract and exact provider DTOs', async () => {
+  it('preserves exact candidate and snapshot payloads with cached slate scores', async () => {
     const harness = repositoryHarness();
 
-    await processLeague(dependencies(harness.repository), league, persisted, calculatedAt);
+    await processTestLeague(dependencies(harness.repository));
 
     expect(harness.operations).toEqual([
       'register', 'candidates', 'freeze',
@@ -393,6 +415,7 @@ describe('canonical league projection stage', () => {
       requestCompletedAt: observedAt,
       observedAt,
       quality: 'complete',
+      projectionSlateObservationId: 'projection-slate-observation',
       candidates: [
         {
           gameId: 'live-game-id', entityId: 'player-entity-id', scoringProfileId,
@@ -492,16 +515,110 @@ describe('canonical league projection stage', () => {
     const publishInput = harness.mocks.publishSnapshot.mock.calls[0][0] as Parameters<
       ProjectionRepositoryPort['publishSnapshot']
     >[0];
-    expect(publishInput.payload).toMatchObject({
-      league: { season: '2026', week: 1 },
+    expect(publishInput.payload).toEqual({
+      league: {
+        season: '2026',
+        rosterPositions: ['WR', 'DEF'],
+        week: 1,
+        maxWeek: 18,
+      },
+      teams: [
+        {
+          id: 1,
+          managerName: 'Manager One',
+          name: 'Team One',
+          avatar: null,
+          wins: 0,
+          losses: 0,
+          ties: 0,
+          pointsFor: 0,
+          pointsAgainst: 0,
+        },
+        {
+          id: 2,
+          managerName: 'Manager Two',
+          name: 'Team Two',
+          avatar: null,
+          wins: 0,
+          losses: 0,
+          ties: 0,
+          pointsFor: 0,
+          pointsAgainst: 0,
+        },
+      ],
       updatedAt: calculatedAt,
       week: 1,
       matchups: [{
-        id: '1', status: 'live', sides: [
-          { team: { id: 1, managerName: 'Manager One' }, points: 10, projectedPoints: 10 },
-          { team: { id: 2, managerName: 'Manager Two' }, points: 4, projectedPoints: 6 },
+        id: '1',
+        status: 'live',
+        sides: [
+          {
+            team: {
+              id: 1,
+              managerName: 'Manager One',
+              name: 'Team One',
+              avatar: null,
+              wins: 0,
+              losses: 0,
+              ties: 0,
+              pointsFor: 0,
+              pointsAgainst: 0,
+            },
+            points: 10,
+            projectedPoints: 10,
+            starters: [{
+              id: 'player-1',
+              name: 'Player One',
+              position: 'WR',
+              nflTeam: 'PHI',
+              injuryStatus: null,
+              game: {
+                kind: 'scheduled',
+                opponent: 'DAL',
+                location: 'home',
+                date: '2026-09-13',
+                kickoffAt: '2026-09-13T15:00:00.000Z',
+              },
+              slot: 'WR',
+              points: 10,
+              projectedPoints: 10,
+            }],
+          },
+          {
+            team: {
+              id: 2,
+              managerName: 'Manager Two',
+              name: 'Team Two',
+              avatar: null,
+              wins: 0,
+              losses: 0,
+              ties: 0,
+              pointsFor: 0,
+              pointsAgainst: 0,
+            },
+            points: 4,
+            projectedPoints: 6,
+            starters: [{
+              id: 'BUF',
+              name: 'Buffalo Defense',
+              position: 'DEF',
+              nflTeam: 'BUF',
+              injuryStatus: null,
+              game: {
+                kind: 'scheduled',
+                opponent: 'MIA',
+                location: 'home',
+                date: '2026-09-14',
+                kickoffAt: '2026-09-14T00:00:00.000Z',
+              },
+              slot: 'DEF',
+              points: 4,
+              projectedPoints: 6,
+            }],
+          },
         ],
       }],
+      warning: 'fixture warning',
     });
   });
 
@@ -512,7 +629,7 @@ describe('canonical league projection stage', () => {
       projections: { ...persisted.projections, quality: 'partial' as const },
     };
 
-    await expect(processLeague(dependencies(harness.repository), league, partial, calculatedAt))
+    await expect(processTestLeague(dependencies(harness.repository), league, partial))
       .rejects.toThrow('Pregame fantasy projections could not be scored.');
     expect(harness.mocks.registerLeagueSeason).toHaveBeenCalledTimes(1);
     expect(harness.mocks.recordProjectionCandidates).not.toHaveBeenCalled();
@@ -532,7 +649,7 @@ describe('canonical league projection stage', () => {
       },
     };
 
-    await expect(processLeague(dependencies(harness.repository), league, conflict, calculatedAt))
+    await expect(processTestLeague(dependencies(harness.repository), league, conflict))
       .rejects.toThrow('A starter projection could not be matched safely.');
     expect(harness.mocks.recordProjectionCandidates).not.toHaveBeenCalled();
   });
@@ -547,7 +664,7 @@ describe('canonical league projection stage', () => {
       games: { ...persisted.games, games: [persisted.games.games[1]] },
     };
 
-    await expect(processLeague(dependencies(harness.repository, normalize), league, incompleteGames, calculatedAt))
+    await expect(processTestLeague(dependencies(harness.repository, normalize), league, incompleteGames))
       .rejects.toThrow('game-state provider did not provide every active starter game');
     expect(normalize).not.toHaveBeenCalled();
     expect(harness.mocks.registerLeagueSeason).not.toHaveBeenCalled();
@@ -562,7 +679,7 @@ describe('canonical league projection stage', () => {
       return frozenGate;
     });
 
-    const pending = processLeague(dependencies(harness.repository), league, persisted, calculatedAt);
+    const pending = processTestLeague(dependencies(harness.repository));
     await vi.waitFor(() => {
       expect(harness.mocks.readLatestCandidates).toHaveBeenCalledTimes(1);
       expect(harness.mocks.readFrozenBaselines).toHaveBeenCalledTimes(1);
@@ -587,13 +704,13 @@ describe('canonical league projection stage', () => {
         unmappedGameRefs: [],
       },
     });
-    await expect(processLeague(dependencies(incomplete.repository), league, persisted, calculatedAt))
+    await expect(processTestLeague(dependencies(incomplete.repository)))
       .rejects.toThrow('Official source observations could not be persisted completely.');
     expect(incomplete.mocks.publishSnapshot).not.toHaveBeenCalled();
 
     const unchanged = repositoryHarness();
     unchanged.mocks.publishSnapshot.mockResolvedValueOnce({ kind: 'unchanged', snapshot: {} as never });
-    await expect(processLeague(dependencies(unchanged.repository), league, persisted, calculatedAt))
+    await expect(processTestLeague(dependencies(unchanged.repository)))
       .resolves.toMatchObject({
         publicationOutcome: 'unchanged',
         starterCount: 2,

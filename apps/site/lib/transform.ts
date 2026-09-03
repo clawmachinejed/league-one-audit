@@ -131,6 +131,41 @@ function lastLeagueWeek(league: SleeperLeague, sameSeasonState: SleeperState | n
   return 1;
 }
 
+export type SleeperLeagueLifecycle = 'preseason' | 'active' | 'complete';
+
+/** Lifecycle follows the same season/status rules used by currentWeek. */
+export function sleeperLeagueLifecycle(
+  league: SleeperLeague,
+  state: SleeperState | null,
+): SleeperLeagueLifecycle {
+  const leagueYear = numberOrNull(league.season);
+  const stateYear = numberOrNull(state?.season);
+  if (league.status === 'complete'
+    || (leagueYear !== null && stateYear !== null && leagueYear < stateYear)
+    || state?.season_type === 'post') return 'complete';
+  if (league.status === 'pre_draft' || league.status === 'drafting'
+    || (leagueYear !== null && stateYear !== null && leagueYear > stateYear)
+    || state?.season_type === 'pre') return 'preseason';
+  return 'active';
+}
+
+/**
+ * Returns Sleeper's scoring week. display_week is intentionally excluded because
+ * it may advance while the preceding week is still scoring.
+ */
+export function sleeperActiveScoringWeek(
+  league: SleeperLeague,
+  state: SleeperState | null,
+): number | null {
+  if (sleeperLeagueLifecycle(league, state) !== 'active'
+    || state?.season_type !== 'regular'
+    || state.season !== league.season) return null;
+  const raw = state.leg ?? state.week;
+  const parsed = numberOrNull(raw);
+  return parsed !== null && Number.isInteger(parsed) && parsed >= 1 && parsed <= 18
+    ? parsed : null;
+}
+
 export function currentWeek(league: SleeperLeague, state: SleeperState | null): number {
   const leagueYear = numberOrNull(league.season);
   const stateYear = numberOrNull(state?.season);

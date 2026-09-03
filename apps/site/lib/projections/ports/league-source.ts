@@ -1,8 +1,12 @@
 import type {
   LeagueConfiguration,
+  LeaguePeriod,
   LeagueWeekState,
 } from '../domain/contracts';
 
 export type LeagueSourcePort = Readonly<{
-  getLeagueWeek: (configuration: LeagueConfiguration) => Promise<LeagueWeekState>;
+  getLeagueWeek: (
+    configuration: LeagueConfiguration,
+    targetPeriod: LeaguePeriod,
+  ) => Promise<LeagueWeekState>;
 }>;

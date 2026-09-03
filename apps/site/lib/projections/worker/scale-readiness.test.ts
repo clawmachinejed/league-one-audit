@@ -25,6 +25,7 @@ import { normalizeSleeperScoringProfile } from '../adapters/sleeper/scoring-prof
 import { assessProjectionSlate } from '../adapters/tank01/slate-validation';
 import type { IdentityCrosswalkPort } from '../ports/identity-crosswalk';
 import type { ProjectionLogEntry, LogLevel } from '../ports/logger';
+import type { FutureRefreshRepositoryPort } from '../ports/future-refresh-repository';
 import type { ProjectionRepositoryPort, PublishSnapshotInput } from '../ports/projection-repository';
 import {
   externalGameRef,
@@ -184,6 +185,17 @@ function scaleCadence(configuration: LeagueConfiguration): LeagueCadenceState {
   return {
     configuration,
     period: PERIOD,
+    periodAuthority: {
+      configuration,
+      defaultDisplayPeriod: PERIOD,
+      activeScoringPeriod: PERIOD,
+      lifecycle: 'active',
+      nflPhase: 'regular',
+      source: configuration.leagueRef.provider,
+      sourceRevision: `period-${configuration.key}`,
+      observedAt: NOW.toISOString(),
+      verifiedAt: NOW.toISOString(),
+    },
     currentPeriod: { season: PERIOD.season, week: PERIOD.week, seasonType: PERIOD.seasonType },
     schedule: fullWeekSchedule(),
   };
@@ -319,7 +331,7 @@ async function runScaleScenario(leagueCount: number): Promise<ScaleRun> {
     }
   };
 
-  const repository: ProjectionRepositoryPort = {
+  const repository: ProjectionRepositoryPort & FutureRefreshRepositoryPort = {
     ...fake.repository,
     acquireJob: (input) => meter.run('repository.acquireJob', () => fake.repository.acquireJob(input)),
     completeJob: (jobKey, workerId) => meter.run(
@@ -375,6 +387,10 @@ async function runScaleScenario(leagueCount: number): Promise<ScaleRun> {
         return fake.repository.recordGameStates(input);
       },
     ),
+    recordProjectionSlate: (input) => meter.run(
+      'repository.recordProjectionSlate',
+      () => fake.repository.recordProjectionSlate(input),
+    ),
     recordLeagueWeekObservation: (input) => meter.run(
       'repository.recordLeagueWeekObservation',
       () => fake.repository.recordLeagueWeekObservation(input),
@@ -421,6 +437,9 @@ async function runScaleScenario(leagueCount: number): Promise<ScaleRun> {
   const dependencies: LiveProjectionWorkerDependencies = {
     repository,
     identityCrosswalk,
+    futurePersistence: {
+      scope: () => ({ repository, identityCrosswalk }),
+    },
     leagueRegistry: { listActiveLeagues: () => configurations },
     nflCalendar: {
       getCadenceState: (configuration) => meter.run(
@@ -458,6 +477,10 @@ async function runScaleScenario(leagueCount: number): Promise<ScaleRun> {
           return { status: 'available' as const, slate: { ...games, period } };
         }).finally(markProviderPartComplete);
       },
+    },
+    projectionStorage: {
+      source: projectionResult().source,
+      normalizerVersion: 'canonical-projection-slate-v1',
     },
     normalizeScoringProfile: (settings) => {
       normalizationCalls += 1;
@@ -560,7 +583,9 @@ describe.each(SCALE_POINTS)('canonical worker scale readiness: %i leagues', (lea
     ))).toBe(true);
 
     const { meter } = first.metrics;
-    expect(meter.count('calendar.getCadenceState')).toBe(1);
+    // Each league owns an independently persisted default-display lifecycle.
+    // The shared NFL-state request remains cached inside the Sleeper boundary.
+    expect(meter.count('calendar.getCadenceState')).toBe(leagueCount);
     expect(meter.count('leagueSource.getLeagueWeek')).toBe(leagueCount);
     // This port-level harness observes one shared projection slate and one shared
     // game slate. Tank adapter tests independently lock cold-cache HTTP calls at
@@ -582,6 +607,7 @@ describe.each(SCALE_POINTS)('canonical worker scale readiness: %i leagues', (lea
     expect(first.candidateBatchSizes.every((size) => size === 12)).toBe(true);
     expect(meter.count('repository.acquireJob')).toBe(1);
     expect(meter.count('repository.recordGameStates')).toBe(1);
+    expect(meter.count('repository.recordProjectionSlate')).toBe(1);
     expect(meter.count('repository.completeJob')).toBe(1);
     expect(meter.count('repository.failJob')).toBe(0);
     expect(meter.count('repository.pruneHistory')).toBe(0);
@@ -597,7 +623,7 @@ describe.each(SCALE_POINTS)('canonical worker scale readiness: %i leagues', (lea
     ]) {
       expect(meter.count(operation), operation).toBe(leagueCount);
     }
-    expect(first.operationCount).toBe((8 * leagueCount) + 5);
+    expect(first.operationCount).toBe((8 * leagueCount) + 6);
 
     expect(meter.peak('leagueSource.getLeagueWeek')).toBe(expectedParallelLeagues);
     expect(first.metrics.leaguePeak).toBe(expectedParallelLeagues);
@@ -633,6 +659,8 @@ describe.each(SCALE_POINTS)('canonical worker scale readiness: %i leagues', (lea
     expect(lastFinish(trace, 'repository.recordGameStates'))
       .toBeLessThan(firstStart(trace, 'identity.resolveScoringEntities'));
     expect(lastFinish(trace, 'identity.resolveScoringEntities'))
+      .toBeLessThan(firstStart(trace, 'repository.recordProjectionSlate'));
+    expect(lastFinish(trace, 'repository.recordProjectionSlate'))
       .toBeLessThan(firstStart(trace, 'repository.registerLeagueSeason'));
     expect(lastFinish(trace, 'repository.publishSnapshot'))
       .toBeLessThan(firstStart(trace, 'repository.completeJob'));

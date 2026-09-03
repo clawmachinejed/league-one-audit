@@ -9,9 +9,11 @@ import type { NflGameId, ScoringEntityId } from './identity-crosswalk';
 import type {
   GameStateObservation,
   LeagueConfiguration,
+  LeaguePeriodAuthority,
   LeaguePeriod,
   NflTeam,
   ProjectionStats,
+  ProjectionSlate,
   CanonicalScoringProfile,
 } from '../domain/contracts';
 import type { MatchupsData } from '../../types';
@@ -26,10 +28,16 @@ export type LeagueSeasonId = RepositoryId<'league-season'>;
 export type ScoringProfileId = RepositoryId<'scoring-profile'>;
 export type ObservationId = RepositoryId<'observation'>;
 export type ProjectionRunId = RepositoryId<'projection-run'>;
+export type ProjectionSlateContentId = RepositoryId<'projection-slate-content'>;
+export type ProjectionSlateObservationId = RepositoryId<'projection-slate-observation'>;
 
 export type RepositoryOutcome<Value> =
   | Readonly<{ kind: 'stored'; value: Value }>
   | Readonly<{ kind: 'disabled' }>;
+
+export type PeriodAuthorityOutcome =
+  | Readonly<{ kind: 'stored' | 'verified' | 'ignored' }>
+  | Readonly<{ kind: 'conflict' | 'disabled' }>;
 
 export type LeagueSeasonReference = Readonly<{
   leagueSeasonId: LeagueSeasonId;
@@ -55,7 +63,26 @@ export type ProjectionRunInput = Readonly<{
   requestCompletedAt: string;
   observedAt: string;
   quality: 'complete' | 'partial' | 'invalid';
+  projectionSlateObservationId: ProjectionSlateObservationId;
   candidates: readonly ProjectionCandidateInput[];
+}>;
+
+export type StoredProjectionSlateObservation = Readonly<{
+  observationId: ProjectionSlateObservationId;
+  contentId: ProjectionSlateContentId;
+  semanticHash: string;
+  entriesStored: number;
+  entryCount: number;
+  pointerOutcome: 'advanced' | 'verified' | 'superseded' | 'ineligible';
+}>;
+
+export type StoredProjectionSlate = Readonly<{
+  observationId: ProjectionSlateObservationId;
+  contentId: ProjectionSlateContentId;
+  semanticHash: string;
+  slate: ProjectionSlate;
+  verifiedAt: string;
+  materialChangedAt: string;
 }>;
 
 export type StoredProjectionRun = Readonly<{
@@ -178,17 +205,29 @@ export type HistoryRetentionResult = Readonly<{
   leagueObservationsDeleted: number;
   gameObservationsDeleted: number;
   projectionRunsDeleted: number;
+  projectionSlateObservationsDeleted: number;
+  projectionSlateContentsDeleted: number;
   jobsDeleted: number;
 }>;
 
 export type ProjectionRepositoryPort = Readonly<{
   enabled: boolean;
+  upsertPeriodAuthority: (
+    authority: LeaguePeriodAuthority,
+  ) => Promise<PeriodAuthorityOutcome>;
   registerLeagueSeason: (input: Readonly<{
     configuration: LeagueConfiguration;
     leagueName: string;
     period: LeaguePeriod;
     scoringProfile: CanonicalScoringProfile;
   }>) => Promise<RepositoryOutcome<LeagueSeasonReference>>;
+  recordProjectionSlate: (
+    slate: ProjectionSlate,
+  ) => Promise<RepositoryOutcome<StoredProjectionSlateObservation>>;
+  readCurrentProjectionSlate: (
+    source: ProviderKey,
+    period: LeaguePeriod,
+  ) => Promise<StoredProjectionSlate | null>;
   recordProjectionCandidates: (
     input: ProjectionRunInput,
   ) => Promise<RepositoryOutcome<StoredProjectionRun>>;

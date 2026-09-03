@@ -6,9 +6,9 @@ vi.mock('server-only', () => ({}));
 vi.mock('next/cache', () => ({ unstable_cache: <Value,>(value: Value) => value }));
 vi.mock('./live-projection-worker', () => ({ runLiveProjectionSync: defaultCronRun }));
 
-import { LEAGUE_IDS } from './config';
 import { isMatchupsData } from './matchups-response';
 import { handleMatchupsSnapshotRequest, handleProjectionCronRequest } from './projection-http';
+import { ACTIVE_PROJECTION_SOURCE } from './projection-source-config';
 import type { ProjectionStore, StoredProjectionSnapshot } from './projection-store';
 import type { MatchupsData } from './types';
 
@@ -75,13 +75,24 @@ function readStore(
   selected: StoredProjectionSnapshot | null,
   enabled = true,
   latest: StoredProjectionSnapshot | null = selected,
+  authorityVerifiedAt = '2026-09-13T18:00:00.000Z',
 ): {
   store: ProjectionStore;
   read: ReturnType<typeof vi.fn>;
 } {
-  const read = vi.fn(async () => ({ selected, latest }));
+  const authorityWeek = latest?.week ?? selected?.week ?? 1;
+  const read = vi.fn(async () => ({
+    authority: {
+      leagueKey: 'league1', defaultSeason: 2026, defaultSeasonType: 'reg' as const,
+      defaultWeek: authorityWeek, activeSeason: 2026, activeSeasonType: 'reg' as const,
+      activeWeek: authorityWeek, leagueLifecycle: 'active' as const, nflPhase: 'regular' as const,
+      sourceProvider: 'sleeper', sourceRevision: 'period-revision',
+      sourceObservedAt: authorityVerifiedAt, verifiedAt: authorityVerifiedAt,
+    },
+    snapshot: selected,
+  }));
   return {
-    store: { enabled, readSnapshotSelectionBySleeperLeagueId: read } as unknown as ProjectionStore,
+    store: { enabled, readMatchupSnapshotByLeagueKey: read } as unknown as ProjectionStore,
     read,
   };
 }
@@ -243,7 +254,11 @@ describe('matchup snapshot HTTP boundary', () => {
     );
 
     expect(database.read).toHaveBeenCalledOnce();
-    expect(database.read).toHaveBeenCalledWith(LEAGUE_IDS.league1, 1);
+    expect(database.read).toHaveBeenCalledWith('league1', 1, {
+      projectionProvider: ACTIVE_PROJECTION_SOURCE.provider,
+      normalizerVersion: ACTIVE_PROJECTION_SOURCE.normalizerVersion,
+      modelVersion: ACTIVE_PROJECTION_SOURCE.modelVersion,
+    });
     expect(response.status).toBe(200);
     expect(response.headers.get('cache-control')).toBe('public, s-maxage=15, stale-while-revalidate=30');
     expect(await response.json()).toEqual(matchupPayload());
@@ -259,6 +274,7 @@ describe('matchup snapshot HTTP boundary', () => {
     const missing = readStore(null);
     expect((await handleMatchupsSnapshotRequest(
       new Request('https://example.test/api/matchups/league1?week=1'), 'league1', missing.store,
+      new Date('2026-09-13T18:02:00.000Z'),
     )).status).toBe(404);
     expect((await handleMatchupsSnapshotRequest(
       new Request('https://example.test/api/matchups/league1?week=0'), 'league1', missing.store,
@@ -273,14 +289,18 @@ describe('matchup snapshot HTTP boundary', () => {
       new Request('https://example.test/api/matchups/not-a-league?week=1'), 'not-a-league', missing.store,
     )).status).toBe(404);
     expect(missing.read).toHaveBeenCalledOnce();
-    expect(missing.read).toHaveBeenCalledWith(LEAGUE_IDS.league1, 1);
+    expect(missing.read).toHaveBeenCalledWith('league1', 1, {
+      projectionProvider: ACTIVE_PROJECTION_SOURCE.provider,
+      normalizerVersion: ACTIVE_PROJECTION_SOURCE.normalizerVersion,
+      modelVersion: ACTIVE_PROJECTION_SOURCE.modelVersion,
+    });
   });
 
   it('preserves the exact no-store response matrix for every unsuccessful user request', async () => {
     const current = snapshot();
     const databaseFailure = {
       enabled: true,
-      readSnapshotSelectionBySleeperLeagueId: vi.fn(async () => { throw new Error('database failure'); }),
+      readMatchupSnapshotByLeagueKey: vi.fn(async () => { throw new Error('database failure'); }),
     } as unknown as ProjectionStore;
     const cases: Array<Readonly<{
       label: string;
@@ -318,6 +338,18 @@ describe('matchup snapshot HTTP boundary', () => {
         label: 'missing snapshot',
         request: () => handleMatchupsSnapshotRequest(
           new Request('https://example.test/api/matchups/league1?week=1'), 'league1', readStore(null).store,
+          new Date('2026-09-13T18:02:00.000Z'),
+        ),
+        status: 404,
+        body: { status: 'not-found' },
+      },
+      {
+        label: 'missing snapshot with stale period authority',
+        request: () => handleMatchupsSnapshotRequest(
+          new Request('https://example.test/api/matchups/league1?week=1'),
+          'league1',
+          readStore(null).store,
+          new Date('2026-09-13T18:10:00.001Z'),
         ),
         status: 404,
         body: { status: 'not-found' },
@@ -342,6 +374,17 @@ describe('matchup snapshot HTTP boundary', () => {
         body: { status: 'unavailable' },
       },
       {
+        label: 'stale period authority',
+        request: () => handleMatchupsSnapshotRequest(
+          new Request('https://example.test/api/matchups/league1?week=1'),
+          'league1',
+          readStore(current).store,
+          new Date('2026-09-13T18:10:00.001Z'),
+        ),
+        status: 503,
+        body: { status: 'unavailable' },
+      },
+      {
         label: 'malformed snapshot',
         request: () => {
           const malformed = { ...current, week: 2 };
@@ -349,6 +392,7 @@ describe('matchup snapshot HTTP boundary', () => {
             new Request('https://example.test/api/matchups/league1?week=1'),
             'league1',
             readStore(malformed, true, malformed).store,
+            new Date('2026-09-13T18:02:00.000Z'),
           );
         },
         status: 503,
@@ -382,8 +426,13 @@ describe('matchup snapshot HTTP boundary', () => {
       new Request('https://example.test/api/matchups/league2?week=1'),
       'league2',
       database.store,
+      new Date('2026-09-13T18:02:00.000Z'),
     );
-    expect(database.read).toHaveBeenCalledWith(LEAGUE_IDS.league2, 1);
+    expect(database.read).toHaveBeenCalledWith('league2', 1, {
+      projectionProvider: ACTIVE_PROJECTION_SOURCE.provider,
+      normalizerVersion: ACTIVE_PROJECTION_SOURCE.normalizerVersion,
+      modelVersion: ACTIVE_PROJECTION_SOURCE.modelVersion,
+    });
     expect(response.status).toBe(503);
   });
 
@@ -408,23 +457,19 @@ describe('matchup snapshot HTTP boundary', () => {
     latestPayload.week = 2;
     latestPayload.league.week = 2;
     const latest = snapshot(latestPayload);
-    const read = vi.fn(async () => ({ selected: historical, latest }));
-    const store = {
-      enabled: true,
-      readSnapshotSelectionBySleeperLeagueId: read,
-    } as unknown as ProjectionStore;
+    const database = readStore(historical, true, latest, '2027-01-01T00:00:00.000Z');
     const response = await handleMatchupsSnapshotRequest(
       new Request('https://example.test/api/matchups/league1?week=1'),
       'league1',
-      store,
+      database.store,
       new Date('2027-01-01T00:00:00.000Z'),
     );
 
     expect(response.status).toBe(200);
-    expect(read).toHaveBeenCalledOnce();
+    expect(database.read).toHaveBeenCalledOnce();
     expect(response.headers.get('cache-control')).toBe('public, s-maxage=300, stale-while-revalidate=3600');
     const body = await response.json();
     expect(body.week).toBe(1);
-    expect(body.league.week).toBe(2);
+    expect(body.league.week).toBe(1);
   });
 });

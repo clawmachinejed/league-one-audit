@@ -4,6 +4,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { LEAGUE_IDS } from './config';
 import type { LeagueKey } from './leagues';
 import { parseMatchupWeek } from './matchup-week';
+import { matchupPeriodHeaders } from './matchup-period';
 import { readStoredMatchups } from './projection-reader';
 import { getProjectionStore, type ProjectionStore } from './projection-store';
 import { runLiveProjectionSync, type LiveProjectionSyncResult } from './live-projection-worker';
@@ -16,6 +17,9 @@ const CURRENT_SNAPSHOT_HEADERS = {
 } as const;
 const HISTORICAL_SNAPSHOT_HEADERS = {
   'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=3600',
+} as const;
+const FUTURE_SNAPSHOT_HEADERS = {
+  'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=300',
 } as const;
 
 function response(
@@ -83,11 +87,18 @@ export async function handleMatchupsSnapshotRequest(
   const week = parseMatchupWeek(new URL(request.url).searchParams.get('week'));
   if (week === null) return response({ status: 'invalid-week' }, 400);
 
-  const selected = await readStoredMatchups(LEAGUE_IDS[leagueKey], week, { store, now });
+  const selected = await readStoredMatchups(leagueKey, week, { store, now });
   if (selected.kind === 'missing') return response({ status: 'not-found' }, 404);
   if (selected.kind !== 'usable') return response({ status: 'unavailable' }, 503);
+  const headers = matchupPeriodHeaders(selected.context);
+  const cache = selected.context.temporalState === 'past'
+    ? HISTORICAL_SNAPSHOT_HEADERS
+    : selected.context.temporalState === 'future'
+      ? FUTURE_SNAPSHOT_HEADERS
+      : CURRENT_SNAPSHOT_HEADERS;
+  headers.set('Cache-Control', cache['Cache-Control']);
   return Response.json(selected.payload, {
     status: 200,
-    headers: selected.historical ? HISTORICAL_SNAPSHOT_HEADERS : CURRENT_SNAPSHOT_HEADERS,
+    headers,
   });
 }

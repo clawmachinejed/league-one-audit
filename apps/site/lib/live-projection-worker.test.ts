@@ -65,7 +65,7 @@ describe('live projection worker', () => {
       await expect(createLiveProjectionWorker(dependencies).run()).resolves.toEqual({
         status: 'skipped', reason: kind, cadence: null,
       });
-      expect(dependencies.cadenceMock).toHaveBeenCalledOnce();
+      expect(dependencies.cadenceMock).toHaveBeenCalledTimes(2);
       expect(dependencies.sourceMock).not.toHaveBeenCalled();
       expect(dependencies.projectionMock).not.toHaveBeenCalled();
       expect(dependencies.gamesMock).not.toHaveBeenCalled();
@@ -74,7 +74,7 @@ describe('live projection worker', () => {
     },
   );
 
-  it('preflights one seed league and makes no Neon or provider calls while idle', async () => {
+  it('records period authority for every league and makes no projection-provider calls while idle', async () => {
     const store = fakeStore();
     const idleSchedule = fullWeekSchedule('2026-09-20T17:00:00.000Z');
     const dependencies = workerDependencies(store, {
@@ -85,7 +85,7 @@ describe('live projection worker', () => {
     await expect(createLiveProjectionWorker(dependencies).run()).resolves.toEqual({
       status: 'skipped', reason: 'idle', cadence: 'idle',
     });
-    expect(dependencies.cadenceMock).toHaveBeenCalledOnce();
+    expect(dependencies.cadenceMock).toHaveBeenCalledTimes(2);
     expect(leagueId(dependencies.cadenceMock.mock.calls[0][0])).toBe('l1');
     expect(store.acquired).not.toHaveBeenCalled();
     expect(dependencies.sourceMock).not.toHaveBeenCalled();
@@ -184,6 +184,13 @@ describe('live projection worker', () => {
       leaseSeconds: 120,
     });
     expect(dependencies.sourceMock).toHaveBeenCalledTimes(2);
+    expect(dependencies.sourceMock.mock.calls.map(([configuration, targetPeriod]) => ({
+      leagueId: String(configuration.leagueRef.externalId),
+      targetPeriod,
+    }))).toEqual([
+      { leagueId: 'l1', targetPeriod: PERIOD },
+      { leagueId: 'l2', targetPeriod: PERIOD },
+    ]);
     expect(dependencies.projectionMock).toHaveBeenCalledOnce();
     expect(dependencies.gamesMock).toHaveBeenCalledOnce();
     expect(store.frozen).toHaveBeenCalledTimes(2);
@@ -230,6 +237,7 @@ describe('live projection worker', () => {
       'upsert-nfl-games',
       'record-game-states',
       'upsert-scoring-entities',
+      'record-projection-slate',
       'register-league-season',
       'register-league-season',
       'record-projection-candidates',

@@ -339,6 +339,7 @@ describe('projection architecture', () => {
     const forbiddenTargets = new Set([
       resolve(libRoot, 'config.ts'),
       resolve(libRoot, 'leagues.ts'),
+      resolve(libRoot, 'projection-source-config.ts'),
       resolve(libRoot, 'projection-store.ts'),
     ]);
     for (const sourceModule of adapterModules) {
@@ -395,6 +396,7 @@ describe('projection architecture', () => {
         const importsRuntimeOwnedSource = dependency.resolved !== null && new Set([
           resolve(libRoot, 'config.ts'),
           resolve(libRoot, 'leagues.ts'),
+          resolve(libRoot, 'projection-source-config.ts'),
           resolve(libRoot, 'projection-store.ts'),
         ]).has(dependency.resolved);
         if (!isRuntime && !isAdapter && (importsConcreteAdapter || importsRuntimeOwnedSource)) {

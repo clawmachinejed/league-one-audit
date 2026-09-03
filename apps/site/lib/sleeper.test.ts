@@ -49,6 +49,7 @@ let leagueStatus: string;
 let leagueLeg: number;
 let lastScoredLeg: number | undefined;
 let stateSeason: string;
+let rosterPositions: string[];
 let rawRosters: unknown[];
 let rawUsers: unknown[];
 let rawMatchups: unknown[];
@@ -125,7 +126,7 @@ function valueFor(path: string): unknown {
   if (path === leaguePath) return invalidLeague ? null : {
     league_id: leagueOneId, name: 'League One', season: '2026', status: leagueStatus,
     total_rosters: expectedRosterCount,
-    roster_positions: ['QB', 'BN'],
+    roster_positions: rosterPositions,
     settings: { waiver_budget: 100, leg: leagueLeg, ...(lastScoredLeg === undefined ? {} : { last_scored_leg: lastScoredLeg }) },
     scoring_settings: activeScoringSettings,
   };
@@ -187,6 +188,7 @@ beforeEach(() => {
   leagueLeg = 3;
   lastScoredLeg = undefined;
   stateSeason = '2026';
+  rosterPositions = ['QB', 'BN'];
   activeScoringSettings = { ...leagueOneScoringSettings };
   rawRosters = [{ roster_id: 1, owner_id: 'member-1', players: ['qb'], starters: ['qb'], settings: { ...rosterSettings } }];
   rawUsers = [{ user_id: 'member-1', display_name: 'Alex' }];
@@ -205,6 +207,25 @@ beforeEach(() => {
     return Response.json(valueFor(path));
   }));
 });
+
+function makeProjectionWeekReady(
+  firstStarters: string[] = ['qb'],
+  secondStarters: string[] = ['0'],
+): void {
+  expectedRosterCount = 2;
+  rawRosters.push({
+    roster_id: 2,
+    owner_id: 'member-2',
+    players: secondStarters.filter((id) => id !== '0'),
+    starters: secondStarters,
+    settings: { ...rosterSettings },
+  });
+  rawUsers.push({ user_id: 'member-2', display_name: 'Sam' });
+  rawMatchups = [
+    { roster_id: 1, matchup_id: 1, points: null, starters: firstStarters },
+    { roster_id: 2, matchup_id: 1, points: null, starters: secondStarters },
+  ];
+}
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -261,8 +282,13 @@ describe('Sleeper service error handling', () => {
       ir: { full_name: 'Reserve Back', position: 'RB', team: 'IND' },
       taxi: { full_name: 'Taxi Back', position: 'RB', team: 'IND' },
     };
+    makeProjectionWeekReady();
 
-    const input = await getProjectionSyncInput(leagueOneId);
+    const input = await getProjectionSyncInput(leagueOneId, {
+      season: 2026,
+      seasonType: 'regular',
+      week: 3,
+    });
 
     expect(input.rosteredPlayers.map((player) => player.id)).toEqual(['qb', 'rb', 'ir', 'taxi']);
     expect(input.rosteredPlayers.map((player) => player.game)).toEqual([
@@ -277,6 +303,106 @@ describe('Sleeper service error handling', () => {
     expect(matchupRequest?.[1]).toMatchObject({ cache: 'no-store' });
     expect(Date.parse(input.requestStartedAt)).not.toBeNaN();
     expect(Date.parse(input.requestCompletedAt)).toBeGreaterThanOrEqual(Date.parse(input.requestStartedAt));
+  });
+
+  it('loads the exact requested projection week instead of falling back to the current week', async () => {
+    makeProjectionWeekReady();
+
+    const input = await getProjectionSyncInput(leagueOneId, {
+      season: 2026,
+      seasonType: 'regular',
+      week: 18,
+    });
+
+    expect(input.data.week).toBe(18);
+    const matchupPaths = vi.mocked(fetch).mock.calls
+      .map(([request]) => requestPath(request))
+      .filter((path) => path.includes('/matchups/'));
+    expect(matchupPaths).toEqual([`${leaguePath}/matchups/18`]);
+  });
+
+  it.each([
+    [{ season: 2025, seasonType: 'regular' as const, week: 3 }, 'does not match'],
+    [{ season: 2026, seasonType: 'postseason' as const, week: 3 }, 'regular-season'],
+    [{ season: 2026, seasonType: 'regular' as const, week: 0 }, 'is invalid'],
+    [{ season: 2026, seasonType: 'regular' as const, week: 19 }, 'is invalid'],
+  ])('rejects invalid projection target %j without requesting a fallback matchup week', async (target, message) => {
+    await expect(getProjectionSyncInput(leagueOneId, target)).rejects.toThrow(message);
+
+    expect(vi.mocked(fetch).mock.calls
+      .map(([request]) => requestPath(request))
+      .some((path) => path.includes('/matchups/'))).toBe(false);
+  });
+
+  it('rejects an unresolved future playoff slate instead of publishing unpaired teams', async () => {
+    makeProjectionWeekReady();
+    rawMatchups = rawMatchups.map((row) => ({
+      ...(row as Record<string, unknown>),
+      matchup_id: null,
+    }));
+
+    await expect(getProjectionSyncInput(leagueOneId, {
+      season: 2026,
+      seasonType: 'regular',
+      week: 18,
+    })).rejects.toThrow('has not resolved every matchup pairing');
+  });
+
+  it('rejects a target week that omits any league roster', async () => {
+    makeProjectionWeekReady();
+    rawMatchups.pop();
+
+    await expect(getProjectionSyncInput(leagueOneId, {
+      season: 2026,
+      seasonType: 'regular',
+      week: 18,
+    })).rejects.toThrow('incomplete matchup slate');
+  });
+
+  it.each([
+    { caseName: 'missing', starters: null },
+    { caseName: 'shortened', starters: ['qb'] },
+    { caseName: 'overfilled', starters: ['qb', '0', '0'] },
+  ])('rejects a $caseName target-week lineup instead of inventing or discarding slots', async ({ starters }) => {
+    rosterPositions = ['QB', 'FLEX', 'BN'];
+    makeProjectionWeekReady(['qb', '0'], ['0', '0']);
+    rawMatchups[0] = {
+      roster_id: 1,
+      matchup_id: 1,
+      points: null,
+      starters,
+    };
+
+    await expect(getProjectionSyncInput(leagueOneId, {
+      season: 2026,
+      seasonType: 'regular',
+      week: 18,
+    })).rejects.toThrow('has not published complete lineups');
+  });
+
+  it('accepts explicit empty starter IDs when every target-week lineup slot is present', async () => {
+    rosterPositions = ['QB', 'FLEX', 'BN'];
+    rawRosters[0] = {
+      roster_id: 1,
+      owner_id: 'member-1',
+      players: ['qb'],
+      starters: ['qb', '0'],
+      settings: { ...rosterSettings },
+    };
+    makeProjectionWeekReady(['qb', '0'], ['0', '0']);
+
+    const input = await getProjectionSyncInput(leagueOneId, {
+      season: 2026,
+      seasonType: 'regular',
+      week: 18,
+    });
+
+    expect(input.data.matchups[0].sides.map((side) => (
+      side.starters.map((starter) => starter.id.startsWith('empty-'))
+    ))).toEqual([
+      [false, true],
+      [true, true],
+    ]);
   });
 
   it('loads League 2 core and matchup data from its own Sleeper endpoints', async () => {

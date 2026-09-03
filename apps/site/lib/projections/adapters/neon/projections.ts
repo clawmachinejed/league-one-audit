@@ -34,13 +34,21 @@ export function createProjectionMethods(client: DatabaseClient): ProjectionMetho
         WITH run AS (
           INSERT INTO pregame_projection_runs (
             provider, season, season_type, week, model_version, source_revision,
-            request_started_at, request_completed_at, fetched_at, quality
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            request_started_at, request_completed_at, fetched_at, quality,
+            projection_slate_observation_id
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
           ON CONFLICT (provider, season, season_type, week, source_revision, model_version)
-          DO UPDATE SET source_revision = pregame_projection_runs.source_revision
-          RETURNING id
+          DO UPDATE SET projection_slate_observation_id = COALESCE(
+            pregame_projection_runs.projection_slate_observation_id,
+            EXCLUDED.projection_slate_observation_id
+          )
+          WHERE pregame_projection_runs.projection_slate_observation_id IS NULL
+            OR EXCLUDED.projection_slate_observation_id IS NULL
+            OR pregame_projection_runs.projection_slate_observation_id
+              = EXCLUDED.projection_slate_observation_id
+          RETURNING id, provider, model_version, fetched_at, created_at, quality
         ), input AS (
-          SELECT * FROM jsonb_to_recordset($11::jsonb) AS value(
+          SELECT * FROM jsonb_to_recordset($12::jsonb) AS value(
             game_id uuid, entity_id uuid, scoring_profile_id uuid,
             projection_points numeric, projected_stats jsonb, quality text
           )
@@ -53,6 +61,49 @@ export function createProjectionMethods(client: DatabaseClient): ProjectionMetho
             input.projection_points, input.projected_stats, input.quality
           FROM input CROSS JOIN run
           ON CONFLICT DO NOTHING
+          RETURNING *
+        ), candidate_rows AS (
+          SELECT * FROM inserted_candidates
+          UNION ALL
+          SELECT candidate.*
+          FROM input
+          CROSS JOIN run
+          JOIN pregame_projection_candidates candidate
+            ON candidate.projection_run_id = run.id
+            AND candidate.nfl_game_id = input.game_id
+            AND candidate.scoring_entity_id = input.entity_id
+            AND candidate.scoring_profile_id = input.scoring_profile_id
+        ), current_candidates AS (
+          INSERT INTO current_pregame_projection_candidates (
+            nfl_game_id, scoring_entity_id, scoring_profile_id,
+            projection_provider, model_version, projection_run_id,
+            source_fetched_at, source_run_created_at
+          )
+          SELECT candidate.nfl_game_id, candidate.scoring_entity_id,
+            candidate.scoring_profile_id, run.provider, run.model_version, run.id,
+            run.fetched_at, run.created_at
+          FROM candidate_rows candidate
+          CROSS JOIN run
+          JOIN nfl_games game ON game.id = candidate.nfl_game_id
+          WHERE run.quality = 'complete' AND candidate.quality <> 'invalid'
+            AND game.kickoff_at IS NOT NULL AND run.fetched_at <= game.kickoff_at
+          ON CONFLICT (
+            nfl_game_id, scoring_entity_id, scoring_profile_id,
+            projection_provider, model_version
+          ) DO UPDATE SET
+            projection_run_id = EXCLUDED.projection_run_id,
+            source_fetched_at = EXCLUDED.source_fetched_at,
+            source_run_created_at = EXCLUDED.source_run_created_at,
+            updated_at = now()
+          WHERE (
+            EXCLUDED.source_fetched_at,
+            EXCLUDED.source_run_created_at,
+            EXCLUDED.projection_run_id
+          ) > (
+            current_pregame_projection_candidates.source_fetched_at,
+            current_pregame_projection_candidates.source_run_created_at,
+            current_pregame_projection_candidates.projection_run_id
+          )
           RETURNING projection_run_id
         )
         SELECT run.id AS run_id,
@@ -63,6 +114,7 @@ export function createProjectionMethods(client: DatabaseClient): ProjectionMetho
         requiredText(input.modelVersion, 'Projection model version'),
         requiredText(input.sourceRevision, 'Projection source revision'),
         input.requestStartedAt, input.requestCompletedAt, input.fetchedAt, input.quality,
+        input.projectionSlateObservationId ?? null,
         json(candidates),
       ]);
       const row = rows[0];
@@ -99,11 +151,17 @@ export function createProjectionMethods(client: DatabaseClient): ProjectionMetho
           NULL::text AS frozen_at
         FROM external_scoring_entity_ids sleeper
         JOIN scoring_entities entity ON entity.id = sleeper.scoring_entity_id
-        JOIN pregame_projection_candidates candidate ON candidate.scoring_entity_id = entity.id
-        JOIN pregame_projection_runs run ON run.id = candidate.projection_run_id
-        JOIN nfl_games game ON game.id = candidate.nfl_game_id
+        JOIN current_pregame_projection_candidates current
+          ON current.scoring_entity_id = entity.id
         JOIN league_seasons season
-          ON season.id = $1 AND season.scoring_profile_id = candidate.scoring_profile_id
+          ON season.id = $1 AND season.scoring_profile_id = current.scoring_profile_id
+        JOIN pregame_projection_candidates candidate
+          ON candidate.projection_run_id = current.projection_run_id
+          AND candidate.nfl_game_id = current.nfl_game_id
+          AND candidate.scoring_entity_id = current.scoring_entity_id
+          AND candidate.scoring_profile_id = current.scoring_profile_id
+        JOIN pregame_projection_runs run ON run.id = current.projection_run_id
+        JOIN nfl_games game ON game.id = current.nfl_game_id
         LEFT JOIN LATERAL (
           SELECT mapping.external_game_id
           FROM external_game_ids mapping
@@ -116,8 +174,11 @@ export function createProjectionMethods(client: DatabaseClient): ProjectionMetho
           AND run.season = $3 AND run.season_type = $4 AND run.week = $5
           AND run.model_version = $6 AND run.quality = 'complete'
           AND run.provider = $7
+          AND current.model_version = $6 AND current.projection_provider = $7
           AND candidate.quality <> 'invalid'
-        ORDER BY sleeper.external_id, run.fetched_at DESC, run.created_at DESC`, [
+          AND game.kickoff_at IS NOT NULL AND run.fetched_at <= game.kickoff_at
+        ORDER BY sleeper.external_id, current.source_fetched_at DESC,
+          current.source_run_created_at DESC, current.projection_run_id DESC`, [
         input.leagueSeasonId, sleeperIds, input.season, input.seasonType,
         input.week, input.modelVersion, provider(input.provider),
       ]);

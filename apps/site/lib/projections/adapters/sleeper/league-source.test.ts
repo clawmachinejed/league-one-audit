@@ -16,6 +16,7 @@ const configuration = {
   displayName: 'Premier League',
   leagueRef,
 };
+const targetPeriod = { season: 2026, seasonType: 'regular' as const, week: 1 };
 
 const teamOne: Team = {
   id: 1,
@@ -128,10 +129,10 @@ describe('Sleeper league-source adapter', () => {
   it('loads once and translates identities, participants, lineups, and source metadata', async () => {
     const source = input();
     const load = vi.fn(async () => source);
-    const result = await createSleeperLeagueSource(load).getLeagueWeek(configuration);
+    const result = await createSleeperLeagueSource(load).getLeagueWeek(configuration, targetPeriod);
 
     expect(load).toHaveBeenCalledTimes(1);
-    expect(load).toHaveBeenCalledWith('league-001');
+    expect(load).toHaveBeenCalledWith('league-001', targetPeriod);
     expect(result.configuration).toBe(configuration);
     expect(result.leagueName).toBe('League API Name');
     expect(result.period).toEqual({ season: 2026, seasonType: 'regular', week: 1 });
@@ -221,7 +222,7 @@ describe('Sleeper league-source adapter', () => {
     const rawRules = { pass_td: 'six', unsupported_bonus: 1 };
     const result = await createSleeperLeagueSource(async () => input({
       scoringSettings: rawRules,
-    })).getLeagueWeek(configuration);
+    })).getLeagueWeek(configuration, targetPeriod);
 
     expect(result.scoringSettings.rawRules).toBe(rawRules);
   });
@@ -236,22 +237,37 @@ describe('Sleeper league-source adapter', () => {
     const result = await createSleeperLeagueSource(async () => ({
       ...source,
       rosteredPlayers: [...source.rosteredPlayers, bye],
-    })).getLeagueWeek(configuration);
+    })).getLeagueWeek(configuration, targetPeriod);
 
     expect(result.schedule.BUF).toEqual({ kind: 'bye' });
   });
 
   it('uses the runtime display name only when the source league name is empty', async () => {
     const result = await createSleeperLeagueSource(async () => input({ leagueName: '' }))
-      .getLeagueWeek(configuration);
+      .getLeagueWeek(configuration, targetPeriod);
     expect(result.leagueName).toBe('Premier League');
   });
 
   it('rejects a returned league identity mismatch before translating data', async () => {
     await expect(createSleeperLeagueSource(async () => input({
       sleeperLeagueId: 'another-league',
-    })).getLeagueWeek(configuration)).rejects.toThrow(
+    })).getLeagueWeek(configuration, targetPeriod)).rejects.toThrow(
       'Sleeper returned matchup data for a different league.',
     );
+  });
+
+  it('rejects data returned for a period other than the explicitly requested target', async () => {
+    const load = vi.fn(async () => input());
+
+    await expect(createSleeperLeagueSource(load).getLeagueWeek(configuration, {
+      ...targetPeriod,
+      week: 2,
+    })).rejects.toThrow('Sleeper returned matchup data for a different projection period.');
+
+    expect(load).toHaveBeenCalledWith('league-001', {
+      season: 2026,
+      seasonType: 'regular',
+      week: 2,
+    });
   });
 });

@@ -6,6 +6,12 @@ import type { ProjectionStore } from './contracts';
 export function createDisabledProjectionStore(): ProjectionStore {
   return {
     enabled: false,
+    async upsertLeaguePeriodAuthority() {
+      return { kind: 'disabled' };
+    },
+    async readMatchupSnapshotByLeagueKey() {
+      return null;
+    },
     async registerLeagueSeason() {
       return { kind: 'disabled' };
     },
@@ -13,6 +19,36 @@ export function createDisabledProjectionStore(): ProjectionStore {
       return { kind: 'disabled' };
     },
     async upsertNflGames() {
+      return { kind: 'disabled' };
+    },
+    async recordProjectionSlate() {
+      return { kind: 'disabled' };
+    },
+    async readCurrentProjectionSlate() {
+      return null;
+    },
+    async ensureFutureRefreshStates() {
+      return { kind: 'disabled' };
+    },
+    async readFutureRefreshPlan() {
+      return [];
+    },
+    async beginFutureProjectionRefresh() {
+      return { kind: 'disabled' };
+    },
+    async completeFutureProjectionRefresh() {
+      return { kind: 'disabled' };
+    },
+    async failFutureProjectionRefresh() {
+      return { kind: 'disabled' };
+    },
+    async beginFutureMaterializationRefresh() {
+      return { kind: 'disabled' };
+    },
+    async completeFutureMaterializationRefresh() {
+      return { kind: 'disabled' };
+    },
+    async failFutureMaterializationRefresh() {
       return { kind: 'disabled' };
     },
     async recordProjectionCandidates() {

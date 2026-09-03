@@ -57,7 +57,58 @@ export function createRetentionMethods(client: DatabaseClient): RetentionMethods
             SELECT 1 FROM pregame_projection_baselines baseline
             WHERE baseline.source_projection_run_id = run.id
           )
+          AND NOT EXISTS (
+            SELECT 1 FROM current_pregame_projection_candidates current
+            WHERE current.projection_run_id = run.id
+          )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM pregame_projection_candidates candidate
+            JOIN nfl_games game ON game.id = candidate.nfl_game_id
+            WHERE candidate.projection_run_id = run.id
+              AND (game.kickoff_at IS NULL OR game.kickoff_at >= $1::timestamptz)
+          )
         RETURNING run.id`, [input.before]);
+      const projectionSlateObservations = await client.query(`/* projection-store:prune-projection-slate-observations */
+        DELETE FROM projection_slate_observations observation
+        WHERE observation.created_at < $1::timestamptz
+          AND NOT EXISTS (
+            SELECT 1 FROM current_projection_slates current
+            WHERE current.projection_slate_observation_id = observation.id
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM pregame_projection_runs run
+            WHERE run.projection_slate_observation_id = observation.id
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM projection_period_refresh_states refresh
+            WHERE refresh.last_projection_slate_observation_id = observation.id
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM league_week_materialization_states materialization
+            WHERE materialization.last_projection_slate_observation_id = observation.id
+          )
+        RETURNING observation.id`, [input.before]);
+      const projectionSlateContents = await client.query(`/* projection-store:prune-projection-slate-contents */
+        DELETE FROM projection_slate_contents content
+        WHERE content.created_at < $1::timestamptz
+          AND NOT EXISTS (
+            SELECT 1 FROM projection_slate_observations observation
+            WHERE observation.projection_slate_content_id = content.id
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM current_projection_slates current
+            WHERE current.projection_slate_content_id = content.id
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM projection_period_refresh_states refresh
+            WHERE refresh.last_projection_slate_content_id = content.id
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM league_week_materialization_states materialization
+            WHERE materialization.last_projection_slate_content_id = content.id
+          )
+        RETURNING content.id`, [input.before]);
       const jobs = await client.query(`/* projection-store:prune-jobs */
         DELETE FROM projection_jobs job
         WHERE job.updated_at < $1::timestamptz AND job.state = 'completed'
@@ -70,6 +121,8 @@ export function createRetentionMethods(client: DatabaseClient): RetentionMethods
           leagueObservationsDeleted: leagueObservations.length,
           gameObservationsDeleted: gameObservations.length,
           projectionRunsDeleted: projectionRuns.length,
+          projectionSlateObservationsDeleted: projectionSlateObservations.length,
+          projectionSlateContentsDeleted: projectionSlateContents.length,
           jobsDeleted: jobs.length,
         },
       };

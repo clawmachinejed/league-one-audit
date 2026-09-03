@@ -18,10 +18,15 @@ import type { LeagueSourcePort } from '../ports/league-source';
 import type { ProjectionLogEntry, ProjectionLoggerPort } from '../ports/logger';
 import type { NflCalendarPort } from '../ports/nfl-calendar';
 import type { ProjectionFeedPort } from '../ports/projection-feed';
-import type { ObservationId, ProjectionRepositoryPort } from '../ports/projection-repository';
+import type { FutureRefreshRepositoryPort } from '../ports/future-refresh-repository';
+import type {
+  ObservationId,
+  ProjectionRepositoryPort,
+  ProjectionSlateContentId,
+  ProjectionSlateObservationId,
+} from '../ports/projection-repository';
 import type { ExternalRosterRef, ExternalScoringEntityRef } from '../shared/provider-identity';
-
-export const LIVE_PROJECTION_MODEL_VERSION = 'clock-v1';
+export { LIVE_PROJECTION_MODEL_VERSION } from '../shared/projection-versions';
 
 /** Public worker configuration is the provider-neutral league registry entry. */
 export type ProjectionLeagueConfiguration = LeagueConfiguration;
@@ -35,13 +40,23 @@ export type ScoringProfileNormalization =
     }>;
 
 export type LiveProjectionWorkerDependencies = Readonly<{
-  repository: ProjectionRepositoryPort;
+  repository: ProjectionRepositoryPort & FutureRefreshRepositoryPort;
   identityCrosswalk: IdentityCrosswalkPort;
+  futurePersistence: Readonly<{
+    scope: (signal: AbortSignal) => Readonly<{
+      repository: ProjectionRepositoryPort & FutureRefreshRepositoryPort;
+      identityCrosswalk: IdentityCrosswalkPort;
+    }>;
+  }>;
   leagueRegistry: LeagueRegistryPort;
   nflCalendar: NflCalendarPort;
   leagueSource: LeagueSourcePort;
   projectionFeed: ProjectionFeedPort;
   gameStateFeed: GameStateFeedPort;
+  projectionStorage: Readonly<{
+    source: ProjectionSlate['source'];
+    normalizerVersion: string;
+  }>;
   normalizeScoringProfile: (source: SourceScoringSettings) => ScoringProfileNormalization;
   clock: ClockPort;
   idGenerator: IdGeneratorPort;
@@ -96,6 +111,8 @@ export type PersistedGroup = Readonly<{
   entityIdsByReferenceKey: ReadonlyMap<string, ScoringEntityId>;
   identityConflictCount: number;
   projectionSourceRevision: string;
+  projectionSlateObservationId: ProjectionSlateObservationId;
+  projectionSlateContentId: ProjectionSlateContentId;
 }>;
 
 export type LeagueStageResult = Readonly<{

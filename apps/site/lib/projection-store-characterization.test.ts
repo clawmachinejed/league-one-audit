@@ -43,6 +43,15 @@ describe('projection-store public behavior characterization', () => {
     await expect(store.registerLeagueSeason({
       leagueKey: '', leagueName: '', season: 2026, sleeperLeagueId: '', scoringRules: {},
     })).resolves.toEqual({ kind: 'disabled' });
+    await expect(store.upsertLeaguePeriodAuthority({
+      leagueKey: '', defaultSeason: 2026, defaultSeasonType: 'reg', defaultWeek: 1,
+      activeSeason: 2026, activeSeasonType: 'reg', activeWeek: 1,
+      leagueLifecycle: 'active', nflPhase: 'regular', sourceProvider: '',
+      sourceRevision: '', sourceObservedAt: '', verifiedAt: '',
+    })).resolves.toEqual({ kind: 'disabled' });
+    await expect(store.readMatchupSnapshotByLeagueKey('', 0, {
+      projectionProvider: '', normalizerVersion: '', modelVersion: '',
+    })).resolves.toBeNull();
     await expect(store.upsertScoringEntities([{
       key: '', kind: 'player', displayName: '', nflTeam: null, providerIds: [],
     }])).resolves.toEqual({ kind: 'disabled' });
@@ -50,6 +59,23 @@ describe('projection-store public behavior characterization', () => {
       key: '', provider: '', externalGameId: '', season: 2026, seasonType: 'reg', week: 1,
       homeTeam: '', awayTeam: '', kickoffAt: null,
     }])).resolves.toEqual({ kind: 'disabled' });
+    await expect(store.recordProjectionSlate(undefined as never)).resolves.toEqual({ kind: 'disabled' });
+    await expect(store.readCurrentProjectionSlate(undefined as never)).resolves.toBeNull();
+    await expect(store.ensureFutureRefreshStates(undefined as never))
+      .resolves.toEqual({ kind: 'disabled' });
+    await expect(store.readFutureRefreshPlan(undefined as never)).resolves.toEqual([]);
+    await expect(store.beginFutureProjectionRefresh(undefined as never))
+      .resolves.toEqual({ kind: 'disabled' });
+    await expect(store.completeFutureProjectionRefresh(undefined as never))
+      .resolves.toEqual({ kind: 'disabled' });
+    await expect(store.failFutureProjectionRefresh(undefined as never))
+      .resolves.toEqual({ kind: 'disabled' });
+    await expect(store.beginFutureMaterializationRefresh(undefined as never))
+      .resolves.toEqual({ kind: 'disabled' });
+    await expect(store.completeFutureMaterializationRefresh(undefined as never))
+      .resolves.toEqual({ kind: 'disabled' });
+    await expect(store.failFutureMaterializationRefresh(undefined as never))
+      .resolves.toEqual({ kind: 'disabled' });
     await expect(store.recordProjectionCandidates({
       provider: '', season: 2026, seasonType: 'reg', week: 1, modelVersion: '',
       sourceRevision: '', requestStartedAt: '', requestCompletedAt: '', fetchedAt: '',
@@ -100,17 +126,17 @@ describe('projection-store public behavior characterization', () => {
     });
   });
 
-  it('keeps all 26 store-owned SQL operations marked and unique across adapter modules', async () => {
+  it('keeps all 40 store-owned SQL operations marked and unique across adapter modules', async () => {
     const extraction = await extractProjectionStoreSql();
 
     // A non-template or unmarked database call must fail this audit instead of escaping the baseline.
     expect(extraction.operations).toHaveLength(extraction.queryCallCount);
-    expect(extraction.operations).toHaveLength(26);
+    expect(extraction.operations).toHaveLength(40);
     expect(extraction.operations.every(({ markerCount }) => markerCount === 1)).toBe(true);
 
     const markers = extraction.operations.map(({ marker }) => marker);
     expect(markers.every((value): value is string => value !== null)).toBe(true);
-    expect(new Set(markers).size).toBe(26);
+    expect(new Set(markers).size).toBe(40);
     expect(markers.toSorted()).toEqual([...projectionStoreSqlMarkers]);
   });
 
@@ -627,6 +653,8 @@ describe('projection-store public behavior characterization', () => {
         leagueObservationsDeleted: 0,
         gameObservationsDeleted: 0,
         projectionRunsDeleted: 0,
+        projectionSlateObservationsDeleted: 0,
+        projectionSlateContentsDeleted: 0,
         jobsDeleted: 0,
       },
     });
@@ -635,10 +663,12 @@ describe('projection-store public behavior characterization', () => {
       'prune-league-observations',
       'prune-game-observations',
       'prune-projection-runs',
+      'prune-projection-slate-observations',
+      'prune-projection-slate-contents',
       'prune-jobs',
     ]);
     expect(fake.calls.map(({ parameters }) => parameters)).toEqual([
-      [before, 3], [before], [before], [before], [before],
+      [before, 3], [before], [before], [before], [before], [before], [before],
     ]);
 
     for (const keepRecentSnapshotsPerLeagueWeek of [0, 1.5, 101]) {

@@ -142,17 +142,20 @@ export function joinNormalizedProjectionSlate(
     incompleteDefenses: coverage.incompleteDefenseProjections,
   };
   const projections: ProjectionObservation[] = [
-    ...Object.values(bySleeperId).map((projection): ProjectionObservation => ({
-      identity: {
-        primary: externalPlayerRef(provider, projection.tank01PlayerId),
-        aliases: [externalPlayerRef(officialProvider, projection.sleeperPlayerId)],
-      },
-      nflTeam: canonicalTeam(projection.team),
-      position: projection.position,
-      stats: projection.stats,
-      scoringStats: projection.scoringProjection,
-      missingFields: projection.missingFields,
-    })),
+    ...Object.values(slate.playersByTank01Id).map((projection): ProjectionObservation => {
+      const sleeperPlayerId = crosswalk.sleeperIdByTank01Id[projection.tank01PlayerId];
+      return {
+        identity: {
+          primary: externalPlayerRef(provider, projection.tank01PlayerId),
+          aliases: sleeperPlayerId ? [externalPlayerRef(officialProvider, sleeperPlayerId)] : [],
+        },
+        nflTeam: canonicalTeam(projection.team),
+        position: projection.position,
+        stats: projection.stats,
+        scoringStats: projection.scoringProjection,
+        missingFields: projection.missingFields,
+      };
+    }),
     ...Object.values(slate.defensesByTeam).map((projection): ProjectionObservation => ({
       identity: {
         primary: externalTeamDefenseRef(provider, projection.team),

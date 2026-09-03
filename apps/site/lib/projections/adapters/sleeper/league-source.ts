@@ -1,8 +1,9 @@
-import type { ProjectionSyncInput } from '../../../sleeper';
+import type { ProjectionSyncInput, ProjectionTargetPeriod } from '../../../sleeper';
 import { canonicalNflTeam } from '../../../nfl-teams';
 import type { Player } from '../../../types';
 import type {
   LeagueConfiguration,
+  LeaguePeriod,
   LeagueWeekState,
   LineupSlot,
   NflWeekSchedule,
@@ -25,7 +26,14 @@ import {
 
 export type SleeperLeagueWeekLoader = (
   leagueId: string,
+  targetPeriod: ProjectionTargetPeriod,
 ) => Promise<ProjectionSyncInput>;
+
+function samePeriod(left: LeaguePeriod, right: LeaguePeriod): boolean {
+  return left.season === right.season
+    && left.seasonType === right.seasonType
+    && left.week === right.week;
+}
 
 function isEmptySlot(player: Player): boolean {
   return player.id.startsWith('empty-');
@@ -143,14 +151,20 @@ export function createSleeperLeagueSource(
   loadLeagueWeek: SleeperLeagueWeekLoader,
 ): LeagueSourcePort {
   return {
-    async getLeagueWeek(configuration: LeagueConfiguration): Promise<LeagueWeekState> {
+    async getLeagueWeek(
+      configuration: LeagueConfiguration,
+      targetPeriod: LeaguePeriod,
+    ): Promise<LeagueWeekState> {
       const leagueId = String(configuration.leagueRef.externalId);
-      const source = await loadLeagueWeek(leagueId);
+      const source = await loadLeagueWeek(leagueId, targetPeriod);
       if (source.sleeperLeagueId !== leagueId) {
         throw new Error('Sleeper returned matchup data for a different league.');
       }
 
       const period = sleeperRegularSeasonPeriod(source.data.league.season, source.data.week);
+      if (!samePeriod(period, targetPeriod)) {
+        throw new Error('Sleeper returned matchup data for a different projection period.');
+      }
       const provider = configuration.leagueRef.provider;
       return {
         configuration,

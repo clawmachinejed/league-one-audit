@@ -1,9 +1,11 @@
 import type { LeaguePeriod } from '../domain/contracts';
+import type { FutureRefreshFailureCode } from './future-refresh-repository';
 
 export type LogLevel = 'info' | 'warn' | 'error';
 export type ProjectionLogOutcome = 'started' | 'completed' | 'skipped' | 'failed';
 
 export type ProjectionFailureCode =
+  | FutureRefreshFailureCode
   | 'cadence-source-unavailable'
   | 'lease-lost'
   | 'projection-slate-incomplete'
@@ -16,6 +18,8 @@ export type ProjectionFailureCode =
   | 'league-source-unavailable'
   | 'projection-provider-unavailable'
   | 'provider-persistence-failed'
+  | 'period-authority-conflict'
+  | 'period-authority-unavailable'
   | 'unexpected-worker-failure';
 
 export type ProjectionLogEntry = Readonly<{
@@ -23,6 +27,8 @@ export type ProjectionLogEntry = Readonly<{
   outcome: ProjectionLogOutcome;
   runId?: string;
   cadence?: string;
+  futureAction?: 'projection-ingest' | 'materialize';
+  weekDistance?: number;
   leagueKey?: string;
   period?: LeaguePeriod;
   providerGroup?: string;

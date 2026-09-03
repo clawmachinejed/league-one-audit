@@ -19,13 +19,21 @@ const schedule: NflWeekSchedule = {
 };
 
 function cadenceState(overrides: Partial<LeagueCadenceState> = {}): LeagueCadenceState {
+  const configuration = {
+    key: 'league', displayName: 'League',
+    leagueRef: externalLeagueRef('official-source', 'league-1'),
+  };
   return {
-    configuration: {
-      key: 'league',
-      displayName: 'League',
-      leagueRef: externalLeagueRef('official-source', 'league-1'),
-    },
+    configuration,
     period: { season: 2026, seasonType: 'regular', week: 1 },
+    periodAuthority: {
+      configuration,
+      defaultDisplayPeriod: { season: 2026, seasonType: 'regular', week: 1 },
+      activeScoringPeriod: { season: 2026, seasonType: 'regular', week: 1 },
+      lifecycle: 'active', nflPhase: 'regular', source: configuration.leagueRef.provider,
+      sourceRevision: 'period-revision', observedAt: '2026-09-13T16:00:00.000Z',
+      verifiedAt: '2026-09-13T16:00:00.000Z',
+    },
     currentPeriod: { season: 2026, week: 1, seasonType: 'regular' },
     schedule,
     ...overrides,

@@ -1,4 +1,9 @@
 import type { MatchupsData } from '../../../types';
+import type {
+  FutureRefreshFailureCode as CanonicalFutureRefreshFailureCode,
+} from '../../ports/future-refresh-repository';
+
+export type FutureRefreshFailureCode = CanonicalFutureRefreshFailureCode;
 
 export type SeasonType = 'pre' | 'reg' | 'post';
 export type ScoringEntityKind = 'player' | 'team_defense';
@@ -60,6 +65,69 @@ export type ProjectionCandidateInput = Readonly<{
   quality: ProjectionQuality;
 }>;
 
+export type ProjectionSlateEntryInput = Readonly<{
+  entityKind: ScoringEntityKind;
+  providerExternalId: string;
+  aliases: readonly ExternalIdentity[];
+  nflTeam: string | null;
+  position: string | null;
+  stats: Readonly<Record<string, unknown>>;
+  scoringStats: Readonly<Record<string, unknown>>;
+  missingFields: readonly string[];
+}>;
+
+export type ProjectionSlateInput = Readonly<{
+  provider: string;
+  season: number;
+  seasonType: SeasonType;
+  week: number;
+  normalizerVersion: string;
+  sourceRevision: string;
+  requestStartedAt: string;
+  requestCompletedAt: string;
+  observedAt: string;
+  quality: ObservationQuality;
+  coverage: Readonly<Record<string, unknown>>;
+  warnings: readonly string[];
+  entries: readonly ProjectionSlateEntryInput[];
+}>;
+
+export type ProjectionSlatePointerOutcome =
+  | 'advanced'
+  | 'verified'
+  | 'superseded'
+  | 'ineligible';
+
+export type StoredProjectionSlateObservation = Readonly<{
+  observationId: string;
+  contentId: string;
+  semanticHash: string;
+  entriesStored: number;
+  entryCount: number;
+  pointerOutcome: ProjectionSlatePointerOutcome;
+}>;
+
+export type StoredProjectionSlate = Readonly<{
+  observationId: string;
+  contentId: string;
+  provider: string;
+  season: number;
+  seasonType: SeasonType;
+  week: number;
+  normalizerVersion: string;
+  semanticHash: string;
+  sourceRevision: string;
+  requestStartedAt: string;
+  requestCompletedAt: string;
+  observedAt: string;
+  quality: ObservationQuality;
+  coverage: Readonly<Record<string, unknown>>;
+  warnings: readonly string[];
+  entries: readonly ProjectionSlateEntryInput[];
+  verifiedAt: string;
+  materialChangedAt: string;
+}>;
+
 export type ProjectionRunInput = Readonly<{
   provider: string;
   season: number;
@@ -71,6 +139,8 @@ export type ProjectionRunInput = Readonly<{
   requestCompletedAt: string;
   fetchedAt: string;
   quality: ObservationQuality;
+  /** Exact provider observation used to create this scored run. */
+  projectionSlateObservationId?: string;
   candidates: readonly ProjectionCandidateInput[];
 }>;
 
@@ -188,6 +258,127 @@ export type StoredProjectionSnapshotSelection = Readonly<{
   latest: StoredProjectionSnapshot | null;
 }>;
 
+export type LeagueLifecycle = 'preseason' | 'active' | 'complete';
+export type NflPhase = 'preseason' | 'regular' | 'postseason' | 'unknown';
+
+export type LeaguePeriodAuthorityInput = Readonly<{
+  leagueKey: string;
+  defaultSeason: number;
+  defaultSeasonType: SeasonType;
+  defaultWeek: number;
+  activeSeason: number | null;
+  activeSeasonType: SeasonType | null;
+  activeWeek: number | null;
+  leagueLifecycle: LeagueLifecycle;
+  nflPhase: NflPhase;
+  sourceProvider: string;
+  sourceRevision: string;
+  sourceObservedAt: string;
+  verifiedAt: string;
+}>;
+
+export type StoredLeaguePeriodAuthority = LeaguePeriodAuthorityInput;
+
+export type PeriodAuthorityWriteOutcome =
+  | Readonly<{ kind: 'stored' | 'verified' | 'ignored'; value: StoredLeaguePeriodAuthority }>
+  | Readonly<{ kind: 'conflict' }>
+  | Readonly<{ kind: 'disabled' }>;
+
+export type StoredFutureMaterializationFreshness = Readonly<{
+  nextRefreshAt: string;
+  lastSucceededAt: string | null;
+  activeAttemptExpiresAt: string | null;
+  lastProjectionSlateContentId: string | null;
+  currentProjectionSlateContentId: string | null;
+  lastSnapshotRevision: string | null;
+}>;
+
+export type StoredMatchupSnapshotContext = Readonly<{
+  authority: StoredLeaguePeriodAuthority;
+  snapshot: StoredProjectionSnapshot | null;
+  futureRefresh: StoredFutureMaterializationFreshness | null;
+}>;
+
+export type MatchupProjectionIdentity = Readonly<{
+  projectionProvider: string;
+  normalizerVersion: string;
+  modelVersion: string;
+}>;
+
+export type StoreFutureRefreshPeriod = Readonly<{
+  season: number;
+  seasonType: SeasonType;
+  week: number;
+}>;
+
+export type StoreFutureRefreshTarget = Readonly<{
+  period: StoreFutureRefreshPeriod;
+  weekDistance: number;
+}>;
+
+export type StoreFutureProjectionSlateLineage = Readonly<{
+  observationId: string;
+  contentId: string;
+}>;
+
+export type StoreFutureProjectionRefreshState = Readonly<{
+  nextRefreshAt: string;
+  lastAttemptedAt: string | null;
+  lastSucceededAt: string | null;
+  consecutiveFailures: number;
+  lastFailureCode: FutureRefreshFailureCode | null;
+  activeAttemptExpiresAt: string | null;
+  lastSlate: StoreFutureProjectionSlateLineage | null;
+  currentSlate: StoreFutureProjectionSlateLineage | null;
+  due: boolean;
+}>;
+
+export type StoreFutureMaterializationRefreshState = Readonly<{
+  leagueKey: string;
+  nextRefreshAt: string;
+  lastAttemptedAt: string | null;
+  lastSucceededAt: string | null;
+  lastSourceRevision: string | null;
+  lastSlate: StoreFutureProjectionSlateLineage | null;
+  lastSnapshotRevision: string | null;
+  consecutiveFailures: number;
+  lastFailureCode: FutureRefreshFailureCode | null;
+  activeAttemptExpiresAt: string | null;
+  due: boolean;
+}>;
+
+export type StoreFutureRefreshPlanPeriod = Readonly<{
+  period: StoreFutureRefreshPeriod;
+  weekDistance: number;
+  projection: StoreFutureProjectionRefreshState;
+  materializations: readonly StoreFutureMaterializationRefreshState[];
+  successfulMaterializations: number;
+  expectedMaterializations: number;
+}>;
+
+export type StoreFutureRefreshClaim =
+  | Readonly<{
+      kind: 'acquired';
+      attempt: number;
+      attemptId: string;
+      leaseUntil: string;
+    }>
+  | Readonly<{
+      kind: 'backed-off';
+      consecutiveFailures: number;
+      nextRefreshAt: string;
+    }>
+  | Readonly<{ kind: 'unavailable' | 'disabled' }>;
+
+export type StoreFutureRefreshTransition =
+  | Readonly<{
+      kind: 'updated';
+      consecutiveFailures: number;
+      nextRefreshAt: string;
+      materializationsWoken: number;
+    }>
+  | Readonly<{ kind: 'stale' | 'disabled' }>;
+
 export type PublishSnapshotInput = Readonly<{
   leagueSeasonId: string;
   week: number;
@@ -217,11 +408,21 @@ export type HistoryRetentionResult = Readonly<{
   leagueObservationsDeleted: number;
   gameObservationsDeleted: number;
   projectionRunsDeleted: number;
+  projectionSlateObservationsDeleted: number;
+  projectionSlateContentsDeleted: number;
   jobsDeleted: number;
 }>;
 
 export type ProjectionStore = Readonly<{
   enabled: boolean;
+  upsertLeaguePeriodAuthority: (
+    input: LeaguePeriodAuthorityInput,
+  ) => Promise<PeriodAuthorityWriteOutcome>;
+  readMatchupSnapshotByLeagueKey: (
+    leagueKey: string,
+    requestedWeek: number | undefined,
+    projectionIdentity: MatchupProjectionIdentity,
+  ) => Promise<StoredMatchupSnapshotContext | null>;
   registerLeagueSeason: (input: Readonly<{
     leagueKey: string;
     leagueName: string;
@@ -235,6 +436,93 @@ export type ProjectionStore = Readonly<{
   upsertNflGames: (
     inputs: readonly NflGameIdentityInput[],
   ) => Promise<PersistenceOutcome<readonly ResolvedNflGame[]>>;
+  recordProjectionSlate: (
+    input: ProjectionSlateInput,
+  ) => Promise<PersistenceOutcome<StoredProjectionSlateObservation>>;
+  readCurrentProjectionSlate: (input: Readonly<{
+    provider: string;
+    season: number;
+    seasonType: SeasonType;
+    week: number;
+    normalizerVersion: string;
+  }>) => Promise<StoredProjectionSlate | null>;
+  ensureFutureRefreshStates: (input: Readonly<{
+    projectionProvider: string;
+    normalizerVersion: string;
+    modelVersion: string;
+    targets: readonly StoreFutureRefreshTarget[];
+    leagueKeys: readonly string[];
+    seededAt: string;
+  }>) => Promise<PersistenceOutcome<Readonly<{
+    projectionPeriodsInserted: number;
+    materializationsInserted: number;
+  }>>>;
+  readFutureRefreshPlan: (input: Readonly<{
+    projectionProvider: string;
+    normalizerVersion: string;
+    modelVersion: string;
+    targets: readonly StoreFutureRefreshTarget[];
+    leagueKeys: readonly string[];
+    asOf: string;
+  }>) => Promise<readonly StoreFutureRefreshPlanPeriod[]>;
+  beginFutureProjectionRefresh: (input: Readonly<{
+    projectionProvider: string;
+    normalizerVersion: string;
+    period: StoreFutureRefreshPeriod;
+    attemptId: string;
+    attemptedAt: string;
+    leaseSeconds: number;
+  }>) => Promise<StoreFutureRefreshClaim>;
+  completeFutureProjectionRefresh: (input: Readonly<{
+    projectionProvider: string;
+    normalizerVersion: string;
+    period: StoreFutureRefreshPeriod;
+    attemptId: string;
+    completedAt: string;
+    nextRefreshAt: string;
+    slate: StoreFutureProjectionSlateLineage;
+  }>) => Promise<StoreFutureRefreshTransition>;
+  failFutureProjectionRefresh: (input: Readonly<{
+    projectionProvider: string;
+    normalizerVersion: string;
+    period: StoreFutureRefreshPeriod;
+    attemptId: string;
+    failedAt: string;
+    failureCode: FutureRefreshFailureCode;
+  }>) => Promise<StoreFutureRefreshTransition>;
+  beginFutureMaterializationRefresh: (input: Readonly<{
+    leagueKey: string;
+    projectionProvider: string;
+    normalizerVersion: string;
+    modelVersion: string;
+    period: StoreFutureRefreshPeriod;
+    attemptId: string;
+    attemptedAt: string;
+    leaseSeconds: number;
+  }>) => Promise<StoreFutureRefreshClaim>;
+  completeFutureMaterializationRefresh: (input: Readonly<{
+    leagueKey: string;
+    projectionProvider: string;
+    normalizerVersion: string;
+    modelVersion: string;
+    period: StoreFutureRefreshPeriod;
+    attemptId: string;
+    completedAt: string;
+    nextRefreshAt: string;
+    sourceRevision: string;
+    slate: StoreFutureProjectionSlateLineage;
+    snapshotRevision: string;
+  }>) => Promise<StoreFutureRefreshTransition>;
+  failFutureMaterializationRefresh: (input: Readonly<{
+    leagueKey: string;
+    projectionProvider: string;
+    normalizerVersion: string;
+    modelVersion: string;
+    period: StoreFutureRefreshPeriod;
+    attemptId: string;
+    failedAt: string;
+    failureCode: FutureRefreshFailureCode;
+  }>) => Promise<StoreFutureRefreshTransition>;
   recordProjectionCandidates: (
     input: ProjectionRunInput,
   ) => Promise<PersistenceOutcome<StoredProjectionRun>>;
