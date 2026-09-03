@@ -82,6 +82,34 @@ describe('Neon period authority methods', () => {
     expect(fake.calls[0].statement).not.toMatch(/ORDER BY[^;]*week/iu);
   });
 
+  it('returns the matching durable future materialization lineage without multiplying rows', async () => {
+    const fake = createFakeProjectionDatabase(() => [{
+      ...authorityRow(),
+      ...projectionStoreSnapshotRow(),
+      future_next_refresh_at: '2026-09-14T00:00:00.000Z',
+      future_last_succeeded_at: '2026-09-13T18:00:00.000Z',
+      future_attempt_expires_at: null,
+      future_last_slate_content_id: 'slate-content-1',
+      future_current_slate_content_id: 'slate-content-1',
+      future_last_snapshot_revision: 'snapshot-revision',
+    }]);
+    const result = await createPeriodMethods(fake.database)
+      .readMatchupSnapshotByLeagueKey('league1', 1);
+
+    expect(result?.futureRefresh).toEqual({
+      nextRefreshAt: '2026-09-14T00:00:00.000Z',
+      lastSucceededAt: '2026-09-13T18:00:00.000Z',
+      activeAttemptExpiresAt: null,
+      lastProjectionSlateContentId: 'slate-content-1',
+      currentProjectionSlateContentId: 'slate-content-1',
+      lastSnapshotRevision: 'snapshot-revision',
+    });
+    expect(fake.calls[0].statement).toContain('LEFT JOIN LATERAL');
+    expect(fake.calls[0].statement).toContain(
+      'material.last_projection_slate_content_id = slate.projection_slate_content_id',
+    );
+  });
+
   it('rejects malformed active-period rows', async () => {
     const fake = createFakeProjectionDatabase(() => [authorityRow({ active_week: 19 })]);
     await expect(createPeriodMethods(fake.database).readMatchupSnapshotByLeagueKey('league1', 1))

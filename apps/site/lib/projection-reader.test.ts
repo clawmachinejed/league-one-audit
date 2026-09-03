@@ -5,6 +5,7 @@ vi.mock('server-only', () => ({}));
 import { readStoredMatchups } from './projection-reader';
 import type {
   ProjectionStore,
+  StoredFutureMaterializationFreshness,
   StoredLeaguePeriodAuthority,
   StoredProjectionSnapshot,
 } from './projection-store';
@@ -38,6 +39,20 @@ function authority(overrides: Partial<StoredLeaguePeriodAuthority> = {}): Stored
   };
 }
 
+function futureRefresh(
+  overrides: Partial<StoredFutureMaterializationFreshness> = {},
+): StoredFutureMaterializationFreshness {
+  return {
+    nextRefreshAt: '2026-09-21T00:00:00.000Z',
+    lastSucceededAt: '2026-09-13T18:00:00.000Z',
+    activeAttemptExpiresAt: null,
+    lastProjectionSlateContentId: 'slate-content-2',
+    currentProjectionSlateContentId: 'slate-content-2',
+    lastSnapshotRevision: 'revision-2',
+    ...overrides,
+  };
+}
+
 function store(
   value: Awaited<ReturnType<ProjectionStore['readMatchupSnapshotByLeagueKey']>>,
   enabled = true,
@@ -50,7 +65,7 @@ function store(
 
 describe('period-aware stored matchup reader', () => {
   it('resolves an omitted week to the authority default, never the latest stored week', async () => {
-    const database = store({ authority: authority(), snapshot: snapshot(2) });
+    const database = store({ authority: authority(), snapshot: snapshot(2), futureRefresh: null });
     const result = await readStoredMatchups('league1', undefined, {
       store: database, now: new Date('2026-09-20T18:00:00.000Z'),
     });
@@ -62,7 +77,9 @@ describe('period-aware stored matchup reader', () => {
   });
 
   it('preserves an exact explicit past week and does not rewrite its payload context', async () => {
-    const database = store({ authority: authority({ activeWeek: 2 }), snapshot: snapshot(1) });
+    const database = store({
+      authority: authority({ activeWeek: 2 }), snapshot: snapshot(1), futureRefresh: null,
+    });
     const result = await readStoredMatchups('league1', 1, {
       store: database, now: new Date('2027-01-01T00:00:00.000Z'),
     });
@@ -74,16 +91,58 @@ describe('period-aware stored matchup reader', () => {
     }
   });
 
+  it('uses durable future scheduling and lineage instead of a fixed snapshot age', async () => {
+    const now = new Date('2026-09-20T18:00:00.000Z');
+    const scheduled = await readStoredMatchups('league1', 2, {
+      store: store({
+        authority: authority(), snapshot: snapshot(2), futureRefresh: futureRefresh(),
+      }),
+      now,
+    });
+    expect(scheduled).toMatchObject({
+      kind: 'usable', context: { temporalState: 'future', refreshDue: false },
+    });
+
+    const changedSlate = await readStoredMatchups('league1', 2, {
+      store: store({
+        authority: authority(),
+        snapshot: snapshot(2),
+        futureRefresh: futureRefresh({ currentProjectionSlateContentId: 'new-content' }),
+      }),
+      now,
+    });
+    expect(changedSlate).toMatchObject({
+      kind: 'usable', context: { temporalState: 'future', refreshDue: true },
+    });
+
+    const refreshing = await readStoredMatchups('league1', 2, {
+      store: store({
+        authority: authority(),
+        snapshot: snapshot(2),
+        futureRefresh: futureRefresh({
+          nextRefreshAt: '2026-09-20T17:00:00.000Z',
+          activeAttemptExpiresAt: '2026-09-20T18:01:00.000Z',
+        }),
+      }),
+      now,
+    });
+    expect(refreshing).toMatchObject({
+      kind: 'usable', context: { temporalState: 'future', refreshDue: false },
+    });
+  });
+
   it('distinguishes disabled, missing authority, missing exact week, and stale active data', async () => {
     await expect(readStoredMatchups('league1', 1, { store: store(null, false) }))
       .resolves.toEqual({ kind: 'disabled' });
     await expect(readStoredMatchups('league1', 1, { store: store(null) }))
       .resolves.toEqual({ kind: 'missing' });
     await expect(readStoredMatchups('league1', 2, {
-      store: store({ authority: authority(), snapshot: null }),
+      store: store({ authority: authority(), snapshot: null, futureRefresh: null }),
     })).resolves.toMatchObject({ kind: 'missing', context: { temporalState: 'future' } });
     await expect(readStoredMatchups('league1', 1, {
-      store: store({ authority: authority({ defaultWeek: 1 }), snapshot: snapshot(1) }),
+      store: store({
+        authority: authority({ defaultWeek: 1 }), snapshot: snapshot(1), futureRefresh: null,
+      }),
       now: new Date('2026-09-13T19:16:00.000Z'),
     })).resolves.toMatchObject({ kind: 'stale', context: { refreshDue: true } });
   });
@@ -91,12 +150,16 @@ describe('period-aware stored matchup reader', () => {
   it('rejects payloads that do not match the exact authority season and target week', async () => {
     const wrongWeek = { ...snapshot(1), payload: payload(2) };
     await expect(readStoredMatchups('league1', 1, {
-      store: store({ authority: authority(), snapshot: wrongWeek }),
+      store: store({ authority: authority(), snapshot: wrongWeek, futureRefresh: null }),
     })).resolves.toMatchObject({ kind: 'malformed' });
     const wrongSeasonPayload = payload(1);
     wrongSeasonPayload.league.season = '2025';
     await expect(readStoredMatchups('league1', 1, {
-      store: store({ authority: authority(), snapshot: { ...snapshot(1), payload: wrongSeasonPayload } }),
+      store: store({
+        authority: authority(),
+        snapshot: { ...snapshot(1), payload: wrongSeasonPayload },
+        futureRefresh: null,
+      }),
     })).resolves.toMatchObject({ kind: 'malformed' });
   });
 

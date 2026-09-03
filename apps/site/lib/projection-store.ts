@@ -48,6 +48,7 @@ export type {
   ScoringEntityKind,
   SeasonType,
   StoredGameState,
+  StoredFutureMaterializationFreshness,
   StoredLeagueWeekObservation,
   StoredLeaguePeriodAuthority,
   StoredMatchupSnapshotContext,

@@ -45,6 +45,16 @@ function nullableNumber(row: DatabaseRow, key: string): number | null {
   return rowNumber(row, key);
 }
 
+function nullableText(row: DatabaseRow, key: string): string | null {
+  if (row[key] === null || row[key] === undefined) return null;
+  return rowText(row, key);
+}
+
+function nullableTimestamp(row: DatabaseRow, key: string, label: string): string | null {
+  const value = nullableText(row, key);
+  return value === null ? null : timestamp(value, label);
+}
+
 function nullableSeasonType(row: DatabaseRow, key: string): SeasonType | null {
   if (row[key] === null || row[key] === undefined) return null;
   return member(rowText(row, key), SEASON_TYPES, key);
@@ -211,14 +221,47 @@ export function createPeriodMethods(client: DatabaseClient): PeriodMethods {
           snapshot.id AS snapshot_id, snapshot.league_season_id, snapshot.week,
           snapshot.model_version, snapshot.revision_key, snapshot.calculated_at::text,
           snapshot.payload, snapshot.activity_windows, current.published_at::text,
-          current.verified_at::text, (snapshot.id IS NOT NULL) AS is_current
+          current.verified_at::text, (snapshot.id IS NOT NULL) AS is_current,
+          future.next_refresh_at::text AS future_next_refresh_at,
+          future.last_succeeded_at::text AS future_last_succeeded_at,
+          future.active_attempt_expires_at::text AS future_attempt_expires_at,
+          future.last_projection_slate_content_id::text AS future_last_slate_content_id,
+          future.current_projection_slate_content_id::text AS future_current_slate_content_id,
+          future.last_snapshot_revision AS future_last_snapshot_revision
         FROM target
         LEFT JOIN leagues league ON league.league_key = target.league_key
         LEFT JOIN league_seasons season ON season.league_id = league.id
           AND season.season = target.default_season
         LEFT JOIN current_projection_snapshots current
           ON current.league_season_id = season.id AND current.week = target.target_week
-        LEFT JOIN projection_snapshots snapshot ON snapshot.id = current.snapshot_id`, [
+        LEFT JOIN projection_snapshots snapshot ON snapshot.id = current.snapshot_id
+        LEFT JOIN LATERAL (
+          SELECT material.next_refresh_at, material.last_succeeded_at,
+            material.active_attempt_expires_at,
+            material.last_projection_slate_content_id,
+            slate.projection_slate_content_id AS current_projection_slate_content_id,
+            material.last_snapshot_revision
+          FROM league_week_materialization_states material
+          LEFT JOIN current_projection_slates slate
+            ON slate.provider = material.projection_provider
+            AND slate.season = material.season
+            AND slate.season_type = material.season_type
+            AND slate.week = material.week
+            AND slate.normalizer_version = material.normalizer_version
+          WHERE material.league_key = target.league_key
+            AND material.season = target.default_season
+            AND material.season_type = target.default_season_type
+            AND material.week = target.target_week
+            AND material.model_version = snapshot.model_version
+          ORDER BY
+            (material.last_snapshot_revision = snapshot.revision_key
+              AND material.last_projection_slate_content_id
+                = slate.projection_slate_content_id) DESC,
+            material.last_succeeded_at DESC NULLS LAST,
+            material.projection_provider,
+            material.normalizer_version
+          LIMIT 1
+        ) future ON snapshot.id IS NOT NULL`, [
         requiredText(leagueKey, 'League key'), requestedWeek ?? null,
       ]);
       const row = rows[0];
@@ -227,6 +270,34 @@ export function createPeriodMethods(client: DatabaseClient): PeriodMethods {
         authority: authorityFromRow(row),
         snapshot: row.snapshot_id === null || row.snapshot_id === undefined
           ? null : snapshotFromRow(row),
+        futureRefresh: row.future_next_refresh_at === null
+          || row.future_next_refresh_at === undefined
+          ? null
+          : {
+              nextRefreshAt: timestamp(
+                rowText(row, 'future_next_refresh_at'),
+                'Future refresh time',
+              ),
+              lastSucceededAt: nullableTimestamp(
+                row,
+                'future_last_succeeded_at',
+                'Future refresh success time',
+              ),
+              activeAttemptExpiresAt: nullableTimestamp(
+                row,
+                'future_attempt_expires_at',
+                'Future refresh attempt expiration',
+              ),
+              lastProjectionSlateContentId: nullableText(
+                row,
+                'future_last_slate_content_id',
+              ),
+              currentProjectionSlateContentId: nullableText(
+                row,
+                'future_current_slate_content_id',
+              ),
+              lastSnapshotRevision: nullableText(row, 'future_last_snapshot_revision'),
+            },
       };
     },
   };

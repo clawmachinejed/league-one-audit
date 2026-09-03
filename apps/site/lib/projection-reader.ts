@@ -10,6 +10,7 @@ import {
   getProjectionStore,
   InvalidStoredProjectionSnapshotError,
   type ProjectionStore,
+  type StoredFutureMaterializationFreshness,
   type StoredLeaguePeriodAuthority,
   type StoredProjectionSnapshot,
 } from './projection-store';
@@ -78,6 +79,29 @@ function validSnapshot(
     && Number(snapshot.payload.league.season) === authority.defaultSeason;
 }
 
+function futureRefreshDue(
+  refresh: StoredFutureMaterializationFreshness | null,
+  snapshot: StoredProjectionSnapshot,
+  now: Date,
+): boolean {
+  if (!refresh || refresh.lastSucceededAt === null
+    || refresh.lastSnapshotRevision !== snapshot.revisionKey
+    || refresh.lastProjectionSlateContentId === null
+    || refresh.currentProjectionSlateContentId === null
+    || refresh.lastProjectionSlateContentId !== refresh.currentProjectionSlateContentId) {
+    return true;
+  }
+  const nowMs = now.getTime();
+  const nextRefreshMs = Date.parse(refresh.nextRefreshAt);
+  const lastSucceededMs = Date.parse(refresh.lastSucceededAt);
+  if (!Number.isFinite(nowMs) || !Number.isFinite(nextRefreshMs)
+    || !Number.isFinite(lastSucceededMs)) return true;
+  if (nextRefreshMs > nowMs) return false;
+  if (refresh.activeAttemptExpiresAt === null) return true;
+  const attemptExpiresMs = Date.parse(refresh.activeAttemptExpiresAt);
+  return !Number.isFinite(attemptExpiresMs) || attemptExpiresMs <= nowMs;
+}
+
 /**
  * Resolves the exact requested/default week by stable internal league key.
  * It never substitutes the numerically latest stored week.
@@ -99,7 +123,12 @@ export async function readStoredMatchups(
     if (!validSnapshot(stored.snapshot, stored.authority, targetWeek)) {
       return { kind: 'malformed', context };
     }
-    return selectStoredMatchups(stored.snapshot, context, options.now ?? new Date());
+    const now = options.now ?? new Date();
+    return selectStoredMatchups(stored.snapshot, context, now, {
+      ...(context.temporalState === 'future'
+        ? { futureRefreshDue: futureRefreshDue(stored.futureRefresh, stored.snapshot, now) }
+        : {}),
+    });
   } catch (error) {
     return error instanceof InvalidStoredProjectionSnapshotError
       ? { kind: 'malformed' }

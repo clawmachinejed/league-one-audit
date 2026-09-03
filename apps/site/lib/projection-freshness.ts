@@ -21,6 +21,10 @@ export type StoredMatchupsSelection = Readonly<{
   context: MatchupPeriodContext;
 }> | Readonly<{ kind: 'missing' }>;
 
+export type ProjectionFreshnessOptions = Readonly<{
+  futureRefreshDue?: boolean;
+}>;
+
 function time(value: string): number | null {
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) ? parsed : null;
@@ -79,9 +83,13 @@ export function selectStoredMatchups(
   snapshot: StoredProjectionSnapshot | null,
   context: MatchupPeriodContext,
   now = new Date(),
+  options: ProjectionFreshnessOptions = {},
 ): StoredMatchupsSelection {
   if (!snapshot || snapshot.payload.week !== snapshot.week) return { kind: 'missing' };
-  const due = refreshDue(snapshot, context, now);
+  const due = context.temporalState === 'future'
+    && options.futureRefreshDue !== undefined
+    ? options.futureRefreshDue
+    : refreshDue(snapshot, context, now);
   const resolvedContext = { ...context, refreshDue: due };
   if (context.temporalState === 'active' && due) {
     return { kind: 'stale', context: resolvedContext };

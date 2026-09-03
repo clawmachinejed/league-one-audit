@@ -284,9 +284,19 @@ export type PeriodAuthorityWriteOutcome =
   | Readonly<{ kind: 'conflict' }>
   | Readonly<{ kind: 'disabled' }>;
 
+export type StoredFutureMaterializationFreshness = Readonly<{
+  nextRefreshAt: string;
+  lastSucceededAt: string | null;
+  activeAttemptExpiresAt: string | null;
+  lastProjectionSlateContentId: string | null;
+  currentProjectionSlateContentId: string | null;
+  lastSnapshotRevision: string | null;
+}>;
+
 export type StoredMatchupSnapshotContext = Readonly<{
   authority: StoredLeaguePeriodAuthority;
   snapshot: StoredProjectionSnapshot | null;
+  futureRefresh: StoredFutureMaterializationFreshness | null;
 }>;
 
 export type StoreFutureRefreshPeriod = Readonly<{
