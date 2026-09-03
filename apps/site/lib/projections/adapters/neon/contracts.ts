@@ -1,4 +1,9 @@
 import type { MatchupsData } from '../../../types';
+import type { SnapshotFreshnessMetadata } from '../../../matchup-snapshot-metadata';
+import type { LineupWatchMethods } from './lineup-watch-contracts';
+import type { StoreLineupPublicationFence, StoreLineupMaterializationTarget, LineupAcknowledgmentMethods } from './lineup-publication-contracts';
+import type { StoredAuthorityLineupShape } from './period-shape';
+import type { PeriodCadenceTiming } from '../../domain/period-cadence-timing';
 import type {
   FutureRefreshFailureCode as CanonicalFutureRefreshFailureCode,
 } from '../../ports/future-refresh-repository';
@@ -206,6 +211,9 @@ export type LeagueWeekObservationInput = Readonly<{
   leagueSeasonId: string;
   week: number;
   sourceRevision: string;
+  /** Absent only for pre-watch callers during the additive deployment stage. */
+  lineupRevisionVersion?: string | null;
+  lineupRevision?: string | null;
   requestStartedAt: string;
   requestCompletedAt: string;
   observedAt: string;
@@ -275,9 +283,22 @@ export type LeaguePeriodAuthorityInput = Readonly<{
   sourceRevision: string;
   sourceObservedAt: string;
   verifiedAt: string;
+  /** Absent only during the additive backend rollout; watchers require complete shape. */
+  lineupShape?: StoredAuthorityLineupShape;
+  defaultPeriodCadence?: PeriodCadenceTiming;
 }>;
 
 export type StoredLeaguePeriodAuthority = LeaguePeriodAuthorityInput;
+
+export type StoredLeagueLineupAuthority = StoredLeaguePeriodAuthority & Readonly<{
+  lineupShape: StoredAuthorityLineupShape;
+  authorityGeneration: number;
+  defaultPeriodCadence: PeriodCadenceTiming;
+}>;
+
+export type StoredLeagueAuthorityRead =
+  | Readonly<{ kind: 'available'; leagueKey: string; authority: StoredLeagueLineupAuthority }>
+  | Readonly<{ kind: 'missing' | 'malformed'; leagueKey: string }>;
 
 export type PeriodAuthorityWriteOutcome =
   | Readonly<{ kind: 'stored' | 'verified' | 'ignored'; value: StoredLeaguePeriodAuthority }>
@@ -296,6 +317,17 @@ export type StoredFutureMaterializationFreshness = Readonly<{
 export type StoredMatchupSnapshotContext = Readonly<{
   authority: StoredLeaguePeriodAuthority;
   snapshot: StoredProjectionSnapshot | null;
+  futureRefresh: StoredFutureMaterializationFreshness | null;
+}>;
+
+export type StoredMatchupRevisionSnapshot = SnapshotFreshnessMetadata & Pick<
+  StoredProjectionSnapshot,
+  'snapshotId' | 'leagueSeasonId' | 'modelVersion' | 'revisionKey' | 'calculatedAt' | 'publishedAt' | 'isCurrent'
+>;
+
+export type StoredMatchupRevisionContext = Readonly<{
+  authority: StoredLeaguePeriodAuthority;
+  snapshot: StoredMatchupRevisionSnapshot | null;
   futureRefresh: StoredFutureMaterializationFreshness | null;
 }>;
 
@@ -392,6 +424,8 @@ export type PublishSnapshotInput = Readonly<{
   activityWindows: readonly ProjectionActivityWindow[];
   /** Maximum age difference among Sleeper and Tank01 observations. Defaults to 90 seconds. */
   maxSourceSkewSeconds?: number;
+  /** Required by SQL as soon as an active watch exists for this league and period. */
+  lineupFence?: StoreLineupPublicationFence;
 }>;
 
 export type PublishSnapshotOutcome =
@@ -413,11 +447,17 @@ export type HistoryRetentionResult = Readonly<{
   jobsDeleted: number;
 }>;
 
-export type ProjectionStore = Readonly<{
+export type ProjectionStore = LineupWatchMethods & LineupAcknowledgmentMethods & Readonly<{
   enabled: boolean;
   upsertLeaguePeriodAuthority: (
     input: LeaguePeriodAuthorityInput,
   ) => Promise<PeriodAuthorityWriteOutcome>;
+  readLeagueLineupAuthorities: (leagueKeys: readonly string[]) => Promise<readonly StoredLeagueAuthorityRead[]>;
+  readMatchupSnapshotRevisionByLeagueKey: (
+    leagueKey: string,
+    requestedWeek: number | undefined,
+    projectionIdentity: MatchupProjectionIdentity,
+  ) => Promise<StoredMatchupRevisionContext | null>;
   readMatchupSnapshotByLeagueKey: (
     leagueKey: string,
     requestedWeek: number | undefined,
@@ -499,6 +539,7 @@ export type ProjectionStore = Readonly<{
     attemptId: string;
     attemptedAt: string;
     leaseSeconds: number;
+    target?: StoreLineupMaterializationTarget;
   }>) => Promise<StoreFutureRefreshClaim>;
   completeFutureMaterializationRefresh: (input: Readonly<{
     leagueKey: string;

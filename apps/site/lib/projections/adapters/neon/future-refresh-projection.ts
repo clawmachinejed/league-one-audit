@@ -28,14 +28,14 @@ export function createProjectionFutureRefreshMethods(
     async beginFutureProjectionRefresh(input) {
       const period = futureRefreshPeriod(input.period);
       const rows = await client.query(`/* projection-store:begin-future-projection-refresh */
-        WITH expired AS (
+        WITH input_clock AS (SELECT $7::timestamptz AS requested_at), expired AS (
           UPDATE projection_period_refresh_states SET
             active_attempt_id = NULL,
             active_attempt_started_at = NULL,
             active_attempt_expires_at = NULL,
             consecutive_failures = consecutive_failures + 1,
             last_failure_code = 'deadline-exceeded',
-            next_refresh_at = $7::timestamptz + CASE
+            next_refresh_at = now() + CASE
               WHEN consecutive_failures = 0 THEN interval '5 minutes'
               WHEN consecutive_failures = 1 THEN interval '15 minutes'
               WHEN consecutive_failures = 2 THEN interval '1 hour'
@@ -45,22 +45,22 @@ export function createProjectionFutureRefreshMethods(
           WHERE projection_provider = $1 AND season = $2 AND season_type = $3
             AND week = $4 AND normalizer_version = $5
             AND active_attempt_id IS NOT NULL
-            AND active_attempt_expires_at <= $7::timestamptz
+            AND active_attempt_expires_at <= now()
           RETURNING consecutive_failures, next_refresh_at
         ), claimed AS (
           UPDATE projection_period_refresh_states SET
             attempt_count = attempt_count + 1,
             active_attempt_id = $6::uuid,
-            active_attempt_started_at = $7::timestamptz,
-            active_attempt_expires_at = $7::timestamptz + ($8::integer * interval '1 second'),
-            last_attempted_at = $7::timestamptz,
+            active_attempt_started_at = now(),
+            active_attempt_expires_at = now() + ($8::integer * interval '1 second'),
+            last_attempted_at = now(),
             updated_at = now()
           WHERE projection_provider = $1 AND season = $2 AND season_type = $3
             AND week = $4 AND normalizer_version = $5
             AND NOT EXISTS (SELECT 1 FROM expired)
-            AND next_refresh_at <= $7::timestamptz
+            AND next_refresh_at <= now()
             AND active_attempt_id IS NULL
-            AND (last_attempted_at IS NULL OR last_attempted_at <= $7::timestamptz)
+            AND (last_attempted_at IS NULL OR last_attempted_at <= now())
           RETURNING attempt_count, active_attempt_id, active_attempt_expires_at
         )
         SELECT 'acquired'::text AS result_kind,
@@ -131,8 +131,8 @@ export function createProjectionFutureRefreshMethods(
             AND refresh.season_type = $3 AND refresh.week = $4
             AND refresh.normalizer_version = $5
             AND refresh.active_attempt_id = $6::uuid
-            AND refresh.active_attempt_started_at <= $7::timestamptz
-            AND refresh.active_attempt_expires_at >= $7::timestamptz
+            AND refresh.active_attempt_started_at <= now()
+            AND refresh.active_attempt_expires_at > now()
             AND (refresh.last_succeeded_at IS NULL
               OR refresh.last_succeeded_at <= $7::timestamptz)
             AND slate.observed_at >= COALESCE(
@@ -179,7 +179,7 @@ export function createProjectionFutureRefreshMethods(
           active_attempt_expires_at = NULL,
           consecutive_failures = consecutive_failures + 1,
           last_failure_code = $8,
-          next_refresh_at = $7::timestamptz + CASE
+          next_refresh_at = now() + CASE
             WHEN consecutive_failures = 0 THEN interval '5 minutes'
             WHEN consecutive_failures = 1 THEN interval '15 minutes'
             WHEN consecutive_failures = 2 THEN interval '1 hour'
@@ -189,8 +189,9 @@ export function createProjectionFutureRefreshMethods(
         WHERE projection_provider = $1 AND season = $2 AND season_type = $3
           AND week = $4 AND normalizer_version = $5
           AND active_attempt_id = $6::uuid
-          AND active_attempt_started_at <= $7::timestamptz
-          AND active_attempt_expires_at >= $7::timestamptz
+          AND active_attempt_started_at <= now()
+          AND active_attempt_expires_at > now()
+          AND $7::timestamptz IS NOT NULL
         RETURNING consecutive_failures, next_refresh_at::text,
           0::integer AS materializations_woken`, [
         provider(input.projectionProvider),

@@ -126,17 +126,35 @@ describe('projection-store public behavior characterization', () => {
     });
   });
 
-  it('keeps all 40 store-owned SQL operations marked and unique across adapter modules', async () => {
+  it('keeps additive lineup and compact methods inert when Neon is disabled', async () => {
+    const store = createProjectionStore({ enabled: false, reason: 'missing-database-url' });
+    const poisoned = new Proxy({}, { get() { throw new Error('Disabled input was inspected'); } });
+    const operations = {
+      readLeagueLineupAuthorities: [], readMatchupSnapshotRevisionByLeagueKey: null,
+      synchronizeLineupWatchStates: { kind: 'disabled' }, claimDueLineupObservations: [],
+      completeLineupObservation: { kind: 'disabled' }, recordLineupObservationNotReady: { kind: 'disabled' },
+      failLineupObservation: { kind: 'disabled' }, supersedeLineupClaimWithFullObservation: { kind: 'disabled' },
+      readPendingCurrentLineups: [], readPendingFutureLineups: [], readLineupWatchStates: [],
+      wakeFutureProjectionAndMaterialization: { kind: 'disabled' },
+      acknowledgeCurrentLineup: { kind: 'disabled' }, completeFutureMaterializationAndAcknowledgeLineup: { kind: 'disabled' },
+    } as const;
+    for (const [name, result] of Object.entries(operations)) {
+      const method = store[name as keyof typeof operations] as (...args: unknown[]) => Promise<unknown>;
+      await expect(method(poisoned, poisoned, poisoned)).resolves.toEqual(result);
+    }
+  });
+
+  it('keeps all 51 store-owned SQL operations marked and unique across adapter modules', async () => {
     const extraction = await extractProjectionStoreSql();
 
     // A non-template or unmarked database call must fail this audit instead of escaping the baseline.
     expect(extraction.operations).toHaveLength(extraction.queryCallCount);
-    expect(extraction.operations).toHaveLength(40);
+    expect(extraction.operations).toHaveLength(51);
     expect(extraction.operations.every(({ markerCount }) => markerCount === 1)).toBe(true);
 
     const markers = extraction.operations.map(({ marker }) => marker);
     expect(markers.every((value): value is string => value !== null)).toBe(true);
-    expect(new Set(markers).size).toBe(40);
+    expect(new Set(markers).size).toBe(51);
     expect(markers.toSorted()).toEqual([...projectionStoreSqlMarkers]);
   });
 
@@ -248,6 +266,7 @@ describe('projection-store public behavior characterization', () => {
       90,
       2026,
       '[]',
+      null,
     ]);
     expect(call.statement).toContain('INSERT INTO projection_snapshots');
     expect(call.statement).toContain('INSERT INTO current_projection_snapshots');
@@ -367,7 +386,7 @@ describe('projection-store public behavior characterization', () => {
     ]);
   });
 
-  it('records a complete league observation with all 12 parameters in their stable order', async () => {
+  it('records a complete league observation with its original 12 parameters and additive lineage', async () => {
     const fake = createFakeProjectionDatabase(() => [{
       observation_id: 'league-observation-id',
       player_points_stored: '2',
@@ -433,6 +452,8 @@ describe('projection-store public behavior characterization', () => {
       '[{"external_roster_id":"roster-1","points":24.2}]',
       2,
       ['game-a', 'game-b'],
+      null,
+      null,
     ]);
   });
 

@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { snapshotFreshnessMetadata } from '../lib/projection-freshness';
 import {
   createProjectionStore,
   InvalidStoredProjectionSnapshotError,
@@ -29,6 +30,13 @@ function only<Value>(values: readonly Value[], label: string): Value {
 
 function time(minutes: number, seconds = 0): string {
   return new Date(Date.UTC(2026, 8, 3, 12, minutes, seconds)).toISOString();
+}
+
+/** Lease/due time belongs to PostgreSQL; advance disposable fixtures, never the caller clock. */
+async function makeFutureFixtureDue(table: 'projection_period_refresh_states' | 'league_week_materialization_states', normalizerVersion: string): Promise<void> {
+  await ownerQuery(`UPDATE ${table} SET next_refresh_at = now() - interval '1 second'
+    WHERE normalizer_version = $1 AND season = 2026 AND season_type = 'reg' AND week = 2`,
+  [normalizerVersion]);
 }
 
 function emptyPayload(week: number, updatedAt: string): SnapshotPayload {
@@ -131,6 +139,7 @@ describe.sequential('projection store against an isolated Neon database', () => 
         '004_durable_projection_slates.sql',
         '005_future_projection_refresh.sql',
         '006_flexed_kickoff_candidate_index.sql',
+        '007_lineup_freshness.sql',
       ],
     });
     const rows = await ownerQuery<{ name: string; checksum_length: number }>(`
@@ -144,6 +153,7 @@ describe.sequential('projection store against an isolated Neon database', () => 
       { name: '004_durable_projection_slates.sql', checksum_length: 64 },
       { name: '005_future_projection_refresh.sql', checksum_length: 64 },
       { name: '006_flexed_kickoff_candidate_index.sql', checksum_length: 64 },
+      { name: '007_lineup_freshness.sql', checksum_length: 64 },
     ]);
   });
 
@@ -256,6 +266,7 @@ describe.sequential('projection store against an isolated Neon database', () => 
     })).resolves.toMatchObject({ kind: 'stored' });
 
     const firstAttempt = randomUUID();
+    await makeFutureFixtureDue('projection_period_refresh_states', 'canonical-projection-slate-v1');
     await expect(store.beginFutureProjectionRefresh({
       projectionProvider: 'tank01',
       normalizerVersion: 'canonical-projection-slate-v1',
@@ -302,6 +313,7 @@ describe.sequential('projection store against an isolated Neon database', () => 
     });
 
     const failedAttempt = randomUUID();
+    await makeFutureFixtureDue('projection_period_refresh_states', 'canonical-projection-slate-v1');
     await expect(store.beginFutureProjectionRefresh({
       projectionProvider: 'tank01',
       normalizerVersion: 'canonical-projection-slate-v1',
@@ -320,6 +332,7 @@ describe.sequential('projection store against an isolated Neon database', () => 
     })).resolves.toMatchObject({ kind: 'updated', consecutiveFailures: 1 });
 
     const recoveredAttempt = randomUUID();
+    await makeFutureFixtureDue('projection_period_refresh_states', 'canonical-projection-slate-v1');
     await expect(store.beginFutureProjectionRefresh({
       projectionProvider: 'tank01',
       normalizerVersion: 'canonical-projection-slate-v1',
@@ -410,6 +423,7 @@ describe.sequential('projection store against an isolated Neon database', () => 
     })).resolves.toMatchObject({ kind: 'stored' });
 
     const projectionAttempt = randomUUID();
+    await makeFutureFixtureDue('projection_period_refresh_states', normalizerVersion);
     await expect(store.beginFutureProjectionRefresh({
       projectionProvider: 'tank01', normalizerVersion, period,
       attemptId: projectionAttempt, attemptedAt: at(1_000), leaseSeconds: 60,
@@ -456,6 +470,7 @@ describe.sequential('projection store against an isolated Neon database', () => 
     expect(firstPublished.kind).toBe('published');
     if (firstPublished.kind !== 'published') throw new Error('Proof snapshot was not published.');
     const firstAttempt = randomUUID();
+    await makeFutureFixtureDue('league_week_materialization_states', normalizerVersion);
     await expect(store.beginFutureMaterializationRefresh({
       leagueKey: 'integration-league', projectionProvider: 'tank01', normalizerVersion,
       modelVersion: 'clock-v1', period, attemptId: firstAttempt,
@@ -471,6 +486,7 @@ describe.sequential('projection store against an isolated Neon database', () => 
     })).resolves.toMatchObject({ kind: 'updated' });
 
     const secondAttempt = randomUUID();
+    await makeFutureFixtureDue('league_week_materialization_states', normalizerVersion);
     await expect(store.beginFutureMaterializationRefresh({
       leagueKey: 'integration-league', projectionProvider: 'tank01', normalizerVersion,
       modelVersion: 'clock-v1', period, attemptId: secondAttempt,
@@ -1567,6 +1583,27 @@ describe.sequential('projection store against an isolated Neon database', () => 
     });
     expect(Date.parse(selected?.futureRefresh?.nextRefreshAt ?? '')).toBe(Date.parse(time(52)));
 
+    let compactQueryCount = 0;
+    const compactStore = createProjectionStore({
+      enabled: true,
+      async query<Row extends Readonly<Record<string, unknown>>>(statement: string, parameters: readonly unknown[] = []) {
+        compactQueryCount += 1;
+        const rows = await primaryDatabase.database.query<Row>(statement, parameters);
+        for (const row of rows) expect(row).not.toHaveProperty('payload');
+        return rows;
+      },
+    });
+    const compact = await compactStore.readMatchupSnapshotRevisionByLeagueKey('integration-league', 4, {
+      projectionProvider: 'tank01', normalizerVersion: activeNormalizer, modelVersion: 'clock-v1',
+    });
+    expect(compactQueryCount).toBe(1);
+    expect(compact?.authority).toEqual(selected?.authority);
+    expect(compact?.futureRefresh).toEqual(selected?.futureRefresh);
+    if (!selected?.snapshot) throw new Error('Full snapshot fixture was absent.');
+    const { payload: fullPayload, ...fullEnvelope } = selected.snapshot;
+    expect(fullPayload.week).toBe(4);
+    expect(compact?.snapshot).toEqual({ ...fullEnvelope, ...snapshotFreshnessMetadata(selected.snapshot) });
+
     const incompatibleModel = await store.readMatchupSnapshotByLeagueKey(
       'integration-league',
       4,
@@ -1577,6 +1614,10 @@ describe.sequential('projection store against an isolated Neon database', () => 
       },
     );
     expect(incompatibleModel).toMatchObject({ snapshot: null, futureRefresh: null });
+    await expect(compactStore.readMatchupSnapshotRevisionByLeagueKey('integration-league', 4, {
+      projectionProvider: 'tank01', normalizerVersion: activeNormalizer, modelVersion: 'clock-v2',
+    })).resolves.toEqual(incompatibleModel);
+    expect(compactQueryCount).toBe(2);
   });
 
   it('rejects a structurally valid JSON row whose stored matchup payload is malformed', async () => {

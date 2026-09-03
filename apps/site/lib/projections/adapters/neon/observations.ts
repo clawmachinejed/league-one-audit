@@ -4,6 +4,7 @@ import type { DatabaseClient } from '../../../database';
 import type { ProjectionStore } from './contracts';
 import { json, normalizeIds, provider, requiredText, rowNumber, rowText } from './database-values';
 import { containsScheduledGame } from './snapshot-codec';
+import { observationLineupValues } from './lineup-publication-values';
 
 type ObservationMethods = Pick<ProjectionStore,
   | 'recordGameStates'
@@ -88,6 +89,7 @@ export function createObservationMethods(client: DatabaseClient): ObservationMet
     },
 
     async recordLeagueWeekObservation(input) {
+      const [lineupVersion, lineupRevision] = observationLineupValues(input.lineupRevisionVersion, input.lineupRevision);
       const expectedGameIds = normalizeIds(input.expectedTank01GameIds);
       if (containsScheduledGame(input.sourceData) && expectedGameIds.length === 0) {
         throw new Error('Scheduled games require expected Tank01 game identifiers.');
@@ -108,8 +110,9 @@ export function createObservationMethods(client: DatabaseClient): ObservationMet
         WITH inserted_observation AS (
           INSERT INTO league_week_observations (
             league_season_id, provider, week, source_revision, request_started_at,
-            request_completed_at, observed_at, quality, expected_game_count, source_data
-          ) VALUES ($1, 'sleeper', $2, $3, $4, $5, $6, $7, $11, $8::jsonb)
+            request_completed_at, observed_at, quality, expected_game_count, source_data,
+            lineup_revision_version, lineup_revision
+          ) VALUES ($1, 'sleeper', $2, $3, $4, $5, $6, $7, $11, $8::jsonb, $13, $14)
           ON CONFLICT (league_season_id, provider, source_revision) DO NOTHING
           RETURNING id
         ), observation AS (
@@ -118,7 +121,10 @@ export function createObservationMethods(client: DatabaseClient): ObservationMet
           SELECT id FROM league_week_observations
           WHERE league_season_id = $1 AND provider = 'sleeper' AND source_revision = $3
             AND week = $2 AND observed_at = $6::timestamptz AND quality = $7
+            AND request_started_at = $4::timestamptz AND request_completed_at = $5::timestamptz
             AND expected_game_count = $11 AND source_data = $8::jsonb
+            AND lineup_revision_version IS NOT DISTINCT FROM $13::text
+            AND lineup_revision IS NOT DISTINCT FROM $14::text
           LIMIT 1
         ), expected_input AS (
           SELECT unnest($12::text[]) AS external_game_id
@@ -206,7 +212,7 @@ export function createObservationMethods(client: DatabaseClient): ObservationMet
         requiredText(input.sourceRevision, 'Sleeper source revision'),
         input.requestStartedAt, input.requestCompletedAt, input.observedAt,
         input.quality, json(input.sourceData), json(playerPoints), json(rosterPoints),
-        expectedGameIds.length, expectedGameIds,
+        expectedGameIds.length, expectedGameIds, lineupVersion, lineupRevision,
       ]);
       const row = rows[0];
       if (!row) throw new Error('League-week observation did not return a row.');

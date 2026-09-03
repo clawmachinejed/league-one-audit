@@ -1,4 +1,5 @@
 import type { MatchupPeriodContext } from './matchup-period';
+import type { SnapshotFreshnessMetadata } from './matchup-snapshot-metadata';
 import type { StoredProjectionSnapshot } from './projection-store';
 import type { MatchupsData } from './types';
 
@@ -11,19 +12,36 @@ const easternDate = new Intl.DateTimeFormat('en-CA', {
   timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit',
 });
 
-export type StoredMatchupsSelection = Readonly<{
+export type ProjectionFreshnessOptions = Readonly<{
+  futureRefreshDue?: boolean;
+}>;
+
+export type SnapshotMetadataSelection = Readonly<{
   kind: 'usable';
-  payload: MatchupsData;
-  historical: boolean;
   context: MatchupPeriodContext;
 }> | Readonly<{
   kind: 'stale';
   context: MatchupPeriodContext;
 }> | Readonly<{ kind: 'missing' }>;
 
-export type ProjectionFreshnessOptions = Readonly<{
-  futureRefreshDue?: boolean;
-}>;
+export function snapshotFreshnessMetadata(snapshot: StoredProjectionSnapshot): SnapshotFreshnessMetadata {
+  const games = snapshot.payload.matchups.flatMap((matchup) => matchup.sides)
+    .flatMap((side) => side.starters).flatMap((player) => (
+      player.game?.kind === 'scheduled' ? [player.game] : []
+    ));
+  return {
+    week: snapshot.week,
+    payloadWeek: snapshot.payload.week,
+    payloadLeagueWeek: snapshot.payload.league.week,
+    payloadSeason: snapshot.payload.league.season,
+    payloadUpdatedAt: snapshot.payload.updatedAt,
+    verifiedAt: snapshot.verifiedAt,
+    activityWindows: snapshot.activityWindows,
+    matchupStatuses: snapshot.payload.matchups.map((matchup) => matchup.status),
+    scheduledKickoffs: [...new Set(games.flatMap((game) => game.kickoffAt ? [game.kickoffAt] : []))],
+    scheduledDatesWithoutKickoff: [...new Set(games.flatMap((game) => !game.kickoffAt ? [game.date] : []))],
+  };
+}
 
 function time(value: string): number | null {
   const parsed = Date.parse(value);
@@ -37,9 +55,8 @@ function easternCalendarDate(value: Date): string {
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
-function isActiveWindow(snapshot: StoredProjectionSnapshot, now: Date): boolean {
-  const { payload: data } = snapshot;
-  if (data.matchups.some((matchup) => matchup.status === 'live')) return true;
+function isActiveWindow(snapshot: SnapshotFreshnessMetadata, now: Date): boolean {
+  if (snapshot.matchupStatuses.some((status) => status === 'live')) return true;
   const nowMs = now.getTime();
   if (!Number.isFinite(nowMs)) return true;
   if (snapshot.activityWindows.some((window) => {
@@ -47,14 +64,9 @@ function isActiveWindow(snapshot: StoredProjectionSnapshot, now: Date): boolean 
     const endsAt = time(window.endsAt);
     return startsAt !== null && endsAt !== null && nowMs >= startsAt && nowMs <= endsAt;
   })) return true;
-  for (const player of data.matchups.flatMap((matchup) => matchup.sides)
-    .flatMap((side) => side.starters)) {
-    if (player.game?.kind !== 'scheduled') continue;
-    if (!player.game.kickoffAt) {
-      if (player.game.date === easternCalendarDate(now)) return true;
-      continue;
-    }
-    const kickoff = time(player.game.kickoffAt);
+  if (snapshot.scheduledDatesWithoutKickoff.includes(easternCalendarDate(now))) return true;
+  for (const value of snapshot.scheduledKickoffs) {
+    const kickoff = time(value);
     if (kickoff !== null && nowMs >= kickoff - TWO_HOURS_MS && nowMs <= kickoff + SEVEN_HOURS_MS) {
       return true;
     }
@@ -63,7 +75,7 @@ function isActiveWindow(snapshot: StoredProjectionSnapshot, now: Date): boolean 
 }
 
 function refreshDue(
-  snapshot: StoredProjectionSnapshot,
+  snapshot: SnapshotFreshnessMetadata,
   context: MatchupPeriodContext,
   now: Date,
 ): boolean {
@@ -79,30 +91,28 @@ function refreshDue(
 }
 
 /** Past is durable, active fails closed, and future remains last-known-good. */
-export function selectStoredMatchups(
-  snapshot: StoredProjectionSnapshot | null,
+export function selectSnapshotMetadata(
+  snapshot: SnapshotFreshnessMetadata | null,
   context: MatchupPeriodContext,
   now = new Date(),
   options: ProjectionFreshnessOptions = {},
-): StoredMatchupsSelection {
-  if (!snapshot || snapshot.payload.week !== snapshot.week) return { kind: 'missing' };
-  const due = context.temporalState === 'future'
-    && options.futureRefreshDue !== undefined
-    ? options.futureRefreshDue
-    : refreshDue(snapshot, context, now);
+): SnapshotMetadataSelection {
+  if (!snapshot || snapshot.payloadWeek !== snapshot.week) return { kind: 'missing' };
+  const due = context.temporalState === 'future' && options.futureRefreshDue !== undefined
+    ? options.futureRefreshDue : refreshDue(snapshot, context, now);
   const resolvedContext = { ...context, refreshDue: due };
-  if (context.temporalState === 'active' && due) {
-    return { kind: 'stale', context: resolvedContext };
-  }
+  return context.temporalState === 'active' && due
+    ? { kind: 'stale', context: resolvedContext }
+    : { kind: 'usable', context: resolvedContext };
+}
+
+export function snapshotPayloadAtVerification(
+  snapshot: StoredProjectionSnapshot,
+  context: MatchupPeriodContext,
+): MatchupsData {
   const verifiedAt = time(snapshot.verifiedAt) ?? 0;
   const payloadUpdatedAt = time(snapshot.payload.updatedAt) ?? 0;
-  const payload = context.temporalState === 'past' || verifiedAt <= payloadUpdatedAt
+  return context.temporalState === 'past' || verifiedAt <= payloadUpdatedAt
     ? snapshot.payload
     : { ...snapshot.payload, updatedAt: snapshot.verifiedAt };
-  return {
-    kind: 'usable',
-    historical: context.temporalState === 'past',
-    context: resolvedContext,
-    payload,
-  };
 }
