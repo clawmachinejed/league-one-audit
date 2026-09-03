@@ -16,6 +16,8 @@ export type ProjectionFailureCode =
   | 'league-source-unavailable'
   | 'projection-provider-unavailable'
   | 'provider-persistence-failed'
+  | 'period-authority-conflict'
+  | 'period-authority-unavailable'
   | 'unexpected-worker-failure';
 
 export type ProjectionLogEntry = Readonly<{

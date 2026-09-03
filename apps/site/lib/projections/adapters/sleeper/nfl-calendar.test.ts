@@ -15,7 +15,11 @@ function cadence(
   return {
     sleeperLeagueId: 'league-001',
     season: '2026',
+    defaultDisplayWeek: 1,
     week: 1,
+    activeScoringWeek: 1,
+    leagueLifecycle: 'active',
+    leagueStatus: 'in_season',
     schedule: {
       JAX: {
         kind: 'scheduled',
@@ -35,6 +39,9 @@ function cadence(
     currentNflSeason: '2026',
     currentNflWeek: 1,
     currentNflSeasonType: 'regular',
+    requestStartedAt: '2026-09-13T15:59:58.000Z',
+    requestCompletedAt: '2026-09-13T15:59:59.000Z',
+    verifiedAt: '2026-09-13T16:00:00.000Z',
     ...overrides,
   };
 }
@@ -51,6 +58,16 @@ describe('Sleeper NFL calendar adapter', () => {
     expect(result).toEqual({
       configuration,
       period: { season: 2026, seasonType: 'regular', week: 1 },
+      periodAuthority: expect.objectContaining({
+        configuration,
+        defaultDisplayPeriod: { season: 2026, seasonType: 'regular', week: 1 },
+        activeScoringPeriod: { season: 2026, seasonType: 'regular', week: 1 },
+        lifecycle: 'active',
+        nflPhase: 'regular',
+        source: 'official-source',
+        observedAt: '2026-09-13T15:59:59.000Z',
+        verifiedAt: '2026-09-13T16:00:00.000Z',
+      }),
       currentPeriod: { season: 2026, week: 1, seasonType: 'regular' },
       schedule: cadence().schedule,
     });
@@ -67,6 +84,24 @@ describe('Sleeper NFL calendar adapter', () => {
       season: null,
       week: null,
       seasonType: 'mystery-stage',
+    });
+  });
+
+  it('targets the active scoring week while preserving an advanced display-week default', async () => {
+    const activeSchedule = cadence().schedule;
+    const result = await createSleeperNflCalendar(async () => cadence({
+      defaultDisplayWeek: 2,
+      week: 1,
+      activeScoringWeek: 1,
+      currentNflWeek: 1,
+      schedule: activeSchedule,
+    })).getCadenceState(configuration);
+
+    expect(result.period).toEqual({ season: 2026, seasonType: 'regular', week: 1 });
+    expect(result.schedule).toEqual(activeSchedule);
+    expect(result.periodAuthority).toMatchObject({
+      defaultDisplayPeriod: { season: 2026, seasonType: 'regular', week: 2 },
+      activeScoringPeriod: { season: 2026, seasonType: 'regular', week: 1 },
     });
   });
 

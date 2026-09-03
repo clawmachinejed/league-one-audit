@@ -253,6 +253,37 @@ export type StoredProjectionSnapshotSelection = Readonly<{
   latest: StoredProjectionSnapshot | null;
 }>;
 
+export type LeagueLifecycle = 'preseason' | 'active' | 'complete';
+export type NflPhase = 'preseason' | 'regular' | 'postseason' | 'unknown';
+
+export type LeaguePeriodAuthorityInput = Readonly<{
+  leagueKey: string;
+  defaultSeason: number;
+  defaultSeasonType: SeasonType;
+  defaultWeek: number;
+  activeSeason: number | null;
+  activeSeasonType: SeasonType | null;
+  activeWeek: number | null;
+  leagueLifecycle: LeagueLifecycle;
+  nflPhase: NflPhase;
+  sourceProvider: string;
+  sourceRevision: string;
+  sourceObservedAt: string;
+  verifiedAt: string;
+}>;
+
+export type StoredLeaguePeriodAuthority = LeaguePeriodAuthorityInput;
+
+export type PeriodAuthorityWriteOutcome =
+  | Readonly<{ kind: 'stored' | 'verified' | 'ignored'; value: StoredLeaguePeriodAuthority }>
+  | Readonly<{ kind: 'conflict' }>
+  | Readonly<{ kind: 'disabled' }>;
+
+export type StoredMatchupSnapshotContext = Readonly<{
+  authority: StoredLeaguePeriodAuthority;
+  snapshot: StoredProjectionSnapshot | null;
+}>;
+
 export type PublishSnapshotInput = Readonly<{
   leagueSeasonId: string;
   week: number;
@@ -289,6 +320,13 @@ export type HistoryRetentionResult = Readonly<{
 
 export type ProjectionStore = Readonly<{
   enabled: boolean;
+  upsertLeaguePeriodAuthority: (
+    input: LeaguePeriodAuthorityInput,
+  ) => Promise<PeriodAuthorityWriteOutcome>;
+  readMatchupSnapshotByLeagueKey: (
+    leagueKey: string,
+    requestedWeek?: number,
+  ) => Promise<StoredMatchupSnapshotContext | null>;
   registerLeagueSeason: (input: Readonly<{
     leagueKey: string;
     leagueName: string;

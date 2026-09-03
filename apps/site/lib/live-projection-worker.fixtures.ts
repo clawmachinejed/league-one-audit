@@ -229,6 +229,17 @@ export function cadenceInput(
   return {
     configuration: configuration(leagueId),
     period: PERIOD,
+    periodAuthority: {
+      configuration: configuration(leagueId),
+      defaultDisplayPeriod: PERIOD,
+      activeScoringPeriod: PERIOD,
+      lifecycle: 'active',
+      nflPhase: 'regular',
+      source: OFFICIAL_PROVIDER,
+      sourceRevision: 'period-revision-1',
+      observedAt: '2026-09-13T16:00:00.000Z',
+      verifiedAt: '2026-09-13T16:00:00.000Z',
+    },
     currentPeriod: { season: 2026, week: 1, seasonType: 'regular' },
     schedule: weeklySchedule,
   };
@@ -523,6 +534,9 @@ export function fakeStore(freezeBaselines = true, enabled = true): FakeStore {
 
   const repository: ProjectionRepositoryPort = {
     enabled,
+    async upsertPeriodAuthority() {
+      return { kind: enabled ? 'stored' as const : 'disabled' as const };
+    },
     acquireJob: acquired,
     completeJob: completed,
     failJob: failed,

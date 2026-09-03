@@ -7,6 +7,7 @@ import { createDisabledProjectionStore } from './projections/adapters/neon/disab
 import { createIdentityMethods } from './projections/adapters/neon/identities';
 import { createJobMethods } from './projections/adapters/neon/jobs';
 import { createObservationMethods } from './projections/adapters/neon/observations';
+import { createPeriodMethods } from './projections/adapters/neon/periods';
 import { createProjectionMethods } from './projections/adapters/neon/projections';
 import { createProjectionSlateMethods } from './projections/adapters/neon/projection-slates';
 import { createRetentionMethods } from './projections/adapters/neon/retention';
@@ -18,12 +19,16 @@ export type {
   HistoryRetentionResult,
   JobClaim,
   LeagueSeasonReference,
+  LeagueLifecycle,
+  LeaguePeriodAuthorityInput,
   LeagueWeekObservationInput,
   NflGameIdentityInput,
   ObservationQuality,
+  NflPhase,
   OfficialPlayerPointInput,
   OfficialRosterPointInput,
   PersistenceOutcome,
+  PeriodAuthorityWriteOutcome,
   PlayerProjectionRecord,
   ProjectionActivityWindow,
   ProjectionCandidateInput,
@@ -42,6 +47,8 @@ export type {
   SeasonType,
   StoredGameState,
   StoredLeagueWeekObservation,
+  StoredLeaguePeriodAuthority,
+  StoredMatchupSnapshotContext,
   StoredProjectionRun,
   StoredProjectionSlate,
   StoredProjectionSlateObservation,
@@ -58,12 +65,15 @@ export function createProjectionStore(database: Database = getDatabase()): Proje
   const projections = createProjectionMethods(client);
   const projectionSlates = createProjectionSlateMethods(client);
   const observations = createObservationMethods(client);
+  const periods = createPeriodMethods(client);
   const jobs = createJobMethods(client);
   const snapshots = createSnapshotMethods(client);
   const retention = createRetentionMethods(client);
 
   return {
     enabled: true,
+    upsertLeaguePeriodAuthority: periods.upsertLeaguePeriodAuthority,
+    readMatchupSnapshotByLeagueKey: periods.readMatchupSnapshotByLeagueKey,
     registerLeagueSeason: identities.registerLeagueSeason,
     upsertScoringEntities: identities.upsertScoringEntities,
     upsertNflGames: identities.upsertNflGames,

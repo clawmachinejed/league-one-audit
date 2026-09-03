@@ -27,6 +27,7 @@ import { PROJECTION_SLATE_NORMALIZER_VERSION } from './projection-slates';
 
 type RepositoryStore = Pick<ProjectionStore,
   | 'enabled'
+  | 'upsertLeaguePeriodAuthority'
   | 'registerLeagueSeason'
   | 'recordProjectionSlate'
   | 'readCurrentProjectionSlate'
@@ -130,6 +131,7 @@ function canonicalSnapshot(
 function createDisabledRepository(): ProjectionRepositoryPort {
   return {
     enabled: false,
+    async upsertPeriodAuthority() { return { kind: 'disabled' }; },
     async registerLeagueSeason() { return { kind: 'disabled' }; },
     async recordProjectionSlate() { return { kind: 'disabled' }; },
     async readCurrentProjectionSlate() { return null; },
@@ -179,6 +181,27 @@ export function createNeonProjectionRepository(
   const { officialProvider, projectionProvider, gameStateProvider } = options;
   return {
     enabled: true,
+
+    async upsertPeriodAuthority(authority) {
+      assertProvider({ provider: authority.source }, officialProvider, 'Period authority source');
+      const result = await store.upsertLeaguePeriodAuthority({
+        leagueKey: authority.configuration.key,
+        defaultSeason: authority.defaultDisplayPeriod.season,
+        defaultSeasonType: storeSeasonType(authority.defaultDisplayPeriod.seasonType),
+        defaultWeek: authority.defaultDisplayPeriod.week,
+        activeSeason: authority.activeScoringPeriod?.season ?? null,
+        activeSeasonType: authority.activeScoringPeriod
+          ? storeSeasonType(authority.activeScoringPeriod.seasonType) : null,
+        activeWeek: authority.activeScoringPeriod?.week ?? null,
+        leagueLifecycle: authority.lifecycle,
+        nflPhase: authority.nflPhase,
+        sourceProvider: String(authority.source),
+        sourceRevision: authority.sourceRevision,
+        sourceObservedAt: authority.observedAt,
+        verifiedAt: authority.verifiedAt,
+      });
+      return { kind: result.kind };
+    },
 
     async registerLeagueSeason(input) {
       assertProvider(input.configuration.leagueRef, officialProvider, 'League reference');

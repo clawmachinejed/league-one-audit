@@ -101,6 +101,17 @@ const lowLevelBaseline: PlayerProjectionRecord = {
 function createStore(overrides: Partial<RepositoryStore> = {}): RepositoryStore {
   return {
     enabled: true,
+    upsertLeaguePeriodAuthority: vi.fn(async () => ({
+      kind: 'stored' as const,
+      value: {
+        leagueKey: 'premier', defaultSeason: 2026, defaultSeasonType: 'reg' as const,
+        defaultWeek: 1, activeSeason: 2026, activeSeasonType: 'reg' as const,
+        activeWeek: 1, leagueLifecycle: 'active' as const, nflPhase: 'regular' as const,
+        sourceProvider: 'official-source', sourceRevision: 'period-revision',
+        sourceObservedAt: '2026-09-13T16:00:00.000Z',
+        verifiedAt: '2026-09-13T16:00:00.000Z',
+      },
+    })),
     registerLeagueSeason: vi.fn(async () => ({
       kind: 'stored' as const,
       value: {

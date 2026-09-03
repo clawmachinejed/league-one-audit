@@ -105,6 +105,7 @@ export async function runWithDependencies(
       input: LeagueCadenceState;
       cadence: Cadence;
     }> | null = null;
+    const periodAuthorities: LeagueCadenceState['periodAuthority'][] = [];
 
     for (const configuration of configurations) {
       try {
@@ -117,16 +118,16 @@ export async function runWithDependencies(
           });
           continue;
         }
+        periodAuthorities.push(candidate.periodAuthority);
         const candidateCadence = workerCadence(
           candidate.schedule,
           now,
           options.force === true,
           allowsHourlyFallback(candidate, now),
         );
-        if (isCurrentNflPeriod(candidate)) {
+        if (!cadenceInput && isCurrentNflPeriod(candidate)) {
           cadenceInput = candidate;
           preflightCadence = candidateCadence;
-          break;
         }
         staleFallback ??= { input: candidate, cadence: candidateCadence };
       } catch {
@@ -145,6 +146,26 @@ export async function runWithDependencies(
     if (!cadenceInput || !preflightCadence) {
       throw new Error('No projection cadence source could be loaded.');
     }
+    await mapWithConcurrency(periodAuthorities, LEAGUE_LOAD_CONCURRENCY, async (authority) => {
+      try {
+        const outcome = await dependencies.repository.upsertPeriodAuthority(authority);
+        if (outcome.kind === 'conflict') {
+          log(dependencies, 'warn', {
+            stage: 'period-authority', outcome: 'failed', runId,
+            leagueKey: authority.configuration.key,
+            period: authority.defaultDisplayPeriod,
+            failureCode: 'period-authority-conflict',
+          });
+        }
+      } catch {
+        log(dependencies, 'warn', {
+          stage: 'period-authority', outcome: 'failed', runId,
+          leagueKey: authority.configuration.key,
+          period: authority.defaultDisplayPeriod,
+          failureCode: 'period-authority-unavailable',
+        });
+      }
+    });
     if (preflightCadence === 'idle') {
       log(dependencies, 'info', {
         stage: 'preflight', outcome: 'skipped', runId,

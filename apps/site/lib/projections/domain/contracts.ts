@@ -147,6 +147,7 @@ export type LeagueWeekState = Readonly<{
 export type LeagueCadenceState = Readonly<{
   configuration: LeagueConfiguration;
   period: LeaguePeriod;
+  periodAuthority: LeaguePeriodAuthority;
   currentPeriod: Readonly<{
     season: number | null;
     week: number | null;
@@ -154,6 +155,27 @@ export type LeagueCadenceState = Readonly<{
     seasonType: string | null;
   }>;
   schedule: NflWeekSchedule;
+}>;
+
+export type LeagueLifecycle = 'preseason' | 'active' | 'complete';
+export type NflPhase = 'preseason' | 'regular' | 'postseason' | 'unknown';
+export type MatchupTemporalState = 'past' | 'active' | 'future';
+
+/**
+ * Provider-neutral authority for matchup navigation and freshness. The default
+ * display period may advance before the active scoring period does, so the two
+ * periods must never be inferred from one another.
+ */
+export type LeaguePeriodAuthority = Readonly<{
+  configuration: LeagueConfiguration;
+  defaultDisplayPeriod: LeaguePeriod;
+  activeScoringPeriod: LeaguePeriod | null;
+  lifecycle: LeagueLifecycle;
+  nflPhase: NflPhase;
+  source: ProviderKey;
+  sourceRevision: string;
+  observedAt: string;
+  verifiedAt: string;
 }>;
 
 export type OffenseProjectionStats = Readonly<{

@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('server-only', () => ({}));
 
 const mocks = vi.hoisted(() => ({
-  getCurrentLeagueWeek: vi.fn(),
+  getCurrentMatchupPeriodContext: vi.fn(),
   getOfficialMatchups: vi.fn(),
   getOverview: vi.fn(),
   readStoredMatchups: vi.fn(),
@@ -14,7 +14,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('next/navigation', () => ({ notFound: vi.fn() }));
 vi.mock('@/lib/projection-reader', () => ({ readStoredMatchups: mocks.readStoredMatchups }));
 vi.mock('@/lib/sleeper', () => ({
-  getCurrentLeagueWeek: mocks.getCurrentLeagueWeek,
+  getCurrentMatchupPeriodContext: mocks.getCurrentMatchupPeriodContext,
   getOfficialMatchups: mocks.getOfficialMatchups,
   getOverview: mocks.getOverview,
   getManager: vi.fn(),
@@ -42,53 +42,55 @@ function matchups(week: number): MatchupsData {
 describe('LeagueMatchupsPage', () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    mocks.getCurrentMatchupPeriodContext.mockResolvedValue({
+      defaultSeason: 2026, defaultWeek: 2, activeSeason: 2026, activeWeek: 2,
+      lifecycle: 'active', nflPhase: 'regular', temporalState: 'active', refreshDue: false,
+    });
   });
 
   it('does not serve the prior stored week after Sleeper advances the default week', async () => {
     const current = matchups(2);
-    mocks.getCurrentLeagueWeek.mockResolvedValue(2);
     mocks.getOfficialMatchups.mockResolvedValue(current);
     mocks.readStoredMatchups.mockResolvedValue({ kind: 'missing' });
 
     const rendered = await LeagueMatchupsPage({
-      leagueId: 'league-id',
+      leagueKey: 'league1', leagueId: 'league-id',
       searchParams: Promise.resolve({}),
     }) as ReactElement<{ data: MatchupsData }>;
 
-    expect(mocks.getCurrentLeagueWeek).toHaveBeenCalledWith('league-id');
+    expect(mocks.getCurrentMatchupPeriodContext).toHaveBeenCalledWith('league-id', undefined);
     expect(mocks.getOverview).not.toHaveBeenCalled();
     expect(mocks.readStoredMatchups).toHaveBeenCalledOnce();
-    expect(mocks.readStoredMatchups).toHaveBeenCalledWith('league-id', 2);
+    expect(mocks.readStoredMatchups).toHaveBeenCalledWith('league1', undefined);
     expect(mocks.getOfficialMatchups).toHaveBeenCalledWith('league-id', 2);
     expect(rendered.props.data).toBe(current);
   });
 
   it('serves a fresh latest snapshot when the lightweight Sleeper calendar is unavailable', async () => {
     const latest = matchups(1);
-    mocks.getCurrentLeagueWeek.mockRejectedValue(new Error('calendar unavailable'));
     mocks.readStoredMatchups.mockResolvedValue({
       kind: 'usable', historical: false, payload: latest,
     });
 
     const rendered = await LeagueMatchupsPage({
-      leagueId: 'league-id',
+      leagueKey: 'league1', leagueId: 'league-id',
       searchParams: Promise.resolve({}),
     }) as ReactElement<{ data: MatchupsData }>;
 
     expect(mocks.readStoredMatchups).toHaveBeenCalledOnce();
-    expect(mocks.readStoredMatchups).toHaveBeenCalledWith('league-id', undefined);
+    expect(mocks.readStoredMatchups).toHaveBeenCalledWith('league1', undefined);
     expect(mocks.getOfficialMatchups).not.toHaveBeenCalled();
     expect(rendered.props.data).toBe(latest);
   });
 
   it('falls back to full Sleeper data when the calendar and latest stored snapshot are unusable', async () => {
     const current = matchups(2);
-    mocks.getCurrentLeagueWeek.mockRejectedValue(new Error('calendar unavailable'));
+    mocks.getCurrentMatchupPeriodContext.mockRejectedValue(new Error('calendar unavailable'));
     mocks.readStoredMatchups.mockResolvedValue({ kind: 'stale' });
     mocks.getOfficialMatchups.mockResolvedValue(current);
 
     const rendered = await LeagueMatchupsPage({
-      leagueId: 'league-id',
+      leagueKey: 'league1', leagueId: 'league-id',
       searchParams: Promise.resolve({}),
     }) as ReactElement<{ data: MatchupsData }>;
 
@@ -100,16 +102,15 @@ describe('LeagueMatchupsPage', () => {
     'safely falls back to official data when the stored snapshot reader reports %s',
     async (kind) => {
       const current = matchups(2);
-      mocks.getCurrentLeagueWeek.mockResolvedValue(2);
       mocks.readStoredMatchups.mockResolvedValue({ kind });
       mocks.getOfficialMatchups.mockResolvedValue(current);
 
       const rendered = await LeagueMatchupsPage({
-        leagueId: 'league-id',
+        leagueKey: 'league1', leagueId: 'league-id',
         searchParams: Promise.resolve({}),
       }) as ReactElement<{ data: MatchupsData }>;
 
-      expect(mocks.readStoredMatchups).toHaveBeenCalledWith('league-id', 2);
+      expect(mocks.readStoredMatchups).toHaveBeenCalledWith('league1', undefined);
       expect(mocks.getOfficialMatchups).toHaveBeenCalledOnce();
       expect(mocks.getOfficialMatchups).toHaveBeenCalledWith('league-id', 2);
       expect(rendered.props.data).toBe(current);
@@ -124,13 +125,13 @@ describe('LeagueMatchupsPage', () => {
       mocks.getOfficialMatchups.mockResolvedValue(requested);
 
       const rendered = await LeagueMatchupsPage({
-        leagueId: 'league-id',
+        leagueKey: 'league1', leagueId: 'league-id',
         searchParams: Promise.resolve({ week: '1' }),
       }) as ReactElement<{ data: MatchupsData }>;
 
-      expect(mocks.getCurrentLeagueWeek).not.toHaveBeenCalled();
+      expect(mocks.getCurrentMatchupPeriodContext).toHaveBeenCalledWith('league-id', 1);
       expect(mocks.readStoredMatchups).toHaveBeenCalledOnce();
-      expect(mocks.readStoredMatchups).toHaveBeenCalledWith('league-id', 1);
+      expect(mocks.readStoredMatchups).toHaveBeenCalledWith('league1', 1);
       expect(mocks.getOfficialMatchups).toHaveBeenCalledOnce();
       expect(mocks.getOfficialMatchups).toHaveBeenCalledWith('league-id', 1);
       expect(rendered.props.data).toBe(requested);
@@ -141,18 +142,21 @@ describe('LeagueMatchupsPage', () => {
     'treats invalid week %s as the current week without passing it to storage',
     async (week) => {
       const current = matchups(2);
-      mocks.getCurrentLeagueWeek.mockResolvedValue(2);
       mocks.readStoredMatchups.mockResolvedValue({
         kind: 'usable', historical: false, payload: current,
+        context: {
+          defaultSeason: 2026, defaultWeek: 2, activeSeason: 2026, activeWeek: 2,
+          lifecycle: 'active', nflPhase: 'regular', temporalState: 'active', refreshDue: false,
+        },
       });
 
       const rendered = await LeagueMatchupsPage({
-        leagueId: 'league-id',
+        leagueKey: 'league1', leagueId: 'league-id',
         searchParams: Promise.resolve({ week }),
       }) as ReactElement<{ data: MatchupsData }>;
 
-      expect(mocks.getCurrentLeagueWeek).toHaveBeenCalledWith('league-id');
-      expect(mocks.readStoredMatchups).toHaveBeenCalledWith('league-id', 2);
+      expect(mocks.getCurrentMatchupPeriodContext).not.toHaveBeenCalled();
+      expect(mocks.readStoredMatchups).toHaveBeenCalledWith('league1', undefined);
       expect(mocks.getOfficialMatchups).not.toHaveBeenCalled();
       expect(rendered.props.data).toBe(current);
     },
@@ -165,13 +169,13 @@ describe('LeagueMatchupsPage', () => {
     });
 
     const rendered = await LeagueMatchupsPage({
-      leagueId: 'league-id',
+      leagueKey: 'league1', leagueId: 'league-id',
       searchParams: Promise.resolve({ week: '1' }),
     }) as ReactElement<{ data: MatchupsData }>;
 
-    expect(mocks.getCurrentLeagueWeek).not.toHaveBeenCalled();
+    expect(mocks.getCurrentMatchupPeriodContext).not.toHaveBeenCalled();
     expect(mocks.readStoredMatchups).toHaveBeenCalledOnce();
-    expect(mocks.readStoredMatchups).toHaveBeenCalledWith('league-id', 1);
+    expect(mocks.readStoredMatchups).toHaveBeenCalledWith('league1', 1);
     expect(mocks.getOfficialMatchups).not.toHaveBeenCalled();
     expect(rendered.props.data).toBe(requested);
   });

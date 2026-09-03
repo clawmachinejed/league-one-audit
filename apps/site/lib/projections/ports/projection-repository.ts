@@ -9,6 +9,7 @@ import type { NflGameId, ScoringEntityId } from './identity-crosswalk';
 import type {
   GameStateObservation,
   LeagueConfiguration,
+  LeaguePeriodAuthority,
   LeaguePeriod,
   NflTeam,
   ProjectionStats,
@@ -33,6 +34,10 @@ export type ProjectionSlateObservationId = RepositoryId<'projection-slate-observ
 export type RepositoryOutcome<Value> =
   | Readonly<{ kind: 'stored'; value: Value }>
   | Readonly<{ kind: 'disabled' }>;
+
+export type PeriodAuthorityOutcome =
+  | Readonly<{ kind: 'stored' | 'verified' | 'ignored' }>
+  | Readonly<{ kind: 'conflict' | 'disabled' }>;
 
 export type LeagueSeasonReference = Readonly<{
   leagueSeasonId: LeagueSeasonId;
@@ -207,6 +212,9 @@ export type HistoryRetentionResult = Readonly<{
 
 export type ProjectionRepositoryPort = Readonly<{
   enabled: boolean;
+  upsertPeriodAuthority: (
+    authority: LeaguePeriodAuthority,
+  ) => Promise<PeriodAuthorityOutcome>;
   registerLeagueSeason: (input: Readonly<{
     configuration: LeagueConfiguration;
     leagueName: string;

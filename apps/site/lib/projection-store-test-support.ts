@@ -203,6 +203,7 @@ export const projectionStoreSqlMarkers = [
   'read-job-state',
   'read-latest-candidates',
   'read-league-season-profile',
+  'read-matchup-snapshot-by-league-key',
   'read-snapshot-selection-by-sleeper-id',
   'record-game-states',
   'record-league-week-observation',
@@ -211,6 +212,7 @@ export const projectionStoreSqlMarkers = [
   'register-league-season',
   'resolve-nfl-games',
   'resolve-scoring-entities',
+  'upsert-league-period-authority',
   'upsert-nfl-games',
   'upsert-scoring-entities',
 ] as const;

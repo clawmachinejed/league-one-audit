@@ -6,6 +6,12 @@ import type { ProjectionStore } from './contracts';
 export function createDisabledProjectionStore(): ProjectionStore {
   return {
     enabled: false,
+    async upsertLeaguePeriodAuthority() {
+      return { kind: 'disabled' };
+    },
+    async readMatchupSnapshotByLeagueKey() {
+      return null;
+    },
     async registerLeagueSeason() {
       return { kind: 'disabled' };
     },

@@ -184,6 +184,17 @@ function scaleCadence(configuration: LeagueConfiguration): LeagueCadenceState {
   return {
     configuration,
     period: PERIOD,
+    periodAuthority: {
+      configuration,
+      defaultDisplayPeriod: PERIOD,
+      activeScoringPeriod: PERIOD,
+      lifecycle: 'active',
+      nflPhase: 'regular',
+      source: configuration.leagueRef.provider,
+      sourceRevision: `period-${configuration.key}`,
+      observedAt: NOW.toISOString(),
+      verifiedAt: NOW.toISOString(),
+    },
     currentPeriod: { season: PERIOD.season, week: PERIOD.week, seasonType: PERIOD.seasonType },
     schedule: fullWeekSchedule(),
   };
@@ -564,7 +575,9 @@ describe.each(SCALE_POINTS)('canonical worker scale readiness: %i leagues', (lea
     ))).toBe(true);
 
     const { meter } = first.metrics;
-    expect(meter.count('calendar.getCadenceState')).toBe(1);
+    // Each league owns an independently persisted default-display lifecycle.
+    // The shared NFL-state request remains cached inside the Sleeper boundary.
+    expect(meter.count('calendar.getCadenceState')).toBe(leagueCount);
     expect(meter.count('leagueSource.getLeagueWeek')).toBe(leagueCount);
     // This port-level harness observes one shared projection slate and one shared
     // game slate. Tank adapter tests independently lock cold-cache HTTP calls at
