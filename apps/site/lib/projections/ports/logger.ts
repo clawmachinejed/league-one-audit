@@ -43,9 +43,14 @@ export type ProjectionLogEntry = Readonly<{
   skipped?: number;
   failed?: number;
   providerAdapterInvocations?: number;
-  upstreamRequests?: number;
-  cacheHits?: number;
-  cacheMisses?: number;
+  upstreamRequests?: number | null;
+  cacheHits?: number | null;
+  cacheMisses?: number | null;
+  fetchInvocations?: number;
+  requestMetric?: 'adapter' | 'cache' | 'http';
+  provider?: string;
+  endpointFamily?: string;
+  cacheStatus?: 'hit' | 'miss' | 'bypass' | 'framework-managed';
   authorityAgeMs?: number;
   backlogAgeMs?: number;
   capacityStatus?: 'supported' | 'capacity-exceeded';
@@ -61,7 +66,7 @@ export type ProjectionLogEntry = Readonly<{
   stageDurationMs?: number;
   totalDurationMs?: number;
   providerDurationMs?: number;
-  providerOutcome?: 'available' | 'unavailable' | 'invalid';
+  providerOutcome?: 'available' | 'unavailable' | 'invalid' | 'not-ready';
   projectionRows?: number;
   matchedProjectionRows?: number;
   gameCount?: number;

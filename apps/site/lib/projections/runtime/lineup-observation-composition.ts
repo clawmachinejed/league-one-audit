@@ -4,6 +4,7 @@ import { getDatabase, withDatabaseAbortSignal } from '../../database';
 import { ACTIVE_PROJECTION_SOURCE } from '../../projection-source-config';
 import { createProjectionStore, getProjectionStore } from '../../projection-store';
 import { getRawLineupMatchups } from '../../sleeper';
+import { observeProviderAdapter } from '../../provider-request-telemetry';
 import { createNeonJobRepository } from '../adapters/neon/job-repository';
 import { createNeonLineupRepository } from '../adapters/neon/lineup-repository';
 import { createNeonPeriodAuthorityReader } from '../adapters/neon/period-authority-reader';
@@ -14,6 +15,7 @@ import { createProductionSharedServices } from './shared-services';
 /** The observation cron has no path to projection providers, scoring, or snapshot publication. */
 export function createProductionLineupObservationDependencies(): LineupObservationWorkerDependencies {
   const shared = createProductionSharedServices('lineup-observation-sync');
+  const source = createSleeperLineupSource(getRawLineupMatchups, shared.clock.now);
   const options = {
     projectionSource: ACTIVE_PROJECTION_SOURCE.provider,
     normalizerVersion: ACTIVE_PROJECTION_SOURCE.normalizerVersion,
@@ -29,7 +31,8 @@ export function createProductionLineupObservationDependencies(): LineupObservati
   return {
     ...shared,
     ...persistence(getProjectionStore()),
-    lineupSource: createSleeperLineupSource(getRawLineupMatchups, shared.clock.now),
+    lineupSource: { getLineup: (...args) => observeProviderAdapter(shared.logger, 'sleeper', 'lineup',
+      () => source.getLineup(...args), (result) => result.status === 'complete' ? 'available' : result.status) },
     persistence: {
       scope: (signal) => persistence(createProjectionStore(withDatabaseAbortSignal(getDatabase(), signal))),
     },

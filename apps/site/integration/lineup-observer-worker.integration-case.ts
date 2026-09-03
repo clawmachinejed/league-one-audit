@@ -62,7 +62,7 @@ describe.sequential('isolated observer worker through canonical Neon adapters', 
     expect(authorityResults[0].kind).toBe('present');
     expect((await synchronizeLineupWatches(persisted.lineupRepository, [configuration], authorityResults, clock.now())).kind).toBe('stored');
     // The future bucket may legitimately be up to two minutes away. Make this unique fixture due now.
-    await ownerQuery(`UPDATE league_week_lineup_watch_states SET next_check_at = now() - interval '1 second'
+    await ownerQuery(`UPDATE league_week_lineup_watch_states SET next_check_at = now() - interval '4 minutes'
       WHERE league_key = $1 AND week = 2`, [leagueKey]);
     await resetCompletedMinuteFixture();
     const readJson = vi.fn(async () => [
@@ -90,7 +90,7 @@ describe.sequential('isolated observer worker through canonical Neon adapters', 
     expect(markers).toEqual(expect.arrayContaining(['acquire-job', 'claim-due-lineup-observations', 'accept-lineup-observation',
       'wake-future-projection-and-materialization', 'complete-job']));
     expect(markers.some((marker) => /publish-snapshot|record-projection|record-league-week|freeze-baseline/u.test(marker))).toBe(false);
-    await ownerQuery(`UPDATE league_week_lineup_watch_states SET next_check_at = now() - interval '1 second' WHERE id = $1`, [first.watchId]);
+    await ownerQuery(`UPDATE league_week_lineup_watch_states SET next_check_at = now() - interval '4 minutes' WHERE id = $1`, [first.watchId]);
     await ownerQuery(`UPDATE league_week_materialization_states SET next_refresh_at = now() + interval '1 hour' WHERE league_key = $1`, [leagueKey]);
     await resetCompletedMinuteFixture();
     markers.length = 0;

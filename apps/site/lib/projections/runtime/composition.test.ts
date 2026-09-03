@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const calls = vi.hoisted(() => ({ query: vi.fn<(...parameters: unknown[]) => Promise<never[]>>(async () => []) }));
+const calls = vi.hoisted(() => ({ query: vi.fn<(...parameters: unknown[]) => Promise<never[]>>(async () => []),
+  cacheFactory: vi.fn((...args: unknown[]) => args[0]) }));
 vi.mock('server-only', () => ({}));
-vi.mock('next/cache', () => ({ unstable_cache: (callback: unknown) => callback }));
+vi.mock('next/cache', () => ({ unstable_cache: calls.cacheFactory }));
 vi.mock('../../database', async (original) => ({
   ...await original<typeof import('../../database')>(),
   getDatabase: () => ({ enabled: true, query: calls.query }),
@@ -46,8 +47,11 @@ describe('production worker capability composition', () => {
   it('shares one cached projection feed while isolating current-only and future-only capabilities', () => {
     const current = createProductionProjectionDependencies();
     const future = createProductionFutureProjectionDependencies();
-    expect(current.projectionFeed).toBe(future.projectionFeed);
-    expect(current.projectionFeed).toBe(createProductionProjectionDependencies().projectionFeed);
+    // Per-lane telemetry wrappers delegate to the same cached feed and assessment implementation.
+    expect(current.projectionFeed.assessProjectionSlate).toBe(future.projectionFeed.assessProjectionSlate);
+    expect(current.projectionFeed.assessProjectionSlate).toBe(createProductionProjectionDependencies().projectionFeed.assessProjectionSlate);
+    expect(calls.cacheFactory.mock.calls.filter(([, keyParts]) => Array.isArray(keyParts)
+      && String(keyParts[0]).startsWith('tank01-normalized-'))).toHaveLength(2);
     expect(current).toHaveProperty('nflCalendar');
     expect(current).toHaveProperty('lineupSource');
     expect(current).toHaveProperty('persistence');

@@ -116,6 +116,19 @@ describe('independent future action policy', () => {
     expect(selectFutureWork([value],NOW)).toMatchObject({kind:'materialize',defaultPeriod:true,cadence:'hourly'});
     expect(value.leagues[0].watch.watchClass).toBe('current');
   });
+  it('defers routine work crossing the hourly allowance without delaying a pending default lineup', () => {
+    const due = plan(1, { defaultPeriod: true });
+    const ingested = { ...due, state: { ...due.state, projection: { ...due.state.projection, due: false } } };
+    expect(selectFutureWork([due], new Date('2026-09-03T12:04:00Z'))?.kind).toBe('projection-ingest');
+    expect(selectFutureWork([ingested], new Date('2026-09-03T12:05:00Z'))).toBeNull();
+    expect(selectFutureWork([due], new Date('2026-09-03T13:00:00Z'))?.kind).toBe('projection-ingest');
+    expect(selectFutureWork([ingested], new Date('2026-09-03T13:01:00Z'))?.kind).toBe('materialize');
+    const changed = { ...ingested, leagues: ingested.leagues.map((league) => ({ ...league,
+      watch: { ...league.watch, lastMaterializedLineupRevision: 'previous-lineup', pendingSince: '2026-09-03T12:05:00Z' },
+    })) };
+    expect(selectFutureWork([changed], new Date('2026-09-03T12:05:00Z')))
+      .toMatchObject({ kind: 'materialize', dirty: true, defaultPeriod: true });
+  });
   it('retains seven-day preparation and lets dirty default changes bypass routine idle', () => {
     const value=plan(1,{defaultPeriod:true});
     const leagues=value.leagues.map((entry)=>({...entry,defaultPeriodCadence:{isCurrentRegularPeriod:false,games:[]}}));

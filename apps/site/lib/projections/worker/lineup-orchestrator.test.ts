@@ -83,6 +83,18 @@ describe('independent lineup observation worker', () => {
     expect(await runLineupObservation(h.dependencies)).toMatchObject({ status: 'completed', checked: 8, skipped: 26 });
     expect(h.lineupRepository.claimDueLineupObservations).toHaveBeenCalledTimes(1);
   });
+  it('does not start provider work if acquiring a batch finishes after the start deadline', async () => {
+    const h = lineupHarness();
+    const original = h.lineupRepository.claimDueLineupObservations.getMockImplementation()!;
+    h.lineupRepository.claimDueLineupObservations.mockImplementation(async (input) => {
+      const claims = await original(input); h.setElapsed(35_000); return claims;
+    });
+    expect(await runLineupObservation(h.dependencies)).toMatchObject({ status: 'completed', checked: 0, skipped: 34, failed: 0 });
+    expect(h.lineupSource.getLineup).not.toHaveBeenCalled();
+    expect(h.lineupRepository.completeLineupObservation).not.toHaveBeenCalled();
+    expect(h.lineupRepository.failLineupObservation).not.toHaveBeenCalled();
+    expect(h.repository.completeJob).toHaveBeenCalledTimes(1);
+  });
   it('returns fatal failure for a lost completion lease without exposing exception contents', async () => {
     const h = lineupHarness(); h.repository.completeJob.mockResolvedValue(false);
     expect(await runLineupObservation(h.dependencies)).toEqual({ status: 'failed' });

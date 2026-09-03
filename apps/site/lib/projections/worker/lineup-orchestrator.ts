@@ -76,6 +76,9 @@ export async function runLineupObservation(
       requestsRemaining -= states.length;
       futureRemaining -= states.filter((state) => state.watchClass === 'future').length;
       claimedCount += states.length;
+      // Claiming can wait on database locks. Recheck before starting any network work;
+      // unstarted claims safely expire without recording a provider failure or changing pending state.
+      if (elapsed() >= LINEUP_OBSERVATION_START_DEADLINE_MS) { counts.skipped += states.length; break; }
       const batch = await observeLineupClaims(scoped, states, runId, { signal: controller.signal, periodAnchorWeeks });
       for (const key of ['checked', 'changed', 'unchanged', 'notReady', 'skipped', 'failed'] as const) counts[key] += batch[key];
     }

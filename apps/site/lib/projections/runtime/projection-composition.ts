@@ -4,6 +4,7 @@ import { ACTIVE_PROJECTION_SOURCE } from '../../projection-source-config';
 import { getDatabase, withDatabaseAbortSignal } from '../../database';
 import { createProjectionStore, getProjectionStore } from '../../projection-store';
 import { getProjectionCadenceInput, getProjectionSyncInput, getRawLineupMatchups } from '../../sleeper';
+import { observeProviderAdapter } from '../../provider-request-telemetry';
 import { createNeonIdentityCrosswalk } from '../adapters/neon/identity-crosswalk';
 import { createNeonProjectionRepository } from '../adapters/neon/repository';
 import { createNeonLineupRepository } from '../adapters/neon/lineup-repository';
@@ -55,16 +56,29 @@ function projectionPersistence(
   };
 }
 
-function projectionServices() {
+function projectionServices(shared: ReturnType<typeof createProductionSharedServices>) {
+  const leagueSource = createSleeperLeagueSource(getProjectionSyncInput);
+  const projectionFeed = productionProjectionFeed();
+  const gameStateFeed = createTank01GameStateFeed({
+    apiKey: process.env.TANK01_API_KEY ?? null,
+    provider: gameStateProvider,
+    fetch: globalThis.fetch,
+    now: Date.now,
+  });
   return {
-    leagueSource: createSleeperLeagueSource(getProjectionSyncInput),
-    projectionFeed: productionProjectionFeed(),
-    gameStateFeed: createTank01GameStateFeed({
-      apiKey: process.env.TANK01_API_KEY ?? null,
-      provider: gameStateProvider,
-      fetch: globalThis.fetch,
-      now: Date.now,
-    }),
+    leagueSource: { getLeagueWeek: (...args: Parameters<typeof leagueSource.getLeagueWeek>) =>
+      observeProviderAdapter(shared.logger, 'sleeper', 'league-week', () => leagueSource.getLeagueWeek(...args)) },
+    projectionFeed: {
+      getProjectionSlate: (...args: Parameters<typeof projectionFeed.getProjectionSlate>) =>
+        observeProviderAdapter(shared.logger, 'tank01', 'projection-slate', () => projectionFeed.getProjectionSlate(...args),
+          (result) => result.status === 'available' ? result.slate.quality === 'complete' ? 'available' : 'invalid'
+            : result.reason === 'invalid-request' || result.reason === 'invalid-response' ? 'invalid' : 'unavailable'),
+      assessProjectionSlate: projectionFeed.assessProjectionSlate,
+    },
+    gameStateFeed: { getGameStateSlate: (...args: Parameters<typeof gameStateFeed.getGameStateSlate>) =>
+      observeProviderAdapter(shared.logger, 'tank01', 'game-states', () => gameStateFeed.getGameStateSlate(...args),
+        (result) => result.status === 'available' ? 'available'
+          : result.reason === 'invalid-request' || result.reason === 'invalid-response' ? 'invalid' : 'unavailable') },
     projectionStorage: {
       source: projectionProvider,
       normalizerVersion: ACTIVE_PROJECTION_SOURCE.normalizerVersion,
@@ -76,12 +90,16 @@ function projectionServices() {
 /** Current work alone receives the calendar source and owns authority refreshes. */
 export function createProductionProjectionDependencies(): LiveProjectionWorkerDependencies {
   const shared = createProductionSharedServices('live-projection-sync');
+  const calendar = createSleeperNflCalendar(getProjectionCadenceInput);
+  const lineup = createSleeperLineupSource(getRawLineupMatchups, shared.clock.now);
   return {
     ...shared,
     ...projectionPersistence(getProjectionStore(), shared),
-    ...projectionServices(),
-    nflCalendar: createSleeperNflCalendar(getProjectionCadenceInput),
-    lineupSource: createSleeperLineupSource(getRawLineupMatchups, shared.clock.now),
+    ...projectionServices(shared),
+    nflCalendar: { getCadenceState: (...args) => observeProviderAdapter(shared.logger, 'sleeper', 'league-calendar',
+      () => calendar.getCadenceState(...args)) },
+    lineupSource: { getLineup: (...args) => observeProviderAdapter(shared.logger, 'sleeper', 'lineup',
+      () => lineup.getLineup(...args), (result) => result.status === 'complete' ? 'available' : result.status) },
     persistence: {
       scope(signal) {
         const scoped = projectionPersistence(
@@ -103,7 +121,7 @@ export function createProductionFutureProjectionDependencies(): FutureProjection
   return {
     ...shared,
     ...projectionPersistence(getProjectionStore(), shared),
-    ...projectionServices(),
+    ...projectionServices(shared),
     futurePersistence: {
       scope: (signal) => projectionPersistence(
         createProjectionStore(withDatabaseAbortSignal(getDatabase(), signal)), shared,

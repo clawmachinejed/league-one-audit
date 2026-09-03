@@ -5,6 +5,7 @@ import {
   type NormalizedCrosswalk,
   type NormalizedProjectionSlate,
 } from './projection-internals';
+import { startProviderHttp } from '../../../provider-request-telemetry';
 
 const RAPID_API_HOST = 'tank01-nfl-live-in-game-real-time-statistics-nfl.p.rapidapi.com';
 const RAPID_API_ORIGIN = `https://${RAPID_API_HOST}`;
@@ -14,6 +15,7 @@ export async function fetchTank01Envelope(
   path: string,
   apiKey: string,
 ): Promise<unknown> {
+  const finished = startProviderHttp('tank01', path.startsWith('/getNFLPlayerList') ? 'player-crosswalk' : 'projection-slate', 'bypass');
   let response: Response;
   try {
     response = await request(`${RAPID_API_ORIGIN}${path}`, {
@@ -29,12 +31,16 @@ export async function fetchTank01Envelope(
       },
     });
   } catch {
+    finished('unavailable');
     throw new Tank01ProviderFailure('provider-error');
   }
-  if (!response.ok) throw new Tank01ProviderFailure('provider-error');
+  if (!response.ok) { finished('unavailable'); throw new Tank01ProviderFailure('provider-error'); }
   try {
-    return await response.json();
+    const result: unknown = await response.json();
+    finished('available');
+    return result;
   } catch {
+    finished('invalid');
     throw new Tank01ProviderFailure('invalid-response');
   }
 }

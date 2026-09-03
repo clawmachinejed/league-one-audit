@@ -206,6 +206,27 @@ describe('future projection orchestration', () => {
     expect(store.publishInputs).toHaveLength(0);
   });
 
+  it('does not start a full source request when reservation crosses the start deadline', async () => {
+    const store = fakeStore(); await primeStoredProjection(store);
+    store.readFuturePlan.mockResolvedValue(plansWithWeekTwo({ currentSlate: STORED_LINEAGE, due: false }, { due: true }));
+    const dependencies = configureFutureDependencies(store);
+    dependencies.monotonicMock.mockReturnValue(0);
+    const reserve = dependencies.lineupRepository.reserveFullLineupObservation.getMockImplementation()!;
+    dependencies.lineupRepository.reserveFullLineupObservation.mockImplementation(async (input) => {
+      const result = await reserve(input);
+      dependencies.monotonicMock.mockReturnValue(47_000);
+      return result;
+    });
+    await expect(createFutureProjectionWorker(dependencies).run()).resolves.toEqual({ status: 'failed' });
+    expect(dependencies.lineupRepository.reserveFullLineupObservation).toHaveBeenCalled();
+    expect(dependencies.sourceMock).not.toHaveBeenCalled();
+    expect(dependencies.gamesMock).not.toHaveBeenCalled();
+    expect(dependencies.projectionMock).not.toHaveBeenCalled();
+    expect(dependencies.lineupRepository.failLineupObservation).toHaveBeenCalled();
+    expect(store.failFutureMaterialization).toHaveBeenCalledWith(expect.objectContaining({ failureCode: 'deadline-exceeded' }));
+    expect(store.publishInputs).toHaveLength(0);
+  });
+
   it('does not allow one missing durable authority to block the healthy league', async () => {
     const store=fakeStore(); await primeStoredProjection(store);
     store.readFuturePlan.mockResolvedValue(plansWithWeekTwo({currentSlate:STORED_LINEAGE,due:false},{due:true}));

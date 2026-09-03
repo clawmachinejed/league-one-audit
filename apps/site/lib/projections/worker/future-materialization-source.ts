@@ -226,6 +226,7 @@ export async function prepareFutureMaterializations(
       let reserved: Awaited<ReturnType<typeof reserveFutureFullObservation>> | null = null;
       try {
         reserved = await reserveFutureFullObservation(dependencies, value.publicationFence);
+        assertFutureMayStart(dependencies, timing);
         const source = await dependencies.leagueSource.getLeagueWeek(
           value.configuration,
           selection.period,

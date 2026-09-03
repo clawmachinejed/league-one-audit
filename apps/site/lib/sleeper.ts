@@ -3,6 +3,7 @@ import 'server-only';
 import { cache } from 'react';
 import { unstable_cache } from 'next/cache';
 import { normalizeInjuryStatus } from './injury-status';
+import { recordProviderCache, sleeperEndpointFamily, startProviderHttp } from './provider-request-telemetry';
 import {
   assertMatchupCompleteness,
   assertProjectionMatchupReadiness,
@@ -105,23 +106,61 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 async function fetchJson(path: string, revalidate = CORE_CACHE_SECONDS, signal?: AbortSignal): Promise<unknown> {
   const timeout = AbortSignal.timeout(path.startsWith('/players/nfl') ? 20_000 : 12_000);
-  const response = await fetch(`${API}${path}`, {
-    ...(revalidate > 0 ? { next: { revalidate } } : { cache: 'no-store' as const }),
-    signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
-    headers: { Accept: 'application/json' },
-  });
-  if (!response.ok) throw new Error(`Sleeper could not load ${path} (HTTP ${response.status}).`);
-  return response.json();
+  const family = sleeperEndpointFamily(path);
+  if (revalidate > 0) recordProviderCache('sleeper', family, 'framework-managed');
+  const finished = startProviderHttp('sleeper', family, revalidate > 0 ? 'framework-managed' : 'bypass');
+  let response: Response;
+  try {
+    response = await fetch(`${API}${path}`, {
+      ...(revalidate > 0 ? { next: { revalidate } } : { cache: 'no-store' as const }),
+      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+      headers: { Accept: 'application/json' },
+    });
+  } catch (error) {
+    finished('unavailable');
+    throw error;
+  }
+  if (!response.ok) {
+    finished('unavailable');
+    throw new Error(`Sleeper could not load ${path} (HTTP ${response.status}).`);
+  }
+  try {
+    const result: unknown = await response.json();
+    finished('available');
+    return result;
+  } catch (error) {
+    finished('invalid');
+    throw error;
+  }
 }
 
 async function fetchExternalJson(url: string, revalidate = SCHEDULE_CACHE_SECONDS): Promise<unknown> {
-  const response = await fetch(url, {
-    next: { revalidate },
-    signal: AbortSignal.timeout(12_000),
-    headers: { Accept: 'application/json' },
-  });
-  if (!response.ok) throw new Error(`NFL schedule data could not be loaded (HTTP ${response.status}).`);
-  return response.json();
+  const family = url.startsWith(SEASON_SCHEDULE_API) ? 'season-schedule' : url.startsWith(SCORES_API) ? 'weekly-scores' : 'other';
+  recordProviderCache('sleeper', family, 'framework-managed');
+  const finished = startProviderHttp('sleeper', family, 'framework-managed');
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      next: { revalidate },
+      signal: AbortSignal.timeout(12_000),
+      headers: { Accept: 'application/json' },
+    });
+  } catch (error) {
+    finished('unavailable');
+    throw error;
+  }
+  if (!response.ok) {
+    finished('unavailable');
+    throw new Error(`NFL schedule data could not be loaded (HTTP ${response.status}).`);
+  }
+  try {
+    const result: unknown = await response.json();
+    finished('available');
+    return result;
+  } catch (error) {
+    finished('invalid');
+    throw error;
+  }
 }
 
 function isOptionalString(value: unknown): boolean {

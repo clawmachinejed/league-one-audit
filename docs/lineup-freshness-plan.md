@@ -231,6 +231,13 @@ written for verification. Existing naturally updated snapshots remained readable
 - Preseason default observations remain minute cadence and future-owned. Projection
   ingestion retains the existing hourly cache eligibility, while repeated cached
   feed invocations are removed. Materialization follows the existing default timing.
+- Hourly-boundary case: routine preseason default ingestion first completing at
+  minute 04 may leave its separate materialization outside the existing minute 00–04
+  allowance. Routine materialization then waits for the next eligible window (or live
+  window). This preserves the single-action split and existing cadence. Default lineup
+  observations still run each minute; accepted pending lineup changes bypass routine
+  hourly eligibility, so this boundary does not make a lineup change wait for the hour.
+  Provider validation, leases, and failure backoff still apply to pending work.
 - The existing authenticated force operation is dispatched at runtime to the current
   owner or one coherent preseason default future period. Its original clock, run ID
   and elapsed budget are retained. Mixed owner/default-period maintenance requests
@@ -259,3 +266,21 @@ outside scope. No test branch will be deleted until its evidence and identity ar
 - One intermediate integration run encountered a transient Neon WebSocket failure during fixture setup. The complete final run passed; no test was skipped or weakened.
 - Canonical disabled adapters return before touching malformed inputs, configuration, or persistence. Authority freshness uses the clock after database reads.
 - Shared projection refresh uses the closest eligible league distance; each league's materialization keeps its own distance and cadence. No schema, package, or environment changes were added in PR3.
+
+## PR3 final independent review corrections
+
+- Future full-source preparation rechecks its start deadline after an awaited reservation. A reservation returning after the cutoff cannot start a new Sleeper request; cleanup retains normal leases and backoff.
+- The observer similarly rechecks its start deadline after claiming rows. Deferred claims expire safely without a late network batch or accepted-data mutation.
+- Supported late-season sets above eight current leagues now process sequential bounded batches, respecting the combined 20-observation budget and reserving full-load calls first. No league is observed twice across a minute boundary.
+- Observer integration fixtures use a four-minute overdue timestamp, so catch-up eligibility does not depend on the database minute phase. The repeated complete isolated suite passed all 104 tests (74.57 seconds).
+
+### PR3 request telemetry clarification
+
+Provider monitoring reports separate adapter, HTTP-attempt and cache events with fixed endpoint families and safe outcomes/durations. Uncached requests and owned cache-loader misses/backoff hits are measurable exactly. Next-managed cached fetches and cache lookups do not expose trustworthy per-access hit/miss results, so their unobservable counters are explicitly null, never inferred as zero. Exact framework-internal accounting would require private APIs or a cache rewrite, which is outside the approved behavior-preserving scope. Counter totals use only their start/cache event; completion events contain outcome/duration without counting twice.
+
+Adding instrumentation to a persistent cache loader can cause a normal first-load refill because Next includes loader text in its internal key. Explicit cache namespaces, arguments, TTLs and steady-state request behavior remain unchanged. No second fetch, provider pipeline, credential logging, monitoring vendor or dependency was introduced.
+
+### Corrected PR3 gate
+
+The full gate caught concrete provider-name literals in the new logger port. The port now accepts a provider name generically, while the concrete monitoring boundary retains its safe fixed provider set. The architecture test was not weakened. The complete rerun passed lint, TypeScript, all architecture checks, 994 tests in 75 files, and production build.
+- Corrected-head browser regression: all 13 tests passed (28.9 seconds).

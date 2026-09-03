@@ -47,6 +47,8 @@ vi.mock('next/cache', () => ({
 }));
 
 import { NFL_TEAMS } from '../../../nfl-teams';
+import { observeProviderAdapter } from '../../../provider-request-telemetry';
+import type { ProjectionLogEntry } from '../../ports/logger';
 import type { LeaguePeriod } from '../../domain/contracts';
 import {
   externalPlayerRef,
@@ -163,6 +165,42 @@ function translateProjectionFixture(
 describe('Tank01 canonical projection feed', () => {
   beforeEach(() => {
     nextCacheRegistrations.length = 0;
+  });
+  it('measures cold loader misses and exact HTTP attempts without inventing warm framework cache hits', async () => {
+    const request = mockFetch(completeProjectionEnvelope(), playerEnvelope(completePlayerListRows()));
+    const events: ProjectionLogEntry[] = [];
+    const logger = { write: (_level: string, entry: ProjectionLogEntry) => { events.push(entry); } };
+    const feed = createCachedTank01ProjectionFeed({ apiKey: () => 'never-log-api-key', provider: tankProvider,
+      officialProvider, fetch: request, now: () => Date.parse('2026-09-01T12:00:00Z') });
+    const read = () => observeProviderAdapter(logger, 'tank01', 'projection-slate', () => feed.getProjectionSlate(period));
+    expect((await read()).status).toBe('available');
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(events.filter((entry) => entry.cacheMisses === 1)).toHaveLength(2);
+    expect(events.filter((entry) => entry.upstreamRequests === 1)).toHaveLength(2);
+    events.length = 0;
+    expect((await read()).status).toBe('available');
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(events.filter((entry) => entry.upstreamRequests === 1 || entry.cacheMisses === 1)).toHaveLength(0);
+    expect(events.filter((entry) => entry.cacheStatus === 'framework-managed')).toHaveLength(2);
+    expect(events.filter((entry) => entry.cacheStatus === 'framework-managed').every((entry) => entry.cacheHits === null)).toBe(true);
+    expect(nextCacheRegistrations.map((entry) => entry.options.revalidate)).toEqual([3600, 3600]);
+    expect(JSON.stringify(events)).not.toMatch(/never-log-api-key|https:|official-|tank-QB/);
+  });
+
+  it('records a proven failure-backoff cache hit without issuing another HTTP request', async () => {
+    const request = vi.fn(async () => new Response(null, { status: 503 }));
+    const events: ProjectionLogEntry[] = [];
+    const logger = { write: (_level: string, entry: ProjectionLogEntry) => { events.push(entry); } };
+    const feed = createCachedTank01ProjectionFeed({ apiKey: () => 'never-log-api-key', provider: tankProvider,
+      officialProvider, fetch: request, now: () => Date.parse('2026-09-01T12:00:00Z') });
+    const read = () => observeProviderAdapter(logger, 'tank01', 'projection-slate', () => feed.getProjectionSlate(period));
+    await read();
+    expect(request).toHaveBeenCalledTimes(2);
+    events.length = 0;
+    await read();
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(events.filter((entry) => entry.cacheHits === 1)).toHaveLength(1);
+    expect(events.filter((entry) => entry.upstreamRequests === 1)).toHaveLength(0);
   });
   it('exposes the adapter-owned schedule-relative slate assessment through the port', () => {
     const feed = createCachedTank01ProjectionFeed({

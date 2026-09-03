@@ -4,7 +4,7 @@ import { refreshCurrentLineupContext } from './current-lineup-context';
 import { planCurrentWork, settleCurrentHourlyMarkers, type CurrentWorkTarget } from './current-work-plan';
 import { loadCurrentLeagues } from './current-league-load';
 import { runCurrentProjectionStages } from './current-projection-stages';
-import { observeLineupClaims } from './lineup-observation-stage';
+import { observeCurrentLineups } from './current-lineup-observation';
 import { elapsed, safeProjectionLog as log } from './worker-operations';
 
 export type PreparedCurrentPreflight = Readonly<{
@@ -62,11 +62,7 @@ export async function runWithDependencies(
     markers = plan.full;
     if (plan.thin.length) {
       stage = 'current-lineup-observation';
-      const claims = await dependencies.lineupRepository.claimDueLineupObservations({
-        leagueKeys: plan.thin.map((state) => state.configuration.key), materializationLane: 'current',
-        workerId: runId, leaseSeconds: 120, limit: Math.min(8, plan.thin.length), futureLimit: 0, catchUp: true,
-      });
-      const counts = await observeLineupClaims(dependencies, claims, runId, { periodAnchorWeeks: new Map() });
+      const counts = await observeCurrentLineups(dependencies, plan.thin, runId, plan.full.length);
       log(dependencies, counts.failed ? 'warn' : 'info', { stage, outcome: 'completed', runId,
         checked: counts.checked, changed: counts.changed, unchanged: counts.unchanged,
         notReady: counts.notReady, failedLeagues: counts.failed, pending: counts.pending });
