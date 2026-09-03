@@ -129,7 +129,7 @@ They are not scoring, visual, provider, or cadence scope additions.
 
 - [x] Stage 0: clean synchronized baseline, pushed backup, deployment/configuration and database metadata, complete existing gates.
 - [x] PR1: shared raw parser, scoped identities, lineup-v1, classification, balanced policy, parity tests; no route/cadence change.
-- [ ] PR2: migration 007, guarded repository operations, authority batch reader, compact reader/API and full revision protocol.
+- [x] PR2: migration 007, guarded repository operations, authority batch reader, compact reader/API and full revision protocol.
 - [ ] PR3: three-lane cutover, ownership, thin/full deduplication, independent future work, exact HTTP and capacity gates.
 - [ ] PR4: current/future revision polling, visibility/race/manual/fallback behavior.
 - [ ] PR5: obsolete code reconciliation, runbook, final production evidence and retrospective.
@@ -199,9 +199,63 @@ written for verification. Existing naturally updated snapshots remained readable
   Neon A-B-A/delayed-B test proves exact acknowledgment and reopening pending A.
 - Corrected-head local verification remains 838 tests / 62 files; isolated Neon 97 passed.
 
+## PR2 production release
+
+- PR: https://github.com/clawmachinejed/league-one-audit/pull/165.
+- Heads: `36f01d1a43f9edb4cb027e762e04bcbd84fd8f47` and
+  `6363234aa73339acb28ba6988dfa5ed8d9082ba1`.
+- Squash merge: `8d2a2890bf927605900df2d6f169771b6e05ee32` at 20:02:50 UTC.
+- GitHub run `33799643658`: verify and browser-smoke passed.
+- Corrected preview: `3cpeYGFnPif6qivdRTU47npVtzXS`; both league matchup pages inspected.
+- Production: `3eZqmVYvNHhi4dDemK325GWK8ykM`, ready for the merged commit.
+- Both public revision endpoints returned 200/no-store. Full responses returned 200
+  with matching `X-Projection-Snapshot-Revision` and `X-Projection-Verified-At`.
+  Both pages rendered six matchup cards. No authenticated worker was forced.
+- Natural League One Week 1 verification advanced to `2026-09-03T20:02:56.329Z`.
+  League Two Week 5 remained readable with verification `2026-09-03T13:42:18.004Z`.
+
+## PR3 implementation decisions and verification ledger
+
+- Full-load observation reservation occurs before the weekly network request and
+  rotates the shared claim generation. Existing authority, watch, execution-job and
+  future-attempt ownership cap the reservation. No schema change is required.
+- Full responses carry their raw authoritative roster/slot shape as well as `lineup-v1`.
+  A changed shape cannot be accepted under an earlier reservation.
+- One minute-scoped current execution lease protects both full and thin work. A
+  separate period-scoped hourly completion marker records completed routine work;
+  pending work is inspected before that marker can suppress execution. This marker
+  uses existing jobs, not a new queue or parallel execution pipeline.
+- A compact planning-only schedule read retains unavailable registered leagues in
+  balanced phase allocation. It does not make stale authority eligible for claims,
+  acceptance, publication or acknowledgment.
+- Preseason default observations remain minute cadence and future-owned. Projection
+  ingestion retains the existing hourly cache eligibility, while repeated cached
+  feed invocations are removed. Materialization follows the existing default timing.
+- The existing authenticated force operation is dispatched at runtime to the current
+  owner or one coherent preseason default future period. Its original clock, run ID
+  and elapsed budget are retained. Mixed owner/default-period maintenance requests
+  fail closed instead of silently skipping a league; ordinary scheduled lanes still
+  isolate and process healthy leagues independently.
+- Full current failures honor watcher retry delays. Pending revisions survive failure.
+  Missing all authoritative league contexts is reported as failure, not legitimate idle.
+- The SQL operation audit adds full-observation reservation and compact schedule
+  planning: 53 operations at this stage. Migration 007 remains byte-for-byte unchanged.
+- Initial isolated run: 100 passed / 102 tests. Two fixture setup statements violated
+  existing check constraints; no production SQL failure occurred. Correct those fixture
+  timestamps/reasons and repeat the complete suite before release.
+
 ## Deferred work
 
 Real-game transitions, provider delays and end-to-end freshness require live operational
 verification. Synthetic 50/300-league tests demonstrate bounded work/backlog, not production
 capacity. Distributed tasks/queues, database league registry and increased concurrency remain
 outside scope. No test branch will be deleted until its evidence and identity are verified.
+
+## PR3 final local release gate
+
+- `pnpm verify`: lint, TypeScript, architecture, 974 unit tests in 73 files, and production build passed.
+- Isolated Neon: all 104 tests in eight files passed (73.47 seconds), including actual observer orchestration, full-fetch reservation supersession, and shared-provider/individual-league refresh-distance isolation.
+- Browser suite: all 13 tests passed (26.7 seconds).
+- One intermediate integration run encountered a transient Neon WebSocket failure during fixture setup. The complete final run passed; no test was skipped or weakened.
+- Canonical disabled adapters return before touching malformed inputs, configuration, or persistence. Authority freshness uses the clock after database reads.
+- Shared projection refresh uses the closest eligible league distance; each league's materialization keeps its own distance and cadence. No schema, package, or environment changes were added in PR3.

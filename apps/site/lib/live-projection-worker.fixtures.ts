@@ -1,4 +1,5 @@
 import { vi } from 'vitest';
+import { createLineupWorkerTestPorts } from './lineup-worker-test-support';
 
 import type {
   GameStateObservation,
@@ -143,6 +144,7 @@ export function configuration(leagueId: string): LeagueConfiguration {
     key,
     displayName: leagueId === 'l1' ? 'League One' : 'League Two',
     leagueRef: externalLeagueRef(OFFICIAL_PROVIDER, leagueId),
+    matchupWeekRange: { firstWeek: 1, lastWeek: 18 },
   };
 }
 
@@ -197,6 +199,9 @@ export function source(leagueId: string, data = matchupData()): LeagueWeekState 
   const requestCompletedAt = '2026-09-13T18:00:01.000Z';
   return {
     configuration: leagueConfiguration,
+    lineup: { revisionVersion: 'lineup-v1', lineupRevision: 'a'.repeat(64) },
+    lineupShape: { expectedRosterCount: data.teams.length, expectedStarterSlotCount: data.matchups[0].sides[0].starters.length,
+      expectedRosterRefs: data.teams.map((team) => externalRosterRef(configuration(leagueId).leagueRef, String(team.id))) },
     leagueName: leagueConfiguration.displayName,
     period: PERIOD,
     maxWeek: data.league.maxWeek,
@@ -232,6 +237,10 @@ export function cadenceInput(
   weeklySchedule = schedule,
 ): LeagueCadenceState {
   return {
+    lineupShape: { expectedRosterCount: 2, expectedStarterSlotCount: 2,
+      expectedRosterRefs: ['1', '2'].map((id) => externalRosterRef(configuration(leagueId).leagueRef, id)) },
+    defaultPeriodCadence: { isCurrentRegularPeriod: true,
+      games: Object.values(weeklySchedule).flatMap((game) => game.kind === 'scheduled' ? [{ kickoffAt: game.kickoffAt, date: game.date }] : []) },
     configuration: configuration(leagueId),
     period: PERIOD,
     periodAuthority: {
@@ -242,8 +251,8 @@ export function cadenceInput(
       nflPhase: 'regular',
       source: OFFICIAL_PROVIDER,
       sourceRevision: 'period-revision-1',
-      observedAt: '2026-09-13T16:00:00.000Z',
-      verifiedAt: '2026-09-13T16:00:00.000Z',
+      observedAt: NOW.toISOString(),
+      verifiedAt: NOW.toISOString(),
     },
     currentPeriod: { season: 2026, week: 1, seasonType: 'regular' },
     schedule: weeklySchedule,
@@ -636,7 +645,6 @@ export function fakeStore(freezeBaselines = true, enabled = true): FakeStore {
     completeFutureProjectionRefresh: completeFutureProjection,
     failFutureProjectionRefresh: failFutureProjection,
     beginFutureMaterializationRefresh: beginFutureMaterialization,
-    completeFutureMaterializationRefresh: completeFutureMaterialization,
     failFutureMaterializationRefresh: failFutureMaterialization,
     async recordProjectionCandidates(input) {
       operations.push('record-projection-candidates');
@@ -802,9 +810,14 @@ export function workerDependencies(
   }> = {},
 ): WorkerTestDependencies {
   const configurations = [configuration('l1'), configuration('l2')];
-  const cadenceMock = vi.fn(async (leagueConfiguration: LeagueConfiguration) => (
-    options.cadence ?? cadenceInput(String(leagueConfiguration.leagueRef.externalId))
-  ));
+  const cadenceMock = vi.fn(async (leagueConfiguration: LeagueConfiguration) => {
+    const value = options.cadence ?? cadenceInput(String(leagueConfiguration.leagueRef.externalId));
+    const at = (options.now ?? NOW).toISOString();
+    return { ...value, configuration: leagueConfiguration,
+      lineupShape: { ...value.lineupShape, expectedRosterRefs: value.lineupShape.expectedRosterRefs
+        .map((ref) => externalRosterRef(leagueConfiguration.leagueRef, String(ref.externalId))) },
+      periodAuthority: { ...value.periodAuthority, configuration: leagueConfiguration, observedAt: at, verifiedAt: at } };
+  });
   const sourceMock = vi.fn(async (
     leagueConfiguration: LeagueConfiguration,
     targetPeriod: LeaguePeriod,
@@ -834,14 +847,17 @@ export function workerDependencies(
     else if (level === 'warn') console.warn(line);
     else console.info(line);
   });
-  const futureScopeMock = vi.fn(() => ({
-    repository: fake.repository,
-    identityCrosswalk: fake.identityCrosswalk,
-  }));
+  const lineup = createLineupWorkerTestPorts({ now: clockMock }, fake.repository);
+  const futureScopeMock = vi.fn(() => ({ repository: lineup.repository,
+    lineupRepository: lineup.lineupRepository, periodAuthorityReader: lineup.periodAuthorityReader }));
   return {
-    repository: fake.repository,
+    repository: lineup.repository,
+    lineupRepository: lineup.lineupRepository,
+    periodAuthorityReader: lineup.periodAuthorityReader,
+    lineupSource: { getLineup: vi.fn(async () => ({ status: 'not-ready' as const, reason: 'empty' as const,
+      requestStartedAt: clockMock().toISOString(), requestCompletedAt: clockMock().toISOString() })) },
     identityCrosswalk: fake.identityCrosswalk,
-    futurePersistence: { scope: futureScopeMock },
+    persistence: { scope: futureScopeMock },
     leagueRegistry: { listActiveLeagues: () => configurations },
     nflCalendar: { getCadenceState: cadenceMock },
     leagueSource: { getLeagueWeek: sourceMock },

@@ -19,6 +19,8 @@ import {
   type ProviderKey,
 } from '../../shared/provider-identity';
 import { compatibleRevision } from '../../shared/revision-compatibility';
+import { calculateLineupRevision } from '../../domain/lineup-revision';
+import { sleeperLineupObservationShape, translateSleeperLineupObservation } from './lineup-observation';
 import {
   sleeperRegularSeasonPeriod,
   translateSleeperWeekSchedule,
@@ -166,7 +168,14 @@ export function createSleeperLeagueSource(
         throw new Error('Sleeper returned matchup data for a different projection period.');
       }
       const provider = configuration.leagueRef.provider;
+      const rawLineup = translateSleeperLineupObservation(
+        configuration.leagueRef, period,
+        sleeperLineupObservationShape(configuration.leagueRef, source.matchupShape), source.rawMatchups,
+      );
+      if (rawLineup.status !== 'complete') throw new Error('Sleeper did not provide a complete authoritative lineup.');
+      const lineup = await calculateLineupRevision(rawLineup.observation);
       return {
+        lineupShape: rawLineup.observation.shape,
         configuration,
         leagueName: source.leagueName || configuration.displayName,
         period,
@@ -196,6 +205,7 @@ export function createSleeperLeagueSource(
           requestCompletedAt: source.requestCompletedAt,
           data: source.data,
         }),
+        lineup,
         warning: source.data.warning,
       };
     },

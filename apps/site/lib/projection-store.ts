@@ -16,6 +16,7 @@ import { createLineupWatchSyncMethods } from './projections/adapters/neon/lineup
 import { createLineupWatchClaimMethods } from './projections/adapters/neon/lineup-watch-claims';
 import { createLineupWatchObservationMethods } from './projections/adapters/neon/lineup-watch-observations';
 import { createLineupWatchReadMethods } from './projections/adapters/neon/lineup-watch-read';
+import { createFullLineupObservationMethods } from './projections/adapters/neon/lineup-full-observation';
 import { createProjectionMethods } from './projections/adapters/neon/projections';
 import { createProjectionSlateMethods } from './projections/adapters/neon/projection-slates';
 import { createRetentionMethods } from './projections/adapters/neon/retention';
@@ -83,7 +84,7 @@ export type {
   StoreCompleteFutureLineupInput, StoreAcknowledgeCurrentLineupInput,
 } from './projections/adapters/neon/lineup-publication-contracts';
 export type {
-  LineupWatchTarget, StoredLineupWatchState, LineupWatchFence, LineupObservationClaim,
+  LineupWatchTarget, StoredLineupWatchState, StoredLineupWatchSchedule, LineupWatchFence, LineupObservationClaim,
   CompleteLineupObservationInput, FullLineupObservationInput, LineupObservationWriteOutcome,
   LineupWatchTransition, LineupWatchSyncInput, ClaimDueLineupObservationsInput, WakeFutureLineupInput,
 } from './projections/adapters/neon/lineup-watch-contracts';
@@ -105,6 +106,7 @@ export function createProjectionStore(database: Database = getDatabase()): Proje
   const lineupClaims = createLineupWatchClaimMethods(client);
   const lineupObservations = createLineupWatchObservationMethods(client);
   const lineupReads = createLineupWatchReadMethods(client);
+  const fullLineupObservations = createFullLineupObservationMethods(client);
   const jobs = createJobMethods(client);
   const snapshots = createSnapshotMethods(client);
   const retention = createRetentionMethods(client);
@@ -119,6 +121,7 @@ export function createProjectionStore(database: Database = getDatabase()): Proje
     completeFutureMaterializationAndAcknowledgeLineup: lineupAcknowledgments.completeFutureMaterializationAndAcknowledgeLineup,
     synchronizeLineupWatchStates: lineupSync.synchronizeLineupWatchStates,
     claimDueLineupObservations: lineupClaims.claimDueLineupObservations,
+    reserveFullLineupObservation: fullLineupObservations.reserveFullLineupObservation,
     completeLineupObservation: lineupObservations.completeLineupObservation,
     recordLineupObservationNotReady: lineupObservations.recordLineupObservationNotReady,
     failLineupObservation: lineupObservations.failLineupObservation,
@@ -126,6 +129,7 @@ export function createProjectionStore(database: Database = getDatabase()): Proje
     readPendingCurrentLineups: lineupReads.readPendingCurrentLineups,
     readPendingFutureLineups: lineupReads.readPendingFutureLineups,
     readLineupWatchStates: lineupReads.readLineupWatchStates,
+    readLineupWatchSchedule: lineupReads.readLineupWatchSchedule,
     wakeFutureProjectionAndMaterialization: lineupReads.wakeFutureProjectionAndMaterialization,
     registerLeagueSeason: identities.registerLeagueSeason,
     upsertScoringEntities: identities.upsertScoringEntities,

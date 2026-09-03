@@ -55,6 +55,23 @@ async function full(state: StoredLineupWatchState, base: string, offset: number,
 }
 
 describe.sequential('isolated durable lineup watch coordination', () => {
+  it('retains scoped planning identities during stale authority without enabling claims or pending work', async () => {
+    const { state } = await fixture();
+    await ownerQuery(`UPDATE league_period_authorities SET source_observed_at = now() - interval '1 hour',
+      verified_at = now() - interval '1 hour' WHERE league_key = $1`, [state.leagueKey]);
+    const reader = createLineupWatchReadMethods(first.database);
+    expect(await reader.readLineupWatchSchedule([state.leagueKey])).toEqual([{
+      leagueKey: state.leagueKey, sourceProvider: state.sourceProvider, externalLeagueId: state.externalLeagueId,
+      period: state.period, phase: state.phase, watchClass: state.watchClass,
+    }]);
+    expect(await reader.readLineupWatchStates([state.leagueKey])).toEqual([]);
+    expect(await reader.readPendingFutureLineups([state.leagueKey])).toEqual([]);
+    expect(await take(state)).toEqual([]);
+    expect(await reader.readLineupWatchSchedule(['unregistered-fixture'])).toEqual([]);
+    await ownerQuery(`UPDATE league_week_lineup_watch_states SET retired_at = now(), retirement_reason = 'league-removed',
+      next_check_at = NULL, materialization_lane = NULL WHERE id = $1`, [state.id]);
+    expect(await reader.readLineupWatchSchedule([state.leagueKey])).toEqual([]);
+  });
   it('allows only one independent client to claim the same due target', async () => {
     const { state } = await fixture();
     const results = await Promise.all([take(state), take(state, second.database)]);

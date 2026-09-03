@@ -31,6 +31,7 @@ import {
   getManager,
   getProjectionCadenceInput,
   getProjectionSyncInput,
+  getRawLineupMatchups,
   getTransactions,
 } from './sleeper';
 
@@ -233,11 +234,18 @@ afterEach(() => {
 });
 
 describe('Sleeper service error handling', () => {
+  it('performs one uncached thin matchup request with no ancillary league or player work', async () => {
+    const result = await getRawLineupMatchups(leagueOneId, 5);
+    expect(result.rows).toEqual(rawMatchups);
+    expect(vi.mocked(fetch).mock.calls.map(([input]) => requestPath(input))).toEqual([`${leaguePath}/matchups/5`]);
+    expect(vi.mocked(fetch).mock.calls[0][1]).toEqual(expect.objectContaining({ cache: 'no-store' }));
+    expect(Date.parse(result.requestCompletedAt)).toBeGreaterThanOrEqual(Date.parse(result.requestStartedAt));
+  });
   it('caches Sleeper player catalogs for the recommended daily interval', () => {
     expect(nextCacheOptions.some((options) => options.revalidate === 86_400)).toBe(true);
   });
 
-  it('loads the cadence preflight without rosters, managers, players, or matchup scores', async () => {
+  it('loads authoritative roster shape without managers, players, or matchup scores', async () => {
     const preflight = await getProjectionCadenceInput(leagueOneId);
     expect(preflight).toMatchObject({
       sleeperLeagueId: leagueOneId,
@@ -251,7 +259,10 @@ describe('Sleeper service error handling', () => {
     const paths = vi.mocked(fetch).mock.calls.map(([input]) => requestPath(input));
     expect(paths).toContain(leaguePath);
     expect(paths).toContain('/state/nfl');
-    expect(paths.some((path) => path.includes('/rosters') || path.includes('/users')
+    expect(paths.filter((path) => path.includes('/rosters'))).toHaveLength(1);
+    const rosterCall = vi.mocked(fetch).mock.calls.find(([input]) => requestPath(input).includes('/rosters'));
+    expect(rosterCall?.[1]).toEqual(expect.objectContaining({ next: { revalidate: 60 } }));
+    expect(paths.some((path) => path.includes('/users')
       || path.includes('/players/nfl') || path.includes('/matchups/'))).toBe(false);
   });
 

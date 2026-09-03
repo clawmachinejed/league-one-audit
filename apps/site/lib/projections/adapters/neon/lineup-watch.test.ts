@@ -28,6 +28,17 @@ const target: LineupWatchTarget = {
 const observation = { claim, lineupRevision: 'a'.repeat(64), requestStartedAt: '2026-09-03T12:00:00Z', requestCompletedAt: '2026-09-03T12:00:01Z', nextCheckAt: '2026-09-03T12:01:00Z' };
 
 describe('durable lineup watch repository', () => {
+  it('reads planning identities without authority freshness but never includes lineup or publication data', async () => {
+    const { database, calls } = fake();
+    await createLineupWatchReadMethods(database).readLineupWatchSchedule(['fixture']);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].values).toEqual([['fixture']]);
+    expect(calls[0].sql).toContain('retired_at IS NULL');
+    expect(calls[0].sql).not.toContain('league_period_authorities');
+    expect(calls[0].sql).not.toMatch(/payload|latest_lineup_revision|expected_roster|pending_since|FOR UPDATE/u);
+    await createLineupWatchReadMethods(database).readLineupWatchSchedule([]);
+    expect(calls).toHaveLength(1);
+  });
   it('rejects incomplete or duplicate authoritative roster membership before a query', async () => {
     const { database, calls } = fake();
     const methods = createLineupWatchSyncMethods(database);

@@ -2,12 +2,10 @@ import { stableJson } from '../shared/stable-json';
 import { sha256 } from '../shared/sha256';
 import { externalReferenceKey } from '../shared/provider-identity';
 import { validateLineupObservation, type LineupObservationInput } from './lineup-observation';
+import type { LineupRevision } from './contracts';
+export type { LineupRevision } from './contracts';
 
 export const LINEUP_REVISION_VERSION = 'lineup-v1' as const;
-export type LineupRevision = Readonly<{
-  revisionVersion: typeof LINEUP_REVISION_VERSION;
-  lineupRevision: string;
-}>;
 
 /** Only listed semantic fields enter the hash; presentation and timestamps cannot leak in. */
 export function canonicalLineupRevisionInput(input: LineupObservationInput): string {

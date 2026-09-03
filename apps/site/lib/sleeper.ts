@@ -7,6 +7,9 @@ import {
   assertMatchupCompleteness,
   assertProjectionMatchupReadiness,
   createRawSleeperMatchupLoader,
+  sleeperMatchupShape,
+  type SleeperMatchupShape,
+  type RawSleeperMatchupObservation,
 } from './projections/adapters/sleeper/raw-matchups';
 import {
   addScheduleToMatchups,
@@ -32,6 +35,7 @@ import {
   transactionEndWeek,
   type PlayerCatalog,
   type SleeperLeague,
+  type SleeperMatchup,
   type SleeperPlayer,
   type SleeperRoster,
   type SleeperState,
@@ -48,6 +52,9 @@ export type ProjectionSyncInput = Readonly<{
   rosteredPlayers: readonly Player[];
   /** Complete weekly NFL schedule, including games without a displayed starter. */
   schedule: WeekSchedule;
+  /** Exact raw response used by the full loader; never reconstructed from presentation. */
+  rawMatchups: readonly SleeperMatchup[];
+  matchupShape: SleeperMatchupShape;
   requestStartedAt: string;
   requestCompletedAt: string;
 }>;
@@ -68,6 +75,7 @@ export type ProjectionCadenceInput = Readonly<{
   leagueLifecycle: 'preseason' | 'active' | 'complete';
   leagueStatus: SleeperLeague['status'];
   schedule: WeekSchedule;
+  matchupShape: SleeperMatchupShape;
   currentNflSeason: string | null;
   currentNflWeek: number | null;
   currentNflSeasonType: string | null;
@@ -95,10 +103,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-async function fetchJson(path: string, revalidate = CORE_CACHE_SECONDS): Promise<unknown> {
+async function fetchJson(path: string, revalidate = CORE_CACHE_SECONDS, signal?: AbortSignal): Promise<unknown> {
+  const timeout = AbortSignal.timeout(path.startsWith('/players/nfl') ? 20_000 : 12_000);
   const response = await fetch(`${API}${path}`, {
     ...(revalidate > 0 ? { next: { revalidate } } : { cache: 'no-store' as const }),
-    signal: AbortSignal.timeout(path.startsWith('/players/nfl') ? 20_000 : 12_000),
+    signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
     headers: { Accept: 'application/json' },
   });
   if (!response.ok) throw new Error(`Sleeper could not load ${path} (HTTP ${response.status}).`);
@@ -238,10 +247,14 @@ async function fetchRows<T>(
   return rows;
 }
 
-function assertCoreCompleteness(league: SleeperLeague, rosters: SleeperRoster[], users: SleeperUser[]): void {
+function assertRosterCompleteness(league: SleeperLeague, rosters: readonly SleeperRoster[]): void {
   if (rosters.length !== league.total_rosters) {
     throw new Error(`Sleeper returned ${rosters.length} of ${league.total_rosters} league rosters.`);
   }
+}
+
+function assertCoreCompleteness(league: SleeperLeague, rosters: SleeperRoster[], users: SleeperUser[]): void {
+  assertRosterCompleteness(league, rosters);
   const userIds = new Set(users.map((user) => user.user_id));
   if (rosters.some((roster) => roster.owner_id && !userIds.has(roster.owner_id))) {
     throw new Error('Sleeper returned incomplete manager information for the league rosters.');
@@ -305,10 +318,14 @@ const getLeagueCalendar = cache(async (leagueId: string, revalidate: number) => 
   };
 });
 
+const getLeagueRosters = cache(async (leagueId: string) => fetchRows<SleeperRoster>(
+  `/league/${leagueId}/rosters`, isSleeperRoster, (row) => String(row.roster_id), CORE_CACHE_SECONDS,
+));
+
 const getCore = cache(async (leagueId: string) => {
   const [calendar, rosters, users] = await Promise.all([
     getLeagueCalendar(leagueId, CORE_CACHE_SECONDS),
-    fetchRows<SleeperRoster>(`/league/${leagueId}/rosters`, isSleeperRoster, (row) => String(row.roster_id)),
+    getLeagueRosters(leagueId),
     fetchRows<SleeperUser>(`/league/${leagueId}/users`, isSleeperUser, (row) => row.user_id),
   ]);
   const { sourceLeague, state, league } = calendar;
@@ -442,6 +459,16 @@ const loadRawMatchups = createRawSleeperMatchupLoader({
   now: () => new Date().toISOString(),
 });
 
+/** Thin observers use this exact full-loader boundary, with no ancillary endpoint calls. */
+export async function getRawLineupMatchups(
+  leagueId: string, week: number, signal?: AbortSignal,
+): Promise<RawSleeperMatchupObservation> {
+  if (!leagueId.trim() || !Number.isInteger(week) || week < 1 || week > 18) {
+    throw new Error('Invalid lineup request target.');
+  }
+  return loadRawMatchups(leagueId, week, 0, signal);
+}
+
 async function loadMatchupSource(
   leagueId: string,
   options: MatchupSourceOptions = {},
@@ -450,6 +477,8 @@ async function loadMatchupSource(
   rosteredPlayers: readonly Player[];
   sourceLeague: SleeperLeague;
   schedule: WeekSchedule;
+  rawMatchups: readonly SleeperMatchup[];
+  matchupShape: SleeperMatchupShape;
   requestStartedAt: string;
   requestCompletedAt: string;
 }> {
@@ -522,6 +551,8 @@ async function loadMatchupSource(
     rosteredPlayers,
     sourceLeague: core.sourceLeague,
     schedule: nflSchedule.schedule,
+    rawMatchups: rows,
+    matchupShape: sleeperMatchupShape(core.rosters, core.overview.league.rosterPositions),
     requestStartedAt,
     requestCompletedAt,
   };
@@ -548,6 +579,8 @@ export async function getProjectionSyncInput(
     data: source.data,
     rosteredPlayers: source.rosteredPlayers,
     schedule: source.schedule,
+    rawMatchups: source.rawMatchups,
+    matchupShape: source.matchupShape,
     requestStartedAt: source.requestStartedAt,
     requestCompletedAt: source.requestCompletedAt,
   };
@@ -556,12 +589,17 @@ export async function getProjectionSyncInput(
 /**
  * Loads only the global calendar inputs needed to decide whether the scheduled
  * worker should wake Neon and fan out across leagues. These requests use a
- * five-minute cache and deliberately omit rosters, managers, players, and scores.
+ * one-minute operational cache and the shared roster metadata. Schedule caching
+ * remains unchanged; managers, player catalogs and matchup scores are omitted.
  */
 export async function getProjectionCadenceInput(leagueId: string): Promise<ProjectionCadenceInput> {
+  const [calendar, rosters] = await Promise.all([
+    getLeagueCalendar(leagueId, CORE_CACHE_SECONDS), getLeagueRosters(leagueId),
+  ]);
   const {
     sourceLeague, state, league, requestStartedAt, requestCompletedAt,
-  } = await getLeagueCalendar(leagueId, SCHEDULE_CACHE_SECONDS);
+  } = calendar;
+  assertRosterCompleteness(sourceLeague, rosters);
   const activeScoringWeek = sleeperActiveScoringWeek(sourceLeague, state);
   const workerWeek = activeScoringWeek ?? league.week;
   const schedule = canDecorateMatchupWeek(sourceLeague, state, workerWeek)
@@ -581,6 +619,7 @@ export async function getProjectionCadenceInput(leagueId: string): Promise<Proje
     leagueLifecycle: sleeperLeagueLifecycle(sourceLeague, state),
     leagueStatus: sourceLeague.status,
     schedule,
+    matchupShape: sleeperMatchupShape(rosters, league.rosterPositions),
     currentNflSeason: state?.season ?? null,
     currentNflWeek,
     currentNflSeasonType: state?.season_type ?? null,

@@ -1,4 +1,4 @@
-import { handleProjectionCronRequest } from '@/lib/projection-http';
+import { handleProjectionCronRequest } from '@/lib/projection-cron-http';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';

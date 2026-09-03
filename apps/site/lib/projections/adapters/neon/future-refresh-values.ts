@@ -76,12 +76,18 @@ export function futureRefreshTargets(
       || value.weekDistance < 1 || value.weekDistance > 18) {
       throw new Error('Future projection week distance is invalid.');
     }
+    const projectionWeekDistance = value.projectionWeekDistance ?? value.weekDistance;
+    if (!Number.isInteger(projectionWeekDistance) || projectionWeekDistance < 1
+      || projectionWeekDistance > value.weekDistance) {
+      throw new Error('Shared projection week distance is invalid.');
+    }
     const key = `${period.season}:${period.seasonType}:${period.week}`;
     const existing = byPeriod.get(key);
-    if (existing && existing.weekDistance !== value.weekDistance) {
+    if (existing && (existing.weekDistance !== value.weekDistance
+      || existing.projectionWeekDistance !== projectionWeekDistance)) {
       throw new Error('Future projection period has conflicting week distances.');
     }
-    byPeriod.set(key, { period, weekDistance: value.weekDistance });
+    byPeriod.set(key, { period, weekDistance: value.weekDistance, projectionWeekDistance });
   }
   const orderedPeriods = futureRefreshPeriods([...byPeriod.values()].map(({ period }) => period));
   return orderedPeriods.map((period) => byPeriod.get(

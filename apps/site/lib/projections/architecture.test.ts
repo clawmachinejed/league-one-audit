@@ -190,6 +190,31 @@ function isInside(path: string, directory: string): boolean {
   return normalizedPath.startsWith(normalizedDirectory);
 }
 
+/** Includes re-exports, literal dynamic imports and require; erased type imports do not load code. */
+function runtimeDependencyViolations(
+  entries: readonly string[],
+  forbidden: (path: string) => boolean,
+): string[] {
+  const violations: string[] = [];
+  for (const entry of entries) {
+    if (!modules.has(entry)) { violations.push(`${displayPath(entry)}: required entry point is missing`); continue; }
+    const visited = new Set<string>([entry]);
+    const pending: string[][] = [[entry]];
+    while (pending.length) {
+      const chain = pending.pop()!;
+      for (const dependency of modules.get(chain[chain.length - 1])?.imports ?? []) {
+        if (dependency.typeOnly || !dependency.resolved || !modules.has(dependency.resolved)
+          || visited.has(dependency.resolved)) continue;
+        visited.add(dependency.resolved);
+        const next = [...chain, dependency.resolved];
+        if (forbidden(dependency.resolved)) violations.push(next.map(displayPath).join(' -> '));
+        else pending.push(next);
+      }
+    }
+  }
+  return violations;
+}
+
 const domainModules = modulesIn(join(projectionRoot, 'domain'));
 const portModules = modulesIn(join(projectionRoot, 'ports'));
 const workerModules = modulesIn(join(projectionRoot, 'worker'));
@@ -403,7 +428,7 @@ describe('projection architecture', () => {
     expectNoViolations('Adapters must not discover credentials, provider clients, clocks, or league configuration globally.', violations);
   });
 
-  it('keeps production worker composition in its single runtime module', () => {
+  it('keeps production worker composition inside its runtime boundary', () => {
     const violations: string[] = [];
     const runtimeModules = modulesIn(runtimeRoot);
     if (!runtimeModules.some((sourceModule) => sourceModule.absolutePath === runtimePath)) {
@@ -446,6 +471,8 @@ describe('projection architecture', () => {
     });
     const forbiddenFiles = new Set([
       resolve(libRoot, 'live-projection-worker.ts'),
+      resolve(libRoot, 'lineup-observation-worker.ts'),
+      resolve(libRoot, 'future-projection-worker.ts'),
     ]);
     for (const sourceModule of userFacing) {
       for (const dependency of sourceModule.imports) {
@@ -461,6 +488,58 @@ describe('projection architecture', () => {
       }
     }
     expectNoViolations('Pages, components, and user-facing routes must read the published snapshot boundary.', violations);
+  });
+
+  it('keeps user-facing requests transitively isolated from worker and provider feeds', () => {
+    const entries = [...modules.values()].filter((module) => module.relativePath.startsWith('components/')
+      || (module.relativePath.startsWith('app/') && !module.relativePath.startsWith('app/api/cron/')))
+      .map((module) => module.absolutePath);
+    const facades = new Set(['live-projection-worker.ts', 'lineup-observation-worker.ts', 'future-projection-worker.ts']
+      .map((file) => resolve(libRoot, file)));
+    expectNoViolations('User-facing dependency chains must not load cron workers or live provider feeds.',
+      runtimeDependencyViolations(entries, (path) => facades.has(path)
+        || isInside(path, runtimeRoot)
+        || isInside(path, join(projectionRoot, 'worker'))
+        || isInside(path, join(projectionRoot, 'adapters', 'tank01'))));
+  });
+
+  it('keeps the thin lineup lane transitively isolated from projection calculation and feeds', () => {
+    const forbidden = new Set([
+      resolve(libRoot, 'live-projection-worker.ts'),
+      resolve(libRoot, 'future-projection-worker.ts'),
+      runtimePath,
+      resolve(projectionRoot, 'domain', 'scoring.ts'),
+      resolve(projectionRoot, 'domain', 'scoring-events.ts'),
+      resolve(projectionRoot, 'domain', 'live-calculation.ts'),
+      resolve(projectionRoot, 'worker', 'orchestrator.ts'),
+      resolve(projectionRoot, 'worker', 'future-orchestrator.ts'),
+      resolve(projectionRoot, 'worker', 'snapshot-builder.ts'),
+      resolve(projectionRoot, 'worker', 'scoring-cache.ts'),
+      resolve(projectionRoot, 'adapters', 'neon', 'repository.ts'),
+      resolve(projectionRoot, 'adapters', 'neon', 'identity-crosswalk.ts'),
+    ]);
+    expectNoViolations('The thin route must compose only observation capabilities; selecting fields from full dependencies is insufficient.',
+      runtimeDependencyViolations([
+        resolve(siteRoot, 'app', 'api', 'cron', 'lineup-observations', 'route.ts'),
+        resolve(libRoot, 'lineup-observation-worker.ts'),
+      ], (path) => forbidden.has(path) || isInside(path, join(projectionRoot, 'adapters', 'tank01'))));
+  });
+
+  it('keeps scheduled current orchestration independent of the future worker', () => {
+    expectNoViolations('Only the runtime force dispatcher may hand a preseason default to the future owner.',
+      runtimeDependencyViolations([resolve(projectionRoot, 'worker', 'orchestrator.ts')], (path) => (
+        isInside(path, join(projectionRoot, 'worker')) && /\/future-[^/]+\.ts$/u.test(slashPath(path))
+      )));
+  });
+
+  it('keeps future orchestration away from calendar fetching and authority writers', () => {
+    const forbidden = new Set([
+      resolve(projectionRoot, 'worker', 'orchestrator.ts'),
+      resolve(projectionRoot, 'worker', 'current-lineup-context.ts'),
+      resolve(projectionRoot, 'adapters', 'sleeper', 'nfl-calendar.ts'),
+    ]);
+    expectNoViolations('Future application work must use persisted authority without a current-worker preflight.',
+      runtimeDependencyViolations([resolve(projectionRoot, 'worker', 'future-orchestrator.ts')], (path) => forbidden.has(path)));
   });
 
   it('confines SQL and low-level Neon access to the store package and its two composition facades', () => {

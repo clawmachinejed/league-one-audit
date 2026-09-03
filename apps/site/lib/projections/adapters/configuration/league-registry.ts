@@ -25,6 +25,11 @@ export function createLeagueRegistry(
   const references = new Set<string>();
 
   for (const configuration of active) {
+    const range = configuration.matchupWeekRange;
+    if (!range || !Number.isInteger(range.firstWeek) || !Number.isInteger(range.lastWeek)
+      || range.firstWeek < 1 || range.lastWeek > 18 || range.firstWeek > range.lastWeek) {
+      throw new Error('League matchup horizon is invalid.');
+    }
     if (keys.has(configuration.key)) {
       throw new Error(`Duplicate league key: ${configuration.key}`);
     }

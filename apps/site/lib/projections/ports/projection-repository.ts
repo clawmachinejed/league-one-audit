@@ -17,6 +17,9 @@ import type {
   CanonicalScoringProfile,
 } from '../domain/contracts';
 import type { MatchupsData } from '../../types';
+import type { LineupPublicationFence } from '../domain/lineup-publication';
+import type { LineupRevision, LineupShape } from '../domain/contracts';
+import type { PeriodCadenceTiming } from '../domain/period-cadence-timing';
 
 declare const repositoryIdBrand: unique symbol;
 
@@ -129,6 +132,7 @@ export type OfficialRosterPointInput = Readonly<{
 }>;
 
 export type LeagueWeekObservationInput = Readonly<{
+  lineup: LineupRevision;
   leagueSeasonId: LeagueSeasonId;
   period: LeaguePeriod;
   sourceRevision: string;
@@ -180,6 +184,7 @@ export type StoredProjectionSnapshotSelection = Readonly<{
 }>;
 
 export type PublishSnapshotInput = Readonly<{
+  lineupFence: LineupPublicationFence;
   leagueSeasonId: LeagueSeasonId;
   period: LeaguePeriod;
   modelVersion: string;
@@ -214,6 +219,7 @@ export type ProjectionRepositoryPort = Readonly<{
   enabled: boolean;
   upsertPeriodAuthority: (
     authority: LeaguePeriodAuthority,
+    metadata: Readonly<{ shape: LineupShape; defaultPeriodCadence: PeriodCadenceTiming }>,
   ) => Promise<PeriodAuthorityOutcome>;
   registerLeagueSeason: (input: Readonly<{
     configuration: LeagueConfiguration;

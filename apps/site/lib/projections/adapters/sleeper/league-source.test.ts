@@ -15,6 +15,7 @@ const configuration = {
   key: 'premier',
   displayName: 'Premier League',
   leagueRef,
+  matchupWeekRange: { firstWeek: 1, lastWeek: 18 },
 };
 const targetPeriod = { season: 2026, seasonType: 'regular' as const, week: 1 };
 
@@ -97,6 +98,11 @@ function input(overrides: Partial<ProjectionSyncInput> = {}): ProjectionSyncInpu
     sleeperLeagueId: 'league-001',
     leagueName: 'League API Name',
     scoringSettings,
+    rawMatchups: [
+      { roster_id: 1, matchup_id: 7, starters: ['p1', '0', 'JAX'] },
+      { roster_id: 2, matchup_id: 7, starters: ['p3', '0', '0'] },
+    ],
+    matchupShape: { rosterIds: [1, 2], expectedRosterCount: 2, expectedStarterSlotCount: 3, starterSlots: ['RB', 'FLEX', 'DEF'] },
     data,
     rosteredPlayers: [
       player('p1', { name: 'Bench Copy', slot: 'BN' }),
@@ -137,6 +143,8 @@ describe('Sleeper league-source adapter', () => {
     expect(result.leagueName).toBe('League API Name');
     expect(result.period).toEqual({ season: 2026, seasonType: 'regular', week: 1 });
     expect(result.maxWeek).toBe(18);
+    expect(result.lineupShape).toEqual({ expectedRosterCount: 2, expectedStarterSlotCount: 3,
+      expectedRosterRefs: [externalRosterRef(leagueRef, '1'), externalRosterRef(leagueRef, '2')] });
     expect(result.rosterPositions).toBe(source.data.league.rosterPositions);
     expect(result.participants).toEqual([
       {

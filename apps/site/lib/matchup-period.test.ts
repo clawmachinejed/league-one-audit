@@ -14,6 +14,7 @@ function authority(
   return {
     configuration: {
       key: 'league1', displayName: 'League One', leagueRef,
+      matchupWeekRange: { firstWeek: 1, lastWeek: 18 },
     },
     defaultDisplayPeriod: { season: 2026, seasonType: 'regular', week: 2 },
     activeScoringPeriod: lifecycle === 'active'

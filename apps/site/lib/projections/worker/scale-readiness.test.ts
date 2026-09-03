@@ -10,6 +10,7 @@ import {
   fakeStore,
   fullWeekSchedule,
   projectionResult,
+  workerDependencies,
 } from '../../live-projection-worker.fixtures';
 import { NFL_TEAM_CODES } from '../domain/contracts';
 import type {
@@ -35,7 +36,10 @@ import {
 } from '../shared/provider-identity';
 import { compatibleRevision } from '../shared/revision-compatibility';
 import type { LiveProjectionSyncResult, LiveProjectionWorkerDependencies } from './contracts';
-import { runWithDependencies } from './orchestrator';
+import { loadCurrentLeagues } from './current-league-load';
+import { runCurrentProjectionStages } from './current-projection-stages';
+import { futureDependencies } from './future-fixtures';
+import { assessLineupWatchCapacity } from './lineup-watch-policy';
 
 const SCALE_POINTS = [3, 50, 300] as const;
 const MANAGER_TEAMS = [
@@ -116,6 +120,7 @@ function scaleConfiguration(index: number): LeagueConfiguration {
     key: `scale-${suffix}`,
     displayName: `Scale League ${suffix}`,
     leagueRef: externalLeagueRef(OFFICIAL_PROVIDER, `scale-${suffix}`),
+    matchupWeekRange: {firstWeek:1,lastWeek:18},
   };
 }
 
@@ -161,6 +166,8 @@ function scaleSource(configuration: LeagueConfiguration): LeagueWeekState {
   }));
   return {
     configuration,
+    lineup: {revisionVersion:'lineup-v1',lineupRevision:`lineup-${configuration.key}`},
+    lineupShape: {expectedRosterCount:12,expectedStarterSlotCount:1,expectedRosterRefs:participants.map((participant)=>participant.rosterRef)},
     leagueName: configuration.displayName,
     period: PERIOD,
     maxWeek: 18,
@@ -185,6 +192,8 @@ function scaleCadence(configuration: LeagueConfiguration): LeagueCadenceState {
   return {
     configuration,
     period: PERIOD,
+    lineupShape:scaleSource(configuration).lineupShape,
+    defaultPeriodCadence:{isCurrentRegularPeriod:true,games:[]},
     periodAuthority: {
       configuration,
       defaultDisplayPeriod: PERIOD,
@@ -434,12 +443,11 @@ async function runScaleScenario(leagueCount: number): Promise<ScaleRun> {
       },
     ),
   };
+  const common = futureDependencies(workerDependencies(fake), fake);
   const dependencies: LiveProjectionWorkerDependencies = {
+    ...common,
     repository,
     identityCrosswalk,
-    futurePersistence: {
-      scope: () => ({ repository, identityCrosswalk }),
-    },
     leagueRegistry: { listActiveLeagues: () => configurations },
     nflCalendar: {
       getCadenceState: (configuration) => meter.run(
@@ -511,7 +519,20 @@ async function runScaleScenario(leagueCount: number): Promise<ScaleRun> {
   };
 
   const executionStartedAt = performance.now();
-  const result = await runWithDependencies(dependencies);
+  // A deliberately supplied component work set measures bounded processing, not production admission.
+  const at=dependencies.clock.now();
+  const runId=dependencies.idGenerator.generate();
+  const synchronized=await common.lineupRepository.synchronizeLineupWatchStates({
+    registeredLeagueKeys:configurations.map((configuration)=>configuration.key),
+    targets:configurations.map((configuration)=>({configuration,period:PERIOD,shape:scaleSource(configuration).lineupShape,
+      authorityGeneration:1,lineupRevisionVersion:'lineup-v1',cadencePolicyVersion:'lineup-cadence-v1',
+      watchClass:'current',materializationLane:'current',phase:0,initialNextCheckAt:at.toISOString()})),
+  });
+  if(synchronized.kind!=='stored')throw new Error('Synthetic work set unavailable');
+  const loaded=await loadCurrentLeagues(dependencies,synchronized.states.map((state)=>({state,cadence:'live-window',hourlyMarker:null})),runId);
+  const stage=await runCurrentProjectionStages(dependencies,loaded.sources,loaded.publicationFences,at.toISOString(),runId);
+  const result:LiveProjectionSyncResult={status:'completed',cadence:'live-window',publishedLeagues:stage.publishedLeagues,
+    failedLeagues:loaded.failedLeagues+stage.failedLeagues,providerGroups:stage.providerGroups};
   const executionDurationMs = performance.now() - executionStartedAt;
   return {
     result,
@@ -585,7 +606,7 @@ describe.each(SCALE_POINTS)('canonical worker scale readiness: %i leagues', (lea
     const { meter } = first.metrics;
     // Each league owns an independently persisted default-display lifecycle.
     // The shared NFL-state request remains cached inside the Sleeper boundary.
-    expect(meter.count('calendar.getCadenceState')).toBe(leagueCount);
+    expect(meter.count('calendar.getCadenceState')).toBe(0);
     expect(meter.count('leagueSource.getLeagueWeek')).toBe(leagueCount);
     // This port-level harness observes one shared projection slate and one shared
     // game slate. Tank adapter tests independently lock cold-cache HTTP calls at
@@ -605,10 +626,10 @@ describe.each(SCALE_POINTS)('canonical worker scale readiness: %i leagues', (lea
     expect(first.entityResolutionBatchSizes).toEqual([12]);
     expect(first.candidateBatchSizes).toHaveLength(leagueCount);
     expect(first.candidateBatchSizes.every((size) => size === 12)).toBe(true);
-    expect(meter.count('repository.acquireJob')).toBe(1);
+    expect(meter.count('repository.acquireJob')).toBe(0);
     expect(meter.count('repository.recordGameStates')).toBe(1);
     expect(meter.count('repository.recordProjectionSlate')).toBe(1);
-    expect(meter.count('repository.completeJob')).toBe(1);
+    expect(meter.count('repository.completeJob')).toBe(0);
     expect(meter.count('repository.failJob')).toBe(0);
     expect(meter.count('repository.pruneHistory')).toBe(0);
     for (const operation of [
@@ -623,7 +644,7 @@ describe.each(SCALE_POINTS)('canonical worker scale readiness: %i leagues', (lea
     ]) {
       expect(meter.count(operation), operation).toBe(leagueCount);
     }
-    expect(first.operationCount).toBe((8 * leagueCount) + 6);
+    expect(first.operationCount).toBe((8 * leagueCount) + 4);
 
     expect(meter.peak('leagueSource.getLeagueWeek')).toBe(expectedParallelLeagues);
     expect(first.metrics.leaguePeak).toBe(expectedParallelLeagues);
@@ -644,10 +665,6 @@ describe.each(SCALE_POINTS)('canonical worker scale readiness: %i leagues', (lea
     expect(meter.outstanding).toBe(0);
 
     const trace = meter.trace;
-    expect(lastFinish(trace, 'calendar.getCadenceState'))
-      .toBeLessThan(firstStart(trace, 'repository.acquireJob'));
-    expect(lastFinish(trace, 'repository.acquireJob'))
-      .toBeLessThan(firstStart(trace, 'leagueSource.getLeagueWeek'));
     expect(lastFinish(trace, 'leagueSource.getLeagueWeek'))
       .toBeLessThan(firstStart(trace, 'feed.getProjectionSlate'));
     expect(Math.max(
@@ -662,8 +679,6 @@ describe.each(SCALE_POINTS)('canonical worker scale readiness: %i leagues', (lea
       .toBeLessThan(firstStart(trace, 'repository.recordProjectionSlate'));
     expect(lastFinish(trace, 'repository.recordProjectionSlate'))
       .toBeLessThan(firstStart(trace, 'repository.registerLeagueSeason'));
-    expect(lastFinish(trace, 'repository.publishSnapshot'))
-      .toBeLessThan(firstStart(trace, 'repository.completeJob'));
 
     const completedStages = first.metrics.logs
       .filter(({ entry }) => entry.outcome === 'completed')
@@ -676,24 +691,19 @@ describe.each(SCALE_POINTS)('canonical worker scale readiness: %i leagues', (lea
       'provider-load': 1,
       'provider-persist': 1,
       'league-publish': leagueCount,
-      run: 1,
     });
-    const leagueLoadLog = first.metrics.logs.find(({ entry }) => (
-      entry.stage === 'league-load' && entry.outcome === 'completed'
-    ));
     const providerLoadLog = first.metrics.logs.find(({ entry }) => (
       entry.stage === 'provider-load' && entry.outcome === 'completed'
     ));
-    const runLog = first.metrics.logs.find(({ entry }) => (
-      entry.stage === 'run' && entry.outcome === 'completed'
-    ));
-    expect(leagueLoadLog?.entry.stageDurationMs).toEqual(expect.any(Number));
     expect(providerLoadLog?.entry.providerDurationMs).toEqual(expect.any(Number));
-    expect(runLog?.entry.totalDurationMs).toEqual(expect.any(Number));
-    expect(leagueLoadLog!.entry.stageDurationMs!).toBeGreaterThanOrEqual(0);
     expect(providerLoadLog!.entry.providerDurationMs!).toBeGreaterThanOrEqual(0);
-    expect(runLog!.entry.totalDurationMs!).toBeGreaterThanOrEqual(0);
     expect(first.metrics.logs.filter(({ level }) => level === 'warn' || level === 'error'))
       .toEqual([]);
   }, 20_000);
+});
+
+describe.each([50,300])('current production admission at %i leagues', (count)=>{
+  it('reports capacity exceeded before promising one-minute coverage',()=>{
+    expect(assessLineupWatchCapacity(count,count*17).status).toBe('capacity-exceeded');
+  });
 });

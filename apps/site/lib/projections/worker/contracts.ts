@@ -18,7 +18,9 @@ import type { LeagueSourcePort } from '../ports/league-source';
 import type { ProjectionLogEntry, ProjectionLoggerPort } from '../ports/logger';
 import type { NflCalendarPort } from '../ports/nfl-calendar';
 import type { ProjectionFeedPort } from '../ports/projection-feed';
-import type { FutureRefreshRepositoryPort } from '../ports/future-refresh-repository';
+import type { LineupWatchRepositoryPort } from '../ports/lineup-watch-repository';
+import type { PeriodAuthorityReaderPort } from '../ports/period-authority-reader';
+import type { LineupSourcePort } from '../ports/lineup-source';
 import type {
   ObservationId,
   ProjectionRepositoryPort,
@@ -40,12 +42,16 @@ export type ScoringProfileNormalization =
     }>;
 
 export type LiveProjectionWorkerDependencies = Readonly<{
-  repository: ProjectionRepositoryPort & FutureRefreshRepositoryPort;
+  repository: ProjectionRepositoryPort;
+  lineupRepository: LineupWatchRepositoryPort;
+  periodAuthorityReader: PeriodAuthorityReaderPort;
+  lineupSource: LineupSourcePort;
   identityCrosswalk: IdentityCrosswalkPort;
-  futurePersistence: Readonly<{
+  persistence: Readonly<{
     scope: (signal: AbortSignal) => Readonly<{
-      repository: ProjectionRepositoryPort & FutureRefreshRepositoryPort;
-      identityCrosswalk: IdentityCrosswalkPort;
+      repository: ProjectionRepositoryPort;
+      lineupRepository: LineupWatchRepositoryPort;
+      periodAuthorityReader: PeriodAuthorityReaderPort;
     }>;
   }>;
   leagueRegistry: LeagueRegistryPort;
@@ -116,6 +122,7 @@ export type PersistedGroup = Readonly<{
 }>;
 
 export type LeagueStageResult = Readonly<{
+  sourceRevision: string;
   publicationOutcome: 'published' | 'unchanged';
   starterCount: number;
   candidateCount: number;

@@ -1,26 +1,24 @@
 import 'server-only';
 
-import { randomUUID } from 'node:crypto';
-import { LEAGUE_IDS } from '../../config';
-import { LEAGUE_SITES, type LeagueKey } from '../../leagues';
 import { ACTIVE_PROJECTION_SOURCE } from '../../projection-source-config';
 import { getDatabase, withDatabaseAbortSignal } from '../../database';
 import { createProjectionStore, getProjectionStore } from '../../projection-store';
-import { getProjectionCadenceInput, getProjectionSyncInput } from '../../sleeper';
-import { createLeagueRegistry } from '../adapters/configuration/league-registry';
+import { getProjectionCadenceInput, getProjectionSyncInput, getRawLineupMatchups } from '../../sleeper';
 import { createNeonIdentityCrosswalk } from '../adapters/neon/identity-crosswalk';
 import { createNeonProjectionRepository } from '../adapters/neon/repository';
+import { createNeonLineupRepository } from '../adapters/neon/lineup-repository';
+import { createNeonPeriodAuthorityReader } from '../adapters/neon/period-authority-reader';
 import { createSleeperLeagueSource } from '../adapters/sleeper/league-source';
+import { createSleeperLineupSource } from '../adapters/sleeper/lineup-source';
 import { createSleeperNflCalendar } from '../adapters/sleeper/nfl-calendar';
 import { normalizeSleeperScoringProfile } from '../adapters/sleeper/scoring-profile';
 import { createTank01GameStateFeed } from '../adapters/tank01/game-state-feed';
 import { createCachedTank01ProjectionFeed } from '../adapters/tank01/projection-feed';
-import type { ProjectionLoggerPort } from '../ports/logger';
 import type { ProjectionFeedPort } from '../ports/projection-feed';
-import { externalLeagueRef, providerKey } from '../shared/provider-identity';
 import type { LiveProjectionWorkerDependencies } from '../worker/contracts';
+import type { FuturePersistence, FutureProjectionWorkerDependencies } from '../worker/future-contracts';
+import { createProductionSharedServices, officialProvider } from './shared-services';
 
-const officialProvider = providerKey('sleeper');
 const projectionProvider = ACTIVE_PROJECTION_SOURCE.provider;
 const gameStateProvider = projectionProvider;
 let cachedProjectionFeed: ProjectionFeedPort | null = null;
@@ -36,46 +34,29 @@ function productionProjectionFeed(): ProjectionFeedPort {
   return cachedProjectionFeed;
 }
 
-function productionLogger(): ProjectionLoggerPort {
+function projectionPersistence(
+  store: ReturnType<typeof getProjectionStore>,
+  shared: ReturnType<typeof createProductionSharedServices>,
+): FuturePersistence {
   return {
-    write(level, context) {
-      const entry = JSON.stringify({ service: 'live-projection-sync', ...context });
-      if (level === 'error') console.error(entry);
-      else if (level === 'warn') console.warn(entry);
-      else console.info(entry);
-    },
+    repository: createNeonProjectionRepository(store, {
+      officialProvider,
+      projectionProvider,
+      gameStateProvider,
+      normalizerVersion: ACTIVE_PROJECTION_SOURCE.normalizerVersion,
+    }),
+    identityCrosswalk: createNeonIdentityCrosswalk(store),
+    lineupRepository: createNeonLineupRepository(store, shared.leagueRegistry, {
+      projectionSource: projectionProvider,
+      normalizerVersion: ACTIVE_PROJECTION_SOURCE.normalizerVersion,
+      modelVersion: ACTIVE_PROJECTION_SOURCE.modelVersion,
+    }),
+    periodAuthorityReader: createNeonPeriodAuthorityReader(store, shared.leagueRegistry, shared.clock),
   };
 }
 
-/** The sole production composition root for the projection worker. */
-export function createProductionProjectionDependencies(): LiveProjectionWorkerDependencies {
-  const store = getProjectionStore();
-  const repositoryOptions = {
-    officialProvider,
-    projectionProvider,
-    gameStateProvider,
-    normalizerVersion: ACTIVE_PROJECTION_SOURCE.normalizerVersion,
-  };
-  const configurations = (Object.keys(LEAGUE_IDS) as LeagueKey[]).map((key) => ({
-    key,
-    displayName: LEAGUE_SITES[key].name,
-    leagueRef: externalLeagueRef(officialProvider, LEAGUE_IDS[key]),
-  }));
-
+function projectionServices() {
   return {
-    repository: createNeonProjectionRepository(store, repositoryOptions),
-    identityCrosswalk: createNeonIdentityCrosswalk(store),
-    futurePersistence: {
-      scope(signal) {
-        const scopedStore = createProjectionStore(withDatabaseAbortSignal(getDatabase(), signal));
-        return {
-          repository: createNeonProjectionRepository(scopedStore, repositoryOptions),
-          identityCrosswalk: createNeonIdentityCrosswalk(scopedStore),
-        };
-      },
-    },
-    leagueRegistry: createLeagueRegistry(configurations),
-    nflCalendar: createSleeperNflCalendar(getProjectionCadenceInput),
     leagueSource: createSleeperLeagueSource(getProjectionSyncInput),
     projectionFeed: productionProjectionFeed(),
     gameStateFeed: createTank01GameStateFeed({
@@ -89,8 +70,44 @@ export function createProductionProjectionDependencies(): LiveProjectionWorkerDe
       normalizerVersion: ACTIVE_PROJECTION_SOURCE.normalizerVersion,
     },
     normalizeScoringProfile: normalizeSleeperScoringProfile,
-    clock: { now: () => new Date(), monotonicNow: () => performance.now() },
-    idGenerator: { generate: randomUUID },
-    logger: productionLogger(),
+  };
+}
+
+/** Current work alone receives the calendar source and owns authority refreshes. */
+export function createProductionProjectionDependencies(): LiveProjectionWorkerDependencies {
+  const shared = createProductionSharedServices('live-projection-sync');
+  return {
+    ...shared,
+    ...projectionPersistence(getProjectionStore(), shared),
+    ...projectionServices(),
+    nflCalendar: createSleeperNflCalendar(getProjectionCadenceInput),
+    lineupSource: createSleeperLineupSource(getRawLineupMatchups, shared.clock.now),
+    persistence: {
+      scope(signal) {
+        const scoped = projectionPersistence(
+          createProjectionStore(withDatabaseAbortSignal(getDatabase(), signal)), shared,
+        );
+        return {
+          repository: scoped.repository,
+          lineupRepository: scoped.lineupRepository,
+          periodAuthorityReader: scoped.periodAuthorityReader,
+        };
+      },
+    },
+  };
+}
+
+/** Future work receives persisted authority, never a calendar-fetch capability. */
+export function createProductionFutureProjectionDependencies(): FutureProjectionWorkerDependencies {
+  const shared = createProductionSharedServices('future-projection-sync');
+  return {
+    ...shared,
+    ...projectionPersistence(getProjectionStore(), shared),
+    ...projectionServices(),
+    futurePersistence: {
+      scope: (signal) => projectionPersistence(
+        createProjectionStore(withDatabaseAbortSignal(getDatabase(), signal)), shared,
+      ),
+    },
   };
 }

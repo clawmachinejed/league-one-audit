@@ -10,6 +10,14 @@
     {
       "path": "/api/cron/live-projections",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/lineup-observations",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/future-projections",
+      "schedule": "* * * * *"
     }
   ]
 }

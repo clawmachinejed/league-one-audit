@@ -4,6 +4,8 @@ import type {
   ScoringEntity,
 } from '../domain/contracts';
 import type { ProjectionRepositoryPort } from '../ports/projection-repository';
+import type { LineupPublicationFence } from '../domain/lineup-publication';
+import type { LineupRevision } from '../domain/contracts';
 import {
   externalReferenceKey,
   sameExternalReference,
@@ -125,8 +127,13 @@ export async function processLeague(
   persisted: PersistedGroup,
   calculatedAt: string,
   scoringCache: ProviderGroupScoringCache,
+  context: Readonly<{ publicationFence: LineupPublicationFence; actualLineup: LineupRevision }>,
 ): Promise<LeagueStageResult> {
   const { source, configuration } = league;
+  if (context.actualLineup.revisionVersion !== source.lineup.revisionVersion
+    || context.actualLineup.lineupRevision !== source.lineup.lineupRevision) {
+    throw new Error('Publication lineage does not match the full official source.');
+  }
   assertCompleteGameCoverage(league, persisted.games);
 
   const normalized = scoringCache.resolve(source.scoringSettings);
@@ -250,6 +257,7 @@ export async function processLeague(
     points: finite(side.officialPoints) ? side.officialPoints : null,
   })));
   const observation = await dependencies.repository.recordLeagueWeekObservation({
+    lineup: source.lineup,
     leagueSeasonId: leagueSeason.value.leagueSeasonId,
     period: source.period,
     sourceRevision: source.sourceRevision,
@@ -319,6 +327,7 @@ export async function processLeague(
     })),
   });
   const published = await dependencies.repository.publishSnapshot({
+    lineupFence: context.publicationFence,
     leagueSeasonId: leagueSeason.value.leagueSeasonId,
     period: source.period,
     modelVersion: LIVE_PROJECTION_MODEL_VERSION,
@@ -334,6 +343,7 @@ export async function processLeague(
     throw new Error('The projection snapshot was not published.');
   }
   return {
+    sourceRevision: source.sourceRevision,
     publicationOutcome: published.kind,
     starterCount: starters.length,
     candidateCount: candidates.length,

@@ -8,6 +8,7 @@ import type {
   ProviderKey,
 } from '../shared/provider-identity';
 import type { ProjectionScoringRules } from './scoring-events';
+import type { PeriodCadenceTiming } from './period-cadence-timing';
 
 export const NFL_TEAM_CODES = [
   'ARI', 'ATL', 'BAL', 'BUF', 'CAR', 'CHI', 'CIN', 'CLE',
@@ -26,10 +27,22 @@ export type LeaguePeriod = Readonly<{
   week: number;
 }>;
 
+export type LineupShape = Readonly<{
+  expectedRosterCount: number;
+  expectedStarterSlotCount: number;
+  expectedRosterRefs: readonly ExternalRosterRef[];
+}>;
+
+export type LineupRevision = Readonly<{
+  revisionVersion: 'lineup-v1';
+  lineupRevision: string;
+}>;
+
 export type LeagueConfiguration = Readonly<{
   key: string;
   displayName: string;
   leagueRef: ExternalLeagueRef;
+  matchupWeekRange: Readonly<{ firstWeek: number; lastWeek: number }>;
 }>;
 
 export type ScheduledTeamWeek = Readonly<{
@@ -126,6 +139,7 @@ export type CanonicalScoringProfile = Readonly<{
 }>;
 
 export type LeagueWeekState = Readonly<{
+  lineupShape: LineupShape;
   configuration: LeagueConfiguration;
   leagueName: string;
   period: LeaguePeriod;
@@ -141,6 +155,8 @@ export type LeagueWeekState = Readonly<{
   requestCompletedAt: string;
   observedAt: string;
   sourceRevision: string;
+  /** Calculated from the exact raw matchup response, outside existing source-revision inputs. */
+  lineup: LineupRevision;
   warning?: string;
 }>;
 
@@ -155,6 +171,8 @@ export type LeagueCadenceState = Readonly<{
     seasonType: string | null;
   }>;
   schedule: NflWeekSchedule;
+  lineupShape: LineupShape;
+  defaultPeriodCadence: PeriodCadenceTiming;
 }>;
 
 export type LeagueLifecycle = 'preseason' | 'active' | 'complete';

@@ -93,7 +93,9 @@ const bench = {
 };
 
 const source: LeagueWeekState = {
-  configuration: { key: 'league-one', displayName: 'League One', leagueRef },
+  configuration: { key: 'league-one', displayName: 'League One', leagueRef, matchupWeekRange: { firstWeek: 1, lastWeek: 18 } },
+  lineup: { revisionVersion: 'lineup-v1', lineupRevision: 'a'.repeat(64) },
+  lineupShape: { expectedRosterCount: 2, expectedStarterSlotCount: 1, expectedRosterRefs: [rosterOne, rosterTwo] },
   leagueName: 'League One 2026',
   period,
   maxWeek: 18,
@@ -386,6 +388,8 @@ function processTestLeague(
       selectedGroup.projections,
       workerDependencies.normalizeScoringProfile,
     ),
+    { publicationFence: { ownerLane: 'current', watchId: 'watch-1', watchGeneration: 1,
+      authorityGeneration: 1, runId: 'worker-1' }, actualLineup: selectedLeague.source.lineup },
   );
 }
 
@@ -452,6 +456,7 @@ describe('canonical league projection stage', () => {
     expect(harness.mocks.readCurrentSnapshot).toHaveBeenCalledWith(leagueSeasonId, period);
 
     expect(harness.mocks.recordLeagueWeekObservation).toHaveBeenCalledWith({
+      lineup: source.lineup,
       leagueSeasonId,
       period,
       sourceRevision: 'official-revision',

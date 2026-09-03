@@ -18,7 +18,6 @@ import type {
   GameStateSlate,
   LeagueConfiguration,
   LeaguePeriod,
-  LeaguePeriodAuthority,
   LeagueWeekState,
   NflTeam,
   ProjectionSlate,
@@ -38,11 +37,14 @@ import {
   externalRosterRef,
 } from '../shared/provider-identity';
 import { compatibleRevision } from '../shared/revision-compatibility';
-import { runFutureWork } from './future-orchestrator';
+import { runFutureProjectionStage } from './future-projection-stage';
+import { runFutureMaterializationStage } from './future-materialization-stage';
+import { futureDependencies } from './future-fixtures';
+import { assessLineupWatchCapacity } from './lineup-watch-policy';
+import type { FutureProjectionWorkerDependencies } from './future-contracts';
 import type { FutureWorkTiming } from './future-work-runtime';
 
 const FLEET_SIZES = [2, 3, 50, 300] as const;
-const CURRENT_PERIOD: LeaguePeriod = { season: 2026, seasonType: 'regular', week: 1 };
 const FUTURE_PERIOD: LeaguePeriod = { season: 2026, seasonType: 'regular', week: 2 };
 const NOW = new Date('2026-09-13T18:10:10.000Z');
 const FUTURE_KICKOFF = '2026-09-20T17:00:00.000Z';
@@ -120,20 +122,7 @@ function configuration(index: number): LeagueConfiguration {
     key: `future-scale-${suffix}`,
     displayName: `Future Scale League ${suffix}`,
     leagueRef: externalLeagueRef(OFFICIAL_PROVIDER, `future-scale-${suffix}`),
-  };
-}
-
-function authority(configuration: LeagueConfiguration): LeaguePeriodAuthority {
-  return {
-    configuration,
-    defaultDisplayPeriod: CURRENT_PERIOD,
-    activeScoringPeriod: CURRENT_PERIOD,
-    lifecycle: 'active',
-    nflPhase: 'regular',
-    source: OFFICIAL_PROVIDER,
-    sourceRevision: `period-${configuration.key}`,
-    observedAt: NOW.toISOString(),
-    verifiedAt: NOW.toISOString(),
+    matchupWeekRange: { firstWeek: 1, lastWeek: 18 },
   };
 }
 
@@ -167,6 +156,9 @@ function futureSource(configuration: LeagueConfiguration): LeagueWeekState {
   });
   return {
     configuration,
+    lineup: { revisionVersion: 'lineup-v1', lineupRevision: `lineup-${configuration.key}` },
+    lineupShape: { expectedRosterCount: 12, expectedStarterSlotCount: 1,
+      expectedRosterRefs: participants.map((participant) => participant.rosterRef) },
     leagueName: configuration.displayName,
     period: FUTURE_PERIOD,
     maxWeek: 18,
@@ -316,7 +308,7 @@ function publishedDigest(inputs: readonly PublishSnapshotInput[]): string {
 async function runIngestScenario(leagueCount: number) {
   const configurations = Array.from({ length: leagueCount }, (_, index) => configuration(index));
   const store = fakeStore();
-  const dependencies = workerDependencies(store, { now: NOW });
+  const dependencies = futureDependencies(workerDependencies(store, { now: NOW }), store);
   const recordedSlates: ProjectionSlate[] = [];
   const recordProjectionSlate = store.repository.recordProjectionSlate.bind(store.repository);
   vi.spyOn(store.repository, 'recordProjectionSlate').mockImplementation(async (slate) => {
@@ -330,18 +322,9 @@ async function runIngestScenario(leagueCount: number) {
   });
   dependencies.loggerMock.mockImplementation(() => undefined);
 
-  const result = await runFutureWork(dependencies, {
-    configurations,
-    authorities: configurations.map(authority),
-    now: NOW,
-    calculatedAt: NOW.toISOString(),
-    runId: 'future-scale-worker',
-    timing: timing(),
-  });
-  const globalClaim = store.acquired.mock.calls[0]?.[0];
+  const result = await runScaleStage(dependencies, configurations, store, 'projection-ingest');
   return {
     result,
-    selection: globalClaim?.payload,
     slateDigest: digest(recordedSlates),
     recordedSlates,
     store,
@@ -351,7 +334,7 @@ async function runIngestScenario(leagueCount: number) {
 }
 
 type MaterializationRun = Readonly<{
-  result: Awaited<ReturnType<typeof runFutureWork>>;
+  result: Awaited<ReturnType<typeof runScaleStage>>;
   store: FakeStore;
   digest: string;
   meter: AsyncMeter;
@@ -369,7 +352,7 @@ async function runMaterializationScenario(leagueCount: number): Promise<Material
   const store = fakeStore();
   await store.repository.recordProjectionSlate(projectionResult(FUTURE_PERIOD));
   store.operations.splice(0);
-  const dependencies = workerDependencies(store, { now: NOW });
+  const dependencies = futureDependencies(workerDependencies(store, { now: NOW }), store);
   const meter = new AsyncMeter();
   const parallelLeagues = Math.min(leagueCount, 8);
   const sourceWave = new OneShotBarrier(parallelLeagues);
@@ -486,14 +469,7 @@ async function runMaterializationScenario(leagueCount: number): Promise<Material
     })
   ));
 
-  const result = await runFutureWork(dependencies, {
-    configurations,
-    authorities: configurations.map(authority),
-    now: NOW,
-    calculatedAt: NOW.toISOString(),
-    runId: 'future-scale-worker',
-    timing: timing(),
-  });
+  const result = await runScaleStage(dependencies, configurations, store, 'materialize');
 
   return {
     result,
@@ -510,6 +486,29 @@ async function runMaterializationScenario(leagueCount: number): Promise<Material
   };
 }
 
+async function runScaleStage(
+  dependencies: FutureProjectionWorkerDependencies, configurations: readonly LeagueConfiguration[], _store: FakeStore,
+  kind: 'projection-ingest' | 'materialize',
+) {
+  const targets = configurations.map((configuration) => ({ configuration, period: FUTURE_PERIOD,
+    shape: { expectedRosterCount: 12, expectedStarterSlotCount: 1,
+      expectedRosterRefs: Array.from({length:12},(_,index)=>externalRosterRef(configuration.leagueRef,String(index+1))) },
+    authorityGeneration: 1, lineupRevisionVersion: 'lineup-v1' as const, cadencePolicyVersion: 'lineup-cadence-v1',
+    watchClass: 'future' as const, materializationLane: 'future' as const, phase: 0 as const,
+    initialNextCheckAt: NOW.toISOString() }));
+  const synchronized = await dependencies.lineupRepository.synchronizeLineupWatchStates({
+    registeredLeagueKeys: configurations.map((configuration) => configuration.key), targets,
+  });
+  if (synchronized.kind !== 'stored') throw new Error('Synthetic work set unavailable');
+  const selection = {kind, period:FUTURE_PERIOD, weekDistance:1, leagueKeys:configurations.map((configuration)=>configuration.key),
+    dirty:false,defaultPeriod:false,cadence:'hourly' as const,
+    leagueRefresh: configurations.map((configuration) => ({leagueKey:configuration.key,weekDistance:1,defaultPeriod:false,cadence:'hourly' as const}))};
+  return kind === 'projection-ingest'
+    ? runFutureProjectionStage(dependencies,selection,'future-scale-worker',timing())
+    : runFutureMaterializationStage(dependencies,configurations,synchronized.states,selection,
+        futurePlans(configurations,'materialize')[0],'future-scale-worker',NOW.toISOString(),timing());
+}
+
 /**
  * These are deterministic architecture simulations, not production capacity
  * claims. They prove that the future path shares provider work and keeps the
@@ -524,21 +523,9 @@ describe.each(FLEET_SIZES)('future-week scale readiness: %i leagues', (leagueCou
 
     expect(first.result).toEqual({
       status: 'completed',
-      cadence: 'hourly',
-      publishedLeagues: 0,
-      failedLeagues: 0,
       providerGroups: 1,
     });
     expect(second.result).toEqual(first.result);
-    expect(first.selection).toEqual({
-      modelVersion: 'clock-v1',
-      future: true,
-      action: 'projection-ingest',
-      season: 2026,
-      seasonType: 'regular',
-      week: 2,
-    });
-    expect(second.selection).toEqual(first.selection);
     expect(first.slateDigest).toBe(second.slateDigest);
     expect(first.recordedSlates).toHaveLength(1);
     expect(first.dependencies.projectionMock).toHaveBeenCalledOnce();
@@ -548,16 +535,6 @@ describe.each(FLEET_SIZES)('future-week scale readiness: %i leagues', (leagueCou
     expect(first.store.beginFutureProjection).toHaveBeenCalledOnce();
     expect(first.store.completeFutureProjection).toHaveBeenCalledOnce();
     expect(first.store.beginFutureMaterialization).not.toHaveBeenCalled();
-    expect(first.store.ensureFuture).toHaveBeenCalledWith(expect.objectContaining({
-      leagueKeys: first.configurations.map((candidate) => candidate.key),
-      targets: expect.arrayContaining([
-        { period: FUTURE_PERIOD, weekDistance: 1 },
-        {
-          period: { season: 2026, seasonType: 'regular', week: 18 },
-          weekDistance: 17,
-        },
-      ]),
-    }));
   }, 20_000);
 
   it('materializes every league from one stored slate and one shared game-state call', async () => {
@@ -567,8 +544,8 @@ describe.each(FLEET_SIZES)('future-week scale readiness: %i leagues', (leagueCou
 
     expect(first.result).toEqual({
       status: 'completed',
-      cadence: 'hourly',
       publishedLeagues: leagueCount,
+      unchangedLeagues: 0,
       failedLeagues: 0,
       providerGroups: 1,
     });
@@ -616,4 +593,10 @@ describe.each(FLEET_SIZES)('future-week scale readiness: %i leagues', (leagueCou
     expect(first.meter.peakOutstanding).toBe(parallelLeagues * 3);
     expect(first.meter.outstanding).toBe(0);
   }, 20_000);
+});
+
+describe.each([50,300])('production watcher capacity guard for %i leagues', (count) => {
+  it('refuses to promise one- and three-minute coverage beyond the fixed request budget', () => {
+    expect(assessLineupWatchCapacity(count,count*17).status).toBe('capacity-exceeded');
+  });
 });

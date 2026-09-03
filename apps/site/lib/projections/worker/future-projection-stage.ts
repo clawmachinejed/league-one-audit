@@ -2,7 +2,7 @@ import type {
   FutureRefreshAttemptId,
   FutureRefreshFailureCode,
 } from '../ports/future-refresh-repository';
-import type { LiveProjectionWorkerDependencies } from './contracts';
+import type { FutureProjectionWorkerDependencies } from './future-contracts';
 import type { FutureWorkSelection } from './future-work-policy';
 import {
   FUTURE_ATTEMPT_LEASE_SECONDS,
@@ -32,7 +32,7 @@ function unavailableFailureCode(reason: string): FutureRefreshFailureCode {
 }
 
 export async function runFutureProjectionStage(
-  dependencies: LiveProjectionWorkerDependencies,
+  dependencies: FutureProjectionWorkerDependencies,
   selection: FutureWorkSelection,
   runId: string,
   timing: FutureWorkTiming,
@@ -49,6 +49,7 @@ export async function runFutureProjectionStage(
     attemptId: runId as FutureRefreshAttemptId,
     attemptedAt,
     leaseSeconds: FUTURE_ATTEMPT_LEASE_SECONDS,
+    ...(selection.cadence === 'forced' ? { force: true as const } : {}),
   });
   if (claim.kind !== 'acquired') return { status: 'skipped' };
 
@@ -112,7 +113,7 @@ export async function runFutureProjectionStage(
       period: selection.period,
       attemptId: claim.attemptId,
       completedAt,
-      nextRefreshAt: nextFutureRefreshAt(completedAt, 'projection', selection.weekDistance),
+      nextRefreshAt: nextFutureRefreshAt(completedAt, 'projection', selection.weekDistance, selection),
       slate: {
         observationId: stored.value.observationId,
         contentId: stored.value.contentId,

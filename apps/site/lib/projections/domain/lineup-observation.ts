@@ -1,4 +1,5 @@
-import type { LeaguePeriod } from './contracts';
+import type { LeaguePeriod, LineupShape } from './contracts';
+export type { LineupShape } from './contracts';
 import {
   externalReferenceKey,
   sameExternalReference,
@@ -7,13 +8,6 @@ import {
   type ExternalMatchupRef,
   type ExternalRosterRef,
 } from '../shared/provider-identity';
-
-export type LineupShape = Readonly<{
-  expectedRosterCount: number;
-  expectedStarterSlotCount: number;
-  /** Exact roster membership from authoritative league configuration, never inferred from row count. */
-  expectedRosterRefs: readonly ExternalRosterRef[];
-}>;
 
 export type LineupObservationRow = Readonly<{
   rosterRef: ExternalRosterRef;
@@ -55,6 +49,15 @@ export function validLineupShape(shape: LineupShape): boolean {
       && typeof reference.externalId === 'string' && Boolean(reference.externalId.trim())
       && validLeague(reference.league))
     && new Set(shape.expectedRosterRefs.map(externalReferenceKey)).size === shape.expectedRosterCount;
+}
+
+/** Population order is immaterial; roster membership and ordered slot count are authoritative. */
+export function sameLineupShape(left: LineupShape, right: LineupShape): boolean {
+  return validLineupShape(left) && validLineupShape(right)
+    && left.expectedRosterCount === right.expectedRosterCount
+    && left.expectedStarterSlotCount === right.expectedStarterSlotCount
+    && [...left.expectedRosterRefs].map(externalReferenceKey).sort().join('\n')
+      === [...right.expectedRosterRefs].map(externalReferenceKey).sort().join('\n');
 }
 
 function samePeriod(left: LeaguePeriod, right: LeaguePeriod): boolean {

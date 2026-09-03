@@ -146,7 +146,6 @@ function createStore(overrides: Partial<RepositoryStore> = {}): RepositoryStore 
     completeFutureProjectionRefresh: vi.fn(async () => ({ kind: 'stale' as const })),
     failFutureProjectionRefresh: vi.fn(async () => ({ kind: 'stale' as const })),
     beginFutureMaterializationRefresh: vi.fn(async () => ({ kind: 'unavailable' as const })),
-    completeFutureMaterializationRefresh: vi.fn(async () => ({ kind: 'stale' as const })),
     failFutureMaterializationRefresh: vi.fn(async () => ({ kind: 'stale' as const })),
     recordProjectionCandidates: vi.fn(async () => ({
       kind: 'stored' as const,
@@ -212,7 +211,6 @@ describe('Neon canonical projection repository', () => {
     await expect(repository.completeFutureProjectionRefresh(undefined as never)).resolves.toEqual({ kind: 'disabled' });
     await expect(repository.failFutureProjectionRefresh(undefined as never)).resolves.toEqual({ kind: 'disabled' });
     await expect(repository.beginFutureMaterializationRefresh(undefined as never)).resolves.toEqual({ kind: 'disabled' });
-    await expect(repository.completeFutureMaterializationRefresh(undefined as never)).resolves.toEqual({ kind: 'disabled' });
     await expect(repository.failFutureMaterializationRefresh(undefined as never)).resolves.toEqual({ kind: 'disabled' });
     await expect(repository.recordProjectionCandidates(undefined as never)).resolves.toEqual({ kind: 'disabled' });
     await expect(repository.readLatestCandidates(undefined as never)).resolves.toEqual([]);
@@ -238,7 +236,7 @@ describe('Neon canonical projection repository', () => {
     const repository = createNeonProjectionRepository(store, options);
 
     await expect(repository.registerLeagueSeason({
-      configuration: { key: 'league-one', displayName: 'League One', leagueRef },
+      configuration: { key: 'league-one', displayName: 'League One', leagueRef, matchupWeekRange: { firstWeek: 1, lastWeek: 18 } },
       leagueName: 'League One 2026', period, scoringProfile,
     })).resolves.toEqual({
       kind: 'stored', value: { leagueSeasonId, scoringProfileId, leagueRef },
@@ -330,6 +328,7 @@ describe('Neon canonical projection repository', () => {
     });
 
     await expect(repository.recordLeagueWeekObservation({
+      lineup: { revisionVersion: 'lineup-v1', lineupRevision: 'a'.repeat(64) },
       leagueSeasonId,
       period,
       sourceRevision: 'official-revision',
@@ -355,6 +354,7 @@ describe('Neon canonical projection repository', () => {
       },
     });
     expect(store.recordLeagueWeekObservation).toHaveBeenCalledWith({
+      lineupRevisionVersion: 'lineup-v1', lineupRevision: 'a'.repeat(64),
       leagueSeasonId: 'league-season-uuid',
       week: 1,
       sourceRevision: 'official-revision',
@@ -480,6 +480,7 @@ describe('Neon canonical projection repository', () => {
     const store = createStore();
     const repository = createNeonProjectionRepository(store, options);
     const publishInput = {
+      lineupFence: { ownerLane: 'current' as const, watchId: 'watch-1', watchGeneration: 1, authorityGeneration: 1, runId: 'worker-1' },
       leagueSeasonId,
       period,
       modelVersion: 'clock-v1',
@@ -494,6 +495,7 @@ describe('Neon canonical projection repository', () => {
 
     const published = await repository.publishSnapshot(publishInput);
     expect(store.publishSnapshot).toHaveBeenCalledWith({
+      lineupFence: publishInput.lineupFence,
       leagueSeasonId: 'league-season-uuid', week: 1, modelVersion: 'clock-v1', revisionKey: 'revision-1',
       leagueWeekObservationId: 'observation-uuid', gameStateObservationIds: ['observation-uuid'],
       calculatedAt: '2026-09-13T16:00:30.000Z', payload,

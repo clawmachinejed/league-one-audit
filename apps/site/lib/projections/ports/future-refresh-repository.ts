@@ -1,4 +1,5 @@
 import type { LeaguePeriod } from '../domain/contracts';
+import type { LineupMaterializationTarget } from '../domain/lineup-publication';
 import type { ProviderKey } from '../shared/provider-identity';
 import type { RepositoryId, RepositoryOutcome } from './projection-repository';
 
@@ -35,6 +36,7 @@ export type FutureProjectionSlateLineage = Readonly<{
 export type FutureRefreshTarget = Readonly<{
   period: LeaguePeriod;
   weekDistance: number;
+  projectionWeekDistance?: number;
 }>;
 
 export type FutureProjectionRefreshState = Readonly<{
@@ -122,6 +124,7 @@ export type FutureRefreshRepositoryPort = Readonly<{
     attemptId: FutureRefreshAttemptId;
     attemptedAt: string;
     leaseSeconds: number;
+    force?: true;
   }>) => Promise<FutureRefreshClaim>;
   completeFutureProjectionRefresh: (input: Readonly<{
     projectionSource: ProviderKey;
@@ -149,20 +152,9 @@ export type FutureRefreshRepositoryPort = Readonly<{
     attemptId: FutureRefreshAttemptId;
     attemptedAt: string;
     leaseSeconds: number;
+    target: LineupMaterializationTarget;
+    force?: true;
   }>) => Promise<FutureRefreshClaim>;
-  completeFutureMaterializationRefresh: (input: Readonly<{
-    leagueKey: string;
-    projectionSource: ProviderKey;
-    normalizerVersion: string;
-    modelVersion: string;
-    period: LeaguePeriod;
-    attemptId: FutureRefreshAttemptId;
-    completedAt: string;
-    nextRefreshAt: string;
-    sourceRevision: string;
-    slate: FutureProjectionSlateLineage;
-    snapshotRevision: string;
-  }>) => Promise<FutureRefreshTransition>;
   failFutureMaterializationRefresh: (input: Readonly<{
     leagueKey: string;
     projectionSource: ProviderKey;
