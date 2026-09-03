@@ -83,4 +83,3 @@ export function buildSnapshot(input: Readonly<{
   }
   return { ...input.source.data, updatedAt: input.calculatedAt, matchups: decorated };
 }
-

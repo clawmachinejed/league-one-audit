@@ -223,4 +223,3 @@ export async function processLeague(
     throw new Error('The projection snapshot was not published.');
   }
 }
-

@@ -101,4 +101,3 @@ export function projectionStats(player: Player, result: Tank01AvailableResult): 
     : result.projections.bySleeperId[player.id];
   return value?.stats ?? {};
 }
-

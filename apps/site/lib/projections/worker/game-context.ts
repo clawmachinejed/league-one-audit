@@ -69,4 +69,3 @@ export function matchupStatus(matchup: Matchup, games: Tank01GameStatesAvailable
   if (phases.some((phase) => phase === 'unknown')) return 'unknown';
   return 'live';
 }
-

@@ -78,4 +78,3 @@ export function highestCadence(values: readonly ProjectionSyncCadence[]): Projec
   if (values.includes('hourly')) return 'hourly';
   return 'idle';
 }
-
