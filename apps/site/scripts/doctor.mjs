@@ -9,6 +9,8 @@ const canonicalRepository = 'clawmachinejed/league-one-audit';
 const productionUrl = 'https://www.league1fantasy.com';
 const expectedProject = 'league_one_fantasy';
 const expectedScope = 'robert-finchums-projects';
+const expectedProjectId = 'prj_ltHyQzM7bZfSlTNd2CTalJDLKpVG';
+const expectedOrgId = 'team_2O6dBmAQpRm6ZAUJOE0nPMBO';
 const results = [];
 
 function add(status, area, detail) {
@@ -127,7 +129,10 @@ const linkPath = linkCandidates.find(existsSync);
 if (linkPath) {
   try {
     const link = JSON.parse(readFileSync(linkPath, 'utf8'));
-    add(link.projectName === expectedProject ? 'Healthy' : 'Unhealthy', 'Vercel local linkage', link.projectName === expectedProject ? `${expectedScope}/${expectedProject}` : `Expected ${expectedProject}; found ${link.projectName || 'unknown'}.`);
+    const matches = link.projectName === expectedProject && link.projectId === expectedProjectId && link.orgId === expectedOrgId;
+    add(matches ? 'Healthy' : 'Unhealthy', 'Vercel local linkage', matches
+      ? `${expectedScope}/${expectedProject}; project and organization IDs match.`
+      : `Expected ${expectedScope}/${expectedProject} with project ${expectedProjectId} and organization ${expectedOrgId}; local linkage differs.`);
   } catch {
     add('Unhealthy', 'Vercel local linkage', 'Project linkage metadata is malformed.');
   }
@@ -165,7 +170,8 @@ else {
     add('Unverified', 'Cron declarations', 'Remote cron configuration could not be compared.');
   }
 }
-add('Unverified', 'Vercel production Git SHA', 'The installed CLI deployment payload does not expose Git source metadata; verify the exact SHA in the authenticated Vercel deployment view before implementation or release.');
+const sourceEvidence = 'Unverified';
+add(sourceEvidence, 'Vercel source binding, branch, and production Git SHA', `The installed CLI deployment payload does not expose enough Git source metadata to verify ${canonicalRepository}, main, and the exact production SHA. Verify all three in the authenticated Vercel deployment view before implementation or release.`);
 
 async function checkRoute(area, path, marker) {
   try {
@@ -199,13 +205,19 @@ if (!process.env.DATABASE_URL) {
 }
 
 const otherFeatureWorktrees = worktrees.filter((item) => resolve(item.worktree) !== root && item.branch !== 'refs/heads/main');
-if (openPullRequests?.length === 0 && otherFeatureWorktrees.length === 0) {
-  const gaps = [];
-  if (!vercelVerified) gaps.push('Vercel');
-  if (leaseEvidence !== 'Healthy') gaps.push('database lease');
-  add('Healthy', 'Release ownership', `No competing owner observed in accessible GitHub and worktree evidence.${gaps.length ? ` ${gaps.join(' and ')} evidence is Unverified.` : ''} This does not establish whether another chat exists.`);
+const ownershipGaps = [];
+if (openPullRequests === null) ownershipGaps.push('open pull request visibility');
+else if (openPullRequests.length) ownershipGaps.push(`${openPullRequests.length} open pull request(s)`);
+if (!worktreeResult.ok) ownershipGaps.push('worktree visibility');
+else if (otherFeatureWorktrees.length) ownershipGaps.push(`${otherFeatureWorktrees.length} other feature worktree(s)`);
+if (!vercelVerified) ownershipGaps.push('Vercel deployment evidence');
+if (sourceEvidence !== 'Healthy') ownershipGaps.push('Vercel source repository, branch, and SHA evidence');
+if (leaseEvidence !== 'Healthy') ownershipGaps.push('database lease evidence');
+
+if (ownershipGaps.length) {
+  add('Unverified', 'Release ownership', `No competing owner observed in the accessible evidence, but ownership remains Unverified because of: ${ownershipGaps.join('; ')}. This does not establish whether another chat exists.`);
 } else {
-  add('Healthy', 'Release ownership', 'Potential activity is listed above; inspect it before claiming release ownership. This does not establish whether another chat exists.');
+  add('Healthy', 'Release ownership', 'No competing owner observed in accessible GitHub, worktree, Vercel, and database lease evidence. This does not establish whether another chat exists.');
 }
 
 console.log('\nLeague One Doctor\n');
