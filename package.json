@@ -17,6 +17,8 @@
     "test:integration": "pnpm --filter @l1/site test:integration",
     "test:browser": "pnpm --filter @l1/site test:browser",
     "db:migrate": "pnpm --filter @l1/site db:migrate",
-    "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm build"
+    "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
+    "doctor": "node apps/site/scripts/doctor.mjs",
+    "verify:full": "node apps/site/scripts/full-verify.mjs"
   }
 }

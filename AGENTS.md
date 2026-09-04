@@ -1,52 +1,36 @@
-# Instructions for GPT-managed League One work
+# League One engineering rules
 
-## Purpose and scope
+## Authority and scope
 
-The user wants GPT to implement website changes, publish them to GitHub, and deploy them to Vercel through a repeatable process. Carry an authorized request to completion with the available tools. Do not stop at a plan or make the user perform routine implementation steps.
+- The canonical application repository is `clawmachinejed/league-one-audit`. Repository contents plus freshly checked GitHub, Vercel, and live-site evidence are authoritative.
+- Use a fresh Codex task for each distinct outcome.
+- Before implementation and again before deployment, revalidate local and GitHub `main`, the Vercel source binding and production branch, and the exact production Git SHA. Stop and report any unexplained disagreement.
+- Preserve unrelated user changes and keep the primary `main` checkout clean. Perform code changes and working mockups in a dedicated Git worktree outside OneDrive or any other synchronized folder.
+- Permit only one production-writing or release-owning task at a time. Base ownership statements on observable worktrees, branches, pull requests, deployments, cron activity, and database or worker leases. Say “no competing owner observed”; never claim that no other task or chat exists.
 
-This is the mobile-first League One and League 2 website. Keep the primary navigation focused on Matchups, Standings, and Managers. Rosters and Transactions belong within manager profiles. Do not reintroduce history, rivalries, awards, separate statistics or schedule sections, demo content, or cron jobs without a new request.
+## Canonical behavior
 
-Preserve these defining behaviors:
+- Read [README.md](README.md) for product scope, the single league registry, provider roles, commands, and the code map.
+- Read [docs/lineup-freshness.md](docs/lineup-freshness.md) for the current worker and reader architecture, `clock-v1`, immutable baselines and snapshots, bye and missing-projection policy, and operational recovery.
+- Read [docs/future-week-projections.md](docs/future-week-projections.md) for exact-week and future-period behavior, [docs/release-validation.md](docs/release-validation.md) for release evidence, and [apps/site/integration/README.md](apps/site/integration/README.md) for isolated database test safety.
+- Sleeper remains the official league, lineup, schedule, and scoring source. Tank01 remains the projection-statistics and game-state source. Neon remains the stored snapshot source. League One and League Two remain isolated.
+- Preserve exact-week behavior, `clock-v1`, immutable frozen baselines, existing bye and missing-projection behavior, and the single scorer, projection pipeline, Tank01 normalizer, snapshot builder, and publication path.
+- Browser pages and lightweight observers never call Tank01. Never duplicate an existing worker, reader, cache, provider feed, scoring, normalization, snapshot, or publication pipeline merely to simplify an implementation.
+- Preserve existing routes, payloads, fallbacks, caching, presentation, league selection, and manager selection unless the requested feature explicitly changes them.
+- Under `apps/site`, also follow [apps/site/AGENTS.md](apps/site/AGENTS.md), including its generated Next.js documentation rule.
 
-- Expandable matchup cards with readable player and lineup comparisons.
-- My Team selection that persists in the browser, is scoped to the current league, and does not silently select a different manager when leagues change.
-- Manager transaction details, including FAAB bids and outcomes, with green, red, and muted result colors and visible text labels.
-- Mobile screen fit, readable names and scores, and comfortable controls.
+## Safety and autonomy
 
-The two public Sleeper league IDs have one golden source in `apps/site/lib/config.ts`. Keep them as strings, import that registry everywhere they are needed, and never repeat the production values in views, tests, documentation, environment files, or Vercel settings. Read league settings and data from Sleeper; do not invent scores, dates, players, results, or a fallback demonstration league.
+- Never expose or commit secrets. Do not pull production secrets into a local environment by default.
+- Never run destructive integration tests against production. Use the existing isolated Neon harness only when every authorization, identity, sentinel, TLS, role, and denylist guard passes.
+- Do not change migrations, production data, cron schedules, provider configuration, scoring, projections, runtime behavior, or public APIs unless they are explicitly in scope.
+- Independently reproduce high-risk findings before fixing them. Revalidate audit findings against the latest `main` and repair confirmed root causes rather than symptoms.
+- Ask the user only for login, MFA, CAPTCHA, unavoidable account selection or consent; a material product decision; unexpected cost; destructive or irreversible work; missing production authority; unprovable repository or service identity; or materially expanded scope.
+- When the user says “push to production,” treat it as production-release authorization for the requested scope. Still stop for unplanned destructive data changes, unexpected cost, missing authority, or materially expanded scope.
 
-## Working safely
+## Verification and release
 
-- Inspect current `main`, repository status, this file, and the user's request before editing. Preserve unrelated work. Use an isolated branch; the initial rebuild branch is `codex/mobile-first-2026`.
-- The repository is `clawmachinejed/league-one-audit`. The existing Vercel project is `league_one_fantasy` under `robert-finchums-projects`. Verify access, repository linkage, and current project settings rather than assuming old records remain accurate.
-- Work only in the website repository. Any surrounding ChatGPT project `sources/` files are read-only synced references; do not edit, rename, move, or delete them.
-- Do not commit secrets, private environment files, deployment credentials, or generated dependency/build directories. Do not put access tokens in shell commands or logs. Use approved account connections and normal tool authentication.
-- Never weaken GitHub branch protection, bypass required review or checks, force-push, erase history, or change account/install permissions to get around a blocked action.
-- User authorization persists. When the user has asked for implementation and deployment, proceed through that process without redundant confirmation. If an unavoidable permission or account approval is missing, complete all work possible first and explain the exact remaining action.
-- A change request does not imply autonomous future work, monitoring, scheduled jobs, or recurring changes. The user initiates subsequent changes unless they separately request automation.
-
-## Implementation and validation
-
-The actual stack and commands are defined by the package files: Node.js 24, pnpm 11.19.0, Next.js 16.3.3, React 19.2.8, and TypeScript 5.9. The single application is `apps/site`; install from the repository root with `pnpm install --frozen-lockfile`.
-
-Keep fetching and private configuration on the server, normalize upstream data separately from presentation, and show useful empty or unavailable states. Preserve fractional scores, actual transaction statuses, and league-specific roster settings. Failed or partial upstream requests must not masquerade as complete history or a successful empty result.
-
-For each substantive change:
-
-1. Implement the requested behavior without expanding the product scope.
-2. Add or update meaningful tests for changed calculations, data normalization, transaction outcomes, or other behavior with regression risk. Avoid tests that merely mirror trivial presentation code.
-3. Run `pnpm verify` from the repository root. It runs lint, Next.js route type generation and TypeScript checks, Vitest, and a production build. Do not claim checks passed unless they actually did.
-4. Inspect the affected pages in a browser at 360, 390, and 430 pixels wide, plus a desktop width. Check for horizontal page overflow, clipped names or scores, usable touch targets, wrapping, focus visibility, and state changes. Test expansion, week navigation, team selection after reload, and transaction readability whenever affected.
-5. Check relevant loading, empty, partial-data, error, and invalid-manager states. Do not depend on fabricated production data to make a test look complete.
-
-## GitHub and Vercel release process
-
-1. Push the isolated branch and open a pull request with the problem, resulting behavior, checks performed, and known limitations.
-2. Check GitHub Actions and the Vercel preview for the proposed revision. Test the preview itself; a local build alone does not establish deployment success.
-3. Respect the repository's required checks and reviews. Merge only when the request authorizes release and those requirements are satisfied. Do not remove safeguards to make the merge possible.
-4. Confirm the production deployment belongs to the merged commit. Verify the live league ID and relevant core journeys, then report the pull request, commit hash, deployment links, and results.
-5. If blocked, distinguish local completion, branch publication, preview readiness, merge status, and production deployment. Never label a pending or inaccessible step complete.
-
-The recommended Vercel Root Directory is `apps/site`, using the Next.js framework preset, Node.js 24, the pnpm workspace lockfile, and the Next.js `.next` output default. Match the effective Vercel configuration to its selected root; the repository-root `apps/site/.next` path is not correct relative to an `apps/site` root. Do not configure league-ID overrides in Vercel; deploy the golden registry from `apps/site/lib/config.ts` and verify each league in production. Do not assume a recorded domain or Git integration proves the current release is live.
-
-For rollback, revert the relevant change through a pull request and verify the resulting production deployment. Do not reset or force-push `main`. If an urgent temporary Vercel rollback is separately authorized, keep Git history and the final deployed state reconciled afterward.
+- Use targeted checks during development and the complete verification workflow before merge.
+- Work on an isolated branch and pull request. Respect repository protections, obtain independent review when risk warrants it, and inspect the actual Vercel preview in the built-in browser.
+- Merge only within the user’s release authorization. Verify that Vercel production runs the exact merged Git SHA, then verify both League One and League Two after every production release.
+- Report local completion, branch publication, preview readiness, merge state, production deployment, test totals, skips, deviations, and unverified evidence separately.
