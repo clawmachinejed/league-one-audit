@@ -106,7 +106,7 @@ Use targeted reproduction first. For a repository change, run the proportional d
 - Inspect the actual exact-proposed-SHA Vercel preview in the built-in browser and follow docs/release-validation.md before merge. If Vercel truthfully reports a non-deployable change as not applicable, record that status rather than inventing preview evidence.
 - Independent review for provider admission, scoring, migrations, database privileges, retention/deletion, release controls, and security enforcement.
 
-After an authorized production release, verify the exact merged Git SHA in the Ready Vercel deployment; source repo, main branch, and apps/site root; both leagues; relevant public revision/full endpoints; naturally scheduled worker results; leases; provider reserve; and the approved rollback owner. Do not force idle production work for evidence.
+After an authorized production release, verify the exact merged Git SHA in the Ready Vercel deployment; source repo, main branch, and apps/site root; both leagues; relevant public revision/full endpoints; naturally scheduled worker results; leases; A3A-observed quota headroom and, when A3B was released, its supported reserve; and the approved rollback owner. Do not force idle production work for evidence.
 
 Documentation-only units additionally require a clean diff, valid links/commands, git diff --check, and confirmation that no non-document file changed. They do not require destructive database tests or a production deployment, but an eventual merge still follows the complete repository pre-merge workflow above or records an explicit reviewed deviation.
 
@@ -179,7 +179,7 @@ If no verified restore point or reconciliation plan exists, keep retention disab
 
 No choice below is made by this plan:
 
-1. Provider cost: after A1 refreshes the account identity, pricing, quota, safely available reset/weight facts, and current scheduled demand, the user chooses an exact plan whose capacity is proved or leaves OPS-001 open and live projection coverage blocked. If weights or reset semantics cannot be proved, a user-approved upgrade may reduce immediate risk but may not be called sustainable or close OPS-001. No subscription may change without approval of the exact price and terms. A key rebind or workload/cadence redesign is materially different work and requires its own approved plan.
+1. Provider cost: after A1 refreshes the account identity, pricing, quota, safely available reset/weight facts, and current scheduled demand, the user may keep capacity already proved adequate or approve an exact A2 plan change. A2 never depends on A3A: it may proceed from A1 and exact user approval as a precautionary operation, while any A3A evidence that already exists is optional input. A2 must label its outcome either “proved sustainable capacity change” when the full allowance/reset/weight/demand/retry/margin envelope is defensible, or “precautionary risk-reduction upgrade” while a necessary fact remains Missing proof. A precautionary upgrade may unlock observation-only A3A but cannot unlock A3B, be called sustainable, or close OPS-001 until A3A evidence proves the resulting capacity state. If existing capacity is not proved and the user does not approve the precautionary operation, A3A stops on that explicit safety decision; it is not waiting for proof from itself. No subscription may change without approval of the exact price and terms. A key rebind or workload/cadence redesign is materially different work and requires its own approved plan.
 2. Scoring contract: choose exactly one of C1 disclosure or the C2A → C2B verified-coverage path. If neither is selected, SCORE-001 remains open. The plan does not choose scoring behavior.
 3. Retention policy: approve per-table/per-season horizons, required audit evidence, deletion authority, RPO/RTO, and canary size before F2 can enable deletion.
 4. Production/control-plane authority: later changes to GitHub protection, Vercel variables, Neon privileges, provider configuration, production data, or deployment each require the authority named by their unit.
@@ -187,43 +187,44 @@ No choice below is made by this plan:
 
 ## 4. Dependency-safe work order
 
-Only units whose prerequisites and user decisions are satisfied may start. Independent units may run concurrently only when they do not compete for production-writing or release ownership.
+This plan contains 36 work units: 34 regular units across orders 1–32, including the three distinct 9-series scoring units, plus two triggered units. Only units whose prerequisites and user decisions are satisfied may start. Independent units may run concurrently only when they do not compete for production-writing or release ownership.
 
 | Order | Unit | Findings | Hard prerequisites | Result |
 |---:|---|---|---|---|
 | 1 | A1 Provider identity/capacity proof | OPS-001, TANK-002 | G0; account and Vercel read authority | Fresh non-secret evidence; no change |
-| 2 | A2 Provider capacity operation | OPS-001 | A1; exact user cost approval | Proved capacity, or documented risk reduction/open finding |
-| 3 | A3 Quota telemetry/admission | OPS-001, TANK-002 | A2 proves adequate capacity | Measured quota controls; code PR |
-| 4 | B1 Recovery and schema proof | DB-PROOF-001 | G0; isolated restore authority | Proven catalog and restore procedure |
-| 5 | B2 Preview DB isolation | PREVIEW-001 | B1 | Non-secret target guard |
-| 6 | B3 Compatible DB guards/write path | DB-001 | B1, B2 | Additive compatible code/schema; no revocation |
-| 7 | B4 Runtime privilege cutover | DB-001 | B3 released and stable; fresh restore point | Exact grants only |
-| 8A | C1 Scoring disclosure option | SCORE-001 | User selects disclosure | Disclosure only; scoring unchanged |
-| 8B | C2A Scoring-semantics proof | SCORE-001 | User selects coverage; A1 | Read-only rule/field evidence |
-| 8C | C2B Scoring coverage implementation | SCORE-001 | C2A, A2, A3 | Versioned verified scoring change |
-| 9 | D1 Provider contradiction rejection | PROVIDER-001 | G0 | Narrow normalization fix |
-| 10 | D2 Future cache/freshness alignment | FUTURE-001 | A3 | Narrow scheduling/cache fix |
-| 11 | E0 Performance measurement instrumentation | PERF-001 | A3, B2 | Observation-only metrics and load tooling |
-| 12 | E1 Pre-change performance baseline | PERF-001 | E0, A2 | Required tail/burst evidence |
-| 13 | E2 Current worker deadline | WORKER-001 | E1 | Evidence-sized deadline change |
-| 14 | E3 Public reader deadline | READER-001 | E1 | Evidence-sized cancellation/deadline |
-| 15 | E4 Compact revision read | READER-002 | E1 threshold breach; B1, B2, B4 | Versioned pointer attestation and bounded read |
-| 16 | F0 Retention policy and dry-run design | RET-001, RET-002 | B1; approved horizons | Exact predicates/write set/timing; no deletion |
-| 17 | F1 Narrow retention DB interface | RET-001, RET-002 | F0, B4 | Separately reviewed schema/permissions |
-| 18 | F2 Retention owner and enablement | RET-001, RET-002 | F1; deletion/canary authority | Bounded observable retention |
-| 19 | CI1 CI workflow contexts | CI-001 | G0 | Stable workflow contexts; no external config |
-| 20 | CI2 Isolated DB CI automation | CI-001 | B1, B2, CI1 | Stable path-aware isolated-DB context |
-| 21 | SC1 Supply-chain workflow policy | SUPPLY-001 | CI1 | Pinned Actions and automated policy |
-| 22 | CI3 GitHub protection settings | CI-001 | CI1, CI2; repo admin | Proven required checks enforced |
-| 23 | H1 Local browser-server provenance | TEST-001 | G0 | Full Verify proves current checkout |
-| 24 | H2 Doctor remote-evidence truth | DOCTOR-001 | G0 | Exact-SHA and redirect-safe evaluation |
-| 25 | I1 Natural first-game/tail evidence | LIVE-001, PERF-001 | A2, A3; natural game window | Observation record; no forced writes |
-| 26 | I2 Historical release ledger | LEDGER-001 | Authenticated retained history | Facts-only docs PR |
-| 27 | J1A Legacy environment inventory | ENV-001 | Human owner/consumer proof | Read-only names/scopes evidence |
-| 28 | J1B Preview environment cleanup | ENV-001 | J1A; Preview authority | Preview-only retirement |
-| 29 | J1C Production environment cleanup | ENV-001 | J1B; explicit production/rotation authority | Production retirement/rotation |
-| 30 | J2 CSP report-only characterization | SEC-001 | G0 | Compatibility evidence |
-| 31 | J3 CSP/avatar enforcement | SEC-001 | J2; explicit enforcement approval | Narrow defense-in-depth change |
+| 2 | A2 Provider capacity operation | OPS-001 | A1; exact user cost approval | Proved sustainable change or precautionary risk reduction |
+| 3 | A3A Observation-only quota telemetry | OPS-001, TANK-002 | A1; proved existing capacity or approved A2 risk reduction | Measured normal-call evidence; no admission change |
+| 4 | A3B Quota reserve/admission | OPS-001 | Sufficient A3A evidence; capacity proved adequate | Supported reserve and current-before-future admission |
+| 5 | B1 Recovery and schema proof | DB-PROOF-001 | G0; isolated restore authority | Proven catalog and restore procedure |
+| 6 | B2 Preview DB isolation | PREVIEW-001 | B1 | Non-secret target guard |
+| 7 | B3 Compatible DB guards/write path | DB-001 | B1, B2 | Additive compatible code/schema; no revocation |
+| 8 | B4 Runtime privilege cutover | DB-001 | B3 released and stable; fresh restore point | Exact grants only |
+| 9A | C1 Scoring disclosure option | SCORE-001 | User selects disclosure | Disclosure only; scoring unchanged |
+| 9B | C2A Scoring-semantics proof | SCORE-001 | User selects coverage; A1 | Read-only rule/field evidence |
+| 9C | C2B Scoring coverage implementation | SCORE-001 | C2A, A3B | Versioned verified scoring change |
+| 10 | D1 Provider contradiction rejection | PROVIDER-001 | G0 | Narrow normalization fix |
+| 11 | D2 Future cache/freshness alignment | FUTURE-001 | A3B | Narrow scheduling/cache fix |
+| 12 | E0 Performance measurement instrumentation | PERF-001 | A3A, B2 | Observation-only metrics and load tooling |
+| 13 | E1 Pre-change performance baseline | PERF-001 | E0 | Required tail/burst evidence |
+| 14 | E2 Current worker deadline | WORKER-001 | E1 | Evidence-sized deadline change |
+| 15 | E3 Public reader deadline | READER-001 | E1 | Evidence-sized cancellation/deadline |
+| 16 | E4 Compact revision read | READER-002 | E1 threshold breach; B1, B2, B4 | Versioned pointer attestation and bounded read |
+| 17 | F0 Retention policy and dry-run design | RET-001, RET-002 | B1; approved horizons | Exact predicates/write set/timing; no deletion |
+| 18 | F1 Narrow retention DB interface | RET-001, RET-002 | F0, B4 | Separately reviewed schema/permissions |
+| 19 | F2 Retention owner and enablement | RET-001, RET-002 | F1; deletion/canary authority | Bounded observable retention |
+| 20 | CI1 CI workflow contexts | CI-001 | G0 | Stable workflow contexts; no external config |
+| 21 | CI2 Isolated DB CI automation | CI-001 | B1, B2, CI1 | Stable path-aware isolated-DB context |
+| 22 | SC1 Supply-chain workflow policy | SUPPLY-001 | CI1 | Pinned Actions and automated policy |
+| 23 | CI3 GitHub protection settings | CI-001 | CI1, CI2; repo admin | Proven required checks enforced |
+| 24 | H1 Local browser-server provenance | TEST-001 | G0 | Full Verify proves current checkout |
+| 25 | H2 Doctor remote-evidence truth | DOCTOR-001 | G0 | Exact-SHA and redirect-safe evaluation |
+| 26 | I1 Natural first-game/tail evidence | LIVE-001, PERF-001 | A3A; natural game window | Observation record; may inform A3B; no forced writes |
+| 27 | I2 Historical release ledger | LEDGER-001 | Authenticated retained history | Facts-only docs PR |
+| 28 | J1A Legacy environment inventory | ENV-001 | Human owner/consumer coordination | Read-only names/scopes evidence |
+| 29 | J1B Preview environment cleanup | ENV-001 | J1A; Preview authority | Preview-only retirement |
+| 30 | J1C Production environment cleanup | ENV-001 | J1B; explicit production/rotation authority | Production retirement/rotation |
+| 31 | J2 CSP report-only characterization | SEC-001 | G0 | Compatibility evidence |
+| 32 | J3 CSP/avatar enforcement | SEC-001 | J2; explicit enforcement approval | Narrow defense-in-depth change |
 | Triggered | K1 League-aware K coverage | KICKER-001 | Approved K activation | Must precede K roster activation |
 | Triggered | K2 Provider-scoped identity migration plan | ID-001 | Approved second official provider | New reviewed migration plan; no implementation |
 
@@ -246,7 +247,7 @@ Code means repository executable, test, workflow, or migration files; documentat
 - Rollback/recovery: None; this unit is read-only. Correct or retract the evidence record if identity cannot be proved.
 - User decisions/authority: Account and Vercel read access may require the account owner. Any mismatch or unknown cost terms is a stop.
 - Change matrix: Code No; Configuration No; Billing No; Data No; Production No, read-only observation only.
-- Closure owner: Owns the account/application/subscription/environment-attestation portion of TANK-002 and supports OPS-001. Any identity, reset, or weight gap remains explicitly open for A3 or a new approved plan; A1 closes neither finding by itself.
+- Closure owner: Owns the account/application/subscription/environment-attestation portion of TANK-002 and supports OPS-001. Any identity gap remains open for a new approved plan; reset or weight gaps remain open for A3A normal-call observation. A1 closes neither finding by itself.
 - Individual prompt:
 
 > In a fresh task, execute only A1 from docs/audits/2026-09-04-production-systems-audit-remediation.md. Revalidate the Tank01 account/application/subscription and its non-secret relationship to the deployed Production secret, separately record Preview/Development ownership or isolation, and calculate the current raw call-attempt envelope. Record reset and endpoint-weight facts only when the provider exposes them; otherwise retain them as Missing proof. Do not reveal or compare secret values, make a Tank01 diagnostic call, change a plan/key/configuration, edit the repository, or touch production data. Produce only redacted evidence and a user decision record; stop on an identity or authority gap and leave both findings open.
@@ -254,38 +255,56 @@ Code means repository executable, test, workflow, or migration files; documentat
 ### A2 — Provider capacity operation
 
 - Findings: OPS-001 — Operational risk / Critical / High — Tank01 hard cap cannot support scheduled production demand.
-- Evidence/reproduction: Use only fresh A1 evidence and fresh provider terms. Demonstrate that the user-selected allowance covers the approved workload using measured/published endpoint weights or a provider-supported worst-case upper bound, the proved reset boundary, expected current/future traffic, cold-isolate/retry factor, and incident margin. If neither exact weights nor a defensible upper bound and reset boundary are available, present the upgrade only as immediate risk reduction; do not call it sustainable or close OPS-001.
+- Evidence/reproduction: Use fresh A1 evidence and fresh provider terms; any already available A3A evidence is optional and A2 never waits for A3A. Label the outcome exactly “proved sustainable capacity change” only when the selected allowance covers a defensible reset/weight/demand/cold-isolate/retry/margin envelope. When a necessary fact is unavailable, label it exactly “precautionary risk-reduction upgrade”; do not call it adequate or sustainable and do not close OPS-001.
 - Dependencies/prerequisites: A1 complete; exact user approval of plan, price, overage/hard-limit terms, account/application, and timing; no unexplained identity gap.
 - Protected behavior: No cadence, scoring, pipeline, secret, database, or application change. Do not reduce live accuracy silently.
 - In scope: Change only the approved Tank01 subscription/capacity on the attested account and record the effective subscription/reset state.
 - Excluded: Key rebinding, Vercel configuration, code, cron, database, billing changes beyond the exact approved plan, and provider test calls.
-- Tests/evidence: Before/after plan name, allowance, reset if exposed, hard-limit/overage policy, price, owner, effective timestamp, and remaining capacity from control-plane metadata. Record the exact capacity calculation and residual Missing proof. Confirm operation through normal natural calls, not a forced call.
+- Tests/evidence: Before/after plan name, allowance, reset if exposed, hard-limit/overage policy, price, owner, effective timestamp, and remaining capacity from control-plane metadata. Record the exact outcome label, capacity calculation, evidence inputs, and residual Missing proof. Confirm operation through normal natural calls, not a forced call.
 - Release checks: G0 and a post-operation natural-call observation; G4 is not applicable.
 - Rollback/recovery: Follow freshly documented provider reversal terms only. Never downgrade below proven demand. If reversal would strand live work, retain capacity and escalate.
 - User decisions/authority: Explicit financial approval is mandatory immediately before the change.
-- Change matrix: Code No; Configuration No; Billing Yes; Data No; Production Yes, external provider capacity only.
-- Closure owner: Removes the immediate capacity deficit portion of OPS-001 only when the allowance is proved against a defensible demand upper bound; durable closure also requires A3. A merely precautionary upgrade leaves OPS-001 open.
+- Change matrix: Code No; Configuration Yes, external provider subscription/capacity setting only; Billing Yes; Data No; Production Yes, external provider capacity only.
+- Closure owner: Satisfies the capacity-change portion of OPS-001 only for a proved sustainable capacity change. A precautionary risk-reduction upgrade may allow A3A observation but leaves OPS-001 open; if later A3A evidence proves the resulting state adequate, that fresh state proof—not the earlier precautionary label—satisfies the capacity prerequisite. Durable closure also requires A3B.
 - Individual prompt:
 
-> In a fresh task, execute only A2 from docs/audits/2026-09-04-production-systems-audit-remediation.md. Use completed A1 evidence, present the exact current provider price and terms, and change only the user-approved Tank01 subscription on the attested account. Prove capacity with exact weights or a provider-supported worst-case bound and reset boundary; otherwise label the action risk reduction and leave OPS-001 open. Do not edit code, keys, Vercel, cron, scoring, or data, and do not make a diagnostic provider call. Capture non-secret before/after evidence and stop before any financial action unless the user approved that exact plan and price.
+> In a fresh task, execute only A2 from docs/audits/2026-09-04-production-systems-audit-remediation.md after A1 and exact user cost approval; never wait for A3A, though any already available A3A evidence may be used. Present the exact current price and terms, and change only the user-approved Tank01 subscription on the attested account. Label the result “proved sustainable capacity change” only when the full reset/weight/demand/retry/margin envelope is defensible; otherwise label it “precautionary risk-reduction upgrade,” leave OPS-001 open, and use it only to permit normal-call A3A observation. Do not edit code, keys, Vercel, cron, scoring, or data, and do not make a diagnostic provider call. Stop before financial action unless the user approved that exact plan and price.
 
-### A3 — Quota telemetry, temporary reserve, and admission
+### A3A — Observation-only quota telemetry
 
 - Findings: OPS-001 — Operational risk / Critical / High — Tank01 hard cap cannot support scheduled production demand; TANK-002 — Missing proof / High / High — Endpoint weights, reset timestamp, and production-key account linkage are unproved.
-- Evidence/reproduction: Independently reproduce from current source the lack of quota-header handling and admission control. Freshly assess the recorded OPS-001 deficit and the remaining TANK-002 identity/reset/weight gaps using normal existing-call headers plus A1/A2 facts; never spend quota only to test and never describe an unobserved control-plane fact as independently reproduced.
-- Dependencies/prerequisites: A2 provides adequate capacity; G0, G1, G3, G5; a reviewed telemetry schema and alert owner.
-- Protected behavior: Current live work has priority; thin observer/browser Tank01 calls remain zero; two leagues sharing a provider period still share requests; exact-week, caching, retries, last-known-good, and scoring remain unchanged.
-- In scope: Allowlist quota/remaining/reset/billed-unit headers from existing calls; aggregate by endpoint class and provider period; alert on disagreement and low reserve; defer discretionary future ingestion before current live work.
-- Excluded: Provider plan/key change, cron/cadence expansion, scoring change, raw headers/bodies, player/manager identifiers, and a new monitoring vendor.
-- Tests/evidence: Normal, absent, malformed, and conflicting headers; custom billing weights; reset transition; 429/hard cap; 5xx; cold/warm caches; retries and multiple isolates; multi-period grouping; current-before-future priority; durable defer without false success; zero observer/browser Tank01 calls.
-- Release checks: G0, G1, G3, G4, G5; exact preview and production SHA; both leagues; natural call/header reconciliation; provider remaining/reset; unchanged cron definitions.
-- Rollback/recovery: Reviewed code/config revert while retaining adequate provider capacity. Preserve telemetry compatibility long enough to diagnose rollback and never relax current-live priority during rollback.
-- User decisions/authority: Approve alert recipients and the initial operating policy. The 2,600-request reserve is a temporary conservative Week 1 schedule-derived figure only after an allowance can hold it. It is not a proven permanent daily threshold. Replace it with measured endpoint weights, reset boundary, game-day burn, retry/cold-isolate factor, and explicit margin.
-- Change matrix: Code Yes; Configuration Yes, non-secret thresholds/alert routing only; Billing No; Data Yes, aggregate operational telemetry only and no private business payload; Production Yes after release authorization.
-- Closure owner: Joint final owner of OPS-001 with A1/A2 when measured admission proves adequate capacity. For TANK-002, A1 owns account/application/subscription/environment attestation and A3 owns reset/header/endpoint-weight accounting; every unobserved item remains Missing proof.
+- Evidence/reproduction: Independently reproduce from current source the lack of allowlisted quota-header capture. Freshly assess the recorded OPS-001 and TANK-002 leads from responses to normal existing Tank01 calls only; never add, force, replay, or broaden a provider call merely to collect evidence, and never describe an unobserved control-plane fact as independently reproduced.
+- Dependencies/prerequisites: A1 complete; either current capacity is proved adequate for the natural observation window from available evidence or the user explicitly approved an A2 operation, including a precautionary risk-reduction upgrade; G0, G1, G3, G5; approved field allowlist, aggregate schema/retention, observation owner, and production release.
+- Protected behavior: Provider call count, request shape, timing, cadence, retries, cache, grouping, current/future ordering, scoring, and fallback remain unchanged; thin observer/browser Tank01 calls remain zero; telemetry cannot gate work or alter success/failure.
+- In scope: On responses from the existing canonical Tank01 call path, capture only approved quota allowance, remaining, reset, and billed-unit/endpoint-class metadata; aggregate by non-identifying endpoint class and provider period with bounded cardinality. Missing or unobserved fields remain Missing proof.
+- Excluded: Reserve or threshold enforcement, workload admission/deferral, current-before-future policy change, provider alert that changes behavior, new provider call/traffic, diagnostic call, plan/key/cron/cadence change, raw header/body/URL/query capture, player/manager identifiers, and a new monitoring vendor.
+- Tests/evidence: Present, absent, malformed, conflicting, and reset-transition header fixtures; documented billing-unit variants; 429/5xx response metadata; cold/warm cache, retry, multiple-isolate, and shared-period instrumentation; strict output allowlist/redaction/cardinality; instrumented versus baseline provider-call-count equality; zero observer/browser calls; sanitized natural-call aggregates only.
+- Release checks: G0, G1, G3, G4, G5; exact preview and production SHA; both leagues; natural call/header reconciliation; identical provider request counts and unchanged cron definitions; no reserve, admission, or workload result delta.
+- Rollback/recovery: Reviewed instrumentation-only code revert. Retain only approved sanitized aggregates long enough for diagnosis; no provider capacity, admission, or workload setting is changed or rolled back.
+- User decisions/authority: Approve the exact recorded fields, aggregation/retention, observation owner, and production release. When proceeding after a precautionary A2 upgrade, acknowledge that capacity remains unproved and OPS-001 remains open.
+- Change matrix: Code Yes, observation instrumentation only; Configuration No; Billing No; Data Yes, approved aggregate operational telemetry only and no private business payload; Production Yes, instrumentation release only.
+- Closure owner: Supports OPS-001 but never closes it or asserts a reserve/admission policy. For TANK-002, A1 owns account/application/subscription/environment attestation and A3A owns normal-call reset/header/billing/endpoint-weight evidence; every unobserved item remains Missing proof.
 - Individual prompt:
 
-> In a fresh isolated worktree, execute only A3 from docs/audits/2026-09-04-production-systems-audit-remediation.md. Reproduce the code-level lack of telemetry/admission on current main, freshly assess rather than assume the recorded OPS-001/TANK-002 control-plane gaps, then add allowlisted quota telemetry, alerts, and current-before-future admission using only normal existing calls. Treat 2,600 as a temporary conservative Week 1 reserve, never a permanent daily threshold, and replace it when measured weights/reset/burn/margin are available. Preserve grouping, cache behavior, last-known-good, and zero Tank01 calls from browser/observer paths. Open one narrow PR; do not change the provider plan, cron, scoring, database, merge, or deploy without separate authorization.
+> In a fresh isolated worktree, execute only A3A from docs/audits/2026-09-04-production-systems-audit-remediation.md after A1 and either proved existing observation capacity or an explicitly approved A2 operation. Add observation-only allowlisted quota, remaining, reset, and billing metadata capture to normal existing Tank01 responses. Prove provider call count/traffic, request shape, cadence, grouping, cache, ordering, scoring, fallbacks, and results are unchanged, with zero browser/observer calls. Do not create/force a provider call, enforce a reserve, change admission, defer work, change plan/key/cron/config/database, or expose raw/private data. Open one telemetry-only PR; do not merge or deploy without authorization, and retain unknown facts as Missing proof.
+
+### A3B — Quota reserve and admission control
+
+- Findings: OPS-001 — Operational risk / Critical / High — Tank01 hard cap cannot support scheduled production demand.
+- Evidence/reproduction: Use A1, any applicable A2 state, and representative normal-call A3A evidence. Before editing, document an evidence-sufficiency gate covering the attested account/allowance, reset boundary or defensible provider-supported bound, billed units or defensible upper bound per used endpoint class, natural game-day burn, cold-isolate/retry factor, scheduled demand, and explicit incident margin. If any fact needed to bound capacity or reserve is unknown, retain it as Missing proof and do not start A3B.
+- Dependencies/prerequisites: A3A released and stable with enough representative evidence; current or post-A2 capacity state defensibly proved adequate using that evidence; G0, G1, G3, G5; explicit approval of the derived reserve, alert owner, admission behavior, and production release.
+- Protected behavior: Current live work has priority; browser/observer Tank01 calls remain zero; two leagues sharing one provider period still share requests; exact-week, call grouping, cache, retries, last-known-good, scoring, and existing cron definitions remain unchanged.
+- In scope: Derive and enforce a supported quota reserve from measured/proved inputs; alert on evidence disagreement and low headroom; defer discretionary future ingestion before current live work; make every defer durable and truthful without false success; add no provider calls or traffic.
+- Excluded: Observation-field expansion unrelated to the reserve, provider plan/key change, cron/cadence expansion, scoring/database/API change, guessed reset/weight, raw provider data, and any claim that an unknown fact is proven.
+- Tests/evidence: Measured custom billing weights and reset transition; absent/malformed/conflicting telemetry fails closed without inventing a threshold; 429/hard cap and 5xx; cold/warm cache; retries and multiple isolates; shared multi-period grouping; current-before-future priority; durable defer/retry without false success; provider-call-count equality; both-league isolation.
+- Release checks: G0, G1, G3, G4, G5; exact preview and production SHA; A3A natural-call reconciliation; proved capacity/headroom; supported reserve; both leagues; unchanged provider request envelope and cron definitions.
+- Rollback/recovery: Revert A3B admission/alert code and non-secret thresholds through review while retaining A3A observation. Keep proved provider capacity in place; never roll back by silently admitting future work ahead of current live work.
+- User decisions/authority: Approve the evidence-sufficiency conclusion, derived reserve, alert recipients, admission policy, and release. The 2,600-request figure is only a temporary conservative Week 1 schedule-derived reserve, not a proven permanent daily threshold; replace it only with measured reset/weight/burn/retry/margin evidence. Unknown necessary facts block A3B rather than becoming assumptions.
+- Change matrix: Code Yes; Configuration Yes, non-secret supported thresholds/alert routing only; Billing No; Data Yes, aggregate operational telemetry and prospective defer/retry records only, with no private business payload; Production Yes after release authorization.
+- Closure owner: Final owner of OPS-001 jointly with A1, a defensibly proved current or post-A2 capacity state, and A3A evidence. A precautionary A2 upgrade, A3A alone, risk acceptance, or any unproved capacity/admission element leaves OPS-001 open. A3B does not close or manufacture missing TANK-002 evidence.
+- Individual prompt:
+
+> In a fresh isolated worktree, execute only A3B from docs/audits/2026-09-04-production-systems-audit-remediation.md after stable A3A provides enough measured evidence to prove the current/post-A2 capacity state and derive a defensible reserve. Derive the reserve from measured reset, endpoint billing, natural burn, retry/cold-isolate, demand, and incident-margin evidence; retain every unknown as Missing proof. Add current-before-future admission and truthful durable deferral on the existing call path with zero new provider calls or traffic. Run malformed/conflicting telemetry, reset, hard-cap, retry, grouping, both-league, call-count, and G4 gates. Do not change provider plan/key/cron/cadence/scoring/database, merge, or deploy without authorization, and do not claim OPS-001 closed unless capacity and admission are genuinely demonstrated.
 
 ### B1 — Database recovery, restoration, and schema proof
 
@@ -399,19 +418,19 @@ Code means repository executable, test, workflow, or migration files; documentat
 
 - Findings: SCORE-001 — Contract conflict / High / High — Ten active Sleeper rules per league are excluded from projections.
 - Evidence/reproduction: Reproduce the current unsupported-rule contract on current main and use only the complete peer-reviewed C2A semantics matrix. Independently verify that the approved mapping covers every currently active unsupported rule without duplicate event ownership before editing.
-- Dependencies/prerequisites: The user explicitly selects the complete coverage contract instead of C1; C2A proves every active rule representable; A2 and A3 complete; G0, G1, G2, G3, G4, G5; approved model/version/compatibility contract; independent scoring review.
+- Dependencies/prerequisites: The user explicitly selects the complete coverage contract instead of C1; C2A proves every active rule representable; A3B complete; G0, G1, G2, G3, G4, G5; approved model/version/compatibility contract; independent scoring review.
 - Protected behavior: Sleeper remains scoring authority; one normalizer and one scorer; full precision; no return/offense/defense double count; immutable historical snapshots and old revisions remain readable; exact-week, bye, empty-slot, missing-projection, D/ST, live, and final behavior remain.
 - In scope: Implement exactly the approved verified mappings in the canonical normalizer/scorer under a new explicit model/version; intentionally version scoring identity, cache, revision, and new immutable snapshots.
 - Excluded: Partial or guessed coverage, disclosure as an afterthought, silent incomplete totals, historical rewrite, broad provider refactor, quota/cadence/plan change, schema/permission change, or a second scorer.
 - Tests/evidence: Rule-by-rule golden player values and full-precision team totals; all active unsupported rules covered; missing/zero/fractional fields; duplicate-event ownership; returns/offense/defense; bye, empty slot, missing projection, D/ST/live/final; both leagues with equal/different hashes; old/new snapshot compatibility; sanitized real samples.
-- Release checks: G0 through G5, including G4; exact preview and production SHA; adequate A3 reserve; independent review; approved canary/model selection; natural real-game follow-up in I1.
+- Release checks: G0 through G5, including G4; exact preview and production SHA; supported A3B reserve and admission; independent review; approved canary/model selection; natural real-game follow-up in I1.
 - Rollback/recovery: Revert model selection/code while preserving all immutable old and new snapshots. Never rewrite history. Restore the prior scoring model only through its existing compatible read path.
 - User decisions/authority: Explicit approval of the complete semantics/version, changed projection totals, canary, and production release. This plan does not choose this option.
 - Change matrix: Code Yes; Configuration No; Billing No; Data Yes, new versioned immutable snapshots only and no historical rewrite; Production Yes, scoring behavior changes.
 - Closure owner: Final owner of SCORE-001 only when the user selected coverage and every active unsupported rule is verified, implemented, and released. C1 and C2B are mutually exclusive outcomes.
 - Individual prompt:
 
-> In a fresh isolated worktree, execute only C2B from docs/audits/2026-09-04-production-systems-audit-remediation.md after complete C2A proof and explicit user approval of coverage. Reproduce the contract, then implement exactly the approved mappings in the one canonical normalizer/scorer under a new model/version. Preserve historical snapshots and prevent event double counting. Run golden player/team, both-league, bye/empty/missing/DST/live/final, compatibility, quota, database-safety, and G4 checks. Open one scoring-only PR; stop rather than ship partial coverage, and do not merge, deploy, rewrite history, or change provider/cron/schema/settings without authorization.
+> In a fresh isolated worktree, execute only C2B from docs/audits/2026-09-04-production-systems-audit-remediation.md after complete C2A proof, completed A3B with supported reserve/admission, and explicit user approval of coverage. Reproduce the contract, then implement exactly the approved mappings in the one canonical normalizer/scorer under a new model/version. Preserve historical snapshots and prevent event double counting. Run golden player/team, both-league, bye/empty/missing/DST/live/final, compatibility, quota, database-safety, and G4 checks. Open one scoring-only PR; stop rather than ship partial coverage, and do not merge, deploy, rewrite history, or change provider/cron/schema/settings without authorization.
 
 ### D1 — Reject contradictory provider game state
 
@@ -435,29 +454,29 @@ Code means repository executable, test, workflow, or migration files; documentat
 
 - Findings: FUTURE-001 — Confirmed defect / Medium / High — Future default-period cache can deterministically self-fail freshness.
 - Evidence/reproduction: Reproduce prior success at 12:04:57, a warm one-hour cache, and a 13:00 due attempt returning an observation older than last_succeeded_at.
-- Dependencies/prerequisites: A3 complete so request impact is measurable; G0, G1, G3, G5.
+- Dependencies/prerequisites: A3B complete so request impact is measurable against a supported reserve and admission policy; G0, G1, G3, G5.
 - Protected behavior: Database new-observation freshness remains strict; shared cache namespace/TTL and one-action-per-invocation remain unless a deliberate reviewed migration is selected; no cadence broadening, scoring change, or extra per-league calls.
 - In scope: Schedule after cache expiry plus measured headroom or use an explicit fresh-ingest path; preserve failure/backoff and later materialization.
 - Excluded: Relaxing database freshness, disabling cache globally, cron changes, quota-plan changes, scoring, or future-worker redesign.
 - Tests/evidence: Exact warm-cache/prior-success reproduction; no stale success; first failure/backoff and recovery; before/after provider request counts; cold/warm and same-period sharing.
-- Release checks: G0, G1, G3, G4, G5; exact preview/production SHA; A3 reserve; both leagues; natural future results and unchanged cron.
+- Release checks: G0, G1, G3, G4, G5; exact preview/production SHA; supported A3B reserve and admission; both leagues; natural future results and unchanged cron.
 - Rollback/recovery: Reviewed code revert; never relax the database freshness invariant as rollback.
 - User decisions/authority: Approve the measured request-count effect if the fresh-ingest option is chosen.
 - Change matrix: Code Yes; Configuration No; Billing No; Data Yes, prospective future observation/job/snapshot timing and publication only and no schema or historical rewrite; Production Yes after release authorization.
 - Closure owner: Final owner of FUTURE-001.
 - Individual prompt:
 
-> In a fresh isolated worktree, execute only D2 from docs/audits/2026-09-04-production-systems-audit-remediation.md after A3. Reproduce the warm-cache/prior-success failure, then align scheduling to expiry plus headroom or implement a deliberate fresh-ingest path with measured request counts. Never weaken database freshness, broaden cron/cadence, multiply per-league calls, or change scoring. Open one narrow PR and do not merge or deploy without authorization.
+> In a fresh isolated worktree, execute only D2 from docs/audits/2026-09-04-production-systems-audit-remediation.md after A3B. Reproduce the warm-cache/prior-success failure, then align scheduling to expiry plus supported headroom or implement a deliberate fresh-ingest path with measured request counts. Never weaken database freshness, broaden cron/cadence, multiply per-league calls, or change scoring. Open one narrow PR and do not merge or deploy without authorization.
 
 ### E0 — Performance measurement instrumentation
 
 - Findings: PERF-001 — Missing proof / Medium / High — Representative p95/p99 and burst capacity are absent.
 - Evidence/reproduction: Reproduce on current main the absence or insufficiency of per-stage duration, request-unit, query-volume, and end-to-end correlation needed to measure the audited worker and reader paths. Inventory existing logs/metrics first and add nothing already available.
-- Dependencies/prerequisites: A3 and B2 complete; G0, G1, G2, G3, G4, G5; approved non-private telemetry schema, retention, and owner; relevant generated Next.js documentation.
+- Dependencies/prerequisites: A3A and B2 released and stable; G0, G1, G2, G3, G4, G5; approved non-private telemetry schema, retention, and owner; relevant generated Next.js documentation. Reuse A3A quota fields and correlation on the canonical path rather than creating duplicate provider instrumentation.
 - Protected behavior: Timing thresholds, cancellation, leases, cadence, cache, query semantics, provider calls, scoring, publication, reader responses, and production workload remain identical. Instrumentation cannot become an admission dependency.
-- In scope: Observation-only timers/counters on existing canonical paths for worker stages, provider attempts/billed units, database query count/rows/bytes, cleanup, reader waits, and end-to-end lineage; correlation identifiers without league/member/player identity; and a checked-in deterministic load/fault tool that requires an explicit non-production base URL and isolated database fingerprint.
-- Excluded: Timeout/deadline/lease change, query or cache optimization, new provider call, production load generation, new monitoring vendor, private payload logging, schema/permission change, retention, or application behavior change.
-- Tests/evidence: Deterministic clock fixtures; success/error/abort coverage; absent/malformed header handling; correlation across due bucket → accepted observation → verified snapshot → browser adoption; silent secret/identity checks; load tool rejects localhost ambiguity and production fingerprints; before/after outputs prove request counts and results unchanged.
+- In scope: Observation-only timers/counters on existing canonical paths for worker stages, A3A provider attempts/billed units, database query count/rows/bytes, cleanup, reader waits, and end-to-end lineage; correlation identifiers without league/member/player identity; and a checked-in deterministic load/fault tool that requires an explicit non-production base URL and isolated database fingerprint.
+- Excluded: Duplicate quota capture or a second provider telemetry path; timeout/deadline/lease change; query or cache optimization; new provider call; production load generation; new monitoring vendor; private payload logging; schema/permission change; retention; or application behavior change.
+- Tests/evidence: Deterministic clock fixtures; success/error/abort coverage; reuse of A3A absent/malformed header handling; correlation across due bucket → accepted observation → verified snapshot → browser adoption; silent secret/identity checks; load tool rejects localhost ambiguity and production fingerprints; before/after outputs prove request counts and results unchanged; one canonical quota event per existing provider response.
 - Release checks: G0 through G5, including G4; exact preview and production SHA; both leagues; natural traffic proves bounded telemetry without latency/error/request-count regression. Do not generate production load.
 - Rollback/recovery: Revert instrumentation/load-tool code through a reviewed PR; retain only sanitized aggregate evidence needed for comparison. No timing threshold is changed or restored.
 - User decisions/authority: Approve telemetry fields, retention, observation owner, and production release. A new paid telemetry service or unexpected cost requires a new unit and approval.
@@ -465,13 +484,13 @@ Code means repository executable, test, workflow, or migration files; documentat
 - Closure owner: Supporting prerequisite for E1 and PERF-001; it closes no performance or timeout finding by itself.
 - Individual prompt:
 
-> In a fresh isolated worktree, execute only E0 from docs/audits/2026-09-04-production-systems-audit-remediation.md after A3 and B2. Reproduce the exact measurement gaps, add only missing bounded non-private instrumentation to existing worker/reader paths, and add a load/fault tool that refuses production and ambiguous targets. Prove timing, query, request, scoring, cache, lease, and response behavior are unchanged. Run G4 and secret-safe gates, open one instrumentation-only PR, and do not tune timeouts, add provider calls/vendors/schema, load-test production, merge, or deploy without authorization.
+> In a fresh isolated worktree, execute only E0 from docs/audits/2026-09-04-production-systems-audit-remediation.md after A3A and B2 are released and stable. Reuse A3A quota fields and correlation on the canonical provider path; do not create duplicate quota instrumentation. Reproduce the remaining measurement gaps, add only missing bounded non-private instrumentation to existing worker/reader paths, and add a load/fault tool that refuses production and ambiguous targets. Prove timing, query, request, scoring, cache, lease, and response behavior are unchanged. Run G4 and secret-safe gates, open one instrumentation-only PR, and do not tune timeouts, add provider calls/vendors/schema, load-test production, merge, or deploy without authorization.
 
 ### E1 — Required pre-change performance baseline
 
 - Findings: PERF-001 — Missing proof / Medium / High — Representative p95/p99 and burst capacity are absent.
 - Evidence/reproduction: Replace A-only samples with a preregistered measurement method using released, stable E0 instrumentation and its checked-in tool. Measure current-worker stages, provider and database waits, cleanup, public readers, and 300-viewer steady/synchronized behavior before choosing any worker or reader deadline or compact-read optimization.
-- Dependencies/prerequisites: E0 released and stable; A2 complete; G0, G1, G2, G5; approved SLO, sample method, and non-production load envelope. Production observation is natural and read-only; load generation targets Preview/isolated Neon only.
+- Dependencies/prerequisites: E0 released and stable; G0, G1, G2, G5; approved SLO, sample method, and non-production load envelope. Production observation is natural and read-only; load generation targets Preview/isolated Neon only. E0 carries the required A3A prerequisite; E1 does not require A2 or A3B and cannot close OPS-001.
 - Protected behavior: No timeout, lease, cadence, cache, query, provider, or production behavior changes in this unit; no unexpected quota consumption or production load.
 - In scope: Define SLOs and sampling windows before collection; capture p50/p75/p95/p99, maximum, errors/timeouts, cold/warm state, provider attempts/billed units, database query count/rows/bytes, CPU/memory, throttle, and stage/end-to-end duration. Exercise 300 steady visible viewers and a synchronized minute boundary against Preview/isolated DB. Treat a percentile as Unverified when the comparable sample size is insufficient; never present a few healthy samples as p99.
 - Excluded: Production load test, forced cron/provider call, timeout/cancellation change, query/schema optimization, retention, or tuning during measurement.
@@ -483,7 +502,7 @@ Code means repository executable, test, workflow, or migration files; documentat
 - Closure owner: Required support for WORKER-001, READER-001, and READER-002. PERF-001 closes only after E1 plus the applicable natural I1 tail evidence meet the preregistered method.
 - Individual prompt:
 
-> In a fresh task, execute only E1 from docs/audits/2026-09-04-production-systems-audit-remediation.md after E0 is released/stable and A2 is complete. Predeclare the SLOs, sample size, and method, then use the E0 tool to collect representative worker/reader p50/p75/p95/p99 and 300-viewer steady/synchronized evidence against Preview and isolated Neon, plus natural read-only production observations. Do not edit code/config, load-test production, force cron/provider calls, tune timeouts, incur unexpected cost, or expose private payloads. If evidence is insufficient, retain PERF-001 as Missing proof and keep E2–E4 blocked.
+> In a fresh task, execute only E1 from docs/audits/2026-09-04-production-systems-audit-remediation.md after E0 is released and stable. Predeclare the SLOs, sample size, and method, then use the E0 tool to collect representative worker/reader p50/p75/p95/p99 and 300-viewer steady/synchronized evidence against Preview and isolated Neon, plus natural read-only production observations. Do not edit code/config, load-test production, force cron/provider calls, tune timeouts, incur unexpected cost, or expose private payloads. If evidence is insufficient, retain PERF-001 as Missing proof and keep E2–E4 blocked; do not make an OPS-001 closure claim.
 
 ### E2 — Current-worker deadline and cleanup budget
 
@@ -704,8 +723,8 @@ Code means repository executable, test, workflow, or migration files; documentat
 ### I1 — Natural first-game and tail evidence
 
 - Findings: LIVE-001 — Missing proof / High / High — Real 2026 transition/provider semantics remain unvalidated; PERF-001 — Missing proof / Medium / High — Representative p95/p99 and burst capacity are absent.
-- Evidence/reproduction: Observe natural 2026 game windows only after adequate provider capacity and telemetry. Do not simulate production writes or burn quota for evidence.
-- Dependencies/prerequisites: A2 and A3; natural game window; G0, G1, G4, G5; read-only production-observation authority. No runtime remediation is an implicit prerequisite: observe the exact deployed SHA. Evidence may be credited to D1, D2, E2, E3, or another runtime unit only when that exact unit was already authorized, released, and named in the observation record.
+- Evidence/reproduction: Observe natural 2026 game windows only after A3A makes quota use visible from normal existing calls. Do not simulate production writes, add provider traffic, or burn quota for evidence. I1 may supply representative natural-burn evidence to A3B but does not need A3B to start.
+- Dependencies/prerequisites: A3A released and stable; natural game window; G0, G1, G4, G5; read-only production-observation authority. No runtime remediation, A2, or A3B is an implicit prerequisite: observe the exact deployed SHA. If A3B is not complete, reserve and admission remain unverified and I1 cannot close OPS-001. Evidence may be credited to D1, D2, E2, E3, or another runtime unit only when that exact unit was already authorized, released, and named in the observation record.
 - Protected behavior: Last-known-good on invalid input; current priority; exact period/source lineage; no forced work; both leagues; private identities and raw payloads excluded.
 - In scope: Natural pregame → Q1 → quarter → halftime → second half → final; postponed/delayed/OT when naturally available; near-kickoff and future lineup changes; missing projection, empty slot, bye, D/ST, full-precision team sums; source skew; request units/cache/grouping; worker and browser lineage/adoption; representative tail durations.
 - Excluded: Provider diagnostic call, authenticated forced cron, production data write, behavior tuning, synthetic production states, or declaring unobserved cases proven.
@@ -714,10 +733,10 @@ Code means repository executable, test, workflow, or migration files; documentat
 - Rollback/recovery: None. Preserve sanitized evidence and open newly observed defects as separate findings; do not tune production inline.
 - User decisions/authority: Read-only production observation authority. Any action needed to create a state is out of scope and requires a new decision.
 - Change matrix: Code No; Configuration No; Billing No; Data No mutation, sanitized evidence record only; Production No change, natural read-only observation.
-- Closure owner: Final owner of LIVE-001 for cases actually observed; joint with E1 for PERF-001. Unobserved cases remain Missing proof.
+- Closure owner: Final owner of LIVE-001 for cases actually observed; joint with E1 for PERF-001. It may support A3B with natural-burn evidence but does not close OPS-001; unobserved cases and any absent reserve/admission proof remain Missing proof.
 - Individual prompt:
 
-> In a fresh task, execute only I1 from docs/audits/2026-09-04-production-systems-audit-remediation.md after A2/A3 and during a natural 2026 game window. Observe and correlate the full transition, lineup, missing/bye/empty/DST/team-total, quota, duration, lineage, browser, both-league, and G4 matrix without forcing cron/provider calls or writing production. Report only sanitized aggregates and exact SHAs. Do not tune or fix anything; retain every unobserved case as Missing proof and file new defects separately.
+> In a fresh task, execute only I1 from docs/audits/2026-09-04-production-systems-audit-remediation.md after A3A is released and stable and during a natural 2026 game window. Observe and correlate the full transition, lineup, missing/bye/empty/DST/team-total, quota, duration, lineage, browser, both-league, and G4 matrix without forcing cron/provider calls or writing production. Report only sanitized aggregates and exact SHAs. Natural-burn evidence may inform A3B, but absent A3B reserve/admission proof never closes OPS-001. Do not tune or fix anything; retain every unobserved case as Missing proof and file new defects separately.
 
 ### I2 — Historical release ledger closure
 
@@ -867,8 +886,8 @@ Code means repository executable, test, workflow, or migration files; documentat
 
 | Finding | Closure owner and rule |
 |---|---|
-| OPS-001 | A1 + A2 + A3 only when defensible demand/reset/weight evidence proves capacity and measured admission. A precautionary upgrade or risk acceptance leaves it open. |
-| TANK-002 | A1 owns account/application/subscription/environment attestation; A3 owns normal-call reset/header/endpoint-weight accounting. Any unobserved element stays Missing proof. |
+| OPS-001 | A1 + a defensibly proved current or post-A2 capacity state + sufficient A3A evidence + A3B only when the supported reserve and measured admission are genuinely demonstrated. A2 is needed only if a capacity change is required; a precautionary upgrade, A3A alone, risk acceptance, or any Missing proof leaves OPS-001 open. |
+| TANK-002 | A1 owns account/application/subscription/environment attestation; A3A owns normal-call reset/header/billing/endpoint-weight evidence. Any unobserved element stays Missing proof; A3B cannot manufacture or close an absent telemetry fact. |
 | DB-PROOF-001 | B1 only, including timed isolated restore and synthetic selective recovery. |
 | PREVIEW-001 | B2 only. |
 | DB-001 | B3 is compatible preparation; B4 closes after exact-grant production verification. |
