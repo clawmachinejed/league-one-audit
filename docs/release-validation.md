@@ -27,7 +27,9 @@ pnpm --filter @l1/site exec playwright install chromium
 pnpm test:browser
 ```
 
-Without `BASE_URL`, Playwright builds the site and starts the local Next.js production server. To exercise an already-deployed preview, set `BASE_URL` to that preview address before running `pnpm test:browser`. A protected preview must be made accessible to the test runner through the normal Vercel access mechanism; do not place bypass credentials in the repository.
+Without `BASE_URL`, Playwright requires the configured local port (`PORT`, default `3000`) to be free, builds this checkout, and starts its Next.js production server. An occupied port fails before the build or browser tests; stop your own server or select a free `PORT`. The browser gate used by `pnpm verify:full` also verifies a per-run marker in the generated `.next/static` output against this checkout's Git SHA, working-tree state, source digest, and fresh build ID before running feature tests. The digest covers tracked and untracked non-ignored files; keep the checkout stable through the build and setup. A missing or stale marker or a changed checkout fails closed. The marker is local test tooling only and is not added by normal builds or Vercel deployments.
+
+Successful local setup reports the exact target URL, checkout, Git SHA, working-tree state, build ID, and run ID. To exercise an already-deployed preview, set `BASE_URL` to that preview address before running `pnpm test:browser`. Explicit `BASE_URL` mode starts no local server and requires no local marker; its report identifies the selected target without claiming local-build provenance. URL query strings, fragments, and embedded credentials are omitted from target reporting. Record the preview's exact commit separately through Vercel. A protected preview must be made accessible to the test runner through the normal Vercel access mechanism; do not place bypass credentials in the repository.
 
 ## Historical baseline and current release record
 
