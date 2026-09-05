@@ -2,7 +2,8 @@ import { execFile, execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type RequestListener, type Server } from 'node:http';
 import { createRequire } from 'node:module';
-import { tmpdir } from 'node:os';
+import { createServer as createTcpServer, type Server as TcpServer, type Socket } from 'node:net';
+import { networkInterfaces, tmpdir } from 'node:os';
 import { delimiter, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -24,6 +25,10 @@ const removedRoutes = [
 ];
 const directories: string[] = [];
 const servers: Server[] = [];
+const tcpServers: TcpServer[] = [];
+const tcpSockets = new Set<Socket>();
+const nonLoopbackIpv4 = Object.values(networkInterfaces()).flat()
+  .find((address) => address?.family === 'IPv4' && !address.internal)?.address;
 
 function temporaryDirectory() {
   const directory = mkdtempSync(join(tmpdir(), 'l1-browser-provenance-'));
@@ -37,6 +42,23 @@ async function serve(handler: RequestListener) {
   await new Promise<void>((resolveListen, reject) => {
     server.once('error', reject);
     server.listen(0, resolveListen);
+  });
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('Fixture did not receive a TCP port.');
+  return { port: String(address.port), baseURL: `http://localhost:${address.port}` };
+}
+
+async function serveNonHttp(host: string, silent: boolean, ipv6Only?: boolean) {
+  const server = createTcpServer((socket) => {
+    tcpSockets.add(socket);
+    socket.once('close', () => tcpSockets.delete(socket));
+    socket.on('error', () => socket.destroy());
+    if (!silent) socket.end('This listener does not speak HTTP.\r\n');
+  });
+  tcpServers.push(server);
+  await new Promise<void>((resolveListen, reject) => {
+    server.once('error', reject);
+    server.listen({ port: 0, host, ipv6Only }, resolveListen);
   });
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('Fixture did not receive a TCP port.');
@@ -94,10 +116,26 @@ async function runPlaywright(env: { BASE_URL?: string; PORT?: string }) {
   };
 }
 
+function expectOccupiedPortFailure(result: Awaited<ReturnType<typeof runPlaywright>>, port: string) {
+  const errors = result.report?.errors.map((error: { message: string }) => error.message).join('\n') ?? '';
+  const output = `${result.stdout}\n${result.stderr}\n${errors}`;
+  const evidence = JSON.stringify({
+    code: result.code, buildAttempted: result.buildAttempted, stats: result.report?.stats, errors,
+  });
+  expect(result.code, evidence).toBe(1);
+  expect(result.buildAttempted, evidence).toBe(false);
+  expect(result.report?.stats, evidence).toMatchObject({ expected: 0, unexpected: 0, flaky: 0, skipped: 0 });
+  expect(output, evidence).toContain(`Local browser port ${port} is occupied; build and browser feature tests were not started.`);
+}
+
 afterEach(async () => {
   vi.unstubAllEnvs();
   await Promise.all(servers.splice(0).map((server) => new Promise<void>((resolveClose, reject) => {
     server.closeAllConnections();
+    server.close((error) => error ? reject(error) : resolveClose());
+  })));
+  for (const socket of tcpSockets) socket.destroy();
+  await Promise.all(tcpServers.splice(0).map((server) => new Promise<void>((resolveClose, reject) => {
     server.close((error) => error ? reject(error) : resolveClose());
   })));
   // Only paths returned by mkdtemp above are eligible for cleanup.
@@ -105,22 +143,40 @@ afterEach(async () => {
 });
 
 describe('local browser target provenance', () => {
-  it('rejects an occupied unrelated server through the actual Playwright lifecycle before building or running feature tests', async () => {
-    const requests: string[] = [];
-    const server = await serve((request, response) => {
-      requests.push(request.url!);
-      response.writeHead(200, { 'content-type': 'text/html' });
+  it.each([200, 404, 500])('rejects an occupied HTTP %s server through the actual Playwright lifecycle before building or running feature tests', async (status) => {
+    const server = await serve((_request, response) => {
+      response.writeHead(status, { 'content-type': 'text/html' });
       response.end('<html><body>Unrelated application</body></html>');
     });
     const result = await runPlaywright({ PORT: server.port });
 
-    expect(result.code).toBe(1);
-    expect(result.report?.errors.map((error: { message: string }) => error.message).join('\n'))
-      .toContain(`${server.baseURL} is already used`);
-    expect(result.report?.stats).toMatchObject({ expected: 0, unexpected: 0, flaky: 0, skipped: 0 });
-    expect(result.buildAttempted).toBe(false);
-    expect(requests.length).toBeGreaterThan(0);
-    expect(requests.every((path) => path === '/')).toBe(true);
+    expectOccupiedPortFailure(result, server.port);
+  }, 30_000);
+
+  it.each([
+    ['127.0.0.1', false], ['::1', false],
+    ['127.0.0.1', true], ['::1', true],
+  ] as const)('rejects an occupied non-HTTP listener on %s (silent: %s) through the actual Playwright lifecycle before building or running feature tests', async (host, silent) => {
+    const server = await serveNonHttp(host, silent);
+    const result = await runPlaywright({ PORT: server.port });
+
+    expectOccupiedPortFailure(result, server.port);
+  }, 30_000);
+
+  it.each([
+    ['0.0.0.0', false], ['::', true],
+  ] as const)('rejects an occupied non-HTTP wildcard listener on %s (IPv6-only: %s) before building or running feature tests', async (host, ipv6Only) => {
+    const server = await serveNonHttp(host, false, ipv6Only);
+    const result = await runPlaywright({ PORT: server.port });
+
+    expectOccupiedPortFailure(result, server.port);
+  }, 30_000);
+
+  it.skipIf(!nonLoopbackIpv4)('rejects a non-HTTP listener bound only to a non-loopback local IPv4 interface before building or running feature tests', async () => {
+    const server = await serveNonHttp(nonLoopbackIpv4!, false);
+    const result = await runPlaywright({ PORT: server.port });
+
+    expectOccupiedPortFailure(result, server.port);
   }, 30_000);
 
   it.each([

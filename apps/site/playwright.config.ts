@@ -35,7 +35,7 @@ export default defineConfig({
   webServer: target.mode === 'explicit'
     ? undefined
     : {
-        command: 'pnpm build && node scripts/write-browser-marker.mjs && pnpm start',
+        command: 'node scripts/check-browser-port.mjs && pnpm build && node scripts/write-browser-marker.mjs && pnpm start',
         cwd: target.siteDir,
         env: {
           L1_BROWSER_RUN_ID: target.runId,
@@ -44,6 +44,8 @@ export default defineConfig({
         },
         reuseExistingServer: false,
         timeout: 240_000,
-        url: target.baseURL,
+        // A pre-start HTTP probe can miss error responses or hang on a silent listener.
+        // The port guard runs first; global setup then verifies the served build marker.
+        wait: { stdout: /Ready in/ },
       },
 });
