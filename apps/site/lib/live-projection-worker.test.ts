@@ -4,11 +4,13 @@ vi.mock('server-only', () => ({}));
 vi.mock('next/cache', () => ({ unstable_cache: <Value,>(value: Value) => value }));
 
 import { createLiveProjectionWorker, LIVE_PROJECTION_MODEL_VERSION } from './live-projection-worker';
+import { createTank01GameStateFeed } from './projections/adapters/tank01/game-state-feed';
 import type {
   GameStateObservation,
   LeagueConfiguration,
   NflWeekSchedule,
 } from './projections/domain/contracts';
+import type { StoredProjectionSnapshot } from './projections/ports/projection-repository';
 import { externalGameRef, externalRosterRef } from './projections/shared/provider-identity';
 import type { Player } from './types';
 import {
@@ -525,6 +527,102 @@ describe('live projection worker', () => {
     expect(store.published).toHaveLength(0);
     expect(store.completed).not.toHaveBeenCalled();
     expect(store.failed).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    ['Q2, Q3, and status Q1', {
+      gameStatus: 'Q1',
+      gameClock: '12:00',
+      currentPeriod: 'Q3',
+      lineScore: { period: 'Q2', gameClock: '12:00' },
+    }],
+    ['two distinct opaque periods and recognized status', {
+      gameStatus: 'Q4',
+      gameClock: '8:00',
+      currentPeriod: 'commercial break',
+      lineScore: { period: 'weather delay', gameClock: '08:00' },
+    }],
+    ['conflicting clocks and Halftime', {
+      gameStatus: 'Halftime',
+      gameClock: '4:00',
+      lineScore: { period: 'Halftime', gameClock: '3:59' },
+    }],
+  ])('does not move either current pointer for contradictory %s input', async (_label, overrides) => {
+    vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const store = fakeStore();
+    const currentPointers = new Map<string, StoredProjectionSnapshot>();
+    const originalPublish = store.repository.publishSnapshot.bind(store.repository);
+    const publish = vi.spyOn(store.repository, 'publishSnapshot').mockImplementation(async (input) => {
+      const result = await originalPublish(input);
+      if (result.kind === 'published' || result.kind === 'unchanged') {
+        currentPointers.set(String(input.leagueSeasonId), result.snapshot);
+      }
+      return result;
+    });
+    vi.spyOn(store.repository, 'readCurrentSnapshot').mockImplementation(async (leagueSeasonId) => (
+      currentPointers.get(String(leagueSeasonId)) ?? null
+    ));
+    const dependencies = workerDependencies(store);
+
+    await expect(createLiveProjectionWorker(dependencies).run()).resolves.toMatchObject({
+      status: 'completed', publishedLeagues: 2, failedLeagues: 0,
+    });
+    const lastKnownGoodPointers = new Map(currentPointers);
+    const lastKnownGoodPayloads = [...store.published];
+    const lastKnownGoodInputs = JSON.stringify(store.publishInputs);
+    expect([...lastKnownGoodPointers.keys()].sort()).toEqual(['season-league1', 'season-league2']);
+    expect(publish).toHaveBeenCalledTimes(2);
+    expect(store.recordedStates).toHaveBeenCalledTimes(1);
+
+    const timestamps = [
+      Date.parse('2026-09-13T18:00:11.000Z'),
+      Date.parse('2026-09-13T18:00:12.000Z'),
+    ];
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json({
+      statusCode: 200,
+      body: {
+        'game-1': {
+          gameID: 'game-1',
+          home: 'KC',
+          away: 'LAC',
+          gameStatusCode: 1,
+          ...overrides,
+        },
+      },
+    }));
+    const contradictoryDependencies = {
+      ...dependencies,
+      gameStateFeed: createTank01GameStateFeed({
+        apiKey: 'fixture-key',
+        provider: GAME_STATE_PROVIDER,
+        fetch,
+        now: () => timestamps.shift() ?? Date.parse('2026-09-13T18:00:12.000Z'),
+      }),
+    };
+
+    await expect(createLiveProjectionWorker(contradictoryDependencies).run({ force: true }))
+      .resolves.toEqual({ status: 'failed' });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const [input] = fetch.mock.calls[0];
+    const url = new URL(String(input));
+    expect(url.pathname).toBe('/getNFLScoresOnly');
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      gameWeek: '1', season: '2026', seasonType: 'reg', topPerformers: 'false',
+    });
+    expect(dependencies.gamesMock).toHaveBeenCalledTimes(1);
+    expect(dependencies.projectionMock).toHaveBeenCalledTimes(2);
+    expect(store.recordedStates).toHaveBeenCalledTimes(1);
+    expect(publish).toHaveBeenCalledTimes(2);
+    expect(store.publishInputs).toHaveLength(2);
+    expect(JSON.stringify(store.publishInputs)).toBe(lastKnownGoodInputs);
+    expect(store.published).toHaveLength(2);
+    expect(store.published[0]).toBe(lastKnownGoodPayloads[0]);
+    expect(store.published[1]).toBe(lastKnownGoodPayloads[1]);
+    for (const [leagueSeasonId, snapshot] of lastKnownGoodPointers) {
+      expect(currentPointers.get(leagueSeasonId)).toBe(snapshot);
+    }
   });
 
   it('rejects a live game without a normalized phase or remaining fraction after shared provider persistence', async () => {

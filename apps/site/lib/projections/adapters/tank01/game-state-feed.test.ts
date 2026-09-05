@@ -48,6 +48,21 @@ describe('Tank01 canonical game-state normalization', () => {
       ['opaque-suspended', game('opaque-suspended', 'BAL', 'PIT', {
         gameStatusCode: '4', gameStatus: 'Suspended', gameClock: '5:00', lineScore: { period: 'Q3' },
       })],
+      ['opaque-q1', game('opaque-q1', 'ARI', 'SEA', {
+        gameStatusCode: 1, gameStatus: 'First Quarter', gameClock: '15:00',
+        lineScore: { period: '1st Quarter', gameClock: '15:00' },
+      })],
+      ['opaque-q3', game('opaque-q3', 'CHI', 'DET', {
+        gameStatusCode: 1, gameStatus: 'Third Quarter', gameClock: '7:30',
+        lineScore: { period: '3', gameClock: '07:30' },
+      })],
+      ['opaque-q4', game('opaque-q4', 'GB', 'MIN', {
+        gameStatusCode: 1, gameStatus: 'Fourth Quarter', gameClock: '0:09',
+        lineScore: { period: '4TH QUARTER', gameClock: '00:09' },
+      })],
+      ['opaque-overtime', game('opaque-overtime', 'CIN', 'CLE', {
+        gameStatusCode: 1, gameStatus: 'Overtime', lineScore: { period: 'OT2' },
+      })],
     ]), period, startedAt, completedAt, provider);
 
     expect(result).toMatchObject({
@@ -57,7 +72,7 @@ describe('Tank01 canonical game-state normalization', () => {
       requestCompletedAt: '2026-09-13T16:00:00.250Z',
       observedAt: '2026-09-13T16:00:00.250Z',
     });
-    expect(result.games).toHaveLength(6);
+    expect(result.games).toHaveLength(10);
     expect(result.games[0]).toMatchObject({
       gameRef: { provider: 'tank01', externalId: 'opaque-pregame' },
       homeTeam: 'WAS', awayTeam: 'JAX', phase: 'pregame', remainingFraction: 1,
@@ -71,6 +86,10 @@ describe('Tank01 canonical game-state normalization', () => {
     expect(result.games[3]).toMatchObject({ phase: 'final', remainingFraction: 0 });
     expect(result.games[4]).toMatchObject({ phase: 'postponed', remainingFraction: 1 });
     expect(result.games[5]).toMatchObject({ phase: 'suspended', remainingFraction: null });
+    expect(result.games[6]).toMatchObject({ phase: 'q1', clockSeconds: 900, remainingFraction: 1 });
+    expect(result.games[7]).toMatchObject({ phase: 'q3', clockSeconds: 450, remainingFraction: 0.375 });
+    expect(result.games[8]).toMatchObject({ phase: 'q4', clockSeconds: 9, remainingFraction: 0.0025 });
+    expect(result.games[9]).toMatchObject({ phase: 'overtime', clockSeconds: null, remainingFraction: 0 });
     expect(result.games[1].sourceRevision).toBe(compatibleRevision({
       gameId: 'opaque-live',
       fetchedAt: '2026-09-13T16:00:00.250Z',
@@ -81,21 +100,101 @@ describe('Tank01 canonical game-state normalization', () => {
     }));
   });
 
-  it('keeps opaque IDs opaque and collapses contradictory clock inputs to unknown', () => {
+  it('keeps opaque IDs opaque', () => {
     const gameId = 'not-a-date / arbitrary provider value';
     const result = normalizeTank01GameStates(envelope([[
       gameId,
-      game(gameId, 'ARI', 'SEA', {
-        gameStatusCode: 1,
-        gameClock: '4:00',
-        currentPeriod: 'Q2',
-        lineScore: { period: 'Q3', gameClock: '3:59' },
-      }),
+      game(gameId, 'ARI', 'SEA'),
     ]]), { ...period, week: 7 }, startedAt, completedAt, provider);
     expect(result.games[0]).toMatchObject({
-      gameRef: { externalId: gameId }, phase: 'unknown', sourcePeriod: null,
-      gameClock: null, clockSeconds: null, remainingFraction: null,
+      gameRef: { externalId: gameId }, phase: 'pregame', sourcePeriod: null,
+      gameClock: null, clockSeconds: null, remainingFraction: 1,
     });
+  });
+
+  it('accepts equivalent period aliases and clock spellings without revision churn', () => {
+    const result = normalizeTank01GameStates(envelope([[
+      'equivalent-live',
+      game('equivalent-live', 'LAC', 'KC', {
+        gameStatusCode: 1,
+        gameStatus: 'In Progress',
+        gameClock: '04:00',
+        currentPeriod: '2nd Quarter',
+        period: 'SECOND QUARTER',
+        lineScore: { period: '2', gameClock: '4:00' },
+      }),
+    ]]), period, startedAt, completedAt, provider);
+
+    expect(result.games[0]).toMatchObject({
+      phase: 'q2', sourcePeriod: '2', gameClock: '04:00', clockSeconds: 240,
+      remainingFraction: ((30 * 60) + 240) / (60 * 60),
+    });
+    expect(result.games[0].sourceRevision).toBe(compatibleRevision({
+      gameId: 'equivalent-live',
+      fetchedAt: '2026-09-13T16:00:00.250Z',
+      statusCode: 1,
+      phase: 'q2',
+      clock: '04:00',
+      remainingFraction: ((30 * 60) + 240) / (60 * 60),
+    }));
+  });
+
+  it('keeps genuinely missing optional period and clock information valid', () => {
+    const result = normalizeTank01GameStates(envelope([
+      ['missing-period', game('missing-period', 'ARI', 'SEA', {
+        gameStatusCode: 1, gameStatus: 'Fourth Quarter', gameClock: '5:00',
+      })],
+      ['missing-halftime-clock', game('missing-halftime-clock', 'DAL', 'PHI', {
+        gameStatusCode: 1, gameStatus: 'Halftime',
+      })],
+      ['missing-overtime-clock', game('missing-overtime-clock', 'BUF', 'MIA', {
+        gameStatusCode: 1, gameStatus: 'Overtime',
+      })],
+    ]), period, startedAt, completedAt, provider);
+
+    expect(result.games).toMatchObject([
+      { sourcePeriod: null, gameClock: '5:00', phase: 'q4', clockSeconds: 300, remainingFraction: 1 / 12 },
+      { sourcePeriod: null, gameClock: null, phase: 'halftime', clockSeconds: null, remainingFraction: 0.5 },
+      { sourcePeriod: null, gameClock: null, phase: 'overtime', clockSeconds: null, remainingFraction: 0 },
+    ]);
+  });
+
+  it.each([
+    ['Q2, Q3, and status Q1', {
+      gameStatusCode: 1,
+      gameStatus: 'Q1',
+      gameClock: '12:00',
+      currentPeriod: 'Q3',
+      lineScore: { period: 'Q2', gameClock: '12:00' },
+    }],
+    ['two distinct opaque periods and recognized status', {
+      gameStatusCode: 1,
+      gameStatus: 'Q4',
+      gameClock: '8:00',
+      currentPeriod: 'commercial break',
+      lineScore: { period: 'weather delay', gameClock: '08:00' },
+    }],
+    ['conflicting clocks and Halftime', {
+      gameStatusCode: 1,
+      gameStatus: 'Halftime',
+      gameClock: '4:00',
+      lineScore: { period: 'Halftime', gameClock: '3:59' },
+    }],
+  ])('rejects contradictory %s before fallback can make it usable', (_label, overrides) => {
+    expect(() => normalizeTank01GameStates(envelope([[
+      'contradictory', game('contradictory', 'ARI', 'SEA', overrides),
+    ]]), period, startedAt, completedAt, provider)).toThrow('invalid-response');
+  });
+
+  it('rejects an invalid live clock instead of treating it as absent at Halftime', () => {
+    expect(() => normalizeTank01GameStates(envelope([[
+      'invalid-clock', game('invalid-clock', 'ARI', 'SEA', {
+        gameStatusCode: 1,
+        gameStatus: 'Halftime',
+        gameClock: 'END',
+        lineScore: { period: 'Halftime' },
+      }),
+    ]]), period, startedAt, completedAt, provider)).toThrow('invalid-response');
   });
 
   it.each([
@@ -151,6 +250,34 @@ describe('Tank01 canonical game-state feed', () => {
         'x-rapidapi-host': 'tank01-nfl-live-in-game-real-time-statistics-nfl.p.rapidapi.com',
         'x-rapidapi-key': 'fixture-key',
       },
+    });
+  });
+
+  it('rejects a contradictory response after the same single provider request', async () => {
+    const timestamps = [startedAt, completedAt];
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json(envelope([[
+      'contradictory', game('contradictory', 'ARI', 'SEA', {
+        gameStatusCode: 1,
+        gameStatus: 'Q1',
+        gameClock: '12:00',
+        currentPeriod: 'Q3',
+        lineScore: { period: 'Q2', gameClock: '12:00' },
+      }),
+    ]])));
+    const feed = createTank01GameStateFeed({
+      apiKey: 'fixture-key', provider, fetch,
+      now: () => timestamps.shift() ?? completedAt,
+    });
+
+    await expect(feed.getGameStateSlate(period)).resolves.toMatchObject({
+      status: 'unavailable', reason: 'invalid-response', period,
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const [input] = fetch.mock.calls[0];
+    const url = new URL(String(input));
+    expect(url.pathname).toBe('/getNFLScoresOnly');
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      gameWeek: '1', season: '2026', seasonType: 'reg', topPerformers: 'false',
     });
   });
 
