@@ -21,7 +21,7 @@ Workflow visibility alone does not prove success. Workflow evidence also does no
 
 Doctor makes one credential-free GET to each canonical production matchup route with manual redirect handling. Any redirect response or reported redirect fails the check; its destination is never requested. A successful response must have the exact expected final URL, origin, and path, without an unexpected query, fragment, or embedded credentials. Network/body-read failure, HTTP 429, and HTTP 5xx remain Unverified; other unsuccessful HTTP responses are Unhealthy.
 
-An HTML response must contain the existing shell's matching league home anchor, current-league selector button, and active matchup anchor. Generic league text, titles, scripts, comments, inert markup, and marker-shaped strings inside attributes cannot establish route identity. This checks server-rendered shell evidence; the existing browser feature suite remains necessary for rendered application behavior.
+An HTML response must contain the existing shell's matching league home anchor, current-league selector button, and active matchup anchor. Generic league text, titles, scripts, comments, inert markup, and marker-shaped strings inside attributes cannot establish route identity. The parser tracks inherited state and open tags incrementally, so deeply nested or unmatched closing tags do not repeatedly scan ancestors. This checks server-rendered shell evidence; the existing browser feature suite remains necessary for rendered application behavior.
 
 Remote command errors, response bodies, redirect locations, and exception messages are not printed. Diagnostic redaction also suppresses credential-bearing URLs, authorization values, and token patterns.
 

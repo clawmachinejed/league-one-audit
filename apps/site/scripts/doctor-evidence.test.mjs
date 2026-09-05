@@ -247,6 +247,25 @@ describe('Doctor public-route evidence', () => {
   });
 
   it.each([
+    ['deep nesting', `<div hidden>${'<i>'.repeat(100_000)}${page()}${'</i>'.repeat(100_000)}</div>`],
+    ['unmatched closing tags', `<div hidden>${'<i>'.repeat(40_000)}${'</unmatched>'.repeat(40_000)}${page()}</div>`],
+  ])('bounds evaluation of %s without losing inherited hidden state', (_label, body) => {
+    expect(body.length).toBeLessThan(1_000_000);
+    const start = performance.now();
+    const evidence = evaluateRouteEvidence(route({ body }), expectedUrl, 'League One');
+    const elapsed = performance.now() - start;
+    expect(evidence).toMatchObject({ status: 'Unhealthy', reason: 'marker-mismatch' });
+    // A generous diagnostic budget catches the reproduced multi-second quadratic scan.
+    expect(elapsed).toBeLessThan(2_500);
+  });
+
+  it('restores the correct inherited state after closing repeated and mismatched tags', () => {
+    const body = `<div hidden><div><i>hidden</div>${page()}</div>${page()}`;
+    expect(evaluateRouteEvidence(route({ body }), expectedUrl, 'League One'))
+      .toMatchObject({ status: 'Healthy', reason: 'success' });
+  });
+
+  it.each([
     ['healthy route', route(), 'Healthy', 'success'],
     ['redirected route', route({ redirected: true }), 'Unhealthy', 'redirect'],
     ['colliding marker', route({ body: '<title>League One</title>' }), 'Unhealthy', 'marker-mismatch'],

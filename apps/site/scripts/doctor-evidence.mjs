@@ -37,6 +37,7 @@ function hasRouteMarkers(body, path, leagueName) {
   const rawText = new Set(['script', 'style', 'title', 'textarea', 'xmp', 'iframe', 'noembed', 'noframes', 'plaintext']);
   const voidTags = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr']);
   const stack = [];
+  const openTags = new Map();
   let raw = null;
   let brand = false;
   let selector = false;
@@ -69,8 +70,15 @@ function hasRouteMarkers(body, path, leagueName) {
     // HTML plaintext has no closing tag: everything after it is text.
     if (!closing && tag === 'plaintext') break;
     if (closing) {
-      const index = stack.findLastIndex(item => item.tag === tag);
-      if (index >= 0) stack.length = index;
+      const index = openTags.get(tag);
+      if (index !== undefined) {
+        // Every entry is popped at most once; unmatched closes never scan depth.
+        while (stack.length > index) {
+          const item = stack.pop();
+          if (item.previous === undefined) openTags.delete(item.tag);
+          else openTags.set(item.tag, item.previous);
+        }
+      }
       continue;
     }
     if (rawText.has(tag)) { raw = tag; continue; }
@@ -82,7 +90,7 @@ function hasRouteMarkers(body, path, leagueName) {
       if (attrs.has(name)) return false;
       attrs.set(name, attr[2] ?? attr[3] ?? attr[4] ?? '');
     }
-    const inert = stack.some(item => item.inert) || ['template', 'noscript', 'svg', 'math'].includes(tag)
+    const inert = (stack.at(-1)?.inert ?? false) || ['template', 'noscript', 'svg', 'math'].includes(tag)
       || attrs.has('hidden') || attrs.has('inert') || attrs.get('aria-hidden') === 'true'
       || /(?:^|;)\s*(?:display\s*:\s*none|(?:content-)?visibility\s*:\s*(?:hidden|collapse))\b/i.test(attrs.get('style') ?? '');
     if (!inert) {
@@ -92,7 +100,11 @@ function hasRouteMarkers(body, path, leagueName) {
       }
       selector ||= tag === 'button' && attrs.get('aria-label') === `Choose league, current ${leagueName}`;
     }
-    if (!voidTags.has(tag)) stack.push({ tag, inert });
+    if (!voidTags.has(tag)) {
+      const previous = openTags.get(tag);
+      openTags.set(tag, stack.length);
+      stack.push({ tag, inert, previous });
+    }
   }
   return brand && selector && current;
 }
