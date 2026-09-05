@@ -9,9 +9,11 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) {
 // Windows can allow a wildcard bind beside a listener on a specific address.
 // Probe each local address too, without depending on TCP/HTTP responses.
 const hosts = new Set(['127.0.0.1', '::1']);
-for (const addresses of Object.values(networkInterfaces())) {
+for (const [name, addresses] of Object.entries(networkInterfaces())) {
   for (const { address, scopeid } of addresses ?? []) {
-    hosts.add(scopeid ? `${address}%${scopeid}` : address);
+    // libuv uses numeric IPv6 zones on Windows and interface names on Unix.
+    const zone = process.platform === 'win32' ? scopeid : name;
+    hosts.add(scopeid ? `${address}%${zone}` : address);
   }
 }
 function failure(code) {
@@ -25,7 +27,7 @@ function failure(code) {
 hosts.add('0.0.0.0');
 hosts.add('::');
 const bindings = [...hosts].map((host) => ({ host, ipv6Only: host.includes(':') }));
-// Match Next's default dual-stack binding as well as IPv6-only listeners.
+// Probe dual-stack listeners as well as IPv6-only listeners.
 bindings.push({ host: '::', ipv6Only: false });
 for (const binding of bindings) {
   const { host } = binding;

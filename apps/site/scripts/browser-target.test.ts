@@ -29,6 +29,10 @@ const tcpServers: TcpServer[] = [];
 const tcpSockets = new Set<Socket>();
 const nonLoopbackIpv4 = Object.values(networkInterfaces()).flat()
   .find((address) => address?.family === 'IPv4' && !address.internal)?.address;
+const scopedIpv6Host = Object.entries(networkInterfaces()).flatMap(([name, addresses]) =>
+  (addresses ?? []).flatMap((address) => address.family === 'IPv6' && address.scopeid
+    ? [`${address.address}%${process.platform === 'win32' ? address.scopeid : name}`]
+    : []))[0];
 
 function temporaryDirectory() {
   const directory = mkdtempSync(join(tmpdir(), 'l1-browser-provenance-'));
@@ -143,6 +147,33 @@ afterEach(async () => {
 });
 
 describe('local browser target provenance', () => {
+  it('passes a genuinely free port through every prebuild probe in the actual Playwright lifecycle', async () => {
+    const reservation = createTcpServer();
+    await new Promise<void>((resolveListen, reject) => {
+      reservation.once('error', reject);
+      reservation.listen(0, resolveListen);
+    });
+    const address = reservation.address();
+    if (!address || typeof address === 'string') throw new Error('Fixture did not receive a TCP port.');
+    const port = String(address.port);
+    await new Promise<void>((resolveClose, reject) => {
+      reservation.close((error) => error ? reject(error) : resolveClose());
+    });
+
+    const result = await runPlaywright({ PORT: port });
+    const output = `${result.stdout}\n${result.stderr}`;
+
+    // Reaching the trap proves that all real prebuild probes accepted the free port.
+    // The trap stops here so this unit test never performs a production build.
+    expect(result.buildAttempted, output).toBe(true);
+    expect(result.code, output).toBe(1);
+    expect(result.report?.errors.map((error: { message: string }) => error.message).join('\n'))
+      .toContain('Exit code: 93');
+    expect(result.report?.stats).toMatchObject({ expected: 0, unexpected: 0, flaky: 0, skipped: 0 });
+    expect(output).not.toContain(`Local browser port ${port} is occupied`);
+    expect(output).not.toContain(`Cannot prove local browser port ${port} is free`);
+  }, 30_000);
+
   it.each([200, 404, 500])('rejects an occupied HTTP %s server through the actual Playwright lifecycle before building or running feature tests', async (status) => {
     const server = await serve((_request, response) => {
       response.writeHead(status, { 'content-type': 'text/html' });
@@ -174,6 +205,13 @@ describe('local browser target provenance', () => {
 
   it.skipIf(!nonLoopbackIpv4)('rejects a non-HTTP listener bound only to a non-loopback local IPv4 interface before building or running feature tests', async () => {
     const server = await serveNonHttp(nonLoopbackIpv4!, false);
+    const result = await runPlaywright({ PORT: server.port });
+
+    expectOccupiedPortFailure(result, server.port);
+  }, 30_000);
+
+  it.skipIf(!scopedIpv6Host)('rejects a non-HTTP listener bound to a scoped local IPv6 interface before building or running feature tests', async () => {
+    const server = await serveNonHttp(scopedIpv6Host!, false, true);
     const result = await runPlaywright({ PORT: server.port });
 
     expectOccupiedPortFailure(result, server.port);
