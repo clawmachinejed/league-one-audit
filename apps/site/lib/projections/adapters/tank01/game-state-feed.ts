@@ -75,28 +75,51 @@ function isoTime(value: number): string {
   }
 }
 
-function equivalentLivePhase(statusCode: NflGameStatusCode, first: string, second: string): boolean {
-  return normalizeGamePhase(statusCode, first) === normalizeGamePhase(statusCode, second);
+type OptionalProviderText =
+  | Readonly<{ kind: 'missing' }>
+  | Readonly<{ kind: 'value'; value: string }>
+  | Readonly<{ kind: 'conflict' }>
+  | Readonly<{ kind: 'invalid' }>;
+
+function normalizedProviderText(value: string): string {
+  return value.trim().replace(/\s+/gu, ' ').toUpperCase();
 }
 
-function periodFrom(row: Record<string, unknown>, lineScore: Record<string, unknown> | null): string | null {
+function livePhaseComparisonKey(value: string): string {
+  const phase = normalizeGamePhase(1, value);
+  return phase === 'unknown'
+    ? `opaque:${normalizedProviderText(value)}`
+    : `phase:${phase}`;
+}
+
+function periodFrom(
+  row: Record<string, unknown>,
+  lineScore: Record<string, unknown> | null,
+): OptionalProviderText {
   const values = [
     nonEmptyText(lineScore?.period),
     nonEmptyText(row.currentPeriod),
     nonEmptyText(row.period),
   ].filter((value): value is string => value !== null);
-  if (values.length === 0) return null;
-  if (values.slice(1).some((value) => !equivalentLivePhase(1, values[0], value))) return null;
-  return values[0];
+  if (values.length === 0) return { kind: 'missing' };
+  const comparisonKey = livePhaseComparisonKey(values[0]);
+  if (values.slice(1).some((value) => livePhaseComparisonKey(value) !== comparisonKey)) {
+    return { kind: 'conflict' };
+  }
+  return { kind: 'value', value: values[0] };
 }
 
-function clockFrom(row: Record<string, unknown>, lineScore: Record<string, unknown> | null): string | null {
+function clockFrom(
+  row: Record<string, unknown>,
+  lineScore: Record<string, unknown> | null,
+): OptionalProviderText {
   const values = [nonEmptyText(row.gameClock), nonEmptyText(lineScore?.gameClock)]
     .filter((value): value is string => value !== null);
-  if (values.length === 0) return null;
+  if (values.length === 0) return { kind: 'missing' };
   const seconds = values.map(parseGameClockSeconds);
-  if (seconds.some((value) => value === null) || seconds.some((value) => value !== seconds[0])) return null;
-  return values[0];
+  if (seconds.some((value) => value === null)) return { kind: 'invalid' };
+  if (seconds.some((value) => value !== seconds[0])) return { kind: 'conflict' };
+  return { kind: 'value', value: values[0] };
 }
 
 function gameIdFrom(mapKey: string, row: Record<string, unknown>): string | null {
@@ -148,9 +171,19 @@ export function normalizeTank01GameStates(
     }
 
     const lineScore = optionalRecord(value.lineScore);
-    const sourcePeriod = periodFrom(value, lineScore);
-    const clock = clockFrom(value, lineScore);
+    const sourcePeriodResult = periodFrom(value, lineScore);
+    const clockResult = clockFrom(value, lineScore);
+    const sourcePeriod = sourcePeriodResult.kind === 'value' ? sourcePeriodResult.value : null;
+    const clock = clockResult.kind === 'value' ? clockResult.value : null;
     const statusText = nonEmptyText(value.gameStatus);
+    const sourcePeriodPhase = normalizeGamePhase(1, sourcePeriod);
+    const statusTextPhase = normalizeGamePhase(1, undefined, statusText);
+    if (statusCode === 1 && (sourcePeriodResult.kind === 'conflict'
+      || clockResult.kind === 'conflict' || clockResult.kind === 'invalid'
+      || (sourcePeriodPhase !== 'unknown' && statusTextPhase !== 'unknown'
+        && sourcePeriodPhase !== statusTextPhase))) {
+      throw new Tank01GameStateFailure('invalid-response');
+    }
     const time = resolveGameTime({ statusCode, period: sourcePeriod, statusText, clock });
     const game: GameStateObservation = {
       gameRef: externalGameRef(provider, gameId),
