@@ -536,6 +536,10 @@ describe('live projection worker', () => {
       currentPeriod: 'Q3',
       lineScore: { period: 'Q2', gameClock: '12:00' },
     }],
+    ['one recognized period and conflicting recognized status', {
+      gameStatus: 'Q1',
+      lineScore: { period: 'Q2', gameClock: '12:00' },
+    }],
     ['two distinct opaque periods and recognized status', {
       gameStatus: 'Q4',
       gameClock: '8:00',

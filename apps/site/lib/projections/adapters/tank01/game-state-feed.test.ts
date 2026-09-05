@@ -117,7 +117,7 @@ describe('Tank01 canonical game-state normalization', () => {
       'equivalent-live',
       game('equivalent-live', 'LAC', 'KC', {
         gameStatusCode: 1,
-        gameStatus: 'In Progress',
+        gameStatus: 'Second Quarter',
         gameClock: '04:00',
         currentPeriod: '2nd Quarter',
         period: 'SECOND QUARTER',
@@ -137,6 +137,22 @@ describe('Tank01 canonical game-state normalization', () => {
       clock: '04:00',
       remainingFraction: ((30 * 60) + 240) / (60 * 60),
     }));
+  });
+
+  it('keeps one opaque period valid when a recognized live status supplies the phase', () => {
+    const result = normalizeTank01GameStates(envelope([[
+      'opaque-period',
+      game('opaque-period', 'ARI', 'SEA', {
+        gameStatusCode: 1,
+        gameStatus: 'Q4',
+        lineScore: { period: 'commercial break', gameClock: '8:00' },
+      }),
+    ]]), period, startedAt, completedAt, provider);
+
+    expect(result.games[0]).toMatchObject({
+      sourcePeriod: 'commercial break', statusText: 'Q4', phase: 'q4',
+      gameClock: '8:00', clockSeconds: 480, remainingFraction: 2 / 15,
+    });
   });
 
   it('keeps genuinely missing optional period and clock information valid', () => {
@@ -160,11 +176,39 @@ describe('Tank01 canonical game-state normalization', () => {
   });
 
   it.each([
+    ['pregame', 0, 'pregame', 1],
+    ['final', 2, 'final', 0],
+    ['postponed', 3, 'postponed', 1],
+    ['suspended', 4, 'suspended', null],
+  ] as const)('keeps %s status-code authority despite live-looking fields', (
+    _label, gameStatusCode, phase, remainingFraction,
+  ) => {
+    const result = normalizeTank01GameStates(envelope([[
+      `non-live-${gameStatusCode}`,
+      game(`non-live-${gameStatusCode}`, 'ARI', 'SEA', {
+        gameStatusCode,
+        gameStatus: 'Q1',
+        lineScore: { period: 'Q2', gameClock: '12:00' },
+      }),
+    ]]), period, startedAt, completedAt, provider);
+
+    expect(result.games[0]).toMatchObject({
+      statusCode: gameStatusCode, statusText: 'Q1', sourcePeriod: 'Q2',
+      phase, remainingFraction,
+    });
+  });
+
+  it.each([
     ['Q2, Q3, and status Q1', {
       gameStatusCode: 1,
       gameStatus: 'Q1',
       gameClock: '12:00',
       currentPeriod: 'Q3',
+      lineScore: { period: 'Q2', gameClock: '12:00' },
+    }],
+    ['one recognized period and conflicting recognized status', {
+      gameStatusCode: 1,
+      gameStatus: 'Q1',
       lineScore: { period: 'Q2', gameClock: '12:00' },
     }],
     ['two distinct opaque periods and recognized status', {
@@ -259,8 +303,6 @@ describe('Tank01 canonical game-state feed', () => {
       'contradictory', game('contradictory', 'ARI', 'SEA', {
         gameStatusCode: 1,
         gameStatus: 'Q1',
-        gameClock: '12:00',
-        currentPeriod: 'Q3',
         lineScore: { period: 'Q2', gameClock: '12:00' },
       }),
     ]])));

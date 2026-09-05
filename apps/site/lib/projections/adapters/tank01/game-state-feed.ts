@@ -173,13 +173,17 @@ export function normalizeTank01GameStates(
     const lineScore = optionalRecord(value.lineScore);
     const sourcePeriodResult = periodFrom(value, lineScore);
     const clockResult = clockFrom(value, lineScore);
-    if (statusCode === 1 && (sourcePeriodResult.kind === 'conflict'
-      || clockResult.kind === 'conflict' || clockResult.kind === 'invalid')) {
-      throw new Tank01GameStateFailure('invalid-response');
-    }
     const sourcePeriod = sourcePeriodResult.kind === 'value' ? sourcePeriodResult.value : null;
     const clock = clockResult.kind === 'value' ? clockResult.value : null;
     const statusText = nonEmptyText(value.gameStatus);
+    const sourcePeriodPhase = normalizeGamePhase(1, sourcePeriod);
+    const statusTextPhase = normalizeGamePhase(1, undefined, statusText);
+    if (statusCode === 1 && (sourcePeriodResult.kind === 'conflict'
+      || clockResult.kind === 'conflict' || clockResult.kind === 'invalid'
+      || (sourcePeriodPhase !== 'unknown' && statusTextPhase !== 'unknown'
+        && sourcePeriodPhase !== statusTextPhase))) {
+      throw new Tank01GameStateFailure('invalid-response');
+    }
     const time = resolveGameTime({ statusCode, period: sourcePeriod, statusText, clock });
     const game: GameStateObservation = {
       gameRef: externalGameRef(provider, gameId),
