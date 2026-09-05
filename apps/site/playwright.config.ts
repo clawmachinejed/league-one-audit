@@ -1,10 +1,13 @@
 import { defineConfig, devices } from '@playwright/test';
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { selectBrowserTarget } from './scripts/browser-target';
 
-const suppliedBaseUrl = process.env.BASE_URL?.trim();
-const port = process.env.PORT?.trim() || '3000';
-const baseURL = suppliedBaseUrl || `http://localhost:${port}`;
+const target = selectBrowserTarget(process.env, dirname(fileURLToPath(import.meta.url)));
 
 export default defineConfig({
+  globalSetup: './scripts/browser-global-setup.ts',
+  metadata: target.mode === 'local' ? { browserTarget: target } : {},
   testDir: './e2e',
   outputDir: '../../test-results/playwright',
   fullyParallel: false,
@@ -18,7 +21,7 @@ export default defineConfig({
       ]
     : 'list',
   use: {
-    baseURL,
+    baseURL: target.baseURL,
     screenshot: 'only-on-failure',
     trace: 'retain-on-failure',
     video: 'retain-on-failure',
@@ -29,12 +32,20 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
     },
   ],
-  webServer: suppliedBaseUrl
+  webServer: target.mode === 'explicit'
     ? undefined
     : {
-        command: 'pnpm build && pnpm start',
-        reuseExistingServer: !process.env.CI,
+        command: 'node scripts/check-browser-port.mjs && pnpm build && node scripts/write-browser-marker.mjs && pnpm start',
+        cwd: target.siteDir,
+        env: {
+          L1_BROWSER_RUN_ID: target.runId,
+          L1_BROWSER_SOURCE: JSON.stringify(target.source),
+          PORT: new URL(target.baseURL).port || '80',
+        },
+        reuseExistingServer: false,
         timeout: 240_000,
-        url: baseURL,
+        // A pre-start HTTP probe can miss error responses or hang on a silent listener.
+        // The port guard runs first; global setup then verifies the served build marker.
+        wait: { stdout: /Ready in/ },
       },
 });
