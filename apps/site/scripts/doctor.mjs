@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { collectRouteEvidence, evaluateRouteEvidence, evaluateWorkflowEvidence, redactDoctorDetail } from './doctor-evidence.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const canonicalRepository = 'clawmachinejed/league-one-audit';
@@ -14,7 +15,7 @@ const expectedOrgId = 'team_2O6dBmAQpRm6ZAUJOE0nPMBO';
 const results = [];
 
 function add(status, area, detail) {
-  results.push({ status, area, detail: String(detail).replace(/postgres(?:ql)?:\/\/[^\s"'`]+/gi, '[redacted-database-url]') });
+  results.push({ status, area, detail: redactDoctorDetail(detail) });
 }
 
 function run(command, args, cwd = root, timeout = 20_000) {
@@ -56,13 +57,13 @@ function normalizeOrigin(value) {
 const packageJson = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8'));
 const origin = run('git', ['remote', 'get-url', 'origin']);
 if (origin.ok && normalizeOrigin(origin.stdout) === canonicalRepository) add('Healthy', 'Repository identity', canonicalRepository);
-else add(origin.ok ? 'Unhealthy' : 'Unverified', 'Repository identity', origin.ok ? `Expected ${canonicalRepository}; found ${normalizeOrigin(origin.stdout) || 'none'}.` : origin.stderr || 'Git remote unavailable.');
+else add(origin.ok ? 'Unhealthy' : 'Unverified', 'Repository identity', origin.ok ? `Git remote differs from ${canonicalRepository}.` : 'Git remote unavailable.');
 
 const nodeMajor = Number(process.versions.node.split('.')[0]);
 add(nodeMajor === 24 ? 'Healthy' : 'Unhealthy', 'Node.js', `${process.version}; package requires ${packageJson.engines?.node ?? 'an unspecified version'}.`);
 const pnpmEntrypoint = process.env.npm_execpath;
 const pnpmVersion = pnpmEntrypoint ? run(process.execPath, [pnpmEntrypoint, '--version']) : run(process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm', ['--version']);
-add(pnpmVersion.ok && pnpmVersion.stdout === '11.19.0' ? 'Healthy' : pnpmVersion.ok ? 'Unhealthy' : 'Unverified', 'pnpm', pnpmVersion.ok ? `${pnpmVersion.stdout}; package requires 11.19.0.` : pnpmVersion.stderr || 'pnpm unavailable.');
+add(pnpmVersion.ok && pnpmVersion.stdout === '11.19.0' ? 'Healthy' : pnpmVersion.ok ? 'Unhealthy' : 'Unverified', 'pnpm', pnpmVersion.ok ? `Installed version ${/^\d+\.\d+\.\d+$/.test(pnpmVersion.stdout) ? pnpmVersion.stdout : 'unrecognized'}; package requires 11.19.0.` : 'pnpm unavailable.');
 
 const rootLock = resolve(root, 'pnpm-lock.yaml');
 const installedLock = resolve(root, 'node_modules/.pnpm/lock.yaml');
@@ -71,14 +72,14 @@ else add(hashFile(rootLock) === hashFile(installedLock) ? 'Healthy' : 'Unhealthy
 
 const currentBranch = run('git', ['branch', '--show-current']);
 const currentStatus = run('git', ['status', '--porcelain']);
-add(currentStatus.ok && !currentStatus.stdout ? 'Healthy' : currentStatus.ok ? 'Unhealthy' : 'Unverified', 'Current worktree', currentStatus.ok ? `${currentBranch.stdout || 'detached HEAD'}; ${currentStatus.stdout ? 'uncommitted changes present' : 'clean'}.` : currentStatus.stderr);
+add(currentStatus.ok && !currentStatus.stdout ? 'Healthy' : currentStatus.ok ? 'Unhealthy' : 'Unverified', 'Current worktree', currentStatus.ok ? `${currentBranch.stdout || 'detached HEAD'}; ${currentStatus.stdout ? 'uncommitted changes present' : 'clean'}.` : 'Worktree status unavailable.');
 
 const worktreeResult = run('git', ['worktree', 'list', '--porcelain']);
 let worktrees = [];
 if (worktreeResult.ok) {
   worktrees = parseWorktrees(worktreeResult.stdout);
   add('Healthy', 'Worktrees', `${worktrees.length} observed: ${worktrees.map((item) => `${item.branch?.replace('refs/heads/', '') || 'detached'} at ${item.worktree}`).join('; ')}`);
-} else add('Unverified', 'Worktrees', worktreeResult.stderr || 'Unable to list worktrees.');
+} else add('Unverified', 'Worktrees', 'Unable to list worktrees.');
 
 const mainWorktree = worktrees.find((item) => item.branch === 'refs/heads/main');
 let mainClean = false;
@@ -89,39 +90,39 @@ if (mainWorktree) {
   const localMain = run('git', ['rev-parse', 'refs/heads/main']);
   const remoteMain = run('git', ['ls-remote', 'origin', 'refs/heads/main'], root, 30_000);
   mainClean = mainStatus.ok && !mainStatus.stdout;
-  localMainSha = localMain.stdout;
-  remoteMainSha = remoteMain.ok ? remoteMain.stdout.split(/\s+/)[0] : '';
+  localMainSha = localMain.ok && /^[a-f0-9]{40}$/.test(localMain.stdout) ? localMain.stdout : '';
+  const remoteSha = remoteMain.ok ? remoteMain.stdout.split(/\s+/)[0] : '';
+  remoteMainSha = /^[a-f0-9]{40}$/.test(remoteSha) ? remoteSha : '';
   if (!mainClean) add('Unhealthy', 'Primary main checkout', 'Primary main worktree has uncommitted changes.');
-  else if (!remoteMain.ok) add('Unverified', 'Primary main alignment', remoteMain.stderr || 'Remote main unavailable.');
+  else if (!remoteMainSha || !localMainSha) add('Unverified', 'Primary main alignment', 'Main commit evidence unavailable or malformed.');
   else add(localMainSha === remoteMainSha ? 'Healthy' : 'Unhealthy', 'Primary main alignment', localMainSha === remoteMainSha ? `Clean and aligned at ${localMainSha}.` : `Local ${localMainSha}; GitHub ${remoteMainSha}.`);
 } else add('Unverified', 'Primary main checkout', 'No main worktree was observed.');
 
 const ghAuth = run('gh', ['auth', 'status', '--active']);
-if (!ghAuth.ok) add('Unverified', 'GitHub authentication', ghAuth.stderr || 'GitHub CLI authentication unavailable.');
+if (!ghAuth.ok) {
+  add('Unverified', 'GitHub authentication', 'GitHub CLI authentication unavailable.');
+  add('Unverified', 'GitHub Actions', 'Workflow evidence unavailable without GitHub authentication.');
+}
 let openPullRequests = null;
 if (ghAuth.ok) {
   const repo = run('gh', ['repo', 'view', canonicalRepository, '--json', 'nameWithOwner,defaultBranchRef,viewerPermission']);
   try {
     const value = JSON.parse(repo.stdout);
     const matches = value.nameWithOwner?.toLowerCase() === canonicalRepository && value.defaultBranchRef?.name === 'main';
-    add(matches ? 'Healthy' : 'Unhealthy', 'GitHub access', matches ? `${value.viewerPermission} access; default branch main.` : 'Repository or default branch differs from the canonical identity.');
+    add(matches ? 'Healthy' : 'Unhealthy', 'GitHub access', matches ? 'Canonical repository access; default branch main.' : 'Repository or default branch differs from the canonical identity.');
   } catch {
-    add('Unverified', 'GitHub access', repo.stderr || 'Could not parse repository metadata.');
+    add('Unverified', 'GitHub access', 'Repository metadata unavailable or malformed.');
   }
   const prs = run('gh', ['pr', 'list', '--repo', canonicalRepository, '--state', 'open', '--json', 'number,url,headRefName,isDraft,author,updatedAt']);
   try {
     openPullRequests = JSON.parse(prs.stdout);
     add('Healthy', 'Open pull requests', openPullRequests.length ? `${openPullRequests.length} observed: ${openPullRequests.map((pr) => `#${pr.number} ${pr.headRefName}`).join(', ')}` : 'None observed.');
   } catch {
-    add('Unverified', 'Open pull requests', prs.stderr || 'Could not parse pull requests.');
+    add('Unverified', 'Open pull requests', 'Pull request metadata unavailable or malformed.');
   }
-  const runs = run('gh', ['run', 'list', '--repo', canonicalRepository, '--branch', 'main', '--limit', '10', '--json', 'headSha,status,conclusion,url,workflowName']);
-  try {
-    const active = JSON.parse(runs.stdout).filter((item) => item.status !== 'completed');
-    add('Healthy', 'GitHub Actions', active.length ? `${active.length} active main run(s) observed.` : 'No active main run observed; recent-run visibility confirmed.');
-  } catch {
-    add('Unverified', 'GitHub Actions', runs.stderr || 'Could not parse workflow runs.');
-  }
+  const runs = run('gh', ['run', 'list', '--repo', canonicalRepository, '--branch', 'main', '--workflow', 'verify.yml', '--limit', '10', '--json', 'headSha,status,conclusion,workflowName,databaseId']);
+  const workflowEvidence = evaluateWorkflowEvidence(runs, remoteMainSha);
+  add(workflowEvidence.status, 'GitHub Actions', `${workflowEvidence.reason}: ${workflowEvidence.detail}`);
 }
 
 const linkCandidates = [resolve(root, '.vercel/project.json'), resolve(root, 'apps/site/.vercel/project.json')];
@@ -154,19 +155,19 @@ const vercelVersion = process.platform === 'win32' && !vercelPrefix.length
   ? { ok: false, stdout: '', stderr: 'Vercel CLI is not installed in the user-local pnpm area.', status: 1 }
   : run(vercelCommand, [...vercelPrefix, '--version']);
 let vercelVerified = false;
-if (!vercelVersion.ok) add('Unverified', 'Vercel authentication and deployment', vercelVersion.stderr || 'Vercel CLI unavailable.');
+if (!vercelVersion.ok) add('Unverified', 'Vercel authentication and deployment', 'Vercel CLI unavailable.');
 else {
   const whoami = run(vercelCommand, [...vercelPrefix, 'whoami']);
   const inspect = run(vercelCommand, [...vercelPrefix, 'inspect', productionUrl, '--scope', expectedScope, '--json'], resolve(root, 'apps/site'), 45_000);
   try {
     const deployment = JSON.parse(inspect.stdout);
     vercelVerified = whoami.ok && deployment.name === expectedProject && deployment.target === 'production' && deployment.readyState === 'READY' && deployment.aliases?.includes('www.league1fantasy.com');
-    add(vercelVerified ? 'Healthy' : 'Unhealthy', 'Vercel authentication and deployment', vercelVerified ? `${expectedProject} production is Ready and serves www.league1fantasy.com.` : whoami.stderr || inspect.stderr || 'Unexpected deployment metadata.');
+    add(vercelVerified ? 'Healthy' : 'Unhealthy', 'Vercel authentication and deployment', vercelVerified ? `${expectedProject} production is Ready and serves www.league1fantasy.com.` : 'Vercel authentication or deployment metadata could not be verified.');
     const deployedCrons = deployment.builds?.[0]?.config?.vercelConfig?.crons;
     const localCrons = JSON.parse(readFileSync(resolve(root, 'apps/site/vercel.json'), 'utf8')).crons;
     add(JSON.stringify(deployedCrons) === JSON.stringify(localCrons) ? 'Healthy' : 'Unhealthy', 'Cron declarations', JSON.stringify(deployedCrons) === JSON.stringify(localCrons) ? 'The production deployment carries the three tracked every-minute schedules.' : 'Production and tracked cron declarations differ.');
   } catch {
-    add('Unverified', 'Vercel authentication and deployment', inspect.stderr || 'Could not parse deployment metadata.');
+    add('Unverified', 'Vercel authentication and deployment', 'Deployment metadata unavailable or malformed.');
     add('Unverified', 'Cron declarations', 'Remote cron configuration could not be compared.');
   }
 }
@@ -174,13 +175,9 @@ const sourceEvidence = 'Unverified';
 add(sourceEvidence, 'Vercel source binding, branch, and production Git SHA', `The installed CLI deployment payload does not expose enough Git source metadata to verify ${canonicalRepository}, main, and the exact production SHA. Verify all three in the authenticated Vercel deployment view before implementation or release.`);
 
 async function checkRoute(area, path, marker) {
-  try {
-    const response = await fetch(`${productionUrl}${path}`, { redirect: 'follow', signal: AbortSignal.timeout(15_000) });
-    const body = (await response.text()).slice(0, 1_000_000);
-    add(response.ok && body.includes(marker) ? 'Healthy' : 'Unhealthy', area, `HTTP ${response.status}; ${marker} marker ${body.includes(marker) ? 'present' : 'missing'}.`);
-  } catch (error) {
-    add('Unverified', area, error instanceof Error ? error.message : 'Request failed.');
-  }
+  const expectedUrl = `${productionUrl}${path}`;
+  const evidence = evaluateRouteEvidence(await collectRouteEvidence(expectedUrl), expectedUrl, marker);
+  add(evidence.status, area, `${evidence.reason}: ${evidence.detail}`);
 }
 
 await checkRoute('League One public route', '/matchups', 'League One');
@@ -199,8 +196,8 @@ if (!process.env.DATABASE_URL) {
     ]);
     leaseEvidence = 'Healthy';
     add('Healthy', 'Database and worker leases', `Active job leases: ${jobs.map((row) => `${row.job_type}=${row.count}`).join(', ') || 'none'}; active lineup leases: ${watches.map((row) => `${row.materialization_lane}=${row.count}`).join(', ') || 'none'}.`);
-  } catch (error) {
-    add('Unverified', 'Database and worker leases', error instanceof Error ? error.message : 'Read-only lease query failed.');
+  } catch {
+    add('Unverified', 'Database and worker leases', 'Read-only lease evidence unavailable.');
   }
 }
 
