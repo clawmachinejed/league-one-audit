@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
-import { createIndependentDatabase, ownerQuery } from './neon-integration-harness';
+import { createIndependentDatabase, integrationEnvironment, ownerQuery } from './neon-integration-harness';
 
 const callableFunctions = new Set([
   'get_or_create_scoring_profile',
@@ -10,6 +10,68 @@ const callableFunctions = new Set([
 ]);
 
 describe('B3 function ownership and execution boundaries', () => {
+  it('migrates with an absent runtime role and grants compatibility access during later provisioning', async () => {
+    const [migration, provisioning] = await Promise.all([
+      readFile(new URL('../migrations/008_additive_write_guards.sql', import.meta.url), 'utf8'),
+      readFile(new URL('../scripts/provision-runtime-role.sql', import.meta.url), 'utf8'),
+    ]);
+    const missingRole = `b3_missing_runtime_${randomUUID().replaceAll('-', '')}`;
+    const connection = createIndependentDatabase(integrationEnvironment().ownerDatabaseUrl);
+    try {
+      await connection.database.query('BEGIN');
+      const roles = await connection.database.query<{ missing_count: number; runtime_count: number }>(`
+        SELECT count(*) FILTER (WHERE rolname=$1)::integer AS missing_count,
+          count(*) FILTER (WHERE rolname='league_one_runtime')::integer AS runtime_count
+        FROM pg_catalog.pg_roles
+      `, [missingRole]);
+      expect(roles).toEqual([{ missing_count: 0, runtime_count: 1 }]);
+
+      // The harness requires an existing runtime role. Exercise role-absent
+      // bootstrap without creating, renaming or dropping a role: replace only
+      // that name in 008, and roll back all temporary DDL and grants afterward.
+      await connection.database.query(`
+        DROP FUNCTION public.get_or_create_scoring_profile(text,jsonb),
+          public.record_game_state_observations(text,jsonb),
+          public.get_or_create_projection_run(text,smallint,text,smallint,text,text,
+            timestamptz,timestamptz,timestamptz,text,uuid),
+          public.prevent_projection_stable_field_change(),
+          public.prevent_projection_run_history_change(),
+          public.prevent_projection_slate_entry_delete() CASCADE
+      `);
+      await connection.database.query(migration.replaceAll('league_one_runtime', missingRole));
+      const functionRights = () => connection.database.query<{
+        name: string; public_execute: boolean; runtime_execute: boolean;
+      }>(`
+        SELECT p.proname AS name,
+          EXISTS (SELECT 1 FROM aclexplode(COALESCE(p.proacl,acldefault('f',p.proowner))) a
+            WHERE a.grantee=0 AND a.privilege_type='EXECUTE') AS public_execute,
+          has_function_privilege('league_one_runtime',p.oid,'EXECUTE') AS runtime_execute
+        FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+        WHERE n.nspname='public' AND p.proname=ANY($1::text[]) ORDER BY p.proname
+      `, [[...callableFunctions]]);
+      const beforeProvisioning = await functionRights();
+      expect(beforeProvisioning).toHaveLength(callableFunctions.size);
+      for (const row of beforeProvisioning) {
+        expect(row).toMatchObject({ public_execute: false, runtime_execute: false });
+      }
+
+      // The already verified existing runtime role makes the role-creation
+      // branch a no-op; this runs the supported complete provisioning script.
+      await connection.database.query(provisioning);
+      const afterProvisioning = await functionRights();
+      expect(afterProvisioning.map((row) => row.name)).toEqual([...callableFunctions].sort());
+      for (const row of afterProvisioning) {
+        expect(row).toMatchObject({ public_execute: false, runtime_execute: true });
+      }
+      const absent = await connection.database.query<{ count: number }>(
+        'SELECT count(*)::integer AS count FROM pg_catalog.pg_roles WHERE rolname=$1', [missingRole],
+      );
+      expect(absent).toEqual([{ count: 0 }]);
+    } finally {
+      try { await connection.database.query('ROLLBACK'); } finally { await connection.close(); }
+    }
+  });
+
   it('gives each new function the schema owner, trusted search path, and only exact execution rights', async () => {
     const migration = await readFile(new URL('../migrations/008_additive_write_guards.sql', import.meta.url), 'utf8');
     const functionNames = [...migration.matchAll(/CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+(?:public\.)?(\w+)\s*\(/giu)]

@@ -157,7 +157,6 @@ BEGIN
 END;
 $$;
 REVOKE ALL ON FUNCTION public.get_or_create_scoring_profile(text, jsonb) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.get_or_create_scoring_profile(text, jsonb) TO league_one_runtime;
 
 CREATE FUNCTION public.record_game_state_observations(p_provider text, p_states jsonb)
 RETURNS TABLE (external_game_id text, source_revision text, observation_id uuid)
@@ -214,7 +213,6 @@ BEGIN
 END;
 $$;
 REVOKE ALL ON FUNCTION public.record_game_state_observations(text, jsonb) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.record_game_state_observations(text, jsonb) TO league_one_runtime;
 
 CREATE FUNCTION public.get_or_create_projection_run(
   p_provider text, p_season smallint, p_season_type text, p_week smallint,
@@ -278,6 +276,17 @@ $$;
 REVOKE ALL ON FUNCTION public.get_or_create_projection_run(
   text, smallint, text, smallint, text, text, timestamptz, timestamptz, timestamptz, text, uuid
 ) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.get_or_create_projection_run(
-  text, smallint, text, smallint, text, text, timestamptz, timestamptz, timestamptz, text, uuid
-) TO league_one_runtime;
+-- A fresh database runs migrations before provisioning creates its runtime
+-- role. Functions remain owner-only until that provisioning grants these same
+-- exact signatures. Existing-role upgrades receive compatibility access here.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'league_one_runtime') THEN
+    GRANT EXECUTE ON FUNCTION public.get_or_create_scoring_profile(text, jsonb) TO league_one_runtime;
+    GRANT EXECUTE ON FUNCTION public.record_game_state_observations(text, jsonb) TO league_one_runtime;
+    GRANT EXECUTE ON FUNCTION public.get_or_create_projection_run(
+      text, smallint, text, smallint, text, text, timestamptz, timestamptz, timestamptz, text, uuid
+    ) TO league_one_runtime;
+  END IF;
+END;
+$$;
