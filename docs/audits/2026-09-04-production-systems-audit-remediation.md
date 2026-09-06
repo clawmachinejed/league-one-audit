@@ -1,6 +1,6 @@
 # September 4 production systems audit: corrected remediation plan
 
-Status: corrected documentation-only work order. No remediation in this document has been implemented or authorized.
+Status: corrected documentation-only work order. The September 6 database sequencing correction records completed B1 evidence and its narrow residual missing proof; this document authorizes no implementation or production action.
 
 This document is the single execution plan for findings from the September 4, 2026 production systems audit. It supersedes the audit package's REMEDIATION_PLAN.md, PR_MATRIX.md, ACCEPTANCE_GATES.md, and IMPLEMENTATION_PROMPT.md for sequencing and task prompts. Those files remain historical audit evidence. In particular, IMPLEMENTATION_PROMPT.md is a draft to review, not an instruction to implement anything.
 
@@ -26,7 +26,7 @@ Use these evidence labels throughout:
 
 ### Accepted-finding register
 
-Classification, severity, confidence, and titles below are preserved exactly from FINDINGS_LEDGER.md. Confidence was High for every entry.
+Classification, severity, confidence, and titles below are preserved exactly from FINDINGS_LEDGER.md. Confidence was High for every entry. DB-PROOF-001's historical title is retained; its current residual status and completed evidence are recorded in B1 below.
 
 | ID | Classification / severity | Title | Evidence provenance |
 |---|---|---|---|
@@ -94,7 +94,8 @@ Unless a selected unit explicitly changes one contract:
 - Direct and pooled URLs can identify the same database; string inequality is not isolation proof.
 - Migrations are forward-only, ordered, checksummed, transactional, and separately reviewed. Existing migration files are immutable.
 - No unit may update existing immutable observations, baselines, snapshots, or historical IDs to repair lineage.
-- B1 must complete before B3, B4, F1, or any other database-permission or deletion-capable work.
+- B2 may proceed using B1's completed target-identity and catalog evidence. B3 may proceed using B1's completed catalog/restore evidence, B2, and B3's own isolated testing; full DB-PROOF-001 closure is not an entry gate for either unit. Fresh identity/catalog revalidation and each unit's authority and safety gates still apply.
+- Both unchanged application readers, `readStoredMatchupRevision` and `readStoredMatchups`, must pass against a verified restored target for each of `league1` and `league2` under B1's acceptance evidence no later than B4's pre-cutover gate. The compact reader alone is insufficient. B4 production permission revocation and any production deletion-capable unit remain blocked until both compact and full reads pass for both leagues. Independent feature work that does not change database permissions or delete production data is unblocked by this residual item, subject to its own explicit prerequisites.
 
 ### G3 — Verification and release record
 
@@ -158,7 +159,7 @@ Before retention can leave dry-run mode:
 
 1. Record the current Neon backup/PITR policy, a timestamped pre-change recovery point, non-secret project/branch/database fingerprint, expected RPO/RTO, and a named recovery owner.
 2. Restore that point to a new isolated branch, never over production.
-3. Validate migration ledger and normalized schema; table/count/checksum aggregates; current pointers; snapshots and source references; frozen baselines; period authorities; leases; and application reads for both leagues.
+3. Validate migration ledger and normalized schema; table/count/checksum aggregates; current pointers; snapshots and source references; frozen baselines; period authorities; leases; and both compact and full application reads for each league under B1's acceptance evidence.
 4. In the isolated branch, rehearse a synthetic retention deletion and a selective recovery. Record timing and the exact dependency/FK order.
 
 If production retention deletes data accidentally:
@@ -166,7 +167,7 @@ If production retention deletes data accidentally:
 1. Disable only retention admission/ownership immediately and preserve the exact deployed SHA, retention predicate, job/lease IDs, timestamps, dry-run and actual counts, and logs. Freeze other writers only when lineage is at risk and the user authorizes the operational impact.
 2. Use SELECT-only aggregate checks to bound affected tables, time range, references, and both-league impact. Do not run ad hoc UPDATE or DELETE repair statements.
 3. Create an isolated PITR restore from a point immediately preceding the deletion. Never overwrite the production branch.
-4. Validate the restored branch using the checks above and G4-compatible application reads.
+4. Validate the restored branch using the checks above and G4-compatible compact and full application reads for both leagues.
 5. With explicit production-data recovery authorization, choose one reviewed path:
    - Selectively rehydrate only missing immutable rows in dependency order, preserving original IDs and source timestamps, never overwriting surviving rows, and reconciling legitimate writes after the restore point; or
    - Promote/cut over to the restored branch only when selective repair is unsafe, after the user accepts the post-restore write-loss window and a reconciliation plan. Quiesce writers for the cutover.
@@ -195,10 +196,10 @@ This plan contains 36 work units: 34 regular units across orders 1–32, includi
 | 2 | A2 Provider capacity operation | OPS-001 | A1; exact user cost approval | Proved sustainable change or precautionary risk reduction |
 | 3 | A3A Observation-only quota telemetry | OPS-001, TANK-002 | A1; proved existing capacity or approved A2 risk reduction | Measured normal-call evidence; no admission change |
 | 4 | A3B Quota reserve/admission | OPS-001 | Sufficient A3A evidence; full capacity or current-live + retry + margin and post-deferral fit proved | Supported reserve and current-before-future admission |
-| 5 | B1 Recovery and schema proof | DB-PROOF-001 | G0; isolated restore authority | Proven catalog and restore procedure |
-| 6 | B2 Preview DB isolation | PREVIEW-001 | B1 | Non-secret target guard |
-| 7 | B3 Compatible DB guards/write path | DB-001 | B1, B2 | Additive compatible code/schema; no revocation |
-| 8 | B4 Runtime privilege cutover | DB-001 | B3 released and stable; fresh restore point | Exact grants only |
+| 5 | B1 Recovery and schema proof | DB-PROOF-001 | G0; isolated restore authority | Catalog/restore evidence complete; compact and full application-reader proof remains open |
+| 6 | B2 Preview DB isolation | PREVIEW-001 | Completed B1 target-identity/catalog evidence | Non-secret target guard |
+| 7 | B3 Compatible DB guards/write path | DB-001 | Completed B1 catalog/restore evidence; B2; own isolated testing | Additive compatible code/schema; no revocation |
+| 8 | B4 Runtime privilege cutover | DB-001 | B3 released and stable; fresh restore point; restored-target compact and full application reads passed for each league before cutover | Exact grants only |
 | 9A | C1 Scoring disclosure option | SCORE-001 | User selects disclosure | Disclosure only; scoring unchanged |
 | 9B | C2A Scoring-semantics proof | SCORE-001 | User selects coverage; A1 | Read-only rule/field evidence |
 | 9C | C2B Scoring coverage implementation | SCORE-001 | C2A, A3B | Versioned verified scoring change |
@@ -209,11 +210,11 @@ This plan contains 36 work units: 34 regular units across orders 1–32, includi
 | 14 | E2 Current worker deadline | WORKER-001 | E1 | Evidence-sized deadline change |
 | 15 | E3 Public reader deadline | READER-001 | E1 | Evidence-sized cancellation/deadline |
 | 16 | E4 Compact revision read | READER-002 | E1 threshold breach; B1, B2, B4 | Versioned pointer attestation and bounded read |
-| 17 | F0 Retention policy and dry-run design | RET-001, RET-002 | B1; approved horizons | Exact predicates/write set/timing; no deletion |
+| 17 | F0 Retention policy and dry-run design | RET-001, RET-002 | Completed B1 catalog/restore/capacity-maintenance evidence; approved horizons | Exact predicates/write set/timing; no deletion |
 | 18 | F1 Narrow retention DB interface | RET-001, RET-002 | F0, B4 | Separately reviewed schema/permissions |
 | 19 | F2 Retention owner and enablement | RET-001, RET-002 | F1; deletion/canary authority | Bounded observable retention |
 | 20 | CI1 CI workflow contexts | CI-001 | G0 | Stable workflow contexts; no external config |
-| 21 | CI2 Isolated DB CI automation | CI-001 | B1, B2, CI1 | Stable path-aware isolated-DB context |
+| 21 | CI2 Isolated DB CI automation | CI-001 | Completed B1 target-identity/catalog/restore evidence; B2, CI1 | Stable path-aware isolated-DB context |
 | 22 | SC1 Supply-chain workflow policy | SUPPLY-001 | CI1 | Pinned Actions and automated policy |
 | 23 | CI3 GitHub protection settings | CI-001 | CI1, CI2; repo admin | Proven required checks enforced |
 | 24 | H1 Local browser-server provenance | TEST-001 | G0 | Full Verify proves current checkout |
@@ -308,27 +309,31 @@ Code means repository executable, test, workflow, or migration files; documentat
 
 ### B1 — Database recovery, restoration, and schema proof
 
-- Findings: DB-PROOF-001 — Missing proof / Medium / High — Full live DDL parity and restore readiness remain unproved.
-- Evidence/reproduction: Generate a normalized desired-state catalog from current migrations/provisioning and compare it with SELECT-only production catalog evidence and a freshly migrated isolated database. Create a timed in-provider PITR restoration to a new isolated Neon branch and rehearse synthetic deletion recovery without exporting or downloading production rows.
+- Findings: DB-PROOF-001 — Missing proof / Medium / High — Open only for the residual restored-target application-reader proof; full closure is not claimed.
+- Retained sources: `C:\Users\Robert Finchum\.codex\visualizations\2026\09\05\01a07318-1669-7601-9265-45a86308fd99\b1-database-recovery-2026-09-05.md` and `C:\Users\Robert Finchum\.codex\visualizations\2026\09\06\01a074c0-f4b6-7d03-bb82-b6f6497581df\task-a\preparation-result.md`. The historical B1 report remains unchanged. This plan corrects its blanket B2/B3/B4 dependency conclusion without rewriting the execution record or authorizing Task B or another reader attempt.
+- Completed evidence (2026-09-05, application SHA `ed9efc6957973283260622383bbf23875caa0283`): Catalog, schema parity, PITR restoration, integrity, capacity/maintenance inspection, safe-plan inspection, and synthetic selective recovery succeeded. Production, fresh migration, and restored targets had no unexplained schema differences; SQL-comment replay and provider-managed membership differences were explained. All 29 restored table counts and checksums matched, covering 88,347 rows. Synthetic deletion recovery restored 12/12 rows exactly. League One and League Two passed SQL-level restored-data and isolation checks.
+- Residual evidence: The unchanged application reader was not successfully invoked with a verified pass against the restored target. Both failed attempts were credential/handoff and invocation-tooling failures to establish proof, not demonstrated Neon, database, or application-reader failures. The first accepted the credential but its Vitest child exited nonzero before a pass sentinel; the retained diagnostics do not establish the child's root cause or which reader stages ran. The second failed at the browser extraction/target guard before handoff, child startup, or any application call; its supervisor timeout was only a downstream no-handoff timeout. Before/after restored-data integrity evidence remained unchanged.
+- Retained limitations: The timestamp-distance RPO objective missed by 1.749311 seconds despite zero observed row loss; RTO passed. Physical bloat, historical growth rate, and measured retention-query runtimes were not established. These remain explicit limits of the successful inspection evidence, not new residual closure gates or reasons to repeat the completed B1 exercise.
 - Dependencies/prerequisites: G0, G2, G5, G6; Neon restore authority; verified isolated target identity and no other user of that branch; stop on unexpected cost.
 - Protected behavior: Production is read-only; migrations and production schema/data remain unchanged; immutable lineage and both-league isolation are preserved.
-- In scope: Tables/columns/defaults/nullability; keys/checks/constraints; indexes; triggers/functions/bodies/owners/security-definer configuration; RLS/policies; sequences; grants/default grants/memberships; extensions/version; restore point, RPO/RTO, integrity aggregates, table/index size and bloat indicators, autovacuum/analyze posture, and application read smoke. Add the completed G6 recovery runbook evidence.
+- In scope: Retain the completed catalog, restore, integrity, capacity/maintenance, and G6 selective-recovery evidence above; complete only the unchanged restored-target `readStoredMatchupRevision` and `readStoredMatchups` reads for each of `league1` and `league2` in a separately authorized task, with current identity and before/after integrity checks.
 - Excluded: Production migration, permission/grant change, retention delete, production failover, connection-string export, row dump/download, external backup copy, EXPLAIN ANALYZE on production work, and application code.
-- Tests/evidence: Fresh migration into isolated Neon; normalized catalog diff; migration ledger/checksums; zero invalid indexes/unvalidated constraints; restored counts/checksum aggregates; current pointers/source lineage/frozen baselines/authorities; table/index growth and autovacuum posture; safe SELECT-only production EXPLAIN without ANALYZE for representative retention predicates; both-league read smoke; synthetic deletion plus selective recovery timing. DB-PROOF-001 closes only if all catalog, restore, capacity-maintenance, and recovery evidence is complete.
+- Tests/evidence: Retain the completed evidence; the remaining proof must invoke both unchanged application readers for each of `league1` and `league2` against a verified isolated restored target. `readStoredMatchupRevision` must prove the compact revision/freshness path; `readStoredMatchups` must prove full payload retrieval, `isMatchupsData` validation, payload construction, freshness handling, and correct league isolation. Both readers must return usable results for the intended league and period, with the expected runtime identity, enforced read-only operation, recovery-time-appropriate freshness evaluation, successful selection/TypeScript decoding, and unchanged before/after integrity aggregates. Compact-only or SQL-only reads and offline harness tests do not supply that pass. DB-PROOF-001 remains open until both compact and full application reads pass for both leagues and the evidence is retained, no later than B4's pre-cutover gate.
+- Tooling scope: Task A is accepted offline preparation, not restored-target application proof or Task B authorization. Its `hard_delete`, `include_deleted`, dedicated keyring, single-POST endpoint composition, read-replica/`pg_is_in_recovery=true`, and 281-test runner requirements are specific to that prepared approach, not universal DB-PROOF-001 closure gates; the original audit does not independently require them. Verified target identity and production exclusion, secret safety, before/after integrity checks, exact-ID cleanup with verified removal, and explicit destructive-action confirmation remain mandatory regardless of tooling. The historical restored writable Neon branch's `pg_is_in_recovery=false` was expected, not a restore failure.
 - Release checks: G0, G2, G6. G4 is run only against the isolated/restored application target if safely available; no production browser mutation is needed.
-- Rollback/recovery: Remove only the verified disposable branch after evidence is retained, target identity is rechecked, and no other run uses it. No production rollback applies.
+- Rollback/recovery: Both historical B1 disposable branches were deleted and verified absent under exact-ID cleanup authority. For any separately authorized future proof, remove only its exact verified disposable branch after evidence is retained, target identity and production exclusion are rechecked, no other run uses it, and explicit destructive-action confirmation is obtained; verify removal. No production rollback applies.
 - User decisions/authority: Neon restore/branch authority is required. Any unexpected cost stops this unit and requires a separately approved plan. Record a named recovery owner.
-- Change matrix: Code No; Configuration Yes, isolated Neon branch/restore target only; Billing No; Data Yes, an in-provider isolated PITR copy plus synthetic test data only; Production No change, SELECT-only inspection.
-- Closure owner: Final owner of DB-PROOF-001 and hard prerequisite for every permission or deletion-capable unit.
+- Change matrix: Code No; Configuration Yes, isolated Neon branch/restore target only; Billing No; Data Yes, an in-provider isolated PITR copy for read-only proof only; Production No change, SELECT-only inspection.
+- Closure owner: B1 owns the narrow residual DB-PROOF-001 proof. B2 and B3 use its completed evidence under G2; both compact and full application reads must pass for each league before B4 production permission revocation or any production deletion-capable unit, not a blanket block on independent feature work.
 - Individual prompt:
 
-> In a fresh task, execute only B1 from docs/audits/2026-09-04-production-systems-audit-remediation.md. Build the normalized schema/grant manifest, compare production with SELECT-only queries and a freshly migrated isolated database, perform a timed in-provider PITR restore to a new isolated Neon branch, and rehearse synthetic retention-deletion recovery. Include bloat/autovacuum posture and safe EXPLAIN without ANALYZE for representative retention predicates. Do not export/download rows, change production schema/grants/data/code/settings, or expose connection strings or private rows. Record RPO/RTO and the full G6 evidence; stop on target identity, authority, unexpected cost, or any proof gap.
+> In a fresh separately authorized task, complete only B1's residual proof from docs/audits/2026-09-04-production-systems-audit-remediation.md. Retain the successful historical catalog/restore/recovery evidence and its limitations; do not repeat the audit. Revalidate identity and invoke unchanged `readStoredMatchupRevision` and `readStoredMatchups` against the restored target for each of `league1` and `league2`. Require usable results under B1's acceptance evidence: compact revision/freshness plus full payload retrieval, `isMatchupsData` validation, payload construction, freshness handling, and correct league isolation. Preserve enforced read-only operation, recovery-time-appropriate freshness, secret safety, production exclusion, and before/after integrity checks. Retain a separate proof supplement and leave the historical B1 report unchanged. Require exact-ID cleanup, verified removal, and explicit destructive-action confirmation. Stop on missing authority, ambiguous target, unexpected cost, or any failed read. This prompt does not authorize Task B or another attempt; keep DB-PROOF-001 open until both compact and full reads pass for both leagues, and block B4 production revocation and production deletion-capable units until then.
 
 ### B2 — Non-secret Preview database isolation
 
 - Findings: PREVIEW-001 — Missing proof / Medium / High — Preview/production database target separation is not proved.
 - Evidence/reproduction: Freshly show that separate secret records are not proof of different targets. Establish a non-secret project/branch/database fingerprint derived from authoritative metadata, never from a logged URL.
-- Dependencies/prerequisites: B1 establishes the production and isolated fingerprints; G0, G1, G2, G3, G5; Vercel and Neon configuration authority.
+- Dependencies/prerequisites: B1's completed target-identity and catalog evidence establishes the production and isolated fingerprints, subject to fresh target revalidation; its residual application-reader proof does not block B2. G0, G1, G2, G3, G5; Vercel and Neon configuration authority.
 - Protected behavior: Preview cannot write production; production keeps its intended target; credentials never leave their service; integration guards remain stricter than a single fingerprint.
 - In scope: Add the minimum startup/persistence guard and non-secret metadata needed for Preview to fail closed on the production fingerprint and pass on the intended isolated target.
 - Excluded: Comparing or logging URLs/secrets, production data copy, destructive Preview work, broad environment cleanup, migration, permission change, or app feature change.
@@ -340,13 +345,13 @@ Code means repository executable, test, workflow, or migration files; documentat
 - Closure owner: Final owner of PREVIEW-001 and prerequisite for B3 and CI2.
 - Individual prompt:
 
-> In a fresh isolated worktree, execute only B2 from docs/audits/2026-09-04-production-systems-audit-remediation.md after B1. Add the smallest non-secret target fingerprint and fail-closed Preview guard; prove the intended isolated target passes and the production fingerprint is rejected before persistence. Do not compare/log credentials or URLs, migrate, alter grants, run Preview workers against production, or change application behavior. Open one narrow PR and keep Vercel metadata changes separately authorized; do not merge or deploy without approval.
+> In a fresh isolated worktree, execute only B2 from docs/audits/2026-09-04-production-systems-audit-remediation.md using B1's completed target-identity/catalog evidence with fresh target revalidation; do not wait for its residual application-reader proof. Add the smallest non-secret target fingerprint and fail-closed Preview guard; prove the intended isolated target passes and the production fingerprint is rejected before persistence. Do not compare/log credentials or URLs, migrate, alter grants, run Preview workers against production, or change application behavior. Open one narrow PR and keep Vercel metadata changes separately authorized; do not merge or deploy without approval.
 
 ### B3 — Additive compatible write path and immutable guards
 
 - Findings: DB-001 — Confirmed defect / High / High — Runtime grants can rewrite referenced provenance.
 - Evidence/reproduction: Independently inventory every normal current, future, observer, reader, repair, and retention SQL statement and reproduce the overbroad mutation path in isolated Neon. Compare with fresh production catalog evidence from B1.
-- Dependencies/prerequisites: B1 and B2 complete; G0, G1, G2, G3, G5; independent database-security review; explicit migration and narrow new-function ACL authority.
+- Dependencies/prerequisites: B1's completed catalog/restore evidence, freshly revalidated as applicable, plus B2 complete and B3's own isolated testing; B1's residual application-reader proof does not block B3. G0, G1, G2, G3, G5; independent database-security review; explicit migration and narrow new-function ACL authority.
 - Protected behavior: Immutable observations/baselines/snapshots/profile history; atomic fenced publication and acknowledgment; current functionality for both leagues; forward-only migrations; no historical rewrite.
 - In scope: Remove no-op conflict updates; add immutable/transition guards and narrowly scoped owner-controlled functions or compatible exact-column write paths; update callers to use them. For every new function, revoke default PUBLIC execution and grant only the exact compatibility role/function access after review. Leave all existing broad table/column runtime grants in place until B4.
 - Excluded: Revoking existing runtime table/column grants, default-grant/membership redesign, retention redesign/deletion, scoring, provider, cron, API, or unrelated schema cleanup.
@@ -358,17 +363,17 @@ Code means repository executable, test, workflow, or migration files; documentat
 - Closure owner: Supporting prerequisite for DB-001; B4 owns final privilege closure.
 - Individual prompt:
 
-> In a fresh isolated worktree, execute only B3 from docs/audits/2026-09-04-production-systems-audit-remediation.md after B1 and B2. Reproduce DB-001 in isolated Neon, inventory the exact write set, and add only compatible immutable guards/narrow write paths. Keep existing broad table/column grants unchanged; make every new function default-deny by revoking PUBLIC execution and granting only its explicitly approved compatibility access. Never rewrite history or weaken publication/lease/skew/league fences. Run isolated integration plus an exact ACL diff and open one database-reviewed PR; do not change retention/scoring/cron, merge, migrate, apply ACLs, or deploy without separate authorization.
+> In a fresh isolated worktree, execute only B3 from docs/audits/2026-09-04-production-systems-audit-remediation.md after B2, using B1's completed catalog/restore evidence and B3's own isolated testing; do not wait for B1's residual application-reader proof. Reproduce DB-001 in isolated Neon, inventory the exact write set, and add only compatible immutable guards/narrow write paths. Keep existing broad table/column grants unchanged; make every new function default-deny by revoking PUBLIC execution and granting only its explicitly approved compatibility access. Never rewrite history or weaken publication/lease/skew/league fences. Run isolated integration plus an exact ACL diff and open one database-reviewed PR; do not change retention/scoring/cron, merge, migrate, apply ACLs, or deploy without separate authorization.
 
 ### B4 — Runtime privilege revocation cutover
 
 - Findings: DB-001 — Confirmed defect / High / High — Runtime grants can rewrite referenced provenance.
 - Evidence/reproduction: Confirm the B3 exact write contract has operated successfully and reproduce the current excess effective grants from a fresh catalog comparison.
-- Dependencies/prerequisites: B1 complete; B3 merged, deployed, and stable through natural jobs; fresh pre-change restore point; G0, G1, G2, G3, G5, G6; independent database-security review.
+- Dependencies/prerequisites: B1's completed catalog/restore evidence; B3 merged, deployed, and stable through natural jobs; fresh pre-change restore point; unchanged restored-target `readStoredMatchupRevision` and `readStoredMatchups` must both pass for each of `league1` and `league2` under B1's acceptance evidence no later than the pre-cutover gate, before any production permission revocation. G0, G1, G2, G3, G5, G6; independent database-security review.
 - Protected behavior: Every proven normal read/write remains available; immutable lineage and both leagues remain intact; application role stays non-owner/non-superuser; PUBLIC/default privileges remain minimal.
 - In scope: Update the desired grant manifest/provisioning; revoke to a known baseline; grant only exact columns/functions/sequences; assert memberships, owners, default ACLs, schema/database rights, and security-definer posture.
 - Excluded: Application feature code, scoring, retention policy, data rewrite/delete, provider/cron changes, and unrelated migration cleanup.
-- Tests/evidence: B3 positive/negative suite under the final role; complete catalog/grant diff; compromised-runtime transaction cannot mutate protected history or cross league scope; natural current/future/observer/public reads remain healthy.
+- Tests/evidence: Retained passing B1 proof from both `readStoredMatchupRevision` and `readStoredMatchups` for each of `league1` and `league2` before cutover, covering compact revision/freshness and full payload retrieval, `isMatchupsData` validation, payload construction, freshness handling, and correct league isolation; B3 positive/negative suite under the final role; complete catalog/grant diff; compromised-runtime transaction cannot mutate protected history or cross league scope; natural current/future/observer/public reads remain healthy.
 - Release checks: G0 through G6, including G4; exact deployment SHA; migration/catalog/grants/pointers/lineage/authorities/leases; both leagues; naturally scheduled jobs. Stop immediately on permission-denied normal work.
 - Rollback/recovery: Use only the pre-reviewed narrow break-glass grant restoration necessary for the failed normal statement, then ship a forward correction. Never restore table-wide mutation casually or mutate historical rows.
 - User decisions/authority: Explicit Neon permission-cutover and production release authority; named break-glass approver.
@@ -376,7 +381,7 @@ Code means repository executable, test, workflow, or migration files; documentat
 - Closure owner: Final owner of DB-001.
 - Individual prompt:
 
-> In a fresh isolated worktree, execute only B4 from docs/audits/2026-09-04-production-systems-audit-remediation.md after B3 is deployed and proven. Reproduce the excess grants, apply the reviewed exact grant manifest, and verify every normal path plus all denied mutations under the final runtime role. Do not change application features, scoring, retention, cron, provider settings, or business data. Require a fresh restore point and pre-reviewed narrow break-glass grants; open one privilege-only PR and do not merge, migrate, or deploy without explicit database and release authorization.
+> In a fresh isolated worktree, execute only B4 from docs/audits/2026-09-04-production-systems-audit-remediation.md after B3 is deployed and proven. Require passing unchanged restored-target `readStoredMatchupRevision` and `readStoredMatchups` reads for each of `league1` and `league2` under B1's acceptance evidence no later than the pre-cutover gate. The proof must cover compact revision/freshness and full payload retrieval, `isMatchupsData` validation, payload construction, freshness handling, and correct league isolation; production permission revocation remains blocked until both compact and full reads pass for both leagues. Reproduce the excess grants, apply the reviewed exact grant manifest, and verify every normal path plus all denied mutations under the final runtime role. Do not change application features, scoring, retention, cron, provider settings, or business data. Require a fresh restore point and pre-reviewed narrow break-glass grants; open one privilege-only PR and do not merge, migrate, or deploy without explicit database and release authorization.
 
 ### C1 — Scoring disclosure option
 
@@ -547,7 +552,7 @@ Code means repository executable, test, workflow, or migration files; documentat
 - Dependencies/prerequisites: A documented E1 threshold breach; B1, B2, and B4 complete with an existing owner-controlled publication interface that can write the metadata without a new runtime grant; G0, G1, G2, G3, G4, G5; approved additive publication-metadata design and independent database/reader review.
 - Protected behavior: One reader/publication path; exact revision/period/freshness validation; visible <=60-second cadence; hidden/completed stop; bounded 409 retry; stale league/week responses cannot overwrite current state.
 - In scope: Add nullable payload-validation version/timestamp metadata to current_projection_snapshots, written only through the already EXECUTE-authorized owner-controlled fenced publication interface after full payload validation. Add no table/column/runtime grant. First release the writer and retain the old recursive fallback for null/unknown versions; after natural publications populate active pointers and evidence confirms parity, switch compact reads to current-pointer plus scalar snapshot metadata without traversing payload arrays. No historical snapshot is rewritten.
-- Excluded: Any grant/default-privilege/membership delta, direct runtime column write, second reader, weakened payload/revision validation, polling-interval change, production load test, broad snapshot schema redesign, or opportunistic cache changes. If the existing interface cannot support the field without a permission change, stop and create a separate B1-gated permission unit.
+- Excluded: Any grant/default-privilege/membership delta, direct runtime column write, second reader, weakened payload/revision validation, polling-interval change, production load test, broad snapshot schema redesign, or opportunistic cache changes. If the existing interface cannot support the field without a permission change, stop and create a separately authorized permission unit subject to G2.
 - Tests/evidence: Old null/unknown validation version safely uses the recursive fallback; supported version is written only after complete validation and exact fenced pointer publication; invalid payload never receives an attestation; normalized before/after ACL diff is empty; compromised runtime cannot write the metadata directly; query plan is independent of payload arrays; 300 steady/synchronized viewers; database queries/rows/bytes and p50/p75/p95/p99 before/after; publication race; current/future/completed/hidden behavior; both leagues and G4.
 - Release checks: G0 through G5; exact preview/production SHA; B1 catalog/restore gates; B4 exact-function/grant compatibility; phased writer-before-reader release; all active pointers naturally attested before fallback removal; E1 comparison; naturally observed errors/cost.
 - Rollback/recovery: Revert readers/writers first. Leave unused additive schema until later reviewed cleanup; never drop it during an incident.
@@ -562,7 +567,7 @@ Code means repository executable, test, workflow, or migration files; documentat
 
 - Findings: RET-001 — Operational risk / Medium / High — Retention has no owner during future-only operation; RET-002 — Technical debt / Low / High — Retention has no complete multi-season policy.
 - Evidence/reproduction: Reproduce lane-coupled, swallowed, sequential retention behavior on current main. Inventory every table, foreign-key/reference path, current/frozen/active authority, existing predicate/index, natural owner opportunity, and database write statement. Use B1 restore/schema/capacity-maintenance evidence and a preregistered isolated representative-volume batch benchmark before selecting retention limits.
-- Dependencies/prerequisites: B1 complete; G0, G1, G2, G5, G6; user-approved per-table/per-season horizons, audit/legal exceptions, RPO/RTO, and ownership objective.
+- Dependencies/prerequisites: B1's completed catalog/restore/capacity-maintenance evidence; its residual application-reader proof does not block this non-deleting design unit. G0, G1, G2, G5, G6; user-approved per-table/per-season horizons, audit/legal exceptions, RPO/RTO, and ownership objective.
 - Protected behavior: Current pointers, frozen baselines, active slate/materialization/lineup lineage, referenced observations, immutable release/audit evidence, both-league isolation, publication availability, and exactly one eventual retention owner.
 - In scope: A documentation-only contract containing exact table predicates, protected reference sets, dependency/FK order, indexed bounded batch sizes, dry-run/result schema, deadline/resume/retry semantics, metrics, proposed existing-schedule admission point, canary bounds, and the exact future F1 interface/write-set/permission design.
 - Excluded: Code/migration/grant/configuration change, new cron, deletion, production write, manual cleanup, ad hoc pointer repair, provider/scoring/cadence change, or an index not supported by B1 safe EXPLAIN without ANALYZE and isolated evidence.
@@ -574,7 +579,7 @@ Code means repository executable, test, workflow, or migration files; documentat
 - Closure owner: Supporting prerequisite for RET-001 and RET-002; it closes neither finding.
 - Individual prompt:
 
-> In a fresh task, execute only F0 from docs/audits/2026-09-04-production-systems-audit-remediation.md after B1 and the user's horizon decisions. Reproduce the current retention ownership/timing defects and produce exact table predicates, reference protections, dependency order, bounded batches, dry-run schema, existing-schedule ownership, interface/permission design, and recovery/canary contract. Derive limits from a preregistered representative-volume isolated benchmark and use only SELECT aggregates in production. Do not edit code/migrations/grants/config, add cron, or delete/write production data; leave F1/F2 blocked on every unproved predicate or insufficient timing sample.
+> In a fresh task, execute only F0 from docs/audits/2026-09-04-production-systems-audit-remediation.md using B1's completed catalog/restore/capacity-maintenance evidence and after the user's horizon decisions; B1's residual application-reader proof does not block this design unit. Reproduce the current retention ownership/timing defects and produce exact table predicates, reference protections, dependency order, bounded batches, dry-run schema, existing-schedule ownership, interface/permission design, and recovery/canary contract. Derive limits from a preregistered representative-volume isolated benchmark and use only SELECT aggregates in production. Do not edit code/migrations/grants/config, add cron, or delete/write production data; leave F1/F2 blocked on every unproved predicate or insufficient timing sample and until both restored-target compact and full application reads pass for both leagues as required by G2/B4.
 
 ### F1 — Narrow retention database interface
 
@@ -634,7 +639,7 @@ Code means repository executable, test, workflow, or migration files; documentat
 
 - Findings: CI-001 — Contract conflict / High / High — Protected branch does not enforce documented browser/preview gates.
 - Evidence/reproduction: Show that persistence-affecting PRs lack a stable guarded isolated-DB status and that non-persistence PRs still need a stable not-applicable/success result if the context becomes required.
-- Dependencies/prerequisites: B1, B2, and CI1; G0, G2, G3, G5; dedicated non-production Neon branch and narrowly scoped CI credentials.
+- Dependencies/prerequisites: B1's completed target-identity/catalog/restore evidence, B2, and CI1; B1's residual application-reader proof does not block this isolated-only unit. G0, G2, G3, G5; dedicated non-production Neon branch and narrowly scoped CI credentials.
 - Protected behavior: Destructive integration can never reach production; every authorization, identity, sentinel, TLS, role, safe-name, and denylist guard remains; the owner and runtime URLs keep distinct roles while targeting the same dedicated database, including accepted direct/pooled forms; docs/non-persistence PRs are not blocked by a missing context.
 - In scope: A separate path-aware workflow/status for persistence paths; guarded isolated branch setup/use/teardown; stable success/not-applicable reporting; least GitHub/Neon credential scope.
 - Excluded: General verify/browser workflow changes, GitHub protection settings, production DATABASE_URL, production migrations/data, application behavior, or reusing Preview production-like credentials.
@@ -646,7 +651,7 @@ Code means repository executable, test, workflow, or migration files; documentat
 - Closure owner: Supporting prerequisite for CI-001; CI3 owns enforcement.
 - Individual prompt:
 
-> In a fresh isolated worktree, execute only CI2 from docs/audits/2026-09-04-production-systems-audit-remediation.md after B1, B2, and CI1. Add a separate stable path-aware isolated-Neon status that runs destructive integration only for persistence paths and reports not applicable/success otherwise. Preserve the required topology: distinct owner/runtime roles connect to the same dedicated database, including accepted direct/pooled forms. Preserve every identity/sentinel/TLS/role/denylist guard, reject any CI target that normalizes to the production target, and use only narrowly scoped non-production credentials. Do not edit general CI, GitHub protection, production DB/config/data, or application behavior. Open one isolated-automation PR and do not merge or change control-plane settings without authorization.
+> In a fresh isolated worktree, execute only CI2 from docs/audits/2026-09-04-production-systems-audit-remediation.md after B2 and CI1, using B1's completed target-identity/catalog/restore evidence; do not wait for its residual application-reader proof. Add a separate stable path-aware isolated-Neon status that runs destructive integration only for persistence paths and reports not applicable/success otherwise. Preserve the required topology: distinct owner/runtime roles connect to the same dedicated database, including accepted direct/pooled forms. Preserve every identity/sentinel/TLS/role/denylist guard, reject any CI target that normalizes to the production target, and use only narrowly scoped non-production credentials. Do not edit general CI, GitHub protection, production DB/config/data, or application behavior. Open one isolated-automation PR and do not merge or change control-plane settings without authorization.
 
 ### SC1 — Supply-chain workflow policy
 
@@ -888,9 +893,9 @@ Code means repository executable, test, workflow, or migration files; documentat
 |---|---|
 | OPS-001 | A1 + sufficient A3A evidence + A3B only when production evidence demonstrates either sustainable full-envelope capacity or a sustainable post-deferral envelope covering unavoidable current-live work plus retries and incident margin while discretionary future work is truthfully deferred and resumed within its approved freshness bound. A2 is needed only if current-live work plus retries and margin does not fit or the user chooses more capacity; full pre-admission demand exceeding the allowance is not by itself a blocker. A precautionary upgrade alone, A3A alone, modeled-but-undemonstrated admission, risk acceptance, or any Missing proof leaves OPS-001 open. |
 | TANK-002 | A1 owns account/application/subscription/environment attestation; A3A owns normal-call reset/header/billing/endpoint-weight evidence. Any unobserved element stays Missing proof; A3B cannot manufacture or close an absent telemetry fact. |
-| DB-PROOF-001 | B1 only, including timed isolated restore and synthetic selective recovery. |
+| DB-PROOF-001 | B1 retains the completed catalog, timed restore, integrity, capacity/maintenance inspection, and synthetic selective-recovery evidence. Open only for unchanged restored-target `readStoredMatchupRevision` and `readStoredMatchups` reads for each of `league1` and `league2` under B1's acceptance evidence, required no later than B4's pre-cutover gate. Compact-only proof is insufficient; no full closure is claimed. Task A tooling requirements are not universal closure gates. |
 | PREVIEW-001 | B2 only. |
-| DB-001 | B3 is compatible preparation; B4 closes after exact-grant production verification. |
+| DB-001 | B3 may use completed B1 catalog/restore evidence plus B2 and its own isolated testing. B4 closes only after unchanged restored-target `readStoredMatchupRevision` and `readStoredMatchups` both pass for each of `league1` and `league2` under B1's acceptance evidence before cutover and exact-grant production verification succeeds. DB-001 remains open. |
 | SCORE-001 | Exactly one user-selected outcome: C1, or C2A followed by C2B. If neither ships, the finding remains open; risk acceptance is not closure. |
 | PROVIDER-001 | D1 only. |
 | FUTURE-001 | D2 only. |
@@ -898,7 +903,7 @@ Code means repository executable, test, workflow, or migration files; documentat
 | WORKER-001 | E2 only, after E1. |
 | READER-001 | E3 only, after E1. |
 | READER-002 | E4 when the approved threshold is breached. Without a breach, only formal evidence-based reclassification closes it; risk acceptance leaves it open. |
-| RET-001, RET-002 | F0 design + F1 narrow database interface + F2 owner/enablement after B1/B4 and approved horizons/recovery. |
+| RET-001, RET-002 | F0 design may use completed B1 evidence; F1 narrow database interface and F2 owner/enablement retain B4 and approved horizons/recovery gates. Production deletion-capable units remain blocked until both restored-target compact and full application reads pass for each league under B1's acceptance evidence. |
 | CI-001 | CI1 + CI2 + CI3, including an enforceable truthful preview gate. Workflow code, DB automation, and protection settings are never one unit; an unavailable preview context leaves the finding open. |
 | SUPPLY-001 | SC1 when its policy blocks through an existing required context; a new standalone context needs a separate future protection unit. |
 | TEST-001 | H1 only. |
