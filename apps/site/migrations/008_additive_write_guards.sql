@@ -80,12 +80,8 @@ BEGIN
     IF (to_jsonb(NEW) - 'projection_slate_observation_id')
         IS DISTINCT FROM (to_jsonb(OLD) - 'projection_slate_observation_id')
       OR OLD.projection_slate_observation_id IS NOT NULL
-      OR NEW.projection_slate_observation_id IS NULL
-      OR current_user::regrole::oid <> (
-        SELECT relation.relowner FROM pg_catalog.pg_class relation
-        WHERE relation.oid = 'public.pregame_projection_runs'::regclass
-      ) THEN
-      RAISE EXCEPTION 'projection run history is immutable; slate enrichment requires its owner-controlled function';
+      OR NEW.projection_slate_observation_id IS NULL THEN
+      RAISE EXCEPTION 'projection run history is immutable; only exact one-time slate enrichment is permitted';
     END IF;
   END IF;
 
@@ -107,8 +103,13 @@ BEGIN
 END;
 $$;
 REVOKE ALL ON FUNCTION public.prevent_projection_run_history_change() FROM PUBLIC;
+-- Validate the actual row after ON CONFLICT resolves a legacy replay. A BEFORE
+-- INSERT check would reject incoming timestamps that the old caller discards.
+-- The exact NULL-to-matching-link transition remains available to that runtime
+-- caller until B4 revokes direct UPDATE. An exception rolls back the entire
+-- statement, including candidate and pointer CTE writes.
 CREATE TRIGGER pregame_projection_runs_history_immutable
-  BEFORE INSERT OR UPDATE ON public.pregame_projection_runs
+  AFTER INSERT OR UPDATE ON public.pregame_projection_runs
   FOR EACH ROW EXECUTE FUNCTION public.prevent_projection_run_history_change();
 
 CREATE FUNCTION public.prevent_projection_slate_entry_delete()

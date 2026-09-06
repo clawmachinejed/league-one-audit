@@ -1,0 +1,30 @@
+{
+  "baseCommit": "ed7a60074254d3d73df6c59901648f61ff1ae9ea",
+  "normalization": "CRLF to LF only; complete tagged client.query template contents, excluding backtick delimiters; no SQL edits or appended newline",
+  "statements": [
+    {
+      "fixture": "register-league-season.sql",
+      "source": "apps/site/lib/projections/adapters/neon/identities.ts",
+      "sourceGitBlob": "d5f2f22f53558ba0c6dcab16c1d5777e230cd004",
+      "startLine": 26,
+      "endLine": 54,
+      "querySha256": "d920895b3f182cb26c961041b8de7a9732e1dcee32eff951d4c9f9d2c1f3415b"
+    },
+    {
+      "fixture": "record-game-states.sql",
+      "source": "apps/site/lib/projections/adapters/neon/observations.ts",
+      "sourceGitBlob": "7a46b99d98bdf9326a52c7c3fdd822a2eaf01baf",
+      "startLine": 37,
+      "endLine": 80,
+      "querySha256": "f3005f9e833b1241a75689eb529eb6060afe8cced1a561449e8cd8d81579b651"
+    },
+    {
+      "fixture": "record-projection-candidates.sql",
+      "source": "apps/site/lib/projections/adapters/neon/projections.ts",
+      "sourceGitBlob": "fbdef0196d5ea989dbc345395fa25a7e901e3bbe",
+      "startLine": 33,
+      "endLine": 112,
+      "querySha256": "4a02570f99bd50d4075643373d8827b84370b5f139d5ff392446751c88d19de7"
+    }
+  ]
+}

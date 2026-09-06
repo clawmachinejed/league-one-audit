@@ -192,10 +192,18 @@ describe.sequential('B3 compatible writes and immutable guards in the isolated d
     `, [fixture.run.runId])).row).toEqual(before);
   });
 
-  it('denies direct runtime linkage enrichment, replacement, and clearing', async () => {
+  it('permits exact one-time runtime enrichment but denies replacement and clearing', async () => {
     const fixture = await runFixture();
-    await denied('UPDATE pregame_projection_runs SET projection_slate_observation_id = $2 WHERE id = $1',
+    const before = only(await runtimeQuery<{ row: Record<string, unknown> }>(
+      'SELECT to_jsonb(run) AS row FROM pregame_projection_runs run WHERE id = $1',
+      [fixture.run.runId],
+    )).row;
+    await runtimeQuery('UPDATE pregame_projection_runs SET projection_slate_observation_id = $2 WHERE id = $1',
       [fixture.run.runId, fixture.slate.observationId]);
+    expect(only(await runtimeQuery<{ row: Record<string, unknown> }>(
+      'SELECT to_jsonb(run) AS row FROM pregame_projection_runs run WHERE id = $1',
+      [fixture.run.runId],
+    )).row).toEqual({ ...before, projection_slate_observation_id: fixture.slate.observationId });
     await store.recordProjectionCandidates({
       ...fixture.input, projectionSlateObservationId: fixture.slate.observationId,
     });
