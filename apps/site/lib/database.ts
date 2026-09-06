@@ -19,7 +19,7 @@ export type DatabaseClient = Readonly<{
 
 export type DisabledDatabase = Readonly<{
   enabled: false;
-  reason: 'missing-database-url' | 'invalid-database-url';
+  reason: 'missing-database-url' | 'invalid-database-url' | 'preview-persistence-disabled';
 }>;
 
 export type Database = DatabaseClient | DisabledDatabase;
@@ -51,8 +51,12 @@ function isSecurePostgresUrl(value: string): boolean {
 /**
  * Creates a Neon HTTP client without opening a connection. A missing database is
  * an expected local/deployment state while the persistence feature is dormant.
+ * Preview persistence is always disabled, even if a database is configured.
  */
 export function createDatabase(databaseUrl: string | undefined = process.env.DATABASE_URL): Database {
+  if (process.env.VERCEL_ENV === 'preview') {
+    return { enabled: false, reason: 'preview-persistence-disabled' };
+  }
   const url = configuredUrl(databaseUrl);
   if (!url) return { enabled: false, reason: 'missing-database-url' };
   if (!isSecurePostgresUrl(url)) return { enabled: false, reason: 'invalid-database-url' };
@@ -90,13 +94,16 @@ export function withDatabaseAbortSignal(database: Database, signal: AbortSignal)
 }
 
 let cachedUrl: string | undefined;
+let cachedEnvironment: string | undefined;
 let cachedDatabase: Database | undefined;
 
 /** Uses the current environment value and refreshes the singleton if it changes. */
 export function getDatabase(): Database {
   const databaseUrl = process.env.DATABASE_URL;
-  if (!cachedDatabase || cachedUrl !== databaseUrl) {
+  const environment = process.env.VERCEL_ENV;
+  if (!cachedDatabase || cachedUrl !== databaseUrl || cachedEnvironment !== environment) {
     cachedUrl = databaseUrl;
+    cachedEnvironment = environment;
     cachedDatabase = createDatabase(databaseUrl);
   }
   return cachedDatabase;
