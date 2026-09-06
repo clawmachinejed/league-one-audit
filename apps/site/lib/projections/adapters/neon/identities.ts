@@ -25,10 +25,7 @@ export function createIdentityMethods(client: DatabaseClient): IdentityMethods {
       const scoringRulesHash = rulesHash(input.scoringRules);
       const rows = await client.query(`/* projection-store:register-league-season */
         WITH profile AS (
-          INSERT INTO scoring_profiles (rules_hash, rules)
-          VALUES ($1, $2::jsonb)
-          ON CONFLICT (rules_hash) DO UPDATE SET rules = scoring_profiles.rules
-          RETURNING id
+          SELECT public.get_or_create_scoring_profile($1::text, $2::jsonb) AS id
         ), league AS (
           INSERT INTO leagues (league_key, name)
           VALUES ($3, $4)

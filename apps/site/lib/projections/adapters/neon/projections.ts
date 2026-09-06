@@ -32,21 +32,11 @@ export function createProjectionMethods(client: DatabaseClient): ProjectionMetho
       }));
       const rows = await client.query(`/* projection-store:record-projection-candidates */
         WITH run AS (
-          INSERT INTO pregame_projection_runs (
-            provider, season, season_type, week, model_version, source_revision,
-            request_started_at, request_completed_at, fetched_at, quality,
-            projection_slate_observation_id
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-          ON CONFLICT (provider, season, season_type, week, source_revision, model_version)
-          DO UPDATE SET projection_slate_observation_id = COALESCE(
-            pregame_projection_runs.projection_slate_observation_id,
-            EXCLUDED.projection_slate_observation_id
+          SELECT id, provider, model_version, fetched_at, created_at, quality
+          FROM public.get_or_create_projection_run(
+            $1::text, $2::smallint, $3::text, $4::smallint, $5::text, $6::text,
+            $7::timestamptz, $8::timestamptz, $9::timestamptz, $10::text, $11::uuid
           )
-          WHERE pregame_projection_runs.projection_slate_observation_id IS NULL
-            OR EXCLUDED.projection_slate_observation_id IS NULL
-            OR pregame_projection_runs.projection_slate_observation_id
-              = EXCLUDED.projection_slate_observation_id
-          RETURNING id, provider, model_version, fetched_at, created_at, quality
         ), input AS (
           SELECT * FROM jsonb_to_recordset($12::jsonb) AS value(
             game_id uuid, entity_id uuid, scoring_profile_id uuid,
