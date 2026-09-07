@@ -179,9 +179,9 @@ test('both standings pages reuse the Matchups title and season layout', async ({
         const heading = element.querySelector('h1')!;
         const season = element.querySelector('p')!;
         const toolbar = element.parentElement!;
-        const content = main.querySelector('[class*="board"]')!;
+        const content = main.querySelector('[class*="board"]');
         const introRect = element.getBoundingClientRect();
-        const contentRect = content.getBoundingClientRect();
+        const contentRect = content?.getBoundingClientRect();
         const read = (node: Element) => {
           const style = getComputedStyle(node);
           return {
@@ -195,14 +195,21 @@ test('both standings pages reuse the Matchups title and season layout', async ({
         return {
           mainPadding: [mainStyle.paddingTop, mainStyle.paddingRight, mainStyle.paddingBottom, mainStyle.paddingLeft],
           introTop: introRect.top,
-          contentGap: main.querySelector('.data-warning') ? null : contentRect.top - introRect.bottom,
+          hasContent: Boolean(content),
+          contentGap: main.querySelector('.data-warning') || !contentRect ? null : contentRect.top - introRect.bottom,
           toolbarMarginBottom: getComputedStyle(toolbar).marginBottom,
-          contentMarginTop: getComputedStyle(content).marginTop,
+          contentMarginTop: content ? getComputedStyle(content).marginTop : null,
           heading: read(heading),
           season: { ...read(season), color: getComputedStyle(season).color, textTransform: getComputedStyle(season).textTransform },
           titleSeasonGap: season.getBoundingClientRect().top - heading.getBoundingClientRect().bottom,
         };
       });
+      if (!reference.hasContent) {
+        test.info().annotations.push({
+          type: 'Sleeper data',
+          description: 'No matchup board was available, so content-spacing measurements were not applicable.',
+        });
+      }
 
       for (const route of ['/standings', '/league2/standings']) {
         await page.goto(route, { waitUntil: 'networkidle' });
@@ -250,7 +257,9 @@ test('both standings pages reuse the Matchups title and season layout', async ({
         expect(actual.heading).toEqual(reference.heading);
         expect(actual.season).toEqual(reference.season);
         expect(actual.toolbarMarginBottom).toBe(reference.toolbarMarginBottom);
-        expect(actual.contentMarginTop).toBe(reference.contentMarginTop);
+        if (reference.contentMarginTop !== null) {
+          expect(actual.contentMarginTop).toBe(reference.contentMarginTop);
+        }
         expect(actual.titleSeasonGap).toBe(reference.titleSeasonGap);
         expect(Math.abs(actual.introTop - reference.introTop)).toBeLessThanOrEqual(1);
         if (actual.contentGap !== null && reference.contentGap !== null) {
