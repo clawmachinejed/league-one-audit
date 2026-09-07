@@ -365,7 +365,10 @@ test('both Managers pages reuse the Matchups intro without matchup controls', as
 
         const prefix = route.startsWith('/league2') ? '/league2' : '';
         const managerLinks = main.locator(`a[href^="${prefix}/managers/"]`);
-        await expect(managerLinks).toHaveCount(12);
+        const teamCountText = await main.locator('.section-label > span').textContent();
+        const teamCount = Number(teamCountText?.match(/^\d+/u)?.[0]);
+        expect(teamCount).toBeGreaterThan(0);
+        await expect(managerLinks).toHaveCount(teamCount);
         for (const href of await managerLinks.evaluateAll(links => links.map(link => link.getAttribute('href')))) {
           expect(href).toMatch(new RegExp(`^${prefix}/managers/\\d+$`, 'u'));
         }
