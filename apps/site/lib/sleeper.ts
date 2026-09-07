@@ -18,10 +18,11 @@ import {
   resolveSleeperSchedule,
   type WeekSchedule,
 } from './nfl-schedule';
-import type { MatchupsData, OverviewData, ManagerData, Player, TransactionsData } from './types';
+import type { MatchupsData, OverviewData, ManagerData, Player, StandingsData, TransactionsData } from './types';
 import { matchupTemporalState, type MatchupPeriodContext } from './matchup-period';
 import {
   canDecorateMatchupWeek,
+  addWaiverBalances,
   involvesRoster,
   matchupSlateExpected,
   matchupStatus,
@@ -484,6 +485,14 @@ async function getWeekSchedule(season: string, week: number): Promise<{
 
 export async function getOverview(leagueId: string): Promise<OverviewData> {
   return (await getCore(leagueId)).overview;
+}
+
+export async function getStandings(leagueId: string): Promise<StandingsData> {
+  const { overview, rosters, sourceLeague } = await getCore(leagueId);
+  return {
+    ...overview,
+    teams: addWaiverBalances(overview.teams, rosters, sourceLeague.settings?.waiver_budget),
+  };
 }
 
 type MatchupSourceOptions = Readonly<{

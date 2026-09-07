@@ -32,6 +32,7 @@ import {
   getProjectionCadenceInput,
   getProjectionSyncInput,
   getRawLineupMatchups,
+  getStandings,
   getTransactions,
 } from './sleeper';
 
@@ -154,11 +155,11 @@ function valueFor(path: string): unknown {
     league_id: leagueTwoId, name: 'League 2', season: '2026', status: 'in_season',
     total_rosters: 1,
     roster_positions: ['QB', 'BN'],
-    settings: { waiver_budget: 100, leg: 3 },
+    settings: { waiver_budget: 250, leg: 3 },
     scoring_settings: activeScoringSettings,
   };
   if (path === `${leagueTwoPath}/rosters`) return [{
-    roster_id: 1, owner_id: 'member-2', players: ['qb'], starters: ['qb'], settings: { ...rosterSettings },
+    roster_id: 1, owner_id: 'member-2', players: ['qb'], starters: ['qb'], settings: { ...rosterSettings, waiver_budget_used: 30 },
   }];
   if (path === `${leagueTwoPath}/users`) return [{ user_id: 'member-2', display_name: 'Jordan' }];
   if (path.startsWith(`${leagueTwoPath}/matchups/`)) return [
@@ -434,6 +435,35 @@ describe('Sleeper service error handling', () => {
       `${leagueTwoPath}/users`,
       `${leagueTwoPath}/matchups/3`,
     ]));
+  });
+
+  it('uses each league and roster response to calculate isolated waiver balances without another request', async () => {
+    rawRosters = [{
+      roster_id: 1,
+      owner_id: 'member-1',
+      players: ['qb'],
+      starters: ['qb'],
+      settings: { ...rosterSettings, waiver_budget_used: 28 },
+    }];
+
+    const [leagueOne, leagueTwo] = await Promise.all([
+      getStandings(leagueOneId),
+      getStandings(leagueTwoId),
+    ]);
+
+    expect(leagueOne.teams[0].waiverBudgetRemaining).toBe(72);
+    expect(leagueTwo.teams[0].waiverBudgetRemaining).toBe(220);
+    const paths = vi.mocked(fetch).mock.calls.map(([input]) => requestPath(input));
+    expect(paths).toHaveLength(8);
+    expect(paths).toEqual(expect.arrayContaining([
+      leaguePath,
+      `${leaguePath}/rosters`,
+      `${leaguePath}/users`,
+      leagueTwoPath,
+      `${leagueTwoPath}/rosters`,
+      `${leagueTwoPath}/users`,
+    ]));
+    expect(paths.some((path) => path.includes('/transactions/') || path.includes('/matchups/'))).toBe(false);
   });
 
   it('isolates cached transaction history when leagues share roster IDs and week horizons', async () => {
