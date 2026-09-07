@@ -6,10 +6,12 @@ import { PageIntro } from './page-intro';
 const league: League = { season: '2026', week: 1, maxWeek: 18, rosterPositions: [] };
 
 describe('PageIntro', () => {
-  it('renders the page title before the uppercase-styled season label', () => {
-    const markup = renderToStaticMarkup(<PageIntro title="Standings" league={league} />);
+  it.each(['Matchups', 'Standings', 'Managers'])('renders the %s title before the uppercase-styled season label', (title) => {
+    const markup = renderToStaticMarkup(<PageIntro title={title} league={league} />);
 
-    expect(markup).toMatch(/data-page-intro="true"><h1>Standings<\/h1><p[^>]*>2026 season<\/p><\/div>/u);
+    expect(markup).toContain(`data-page-intro="true"><h1>${title}</h1>`);
+    expect(markup).toMatch(/<\/h1><p[^>]*>2026 season<\/p><\/div>/u);
     expect(markup).not.toContain('The league, at a glance.');
+    expect(markup).not.toContain('The people and teams of');
   });
 });

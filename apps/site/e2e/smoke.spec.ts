@@ -274,6 +274,109 @@ test('both standings pages reuse the Matchups title and season layout', async ({
   }
 });
 
+test('both Managers pages reuse the Matchups intro without matchup controls', async ({ page }) => {
+  for (const viewport of [viewports[1], viewports[3]]) {
+    await test.step(viewport.name, async () => {
+      await page.setViewportSize(viewport);
+      await page.goto('/matchups', { waitUntil: 'networkidle' });
+      const matchupsIntro = page.locator('[data-page-intro]');
+      const reference = await matchupsIntro.evaluate(element => {
+        const main = element.closest('main')!;
+        const heading = element.querySelector('h1')!;
+        const season = element.querySelector('p')!;
+        const toolbar = element.parentElement!;
+        const content = main.querySelector('[class*="board"]');
+        const introRect = element.getBoundingClientRect();
+        const contentRect = content?.getBoundingClientRect();
+        const read = (node: Element) => {
+          const style = getComputedStyle(node);
+          return {
+            fontSize: style.fontSize,
+            fontWeight: style.fontWeight,
+            lineHeight: style.lineHeight,
+            letterSpacing: style.letterSpacing,
+          };
+        };
+        const mainStyle = getComputedStyle(main);
+        return {
+          mainPadding: [mainStyle.paddingTop, mainStyle.paddingRight, mainStyle.paddingBottom, mainStyle.paddingLeft],
+          introTop: introRect.top,
+          contentGap: main.querySelector('.data-warning') || !contentRect ? null : contentRect.top - introRect.bottom,
+          toolbarMarginBottom: getComputedStyle(toolbar).marginBottom,
+          heading: read(heading),
+          season: { ...read(season), color: getComputedStyle(season).color, textTransform: getComputedStyle(season).textTransform },
+          titleSeasonGap: season.getBoundingClientRect().top - heading.getBoundingClientRect().bottom,
+        };
+      });
+
+      for (const route of ['/managers', '/league2/managers']) {
+        await page.goto(route, { waitUntil: 'networkidle' });
+        const main = page.locator('main');
+        const intro = main.locator('[data-page-intro]');
+        await expect(intro.locator(':scope > h1')).toHaveText('Managers');
+        await expect(intro.locator(':scope > p')).toHaveText('2026 season');
+        expect(await intro.locator(':scope > *').allTextContents()).toEqual(['Managers', '2026 season']);
+        await expect(main.getByText(/The people and teams of/u)).toHaveCount(0);
+        await expect(main.getByLabel('Matchup week')).toHaveCount(0);
+        await expect(main.getByRole('button', { name: 'Refresh matchups' })).toHaveCount(0);
+        await expect(main.locator('select')).toHaveCount(0);
+
+        const actual = await intro.evaluate(element => {
+          const mainElement = element.closest('main')!;
+          const heading = element.querySelector('h1')!;
+          const season = element.querySelector('p')!;
+          const toolbar = element.parentElement!;
+          const content = mainElement.querySelector('.preference-banner')!;
+          const introRect = element.getBoundingClientRect();
+          const toolbarRect = toolbar.getBoundingClientRect();
+          const contentRect = content.getBoundingClientRect();
+          const read = (node: Element) => {
+            const style = getComputedStyle(node);
+            return {
+              fontSize: style.fontSize,
+              fontWeight: style.fontWeight,
+              lineHeight: style.lineHeight,
+              letterSpacing: style.letterSpacing,
+            };
+          };
+          const mainStyle = getComputedStyle(mainElement);
+          return {
+            mainPadding: [mainStyle.paddingTop, mainStyle.paddingRight, mainStyle.paddingBottom, mainStyle.paddingLeft],
+            introTop: introRect.top,
+            contentGap: mainElement.querySelector('.data-warning') ? null : contentRect.top - introRect.bottom,
+            contentAlignment: [contentRect.left - toolbarRect.left, toolbarRect.right - contentRect.right],
+            toolbarMarginBottom: getComputedStyle(toolbar).marginBottom,
+            heading: read(heading),
+            season: { ...read(season), color: getComputedStyle(season).color, textTransform: getComputedStyle(season).textTransform },
+            titleSeasonGap: season.getBoundingClientRect().top - heading.getBoundingClientRect().bottom,
+          };
+        });
+        expect(actual.mainPadding).toEqual(reference.mainPadding);
+        expect(actual.heading).toEqual(reference.heading);
+        expect(actual.season).toEqual(reference.season);
+        expect(actual.toolbarMarginBottom).toBe(reference.toolbarMarginBottom);
+        expect(actual.titleSeasonGap).toBe(reference.titleSeasonGap);
+        expect(actual.contentAlignment).toEqual([0, 0]);
+        expect(Math.abs(actual.introTop - reference.introTop)).toBeLessThanOrEqual(1);
+        if (actual.contentGap !== null && reference.contentGap !== null) {
+          expect(Math.abs(actual.contentGap - reference.contentGap)).toBeLessThanOrEqual(1);
+        }
+        await expectNoPageOverflow(page);
+
+        const prefix = route.startsWith('/league2') ? '/league2' : '';
+        const managerLinks = main.locator(`a[href^="${prefix}/managers/"]`);
+        const teamCountText = await main.locator('.section-label > span').textContent();
+        const teamCount = Number(teamCountText?.match(/^\d+/u)?.[0]);
+        expect(teamCount).toBeGreaterThan(0);
+        await expect(managerLinks).toHaveCount(teamCount);
+        for (const href of await managerLinks.evaluateAll(links => links.map(link => link.getAttribute('href')))) {
+          expect(href).toMatch(new RegExp(`^${prefix}/managers/\\d+$`, 'u'));
+        }
+      }
+    });
+  }
+});
+
 test('a matchup exposes scores to assistive technology and expands from the keyboard', async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 800 });
   await page.goto('/matchups', { waitUntil: 'networkidle' });

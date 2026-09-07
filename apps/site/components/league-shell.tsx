@@ -88,7 +88,9 @@ export function AppShell({ children, leagueIds }: { children: ReactNode; leagueI
   const pathname = usePathname();
   const site = leagueSiteForPathname(pathname);
   const compactMatchups = pathname === leagueHref(site, '/matchups');
-  const compactMain = compactMatchups || pathname === leagueHref(site, '/standings');
+  const compactMain = compactMatchups
+    || pathname === leagueHref(site, '/standings')
+    || pathname === leagueHref(site, '/managers');
   const nav: { href: string; label: string; icon: IconName }[] = [
     { href: leagueHref(site, '/matchups'), label: 'Matchups', icon: 'matchups' },
     { href: leagueHref(site, '/standings'), label: 'Standings', icon: 'standings' },

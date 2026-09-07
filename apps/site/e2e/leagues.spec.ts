@@ -75,7 +75,8 @@ test('switching leagues changes identity, data routes, and every primary tab', a
   await page.getByRole('navigation', { name: 'Mobile navigation' }).getByRole('link', { name: 'Managers' }).click();
   await expect(page).toHaveURL(/\/league2\/managers$/u);
   await expect(page.getByRole('heading', { level: 1, name: 'Managers' })).toBeVisible();
-  await expect(page.getByText('The people and teams of League Two.')).toBeVisible();
+  await expect(page.getByText('2026 season', { exact: true })).toBeVisible();
+  await expect(page.getByText('The people and teams of League Two.', { exact: true })).toHaveCount(0);
   const managerLink = page.locator('a[href^="/league2/managers/"]').first();
   if (await managerLink.count()) await expect(managerLink).toBeVisible();
   await expectNoPageOverflow(page);
