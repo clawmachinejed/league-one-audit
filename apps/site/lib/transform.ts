@@ -273,6 +273,10 @@ export function waiverBudgetRemaining(startingBudget: unknown, usedBudget: unkno
   return Number.isFinite(remaining) ? remaining : null;
 }
 
+export function waiverOrder(value: unknown): number | null {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : null;
+}
+
 export function addWaiverBalances(
   teams: Team[],
   rosters: SleeperRoster[],
@@ -281,6 +285,7 @@ export function addWaiverBalances(
   const rosterById = new Map(rosters.map((roster) => [roster.roster_id, roster]));
   return teams.map((team) => ({
     ...team,
+    waiverOrder: waiverOrder(rosterById.get(team.id)?.settings?.waiver_position),
     waiverBudgetRemaining: waiverBudgetRemaining(
       startingBudget,
       rosterById.get(team.id)?.settings?.waiver_budget_used,

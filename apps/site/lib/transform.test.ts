@@ -20,6 +20,7 @@ import {
   transactionResult,
   waiverBid,
   waiverBudgetRemaining,
+  waiverOrder,
   type SleeperLeague,
   type SleeperTransaction,
 } from './transform';
@@ -166,15 +167,28 @@ describe('standings, avatars and scores', () => {
 
   it('adds balances by roster ID without changing standings order', () => {
     const standings = addWaiverBalances(teams, [
-      { roster_id: 3, settings: { waiver_budget_used: 100 } },
-      { roster_id: 1, settings: { waiver_budget_used: 25 } },
-      { roster_id: 2, settings: { waiver_budget_used: 0 } },
+      { roster_id: 3, settings: { waiver_budget_used: 100, waiver_position: 1 } },
+      { roster_id: 1, settings: { waiver_budget_used: 25, waiver_position: 3 } },
+      { roster_id: 2, settings: { waiver_budget_used: 0, waiver_position: 2 } },
     ], 100);
-    expect(standings.map(({ id, waiverBudgetRemaining }) => ({ id, waiverBudgetRemaining }))).toEqual([
-      { id: 1, waiverBudgetRemaining: 75 },
-      { id: 2, waiverBudgetRemaining: 100 },
-      { id: 3, waiverBudgetRemaining: 0 },
+    expect(standings.map(({ id, waiverOrder, waiverBudgetRemaining }) => ({ id, waiverOrder, waiverBudgetRemaining }))).toEqual([
+      { id: 1, waiverOrder: 3, waiverBudgetRemaining: 75 },
+      { id: 2, waiverOrder: 2, waiverBudgetRemaining: 100 },
+      { id: 3, waiverOrder: 1, waiverBudgetRemaining: 0 },
     ]);
+  });
+
+  it.each([
+    { value: 1, expected: 1 },
+    { value: 12, expected: 12 },
+    { value: undefined, expected: null },
+    { value: '1', expected: null },
+    { value: 0, expected: null },
+    { value: -1, expected: null },
+    { value: 1.5, expected: null },
+    { value: Number.POSITIVE_INFINITY, expected: null },
+  ])('normalizes waiver position $value to $expected', ({ value, expected }) => {
+    expect(waiverOrder(value)).toBe(expected);
   });
 
   it('resolves team and manager names without carrying unused upstream identity fields', () => {

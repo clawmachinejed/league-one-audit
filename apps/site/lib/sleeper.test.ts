@@ -65,6 +65,7 @@ const rosterSettings = {
   fpts: 0,
   fpts_against: 0,
   waiver_budget_used: 0,
+  waiver_position: 1,
 };
 
 const leagueOneScoringSettings = {
@@ -159,7 +160,7 @@ function valueFor(path: string): unknown {
     scoring_settings: activeScoringSettings,
   };
   if (path === `${leagueTwoPath}/rosters`) return [{
-    roster_id: 1, owner_id: 'member-2', players: ['qb'], starters: ['qb'], settings: { ...rosterSettings, waiver_budget_used: 30 },
+    roster_id: 1, owner_id: 'member-2', players: ['qb'], starters: ['qb'], settings: { ...rosterSettings, waiver_budget_used: 30, waiver_position: 4 },
   }];
   if (path === `${leagueTwoPath}/users`) return [{ user_id: 'member-2', display_name: 'Jordan' }];
   if (path.startsWith(`${leagueTwoPath}/matchups/`)) return [
@@ -443,7 +444,7 @@ describe('Sleeper service error handling', () => {
       owner_id: 'member-1',
       players: ['qb'],
       starters: ['qb'],
-      settings: { ...rosterSettings, waiver_budget_used: 28 },
+      settings: { ...rosterSettings, waiver_budget_used: 28, waiver_position: 7 },
     }];
 
     const [leagueOne, leagueTwo] = await Promise.all([
@@ -452,7 +453,9 @@ describe('Sleeper service error handling', () => {
     ]);
 
     expect(leagueOne.teams[0].waiverBudgetRemaining).toBe(72);
+    expect(leagueOne.teams[0].waiverOrder).toBe(7);
     expect(leagueTwo.teams[0].waiverBudgetRemaining).toBe(220);
+    expect(leagueTwo.teams[0].waiverOrder).toBe(4);
     const paths = vi.mocked(fetch).mock.calls.map(([input]) => requestPath(input));
     expect(paths).toHaveLength(8);
     expect(paths).toEqual(expect.arrayContaining([

@@ -18,6 +18,7 @@ export interface Team {
 }
 
 export interface StandingsTeam extends Team {
+  waiverOrder: number | null;
   waiverBudgetRemaining: number | null;
 }
 

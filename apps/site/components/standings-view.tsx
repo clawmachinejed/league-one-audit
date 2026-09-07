@@ -1,34 +1,143 @@
 'use client';
 
 import Link from 'next/link';
+import { useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import type { StandingsData } from '../lib/types';
 import { EmptyState, formatNumber, teamRecord, Updated, Warning } from './league-primitives';
 import { useLeagueSite } from './league-context';
 import matchupStyles from './matchups.module.css';
 import { PageIntro } from './page-intro';
+import {
+  nextStandingsSort,
+  rankStandingsTeams,
+  sortStandingsTeams,
+  type RankedStandingsTeam,
+  type StandingsSort,
+  type StandingsSortKey,
+  type StandingsViewName,
+} from './standings-sort';
 import { useTeamPreference } from './team-preference';
+
+type Column = Readonly<{ key: StandingsSortKey; label: string; className: string }>;
+
+const viewOptions: ReadonlyArray<Readonly<{ value: StandingsViewName; label: string }>> = [
+  { value: 'standings', label: 'Standings' },
+  { value: 'waivers', label: 'Waivers' },
+];
+const standingsColumns: readonly Column[] = [
+  { key: 'rank', label: 'Rank', className: 'rank-cell' },
+  { key: 'team', label: 'Team', className: 'team-cell' },
+  { key: 'record', label: 'W–L', className: 'metric-cell record-cell' },
+  { key: 'pointsFor', label: 'PF', className: 'metric-cell points-cell' },
+  { key: 'pointsAgainst', label: 'PA', className: 'metric-cell points-cell' },
+];
+const waiverColumns: readonly Column[] = [
+  { key: 'rank', label: 'Rank', className: 'rank-cell' },
+  { key: 'team', label: 'Team', className: 'team-cell' },
+  { key: 'record', label: 'W–L', className: 'metric-cell record-cell' },
+  { key: 'waiverOrder', label: 'Order', className: 'metric-cell order-cell' },
+  { key: 'waiverBudget', label: '$', className: 'metric-cell budget-cell' },
+];
 
 export function formatWaiverBalance(value: number | null): string {
   return value === null ? '—' : `$${value}`;
 }
 
+function metricValue(team: RankedStandingsTeam, key: StandingsSortKey): string | number {
+  switch (key) {
+    case 'rank': return team.rank;
+    case 'record': return teamRecord(team);
+    case 'pointsFor': return formatNumber(team.pointsFor, 2);
+    case 'pointsAgainst': return formatNumber(team.pointsAgainst, 2);
+    case 'waiverOrder': return team.waiverOrder ?? '—';
+    case 'waiverBudget': return formatWaiverBalance(team.waiverBudgetRemaining);
+    case 'team': return team.name;
+  }
+}
+
 export function StandingsView({ data }: { data: StandingsData }) {
   const site = useLeagueSite();
   const { selected } = useTeamPreference(data.teams);
+  const [view, setView] = useState<StandingsViewName>('standings');
+  const [sorts, setSorts] = useState<Record<StandingsViewName, StandingsSort | null>>({ standings: null, waivers: null });
+  const tabRefs = useRef<Record<StandingsViewName, HTMLButtonElement | null>>({ standings: null, waivers: null });
+  const id = useId();
+  const rankedTeams = useMemo(() => rankStandingsTeams(data.teams), [data.teams]);
+  const teams = useMemo(() => sortStandingsTeams(rankedTeams, sorts[view]), [rankedTeams, sorts, view]);
+  const columns = view === 'standings' ? standingsColumns : waiverColumns;
+  const sectionTitle = view === 'standings' ? 'League table' : 'Waiver table';
+  const note = view === 'standings'
+    ? 'PF = points for · PA = points against'
+    : 'Order = current waiver claim priority · $ = budget remaining';
+  const panelId = `${id}-standings-panel`;
+
+  function selectView(next: StandingsViewName) {
+    setView(next);
+  }
+
+  function handleTabKey(event: KeyboardEvent<HTMLButtonElement>, current: StandingsViewName) {
+    let next: StandingsViewName | null = null;
+    if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') next = current === 'standings' ? 'waivers' : 'standings';
+    if (event.key === 'Home') next = 'standings';
+    if (event.key === 'End') next = 'waivers';
+    if (!next) return;
+    event.preventDefault();
+    selectView(next);
+    tabRefs.current[next]?.focus();
+  }
+
+  function sortBy(key: StandingsSortKey) {
+    setSorts(current => ({ ...current, [view]: nextStandingsSort(current[view], key) }));
+  }
+
   return <div className={`${matchupStyles.page} ${matchupStyles.standingsPage}`}>
     <div className={matchupStyles.toolbar}><PageIntro title="Standings" league={data.league} /></div>
     <Warning message={data.warning} />
-    <div className="section-label"><h2>League table</h2><span>{data.teams.length} teams</span></div>
-    {data.teams.length ? <div className="standings-wrap"><table className="standings-table">
-      <caption className="sr-only">League standings with record, points for, points against, and waiver budget remaining, ordered by record, points for, then points against.</caption>
-      <thead><tr><th scope="col" className="rank-cell">#</th><th scope="col" className="team-cell">Team</th><th scope="col" className="number-cell record-cell"><abbr title="Wins, losses, and ties">W–L</abbr></th><th scope="col" className="number-cell points-cell"><abbr title="Points for">PF</abbr></th><th scope="col" className="number-cell points-cell"><abbr title="Points against">PA</abbr></th><th scope="col" className="number-cell waiver-cell">Waiver $</th></tr></thead>
-      <tbody>{data.teams.map((team, index) => <tr key={team.id} className={selected === team.id ? 'selected-row' : ''}>
-        <td className="rank-cell"><span className={index < 3 ? 'rank-top' : ''}>{index + 1}</span></td>
-        <th scope="row" className="team-cell"><Link href={`${site.prefix}/managers/${team.id}`} className="standings-team"><span className="team-text"><span className="team-name">{team.name}</span><span className="manager-name">{selected === team.id && <span className="my-team-label">MY TEAM<span aria-hidden="true"> · </span></span>}{team.managerName}</span></span></Link></th>
-        <td className="number-cell record-cell">{teamRecord(team)}</td><td className="number-cell points-cell">{formatNumber(team.pointsFor, 2)}</td><td className="number-cell points-cell">{formatNumber(team.pointsAgainst, 2)}</td><td className="number-cell waiver-cell">{formatWaiverBalance(team.waiverBudgetRemaining)}</td>
+    <div className="section-label"><h2>{sectionTitle}</h2><span>{data.teams.length} teams</span></div>
+    <div className="standings-view-tabs" role="tablist" aria-label="Standings table view">
+      {viewOptions.map(option => <button
+        key={option.value}
+        ref={element => { tabRefs.current[option.value] = element; }}
+        id={`${id}-${option.value}-tab`}
+        type="button"
+        role="tab"
+        aria-controls={panelId}
+        aria-selected={view === option.value}
+        tabIndex={view === option.value ? 0 : -1}
+        onClick={() => selectView(option.value)}
+        onKeyDown={event => handleTabKey(event, option.value)}
+      >{option.label}</button>)}
+    </div>
+    {data.teams.length ? <div
+      id={panelId}
+      className="standings-wrap"
+      role="tabpanel"
+      aria-labelledby={`${id}-${view}-tab`}
+    ><table className="standings-table" data-view={view}>
+      <caption className="sr-only">{view === 'standings'
+        ? 'League standings with official rank, team, record, points for, and points against.'
+        : 'Waiver table with official standings rank, team, record, waiver claim priority, and budget remaining.'}</caption>
+      <colgroup><col className="standings-rank-column" /><col className="standings-team-column" /><col className="standings-metric-column" /><col className="standings-metric-column" /><col className="standings-metric-column" /></colgroup>
+      <thead><tr>{columns.map(column => {
+        const activeDirection = sorts[view]?.key === column.key ? sorts[view]?.direction : null;
+        return <th key={column.key} scope="col" className={column.className} aria-sort={activeDirection ?? 'none'}>
+          <button type="button" className="standings-sort-button" aria-label={`Sort by ${column.label}`} onClick={() => sortBy(column.key)}>
+            <span className="standings-sort-label">{column.label}</span>
+            <span className="standings-sort-indicator" data-direction={activeDirection ?? 'neutral'} aria-hidden="true" />
+          </button>
+        </th>;
+      })}</tr></thead>
+      <tbody>{teams.map(team => <tr key={team.id} className={selected === team.id ? 'selected-row' : ''}>
+        <td className="rank-cell"><span className={team.rank <= 3 ? 'rank-top' : ''}>{team.rank}</span></td>
+        <th scope="row" className="team-cell"><Link
+          href={`${site.prefix}/managers/${team.id}`}
+          className="standings-team"
+          aria-label={`${team.name}, managed by ${team.managerName}${selected === team.id ? ', My Team' : ''}`}
+        ><span className="team-text"><span className="team-name">{team.name}</span><span className="manager-name">{selected === team.id && <span className="my-team-label">MY TEAM<span aria-hidden="true"> · </span></span>}{team.managerName}</span></span></Link></th>
+        {columns.slice(2).map(column => <td key={column.key} className={column.className}>{metricValue(team, column.key)}</td>)}
       </tr>)}</tbody>
-    </table></div> : <EmptyState title="The league table is on its way">Teams will appear when Sleeper has league rosters available.</EmptyState>}
-    <p className="table-note">Ordered by record, then points for, then points against. <span>PF = points for · PA = points against · Waiver $ = waiver budget remaining.</span></p>
+    </table></div> : <EmptyState title={`The ${sectionTitle.toLowerCase()} is on its way`}>Teams will appear when Sleeper has league rosters available.</EmptyState>}
+    <p className="table-note">{note}</p>
     <Updated value={data.updatedAt} />
   </div>;
 }
