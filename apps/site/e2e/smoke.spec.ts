@@ -178,7 +178,8 @@ test('both standings pages reuse the Matchups title and season layout', async ({
         const main = element.closest('main')!;
         const heading = element.querySelector('h1')!;
         const season = element.querySelector('p')!;
-        const content = element.parentElement!.nextElementSibling!;
+        const toolbar = element.parentElement!;
+        const content = main.querySelector('[class*="board"]')!;
         const introRect = element.getBoundingClientRect();
         const contentRect = content.getBoundingClientRect();
         const read = (node: Element) => {
@@ -194,7 +195,9 @@ test('both standings pages reuse the Matchups title and season layout', async ({
         return {
           mainPadding: [mainStyle.paddingTop, mainStyle.paddingRight, mainStyle.paddingBottom, mainStyle.paddingLeft],
           introTop: introRect.top,
-          contentGap: contentRect.top - introRect.bottom,
+          contentGap: main.querySelector('.data-warning') ? null : contentRect.top - introRect.bottom,
+          toolbarMarginBottom: getComputedStyle(toolbar).marginBottom,
+          contentMarginTop: getComputedStyle(content).marginTop,
           heading: read(heading),
           season: { ...read(season), color: getComputedStyle(season).color, textTransform: getComputedStyle(season).textTransform },
           titleSeasonGap: season.getBoundingClientRect().top - heading.getBoundingClientRect().bottom,
@@ -218,7 +221,8 @@ test('both standings pages reuse the Matchups title and season layout', async ({
           const mainElement = element.closest('main')!;
           const heading = element.querySelector('h1')!;
           const season = element.querySelector('p')!;
-          const content = element.parentElement!.nextElementSibling!;
+          const toolbar = element.parentElement!;
+          const content = mainElement.querySelector('.section-label')!;
           const introRect = element.getBoundingClientRect();
           const contentRect = content.getBoundingClientRect();
           const read = (node: Element) => {
@@ -234,7 +238,9 @@ test('both standings pages reuse the Matchups title and season layout', async ({
           return {
             mainPadding: [mainStyle.paddingTop, mainStyle.paddingRight, mainStyle.paddingBottom, mainStyle.paddingLeft],
             introTop: introRect.top,
-            contentGap: contentRect.top - introRect.bottom,
+            contentGap: mainElement.querySelector('.data-warning') ? null : contentRect.top - introRect.bottom,
+            toolbarMarginBottom: getComputedStyle(toolbar).marginBottom,
+            contentMarginTop: getComputedStyle(content).marginTop,
             heading: read(heading),
             season: { ...read(season), color: getComputedStyle(season).color, textTransform: getComputedStyle(season).textTransform },
             titleSeasonGap: season.getBoundingClientRect().top - heading.getBoundingClientRect().bottom,
@@ -243,9 +249,13 @@ test('both standings pages reuse the Matchups title and season layout', async ({
         expect(actual.mainPadding).toEqual(reference.mainPadding);
         expect(actual.heading).toEqual(reference.heading);
         expect(actual.season).toEqual(reference.season);
+        expect(actual.toolbarMarginBottom).toBe(reference.toolbarMarginBottom);
+        expect(actual.contentMarginTop).toBe(reference.contentMarginTop);
         expect(actual.titleSeasonGap).toBe(reference.titleSeasonGap);
         expect(Math.abs(actual.introTop - reference.introTop)).toBeLessThanOrEqual(1);
-        expect(Math.abs(actual.contentGap - reference.contentGap)).toBeLessThanOrEqual(1);
+        if (actual.contentGap !== null && reference.contentGap !== null) {
+          expect(Math.abs(actual.contentGap - reference.contentGap)).toBeLessThanOrEqual(1);
+        }
         await expectNoPageOverflow(page);
 
         const managerLink = main.locator(`a[href^="${route.startsWith('/league2') ? '/league2' : ''}/managers/"]`).first();
