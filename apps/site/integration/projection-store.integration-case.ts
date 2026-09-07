@@ -63,6 +63,25 @@ function time(minutes: number, seconds = 0): string {
   return new Date(Date.UTC(2026, 8, 3, 12, minutes, seconds)).toISOString();
 }
 
+/** Preserve the existing synthetic history even when a missing guard makes this assertion fail. */
+async function expectRolledBackRuntimeMutationDenied(
+  statement: string,
+  parameters: readonly unknown[],
+): Promise<void> {
+  const connection = createIndependentDatabase();
+  try {
+    await connection.database.query('BEGIN');
+    await expect(connection.database.query(statement, parameters))
+      .rejects.toThrow(/immutable|protected|permission|foreign key/iu);
+  } finally {
+    try {
+      await connection.database.query('ROLLBACK');
+    } finally {
+      await connection.close();
+    }
+  }
+}
+
 /** Lease/due time belongs to PostgreSQL; advance disposable fixtures, never the caller clock. */
 async function makeFutureFixtureDue(table: 'projection_period_refresh_states' | 'league_week_materialization_states', normalizerVersion: string): Promise<void> {
   await ownerQuery(`UPDATE ${table} SET next_refresh_at = now() - interval '1 second'
@@ -171,6 +190,7 @@ describe.sequential('projection store against an isolated Neon database', () => 
         '005_future_projection_refresh.sql',
         '006_flexed_kickoff_candidate_index.sql',
         '007_lineup_freshness.sql',
+        '008_additive_write_guards.sql',
       ],
     });
     const rows = await ownerQuery<{ name: string; checksum_length: number }>(`
@@ -185,6 +205,7 @@ describe.sequential('projection store against an isolated Neon database', () => 
       { name: '005_future_projection_refresh.sql', checksum_length: 64 },
       { name: '006_flexed_kickoff_candidate_index.sql', checksum_length: 64 },
       { name: '007_lineup_freshness.sql', checksum_length: 64 },
+      { name: '008_additive_write_guards.sql', checksum_length: 64 },
     ]);
   });
 
@@ -799,6 +820,17 @@ describe.sequential('projection store against an isolated Neon database', () => 
   });
 
   it('rebuilds candidate pointers across earlier and later kickoff flexes and protects history', async () => {
+    const recordAgedFixture = async (input: Parameters<ProjectionStore['recordProjectionCandidates']>[0]) => {
+      // Retention fixtures begin with old creation times; immutable history is never aged by UPDATE.
+      await ownerQuery(`INSERT INTO pregame_projection_runs
+        (provider, season, season_type, week, model_version, source_revision,
+          request_started_at, request_completed_at, fetched_at, quality, created_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'2000-01-01T00:00:00.000Z')`,
+      [input.provider, input.season, input.seasonType, input.week, input.modelVersion,
+        input.sourceRevision, input.requestStartedAt, input.requestCompletedAt,
+        input.fetchedAt, input.quality]);
+      return store.recordProjectionCandidates(input);
+    };
     const flexGame = only(storedValue(await store.upsertNflGames([{
       key: 'flex-game', provider: 'tank01', externalGameId: 'flex-game',
       season: 2026, seasonType: 'reg', week: 3,
@@ -816,15 +848,15 @@ describe.sequential('projection store against an isolated Neon database', () => 
       modelVersion: 'integration-flex-v1', requestStartedAt: '2026-09-30T15:59:59.000Z',
       requestCompletedAt: '2026-09-30T16:00:00.000Z', quality: 'complete' as const,
     };
-    const early = storedValue(await store.recordProjectionCandidates({
+    const early = storedValue(await recordAgedFixture({
       ...run, sourceRevision: 'flex-early', fetchedAt: '2026-09-30T16:00:00.000Z',
       candidates: [{ ...candidate, projectionPoints: 10 }],
     }));
-    const later = storedValue(await store.recordProjectionCandidates({
+    const later = storedValue(await recordAgedFixture({
       ...run, sourceRevision: 'flex-later', fetchedAt: '2026-09-30T17:30:00.000Z',
       candidates: [{ ...candidate, projectionPoints: 20 }],
     }));
-    const invalid = storedValue(await store.recordProjectionCandidates({
+    const invalid = storedValue(await recordAgedFixture({
       ...run, sourceRevision: 'flex-invalid', fetchedAt: '2026-09-30T16:30:00.000Z',
       candidates: [{ ...candidate, projectionPoints: 99, quality: 'invalid' }],
     }));
@@ -901,7 +933,7 @@ describe.sequential('projection store against an isolated Neon database', () => 
       season: 2026, seasonType: 'reg', week: 3,
       homeTeam: 'DET', awayTeam: 'GB', kickoffAt: '2026-09-02T17:00:00.000Z',
     }])), 'Recent game');
-    const nullKickoff = storedValue(await store.recordProjectionCandidates({
+    const nullKickoff = storedValue(await recordAgedFixture({
       ...run,
       sourceRevision: 'null-kickoff-candidate',
       requestStartedAt: '2026-08-30T15:59:59.000Z',
@@ -911,7 +943,7 @@ describe.sequential('projection store against an isolated Neon database', () => 
         ...candidate, gameId: nullKickoffGame.gameId, projectionPoints: 30,
       }],
     }));
-    const recent = storedValue(await store.recordProjectionCandidates({
+    const recent = storedValue(await recordAgedFixture({
       ...run,
       sourceRevision: 'recent-game-candidate',
       requestStartedAt: '2026-08-30T15:59:59.000Z',
@@ -920,10 +952,6 @@ describe.sequential('projection store against an isolated Neon database', () => 
       candidates: [{ ...candidate, gameId: recentGame.gameId, projectionPoints: 40 }],
     }));
 
-    await ownerQuery(`
-      UPDATE pregame_projection_runs SET created_at = '2000-01-01T00:00:00.000Z'
-      WHERE id = ANY($1::uuid[])
-    `, [[early.runId, later.runId, invalid.runId, nullKickoff.runId, recent.runId]]);
     await store.pruneHistory({
       before: '2026-09-01T00:00:00.000Z', keepRecentSnapshotsPerLeagueWeek: 3,
     });
@@ -1654,6 +1682,94 @@ describe.sequential('projection store against an isolated Neon database', () => 
       rolreplication: false,
       inherits_neon_superuser: false,
     });
+  });
+
+  it('denies runtime source-data mutation of a snapshot-referenced game observation', async () => {
+    const fixture = only(await runtimeQuery<{ id: string; source_data: unknown }>(`
+      SELECT observation.id::text, observation.source_data
+      FROM game_state_observations observation
+      JOIN projection_snapshots snapshot
+        ON observation.id = ANY(snapshot.game_state_observation_ids)
+      WHERE snapshot.id = $1 AND snapshot.league_season_id = $2
+    `, [firstSnapshotId, league.leagueSeasonId]), 'Snapshot-referenced synthetic observation');
+
+    await expectRolledBackRuntimeMutationDenied(`
+      UPDATE game_state_observations
+      SET source_data = source_data || '{"b3MutationAttempt":true}'::jsonb
+      WHERE id = $1 RETURNING id::text
+    `, [fixture.id]);
+    expect(only(await runtimeQuery<{ source_data: unknown }>(`
+      SELECT source_data FROM game_state_observations WHERE id = $1
+    `, [fixture.id]), 'Preserved synthetic observation').source_data).toEqual(fixture.source_data);
+  });
+
+  it('denies runtime historical metadata mutation of a frozen-baseline source run', async () => {
+    const fixture = only(await runtimeQuery<{ id: string; fetched_at: string }>(`
+      SELECT run.id::text, run.fetched_at::text
+      FROM pregame_projection_runs run
+      JOIN pregame_projection_baselines baseline ON baseline.source_projection_run_id = run.id
+      WHERE baseline.nfl_game_id = $1 AND baseline.scoring_entity_id = $2
+        AND baseline.scoring_profile_id = $3
+    `, [projectionGameId, playerEntityId, league.scoringProfileId]), 'Frozen synthetic source run');
+
+    await expectRolledBackRuntimeMutationDenied(`
+      UPDATE pregame_projection_runs SET fetched_at = fetched_at + interval '1 second'
+      WHERE id = $1 RETURNING id::text
+    `, [fixture.id]);
+    expect(only(await runtimeQuery<{ fetched_at: string }>(`
+      SELECT fetched_at::text FROM pregame_projection_runs WHERE id = $1
+    `, [fixture.id]), 'Preserved synthetic source run').fetched_at).toBe(fixture.fetched_at);
+  });
+
+  it('denies runtime deletion of an entry from a current referenced projection slate', async () => {
+    const fixture = only(await runtimeQuery<{
+      content_id: string;
+      entity_kind: string;
+      provider_external_id: string;
+    }>(`
+      SELECT entry.projection_slate_content_id::text AS content_id,
+        entry.entity_kind, entry.provider_external_id
+      FROM projection_slate_entries entry
+      JOIN current_projection_slates current
+        ON current.projection_slate_content_id = entry.projection_slate_content_id
+      JOIN projection_slate_observations observation
+        ON observation.id = current.projection_slate_observation_id
+        AND observation.projection_slate_content_id = entry.projection_slate_content_id
+      WHERE current.provider = 'tank01' AND current.season = 2026
+        AND current.season_type = 'reg' AND current.week = 2
+        AND current.normalizer_version = 'canonical-projection-slate-v1'
+        AND entry.provider_external_id = 'future-tank-player'
+    `), 'Current referenced synthetic slate entry');
+
+    await expectRolledBackRuntimeMutationDenied(`
+      DELETE FROM projection_slate_entries
+      WHERE projection_slate_content_id = $1 AND entity_kind = $2 AND provider_external_id = $3
+      RETURNING projection_slate_content_id::text
+    `, [fixture.content_id, fixture.entity_kind, fixture.provider_external_id]);
+    expect(only(await runtimeQuery<{ entry_count: number }>(`
+      SELECT count(*)::integer AS entry_count FROM projection_slate_entries
+      WHERE projection_slate_content_id = $1 AND entity_kind = $2 AND provider_external_id = $3
+    `, [fixture.content_id, fixture.entity_kind, fixture.provider_external_id]),
+    'Preserved synthetic slate entry').entry_count).toBe(1);
+  });
+
+  it('denies deletion of snapshot game sources, frozen baselines, and their source runs', async () => {
+    const gameObservation = only(await runtimeQuery<{ id: string }>(`
+      SELECT observation.id::text FROM game_state_observations observation
+      JOIN projection_snapshots snapshot ON observation.id = ANY(snapshot.game_state_observation_ids)
+      WHERE snapshot.id = $1 AND snapshot.league_season_id = $2
+    `, [firstSnapshotId, league.leagueSeasonId]), 'Protected synthetic game source');
+    await expectRolledBackRuntimeMutationDenied('DELETE FROM game_state_observations WHERE id = $1',
+      [gameObservation.id]);
+    const baseline = only(await runtimeQuery<{ source_projection_run_id: string }>(`
+      SELECT source_projection_run_id::text FROM pregame_projection_baselines
+      WHERE nfl_game_id = $1 AND scoring_entity_id = $2 AND scoring_profile_id = $3
+    `, [projectionGameId, playerEntityId, league.scoringProfileId]), 'Protected synthetic baseline');
+    await expectRolledBackRuntimeMutationDenied(`DELETE FROM pregame_projection_baselines
+      WHERE nfl_game_id = $1 AND scoring_entity_id = $2 AND scoring_profile_id = $3`,
+    [projectionGameId, playerEntityId, league.scoringProfileId]);
+    await expectRolledBackRuntimeMutationDenied('DELETE FROM pregame_projection_runs WHERE id = $1',
+      [baseline.source_projection_run_id]);
   });
 
   it('prunes unreferenced history while retaining current snapshots and frozen baselines', async () => {

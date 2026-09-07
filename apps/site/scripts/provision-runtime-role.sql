@@ -137,3 +137,12 @@ BEGIN
   END IF;
 END;
 $$;
+
+-- Migration-first bootstrap leaves these new functions owner-only when the
+-- runtime role does not yet exist. Grant only the B3 compatibility entry points
+-- after the role's existing privilege and ownership postconditions pass.
+GRANT EXECUTE ON FUNCTION public.get_or_create_scoring_profile(text, jsonb) TO league_one_runtime;
+GRANT EXECUTE ON FUNCTION public.record_game_state_observations(text, jsonb) TO league_one_runtime;
+GRANT EXECUTE ON FUNCTION public.get_or_create_projection_run(
+  text, smallint, text, smallint, text, text, timestamptz, timestamptz, timestamptz, text, uuid
+) TO league_one_runtime;

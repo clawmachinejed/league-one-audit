@@ -228,7 +228,7 @@ describe('projection persistence', () => {
     });
 
     expect(fake.calls).toHaveLength(2);
-    expect(fake.calls[0].statement).toContain('ON CONFLICT (rules_hash) DO UPDATE');
+    expect(fake.calls[0].statement).toContain('public.get_or_create_scoring_profile');
     expect(fake.calls[0].parameters[0]).toBe(fake.calls[1].parameters[0]);
     expect(fake.calls[0].statement).not.toContain('runtime-value-a');
     expect(fake.calls[0].parameters[5]).toBe('runtime-value-a');
@@ -331,7 +331,7 @@ describe('projection persistence', () => {
     });
     expect(fake.calls).toHaveLength(1);
     expect(fake.calls[0].statement).toContain(
-      'DO UPDATE SET projection_slate_observation_id = COALESCE',
+      'public.get_or_create_projection_run',
     );
     expect(fake.calls[0].statement).toContain('current_pregame_projection_candidates');
     expect(fake.calls[0].statement).toMatch(/count\(\*\) FROM input/u);
@@ -364,13 +364,8 @@ describe('projection persistence', () => {
     })).resolves.toEqual({ kind: 'stored', value: [{
       externalGameId: 'tank-game', sourceRevision: 'state-1', observationId: 'observation-id',
     }] });
-    expect(fake.calls[0].statement).toContain('ORDER BY nfl_game_id');
-    expect(fake.calls[0].statement).toContain(
-      'ON CONFLICT (provider, nfl_game_id, source_revision) DO UPDATE',
-    );
-    expect(fake.calls[0].statement).toContain(
-      'game_state_observations.source_data = EXCLUDED.source_data',
-    );
+    expect(fake.calls).toHaveLength(1);
+    expect(fake.calls[0].statement).toContain('public.record_game_state_observations');
   });
 
   it('publishes immutable history and the current pointer atomically', async () => {
