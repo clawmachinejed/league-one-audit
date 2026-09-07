@@ -17,6 +17,10 @@ export interface Team {
   pointsAgainst: number | null;
 }
 
+export interface StandingsTeam extends Team {
+  waiverBudgetRemaining: number | null;
+}
+
 export interface Player {
   id: string;
   name: string;
@@ -45,6 +49,10 @@ export interface OverviewData {
   teams: Team[];
   updatedAt: string;
   warning?: string;
+}
+
+export interface StandingsData extends Omit<OverviewData, 'teams'> {
+  teams: StandingsTeam[];
 }
 
 export interface MatchupSide {

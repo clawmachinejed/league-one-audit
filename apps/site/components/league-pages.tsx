@@ -5,7 +5,7 @@ import { parseMatchupWeek } from '@/lib/matchup-week';
 import type { MatchupPeriodContext } from '@/lib/matchup-period';
 import { readStoredMatchups } from '@/lib/projection-reader';
 import type { LeagueKey } from '@/lib/leagues';
-import { getCurrentMatchupPeriodContext, getOfficialMatchups, getOverview, getManager, getTransactions } from '@/lib/sleeper';
+import { getCurrentMatchupPeriodContext, getOfficialMatchups, getOverview, getManager, getStandings, getTransactions } from '@/lib/sleeper';
 import { MatchupsView } from './matchups-view';
 import { ManagerView } from './manager-view';
 import { ManagersView } from './managers-view';
@@ -58,7 +58,7 @@ export async function LeagueMatchupsPage({
 }
 
 export async function LeagueStandingsPage({ leagueId }: { leagueId: string }) {
-  return <StandingsView data={await getOverview(leagueId)} />;
+  return <StandingsView data={await getStandings(leagueId)} />;
 }
 
 export async function LeagueManagersPage({ leagueId }: { leagueId: string }) {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  addWaiverBalances,
   canDecorateMatchupWeek,
   currentWeek,
   involvesRoster,
@@ -18,6 +19,7 @@ import {
   transactionEndWeek,
   transactionResult,
   waiverBid,
+  waiverBudgetRemaining,
   type SleeperLeague,
   type SleeperTransaction,
 } from './transform';
@@ -138,6 +140,41 @@ describe('standings, avatars and scores', () => {
       { roster_id: 4, settings: { wins: 2, losses: 1, ties: 1, fpts: 50, fpts_decimal: 3, fpts_against: 100 } },
     ], []);
     expect(rows.map((row) => row.id)).toEqual([4, 3, 1, 2]);
+  });
+
+  it.each([
+    { caseName: 'unused', starting: 100, used: 0, expected: 100 },
+    { caseName: 'partially used', starting: 100, used: 28, expected: 72 },
+    { caseName: 'fully used', starting: 100, used: 100, expected: 0 },
+    { caseName: 'transferred or adjusted', starting: 100, used: -25, expected: 125 },
+  ])('calculates a $caseName waiver balance without clamping', ({ starting, used, expected }) => {
+    expect(waiverBudgetRemaining(starting, used)).toBe(expected);
+  });
+
+  it.each([
+    { caseName: 'missing starting budget', starting: undefined, used: 0 },
+    { caseName: 'missing amount used', starting: 100, used: undefined },
+    { caseName: 'numeric-string starting budget', starting: '100', used: 0 },
+    { caseName: 'numeric-string amount used', starting: 100, used: '0' },
+    { caseName: 'non-finite starting budget', starting: Number.POSITIVE_INFINITY, used: 0 },
+    { caseName: 'non-finite amount used', starting: 100, used: Number.NaN },
+    { caseName: 'negative starting budget', starting: -1, used: 0 },
+    { caseName: 'fractional amount used', starting: 100, used: 0.5 },
+  ])('treats $caseName as unavailable', ({ starting, used }) => {
+    expect(waiverBudgetRemaining(starting, used)).toBeNull();
+  });
+
+  it('adds balances by roster ID without changing standings order', () => {
+    const standings = addWaiverBalances(teams, [
+      { roster_id: 3, settings: { waiver_budget_used: 100 } },
+      { roster_id: 1, settings: { waiver_budget_used: 25 } },
+      { roster_id: 2, settings: { waiver_budget_used: 0 } },
+    ], 100);
+    expect(standings.map(({ id, waiverBudgetRemaining }) => ({ id, waiverBudgetRemaining }))).toEqual([
+      { id: 1, waiverBudgetRemaining: 75 },
+      { id: 2, waiverBudgetRemaining: 100 },
+      { id: 3, waiverBudgetRemaining: 0 },
+    ]);
   });
 
   it('resolves team and manager names without carrying unused upstream identity fields', () => {

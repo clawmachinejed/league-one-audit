@@ -5,6 +5,7 @@ import type {
   League,
   Matchup,
   Player,
+  StandingsTeam,
   Team,
   Transaction,
   TransactionLine,
@@ -258,6 +259,33 @@ export function normalizeTeams(
         ? null : seasonPoints(settings.fpts_against, settings.fpts_against_decimal),
     };
   }).sort(compareTeams);
+}
+
+function validWaiverAmount(value: unknown, allowNegative: boolean): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value)
+    && (allowNegative || value >= 0);
+}
+
+/** Sleeper represents transfers as adjustments to waiver_budget_used, so do not clamp the result. */
+export function waiverBudgetRemaining(startingBudget: unknown, usedBudget: unknown): number | null {
+  if (!validWaiverAmount(startingBudget, false) || !validWaiverAmount(usedBudget, true)) return null;
+  const remaining = startingBudget - usedBudget;
+  return Number.isFinite(remaining) ? remaining : null;
+}
+
+export function addWaiverBalances(
+  teams: Team[],
+  rosters: SleeperRoster[],
+  startingBudget: unknown,
+): StandingsTeam[] {
+  const rosterById = new Map(rosters.map((roster) => [roster.roster_id, roster]));
+  return teams.map((team) => ({
+    ...team,
+    waiverBudgetRemaining: waiverBudgetRemaining(
+      startingBudget,
+      rosterById.get(team.id)?.settings?.waiver_budget_used,
+    ),
+  }));
 }
 
 export function compareTeams(a: Team, b: Team): number {

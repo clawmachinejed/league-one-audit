@@ -1,9 +1,17 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { LEAGUE_IDS } from '../lib/config';
 
 const viewports = [
   { name: 'small phone', width: 360, height: 800 },
   { name: 'iPhone width', width: 390, height: 844 },
   { name: 'large phone', width: 430, height: 932 },
+  { name: 'desktop', width: 1280, height: 900 },
+] as const;
+
+const standingsViewports = [
+  { name: 'minimum supported width', width: 320, height: 800 },
+  { name: 'iPhone width', width: 390, height: 844 },
+  { name: 'wide mobile', width: 504, height: 932 },
   { name: 'desktop', width: 1280, height: 900 },
 ] as const;
 
@@ -272,6 +280,99 @@ test('both standings pages reuse the Matchups title and season layout', async ({
       }
     });
   }
+});
+
+test('both standings tables keep every column, team identity, and compact rows at supported widths', async ({ page }) => {
+  for (const viewport of standingsViewports) {
+    await test.step(viewport.name, async () => {
+      await page.setViewportSize(viewport);
+      for (const route of ['/standings', '/league2/standings']) {
+        await page.goto(route, { waitUntil: 'networkidle' });
+        const table = page.locator('.standings-table');
+        await expect(table).toBeVisible();
+        await expect(table.locator('thead th')).toHaveText(['#', 'Team', 'W–L', 'PF', 'PA', 'Waiver $']);
+        await expect(table.locator('tbody tr')).toHaveCount(12);
+        await expect(table.getByRole('columnheader', { name: 'PA' })).toBeVisible();
+        await expect(table.getByRole('columnheader', { name: 'Waiver $' })).toBeVisible();
+        await expect(table.locator('.avatar, img')).toHaveCount(0);
+
+        const layout = await table.evaluate(element => {
+          const row = element.querySelector('tbody tr')!;
+          const team = row.querySelector<HTMLElement>('.team-name')!;
+          const manager = row.querySelector<HTMLElement>('.manager-name')!;
+          const teamLink = row.querySelector<HTMLElement>('.standings-team')!;
+          const numeric = [...row.querySelectorAll<HTMLElement>('.number-cell')];
+          const visibleHeaders = [...element.querySelectorAll<HTMLElement>('thead th')]
+            .filter(header => getComputedStyle(header).display !== 'none');
+          return {
+            rowHeight: row.getBoundingClientRect().height,
+            linkHeight: teamLink.getBoundingClientRect().height,
+            teamAlign: getComputedStyle(team).textAlign,
+            managerAlign: getComputedStyle(manager).textAlign,
+            managerBelowTeam: manager.getBoundingClientRect().top >= team.getBoundingClientRect().bottom,
+            numericAlignments: numeric.map(cell => getComputedStyle(cell).textAlign),
+            visibleHeaders: visibleHeaders.map(header => header.textContent?.trim()),
+          };
+        });
+        expect(layout.visibleHeaders).toEqual(['#', 'Team', 'W–L', 'PF', 'PA', 'Waiver $']);
+        expect(layout.teamAlign).toBe('left');
+        expect(layout.managerAlign).toBe('left');
+        expect(layout.managerBelowTeam).toBe(true);
+        expect(layout.numericAlignments.every(alignment => alignment === 'right')).toBe(true);
+        expect(layout.linkHeight).toBeGreaterThanOrEqual(layout.rowHeight - 1);
+        if (viewport.width < 760) {
+          expect(layout.rowHeight).toBeGreaterThanOrEqual(44);
+          expect(layout.rowHeight).toBeLessThanOrEqual(48);
+        } else {
+          expect(layout.rowHeight).toBeGreaterThanOrEqual(50);
+          expect(layout.rowHeight).toBeLessThanOrEqual(54);
+        }
+
+        const waiverValues = (await table.locator('tbody .waiver-cell').allTextContents()).map(value => value.trim());
+        expect(waiverValues).toHaveLength(12);
+        for (const value of waiverValues) expect(value).toMatch(/^(?:—|\$-?\d+)$/u);
+        const prefix = route.startsWith('/league2') ? '/league2' : '';
+        const managerHrefs = await table.locator('.standings-team').evaluateAll(links => links.map(link => link.getAttribute('href')));
+        expect(managerHrefs).toHaveLength(12);
+        for (const href of managerHrefs) expect(href).toMatch(new RegExp(`^${prefix}/managers/\\d+$`, 'u'));
+        await expect(page.getByText('PF = points for · PA = points against · Waiver $ = waiver budget remaining.')).toBeVisible();
+        await expectNoPageOverflow(page);
+      }
+    });
+  }
+});
+
+test('My Team standings highlighting remains isolated by league and survives reloads', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/standings', { waitUntil: 'networkidle' });
+  const leagueOneTeamId = await page.locator('.standings-table tbody tr').nth(1).locator('.standings-team')
+    .getAttribute('href').then(href => href?.split('/').at(-1));
+  expect(leagueOneTeamId).toBeTruthy();
+  await page.evaluate(({ key, id }) => localStorage.setItem(key, id), {
+    key: `league-one:my-team:${LEAGUE_IDS.league1}`,
+    id: leagueOneTeamId!,
+  });
+  await page.reload({ waitUntil: 'networkidle' });
+  await expect(page.locator('.standings-table .selected-row')).toHaveCount(1);
+  await expect(page.locator('.standings-table .selected-row .standings-team'))
+    .toHaveAttribute('href', `/managers/${leagueOneTeamId}`);
+  await expect(page.locator('.standings-table .selected-row .my-team-label')).toContainText('MY TEAM');
+
+  await page.goto('/league2/standings', { waitUntil: 'networkidle' });
+  const leagueTwoTeamId = await page.locator('.standings-table tbody tr').nth(2).locator('.standings-team')
+    .getAttribute('href').then(href => href?.split('/').at(-1));
+  expect(leagueTwoTeamId).toBeTruthy();
+  await page.evaluate(({ key, id }) => localStorage.setItem(key, id), {
+    key: `league-one:my-team:${LEAGUE_IDS.league2}`,
+    id: leagueTwoTeamId!,
+  });
+  await page.reload({ waitUntil: 'networkidle' });
+  await expect(page.locator('.standings-table .selected-row .standings-team'))
+    .toHaveAttribute('href', `/league2/managers/${leagueTwoTeamId}`);
+
+  await page.goto('/standings', { waitUntil: 'networkidle' });
+  await expect(page.locator('.standings-table .selected-row .standings-team'))
+    .toHaveAttribute('href', `/managers/${leagueOneTeamId}`);
 });
 
 test('both Managers pages reuse the Matchups intro without matchup controls', async ({ page }) => {
