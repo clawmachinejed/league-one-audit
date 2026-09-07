@@ -13,6 +13,7 @@ import { useLeagueSite } from './league-context';
 import { Avatar, EmptyState, Warning } from './league-primitives';
 import { MatchupBoard } from './matchup-board';
 import matchupStyles from './matchups.module.css';
+import { PageIntro } from './page-intro';
 import { useTeamPreference } from './team-preference';
 
 function SnapshotUpdated({ value, refreshing }: { value: string; refreshing: boolean }) {
@@ -49,7 +50,7 @@ export function MatchupsView({
   const matchups = useMemo(() => [...data.matchups].sort((a, b) => Number(b.sides.some(side => side.team.id === selected)) - Number(a.sides.some(side => side.team.id === selected))), [data.matchups, selected]);
   return <div className={matchupStyles.page}>
     <div className={matchupStyles.toolbar}>
-      <div className={matchupStyles.heading}><h1>Matchups</h1><p className={matchupStyles.season}>{data.league.season} season</p></div>
+      <PageIntro title="Matchups" league={data.league} />
       <div className={matchupStyles.weekControl}>
         {data.week > 1 ? <Link className={matchupStyles.weekArrow} href={`${matchupsPath}?week=${data.week - 1}`} aria-label={`Previous week, week ${data.week - 1}`}><Icon name="arrow" /></Link> : <span className={`${matchupStyles.weekArrow} disabled`} aria-hidden="true"><Icon name="arrow" /></span>}
         <label className={matchupStyles.weekSelect}><span className="sr-only">Matchup week</span><select value={data.week} onChange={event => router.push(`${matchupsPath}?week=${event.target.value}`)}>{Array.from({ length: data.league.maxWeek }, (_, index) => <option key={index + 1} value={index + 1}>Week {index + 1}</option>)}</select><Icon name="chevron" /></label>

@@ -2,15 +2,17 @@
 
 import Link from 'next/link';
 import type { OverviewData } from '../lib/types';
-import { Avatar, EmptyState, formatNumber, PageHeading, teamRecord, Updated, Warning } from './league-primitives';
+import { Avatar, EmptyState, formatNumber, teamRecord, Updated, Warning } from './league-primitives';
 import { useLeagueSite } from './league-context';
+import matchupStyles from './matchups.module.css';
+import { PageIntro } from './page-intro';
 import { useTeamPreference } from './team-preference';
 
 export function StandingsView({ data }: { data: OverviewData }) {
   const site = useLeagueSite();
   const { selected } = useTeamPreference(data.teams);
-  return <>
-    <PageHeading title="Standings" description="The league, at a glance." league={data.league} />
+  return <div className={`${matchupStyles.page} ${matchupStyles.standingsPage}`}>
+    <div className={matchupStyles.toolbar}><PageIntro title="Standings" league={data.league} /></div>
     <Warning message={data.warning} />
     <div className="section-label"><h2>League table</h2><span>{data.teams.length} teams</span></div>
     {data.teams.length ? <div className="standings-wrap"><table className="standings-table">
@@ -24,5 +26,5 @@ export function StandingsView({ data }: { data: OverviewData }) {
     </table></div> : <EmptyState title="The league table is on its way">Teams will appear when Sleeper has league rosters available.</EmptyState>}
     <p className="table-note">Ordered by record, then points for, then points against. <span>PF = points for<span className="standings-extra-inline"> · PA = points against</span>.</span></p>
     <Updated value={data.updatedAt} />
-  </>;
+  </div>;
 }
