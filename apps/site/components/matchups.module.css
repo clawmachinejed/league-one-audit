@@ -13,6 +13,7 @@
 .refresh { width:44px; height:44px; background:transparent; display:grid; place-items:center; flex-shrink:0; }
 .refresh :global(.icon) { width:17px; height:17px; }
 .backToCurrent { min-height:44px; display:flex; align-items:center; width:fit-content; margin-bottom:7px; color:var(--green); font-size:11px; text-decoration:underline; text-underline-offset:3px; }
+.standingsPage :global(.section-label) { margin-top:0; }
 .page :global(.updated) { margin-top:12px; }
 .board { --name-height:36px; --meta-height:16px; --score-width:112px; display:grid; gap:5px; align-items:start; }
 .card { min-width:0; background:var(--surface); border:1px solid var(--line); border-radius:10px; overflow:hidden; }

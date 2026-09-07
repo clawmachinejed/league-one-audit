@@ -88,6 +88,7 @@ export function AppShell({ children, leagueIds }: { children: ReactNode; leagueI
   const pathname = usePathname();
   const site = leagueSiteForPathname(pathname);
   const compactMatchups = pathname === leagueHref(site, '/matchups');
+  const compactMain = compactMatchups || pathname === leagueHref(site, '/standings');
   const nav: { href: string; label: string; icon: IconName }[] = [
     { href: leagueHref(site, '/matchups'), label: 'Matchups', icon: 'matchups' },
     { href: leagueHref(site, '/standings'), label: 'Standings', icon: 'standings' },
@@ -111,7 +112,7 @@ export function AppShell({ children, leagueIds }: { children: ReactNode; leagueI
         </div>
       </div>
     </header>
-    <main id="main-content" className={`main-content ${compactMatchups ? 'matchups-main' : ''}`} tabIndex={-1}>{children}</main>
+    <main id="main-content" className={`main-content ${compactMain ? 'matchups-main' : ''}`} tabIndex={-1}>{children}</main>
     <nav className={`mobile-nav ${compactMatchups ? 'matchups-mobile-nav' : ''}`} aria-label="Mobile navigation">
       <LeagueSwitcher activeSite={site} pathname={pathname} placement="mobile" />
       {nav.map(item => <Link key={item.href} href={item.href} aria-current={isCurrent(item.href) ? 'page' : undefined}><Icon name={item.icon} /><span>{item.label}</span></Link>)}

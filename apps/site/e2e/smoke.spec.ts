@@ -167,6 +167,94 @@ test('matchups fit supported widths and expanded lineup rows remain 52px', async
   }
 });
 
+test('both standings pages reuse the Matchups title and season layout', async ({ page }) => {
+  for (const viewport of [viewports[1], viewports[3]]) {
+    await test.step(viewport.name, async () => {
+      await page.setViewportSize(viewport);
+      await page.goto('/matchups', { waitUntil: 'networkidle' });
+      const matchupsIntro = page.locator('[data-page-intro]');
+      await expect(matchupsIntro.getByRole('heading', { level: 1, name: 'Matchups' })).toBeVisible();
+      const reference = await matchupsIntro.evaluate(element => {
+        const main = element.closest('main')!;
+        const heading = element.querySelector('h1')!;
+        const season = element.querySelector('p')!;
+        const content = element.parentElement!.nextElementSibling!;
+        const introRect = element.getBoundingClientRect();
+        const contentRect = content.getBoundingClientRect();
+        const read = (node: Element) => {
+          const style = getComputedStyle(node);
+          return {
+            fontSize: style.fontSize,
+            fontWeight: style.fontWeight,
+            lineHeight: style.lineHeight,
+            letterSpacing: style.letterSpacing,
+          };
+        };
+        const mainStyle = getComputedStyle(main);
+        return {
+          mainPadding: [mainStyle.paddingTop, mainStyle.paddingRight, mainStyle.paddingBottom, mainStyle.paddingLeft],
+          introTop: introRect.top,
+          contentGap: contentRect.top - introRect.bottom,
+          heading: read(heading),
+          season: { ...read(season), color: getComputedStyle(season).color, textTransform: getComputedStyle(season).textTransform },
+          titleSeasonGap: season.getBoundingClientRect().top - heading.getBoundingClientRect().bottom,
+        };
+      });
+
+      for (const route of ['/standings', '/league2/standings']) {
+        await page.goto(route, { waitUntil: 'networkidle' });
+        const main = page.locator('main');
+        const intro = main.locator('[data-page-intro]');
+        await expect(intro.getByRole('heading', { level: 1, name: 'Standings' })).toBeVisible();
+        await expect(intro.locator(':scope > h1')).toHaveText('Standings');
+        await expect(intro.locator(':scope > p')).toHaveText('2026 season');
+        await expect(main.getByText('The league, at a glance.', { exact: true })).toHaveCount(0);
+        await expect(main.getByRole('heading', { level: 2, name: 'League table' })).toBeVisible();
+        await expect(main.getByLabel('Matchup week')).toHaveCount(0);
+        await expect(main.getByRole('button', { name: /refresh/i })).toHaveCount(0);
+        await expect(main.locator('select')).toHaveCount(0);
+
+        const actual = await intro.evaluate(element => {
+          const mainElement = element.closest('main')!;
+          const heading = element.querySelector('h1')!;
+          const season = element.querySelector('p')!;
+          const content = element.parentElement!.nextElementSibling!;
+          const introRect = element.getBoundingClientRect();
+          const contentRect = content.getBoundingClientRect();
+          const read = (node: Element) => {
+            const style = getComputedStyle(node);
+            return {
+              fontSize: style.fontSize,
+              fontWeight: style.fontWeight,
+              lineHeight: style.lineHeight,
+              letterSpacing: style.letterSpacing,
+            };
+          };
+          const mainStyle = getComputedStyle(mainElement);
+          return {
+            mainPadding: [mainStyle.paddingTop, mainStyle.paddingRight, mainStyle.paddingBottom, mainStyle.paddingLeft],
+            introTop: introRect.top,
+            contentGap: contentRect.top - introRect.bottom,
+            heading: read(heading),
+            season: { ...read(season), color: getComputedStyle(season).color, textTransform: getComputedStyle(season).textTransform },
+            titleSeasonGap: season.getBoundingClientRect().top - heading.getBoundingClientRect().bottom,
+          };
+        });
+        expect(actual.mainPadding).toEqual(reference.mainPadding);
+        expect(actual.heading).toEqual(reference.heading);
+        expect(actual.season).toEqual(reference.season);
+        expect(actual.titleSeasonGap).toBe(reference.titleSeasonGap);
+        expect(Math.abs(actual.introTop - reference.introTop)).toBeLessThanOrEqual(1);
+        expect(Math.abs(actual.contentGap - reference.contentGap)).toBeLessThanOrEqual(1);
+        await expectNoPageOverflow(page);
+
+        const managerLink = main.locator(`a[href^="${route.startsWith('/league2') ? '/league2' : ''}/managers/"]`).first();
+        if (await managerLink.count()) await expect(managerLink).toBeVisible();
+      }
+    });
+  }
+});
+
 test('a matchup exposes scores to assistive technology and expands from the keyboard', async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 800 });
   await page.goto('/matchups', { waitUntil: 'networkidle' });
