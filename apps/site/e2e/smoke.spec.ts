@@ -282,64 +282,168 @@ test('both standings pages reuse the Matchups title and season layout', async ({
   }
 });
 
-test('both standings tables keep every column, team identity, and compact rows at supported widths', async ({ page }) => {
+test('both standings views share a compact five-column grid at every supported width', async ({ page }) => {
   for (const viewport of standingsViewports) {
     await test.step(viewport.name, async () => {
       await page.setViewportSize(viewport);
       for (const route of ['/standings', '/league2/standings']) {
         await page.goto(route, { waitUntil: 'networkidle' });
         const table = page.locator('.standings-table');
+        const standingsTab = page.getByRole('tab', { name: 'Standings' });
+        const waiversTab = page.getByRole('tab', { name: 'Waivers' });
+        await expect(standingsTab).toHaveAttribute('aria-selected', 'true');
+        await expect(waiversTab).toHaveAttribute('aria-selected', 'false');
+        await expect(page.getByRole('heading', { name: 'League table' })).toBeVisible();
         await expect(table).toBeVisible();
-        await expect(table.locator('thead th')).toHaveText(['#', 'Team', 'W–L', 'PF', 'PA', 'Waiver $']);
+        await expect(table).toHaveAttribute('data-view', 'standings');
+        await expect(table.locator('.standings-sort-label')).toHaveText(['Rank', 'Team', 'W–L', 'PF', 'PA']);
         await expect(table.locator('tbody tr')).toHaveCount(12);
         await expect(table.getByRole('columnheader', { name: 'PA' })).toBeVisible();
-        await expect(table.getByRole('columnheader', { name: 'Waiver $' })).toBeVisible();
         await expect(table.locator('.avatar, img')).toHaveCount(0);
+        await expect(table.getByText('GB', { exact: true })).toHaveCount(0);
 
-        const layout = await table.evaluate(element => {
-          const row = element.querySelector('tbody tr')!;
+        const layout = async () => table.evaluate(element => {
+          const rows = [...element.querySelectorAll<HTMLTableRowElement>('tbody tr')];
+          const row = rows[0];
           const team = row.querySelector<HTMLElement>('.team-name')!;
           const manager = row.querySelector<HTMLElement>('.manager-name')!;
-          const teamLink = row.querySelector<HTMLElement>('.standings-team')!;
-          const numeric = [...row.querySelectorAll<HTMLElement>('.number-cell')];
-          const visibleHeaders = [...element.querySelectorAll<HTMLElement>('thead th')]
-            .filter(header => getComputedStyle(header).display !== 'none');
+          const teamLink = row.querySelector<HTMLAnchorElement>('.standings-team')!;
+          const teamCell = row.querySelector<HTMLElement>('.team-cell')!;
+          const metricCells = [...row.querySelectorAll<HTMLElement>('.metric-cell')];
+          const rankCell = row.querySelector<HTMLElement>('.rank-cell')!;
+          const headers = [...element.querySelectorAll<HTMLElement>('thead th')];
           return {
-            rowHeight: row.getBoundingClientRect().height,
+            rowHeights: [...new Set(rows.map(item => item.getBoundingClientRect().height))],
             linkHeight: teamLink.getBoundingClientRect().height,
             teamAlign: getComputedStyle(team).textAlign,
             managerAlign: getComputedStyle(manager).textAlign,
             managerBelowTeam: manager.getBoundingClientRect().top >= team.getBoundingClientRect().bottom,
-            numericAlignments: numeric.map(cell => getComputedStyle(cell).textAlign),
-            visibleHeaders: visibleHeaders.map(header => header.textContent?.trim()),
+            rankAlign: getComputedStyle(rankCell).textAlign,
+            metricAlignments: metricCells.map(cell => getComputedStyle(cell).textAlign),
+            noCollision: team.getBoundingClientRect().right <= metricCells[0].getBoundingClientRect().left,
+            fullNamesAccessible: rows.every(item => {
+              const name = item.querySelector<HTMLElement>('.team-name')!.textContent!.trim();
+              return item.querySelector<HTMLAnchorElement>('.standings-team')!.ariaLabel?.includes(name);
+            }),
+            headingsUntruncated: headers.every(header => {
+              const label = header.querySelector<HTMLElement>('.standings-sort-label')!;
+              return label.scrollWidth <= label.clientWidth;
+            }),
+            columns: headers.map(header => ({ left: header.getBoundingClientRect().left, width: header.getBoundingClientRect().width })),
+            visibleHeaders: headers.filter(header => getComputedStyle(header).display !== 'none').length,
+            teamCellWidth: teamCell.getBoundingClientRect().width,
           };
         });
-        expect(layout.visibleHeaders).toEqual(['#', 'Team', 'W–L', 'PF', 'PA', 'Waiver $']);
-        expect(layout.teamAlign).toBe('left');
-        expect(layout.managerAlign).toBe('left');
-        expect(layout.managerBelowTeam).toBe(true);
-        expect(layout.numericAlignments.every(alignment => alignment === 'right')).toBe(true);
-        expect(layout.linkHeight).toBeGreaterThanOrEqual(layout.rowHeight - 1);
+        const standingsLayout = await layout();
+        expect(standingsLayout.visibleHeaders).toBe(5);
+        expect(standingsLayout.teamAlign).toBe('left');
+        expect(standingsLayout.managerAlign).toBe('left');
+        expect(standingsLayout.managerBelowTeam).toBe(true);
+        expect(standingsLayout.rankAlign).toBe('center');
+        expect(standingsLayout.metricAlignments.every(alignment => alignment === 'center')).toBe(true);
+        expect(standingsLayout.noCollision).toBe(true);
+        expect(standingsLayout.fullNamesAccessible).toBe(true);
+        expect(standingsLayout.headingsUntruncated).toBe(true);
+        expect(standingsLayout.linkHeight).toBeGreaterThanOrEqual(Math.min(...standingsLayout.rowHeights) - 1);
         if (viewport.width < 760) {
-          expect(layout.rowHeight).toBeGreaterThanOrEqual(44);
-          expect(layout.rowHeight).toBeLessThanOrEqual(48);
+          expect(Math.min(...standingsLayout.rowHeights)).toBeGreaterThanOrEqual(44);
+          expect(Math.max(...standingsLayout.rowHeights)).toBeLessThanOrEqual(48);
         } else {
-          expect(layout.rowHeight).toBeGreaterThanOrEqual(50);
-          expect(layout.rowHeight).toBeLessThanOrEqual(54);
+          expect(Math.min(...standingsLayout.rowHeights)).toBeGreaterThanOrEqual(50);
+          expect(Math.max(...standingsLayout.rowHeights)).toBeLessThanOrEqual(54);
         }
+        await expect(page.getByText('PF = points for · PA = points against', { exact: true })).toBeVisible();
 
-        const waiverValues = (await table.locator('tbody .waiver-cell').allTextContents()).map(value => value.trim());
-        expect(waiverValues).toHaveLength(12);
+        const beforeSwitch = page.url();
+        await waiversTab.click();
+        await expect(page).toHaveURL(beforeSwitch);
+        await expect(table).toHaveAttribute('data-view', 'waivers');
+        await expect(page.getByRole('heading', { name: 'Waiver table' })).toBeVisible();
+        await expect(table.locator('.standings-sort-label')).toHaveText(['Rank', 'Team', 'W–L', 'Order', '$']);
+        await expect(table.getByText('GB', { exact: true })).toHaveCount(0);
+        await expect(table.locator('.avatar, img')).toHaveCount(0);
+        const waiverLayout = await layout();
+        expect(waiverLayout.columns).toEqual(standingsLayout.columns);
+        expect(waiverLayout.rowHeights).toEqual(standingsLayout.rowHeights);
+        expect(waiverLayout.teamCellWidth).toBe(standingsLayout.teamCellWidth);
+        expect(waiverLayout.rankAlign).toBe('center');
+        expect(waiverLayout.metricAlignments.every(alignment => alignment === 'center')).toBe(true);
+        expect(waiverLayout.noCollision).toBe(true);
+        expect(waiverLayout.headingsUntruncated).toBe(true);
+        const waiverValues = (await table.locator('tbody .budget-cell').allTextContents()).map(value => value.trim());
+        const orderValues = (await table.locator('tbody .order-cell').allTextContents()).map(value => value.trim());
         for (const value of waiverValues) expect(value).toMatch(/^(?:—|\$-?\d+)$/u);
+        for (const value of orderValues) expect(value).toMatch(/^(?:—|\d+)$/u);
         const prefix = route.startsWith('/league2') ? '/league2' : '';
         const managerHrefs = await table.locator('.standings-team').evaluateAll(links => links.map(link => link.getAttribute('href')));
         expect(managerHrefs).toHaveLength(12);
         for (const href of managerHrefs) expect(href).toMatch(new RegExp(`^${prefix}/managers/\\d+$`, 'u'));
-        await expect(page.getByText('PF = points for · PA = points against · Waiver $ = waiver budget remaining.')).toBeVisible();
+        await expect(page.getByText('Order = current waiver claim priority · $ = budget remaining', { exact: true })).toBeVisible();
         await expectNoPageOverflow(page);
       }
     });
   }
+});
+
+test('Standings and Waivers switch locally, support keyboard tabs, and retain independent sorts', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 800 });
+  await page.goto('/standings', { waitUntil: 'networkidle' });
+  const url = page.url();
+  const requests: string[] = [];
+  const recordRequest = (request: { url: () => string }) => requests.push(request.url());
+  page.on('request', recordRequest);
+  const standingsTab = page.getByRole('tab', { name: 'Standings' });
+  const waiversTab = page.getByRole('tab', { name: 'Waivers' });
+  await standingsTab.focus();
+  await standingsTab.press('ArrowRight');
+  await expect(waiversTab).toBeFocused();
+  await expect(waiversTab).toHaveAttribute('aria-selected', 'true');
+  await waiversTab.press('ArrowLeft');
+  await expect(standingsTab).toBeFocused();
+  await expect(standingsTab).toHaveAttribute('aria-selected', 'true');
+  await page.waitForTimeout(100);
+  page.off('request', recordRequest);
+  expect(page.url()).toBe(url);
+  expect(requests).toEqual([]);
+
+  const table = page.locator('.standings-table');
+  const originalRanks = new Map(await table.locator('tbody tr').evaluateAll(rows => rows.map(row => [
+    row.querySelector('.standings-team')!.getAttribute('href')!,
+    row.querySelector('.rank-cell')!.textContent!.trim(),
+  ])));
+  await page.getByRole('button', { name: 'Sort by Team' }).click();
+  await expect(table.getByRole('columnheader', { name: 'Team' })).toHaveAttribute('aria-sort', 'ascending');
+  const sortedNames = await table.locator('.team-name').allTextContents();
+  expect(sortedNames).toEqual([...sortedNames].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })));
+  const sortedRanks = new Map(await table.locator('tbody tr').evaluateAll(rows => rows.map(row => [
+    row.querySelector('.standings-team')!.getAttribute('href')!,
+    row.querySelector('.rank-cell')!.textContent!.trim(),
+  ])));
+  expect(sortedRanks).toEqual(originalRanks);
+
+  await waiversTab.click();
+  await expect(table.getByRole('columnheader', { name: 'Team' })).toHaveAttribute('aria-sort', 'none');
+  await page.getByRole('button', { name: 'Sort by $' }).click();
+  await expect(table.getByRole('columnheader', { name: '$' })).toHaveAttribute('aria-sort', 'descending');
+  await standingsTab.click();
+  await expect(table.getByRole('columnheader', { name: 'Team' })).toHaveAttribute('aria-sort', 'ascending');
+
+  const syntheticName = 'A synthetic team name that is intentionally far too long for the narrow standings column';
+  const firstRow = table.locator('tbody tr').first();
+  await firstRow.locator('.team-name').evaluate((element, value) => { element.textContent = value; }, syntheticName);
+  await firstRow.locator('.standings-team').evaluate((element, value) => element.setAttribute('aria-label', `${value}, managed by Test Manager`), syntheticName);
+  const truncation = await firstRow.evaluate(row => {
+    const name = row.querySelector<HTMLElement>('.team-name')!;
+    const metric = row.querySelector<HTMLElement>('.metric-cell')!;
+    return {
+      truncated: name.scrollWidth > name.clientWidth,
+      noCollision: name.getBoundingClientRect().right <= metric.getBoundingClientRect().left,
+      fullName: name.textContent,
+      accessibleName: row.querySelector<HTMLAnchorElement>('.standings-team')!.ariaLabel,
+    };
+  });
+  expect(truncation).toEqual({ truncated: true, noCollision: true, fullName: syntheticName, accessibleName: `${syntheticName}, managed by Test Manager` });
+  await expectNoPageOverflow(page);
 });
 
 test('My Team standings highlighting remains isolated by league and survives reloads', async ({ page }) => {
