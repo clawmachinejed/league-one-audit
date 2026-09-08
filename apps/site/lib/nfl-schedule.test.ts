@@ -3,6 +3,7 @@ import {
   addScheduleToMatchups,
   addScheduleToPlayers,
   formatNflGame,
+  normalizeSleeperByeWeeks,
   normalizeSleeperSeasonSchedule,
   normalizeSleeperScores,
   resolveSleeperSchedule,
@@ -89,6 +90,13 @@ describe('Sleeper NFL schedule', () => {
       ...season,
       { status: 'canceled', date: '2026-10-15', home: 'DAL', away: 'SEA', week: 6, game_id: 'canceled' },
     ], 1))).toHaveLength(32);
+  });
+
+  it('derives one season bye week per NFL team only from a complete schedule', () => {
+    const season = completeSeasonSchedule();
+    expect(normalizeSleeperByeWeeks(season)).toMatchObject({ CAR: 3, KC: 3, LAC: 4, ARI: 4 });
+    expect(Object.keys(normalizeSleeperByeWeeks(season))).toHaveLength(32);
+    expect(normalizeSleeperByeWeeks(season.slice(1))).toEqual({});
   });
 
   it('uses the season schedule as a safe fallback when weekly kickoff rows are partial', () => {

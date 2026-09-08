@@ -15,12 +15,15 @@ import {
 import {
   addScheduleToMatchups,
   addScheduleToPlayers,
+  normalizeSleeperByeWeeks,
   resolveSleeperSchedule,
   type WeekSchedule,
 } from './nfl-schedule';
-import type { MatchupsData, OverviewData, ManagerData, Player, StandingsData, TransactionsData, LeagueTransactionsData } from './types';
+import type { MatchupsData, OverviewData, ManagerData, Player, RosterPlayer, RosterSection, RostersData, StandingsData, TransactionsData, LeagueTransactionsData } from './types';
 import type { LeagueKey } from './leagues';
 import { normalizeLeagueTransactions } from './league-transactions';
+import { canonicalNflTeam } from './nfl-teams';
+import { calculatePlayerPpg, calculateTeamPpg, rosterHistoryBoundary } from './roster-metrics';
 import { matchupTemporalState, type MatchupPeriodContext } from './matchup-period';
 import {
   canDecorateMatchupWeek,
@@ -34,9 +37,11 @@ import {
   normalizeTeams,
   normalizeTransactions,
   managerLineup,
+  numberOrNull,
   playerFromId,
   sleeperActiveScoringWeek,
   sleeperLeagueLifecycle,
+  startingSlots,
   transactionEndWeek,
   type PlayerCatalog,
   type SleeperLeague,
@@ -365,11 +370,15 @@ const getLeagueRosters = cache(async (leagueId: string) => fetchRows<SleeperRost
   `/league/${leagueId}/rosters`, isSleeperRoster, (row) => String(row.roster_id), CORE_CACHE_SECONDS,
 ));
 
+const getLeagueUsers = cache(async (leagueId: string) => fetchRows<SleeperUser>(
+  `/league/${leagueId}/users`, isSleeperUser, (row) => row.user_id,
+));
+
 const getCore = cache(async (leagueId: string) => {
   const [calendar, rosters, users] = await Promise.all([
     getLeagueCalendar(leagueId, CORE_CACHE_SECONDS),
     getLeagueRosters(leagueId),
-    fetchRows<SleeperUser>(`/league/${leagueId}/users`, isSleeperUser, (row) => row.user_id),
+    getLeagueUsers(leagueId),
   ]);
   const { sourceLeague, state, league } = calendar;
   assertCoreCompleteness(sourceLeague, rosters, users);
@@ -381,6 +390,67 @@ const getCore = cache(async (leagueId: string) => {
     warning: joinWarnings(
       state ? undefined : 'NFL week information is temporarily unavailable; game status cannot be confirmed.',
       teams.length ? undefined : 'Sleeper has not provided any league rosters yet.',
+    ),
+  };
+  return { overview, sourceLeague, state, rosters };
+});
+
+function rosterStringArray(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null;
+  return value.filter((item): item is string => typeof item === 'string' && Boolean(item.trim()));
+}
+
+/** Rosters fail malformed teams locally while the established strict core remains unchanged. */
+const getRosterCore = cache(async (leagueId: string) => {
+  const [calendar, rawRosters, users] = await Promise.all([
+    getLeagueCalendar(leagueId, CORE_CACHE_SECONDS),
+    fetchJson(`/league/${leagueId}/rosters`, CORE_CACHE_SECONDS),
+    getLeagueUsers(leagueId),
+  ]);
+  if (!Array.isArray(rawRosters)) throw new Error('Sleeper did not return league rosters.');
+  const seen = new Set<number>();
+  let malformed = 0;
+  const rosters: SleeperRoster[] = [];
+  for (const value of rawRosters) {
+    if (!isRecord(value) || typeof value.roster_id !== 'number' || !Number.isInteger(value.roster_id)
+      || value.roster_id <= 0 || seen.has(value.roster_id)) {
+      malformed += 1;
+      continue;
+    }
+    seen.add(value.roster_id);
+    const players = rosterStringArray(value.players);
+    const starters = rosterStringArray(value.starters);
+    const reserve = rosterStringArray(value.reserve);
+    const taxi = rosterStringArray(value.taxi);
+    if ((value.players !== undefined && value.players !== null && players === null)
+      || (value.starters !== undefined && value.starters !== null && starters === null)
+      || (value.reserve !== undefined && value.reserve !== null && reserve === null)
+      || (value.taxi !== undefined && value.taxi !== null && taxi === null)
+      || !validRosterSettings(value.settings)) malformed += 1;
+    rosters.push({
+      roster_id: value.roster_id,
+      owner_id: typeof value.owner_id === 'string' && value.owner_id.trim() ? value.owner_id : null,
+      players,
+      starters,
+      reserve,
+      taxi,
+      settings: isRecord(value.settings) ? value.settings : null,
+      metadata: isRecord(value.metadata) ? value.metadata : null,
+    });
+  }
+  const { sourceLeague, state, league } = calendar;
+  const teams = normalizeTeams(rosters, users);
+  const incomplete = rosters.length !== sourceLeague.total_rosters;
+  const overview: OverviewData = {
+    league,
+    teams,
+    updatedAt: calendar.requestCompletedAt,
+    warning: joinWarnings(
+      state ? undefined : 'NFL week information is temporarily unavailable; game status cannot be confirmed.',
+      teams.length ? undefined : 'Sleeper has not provided any league rosters yet.',
+      malformed || incomplete
+        ? `Sleeper returned incomplete or malformed data for ${Math.max(malformed, sourceLeague.total_rosters - rosters.length)} roster${Math.max(malformed, sourceLeague.total_rosters - rosters.length) === 1 ? '' : 's'}; other teams remain available.`
+        : undefined,
     ),
   };
   return { overview, sourceLeague, state, rosters };
@@ -468,11 +538,12 @@ const getPlayers = cache(async () => {
 
 async function getWeekSchedule(season: string, week: number): Promise<{
   schedule: WeekSchedule;
+  byeWeeks: Record<string, number>;
   canIdentifyByes: boolean;
   warning?: string;
 }> {
   if (!/^\d{4}$/u.test(season)) {
-    return { schedule: {}, canIdentifyByes: false, warning: 'NFL opponent and kickoff information is temporarily unavailable.' };
+    return { schedule: {}, byeWeeks: {}, canIdentifyByes: false, warning: 'NFL opponent and kickoff information is temporarily unavailable.' };
   }
   const [seasonScheduleValue, scoresValue] = await Promise.all([
     fetchExternalJson(`${SEASON_SCHEDULE_API}/${season}`, SEASON_SCHEDULE_CACHE_SECONDS).catch(() => null),
@@ -481,6 +552,7 @@ async function getWeekSchedule(season: string, week: number): Promise<{
   const result = resolveSleeperSchedule(seasonScheduleValue, scoresValue, season, week);
   return {
     schedule: result.schedule,
+    byeWeeks: normalizeSleeperByeWeeks(seasonScheduleValue),
     canIdentifyByes: result.canIdentifyByes,
     warning: result.complete ? undefined : 'Some NFL opponent or kickoff information is temporarily unavailable.',
   };
@@ -495,6 +567,166 @@ export async function getStandings(leagueId: string): Promise<StandingsData> {
   return {
     ...overview,
     teams: addWaiverBalances(overview.teams, rosters, sourceLeague.settings?.waiver_budget),
+  };
+}
+
+function lastScoredWeek(league: SleeperLeague): number | null {
+  const value = numberOrNull(league.settings?.last_scored_leg);
+  return value !== null && Number.isInteger(value) && value >= 1 && value <= 18 ? value : null;
+}
+
+function rosterRecord(roster: SleeperRoster | undefined): Readonly<{
+  wins: number;
+  losses: number;
+  ties: number;
+}> | null {
+  const wins = numberOrNull(roster?.settings?.wins);
+  const losses = numberOrNull(roster?.settings?.losses);
+  const ties = numberOrNull(roster?.settings?.ties);
+  return [wins, losses, ties].every(value => value !== null && Number.isInteger(value) && value >= 0)
+    ? { wins: wins!, losses: losses!, ties: ties! }
+    : null;
+}
+
+const getCachedRosterWeek = cache(async (leagueId: string, week: number) => (
+  loadRawMatchups(leagueId, week, CORE_CACHE_SECONDS)
+));
+
+async function loadRosterHistory(leagueId: string, throughWeek: number): Promise<{
+  rows: SleeperMatchup[][];
+  failedWeeks: number[];
+}> {
+  const weeks = Array.from({ length: throughWeek }, (_, index) => index + 1);
+  const rows: SleeperMatchup[][] = [];
+  const failedWeeks: number[] = [];
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(4, weeks.length) }, async () => {
+    while (next < weeks.length) {
+      const week = weeks[next++];
+      try {
+        rows[week - 1] = (await getCachedRosterWeek(leagueId, week)).rows;
+      } catch {
+        failedWeeks.push(week);
+      }
+    }
+  }));
+  return { rows: rows.filter(Boolean), failedWeeks: failedWeeks.sort((a, b) => a - b) };
+}
+
+function rosterPlayer(
+  id: string | null | undefined,
+  slot: string,
+  catalog: PlayerCatalog,
+  playerMetrics: ReturnType<typeof calculatePlayerPpg>,
+  schedule: WeekSchedule,
+  byeWeeks: Record<string, number>,
+  canDecorate: boolean,
+  canIdentifyByes: boolean,
+  index: number,
+): RosterPlayer {
+  const player = playerFromId(id, slot, catalog, null, index);
+  const nflTeam = canonicalNflTeam(player.nflTeam);
+  const game = canDecorate && nflTeam
+    ? schedule[nflTeam] ?? (canIdentifyByes ? ({ kind: 'bye' } as const) : null)
+    : null;
+  const metric = playerMetrics.get(player.id);
+  return {
+    id: player.id,
+    name: player.name,
+    position: player.position,
+    nflTeam: player.nflTeam,
+    injuryStatus: player.injuryStatus,
+    game,
+    slot: player.slot,
+    positionRank: metric?.positionRank ?? null,
+    ppg: metric?.ppg ?? null,
+    byeWeek: canDecorate && nflTeam ? byeWeeks[nflTeam] ?? null : null,
+  };
+}
+
+/** One shared league/week load supplies every expandable roster card. */
+export async function getRosters(leagueId: string, requestedWeek?: number): Promise<RostersData> {
+  const core = await getRosterCore(leagueId);
+  const selectedWeek = requestedWeek === undefined ? core.overview.league.week
+    : Number.isInteger(requestedWeek) && requestedWeek >= 1 && requestedWeek <= core.overview.league.maxWeek
+      ? requestedWeek : core.overview.league.week;
+  const lifecycle = sleeperLeagueLifecycle(core.sourceLeague, core.state);
+  const activeWeek = sleeperActiveScoringWeek(core.sourceLeague, core.state);
+  const historyThrough = rosterHistoryBoundary({
+    selectedWeek,
+    currentWeek: core.overview.league.week,
+    activeWeek,
+    lastScoredWeek: lastScoredWeek(core.sourceLeague),
+    lifecycle,
+  });
+  const canDecorate = canDecorateMatchupWeek(core.sourceLeague, core.state, selectedWeek);
+  const [selectedObservation, history, players, nflSchedule] = await Promise.all([
+    getCachedRosterWeek(leagueId, selectedWeek),
+    loadRosterHistory(leagueId, historyThrough),
+    getPlayers(),
+    canDecorate
+      ? getWeekSchedule(core.overview.league.season, selectedWeek)
+      : Promise.resolve({ schedule: {} as WeekSchedule, byeWeeks: {} as Record<string, number>, canIdentifyByes: false, warning: undefined }),
+  ]);
+  const teamPpg = calculateTeamPpg(history.rows);
+  const playerPpg = calculatePlayerPpg(history.rows, players.catalog);
+  const selectedByRoster = new Map(selectedObservation.rows.map((row) => [row.roster_id, row]));
+  const sourceRosterById = new Map(core.rosters.map((roster) => [roster.roster_id, roster]));
+  const standingsTeams = addWaiverBalances(core.overview.teams, core.rosters, core.sourceLeague.settings?.waiver_budget);
+  const standingsAvailable = standingsTeams.length > 0 && standingsTeams.every((team) => {
+    const roster = sourceRosterById.get(team.id);
+    return rosterRecord(roster) !== null && numberOrNull(roster?.settings?.fpts) !== null;
+  });
+  const teams = standingsTeams.map((team, teamIndex) => {
+    const row = selectedByRoster.get(team.id);
+    const sourceRoster = sourceRosterById.get(team.id);
+    const sourceRecord = rosterRecord(sourceRoster);
+    const starters = row?.starters ?? [];
+    const starterIds = new Set(starters.filter((id) => id && id !== '0'));
+    const selectedPlayers = row?.players ?? [];
+    const reserveIds = canDecorate ? new Set(sourceRoster?.reserve ?? []) : new Set<string>();
+    const taxiIds = canDecorate ? new Set(sourceRoster?.taxi ?? []) : new Set<string>();
+    const slots = startingSlots(core.overview.league.rosterPositions);
+    const sections: RosterSection[] = [{
+      name: 'Starters',
+      players: Array.from({ length: Math.max(starters.length, slots.length) }, (_, index) => (
+        rosterPlayer(starters[index], slots[index] ?? 'UTIL', players.catalog,
+          playerPpg, nflSchedule.schedule, nflSchedule.byeWeeks, canDecorate, nflSchedule.canIdentifyByes, index)
+      )),
+    }];
+    const categorized = (predicate: (id: string) => boolean, slot: string) => selectedPlayers
+      .filter((id) => id !== '0' && !starterIds.has(id) && predicate(id))
+      .map((id, index) => rosterPlayer(id, slot, players.catalog, playerPpg,
+        nflSchedule.schedule, nflSchedule.byeWeeks, canDecorate, nflSchedule.canIdentifyByes, index));
+    const bench = categorized((id) => !reserveIds.has(id) && !taxiIds.has(id), 'BN');
+    sections.push({ name: 'Bench', players: bench });
+    const reserve = categorized((id) => reserveIds.has(id), 'IR');
+    if (reserve.length) sections.push({ name: 'IR', players: reserve });
+    const taxi = categorized((id) => taxiIds.has(id) && !reserveIds.has(id), 'TAXI');
+    if (taxi.length) sections.push({ name: 'Taxi', players: taxi });
+    const metric = teamPpg.get(team.id);
+    return {
+      ...team,
+      wins: sourceRecord?.wins ?? null,
+      losses: sourceRecord?.losses ?? null,
+      ties: sourceRecord?.ties ?? null,
+      standingsRank: standingsAvailable ? teamIndex + 1 : null,
+      averagePpg: metric?.ppg ?? null,
+      averagePpgRank: metric?.rank ?? null,
+      sections,
+    };
+  });
+  return {
+    league: core.overview.league,
+    week: selectedWeek,
+    currentWeek: core.overview.league.week,
+    teams,
+    updatedAt: selectedObservation.requestCompletedAt,
+    warning: joinWarnings(core.overview.warning, players.warning,
+      nflSchedule.warning,
+      history.failedWeeks.length
+        ? `Official scoring history could not be loaded for week${history.failedWeeks.length === 1 ? '' : 's'} ${history.failedWeeks.join(', ')}. Some averages and rankings may be unavailable.`
+        : undefined),
   };
 }
 

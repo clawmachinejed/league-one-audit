@@ -32,6 +32,7 @@ import {
   getProjectionCadenceInput,
   getProjectionSyncInput,
   getRawLineupMatchups,
+  getRosters,
   getStandings,
   getLeagueTransactions,
   getTransactions,
@@ -437,6 +438,77 @@ describe('Sleeper service error handling', () => {
       `${leagueTwoPath}/users`,
       `${leagueTwoPath}/matchups/3`,
     ]));
+  });
+
+  it('loads one bounded shared roster history with no per-card requests or score fields in the response', async () => {
+    expectedRosterCount = 2;
+    rosterPositions = ['QB', 'BN'];
+    rawRosters = [
+      { roster_id: 1, owner_id: 'member-1', players: ['qb', 'rb'], starters: ['qb'], settings: { ...rosterSettings, wins: 2, fpts: 20 } },
+      { roster_id: 2, owner_id: 'member-2', players: ['qb2', 'rb2'], starters: ['qb2'], settings: { ...rosterSettings, wins: 1, losses: 1, fpts: 30 } },
+    ];
+    rawUsers = [
+      { user_id: 'member-1', display_name: 'Alex', metadata: { team_name: 'Alpha' } },
+      { user_id: 'member-2', display_name: 'Sam', metadata: { team_name: 'Beta' } },
+    ];
+    playerCatalog = {
+      qb: { full_name: 'Quarter Back', position: 'QB', team: 'IND' },
+      qb2: { full_name: 'Other Quarterback', position: 'QB', team: 'KC' },
+      rb: { full_name: 'Bench Back', position: 'RB', team: 'IND' },
+      rb2: { full_name: 'Other Back', position: 'RB', team: 'KC' },
+    };
+    rawMatchups = [
+      { roster_id: 1, matchup_id: 1, players: ['qb', 'rb'], points: 10, starters: ['qb'], players_points: { qb: 4, rb: 0 } },
+      { roster_id: 2, matchup_id: 1, players: ['qb2', 'rb2'], points: 20, starters: ['qb2'], players_points: { qb2: 8, rb2: 3 } },
+    ];
+
+    const result = await getRosters(leagueOneId, 3);
+
+    expect(result.teams.map(team => ({ name: team.name, rank: team.standingsRank, ppg: team.averagePpg, ppgRank: team.averagePpgRank })))
+      .toEqual([
+        { name: 'Alpha', rank: 1, ppg: 10, ppgRank: 2 },
+        { name: 'Beta', rank: 2, ppg: 20, ppgRank: 1 },
+      ]);
+    expect(result.teams[0].sections.map(section => [section.name, section.players.map(player => player.name)]))
+      .toEqual([['Starters', ['Quarter Back']], ['Bench', ['Bench Back']]]);
+    expect(JSON.stringify(result)).not.toMatch(/projectedPoints|"points":/u);
+    const matchupPaths = vi.mocked(fetch).mock.calls.map(([input]) => requestPath(input))
+      .filter(path => path.includes('/matchups/'));
+    expect(matchupPaths.sort()).toEqual([
+      `${leaguePath}/matchups/1`, `${leaguePath}/matchups/2`, `${leaguePath}/matchups/3`,
+    ]);
+  });
+
+  it('does not turn malformed roster records into zeroes or publish unprovable standings ranks', async () => {
+    expectedRosterCount = 2;
+    rawRosters = [
+      { roster_id: 1, owner_id: 'member-1', settings: { ...rosterSettings, wins: 2, losses: undefined, fpts: 20 } },
+      { roster_id: 2, owner_id: 'member-2', settings: { ...rosterSettings, wins: 1, losses: 1, fpts: 30 } },
+    ];
+    rawUsers = [
+      { user_id: 'member-1', display_name: 'Alex', metadata: { team_name: 'Beta' } },
+      { user_id: 'member-2', display_name: 'Sam', metadata: { team_name: 'Alpha' } },
+    ];
+    rawMatchups = [
+      { roster_id: 1, matchup_id: 1, players: [], starters: [], points: 0, players_points: {} },
+      { roster_id: 2, matchup_id: 1, players: [], starters: [], points: 10, players_points: {} },
+    ];
+
+    const result = await getRosters(leagueOneId, 3);
+
+    expect(result.teams.map(team => ({ name: team.name, wins: team.wins, losses: team.losses, rank: team.standingsRank })))
+      .toEqual([
+        { name: 'Beta', wins: null, losses: null, rank: null },
+        { name: 'Alpha', wins: 1, losses: 1, rank: null },
+      ]);
+  });
+
+  it('keeps League One and League Two roster requests isolated', async () => {
+    const result = await getRosters(leagueTwoId, 3);
+    expect(result.teams[0]).toMatchObject({ managerName: 'Jordan' });
+    const paths = vi.mocked(fetch).mock.calls.map(([input]) => requestPath(input));
+    expect(paths.some(path => path.startsWith(leaguePath))).toBe(false);
+    expect(paths).toContain(`${leagueTwoPath}/matchups/3`);
   });
 
   it('uses each league and roster response to calculate isolated waiver balances without another request', async () => {

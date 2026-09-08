@@ -50,6 +50,7 @@ function isSleeperMatchup(value: unknown): value is SleeperMatchup {
     && value.roster_id > 0
     && Object.prototype.hasOwnProperty.call(value, 'matchup_id')
     && (matchupId === null || (typeof matchupId === 'number' && Number.isInteger(matchupId) && matchupId > 0))
+    && isStringArray(value.players)
     && isStringArray(value.starters)
     && (value.starters_points === undefined || value.starters_points === null
       || (Array.isArray(value.starters_points) && value.starters_points.every((points) => isOptionalNumber(points))))

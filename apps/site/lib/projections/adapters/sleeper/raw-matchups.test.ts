@@ -21,6 +21,7 @@ function rows(): SleeperMatchup[] {
     {
       roster_id: 2,
       matchup_id: 7,
+      players: ['qb-b', 'rb-b', 'bench-b', 'BAL'],
       starters: ['qb-b', 'rb-b', '0', 'BAL'],
       starters_points: [3.25, null, 0, -1.5],
       players_points: { 'qb-b': 3.25, 'rb-b': null, BAL: -1.5 },
@@ -30,6 +31,7 @@ function rows(): SleeperMatchup[] {
     {
       roster_id: 1,
       matchup_id: 7,
+      players: ['qb-a', 'rb-a', 'flex-a', 'NYJ'],
       starters: ['qb-a', 'rb-a', 'flex-a', 'NYJ'],
       starters_points: null,
       players_points: null,
@@ -65,12 +67,13 @@ describe('shared raw Sleeper matchup boundary', () => {
     expect(result.rows).toBe(source);
   });
 
-  it('preserves raw starter order, opaque IDs, optional scores, and response order', () => {
+  it('preserves full roster membership, starter order, opaque IDs, optional scores, and response order', () => {
     const source = rows();
     const before = structuredClone(source);
     expect(parseRawSleeperMatchups(source, path)).toBe(source);
     expect(source).toEqual(before);
     expect(source[0].starters).toEqual(['qb-b', 'rb-b', '0', 'BAL']);
+    expect(source[0].players).toEqual(['qb-b', 'rb-b', 'bench-b', 'BAL']);
   });
 
   it.each([
@@ -81,6 +84,7 @@ describe('shared raw Sleeper matchup boundary', () => {
     [{ roster_id: 1.5, matchup_id: 1 }],
     [{ roster_id: 1, matchup_id: 0 }],
     [{ roster_id: 1, matchup_id: 1, starters: [9] }],
+    [{ roster_id: 1, matchup_id: 1, players: [9] }],
     [{ roster_id: 1, matchup_id: 1, starters_points: [Infinity] }],
     [{ roster_id: 1, matchup_id: 1, players_points: { a: '3' } }],
     [{ roster_id: 1, matchup_id: 1, custom_points: NaN }],

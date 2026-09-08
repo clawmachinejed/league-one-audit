@@ -17,6 +17,14 @@ describe('Standings waiver balance presentation', () => {
 });
 
 describe('Standings shared view presentation', () => {
+  it('keeps Standings first and adds Rosters immediately after Transactions', () => {
+    const source = readFileSync(new URL('./standings-view.tsx', import.meta.url), 'utf8');
+    const labels = [...source.matchAll(/value: '(?:standings|waivers|transactions|rosters)', label: '([^']+)'/gu)]
+      .map(match => match[1]);
+    expect(labels).toEqual(['Standings', 'Waivers', 'Transactions', 'Rosters']);
+    expect(source).toContain("useState<StandingsViewName>('standings')");
+  });
+
   it('uses one fixed panel gap and no transaction-specific top offset', () => {
     const css = readFileSync(new URL('../app/globals.css', import.meta.url), 'utf8');
     expect(css).toMatch(/\.standings-view-tabs\{[^}]*margin:0 0 14px/gu);
