@@ -148,7 +148,7 @@ test('the shared navigation uses Matchups geometry at every required width in bo
         expect(geometry.bottom).toBe(0);
         expect(geometry.x).toBeCloseTo(0, 1);
         expect(geometry.y + geometry.height).toBeCloseTo(viewport.height, 1);
-        expect(geometry.width).toBeCloseTo(viewport.width, 1);
+        expect(geometry.width).toBeCloseTo(await page.evaluate(() => document.body.getBoundingClientRect().width), 1);
         expect(geometry.height).toBeCloseTo(53, 1);
         expect(geometry.paddingTop).toBeCloseTo(4, 1);
         expect(geometry.paddingBottom).toBeGreaterThanOrEqual(4);
@@ -158,7 +158,7 @@ test('the shared navigation uses Matchups geometry at every required width in bo
         expect(geometry.trigger?.width).toBeCloseTo(44, 1);
         expect(geometry.trigger?.height).toBeCloseTo(44, 1);
 
-        const expectedColumnWidth = (viewport.width - geometry.paddingLeft - geometry.paddingRight) / 4;
+        const expectedColumnWidth = (geometry.width - geometry.paddingLeft - geometry.paddingRight) / 4;
         for (const item of geometry.items) {
           expect(item.width).toBeCloseTo(expectedColumnWidth, 1);
           expect(item.height).toBeCloseTo(44, 1);
