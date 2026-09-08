@@ -51,10 +51,6 @@ function playerSummary(id: string, catalog: PlayerCatalog): TransactionPlayer {
 
 function describePlayer(id: string, catalog: PlayerCatalog): string {
   const player = playerSummary(id, catalog);
-  return describeTransactionPlayer(player);
-}
-
-function describeTransactionPlayer(player: TransactionPlayer): string {
   const details = [player.position === '—' ? null : player.position, player.nflTeam].filter(Boolean).join(' · ');
   return `${player.name}${details ? ` (${details})` : ''}`;
 }
@@ -84,10 +80,10 @@ function normalizeMove(row: SleeperTransaction, teamName: (id: unknown) => strin
   const teams = [...new Set(directRosterIds.length ? directRosterIds : (row.consenter_ids ?? []))]
     .map(teamName).sort((a, b) => a.localeCompare(b));
   const lines: LeagueMoveActivity['lines'] = [];
-  const added = Object.keys(row.adds ?? {}).map(playerId => playerSummary(playerId, catalog));
-  const dropped = Object.keys(row.drops ?? {}).map(playerId => playerSummary(playerId, catalog));
-  if (added.length) lines.push({ label: 'Added', text: added.map(describeTransactionPlayer).join(', ') });
-  if (dropped.length) lines.push({ label: 'Dropped', text: dropped.map(describeTransactionPlayer).join(', ') });
+  const added = Object.keys(row.adds ?? {}).map(playerId => describePlayer(playerId, catalog));
+  const dropped = Object.keys(row.drops ?? {}).map(playerId => describePlayer(playerId, catalog));
+  if (added.length) lines.push({ label: 'Added', text: added.join(', ') });
+  if (dropped.length) lines.push({ label: 'Dropped', text: dropped.join(', ') });
   const note = noteFor(row);
   if (note) lines.push({ label: 'Note', text: note });
   if (!lines.length) lines.push({ label: 'Details', text: 'Sleeper did not provide asset details for this transaction.' });
@@ -99,7 +95,6 @@ function normalizeMove(row: SleeperTransaction, teamName: (id: unknown) => strin
     type: transactionType(row.type),
     result: transactionResult(row),
     lines,
-    movementPlayers: { added, dropped },
   };
 }
 

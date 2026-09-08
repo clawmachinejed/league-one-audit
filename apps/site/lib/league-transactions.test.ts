@@ -86,25 +86,23 @@ describe('league-wide transaction normalization', () => {
     }
   });
 
-  it('keeps completed free-agent adds and drops together with an accurate result', () => {
+  it('keeps the released public add/drop JSON structure and values unchanged', () => {
     const [row] = normalizeLeagueTransactions([transaction({
       type: 'free_agent', adds: { p1: 2, p2: 2 }, drops: { p3: 2 }, roster_ids: [2], settings: null,
     })], 'league1', teams, catalog);
-    expect(row).toMatchObject({ kind: 'add_drop', title: 'Beta', type: 'Free agent', result: 'Complete' });
-    if (row.kind === 'add_drop') {
-      expect(row.lines).toEqual([
+    expect(JSON.parse(JSON.stringify(row))).toEqual({
+      kind: 'add_drop',
+      id: 't1',
+      timestamp: '2026-09-09T12:00:00.000Z',
+      title: 'Beta',
+      type: 'Free agent',
+      result: 'Complete',
+      lines: [
         { label: 'Added', text: 'Player One (WR · IND), Player Two (RB · SEA)' },
         { label: 'Dropped', text: 'Player Three (TE · BUF)' },
-      ]);
-      expect(row.movementPlayers).toEqual({
-        added: [
-          { id: 'p1', name: 'Player One', position: 'WR', nflTeam: 'IND' },
-          { id: 'p2', name: 'Player Two', position: 'RB', nflTeam: 'SEA' },
-        ],
-        dropped: [{ id: 'p3', name: 'Player Three', position: 'TE', nflTeam: 'BUF' }],
-      });
-      expect(row.lines.map(line => line.text).join(' ')).not.toContain('Beta');
-    }
+      ],
+    });
+    expect(JSON.stringify(row)).not.toContain('movementPlayers');
   });
 
   it('keeps add-only and drop-only moves valid without empty movement rows', () => {
@@ -116,12 +114,7 @@ describe('league-wide transaction normalization', () => {
     const dropOnly = rows.find(row => row.id === 'drop-only');
     expect(addOnly?.kind === 'add_drop' ? addOnly.lines : []).toEqual([{ label: 'Added', text: 'Player One (WR · IND)' }]);
     expect(dropOnly?.kind === 'add_drop' ? dropOnly.lines : []).toEqual([{ label: 'Dropped', text: 'Player Two (RB · SEA)' }]);
-    expect(addOnly?.kind === 'add_drop' ? addOnly.movementPlayers : null).toEqual({
-      added: [{ id: 'p1', name: 'Player One', position: 'WR', nflTeam: 'IND' }], dropped: [],
-    });
-    expect(dropOnly?.kind === 'add_drop' ? dropOnly.movementPlayers : null).toEqual({
-      added: [], dropped: [{ id: 'p2', name: 'Player Two', position: 'RB', nflTeam: 'SEA' }],
-    });
+    expect(JSON.stringify([addOnly, dropOnly])).not.toContain('movementPlayers');
   });
 
   it('groups one player/day with winners first and losing bids high-to-low deterministically', () => {

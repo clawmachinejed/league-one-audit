@@ -466,7 +466,6 @@ test('league Transactions loads once, filters locally, groups bids compactly, an
       {
         kind: 'add_drop', id: `${league}-move`, timestamp: '2026-09-08T12:00:00.000Z', title: `${league} Move Team`,
         type: 'Free agent', result: 'Complete', lines: [{ label: 'Added', text: 'Player Two (RB · SEA)' }],
-        movementPlayers: { added: [{ id: 'p2', name: 'Player Two', position: 'RB', nflTeam: 'SEA' }], dropped: [] },
       },
       {
         kind: 'trade', id: `${league}-trade`, timestamp: '2026-09-07T12:00:00.000Z', title: 'Trade Completed',
@@ -589,13 +588,6 @@ test('league Transactions remains usable without overflow at every supported wid
             { label: 'Added', text: 'An exceptionally long added player name (WR · GB), Green Bay Packers (DEF · GB)' },
             { label: 'Dropped', text: 'Tank Bigsby (RB · PHI)' },
           ],
-          movementPlayers: {
-            added: [
-              { id: 'long-added', name: 'An exceptionally long added player name', position: 'WR', nflTeam: 'GB' },
-              { id: 'gb', name: 'Green Bay Packers', position: 'DEF', nflTeam: 'GB' },
-            ],
-            dropped: [{ id: 'tank', name: 'Tank Bigsby', position: 'RB', nflTeam: 'PHI' }],
-          },
         },
         {
           kind: 'trade', id: 'long-trade', timestamp: '2026-09-07T12:00:00.000Z', title: 'Trade Completed', result: 'Complete',

@@ -43,18 +43,51 @@ interface MovementRow {
   label: string;
   text?: string;
   players?: readonly TransactionPlayer[];
+  parseText?: boolean;
 }
 
-function MovementPlayers({ players }: { players: readonly TransactionPlayer[] }) {
-  return players.map((player, index) => <Fragment key={`${player.id}-${index}`}>
+interface MovementPlayerDisplay {
+  key: string;
+  name: string;
+  details: string | null;
+}
+
+function parseMovementPlayerText(text: string): MovementPlayerDisplay[] | null {
+  const players: MovementPlayerDisplay[] = [];
+  let offset = 0;
+  while (offset < text.length) {
+    const match = /^([^(),\r\n]+?) (\([A-Z][A-Z0-9/-]* · [A-Z]{2,3}\))(?:, |$)/u.exec(text.slice(offset));
+    if (!match) return null;
+    players.push({ key: `${offset}-${match[1]}`, name: match[1], details: match[2] });
+    offset += match[0].length;
+  }
+  return players.length ? players : null;
+}
+
+function MovementPlayers({ players }: { players: readonly MovementPlayerDisplay[] }) {
+  return players.map((player, index) => <Fragment key={player.key}>
     {index > 0 ? <span className="transaction-movement-separator">, </span> : null}
-    <span className="transaction-movement-player"><strong className="transaction-movement-player-name">{player.name}</strong>{playerDetails(player) ? <> <span className="transaction-movement-player-details">{playerDetails(player)}</span></> : null}</span>
+    <span className="transaction-movement-player"><strong className="transaction-movement-player-name">{player.name}</strong>{player.details ? <> <span className="transaction-movement-player-details">{player.details}</span></> : null}</span>
   </Fragment>);
+}
+
+function StructuredMovementPlayers({ players }: { players: readonly TransactionPlayer[] }) {
+  return <MovementPlayers players={players.map((player, index) => ({
+    key: `${player.id}-${index}`,
+    name: player.name,
+    details: playerDetails(player),
+  }))} />;
+}
+
+function MovementText({ text }: { text: string }) {
+  const players = parseMovementPlayerText(text);
+  return players ? <MovementPlayers players={players} /> : text;
 }
 
 function MovementRows({ rows }: { rows: readonly MovementRow[] }) {
   return <dl className="transaction-lines transaction-movement-rows">{rows.map(row => <div key={row.key} className={transactionMovementClass(row.label)}>
-    <dt>{row.label}</dt><dd>{row.players?.length ? <MovementPlayers players={row.players} /> : row.text}</dd>
+    <dt>{row.label}</dt><dd>{row.players?.length ? <StructuredMovementPlayers players={row.players} />
+      : row.parseText && row.text ? <MovementText text={row.text} /> : row.text}</dd>
   </div>)}</dl>;
 }
 
@@ -64,8 +97,7 @@ function MoveCard({ activity }: { activity: LeagueMoveActivity }) {
   const rows = activity.lines.map((line, index): MovementRow => ({
     key: `${index}-${line.label}`,
     ...line,
-    players: line.label === 'Added' ? activity.movementPlayers?.added
-      : line.label === 'Dropped' ? activity.movementPlayers?.dropped : undefined,
+    parseText: line.label === 'Added' || line.label === 'Dropped',
   }));
   return <article className={`transaction-card league-activity-card result-${outcome}`} data-kind="add_drop">
     <div className="transaction-header"><div><div className="transaction-title-row"><p className="transaction-type">{activity.title}</p><span>{activity.type}</span></div><p className="transaction-date">{transactionDateLabel(activity.timestamp)}{outcomeLabel ? ` · ${outcomeLabel}` : ''}</p></div></div>

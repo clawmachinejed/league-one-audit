@@ -45,12 +45,10 @@ const presentationData: LeagueTransactionsData = {
     {
       kind: 'add_drop', id: 'add-only', timestamp: '2026-09-08T12:00:00.000Z', title: 'Add Only Team',
       type: 'Free agent', result: 'Complete', lines: [{ label: 'Added', text: 'Added Player (WR · GB)' }],
-      movementPlayers: { added: [{ id: 'added', name: 'Added Player', position: 'WR', nflTeam: 'GB' }], dropped: [] },
     },
     {
       kind: 'add_drop', id: 'drop-only', timestamp: '2026-09-08T11:00:00.000Z', title: 'Drop Only Team',
       type: 'Free agent', result: 'Complete', lines: [{ label: 'Dropped', text: 'Dropped Player (RB · PHI)' }],
-      movementPlayers: { added: [], dropped: [{ id: 'dropped', name: 'Dropped Player', position: 'RB', nflTeam: 'PHI' }] },
     },
     {
       kind: 'trade', id: 'two-team-trade', timestamp: '2026-09-07T12:00:00.000Z', title: 'Fourth & Long ↔ Sunday Scaries', result: 'Complete',
@@ -175,7 +173,7 @@ describe('league transaction card presentation', () => {
     expect(css).not.toMatch(/\.waiver-card[^}]*padding/gu);
   });
 
-  it('emphasizes every structured player name without emphasizing details or separators', () => {
+  it('emphasizes every recognized player name without emphasizing details or separators', () => {
     const multiple: LeagueTransactionsData = {
       ...data,
       activities: [{
@@ -185,13 +183,6 @@ describe('league transaction card presentation', () => {
           { label: 'Added', text: 'An Exceptionally Long Player Name (RB · PHI), Green Bay Packers (DEF · GB)' },
           { label: 'Dropped', text: 'Tank Bigsby (RB · PHI)' },
         ],
-        movementPlayers: {
-          added: [
-            { id: 'long', name: 'An Exceptionally Long Player Name', position: 'RB', nflTeam: 'PHI' },
-            { id: 'gb', name: 'Green Bay Packers', position: 'DEF', nflTeam: 'GB' },
-          ],
-          dropped: [{ id: 'tank', name: 'Tank Bigsby', position: 'RB', nflTeam: 'PHI' }],
-        },
       }],
     };
     const html = renderToStaticMarkup(<LeagueTransactionsView state="ready" data={multiple} error={null} />);
@@ -205,6 +196,21 @@ describe('league transaction card presentation', () => {
     expect(css).toContain('.transaction-movement-rows dd{min-width:0;font-weight:400}');
     expect(css).toContain('.transaction-movement-player-name{font-weight:600}');
     expect(css).toContain('.transaction-movement-player-details{color:var(--muted)}');
+  });
+
+  it('leaves the entire original movement text at normal weight when any player is unsafe to parse', () => {
+    const unsafe: LeagueTransactionsData = {
+      ...data,
+      activities: [{
+        kind: 'add_drop', id: 'unsafe', timestamp: '2026-09-08T12:00:00.000Z', title: 'Fallback Team',
+        type: 'Free agent', result: 'Complete',
+        lines: [{ label: 'Added', text: 'Recognized Player (RB · PHI), incomplete player details' }],
+      }],
+    };
+    const html = renderToStaticMarkup(<LeagueTransactionsView state="ready" data={unsafe} error={null} />);
+    expect(html).toContain('<dd>Recognized Player (RB · PHI), incomplete player details</dd>');
+    expect(html).not.toContain('transaction-movement-player-name');
+    expect(html).not.toContain('<strong');
   });
 
   it('states unsuccessful non-waiver outcomes inline without restoring a status badge', () => {

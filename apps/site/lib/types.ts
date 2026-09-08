@@ -142,10 +142,6 @@ export interface LeagueMoveActivity {
   type: string;
   result: TransactionResult;
   lines: LeagueTransactionLine[];
-  movementPlayers?: {
-    added: TransactionPlayer[];
-    dropped: TransactionPlayer[];
-  };
 }
 
 export interface LeagueTradeAsset {
