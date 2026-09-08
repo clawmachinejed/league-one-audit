@@ -73,7 +73,7 @@ export function StandingsView({ data }: { data: StandingsData }) {
   const tableView: StandingsTableViewName = view === 'waivers' ? 'waivers' : 'standings';
   const teams = useMemo(() => sortStandingsTeams(rankedTeams, sorts[tableView]), [rankedTeams, sorts, tableView]);
   const columns = tableView === 'standings' ? standingsColumns : waiverColumns;
-  const sectionTitle = view === 'standings' ? 'League table' : 'Waiver table';
+  const emptyTitle = view === 'standings' ? 'League standings are on their way' : 'Waivers are on their way';
   const note = view === 'standings'
     ? 'PF = points for · PA = points against'
     : 'Order = current waiver claim priority · $ = budget remaining';
@@ -124,7 +124,6 @@ export function StandingsView({ data }: { data: StandingsData }) {
   return <div className={`${matchupStyles.page} ${matchupStyles.standingsPage}`}>
     <div className={matchupStyles.toolbar}><PageIntro title="Standings" league={data.league} /></div>
     {view !== 'transactions' && <Warning message={data.warning} />}
-    {view !== 'transactions' && <div className="section-label"><h2>{sectionTitle}</h2><span>{data.teams.length} teams</span></div>}
     <div className="standings-view-tabs" role="tablist" aria-label="Standings views">
       {viewOptions.map(option => <button
         key={option.value}
@@ -139,11 +138,11 @@ export function StandingsView({ data }: { data: StandingsData }) {
         onKeyDown={event => handleTabKey(event, option.value)}
       >{option.label}</button>)}
     </div>
-    {view === 'transactions' ? <div id={panelId} role="tabpanel" aria-labelledby={`${id}-transactions-tab`}>
+    {view === 'transactions' ? <div id={panelId} className="standings-view-panel" role="tabpanel" aria-labelledby={`${id}-transactions-tab`}>
       <LeagueTransactionsView state={transactionState === 'idle' ? 'loading' : transactionState} data={transactionData} error={transactionError} />
     </div> : data.teams.length ? <div
       id={panelId}
-      className="standings-wrap"
+      className="standings-view-panel standings-wrap"
       role="tabpanel"
       aria-labelledby={`${id}-${view}-tab`}
     ><table className="standings-table" data-view={tableView}>
@@ -169,7 +168,7 @@ export function StandingsView({ data }: { data: StandingsData }) {
         ><span className="team-text"><span className="team-name">{team.name}</span><span className="manager-name">{selected === team.id && <span className="my-team-label">MY TEAM<span aria-hidden="true"> · </span></span>}{team.managerName}</span></span></Link></th>
         {columns.slice(2).map(column => <td key={column.key} className={column.className}>{metricValue(team, column.key)}</td>)}
       </tr>)}</tbody>
-    </table></div> : <EmptyState title={`The ${sectionTitle.toLowerCase()} is on its way`}>Teams will appear when Sleeper has league rosters available.</EmptyState>}
+    </table></div> : <div className="standings-view-panel"><EmptyState title={emptyTitle}>Teams will appear when Sleeper has league rosters available.</EmptyState></div>}
     {view !== 'transactions' && <p className="table-note">{note}</p>}
     {view !== 'transactions' && <Updated value={data.updatedAt} />}
   </div>;
