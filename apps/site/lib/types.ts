@@ -144,6 +144,17 @@ export interface LeagueMoveActivity {
   lines: LeagueTransactionLine[];
 }
 
+export interface LeagueTradeAsset {
+  type: 'Player' | 'Pick' | 'FAAB' | 'Details';
+  text: string;
+}
+
+export interface LeagueTradeParticipant {
+  id: number;
+  team: string;
+  receives: LeagueTradeAsset[];
+}
+
 export interface LeagueTradeActivity {
   kind: 'trade';
   id: string;
@@ -151,6 +162,8 @@ export interface LeagueTradeActivity {
   title: string;
   result: TransactionResult;
   lines: LeagueTransactionLine[];
+  participants: LeagueTradeParticipant[];
+  unassigned?: LeagueTradeAsset[];
 }
 
 export type LeagueTransactionActivity = LeagueWaiverActivity | LeagueMoveActivity | LeagueTradeActivity;

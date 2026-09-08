@@ -227,7 +227,8 @@ test('both standings pages reuse the Matchups title and season layout', async ({
         await expect(intro.locator(':scope > h1')).toHaveText('Standings');
         await expect(intro.locator(':scope > p')).toHaveText('2026 season');
         await expect(main.getByText('The league, at a glance.', { exact: true })).toHaveCount(0);
-        await expect(main.getByRole('heading', { level: 2, name: 'League table' })).toBeVisible();
+        await expect(main.getByText('Standings table', { exact: true })).toHaveCount(0);
+        await expect(main.getByText('Waiver table', { exact: true })).toHaveCount(0);
         await expect(main.getByLabel('Matchup week')).toHaveCount(0);
         await expect(main.getByRole('button', { name: /refresh/i })).toHaveCount(0);
         await expect(main.locator('select')).toHaveCount(0);
@@ -237,7 +238,7 @@ test('both standings pages reuse the Matchups title and season layout', async ({
           const heading = element.querySelector('h1')!;
           const season = element.querySelector('p')!;
           const toolbar = element.parentElement!;
-          const content = mainElement.querySelector('.section-label')!;
+          const content = mainElement.querySelector('.standings-view-tabs')!;
           const introRect = element.getBoundingClientRect();
           const contentRect = content.getBoundingClientRect();
           const read = (node: Element) => {
@@ -293,7 +294,7 @@ test('both standings views share a compact five-column grid at every supported w
         const waiversTab = page.getByRole('tab', { name: 'Waivers' });
         await expect(standingsTab).toHaveAttribute('aria-selected', 'true');
         await expect(waiversTab).toHaveAttribute('aria-selected', 'false');
-        await expect(page.getByRole('heading', { name: 'League table' })).toBeVisible();
+        await expect(page.getByText('Standings table', { exact: true })).toHaveCount(0);
         await expect(table).toBeVisible();
         await expect(table).toHaveAttribute('data-view', 'standings');
         await expect(table.locator('.standings-sort-label')).toHaveText(['Rank', 'Team', 'W–L', 'PF', 'PA']);
@@ -358,7 +359,7 @@ test('both standings views share a compact five-column grid at every supported w
         await waiversTab.click();
         await expect(page).toHaveURL(beforeSwitch);
         await expect(table).toHaveAttribute('data-view', 'waivers');
-        await expect(page.getByRole('heading', { name: 'Waiver table' })).toBeVisible();
+        await expect(page.getByText('Waiver table', { exact: true })).toHaveCount(0);
         await expect(table.locator('.standings-sort-label')).toHaveText(['Rank', 'Team', 'W–L', 'Order', '$']);
         await expect(table.getByText('GB', { exact: true })).toHaveCount(0);
         await expect(table.locator('.avatar, img')).toHaveCount(0);
@@ -467,8 +468,14 @@ test('league Transactions loads once, filters locally, groups bids compactly, an
         type: 'Free agent', result: 'Complete', lines: [{ label: 'Added', text: 'Player Two (RB · SEA)' }],
       },
       {
-        kind: 'trade', id: `${league}-trade`, timestamp: '2026-09-07T12:00:00.000Z', title: `${league} Alpha ↔ ${league} Beta`,
-        result: 'Complete', lines: [{ label: `${league} Alpha received`, text: 'Player Three (TE · BUF), 2027 round 2' }],
+        kind: 'trade', id: `${league}-trade`, timestamp: '2026-09-07T12:00:00.000Z', title: 'Trade Completed',
+        result: 'Complete', participants: [
+          { id: 1, team: `${league} Alpha`, receives: [
+            { type: 'Player', text: 'Player Three (TE · BUF)' },
+            { type: 'Pick', text: '2027 Round 2' },
+          ] },
+          { id: 2, team: `${league} Beta`, receives: [{ type: 'FAAB', text: '$10' }] },
+        ],
       },
     ],
   });
@@ -488,13 +495,19 @@ test('league Transactions loads once, filters locally, groups bids compactly, an
     await expect(mainTabs).toHaveText(['Standings', 'Waivers', 'Transactions']);
     await expect(mainTabs.nth(0)).toHaveAttribute('aria-selected', 'true');
     expect(requests.filter(key => key === league)).toHaveLength(0);
+    const panelGap = async () => page.locator('.standings-view-panel').evaluate(panel =>
+      panel.getBoundingClientRect().top - document.querySelector<HTMLElement>('.standings-view-tabs')!.getBoundingClientRect().bottom);
+    const standingsGap = await panelGap();
+    await viewTabs.getByRole('tab', { name: 'Waivers' }).click();
+    expect(Math.abs(await panelGap() - standingsGap)).toBeLessThanOrEqual(1);
 
     const transactionsTab = viewTabs.getByRole('tab', { name: 'Transactions' });
     await transactionsTab.click();
     await expect(page).toHaveURL(url);
-    await expect(page.getByRole('heading', { name: 'League activity' })).toBeVisible();
-    await expect(page.getByText(`${league} Waiver Player`, { exact: true })).toBeVisible();
-    await expect(page.getByText(`${league === 'league1' ? 'league2' : 'league1'} Waiver Player`, { exact: true })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'League Activity', exact: true })).toBeVisible();
+    expect(Math.abs(await panelGap() - standingsGap)).toBeLessThanOrEqual(1);
+    await expect(page.locator('.waiver-winning-moves')).toContainText(`${league} Waiver Player`);
+    await expect(page.locator('.waiver-winning-moves')).not.toContainText(`${league === 'league1' ? 'league2' : 'league1'} Waiver Player`);
     await expect(page.getByText('3 reported bids', { exact: false })).toBeVisible();
     const bidRows = page.locator('.waiver-bid-row');
     await expect(bidRows).toHaveCount(3);
@@ -511,22 +524,37 @@ test('league Transactions loads once, filters locally, groups bids compactly, an
     expect(bidLayout.every(row => row.height <= 28)).toBe(true);
     expect(await bidRows.locator('.transaction-date').count()).toBe(0);
     await expect(page.locator('.waiver-card .transaction-date')).toHaveCount(1);
+    await expect(page.locator('.league-activity-card .result-badge')).toHaveCount(0);
+    await expect(page.locator('.waiver-card .transaction-title-row')).toContainText(`${league} Winning Team`);
+    await expect(page.locator('.waiver-card .transaction-title-row')).toContainText('Waiver');
+    await expect(page.locator('.waiver-winning-moves')).not.toContainText(`${league} Winning Team`);
 
     const beforeFilters = requests.length;
     const filterTabs = page.getByRole('tablist', { name: 'Transaction filters' });
     await filterTabs.getByRole('tab', { name: 'Adds & Drops' }).click();
     await expect(page.locator('.league-activity-card')).toHaveCount(1);
     await expect(page.locator('.league-activity-card')).toHaveAttribute('data-kind', 'add_drop');
+    await expect(page.locator('.league-activity-card .transaction-title-row')).toContainText(`${league} Move Team`);
+    await expect(page.locator('.league-activity-card .transaction-title-row')).toContainText('Free agent');
+    await expect(page.locator('.league-activity-card .transaction-lines')).not.toContainText(`${league} Move Team`);
     await filterTabs.getByRole('tab', { name: 'Waivers' }).click();
     await expect(page.locator('.league-activity-card')).toHaveAttribute('data-kind', 'waiver');
     await filterTabs.getByRole('tab', { name: 'Trades' }).click();
     await expect(page.locator('.league-activity-card')).toHaveAttribute('data-kind', 'trade');
+    await expect(page.locator('.trade-card .transaction-type')).toHaveText('Trade Completed');
+    await expect(page.getByRole('heading', { name: `${league} Alpha receives`, exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: `${league} Beta receives`, exact: true })).toBeVisible();
+    await expect(page.getByText('Player Three (TE · BUF)', { exact: true })).toHaveCount(1);
+    await expect(page.getByText('2027 Round 2', { exact: true })).toHaveCount(1);
+    await expect(page.getByText('$10', { exact: true })).toHaveCount(1);
+    const tradeHeaderDivider = await page.locator('.trade-card .transaction-header').evaluate(header => getComputedStyle(header).borderBottomWidth);
+    expect(tradeHeaderDivider).toBe('0px');
     expect(requests).toHaveLength(beforeFilters);
 
     await viewTabs.getByRole('tab', { name: 'Standings' }).click();
     await viewTabs.getByRole('tab', { name: 'Waivers' }).click();
     await transactionsTab.click();
-    await expect(page.getByText(`${league} Alpha ↔ ${league} Beta`, { exact: true })).toBeVisible();
+    await expect(page.locator('.trade-card .transaction-type')).toHaveText('Trade Completed');
     expect(requests.filter(key => key === league)).toHaveLength(1);
     await expectNoPageOverflow(page);
   }
@@ -539,11 +567,25 @@ test('league Transactions remains usable without overflow at every supported wid
     contentType: 'application/json',
     body: JSON.stringify({
       league: { season: '2026', week: 1, maxWeek: 18, rosterPositions: [] }, updatedAt: '2026-09-09T12:30:00.000Z',
-      activities: [{
-        kind: 'waiver', id: 'league1:waiver:p1:2026-09-09', timestamp: '2026-09-09T12:00:00.000Z', processedAt: '2026-09-09T12:00:00.000Z', day: '2026-09-09',
-        player: { id: 'p1', name: 'An exceptionally long player name that must wrap without colliding', position: 'WR', nflTeam: 'IND' },
-        winners: [], claims: [{ id: 'loss', team: 'An exceptionally long fantasy team name', bid: null, result: 'Lost' }],
-      }],
+      activities: [
+        {
+          kind: 'waiver', id: 'league1:waiver:p1:2026-09-09', timestamp: '2026-09-09T12:00:00.000Z', processedAt: '2026-09-09T12:00:00.000Z', day: '2026-09-09',
+          player: { id: 'p1', name: 'An exceptionally long player name that must wrap without colliding', position: 'WR', nflTeam: 'IND' },
+          winners: [{ id: 'win', team: 'An exceptionally long winning fantasy team name', added: [{ id: 'p1', name: 'An exceptionally long player name that must wrap without colliding', position: 'WR', nflTeam: 'IND' }], dropped: [] }],
+          claims: [{ id: 'win', team: 'An exceptionally long winning fantasy team name', bid: 12, result: 'Won' }, { id: 'loss', team: 'An exceptionally long losing fantasy team name', bid: null, result: 'Lost' }],
+        },
+        {
+          kind: 'add_drop', id: 'long-move', timestamp: '2026-09-08T12:00:00.000Z', title: 'An exceptionally long add and drop team name that must wrap safely',
+          type: 'Free agent', result: 'Complete', lines: [{ label: 'Added', text: 'An exceptionally long added player name (WR · GB)' }],
+        },
+        {
+          kind: 'trade', id: 'long-trade', timestamp: '2026-09-07T12:00:00.000Z', title: 'Trade Completed', result: 'Complete',
+          participants: [
+            { id: 1, team: 'An exceptionally long first trade team name', receives: [{ type: 'Player', text: 'An exceptionally long received player name (TE · BUF)' }, { type: 'Pick', text: '2028 Round 1' }] },
+            { id: 2, team: 'An exceptionally long second trade team name', receives: [{ type: 'FAAB', text: '$27' }] },
+          ],
+        },
+      ],
     }),
   }));
   for (const viewport of standingsViewports) {
@@ -551,8 +593,31 @@ test('league Transactions remains usable without overflow at every supported wid
     for (const route of ['/standings', '/league2/standings']) {
       await page.goto(route, { waitUntil: 'networkidle' });
       const viewTabs = page.getByRole('tablist', { name: 'Standings views' });
+      const panelGap = async () => page.locator('.standings-view-panel').evaluate(panel =>
+        panel.getBoundingClientRect().top - document.querySelector<HTMLElement>('.standings-view-tabs')!.getBoundingClientRect().bottom);
+      const standingsGap = await panelGap();
+      await viewTabs.getByRole('tab', { name: 'Waivers' }).click();
+      expect(Math.abs(await panelGap() - standingsGap)).toBeLessThanOrEqual(1);
       await viewTabs.getByRole('tab', { name: 'Transactions' }).click();
-      await expect(page.getByRole('heading', { name: 'League activity' })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'League Activity', exact: true })).toBeVisible();
+      expect(Math.abs(await panelGap() - standingsGap)).toBeLessThanOrEqual(1);
+      await expect(page.locator('.league-activity-card .result-badge')).toHaveCount(0);
+      const tradeSections = page.locator('.trade-receiver');
+      await expect(tradeSections).toHaveCount(2);
+      const tradeLayout = await tradeSections.evaluateAll(sections => sections.map(section => {
+        const rect = section.getBoundingClientRect();
+        const style = getComputedStyle(section);
+        return { left: rect.left, top: rect.top, borderLeft: style.borderLeftWidth, borderTop: style.borderTopWidth };
+      }));
+      if (viewport.width >= 760) {
+        expect(tradeLayout[1].left).toBeGreaterThan(tradeLayout[0].left);
+        expect(tradeLayout[1].borderLeft).toBe('1px');
+        expect(tradeLayout[1].borderTop).toBe('0px');
+      } else {
+        expect(tradeLayout[1].top).toBeGreaterThan(tradeLayout[0].top);
+        expect(tradeLayout[1].borderLeft).toBe('0px');
+        expect(tradeLayout[1].borderTop).toBe('1px');
+      }
       await expectNoPageOverflow(page);
       for (const tab of await page.getByRole('tablist', { name: 'Transaction filters' }).getByRole('tab').all()) await expectTouchHeight(tab);
       if (viewport.width < 760) await expect(page.getByRole('navigation', { name: 'Mobile navigation' })).toBeVisible();

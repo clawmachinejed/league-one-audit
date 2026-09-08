@@ -34,7 +34,7 @@ describe('league-wide transaction normalization', () => {
     if (rows[0].kind === 'waiver') expect(rows[0].claims).toEqual([{ id: 'same', team: 'Alpha', bid: 10, result: 'Won' }]);
   });
 
-  it('renders one multi-team, multi-player trade with picks and FAAB in both directions', () => {
+  it('renders every multi-team trade participant and each received player, pick, and FAAB asset once', () => {
     const rows = normalizeLeagueTransactions([transaction({
       transaction_id: 'trade', type: 'trade', roster_ids: [1, 2, 3],
       adds: { p1: 1, p2: 2, p3: 3 }, drops: { p1: 2, p2: 3, p3: 1 }, settings: null,
@@ -44,12 +44,45 @@ describe('league-wide transaction normalization', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ kind: 'trade', id: 'trade', title: 'Alpha ↔ Beta ↔ Gamma' });
     if (rows[0].kind === 'trade') {
-      expect(rows[0].lines).toEqual(expect.arrayContaining([
-        expect.objectContaining({ label: 'Alpha received', text: expect.stringContaining('2027 round 2') }),
-        expect.objectContaining({ label: 'Alpha sent', text: expect.stringContaining('$15 FAAB') }),
-        expect.objectContaining({ label: 'Gamma received', text: expect.stringContaining('$15 FAAB') }),
-        expect.objectContaining({ label: 'Beta sent', text: expect.stringContaining('Player One') }),
-      ]));
+      expect(rows[0].lines).toEqual([
+        { label: 'Alpha received', text: 'Player One (WR · IND), 2027 round 2 (Gamma original pick)' },
+        { label: 'Alpha sent', text: 'Player Three (TE · BUF), $15 FAAB' },
+        { label: 'Beta received', text: 'Player Two (RB · SEA)' },
+        { label: 'Beta sent', text: 'Player One (WR · IND), 2027 round 2 (Gamma original pick)' },
+        { label: 'Gamma received', text: 'Player Three (TE · BUF), $15 FAAB' },
+        { label: 'Gamma sent', text: 'Player Two (RB · SEA)' },
+      ]);
+      expect(rows[0].participants).toEqual([
+        { id: 1, team: 'Alpha', receives: [
+          { type: 'Player', text: 'Player One (WR · IND)' },
+          { type: 'Pick', text: '2027 Round 2 (Gamma original pick)' },
+        ] },
+        { id: 2, team: 'Beta', receives: [{ type: 'Player', text: 'Player Two (RB · SEA)' }] },
+        { id: 3, team: 'Gamma', receives: [
+          { type: 'Player', text: 'Player Three (TE · BUF)' },
+          { type: 'FAAB', text: '$15' },
+        ] },
+      ]);
+      const assets = rows[0].participants.flatMap(participant => participant.receives);
+      expect(assets).toHaveLength(5);
+      expect(new Set(assets.map(asset => `${asset.type}:${asset.text}`)).size).toBe(5);
+      expect(rows[0].unassigned).toEqual([]);
+    }
+  });
+
+  it('keeps a trade player visible once when Sleeper omits its receiving roster', () => {
+    const [row] = normalizeLeagueTransactions([transaction({
+      transaction_id: 'incomplete-trade', type: 'trade', roster_ids: [1, 2],
+      adds: { p1: 1 }, drops: { p1: 2, p2: 1 }, settings: null,
+    })], 'league1', teams, catalog);
+    expect(row.kind).toBe('trade');
+    if (row.kind === 'trade') {
+      expect(row.participants.find(participant => participant.team === 'Alpha')?.receives)
+        .toEqual([{ type: 'Player', text: 'Player One (WR · IND)' }]);
+      expect(row.unassigned).toEqual([{ type: 'Player', text: 'Player Two (RB · SEA)' }]);
+      const presentationAssets = [...row.participants.flatMap(participant => participant.receives), ...(row.unassigned ?? [])];
+      expect(presentationAssets.filter(asset => asset.text.includes('Player Two'))).toHaveLength(1);
+      expect(row.lines).toContainEqual({ label: 'Alpha sent', text: 'Player Two (RB · SEA)' });
     }
   });
 
@@ -58,7 +91,24 @@ describe('league-wide transaction normalization', () => {
       type: 'free_agent', adds: { p1: 2, p2: 2 }, drops: { p3: 2 }, roster_ids: [2], settings: null,
     })], 'league1', teams, catalog);
     expect(row).toMatchObject({ kind: 'add_drop', title: 'Beta', type: 'Free agent', result: 'Complete' });
-    if (row.kind === 'add_drop') expect(row.lines.map(line => line.label)).toEqual(['Added', 'Dropped']);
+    if (row.kind === 'add_drop') {
+      expect(row.lines).toEqual([
+        { label: 'Added', text: 'Player One (WR · IND), Player Two (RB · SEA)' },
+        { label: 'Dropped', text: 'Player Three (TE · BUF)' },
+      ]);
+      expect(row.lines.map(line => line.text).join(' ')).not.toContain('Beta');
+    }
+  });
+
+  it('keeps add-only and drop-only moves valid without empty movement rows', () => {
+    const rows = normalizeLeagueTransactions([
+      transaction({ transaction_id: 'add-only', type: 'free_agent', adds: { p1: 1 }, drops: null, settings: null }),
+      transaction({ transaction_id: 'drop-only', type: 'free_agent', adds: null, drops: { p2: 2 }, roster_ids: [2], settings: null }),
+    ], 'league1', teams, catalog);
+    const addOnly = rows.find(row => row.id === 'add-only');
+    const dropOnly = rows.find(row => row.id === 'drop-only');
+    expect(addOnly?.kind === 'add_drop' ? addOnly.lines : []).toEqual([{ label: 'Added', text: 'Player One (WR · IND)' }]);
+    expect(dropOnly?.kind === 'add_drop' ? dropOnly.lines : []).toEqual([{ label: 'Dropped', text: 'Player Two (RB · SEA)' }]);
   });
 
   it('groups one player/day with winners first and losing bids high-to-low deterministically', () => {
