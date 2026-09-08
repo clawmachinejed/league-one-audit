@@ -451,7 +451,7 @@ export function waiverBid(transaction: SleeperTransaction): number | null {
   if (transaction.type !== 'waiver') return null;
   for (const candidate of [transaction.settings?.waiver_bid, transaction.waiver_bid, transaction.metadata?.waiver_bid]) {
     const bid = numberOrNull(candidate);
-    if (bid !== null && bid >= 0) return bid;
+    if (bid !== null && Number.isSafeInteger(bid) && bid >= 0) return bid;
   }
   return null;
 }
@@ -468,12 +468,22 @@ export function involvesRoster(transaction: SleeperTransaction, rosterId: number
   return rosterValues.some((value) => numberOrNull(value) === rosterId);
 }
 
-function transactionTimestamp(transaction: SleeperTransaction): number {
+export function transactionTimestamp(transaction: SleeperTransaction): number {
   for (const candidate of [transaction.status_updated, transaction.created]) {
     const timestamp = numberOrNull(candidate);
     if (timestamp !== null && timestamp > 0 && Number.isFinite(new Date(timestamp).getTime())) return timestamp;
   }
   return 0;
+}
+
+/** Week endpoints can overlap. Keep the most recently updated copy of each source event. */
+export function dedupeTransactions(rows: SleeperTransaction[]): SleeperTransaction[] {
+  const unique = new Map<string, SleeperTransaction>();
+  for (const row of rows) {
+    const previous = unique.get(row.transaction_id);
+    if (!previous || transactionTimestamp(row) >= transactionTimestamp(previous)) unique.set(row.transaction_id, row);
+  }
+  return Array.from(unique.values());
 }
 
 function transactionType(type: string | undefined): string {
@@ -501,13 +511,7 @@ export function normalizeTransactions(
     const details = [player.position === '—' ? null : player.position, player.nflTeam].filter(Boolean).join(' · ');
     return `${player.name}${details ? ` (${details})` : ''}`;
   };
-  // Week endpoints can overlap. Keep the most recently updated copy of each event.
-  const unique = new Map<string, SleeperTransaction>();
-  for (const row of rows) {
-    const previous = unique.get(row.transaction_id);
-    if (!previous || transactionTimestamp(row) >= transactionTimestamp(previous)) unique.set(row.transaction_id, row);
-  }
-  return Array.from(unique.values())
+  return dedupeTransactions(rows)
     .filter((row) => involvesRoster(row, rosterId))
     .sort((a, b) => transactionTimestamp(b) - transactionTimestamp(a) || b.transaction_id.localeCompare(a.transaction_id))
     .map((row): Transaction => {

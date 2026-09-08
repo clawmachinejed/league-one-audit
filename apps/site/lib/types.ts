@@ -96,3 +96,65 @@ export interface TransactionsData extends OverviewData {
   team: Team;
   transactions: Transaction[];
 }
+
+export interface TransactionPlayer {
+  id: string;
+  name: string;
+  position: string;
+  nflTeam: string | null;
+}
+
+export interface LeagueTransactionLine {
+  label: string;
+  text: string;
+}
+
+export interface LeagueTransactionClaim {
+  id: string;
+  team: string;
+  bid: number | null;
+  result: TransactionResult;
+}
+
+export interface LeagueWaiverWinner {
+  id: string;
+  team: string;
+  added: TransactionPlayer[];
+  dropped: TransactionPlayer[];
+}
+
+export interface LeagueWaiverActivity {
+  kind: 'waiver';
+  id: string;
+  timestamp: string | null;
+  processedAt: string | null;
+  day: string | null;
+  player: TransactionPlayer | null;
+  claims: LeagueTransactionClaim[];
+  winners: LeagueWaiverWinner[];
+}
+
+export interface LeagueMoveActivity {
+  kind: 'add_drop';
+  id: string;
+  timestamp: string | null;
+  title: string;
+  type: string;
+  result: TransactionResult;
+  lines: LeagueTransactionLine[];
+}
+
+export interface LeagueTradeActivity {
+  kind: 'trade';
+  id: string;
+  timestamp: string | null;
+  title: string;
+  result: TransactionResult;
+  lines: LeagueTransactionLine[];
+}
+
+export type LeagueTransactionActivity = LeagueWaiverActivity | LeagueMoveActivity | LeagueTradeActivity;
+
+export interface LeagueTransactionsData extends Pick<OverviewData, 'league' | 'updatedAt' | 'warning'> {
+  activities: LeagueTransactionActivity[];
+}
