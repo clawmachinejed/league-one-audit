@@ -3,11 +3,17 @@ export function transactionTypeLabel(value: string) {
   return normalized.charAt(0).toUpperCase() + normalized.slice(1);
 }
 
+import { TRANSACTION_TIME_ZONE } from '../lib/transaction-time';
+
 export function transactionDateLabel(value: string | null) {
   if (!value) return 'Date unavailable';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return 'Date unavailable';
-  return `${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'America/New_York' })} · ${date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' })} ET`;
+  return `${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: TRANSACTION_TIME_ZONE })} · ${date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: TRANSACTION_TIME_ZONE })} ET`;
+}
+
+export function formatTransactionBid(value: number | null): string {
+  return value === null ? '—' : `$${value}`;
 }
 
 export function transactionMovementClass(label: string) {

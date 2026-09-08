@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { transactionMovementClass } from './transaction-format';
+import { formatTransactionBid, transactionMovementClass } from './transaction-format';
 
 describe('transaction movement presentation', () => {
   it.each(['Add', 'Added', 'League One receives', 'League One received'])('%s is an incoming movement', (label) => {
@@ -18,5 +18,12 @@ describe('transaction movement presentation', () => {
   it('uses the generated movement verb rather than words inside a team name', () => {
     expect(transactionMovementClass('Always Receives sends')).toBe('movement-drop');
     expect(transactionMovementClass('Drop Everything receives')).toBe('movement-add');
+  });
+});
+
+describe('transaction bid presentation', () => {
+  it('distinguishes a valid zero-dollar bid from an unavailable amount', () => {
+    expect(formatTransactionBid(0)).toBe('$0');
+    expect(formatTransactionBid(null)).toBe('—');
   });
 });

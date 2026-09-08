@@ -159,10 +159,10 @@ h1{font-weight:800;font-size:38px;line-height:1.12;letter-spacing:-.055em;overfl
 .avatar{width:38px;height:38px;border-radius:50%;overflow:hidden;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;background:var(--avatar-bg);border:1px solid var(--avatar-border);color:var(--avatar-ink);font-weight:800;font-size:12px;letter-spacing:-.025em}
 .avatar img{width:100%;height:100%;object-fit:cover}
 .avatar-large{width:64px;height:64px;font-size:20px}
-.standings-view-tabs{display:inline-grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px;margin:0 0 8px;padding:2px;border:1px solid var(--line);border-radius:8px;background:var(--surface-muted)}
+.standings-view-tabs{display:inline-grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:2px;max-width:100%;margin:0 0 8px;padding:2px;border:1px solid var(--line);border-radius:8px;background:var(--surface-muted)}
 .standings-view-tabs button{min-width:88px;min-height:32px;padding:6px 12px;border:0;border-radius:5px;background:transparent;color:var(--muted);font-size:10px;font-weight:750;cursor:pointer}
 .standings-view-tabs button[aria-selected=true]{background:var(--surface);color:var(--green);box-shadow:0 1px 3px rgba(0,0,0,.12)}
-.standings-view-tabs button:focus-visible,.standings-sort-button:focus-visible{outline:2px solid var(--green);outline-offset:1px}
+.standings-view-tabs button:focus-visible,.standings-sort-button:focus-visible,.transaction-filters button:focus-visible{outline:2px solid var(--green);outline-offset:1px}
 .standings-wrap{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
 .standings-table{width:100%;border-collapse:collapse;table-layout:fixed;font-variant-numeric:tabular-nums;text-align:left}
 .standings-rank-column{width:47px}
@@ -284,6 +284,34 @@ h1{font-weight:800;font-size:38px;line-height:1.12;letter-spacing:-.055em;overfl
 .faab-bid{display:flex;align-items:center;justify-content:space-between;border-top:1px solid var(--line-soft);padding-top:12px}
 .faab-bid>span{font-size:10px;color:var(--muted);font-weight:600}
 .faab-bid>strong{font-size:19px;line-height:1.2;letter-spacing:-.04em;font-variant-numeric:tabular-nums;color:var(--navy)}
+.league-transactions-panel{min-width:0;margin-top:14px}
+.league-activity-heading{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin:0 0 12px;min-width:0}
+.league-activity-heading>div{min-width:0}
+.league-activity-heading h2{font-size:16px;font-weight:750;letter-spacing:-.015em}
+.league-activity-heading p,.league-activity-heading>span{color:var(--muted);font-size:10px;line-height:1.5}
+.league-activity-heading>span{white-space:nowrap}
+.transactions-inline-state{display:flex;align-items:center;justify-content:center;min-height:190px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);color:var(--muted);font-size:12px}
+.transaction-filters{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;margin:0 0 12px;min-width:0}
+.transaction-filters button{min-width:0;min-height:44px;padding:7px 4px;border:1px solid var(--line);border-radius:7px;background:var(--surface);color:var(--muted);font-size:9px;font-weight:750;line-height:1.25;cursor:pointer}
+.transaction-filters button[aria-selected=true]{border-color:var(--selected-control-border);background:var(--green-soft);color:var(--green)}
+.league-transactions-list{max-width:none}
+.league-activity-card .transaction-lines>div{grid-template-columns:minmax(82px,34%) minmax(0,1fr)}
+.league-activity-card .transaction-body{display:block}
+.transaction-subtype,.transaction-player-details{margin-top:2px;color:var(--muted);font-size:10px;line-height:1.5}
+.transaction-title-row{display:flex;align-items:baseline;flex-wrap:wrap;gap:7px;min-width:0}
+.transaction-title-row>span{color:var(--muted);font-size:10px;font-weight:650}
+.waiver-card-body{display:flex!important;flex-direction:column!important;gap:11px!important}
+.waiver-winning-moves{gap:6px}
+.waiver-no-winner{color:var(--negative-ink);font-size:11px;font-weight:700;line-height:1.5}
+.waiver-bid-list{border-top:1px solid var(--line-soft);padding-top:8px;min-width:0;font-variant-numeric:tabular-nums}
+.waiver-bid-heading,.waiver-bid-row{display:grid;grid-template-columns:minmax(0,1fr) 52px 52px;gap:8px;align-items:center;min-width:0}
+.waiver-bid-heading{padding:0 0 3px;color:var(--muted);font-size:8px;font-weight:700;line-height:1.3;text-transform:uppercase;letter-spacing:.04em}
+.waiver-bid-row{min-height:24px;padding:2px 0;font-size:10px;line-height:1.25}
+.waiver-bid-team{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:650}
+.waiver-bid-heading>span:nth-child(n+2),.waiver-bid-amount,.waiver-bid-result{text-align:right;white-space:nowrap}
+.waiver-bid-row.result-positive{color:var(--positive-ink)}
+.waiver-bid-row.result-negative{color:var(--negative-ink)}
+.waiver-bid-row.result-neutral{color:var(--neutral-ink)}
 .empty-state{padding:37px 20px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);text-align:center}
 .empty-mark{display:inline-flex;align-items:center;justify-content:center;width:48px;height:48px;border-radius:50%;background:var(--empty-bg);color:var(--empty-ink);margin-bottom:14px}
 .empty-state h2{font-size:18px;font-weight:700;line-height:1.4;letter-spacing:-.025em}

@@ -18,11 +18,14 @@ import {
   resolveSleeperSchedule,
   type WeekSchedule,
 } from './nfl-schedule';
-import type { MatchupsData, OverviewData, ManagerData, Player, StandingsData, TransactionsData } from './types';
+import type { MatchupsData, OverviewData, ManagerData, Player, StandingsData, TransactionsData, LeagueTransactionsData } from './types';
+import type { LeagueKey } from './leagues';
+import { normalizeLeagueTransactions } from './league-transactions';
 import { matchupTemporalState, type MatchupPeriodContext } from './matchup-period';
 import {
   canDecorateMatchupWeek,
   addWaiverBalances,
+  dedupeTransactions,
   involvesRoster,
   matchupSlateExpected,
   matchupStatus,
@@ -742,7 +745,7 @@ export async function getManager(leagueId: string, id: number): Promise<ManagerD
   };
 }
 
-const getTransactionWeeks = cache(async (leagueId: string, lastWeek: number) => {
+export const getTransactionWeeks = cache(async (leagueId: string, lastWeek: number) => {
   const weeks = Array.from({ length: lastWeek + 1 }, (_, week) => week);
   const rows: SleeperTransaction[] = [];
   const failedWeeks: number[] = [];
@@ -767,6 +770,29 @@ const getTransactionWeeks = cache(async (leagueId: string, lastWeek: number) => 
   if (!succeeded) throw new Error('Sleeper transaction history is temporarily unavailable. Please try again.');
   return { rows, failedWeeks: failedWeeks.sort((a, b) => a - b) };
 });
+
+export async function getLeagueTransactions(leagueId: string, leagueKey: LeagueKey): Promise<LeagueTransactionsData> {
+  const core = await getCore(leagueId);
+  const [history, players] = await Promise.all([
+    getTransactionWeeks(leagueId, transactionEndWeek(core.sourceLeague, core.state)),
+    getPlayers(),
+  ]);
+  const partial = history.failedWeeks.length > 0;
+  const activities = normalizeLeagueTransactions(history.rows, leagueKey, core.overview.teams, players.catalog);
+  const transactionPlayerIds = dedupeTransactions(history.rows)
+    .filter(row => !['pending', 'processing', 'queued'].includes(row.status?.toLowerCase() ?? ''))
+    .flatMap(row => [...Object.keys(row.adds ?? {}), ...Object.keys(row.drops ?? {})]);
+  return {
+    league: core.overview.league,
+    updatedAt: core.overview.updatedAt,
+    activities,
+    warning: joinWarnings(core.overview.warning, players.warning,
+      players.warning ? undefined : playerCoverageWarning(players.catalog, transactionPlayerIds),
+      partial
+        ? `Some transaction history could not be loaded (weeks ${history.failedWeeks.join(', ')}). The list may be incomplete.`
+        : undefined),
+  };
+}
 
 export async function getTransactions(leagueId: string, id: number): Promise<TransactionsData | null> {
   if (!Number.isInteger(id) || id < 1) return null;

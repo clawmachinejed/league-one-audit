@@ -33,6 +33,7 @@ import {
   getProjectionSyncInput,
   getRawLineupMatchups,
   getStandings,
+  getLeagueTransactions,
   getTransactions,
 } from './sleeper';
 
@@ -546,6 +547,29 @@ describe('Sleeper service error handling', () => {
     expect(data?.warning).toContain('weeks 1');
     expect(data?.transactions).toHaveLength(1);
     expect(data?.transactions[0]).toMatchObject({ id: 'week-zero', result: 'Lost', bid: 7 });
+  });
+
+  it('returns available finalized league activity with the existing partial-history warning', async () => {
+    failures.add(`${leaguePath}/transactions/1`);
+    const data = await getLeagueTransactions(leagueOneId, 'league1');
+    expect(data.warning).toContain('weeks 1');
+    expect(data.activities).toHaveLength(1);
+    expect(data.activities[0]).toMatchObject({ kind: 'waiver', claims: [{ id: 'week-zero', result: 'Lost', bid: 7 }] });
+  });
+
+  it('fails the league-wide request when every transaction week fails', async () => {
+    failures.add('all-transactions');
+    await expect(getLeagueTransactions(leagueOneId, 'league1')).rejects.toThrow('transaction history is temporarily unavailable');
+  });
+
+  it('loads only the requested league once with the established four-request concurrency cap', async () => {
+    const data = await getLeagueTransactions(leagueTwoId, 'league2');
+    const transactionPaths = vi.mocked(fetch).mock.calls.map(([input]) => requestPath(input))
+      .filter(path => path.includes('/transactions/'));
+    expect(data.activities[0].id).toContain('league2:');
+    expect(transactionPaths).toHaveLength(4);
+    expect(transactionPaths.every(path => path.startsWith(leagueTwoPath))).toBe(true);
+    expect(maxTransactionRequests).toBeLessThanOrEqual(4);
   });
 
   it('fails visibly instead of returning an empty activity feed when every history request fails', async () => {

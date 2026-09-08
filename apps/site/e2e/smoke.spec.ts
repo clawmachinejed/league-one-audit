@@ -446,6 +446,133 @@ test('Standings and Waivers switch locally, support keyboard tabs, and retain in
   await expectNoPageOverflow(page);
 });
 
+test('league Transactions loads once, filters locally, groups bids compactly, and remains league-isolated', async ({ page }) => {
+  const payload = (league: 'league1' | 'league2') => ({
+    league: { season: '2026', week: 1, maxWeek: 18, rosterPositions: [] },
+    updatedAt: '2026-09-09T12:30:00.000Z',
+    activities: [
+      {
+        kind: 'waiver', id: `${league}:waiver:p1:2026-09-09`, timestamp: '2026-09-09T12:00:00.000Z',
+        processedAt: '2026-09-09T12:00:00.000Z', day: '2026-09-09',
+        player: { id: 'p1', name: `${league} Waiver Player`, position: 'WR', nflTeam: 'IND' },
+        winners: [{ id: 'winner', team: `${league} Winning Team`, added: [{ id: 'p1', name: `${league} Waiver Player`, position: 'WR', nflTeam: 'IND' }], dropped: [] }],
+        claims: [
+          { id: 'winner', team: `${league} Winning Team`, bid: 0, result: 'Won' },
+          { id: 'loser-high', team: 'A losing team with an intentionally very long name', bid: 9, result: 'Lost' },
+          { id: 'loser-low', team: 'Another Team', bid: 3, result: 'Lost' },
+        ],
+      },
+      {
+        kind: 'add_drop', id: `${league}-move`, timestamp: '2026-09-08T12:00:00.000Z', title: `${league} Move Team`,
+        type: 'Free agent', result: 'Complete', lines: [{ label: 'Added', text: 'Player Two (RB · SEA)' }],
+      },
+      {
+        kind: 'trade', id: `${league}-trade`, timestamp: '2026-09-07T12:00:00.000Z', title: `${league} Alpha ↔ ${league} Beta`,
+        result: 'Complete', lines: [{ label: `${league} Alpha received`, text: 'Player Three (TE · BUF), 2027 round 2' }],
+      },
+    ],
+  });
+  const requests: string[] = [];
+  await page.route('**/api/transactions/*', async route => {
+    const key = new URL(route.request().url()).pathname.split('/').at(-1) as 'league1' | 'league2';
+    requests.push(key);
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload(key)) });
+  });
+
+  for (const route of ['/standings', '/league2/standings']) {
+    const league = route.startsWith('/league2') ? 'league2' : 'league1';
+    await page.goto(route, { waitUntil: 'networkidle' });
+    const url = page.url();
+    const viewTabs = page.getByRole('tablist', { name: 'Standings views' });
+    const mainTabs = viewTabs.getByRole('tab');
+    await expect(mainTabs).toHaveText(['Standings', 'Waivers', 'Transactions']);
+    await expect(mainTabs.nth(0)).toHaveAttribute('aria-selected', 'true');
+    expect(requests.filter(key => key === league)).toHaveLength(0);
+
+    const transactionsTab = viewTabs.getByRole('tab', { name: 'Transactions' });
+    await transactionsTab.click();
+    await expect(page).toHaveURL(url);
+    await expect(page.getByRole('heading', { name: 'League activity' })).toBeVisible();
+    await expect(page.getByText(`${league} Waiver Player`, { exact: true })).toBeVisible();
+    await expect(page.getByText(`${league === 'league1' ? 'league2' : 'league1'} Waiver Player`, { exact: true })).toHaveCount(0);
+    await expect(page.getByText('3 reported bids', { exact: false })).toBeVisible();
+    const bidRows = page.locator('.waiver-bid-row');
+    await expect(bidRows).toHaveCount(3);
+    await expect(bidRows.nth(0)).toContainText('Won');
+    await expect(bidRows.nth(0)).toContainText('$0');
+    await expect(bidRows.nth(1)).toContainText('Lost');
+    await expect(bidRows.nth(1)).toHaveClass(/result-negative/u);
+    await expect(page.getByText('Pending', { exact: true })).toHaveCount(0);
+    const bidLayout = await bidRows.evaluateAll(rows => rows.map(row => {
+      const style = getComputedStyle(row);
+      return { borderTop: style.borderTopWidth, borderBottom: style.borderBottomWidth, height: row.getBoundingClientRect().height };
+    }));
+    expect(bidLayout.every(row => row.borderTop === '0px' && row.borderBottom === '0px')).toBe(true);
+    expect(bidLayout.every(row => row.height <= 28)).toBe(true);
+    expect(await bidRows.locator('.transaction-date').count()).toBe(0);
+    await expect(page.locator('.waiver-card .transaction-date')).toHaveCount(1);
+
+    const beforeFilters = requests.length;
+    const filterTabs = page.getByRole('tablist', { name: 'Transaction filters' });
+    await filterTabs.getByRole('tab', { name: 'Adds & Drops' }).click();
+    await expect(page.locator('.league-activity-card')).toHaveCount(1);
+    await expect(page.locator('.league-activity-card')).toHaveAttribute('data-kind', 'add_drop');
+    await filterTabs.getByRole('tab', { name: 'Waivers' }).click();
+    await expect(page.locator('.league-activity-card')).toHaveAttribute('data-kind', 'waiver');
+    await filterTabs.getByRole('tab', { name: 'Trades' }).click();
+    await expect(page.locator('.league-activity-card')).toHaveAttribute('data-kind', 'trade');
+    expect(requests).toHaveLength(beforeFilters);
+
+    await viewTabs.getByRole('tab', { name: 'Standings' }).click();
+    await viewTabs.getByRole('tab', { name: 'Waivers' }).click();
+    await transactionsTab.click();
+    await expect(page.getByText(`${league} Alpha ↔ ${league} Beta`, { exact: true })).toBeVisible();
+    expect(requests.filter(key => key === league)).toHaveLength(1);
+    await expectNoPageOverflow(page);
+  }
+  expect(requests).toEqual(['league1', 'league2']);
+});
+
+test('league Transactions remains usable without overflow at every supported width', async ({ page }) => {
+  await page.route('**/api/transactions/*', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      league: { season: '2026', week: 1, maxWeek: 18, rosterPositions: [] }, updatedAt: '2026-09-09T12:30:00.000Z',
+      activities: [{
+        kind: 'waiver', id: 'league1:waiver:p1:2026-09-09', timestamp: '2026-09-09T12:00:00.000Z', processedAt: '2026-09-09T12:00:00.000Z', day: '2026-09-09',
+        player: { id: 'p1', name: 'An exceptionally long player name that must wrap without colliding', position: 'WR', nflTeam: 'IND' },
+        winners: [], claims: [{ id: 'loss', team: 'An exceptionally long fantasy team name', bid: null, result: 'Lost' }],
+      }],
+    }),
+  }));
+  for (const viewport of standingsViewports) {
+    await page.setViewportSize(viewport);
+    for (const route of ['/standings', '/league2/standings']) {
+      await page.goto(route, { waitUntil: 'networkidle' });
+      const viewTabs = page.getByRole('tablist', { name: 'Standings views' });
+      await viewTabs.getByRole('tab', { name: 'Transactions' }).click();
+      await expect(page.getByRole('heading', { name: 'League activity' })).toBeVisible();
+      await expectNoPageOverflow(page);
+      for (const tab of await page.getByRole('tablist', { name: 'Transaction filters' }).getByRole('tab').all()) await expectTouchHeight(tab);
+      if (viewport.width < 760) await expect(page.getByRole('navigation', { name: 'Mobile navigation' })).toBeVisible();
+    }
+  }
+});
+
+test('league Transactions total failure stays inline while Standings remains usable', async ({ page }) => {
+  await page.route('**/api/transactions/*', route => route.fulfill({
+    status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'League transaction history is temporarily unavailable. Please try again.' }),
+  }));
+  await page.goto('/standings', { waitUntil: 'networkidle' });
+  const viewTabs = page.getByRole('tablist', { name: 'Standings views' });
+  await viewTabs.getByRole('tab', { name: 'Transactions' }).click();
+  await expect(page.getByRole('heading', { name: 'League transactions unavailable' })).toBeVisible();
+  await expect(page.getByText('Loading the league…')).toHaveCount(0);
+  await viewTabs.getByRole('tab', { name: 'Standings' }).click();
+  await expect(page.locator('.standings-table')).toBeVisible();
+});
+
 test('My Team standings highlighting remains isolated by league and survives reloads', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/standings', { waitUntil: 'networkidle' });
