@@ -56,7 +56,7 @@ function parseMovementPlayerText(text: string): MovementPlayerDisplay[] | null {
   const players: MovementPlayerDisplay[] = [];
   let offset = 0;
   while (offset < text.length) {
-    const match = /^([^(),\r\n]+?) (\([A-Z][A-Z0-9/-]* · [A-Z]{2,3}\))(?:, |$)/u.exec(text.slice(offset));
+    const match = /^([^(),\r\n]+?) (\([A-Z][A-Z0-9/-]*(?: · [A-Z]{2,3})?\))(?:, |$)/u.exec(text.slice(offset));
     if (!match) return null;
     players.push({ key: `${offset}-${match[1]}`, name: match[1], details: match[2] });
     offset += match[0].length;

@@ -213,6 +213,22 @@ describe('league transaction card presentation', () => {
     expect(html).not.toContain('<strong');
   });
 
+  it('emphasizes names when the standardized player text contains safe partial metadata', () => {
+    const partial: LeagueTransactionsData = {
+      ...data,
+      activities: [{
+        kind: 'add_drop', id: 'partial', timestamp: '2026-09-08T12:00:00.000Z', title: 'Partial Details',
+        type: 'Free agent', result: 'Complete',
+        lines: [{ label: 'Added', text: 'Position Only (RB), Team Only (IND)' }],
+      }],
+    };
+    const html = renderToStaticMarkup(<LeagueTransactionsView state="ready" data={partial} error={null} />);
+    expect(html).toContain('<strong class="transaction-movement-player-name">Position Only</strong> <span class="transaction-movement-player-details">(RB)</span>');
+    expect(html).toContain('<strong class="transaction-movement-player-name">Team Only</strong> <span class="transaction-movement-player-details">(IND)</span>');
+    expect(html).toContain('</span><span class="transaction-movement-separator">, </span><span class="transaction-movement-player">');
+    expect(html.replace(/<[^>]+>/gu, '')).toContain('AddedPosition Only (RB), Team Only (IND)');
+  });
+
   it('states unsuccessful non-waiver outcomes inline without restoring a status badge', () => {
     const failed: LeagueTransactionsData = {
       ...data,
