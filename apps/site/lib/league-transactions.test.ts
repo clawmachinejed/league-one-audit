@@ -96,6 +96,13 @@ describe('league-wide transaction normalization', () => {
         { label: 'Added', text: 'Player One (WR · IND), Player Two (RB · SEA)' },
         { label: 'Dropped', text: 'Player Three (TE · BUF)' },
       ]);
+      expect(row.movementPlayers).toEqual({
+        added: [
+          { id: 'p1', name: 'Player One', position: 'WR', nflTeam: 'IND' },
+          { id: 'p2', name: 'Player Two', position: 'RB', nflTeam: 'SEA' },
+        ],
+        dropped: [{ id: 'p3', name: 'Player Three', position: 'TE', nflTeam: 'BUF' }],
+      });
       expect(row.lines.map(line => line.text).join(' ')).not.toContain('Beta');
     }
   });
@@ -109,6 +116,12 @@ describe('league-wide transaction normalization', () => {
     const dropOnly = rows.find(row => row.id === 'drop-only');
     expect(addOnly?.kind === 'add_drop' ? addOnly.lines : []).toEqual([{ label: 'Added', text: 'Player One (WR · IND)' }]);
     expect(dropOnly?.kind === 'add_drop' ? dropOnly.lines : []).toEqual([{ label: 'Dropped', text: 'Player Two (RB · SEA)' }]);
+    expect(addOnly?.kind === 'add_drop' ? addOnly.movementPlayers : null).toEqual({
+      added: [{ id: 'p1', name: 'Player One', position: 'WR', nflTeam: 'IND' }], dropped: [],
+    });
+    expect(dropOnly?.kind === 'add_drop' ? dropOnly.movementPlayers : null).toEqual({
+      added: [], dropped: [{ id: 'p2', name: 'Player Two', position: 'RB', nflTeam: 'SEA' }],
+    });
   });
 
   it('groups one player/day with winners first and losing bids high-to-low deterministically', () => {

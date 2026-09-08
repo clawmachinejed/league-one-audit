@@ -300,11 +300,14 @@ h1{font-weight:800;font-size:38px;line-height:1.12;letter-spacing:-.055em;overfl
 .league-activity-card .transaction-header>div{width:100%}
 .league-activity-card .transaction-lines>div{grid-template-columns:62px minmax(0,1fr)}
 .league-activity-card .transaction-body{display:block}
+.transaction-movement-rows dd{min-width:0;font-weight:400}
+.transaction-movement-player,.transaction-movement-separator,.transaction-movement-player-details{font-weight:400}
+.transaction-movement-player-name{font-weight:600}
+.transaction-movement-player-details{color:var(--muted)}
 .transaction-subtype,.transaction-player-details{margin-top:2px;color:var(--muted);font-size:10px;line-height:1.5}
 .transaction-title-row{display:flex;align-items:baseline;flex-wrap:wrap;gap:7px;min-width:0}
 .transaction-title-row>span{color:var(--muted);font-size:10px;font-weight:650}
 .waiver-card-body{display:flex!important;flex-direction:column!important;gap:11px!important}
-.waiver-winning-moves{gap:6px}
 .waiver-no-winner{color:var(--negative-ink);font-size:11px;font-weight:700;line-height:1.5}
 .waiver-bid-list{border-top:1px solid var(--line-soft);padding-top:8px;min-width:0;font-variant-numeric:tabular-nums}
 .waiver-bid-heading,.waiver-bid-row{display:grid;grid-template-columns:minmax(0,1fr) 52px 52px;gap:8px;align-items:center;min-width:0}

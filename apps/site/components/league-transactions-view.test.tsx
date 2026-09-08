@@ -45,10 +45,12 @@ const presentationData: LeagueTransactionsData = {
     {
       kind: 'add_drop', id: 'add-only', timestamp: '2026-09-08T12:00:00.000Z', title: 'Add Only Team',
       type: 'Free agent', result: 'Complete', lines: [{ label: 'Added', text: 'Added Player (WR · GB)' }],
+      movementPlayers: { added: [{ id: 'added', name: 'Added Player', position: 'WR', nflTeam: 'GB' }], dropped: [] },
     },
     {
       kind: 'add_drop', id: 'drop-only', timestamp: '2026-09-08T11:00:00.000Z', title: 'Drop Only Team',
       type: 'Free agent', result: 'Complete', lines: [{ label: 'Dropped', text: 'Dropped Player (RB · PHI)' }],
+      movementPlayers: { added: [], dropped: [{ id: 'dropped', name: 'Dropped Player', position: 'RB', nflTeam: 'PHI' }] },
     },
     {
       kind: 'trade', id: 'two-team-trade', timestamp: '2026-09-07T12:00:00.000Z', title: 'Fourth & Long ↔ Sunday Scaries', result: 'Complete',
@@ -146,18 +148,63 @@ describe('league transaction card presentation', () => {
     expect(html).toContain('<div class="transaction-title-row"><p class="transaction-type">Drop Only Team</p><span>Free agent</span></div>');
     const addOnly = html.match(/<article[^>]*data-kind="add_drop"[^>]*>(.*?)<\/article>/gu) ?? [];
     expect(addOnly).toHaveLength(2);
-    expect(addOnly[0]).toContain('<dt>Added</dt><dd>Added Player (WR · GB)</dd>');
+    expect(addOnly[0]).toContain('<dt>Added</dt><dd><span class="transaction-movement-player"><strong class="transaction-movement-player-name">Added Player</strong> <span class="transaction-movement-player-details">(WR · GB)</span></span></dd>');
     expect(addOnly[0]).not.toContain('<dt>Dropped</dt>');
     expect(addOnly[0]!.match(/Add Only Team/gu)).toHaveLength(1);
-    expect(addOnly[1]).toContain('<dt>Dropped</dt><dd>Dropped Player (RB · PHI)</dd>');
+    expect(addOnly[1]).toContain('<dt>Dropped</dt><dd><span class="transaction-movement-player"><strong class="transaction-movement-player-name">Dropped Player</strong> <span class="transaction-movement-player-details">(RB · PHI)</span></span></dd>');
     expect(addOnly[1]).not.toContain('<dt>Added</dt>');
     expect(addOnly[1]!.match(/Drop Only Team/gu)).toHaveLength(1);
 
-    const waiverMoves = html.match(/<dl class="transaction-lines waiver-winning-moves">(.*?)<\/dl>/u)?.[1] ?? '';
+    const waiverMoves = html.match(/<article[^>]*data-kind="waiver"[^>]*>.*?<dl class="transaction-lines transaction-movement-rows">(.*?)<\/dl>/u)?.[1] ?? '';
     expect(html).toContain('<div class="transaction-title-row"><p class="transaction-type">Alpha Winners</p><span>Waiver</span></div>');
-    expect(waiverMoves).toContain('<dt>Added</dt><dd>Player One (WR · IND)</dd>');
-    expect(waiverMoves).toContain('<dt>Dropped</dt><dd>Player Two (RB · SEA)</dd>');
+    expect(waiverMoves).toContain('<dt>Added</dt><dd><span class="transaction-movement-player"><strong class="transaction-movement-player-name">Player One</strong> <span class="transaction-movement-player-details">(WR · IND)</span></span></dd>');
+    expect(waiverMoves).toContain('<dt>Dropped</dt><dd><span class="transaction-movement-player"><strong class="transaction-movement-player-name">Player Two</strong> <span class="transaction-movement-player-details">(RB · SEA)</span></span></dd>');
     expect(waiverMoves).not.toContain('Alpha Winners');
+  });
+
+  it('uses one movement-row structure and spacing contract for waiver and free-agent cards', () => {
+    const html = renderToStaticMarkup(<LeagueTransactionsView state="ready" data={presentationData} error={null} />);
+    expect(html.match(/<dl class="transaction-lines transaction-movement-rows">/gu)).toHaveLength(3);
+    expect(html).not.toContain('waiver-winning-moves');
+
+    const css = readFileSync(new URL('../app/globals.css', import.meta.url), 'utf8');
+    expect(css).toContain('.transaction-lines{display:grid;gap:12px;');
+    expect(css).toContain('.league-activity-card .transaction-lines>div{grid-template-columns:62px minmax(0,1fr)}');
+    expect(css).toContain('.league-activity-card .transaction-lines>div{grid-template-columns:84px minmax(0,1fr)}');
+    expect(css).not.toContain('.waiver-winning-moves');
+    expect(css).not.toMatch(/\.waiver-card[^}]*padding/gu);
+  });
+
+  it('emphasizes every structured player name without emphasizing details or separators', () => {
+    const multiple: LeagueTransactionsData = {
+      ...data,
+      activities: [{
+        kind: 'add_drop', id: 'multiple', timestamp: '2026-09-08T12:00:00.000Z', title: 'Multiple Players',
+        type: 'Free agent', result: 'Complete',
+        lines: [
+          { label: 'Added', text: 'An Exceptionally Long Player Name (RB · PHI), Green Bay Packers (DEF · GB)' },
+          { label: 'Dropped', text: 'Tank Bigsby (RB · PHI)' },
+        ],
+        movementPlayers: {
+          added: [
+            { id: 'long', name: 'An Exceptionally Long Player Name', position: 'RB', nflTeam: 'PHI' },
+            { id: 'gb', name: 'Green Bay Packers', position: 'DEF', nflTeam: 'GB' },
+          ],
+          dropped: [{ id: 'tank', name: 'Tank Bigsby', position: 'RB', nflTeam: 'PHI' }],
+        },
+      }],
+    };
+    const html = renderToStaticMarkup(<LeagueTransactionsView state="ready" data={multiple} error={null} />);
+    expect(html.match(/class="transaction-movement-player-name"/gu)).toHaveLength(3);
+    expect(html).toContain('<strong class="transaction-movement-player-name">Green Bay Packers</strong> <span class="transaction-movement-player-details">(DEF · GB)</span>');
+    expect(html).toContain('</span><span class="transaction-movement-separator">, </span><span class="transaction-movement-player">');
+    expect(html).not.toMatch(/<strong[^>]*>[^<]*\(/gu);
+    expect(html).not.toMatch(/<strong[^>]*>[^<]*,/gu);
+
+    const css = readFileSync(new URL('../app/globals.css', import.meta.url), 'utf8');
+    expect(css).toContain('.transaction-movement-rows dd{min-width:0;font-weight:400}');
+    expect(css).toContain('.transaction-movement-player-name{font-weight:600}');
+    expect(css).toContain('.transaction-movement-player-details{color:var(--muted)}');
   });
 
   it('states unsuccessful non-waiver outcomes inline without restoring a status badge', () => {

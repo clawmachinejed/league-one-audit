@@ -1,12 +1,13 @@
 'use client';
 
-import { useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { Fragment, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import type {
   LeagueMoveActivity,
   LeagueTradeActivity,
   LeagueTransactionActivity,
   LeagueTransactionsData,
   LeagueWaiverActivity,
+  TransactionPlayer,
   TransactionResult,
 } from '../lib/types';
 import { EmptyState, Updated, Warning } from './league-primitives';
@@ -27,17 +28,48 @@ function resultClass(result: TransactionResult) {
     : result === 'Lost' || result === 'Failed' ? 'negative' : 'neutral';
 }
 
-function formatPlayer(player: NonNullable<LeagueWaiverActivity['player']>) {
+function playerDetails(player: TransactionPlayer) {
   const details = [player.position === '—' ? null : player.position, player.nflTeam].filter(Boolean).join(' · ');
-  return `${player.name}${details ? ` (${details})` : ''}`;
+  return details ? `(${details})` : null;
+}
+
+function formatPlayer(player: NonNullable<LeagueWaiverActivity['player']>) {
+  const details = playerDetails(player);
+  return `${player.name}${details ? ` ${details}` : ''}`;
+}
+
+interface MovementRow {
+  key: string;
+  label: string;
+  text?: string;
+  players?: readonly TransactionPlayer[];
+}
+
+function MovementPlayers({ players }: { players: readonly TransactionPlayer[] }) {
+  return players.map((player, index) => <Fragment key={`${player.id}-${index}`}>
+    {index > 0 ? <span className="transaction-movement-separator">, </span> : null}
+    <span className="transaction-movement-player"><strong className="transaction-movement-player-name">{player.name}</strong>{playerDetails(player) ? <> <span className="transaction-movement-player-details">{playerDetails(player)}</span></> : null}</span>
+  </Fragment>);
+}
+
+function MovementRows({ rows }: { rows: readonly MovementRow[] }) {
+  return <dl className="transaction-lines transaction-movement-rows">{rows.map(row => <div key={row.key} className={transactionMovementClass(row.label)}>
+    <dt>{row.label}</dt><dd>{row.players?.length ? <MovementPlayers players={row.players} /> : row.text}</dd>
+  </div>)}</dl>;
 }
 
 function MoveCard({ activity }: { activity: LeagueMoveActivity }) {
   const outcome = resultClass(activity.result);
   const outcomeLabel = activity.result === 'Failed' ? 'Failed' : activity.result === 'Unknown' ? 'Outcome unavailable' : null;
+  const rows = activity.lines.map((line, index): MovementRow => ({
+    key: `${index}-${line.label}`,
+    ...line,
+    players: line.label === 'Added' ? activity.movementPlayers?.added
+      : line.label === 'Dropped' ? activity.movementPlayers?.dropped : undefined,
+  }));
   return <article className={`transaction-card league-activity-card result-${outcome}`} data-kind="add_drop">
     <div className="transaction-header"><div><div className="transaction-title-row"><p className="transaction-type">{activity.title}</p><span>{activity.type}</span></div><p className="transaction-date">{transactionDateLabel(activity.timestamp)}{outcomeLabel ? ` · ${outcomeLabel}` : ''}</p></div></div>
-    <div className="transaction-body"><dl className="transaction-lines">{activity.lines.map((line, index) => <div key={`${index}-${line.label}`} className={transactionMovementClass(line.label)}><dt>{line.label}</dt><dd>{line.text}</dd></div>)}</dl></div>
+    <div className="transaction-body"><MovementRows rows={rows} /></div>
   </article>;
 }
 
@@ -64,15 +96,14 @@ function WaiverCard({ activity }: { activity: LeagueWaiverActivity }) {
   const hasWinner = activity.winners.length > 0;
   const winningTeams = [...new Set(activity.winners.map(winner => winner.team))];
   const title = winningTeams.join(', ') || (activity.player ? formatPlayer(activity.player) : 'No winning team reported');
+  const rows = activity.winners.flatMap((winner): MovementRow[] => [
+    ...(winner.added.length ? [{ key: `${winner.id}-added`, label: 'Added', players: winner.added }] : []),
+    ...(winner.dropped.length ? [{ key: `${winner.id}-dropped`, label: 'Dropped', players: winner.dropped }] : []),
+  ]);
   return <article className={`transaction-card league-activity-card waiver-card result-${hasWinner ? 'positive' : 'negative'}`} data-kind="waiver">
     <div className="transaction-header waiver-card-header"><div><div className="transaction-title-row"><p className="transaction-type">{title}</p><span>Waiver</span></div><p className="transaction-date">{transactionDateLabel(activity.processedAt)} · {countLabel}</p></div></div>
     <div className="transaction-body waiver-card-body">
-      {hasWinner ? <dl className="transaction-lines waiver-winning-moves">{activity.winners.flatMap(winner => {
-        const rows = [];
-        if (winner.added.length) rows.push(<div key={`${winner.id}-added`} className="movement-add"><dt>Added</dt><dd>{winner.added.map(formatPlayer).join(', ')}</dd></div>);
-        if (winner.dropped.length) rows.push(<div key={`${winner.id}-dropped`} className="movement-drop"><dt>Dropped</dt><dd>{winner.dropped.map(formatPlayer).join(', ')}</dd></div>);
-        return rows;
-      })}</dl> : <p className="waiver-no-winner">No winning claim reported</p>}
+      {hasWinner ? <MovementRows rows={rows} /> : <p className="waiver-no-winner">No winning claim reported</p>}
       <div className="waiver-bid-list" aria-label={`Reported claims for ${activity.player?.name ?? 'Unknown player'}`}>
         <div className="waiver-bid-heading" aria-hidden="true"><span>Team</span><span>Bid</span><span>Result</span></div>
         {activity.claims.map(claim => <div key={claim.id} className={`waiver-bid-row result-${resultClass(claim.result)}`}>
