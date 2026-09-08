@@ -87,13 +87,12 @@ function LeagueSwitcher({ activeSite, pathname, placement }: {
 export function AppShell({ children, leagueIds }: { children: ReactNode; leagueIds: Readonly<Record<LeagueKey, string>> }) {
   const pathname = usePathname();
   const site = leagueSiteForPathname(pathname);
-  const compactMatchups = pathname === leagueHref(site, '/matchups');
-  const compactMain = compactMatchups
+  const compactMain = pathname === leagueHref(site, '/matchups')
     || pathname === leagueHref(site, '/standings')
     || pathname === leagueHref(site, '/managers');
   const nav: { href: string; label: string; icon: IconName }[] = [
     { href: leagueHref(site, '/matchups'), label: 'Matchups', icon: 'matchups' },
-    { href: leagueHref(site, '/standings'), label: 'Standings', icon: 'standings' },
+    { href: leagueHref(site, '/standings'), label: 'League', icon: 'standings' },
     { href: leagueHref(site, '/managers'), label: 'Managers', icon: 'managers' },
   ];
   const isCurrent = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
@@ -115,7 +114,7 @@ export function AppShell({ children, leagueIds }: { children: ReactNode; leagueI
       </div>
     </header>
     <main id="main-content" className={`main-content ${compactMain ? 'matchups-main' : ''}`} tabIndex={-1}>{children}</main>
-    <nav className={`mobile-nav ${compactMatchups ? 'matchups-mobile-nav' : ''}`} aria-label="Mobile navigation">
+    <nav className="mobile-nav" aria-label="Mobile navigation">
       <LeagueSwitcher activeSite={site} pathname={pathname} placement="mobile" />
       {nav.map(item => <Link key={item.href} href={item.href} aria-current={isCurrent(item.href) ? 'page' : undefined}><Icon name={item.icon} /><span>{item.label}</span></Link>)}
     </nav>
