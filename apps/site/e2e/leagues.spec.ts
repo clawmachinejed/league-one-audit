@@ -2,6 +2,18 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 import { LEAGUE_IDS } from '../lib/config';
 
 const phoneWidths = [360, 390, 430] as const;
+const sharedNavigationViewports = [
+  { name: 'minimum supported width', width: 320, height: 800 },
+  { name: 'iPhone width', width: 390, height: 844 },
+  { name: 'wide mobile', width: 504, height: 932 },
+  { name: 'desktop', width: 1280, height: 900 },
+] as const;
+
+const primaryNavigation = [
+  { section: 'matchups', label: 'Matchups' },
+  { section: 'standings', label: 'League' },
+  { section: 'managers', label: 'Managers' },
+] as const;
 
 async function expectNoPageOverflow(page: Page) {
   const dimensions = await page.evaluate(() => ({
@@ -15,6 +27,72 @@ async function expectTouchHeight(locator: Locator) {
   const box = await locator.boundingBox();
   expect(box, 'the control should be rendered').not.toBeNull();
   expect(box!.height, 'touch controls should be at least 44px tall').toBeGreaterThanOrEqual(44);
+}
+
+async function readNavigationGeometry(navigation: Locator) {
+  return navigation.evaluate(element => {
+    const rect = element.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    const switcher = element.querySelector<HTMLElement>(':scope > .league-switcher')?.getBoundingClientRect();
+    const trigger = element.querySelector<HTMLElement>(':scope > .league-switcher > button')?.getBoundingClientRect();
+    const items = [...element.querySelectorAll<HTMLElement>(':scope > a')].map(item => {
+      const itemRect = item.getBoundingClientRect();
+      const itemStyle = getComputedStyle(item);
+      const icon = item.querySelector<SVGElement>('svg')!;
+      const iconRect = icon.getBoundingClientRect();
+      const label = item.querySelector<HTMLElement>('span') ?? item;
+      const labelRect = label.getBoundingClientRect();
+      return {
+        label: item.textContent?.trim(),
+        x: itemRect.x,
+        y: itemRect.y,
+        width: itemRect.width,
+        height: itemRect.height,
+        minHeight: Number.parseFloat(itemStyle.minHeight),
+        borderRadius: Number.parseFloat(itemStyle.borderRadius),
+        gap: Number.parseFloat(itemStyle.gap),
+        fontSize: Number.parseFloat(itemStyle.fontSize),
+        fontWeight: itemStyle.fontWeight,
+        lineHeight: Number.parseFloat(itemStyle.lineHeight),
+        iconX: iconRect.x,
+        iconY: iconRect.y,
+        iconWidth: iconRect.width,
+        iconHeight: iconRect.height,
+        iconStrokeWidth: icon.getAttribute('stroke-width'),
+        labelX: labelRect.x,
+        labelY: labelRect.y,
+        labelWidth: labelRect.width,
+        labelHeight: labelRect.height,
+      };
+    });
+    return {
+      position: style.position,
+      bottom: Number.parseFloat(style.bottom),
+      x: rect.x,
+      y: rect.y,
+      width: rect.width,
+      height: rect.height,
+      paddingTop: Number.parseFloat(style.paddingTop),
+      paddingRight: Number.parseFloat(style.paddingRight),
+      paddingBottom: Number.parseFloat(style.paddingBottom),
+      paddingLeft: Number.parseFloat(style.paddingLeft),
+      switcher: switcher && { x: switcher.x, y: switcher.y, width: switcher.width, height: switcher.height },
+      trigger: trigger && { x: trigger.x, y: trigger.y, width: trigger.width, height: trigger.height },
+      items,
+    };
+  });
+}
+
+function stableGeometry(geometry: Awaited<ReturnType<typeof readNavigationGeometry>>) {
+  return {
+    ...geometry,
+    items: geometry.items.map(item => ({
+      ...item,
+      label: undefined,
+      labelX: undefined,
+      labelWidth: undefined,
+    })),
+  };
 }
 
 test('the mobile league selector is first, accessible, and fits every supported phone width', async ({ page }) => {
@@ -46,6 +124,111 @@ test('the mobile league selector is first, accessible, and fits every supported 
   }
 });
 
+test('the shared navigation uses Matchups geometry at every required width in both leagues', async ({ page }) => {
+  for (const viewport of sharedNavigationViewports) {
+    for (const prefix of ['', '/league2'] as const) {
+      await test.step(`${prefix || 'League One'} at ${viewport.name}`, async () => {
+        await page.setViewportSize(viewport);
+        await page.goto(`${prefix}/matchups`, { waitUntil: 'networkidle' });
+        await expectNoPageOverflow(page);
+
+        const navigation = page.getByRole('navigation', {
+          name: viewport.width < 760 ? 'Mobile navigation' : 'Main navigation',
+        });
+        await expect(navigation).toBeVisible();
+        for (const item of primaryNavigation) {
+          await expect(navigation.getByRole('link', { name: item.label, exact: true }))
+            .toHaveAttribute('href', `${prefix}/${item.section}`);
+        }
+
+        if (viewport.width >= 760) return;
+
+        const geometry = await readNavigationGeometry(navigation);
+        expect(geometry.position).toBe('fixed');
+        expect(geometry.bottom).toBe(0);
+        expect(geometry.x).toBeCloseTo(0, 1);
+        expect(geometry.y + geometry.height).toBeCloseTo(viewport.height, 1);
+        expect(geometry.width).toBeCloseTo(viewport.width, 1);
+        expect(geometry.height).toBeCloseTo(53, 1);
+        expect(geometry.paddingTop).toBeCloseTo(4, 1);
+        expect(geometry.paddingBottom).toBeGreaterThanOrEqual(4);
+        expect(geometry.paddingLeft).toBeCloseTo(8, 1);
+        expect(geometry.paddingRight).toBeCloseTo(8, 1);
+        expect(geometry.switcher?.height).toBeCloseTo(44, 1);
+        expect(geometry.trigger?.width).toBeCloseTo(44, 1);
+        expect(geometry.trigger?.height).toBeCloseTo(44, 1);
+
+        const expectedColumnWidth = (viewport.width - geometry.paddingLeft - geometry.paddingRight) / 4;
+        for (const item of geometry.items) {
+          expect(item.width).toBeCloseTo(expectedColumnWidth, 1);
+          expect(item.height).toBeCloseTo(44, 1);
+          expect(item.minHeight).toBeCloseTo(44, 1);
+          expect(item.borderRadius).toBeCloseTo(9, 1);
+          expect(item.gap).toBeCloseTo(4, 1);
+          expect(item.fontSize).toBeCloseTo(10, 1);
+          expect(item.fontWeight).toBe('700');
+          expect(item.lineHeight).toBeCloseTo(12, 1);
+          expect(item.iconWidth).toBeCloseTo(19, 1);
+          expect(item.iconHeight).toBeCloseTo(19, 1);
+          expect(item.iconStrokeWidth).toBe('1.7');
+        }
+        expect(geometry.items.map(item => item.y)).toEqual([geometry.items[0].y, geometry.items[0].y, geometry.items[0].y]);
+        expect(geometry.items.map(item => item.iconY)).toEqual([geometry.items[0].iconY, geometry.items[0].iconY, geometry.items[0].iconY]);
+        expect(geometry.items.map(item => item.labelY)).toEqual([geometry.items[0].labelY, geometry.items[0].labelY, geometry.items[0].labelY]);
+        expect(geometry.items[1].x - geometry.items[0].x).toBeCloseTo(expectedColumnWidth, 1);
+        expect(geometry.items[2].x - geometry.items[1].x).toBeCloseTo(expectedColumnWidth, 1);
+      });
+    }
+  }
+});
+
+test('League navigation stays distinct from Standings content and does not resize between sections', async ({ page }) => {
+  for (const viewport of [sharedNavigationViewports[1], sharedNavigationViewports[3]]) {
+    for (const prefix of ['', '/league2'] as const) {
+      await test.step(`${prefix || 'League One'} at ${viewport.name}`, async () => {
+        await page.setViewportSize(viewport);
+        await page.goto(`${prefix}/matchups`, { waitUntil: 'networkidle' });
+        const navigation = page.getByRole('navigation', {
+          name: viewport.width < 760 ? 'Mobile navigation' : 'Main navigation',
+        });
+        const baseline = stableGeometry(await readNavigationGeometry(navigation));
+
+        for (const item of primaryNavigation) {
+          const link = navigation.getByRole('link', { name: item.label, exact: true });
+          await link.click();
+          await expect(page).toHaveURL(new RegExp(`${prefix}/${item.section}$`, 'u'));
+          await expect(link).toHaveAttribute('aria-current', 'page');
+          await expectNoPageOverflow(page);
+          expect(stableGeometry(await readNavigationGeometry(navigation))).toEqual(baseline);
+        }
+
+        await expect(navigation.getByRole('link', { name: 'Standings', exact: true })).toHaveCount(0);
+        await navigation.getByRole('link', { name: 'League', exact: true }).click();
+        await expect(page.getByRole('heading', { level: 1, name: 'Standings', exact: true })).toBeVisible();
+        const standingsViews = page.getByRole('tablist', { name: 'Standings views' });
+        await expect(standingsViews.getByRole('tab', { name: 'Standings', exact: true })).toBeVisible();
+        await expect(standingsViews.getByRole('tab', { name: 'Waivers', exact: true })).toBeVisible();
+        await expect(standingsViews.getByRole('tab', { name: 'Transactions', exact: true })).toBeVisible();
+
+        await navigation.getByRole('link', { name: 'Managers', exact: true }).click();
+        const managerLink = page.locator(`a[href^="${prefix}/managers/"]`).first();
+        if (await managerLink.count()) {
+          await managerLink.click();
+          await expect(page).toHaveURL(new RegExp(`${prefix}/managers/[^/]+$`, 'u'));
+          await expect(navigation.getByRole('link', { name: 'Managers', exact: true })).toHaveAttribute('aria-current', 'page');
+          expect(stableGeometry(await readNavigationGeometry(navigation))).toEqual(baseline);
+          await expectNoPageOverflow(page);
+        } else {
+          test.info().annotations.push({
+            type: 'Sleeper data',
+            description: `${prefix || 'League One'} returned no manager cards, so its detail-route geometry check was not applicable.`,
+          });
+        }
+      });
+    }
+  }
+});
+
 test('switching leagues changes identity, data routes, and every primary tab', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/matchups', { waitUntil: 'networkidle' });
@@ -64,10 +247,10 @@ test('switching leagues changes identity, data routes, and every primary tab', a
 
   const mobileNav = page.getByRole('navigation', { name: 'Mobile navigation' });
   await expect(mobileNav.getByRole('link', { name: 'Matchups' })).toHaveAttribute('href', '/league2/matchups');
-  await expect(mobileNav.getByRole('link', { name: 'Standings' })).toHaveAttribute('href', '/league2/standings');
+  await expect(mobileNav.getByRole('link', { name: 'League' })).toHaveAttribute('href', '/league2/standings');
   await expect(mobileNav.getByRole('link', { name: 'Managers' })).toHaveAttribute('href', '/league2/managers');
 
-  await mobileNav.getByRole('link', { name: 'Standings' }).click();
+  await mobileNav.getByRole('link', { name: 'League' }).click();
   await expect(page).toHaveURL(/\/league2\/standings$/u);
   await expect(page.getByRole('heading', { level: 1, name: 'Standings' })).toBeVisible();
   await expect(page.getByText('2026 season', { exact: true })).toBeVisible();

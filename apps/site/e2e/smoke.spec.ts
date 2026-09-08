@@ -132,7 +132,7 @@ test('matchups fit supported widths and expanded lineup rows remain 52px', async
       await expectTouchHeight(page.getByLabel('Matchup week'));
 
       if (viewport.width < 760) {
-        for (const label of ['Matchups', 'Standings', 'Managers']) {
+        for (const label of ['Matchups', 'League', 'Managers']) {
           await expectTouchHeight(page.getByRole('navigation', { name: 'Mobile navigation' }).getByRole('link', { name: label }));
         }
       }
