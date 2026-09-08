@@ -506,8 +506,8 @@ test('league Transactions loads once, filters locally, groups bids compactly, an
     await expect(page).toHaveURL(url);
     await expect(page.getByRole('heading', { name: 'League Activity', exact: true })).toBeVisible();
     expect(Math.abs(await panelGap() - standingsGap)).toBeLessThanOrEqual(1);
-    await expect(page.locator('.waiver-winning-moves')).toContainText(`${league} Waiver Player`);
-    await expect(page.locator('.waiver-winning-moves')).not.toContainText(`${league === 'league1' ? 'league2' : 'league1'} Waiver Player`);
+    await expect(page.locator('.waiver-card .transaction-movement-rows')).toContainText(`${league} Waiver Player`);
+    await expect(page.locator('.waiver-card .transaction-movement-rows')).not.toContainText(`${league === 'league1' ? 'league2' : 'league1'} Waiver Player`);
     await expect(page.getByText('3 reported bids', { exact: false })).toBeVisible();
     const bidRows = page.locator('.waiver-bid-row');
     await expect(bidRows).toHaveCount(3);
@@ -527,7 +527,7 @@ test('league Transactions loads once, filters locally, groups bids compactly, an
     await expect(page.locator('.league-activity-card .result-badge')).toHaveCount(0);
     await expect(page.locator('.waiver-card .transaction-title-row')).toContainText(`${league} Winning Team`);
     await expect(page.locator('.waiver-card .transaction-title-row')).toContainText('Waiver');
-    await expect(page.locator('.waiver-winning-moves')).not.toContainText(`${league} Winning Team`);
+    await expect(page.locator('.waiver-card .transaction-movement-rows')).not.toContainText(`${league} Winning Team`);
 
     const beforeFilters = requests.length;
     const filterTabs = page.getByRole('tablist', { name: 'Transaction filters' });
@@ -571,12 +571,23 @@ test('league Transactions remains usable without overflow at every supported wid
         {
           kind: 'waiver', id: 'league1:waiver:p1:2026-09-09', timestamp: '2026-09-09T12:00:00.000Z', processedAt: '2026-09-09T12:00:00.000Z', day: '2026-09-09',
           player: { id: 'p1', name: 'An exceptionally long player name that must wrap without colliding', position: 'WR', nflTeam: 'IND' },
-          winners: [{ id: 'win', team: 'An exceptionally long winning fantasy team name', added: [{ id: 'p1', name: 'An exceptionally long player name that must wrap without colliding', position: 'WR', nflTeam: 'IND' }], dropped: [] }],
+          winners: [{
+            id: 'win', team: 'An exceptionally long winning fantasy team name',
+            added: [
+              { id: 'p1', name: 'An exceptionally long player name that must wrap without colliding', position: 'WR', nflTeam: 'IND' },
+              { id: 'p2', name: 'Green Bay Packers', position: 'DEF', nflTeam: 'GB' },
+            ],
+            dropped: [{ id: 'p3', name: 'Tank Bigsby', position: 'RB', nflTeam: 'PHI' }],
+          }],
           claims: [{ id: 'win', team: 'An exceptionally long winning fantasy team name', bid: 12, result: 'Won' }, { id: 'loss', team: 'An exceptionally long losing fantasy team name', bid: null, result: 'Lost' }],
         },
         {
           kind: 'add_drop', id: 'long-move', timestamp: '2026-09-08T12:00:00.000Z', title: 'An exceptionally long add and drop team name that must wrap safely',
-          type: 'Free agent', result: 'Complete', lines: [{ label: 'Added', text: 'An exceptionally long added player name (WR · GB)' }],
+          type: 'Free agent', result: 'Complete',
+          lines: [
+            { label: 'Added', text: 'An exceptionally long added player name (WR · GB), Green Bay Packers (DEF · GB)' },
+            { label: 'Dropped', text: 'Tank Bigsby (RB · PHI)' },
+          ],
         },
         {
           kind: 'trade', id: 'long-trade', timestamp: '2026-09-07T12:00:00.000Z', title: 'Trade Completed', result: 'Complete',
@@ -602,6 +613,38 @@ test('league Transactions remains usable without overflow at every supported wid
       await expect(page.getByRole('heading', { name: 'League Activity', exact: true })).toBeVisible();
       expect(Math.abs(await panelGap() - standingsGap)).toBeLessThanOrEqual(1);
       await expect(page.locator('.league-activity-card .result-badge')).toHaveCount(0);
+      const movementLayout = await page.locator('.league-activity-card[data-kind="waiver"], .league-activity-card[data-kind="add_drop"]').evaluateAll(cards => cards.map(card => {
+        const cardRect = card.getBoundingClientRect();
+        const body = card.querySelector<HTMLElement>('.transaction-body')!;
+        const list = card.querySelector<HTMLElement>('.transaction-movement-rows')!;
+        const rows = [...list.children] as HTMLElement[];
+        const firstLabel = rows[0].querySelector<HTMLElement>('dt')!;
+        const firstContent = rows[0].querySelector<HTMLElement>('dd')!;
+        const bodyStyle = getComputedStyle(body);
+        const listStyle = getComputedStyle(list);
+        const rowStyle = getComputedStyle(rows[0]);
+        return {
+          bodyPadding: [bodyStyle.paddingTop, bodyStyle.paddingRight, bodyStyle.paddingBottom, bodyStyle.paddingLeft],
+          columns: rowStyle.gridTemplateColumns,
+          columnGap: rowStyle.columnGap,
+          rowGap: listStyle.rowGap,
+          alignItems: rowStyle.alignItems,
+          lineHeight: getComputedStyle(firstContent).lineHeight,
+          labelLeft: Math.round(firstLabel.getBoundingClientRect().left - cardRect.left),
+          contentLeft: Math.round(firstContent.getBoundingClientRect().left - cardRect.left),
+          verticalGap: Math.round(rows[1].getBoundingClientRect().top - rows[0].getBoundingClientRect().bottom),
+        };
+      }));
+      expect(movementLayout).toHaveLength(2);
+      expect(movementLayout[1]).toEqual(movementLayout[0]);
+      const movementTypography = await page.locator('.transaction-movement-rows').evaluateAll(lists => lists.map(list => ({
+        names: [...list.querySelectorAll('.transaction-movement-player-name')].map(node => getComputedStyle(node).fontWeight),
+        details: [...list.querySelectorAll('.transaction-movement-player-details')].map(node => getComputedStyle(node).fontWeight),
+        separators: [...list.querySelectorAll('.transaction-movement-separator')].map(node => getComputedStyle(node).fontWeight),
+      })));
+      expect(movementTypography.every(row => row.names.every(weight => Number(weight) >= 600))).toBe(true);
+      expect(movementTypography.every(row => row.details.every(weight => Number(weight) === 400))).toBe(true);
+      expect(movementTypography.every(row => row.separators.every(weight => Number(weight) === 400))).toBe(true);
       const tradeSections = page.locator('.trade-receiver');
       await expect(tradeSections).toHaveCount(2);
       const tradeLayout = await tradeSections.evaluateAll(sections => sections.map(section => {

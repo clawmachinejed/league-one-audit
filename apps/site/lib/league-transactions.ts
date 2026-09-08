@@ -80,10 +80,10 @@ function normalizeMove(row: SleeperTransaction, teamName: (id: unknown) => strin
   const teams = [...new Set(directRosterIds.length ? directRosterIds : (row.consenter_ids ?? []))]
     .map(teamName).sort((a, b) => a.localeCompare(b));
   const lines: LeagueMoveActivity['lines'] = [];
-  const adds = Object.keys(row.adds ?? {}).map(playerId => describePlayer(playerId, catalog));
-  const drops = Object.keys(row.drops ?? {}).map(playerId => describePlayer(playerId, catalog));
-  if (adds.length) lines.push({ label: adds.length === 1 ? 'Added' : 'Added', text: adds.join(', ') });
-  if (drops.length) lines.push({ label: drops.length === 1 ? 'Dropped' : 'Dropped', text: drops.join(', ') });
+  const added = Object.keys(row.adds ?? {}).map(playerId => describePlayer(playerId, catalog));
+  const dropped = Object.keys(row.drops ?? {}).map(playerId => describePlayer(playerId, catalog));
+  if (added.length) lines.push({ label: 'Added', text: added.join(', ') });
+  if (dropped.length) lines.push({ label: 'Dropped', text: dropped.join(', ') });
   const note = noteFor(row);
   if (note) lines.push({ label: 'Note', text: note });
   if (!lines.length) lines.push({ label: 'Details', text: 'Sleeper did not provide asset details for this transaction.' });

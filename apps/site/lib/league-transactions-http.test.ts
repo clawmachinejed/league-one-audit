@@ -6,6 +6,7 @@ vi.mock('./sleeper', () => ({ getLeagueTransactions }));
 
 import { LEAGUE_IDS } from './config';
 import { handleLeagueTransactionsRequest } from './league-transactions-http';
+import type { LeagueTransactionsData } from './types';
 
 describe('league transaction HTTP boundary', () => {
   beforeEach(() => getLeagueTransactions.mockReset());
@@ -24,6 +25,22 @@ describe('league transaction HTTP boundary', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('cache-control')).toBe('private, no-store');
     expect(getLeagueTransactions).toHaveBeenCalledWith(leagueId, key);
+  });
+
+  it('serializes the released public add/drop shape without response-only fields', async () => {
+    const data: LeagueTransactionsData = {
+      league: { season: '2026', week: 1, maxWeek: 18, rosterPositions: [] },
+      updatedAt: '2026-09-09T12:30:00.000Z',
+      activities: [{
+        kind: 'add_drop', id: 'move', timestamp: '2026-09-09T12:00:00.000Z', title: 'Alpha',
+        type: 'Free agent', result: 'Complete',
+        lines: [{ label: 'Added', text: 'Player One (WR · IND)' }],
+      }],
+    };
+    const response = await handleLeagueTransactionsRequest('league1', vi.fn(async () => data));
+    const publicJson = await response.json();
+    expect(publicJson).toEqual(data);
+    expect(JSON.stringify(publicJson)).not.toContain('movementPlayers');
   });
 
   it('returns a safe inline-compatible unavailable response on total failure', async () => {
