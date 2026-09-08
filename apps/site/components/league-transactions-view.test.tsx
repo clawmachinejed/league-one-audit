@@ -51,7 +51,8 @@ const presentationData: LeagueTransactionsData = {
       type: 'Free agent', result: 'Complete', lines: [{ label: 'Dropped', text: 'Dropped Player (RB · PHI)' }],
     },
     {
-      kind: 'trade', id: 'two-team-trade', timestamp: '2026-09-07T12:00:00.000Z', title: 'Trade Completed', result: 'Complete',
+      kind: 'trade', id: 'two-team-trade', timestamp: '2026-09-07T12:00:00.000Z', title: 'Fourth & Long ↔ Sunday Scaries', result: 'Complete',
+      lines: [{ label: 'Fourth & Long received', text: 'A.J. Brown (WR · PHI), 2027 round 2' }],
       participants: [
         { id: 1, team: 'Fourth & Long', receives: [
           { type: 'Player', text: 'A.J. Brown (WR · PHI)' },
@@ -64,7 +65,8 @@ const presentationData: LeagueTransactionsData = {
       ],
     },
     {
-      kind: 'trade', id: 'three-team-trade', timestamp: '2026-09-06T12:00:00.000Z', title: 'Trade Completed', result: 'Complete',
+      kind: 'trade', id: 'three-team-trade', timestamp: '2026-09-06T12:00:00.000Z', title: 'Three Team Alpha ↔ Three Team Beta ↔ Three Team Gamma', result: 'Complete',
+      lines: [{ label: 'Three Team Alpha received', text: 'Unique Player A (QB · IND)' }],
       participants: [
         { id: 3, team: 'Three Team Alpha', receives: [{ type: 'Player', text: 'Unique Player A (QB · IND)' }] },
         { id: 4, team: 'Three Team Beta', receives: [{ type: 'Pick', text: '2028 Round 1' }] },
@@ -156,6 +158,31 @@ describe('league transaction card presentation', () => {
     expect(waiverMoves).toContain('<dt>Added</dt><dd>Player One (WR · IND)</dd>');
     expect(waiverMoves).toContain('<dt>Dropped</dt><dd>Player Two (RB · SEA)</dd>');
     expect(waiverMoves).not.toContain('Alpha Winners');
+  });
+
+  it('states unsuccessful non-waiver outcomes inline without restoring a status badge', () => {
+    const failed: LeagueTransactionsData = {
+      ...data,
+      activities: [
+        {
+          kind: 'add_drop', id: 'failed-move', timestamp: '2026-09-08T12:00:00.000Z', title: 'Attempted Team',
+          type: 'Free agent', result: 'Failed', lines: [{ label: 'Added', text: 'Attempted Player (WR · GB)' }],
+        },
+        {
+          kind: 'trade', id: 'failed-trade', timestamp: '2026-09-07T12:00:00.000Z', title: 'Alpha ↔ Beta', result: 'Failed',
+          lines: [{ label: 'Alpha received', text: 'Attempted Player (WR · GB)' }],
+          participants: [
+            { id: 1, team: 'Alpha', receives: [{ type: 'Player', text: 'Attempted Player (WR · GB)' }] },
+            { id: 2, team: 'Beta', receives: [{ type: 'Details', text: 'No received assets reported by Sleeper.' }] },
+          ],
+        },
+      ],
+    };
+    const html = renderToStaticMarkup(<LeagueTransactionsView state="ready" data={failed} error={null} />);
+    expect(html).toContain('Sep 8, 2026 · 8:00 AM ET · Failed');
+    expect(html).toContain('<p class="transaction-type">Trade Failed</p>');
+    expect(html).not.toContain('<p class="transaction-type">Trade Completed</p>');
+    expect(html).not.toContain('result-badge');
   });
 
   it('renders two-team multi-asset and three-team trades with every receiving asset exactly once', () => {

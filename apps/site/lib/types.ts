@@ -161,6 +161,7 @@ export interface LeagueTradeActivity {
   timestamp: string | null;
   title: string;
   result: TransactionResult;
+  lines: LeagueTransactionLine[];
   participants: LeagueTradeParticipant[];
   unassigned?: LeagueTradeAsset[];
 }

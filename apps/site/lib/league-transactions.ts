@@ -102,6 +102,8 @@ function normalizeTrade(row: SleeperTransaction, teamName: (id: unknown) => stri
   const participants = [...new Set(rosterIds(row))].sort((a, b) => teamName(a).localeCompare(teamName(b)) || a - b);
   const received = new Map<number, LeagueTradeAsset[]>();
   const unassigned: LeagueTradeAsset[] = [];
+  const legacyReceived = new Map<number, string[]>();
+  const legacySent = new Map<number, string[]>();
   const addAsset = (idValue: unknown, asset: LeagueTradeAsset) => {
     const id = validRosterId(idValue);
     if (id === null) {
@@ -110,34 +112,59 @@ function normalizeTrade(row: SleeperTransaction, teamName: (id: unknown) => stri
     }
     received.set(id, [...(received.get(id) ?? []), asset]);
   };
+  const addLegacyAsset = (map: Map<number, string[]>, idValue: unknown, asset: string) => {
+    const id = validRosterId(idValue);
+    if (id === null) return;
+    map.set(id, [...(map.get(id) ?? []), asset]);
+  };
   const assignedPlayerIds = new Set(Object.keys(row.adds ?? {}));
   for (const [playerId, receiver] of Object.entries(row.adds ?? {})) {
-    addAsset(receiver, { type: 'Player', text: describePlayer(playerId, catalog) });
+    const player = describePlayer(playerId, catalog);
+    addAsset(receiver, { type: 'Player', text: player });
+    addLegacyAsset(legacyReceived, receiver, player);
   }
-  for (const playerId of Object.keys(row.drops ?? {})) {
-    if (!assignedPlayerIds.has(playerId)) unassigned.push({ type: 'Player', text: describePlayer(playerId, catalog) });
+  for (const [playerId, sender] of Object.entries(row.drops ?? {})) {
+    const player = describePlayer(playerId, catalog);
+    addLegacyAsset(legacySent, sender, player);
+    if (!assignedPlayerIds.has(playerId)) unassigned.push({ type: 'Player', text: player });
   }
   for (const pick of row.draft_picks ?? []) {
+    const legacyAsset = `${pick.season} round ${pick.round} (${teamName(pick.roster_id)} original pick)`;
     addAsset(pick.owner_id, {
       type: 'Pick',
       text: `${pick.season} Round ${pick.round} (${teamName(pick.roster_id)} original pick)`,
     });
+    addLegacyAsset(legacyReceived, pick.owner_id, legacyAsset);
+    addLegacyAsset(legacySent, pick.previous_owner_id, legacyAsset);
   }
   for (const move of row.waiver_budget ?? []) {
     const amount = numberOrNull(move.amount);
     addAsset(move.receiver, { type: 'FAAB', text: amount === null ? 'Unknown amount' : `$${amount}` });
+    const legacyAsset = `${amount === null ? 'Unknown amount' : `$${amount}`} FAAB`;
+    addLegacyAsset(legacyReceived, move.receiver, legacyAsset);
+    addLegacyAsset(legacySent, move.sender, legacyAsset);
   }
   const normalizedParticipants = participants.map(id => ({
     id,
     team: teamName(id),
     receives: received.get(id) ?? [{ type: 'Details' as const, text: 'No received assets reported by Sleeper.' }],
   }));
+  const lines: LeagueTradeActivity['lines'] = [];
+  for (const id of participants) {
+    const incoming = legacyReceived.get(id) ?? [];
+    const outgoing = legacySent.get(id) ?? [];
+    if (incoming.length) lines.push({ label: `${teamName(id)} received`, text: incoming.join(', ') });
+    if (outgoing.length) lines.push({ label: `${teamName(id)} sent`, text: outgoing.join(', ') });
+    if (!incoming.length && !outgoing.length) lines.push({ label: teamName(id), text: 'No asset details reported by Sleeper.' });
+  }
+  if (!lines.length) lines.push({ label: 'Details', text: 'Sleeper did not provide participant or asset details for this trade.' });
   return {
     kind: 'trade',
     id: row.transaction_id,
     timestamp: iso(transactionTimestamp(row)),
-    title: 'Trade Completed',
+    title: participants.map(teamName).join(' ↔ ') || 'Trade',
     result: transactionResult(row),
+    lines,
     participants: normalizedParticipants,
     unassigned,
   };

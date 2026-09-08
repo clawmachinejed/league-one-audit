@@ -34,16 +34,18 @@ function formatPlayer(player: NonNullable<LeagueWaiverActivity['player']>) {
 
 function MoveCard({ activity }: { activity: LeagueMoveActivity }) {
   const outcome = resultClass(activity.result);
+  const outcomeLabel = activity.result === 'Failed' ? 'Failed' : activity.result === 'Unknown' ? 'Outcome unavailable' : null;
   return <article className={`transaction-card league-activity-card result-${outcome}`} data-kind="add_drop">
-    <div className="transaction-header"><div><div className="transaction-title-row"><p className="transaction-type">{activity.title}</p><span>{activity.type}</span></div><p className="transaction-date">{transactionDateLabel(activity.timestamp)}</p></div></div>
+    <div className="transaction-header"><div><div className="transaction-title-row"><p className="transaction-type">{activity.title}</p><span>{activity.type}</span></div><p className="transaction-date">{transactionDateLabel(activity.timestamp)}{outcomeLabel ? ` · ${outcomeLabel}` : ''}</p></div></div>
     <div className="transaction-body"><dl className="transaction-lines">{activity.lines.map((line, index) => <div key={`${index}-${line.label}`} className={transactionMovementClass(line.label)}><dt>{line.label}</dt><dd>{line.text}</dd></div>)}</dl></div>
   </article>;
 }
 
 function TradeCard({ activity }: { activity: LeagueTradeActivity }) {
   const outcome = resultClass(activity.result);
+  const heading = activity.result === 'Complete' ? 'Trade Completed' : activity.result === 'Failed' ? 'Trade Failed' : 'Trade Outcome Unknown';
   return <article className={`transaction-card league-activity-card trade-card result-${outcome}`} data-kind="trade">
-    <div className="transaction-header"><div><p className="transaction-type">Trade Completed</p><p className="transaction-date">{transactionDateLabel(activity.timestamp)}</p></div></div>
+    <div className="transaction-header"><div><p className="transaction-type">{heading}</p><p className="transaction-date">{transactionDateLabel(activity.timestamp)}</p></div></div>
     <div className="transaction-body trade-card-body"><div className="trade-receivers" data-participants={activity.participants.length}>
       {activity.participants.map(participant => <section key={participant.id} className="trade-receiver" aria-label={`${participant.team} receives`}>
         <h3>{participant.team} receives</h3>

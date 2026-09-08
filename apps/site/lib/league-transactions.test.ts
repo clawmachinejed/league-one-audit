@@ -42,8 +42,16 @@ describe('league-wide transaction normalization', () => {
       waiver_budget: [{ sender: 1, receiver: 3, amount: 15 }],
     })], 'league1', teams, catalog);
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ kind: 'trade', id: 'trade', title: 'Trade Completed' });
+    expect(rows[0]).toMatchObject({ kind: 'trade', id: 'trade', title: 'Alpha ↔ Beta ↔ Gamma' });
     if (rows[0].kind === 'trade') {
+      expect(rows[0].lines).toEqual([
+        { label: 'Alpha received', text: 'Player One (WR · IND), 2027 round 2 (Gamma original pick)' },
+        { label: 'Alpha sent', text: 'Player Three (TE · BUF), $15 FAAB' },
+        { label: 'Beta received', text: 'Player Two (RB · SEA)' },
+        { label: 'Beta sent', text: 'Player One (WR · IND), 2027 round 2 (Gamma original pick)' },
+        { label: 'Gamma received', text: 'Player Three (TE · BUF), $15 FAAB' },
+        { label: 'Gamma sent', text: 'Player Two (RB · SEA)' },
+      ]);
       expect(rows[0].participants).toEqual([
         { id: 1, team: 'Alpha', receives: [
           { type: 'Player', text: 'Player One (WR · IND)' },
@@ -72,7 +80,9 @@ describe('league-wide transaction normalization', () => {
       expect(row.participants.find(participant => participant.team === 'Alpha')?.receives)
         .toEqual([{ type: 'Player', text: 'Player One (WR · IND)' }]);
       expect(row.unassigned).toEqual([{ type: 'Player', text: 'Player Two (RB · SEA)' }]);
-      expect(JSON.stringify(row).match(/Player Two/gu)).toHaveLength(1);
+      const presentationAssets = [...row.participants.flatMap(participant => participant.receives), ...(row.unassigned ?? [])];
+      expect(presentationAssets.filter(asset => asset.text.includes('Player Two'))).toHaveLength(1);
+      expect(row.lines).toContainEqual({ label: 'Alpha sent', text: 'Player Two (RB · SEA)' });
     }
   });
 
