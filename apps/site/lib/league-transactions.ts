@@ -101,13 +101,21 @@ function normalizeMove(row: SleeperTransaction, teamName: (id: unknown) => strin
 function normalizeTrade(row: SleeperTransaction, teamName: (id: unknown) => string, catalog: PlayerCatalog): LeagueTradeActivity {
   const participants = [...new Set(rosterIds(row))].sort((a, b) => teamName(a).localeCompare(teamName(b)) || a - b);
   const received = new Map<number, LeagueTradeAsset[]>();
+  const unassigned: LeagueTradeAsset[] = [];
   const addAsset = (idValue: unknown, asset: LeagueTradeAsset) => {
     const id = validRosterId(idValue);
-    if (id === null) return;
+    if (id === null) {
+      unassigned.push(asset);
+      return;
+    }
     received.set(id, [...(received.get(id) ?? []), asset]);
   };
+  const assignedPlayerIds = new Set(Object.keys(row.adds ?? {}));
   for (const [playerId, receiver] of Object.entries(row.adds ?? {})) {
     addAsset(receiver, { type: 'Player', text: describePlayer(playerId, catalog) });
+  }
+  for (const playerId of Object.keys(row.drops ?? {})) {
+    if (!assignedPlayerIds.has(playerId)) unassigned.push({ type: 'Player', text: describePlayer(playerId, catalog) });
   }
   for (const pick of row.draft_picks ?? []) {
     addAsset(pick.owner_id, {
@@ -131,6 +139,7 @@ function normalizeTrade(row: SleeperTransaction, teamName: (id: unknown) => stri
     title: 'Trade Completed',
     result: transactionResult(row),
     participants: normalizedParticipants,
+    unassigned,
   };
 }
 

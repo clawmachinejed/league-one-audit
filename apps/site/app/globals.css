@@ -320,6 +320,7 @@ h1{font-weight:800;font-size:38px;line-height:1.12;letter-spacing:-.055em;overfl
 .trade-receivers{display:grid;min-width:0}
 .trade-receiver{min-width:0;padding:8px 0 0}
 .trade-receiver+.trade-receiver{border-top:1px solid var(--line-soft);margin-top:12px;padding-top:12px}
+.trade-unassigned{border-top:1px solid var(--line-soft);margin-top:12px;padding-top:12px}
 .trade-receiver h3{margin:0 0 8px;color:var(--green);font-size:12px;font-weight:750;line-height:1.45;overflow-wrap:anywhere}
 .trade-assets{display:grid;gap:7px;margin:0;min-width:0}
 .trade-assets>div{display:grid;grid-template-columns:48px minmax(0,1fr);gap:8px;min-width:0}

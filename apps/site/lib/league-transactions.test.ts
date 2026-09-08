@@ -58,6 +58,21 @@ describe('league-wide transaction normalization', () => {
       const assets = rows[0].participants.flatMap(participant => participant.receives);
       expect(assets).toHaveLength(5);
       expect(new Set(assets.map(asset => `${asset.type}:${asset.text}`)).size).toBe(5);
+      expect(rows[0].unassigned).toEqual([]);
+    }
+  });
+
+  it('keeps a trade player visible once when Sleeper omits its receiving roster', () => {
+    const [row] = normalizeLeagueTransactions([transaction({
+      transaction_id: 'incomplete-trade', type: 'trade', roster_ids: [1, 2],
+      adds: { p1: 1 }, drops: { p1: 2, p2: 1 }, settings: null,
+    })], 'league1', teams, catalog);
+    expect(row.kind).toBe('trade');
+    if (row.kind === 'trade') {
+      expect(row.participants.find(participant => participant.team === 'Alpha')?.receives)
+        .toEqual([{ type: 'Player', text: 'Player One (WR · IND)' }]);
+      expect(row.unassigned).toEqual([{ type: 'Player', text: 'Player Two (RB · SEA)' }]);
+      expect(JSON.stringify(row).match(/Player Two/gu)).toHaveLength(1);
     }
   });
 

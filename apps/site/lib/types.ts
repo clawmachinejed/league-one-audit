@@ -162,6 +162,7 @@ export interface LeagueTradeActivity {
   title: string;
   result: TransactionResult;
   participants: LeagueTradeParticipant[];
+  unassigned?: LeagueTradeAsset[];
 }
 
 export type LeagueTransactionActivity = LeagueWaiverActivity | LeagueMoveActivity | LeagueTradeActivity;

@@ -70,6 +70,7 @@ const presentationData: LeagueTransactionsData = {
         { id: 4, team: 'Three Team Beta', receives: [{ type: 'Pick', text: '2028 Round 1' }] },
         { id: 5, team: 'Three Team Gamma', receives: [{ type: 'FAAB', text: '$17' }] },
       ],
+      unassigned: [{ type: 'Player', text: 'Destination Unknown Player (TE · KC)' }],
     },
   ],
 };
@@ -165,10 +166,12 @@ describe('league transaction card presentation', () => {
     for (const asset of [
       'A.J. Brown (WR · PHI)', '2027 Round 2', 'Drake London (WR · ATL)', '$10',
       'Unique Player A (QB · IND)', '2028 Round 1', '$17',
+      'Destination Unknown Player (TE · KC)',
     ]) expect(html.match(new RegExp(asset.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'gu'))).toHaveLength(1);
     expect(html).toContain('<dt>Player</dt>');
     expect(html).toContain('<dt>Pick</dt>');
     expect(html).toContain('<dt>FAAB</dt>');
+    expect(html).toContain('<h3>Recipient not reported</h3>');
     expect(html).not.toContain(' sent');
   });
 

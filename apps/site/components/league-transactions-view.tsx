@@ -49,7 +49,10 @@ function TradeCard({ activity }: { activity: LeagueTradeActivity }) {
         <h3>{participant.team} receives</h3>
         <dl className="trade-assets">{participant.receives.map((asset, index) => <div key={`${asset.type}-${index}-${asset.text}`}><dt>{asset.type}</dt><dd>{asset.text}</dd></div>)}</dl>
       </section>)}
-    </div></div>
+    </div>{activity.unassigned?.length ? <section className="trade-receiver trade-unassigned" aria-label="Assets without a reported recipient">
+      <h3>Recipient not reported</h3>
+      <dl className="trade-assets">{activity.unassigned.map((asset, index) => <div key={`${asset.type}-${index}-${asset.text}`}><dt>{asset.type}</dt><dd>{asset.text}</dd></div>)}</dl>
+    </section> : null}</div>
   </article>;
 }
 
