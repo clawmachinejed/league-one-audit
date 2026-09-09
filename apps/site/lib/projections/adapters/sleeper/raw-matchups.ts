@@ -5,6 +5,8 @@ import type { SleeperMatchup, SleeperRoster } from '../../../transform';
 
 export type RawSleeperMatchupObservation = Readonly<{
   rows: SleeperMatchup[];
+  invalidRosterIds?: readonly number[];
+  invalidRowCount?: number;
   requestStartedAt: string;
   requestCompletedAt: string;
 }>;
@@ -56,6 +58,35 @@ function isSleeperMatchup(value: unknown): value is SleeperMatchup {
     && isPointsMap(value.players_points) && isOptionalNumber(value.points) && isOptionalNumber(value.custom_points);
 }
 
+export type RawSleeperMatchupFeed = Readonly<{
+  rows: SleeperMatchup[];
+  invalidRosterIds: readonly number[];
+  invalidRowCount: number;
+}>;
+
+/** Preserve valid provider rows while identifying malformed teams for tolerant readers. */
+export function parseRawSleeperMatchupFeed(value: unknown, path: string): RawSleeperMatchupFeed {
+  if (!Array.isArray(value)) {
+    throw new InvalidRawSleeperMatchupsError(`Sleeper returned an invalid response for ${path}.`);
+  }
+  const rows: SleeperMatchup[] = [];
+  const invalidRosterIds = new Set<number>();
+  const seen = new Set<number>();
+  let invalidRowCount = 0;
+  for (const row of value) {
+    const rosterId = isRecord(row) && typeof row.roster_id === 'number'
+      && Number.isInteger(row.roster_id) && row.roster_id > 0 ? row.roster_id : null;
+    if (!isSleeperMatchup(row) || rosterId === null || seen.has(rosterId)) {
+      invalidRowCount += 1;
+      if (rosterId !== null) invalidRosterIds.add(rosterId);
+      continue;
+    }
+    seen.add(rosterId);
+    rows.push(row);
+  }
+  return { rows, invalidRosterIds: [...invalidRosterIds], invalidRowCount };
+}
+
 /** Validate without rewriting IDs, slot order, points, or source response order. */
 export function parseRawSleeperMatchups(value: unknown, path: string): SleeperMatchup[] {
   if (!Array.isArray(value) || value.some((row) => !isSleeperMatchup(row))) {
@@ -76,13 +107,16 @@ export function createRawSleeperMatchupLoader(client: RawSleeperMatchupClient) {
     week: number,
     revalidate: number,
     signal?: AbortSignal,
+    allowPartial = false,
   ): Promise<RawSleeperMatchupObservation> => {
     const path = `/league/${leagueId}/matchups/${week}`;
     const requestStartedAt = client.now();
     const value = signal ? await client.readJson(path, revalidate, signal) : await client.readJson(path, revalidate);
-    const rows = parseRawSleeperMatchups(value, path);
     const requestCompletedAt = client.now();
-    return { rows, requestStartedAt, requestCompletedAt };
+    if (allowPartial) {
+      return { ...parseRawSleeperMatchupFeed(value, path), requestStartedAt, requestCompletedAt };
+    }
+    return { rows: parseRawSleeperMatchups(value, path), requestStartedAt, requestCompletedAt };
   };
 }
 

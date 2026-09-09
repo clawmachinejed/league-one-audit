@@ -19,6 +19,7 @@ import {
 } from './standings-sort';
 import { useTeamPreference } from './team-preference';
 import { LeagueTransactionsView } from './league-transactions-view';
+import { RostersView } from './rosters-view';
 
 type Column = Readonly<{ key: StandingsSortKey; label: string; className: string }>;
 
@@ -26,6 +27,7 @@ const viewOptions: ReadonlyArray<Readonly<{ value: StandingsViewName; label: str
   { value: 'standings', label: 'Standings' },
   { value: 'waivers', label: 'Waivers' },
   { value: 'transactions', label: 'Transactions' },
+  { value: 'rosters', label: 'Rosters' },
 ];
 const standingsColumns: readonly Column[] = [
   { key: 'rank', label: 'Rank', className: 'rank-cell' },
@@ -67,7 +69,7 @@ export function StandingsView({ data }: { data: StandingsData }) {
   const [transactionData, setTransactionData] = useState<LeagueTransactionsData | null>(null);
   const [transactionError, setTransactionError] = useState<string | null>(null);
   const transactionRequestStarted = useRef(false);
-  const tabRefs = useRef<Record<StandingsViewName, HTMLButtonElement | null>>({ standings: null, waivers: null, transactions: null });
+  const tabRefs = useRef<Record<StandingsViewName, HTMLButtonElement | null>>({ standings: null, waivers: null, transactions: null, rosters: null });
   const id = useId();
   const rankedTeams = useMemo(() => rankStandingsTeams(data.teams), [data.teams]);
   const tableView: StandingsTableViewName = view === 'waivers' ? 'waivers' : 'standings';
@@ -110,7 +112,7 @@ export function StandingsView({ data }: { data: StandingsData }) {
     if (event.key === 'ArrowRight') next = viewOptions[(index + 1) % viewOptions.length].value;
     if (event.key === 'ArrowLeft') next = viewOptions[(index - 1 + viewOptions.length) % viewOptions.length].value;
     if (event.key === 'Home') next = 'standings';
-    if (event.key === 'End') next = 'transactions';
+    if (event.key === 'End') next = 'rosters';
     if (!next) return;
     event.preventDefault();
     selectView(next);
@@ -123,7 +125,7 @@ export function StandingsView({ data }: { data: StandingsData }) {
 
   return <div className={`${matchupStyles.page} ${matchupStyles.standingsPage}`}>
     <div className={matchupStyles.toolbar}><PageIntro title="Standings" league={data.league} /></div>
-    {view !== 'transactions' && <Warning message={data.warning} />}
+    {(view === 'standings' || view === 'waivers') && <Warning message={data.warning} />}
     <div className="standings-view-tabs" role="tablist" aria-label="Standings views">
       {viewOptions.map(option => <button
         key={option.value}
@@ -140,7 +142,7 @@ export function StandingsView({ data }: { data: StandingsData }) {
     </div>
     {view === 'transactions' ? <div id={panelId} className="standings-view-panel" role="tabpanel" aria-labelledby={`${id}-transactions-tab`}>
       <LeagueTransactionsView state={transactionState === 'idle' ? 'loading' : transactionState} data={transactionData} error={transactionError} />
-    </div> : data.teams.length ? <div
+    </div> : view === 'rosters' ? null : data.teams.length ? <div
       id={panelId}
       className="standings-view-panel standings-wrap"
       role="tabpanel"
@@ -169,7 +171,10 @@ export function StandingsView({ data }: { data: StandingsData }) {
         {columns.slice(2).map(column => <td key={column.key} className={column.className}>{metricValue(team, column.key)}</td>)}
       </tr>)}</tbody>
     </table></div> : <div className="standings-view-panel"><EmptyState title={emptyTitle}>Teams will appear when Sleeper has league rosters available.</EmptyState></div>}
-    {view !== 'transactions' && <p className="table-note">{note}</p>}
-    {view !== 'transactions' && <Updated value={data.updatedAt} />}
+    <div id={view === 'rosters' ? panelId : undefined} className="standings-view-panel" role={view === 'rosters' ? 'tabpanel' : undefined} aria-labelledby={view === 'rosters' ? `${id}-rosters-tab` : undefined} hidden={view !== 'rosters'}>
+      <RostersView active={view === 'rosters'} league={data.league} selected={selected} />
+    </div>
+    {(view === 'standings' || view === 'waivers') && <p className="table-note">{note}</p>}
+    {(view === 'standings' || view === 'waivers') && <Updated value={data.updatedAt} />}
   </div>;
 }

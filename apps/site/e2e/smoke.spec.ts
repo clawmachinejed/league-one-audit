@@ -231,7 +231,7 @@ test('both standings pages reuse the Matchups title and season layout', async ({
         await expect(main.getByText('Waiver table', { exact: true })).toHaveCount(0);
         await expect(main.getByLabel('Matchup week')).toHaveCount(0);
         await expect(main.getByRole('button', { name: /refresh/i })).toHaveCount(0);
-        await expect(main.locator('select')).toHaveCount(0);
+        await expect(main.locator('select:visible')).toHaveCount(0);
 
         const actual = await intro.evaluate(element => {
           const mainElement = element.closest('main')!;
@@ -447,6 +447,137 @@ test('Standings and Waivers switch locally, support keyboard tabs, and retain in
   await expectNoPageOverflow(page);
 });
 
+test('Rosters stays in League, is exact-week cached, accessible, and responsive', async ({ page }) => {
+  const requests: string[] = [];
+  const currentWeeks = new Map<string, number>();
+  await page.route('**/api/rosters/*?week=*', async route => {
+    const url = new URL(route.request().url());
+    const leagueKey = url.pathname.split('/').at(-1)!;
+    const week = Number(url.searchParams.get('week'));
+    if (!currentWeeks.has(leagueKey)) currentWeeks.set(leagueKey, week);
+    const currentWeek = currentWeeks.get(leagueKey)!;
+    requests.push(`${leagueKey}:${week}`);
+    const available = week !== 18;
+    const current = week === currentWeek;
+    const playerName = leagueKey === 'league1'
+      ? 'An Exceptionally Long League One Quarterback Name'
+      : 'League Two Quarterback';
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        league: { season: '2026', rosterPositions: ['QB', 'BN'], week: 3, maxWeek: 18 },
+        week, currentWeek, rostersAvailable: available, updatedAt: '2026-09-08T12:00:00.000Z',
+        warning: available ? undefined : 'Sleeper has not established complete lineups for this future week.',
+        teams: [{
+          id: 1, name: `${leagueKey} First Place`, managerName: `${leagueKey} Manager One`, avatar: null,
+          wins: 7, losses: 1, ties: 0, pointsFor: 900, pointsAgainst: 700,
+          waiverOrder: null, waiverBudgetRemaining: null, standingsRank: 1,
+          averagePpg: 115.2, averagePpgRank: 1, rosterAvailable: available,
+          sections: available ? [{ name: 'Starters', players: [{
+            id: 'qb-1', name: playerName, position: 'QB', nflTeam: 'IND',
+            injuryStatus: current ? 'Questionable' : null, slot: 'QB', byeWeek: 12,
+            game: current ? { kind: 'scheduled', opponent: 'HOU', location: 'home', date: '2026-09-13', kickoffAt: '2026-09-13T17:00:00.000Z' } : null,
+          }] }, { name: 'Bench', players: [] }] : [],
+        }, {
+          id: 2, name: `${leagueKey} My Very Long Team Name`, managerName: 'A Very Long Manager Name', avatar: null,
+          wins: 6, losses: 2, ties: 0, pointsFor: 850, pointsAgainst: 710,
+          waiverOrder: null, waiverBudgetRemaining: null, standingsRank: 2,
+          averagePpg: 109.4, averagePpgRank: 2, rosterAvailable: available,
+          sections: available ? [{ name: 'Starters', players: [{
+            id: 'qb-2', name: 'My Quarterback', position: 'QB', nflTeam: null,
+            injuryStatus: null, slot: 'SUPER_FLEX', byeWeek: null, game: null,
+          }] }, { name: 'Bench', players: [] }] : [],
+        }],
+      }),
+    });
+  });
+
+  for (const viewport of standingsViewports) {
+    await page.setViewportSize(viewport);
+    for (const route of ['/standings', '/league2/standings']) {
+      const leagueKey = route.startsWith('/league2') ? 'league2' : 'league1';
+      const storageLeagueId = leagueKey === 'league2' ? LEAGUE_IDS.league2 : LEAGUE_IDS.league1;
+      const selectedId = leagueKey === 'league2' ? '1' : '2';
+      await page.goto(route, { waitUntil: 'networkidle' });
+      await page.evaluate(({ key, selected }) => localStorage.setItem(key, selected), {
+        key: `league-one:my-team:${storageLeagueId}`, selected: selectedId,
+      });
+      await page.reload({ waitUntil: 'networkidle' });
+      const initialUrl = page.url();
+      const tabs = page.getByRole('tablist', { name: 'Standings views' });
+      await expect(tabs.getByRole('tab')).toHaveText(['Standings', 'Waivers', 'Transactions', 'Rosters']);
+      await expect(tabs.getByRole('tab', { name: 'Standings' })).toHaveAttribute('aria-selected', 'true');
+
+      const before = requests.length;
+      await tabs.getByRole('tab', { name: 'Rosters' }).click();
+      await expect(page).toHaveURL(initialUrl);
+      await expect(page.getByText('Loading the league…')).toHaveCount(0);
+      const currentWeek = await page.getByLabel('Roster week').inputValue();
+      await expect(page.getByLabel('Roster week').locator('option:checked')).toContainText('Current');
+      await expect(page.locator('[data-team-headings]')).toHaveText(/TEAM\s*RECORD\s*AVG PPG/u);
+      await expect(page.locator('[data-team-headings]')).toHaveCount(1);
+      const cards = page.locator('[data-roster-card]');
+      await expect(cards).toHaveCount(2);
+      await expect(cards.first()).toHaveAttribute('data-team-id', selectedId);
+      await expect(cards.first()).toHaveAttribute('data-standings-rank', selectedId);
+      await expect(cards.nth(1)).toHaveAttribute('data-team-id', selectedId === '1' ? '2' : '1');
+      await expect(cards.first()).toContainText(selectedId === '1' ? `${leagueKey} First Place` : `${leagueKey} My Very Long Team Name`);
+      await expect(cards.first()).not.toContainText(`${leagueKey === 'league1' ? 'league2' : 'league1'} My Very Long Team Name`);
+      const toggle = cards.first().locator('[data-roster-toggle]');
+      await expectTouchHeight(toggle);
+      await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+      await expect(toggle).toHaveAccessibleName(/My Team/iu);
+      await expect(toggle).toContainText(selectedId === '1'
+        ? /7–1\s*1st\s*115\.2\s*1st/u : /6–2\s*2nd\s*109\.4\s*2nd/u);
+      await expect(toggle).not.toContainText(/standings|average position|rank/iu);
+      const panel = cards.first().locator('[data-roster-content]');
+      await panel.locator('[data-roster-player]').first().click();
+      await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+      await expect(panel.locator('[data-roster-section]').first()).toContainText('BYE');
+      await expect(panel).not.toContainText(/actual|projected|player ppg|position rank|time remaining/iu);
+
+      const scheduledCard = page.locator('[data-roster-card][data-team-id="1"]');
+      const scheduledToggle = scheduledCard.locator('[data-roster-toggle]');
+      if (await scheduledToggle.getAttribute('aria-expanded') !== 'true') await scheduledToggle.click();
+      const scheduledPanel = scheduledCard.locator('[data-roster-content]');
+      await expect(scheduledPanel).toContainText('QUES');
+      await expect(scheduledPanel).toContainText('Sun 1:00 PM vs HOU');
+      await expect(scheduledPanel.locator('[data-roster-player]').first()).toContainText('12');
+
+      await toggle.click({ position: { x: 10, y: 10 } });
+      await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      await toggle.focus();
+      await page.keyboard.press('Enter');
+      await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+      await expectNoPageOverflow(page);
+      expect(requests.slice(before)).toEqual([`${leagueKey}:${currentWeek}`]);
+
+      await tabs.getByRole('tab', { name: 'Standings' }).click();
+      await tabs.getByRole('tab', { name: 'Rosters' }).click();
+      await expect(cards.first()).toBeVisible();
+      expect(requests.slice(before)).toEqual([`${leagueKey}:${currentWeek}`]);
+
+      const secondaryWeek = currentWeek === '1' ? '2' : '1';
+      await page.getByLabel('Roster week').selectOption(secondaryWeek);
+      await expect(page.locator('[data-roster-card]').first()).toBeVisible();
+      await expect(page.locator('[data-roster-content]').first()).not.toContainText('Questionable');
+      await expect(page.locator('[data-roster-section]')).toHaveCount(4);
+      expect(requests.slice(before)).toEqual([`${leagueKey}:${currentWeek}`, `${leagueKey}:${secondaryWeek}`]);
+
+      await page.getByLabel('Roster week').selectOption('18');
+      await expect(page.getByRole('heading', { name: 'Week 18 rosters unavailable' })).toBeVisible();
+      await expect(page.locator('[data-roster-card]')).toHaveCount(0);
+      expect(requests.slice(before)).toEqual([`${leagueKey}:${currentWeek}`, `${leagueKey}:${secondaryWeek}`, `${leagueKey}:18`]);
+      await expectNoPageOverflow(page);
+    }
+  }
+  expect(await page.evaluate(({ one, two }) => [localStorage.getItem(one), localStorage.getItem(two)], {
+    one: `league-one:my-team:${LEAGUE_IDS.league1}`,
+    two: `league-one:my-team:${LEAGUE_IDS.league2}`,
+  })).toEqual(['2', '1']);
+});
+
 test('league Transactions loads once, filters locally, groups bids compactly, and remains league-isolated', async ({ page }) => {
   const payload = (league: 'league1' | 'league2') => ({
     league: { season: '2026', week: 1, maxWeek: 18, rosterPositions: [] },
@@ -492,10 +623,10 @@ test('league Transactions loads once, filters locally, groups bids compactly, an
     const url = page.url();
     const viewTabs = page.getByRole('tablist', { name: 'Standings views' });
     const mainTabs = viewTabs.getByRole('tab');
-    await expect(mainTabs).toHaveText(['Standings', 'Waivers', 'Transactions']);
+    await expect(mainTabs).toHaveText(['Standings', 'Waivers', 'Transactions', 'Rosters']);
     await expect(mainTabs.nth(0)).toHaveAttribute('aria-selected', 'true');
     expect(requests.filter(key => key === league)).toHaveLength(0);
-    const panelGap = async () => page.locator('.standings-view-panel').evaluate(panel =>
+    const panelGap = async () => page.locator('.standings-view-panel:visible').evaluate(panel =>
       panel.getBoundingClientRect().top - document.querySelector<HTMLElement>('.standings-view-tabs')!.getBoundingClientRect().bottom);
     const standingsGap = await panelGap();
     await viewTabs.getByRole('tab', { name: 'Waivers' }).click();
@@ -604,7 +735,7 @@ test('league Transactions remains usable without overflow at every supported wid
     for (const route of ['/standings', '/league2/standings']) {
       await page.goto(route, { waitUntil: 'networkidle' });
       const viewTabs = page.getByRole('tablist', { name: 'Standings views' });
-      const panelGap = async () => page.locator('.standings-view-panel').evaluate(panel =>
+      const panelGap = async () => page.locator('.standings-view-panel:visible').evaluate(panel =>
         panel.getBoundingClientRect().top - document.querySelector<HTMLElement>('.standings-view-tabs')!.getBoundingClientRect().bottom);
       const standingsGap = await panelGap();
       await viewTabs.getByRole('tab', { name: 'Waivers' }).click();
@@ -613,7 +744,9 @@ test('league Transactions remains usable without overflow at every supported wid
       await expect(page.getByRole('heading', { name: 'League Activity', exact: true })).toBeVisible();
       expect(Math.abs(await panelGap() - standingsGap)).toBeLessThanOrEqual(1);
       await expect(page.locator('.league-activity-card .result-badge')).toHaveCount(0);
-      const movementLayout = await page.locator('.league-activity-card[data-kind="waiver"], .league-activity-card[data-kind="add_drop"]').evaluateAll(cards => cards.map(card => {
+      const movementCards = page.locator('.league-activity-card[data-kind="waiver"], .league-activity-card[data-kind="add_drop"]');
+      await expect(movementCards).toHaveCount(2);
+      const movementLayout = await movementCards.evaluateAll(cards => cards.map(card => {
         const cardRect = card.getBoundingClientRect();
         const body = card.querySelector<HTMLElement>('.transaction-body')!;
         const list = card.querySelector<HTMLElement>('.transaction-movement-rows')!;

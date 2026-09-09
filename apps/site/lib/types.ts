@@ -35,6 +35,34 @@ export interface Player {
   projectedPoints: number | null;
 }
 
+export interface RosterPlayer extends Omit<Player, 'points' | 'projectedPoints'> {
+  byeWeek: number | null;
+}
+
+export interface RosterSection {
+  name: 'Starters' | 'Bench' | 'IR' | 'Taxi';
+  players: RosterPlayer[];
+}
+
+export interface RosterTeam extends Pick<StandingsTeam,
+  'id' | 'managerName' | 'name' | 'avatar' | 'pointsFor' | 'waiverOrder' | 'waiverBudgetRemaining'> {
+  wins: number | null;
+  losses: number | null;
+  ties: number | null;
+  standingsRank: number | null;
+  averagePpg: number | null;
+  averagePpgRank: number | null;
+  rosterAvailable: boolean;
+  sections: RosterSection[];
+}
+
+export interface RostersData extends Pick<OverviewData, 'league' | 'updatedAt' | 'warning'> {
+  week: number;
+  currentWeek: number;
+  rostersAvailable: boolean;
+  teams: RosterTeam[];
+}
+
 export type NflGame = {
   kind: 'scheduled';
   opponent: string;
