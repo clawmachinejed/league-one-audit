@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { RosterTeam } from './types';
-import { calculateTeamPpg, orderRosterTeams, rosterHistoryBoundary } from './roster-metrics';
+import { calculateTeamPpg, compareRosterStandings, orderRosterTeams, rosterHistoryBoundary } from './roster-metrics';
 import type { SleeperMatchup } from './transform';
 
 function row(rosterId: number, points: number | null): SleeperMatchup {
@@ -10,7 +10,7 @@ function row(rosterId: number, points: number | null): SleeperMatchup {
 function team(id: number, name: string, standingsRank: number | null): RosterTeam {
   return {
     id, name, managerName: name, avatar: null, wins: 1, losses: 0, ties: 0,
-    pointsFor: 10, pointsAgainst: 5, waiverOrder: null, waiverBudgetRemaining: null,
+    pointsFor: 10, waiverOrder: null, waiverBudgetRemaining: null,
     standingsRank, averagePpg: 10, averagePpgRank: standingsRank,
     rosterAvailable: true, sections: [],
   };
@@ -64,6 +64,16 @@ describe('official team averages', () => {
 });
 
 describe('roster team order', () => {
+  it('orders standings by winning percentage, Points For, name, then roster ID', () => {
+    const candidates = [
+      { id: 4, name: 'Same', wins: 4, losses: 4, ties: 2, pointsFor: 110 },
+      { id: 3, name: 'Same', wins: 4, losses: 4, ties: 2, pointsFor: 110 },
+      { id: 2, name: 'Zulu', wins: 5, losses: 5, ties: 0, pointsFor: 100 },
+      { id: 1, name: 'Alpha', wins: 6, losses: 4, ties: 0, pointsFor: 90 },
+    ];
+    expect(candidates.sort(compareRosterStandings).map((value) => value.id)).toEqual([1, 3, 4, 2]);
+  });
+
   it('puts My Team first without changing either rank', () => {
     const ordered = orderRosterTeams([team(1, 'Alpha', 1), team(2, 'Beta', 2), team(3, 'Gamma', 3)], 3);
     expect(ordered.map((value) => value.id)).toEqual([3, 1, 2]);

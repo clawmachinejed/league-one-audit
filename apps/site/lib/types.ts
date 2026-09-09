@@ -44,7 +44,8 @@ export interface RosterSection {
   players: RosterPlayer[];
 }
 
-export interface RosterTeam extends Omit<StandingsTeam, 'wins' | 'losses' | 'ties'> {
+export interface RosterTeam extends Pick<StandingsTeam,
+  'id' | 'managerName' | 'name' | 'avatar' | 'pointsFor' | 'waiverOrder' | 'waiverBudgetRemaining'> {
   wins: number | null;
   losses: number | null;
   ties: number | null;

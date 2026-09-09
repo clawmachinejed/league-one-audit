@@ -9,7 +9,7 @@ const data: RostersData = {
   week: 3, currentWeek: 3, rostersAvailable: true, updatedAt: '2026-09-08T12:00:00.000Z',
   teams: [{
     id: 2, name: 'A Team Name That Can Wrap Safely', managerName: 'Manager Name', avatar: null,
-    wins: 6, losses: 2, ties: 0, pointsFor: 899, pointsAgainst: 700,
+    wins: 6, losses: 2, ties: 0, pointsFor: 899,
     waiverOrder: null, waiverBudgetRemaining: null, standingsRank: 2, averagePpg: 112.4, averagePpgRank: 4,
     rosterAvailable: true, sections: [{ name: 'Starters', players: [{
       id: 'qb', name: 'An Exceptionally Long Quarterback Name', position: 'QB', nflTeam: 'IND', injuryStatus: 'Questionable',
@@ -18,7 +18,7 @@ const data: RostersData = {
     }] }, { name: 'Bench', players: [] }],
   }, {
     id: 1, name: 'First Place', managerName: 'Other Manager', avatar: null,
-    wins: 7, losses: 1, ties: 0, pointsFor: 920, pointsAgainst: 680,
+    wins: 7, losses: 1, ties: 0, pointsFor: 920,
     waiverOrder: null, waiverBudgetRemaining: null, standingsRank: 1, averagePpg: null, averagePpgRank: null,
     rosterAvailable: false, sections: [],
   }],

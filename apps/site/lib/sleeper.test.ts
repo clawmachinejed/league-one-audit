@@ -912,11 +912,11 @@ describe('Sleeper league rosters view', () => {
       .toEqual([[1, 20, 1], [2, 10, 2]]);
   });
 
-  it('withholds standings ranks when a comparator field is missing', async () => {
+  it('ranks complete standings when Points Against is absent and keeps average ranks independent', async () => {
     expectedRosterCount = 2;
     rawRosters = [
-      { roster_id: 1, owner_id: 'member-1', players: ['qb'], starters: ['qb'], settings: { ...rosterSettings, wins: 1, fpts: 100 } },
-      { roster_id: 2, owner_id: 'member-2', players: ['rb'], starters: ['rb'], settings: { ...rosterSettings, wins: 1, fpts: 100, fpts_against: undefined } },
+      { roster_id: 1, owner_id: 'member-1', players: ['qb'], starters: ['qb'], settings: { ...rosterSettings, wins: 1, losses: 1, fpts: 100, fpts_against: undefined } },
+      { roster_id: 2, owner_id: 'member-2', players: ['rb'], starters: ['rb'], settings: { ...rosterSettings, wins: 2, fpts: 90, fpts_against: undefined } },
     ];
     rawUsers = [{ user_id: 'member-1', display_name: 'Alpha' }, { user_id: 'member-2', display_name: 'Beta' }];
     rawMatchups = [
@@ -924,7 +924,57 @@ describe('Sleeper league rosters view', () => {
       { roster_id: 2, matchup_id: 1, points: 20, players: ['rb'], starters: ['rb'] },
     ];
     const data = await getRosters(leagueOneId, 3);
-    expect(data.teams.every((team) => team.standingsRank === null)).toBe(true);
+    expect(data.teams.map((team) => [team.id, team.standingsRank, team.averagePpgRank]))
+      .toEqual([[2, 1, 1], [1, 2, 2]]);
+    expect(data.teams.every((team) => !('pointsAgainst' in team))).toBe(true);
+    expect(data.warning ?? '').not.toContain('incomplete or malformed');
+  });
+
+  it('ignores contradictory Points Against when record and Points For are tied', async () => {
+    expectedRosterCount = 2;
+    rawRosters = [
+      { roster_id: 1, owner_id: 'member-1', players: ['qb'], starters: ['qb'], settings: { ...rosterSettings, wins: 1, fpts: 100, fpts_against: 1 } },
+      { roster_id: 2, owner_id: 'member-2', players: ['rb'], starters: ['rb'], settings: { ...rosterSettings, wins: 1, fpts: 100, fpts_against: 999 } },
+    ];
+    rawUsers = [{ user_id: 'member-1', display_name: 'Alpha' }, { user_id: 'member-2', display_name: 'Beta' }];
+    rawMatchups = [
+      { roster_id: 1, matchup_id: 1, points: 10, players: ['qb'], starters: ['qb'] },
+      { roster_id: 2, matchup_id: 1, points: 20, players: ['rb'], starters: ['rb'] },
+    ];
+    const data = await getRosters(leagueOneId, 3);
+    expect(data.teams.map((team) => [team.id, team.standingsRank])).toEqual([[1, 1], [2, 2]]);
+  });
+
+  it('withholds all standings ranks and falls back alphabetically when Points For is missing', async () => {
+    expectedRosterCount = 2;
+    rawRosters = [
+      { roster_id: 1, owner_id: 'member-1', players: ['qb'], starters: ['qb'], settings: { ...rosterSettings, wins: 1, fpts: 100 } },
+      { roster_id: 2, owner_id: 'member-2', players: ['rb'], starters: ['rb'], settings: { ...rosterSettings, wins: 1, fpts: undefined } },
+    ];
+    rawUsers = [{ user_id: 'member-1', display_name: 'Zulu' }, { user_id: 'member-2', display_name: 'Alpha' }];
+    rawMatchups = [
+      { roster_id: 1, matchup_id: 1, points: 10, players: ['qb'], starters: ['qb'] },
+      { roster_id: 2, matchup_id: 1, points: 20, players: ['rb'], starters: ['rb'] },
+    ];
+    const data = await getRosters(leagueOneId, 3);
+    expect(data.teams.map((team) => [team.name, team.standingsRank]))
+      .toEqual([['Alpha', null], ['Zulu', null]]);
+  });
+
+  it('withholds all standings ranks and falls back alphabetically when a record is invalid', async () => {
+    expectedRosterCount = 2;
+    rawRosters = [
+      { roster_id: 1, owner_id: 'member-1', players: ['qb'], starters: ['qb'], settings: { ...rosterSettings, wins: 'bad', fpts: 100 } },
+      { roster_id: 2, owner_id: 'member-2', players: ['rb'], starters: ['rb'], settings: { ...rosterSettings, wins: 1, fpts: 90 } },
+    ];
+    rawUsers = [{ user_id: 'member-1', display_name: 'Zulu' }, { user_id: 'member-2', display_name: 'Alpha' }];
+    rawMatchups = [
+      { roster_id: 1, matchup_id: 1, points: 10, players: ['qb'], starters: ['qb'] },
+      { roster_id: 2, matchup_id: 1, points: 20, players: ['rb'], starters: ['rb'] },
+    ];
+    const data = await getRosters(leagueOneId, 3);
+    expect(data.teams.map((team) => [team.name, team.standingsRank]))
+      .toEqual([['Alpha', null], ['Zulu', null]]);
   });
 
   it('does not calculate partial averages when a required week request fails', async () => {
@@ -940,7 +990,7 @@ describe('Sleeper league rosters view', () => {
     expectedRosterCount = 2;
     rawMatchups = [{ roster_id: 1, matchup_id: null, points: 10, players: ['qb'], starters: ['qb'] }];
     const data = await getRosters(leagueOneId, 3);
-    expect(data.teams[0]).toMatchObject({ averagePpg: 10, averagePpgRank: null });
+    expect(data.teams[0]).toMatchObject({ standingsRank: null, averagePpg: 10, averagePpgRank: null });
     expect(data.warning).toContain('incomplete or malformed data for 1 roster');
   });
 

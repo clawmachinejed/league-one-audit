@@ -23,7 +23,7 @@ import type { LeagueTransactionsData, ManagerData, MatchupsData, OverviewData, P
 import type { LeagueKey } from './leagues';
 import { normalizeLeagueTransactions } from './league-transactions';
 import { matchupTemporalState, type MatchupPeriodContext } from './matchup-period';
-import { calculateTeamPpg, rosterHistoryBoundary } from './roster-metrics';
+import { calculateTeamPpg, compareRosterStandings, rosterHistoryBoundary } from './roster-metrics';
 import { canonicalNflTeam } from './nfl-teams';
 import { startingSlots } from './sleeper-lineup';
 import {
@@ -208,12 +208,31 @@ function validRosterSettings(value: unknown): boolean {
       || (typeof value[field] === 'number' && Number.isFinite(value[field])));
 }
 
+function validRosterViewSettings(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  if (!['wins', 'losses', 'ties'].every((field) => {
+    const count = value[field];
+    return typeof count === 'number' && Number.isInteger(count) && count >= 0;
+  })) return false;
+  return typeof value.fpts === 'number' && Number.isFinite(value.fpts)
+    && (value.fpts_decimal === undefined
+      || (typeof value.fpts_decimal === 'number' && Number.isFinite(value.fpts_decimal)));
+}
+
 function isSleeperRoster(value: unknown): value is SleeperRoster {
   return isRecord(value) && typeof value.roster_id === 'number' && Number.isInteger(value.roster_id)
     && value.roster_id > 0 && isOptionalString(value.owner_id)
     && isStringArray(value.players) && isStringArray(value.starters)
     && isStringArray(value.reserve) && isStringArray(value.taxi)
     && validRosterSettings(value.settings) && isOptionalRecord(value.metadata);
+}
+
+function isSleeperRosterForRosterView(value: unknown): value is SleeperRoster {
+  return isRecord(value) && typeof value.roster_id === 'number' && Number.isInteger(value.roster_id)
+    && value.roster_id > 0 && isOptionalString(value.owner_id)
+    && isStringArray(value.players) && isStringArray(value.starters)
+    && isStringArray(value.reserve) && isStringArray(value.taxi)
+    && validRosterViewSettings(value.settings) && isOptionalRecord(value.metadata);
 }
 
 function isSleeperUser(value: unknown): value is SleeperUser {
@@ -369,6 +388,7 @@ type LeagueRosterFeed = Readonly<{
   rosters: SleeperRoster[];
   malformedRosterIds: readonly number[];
   malformedRowCount: number;
+  rosterViewMalformedRowCount: number;
 }>;
 
 /** One canonical roster fetch supports both strict legacy consumers and tolerant Rosters UI. */
@@ -380,11 +400,13 @@ const getLeagueRosterFeed = cache(async (leagueId: string): Promise<LeagueRoster
   const malformedRosterIds = new Set<number>();
   const seen = new Set<number>();
   let malformedRowCount = 0;
+  let rosterViewMalformedRowCount = 0;
   for (const row of value) {
     const rosterId = isRecord(row) && typeof row.roster_id === 'number'
       && Number.isInteger(row.roster_id) && row.roster_id > 0 ? row.roster_id : null;
     if (rosterId === null || seen.has(rosterId)) {
       malformedRowCount += 1;
+      rosterViewMalformedRowCount += 1;
       if (rosterId !== null) malformedRosterIds.add(rosterId);
       continue;
     }
@@ -393,6 +415,7 @@ const getLeagueRosterFeed = cache(async (leagueId: string): Promise<LeagueRoster
       malformedRowCount += 1;
       malformedRosterIds.add(rosterId);
     }
+    if (!isSleeperRosterForRosterView(row)) rosterViewMalformedRowCount += 1;
     rosters.push({
       roster_id: rosterId,
       owner_id: typeof row.owner_id === 'string' && row.owner_id.trim() ? row.owner_id : null,
@@ -404,7 +427,7 @@ const getLeagueRosterFeed = cache(async (leagueId: string): Promise<LeagueRoster
       metadata: isRecord(row.metadata) ? row.metadata : null,
     });
   }
-  return { rosters, malformedRosterIds: [...malformedRosterIds], malformedRowCount };
+  return { rosters, malformedRosterIds: [...malformedRosterIds], malformedRowCount, rosterViewMalformedRowCount };
 });
 
 const getLeagueRosters = cache(async (leagueId: string) => {
@@ -449,7 +472,7 @@ const getRosterCore = cache(async (leagueId: string) => {
   const { sourceLeague, state, league } = calendar;
   const teams = normalizeTeams(rosterFeed.rosters, users);
   const missing = Math.max(0, sourceLeague.total_rosters - rosterFeed.rosters.length);
-  const affected = Math.max(rosterFeed.malformedRowCount, missing);
+  const affected = Math.max(rosterFeed.rosterViewMalformedRowCount, missing);
   const overview: OverviewData = {
     league,
     teams,
@@ -591,13 +614,10 @@ function rosterRecord(roster: SleeperRoster | undefined): Readonly<{ wins: numbe
     : null;
 }
 
-function standingsPointsAvailable(roster: SleeperRoster | undefined): boolean {
+function standingsPointsForAvailable(roster: SleeperRoster | undefined): boolean {
   return typeof roster?.settings?.fpts === 'number' && Number.isFinite(roster.settings.fpts)
     && (roster.settings.fpts_decimal === undefined
-      || (typeof roster.settings.fpts_decimal === 'number' && Number.isFinite(roster.settings.fpts_decimal)))
-    && typeof roster.settings.fpts_against === 'number' && Number.isFinite(roster.settings.fpts_against)
-    && (roster.settings.fpts_against_decimal === undefined
-      || (typeof roster.settings.fpts_against_decimal === 'number' && Number.isFinite(roster.settings.fpts_against_decimal)));
+      || (typeof roster.settings.fpts_decimal === 'number' && Number.isFinite(roster.settings.fpts_decimal)));
 }
 
 const getCachedRosterWeek = cache(async (leagueId: string, week: number) => (
@@ -703,7 +723,11 @@ export async function getRosters(leagueId: string, requestedWeek?: number): Prom
   const standingsTeams = addWaiverBalances(core.overview.teams, core.rosterFeed.rosters, core.sourceLeague.settings?.waiver_budget);
   const standingsAvailable = standingsTeams.length === core.sourceLeague.total_rosters
     && standingsTeams.every((team) => rosterRecord(sourceRosterById.get(team.id)) !== null
-      && standingsPointsAvailable(sourceRosterById.get(team.id)));
+      && standingsPointsForAvailable(sourceRosterById.get(team.id))
+      && Boolean(team.name.trim()));
+  const rankedTeams = standingsAvailable
+    ? [...standingsTeams].sort(compareRosterStandings)
+    : [...standingsTeams].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }) || a.id - b.id);
   const slots = startingSlots(core.overview.league.rosterPositions);
   let futureSlateReady = true;
   if (selectedWeek > core.overview.league.week) {
@@ -717,7 +741,7 @@ export async function getRosters(leagueId: string, requestedWeek?: number): Prom
     && lifecycle !== 'complete' && core.sourceLeague.season === core.state?.season;
   const showCurrentGroups = currentMetadataAuthoritative;
   const showCurrentInjury = currentMetadataAuthoritative;
-  const teams = standingsTeams.map((team, teamIndex) => {
+  const teams = rankedTeams.map((team, teamIndex) => {
     const row = selectedByRoster.get(team.id);
     const sourceRoster = sourceRosterById.get(team.id);
     const sourceRecord = rosterRecord(sourceRoster);
@@ -746,10 +770,16 @@ export async function getRosters(leagueId: string, requestedWeek?: number): Prom
     }
     const metric = teamPpg.get(team.id);
     return {
-      ...team,
+      id: team.id,
+      name: team.name,
+      managerName: team.managerName,
+      avatar: team.avatar,
       wins: sourceRecord?.wins ?? null,
       losses: sourceRecord?.losses ?? null,
       ties: sourceRecord?.ties ?? null,
+      pointsFor: team.pointsFor,
+      waiverOrder: team.waiverOrder,
+      waiverBudgetRemaining: team.waiverBudgetRemaining,
       standingsRank: standingsAvailable ? teamIndex + 1 : null,
       averagePpg: metric?.ppg ?? null,
       averagePpgRank: averageRanksAvailable ? metric?.rank ?? null : null,

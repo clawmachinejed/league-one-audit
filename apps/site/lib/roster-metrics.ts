@@ -8,6 +8,15 @@ export type RosterHistoryBoundaryInput = Readonly<{
   lifecycle: 'preseason' | 'active' | 'complete';
 }>;
 
+type RosterStandingsCandidate = Readonly<{
+  id: number;
+  name: string;
+  wins: number;
+  losses: number;
+  ties: number;
+  pointsFor: number;
+}>;
+
 function validWeek(value: number | null): value is number {
   return value !== null && Number.isInteger(value) && value >= 1 && value <= 18;
 }
@@ -73,6 +82,19 @@ export function calculateTeamPpg(
   ]));
 }
 
+function compareRosterNames(a: Pick<RosterStandingsCandidate, 'id' | 'name'>, b: Pick<RosterStandingsCandidate, 'id' | 'name'>): number {
+  return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }) || a.id - b.id;
+}
+
+/** Rosters standings use only record, Points For, name, and finally roster ID. */
+export function compareRosterStandings(a: RosterStandingsCandidate, b: RosterStandingsCandidate): number {
+  const gamesA = a.wins + a.losses + a.ties;
+  const gamesB = b.wins + b.losses + b.ties;
+  const rateA = gamesA ? (a.wins + a.ties * 0.5) / gamesA : 0;
+  const rateB = gamesB ? (b.wins + b.ties * 0.5) / gamesB : 0;
+  return rateB - rateA || b.pointsFor - a.pointsFor || compareRosterNames(a, b);
+}
+
 export function orderRosterTeams(teams: readonly RosterTeam[], selected: number | null): RosterTeam[] {
   const completeStandings = teams.length > 0 && teams.every((team) => Number.isInteger(team.standingsRank)
     && team.standingsRank !== null && team.standingsRank > 0)
@@ -82,6 +104,6 @@ export function orderRosterTeams(teams: readonly RosterTeam[], selected: number 
     if (b.id === selected) return 1;
     return completeStandings
       ? a.standingsRank! - b.standingsRank!
-      : a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }) || a.id - b.id;
+      : compareRosterNames(a, b);
   });
 }
