@@ -65,6 +65,7 @@ export type PlayerCatalog = Record<string, SleeperPlayer>;
 export interface SleeperMatchup {
   roster_id: number;
   matchup_id: number | null;
+  players?: string[] | null;
   starters?: string[] | null;
   starters_points?: Array<number | null> | null;
   players_points?: Record<string, number | null> | null;

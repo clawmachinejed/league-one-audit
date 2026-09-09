@@ -1,5 +1,5 @@
 import type { Matchup, NflGame, Player } from './types';
-import { canonicalNflTeam, isNflTeam, NFL_TEAM_COUNT } from './nfl-teams';
+import { canonicalNflTeam, isNflTeam, NFL_TEAM_COUNT, NFL_TEAMS } from './nfl-teams';
 
 export type WeekSchedule = Record<string, NflGame>;
 
@@ -100,6 +100,20 @@ export function normalizeSleeperSeasonSchedule(value: unknown, week: number): We
     result[game.away] = gameFor(game.away, game.home, game.away, game.date, null);
   }
   return result;
+}
+
+/** Returns bye weeks only after the complete 272-game regular-season schedule validates. */
+export function normalizeSleeperByeWeeks(value: unknown): Record<string, number> {
+  const schedules = Array.from({ length: regularSeasonWeeks }, (_, index) => (
+    normalizeSleeperSeasonSchedule(value, index + 1)
+  ));
+  if (schedules.some((schedule) => !Object.keys(schedule).length)) return {};
+  const result: Record<string, number> = {};
+  for (const teamName of NFL_TEAMS) {
+    const missing = schedules.flatMap((schedule, index) => schedule[teamName] ? [] : [index + 1]);
+    if (missing.length === 1) result[teamName] = missing[0];
+  }
+  return Object.keys(result).length === NFL_TEAM_COUNT ? result : {};
 }
 
 export function resolveSleeperSchedule(

@@ -34,6 +34,7 @@ import {
   getRawLineupMatchups,
   getStandings,
   getLeagueTransactions,
+  getRosters,
   getTransactions,
 } from './sleeper';
 
@@ -854,5 +855,120 @@ describe('Sleeper official matchup fallback', () => {
       requestPath(request) === `${leaguePath}/matchups/3`
     ));
     expect(matchupRequest?.[1]).toMatchObject({ next: { revalidate: 60 } });
+  });
+});
+
+describe('Sleeper league rosters view', () => {
+  it('uses exact-week membership and limits current-only injury, IR, and taxi metadata', async () => {
+    playerInjury = 'Questionable';
+    rawRosters = [{
+      roster_id: 1, owner_id: 'member-1', players: ['qb', 'bench', 'ir', 'taxi'], starters: ['qb'],
+      reserve: ['ir'], taxi: ['taxi'], settings: { ...rosterSettings },
+    }];
+    rawMatchups = [{
+      roster_id: 1, matchup_id: null, points: 10, players: ['qb', 'bench', 'ir', 'taxi'], starters: ['qb'],
+    }];
+    playerCatalog = {
+      qb: { full_name: 'Current Quarterback', position: 'QB', team: 'IND', injury_status: 'Questionable' },
+      bench: { full_name: 'Bench Player', position: 'RB', team: 'HOU' },
+      ir: { full_name: 'Reserve Player', position: 'WR', team: 'KC' },
+      taxi: { full_name: 'Taxi Player', position: 'TE', team: 'BAL' },
+    };
+
+    const current = await getRosters(leagueOneId, 3);
+    expect(current.rostersAvailable).toBe(true);
+    expect(current.teams[0].sections.map((section) => section.name)).toEqual(['Starters', 'Bench', 'IR', 'Taxi']);
+    expect(current.teams[0].sections[0].players[0].injuryStatus).toBe('Questionable');
+
+    const historical = await getRosters(leagueOneId, 1);
+    expect(historical.teams[0].sections.map((section) => section.name)).toEqual(['Starters', 'Bench']);
+    expect(historical.teams[0].sections.flatMap((section) => section.players).every((player) => player.injuryStatus === null)).toBe(true);
+    expect(historical.teams[0].sections[0].players[0].game).toBeNull();
+  });
+
+  it('fails a future week honestly until Sleeper establishes a complete exact-week slate', async () => {
+    rawMatchups = [{ roster_id: 1, matchup_id: null, points: null, players: ['qb'], starters: ['qb'] }];
+    const data = await getRosters(leagueOneId, 4);
+    expect(data.rostersAvailable).toBe(false);
+    expect(data.teams[0].rosterAvailable).toBe(false);
+    expect(data.warning).toContain('has not established complete lineups');
+  });
+
+  it('uses record then Points For standings order while preserving independent average ranks', async () => {
+    expectedRosterCount = 2;
+    rawRosters = [
+      { roster_id: 1, owner_id: 'member-1', players: ['qb'], starters: ['qb'], settings: { ...rosterSettings, wins: 1, losses: 1, fpts: 100 } },
+      { roster_id: 2, owner_id: 'member-2', players: ['rb'], starters: ['rb'], settings: { ...rosterSettings, wins: 2, fpts: 90 } },
+    ];
+    rawUsers = [{ user_id: 'member-1', display_name: 'Alpha' }, { user_id: 'member-2', display_name: 'Beta' }];
+    rosterPositions = ['FLEX', 'BN'];
+    rawMatchups = [
+      { roster_id: 1, matchup_id: 1, points: 10, players: ['qb'], starters: ['qb'] },
+      { roster_id: 2, matchup_id: 1, points: 20, players: ['rb'], starters: ['rb'] },
+    ];
+    const data = await getRosters(leagueOneId, 3);
+    expect(data.teams.map((team) => team.id)).toEqual([2, 1]);
+    expect(data.teams.map((team) => [team.standingsRank, team.averagePpg, team.averagePpgRank]))
+      .toEqual([[1, 20, 1], [2, 10, 2]]);
+  });
+
+  it('does not calculate partial averages when a required week request fails', async () => {
+    lastScoredLeg = 2;
+    rawMatchups = [{ roster_id: 1, matchup_id: null, points: 0, players: ['qb'], starters: ['qb'] }];
+    failures.add(`${leaguePath}/matchups/2`);
+    const data = await getRosters(leagueOneId, 3);
+    expect(data.teams[0]).toMatchObject({ averagePpg: null, averagePpgRank: null });
+    expect(data.warning).toContain('week 2');
+  });
+
+  it('uses last_scored_leg for completed leagues and excludes an unplayed final week', async () => {
+    leagueStatus = 'complete';
+    leagueLeg = 18;
+    lastScoredLeg = 17;
+    stateSeason = '2027';
+    rawMatchups = [{ roster_id: 1, matchup_id: null, points: 7, players: ['qb'], starters: ['qb'] }];
+    const data = await getRosters(leagueOneId, 18);
+    expect(data.teams[0].averagePpg).toBe(7);
+    expect(vi.mocked(fetch).mock.calls.some(([input]) => requestPath(input) === `${leaguePath}/matchups/18`)).toBe(true);
+  });
+
+  it('never treats current injury, IR, or taxi fields as completed-season history', async () => {
+    leagueStatus = 'complete';
+    leagueLeg = 18;
+    lastScoredLeg = 17;
+    stateSeason = '2027';
+    playerInjury = 'Out';
+    rawRosters = [{
+      roster_id: 1, owner_id: 'member-1', players: ['qb', 'ir', 'taxi'], starters: ['qb'],
+      reserve: ['ir'], taxi: ['taxi'], settings: { ...rosterSettings },
+    }];
+    rawMatchups = [{
+      roster_id: 1, matchup_id: null, points: 7, players: ['qb', 'ir', 'taxi'], starters: ['qb'],
+    }];
+    const data = await getRosters(leagueOneId, 17);
+    expect(data.teams[0].sections.map((section) => section.name)).toEqual(['Starters', 'Bench']);
+    expect(data.teams[0].sections.flatMap((section) => section.players).every((player) => player.injuryStatus === null)).toBe(true);
+  });
+
+  it('isolates a malformed weekly row instead of hiding other teams', async () => {
+    expectedRosterCount = 2;
+    rawRosters.push({ roster_id: 2, owner_id: 'member-2', players: ['rb'], starters: ['rb'], settings: { ...rosterSettings } });
+    rawUsers.push({ user_id: 'member-2', display_name: 'Beta' });
+    rawMatchups = [
+      { roster_id: 1, matchup_id: 1, points: 10, players: ['qb'], starters: ['qb'] },
+      { roster_id: 2, matchup_id: 1, points: 'bad', players: ['rb'], starters: ['rb'] },
+    ];
+    const data = await getRosters(leagueOneId, 3);
+    expect(data.teams.find((team) => team.id === 1)).toMatchObject({ rosterAvailable: true, averagePpg: 10 });
+    expect(data.teams.find((team) => team.id === 2)).toMatchObject({ rosterAvailable: false, averagePpg: null });
+  });
+
+  it('keeps League One and League Two responses isolated', async () => {
+    rawMatchups = [{ roster_id: 1, matchup_id: null, points: 5, players: ['qb'], starters: ['qb'] }];
+    const [one, two] = await Promise.all([getRosters(leagueOneId, 3), getRosters(leagueTwoId, 3)]);
+    expect(one.teams[0].managerName).toBe('Alex');
+    expect(two.teams[0].managerName).toBe('Jordan');
+    expect(one.teams[0].averagePpg).toBe(5);
+    expect(two.teams[0].averagePpg).toBe(9.5);
   });
 });

@@ -9,6 +9,7 @@ import {
   assertProjectionMatchupReadiness,
   createRawSleeperMatchupLoader,
   parseRawSleeperMatchups,
+  parseRawSleeperMatchupFeed,
   sleeperMatchupShape,
 } from './raw-matchups';
 
@@ -93,6 +94,14 @@ describe('shared raw Sleeper matchup boundary', () => {
     const row = rows()[0];
     expect(() => parseRawSleeperMatchups([row, row], path))
       .toThrow(`Sleeper returned duplicate entries for ${path}.`);
+  });
+
+  it('lets the tolerant reader preserve valid teams while identifying a malformed roster', () => {
+    const source = [...rows(), { roster_id: 3, matchup_id: 8, starters: [9] }];
+    const feed = parseRawSleeperMatchupFeed(source, path);
+    expect(feed.rows).toEqual(rows());
+    expect(feed.invalidRosterIds).toEqual([3]);
+    expect(feed.invalidRowCount).toBe(1);
   });
 
   it('does not report a completed observation when the provider fails', async () => {

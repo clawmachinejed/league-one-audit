@@ -15,7 +15,7 @@ export function teamRecord(team: Team) {
   return `${team.wins}–${team.losses}${team.ties ? `–${team.ties}` : ''}`;
 }
 
-export function Avatar({ team, large = false }: { team: Team; large?: boolean }) {
+export function Avatar({ team, large = false }: { team: Pick<Team, 'avatar' | 'managerName' | 'name'>; large?: boolean }) {
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
   const failed = failedUrl === team.avatar;
   const initials = (team.managerName || team.name).split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('').toUpperCase();

@@ -1,7 +1,7 @@
 import type { StandingsTeam } from '../lib/types';
 
-export type StandingsViewName = 'standings' | 'waivers' | 'transactions';
-export type StandingsTableViewName = Exclude<StandingsViewName, 'transactions'>;
+export type StandingsViewName = 'standings' | 'waivers' | 'transactions' | 'rosters';
+export type StandingsTableViewName = Exclude<StandingsViewName, 'transactions' | 'rosters'>;
 export type StandingsSortKey = 'rank' | 'team' | 'record' | 'pointsFor' | 'pointsAgainst' | 'waiverOrder' | 'waiverBudget';
 export type SortDirection = 'ascending' | 'descending';
 
