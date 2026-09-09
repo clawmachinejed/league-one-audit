@@ -635,10 +635,18 @@ async function loadRosterHistory(leagueId: string, throughWeek: number | null): 
 }
 
 function validLineupMembership(row: SleeperMatchup | undefined, slots: readonly string[]): row is SleeperMatchup & { players: string[]; starters: string[] } {
-  return Boolean(row && Array.isArray(row.players) && row.players.every((id) => typeof id === 'string')
-    && Array.isArray(row.starters) && row.starters.length === slots.length
-    && row.starters.every((id) => typeof id === 'string')
-    && row.starters.every((id) => id === '0' || row.players!.includes(id)));
+  if (!row || !Array.isArray(row.players) || !Array.isArray(row.starters)) return false;
+  const playerIds = row.players;
+  const starterIds = row.starters;
+  const validPlayerIds = playerIds.every((id) => typeof id === 'string' && id !== '0'
+    && id.trim() === id && Boolean(id));
+  const validStarterIds = starterIds.every((id) => typeof id === 'string'
+    && id.trim() === id && Boolean(id));
+  const nonEmptyStarters = starterIds.filter((id) => id !== '0');
+  return validPlayerIds && new Set(playerIds).size === playerIds.length
+    && starterIds.length === slots.length
+    && validStarterIds && new Set(nonEmptyStarters).size === nonEmptyStarters.length
+    && nonEmptyStarters.every((id) => playerIds.includes(id));
 }
 
 function rosterPlayer(
@@ -689,6 +697,7 @@ export async function getRosters(leagueId: string, requestedWeek?: number): Prom
   ]);
   const rosterIds = core.rosterFeed.rosters.map((roster) => roster.roster_id);
   const teamPpg = calculateTeamPpg(history.rows, historyThrough ?? 0, rosterIds);
+  const averageRanksAvailable = rosterIds.length === core.sourceLeague.total_rosters;
   const selectedByRoster = new Map(selectedObservation.rows.map((row) => [row.roster_id, row]));
   const sourceRosterById = new Map(core.rosterFeed.rosters.map((roster) => [roster.roster_id, roster]));
   const standingsTeams = addWaiverBalances(core.overview.teams, core.rosterFeed.rosters, core.sourceLeague.settings?.waiver_budget);
@@ -743,7 +752,7 @@ export async function getRosters(leagueId: string, requestedWeek?: number): Prom
       ties: sourceRecord?.ties ?? null,
       standingsRank: standingsAvailable ? teamIndex + 1 : null,
       averagePpg: metric?.ppg ?? null,
-      averagePpgRank: metric?.rank ?? null,
+      averagePpgRank: averageRanksAvailable ? metric?.rank ?? null : null,
       rosterAvailable: membershipAvailable,
       sections,
     };

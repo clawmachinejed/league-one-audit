@@ -936,6 +936,14 @@ describe('Sleeper league rosters view', () => {
     expect(data.warning).toContain('week 2');
   });
 
+  it('withholds league-wide average ranks when the roster identity set is incomplete', async () => {
+    expectedRosterCount = 2;
+    rawMatchups = [{ roster_id: 1, matchup_id: null, points: 10, players: ['qb'], starters: ['qb'] }];
+    const data = await getRosters(leagueOneId, 3);
+    expect(data.teams[0]).toMatchObject({ averagePpg: 10, averagePpgRank: null });
+    expect(data.warning).toContain('incomplete or malformed data for 1 roster');
+  });
+
   it('uses last_scored_leg for completed leagues and excludes an unplayed final week', async () => {
     leagueStatus = 'complete';
     leagueLeg = 18;
@@ -976,6 +984,27 @@ describe('Sleeper league rosters view', () => {
     const data = await getRosters(leagueOneId, 3);
     expect(data.teams.find((team) => team.id === 1)).toMatchObject({ rosterAvailable: true, averagePpg: 10 });
     expect(data.teams.find((team) => team.id === 2)).toMatchObject({ rosterAvailable: false, averagePpg: null });
+  });
+
+  it('rejects blank or duplicate exact-week player membership for only the malformed teams', async () => {
+    expectedRosterCount = 3;
+    rawRosters.push(
+      { roster_id: 2, owner_id: 'member-2', players: ['rb'], starters: ['rb'], settings: { ...rosterSettings } },
+      { roster_id: 3, owner_id: 'member-3', players: ['wr'], starters: ['wr'], settings: { ...rosterSettings } },
+    );
+    rawUsers.push(
+      { user_id: 'member-2', display_name: 'Beta' },
+      { user_id: 'member-3', display_name: 'Gamma' },
+    );
+    rawMatchups = [
+      { roster_id: 1, matchup_id: null, points: 10, players: ['qb'], starters: ['qb'] },
+      { roster_id: 2, matchup_id: null, points: 11, players: ['rb', 'rb'], starters: ['rb'] },
+      { roster_id: 3, matchup_id: null, points: 12, players: ['wr', ''], starters: ['wr'] },
+    ];
+    const data = await getRosters(leagueOneId, 3);
+    expect(data.teams.find((team) => team.id === 1)?.rosterAvailable).toBe(true);
+    expect(data.teams.find((team) => team.id === 2)?.rosterAvailable).toBe(false);
+    expect(data.teams.find((team) => team.id === 3)?.rosterAvailable).toBe(false);
   });
 
   it('keeps League One and League Two responses isolated', async () => {
