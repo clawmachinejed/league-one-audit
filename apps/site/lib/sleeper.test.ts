@@ -912,6 +912,21 @@ describe('Sleeper league rosters view', () => {
       .toEqual([[1, 20, 1], [2, 10, 2]]);
   });
 
+  it('withholds standings ranks when a comparator field is missing', async () => {
+    expectedRosterCount = 2;
+    rawRosters = [
+      { roster_id: 1, owner_id: 'member-1', players: ['qb'], starters: ['qb'], settings: { ...rosterSettings, wins: 1, fpts: 100 } },
+      { roster_id: 2, owner_id: 'member-2', players: ['rb'], starters: ['rb'], settings: { ...rosterSettings, wins: 1, fpts: 100, fpts_against: undefined } },
+    ];
+    rawUsers = [{ user_id: 'member-1', display_name: 'Alpha' }, { user_id: 'member-2', display_name: 'Beta' }];
+    rawMatchups = [
+      { roster_id: 1, matchup_id: 1, points: 10, players: ['qb'], starters: ['qb'] },
+      { roster_id: 2, matchup_id: 1, points: 20, players: ['rb'], starters: ['rb'] },
+    ];
+    const data = await getRosters(leagueOneId, 3);
+    expect(data.teams.every((team) => team.standingsRank === null)).toBe(true);
+  });
+
   it('does not calculate partial averages when a required week request fails', async () => {
     lastScoredLeg = 2;
     rawMatchups = [{ roster_id: 1, matchup_id: null, points: 0, players: ['qb'], starters: ['qb'] }];

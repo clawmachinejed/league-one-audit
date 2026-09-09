@@ -52,6 +52,15 @@ describe('official team averages', () => {
     expect(metrics.get(1)).toEqual({ ppg: 12, rank: null });
     expect(metrics.has(2)).toBe(false);
   });
+
+  it('preserves exact hundredth-point ties across differently composed weekly totals', () => {
+    const metrics = calculateTeamPpg([
+      [row(1, 10.1), row(2, 10.15)],
+      [row(1, 10.2), row(2, 10.15)],
+    ], 2, [1, 2]);
+    expect(metrics.get(1)).toEqual({ ppg: 10.15, rank: 1 });
+    expect(metrics.get(2)).toEqual({ ppg: 10.15, rank: 1 });
+  });
 });
 
 describe('roster team order', () => {

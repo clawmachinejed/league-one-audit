@@ -594,7 +594,10 @@ function rosterRecord(roster: SleeperRoster | undefined): Readonly<{ wins: numbe
 function standingsPointsAvailable(roster: SleeperRoster | undefined): boolean {
   return typeof roster?.settings?.fpts === 'number' && Number.isFinite(roster.settings.fpts)
     && (roster.settings.fpts_decimal === undefined
-      || (typeof roster.settings.fpts_decimal === 'number' && Number.isFinite(roster.settings.fpts_decimal)));
+      || (typeof roster.settings.fpts_decimal === 'number' && Number.isFinite(roster.settings.fpts_decimal)))
+    && typeof roster.settings.fpts_against === 'number' && Number.isFinite(roster.settings.fpts_against)
+    && (roster.settings.fpts_against_decimal === undefined
+      || (typeof roster.settings.fpts_against_decimal === 'number' && Number.isFinite(roster.settings.fpts_against_decimal)));
 }
 
 const getCachedRosterWeek = cache(async (leagueId: string, week: number) => (

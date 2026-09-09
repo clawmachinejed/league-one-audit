@@ -22,8 +22,11 @@ export function rosterHistoryBoundary(input: RosterHistoryBoundaryInput): number
   return validWeek(input.lastScoredWeek) ? Math.min(input.selectedWeek, input.lastScoredWeek) : null;
 }
 
-function sourcePoints(row: SleeperMatchup): number | null {
-  return numberOrNull(row.custom_points) ?? numberOrNull(row.points);
+function sourcePointsHundredths(row: SleeperMatchup): number | null {
+  const points = numberOrNull(row.custom_points) ?? numberOrNull(row.points);
+  if (points === null) return null;
+  const hundredths = Math.round(points * 100);
+  return Number.isSafeInteger(hundredths) ? hundredths : null;
 }
 
 function descendingCompetitionRanks(values: ReadonlyMap<number, number>): Map<number, number> {
@@ -50,21 +53,24 @@ export function calculateTeamPpg(
   rosterIds: readonly number[],
 ): Map<number, Readonly<{ ppg: number; rank: number | null }>> {
   if (requiredWeeks < 1 || history.length < requiredWeeks) return new Map();
-  const averages = new Map<number, number>();
+  const totals = new Map<number, number>();
   for (const rosterId of rosterIds) {
-    const scores: number[] = [];
+    const scoresHundredths: number[] = [];
     for (let index = 0; index < requiredWeeks; index += 1) {
       const matches = (history[index] ?? []).filter((row) => row.roster_id === rosterId);
-      const score = matches.length === 1 ? sourcePoints(matches[0]) : null;
+      const score = matches.length === 1 ? sourcePointsHundredths(matches[0]) : null;
       if (score === null) break;
-      scores.push(score);
+      scoresHundredths.push(score);
     }
-    if (scores.length === requiredWeeks) {
-      averages.set(rosterId, scores.reduce((sum, value) => sum + value, 0) / requiredWeeks);
+    if (scoresHundredths.length === requiredWeeks) {
+      totals.set(rosterId, scoresHundredths.reduce((sum, value) => sum + value, 0));
     }
   }
-  const ranks = averages.size === rosterIds.length ? descendingCompetitionRanks(averages) : new Map<number, number>();
-  return new Map([...averages].map(([id, ppg]) => [id, { ppg, rank: ranks.get(id) ?? null }]));
+  const ranks = totals.size === rosterIds.length ? descendingCompetitionRanks(totals) : new Map<number, number>();
+  return new Map([...totals].map(([id, total]) => [
+    id,
+    { ppg: total / (requiredWeeks * 100), rank: ranks.get(id) ?? null },
+  ]));
 }
 
 export function orderRosterTeams(teams: readonly RosterTeam[], selected: number | null): RosterTeam[] {
