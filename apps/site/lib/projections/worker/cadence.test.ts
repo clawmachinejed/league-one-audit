@@ -51,6 +51,25 @@ function cadenceState(overrides: Partial<LeagueCadenceState> = {}): LeagueCadenc
 }
 
 describe('canonical worker cadence', () => {
+  it('keeps hourly cadence between separated NFL activity windows', () => {
+    const separatedWindows: NflWeekSchedule = {
+      KC: {
+        kind: 'scheduled', opponent: 'LAC', location: 'home',
+        date: '2026-09-10', kickoffAt: '2026-09-10T02:00:00.000Z',
+      },
+      BUF: {
+        kind: 'scheduled', opponent: 'NYJ', location: 'home',
+        date: '2026-09-10', kickoffAt: '2026-09-10T17:00:00.000Z',
+      },
+    };
+    expect(workerCadence(separatedWindows, new Date('2026-09-10T12:00:00.000Z'), false, true))
+      .toBe('hourly');
+    expect(workerCadence(separatedWindows, new Date('2026-09-10T12:05:00.000Z'), false, true))
+      .toBe('idle');
+    expect(workerCadence(separatedWindows, new Date('2026-09-10T15:00:00.000Z'), false, true))
+      .toBe('live-window');
+  });
+
   it('preserves forced, kickoff-window, and first-five-minute hourly behavior', () => {
     expect(workerCadence(schedule, new Date('2026-01-01T12:37:00Z'), true, false)).toBe('forced');
     expect(workerCadence(schedule, new Date('2026-09-13T15:00:00Z'), false, false))
