@@ -30,6 +30,51 @@ function snapshot(week: number): StoredProjectionSnapshot {
   };
 }
 
+function activeWeekBetweenGames(): StoredProjectionSnapshot {
+  const stored = snapshot(1);
+  const team = {
+    id: 1, managerName: 'Manager', name: 'Team', avatar: null,
+    wins: 0, losses: 0, ties: 0, pointsFor: 0, pointsAgainst: 0,
+  };
+  const matchup = (
+    id: string,
+    status: 'live' | 'upcoming',
+    kickoffAt: string,
+  ): MatchupsData['matchups'][number] => ({
+    id, status,
+    sides: [{
+      team, points: 0, projectedPoints: 10,
+      starters: [{
+        id: `player-${id}`, name: `Player ${id}`, position: 'QB', nflTeam: 'LAC',
+        injuryStatus: null, slot: 'QB', points: 0, projectedPoints: 10,
+        game: {
+          kind: 'scheduled', opponent: 'KC', location: 'away',
+          date: '2026-09-10', kickoffAt,
+        },
+      }],
+    }],
+  });
+  return {
+    ...stored,
+    calculatedAt: '2026-09-10T12:00:00.000Z',
+    publishedAt: '2026-09-10T12:00:00.000Z',
+    verifiedAt: '2026-09-10T12:00:00.000Z',
+    activityWindows: [
+      { startsAt: '2026-09-10T00:00:00.000Z', endsAt: '2026-09-10T09:00:00.000Z' },
+      { startsAt: '2026-09-10T15:00:00.000Z', endsAt: '2026-09-11T00:00:00.000Z' },
+    ],
+    payload: {
+      ...stored.payload,
+      updatedAt: '2026-09-10T12:00:00.000Z',
+      teams: [team],
+      matchups: [
+        matchup('1', 'live', '2026-09-10T02:00:00.000Z'),
+        matchup('2', 'upcoming', '2026-09-10T17:00:00.000Z'),
+      ],
+    },
+  };
+}
+
 function authority(overrides: Partial<StoredLeaguePeriodAuthority> = {}): StoredLeaguePeriodAuthority {
   return {
     leagueKey: 'league1', defaultSeason: 2026, defaultSeasonType: 'reg', defaultWeek: 2,
@@ -65,6 +110,27 @@ function store(
 }
 
 describe('period-aware stored matchup reader', () => {
+  it.each([
+    { now: '2026-09-10T12:04:00.000Z', expected: 'usable' },
+    { now: '2026-09-10T13:15:00.000Z', expected: 'usable' },
+    { now: '2026-09-10T13:15:00.001Z', expected: 'stale' },
+  ])('applies between-game freshness at $now for a live/upcoming active week', async ({ now, expected }) => {
+    const stored = activeWeekBetweenGames();
+    const database = store({
+      authority: authority({
+        defaultWeek: 1,
+        sourceObservedAt: now,
+        verifiedAt: now,
+      }),
+      snapshot: stored,
+      futureRefresh: null,
+    });
+    await expect(readStoredMatchups('league1', 1, {
+      store: database,
+      now: new Date(now),
+    })).resolves.toMatchObject({ kind: expected });
+  });
+
   it('resolves an omitted week to the authority default, never the latest stored week', async () => {
     const database = store({ authority: authority(), snapshot: snapshot(2), futureRefresh: null });
     const result = await readStoredMatchups('league1', undefined, {

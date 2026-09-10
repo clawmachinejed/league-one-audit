@@ -68,6 +68,32 @@ function withStarterGame(
   };
 }
 
+function activeWeekBetweenGames(
+  verifiedAt = '2026-09-10T12:00:00.000Z',
+): StoredProjectionSnapshot {
+  const live = withStarterGame({
+    kind: 'scheduled', opponent: 'KC', location: 'away',
+    date: '2026-09-10', kickoffAt: '2026-09-10T02:00:00.000Z',
+  }, 'live');
+  const upcoming = withStarterGame({
+    kind: 'scheduled', opponent: 'BUF', location: 'home',
+    date: '2026-09-10', kickoffAt: '2026-09-10T17:00:00.000Z',
+  });
+  return {
+    ...live,
+    verifiedAt,
+    activityWindows: [
+      { startsAt: '2026-09-10T00:00:00.000Z', endsAt: '2026-09-10T09:00:00.000Z' },
+      { startsAt: '2026-09-10T15:00:00.000Z', endsAt: '2026-09-11T00:00:00.000Z' },
+    ],
+    payload: {
+      ...live.payload,
+      updatedAt: verifiedAt,
+      matchups: [live.payload.matchups[0], { ...upcoming.payload.matchups[0], id: '2' }],
+    },
+  };
+}
+
 describe('period-aware projection freshness', () => {
   it.each([
     { elapsedMs: 180_000, expected: 'usable' },
@@ -82,7 +108,7 @@ describe('period-aware projection freshness', () => {
     { elapsedMs: 4_500_000, expected: 'usable' },
     { elapsedMs: 4_500_001, expected: 'stale' },
   ])('keeps the exact 75-minute idle boundary at $elapsedMs ms', ({ elapsedMs, expected }) => {
-    const stored = { ...snapshot(), activityWindows: [] };
+    const stored = activeWeekBetweenGames();
     const now = new Date(Date.parse(stored.verifiedAt) + elapsedMs);
     expect(selectSnapshot(stored, context('active'), now).kind).toBe(expected);
   });
@@ -96,14 +122,36 @@ describe('period-aware projection freshness', () => {
     expect(selectSnapshot(stored, context('active'), now).kind).toBe(expected);
   });
 
-  it('applies live freshness from the payload even when no stored activity window is active', () => {
+  it('uses the idle allowance between valid NFL windows despite live and upcoming fantasy matchups', () => {
+    const stored = activeWeekBetweenGames();
+    expect(stored.payload.matchups.map((matchup) => matchup.status)).toEqual(['live', 'upcoming']);
+    expect(selectSnapshot(
+      stored, context('active'), new Date('2026-09-10T12:04:00.000Z'),
+    ).kind).toBe('usable');
+  });
+
+  it('keeps the conservative live rule when no usable schedule timing exists', () => {
     const stored = withStarterGame(null, 'live');
+    expect(selectSnapshot(
+      stored, context('active'), new Date('2026-09-13T18:03:00.000Z'),
+    ).kind).toBe('usable');
     expect(selectSnapshot(
       stored, context('active'), new Date('2026-09-13T18:03:00.001Z'),
     ).kind).toBe('stale');
     expect(selectSnapshot(
       withStarterGame(null, 'upcoming'), context('active'), new Date('2026-09-13T18:03:00.001Z'),
     ).kind).toBe('usable');
+  });
+
+  it.each([
+    { now: '2026-09-13T14:59:59.999Z', verifiedAt: '2026-09-13T14:56:00.000Z', expected: 'usable' },
+    { now: '2026-09-13T15:00:00.000Z', verifiedAt: '2026-09-13T14:56:00.000Z', expected: 'stale' },
+    { now: '2026-09-14T00:00:00.000Z', verifiedAt: '2026-09-13T23:56:00.000Z', expected: 'stale' },
+    { now: '2026-09-14T00:00:00.001Z', verifiedAt: '2026-09-13T23:56:00.000Z', expected: 'usable' },
+  ])('preserves the inclusive activity-window boundary at $now', ({ now, verifiedAt, expected }) => {
+    expect(selectSnapshot(
+      snapshot(1, verifiedAt), context('active'), new Date(now),
+    ).kind).toBe(expected);
   });
 
   it.each([
@@ -131,7 +179,7 @@ describe('period-aware projection freshness', () => {
     const stored = {
       ...withStarterGame({
         kind: 'scheduled', opponent: 'KC', location: 'away', date: gameDate, kickoffAt: null,
-      }),
+      }, 'live'),
       verifiedAt: '2026-09-14T00:56:00.000Z',
     };
     // The UTC date is September 14, but it is still September 13 in New York.

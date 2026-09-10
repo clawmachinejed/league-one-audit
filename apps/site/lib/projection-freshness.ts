@@ -55,23 +55,37 @@ function easternCalendarDate(value: Date): string {
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
+function usableCalendarDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/u.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
 function isActiveWindow(snapshot: SnapshotFreshnessMetadata, now: Date): boolean {
-  if (snapshot.matchupStatuses.some((status) => status === 'live')) return true;
   const nowMs = now.getTime();
   if (!Number.isFinite(nowMs)) return true;
-  if (snapshot.activityWindows.some((window) => {
+  let hasUsableScheduleTiming = false;
+  for (const window of snapshot.activityWindows) {
     const startsAt = time(window.startsAt);
     const endsAt = time(window.endsAt);
-    return startsAt !== null && endsAt !== null && nowMs >= startsAt && nowMs <= endsAt;
-  })) return true;
-  if (snapshot.scheduledDatesWithoutKickoff.includes(easternCalendarDate(now))) return true;
+    if (startsAt === null || endsAt === null) continue;
+    hasUsableScheduleTiming = true;
+    if (nowMs >= startsAt && nowMs <= endsAt) return true;
+  }
   for (const value of snapshot.scheduledKickoffs) {
     const kickoff = time(value);
-    if (kickoff !== null && nowMs >= kickoff - TWO_HOURS_MS && nowMs <= kickoff + SEVEN_HOURS_MS) {
-      return true;
-    }
+    if (kickoff === null) continue;
+    hasUsableScheduleTiming = true;
+    if (nowMs >= kickoff - TWO_HOURS_MS && nowMs <= kickoff + SEVEN_HOURS_MS) return true;
   }
-  return false;
+  const today = easternCalendarDate(now);
+  for (const value of snapshot.scheduledDatesWithoutKickoff) {
+    if (!usableCalendarDate(value)) continue;
+    hasUsableScheduleTiming = true;
+    if (value === today) return true;
+  }
+  return !hasUsableScheduleTiming
+    && snapshot.matchupStatuses.some((status) => status === 'live');
 }
 
 function refreshDue(

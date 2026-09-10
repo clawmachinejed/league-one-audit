@@ -72,6 +72,38 @@ function snapshot(payload = matchupPayload()): StoredProjectionSnapshot {
   };
 }
 
+function activeWeekBetweenGames(): StoredProjectionSnapshot {
+  const stored = snapshot();
+  const live = stored.payload.matchups[0];
+  const upcoming = structuredClone(live);
+  live.status = 'live';
+  live.sides[0].starters[0].game = {
+    kind: 'scheduled', opponent: 'KC', location: 'away',
+    date: '2026-09-10', kickoffAt: '2026-09-10T02:00:00.000Z',
+  };
+  upcoming.id = '2';
+  upcoming.status = 'upcoming';
+  upcoming.sides[0].starters[0].game = {
+    kind: 'scheduled', opponent: 'BUF', location: 'home',
+    date: '2026-09-10', kickoffAt: '2026-09-10T17:00:00.000Z',
+  };
+  return {
+    ...stored,
+    calculatedAt: '2026-09-10T12:00:00.000Z',
+    publishedAt: '2026-09-10T12:00:00.000Z',
+    verifiedAt: '2026-09-10T12:00:00.000Z',
+    activityWindows: [
+      { startsAt: '2026-09-10T00:00:00.000Z', endsAt: '2026-09-10T09:00:00.000Z' },
+      { startsAt: '2026-09-10T15:00:00.000Z', endsAt: '2026-09-11T00:00:00.000Z' },
+    ],
+    payload: {
+      ...stored.payload,
+      updatedAt: '2026-09-10T12:00:00.000Z',
+      matchups: [live, upcoming],
+    },
+  };
+}
+
 function readStore(
   selected: StoredProjectionSnapshot | null,
   enabled = true,
@@ -244,6 +276,39 @@ describe('projection cron HTTP boundary', () => {
 });
 
 describe('matchup snapshot HTTP boundary', () => {
+  it('serves between-game data but fails closed after idle and active-window limits', async () => {
+    const stored = activeWeekBetweenGames();
+    const request = new Request('https://example.test/api/matchups/league1?week=1');
+
+    const betweenGames = await handleMatchupsSnapshotRequest(
+      request, 'league1', readStore(stored, true, stored, '2026-09-10T12:04:00.000Z').store,
+      new Date('2026-09-10T12:04:00.000Z'),
+    );
+    expect(betweenGames.status).toBe(200);
+    expect(await betweenGames.json()).toEqual(stored.payload);
+
+    const idleStale = await handleMatchupsSnapshotRequest(
+      request, 'league1', readStore(stored, true, stored, '2026-09-10T13:15:00.001Z').store,
+      new Date('2026-09-10T13:15:00.001Z'),
+    );
+    await expectResponse(idleStale, {
+      status: 503, cacheControl: 'no-store', body: { status: 'unavailable' },
+    });
+
+    const activeStale = {
+      ...stored,
+      verifiedAt: '2026-09-10T15:00:00.000Z',
+    };
+    const duringGame = await handleMatchupsSnapshotRequest(
+      request, 'league1',
+      readStore(activeStale, true, activeStale, '2026-09-10T15:03:00.001Z').store,
+      new Date('2026-09-10T15:03:00.001Z'),
+    );
+    await expectResponse(duringGame, {
+      status: 503, cacheControl: 'no-store', body: { status: 'unavailable' },
+    });
+  });
+
   it('returns a validated current snapshot for a canonical league key', async () => {
     expect(isMatchupsData(matchupPayload())).toBe(true);
     const database = readStore(snapshot());
