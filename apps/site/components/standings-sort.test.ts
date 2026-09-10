@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { StandingsTeam } from '../lib/types';
-import { nextStandingsSort, rankStandingsTeams, sortStandingsTeams, type StandingsSortKey } from './standings-sort';
+import { initialStandingsSorts, nextStandingsSort, rankStandingsTeams, sortStandingsTeams, type StandingsSortKey } from './standings-sort';
 
 const teams: StandingsTeam[] = [
   { id: 11, name: 'Zulu', managerName: 'One', avatar: null, wins: 2, losses: 1, ties: 0, pointsFor: 90, pointsAgainst: 70, waiverOrder: 3, waiverBudgetRemaining: 40 },
@@ -17,6 +17,13 @@ function ids(key: StandingsSortKey, clickCount = 1) {
 }
 
 describe('Standings table sorting', () => {
+  it('defaults Waivers to Order ascending without changing the Standings default', () => {
+    expect(initialStandingsSorts()).toEqual({
+      standings: null,
+      waivers: { key: 'waiverOrder', direction: 'ascending' },
+    });
+  });
+
   it('attaches immutable official ranks and defaults both views to standings order', () => {
     expect(ranked.map(team => ({ id: team.id, rank: team.rank }))).toEqual([
       { id: 11, rank: 1 }, { id: 12, rank: 2 }, { id: 13, rank: 3 }, { id: 14, rank: 4 },
@@ -46,9 +53,33 @@ describe('Standings table sorting', () => {
     expect(ids('waiverBudget', 2).at(-1)).toBe(13);
   });
 
+  it('keeps missing and invalid waiver orders last', () => {
+    const withInvalid = rankStandingsTeams([
+      ...teams,
+      { ...teams[0], id: 15, name: 'Zero', waiverOrder: 0 },
+      { ...teams[0], id: 16, name: 'Negative', waiverOrder: -1 },
+      { ...teams[0], id: 17, name: 'Malformed', waiverOrder: Number.NaN },
+    ]);
+    const sorted = sortStandingsTeams(withInvalid, { key: 'waiverOrder', direction: 'ascending' });
+    expect(sorted.slice(0, 3).map(team => team.waiverOrder)).toEqual([1, 2, 3]);
+    expect(sorted.slice(3).map(team => team.id)).toEqual([13, 15, 16, 17]);
+  });
+
   it('keeps each original rank attached after sorting', () => {
     expect(sortStandingsTeams(ranked, nextStandingsSort(null, 'team')).map(team => [team.name, team.rank])).toEqual([
       ['Alpha', 2], ['Bravo', 4], ['Echo', 3], ['Zulu', 1],
     ]);
+  });
+
+  it('continues sorting PF and PA by their unchanged numeric values, including zero and negatives', () => {
+    const scored = rankStandingsTeams([
+      { ...teams[0], id: 21, pointsFor: 0, pointsAgainst: 0 },
+      { ...teams[0], id: 22, pointsFor: -1, pointsAgainst: -1 },
+      { ...teams[0], id: 23, pointsFor: 5, pointsAgainst: 5 },
+    ]);
+    for (const key of ['pointsFor', 'pointsAgainst'] as const) {
+      expect(sortStandingsTeams(scored, { key, direction: 'ascending' }).map(team => team.id)).toEqual([22, 21, 23]);
+      expect(sortStandingsTeams(scored, { key, direction: 'descending' }).map(team => team.id)).toEqual([23, 21, 22]);
+    }
   });
 });

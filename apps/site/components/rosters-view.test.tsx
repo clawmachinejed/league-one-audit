@@ -41,11 +41,24 @@ describe('rosters presentation', () => {
     expect(html).not.toMatch(/projected|time remaining|live game clock|position rank/iu);
   });
 
-  it('puts My Team first, retains its ranks, and keeps roster content outside the summary button', () => {
+  it('puts My Team first, retains its ranks, and starts every roster collapsed', () => {
     const html = renderToStaticMarkup(<RosterContent data={data} selected={2} />);
     expect(html.indexOf('A Team Name')).toBeLessThan(html.indexOf('First Place'));
     expect(html).toContain('record 6–2, standings 2nd');
-    expect(html).toMatch(/<button[^>]*data-roster-toggle="true"[^>]*aria-expanded="true"[^>]*>.*?<\/button><div[^>]*data-roster-content="true"/su);
+    expect(html.match(/aria-expanded="false"/gu)).toHaveLength(data.teams.length);
+    expect(html).not.toContain('aria-expanded="true"');
+    expect(html).toMatch(/<button[^>]*data-roster-toggle="true"[^>]*aria-expanded="false"[^>]*>.*?<\/button><div[^>]*hidden=""[^>]*data-roster-content="true"/su);
+  });
+
+  it('suppresses alphabetical standings positions while every record is 0–0', () => {
+    const preseason: RostersData = {
+      ...data,
+      teams: data.teams.map(team => ({ ...team, wins: 0, losses: 0, ties: 0 })),
+    };
+    const html = renderToStaticMarkup(<RosterContent data={preseason} selected={2} />);
+    expect(html).toContain('record 0–0, standings —');
+    expect(html.match(/data-standings-rank=""/gu)).toHaveLength(preseason.teams.length);
+    expect(html).not.toMatch(/standings \d+(?:st|nd|rd|th)/u);
   });
 
   it('keys cached responses by league and week', () => {
@@ -56,8 +69,10 @@ describe('rosters presentation', () => {
   it('uses mobile-safe geometry and a bottom-right chevron', () => {
     const css = readFileSync(new URL('./rosters.module.css', import.meta.url), 'utf8');
     expect(css).toContain('.summary{position:relative;');
-    expect(css).toContain('min-height:76px');
+    expect(css).toContain('min-height:60px');
     expect(css).toContain('.chevron{position:absolute;right:7px;bottom:6px');
-    expect(css).toContain('text-overflow:ellipsis');
+    expect(css).toMatch(/\.teamName\{[^}]*text-wrap:balance;overflow-wrap:anywhere/gu);
+    expect(css).not.toMatch(/\.teamName\{[^}]*(?:text-overflow:ellipsis|white-space:nowrap)/gu);
+    expect(css).toMatch(/\.managerMeta :global\(\.avatar\)\{width:14px;height:14px/gu);
   });
 });

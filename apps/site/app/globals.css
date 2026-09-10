@@ -188,11 +188,12 @@ h1{font-weight:800;font-size:38px;line-height:1.12;letter-spacing:-.055em;overfl
 .standings-team{display:flex;align-items:center;width:100%;height:46px;min-width:0;padding:3px 0;text-align:left}
 .team-text{display:block;min-width:0;width:100%;text-align:left}
 .team-name{display:block;overflow:hidden;font-size:11px;font-weight:700;line-height:1.25;text-align:left;text-overflow:ellipsis;white-space:nowrap}
-.manager-name{display:block;overflow:hidden;color:var(--muted);font-size:8px;line-height:1.25;font-weight:400;text-align:left;text-overflow:ellipsis;white-space:nowrap;margin-top:2px}
+.manager-meta{display:grid;grid-template-columns:14px minmax(0,1fr);align-items:center;gap:3px;min-width:0;margin-top:2px;text-align:left}
+.manager-meta .avatar{width:14px;height:14px;font-size:8px}
+.manager-name{display:block;min-width:0;overflow:hidden;color:var(--muted);font-size:8px;line-height:1.25;font-weight:400;text-align:left;text-overflow:ellipsis;white-space:nowrap}
 .my-team-label{font-size:8px;color:var(--green);font-weight:800;letter-spacing:.03em}
 .standings-table .selected-row{background:var(--green-soft)}
 .selected-row .rank-cell{box-shadow:inset 3px 0 var(--green)}
-.rank-top{font-weight:800;color:var(--ink)}
 .record-cell{font-weight:700}
 .points-cell{color:var(--muted)}
 .table-note{color:var(--muted);font-size:10px;line-height:1.65;padding:12px 2px 0}
@@ -295,11 +296,13 @@ h1{font-weight:800;font-size:38px;line-height:1.12;letter-spacing:-.055em;overfl
 .transaction-filters{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;margin:0 0 12px;min-width:0}
 .transaction-filters button{min-width:0;min-height:44px;padding:7px 4px;border:1px solid var(--line);border-radius:7px;background:var(--surface);color:var(--muted);font-size:9px;font-weight:750;line-height:1.25;cursor:pointer}
 .transaction-filters button[aria-selected=true]{border-color:var(--selected-control-border);background:var(--green-soft);color:var(--green)}
-.league-transactions-list{max-width:none}
-.league-activity-card .transaction-header{display:block}
+.league-transactions-list{max-width:none;gap:8px}
+.league-activity-card .transaction-header{display:block;padding:6px 10px 5px}
 .league-activity-card .transaction-header>div{width:100%}
+.league-activity-card .transaction-date{margin-top:2px;line-height:1.4}
 .league-activity-card .transaction-lines>div{grid-template-columns:62px minmax(0,1fr)}
-.league-activity-card .transaction-body{display:block}
+.league-activity-card .transaction-body{display:block;padding:6px 10px 7px}
+.league-activity-card .transaction-lines{gap:8px}
 .transaction-movement-rows dd{min-width:0;font-weight:400}
 .transaction-movement-player,.transaction-movement-separator,.transaction-movement-player-details{font-weight:400}
 .transaction-movement-player-name{font-weight:600}
@@ -318,8 +321,7 @@ h1{font-weight:800;font-size:38px;line-height:1.12;letter-spacing:-.055em;overfl
 .waiver-bid-row.result-positive{color:var(--positive-ink)}
 .waiver-bid-row.result-negative{color:var(--negative-ink)}
 .waiver-bid-row.result-neutral{color:var(--neutral-ink)}
-.trade-card .transaction-header{border-bottom:0;padding-bottom:4px}
-.trade-card-body{padding-top:8px}
+.trade-card .transaction-header{border-bottom:0}
 .trade-receivers{display:grid;min-width:0}
 .trade-receiver{min-width:0;padding:8px 0 0}
 .trade-receiver+.trade-receiver{border-top:1px solid var(--line-soft);margin-top:12px;padding-top:12px}

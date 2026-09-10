@@ -204,7 +204,7 @@ test('League navigation stays distinct from Standings content and does not resiz
 
         await expect(navigation.getByRole('link', { name: 'Standings', exact: true })).toHaveCount(0);
         await navigation.getByRole('link', { name: 'League', exact: true }).click();
-        await expect(page.getByRole('heading', { level: 1, name: 'Standings', exact: true })).toBeVisible();
+        await expect(page.getByRole('heading', { level: 1, name: 'League', exact: true })).toBeVisible();
         const standingsViews = page.getByRole('tablist', { name: 'Standings views' });
         await expect(standingsViews.getByRole('tab', { name: 'Standings', exact: true })).toBeVisible();
         await expect(standingsViews.getByRole('tab', { name: 'Waivers', exact: true })).toBeVisible();
@@ -252,7 +252,7 @@ test('switching leagues changes identity, data routes, and every primary tab', a
 
   await mobileNav.getByRole('link', { name: 'League' }).click();
   await expect(page).toHaveURL(/\/league2\/standings$/u);
-  await expect(page.getByRole('heading', { level: 1, name: 'Standings' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'League' })).toBeVisible();
   await expect(page.getByText('2026 season', { exact: true })).toBeVisible();
 
   await page.getByRole('navigation', { name: 'Mobile navigation' }).getByRole('link', { name: 'Managers' }).click();

@@ -166,11 +166,14 @@ describe('league transaction card presentation', () => {
     expect(html).not.toContain('waiver-winning-moves');
 
     const css = readFileSync(new URL('../app/globals.css', import.meta.url), 'utf8');
-    expect(css).toContain('.transaction-lines{display:grid;gap:12px;');
+    expect(css).toContain('.league-activity-card .transaction-lines{gap:8px}');
     expect(css).toContain('.league-activity-card .transaction-lines>div{grid-template-columns:62px minmax(0,1fr)}');
     expect(css).toContain('.league-activity-card .transaction-lines>div{grid-template-columns:84px minmax(0,1fr)}');
     expect(css).not.toContain('.waiver-winning-moves');
-    expect(css).not.toMatch(/\.waiver-card[^}]*padding/gu);
+    expect(css).not.toMatch(/\.waiver-card(?:-header|-body)?\{[^}]*padding/gu);
+    expect(css).toContain('.league-activity-card .transaction-header{display:block;padding:6px 10px 5px}');
+    expect(css).toContain('.league-activity-card .transaction-body{display:block;padding:6px 10px 7px}');
+    expect(css).toContain('.league-transactions-list{max-width:none;gap:8px}');
   });
 
   it('emphasizes every recognized player name without emphasizing details or separators', () => {
@@ -273,9 +276,9 @@ describe('league transaction card presentation', () => {
 
   it('removes the league-card status column and the divider before the first trade participant in CSS', () => {
     const css = readFileSync(new URL('../app/globals.css', import.meta.url), 'utf8');
-    expect(css).toContain('.league-activity-card .transaction-header{display:block}');
+    expect(css).toContain('.league-activity-card .transaction-header{display:block;padding:6px 10px 5px}');
     expect(css).toContain('.league-activity-card .transaction-header>div{width:100%}');
-    expect(css).toContain('.trade-card .transaction-header{border-bottom:0;');
+    expect(css).toContain('.trade-card .transaction-header{border-bottom:0}');
     expect(css).not.toMatch(/\.trade-receiver:first-child[^}]*border/gu);
   });
 });

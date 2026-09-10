@@ -2,12 +2,13 @@
 
 import Link from 'next/link';
 import { useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import type { LeagueTransactionsData, StandingsData } from '../lib/types';
-import { EmptyState, formatNumber, teamRecord, Updated, Warning } from './league-primitives';
+import type { LeagueTransactionsData, StandingsData, StandingsTeam } from '../lib/types';
+import { Avatar, EmptyState, teamRecord, Updated, Warning } from './league-primitives';
 import { useLeagueSite } from './league-context';
 import matchupStyles from './matchups.module.css';
 import { PageIntro } from './page-intro';
 import {
+  initialStandingsSorts,
   nextStandingsSort,
   rankStandingsTeams,
   sortStandingsTeams,
@@ -48,13 +49,29 @@ export function formatWaiverBalance(value: number | null): string {
   return value === null ? '—' : `$${value}`;
 }
 
-function metricValue(team: RankedStandingsTeam, key: StandingsSortKey): string | number {
+export function standingsHaveScoringEvidence(teams: readonly StandingsTeam[]): boolean {
+  return teams.some(team => {
+    const record = [team.wins, team.losses, team.ties];
+    const completedRecord = record.every(value => Number.isInteger(value) && value >= 0)
+      && record.some(value => value > 0);
+    const scoredPoints = [team.pointsFor, team.pointsAgainst]
+      .some(value => typeof value === 'number' && Number.isFinite(value) && value !== 0);
+    return completedRecord || scoredPoints;
+  });
+}
+
+export function formatStandingsPoints(value: number | null | undefined, scoringHasBegun: boolean): string {
+  return scoringHasBegun && typeof value === 'number' && Number.isFinite(value)
+    ? value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—';
+}
+
+function metricValue(team: RankedStandingsTeam, key: StandingsSortKey, scoringHasBegun: boolean): string | number {
   switch (key) {
     case 'rank': return team.rank;
     case 'record': return teamRecord(team);
-    case 'pointsFor': return formatNumber(team.pointsFor, 2);
-    case 'pointsAgainst': return formatNumber(team.pointsAgainst, 2);
-    case 'waiverOrder': return team.waiverOrder ?? '—';
+    case 'pointsFor': return formatStandingsPoints(team.pointsFor, scoringHasBegun);
+    case 'pointsAgainst': return formatStandingsPoints(team.pointsAgainst, scoringHasBegun);
+    case 'waiverOrder': return Number.isInteger(team.waiverOrder) && team.waiverOrder! > 0 ? team.waiverOrder! : '—';
     case 'waiverBudget': return formatWaiverBalance(team.waiverBudgetRemaining);
     case 'team': return team.name;
   }
@@ -64,7 +81,7 @@ export function StandingsView({ data }: { data: StandingsData }) {
   const site = useLeagueSite();
   const { selected } = useTeamPreference(data.teams);
   const [view, setView] = useState<StandingsViewName>('standings');
-  const [sorts, setSorts] = useState<Record<StandingsTableViewName, StandingsSort | null>>({ standings: null, waivers: null });
+  const [sorts, setSorts] = useState<Record<StandingsTableViewName, StandingsSort | null>>(initialStandingsSorts);
   const [transactionState, setTransactionState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [transactionData, setTransactionData] = useState<LeagueTransactionsData | null>(null);
   const [transactionError, setTransactionError] = useState<string | null>(null);
@@ -72,6 +89,7 @@ export function StandingsView({ data }: { data: StandingsData }) {
   const tabRefs = useRef<Record<StandingsViewName, HTMLButtonElement | null>>({ standings: null, waivers: null, transactions: null, rosters: null });
   const id = useId();
   const rankedTeams = useMemo(() => rankStandingsTeams(data.teams), [data.teams]);
+  const scoringHasBegun = useMemo(() => standingsHaveScoringEvidence(data.teams), [data.teams]);
   const tableView: StandingsTableViewName = view === 'waivers' ? 'waivers' : 'standings';
   const teams = useMemo(() => sortStandingsTeams(rankedTeams, sorts[tableView]), [rankedTeams, sorts, tableView]);
   const columns = tableView === 'standings' ? standingsColumns : waiverColumns;
@@ -124,7 +142,7 @@ export function StandingsView({ data }: { data: StandingsData }) {
   }
 
   return <div className={`${matchupStyles.page} ${matchupStyles.standingsPage}`}>
-    <div className={matchupStyles.toolbar}><PageIntro title="Standings" league={data.league} /></div>
+    <div className={matchupStyles.toolbar}><PageIntro title="League" league={data.league} /></div>
     {(view === 'standings' || view === 'waivers') && <Warning message={data.warning} />}
     <div className="standings-view-tabs" role="tablist" aria-label="Standings views">
       {viewOptions.map(option => <button
@@ -162,13 +180,15 @@ export function StandingsView({ data }: { data: StandingsData }) {
         </th>;
       })}</tr></thead>
       <tbody>{teams.map(team => <tr key={team.id} className={selected === team.id ? 'selected-row' : ''}>
-        <td className="rank-cell"><span className={team.rank <= 3 ? 'rank-top' : ''}>{team.rank}</span></td>
+        <td className="rank-cell"><span>{team.rank}</span></td>
         <th scope="row" className="team-cell"><Link
           href={`${site.prefix}/managers/${team.id}`}
           className="standings-team"
           aria-label={`${team.name}, managed by ${team.managerName}${selected === team.id ? ', My Team' : ''}`}
-        ><span className="team-text"><span className="team-name">{team.name}</span><span className="manager-name">{selected === team.id && <span className="my-team-label">MY TEAM<span aria-hidden="true"> · </span></span>}{team.managerName}</span></span></Link></th>
-        {columns.slice(2).map(column => <td key={column.key} className={column.className}>{metricValue(team, column.key)}</td>)}
+        ><span className="team-text"><span className="team-name">{team.name}</span><span className="manager-meta"><Avatar team={team} />
+          <span className="manager-name">{selected === team.id && <span className="my-team-label">MY TEAM<span aria-hidden="true"> · </span></span>}{team.managerName}</span>
+        </span></span></Link></th>
+        {columns.slice(2).map(column => <td key={column.key} className={column.className}>{metricValue(team, column.key, scoringHasBegun)}</td>)}
       </tr>)}</tbody>
     </table></div> : <div className="standings-view-panel"><EmptyState title={emptyTitle}>Teams will appear when Sleeper has league rosters available.</EmptyState></div>}
     <div id={view === 'rosters' ? panelId : undefined} className="standings-view-panel" role={view === 'rosters' ? 'tabpanel' : undefined} aria-labelledby={view === 'rosters' ? `${id}-rosters-tab` : undefined} hidden={view !== 'rosters'}>

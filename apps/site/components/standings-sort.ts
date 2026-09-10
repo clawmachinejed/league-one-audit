@@ -16,6 +16,10 @@ export interface StandingsSort {
 
 const ascendingFirst = new Set<StandingsSortKey>(['rank', 'team', 'waiverOrder']);
 
+export function initialStandingsSorts(): Record<StandingsTableViewName, StandingsSort | null> {
+  return { standings: null, waivers: { key: 'waiverOrder', direction: 'ascending' } };
+}
+
 export function rankStandingsTeams(teams: StandingsTeam[]): RankedStandingsTeam[] {
   return teams.map((team, index) => ({ ...team, rank: index + 1 }));
 }
@@ -36,6 +40,11 @@ function compareNullable(a: number | null, b: number | null, direction: SortDire
   if (b === null) return -1;
   const comparison = a - b;
   return direction === 'ascending' ? comparison : -comparison;
+}
+
+function compareWaiverOrder(a: number | null, b: number | null, direction: SortDirection): number {
+  const valid = (value: number | null): value is number => Number.isInteger(value) && value! > 0;
+  return compareNullable(valid(a) ? a : null, valid(b) ? b : null, direction);
 }
 
 export function sortStandingsTeams(
@@ -66,7 +75,7 @@ export function sortStandingsTeams(
         comparison = compareNullable(a.pointsAgainst, b.pointsAgainst, sort.direction);
         break;
       case 'waiverOrder':
-        comparison = compareNullable(a.waiverOrder, b.waiverOrder, sort.direction);
+        comparison = compareWaiverOrder(a.waiverOrder, b.waiverOrder, sort.direction);
         break;
       case 'waiverBudget':
         comparison = compareNullable(a.waiverBudgetRemaining, b.waiverBudgetRemaining, sort.direction);
