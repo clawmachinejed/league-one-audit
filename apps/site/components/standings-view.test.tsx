@@ -1,6 +1,30 @@
 import { readFileSync } from 'node:fs';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { formatStandingsPoints, formatWaiverBalance } from './standings-view';
+import { LEAGUE_SITES } from '../lib/leagues';
+import type { StandingsData, StandingsTeam } from '../lib/types';
+import { LeagueSiteProvider } from './league-context';
+import { formatStandingsPoints, formatWaiverBalance, StandingsView, standingsHaveScoringEvidence } from './standings-view';
+
+const team = (overrides: Partial<StandingsTeam> = {}): StandingsTeam => ({
+  id: 1, name: 'Team One', managerName: 'Manager One', avatar: null,
+  wins: 0, losses: 0, ties: 0, pointsFor: 0, pointsAgainst: null,
+  waiverOrder: 1, waiverBudgetRemaining: 100, ...overrides,
+});
+
+const data = (teams: StandingsTeam[]): StandingsData => ({
+  league: { season: '2026', week: 1, maxWeek: 18, rosterPositions: [] },
+  teams,
+  updatedAt: '2026-09-10T12:00:00.000Z',
+});
+
+function renderedPointCells(teams: StandingsTeam[], league: keyof typeof LEAGUE_SITES = 'league1') {
+  const html = renderToStaticMarkup(<LeagueSiteProvider site={LEAGUE_SITES[league]}><StandingsView data={data(teams)} /></LeagueSiteProvider>);
+  return {
+    html,
+    points: [...html.matchAll(/<td class="metric-cell points-cell">([^<]+)<\/td>/gu)].map(match => match[1]),
+  };
+}
 
 describe('Standings waiver balance presentation', () => {
   it('shows valid zero as $0', () => {
@@ -26,10 +50,41 @@ describe('Standings shared view presentation', () => {
     expect(source).toContain("{ value: 'rosters', label: 'Rosters' }");
   });
 
-  it('uses the same positive-only two-decimal presentation for PF and PA', () => {
-    expect([formatStandingsPoints(12.345), formatStandingsPoints(0.01)]).toEqual(['12.35', '0.01']);
-    expect([0, -1, null, undefined, Number.NaN, Number.POSITIVE_INFINITY].map(formatStandingsPoints))
+  it('renders PF and PA as unavailable while the entire league remains unplayed', () => {
+    const teams = [team({ id: 1, pointsAgainst: 0 }), team({ id: 2, pointsAgainst: null })];
+    expect(standingsHaveScoringEvidence(teams)).toBe(false);
+    expect(renderedPointCells(teams).points).toEqual(['—', '—', '—', '—']);
+  });
+
+  it('renders positive, zero, and negative finite totals once scoring has begun', () => {
+    const teams = [
+      team({ id: 1, pointsFor: 12.345, pointsAgainst: 9.5 }),
+      team({ id: 2, pointsFor: 0, pointsAgainst: -1 }),
+    ];
+    expect(standingsHaveScoringEvidence(teams)).toBe(true);
+    expect(renderedPointCells(teams).points).toEqual(['12.35', '9.50', '0.00', '-1.00']);
+  });
+
+  it('treats a completed record as scoring evidence while preserving missing totals', () => {
+    const teams = [team({ id: 1, wins: 1, pointsFor: 0, pointsAgainst: 0 }), team({ id: 2 })];
+    expect(standingsHaveScoringEvidence(teams)).toBe(true);
+    expect(renderedPointCells(teams).points).toEqual(['0.00', '0.00', '0.00', '—']);
+  });
+
+  it('always renders missing, malformed, and non-finite totals as unavailable', () => {
+    const invalid = [null, undefined, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, '12'];
+    expect(invalid.map(value => formatStandingsPoints(value as number | null | undefined, true)))
       .toEqual(['—', '—', '—', '—', '—', '—']);
+  });
+
+  it('uses the same scoring-availability rule in League One and League Two', () => {
+    const teams = [team({ id: 1, pointsFor: 1 }), team({ id: 2, pointsFor: 0, pointsAgainst: -1 })];
+    const leagueOne = renderedPointCells(teams, 'league1');
+    const leagueTwo = renderedPointCells(teams, 'league2');
+    expect(leagueOne.points).toEqual(['1.00', '—', '0.00', '-1.00']);
+    expect(leagueTwo.points).toEqual(leagueOne.points);
+    expect(leagueOne.html).toContain('href="/managers/1"');
+    expect(leagueTwo.html).toContain('href="/league2/managers/1"');
   });
 
   it('adds Rosters immediately after Transactions while keeping Standings first', () => {

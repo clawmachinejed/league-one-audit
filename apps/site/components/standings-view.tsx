@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import type { LeagueTransactionsData, StandingsData } from '../lib/types';
+import type { LeagueTransactionsData, StandingsData, StandingsTeam } from '../lib/types';
 import { Avatar, EmptyState, teamRecord, Updated, Warning } from './league-primitives';
 import { useLeagueSite } from './league-context';
 import matchupStyles from './matchups.module.css';
@@ -49,17 +49,28 @@ export function formatWaiverBalance(value: number | null): string {
   return value === null ? '—' : `$${value}`;
 }
 
-export function formatStandingsPoints(value: number | null | undefined): string {
-  return typeof value === 'number' && Number.isFinite(value) && value > 0
+export function standingsHaveScoringEvidence(teams: readonly StandingsTeam[]): boolean {
+  return teams.some(team => {
+    const record = [team.wins, team.losses, team.ties];
+    const completedRecord = record.every(value => Number.isInteger(value) && value >= 0)
+      && record.some(value => value > 0);
+    const scoredPoints = [team.pointsFor, team.pointsAgainst]
+      .some(value => typeof value === 'number' && Number.isFinite(value) && value !== 0);
+    return completedRecord || scoredPoints;
+  });
+}
+
+export function formatStandingsPoints(value: number | null | undefined, scoringHasBegun: boolean): string {
+  return scoringHasBegun && typeof value === 'number' && Number.isFinite(value)
     ? value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—';
 }
 
-function metricValue(team: RankedStandingsTeam, key: StandingsSortKey): string | number {
+function metricValue(team: RankedStandingsTeam, key: StandingsSortKey, scoringHasBegun: boolean): string | number {
   switch (key) {
     case 'rank': return team.rank;
     case 'record': return teamRecord(team);
-    case 'pointsFor': return formatStandingsPoints(team.pointsFor);
-    case 'pointsAgainst': return formatStandingsPoints(team.pointsAgainst);
+    case 'pointsFor': return formatStandingsPoints(team.pointsFor, scoringHasBegun);
+    case 'pointsAgainst': return formatStandingsPoints(team.pointsAgainst, scoringHasBegun);
     case 'waiverOrder': return Number.isInteger(team.waiverOrder) && team.waiverOrder! > 0 ? team.waiverOrder! : '—';
     case 'waiverBudget': return formatWaiverBalance(team.waiverBudgetRemaining);
     case 'team': return team.name;
@@ -78,6 +89,7 @@ export function StandingsView({ data }: { data: StandingsData }) {
   const tabRefs = useRef<Record<StandingsViewName, HTMLButtonElement | null>>({ standings: null, waivers: null, transactions: null, rosters: null });
   const id = useId();
   const rankedTeams = useMemo(() => rankStandingsTeams(data.teams), [data.teams]);
+  const scoringHasBegun = useMemo(() => standingsHaveScoringEvidence(data.teams), [data.teams]);
   const tableView: StandingsTableViewName = view === 'waivers' ? 'waivers' : 'standings';
   const teams = useMemo(() => sortStandingsTeams(rankedTeams, sorts[tableView]), [rankedTeams, sorts, tableView]);
   const columns = tableView === 'standings' ? standingsColumns : waiverColumns;
@@ -176,7 +188,7 @@ export function StandingsView({ data }: { data: StandingsData }) {
         ><span className="team-text"><span className="team-name">{team.name}</span><span className="manager-meta"><Avatar team={team} />
           <span className="manager-name">{selected === team.id && <span className="my-team-label">MY TEAM<span aria-hidden="true"> · </span></span>}{team.managerName}</span>
         </span></span></Link></th>
-        {columns.slice(2).map(column => <td key={column.key} className={column.className}>{metricValue(team, column.key)}</td>)}
+        {columns.slice(2).map(column => <td key={column.key} className={column.className}>{metricValue(team, column.key, scoringHasBegun)}</td>)}
       </tr>)}</tbody>
     </table></div> : <div className="standings-view-panel"><EmptyState title={emptyTitle}>Teams will appear when Sleeper has league rosters available.</EmptyState></div>}
     <div id={view === 'rosters' ? panelId : undefined} className="standings-view-panel" role={view === 'rosters' ? 'tabpanel' : undefined} aria-labelledby={view === 'rosters' ? `${id}-rosters-tab` : undefined} hidden={view !== 'rosters'}>

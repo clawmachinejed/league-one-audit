@@ -70,4 +70,16 @@ describe('Standings table sorting', () => {
       ['Alpha', 2], ['Bravo', 4], ['Echo', 3], ['Zulu', 1],
     ]);
   });
+
+  it('continues sorting PF and PA by their unchanged numeric values, including zero and negatives', () => {
+    const scored = rankStandingsTeams([
+      { ...teams[0], id: 21, pointsFor: 0, pointsAgainst: 0 },
+      { ...teams[0], id: 22, pointsFor: -1, pointsAgainst: -1 },
+      { ...teams[0], id: 23, pointsFor: 5, pointsAgainst: 5 },
+    ]);
+    for (const key of ['pointsFor', 'pointsAgainst'] as const) {
+      expect(sortStandingsTeams(scored, { key, direction: 'ascending' }).map(team => team.id)).toEqual([22, 21, 23]);
+      expect(sortStandingsTeams(scored, { key, direction: 'descending' }).map(team => team.id)).toEqual([23, 21, 22]);
+    }
+  });
 });
