@@ -842,8 +842,8 @@ test('league Transactions remains usable without overflow at every supported wid
       expect(commonSpacing.every(spacing => spacing.headerPadding.join() === commonSpacing[0].headerPadding.join())).toBe(true);
       expect(commonSpacing.every(spacing => spacing.bodyPadding.join() === commonSpacing[0].bodyPadding.join())).toBe(true);
       expect(commonSpacing.every(spacing => spacing.titleDateGap === commonSpacing[0].titleDateGap)).toBe(true);
-      expect(commonSpacing[0].headerPadding).toEqual(['7px', '10px', '6px', '10px']);
-      expect(commonSpacing[0].bodyPadding).toEqual(['7px', '10px', '8px', '10px']);
+      expect(commonSpacing[0].headerPadding).toEqual(['6px', '10px', '5px', '10px']);
+      expect(commonSpacing[0].bodyPadding).toEqual(['6px', '10px', '7px', '10px']);
       expect(await page.locator('.league-transactions-list').evaluate(list => getComputedStyle(list).rowGap)).toBe('8px');
       const movementTypography = await page.locator('.transaction-movement-rows').evaluateAll(lists => lists.map(list => ({
         names: [...list.querySelectorAll('.transaction-movement-player-name')].map(node => getComputedStyle(node).fontWeight),

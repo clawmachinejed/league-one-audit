@@ -297,11 +297,11 @@ h1{font-weight:800;font-size:38px;line-height:1.12;letter-spacing:-.055em;overfl
 .transaction-filters button{min-width:0;min-height:44px;padding:7px 4px;border:1px solid var(--line);border-radius:7px;background:var(--surface);color:var(--muted);font-size:9px;font-weight:750;line-height:1.25;cursor:pointer}
 .transaction-filters button[aria-selected=true]{border-color:var(--selected-control-border);background:var(--green-soft);color:var(--green)}
 .league-transactions-list{max-width:none;gap:8px}
-.league-activity-card .transaction-header{display:block;padding:7px 10px 6px}
+.league-activity-card .transaction-header{display:block;padding:6px 10px 5px}
 .league-activity-card .transaction-header>div{width:100%}
 .league-activity-card .transaction-date{margin-top:2px;line-height:1.4}
 .league-activity-card .transaction-lines>div{grid-template-columns:62px minmax(0,1fr)}
-.league-activity-card .transaction-body{display:block;padding:7px 10px 8px}
+.league-activity-card .transaction-body{display:block;padding:6px 10px 7px}
 .league-activity-card .transaction-lines{gap:8px}
 .transaction-movement-rows dd{min-width:0;font-weight:400}
 .transaction-movement-player,.transaction-movement-separator,.transaction-movement-player-details{font-weight:400}
