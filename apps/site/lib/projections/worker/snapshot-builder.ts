@@ -62,6 +62,7 @@ function pregameProjectionMap(input: PregameProjectionSet): Map<string, Readonly
 
 function projectedPlayerMap(input: BuildSnapshotInput): Map<string, Readonly<{
   projectedPoints: number;
+  presentationProjectedPoints: number | null;
   projectionQuality: Exclude<ProjectionPointQuality, 'unavailable'>;
 }>> {
   const latest = baselineMap(input.latest);
@@ -70,6 +71,7 @@ function projectedPlayerMap(input: BuildSnapshotInput): Map<string, Readonly<{
   const prior = priorProjectionMap(input.prior);
   const result = new Map<string, Readonly<{
     projectedPoints: number;
+    presentationProjectedPoints: number | null;
     projectionQuality: Exclude<ProjectionPointQuality, 'unavailable'>;
   }>>();
 
@@ -107,6 +109,11 @@ function projectedPlayerMap(input: BuildSnapshotInput): Map<string, Readonly<{
     }
     result.set(key, {
       projectedPoints: calculated.projectedPoints,
+      presentationProjectedPoints: state?.phase === 'final'
+        ? record?.quality === 'complete' && finite(record.projectionPoints)
+          ? record.projectionPoints
+          : null
+        : calculated.projectedPoints,
       projectionQuality: calculated.quality,
     });
   }
@@ -215,7 +222,7 @@ function presentationPlayer(
     game: presentationGame(slot.entity, schedule),
     slot: slot.slot,
     points: slot.officialPoints,
-    projectedPoints: slot.projectedPoints,
+    projectedPoints: slot.presentationProjectedPoints,
   };
 }
 

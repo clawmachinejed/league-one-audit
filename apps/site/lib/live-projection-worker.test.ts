@@ -826,6 +826,50 @@ describe('live projection worker', () => {
     );
   });
 
+  it('keeps final player display baselines isolated by league scoring profile', async () => {
+    const store = fakeStore();
+    const finalState = {
+      ...gameState(),
+      statusCode: 2 as const,
+      statusText: 'Final',
+      sourcePeriod: 'Final',
+      phase: 'final' as const,
+      remainingFraction: 0,
+    };
+    const dependencies = workerDependencies(store, { games: gameStates(finalState) });
+    dependencies.sourceMock.mockImplementation(async (configuration: LeagueConfiguration) => {
+      const loaded = source(leagueId(configuration));
+      return leagueId(configuration) === 'l2'
+        ? {
+            ...loaded,
+            scoringSettings: {
+              ...loaded.scoringSettings,
+              rawRules: { pass_yd: 0.08, rush_yd: 0.1 },
+            },
+          }
+        : loaded;
+    });
+
+    await expect(createLiveProjectionWorker(dependencies).run()).resolves.toMatchObject({
+      status: 'completed',
+      publishedLeagues: 2,
+      failedLeagues: 0,
+    });
+    const publishedByLeague = new Map(store.publishInputs.map((input) => [
+      String(input.leagueSeasonId),
+      input.payload,
+    ]));
+    const leagueOne = publishedByLeague.get('season-league1')!;
+    const leagueTwo = publishedByLeague.get('season-league2')!;
+    const leagueOnePlayer = leagueOne.matchups[0].sides[0].starters.find((starter) => starter.id === 'p1');
+    const leagueTwoPlayer = leagueTwo.matchups[0].sides[0].starters.find((starter) => starter.id === 'p1');
+
+    expect(leagueOnePlayer).toMatchObject({ points: 8, projectedPoints: 10 });
+    expect(leagueTwoPlayer).toMatchObject({ points: 8, projectedPoints: 20 });
+    expect(leagueOne.matchups[0].sides[0].projectedPoints).toBe(10);
+    expect(leagueTwo.matchups[0].sides[0].projectedPoints).toBe(10);
+  });
+
   it('records an isolated missing starter candidate as zero without rejecting a complete weekly slate', async () => {
     const store = fakeStore();
     const dependencies = workerDependencies(store);
