@@ -53,25 +53,31 @@ function RosterGroup({ section }: { section: RosterSection }) {
   </section>;
 }
 
-function TeamCard({ team, selected }: { team: RosterTeam; selected: boolean }) {
-  const [expanded, setExpanded] = useState(selected);
+function TeamCard({ team, selected, expanded, showStandingsPosition, onToggle }: {
+  team: RosterTeam;
+  selected: boolean;
+  expanded: boolean;
+  showStandingsPosition: boolean;
+  onToggle: () => void;
+}) {
   const panelId = useId();
   const teamRecord = record(team);
-  return <article className={`${styles.card} ${selected ? styles.myTeam : ''}`} data-roster-card data-team-id={team.id} data-standings-rank={team.standingsRank ?? ''} data-average-rank={team.averagePpgRank ?? ''}>
+  const standingsRank = showStandingsPosition ? team.standingsRank : null;
+  return <article className={`${styles.card} ${selected ? styles.myTeam : ''}`} data-roster-card data-team-id={team.id} data-standings-rank={standingsRank ?? ''} data-average-rank={team.averagePpgRank ?? ''}>
     <button
       type="button"
       className={styles.summary}
       data-roster-toggle
       aria-expanded={expanded}
       aria-controls={panelId}
-      aria-label={`${team.name}, managed by ${team.managerName}, record ${teamRecord}, standings ${ordinal(team.standingsRank)}, average ${number(team.averagePpg)} points per game, average position ${ordinal(team.averagePpgRank)}${selected ? ', My Team' : ''}. ${expanded ? 'Collapse' : 'Expand'} roster.`}
-      onClick={() => setExpanded((value) => !value)}
+      aria-label={`${team.name}, managed by ${team.managerName}, record ${teamRecord}, standings ${ordinal(standingsRank)}, average ${number(team.averagePpg)} points per game, average position ${ordinal(team.averagePpgRank)}${selected ? ', My Team' : ''}. ${expanded ? 'Collapse' : 'Expand'} roster.`}
+      onClick={onToggle}
     >
       <span className={styles.identity}>
-        <Avatar team={team} />
-        <span className={styles.names}><strong>{team.name}</strong><span>{team.managerName}</span>{selected && <small>MY TEAM</small>}</span>
+        <strong className={styles.teamName}>{team.name}</strong>
+        <span className={styles.managerMeta}><Avatar team={team} />{selected && <small>MY TEAM</small>}<span className={styles.managerName}>{team.managerName}</span></span>
       </span>
-      <span className={styles.teamMetric} aria-hidden="true"><strong>{teamRecord}</strong><small>{ordinal(team.standingsRank)}</small></span>
+      <span className={styles.teamMetric} aria-hidden="true"><strong>{teamRecord}</strong><small>{ordinal(standingsRank)}</small></span>
       <span className={styles.teamMetric} aria-hidden="true"><strong>{number(team.averagePpg)}</strong><small>{ordinal(team.averagePpgRank)}</small></span>
       <svg className={`${styles.chevron} ${expanded ? styles.rotated : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
     </button>
@@ -85,13 +91,32 @@ function TeamCard({ team, selected }: { team: RosterTeam; selected: boolean }) {
 
 export function RosterContent({ data, selected }: { data: RostersData; selected: number | null }) {
   const teams = useMemo(() => orderRosterTeams(data.teams, selected), [data.teams, selected]);
+  const [expandedIds, setExpandedIds] = useState<ReadonlySet<number>>(() => new Set());
+  const showStandingsPosition = useMemo(() => data.teams.some(team => [team.wins, team.losses, team.ties]
+    .some(value => typeof value === 'number' && Number.isFinite(value) && value > 0)), [data.teams]);
+
+  function toggleTeam(teamId: number) {
+    setExpandedIds(current => {
+      const next = new Set(current);
+      if (next.has(teamId)) next.delete(teamId); else next.add(teamId);
+      return next;
+    });
+  }
+
   return <>
     <Warning message={data.warning} />
     {!data.rostersAvailable
       ? <EmptyState title={`Week ${data.week} rosters unavailable`}>Sleeper has not published authoritative roster membership for this week.</EmptyState>
       : <>
         <div className={styles.teamHeadings} data-team-headings aria-hidden="true"><span>TEAM</span><span>RECORD</span><span>AVG PPG</span></div>
-        <div className={styles.board}>{teams.map((team) => <TeamCard key={`${data.week}-${team.id}-${team.id === selected ? 'selected' : 'other'}`} team={team} selected={team.id === selected} />)}</div>
+        <div className={styles.board}>{teams.map((team) => <TeamCard
+          key={`${data.week}-${team.id}`}
+          team={team}
+          selected={team.id === selected}
+          expanded={expandedIds.has(team.id)}
+          showStandingsPosition={showStandingsPosition}
+          onToggle={() => toggleTeam(team.id)}
+        />)}</div>
       </>}
     <Updated value={data.updatedAt} />
   </>;
@@ -153,6 +178,6 @@ export function RostersView({ active, league, selected }: { active: boolean; lea
     </div>
     {state === 'loading' || state === 'idle' ? <div className={styles.inlineState} role="status">Loading rosters for Week {week}…</div>
       : state === 'error' ? <div className={styles.inlineState}><div><strong>League rosters unavailable</strong><p>{error}</p><button type="button" onClick={() => { cache.current.delete(rosterCacheKey(site.key, week)); setRetry((value) => value + 1); }}>Try again</button></div></div>
-        : data ? <RosterContent data={data} selected={selected} /> : null}
+        : data ? <RosterContent key={rosterCacheKey(site.key, data.week)} data={data} selected={selected} /> : null}
   </div>;
 }

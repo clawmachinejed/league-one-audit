@@ -223,8 +223,8 @@ test('both standings pages reuse the Matchups title and season layout', async ({
         await page.goto(route, { waitUntil: 'networkidle' });
         const main = page.locator('main');
         const intro = main.locator('[data-page-intro]');
-        await expect(intro.getByRole('heading', { level: 1, name: 'Standings' })).toBeVisible();
-        await expect(intro.locator(':scope > h1')).toHaveText('Standings');
+        await expect(intro.getByRole('heading', { level: 1, name: 'League' })).toBeVisible();
+        await expect(intro.locator(':scope > h1')).toHaveText('League');
         await expect(intro.locator(':scope > p')).toHaveText('2026 season');
         await expect(main.getByText('The league, at a glance.', { exact: true })).toHaveCount(0);
         await expect(main.getByText('Standings table', { exact: true })).toHaveCount(0);
@@ -300,7 +300,7 @@ test('both standings views share a compact five-column grid at every supported w
         await expect(table.locator('.standings-sort-label')).toHaveText(['Rank', 'Team', 'W–L', 'PF', 'PA']);
         await expect(table.locator('tbody tr')).toHaveCount(12);
         await expect(table.getByRole('columnheader', { name: 'PA' })).toBeVisible();
-        await expect(table.locator('.avatar, img')).toHaveCount(0);
+        await expect(table.locator('.manager-meta .avatar')).toHaveCount(12);
         await expect(table.getByText('GB', { exact: true })).toHaveCount(0);
 
         const layout = async () => table.evaluate(element => {
@@ -308,6 +308,7 @@ test('both standings views share a compact five-column grid at every supported w
           const row = rows[0];
           const team = row.querySelector<HTMLElement>('.team-name')!;
           const manager = row.querySelector<HTMLElement>('.manager-name')!;
+          const avatar = row.querySelector<HTMLElement>('.manager-meta .avatar')!;
           const teamLink = row.querySelector<HTMLAnchorElement>('.standings-team')!;
           const teamCell = row.querySelector<HTMLElement>('.team-cell')!;
           const metricCells = [...row.querySelectorAll<HTMLElement>('.metric-cell')];
@@ -319,6 +320,11 @@ test('both standings views share a compact five-column grid at every supported w
             teamAlign: getComputedStyle(team).textAlign,
             managerAlign: getComputedStyle(manager).textAlign,
             managerBelowTeam: manager.getBoundingClientRect().top >= team.getBoundingClientRect().bottom,
+            avatarBesideManager: Math.abs((avatar.getBoundingClientRect().top + avatar.getBoundingClientRect().bottom) / 2
+              - (manager.getBoundingClientRect().top + manager.getBoundingClientRect().bottom) / 2) <= 1
+              && avatar.getBoundingClientRect().right <= manager.getBoundingClientRect().left,
+            avatarSize: [avatar.getBoundingClientRect().width, avatar.getBoundingClientRect().height],
+            rankWeights: rows.map(item => getComputedStyle(item.querySelector<HTMLElement>('.rank-cell span')!).fontWeight),
             rankAlign: getComputedStyle(rankCell).textAlign,
             metricAlignments: metricCells.map(cell => getComputedStyle(cell).textAlign),
             noCollision: team.getBoundingClientRect().right <= metricCells[0].getBoundingClientRect().left,
@@ -340,12 +346,20 @@ test('both standings views share a compact five-column grid at every supported w
         expect(standingsLayout.teamAlign).toBe('left');
         expect(standingsLayout.managerAlign).toBe('left');
         expect(standingsLayout.managerBelowTeam).toBe(true);
+        expect(standingsLayout.avatarBesideManager).toBe(true);
+        expect(standingsLayout.avatarSize).toEqual([14, 14]);
+        expect(standingsLayout.rankWeights.every(weight => Number(weight) === 400)).toBe(true);
         expect(standingsLayout.rankAlign).toBe('center');
         expect(standingsLayout.metricAlignments.every(alignment => alignment === 'center')).toBe(true);
         expect(standingsLayout.noCollision).toBe(true);
         expect(standingsLayout.fullNamesAccessible).toBe(true);
         expect(standingsLayout.headingsUntruncated).toBe(true);
         expect(standingsLayout.linkHeight).toBeGreaterThanOrEqual(Math.min(...standingsLayout.rowHeights) - 1);
+        const standingsPoints = await table.locator('tbody tr').evaluateAll(rows => rows.map(row => ({
+          pf: row.querySelector<HTMLElement>('.points-cell:nth-last-child(2)')?.textContent?.trim(),
+          pa: row.querySelector<HTMLElement>('.points-cell:last-child')?.textContent?.trim(),
+        })));
+        expect(standingsPoints.every(({ pf, pa }) => pf !== '0.00' && pa !== '0.00')).toBe(true);
         if (viewport.width < 760) {
           expect(Math.min(...standingsLayout.rowHeights)).toBeGreaterThanOrEqual(44);
           expect(Math.max(...standingsLayout.rowHeights)).toBeLessThanOrEqual(48);
@@ -362,7 +376,8 @@ test('both standings views share a compact five-column grid at every supported w
         await expect(page.getByText('Waiver table', { exact: true })).toHaveCount(0);
         await expect(table.locator('.standings-sort-label')).toHaveText(['Rank', 'Team', 'W–L', 'Order', '$']);
         await expect(table.getByText('GB', { exact: true })).toHaveCount(0);
-        await expect(table.locator('.avatar, img')).toHaveCount(0);
+        await expect(table.locator('.manager-meta .avatar')).toHaveCount(12);
+        await expect(table.getByRole('columnheader', { name: 'Order' })).toHaveAttribute('aria-sort', 'ascending');
         const waiverLayout = await layout();
         expect(waiverLayout.columns).toEqual(standingsLayout.columns);
         expect(waiverLayout.rowHeights).toEqual(standingsLayout.rowHeights);
@@ -370,11 +385,17 @@ test('both standings views share a compact five-column grid at every supported w
         expect(waiverLayout.rankAlign).toBe('center');
         expect(waiverLayout.metricAlignments.every(alignment => alignment === 'center')).toBe(true);
         expect(waiverLayout.noCollision).toBe(true);
+        expect(waiverLayout.avatarBesideManager).toBe(true);
+        expect(waiverLayout.avatarSize).toEqual([14, 14]);
+        expect(waiverLayout.rankWeights.every(weight => Number(weight) === 400)).toBe(true);
         expect(waiverLayout.headingsUntruncated).toBe(true);
         const waiverValues = (await table.locator('tbody .budget-cell').allTextContents()).map(value => value.trim());
         const orderValues = (await table.locator('tbody .order-cell').allTextContents()).map(value => value.trim());
         for (const value of waiverValues) expect(value).toMatch(/^(?:—|\$-?\d+)$/u);
         for (const value of orderValues) expect(value).toMatch(/^(?:—|\d+)$/u);
+        const numericOrders = orderValues.filter(value => value !== '—').map(Number);
+        expect(numericOrders).toEqual([...numericOrders].sort((a, b) => a - b));
+        expect(orderValues.slice(numericOrders.length).every(value => value === '—')).toBe(true);
         const prefix = route.startsWith('/league2') ? '/league2' : '';
         const managerHrefs = await table.locator('.standings-team').evaluateAll(links => links.map(link => link.getAttribute('href')));
         expect(managerHrefs).toHaveLength(12);
@@ -423,6 +444,7 @@ test('Standings and Waivers switch locally, support keyboard tabs, and retain in
   expect(sortedRanks).toEqual(originalRanks);
 
   await waiversTab.click();
+  await expect(table.getByRole('columnheader', { name: 'Order' })).toHaveAttribute('aria-sort', 'ascending');
   await expect(table.getByRole('columnheader', { name: 'Team' })).toHaveAttribute('aria-sort', 'none');
   await page.getByRole('button', { name: 'Sort by $' }).click();
   await expect(table.getByRole('columnheader', { name: '$' })).toHaveAttribute('aria-sort', 'descending');
@@ -450,6 +472,11 @@ test('Standings and Waivers switch locally, support keyboard tabs, and retain in
 test('Rosters stays in League, is exact-week cached, accessible, and responsive', async ({ page }) => {
   const requests: string[] = [];
   const currentWeeks = new Map<string, number>();
+  await page.route('**/api/transactions/*', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ league: { season: '2026', week: 3, maxWeek: 18, rosterPositions: [] }, activities: [], updatedAt: '2026-09-08T12:00:00.000Z' }),
+  }));
   await page.route('**/api/rosters/*?week=*', async route => {
     const url = new URL(route.request().url());
     const leagueKey = url.pathname.split('/').at(-1)!;
@@ -497,8 +524,12 @@ test('Rosters stays in League, is exact-week cached, accessible, and responsive'
     await page.setViewportSize(viewport);
     for (const route of ['/standings', '/league2/standings']) {
       const leagueKey = route.startsWith('/league2') ? 'league2' : 'league1';
+      const prefix = leagueKey === 'league2' ? '/league2' : '';
       const storageLeagueId = leagueKey === 'league2' ? LEAGUE_IDS.league2 : LEAGUE_IDS.league1;
       const selectedId = leagueKey === 'league2' ? '1' : '2';
+      await page.goto(`${prefix}/matchups`, { waitUntil: 'networkidle' });
+      const matchupToggle = page.locator('[data-matchup-toggle]').first();
+      const matchupHeight = await matchupToggle.count() ? (await matchupToggle.boundingBox())?.height ?? null : null;
       await page.goto(route, { waitUntil: 'networkidle' });
       await page.evaluate(({ key, selected }) => localStorage.setItem(key, selected), {
         key: `league-one:my-team:${storageLeagueId}`, selected: selectedId,
@@ -526,12 +557,20 @@ test('Rosters stays in League, is exact-week cached, accessible, and responsive'
       await expect(cards.first()).not.toContainText(`${leagueKey === 'league1' ? 'league2' : 'league1'} My Very Long Team Name`);
       const toggle = cards.first().locator('[data-roster-toggle]');
       await expectTouchHeight(toggle);
-      await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+      await expect(cards.locator('[data-roster-toggle][aria-expanded="true"]')).toHaveCount(0);
+      await expect(cards.locator('[data-roster-toggle][aria-expanded="false"]')).toHaveCount(2);
+      if (matchupHeight !== null) {
+        const ordinaryRosterHeight = (await page.locator('[data-roster-card][data-team-id="1"] [data-roster-toggle]').boundingBox())!.height;
+        expect(ordinaryRosterHeight).toBeLessThanOrEqual(matchupHeight + 1);
+      }
       await expect(toggle).toHaveAccessibleName(/My Team/iu);
       await expect(toggle).toContainText(selectedId === '1'
         ? /7–1\s*1st\s*115\.2\s*1st/u : /6–2\s*2nd\s*109\.4\s*2nd/u);
       await expect(toggle).not.toContainText(/standings|average position|rank/iu);
       const panel = cards.first().locator('[data-roster-content]');
+      await expect(panel).toBeHidden();
+      await toggle.click();
+      await expect(toggle).toHaveAttribute('aria-expanded', 'true');
       await panel.locator('[data-roster-player]').first().click();
       await expect(toggle).toHaveAttribute('aria-expanded', 'true');
       await expect(panel.locator('[data-roster-section]').first()).toContainText('BYE');
@@ -545,24 +584,40 @@ test('Rosters stays in League, is exact-week cached, accessible, and responsive'
       await expect(scheduledPanel).toContainText('Sun 1:00 PM vs HOU');
       await expect(scheduledPanel.locator('[data-roster-player]').first()).toContainText('12');
 
-      await toggle.click({ position: { x: 10, y: 10 } });
-      await expect(toggle).toHaveAttribute('aria-expanded', 'false');
-      await toggle.focus();
-      await page.keyboard.press('Enter');
-      await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+      const otherToggle = cards.nth(1).locator('[data-roster-toggle]');
+      if (await otherToggle.getAttribute('aria-expanded') !== 'true') await otherToggle.click();
+      await expect(cards.locator('[data-roster-toggle][aria-expanded="true"]')).toHaveCount(2);
+      if (viewport.width === 320) {
+        const longName = page.locator('[data-roster-card][data-team-id="2"] [data-roster-toggle] strong').first();
+        const wrapping = await longName.evaluate(element => {
+          const style = getComputedStyle(element);
+          return { whiteSpace: style.whiteSpace, textOverflow: style.textOverflow, height: element.getBoundingClientRect().height, lineHeight: Number.parseFloat(style.lineHeight) };
+        });
+        expect(wrapping.whiteSpace).toBe('normal');
+        expect(wrapping.textOverflow).not.toBe('ellipsis');
+        expect(wrapping.height).toBeGreaterThan(wrapping.lineHeight);
+      }
       await expectNoPageOverflow(page);
       expect(requests.slice(before)).toEqual([`${leagueKey}:${currentWeek}`]);
 
-      await tabs.getByRole('tab', { name: 'Standings' }).click();
-      await tabs.getByRole('tab', { name: 'Rosters' }).click();
-      await expect(cards.first()).toBeVisible();
-      expect(requests.slice(before)).toEqual([`${leagueKey}:${currentWeek}`]);
+      for (const tabName of ['Standings', 'Waivers', 'Transactions']) {
+        await tabs.getByRole('tab', { name: tabName, exact: true }).click();
+        await tabs.getByRole('tab', { name: 'Rosters', exact: true }).click();
+        await expect(cards.locator('[data-roster-toggle][aria-expanded="true"]')).toHaveCount(2);
+        expect(requests.slice(before)).toEqual([`${leagueKey}:${currentWeek}`]);
+      }
 
       const secondaryWeek = currentWeek === '1' ? '2' : '1';
       await page.getByLabel('Roster week').selectOption(secondaryWeek);
       await expect(page.locator('[data-roster-card]').first()).toBeVisible();
+      await expect(page.locator('[data-roster-toggle][aria-expanded="true"]')).toHaveCount(0);
       await expect(page.locator('[data-roster-content]').first()).not.toContainText('Questionable');
       await expect(page.locator('[data-roster-section]')).toHaveCount(4);
+      expect(requests.slice(before)).toEqual([`${leagueKey}:${currentWeek}`, `${leagueKey}:${secondaryWeek}`]);
+
+      await page.getByLabel('Roster week').selectOption(currentWeek);
+      await expect(page.locator('[data-roster-card]').first()).toBeVisible();
+      await expect(page.locator('[data-roster-toggle][aria-expanded="true"]')).toHaveCount(0);
       expect(requests.slice(before)).toEqual([`${leagueKey}:${currentWeek}`, `${leagueKey}:${secondaryWeek}`]);
 
       await page.getByLabel('Roster week').selectOption('18');
@@ -770,6 +825,26 @@ test('league Transactions remains usable without overflow at every supported wid
       }));
       expect(movementLayout).toHaveLength(2);
       expect(movementLayout[1]).toEqual(movementLayout[0]);
+      const commonSpacing = await page.locator('.league-activity-card').evaluateAll(cards => cards.map(card => {
+        const header = card.querySelector<HTMLElement>('.transaction-header')!;
+        const body = card.querySelector<HTMLElement>('.transaction-body')!;
+        const date = header.querySelector<HTMLElement>('.transaction-date')!;
+        const titleBlock = date.previousElementSibling as HTMLElement;
+        const headerStyle = getComputedStyle(header);
+        const bodyStyle = getComputedStyle(body);
+        return {
+          headerPadding: [headerStyle.paddingTop, headerStyle.paddingRight, headerStyle.paddingBottom, headerStyle.paddingLeft],
+          bodyPadding: [bodyStyle.paddingTop, bodyStyle.paddingRight, bodyStyle.paddingBottom, bodyStyle.paddingLeft],
+          titleDateGap: Math.round(date.getBoundingClientRect().top - titleBlock.getBoundingClientRect().bottom),
+        };
+      }));
+      expect(commonSpacing).toHaveLength(3);
+      expect(commonSpacing.every(spacing => spacing.headerPadding.join() === commonSpacing[0].headerPadding.join())).toBe(true);
+      expect(commonSpacing.every(spacing => spacing.bodyPadding.join() === commonSpacing[0].bodyPadding.join())).toBe(true);
+      expect(commonSpacing.every(spacing => spacing.titleDateGap === commonSpacing[0].titleDateGap)).toBe(true);
+      expect(commonSpacing[0].headerPadding).toEqual(['7px', '10px', '6px', '10px']);
+      expect(commonSpacing[0].bodyPadding).toEqual(['7px', '10px', '8px', '10px']);
+      expect(await page.locator('.league-transactions-list').evaluate(list => getComputedStyle(list).rowGap)).toBe('8px');
       const movementTypography = await page.locator('.transaction-movement-rows').evaluateAll(lists => lists.map(list => ({
         names: [...list.querySelectorAll('.transaction-movement-player-name')].map(node => getComputedStyle(node).fontWeight),
         details: [...list.querySelectorAll('.transaction-movement-player-details')].map(node => getComputedStyle(node).fontWeight),
