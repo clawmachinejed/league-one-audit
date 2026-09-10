@@ -33,6 +33,24 @@ describe('matchup response validation', () => {
     expect(isMatchupsData(validSnapshot)).toBe(true);
   });
 
+  it('accepts a final player with an unavailable displayed projection', () => {
+    expect(isMatchupsData({
+      ...validSnapshot,
+      matchups: [{
+        ...validSnapshot.matchups[0],
+        status: 'final',
+        sides: [{
+          ...validSnapshot.matchups[0].sides[0],
+          starters: [{
+            ...validSnapshot.matchups[0].sides[0].starters[0],
+            points: 23.2,
+            projectedPoints: null,
+          }],
+        }],
+      }],
+    })).toBe(true);
+  });
+
   it('rejects the retired participant-name field at the snapshot boundary', () => {
     const legacyTeam = { ...validSnapshot.teams[0], ownerName: 'Legacy participant' };
     delete (legacyTeam as Partial<typeof legacyTeam>).managerName;

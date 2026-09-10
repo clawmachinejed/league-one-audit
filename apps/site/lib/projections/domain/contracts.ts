@@ -344,7 +344,10 @@ export type ProjectionComputation = Readonly<{
 }>;
 
 export type ProjectedOccupiedLineupSlot = OccupiedLineupSlot & Readonly<{
+  /** Internal value used for fantasy-team projected-total arithmetic. */
   projectedPoints: number;
+  /** Stable public player-row value; final games show only a complete frozen baseline. */
+  presentationProjectedPoints: number | null;
   projectionQuality: Exclude<ProjectionPointQuality, 'unavailable'>;
 }>;
 

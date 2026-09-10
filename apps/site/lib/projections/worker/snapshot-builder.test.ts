@@ -352,15 +352,20 @@ describe('canonical worker game context and snapshot builder', () => {
     expect(canonical.matchups[0].status).toBe('live');
     expect(firstSide.projectedPoints).toBe(64);
     expect(firstSide.starters.map((slot) => slot.kind === 'occupied'
-      ? [slot.entity.externalRef.externalId, slot.projectedPoints, slot.projectionQuality]
-      : ['empty', null, null])).toEqual([
-      ['live', 20, 'estimated'],
-      ['pregame', 12, 'pregame-baseline'],
-      ['bye', 5, 'pregame-baseline'],
-      ['final', 18, 'official-final'],
-      ['JAX', 7, 'defense-baseline-held'],
-      ['missing-frozen', 2, 'missing-baseline'],
-      ['empty', null, null],
+      ? [
+          slot.entity.externalRef.externalId,
+          slot.projectedPoints,
+          slot.presentationProjectedPoints,
+          slot.projectionQuality,
+        ]
+      : ['empty', null, null, null])).toEqual([
+      ['live', 20, 20, 'estimated'],
+      ['pregame', 12, 12, 'pregame-baseline'],
+      ['bye', 5, 5, 'pregame-baseline'],
+      ['final', 18, 15, 'official-final'],
+      ['JAX', 7, 7, 'defense-baseline-held'],
+      ['missing-frozen', 2, 2, 'missing-baseline'],
+      ['empty', null, null, null],
     ]);
     expect(canonical.matchups[0].sides[1].projectedPoints).toBeNull();
 
@@ -416,7 +421,7 @@ describe('canonical worker game context and snapshot builder', () => {
               }),
               expect.objectContaining({ id: 'pregame', projectedPoints: 12 }),
               expect.objectContaining({ id: 'bye', projectedPoints: 5, game: { kind: 'bye' } }),
-              expect.objectContaining({ id: 'final', projectedPoints: 18 }),
+              expect.objectContaining({ id: 'final', points: 18, projectedPoints: 15 }),
               expect.objectContaining({ id: 'JAX', projectedPoints: 7, position: 'DEF' }),
               expect.objectContaining({ id: 'missing-frozen', projectedPoints: 2 }),
               {
@@ -442,6 +447,152 @@ describe('canonical worker game context and snapshot builder', () => {
       }],
     });
     expect(Object.prototype.hasOwnProperty.call(payload, 'warning')).toBe(true);
+  });
+
+  it('keeps a final player frozen projection visible while using the official score in the team total', () => {
+    const input = snapshotInput();
+    const sourceWithFinalScore: LeagueWeekState = {
+      ...input.source,
+      matchups: input.source.matchups.map((matchup) => ({
+        ...matchup,
+        sides: matchup.sides.map((side) => ({
+          ...side,
+          starters: side.starters.map((slot) => slot.kind === 'occupied'
+            && slot.entity.externalRef.externalId === final.externalRef.externalId
+            ? { ...slot, officialPoints: 23.2 }
+            : slot),
+        })),
+      })),
+    };
+    const payload = buildSnapshot({
+      ...input,
+      source: sourceWithFinalScore,
+      frozen: input.frozen.map((record) => record.officialEntityRef.externalId === final.externalRef.externalId
+        ? { ...record, projectionPoints: 16.22 }
+        : record),
+    });
+    const finalPlayer = payload.matchups[0].sides[0].starters
+      .find((starter) => starter.id === final.externalRef.externalId);
+
+    expect(finalPlayer).toMatchObject({ points: 23.2, projectedPoints: 16.22 });
+    expect(payload.matchups[0].sides[0].projectedPoints).toBeCloseTo(69.2, 12);
+  });
+
+  it('shows no final player projection when frozen evidence is absent or invalid and never retains the last live value', () => {
+    const input = snapshotInput();
+    const priorGames = games({
+      games: games().games.map((value) => value.homeTeam === 'DAL'
+        ? {
+            ...value,
+            statusCode: 1 as const,
+            phase: 'q4' as const,
+            remainingFraction: 0.1,
+          }
+        : value),
+    });
+    const prior = buildSnapshot({ ...input, games: priorGames });
+    expect(prior.matchups[0].sides[0].starters.find((starter) => starter.id === 'final'))
+      .toMatchObject({ projectedPoints: 19.5 });
+
+    const finalRecord = input.frozen.find((record) => record.officialEntityRef.externalId === 'final')!;
+    for (const frozen of [
+      input.frozen.filter((record) => record !== finalRecord),
+      input.frozen.map((record) => record === finalRecord ? { ...record, quality: 'missing' as const } : record),
+      input.frozen.map((record) => record === finalRecord ? { ...record, quality: 'invalid' as const } : record),
+    ]) {
+      const payload = buildSnapshot({ ...input, frozen, prior });
+      const finalPlayer = payload.matchups[0].sides[0].starters
+        .find((starter) => starter.id === 'final');
+
+      expect(finalPlayer).toMatchObject({ points: 18, projectedPoints: null });
+      expect(payload.matchups[0].sides[0].projectedPoints).toBe(64);
+    }
+  });
+
+  it('preserves a valid frozen zero for final player presentation', () => {
+    const input = snapshotInput();
+    const payload = buildSnapshot({
+      ...input,
+      frozen: input.frozen.map((record) => record.officialEntityRef.externalId === 'final'
+        ? { ...record, projectionPoints: 0 }
+        : record),
+    });
+
+    expect(payload.matchups[0].sides[0].starters.find((starter) => starter.id === 'final'))
+      .toMatchObject({ points: 18, projectedPoints: 0 });
+    expect(payload.matchups[0].sides[0].projectedPoints).toBe(64);
+  });
+
+  it('applies the final display rule to a frozen defensive-team baseline', () => {
+    const input = snapshotInput();
+    const finalGames = games({
+      games: games().games.map((value) => value.homeTeam === 'JAX'
+        ? { ...value, statusCode: 2 as const, phase: 'final' as const, remainingFraction: 0 }
+        : value),
+    });
+    const payload = buildSnapshot({ ...input, games: finalGames });
+
+    expect(payload.matchups[0].sides[0].starters.find((starter) => starter.id === 'JAX'))
+      .toMatchObject({ position: 'DEF', points: 3, projectedPoints: 7 });
+    expect(payload.matchups[0].sides[0].projectedPoints).toBe(60);
+  });
+
+  it('keeps distinct frozen baselines for multiple players in the same completed NFL game', () => {
+    const input = snapshotInput();
+    const finalTeammate = player('final-teammate', 'PHI', 'WR');
+    const firstMatchup = input.source.matchups[0];
+    const firstSide = firstMatchup.sides[0];
+    const sourceWithTeammate: LeagueWeekState = {
+      ...input.source,
+      matchups: [{
+        ...firstMatchup,
+        sides: [{
+          ...firstSide,
+          starters: firstSide.starters.map((slot) => slot.kind === 'occupied'
+            && slot.entity.externalRef.externalId === 'missing-frozen'
+            ? { kind: 'occupied' as const, slot: slot.slot, entity: finalTeammate, officialPoints: 4 }
+            : slot),
+        }, firstMatchup.sides[1]],
+      }],
+      rosteredEntities: input.source.rosteredEntities
+        .map((entity) => entity.externalRef.externalId === 'missing-frozen' ? finalTeammate : entity),
+    };
+    const payload = buildSnapshot({
+      ...input,
+      source: sourceWithTeammate,
+      frozen: [...input.frozen, baseline(finalTeammate, 8.05, 'final-teammate')],
+    });
+    const starters = payload.matchups[0].sides[0].starters;
+
+    expect(starters.find((starter) => starter.id === 'final'))
+      .toMatchObject({ points: 18, projectedPoints: 15 });
+    expect(starters.find((starter) => starter.id === 'final-teammate'))
+      .toMatchObject({ points: 4, projectedPoints: 8.05 });
+    expect(payload.matchups[0].sides[0].projectedPoints).toBe(66);
+  });
+
+  it('keeps the immutable frozen final display across later projection changes and repeated snapshots', () => {
+    const input = snapshotInput();
+    const frozen = input.frozen.map((record) => record.officialEntityRef.externalId === 'final'
+      ? { ...record, projectionPoints: 16.22 }
+      : record);
+    const first = buildSnapshot({ ...input, frozen });
+    const later = buildSnapshot({
+      ...input,
+      frozen,
+      latest: [...input.latest, baseline(final, 99, 'later-final')],
+      scored: {
+        status: 'available',
+        projections: [{ entityRef: final.externalRef, points: 99, quality: 'complete' }],
+      },
+      prior: first,
+    });
+
+    expect(first.matchups[0].sides[0].starters.find((starter) => starter.id === 'final')?.projectedPoints)
+      .toBe(16.22);
+    expect(later.matchups[0].sides[0].starters.find((starter) => starter.id === 'final')?.projectedPoints)
+      .toBe(16.22);
+    expect(later.matchups[0].sides[0].projectedPoints).toBe(64);
   });
 
   it('sums full-precision starter values, preserves zero, and excludes empty slots', () => {
