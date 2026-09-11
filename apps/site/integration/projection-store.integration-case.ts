@@ -1,4 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { execFile } from 'node:child_process';
+import { readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { snapshotFreshnessMetadata } from '../lib/projection-freshness';
 import {
@@ -11,12 +15,14 @@ import {
 } from '../lib/projection-store';
 import {
   createIndependentDatabase,
+  integrationEnvironment,
   ownerQuery,
   runtimeQuery,
   type IndependentDatabase,
 } from './neon-integration-harness';
 
 type SnapshotPayload = PublishSnapshotInput['payload'];
+const execFileAsync = promisify(execFile);
 
 /** Privileged setup only in the guarded disposable database; runtime publication still proves every fence. */
 async function currentPublicationFence(week: number): Promise<PublishSnapshotInput['lineupFence']> {
@@ -191,6 +197,7 @@ describe.sequential('projection store against an isolated Neon database', () => 
         '006_flexed_kickoff_candidate_index.sql',
         '007_lineup_freshness.sql',
         '008_additive_write_guards.sql',
+        '009_game_clock_plausibility.sql',
       ],
     });
     const rows = await ownerQuery<{ name: string; checksum_length: number }>(`
@@ -206,7 +213,118 @@ describe.sequential('projection store against an isolated Neon database', () => 
       { name: '006_flexed_kickoff_candidate_index.sql', checksum_length: 64 },
       { name: '007_lineup_freshness.sql', checksum_length: 64 },
       { name: '008_additive_write_guards.sql', checksum_length: 64 },
+      { name: '009_game_clock_plausibility.sql', checksum_length: 64 },
     ]);
+  });
+
+  it('records migration 009 transactionally and the production migrator reruns it idempotently', async () => {
+    const migrationName = '009_game_clock_plausibility.sql';
+    const migration = (await readFile(
+      new URL(`../migrations/${migrationName}`, import.meta.url),
+      'utf8',
+    )).replace(/\r\n?/gu, '\n');
+    const expectedChecksum = createHash('sha256').update(migration).digest('hex');
+    const before = only(await ownerQuery<{ checksum: string; applied_at: string }>(`
+      SELECT checksum, applied_at::text
+      FROM app_schema_migrations
+      WHERE name = $1
+    `, [migrationName]), 'Clock plausibility migration ledger');
+    expect(before.checksum).toBe(expectedChecksum);
+
+    const previousMigrationUrl = process.env.MIGRATION_DATABASE_URL;
+    process.env.MIGRATION_DATABASE_URL = integrationEnvironment().ownerDatabaseUrl;
+    try {
+      const rerun = await execFileAsync(
+        process.execPath,
+        [fileURLToPath(new URL('../scripts/migrate.mjs', import.meta.url))],
+        { env: process.env, windowsHide: true },
+      );
+      expect(rerun.stdout).toContain(`Already applied ${migrationName}`);
+    } finally {
+      if (previousMigrationUrl === undefined) delete process.env.MIGRATION_DATABASE_URL;
+      else process.env.MIGRATION_DATABASE_URL = previousMigrationUrl;
+    }
+
+    const after = only(await ownerQuery<{ checksum: string; applied_at: string }>(`
+      SELECT checksum, applied_at::text
+      FROM app_schema_migrations
+      WHERE name = $1
+    `, [migrationName]), 'Rerun clock plausibility migration ledger');
+    expect(after).toEqual(before);
+  });
+
+  it('reproduces the pre-009 accepted poison and rejected credible correction', async () => {
+    const foundation = await readFile(
+      new URL('../migrations/001_projection_foundation.sql', import.meta.url),
+      'utf8',
+    );
+    const legacyGuard = foundation.match(
+      /CREATE OR REPLACE FUNCTION prevent_game_state_regression\(\)[\s\S]*?\n\$\$;/u,
+    )?.[0];
+    if (!legacyGuard) throw new Error('The pre-009 game-state guard fixture is unavailable.');
+
+    const legacy = createIndependentDatabase(integrationEnvironment().ownerDatabaseUrl);
+    const legacyStore = createProjectionStore(legacy.database);
+    try {
+      await legacy.database.query('BEGIN');
+      // This exact migration-001 body is transactional test setup. ROLLBACK
+      // restores migration 009 and removes every synthetic observation below.
+      await legacy.database.query(legacyGuard);
+      const externalGameId = 'pre-009-clock-poison-reproduction';
+      const game = only(storedValue(await legacyStore.upsertNflGames([{
+        key: externalGameId,
+        provider: 'tank01',
+        externalGameId,
+        season: 2026,
+        seasonType: 'reg',
+        week: 18,
+        homeTeam: 'PHI',
+        awayTeam: 'DAL',
+        kickoffAt: '2027-01-03T18:00:00.000Z',
+      }])), 'Pre-009 clock poison game');
+      const state = (sourceRevision: string, at: string, gameClock: string) => ({
+        externalGameId,
+        sourceRevision,
+        requestStartedAt: at,
+        requestCompletedAt: at,
+        observedAt: at,
+        statusCode: 1 as const,
+        period: '3rd',
+        gameClock,
+        homeScore: 7,
+        awayScore: 3,
+        sourceData: { sourceRevision },
+      });
+
+      await legacyStore.recordGameStates({ provider: 'tank01', states: [
+        state('pre-009-clock-10-22', '2026-09-11T01:30:00.000Z', '10:22'),
+      ] });
+      await legacyStore.recordGameStates({ provider: 'tank01', states: [
+        state('pre-009-clock-1-02', '2026-09-11T01:31:00.000Z', '1:02'),
+      ] });
+      const history = await legacy.database.query<{
+        source_revision: string;
+        game_clock: string;
+      }>(`
+        SELECT source_revision, game_clock
+        FROM game_state_observations
+        WHERE nfl_game_id = $1
+        ORDER BY observed_at
+      `, [game.gameId]);
+      expect(history).toEqual([
+        { source_revision: 'pre-009-clock-10-22', game_clock: '10:22' },
+        { source_revision: 'pre-009-clock-1-02', game_clock: '1:02' },
+      ]);
+      await expect(legacyStore.recordGameStates({ provider: 'tank01', states: [
+        state('pre-009-clock-9-21', '2026-09-11T01:32:00.000Z', '9:21'),
+      ] })).rejects.toThrow(/clock increased/iu);
+    } finally {
+      try {
+        await legacy.database.query('ROLLBACK');
+      } finally {
+        await legacy.close();
+      }
+    }
   });
 
   it('registers both leagues, stores canonical scoring rules and hash, and keeps season profiles immutable', async () => {
@@ -999,10 +1117,10 @@ describe.sequential('projection store against an isolated Neon database', () => 
       state('state-live-10', time(21), 1, 'Q1', '10:00'),
     ] });
     await store.recordGameStates({ provider: 'tank01', states: [
-      state('state-live-5', time(22), 1, 'Q1', '05:00'),
+      state('state-live-9-15', time(22), 1, 'Q1', '09:15'),
     ] });
     await expect(store.recordGameStates({ provider: 'tank01', states: [
-      state('state-clock-regression', time(23), 1, 'Q1', '07:00'),
+      state('state-clock-regression', time(23), 1, 'Q1', '09:30'),
     ] })).rejects.toThrow(/clock increased/iu);
     await store.recordGameStates({ provider: 'tank01', states: [
       state('state-halftime', time(24), 1, 'HALFTIME', null),
@@ -1027,6 +1145,272 @@ describe.sequential('projection store against an isolated Neon database', () => 
       FROM game_state_observations WHERE nfl_game_id = $1
     `, [stateGameId]);
     expect(only(rows, 'Game state history')).toEqual({ states: 5, final_states: 1 });
+  });
+
+  it('rejects an impossible low clock and accepts the next credible observation', async () => {
+    const externalGameId = 'clock-poison-reproduction';
+    const game = only(storedValue(await store.upsertNflGames([{
+      key: externalGameId,
+      provider: 'tank01',
+      externalGameId,
+      season: 2026,
+      seasonType: 'reg',
+      week: 1,
+      homeTeam: 'SF',
+      awayTeam: 'LAR',
+      kickoffAt: '2026-09-11T00:20:00.000Z',
+    }])), 'Clock poison game');
+    const state = (sourceRevision: string, at: string, gameClock: string) => ({
+      externalGameId,
+      sourceRevision,
+      requestStartedAt: at,
+      requestCompletedAt: at,
+      observedAt: at,
+      statusCode: 1 as const,
+      period: '3rd',
+      gameClock,
+      homeScore: 7,
+      awayScore: 3,
+      sourceData: { sourceRevision },
+    });
+
+    await store.recordGameStates({ provider: 'tank01', states: [
+      state('clock-10-22', '2026-09-11T01:30:00.000Z', '10:22'),
+    ] });
+    await expect(store.recordGameStates({ provider: 'tank01', states: [
+      state('clock-1-02', '2026-09-11T01:31:00.000Z', '1:02'),
+    ] })).rejects.toThrow(/clock advanced faster than elapsed time/iu);
+    await store.recordGameStates({ provider: 'tank01', states: [
+      state('clock-9-21', '2026-09-11T01:32:00.000Z', '9:21'),
+    ] });
+
+    const rows = await ownerQuery<{ source_revision: string; game_clock: string }>(`
+      SELECT source_revision, game_clock
+      FROM game_state_observations
+      WHERE nfl_game_id = $1
+      ORDER BY observed_at
+    `, [game.gameId]);
+    expect(rows).toEqual([
+      { source_revision: 'clock-10-22', game_clock: '10:22' },
+      { source_revision: 'clock-9-21', game_clock: '9:21' },
+    ]);
+  });
+
+  it('rolls back the complete provider batch when one game clock is implausible', async () => {
+    const games = [{
+      key: 'clock-batch-sea-ari',
+      provider: 'tank01',
+      externalGameId: 'clock-batch-sea-ari',
+      season: 2026,
+      seasonType: 'reg' as const,
+      week: 1,
+      homeTeam: 'SEA',
+      awayTeam: 'ARI',
+      kickoffAt: '2026-09-13T20:05:00.000Z',
+    }, {
+      key: 'clock-batch-nyj-ne',
+      provider: 'tank01',
+      externalGameId: 'clock-batch-nyj-ne',
+      season: 2026,
+      seasonType: 'reg' as const,
+      week: 1,
+      homeTeam: 'NYJ',
+      awayTeam: 'NE',
+      kickoffAt: '2026-09-13T17:00:00.000Z',
+    }];
+    const storedGames = storedValue(await store.upsertNflGames(games));
+    const state = (
+      externalGameId: string,
+      sourceRevision: string,
+      at: string,
+      gameClock: string,
+    ) => ({
+      externalGameId,
+      sourceRevision,
+      requestStartedAt: at,
+      requestCompletedAt: at,
+      observedAt: at,
+      statusCode: 1 as const,
+      period: '3rd',
+      gameClock,
+      homeScore: 7,
+      awayScore: 3,
+      sourceData: { sourceRevision },
+    });
+    await store.recordGameStates({ provider: 'tank01', states: games.map((game) => (
+      state(game.externalGameId, `${game.key}-10-22`, '2026-09-11T01:30:00.000Z', '10:22')
+    )) });
+
+    await expect(store.recordGameStates({ provider: 'tank01', states: [
+      state('clock-batch-sea-ari', 'clock-batch-sea-ari-9-40', '2026-09-11T01:31:00.000Z', '9:40'),
+      state('clock-batch-nyj-ne', 'clock-batch-nyj-ne-1-02', '2026-09-11T01:31:00.000Z', '1:02'),
+    ] })).rejects.toThrow(/clock advanced faster than elapsed time/iu);
+
+    const afterFailure = await ownerQuery<{ nfl_game_id: string; observations: number }>(`
+      SELECT nfl_game_id::text, count(*)::integer AS observations
+      FROM game_state_observations
+      WHERE nfl_game_id = ANY($1::uuid[])
+      GROUP BY nfl_game_id
+      ORDER BY nfl_game_id
+    `, [storedGames.map((game) => game.gameId)]);
+    expect(afterFailure.map((row) => row.observations)).toEqual([1, 1]);
+
+    const recovered = storedValue(await store.recordGameStates({ provider: 'tank01', states: games.map((game) => (
+      state(game.externalGameId, `${game.key}-9-21`, '2026-09-11T01:32:00.000Z', '9:21')
+    )) }));
+    expect(recovered).toHaveLength(2);
+    const afterRecovery = await ownerQuery<{ nfl_game_id: string; observations: number }>(`
+      SELECT nfl_game_id::text, count(*)::integer AS observations
+      FROM game_state_observations
+      WHERE nfl_game_id = ANY($1::uuid[])
+      GROUP BY nfl_game_id
+      ORDER BY nfl_game_id
+    `, [storedGames.map((game) => game.gameId)]);
+    expect(afterRecovery.map((row) => row.observations)).toEqual([2, 2]);
+  });
+
+  it('recovers from an already-stored poisoned clock without rewriting history', async () => {
+    const externalGameId = 'clock-poison-recovery';
+    const game = only(storedValue(await store.upsertNflGames([{
+      key: externalGameId,
+      provider: 'tank01',
+      externalGameId,
+      season: 2026,
+      seasonType: 'reg',
+      week: 1,
+      homeTeam: 'BUF',
+      awayTeam: 'MIA',
+      kickoffAt: '2026-09-13T17:00:00.000Z',
+    }])), 'Stored clock poison game');
+    const legacy = createIndependentDatabase(integrationEnvironment().ownerDatabaseUrl);
+    try {
+      await legacy.database.query('BEGIN');
+      await legacy.database.query(
+        'ALTER TABLE game_state_observations DISABLE TRIGGER game_state_observations_no_regression',
+      );
+      await legacy.database.query(`
+        INSERT INTO game_state_observations (
+          nfl_game_id, provider, source_revision, request_started_at,
+          request_completed_at, observed_at, status_code, period, game_clock,
+          home_score, away_score, source_data
+        ) VALUES
+          ($1, 'tank01', 'stored-clock-10-22', $2, $2, $2, 1, '3rd', '10:22', 7, 3,
+            '{"fixture":"credible-anchor"}'::jsonb),
+          ($1, 'tank01', 'stored-clock-1-02', $3, $3, $3, 1, '3rd', '1:02', 7, 3,
+            '{"fixture":"pre-migration-poison"}'::jsonb)
+      `, [game.gameId, '2026-09-11T01:30:00.000Z', '2026-09-11T01:31:00.000Z']);
+      await legacy.database.query(
+        'ALTER TABLE game_state_observations ENABLE TRIGGER game_state_observations_no_regression',
+      );
+      await legacy.database.query('COMMIT');
+    } catch (error) {
+      await legacy.database.query('ROLLBACK');
+      throw error;
+    } finally {
+      await legacy.close();
+    }
+
+    const recovered = only(storedValue(await store.recordGameStates({
+      provider: 'tank01',
+      states: [{
+        externalGameId,
+        sourceRevision: 'stored-clock-9-21',
+        requestStartedAt: '2026-09-11T01:32:00.000Z',
+        requestCompletedAt: '2026-09-11T01:32:00.000Z',
+        observedAt: '2026-09-11T01:32:00.000Z',
+        statusCode: 1,
+        period: '3rd',
+        gameClock: '9:21',
+        homeScore: 7,
+        awayScore: 3,
+        sourceData: { fixture: 'credible-recovery' },
+      }],
+    })), 'Recovered game state');
+
+    const rows = await ownerQuery<{
+      id: string;
+      source_revision: string;
+      game_clock: string;
+      source_data: unknown;
+    }>(`
+      SELECT id::text, source_revision, game_clock, source_data
+      FROM game_state_observations
+      WHERE nfl_game_id = $1
+      ORDER BY observed_at
+    `, [game.gameId]);
+    expect(rows).toHaveLength(3);
+    expect(rows.map((row) => [row.source_revision, row.game_clock])).toEqual([
+      ['stored-clock-10-22', '10:22'],
+      ['stored-clock-1-02', '1:02'],
+      ['stored-clock-9-21', '9:21'],
+    ]);
+    expect(rows[1].source_data).toEqual({ fixture: 'pre-migration-poison' });
+    expect(recovered.observationId).toBe(rows[2].id);
+  });
+
+  it('preserves valid regulation, halftime, overtime, final, and regression behavior', async () => {
+    const externalGameId = 'clock-transition-coverage';
+    await store.upsertNflGames([{
+      key: externalGameId,
+      provider: 'tank01',
+      externalGameId,
+      season: 2026,
+      seasonType: 'reg',
+      week: 1,
+      homeTeam: 'IND',
+      awayTeam: 'HOU',
+      kickoffAt: '2026-09-11T00:20:00.000Z',
+    }]);
+    const state = (
+      sourceRevision: string,
+      at: string,
+      period: string | null,
+      gameClock: string | null,
+      statusCode: 0 | 1 | 2 | 3 | 4 = 1,
+    ) => ({
+      externalGameId,
+      sourceRevision,
+      requestStartedAt: at,
+      requestCompletedAt: at,
+      observedAt: at,
+      statusCode,
+      period,
+      gameClock,
+      homeScore: 7,
+      awayScore: 3,
+      sourceData: { sourceRevision },
+    });
+
+    await store.recordGameStates({ provider: 'tank01', states: [
+      state('transition-q2-1-02', '2026-09-11T01:40:00.000Z', 'Q2', '1:02'),
+    ] });
+    await store.recordGameStates({ provider: 'tank01', states: [
+      state('transition-q2-repeat', '2026-09-11T01:40:30.000Z', '2nd', '1:02'),
+    ] });
+    await store.recordGameStates({ provider: 'tank01', states: [
+      state('transition-q2-0-45', '2026-09-11T01:41:00.000Z', 'Q2', '0:45'),
+    ] });
+    await expect(store.recordGameStates({ provider: 'tank01', states: [
+      state('transition-q2-increase', '2026-09-11T01:41:30.000Z', 'Q2', '0:50'),
+    ] })).rejects.toThrow(/clock increased/iu);
+    await store.recordGameStates({ provider: 'tank01', states: [
+      state('transition-halftime', '2026-09-11T01:42:00.000Z', 'HALFTIME', null),
+    ] });
+    await store.recordGameStates({ provider: 'tank01', states: [
+      state('transition-q3', '2026-09-11T02:00:00.000Z', '3rd', '15:00'),
+    ] });
+    await store.recordGameStates({ provider: 'tank01', states: [
+      state('transition-q4', '2026-09-11T02:30:00.000Z', '4th', '0:00'),
+    ] });
+    await store.recordGameStates({ provider: 'tank01', states: [
+      state('transition-ot', '2026-09-11T02:31:00.000Z', 'OT', null),
+    ] });
+    await store.recordGameStates({ provider: 'tank01', states: [
+      state('transition-final', '2026-09-11T02:40:00.000Z', 'FINAL', null, 2),
+    ] });
+    await expect(store.recordGameStates({ provider: 'tank01', states: [
+      state('transition-after-final', '2026-09-11T02:41:00.000Z', 'OT', null),
+    ] })).rejects.toThrow(/final game became non-final/iu);
   });
 
   it('replays official observations without duplication and reports unmapped inputs', async () => {
@@ -1631,6 +2015,7 @@ describe.sequential('projection store against an isolated Neon database', () => 
       can_insert_snapshots: boolean;
       can_update_snapshots: boolean;
       can_delete_candidate_pointers: boolean;
+      can_execute_clock_guard: boolean;
     }>(`
       SELECT current_user AS database_user,
         has_schema_privilege(current_user, 'public', 'CREATE') AS can_create_schema_objects,
@@ -1644,7 +2029,10 @@ describe.sequential('projection store against an isolated Neon database', () => 
           AS can_update_snapshots,
         has_table_privilege(
           current_user, 'public.current_pregame_projection_candidates', 'DELETE'
-        ) AS can_delete_candidate_pointers
+        ) AS can_delete_candidate_pointers,
+        has_function_privilege(
+          current_user, 'public.prevent_game_state_regression()', 'EXECUTE'
+        ) AS can_execute_clock_guard
     `), 'Runtime privileges');
     expect(identity).toEqual({
       database_user: 'league_one_runtime',
@@ -1654,6 +2042,7 @@ describe.sequential('projection store against an isolated Neon database', () => 
       can_insert_snapshots: true,
       can_update_snapshots: false,
       can_delete_candidate_pointers: true,
+      can_execute_clock_guard: false,
     });
     await expect(runtimeQuery('SELECT * FROM app_schema_migrations')).rejects.toThrow(/permission/iu);
     await expect(runtimeQuery('CREATE TABLE integration_forbidden (id integer)'))
@@ -1682,6 +2071,24 @@ describe.sequential('projection store against an isolated Neon database', () => 
       rolreplication: false,
       inherits_neon_superuser: false,
     });
+    const clockGuard = only(await ownerQuery<{
+      owned_by_runtime: boolean;
+      executable_by_public: boolean;
+    }>(`
+      SELECT owner.rolname = 'league_one_runtime' AS owned_by_runtime,
+        EXISTS (
+          SELECT 1
+          FROM aclexplode(COALESCE(function.proacl, acldefault('f', function.proowner))) acl
+          WHERE acl.grantee = 0 AND acl.privilege_type = 'EXECUTE'
+        ) AS executable_by_public
+      FROM pg_proc function
+      JOIN pg_namespace namespace ON namespace.oid = function.pronamespace
+      JOIN pg_roles owner ON owner.oid = function.proowner
+      WHERE namespace.nspname = 'public'
+        AND function.proname = 'prevent_game_state_regression'
+        AND function.pronargs = 0
+    `), 'Clock guard ownership');
+    expect(clockGuard).toEqual({ owned_by_runtime: false, executable_by_public: false });
   });
 
   it('denies runtime source-data mutation of a snapshot-referenced game observation', async () => {

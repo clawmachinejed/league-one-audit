@@ -801,6 +801,28 @@ describe('projection migration', () => {
     expect(migration).toContain('game_state_observations_no_regression');
   });
 
+  it('adds append-only clock plausibility and evidence-bound recovery', async () => {
+    const migration = await readFile(
+      new URL('../migrations/009_game_clock_plausibility.sql', import.meta.url),
+      'utf8',
+    );
+    expect(migration).toContain('clock_elapsed_tolerance_seconds CONSTANT integer := 90');
+    expect(migration).toContain('regulation clock advanced faster than elapsed time');
+    expect(migration).toContain('recovery_anchor');
+    expect(migration).toContain('NEW.observed_at > prior_progress.observed_at');
+    expect(migration).toContain('final game became non-final');
+    expect(migration).toContain('started game became pregame');
+    expect(migration).toContain('period moved backward');
+    expect(migration).toContain('regulation clock increased');
+    expect(migration).toContain('interruption status changed ambiguously');
+    expect(migration).toContain('live period is unavailable');
+    expect(migration).toContain('regulation clock is unavailable');
+    expect(migration).toContain(
+      'REVOKE ALL ON FUNCTION public.prevent_game_state_regression() FROM PUBLIC',
+    );
+    expect(migration).not.toMatch(/\b(?:UPDATE|DELETE)\s+(?:FROM\s+)?(?:public\.)?game_state_observations\b/iu);
+  });
+
   it('migrates every stored team name without replacing snapshot history or pointers', async () => {
     const migration = (await readFile(
       new URL('../migrations/002_manager_snapshot_payloads.sql', import.meta.url),
