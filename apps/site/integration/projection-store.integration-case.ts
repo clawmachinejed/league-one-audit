@@ -1196,6 +1196,64 @@ describe.sequential('projection store against an isolated Neon database', () => 
     ]);
   });
 
+  it('keeps a usable clock anchor across a same-quarter interruption', async () => {
+    const externalGameId = 'clock-interruption-poison-reproduction';
+    const game = only(storedValue(await store.upsertNflGames([{
+      key: externalGameId,
+      provider: 'tank01',
+      externalGameId,
+      season: 2026,
+      seasonType: 'reg',
+      week: 1,
+      homeTeam: 'GB',
+      awayTeam: 'CHI',
+      kickoffAt: '2026-09-11T00:20:00.000Z',
+    }])), 'Interrupted clock poison game');
+    const state = (
+      sourceRevision: string,
+      at: string,
+      statusCode: 1 | 4,
+      gameClock: string | null,
+    ) => ({
+      externalGameId,
+      sourceRevision,
+      requestStartedAt: at,
+      requestCompletedAt: at,
+      observedAt: at,
+      statusCode,
+      period: '3rd',
+      gameClock,
+      homeScore: 7,
+      awayScore: 3,
+      sourceData: { sourceRevision },
+    });
+
+    await store.recordGameStates({ provider: 'tank01', states: [
+      state('interrupted-clock-10-22', '2026-09-11T01:30:00.000Z', 1, '10:22'),
+    ] });
+    await store.recordGameStates({ provider: 'tank01', states: [
+      state('interrupted-clock-null', '2026-09-11T01:30:30.000Z', 4, null),
+    ] });
+    await expect(store.recordGameStates({ provider: 'tank01', states: [
+      state('interrupted-clock-1-02', '2026-09-11T01:31:00.000Z', 1, '1:02'),
+    ] })).rejects.toThrow(/clock advanced faster than elapsed time/iu);
+    await store.recordGameStates({ provider: 'tank01', states: [
+      state('interrupted-clock-9-21', '2026-09-11T01:32:00.000Z', 1, '9:21'),
+    ] });
+
+    const rows = await ownerQuery<{ source_revision: string; game_clock: string | null }>(`
+      SELECT source_revision, game_clock
+      FROM game_state_observations
+      WHERE nfl_game_id = $1
+      ORDER BY observed_at
+    `, [game.gameId]);
+    expect(rows).toEqual([
+      { source_revision: 'interrupted-clock-10-22', game_clock: '10:22' },
+      { source_revision: 'interrupted-clock-null', game_clock: null },
+      { source_revision: 'interrupted-clock-9-21', game_clock: '9:21' },
+    ]);
+  });
+
   it('rolls back the complete provider batch when one game clock is implausible', async () => {
     const games = [{
       key: 'clock-batch-sea-ari',
@@ -1310,6 +1368,23 @@ describe.sequential('projection store against an isolated Neon database', () => 
       await legacy.close();
     }
 
+    await store.recordGameStates({
+      provider: 'tank01',
+      states: [{
+        externalGameId,
+        sourceRevision: 'stored-clock-interrupted',
+        requestStartedAt: '2026-09-11T01:31:30.000Z',
+        requestCompletedAt: '2026-09-11T01:31:30.000Z',
+        observedAt: '2026-09-11T01:31:30.000Z',
+        statusCode: 4,
+        period: '3rd',
+        gameClock: null,
+        homeScore: 7,
+        awayScore: 3,
+        sourceData: { fixture: 'no-clock-interruption' },
+      }],
+    });
+
     const recovered = only(storedValue(await store.recordGameStates({
       provider: 'tank01',
       states: [{
@@ -1338,14 +1413,15 @@ describe.sequential('projection store against an isolated Neon database', () => 
       WHERE nfl_game_id = $1
       ORDER BY observed_at
     `, [game.gameId]);
-    expect(rows).toHaveLength(3);
+    expect(rows).toHaveLength(4);
     expect(rows.map((row) => [row.source_revision, row.game_clock])).toEqual([
       ['stored-clock-10-22', '10:22'],
       ['stored-clock-1-02', '1:02'],
+      ['stored-clock-interrupted', null],
       ['stored-clock-9-21', '9:21'],
     ]);
     expect(rows[1].source_data).toEqual({ fixture: 'pre-migration-poison' });
-    expect(recovered.observationId).toBe(rows[2].id);
+    expect(recovered.observationId).toBe(rows[3].id);
   });
 
   it('preserves valid regulation, halftime, overtime, final, and regression behavior', async () => {

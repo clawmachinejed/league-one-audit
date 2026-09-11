@@ -16,6 +16,7 @@ AS $$
 DECLARE
   prior_state public.game_state_observations%ROWTYPE;
   prior_progress public.game_state_observations%ROWTYPE;
+  prior_clock_state public.game_state_observations%ROWTYPE;
   recovery_anchor public.game_state_observations%ROWTYPE;
   prior_rank smallint;
   new_rank smallint;
@@ -91,11 +92,24 @@ BEGIN
       RAISE EXCEPTION 'game-state regression: period moved backward';
     END IF;
     IF new_rank = prior_rank AND new_rank IN (1, 2, 4, 5) THEN
-      prior_clock := public.projection_game_clock_seconds(prior_progress.game_clock);
+      -- A same-quarter interruption is allowed to omit its clock, but that row
+      -- must not erase the most recent usable clock evidence for plausibility.
+      SELECT observation.* INTO prior_clock_state
+      FROM public.game_state_observations observation
+      WHERE observation.provider = NEW.provider
+        AND observation.nfl_game_id = NEW.nfl_game_id
+        AND observation.status_code IN (1, 4)
+        AND public.projection_game_period_rank(observation.period) = prior_rank
+        AND public.projection_game_clock_seconds(observation.game_clock) IS NOT NULL
+      ORDER BY observation.observed_at DESC, observation.request_completed_at DESC,
+        observation.created_at DESC, observation.id DESC
+      LIMIT 1;
+
+      prior_clock := public.projection_game_clock_seconds(prior_clock_state.game_clock);
       new_clock := public.projection_game_clock_seconds(NEW.game_clock);
       IF prior_clock IS NOT NULL AND new_clock IS NOT NULL THEN
         elapsed_seconds := GREATEST(
-          EXTRACT(EPOCH FROM (NEW.observed_at - prior_progress.observed_at)),
+          EXTRACT(EPOCH FROM (NEW.observed_at - prior_clock_state.observed_at)),
           0
         );
 
@@ -109,21 +123,21 @@ BEGIN
           -- that proves the latest stored low value fell impossibly fast, while
           -- the new correction is non-increasing and physically plausible from
           -- that earlier anchor. The malformed row remains append-only history.
-          IF prior_progress.status_code = 1 AND NEW.status_code = 1
-            AND NEW.observed_at > prior_progress.observed_at THEN
+          IF prior_clock_state.status_code = 1 AND NEW.status_code = 1
+            AND NEW.observed_at > prior_clock_state.observed_at THEN
             SELECT observation.* INTO recovery_anchor
             FROM public.game_state_observations observation
             WHERE observation.provider = NEW.provider
               AND observation.nfl_game_id = NEW.nfl_game_id
               AND observation.status_code = 1
               AND public.projection_game_period_rank(observation.period) = prior_rank
-              AND observation.observed_at < prior_progress.observed_at
+              AND observation.observed_at < prior_clock_state.observed_at
               AND public.projection_game_clock_seconds(observation.game_clock) IS NOT NULL
               AND public.projection_game_clock_seconds(observation.game_clock) >= new_clock
               AND (
                 public.projection_game_clock_seconds(observation.game_clock) - prior_clock
               ) > GREATEST(
-                EXTRACT(EPOCH FROM (prior_progress.observed_at - observation.observed_at)),
+                EXTRACT(EPOCH FROM (prior_clock_state.observed_at - observation.observed_at)),
                 0
               ) + clock_elapsed_tolerance_seconds
               AND (

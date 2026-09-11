@@ -809,7 +809,9 @@ describe('projection migration', () => {
     expect(migration).toContain('clock_elapsed_tolerance_seconds CONSTANT integer := 90');
     expect(migration).toContain('regulation clock advanced faster than elapsed time');
     expect(migration).toContain('recovery_anchor');
-    expect(migration).toContain('NEW.observed_at > prior_progress.observed_at');
+    expect(migration).toContain('prior_clock_state public.game_state_observations%ROWTYPE');
+    expect(migration).toContain('NEW.observed_at > prior_clock_state.observed_at');
+    expect(migration).toContain('projection_game_clock_seconds(observation.game_clock) IS NOT NULL');
     expect(migration).toContain('final game became non-final');
     expect(migration).toContain('started game became pregame');
     expect(migration).toContain('period moved backward');
