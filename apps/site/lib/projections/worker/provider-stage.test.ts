@@ -369,7 +369,9 @@ describe('canonical provider persistence stage', () => {
       gameObservationIdsByReferenceKey: new Map([[gameKey, observationId]]),
       entityIdsByReferenceKey: new Map([
         [externalReferenceKey(officialPlayer), playerId],
+        [externalReferenceKey(projections.projections[0].identity.primary), playerId],
         [externalReferenceKey(officialDefense), defenseId],
+        [externalReferenceKey(projections.projections[1].identity.primary), defenseId],
       ]),
       identityConflictCount: 0,
       projectionSourceRevision: 'legacy-compatible-projection-revision',

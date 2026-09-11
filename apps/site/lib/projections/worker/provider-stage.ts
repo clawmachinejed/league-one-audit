@@ -155,9 +155,17 @@ export async function persistProviderGroup(
   if (resolvedEntities.kind !== 'resolved') {
     throw new Error('Scoring identities could not be resolved.');
   }
-  const entityIdsByReferenceKey = new Map(resolvedEntities.value.flatMap((entity) => (
-    entity.status === 'known' ? [[entity.key, entity.entityId] as const] : []
-  )));
+  const identityInputByKey = new Map(identityInputs.map((input) => [input.key, input]));
+  const entityIdsByReferenceKey = new Map(resolvedEntities.value.flatMap((entity) => {
+    if (entity.status !== 'known') return [];
+    const input = identityInputByKey.get(entity.key);
+    return [
+      [entity.key, entity.entityId] as const,
+      ...(input?.providerRefs.map((reference) => (
+        [externalReferenceKey(reference), entity.entityId] as const
+      )) ?? []),
+    ];
+  }));
 
   const projectionLineage = projectionPersistence.kind === 'stored'
     ? projectionPersistence

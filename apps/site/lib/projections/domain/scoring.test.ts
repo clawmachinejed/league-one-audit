@@ -17,6 +17,7 @@ import {
   auditProjectionScoringRules,
   hasCompleteProjectionStats,
   scoreProjection,
+  scoreSparseStatistics,
 } from './scoring';
 
 const offense: OffenseProjectionStats = {
@@ -78,6 +79,39 @@ const defenseRules: ProjectionScoringRules = {
 };
 
 describe('canonical projection scoring', () => {
+  it('scores validated sparse weekly statistics with a per-rule breakdown', () => {
+    expect(scoreSparseStatistics(
+      { pass_yd: 250, pass_td: 2, pass_int: 1 },
+      { pass_yd: 0.04, pass_td: 6, pass_int: -2, ignored: 0 },
+      new Set(['pass_yd', 'pass_td', 'pass_int']),
+    )).toEqual({
+      available: true,
+      points: 20,
+      breakdown: {
+        pass_int: { stat: 1, weight: -2, points: -2 },
+        pass_td: { stat: 2, weight: 6, points: 12 },
+        pass_yd: { stat: 250, weight: 0.04, points: 10 },
+      },
+      activeRuleKeys: ['pass_int', 'pass_td', 'pass_yd'],
+      invalidRuleKeys: [],
+      unsupportedRuleKeys: [],
+      invalidStatKeys: [],
+    });
+  });
+
+  it('fails closed on unsupported active weekly rules while treating absent sparse stats as zero', () => {
+    expect(scoreSparseStatistics(
+      {},
+      { pass_td: 6, future_rule: 1 },
+      new Set(['pass_td']),
+    )).toMatchObject({
+      available: false,
+      points: null,
+      breakdown: { pass_td: { stat: 0, weight: 6, points: 0 } },
+      unsupportedRuleKeys: ['future_rule'],
+    });
+  });
+
   it('preserves the current full-precision offense calculation', () => {
     const result = scoreProjection(offense, offenseRules);
     expect(result.available).toBe(true);

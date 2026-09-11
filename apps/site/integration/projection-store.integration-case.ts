@@ -198,6 +198,7 @@ describe.sequential('projection store against an isolated Neon database', () => 
         '007_lineup_freshness.sql',
         '008_additive_write_guards.sql',
         '009_game_clock_plausibility.sql',
+        '010_all_player_statistics.sql',
       ],
     });
     const rows = await ownerQuery<{ name: string; checksum_length: number }>(`
@@ -214,11 +215,12 @@ describe.sequential('projection store against an isolated Neon database', () => 
       { name: '007_lineup_freshness.sql', checksum_length: 64 },
       { name: '008_additive_write_guards.sql', checksum_length: 64 },
       { name: '009_game_clock_plausibility.sql', checksum_length: 64 },
+      { name: '010_all_player_statistics.sql', checksum_length: 64 },
     ]);
   });
 
-  it('records migration 009 transactionally and the production migrator reruns it idempotently', async () => {
-    const migrationName = '009_game_clock_plausibility.sql';
+  it('records migration 010 transactionally and the production migrator reruns it idempotently', async () => {
+    const migrationName = '010_all_player_statistics.sql';
     const migration = (await readFile(
       new URL(`../migrations/${migrationName}`, import.meta.url),
       'utf8',
@@ -228,7 +230,7 @@ describe.sequential('projection store against an isolated Neon database', () => 
       SELECT checksum, applied_at::text
       FROM app_schema_migrations
       WHERE name = $1
-    `, [migrationName]), 'Clock plausibility migration ledger');
+    `, [migrationName]), 'All-player migration ledger');
     expect(before.checksum).toBe(expectedChecksum);
 
     const previousMigrationUrl = process.env.MIGRATION_DATABASE_URL;
@@ -249,7 +251,7 @@ describe.sequential('projection store against an isolated Neon database', () => 
       SELECT checksum, applied_at::text
       FROM app_schema_migrations
       WHERE name = $1
-    `, [migrationName]), 'Rerun clock plausibility migration ledger');
+    `, [migrationName]), 'Rerun all-player migration ledger');
     expect(after).toEqual(before);
   });
 

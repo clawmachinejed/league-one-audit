@@ -29,6 +29,10 @@ export type ProviderGroupScoringResult =
 
 export type ProviderGroupScoringCache = Readonly<{
   resolve: (settings: SourceScoringSettings) => ProviderGroupScoringResult;
+  coordinateFullSlatePersistence: (
+    profileHash: string,
+    persist: () => Promise<void>,
+  ) => Promise<boolean>;
 }>;
 
 /**
@@ -41,8 +45,20 @@ export function createProviderGroupScoringCache(
   normalizeScoringProfile: LiveProjectionWorkerDependencies['normalizeScoringProfile'],
 ): ProviderGroupScoringCache {
   const scoresByProfileHash = new Map<string, ScoredProjectionSlate>();
+  const fullSlatePersistenceByProfileHash = new Map<string, Promise<void>>();
 
   return {
+    async coordinateFullSlatePersistence(profileHash, persist) {
+      const existing = fullSlatePersistenceByProfileHash.get(profileHash);
+      if (existing) {
+        await existing;
+        return false;
+      }
+      const operation = persist();
+      fullSlatePersistenceByProfileHash.set(profileHash, operation);
+      await operation;
+      return true;
+    },
     resolve(settings) {
       const normalized = normalizeScoringProfile(settings);
       if (normalized.status !== 'available') return normalized;

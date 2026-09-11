@@ -32,6 +32,7 @@ import {
   assertUniqueStarters,
   finite,
   projectionEntities,
+  projectionEntityForObservation,
   projectionObservationForEntity,
   projectionStats,
 } from './roster-context';
@@ -188,21 +189,62 @@ export async function processLeague(
     }];
   });
   const projectionSourceRevision = persisted.projectionSourceRevision;
-  const storedRun = await dependencies.repository.recordProjectionCandidates({
-    source: persisted.projections.source,
-    period: source.period,
-    modelVersion: LIVE_PROJECTION_MODEL_VERSION,
-    sourceRevision: projectionSourceRevision,
-    requestStartedAt: persisted.projections.requestStartedAt,
-    requestCompletedAt: persisted.projections.requestCompletedAt,
-    observedAt: persisted.projections.observedAt,
-    quality: 'complete',
-    projectionSlateObservationId: persisted.projectionSlateObservationId,
-    candidates,
-  });
-  if (storedRun.kind !== 'stored' || storedRun.value.candidateCount < candidates.length) {
-    throw new Error('Pregame projection candidates could not be persisted completely.');
-  }
+  let persistedCandidateCount = candidates.length;
+  const persistCandidates = async (values: typeof candidates): Promise<void> => {
+    const storedRun = await dependencies.repository.recordProjectionCandidates({
+      source: persisted.projections.source,
+      period: source.period,
+      modelVersion: LIVE_PROJECTION_MODEL_VERSION,
+      sourceRevision: projectionSourceRevision,
+      requestStartedAt: persisted.projections.requestStartedAt,
+      requestCompletedAt: persisted.projections.requestCompletedAt,
+      observedAt: persisted.projections.observedAt,
+      quality: 'complete',
+      projectionSlateObservationId: persisted.projectionSlateObservationId,
+      candidates: values,
+    });
+    if (storedRun.kind !== 'stored' || storedRun.value.candidateCount < values.length) {
+      throw new Error('Pregame projection candidates could not be persisted completely.');
+    }
+  };
+  const persistedFullSlate = await scoringCache.coordinateFullSlatePersistence(
+    normalized.profileHash,
+    async () => {
+      const candidatesByIdentity = new Map(candidates.map((candidate) => [
+        `${candidate.gameId}\0${candidate.entityId}`,
+        candidate,
+      ]));
+      for (const projection of persisted.projections.projections) {
+        const entity = projectionEntityForObservation(
+          projection,
+          configuration.leagueRef.provider,
+        );
+        if (!entity) continue;
+        const state = stateForEntity(entity, persisted.games, source.schedule);
+        if (!state) continue;
+        const gameId = persisted.gameIdsByReferenceKey.get(externalReferenceKey(state.gameRef));
+        const entityId = persisted.entityIdsByReferenceKey.get(
+          externalReferenceKey(entity.externalRef),
+        );
+        if (!gameId || !entityId) throw new Error('A full-slate projection identity is missing.');
+        const projectionScore = normalized.scores.get(projection);
+        if (!projectionScore) throw new Error('The provider scoring cache is incomplete.');
+        const available = projectionScore.available && finite(projectionScore.points);
+        candidatesByIdentity.set(`${gameId}\0${entityId}`, {
+          gameId,
+          entityId,
+          scoringProfileId: leagueSeason.value.scoringProfileId,
+          projectionPoints: available ? projectionScore.points : 0,
+          projectedStats: projection.stats,
+          quality: available ? 'complete' : 'missing',
+        });
+      }
+      const fullSlateCandidates = [...candidatesByIdentity.values()];
+      persistedCandidateCount = fullSlateCandidates.length;
+      await persistCandidates(fullSlateCandidates);
+    },
+  );
+  if (!persistedFullSlate) await persistCandidates(candidates);
 
   const officialEntityRefs = starters.map(({ starter }) => starter.entity.externalRef);
   const startedGameRefs = persisted.games.games.filter(startedGame).map((game) => game.gameRef);
@@ -346,7 +388,7 @@ export async function processLeague(
     sourceRevision: source.sourceRevision,
     publicationOutcome: published.kind,
     starterCount: starters.length,
-    candidateCount: candidates.length,
+    candidateCount: persistedCandidateCount,
     frozenBaselineCount: frozen.length,
     missingBaselineCount: missingFrozenBaselineCount,
     applicableSourceSkewSeconds: sourceSkewSeconds,

@@ -109,6 +109,7 @@ export function createIdentityMethods(client: DatabaseClient): IdentityMethods {
         kind: input.kind,
         display_name: requiredText(input.displayName, 'Scoring entity display name'),
         nfl_team: input.nflTeam?.trim() || null,
+        preserve_existing_metadata: input.preserveExistingMetadata === true,
         provider_ids: input.providerIds.map((identity) => ({
           provider: provider(identity.provider),
           external_id: requiredText(identity.externalId, 'External scoring entity ID'),
@@ -122,7 +123,8 @@ export function createIdentityMethods(client: DatabaseClient): IdentityMethods {
         WITH input AS (
           SELECT * FROM jsonb_to_recordset($1::jsonb) AS value(
             ordinal integer, proposed_id uuid, input_key text, kind text,
-            display_name text, nfl_team text, provider_ids jsonb
+            display_name text, nfl_team text, preserve_existing_metadata boolean,
+            provider_ids jsonb
           )
         ), expanded AS (
           SELECT input.*, ids.provider, ids.external_id
@@ -154,8 +156,14 @@ export function createIdentityMethods(client: DatabaseClient): IdentityMethods {
           FROM targets WHERE NOT conflict
           ORDER BY target_id, ordinal
           ON CONFLICT (id) DO UPDATE SET
-            display_name = EXCLUDED.display_name,
-            nfl_team = EXCLUDED.nfl_team,
+            display_name = CASE WHEN EXISTS (
+              SELECT 1 FROM targets target
+              WHERE target.target_id = EXCLUDED.id AND target.preserve_existing_metadata
+            ) THEN scoring_entities.display_name ELSE EXCLUDED.display_name END,
+            nfl_team = CASE WHEN EXISTS (
+              SELECT 1 FROM targets target
+              WHERE target.target_id = EXCLUDED.id AND target.preserve_existing_metadata
+            ) THEN scoring_entities.nfl_team ELSE EXCLUDED.nfl_team END,
             updated_at = now()
           RETURNING id
         ), inserted_mappings AS (

@@ -143,6 +143,7 @@ Install Playwright's Chromium browser once with `pnpm --filter @l1/site exec pla
 | `apps/site/migrations` | Ordered, immutable PostgreSQL schema migrations. |
 | `docs/future-week-projections.md` | Durable future-week policy, lineage, scheduling, failure behavior, and operating limits. |
 | `docs/lineup-freshness.md` | Current three-lane architecture, lineup timing, reader protocol, safety, and operational runbook. |
+| `docs/all-player-statistics.md` | Dormant all-player statistics/scoring foundation, publication gates, and separately authorized rollout. |
 
 League data is cached to limit upstream requests; each feed's cache duration is defined beside its request in `apps/site/lib/sleeper.ts`. Matchup injury labels use Sleeper's current `injury_status`, including when viewing an earlier matchup week; they are not historical injury reports. Questionable is shown as QUES in golden yellow, other designations in red, and missing values remain blank. Displayed values can lag Sleeper. The site is a league companion: roster moves and fantasy league administration remain in Sleeper.
 

@@ -280,6 +280,76 @@ export function scoreProjection(
   return scoreDefense(projection, rules);
 }
 
+export type SparseScoringBreakdown = Readonly<Record<string, Readonly<{
+  stat: number;
+  weight: number;
+  points: number;
+}>>>;
+
+export type SparseStatisticsScore = Readonly<{
+  available: boolean;
+  points: number | null;
+  breakdown: SparseScoringBreakdown;
+  activeRuleKeys: readonly string[];
+  invalidRuleKeys: readonly string[];
+  unsupportedRuleKeys: readonly string[];
+  invalidStatKeys: readonly string[];
+}>;
+
+/**
+ * Scores sparse, provider-native weekly statistics without introducing a second
+ * scoring engine. The provider adapter owns the supported-key allowlist; this
+ * domain function owns validation, multiplication, and the auditable per-rule
+ * breakdown. An absent stat is an explicit zero only after the adapter has
+ * validated the source's sparse-object contract.
+ */
+export function scoreSparseStatistics(
+  stats: Readonly<Record<string, number>>,
+  rules: Readonly<Record<string, unknown>>,
+  supportedRuleKeys: ReadonlySet<string>,
+): SparseStatisticsScore {
+  const activeRuleKeys: string[] = [];
+  const invalidRuleKeys: string[] = [];
+  const unsupportedRuleKeys: string[] = [];
+  const invalidStatKeys: string[] = [];
+  const breakdown: Record<string, { stat: number; weight: number; points: number }> = {};
+  let points = 0;
+
+  for (const [key, rawValue] of Object.entries(rules).sort(([left], [right]) => left.localeCompare(right))) {
+    if (typeof rawValue !== 'number' || !Number.isFinite(rawValue)) {
+      invalidRuleKeys.push(key);
+      continue;
+    }
+    if (rawValue === 0) continue;
+    activeRuleKeys.push(key);
+    if (!supportedRuleKeys.has(key)) {
+      unsupportedRuleKeys.push(key);
+      continue;
+    }
+    const stat = stats[key] ?? 0;
+    if (typeof stat !== 'number' || !Number.isFinite(stat)) {
+      invalidStatKeys.push(key);
+      continue;
+    }
+    const rulePoints = stat * rawValue;
+    breakdown[key] = { stat, weight: rawValue, points: rulePoints };
+    points += rulePoints;
+  }
+
+  const available = invalidRuleKeys.length === 0
+    && unsupportedRuleKeys.length === 0
+    && invalidStatKeys.length === 0;
+  return {
+    available,
+    points: available ? points : null,
+    breakdown,
+    activeRuleKeys,
+    invalidRuleKeys,
+    unsupportedRuleKeys,
+    invalidStatKeys,
+  };
+}
+
 export const COMPLETE_PROJECTION_SCORING_RULES: ProjectionScoringRules = Object.freeze(
   Object.fromEntries(PROJECTION_SCORING_EVENTS.map((event) => [event, 1])) as Record<
     ProjectionScoringEvent,

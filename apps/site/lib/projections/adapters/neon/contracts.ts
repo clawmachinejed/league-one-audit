@@ -7,6 +7,10 @@ import type { PeriodCadenceTiming } from '../../domain/period-cadence-timing';
 import type {
   FutureRefreshFailureCode as CanonicalFutureRefreshFailureCode,
 } from '../../ports/future-refresh-repository';
+import type {
+  AllPlayerScoreSet,
+  AllPlayerStatObservation,
+} from '../../domain/all-player-statistics';
 
 export type FutureRefreshFailureCode = CanonicalFutureRefreshFailureCode;
 
@@ -35,6 +39,7 @@ export type ScoringEntityIdentityInput = Readonly<{
   kind: ScoringEntityKind;
   displayName: string;
   nflTeam: string | null;
+  preserveExistingMetadata?: boolean;
   providerIds: readonly ExternalIdentity[];
 }>;
 
@@ -153,6 +158,25 @@ export type StoredProjectionRun = Readonly<{
   runId: string;
   candidatesStored: number;
   candidateCount: number;
+}>;
+
+export type AllPlayerBatchInput = Readonly<{
+  observation: AllPlayerStatObservation;
+  scoreSets: readonly AllPlayerScoreSet[];
+  verifiedAt: string;
+}>;
+
+export type StoredAllPlayerBatch = Readonly<{
+  statContentId: string;
+  statObservationId: string;
+  semanticHash: string;
+  entriesStored: number;
+  entryCount: number;
+  scoreSets: readonly Readonly<{
+    scoringProfileId: string;
+    scoreSetId: string;
+    pointerOutcome: 'advanced' | 'verified' | 'superseded';
+  }>[];
 }>;
 
 export type PlayerProjectionRecord = Readonly<{
@@ -557,6 +581,9 @@ export type ProjectionStore = LineupWatchMethods & LineupAcknowledgmentMethods &
   recordProjectionCandidates: (
     input: ProjectionRunInput,
   ) => Promise<PersistenceOutcome<StoredProjectionRun>>;
+  recordAllPlayerBatch: (
+    input: AllPlayerBatchInput,
+  ) => Promise<PersistenceOutcome<StoredAllPlayerBatch>>;
   readLatestCandidatesBySleeperIds: (input: Readonly<{
     leagueSeasonId: string;
     season: number;

@@ -60,6 +60,15 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
   current_pregame_projection_candidates
 TO league_one_runtime;
 
+REVOKE ALL ON TABLE
+  all_player_stat_contents,
+  all_player_stat_entries,
+  all_player_stat_observations,
+  all_player_score_sets,
+  all_player_scores,
+  current_all_player_score_sets
+FROM league_one_runtime;
+
 GRANT SELECT, INSERT ON TABLE
   external_scoring_entity_ids,
   external_game_ids,
@@ -67,8 +76,18 @@ GRANT SELECT, INSERT ON TABLE
   pregame_projection_baselines,
   league_week_expected_games,
   official_player_point_observations,
-  official_roster_point_observations
+  official_roster_point_observations,
+  all_player_stat_contents,
+  all_player_stat_entries,
+  all_player_stat_observations,
+  all_player_score_sets,
+  all_player_scores
 TO league_one_runtime;
+
+GRANT SELECT ON TABLE current_all_player_score_sets TO league_one_runtime;
+GRANT EXECUTE ON FUNCTION public.advance_current_all_player_score_set(
+  text, smallint, text, smallint, uuid, text, uuid, uuid, timestamptz
+) TO league_one_runtime;
 
 GRANT SELECT, INSERT, DELETE ON TABLE
   league_week_observations,
@@ -128,12 +147,48 @@ BEGIN
     OR has_table_privilege('league_one_runtime', 'public.league_week_lineup_watch_states', 'TRIGGER') THEN
     RAISE EXCEPTION 'league_one_runtime has excessive lineup-watch privileges';
   END IF;
+  IF has_table_privilege('league_one_runtime', 'public.current_all_player_score_sets', 'INSERT')
+    OR has_table_privilege('league_one_runtime', 'public.current_all_player_score_sets', 'UPDATE')
+    OR has_table_privilege('league_one_runtime', 'public.current_all_player_score_sets', 'DELETE')
+    OR has_table_privilege('league_one_runtime', 'public.all_player_stat_contents', 'UPDATE')
+    OR has_table_privilege('league_one_runtime', 'public.all_player_stat_contents', 'DELETE')
+    OR has_table_privilege('league_one_runtime', 'public.all_player_scores', 'UPDATE')
+    OR has_table_privilege('league_one_runtime', 'public.all_player_scores', 'DELETE') THEN
+    RAISE EXCEPTION 'league_one_runtime has excessive all-player privileges';
+  END IF;
+  IF NOT has_table_privilege('league_one_runtime', 'public.all_player_stat_contents', 'SELECT')
+    OR NOT has_table_privilege('league_one_runtime', 'public.all_player_stat_contents', 'INSERT')
+    OR NOT has_table_privilege('league_one_runtime', 'public.all_player_scores', 'SELECT')
+    OR NOT has_table_privilege('league_one_runtime', 'public.all_player_scores', 'INSERT')
+    OR NOT has_table_privilege('league_one_runtime', 'public.current_all_player_score_sets', 'SELECT')
+    OR NOT has_function_privilege(
+      'league_one_runtime',
+      'public.advance_current_all_player_score_set(text,smallint,text,smallint,uuid,text,uuid,uuid,timestamptz)',
+      'EXECUTE'
+    ) THEN
+    RAISE EXCEPTION 'league_one_runtime lacks required all-player privileges';
+  END IF;
   IF EXISTS (SELECT 1 FROM pg_class c JOIN pg_roles r ON r.oid = c.relowner
     WHERE c.oid = 'public.league_week_lineup_watch_states'::regclass AND r.rolname = 'league_one_runtime')
     OR EXISTS (SELECT 1 FROM pg_proc p JOIN pg_roles r ON r.oid = p.proowner
       WHERE p.proname IN ('prevent_lineup_watch_identity_change', 'valid_lineup_roster_ids')
         AND r.rolname = 'league_one_runtime') THEN
     RAISE EXCEPTION 'league_one_runtime owns protected lineup-watch objects';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM pg_class object JOIN pg_roles owner ON owner.oid = object.relowner
+    WHERE object.relname IN (
+      'all_player_stat_contents', 'all_player_stat_entries', 'all_player_stat_observations',
+      'all_player_score_sets', 'all_player_scores', 'current_all_player_score_sets'
+    ) AND owner.rolname = 'league_one_runtime'
+  ) OR EXISTS (
+    SELECT 1 FROM pg_proc procedure JOIN pg_roles owner ON owner.oid = procedure.proowner
+    WHERE procedure.proname IN (
+      'prevent_all_player_history_change', 'validate_all_player_score_lineage',
+      'advance_current_all_player_score_set'
+    ) AND owner.rolname = 'league_one_runtime'
+  ) THEN
+    RAISE EXCEPTION 'league_one_runtime owns protected all-player objects';
   END IF;
 END;
 $$;

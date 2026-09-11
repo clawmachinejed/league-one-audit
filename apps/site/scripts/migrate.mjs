@@ -2,7 +2,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Pool } from '@neondatabase/serverless';
-import { migrationChecksum, normalizeMigrationText } from './migration-text.mjs';
+import { migrationChecksum, normalizeMigrationText, validateMigrationSequence } from './migration-text.mjs';
 
 const databaseUrl = process.env.MIGRATION_DATABASE_URL?.trim();
 if (!databaseUrl) {
@@ -27,9 +27,9 @@ if (!localDatabaseHosts.has(parsedDatabaseUrl.hostname.toLowerCase())
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const migrationsDirectory = join(scriptDirectory, '..', 'migrations');
-const migrationNames = (await readdir(migrationsDirectory))
+const migrationNames = validateMigrationSequence((await readdir(migrationsDirectory))
   .filter((name) => /^\d+_[a-z0-9_]+\.sql$/u.test(name))
-  .sort((left, right) => left.localeCompare(right));
+  .sort((left, right) => left.localeCompare(right)));
 
 if (migrationNames.length === 0) {
   throw new Error('No database migrations were found.');

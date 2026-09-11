@@ -1,5 +1,6 @@
 import 'server-only';
 
+import { createHash } from 'node:crypto';
 import { cache } from 'react';
 import { unstable_cache } from 'next/cache';
 import { normalizeInjuryStatus } from './injury-status';
@@ -26,6 +27,7 @@ import { matchupTemporalState, type MatchupPeriodContext } from './matchup-perio
 import { calculateTeamPpg, compareRosterStandings, rosterHistoryBoundary } from './roster-metrics';
 import { canonicalNflTeam } from './nfl-teams';
 import { startingSlots } from './sleeper-lineup';
+import { stableJson } from './projections/shared/stable-json';
 import {
   canDecorateMatchupWeek,
   addWaiverBalances,
@@ -486,29 +488,64 @@ const getRosterCore = cache(async (leagueId: string) => {
   return { overview, sourceLeague, state, rosterFeed };
 });
 
-function projectPlayerCatalog(raw: unknown): PlayerCatalog {
+type PlayerCatalogSlice = Readonly<{
+  catalog: PlayerCatalog;
+  sourceRevision: string;
+  rowCount: number;
+  malformedRowCount: number;
+}>;
+
+function projectPlayerCatalog(raw: unknown): PlayerCatalogSlice {
   if (!isRecord(raw)) throw new Error('Sleeper did not return a valid player catalog.');
   const result: PlayerCatalog = {};
+  let malformedRowCount = 0;
   for (const [id, value] of Object.entries(raw)) {
-    if (!isRecord(value)) continue;
+    if (!id.trim() || !isRecord(value)) {
+      malformedRowCount += 1;
+      continue;
+    }
+    const invalidTypedField = ['full_name', 'first_name', 'last_name', 'position', 'team', 'status']
+      .some((field) => value[field] !== undefined && value[field] !== null
+        && typeof value[field] !== 'string')
+      || (value.active !== undefined && value.active !== null && typeof value.active !== 'boolean')
+      || (value.fantasy_positions !== undefined && value.fantasy_positions !== null
+        && (!Array.isArray(value.fantasy_positions)
+          || !value.fantasy_positions.every((position) => typeof position === 'string')));
+    if (invalidTypedField) {
+      malformedRowCount += 1;
+      continue;
+    }
     const player: SleeperPlayer = {};
     for (const field of ['full_name', 'first_name', 'last_name', 'position', 'team'] as const) {
       if (typeof value[field] === 'string' && value[field].trim()) player[field] = value[field].trim();
     }
+    if (typeof value.active === 'boolean') player.active = value.active;
+    if (typeof value.status === 'string' && value.status.trim()) player.status = value.status.trim();
+    if (Array.isArray(value.fantasy_positions)
+      && value.fantasy_positions.every((position) => typeof position === 'string')) {
+      player.fantasy_positions = value.fantasy_positions
+        .map((position) => position.trim()).filter(Boolean);
+    }
     const injuryStatus = normalizeInjuryStatus(value.injury_status);
     if (injuryStatus) player.injury_status = injuryStatus;
     if (player.full_name || player.first_name || player.last_name) result[id] = player;
+    else malformedRowCount += 1;
   }
   if (!Object.keys(result).length) throw new Error('Sleeper returned an empty player catalog.');
-  return result;
+  return {
+    catalog: result,
+    rowCount: Object.keys(raw).length,
+    malformedRowCount,
+    sourceRevision: `sha256:${createHash('sha256').update(stableJson(result)).digest('hex')}`,
+  };
 }
 
 // These maps are best-effort protection within a warm server instance. The
 // persistent successful result still comes from Next's daily Data Cache entry.
 const playerPositionFailures = new Map<PlayerPosition, number>();
-const playerPositionRequests = new Map<PlayerPosition, Promise<PlayerCatalog>>();
+const playerPositionRequests = new Map<PlayerPosition, Promise<PlayerCatalogSlice>>();
 
-async function fetchPlayerPosition(position: PlayerPosition): Promise<PlayerCatalog> {
+async function fetchPlayerPosition(position: PlayerPosition): Promise<PlayerCatalogSlice> {
   const failedUntil = playerPositionFailures.get(position);
   if (failedUntil && failedUntil > Date.now()) {
     throw new Error(`Sleeper's ${position} player catalog is in a temporary retry backoff.`);
@@ -549,22 +586,50 @@ const getPlayers = cache(async () => {
   const results = await Promise.allSettled(PLAYER_POSITIONS.map((position) => cachedPlayerPosition(position)));
   const catalog = Object.assign(
     {},
-    ...results.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []),
+    ...results.flatMap((result) => result.status === 'fulfilled' ? [result.value.catalog] : []),
   ) as PlayerCatalog;
   const failedPositions = PLAYER_POSITIONS.filter((_, index) => results[index].status === 'rejected');
+  const malformedRows = results.reduce((total, result) => (
+    total + (result.status === 'fulfilled' ? result.value.malformedRowCount : 0)
+  ), 0);
+  const sourceRevision = failedPositions.length === 0 ? `sha256:${createHash('sha256').update(stableJson(
+    results.map((result, index) => result.status === 'fulfilled' ? {
+      position: PLAYER_POSITIONS[index],
+      sourceRevision: result.value.sourceRevision,
+      rowCount: result.value.rowCount,
+      malformedRowCount: result.value.malformedRowCount,
+    } : { position: PLAYER_POSITIONS[index], unavailable: true }),
+  )).digest('hex')}` : null;
   if (!Object.keys(catalog).length) {
     return {
       catalog,
+      sourceRevision,
       warning: 'Player names and injury designations are temporarily unavailable. Sleeper player IDs are shown where necessary.',
     };
   }
   return {
     catalog,
+    sourceRevision,
     warning: failedPositions.length
       ? `Some player names and injury designations are temporarily unavailable (${failedPositions.join(', ')}). Sleeper player IDs are shown where necessary.`
+      : malformedRows > 0
+        ? `Sleeper returned ${malformedRows} malformed player catalog row${malformedRows === 1 ? '' : 's'}; all-player ingestion is unavailable until the catalog is complete.`
       : undefined,
   };
 });
+
+/** Shared worker/catalog boundary. It deliberately reuses the same daily,
+ * position-filtered player catalog as league reads instead of creating an
+ * all-player ingestion catalog or per-player request path. */
+export async function getFantasyPlayerCatalog(): Promise<Readonly<{
+  catalog: PlayerCatalog;
+  complete: boolean;
+  sourceRevision: string | null;
+  warning?: string;
+}>> {
+  const result = await getPlayers();
+  return { ...result, complete: result.warning === undefined };
+}
 
 async function getWeekSchedule(season: string, week: number): Promise<{
   schedule: WeekSchedule;

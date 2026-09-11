@@ -620,9 +620,10 @@ describe.each(SCALE_POINTS)('canonical worker scale readiness: %i leagues', (lea
     expect(meter.count('identity.resolveScoringEntities')).toBe(1);
     expect(first.gameResolutionBatchSizes).toEqual([16]);
     expect(first.gameStateBatchSizes).toEqual([16]);
-    expect(first.entityResolutionBatchSizes).toEqual([12]);
+    expect(first.entityResolutionBatchSizes).toEqual([163]);
     expect(first.candidateBatchSizes).toHaveLength(leagueCount);
-    expect(first.candidateBatchSizes.every((size) => size === 12)).toBe(true);
+    expect(first.candidateBatchSizes.filter((size) => size === 163)).toHaveLength(1);
+    expect(first.candidateBatchSizes.filter((size) => size === 12)).toHaveLength(leagueCount - 1);
     expect(meter.count('repository.acquireJob')).toBe(0);
     expect(meter.count('repository.recordGameStates')).toBe(1);
     expect(meter.count('repository.recordProjectionSlate')).toBe(1);

@@ -66,6 +66,9 @@ export function createDisabledProjectionStore(): ProjectionStore {
     async recordProjectionCandidates() {
       return { kind: 'disabled' };
     },
+    async recordAllPlayerBatch() {
+      return { kind: 'disabled' };
+    },
     async readLatestCandidatesBySleeperIds() {
       return [];
     },

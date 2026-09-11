@@ -227,6 +227,7 @@ export const projectionStoreSqlMarkers = [
   'read-matchup-snapshot-by-league-key',
   'read-matchup-snapshot-revision-by-league-key',
   'read-snapshot-selection-by-sleeper-id',
+  'record-all-player-batch',
   'record-game-states',
   'record-league-week-observation',
   'record-lineup-observation-not-ready',

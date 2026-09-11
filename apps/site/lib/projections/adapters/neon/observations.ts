@@ -1,5 +1,6 @@
 import 'server-only';
 
+import { createHash } from 'node:crypto';
 import type { DatabaseClient } from '../../../database';
 import type { ProjectionStore } from './contracts';
 import { json, normalizeIds, provider, requiredText, rowNumber, rowText } from './database-values';
@@ -66,6 +67,42 @@ export function createObservationMethods(client: DatabaseClient): ObservationMet
         external_roster_id: requiredText(point.externalRosterId, 'External roster ID'),
         points: point.points,
       }));
+      const officialPlayerIds = playerPoints.map((point) => point.sleeper_player_id);
+      if (new Set(officialPlayerIds).size !== officialPlayerIds.length) {
+        throw new Error('Official player points must contain every Sleeper player exactly once.');
+      }
+      const officialRosterIds = rosterPoints.map((point) => point.external_roster_id);
+      if (new Set(officialRosterIds).size !== officialRosterIds.length) {
+        throw new Error('Official roster points must contain every roster exactly once.');
+      }
+      const expectedRosterIds = [...officialRosterIds].sort();
+      if (playerPoints.some((point) => !expectedRosterIds.includes(point.external_roster_id))) {
+        throw new Error('Official player points must belong to an observed roster.');
+      }
+      if (playerPoints.some((point) => !Number.isFinite(point.points))
+        || rosterPoints.some((point) => !Number.isFinite(point.points))) {
+        throw new Error('Official points must be finite numbers.');
+      }
+      const officialFingerprint = `sha256:${createHash('sha256').update(playerPoints
+        .map((point) => ({ id: point.sleeper_player_id, points: point.points }))
+        .sort((left, right) => left.id.localeCompare(right.id))
+        .map((point) => `${point.id}\u001f${String(point.points)}`).join('\n')).digest('hex')}`;
+      const officialPlayersPointsEvidence = {
+        version: 'players-points-v1',
+        expectedEntityCount: playerPoints.length,
+        expectedRosterCount: rosterPoints.length,
+        expectedRosterIds,
+        fingerprint: officialFingerprint,
+      };
+      if (typeof input.sourceData.allPlayerSourceRevision === 'string'
+        && json(input.sourceData.officialPlayersPointsEvidence)
+          !== json(officialPlayersPointsEvidence)) {
+        throw new Error('All-player official points require exact provider-validated evidence.');
+      }
+      const sourceData = {
+        ...input.sourceData,
+        officialPlayersPointsEvidence,
+      };
       const rows = await client.query(`/* projection-store:record-league-week-observation */
         WITH inserted_observation AS (
           INSERT INTO league_week_observations (
@@ -171,7 +208,7 @@ export function createObservationMethods(client: DatabaseClient): ObservationMet
         input.leagueSeasonId, input.week,
         requiredText(input.sourceRevision, 'Sleeper source revision'),
         input.requestStartedAt, input.requestCompletedAt, input.observedAt,
-        input.quality, json(input.sourceData), json(playerPoints), json(rosterPoints),
+        input.quality, json(sourceData), json(playerPoints), json(rosterPoints),
         expectedGameIds.length, expectedGameIds, lineupVersion, lineupRevision,
       ]);
       const row = rows[0];

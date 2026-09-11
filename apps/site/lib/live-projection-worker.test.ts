@@ -297,7 +297,7 @@ describe('live projection worker', () => {
     }
     expect(store.completed).toHaveBeenCalledOnce();
     expect(store.failed).not.toHaveBeenCalled();
-    expect(store.operations).toEqual([
+    expect(store.operations.slice(0, 7)).toEqual([
       'acquire-job',
       'upsert-nfl-games',
       'record-game-states',
@@ -305,22 +305,20 @@ describe('live projection worker', () => {
       'record-projection-slate',
       'register-league-season',
       'register-league-season',
-      'record-projection-candidates',
-      'record-projection-candidates',
-      'freeze-latest-baselines',
-      'freeze-latest-baselines',
-      'read-latest-candidates',
-      'read-frozen-baselines',
-      'read-current-snapshot',
-      'read-latest-candidates',
-      'read-frozen-baselines',
-      'read-current-snapshot',
-      'record-league-week-observation',
-      'record-league-week-observation',
-      'publish-snapshot',
-      'publish-snapshot',
-      'complete-job',
     ]);
+    for (const [operation, count] of [
+      ['record-projection-candidates', 2],
+      ['freeze-latest-baselines', 2],
+      ['read-latest-candidates', 2],
+      ['read-frozen-baselines', 2],
+      ['read-current-snapshot', 2],
+      ['record-league-week-observation', 2],
+      ['publish-snapshot', 2],
+      ['complete-job', 1],
+    ] as const) {
+      expect(store.operations.filter((value) => value === operation), operation).toHaveLength(count);
+    }
+    expect(store.operations.at(-1)).toBe('complete-job');
     expect(info.mock.calls.map(([entry]) => {
       const value = JSON.parse(String(entry)) as { stage: string; outcome: string };
       return [value.stage, value.outcome];

@@ -24,6 +24,8 @@ export type IdentityResolutionOutcome<Value> =
 export type ScoringEntityIdentityInput = Readonly<{
   key: string;
   entity: ScoringEntity;
+  /** Projection-only placeholders may create identities but never replace richer metadata. */
+  preserveExistingMetadata?: boolean;
   /** Primary and alias references that must resolve to one canonical entity. */
   providerRefs: readonly ExternalScoringEntityRef[];
 }>;

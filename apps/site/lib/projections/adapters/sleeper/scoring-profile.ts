@@ -40,6 +40,26 @@ const SOURCE_RULES = [
   ['xpmiss', 'extraPointsMissed'],
 ] as const satisfies ReadonlyArray<readonly [string, ProjectionScoringEvent]>;
 
+/**
+ * Exact weekly-stat keys exercised by the approved 2026 and historical parity
+ * corpus. Projection support remains the smaller SOURCE_RULES subset above;
+ * actual weekly scoring can safely consume the additional provider-native keys
+ * because Sleeper publishes those values directly in its sparse stat objects.
+ */
+export const SLEEPER_ALL_PLAYER_SCORING_RULE_KEYS: ReadonlySet<string> = new Set([
+  ...SOURCE_RULES.map(([sourceKey]) => sourceKey),
+  'pass_td_40p',
+  'rush_td_40p',
+  'rec_td_40p',
+  'fum_rec',
+  'fum_rec_td',
+  'st_td',
+  'def_2pt',
+  'def_3_and_out',
+  'def_4_and_stop',
+  'fgm_yds_over_30',
+]);
+
 const TWO_POINT_SOURCE_KEYS = ['pass_2pt', 'rush_2pt', 'rec_2pt'] as const;
 const POINTS_ALLOWED_SOURCE_KEYS = [
   'pts_allow_0',
