@@ -341,6 +341,46 @@ describe('live projection worker', () => {
     expect(LIVE_PROJECTION_MODEL_VERSION).toBe('clock-v1');
   });
 
+  it('publishes no partial snapshot for one rejected game-state poll and both leagues recover next poll', async () => {
+    const store = fakeStore();
+    const dependencies = workerDependencies(store);
+    store.recordedStates.mockRejectedValueOnce(
+      new Error('game-state plausibility: regulation clock advanced faster than elapsed time'),
+    );
+
+    await expect(createLiveProjectionWorker(dependencies).run()).resolves.toEqual({ status: 'failed' });
+    expect(store.published).toHaveLength(0);
+    expect(store.publishInputs).toHaveLength(0);
+    expect(store.failed).toHaveBeenCalledWith(
+      'live-projection-sync',
+      'worker-1',
+      'current-projection-failed',
+    );
+
+    await expect(createLiveProjectionWorker(dependencies).run()).resolves.toMatchObject({
+      status: 'completed',
+      cadence: 'live-window',
+      publishedLeagues: 2,
+      failedLeagues: 0,
+      providerGroups: 1,
+    });
+    expect(dependencies.gamesMock).toHaveBeenCalledTimes(2);
+    expect(store.published).toHaveLength(2);
+    expect(store.publishInputs.map((input) => ({
+      leagueSeasonId: input.leagueSeasonId,
+      gameStateObservationIds: input.gameStateObservationIds,
+    }))).toEqual([
+      {
+        leagueSeasonId: 'season-league1',
+        gameStateObservationIds: ['observation-game-1'],
+      },
+      {
+        leagueSeasonId: 'season-league2',
+        gameStateObservationIds: ['observation-game-1'],
+      },
+    ]);
+  });
+
   it('fails closed before persistence when Tank01 returns a broadly truncated projection slate', async () => {
     const store = fakeStore();
     const dependencies = workerDependencies(store);
