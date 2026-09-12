@@ -145,6 +145,19 @@ kicker, defense, inactive, and active-zero totals.
 
 The dormant implementation supports a separately authorized rollout:
 
+Migration 010 is installed with the deterministic, secret-free wrapper generated
+by `apps/site/scripts/all-player-migration-release-wrapper.mjs`; the exact
+Production rendering is retained at
+`apps/site/release/010_all_player_statistics.production.sql`. The generator
+rejects any migration checksum change, acquires the existing advisory lock,
+captures unaffected catalog fingerprints inside the transaction, applies the
+reviewed SQL, inserts one ledger row, and checks every table, owner, column,
+constraint, index, trigger, function, and ACL independently before commit. Its
+constraint manifest intentionally includes PostgreSQL 18's cataloged `NOT NULL`
+constraints (`pg_constraint.contype = 'n'`): 151 constraints in total, including
+74 `NOT NULL` constraints. The release runner treats an absent exact success
+sentinel as ambiguous and never retries it.
+
 1. Apply migration 010 only. Verify its committed checksum, runtime ACLs, six
    table definitions, and that the old application remains healthy.
 2. Deploy the dormant application foundation. Do not schedule ingestion yet.

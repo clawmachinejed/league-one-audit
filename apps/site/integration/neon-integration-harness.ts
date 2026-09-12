@@ -278,12 +278,21 @@ async function resetPublicSchema(pool: Pool): Promise<void> {
   await pool.query('REVOKE CREATE ON SCHEMA public FROM PUBLIC');
 }
 
-async function applyMigrations(pool: Pool): Promise<readonly string[]> {
+async function applyMigrations(
+  pool: Pool,
+  throughMigration?: string,
+): Promise<readonly string[]> {
   const migrationsDirectory = fileURLToPath(new URL('../migrations/', import.meta.url));
   const names = (await readdir(migrationsDirectory))
     .filter((name) => /^\d+_[a-z0-9_]+\.sql$/u.test(name))
     .sort((left, right) => left.localeCompare(right));
   if (names.length === 0) throw new Error('No projection migrations were found.');
+  const selectedNames = throughMigration
+    ? names.slice(0, names.indexOf(throughMigration) + 1)
+    : names;
+  if (throughMigration && !names.includes(throughMigration)) {
+    throw new Error(`Requested integration migration ${throughMigration} does not exist.`);
+  }
 
   await pool.query(`
     CREATE TABLE app_schema_migrations (
@@ -292,7 +301,7 @@ async function applyMigrations(pool: Pool): Promise<readonly string[]> {
       applied_at timestamptz NOT NULL DEFAULT now()
     )
   `);
-  for (const name of names) {
+  for (const name of selectedNames) {
     const statement = (await readFile(join(migrationsDirectory, name), 'utf8'))
       .replace(/\r\n?/gu, '\n');
     const checksum = createHash('sha256').update(statement).digest('hex');
@@ -313,10 +322,13 @@ async function applyMigrations(pool: Pool): Promise<readonly string[]> {
       client.release();
     }
   }
-  return names;
+  return selectedNames;
 }
 
-export async function prepareIntegrationDatabase(): Promise<void> {
+export async function prepareIntegrationDatabase(options: Readonly<{
+  throughMigration?: string;
+  provisionRuntimeRole?: boolean;
+}> = {}): Promise<void> {
   const env = integrationEnvironment();
   await assertSafeIntegrationDatabase(env);
   const ownerPool = new Pool({ connectionString: env.ownerDatabaseUrl, max: 1 });
@@ -332,12 +344,14 @@ export async function prepareIntegrationDatabase(): Promise<void> {
     if (Number(empty.rows[0]?.relation_count) !== 0) {
       throw new Error('The isolated public schema was not empty before migration.');
     }
-    const migrationNames = await applyMigrations(ownerPool);
-    const provisionSql = await readFile(
-      fileURLToPath(new URL('../scripts/provision-runtime-role.sql', import.meta.url)),
-      'utf8',
-    );
-    await ownerPool.query(provisionSql);
+    const migrationNames = await applyMigrations(ownerPool, options.throughMigration);
+    if (options.provisionRuntimeRole !== false) {
+      const provisionSql = await readFile(
+        fileURLToPath(new URL('../scripts/provision-runtime-role.sql', import.meta.url)),
+        'utf8',
+      );
+      await ownerPool.query(provisionSql);
+    }
     process.env.PROJECTION_INTEGRATION_SETUP_PROOF = JSON.stringify({
       emptyBeforeMigration: true,
       migrationNames,

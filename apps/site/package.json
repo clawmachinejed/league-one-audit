@@ -15,6 +15,7 @@
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
     "test:integration": "node --env-file=.env.integration.local scripts/run-projection-store-integration.mjs",
+    "test:migration-wrapper:integration": "node --env-file=.env.integration.local --import tsx scripts/run-all-player-migration-wrapper-integration.mjs",
     "test:browser": "playwright test",
     "db:migrate": "node --env-file-if-exists=.env.local scripts/migrate.mjs",
     "all-player:operate": "node --conditions=react-server --import tsx scripts/run-all-player-ingestion.ts"
