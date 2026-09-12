@@ -2,7 +2,12 @@ import 'server-only';
 
 import { ACTIVE_PROJECTION_SOURCE } from '../../projection-source-config';
 import { getProjectionStore } from '../../projection-store';
-import { getFantasyPlayerCatalog, getProjectionSyncInput } from '../../sleeper';
+import {
+  getFantasyPlayerCatalog,
+  getOperatorProjectionSyncInput,
+  getProjectionSyncInput,
+} from '../../sleeper';
+import { loadFantasyPlayerCatalog } from '../../sleeper-player-catalog';
 import { createNeonProjectionRepository } from '../adapters/neon/repository';
 import { createSleeperAllPlayerStatSource } from '../adapters/sleeper/all-player-stats';
 import { translateSleeperLeagueWeek } from '../adapters/sleeper/league-source';
@@ -20,9 +25,23 @@ const projectionProvider = ACTIVE_PROJECTION_SOURCE.provider;
 
 export const ALL_PLAYER_RECURRING_ENV = 'ALL_PLAYER_RECURRING_ENABLED';
 
-export function createProductionAllPlayerDependencies(): AllPlayerIngestionDependencies {
+export function createProductionAllPlayerDependencies(
+  catalogMode: 'next-cached' | 'cache-neutral' = 'next-cached',
+): AllPlayerIngestionDependencies {
   const shared = createProductionSharedServices('all-player-ingestion');
   const store = getProjectionStore();
+  let neutralCatalog: ReturnType<typeof loadFantasyPlayerCatalog> | undefined;
+  const loadCatalog = catalogMode === 'cache-neutral'
+    ? () => {
+        neutralCatalog ??= loadFantasyPlayerCatalog();
+        return neutralCatalog;
+      }
+    : getFantasyPlayerCatalog;
+  const loadProjectionInput = catalogMode === 'cache-neutral'
+    ? (leagueId: string, period: LeaguePeriod) => (
+        getOperatorProjectionSyncInput(leagueId, period, loadCatalog)
+      )
+    : getProjectionSyncInput;
   return {
     ...shared,
     store,
@@ -33,7 +52,7 @@ export function createProductionAllPlayerDependencies(): AllPlayerIngestionDepen
       normalizerVersion: ACTIVE_PROJECTION_SOURCE.normalizerVersion,
     }),
     loadLeagueWeek: async (configuration, period) => {
-      const source = await getProjectionSyncInput(
+      const source = await loadProjectionInput(
         String(configuration.leagueRef.externalId),
         period,
       );
@@ -44,7 +63,7 @@ export function createProductionAllPlayerDependencies(): AllPlayerIngestionDepen
         starterSlots: source.matchupShape.starterSlots,
       };
     },
-    loadCatalog: getFantasyPlayerCatalog,
+    loadCatalog,
     allPlayerSource: createSleeperAllPlayerStatSource({
       fetch: globalThis.fetch,
       now: shared.clock.now,
@@ -60,7 +79,7 @@ export async function runProductionAllPlayerOperation(
   mode: Exclude<AllPlayerIngestionMode, 'recurring'>,
   period: LeaguePeriod,
 ): Promise<AllPlayerIngestionResult> {
-  return runAllPlayerIngestion(createProductionAllPlayerDependencies(), {
+  return runAllPlayerIngestion(createProductionAllPlayerDependencies('cache-neutral'), {
     mode,
     period,
     requireFinalCoverage: true,

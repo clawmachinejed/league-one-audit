@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const nextCacheOptions = vi.hoisted(() => [] as Array<{ revalidate?: number }>);
+const nextCacheEntries = vi.hoisted(() => [] as Array<{
+  keys: string[];
+  options: { revalidate?: number };
+}>);
 const reactCacheControl = vi.hoisted(() => ({ enabled: false, generation: 0 }));
 
 vi.mock('server-only', () => ({}));
@@ -19,13 +22,14 @@ vi.mock('react', () => ({
 }));
 vi.mock('next/cache', () => ({
   unstable_cache: <T,>(fn: T, _keys: string[], options: { revalidate?: number }) => {
-    nextCacheOptions.push(options);
+    nextCacheEntries.push({ keys: _keys, options });
     return fn;
   },
 }));
 import { LEAGUE_IDS } from './config';
 import {
   getCurrentLeagueWeek,
+  getFantasyPlayerCatalog,
   getOfficialMatchups,
   getOverview,
   getManager,
@@ -246,7 +250,23 @@ describe('Sleeper service error handling', () => {
     expect(Date.parse(result.requestCompletedAt)).toBeGreaterThanOrEqual(Date.parse(result.requestStartedAt));
   });
   it('caches Sleeper player catalogs for the recommended daily interval', () => {
-    expect(nextCacheOptions.some((options) => options.revalidate === 86_400)).toBe(true);
+    expect(nextCacheEntries).toContainEqual({
+      keys: ['league-one-player-position-catalog-v1'],
+      options: { revalidate: 86_400 },
+    });
+  });
+
+  it('keeps the website catalog on the six-position Next.js-cached path', async () => {
+    await expect(getFantasyPlayerCatalog()).resolves.toMatchObject({
+      complete: true,
+      sourceRevision: expect.stringMatching(/^sha256:[0-9a-f]{64}$/u),
+    });
+    const catalogRequests = vi.mocked(fetch).mock.calls
+      .map(([input]) => new URL(input instanceof Request ? input.url : String(input)))
+      .filter((url) => url.pathname.endsWith('/players/nfl'));
+    expect(catalogRequests.map((url) => url.searchParams.get('position')).sort())
+      .toEqual(['DEF', 'K', 'QB', 'RB', 'TE', 'WR']);
+    expect(catalogRequests.every((url) => url.origin === 'https://api.sleeper.app')).toBe(true);
   });
 
   it('loads authoritative roster shape without managers, players, or matchup scores', async () => {

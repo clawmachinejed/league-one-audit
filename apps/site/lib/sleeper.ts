@@ -1,10 +1,13 @@
 import 'server-only';
 
-import { createHash } from 'node:crypto';
 import { cache } from 'react';
 import { unstable_cache } from 'next/cache';
-import { normalizeInjuryStatus } from './injury-status';
 import { recordProviderCache, sleeperEndpointFamily, startProviderHttp } from './provider-request-telemetry';
+import {
+  loadFantasyPlayerCatalog,
+  loadFantasyPlayerPositionCatalog,
+  type FantasyPlayerCatalog,
+} from './sleeper-player-catalog';
 import {
   assertMatchupCompleteness,
   assertProjectionMatchupReadiness,
@@ -27,7 +30,6 @@ import { matchupTemporalState, type MatchupPeriodContext } from './matchup-perio
 import { calculateTeamPpg, compareRosterStandings, rosterHistoryBoundary } from './roster-metrics';
 import { canonicalNflTeam } from './nfl-teams';
 import { startingSlots } from './sleeper-lineup';
-import { stableJson } from './projections/shared/stable-json';
 import {
   canDecorateMatchupWeek,
   addWaiverBalances,
@@ -47,7 +49,6 @@ import {
   type PlayerCatalog,
   type SleeperLeague,
   type SleeperMatchup,
-  type SleeperPlayer,
   type SleeperRoster,
   type SleeperState,
   type SleeperTransaction,
@@ -103,12 +104,6 @@ const SCHEDULE_CACHE_SECONDS = 300;
 const SEASON_SCHEDULE_CACHE_SECONDS = 3_600;
 // Sleeper asks consumers to store player data and refresh it at most daily.
 const PLAYER_CACHE_SECONDS = 86_400;
-// Back off briefly after a catalog failure so an upstream outage does not trigger a large retry on every page request.
-const PLAYER_FAILURE_CACHE_SECONDS = 300;
-// The public leagues use these player positions. Sleeper's documented position filters keep
-// each response small enough to load reliably in a serverless function.
-const PLAYER_POSITIONS = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'] as const;
-type PlayerPosition = typeof PLAYER_POSITIONS[number];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -488,147 +483,24 @@ const getRosterCore = cache(async (leagueId: string) => {
   return { overview, sourceLeague, state, rosterFeed };
 });
 
-type PlayerCatalogSlice = Readonly<{
-  catalog: PlayerCatalog;
-  sourceRevision: string;
-  rowCount: number;
-  malformedRowCount: number;
-}>;
-
-function projectPlayerCatalog(raw: unknown): PlayerCatalogSlice {
-  if (!isRecord(raw)) throw new Error('Sleeper did not return a valid player catalog.');
-  const result: PlayerCatalog = {};
-  let malformedRowCount = 0;
-  for (const [id, value] of Object.entries(raw)) {
-    if (!id.trim() || !isRecord(value)) {
-      malformedRowCount += 1;
-      continue;
-    }
-    const invalidTypedField = ['full_name', 'first_name', 'last_name', 'position', 'team', 'status']
-      .some((field) => value[field] !== undefined && value[field] !== null
-        && typeof value[field] !== 'string')
-      || (value.active !== undefined && value.active !== null && typeof value.active !== 'boolean')
-      || (value.fantasy_positions !== undefined && value.fantasy_positions !== null
-        && (!Array.isArray(value.fantasy_positions)
-          || !value.fantasy_positions.every((position) => typeof position === 'string')));
-    if (invalidTypedField) {
-      malformedRowCount += 1;
-      continue;
-    }
-    const player: SleeperPlayer = {};
-    for (const field of ['full_name', 'first_name', 'last_name', 'position', 'team'] as const) {
-      if (typeof value[field] === 'string' && value[field].trim()) player[field] = value[field].trim();
-    }
-    if (typeof value.active === 'boolean') player.active = value.active;
-    if (typeof value.status === 'string' && value.status.trim()) player.status = value.status.trim();
-    if (Array.isArray(value.fantasy_positions)
-      && value.fantasy_positions.every((position) => typeof position === 'string')) {
-      player.fantasy_positions = value.fantasy_positions
-        .map((position) => position.trim()).filter(Boolean);
-    }
-    const injuryStatus = normalizeInjuryStatus(value.injury_status);
-    if (injuryStatus) player.injury_status = injuryStatus;
-    if (player.full_name || player.first_name || player.last_name) result[id] = player;
-    else malformedRowCount += 1;
-  }
-  if (!Object.keys(result).length) throw new Error('Sleeper returned an empty player catalog.');
-  return {
-    catalog: result,
-    rowCount: Object.keys(raw).length,
-    malformedRowCount,
-    sourceRevision: `sha256:${createHash('sha256').update(stableJson(result)).digest('hex')}`,
-  };
-}
-
-// These maps are best-effort protection within a warm server instance. The
-// persistent successful result still comes from Next's daily Data Cache entry.
-const playerPositionFailures = new Map<PlayerPosition, number>();
-const playerPositionRequests = new Map<PlayerPosition, Promise<PlayerCatalogSlice>>();
-
-async function fetchPlayerPosition(position: PlayerPosition): Promise<PlayerCatalogSlice> {
-  const failedUntil = playerPositionFailures.get(position);
-  if (failedUntil && failedUntil > Date.now()) {
-    throw new Error(`Sleeper's ${position} player catalog is in a temporary retry backoff.`);
-  }
-  if (failedUntil) playerPositionFailures.delete(position);
-
-  const activeRequest = playerPositionRequests.get(position);
-  if (activeRequest) return activeRequest;
-
-  const request = fetchJson(`/players/nfl?position=${encodeURIComponent(position)}`, 0)
-    .then(projectPlayerCatalog)
-    .then((catalog) => {
-      playerPositionFailures.delete(position);
-      return catalog;
-    })
-    .catch((error: unknown) => {
-      playerPositionFailures.set(position, Date.now() + PLAYER_FAILURE_CACHE_SECONDS * 1_000);
-      console.warn(`Sleeper ${position} player catalog could not be loaded.`, error);
-      throw error;
-    })
-    .finally(() => playerPositionRequests.delete(position));
-  playerPositionRequests.set(position, request);
-  return request;
-}
-
 // Cache only the small fields we display. Position-filtered responses avoid the
 // full catalog's multi-megabyte cold request, and separate entries let one failed
 // position recover without removing names that loaded successfully. The retry
 // guard lives inside the cached callback so normal cache hits always remain usable.
 // /players/nfl supplies current metadata, not injury history for a requested week.
 const cachedPlayerPosition = unstable_cache(
-  fetchPlayerPosition,
+  loadFantasyPlayerPositionCatalog,
   ['league-one-player-position-catalog-v1'],
   { revalidate: PLAYER_CACHE_SECONDS },
 );
 
-const getPlayers = cache(async () => {
-  const results = await Promise.allSettled(PLAYER_POSITIONS.map((position) => cachedPlayerPosition(position)));
-  const catalog = Object.assign(
-    {},
-    ...results.flatMap((result) => result.status === 'fulfilled' ? [result.value.catalog] : []),
-  ) as PlayerCatalog;
-  const failedPositions = PLAYER_POSITIONS.filter((_, index) => results[index].status === 'rejected');
-  const malformedRows = results.reduce((total, result) => (
-    total + (result.status === 'fulfilled' ? result.value.malformedRowCount : 0)
-  ), 0);
-  const sourceRevision = failedPositions.length === 0 ? `sha256:${createHash('sha256').update(stableJson(
-    results.map((result, index) => result.status === 'fulfilled' ? {
-      position: PLAYER_POSITIONS[index],
-      sourceRevision: result.value.sourceRevision,
-      rowCount: result.value.rowCount,
-      malformedRowCount: result.value.malformedRowCount,
-    } : { position: PLAYER_POSITIONS[index], unavailable: true }),
-  )).digest('hex')}` : null;
-  if (!Object.keys(catalog).length) {
-    return {
-      catalog,
-      sourceRevision,
-      warning: 'Player names and injury designations are temporarily unavailable. Sleeper player IDs are shown where necessary.',
-    };
-  }
-  return {
-    catalog,
-    sourceRevision,
-    warning: failedPositions.length
-      ? `Some player names and injury designations are temporarily unavailable (${failedPositions.join(', ')}). Sleeper player IDs are shown where necessary.`
-      : malformedRows > 0
-        ? `Sleeper returned ${malformedRows} malformed player catalog row${malformedRows === 1 ? '' : 's'}; all-player ingestion is unavailable until the catalog is complete.`
-      : undefined,
-  };
-});
+const getPlayers = cache(() => loadFantasyPlayerCatalog(cachedPlayerPosition));
 
 /** Shared worker/catalog boundary. It deliberately reuses the same daily,
  * position-filtered player catalog as league reads instead of creating an
  * all-player ingestion catalog or per-player request path. */
-export async function getFantasyPlayerCatalog(): Promise<Readonly<{
-  catalog: PlayerCatalog;
-  complete: boolean;
-  sourceRevision: string | null;
-  warning?: string;
-}>> {
-  const result = await getPlayers();
-  return { ...result, complete: result.warning === undefined };
+export async function getFantasyPlayerCatalog(): Promise<FantasyPlayerCatalog> {
+  return getPlayers();
 }
 
 async function getWeekSchedule(season: string, week: number): Promise<{
@@ -873,6 +745,7 @@ type MatchupSourceOptions = Readonly<{
   projectionTarget?: ProjectionTargetPeriod;
   freshMatchups?: boolean;
   includeRosteredPlayers?: boolean;
+  loadPlayerCatalog?: () => Promise<FantasyPlayerCatalog>;
 }>;
 
 const loadRawMatchups = createRawSleeperMatchupLoader({
@@ -908,6 +781,7 @@ async function loadMatchupSource(
     projectionTarget,
     freshMatchups = false,
     includeRosteredPlayers = false,
+    loadPlayerCatalog = getPlayers,
   } = options;
   if (projectionTarget && requestedWeek !== undefined) {
     throw new Error('A matchup load cannot combine website and projection week selection.');
@@ -926,7 +800,7 @@ async function loadMatchupSource(
       week,
       freshMatchups ? 0 : CORE_CACHE_SECONDS,
     ),
-    getPlayers(),
+    loadPlayerCatalog(),
     canDecorate
       ? getWeekSchedule(core.overview.league.season, week)
       : Promise.resolve({ schedule: {} as WeekSchedule, canIdentifyByes: false, warning: undefined }),
@@ -993,6 +867,13 @@ export async function getProjectionSyncInput(
     freshMatchups: true,
     includeRosteredPlayers: true,
   });
+  return projectionSyncInput(leagueId, source);
+}
+
+function projectionSyncInput(
+  leagueId: string,
+  source: Awaited<ReturnType<typeof loadMatchupSource>>,
+): ProjectionSyncInput {
   return {
     sleeperLeagueId: leagueId,
     leagueName: source.sourceLeague.name,
@@ -1005,6 +886,22 @@ export async function getProjectionSyncInput(
     requestStartedAt: source.requestStartedAt,
     requestCompletedAt: source.requestCompletedAt,
   };
+}
+
+/** Standalone operator counterpart to getProjectionSyncInput. The league-week
+ * translation is unchanged, but every catalog read stays outside Next's cache. */
+export async function getOperatorProjectionSyncInput(
+  leagueId: string,
+  targetPeriod: ProjectionTargetPeriod,
+  loadPlayerCatalog: () => Promise<FantasyPlayerCatalog> = loadFantasyPlayerCatalog,
+): Promise<ProjectionSyncInput> {
+  const source = await loadMatchupSource(leagueId, {
+    projectionTarget: targetPeriod,
+    freshMatchups: true,
+    includeRosteredPlayers: true,
+    loadPlayerCatalog,
+  });
+  return projectionSyncInput(leagueId, source);
 }
 
 /**
