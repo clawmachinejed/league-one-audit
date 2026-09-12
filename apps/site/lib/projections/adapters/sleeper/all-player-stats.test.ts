@@ -220,6 +220,51 @@ describe('Sleeper all-player weekly-stat adapter', () => {
     })).toEqual({ status: 'unavailable', reason: 'identity' });
   });
 
+  it('keeps canonical defenses out of player identity resolution and emits all 32 exactly once', () => {
+    const result = buildSleeperAllPlayerInventory({
+      catalog: {
+        ...catalog,
+        ARI: { full_name: 'Arizona Cardinals', position: 'DEF', team: 'ARI' },
+        BAL: { full_name: 'Baltimore Ravens', position: 'DEF', team: 'BAL' },
+      },
+      catalogComplete: true,
+      catalogRevision: 'catalog:fixture',
+      rosteredPlayerIds: ['p1', 'ARI'],
+      projectionPlayerIds: ['p2', 'BAL'],
+      gamesByTeam,
+      byeTeamIds,
+      scheduleRevision: 'schedule:fixture',
+    });
+    expect(result.status).toBe('available');
+    if (result.status !== 'available') return;
+    const defenses = result.inventory.entities.filter((entity) => entity.entityKind === 'team_defense');
+    expect(defenses).toHaveLength(32);
+    expect(defenses.map((entity) => entity.providerExternalId).sort())
+      .toEqual([...NFL_TEAM_CODES].sort());
+    expect(new Set(defenses.map((entity) => entity.providerExternalId)).size).toBe(32);
+    expect(defenses.every((entity) => entity.position === 'DEF')).toBe(true);
+    expect(result.inventory.entities).not.toContainEqual(expect.objectContaining({
+      entityKind: 'player', position: 'DEF',
+    }));
+    expect(result.inventory.entities.filter((entity) => entity.providerExternalId === 'ARI'))
+      .toEqual([expect.objectContaining({
+        entityKind: 'team_defense', providerExternalId: 'ARI', nflTeam: 'ARI', position: 'DEF',
+      })]);
+  });
+
+  it('does not let a canonical defense hide a genuinely missing rostered player', () => {
+    expect(buildSleeperAllPlayerInventory({
+      catalog,
+      catalogComplete: true,
+      catalogRevision: 'catalog:fixture',
+      rosteredPlayerIds: ['ARI', 'missing-rostered-player'],
+      projectionPlayerIds: ['BAL'],
+      gamesByTeam,
+      byeTeamIds,
+      scheduleRevision: 'schedule:fixture',
+    })).toEqual({ status: 'unavailable', reason: 'identity' });
+  });
+
   it('fingerprints exact catalog and schedule eligibility evidence', () => {
     const inventory = completeInventory();
     expect(inventory.fingerprint).toMatch(/^sha256:[0-9a-f]{64}$/u);

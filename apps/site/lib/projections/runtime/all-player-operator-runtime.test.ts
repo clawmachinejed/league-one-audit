@@ -2,6 +2,8 @@ import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
+import { NFL_TEAM_CODES } from '../domain/contracts';
+
 const fixture = fileURLToPath(new URL(
   '../../../test-support/all-player-operator-runtime-fixture.ts',
   import.meta.url,
@@ -11,7 +13,7 @@ const tsxLoader = new URL(
   import.meta.url,
 ).href;
 
-function runFixture(scenario: 'complete' | 'failed-position') {
+function runFixture(scenario: 'complete' | 'failed-position' | 'unresolved-defense') {
   const environment: NodeJS.ProcessEnv = {
     ...process.env,
     NODE_ENV: process.env.NODE_ENV ?? 'test',
@@ -55,6 +57,19 @@ function parseOutput(output: string) {
       positions: string[];
       playerCount: number;
     }>;
+    inventory: Readonly<{
+      entityCount: number;
+      teamDefenseCount: number;
+      uniqueTeamDefenseCount: number;
+      playerDefenseCount: number;
+      teamDefenseIds: string[];
+    }> | null;
+    identityLookups: Array<Readonly<{
+      provider: string;
+      entityKind: 'player' | 'team_defense';
+      externalId: string;
+    }>>;
+    rosteredDefenseIds: Array<Readonly<{ leagueId: string; defenseId: string }>>;
     requests: string[];
     databaseWrites: string[];
   }>;
@@ -80,6 +95,20 @@ describe('all-player operator catalog runtime outside Next.js', () => {
       activeZeroCount: 1,
       projectionCoverage: { identityComplete: true },
     });
+    expect(evidence.inventory).toEqual({
+      entityCount: 37,
+      teamDefenseCount: 32,
+      uniqueTeamDefenseCount: 32,
+      playerDefenseCount: 0,
+      teamDefenseIds: [...NFL_TEAM_CODES].sort(),
+    });
+    expect(evidence.rosteredDefenseIds.map((value) => value.defenseId).sort())
+      .toEqual(['ARI', 'BAL']);
+    for (const { defenseId } of evidence.rosteredDefenseIds) {
+      expect(evidence.identityLookups.filter((value) => (
+        value.provider === 'sleeper' && value.externalId === defenseId
+      ))).toEqual([{ provider: 'sleeper', entityKind: 'team_defense', externalId: defenseId }]);
+    }
     expect(evidence.databaseWrites).toEqual([]);
 
     const urls = evidence.requests.map((request) => new URL(request));
@@ -91,6 +120,24 @@ describe('all-player operator catalog runtime outside Next.js', () => {
     expect(weeklyRequests.map((url) => url.pathname)).toEqual(['/v1/stats/nfl/regular/2026/1']);
     expect(weeklyRequests[0]?.searchParams.size).toBe(0);
     expect(urls.some((url) => /tank01|\/profile\/|\/player\//iu.test(url.href))).toBe(false);
+  }, 30_000);
+
+  it('passes rostered D/ST inventory before a conflicting defense identity fails closed', async () => {
+    const child = await runFixture('unresolved-defense');
+    expect(child.code, child.stderr).toBe(0);
+    expect(child.stderr).not.toContain('incrementalCache');
+    const evidence = parseOutput(child.stdout);
+    expect(evidence.catalog.complete).toBe(true);
+    expect(evidence.result).toMatchObject({
+      status: 'unavailable',
+      mode: 'shadow',
+      reason: 'identity-mapping-unusable',
+    });
+    expect(evidence.identityLookups).toContainEqual({
+      provider: 'sleeper', entityKind: 'team_defense', externalId: 'ARI',
+    });
+    expect(evidence.requests.some((request) => request.includes('/stats/nfl/'))).toBe(false);
+    expect(evidence.databaseWrites).toEqual([]);
   }, 30_000);
 
   it('keeps one failed position catalog-incomplete without writes or downstream requests', async () => {
