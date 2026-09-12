@@ -11,7 +11,7 @@ import {
 import type { FantasyPlayerCatalog } from '../lib/sleeper-player-catalog';
 
 const scenario = process.argv[2];
-if (scenario !== 'complete' && scenario !== 'failed-position') {
+if (scenario !== 'complete' && scenario !== 'failed-position' && scenario !== 'unresolved-defense') {
   throw new Error('A supported catalog runtime scenario is required.');
 }
 
@@ -25,6 +25,10 @@ const rawRules = { pass_td: 4 };
 const leagueNames = new Map<string, string>([
   [LEAGUE_IDS.league1, 'League One'],
   [LEAGUE_IDS.league2, 'League Two'],
+]);
+const leagueDefenseIds = new Map<string, NflTeam>([
+  [LEAGUE_IDS.league1, 'ARI'],
+  [LEAGUE_IDS.league2, 'BAL'],
 ]);
 const schedulePairs = Array.from({ length: NFL_TEAM_CODES.length / 2 }, (_, index) => ({
   awayTeam: NFL_TEAM_CODES[index * 2],
@@ -103,7 +107,7 @@ globalThis.fetch = async (input: string | URL | Request) => {
       return Response.json([playerIds.QB, playerIds.RB].map((playerId, index) => ({
         roster_id: index + 1,
         owner_id: `manager-${index + 1}-${leagueId}`,
-        players: [playerId],
+        players: index === 0 ? [playerId, leagueDefenseIds.get(leagueId)] : [playerId],
         starters: [playerId],
         settings: {
           wins: 0, losses: 0, ties: 0, fpts: 0, fpts_against: 0,
@@ -117,15 +121,18 @@ globalThis.fetch = async (input: string | URL | Request) => {
         display_name: `Manager ${manager} ${leagueNames.get(leagueId)}`,
       })));
     }
-    return Response.json([playerIds.QB, playerIds.RB].map((playerId, index) => ({
+    return Response.json([playerIds.QB, playerIds.RB].map((playerId, index) => {
+      const defenseId = index === 0 ? leagueDefenseIds.get(leagueId) : null;
+      return {
       roster_id: index + 1,
       matchup_id: 1,
-      players: [playerId],
+      players: defenseId ? [playerId, defenseId] : [playerId],
       starters: [playerId],
-      players_points: { [playerId]: 0 },
+      players_points: { [playerId]: 0, ...(defenseId ? { [defenseId]: 0 } : {}) },
       starters_points: [0],
       points: 0,
-    })));
+      };
+    }));
   }
   return new Response('unexpected request', { status: 599 });
 };
@@ -158,6 +165,35 @@ const writeTrap = (name: string) => async () => {
 };
 const productionDependencies = createProductionAllPlayerDependencies('cache-neutral');
 let catalogEvidence: FantasyPlayerCatalog | null = null;
+let inventoryEvidence: Readonly<{
+  entityCount: number;
+  teamDefenseCount: number;
+  uniqueTeamDefenseCount: number;
+  playerDefenseCount: number;
+  teamDefenseIds: readonly string[];
+}> | null = null;
+const identityLookups: Array<Readonly<{
+  provider: string;
+  entityKind: 'player' | 'team_defense';
+  externalId: string;
+}>> = [];
+const allPlayerSource: AllPlayerIngestionDependencies['allPlayerSource'] = {
+  load: async (input) => {
+    const teamDefenses = input.inventory.entities.filter((entity) => (
+      entity.entityKind === 'team_defense'
+    ));
+    inventoryEvidence = {
+      entityCount: input.inventory.entities.length,
+      teamDefenseCount: teamDefenses.length,
+      uniqueTeamDefenseCount: new Set(teamDefenses.map((entity) => entity.providerExternalId)).size,
+      playerDefenseCount: input.inventory.entities.filter((entity) => (
+        entity.entityKind === 'player' && entity.position === 'DEF'
+      )).length,
+      teamDefenseIds: teamDefenses.map((entity) => entity.providerExternalId).sort(),
+    };
+    return productionDependencies.allPlayerSource.load(input);
+  },
+};
 const dependencies = {
   ...productionDependencies,
   loadCatalog: async () => {
@@ -179,13 +215,25 @@ const dependencies = {
       provider: string;
       entityKind: 'player' | 'team_defense';
       externalId: string;
-    }>[]) => inputs.map((input) => ({
-      ...input,
-      scoringEntityId: null,
-      mappedEntityKind: null,
-      mappingStatus: null,
-      validTo: null,
-    })),
+    }>[]) => {
+      identityLookups.push(...inputs);
+      return inputs.map((input) => scenario === 'unresolved-defense'
+        && input.provider === 'sleeper'
+        && input.entityKind === 'team_defense'
+        && input.externalId === leagueDefenseIds.get(LEAGUE_IDS.league1) ? {
+          ...input,
+          scoringEntityId: deterministicUuid('conflicting-defense-identity', input.externalId),
+          mappedEntityKind: 'player' as const,
+          mappingStatus: 'verified' as const,
+          validTo: null,
+        } : {
+          ...input,
+          scoringEntityId: null,
+          mappedEntityKind: null,
+          mappingStatus: null,
+          validTo: null,
+        });
+    },
     readAllPlayerGameContext: async () => gameContext,
     acquireJob: writeTrap('acquireJob'),
     upsertScoringEntities: writeTrap('upsertScoringEntities'),
@@ -193,6 +241,7 @@ const dependencies = {
     recordAllPlayerBatch: writeTrap('recordAllPlayerBatch'),
     completeJob: writeTrap('completeJob'),
   },
+  allPlayerSource,
   projectionRepository: {
     readCurrentProjectionSlate: async () => ({
       observationId: 'runtime-projection-observation',
@@ -252,6 +301,12 @@ process.stdout.write(`${JSON.stringify({
     positions: [...new Set(Object.values(catalog.catalog).map((player) => player.position))].sort(),
     playerCount: Object.keys(catalog.catalog).length,
   },
+  inventory: inventoryEvidence,
+  identityLookups,
+  rosteredDefenseIds: [...leagueDefenseIds.entries()].map(([leagueId, defenseId]) => ({
+    leagueId,
+    defenseId,
+  })),
   requests: requestUrls,
   databaseWrites,
 })}\n`);

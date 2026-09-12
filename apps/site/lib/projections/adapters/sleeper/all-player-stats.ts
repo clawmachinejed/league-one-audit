@@ -244,10 +244,11 @@ export function buildSleeperAllPlayerInventory(input: Readonly<{
   if (NFL_TEAM_CODES.some((team) => !input.gamesByTeam[team] && !byeTeams.has(team))) {
     return { status: 'unavailable', reason: 'schedule' };
   }
+  const canonicalTeamDefenseIds = new Set<string>(NFL_TEAM_CODES);
   const forcedPlayerIds = new Set([
     ...input.rosteredPlayerIds.map((id) => id.trim()),
     ...input.projectionPlayerIds.map((id) => id.trim()),
-  ]);
+  ].filter((id) => !canonicalTeamDefenseIds.has(id)));
   if (forcedPlayerIds.has('')) return { status: 'unavailable', reason: 'identity' };
   const entities: SleeperExpectedAllPlayerEntity[] = [];
   for (const [providerExternalId, player] of Object.entries(input.catalog)) {
