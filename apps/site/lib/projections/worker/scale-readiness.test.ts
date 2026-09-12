@@ -695,6 +695,24 @@ describe.each(SCALE_POINTS)('canonical worker scale readiness: %i leagues', (lea
     ));
     expect(providerLoadLog?.entry.providerDurationMs).toEqual(expect.any(Number));
     expect(providerLoadLog!.entry.providerDurationMs!).toBeGreaterThanOrEqual(0);
+    const providerPersistLog = first.metrics.logs.find(({ entry }) => (
+      entry.stage === 'provider-persist' && entry.outcome === 'completed'
+    ));
+    expect(providerPersistLog?.entry).toMatchObject({
+      fullSlateProjectionIdentityComplete: true,
+      fullSlateRankEligibleProjectionCount: 163,
+      fullSlateResolvedIdentityCount: 163,
+      fullSlateSkippedIdentityCount: 0,
+      allPlayerRankUnavailablePositions: [],
+      fullSlateWarnings: [],
+    });
+    expect(first.metrics.logs.filter(({ entry }) => (
+      entry.stage === 'league-publish' && entry.outcome === 'completed'
+    )).every(({ entry }) => (
+      entry.fullSlateProjectionIdentityComplete === true
+      && entry.fullSlateSkippedIdentityCount === 0
+      && entry.allPlayerRankUnavailablePositions?.length === 0
+    ))).toBe(true);
     expect(first.metrics.logs.filter(({ level }) => level === 'warn' || level === 'error'))
       .toEqual([]);
   }, 20_000);

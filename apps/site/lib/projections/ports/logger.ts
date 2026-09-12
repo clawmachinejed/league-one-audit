@@ -82,6 +82,12 @@ export type ProjectionLogEntry = Readonly<{
   frozenBaselineCount?: number;
   missingBaselineCount?: number;
   identityConflictCount?: number;
+  fullSlateProjectionIdentityComplete?: boolean;
+  fullSlateRankEligibleProjectionCount?: number;
+  fullSlateResolvedIdentityCount?: number;
+  fullSlateSkippedIdentityCount?: number;
+  allPlayerRankUnavailablePositions?: readonly string[];
+  fullSlateWarnings?: readonly string[];
   snapshotRevision?: string;
   publicationOutcome?: 'published' | 'unchanged' | 'rejected' | 'disabled';
   leaseOutcome?: 'acquired' | 'busy' | 'completed' | 'disabled' | 'lost';

@@ -69,6 +69,18 @@ The current pointer advances only when all of these are true:
 - stored entry, score, and eligible-game totals exactly match the immutable
   parent records.
 
+The reused projection pipeline keeps unresolved projection-only identities out
+of canonical candidates without inventing a mapping. Its shared full-slate
+coverage evidence records the rank-eligible, resolved, and skipped counts, fixed
+warning codes, and every affected position. That evidence is emitted for both
+current and future materialization paths and is shared across leagues using the
+same raw slate. An unrelated free-agent conflict therefore cannot remove an
+otherwise valid Matchups snapshot. A rostered entity, starter, or required team
+defense still fails closed. Any later all-player projection ranking must require
+complete identity coverage for its position; a position named in
+`rankUnavailablePositions` remains unavailable rather than ranking a truncated
+pool.
+
 An active entity with `gms_active=1` and no `gp` evidence receives appearance 0,
 eligibility 1, and exactly 0.0000 points. Explicit `gms_active=0` evidence receives
 eligibility 0. Missing or contradictory evidence remains null and prevents score

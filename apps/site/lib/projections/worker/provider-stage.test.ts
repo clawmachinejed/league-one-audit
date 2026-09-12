@@ -374,16 +374,42 @@ describe('canonical provider persistence stage', () => {
         [externalReferenceKey(projections.projections[1].identity.primary), defenseId],
       ]),
       identityConflictCount: 0,
+      fullSlateProjectionCoverage: {
+        identityComplete: true,
+        rankEligibleProjectionCount: 2,
+        resolvedIdentityCount: 2,
+        skippedIdentityCount: 0,
+        rankUnavailablePositions: [],
+        warnings: [],
+      },
       projectionSourceRevision: 'legacy-compatible-projection-revision',
       projectionSlateObservationId: 'projection-slate-observation',
       projectionSlateContentId: 'projection-slate-content',
     });
   });
 
-  it('keeps unresolved scoring identities isolated for later per-league failure', async () => {
+  it('retains an unresolved free-agent row in slate content but excludes its canonical identity', async () => {
     const games = gameSlate();
+    const freeAgentOfficialRef = externalPlayerRef(officialProvider, 'free-agent');
+    const freeAgentProviderRef = externalPlayerRef(projectionProvider, 'provider-free-agent');
+    const projections = {
+      ...projectionSlate(),
+      projections: [
+        ...projectionSlate().projections,
+        {
+          identity: { primary: freeAgentProviderRef, aliases: [freeAgentOfficialRef] },
+          nflTeam: 'PHI' as const,
+          position: 'RB',
+          stats: { rushing: { rushYds: '44.0' } },
+          scoringStats: { kind: 'offense' as const, rushingYards: 44 },
+          missingFields: [],
+        },
+      ],
+    };
     const gameKey = externalReferenceKey(games.games[0].gameRef);
     const observationId = 'game-observation' as ObservationId;
+    const playerId = 'canonical-player' as ScoringEntityId;
+    const defenseId = 'canonical-defense' as ScoringEntityId;
     const result = await persistProviderGroup({
       identityCrosswalk: {
         resolveNflGames: vi.fn(async () => ({
@@ -392,7 +418,13 @@ describe('canonical provider persistence stage', () => {
         })),
         resolveScoringEntities: vi.fn(async (inputs: readonly ScoringEntityIdentityInput[]) => ({
           kind: 'resolved' as const,
-          value: inputs.map((input) => ({ key: input.key, status: 'ambiguous' as const, entityId: null })),
+          value: inputs.map((input) => input.entity.externalRef.externalId === 'free-agent'
+            ? { key: input.key, status: 'ambiguous' as const, entityId: null }
+            : {
+                key: input.key,
+                status: 'known' as const,
+                entityId: input.entity.kind === 'team-defense' ? defenseId : playerId,
+              }),
         })),
       },
       repository: {
@@ -402,9 +434,23 @@ describe('canonical provider persistence stage', () => {
           value: [{ gameRef: games.games[0].gameRef, sourceRevision: 'game-revision', observationId }],
         })),
       },
-    }, providerGroup(), games, projectionSlate());
+    }, providerGroup(), games, projections);
 
-    expect(result.entityIdsByReferenceKey.size).toBe(0);
+    expect(result.entityIdsByReferenceKey.has(externalReferenceKey(freeAgentOfficialRef))).toBe(false);
+    expect(result.entityIdsByReferenceKey.has(externalReferenceKey(freeAgentProviderRef))).toBe(false);
+    expect([...result.entityIdsByReferenceKey.values()]).not.toContain('canonical-free-agent');
+    expect(result.identityConflictCount).toBe(1);
+    expect(result.fullSlateProjectionCoverage).toEqual({
+      identityComplete: false,
+      rankEligibleProjectionCount: 3,
+      resolvedIdentityCount: 2,
+      skippedIdentityCount: 1,
+      rankUnavailablePositions: ['RB'],
+      warnings: [
+        'unresolved-all-player-projection-identities:1',
+        'all-player-position-ranking-unavailable:RB',
+      ],
+    });
   });
 
   it('fails before later persistence stages when game identity or state persistence is incomplete', async () => {

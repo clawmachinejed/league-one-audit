@@ -3,6 +3,10 @@ import type {
   LeaguePeriod,
   ProjectionSlate,
 } from '../domain/contracts';
+import {
+  ALL_PLAYER_POSITIONS,
+  type AllPlayerPosition,
+} from '../domain/all-player-statistics';
 import type { IdentityCrosswalkPort } from '../ports/identity-crosswalk';
 import type {
   ProjectionRepositoryPort,
@@ -20,7 +24,11 @@ import type {
   ProviderGroup,
 } from './contracts';
 import { kickoffForGame } from './game-context';
-import { scoringIdentityInputs } from './roster-context';
+import {
+  canonicalPosition,
+  projectionEntityForObservation,
+  scoringIdentityInputs,
+} from './roster-context';
 
 type ProviderLoadDependencies = Pick<
   LiveProjectionWorkerDependencies,
@@ -166,6 +174,49 @@ export async function persistProviderGroup(
       )) ?? []),
     ];
   }));
+  const officialProvider = group.leagues[0]?.configuration.leagueRef.provider;
+  if (!officialProvider) throw new Error('The official identity provider is unavailable.');
+  const rankEligibleProjections = projections.projections.flatMap((projection) => {
+    const canonical = canonicalPosition(projection.position);
+    const position = projection.identity.primary.entityKind === 'team-defense'
+      ? projection.nflTeam ? 'DEF' as const : null
+      : canonical && canonical !== 'DEF' && ALL_PLAYER_POSITIONS.includes(
+        canonical as AllPlayerPosition,
+      ) ? canonical as AllPlayerPosition : null;
+    if (!position) return [];
+    const entity = projectionEntityForObservation(projection, officialProvider);
+    return [{ entity, position, projection }];
+  });
+  const unresolvedProjectionEntities = rankEligibleProjections.filter(({ entity, projection }) => {
+    if (!entity) return true;
+    const entityIds = new Set([
+      entity.externalRef,
+      projection.identity.primary,
+      ...projection.identity.aliases,
+    ].flatMap((reference) => {
+      const entityId = entityIdsByReferenceKey.get(externalReferenceKey(reference));
+      return entityId ? [entityId] : [];
+    }));
+    return entityIds.size !== 1;
+  });
+  const unavailablePositionSet = new Set(unresolvedProjectionEntities.map(({ position }) => (
+    position
+  )));
+  const rankUnavailablePositions = ALL_PLAYER_POSITIONS.filter((position) => (
+    unavailablePositionSet.has(position)
+  ));
+  const skippedIdentityCount = unresolvedProjectionEntities.length;
+  const fullSlateProjectionCoverage = {
+    identityComplete: skippedIdentityCount === 0,
+    rankEligibleProjectionCount: rankEligibleProjections.length,
+    resolvedIdentityCount: rankEligibleProjections.length - skippedIdentityCount,
+    skippedIdentityCount,
+    rankUnavailablePositions,
+    warnings: skippedIdentityCount === 0 ? [] : [
+      `unresolved-all-player-projection-identities:${skippedIdentityCount}`,
+      `all-player-position-ranking-unavailable:${rankUnavailablePositions.join(',')}`,
+    ],
+  };
 
   const projectionLineage = projectionPersistence.kind === 'stored'
     ? projectionPersistence
@@ -189,6 +240,7 @@ export async function persistProviderGroup(
     gameObservationIdsByReferenceKey,
     entityIdsByReferenceKey,
     identityConflictCount: resolvedEntities.value.filter((entity) => entity.status !== 'known').length,
+    fullSlateProjectionCoverage,
     projectionSourceRevision: projections.sourceRevision,
     projectionSlateObservationId: projectionLineage.observationId,
     projectionSlateContentId: projectionLineage.contentId,

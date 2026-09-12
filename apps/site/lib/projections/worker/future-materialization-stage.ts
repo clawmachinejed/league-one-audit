@@ -135,6 +135,14 @@ export async function runFutureMaterializationStage(
         + stored.slate.coverage.usableDefenses,
       gameCount: games.games.length,
       identityConflictCount: persisted.identityConflictCount,
+      fullSlateProjectionIdentityComplete: persisted.fullSlateProjectionCoverage.identityComplete,
+      fullSlateRankEligibleProjectionCount:
+        persisted.fullSlateProjectionCoverage.rankEligibleProjectionCount,
+      fullSlateResolvedIdentityCount: persisted.fullSlateProjectionCoverage.resolvedIdentityCount,
+      fullSlateSkippedIdentityCount: persisted.fullSlateProjectionCoverage.skippedIdentityCount,
+      allPlayerRankUnavailablePositions:
+        persisted.fullSlateProjectionCoverage.rankUnavailablePositions,
+      fullSlateWarnings: persisted.fullSlateProjectionCoverage.warnings,
     });
   } catch (error) {
     const failureCode = error instanceof FutureWorkError
@@ -230,6 +238,17 @@ export async function runFutureMaterializationStage(
             ? {}
             : { applicableSourceSkewSeconds: result.applicableSourceSkewSeconds }),
           identityConflictCount: persisted.identityConflictCount,
+          fullSlateProjectionIdentityComplete:
+            result.fullSlateProjectionCoverage.identityComplete,
+          fullSlateRankEligibleProjectionCount:
+            result.fullSlateProjectionCoverage.rankEligibleProjectionCount,
+          fullSlateResolvedIdentityCount:
+            result.fullSlateProjectionCoverage.resolvedIdentityCount,
+          fullSlateSkippedIdentityCount:
+            result.fullSlateProjectionCoverage.skippedIdentityCount,
+          allPlayerRankUnavailablePositions:
+            result.fullSlateProjectionCoverage.rankUnavailablePositions,
+          fullSlateWarnings: result.fullSlateProjectionCoverage.warnings,
           snapshotRevision: result.snapshotRevision,
           publicationOutcome: result.publicationOutcome,
         });

@@ -174,7 +174,37 @@ const defenseProjection: ProjectionObservation = {
   scoringStats: { kind: 'defense', sacks: 3 },
   missingFields: [],
 };
-
+const unresolvedFreeAgentProjection: ProjectionObservation = {
+  identity: {
+    primary: externalPlayerRef(projectionProvider, 'projection-free-agent'),
+    aliases: [externalPlayerRef(officialProvider, 'free-agent')],
+  },
+  nflTeam: 'MIA',
+  position: 'RB',
+  stats: { rawReceivingYards: '25.0' },
+  scoringStats: { kind: 'offense', receivingYards: 25 },
+  missingFields: [],
+};
+const validFreeAgentRef = externalPlayerRef(officialProvider, 'valid-free-agent');
+const validFreeAgentProjection: ProjectionObservation = {
+  identity: {
+    primary: externalPlayerRef(projectionProvider, 'projection-valid-free-agent'),
+    aliases: [validFreeAgentRef],
+  },
+  nflTeam: 'MIA',
+  position: 'RB',
+  stats: { rawReceivingYards: '40.0' },
+  scoringStats: { kind: 'offense', receivingYards: 40 },
+  missingFields: [],
+};
+const unresolvedFreeAgent = {
+  kind: 'player' as const,
+  externalRef: externalPlayerRef(officialProvider, 'free-agent'),
+  displayName: 'Unresolved Free Agent',
+  nflTeam: 'MIA' as const,
+  position: 'RB',
+  injuryStatus: null,
+};
 function game(
   gameRef: typeof liveGameRef,
   homeTeam: 'PHI' | 'BUF',
@@ -248,21 +278,38 @@ const persisted: PersistedGroup = {
     [externalReferenceKey(benchRef), 'bench-entity-id' as ScoringEntityId],
   ]),
   identityConflictCount: 0,
+  fullSlateProjectionCoverage: {
+    identityComplete: true,
+    rankEligibleProjectionCount: 2,
+    resolvedIdentityCount: 2,
+    skippedIdentityCount: 0,
+    rankUnavailablePositions: [],
+    warnings: [],
+  },
   projectionSourceRevision: 'projection-revision',
   projectionSlateObservationId: 'projection-slate-observation' as ProjectionSlateObservationId,
   projectionSlateContentId: 'projection-slate-content' as ProjectionSlateContentId,
 };
 
-function repositoryHarness() {
+function repositoryHarness(
+  selectedScoringProfileId = scoringProfileId,
+  selectedLeagueSeasonId = leagueSeasonId,
+) {
   const operations: string[] = [];
   const registerLeagueSeason = vi.fn(async () => {
     operations.push('register');
     return {
       kind: 'stored' as const,
-      value: { leagueSeasonId, scoringProfileId, leagueRef },
+      value: {
+        leagueSeasonId: selectedLeagueSeasonId,
+        scoringProfileId: selectedScoringProfileId,
+        leagueRef,
+      },
     };
   });
-  const recordProjectionCandidates = vi.fn(async (input: { candidates: readonly unknown[] }) => {
+  const recordProjectionCandidates = vi.fn(async (
+    input: Parameters<ProjectionRepositoryPort['recordProjectionCandidates']>[0],
+  ) => {
     operations.push('candidates');
     return {
       kind: 'stored' as const,
@@ -365,9 +412,10 @@ function repositoryHarness() {
 
 function dependencies(
   repository: ProjectionRepositoryPort,
-  normalizeScoringProfile = vi.fn((): ScoringProfileNormalization => ({
-    status: 'available', profile: scoringProfile,
-  })),
+  normalizeScoringProfile: LiveProjectionWorkerDependencies['normalizeScoringProfile'] =
+    vi.fn((): ScoringProfileNormalization => ({
+      status: 'available', profile: scoringProfile,
+    })),
 ): LiveProjectionWorkerDependencies {
   return {
     repository,
@@ -394,7 +442,302 @@ function processTestLeague(
   );
 }
 
+function leagueVariant(
+  key: string,
+  rawRules: Readonly<Record<string, number>> = { rec_yd: 0.1, sack: 1 },
+): LoadedLeague {
+  const selectedLeagueRef = externalLeagueRef(officialProvider, key);
+  const rosterRefs = new Map(source.participants.map((participant) => [
+    String(participant.rosterRef.externalId),
+    externalRosterRef(selectedLeagueRef, String(participant.rosterRef.externalId)),
+  ]));
+  const selectedConfiguration = {
+    ...source.configuration,
+    key,
+    displayName: key,
+    leagueRef: selectedLeagueRef,
+  };
+  const selectedSource: LeagueWeekState = {
+    ...source,
+    configuration: selectedConfiguration,
+    leagueName: key,
+    participants: source.participants.map((participant) => ({
+      ...participant,
+      rosterRef: rosterRefs.get(String(participant.rosterRef.externalId))!,
+      teamName: `${key}:${participant.teamName}`,
+    })),
+    matchups: source.matchups.map((matchup) => ({
+      ...matchup,
+      matchupRef: externalMatchupRef(
+        selectedLeagueRef,
+        period,
+        String(matchup.matchupRef.externalId),
+      ),
+      sides: matchup.sides.map((side) => ({
+        ...side,
+        rosterRef: rosterRefs.get(String(side.rosterRef.externalId))!,
+      })),
+    })),
+    scoringSettings: { provider: officialProvider, rawRules },
+    sourceRevision: `official-revision:${key}`,
+    lineup: {
+      revisionVersion: 'lineup-v1',
+      lineupRevision: key === 'league-one' ? '1'.repeat(64) : '2'.repeat(64),
+    },
+  };
+  return { configuration: selectedConfiguration, source: selectedSource, cadence: 'live-window' };
+}
+
+function publicationContext(selectedLeague: LoadedLeague, runId: string) {
+  return {
+    publicationFence: {
+      ownerLane: 'current' as const,
+      watchId: `watch:${runId}`,
+      watchGeneration: 1,
+      authorityGeneration: 1,
+      runId,
+    },
+    actualLineup: selectedLeague.source.lineup,
+  };
+}
+
+function groupWithFreeAgentIdentityGap(): PersistedGroup {
+  return {
+    ...persisted,
+    projections: {
+      ...persisted.projections,
+      projections: [
+        ...persisted.projections.projections,
+        unresolvedFreeAgentProjection,
+        validFreeAgentProjection,
+      ],
+    },
+    entityIdsByReferenceKey: new Map([
+      ...persisted.entityIdsByReferenceKey,
+      [externalReferenceKey(validFreeAgentRef), 'valid-free-agent-entity-id' as ScoringEntityId],
+    ]),
+    identityConflictCount: 1,
+    fullSlateProjectionCoverage: {
+      identityComplete: false,
+      rankEligibleProjectionCount: 4,
+      resolvedIdentityCount: 3,
+      skippedIdentityCount: 1,
+      rankUnavailablePositions: ['RB'],
+      warnings: [
+        'unresolved-all-player-projection-identities:1',
+        'all-player-position-ranking-unavailable:RB',
+      ],
+    },
+  };
+}
+
 describe('canonical league projection stage', () => {
+  it('skips one unresolved free agent for both leagues while retaining complete matchup publication', async () => {
+    const firstHarness = repositoryHarness(
+      'shared-profile' as ScoringProfileId,
+      'league-one-season' as LeagueSeasonId,
+    );
+    const secondHarness = repositoryHarness(
+      'shared-profile' as ScoringProfileId,
+      'league-two-season' as LeagueSeasonId,
+    );
+    const groupWithUnresolvedFreeAgent = groupWithFreeAgentIdentityGap();
+    const firstLeague = leagueVariant('league-one');
+    const secondLeague = leagueVariant('league-two');
+    const normalize = vi.fn((): ScoringProfileNormalization => ({
+      status: 'available', profile: scoringProfile,
+    }));
+    const scoringCache = createProviderGroupScoringCache(
+      groupWithUnresolvedFreeAgent.projections,
+      normalize,
+    );
+
+    const first = await processLeague(
+      dependencies(firstHarness.repository, normalize),
+      firstLeague,
+      groupWithUnresolvedFreeAgent,
+      calculatedAt,
+      scoringCache,
+      publicationContext(firstLeague, 'league-one-run'),
+    );
+    const second = await processLeague(
+      dependencies(secondHarness.repository, normalize),
+      secondLeague,
+      groupWithUnresolvedFreeAgent,
+      calculatedAt,
+      scoringCache,
+      publicationContext(secondLeague, 'league-two-run'),
+    );
+
+    expect([first, second]).toEqual([
+      expect.objectContaining({
+        publicationOutcome: 'published',
+        fullSlateProjectionCoverage: expect.objectContaining({
+          identityComplete: false,
+          rankEligibleProjectionCount: 4,
+          resolvedIdentityCount: 3,
+          skippedIdentityCount: 1,
+          rankUnavailablePositions: ['RB'],
+        }),
+      }),
+      expect.objectContaining({
+        publicationOutcome: 'published',
+        fullSlateProjectionCoverage: expect.objectContaining({
+          identityComplete: false,
+          skippedIdentityCount: 1,
+          rankUnavailablePositions: ['RB'],
+        }),
+      }),
+    ]);
+    const firstCandidates = firstHarness.mocks.recordProjectionCandidates.mock.calls[0][0].candidates;
+    const secondCandidates = secondHarness.mocks.recordProjectionCandidates.mock.calls[0][0].candidates;
+    expect(firstCandidates).toHaveLength(4);
+    expect(firstCandidates.map((candidate) => candidate.entityId)).toEqual([
+      'player-entity-id',
+      'defense-entity-id',
+      'bench-entity-id',
+      'valid-free-agent-entity-id',
+    ]);
+    expect(firstCandidates).toContainEqual(expect.objectContaining({
+      entityId: 'valid-free-agent-entity-id',
+      projectionPoints: 4,
+      projectedStats: { rawReceivingYards: '40.0' },
+    }));
+    expect(firstCandidates).not.toContainEqual(expect.objectContaining({
+      projectedStats: { rawReceivingYards: '25.0' },
+    }));
+    expect(secondCandidates.map((candidate) => candidate.entityId)).toEqual([
+      'player-entity-id',
+      'defense-entity-id',
+      'bench-entity-id',
+    ]);
+    expect([...firstCandidates, ...secondCandidates].every((candidate) => (
+      candidate.scoringProfileId === 'shared-profile'
+    ))).toBe(true);
+    expect(firstHarness.mocks.freezeLatestBaselines).toHaveBeenCalledTimes(1);
+    expect(secondHarness.mocks.freezeLatestBaselines).toHaveBeenCalledTimes(1);
+    expect(firstHarness.mocks.publishSnapshot).toHaveBeenCalledTimes(1);
+    expect(secondHarness.mocks.publishSnapshot).toHaveBeenCalledTimes(1);
+    expect([firstHarness, secondHarness].map((harness) => (
+      harness.mocks.publishSnapshot.mock.calls[0][0].payload.matchups[0].sides
+        .map((side) => side.projectedPoints)
+    ))).toEqual([[10, 6], [10, 6]]);
+    expect(normalize).toHaveBeenCalledTimes(2);
+  });
+
+  it('fails only the league that rosters the unresolved player', async () => {
+    const safeHarness = repositoryHarness(
+      'safe-profile' as ScoringProfileId,
+      'safe-season' as LeagueSeasonId,
+    );
+    const affectedHarness = repositoryHarness(
+      'affected-profile' as ScoringProfileId,
+      'affected-season' as LeagueSeasonId,
+    );
+    const group = groupWithFreeAgentIdentityGap();
+    const safeLeague = leagueVariant('league-one');
+    const baseAffectedLeague = leagueVariant('league-two');
+    const affectedLeague: LoadedLeague = {
+      ...baseAffectedLeague,
+      source: {
+        ...baseAffectedLeague.source,
+        rosteredEntities: [...baseAffectedLeague.source.rosteredEntities, unresolvedFreeAgent],
+      },
+    };
+    const normalize = vi.fn((): ScoringProfileNormalization => ({
+      status: 'available', profile: scoringProfile,
+    }));
+    const scoringCache = createProviderGroupScoringCache(group.projections, normalize);
+
+    await expect(processLeague(
+      dependencies(safeHarness.repository, normalize),
+      safeLeague,
+      group,
+      calculatedAt,
+      scoringCache,
+      publicationContext(safeLeague, 'safe-run'),
+    )).resolves.toMatchObject({ publicationOutcome: 'published' });
+    await expect(processLeague(
+      dependencies(affectedHarness.repository, normalize),
+      affectedLeague,
+      group,
+      calculatedAt,
+      scoringCache,
+      publicationContext(affectedLeague, 'affected-run'),
+    )).rejects.toThrow('A projection candidate identity is missing.');
+
+    expect(safeHarness.mocks.publishSnapshot).toHaveBeenCalledTimes(1);
+    expect(affectedHarness.mocks.recordProjectionCandidates).not.toHaveBeenCalled();
+    expect(affectedHarness.mocks.publishSnapshot).not.toHaveBeenCalled();
+  });
+
+  it('persists the resolved full slate separately for divergent scoring profiles', async () => {
+    const firstHarness = repositoryHarness(
+      'first-profile' as ScoringProfileId,
+      'first-season' as LeagueSeasonId,
+    );
+    const secondHarness = repositoryHarness(
+      'second-profile' as ScoringProfileId,
+      'second-season' as LeagueSeasonId,
+    );
+    const group = groupWithFreeAgentIdentityGap();
+    const firstLeague = leagueVariant('league-one', { rec_yd: 0.1, sack: 1 });
+    const secondLeague = leagueVariant('league-two', { rec_yd: 0.2, sack: 2 });
+    const normalize = vi.fn((settings: typeof source.scoringSettings): ScoringProfileNormalization => {
+      const rawRules = settings.rawRules as Readonly<Record<string, number>>;
+      return {
+        status: 'available',
+        profile: {
+          rules: { receivingYards: rawRules.rec_yd, sacks: rawRules.sack },
+          provenance: {
+            provider: officialProvider,
+            rawRules,
+            supportedSourceKeys: ['rec_yd', 'sack'],
+            unsupportedSourceKeys: [],
+            aggregateTwoPointConversionSupported: true,
+            usesPointsAllowedBucketProxy: false,
+          },
+        },
+      };
+    });
+    const scoringCache = createProviderGroupScoringCache(group.projections, normalize);
+
+    const first = await processLeague(
+      dependencies(firstHarness.repository, normalize),
+      firstLeague,
+      group,
+      calculatedAt,
+      scoringCache,
+      publicationContext(firstLeague, 'first-run'),
+    );
+    const second = await processLeague(
+      dependencies(secondHarness.repository, normalize),
+      secondLeague,
+      group,
+      calculatedAt,
+      scoringCache,
+      publicationContext(secondLeague, 'second-run'),
+    );
+
+    const firstCandidates = firstHarness.mocks.recordProjectionCandidates.mock.calls[0][0].candidates;
+    const secondCandidates = secondHarness.mocks.recordProjectionCandidates.mock.calls[0][0].candidates;
+    expect(firstCandidates).toHaveLength(4);
+    expect(secondCandidates).toHaveLength(4);
+    expect(new Set(firstCandidates.map((candidate) => candidate.scoringProfileId)))
+      .toEqual(new Set(['first-profile']));
+    expect(new Set(secondCandidates.map((candidate) => candidate.scoringProfileId)))
+      .toEqual(new Set(['second-profile']));
+    expect(firstCandidates.find((candidate) => (
+      candidate.entityId === 'valid-free-agent-entity-id'
+    ))?.projectionPoints).toBe(4);
+    expect(secondCandidates.find((candidate) => (
+      candidate.entityId === 'valid-free-agent-entity-id'
+    ))?.projectionPoints).toBe(8);
+    expect(first.fullSlateProjectionCoverage).toEqual(second.fullSlateProjectionCoverage);
+    expect(first.fullSlateProjectionCoverage.identityComplete).toBe(false);
+    expect(normalize).toHaveBeenCalledTimes(2);
+  });
+
   it('preserves exact candidate and snapshot payloads with cached slate scores', async () => {
     const harness = repositoryHarness();
 
@@ -659,6 +1002,24 @@ describe('canonical league projection stage', () => {
       .rejects.toThrow('A starter projection could not be matched safely.');
     expect(harness.mocks.recordProjectionCandidates).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ['starter', playerRef],
+    ['required team defense', defenseRef],
+    ['rostered bench player', benchRef],
+  ])('continues to fail closed for an unresolved %s identity', async (_label, unresolvedRef) => {
+      const harness = repositoryHarness();
+      const entityIdsByReferenceKey = new Map(persisted.entityIdsByReferenceKey);
+      entityIdsByReferenceKey.delete(externalReferenceKey(unresolvedRef));
+
+      await expect(processTestLeague(dependencies(harness.repository), league, {
+        ...persisted,
+        entityIdsByReferenceKey,
+      })).rejects.toThrow('A projection candidate identity is missing.');
+      expect(harness.mocks.recordProjectionCandidates).not.toHaveBeenCalled();
+      expect(harness.mocks.freezeLatestBaselines).not.toHaveBeenCalled();
+      expect(harness.mocks.publishSnapshot).not.toHaveBeenCalled();
+    });
 
   it('validates game coverage before normalizing raw scoring settings or writing', async () => {
     const harness = repositoryHarness();
