@@ -7,6 +7,8 @@ import {
   sleeperOfficialRosteredPoints,
 } from './all-player-stats';
 import { NFL_TEAM_CODES } from '../../domain/contracts';
+import { validateAllPlayerEligibility } from '../../domain/all-player-eligibility';
+import { allPlayerStatSemanticHash } from '../neon/all-player-statistics';
 
 function clock(...values: string[]) {
   let index = 0;
@@ -19,6 +21,13 @@ const catalog = {
   inactive: {
     full_name: 'Inactive Player', position: 'WR', team: 'NE', active: false, status: 'Inactive',
   },
+  'idp-linebacker': { full_name: 'Defensive Player', position: 'LB', team: 'NE' },
+};
+const period = { season: 2026, seasonType: 'reg' as const, week: 1 };
+const observedAt = '2026-09-15T00:00:00.000Z';
+const periodInventoryEvidence = {
+  source: 'manual-review' as const, sourceRevision: 'synthetic-period-inventory-v1', observedAt,
+  effectivePeriod: period, excludedPlayerReasons: {}, teamsByPlayerId: { p1: 'NE', p2: 'ATL', inactive: 'NE' },
 };
 const gamesByTeam = {
   NE: { nflGameId: '11111111-1111-4111-8111-111111111111', phase: 'final' as const },
@@ -31,12 +40,157 @@ function completeInventory() {
     catalog, catalogComplete: true, catalogRevision: 'catalog:2026-09-15',
     rosteredPlayerIds: [], projectionPlayerIds: [],
     gamesByTeam, byeTeamIds, scheduleRevision: 'schedule:2026-week-1',
+    period, observedAt, scheduleObservedAt: observedAt, periodInventoryEvidence,
   });
   if (result.status !== 'available') throw new Error('Expected a complete inventory fixture.');
   return result.inventory;
 }
 
 describe('Sleeper all-player weekly-stat adapter', () => {
+  it.each(['appearance', 'dressed-unused'] as const)(
+    'rejects contradictory reviewed inactive and %s inputs before any weekly request', async (decision) => {
+      const fetcher = vi.fn<typeof fetch>();
+      const inventory = buildSleeperAllPlayerInventory({
+        catalog, catalogComplete: true, catalogRevision: 'catalog', rosteredPlayerIds: ['p1'], projectionPlayerIds: [],
+        gamesByTeam, byeTeamIds, scheduleRevision: 'schedule', period, observedAt, periodInventoryEvidence,
+        ineligibilityEvidenceByPlayerId: { p1: { kind: 'explicit-ineligible', reason: 'inactive',
+          source: 'manual-review', sourceRevision: 'reviewed-period-status', effectivePeriod: period, observedAt } },
+        periodEligibilityEvidenceByPlayerId: { p1: { kind: 'period-participation', decision,
+          source: 'gamebook', sourceRevision: 'reviewed-gamebook', reason: 'Reviewed participation',
+          effectivePeriod: period, observedAt } },
+      });
+      if (inventory.status === 'available') {
+        await createSleeperAllPlayerStatSource({ fetch: fetcher, now: () => new Date(observedAt) })
+          .load({ season: 2026, week: 1, inventory: inventory.inventory, gamesByTeam });
+      }
+      expect(inventory).toEqual({ status: 'unavailable', reason: 'eligibility-evidence-conflict', diagnostics: [
+        `sleeper/p1:required-official:reviewed-eligibility-conflict:inactive:${decision}`,
+      ] });
+      expect(fetcher).not.toHaveBeenCalled();
+    },
+  );
+
+  it('rejects a reviewed appearance that contradicts the canonical requested-week bye', () => {
+    const byeGames = { ATL: gamesByTeam.ATL };
+    const inventory = buildSleeperAllPlayerInventory({
+      catalog, catalogComplete: true, catalogRevision: 'catalog', rosteredPlayerIds: [], projectionPlayerIds: [],
+      gamesByTeam: byeGames, byeTeamIds: NFL_TEAM_CODES.filter((team) => !(team in byeGames)),
+      scheduleRevision: 'reviewed-bye-schedule', scheduleObservedAt: observedAt, period, observedAt, periodInventoryEvidence,
+      periodEligibilityEvidenceByPlayerId: { p1: { kind: 'period-participation', decision: 'appearance',
+        source: 'gamebook', sourceRevision: 'reviewed-gamebook', reason: 'Reviewed appearance',
+        effectivePeriod: period, observedAt } },
+    });
+    expect(inventory).toMatchObject({ status: 'unavailable', reason: 'eligibility-evidence-conflict', diagnostics: [
+      'sleeper/p1:catalog-inventory:reviewed-eligibility-conflict:bye:appearance',
+    ] });
+  });
+
+  it('keeps unchanged bye evidence material stable with retained source time and records honest fallback churn', async () => {
+    const retrieve = async (retrievedAt: string, scheduleObservedAt?: string) => {
+      const inventory = buildSleeperAllPlayerInventory({
+        catalog, catalogComplete: true, catalogRevision: 'catalog', rosteredPlayerIds: [], projectionPlayerIds: [],
+        gamesByTeam, byeTeamIds, scheduleRevision: 'schedule', period, observedAt: retrievedAt,
+        scheduleObservedAt, periodInventoryEvidence,
+      });
+      if (inventory.status !== 'available') throw new Error('Expected inventory.');
+      const result = await createSleeperAllPlayerStatSource({ fetch: vi.fn(async () => Response.json(
+        Object.fromEntries(['p1', 'p2', 'inactive', 'NE', 'ATL'].map((id) => [id, { gp: 1 }])),
+      )), now: () => new Date(retrievedAt) }).load({ season: 2026, week: 1,
+        inventory: inventory.inventory, gamesByTeam, requireFinalCoverage: true });
+      if (result.status !== 'available') throw new Error('Expected observation.');
+      return result.observation;
+    };
+    const first = await retrieve(observedAt, observedAt);
+    const later = await retrieve('2026-09-15T12:00:00.000Z', observedAt);
+    expect(first.quality).toBe('complete');
+    expect(allPlayerStatSemanticHash(first)).toBe(allPlayerStatSemanticHash(later));
+    expect(later.entries.find((entry) => entry.providerExternalId === 'ARI')?.eligibilityEvidence)
+      .toMatchObject({ reason: 'bye', observedAt });
+    const newlyObservedSchedule = await retrieve('2026-09-15T12:00:00.000Z');
+    expect(newlyObservedSchedule.quality).toBe('complete');
+    expect(newlyObservedSchedule.entries.find((entry) => entry.providerExternalId === 'ARI'))
+      .toMatchObject({ eligibleGameCount: 0, appearanceGameCount: 0,
+        eligibilityEvidence: { reason: 'bye', observedAt: '2026-09-15T12:00:00.000Z' } });
+    expect(allPlayerStatSemanticHash(newlyObservedSchedule)).not.toBe(allPlayerStatSemanticHash(first));
+  });
+
+  it.each([2, -1, 0.5, null, '1', true, [], {}])('retains malformed gp %j with null counts through the shared validator', async (gp) => {
+    const result = await createSleeperAllPlayerStatSource({
+      fetch: vi.fn(async () => new Response(JSON.stringify({ p1: { gms_active: 1, gp } }))),
+      now: () => new Date(observedAt),
+    }).load({ season: 2026, week: 1, inventory: completeInventory(), gamesByTeam });
+    expect(result.status).toBe('available');
+    if (result.status !== 'available') return;
+    const entry = result.observation.entries.find((value) => value.providerExternalId === 'p1')!;
+    expect(entry).toMatchObject({ eligibleGameCount: null, appearanceGameCount: null,
+      eligibilityEvidence: { rawFlags: { gp } } });
+    expect(validateAllPlayerEligibility(entry)).toBe(true);
+    expect(result.observation.quality).toBe('partial');
+  });
+
+  it('does not create dressed-unused evidence from gms_active alone or reject faithful 0/1 contradictions', async () => {
+    const result = await createSleeperAllPlayerStatSource({
+      fetch: vi.fn(async () => new Response(JSON.stringify({ p1: { gms_active: 0, gp: 1 }, p2: { gms_active: 1 } }))),
+      now: () => new Date(observedAt),
+    }).load({ season: 2026, week: 1, inventory: completeInventory(), gamesByTeam });
+    if (result.status !== 'available') throw new Error('Expected partial evidence.');
+    for (const id of ['p1', 'p2']) {
+      const entry = result.observation.entries.find((value) => value.providerExternalId === id)!;
+      expect(entry).toMatchObject({ eligibleGameCount: null, appearanceGameCount: null });
+      expect(validateAllPlayerEligibility(entry)).toBe(true);
+    }
+  });
+
+  it('requires finality of every canonical scheduled game even when all rows report ineligibility', async () => {
+    const pendingGames = { ...gamesByTeam, ATL: { ...gamesByTeam.ATL, phase: 'unknown' as const } };
+    const inventory = buildSleeperAllPlayerInventory({
+      catalog, catalogComplete: true, catalogRevision: 'catalog', rosteredPlayerIds: [], projectionPlayerIds: [],
+      gamesByTeam: pendingGames, byeTeamIds, scheduleRevision: 'schedule', period, observedAt,
+      scheduleObservedAt: observedAt, periodInventoryEvidence,
+    });
+    if (inventory.status !== 'available') throw new Error('Expected inventory.');
+    const source = createSleeperAllPlayerStatSource({
+      fetch: vi.fn(async () => new Response(JSON.stringify(Object.fromEntries(
+        ['p1', 'p2', 'inactive', 'NE', 'ATL'].map((id) => [id, { gms_active: 0, gp: 0 }]),
+      )))), now: () => new Date(observedAt),
+    });
+    const complete = await source.load({ season: 2026, week: 1, inventory: inventory.inventory,
+      gamesByTeam: pendingGames, requireFinalCoverage: true });
+    expect(complete).toMatchObject({ status: 'available', observation: { quality: 'partial', coverage: {
+      nonFinalEligibleCount: 0, scheduledGameCount: 2, nonFinalScheduledGameCount: 1, scheduleFinalityComplete: false,
+    } } });
+    const recurring = await source.load({ season: 2026, week: 1, inventory: inventory.inventory,
+      gamesByTeam: pendingGames, requireFinalCoverage: false });
+    expect(recurring).toMatchObject({ status: 'available', observation: { quality: 'complete', coverage: {
+      mode: 'recurring-current-week', scheduleFinalityComplete: false,
+    } } });
+  });
+
+  it('preserves current teamless fantasy identities and refuses to call the inventory historically complete', async () => {
+    const inventory = buildSleeperAllPlayerInventory({
+      catalog: { ...catalog, teamless: { full_name: 'Old Player', position: 'WR', team: null, active: false } },
+      catalogComplete: true, catalogRevision: 'current', rosteredPlayerIds: [], projectionPlayerIds: ['8063'],
+      gamesByTeam, byeTeamIds, scheduleRevision: 'schedule', period, observedAt,
+    });
+    if (inventory.status !== 'available') throw new Error('Expected conservative inventory.');
+    expect(inventory.inventory.entities).toContainEqual(expect.objectContaining({ providerExternalId: 'teamless',
+      absentIneligibilityEvidence: null }));
+    const result = await createSleeperAllPlayerStatSource({
+      fetch: vi.fn(async () => new Response(JSON.stringify({ p1: { gp: 1 } }))), now: () => new Date(observedAt),
+    }).load({ season: 2026, week: 1, inventory: inventory.inventory, gamesByTeam });
+    expect(result).toMatchObject({ status: 'available', observation: { quality: 'partial', coverage: {
+      periodInventoryComplete: false, unresolvedOptionalProjectionIds: ['8063'],
+    } } });
+  });
+
+  it('rejects evidence for another week before retrieving weekly statistics', async () => {
+    const fetcher = vi.fn<typeof fetch>();
+    await expect(createSleeperAllPlayerStatSource({ fetch: fetcher, now: () => new Date(observedAt) })
+      .load({ season: 2026, week: 2, inventory: completeInventory(), gamesByTeam }))
+      .resolves.toEqual({ status: 'unavailable', reason: 'malformed' });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
   it('reuses exact rostered players_points and rejects missing, null, or duplicate evidence', () => {
     expect(sleeperOfficialRosteredPoints([{
       roster_id: 1, matchup_id: 1, players: ['p1', 'p2'], players_points: { p2: 0, p1: 22 },
@@ -70,7 +224,7 @@ describe('Sleeper all-player weekly-stat adapter', () => {
   it('validates the whole response, excludes team aggregates, and preserves active-zero evidence', async () => {
     const fetcher = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({
       p1: { gms_active: 1, gp: 1, pass_yd: 250, pass_td: 2 },
-      p2: { gms_active: 1 },
+      p2: { gms_active: 1, gp: 0 },
       inactive: { gms_active: 0, gp: 0 },
       NE: { gms_active: 1, gp: 1, sack: 3 },
       ATL: { gms_active: 1, gp: 1, int: 1 },
@@ -138,7 +292,7 @@ describe('Sleeper all-player weekly-stat adapter', () => {
     if (result.status !== 'available') throw new Error('Expected a retained partial observation.');
     expect(result.observation.quality).toBe('partial');
     expect(result.observation.coverage).toMatchObject({
-      complete: false, unknownEligibilityCount: 3,
+      complete: false, unknownEligibilityCount: 4,
     });
     expect(result.observation.entries.find((entry) => entry.providerExternalId === 'p1'))
       .toMatchObject({ eligibleGameCount: null, appearanceGameCount: null });
@@ -265,15 +419,12 @@ describe('Sleeper all-player weekly-stat adapter', () => {
     })).toEqual({ status: 'unavailable', reason: 'identity' });
   });
 
-  it('fingerprints exact catalog and schedule eligibility evidence', () => {
+  it('fingerprints period evidence without deriving ineligibility from current catalog status', () => {
     const inventory = completeInventory();
     expect(inventory.fingerprint).toMatch(/^sha256:[0-9a-f]{64}$/u);
     expect(inventory.entities.find((entity) => entity.providerExternalId === 'inactive'))
       .toMatchObject({
-        absentIneligibilityEvidence: {
-          kind: 'explicit-ineligible', reason: 'inactive', source: 'player-status-provider',
-          sourceRevision: 'catalog:2026-09-15',
-        },
+        absentIneligibilityEvidence: null,
       });
     expect(inventory.entities.find((entity) => entity.providerExternalId === 'BUF'))
       .toMatchObject({
@@ -282,7 +433,7 @@ describe('Sleeper all-player weekly-stat adapter', () => {
           sourceRevision: 'schedule:2026-week-1',
         },
       });
-    expect(inventory.sourceEvidence).toEqual({
+    expect(inventory.sourceEvidence).toMatchObject({
       catalogRevision: 'catalog:2026-09-15',
       scheduleRevision: 'schedule:2026-week-1',
       rosteredPlayerIds: [], projectionPlayerIds: [], byeTeamIds: [...byeTeamIds].sort(),

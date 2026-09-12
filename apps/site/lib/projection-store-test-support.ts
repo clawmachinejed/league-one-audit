@@ -191,6 +191,7 @@ export function projectionStorePlayerProjectionRow(
 export const projectionStoreSqlMarkers = [
   'accept-lineup-observation',
   'acknowledge-current-lineup',
+  'acquire-all-player-job',
   'acquire-job',
   'begin-future-materialization-refresh',
   'begin-future-projection-refresh',
@@ -205,7 +206,9 @@ export const projectionStoreSqlMarkers = [
   'fail-future-projection-refresh',
   'fail-job',
   'fail-lineup-observation',
+  'finish-all-player-job',
   'freeze-latest-baselines',
+  'mark-all-player-request',
   'prune-game-observations',
   'prune-jobs',
   'prune-league-observations',
@@ -216,6 +219,7 @@ export const projectionStoreSqlMarkers = [
   'publish-snapshot',
   'read-all-player-game-context',
   'read-all-player-identity-mappings',
+  'read-all-player-job',
   'read-all-player-league-profiles',
   'read-current-projection-slate',
   'read-current-snapshot',
@@ -232,6 +236,7 @@ export const projectionStoreSqlMarkers = [
   'read-matchup-snapshot-revision-by-league-key',
   'read-snapshot-selection-by-sleeper-id',
   'record-all-player-batch',
+  'record-all-player-preclaim-outcome',
   'record-game-states',
   'record-league-week-observation',
   'record-lineup-observation-not-ready',
@@ -245,6 +250,7 @@ export const projectionStoreSqlMarkers = [
   'upsert-league-period-authority',
   'upsert-nfl-games',
   'upsert-scoring-entities',
+  'validate-all-player-fence',
   'wake-future-projection-and-materialization',
 ] as const;
 

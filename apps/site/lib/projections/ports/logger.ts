@@ -94,6 +94,13 @@ export type ProjectionLogEntry = Readonly<{
   allPlayerParityMismatchCount?: number;
   allPlayerEligibleGameCount?: number;
   allPlayerActiveZeroCount?: number;
+  allPlayerFailureStage?: string;
+  allPlayerReason?: string;
+  allPlayerDiagnosticCount?: number;
+  allPlayerDiagnostics?: readonly string[];
+  allPlayerPersistedObservation?: boolean;
+  allPlayerConfirmedPublication?: boolean;
+  allPlayerRetryDisposition?: 'global-budget' | 'inspect-before-retry';
   fullSlateWarnings?: readonly string[];
   snapshotRevision?: string;
   publicationOutcome?: 'published' | 'unchanged' | 'rejected' | 'disabled';

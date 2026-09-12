@@ -109,6 +109,24 @@ export function fullWeekSchedule(kickoffAt = KICKOFF): NflWeekSchedule {
 
 export const schedule = fullWeekSchedule();
 
+/** Synthetic official catalog is specified independently of provider aliases.
+ * Scale/characterization tests require this evidence for optional projections. */
+export function officialFixtureInventory(overrides: readonly ScoringEntity[] = []): ScoringEntity[] {
+  const identities: ScoringEntity[] = weekTeams.flatMap((team) => (
+    (['QB', 'RB', 'WR', 'TE'] as const).map((position) => ({
+      kind: 'player' as const,
+      externalRef: externalPlayerRef(OFFICIAL_PROVIDER, `coverage-${team}-${position}`),
+      displayName: `Official ${team} ${position}`, nflTeam: team, position, injuryStatus: null,
+    }))
+  ));
+  identities.push(
+    { kind: 'player', externalRef: externalPlayerRef(OFFICIAL_PROVIDER, 'p1'), displayName: 'Quarter Back', nflTeam: 'LAC', position: 'QB', injuryStatus: null },
+    { kind: 'player', externalRef: externalPlayerRef(OFFICIAL_PROVIDER, 'p2'), displayName: 'Running Back', nflTeam: 'LAC', position: 'RB', injuryStatus: null },
+    { kind: 'player', externalRef: externalPlayerRef(OFFICIAL_PROVIDER, 'p3'), displayName: 'Other Quarter Back', nflTeam: 'KC', position: 'QB', injuryStatus: null },
+  );
+  return [...new Map([...identities, ...overrides].map((entity) => [externalReferenceKey(entity.externalRef), entity])).values()];
+}
+
 export function matchupData(leftPoints = [8, 2], rightPoints = [6]): MatchupsData {
   return {
     league: { season: '2026', rosterPositions: ['QB', 'FLEX'], week: 1, maxWeek: 18 },
@@ -221,6 +239,7 @@ export function source(leagueId: string, data = matchupData()): LeagueWeekState 
     })),
     matchups,
     rosteredEntities: [...rosteredEntities.values()],
+    officialIdentityInventory: officialFixtureInventory([...rosteredEntities.values()]),
     schedule,
     scoringSettings: {
       provider: OFFICIAL_PROVIDER,

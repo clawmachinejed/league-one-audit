@@ -164,7 +164,40 @@ export type AllPlayerBatchInput = Readonly<{
   observation: AllPlayerStatObservation;
   scoreSets: readonly AllPlayerScoreSet[];
   verifiedAt: string;
+  /** Omitted only by pure shadow preflight; every database write requires it. */
+  fence?: AllPlayerJobFence;
 }>;
+
+export type AllPlayerJobPeriod = Readonly<{ season: number; seasonType: 'reg'; week: number }>;
+export type AllPlayerJobFence = Readonly<{
+  jobKey: string;
+  workerId: string;
+  generation: number;
+  leaseUntil: string;
+  deadlineAt: string;
+}>;
+export type AllPlayerJobOutcome = 'published' | 'partial' | 'validation-failed'
+  | 'provider-failed' | 'timeout' | 'lease-lost';
+export type AllPlayerPreclaimOutcome = Readonly<{
+  outcome: 'not-due' | 'busy' | 'validation-failed' | 'timeout';
+  stage: string;
+  reason: string;
+  period?: AllPlayerJobPeriod;
+  retryAt?: string | null;
+  retryDisposition: 'next-poll' | 'after-cooldown' | 'manual-review';
+}>;
+export type AllPlayerJobState = Readonly<{
+  state: 'pending' | 'running' | 'completed' | 'failed';
+  workerId: string | null;
+  generation: number;
+  leaseUntil: string | null;
+  payload: Readonly<Record<string, unknown>>;
+  nextRequestAt: string | null;
+}>;
+export type AllPlayerJobClaim =
+  | Readonly<{ kind: 'acquired'; fence: AllPlayerJobFence }>
+  | Readonly<{ kind: 'busy' | 'not-due'; nextRequestAt: string | null }>
+  | Readonly<{ kind: 'disabled' }>;
 
 export type AllPlayerLeagueProfileInput = Readonly<{
   leagueKey: string;
@@ -190,6 +223,7 @@ export type StoredAllPlayerIdentityMapping = AllPlayerIdentityLookup & Readonly<
   scoringEntityId: string | null;
   mappedEntityKind: ScoringEntityKind | null;
   mappingStatus: 'verified' | 'unverified' | 'retired' | null;
+  validFrom?: string | null;
   validTo: string | null;
 }>;
 
@@ -624,6 +658,24 @@ export type ProjectionStore = LineupWatchMethods & LineupAcknowledgmentMethods &
   recordAllPlayerBatch: (
     input: AllPlayerBatchInput,
   ) => Promise<PersistenceOutcome<StoredAllPlayerBatch>>;
+  acquireAllPlayerJob: (input: Readonly<{
+    mode: 'shadow' | 'backfill' | 'recurring';
+    period: AllPlayerJobPeriod;
+    workerId: string;
+    leaseSeconds: number;
+    deadlineAt: string;
+  }>) => Promise<AllPlayerJobClaim>;
+  readAllPlayerJobState: () => Promise<AllPlayerJobState | null>;
+  validateAllPlayerJobFence: (fence: AllPlayerJobFence) => Promise<boolean>;
+  markAllPlayerRequest: (input: Readonly<{
+    fence: AllPlayerJobFence; period: AllPlayerJobPeriod;
+  }>) => Promise<boolean>;
+  finishAllPlayerJob: (input: Readonly<{
+    fence: AllPlayerJobFence; outcome: AllPlayerJobOutcome;
+    diagnostic: Readonly<Record<string, unknown>>;
+  }>) => Promise<boolean>;
+  recordAllPlayerPreclaimOutcome: (input: AllPlayerPreclaimOutcome)
+    => Promise<'recorded' | 'unchanged' | 'throttled' | 'disabled'>;
   readAllPlayerLeagueProfiles: (input: Readonly<{
     provider: string;
     season: number;

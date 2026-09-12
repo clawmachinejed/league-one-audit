@@ -1,0 +1,195 @@
+$ node apps/site/scripts/full-verify.mjs
+
+== Fast Check ==
+$ pnpm lint && pnpm typecheck && pnpm test && pnpm build
+$ pnpm --filter @l1/site lint
+$ eslint .
+$ pnpm --filter @l1/site typecheck
+$ next typegen && tsc --noEmit
+Generating route types...
+✓ Types generated successfully
+$ pnpm --filter @l1/site test
+$ vitest run
+
+ RUN  v4.1.11 <repair-worktree>/apps/site
+
+
+ Test Files  108 passed (108)
+      Tests  1641 passed | 1 skipped (1642)
+   Start at  14:34:06
+   Duration  22.14s (transform 21.80s, setup 0ms, import 42.81s, tests 70.83s, environment 15ms)
+
+$ pnpm --filter @l1/site build
+$ next build
+▲ Next.js 16.3.3 (Turbopack)
+✓ Running next.config.mjs took 15ms
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 944ms
+  Running TypeScript ...
+  Finished TypeScript in 3.3s ...
+  Collecting page data using 19 workers ...
+  Generating static pages using 19 workers (0/6) ...
+  Generating static pages using 19 workers (1/6) 
+  Generating static pages using 19 workers (2/6) 
+  Generating static pages using 19 workers (4/6) 
+✓ Generating static pages using 19 workers (6/6) in 175ms
+  Finalizing page optimization ...
+
+Route (app)
+┌ ○ /
+├ ○ /_not-found
+├ ƒ /api/cron/future-projections
+├ ƒ /api/cron/lineup-observations
+├ ƒ /api/cron/live-projections
+├ ƒ /api/matchups/[league]
+├ ƒ /api/matchups/[league]/revision
+├ ƒ /api/rosters/[league]
+├ ƒ /api/transactions/[league]
+├ ○ /icon.svg
+├ ○ /league2
+├ ƒ /league2/managers
+├ ƒ /league2/managers/[id]
+├ ƒ /league2/managers/[id]/transactions
+├ ƒ /league2/matchups
+├ ƒ /league2/standings
+├ ƒ /managers
+├ ƒ /managers/[id]
+├ ƒ /managers/[id]/transactions
+├ ƒ /matchups
+├ ○ /robots.txt
+└ ƒ /standings
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
+Fast Check: PASSED
+
+== Chromium browser tests ==
+$ pnpm --filter @l1/site test:browser
+$ playwright test
+[WebServer] (node:36644) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] $ next build
+[WebServer] (node:27684) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:27684) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:41584) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:13700) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:44504) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:8660) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:31660) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:11212) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:28056) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:40460) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:17088) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:45636) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:14896) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:47508) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:6240) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:30332) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:35824) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:42272) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:11896) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:38724) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:27732) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:43760) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] $ next start --hostname 0.0.0.0
+[WebServer] (node:44552) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+Browser target: http://localhost:3047/ | fresh local production build
+Local browser provenance verified: checkout=<repair-worktree>\apps\site | Git SHA=5d84582475780164853104fab75ddc9e9d0e64f2 | working tree has changes | build=k1K27YwT0nZk4JOuldyRH | run=44d16a19-c34a-42fe-866d-52b9889bff2c
+
+Running 39 tests using 3 workers
+
+(node:27668) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:47532) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:43836) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ok  3 [chromium] › e2e\smoke.spec.ts:50:1 › the site follows the system color scheme while it is open (5.3s)
+  ok  1 [chromium] › e2e\snapshot-polling.spec.ts:95:3 › league1 starts with SSR lineage and skips the full body when its first revision is unchanged (5.5s)
+  ok  2 [chromium] › e2e\leagues.spec.ts:98:1 › the mobile league selector is first, accessible, and fits every supported phone width (7.4s)
+  ok  5 [chromium] › e2e\snapshot-polling.spec.ts:95:3 › league2 starts with SSR lineage and skips the full body when its first revision is unchanged (2.3s)
+  ok  7 [chromium] › e2e\snapshot-polling.spec.ts:107:3 › active snapshots poll compact metadata every minute without redownloading unchanged content (1.6s)
+  ok  4 [chromium] › e2e\smoke.spec.ts:123:1 › matchups fit supported widths and expanded lineup rows remain 52px (4.6s)
+  ok  8 [chromium] › e2e\snapshot-polling.spec.ts:107:3 › future snapshots poll compact metadata every minute without redownloading unchanged content (1.6s)
+  ok 10 [chromium] › e2e\snapshot-polling.spec.ts:122:1 › hidden pages make no checks, then check immediately when visible; completed pages stop polling (1.5s)
+  ok 11 [chromium] › e2e\snapshot-polling.spec.ts:139:1 › same content advances freshness and changed content preserves expanded cards, team choice, and mobile formatting (1.7s)
+  ok  6 [chromium] › e2e\leagues.spec.ts:127:1 › the shared navigation uses Matchups geometry at every required width in both leagues (7.8s)
+  ok  9 [chromium] › e2e\smoke.spec.ts:178:1 › both standings pages reuse the Matchups title and season layout (5.2s)
+  ok 12 [chromium] › e2e\snapshot-polling.spec.ts:164:1 › publication races retry compact metadata once and never adopt a mismatched requested revision (1.7s)
+  ok 15 [chromium] › e2e\snapshot-polling.spec.ts:185:1 › automatic future failures retain last good data while manual failures use the server fallback (1.6s)
+  ok 16 [chromium] › e2e\snapshot-polling.spec.ts:197:1 › automatic current failures refresh official data (1.6s)
+  ok 17 [chromium] › e2e\snapshot-polling.spec.ts:206:1 › malformed full data cannot replace the future page and does not trigger a route refresh (1.7s)
+  ok 13 [chromium] › e2e\leagues.spec.ts:185:1 › League navigation stays distinct from Standings content and does not resize between sections (6.5s)
+  ok 18 [chromium] › e2e\snapshot-polling.spec.ts:215:1 › a timed-out manual refresh finishes and falls back without leaving the control active (1.7s)
+  ok 19 [chromium] › e2e\leagues.spec.ts:232:1 › switching leagues changes identity, data routes, and every primary tab (2.1s)
+  ok 14 [chromium] › e2e\smoke.spec.ts:286:1 › both standings views share a compact five-column grid at every supported width (8.6s)
+  ok 20 [chromium] › e2e\snapshot-polling.spec.ts:226:1 › hiding during an outstanding request cancels it without triggering fallback (1.7s)
+  ok 21 [chromium] › e2e\leagues.spec.ts:268:1 › selecting the active league preserves the viewed matchup week (1.5s)
+  ok 22 [chromium] › e2e\smoke.spec.ts:410:1 › Standings and Waivers switch locally, support keyboard tabs, and retain independent sorts (1.8s)
+  ok 23 [chromium] › e2e\snapshot-polling.spec.ts:240:1 › a previous league response cannot overwrite the newly selected league at the same week (2.2s)
+  ok 24 [chromium] › e2e\leagues.spec.ts:281:1 › My Team choices remain independent between League One and League Two (2.3s)
+  ok 26 [chromium] › e2e\snapshot-polling.spec.ts:259:1 › a previous week response cannot overwrite a newly selected week in the same league (2.0s)
+  ok 27 [chromium] › e2e\snapshot-polling.spec.ts:275:1 › both real league APIs reject invalid revision tokens with no-store responses (41ms)
+  ok 25 [chromium] › e2e\smoke.spec.ts:472:1 › Rosters stays in League, is exact-week cached, accessible, and responsive (21.7s)
+  ok 28 [chromium] › e2e\smoke.spec.ts:636:1 › league Transactions loads once, filters locally, groups bids compactly, and remains league-isolated (2.7s)
+  ok 29 [chromium] › e2e\smoke.spec.ts:750:1 › league Transactions remains usable without overflow at every supported width (7.4s)
+  ok 30 [chromium] › e2e\smoke.spec.ts:879:1 › league Transactions total failure stays inline while Standings remains usable (1.4s)
+  ok 31 [chromium] › e2e\smoke.spec.ts:892:1 › My Team standings highlighting remains isolated by league and survives reloads (3.7s)
+  ok 32 [chromium] › e2e\smoke.spec.ts:925:1 › both Managers pages reuse the Matchups intro without matchup controls (4.7s)
+  ok 33 [chromium] › e2e\smoke.spec.ts:1028:1 › a matchup exposes scores to assistive technology and expands from the keyboard (3.2s)
+  ok 34 [chromium] › e2e\smoke.spec.ts:1102:1 › week navigation reaches the final week and returns to the prior week (1.9s)
+  ok 35 [chromium] › e2e\smoke.spec.ts:1116:1 › My Team remains selected after a reload (2.5s)
+  ok 36 [chromium] › e2e\smoke.spec.ts:1133:1 › manager transactions remain readable and filtering works when available (1.5s)
+  ok 37 [chromium] › e2e\smoke.spec.ts:1166:1 › the not-found page offers a usable route back to Managers (1.1s)
+  ok 38 [chromium] › e2e\smoke.spec.ts:1177:1 › League Two not-found pages return to League Two Managers (1.2s)
+  ok 39 [chromium] › e2e\smoke.spec.ts:1189:1 › former participant routes return 404 and are never redirected (345ms)
+
+  39 passed (1.5m)
+Chromium browser tests: PASSED
+
+The isolated integration environment exists. The repository harness will now recheck every authorization, identity, role, TLS, sentinel, and production-denylist guard before any reset.
+
+== Isolated Neon integration tests ==
+$ pnpm --filter @l1/site test:integration
+$ node --env-file=.env.integration.local scripts/run-projection-store-integration.mjs
+
+ RUN  v4.1.11 <repair-worktree>/apps/site
+
+{"kind":"isolated-physical-measurement","scope":"34 synthetic entries, divergent profiles, preceding invariant fixtures","unchangedCounts":{"before":{"entries":103,"scores":341,"verifications":12,"observations":10},"after":{"entries":103,"scores":341,"verifications":14,"observations":11}},"physical":[{"relname":"all_player_score_sets","heap_bytes":"40960","index_bytes":"81920","total_bytes":"155648"},{"relname":"all_player_score_verifications","heap_bytes":"32768","index_bytes":"57344","total_bytes":"122880"},{"relname":"all_player_scores","heap_bytes":"114688","index_bytes":"172032","total_bytes":"319488"},{"relname":"all_player_stat_contents","heap_bytes":"16384","index_bytes":"49152","total_bytes":"98304"},{"relname":"all_player_stat_entries","heap_bytes":"90112","index_bytes":"73728","total_bytes":"196608"},{"relname":"all_player_stat_observations","heap_bytes":"8192","index_bytes":"65536","total_bytes":"81920"},{"relname":"official_player_point_observations","heap_bytes":"8192","index_bytes":"16384","total_bytes":"32768"}]}
+{"kind":"retained-partial-capacity-measurement","artifact":"release/011-capacity.partial.integration.json","scenarios":4,"liveProviderRequests":0}
+{"kind":"synthetic-complete-capacity-measurement","artifactPath":"<repair-worktree>\\apps\\site\\release\\011-capacity.synthetic.integration.json","scenarios":11,"syntheticEntryCount":4385,"unchangedRetrievalCount":20,"liveProviderRequests":0,"wallTimeMs":72717.42499999999}
+
+ Test Files  13 passed (13)
+      Tests  200 passed (200)
+   Start at  14:36:07
+   Duration  252.71s (transform 540ms, setup 0ms, import 2.02s, tests 244.63s, environment 1ms)
+
+Isolated Neon integration tests: PASSED
+
+Full Verify completed.

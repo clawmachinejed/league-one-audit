@@ -118,7 +118,7 @@ export function createAllPlayerContextMethods(
         )
         SELECT input.provider, input.entity_kind, input.external_id,
           mapping.scoring_entity_id, entity.kind AS mapped_entity_kind,
-          mapping.mapping_status, mapping.valid_to::text
+          mapping.mapping_status, mapping.valid_from::text, mapping.valid_to::text
         FROM input
         LEFT JOIN external_scoring_entity_ids mapping
           ON mapping.provider = input.provider
@@ -136,6 +136,7 @@ export function createAllPlayerContextMethods(
         mappingStatus: rowNullableText(row, 'mapping_status') as
           | 'verified' | 'unverified' | 'retired' | null,
         validTo: rowNullableText(row, 'valid_to'),
+        validFrom: rowNullableText(row, 'valid_from'),
       }));
     },
 

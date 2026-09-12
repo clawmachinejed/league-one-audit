@@ -135,25 +135,34 @@ export function createIdentityMethods(client: DatabaseClient): IdentityMethods {
         ), existing AS (
           SELECT expanded.ordinal,
             COALESCE(array_agg(DISTINCT mapping.scoring_entity_id)
-              FILTER (WHERE mapping.scoring_entity_id IS NOT NULL), '{}'::uuid[]) AS entity_ids
+              FILTER (WHERE mapping.scoring_entity_id IS NOT NULL), '{}'::uuid[]) AS entity_ids,
+            COALESCE(bool_or(mapping.scoring_entity_id IS NOT NULL AND (
+              mapping.mapping_status <> 'verified' OR mapping.valid_from > statement_timestamp()
+              OR mapping.valid_to <= statement_timestamp() OR entity.kind <> expanded.kind
+            )), false) AS unusable
           FROM expanded
           LEFT JOIN external_scoring_entity_ids mapping
             ON mapping.provider = expanded.provider
             AND mapping.entity_kind = expanded.kind
             AND mapping.external_id = expanded.external_id
+          LEFT JOIN scoring_entities entity ON entity.id = mapping.scoring_entity_id
           GROUP BY expanded.ordinal
-        ), targets AS (
+        ), proposed_targets AS (
           SELECT input.*,
             CASE
               WHEN cardinality(existing.entity_ids) = 1 THEN existing.entity_ids[1]
               ELSE input.proposed_id
             END AS target_id,
-            cardinality(existing.entity_ids) > 1 AS conflict
+            cardinality(existing.entity_ids) > 1 OR existing.unusable AS conflict
           FROM input JOIN existing USING (ordinal)
+        ), targets AS (
+          SELECT proposed_targets.*,
+            count(*) OVER (PARTITION BY target_id) > 1 AS target_collision
+          FROM proposed_targets
         ), upserted_entities AS (
           INSERT INTO scoring_entities (id, kind, display_name, nfl_team)
           SELECT DISTINCT ON (target_id) target_id, kind, display_name, nfl_team
-          FROM targets WHERE NOT conflict
+          FROM targets WHERE NOT conflict AND NOT target_collision
           ORDER BY target_id, ordinal
           ON CONFLICT (id) DO UPDATE SET
             display_name = CASE WHEN EXISTS (
@@ -173,7 +182,7 @@ export function createIdentityMethods(client: DatabaseClient): IdentityMethods {
           FROM expanded
           JOIN targets USING (ordinal)
           JOIN upserted_entities ON upserted_entities.id = targets.target_id
-          WHERE NOT targets.conflict
+          WHERE NOT targets.conflict AND NOT targets.target_collision
           ON CONFLICT (provider, entity_kind, external_id) DO NOTHING
           RETURNING scoring_entity_id
         )
@@ -197,19 +206,29 @@ export function createIdentityMethods(client: DatabaseClient): IdentityMethods {
         ), resolved AS (
           SELECT expanded.ordinal, expanded.input_key, expanded.proposed_id,
             COALESCE(array_agg(DISTINCT mapping.scoring_entity_id)
-              FILTER (WHERE mapping.scoring_entity_id IS NOT NULL), '{}'::uuid[]) AS entity_ids
+              FILTER (WHERE mapping.scoring_entity_id IS NOT NULL), '{}'::uuid[]) AS entity_ids,
+            COALESCE(bool_or(mapping.scoring_entity_id IS NULL
+              OR mapping.mapping_status <> 'verified' OR mapping.valid_from > statement_timestamp()
+              OR mapping.valid_to <= statement_timestamp() OR entity.kind <> expanded.kind
+            ), false) AS unusable
           FROM expanded
           LEFT JOIN external_scoring_entity_ids mapping
             ON mapping.provider = expanded.provider
             AND mapping.entity_kind = expanded.kind
             AND mapping.external_id = expanded.external_id
+          LEFT JOIN scoring_entities entity ON entity.id = mapping.scoring_entity_id
           GROUP BY expanded.ordinal, expanded.input_key, expanded.proposed_id
+        ), validated AS (
+          SELECT resolved.*, cardinality(entity_ids) > 1 OR unusable
+            OR (cardinality(entity_ids) = 1
+              AND count(*) OVER (PARTITION BY entity_ids[1]) > 1) AS conflict
+          FROM resolved
         )
         SELECT input_key,
-          CASE WHEN cardinality(entity_ids) = 1 THEN entity_ids[1] END AS entity_id,
-          cardinality(entity_ids) > 1 AS conflict,
+          CASE WHEN cardinality(entity_ids) = 1 AND NOT conflict THEN entity_ids[1] END AS entity_id,
+          conflict,
           proposed_id
-        FROM resolved ORDER BY ordinal`, [json(prepared)]);
+        FROM validated ORDER BY ordinal`, [json(prepared)]);
 
       const proposedIdsToClean = rows
         .filter((row) => rowNullableText(row, 'entity_id') !== rowText(row, 'proposed_id'))

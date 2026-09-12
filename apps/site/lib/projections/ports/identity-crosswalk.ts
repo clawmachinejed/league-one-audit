@@ -24,6 +24,9 @@ export type IdentityResolutionOutcome<Value> =
 export type ScoringEntityIdentityInput = Readonly<{
   key: string;
   entity: ScoringEntity;
+  /** Official roster/starter identities fail closed; optional catalog projections
+   * may remain unresolved without vetoing unrelated official observations. */
+  requirement?: 'required' | 'optional';
   /** Projection-only placeholders may create identities but never replace richer metadata. */
   preserveExistingMetadata?: boolean;
   /** Primary and alias references that must resolve to one canonical entity. */

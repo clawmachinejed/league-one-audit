@@ -5,6 +5,7 @@ import { startProviderHttp } from './provider-request-telemetry';
 import { stableJson } from './projections/shared/stable-json';
 import { normalizeInjuryStatus } from './injury-status';
 import type { PlayerCatalog, SleeperPlayer } from './transform';
+export { classifySleeperCatalogIdentity, officialPlayerIdentityInventory } from './projections/shared/official-catalog-identity';
 
 const API = 'https://api.sleeper.app/v1';
 // Back off briefly after a catalog failure so an upstream outage does not trigger a large retry on every page request.
@@ -36,12 +37,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-function projectPlayerCatalog(raw: unknown): PlayerCatalogSlice {
+export function projectPlayerCatalog(raw: unknown): PlayerCatalogSlice {
   if (!isRecord(raw)) throw new Error('Sleeper did not return a valid player catalog.');
-  const result: PlayerCatalog = {};
+  const result: PlayerCatalog = Object.create(null) as PlayerCatalog;
   let malformedRowCount = 0;
   for (const [id, value] of Object.entries(raw)) {
-    if (!id.trim() || !isRecord(value)) {
+    if (!id.trim() || id !== id.trim() || !isRecord(value)
+      || (value.player_id !== undefined && value.player_id !== id)) {
       malformedRowCount += 1;
       continue;
     }
@@ -57,6 +59,7 @@ function projectPlayerCatalog(raw: unknown): PlayerCatalogSlice {
       continue;
     }
     const player: SleeperPlayer = {};
+    if (typeof value.player_id === 'string') player.player_id = value.player_id;
     for (const field of ['full_name', 'first_name', 'last_name', 'position', 'team'] as const) {
       if (typeof value[field] === 'string' && value[field].trim()) player[field] = value[field].trim();
     }
@@ -83,14 +86,19 @@ function projectPlayerCatalog(raw: unknown): PlayerCatalogSlice {
 
 // These maps provide request deduplication and a short failure backoff in both
 // Next.js runtimes and the server-only operator process.
-const playerPositionFailures = new Map<FantasyPlayerPosition, number>();
-const playerPositionRequests = new Map<FantasyPlayerPosition, Promise<PlayerCatalogSlice>>();
+type CatalogScope = FantasyPlayerPosition | 'all';
+const playerPositionFailures = new Map<CatalogScope, number>();
+const playerPositionRequests = new Map<CatalogScope, Promise<PlayerCatalogSlice>>();
 
 /** Loads and validates one of the six shared position catalogs without using a
  * framework cache. The website wraps this exact function in Next's daily cache. */
 export async function loadFantasyPlayerPositionCatalog(
   position: FantasyPlayerPosition,
 ): Promise<PlayerCatalogSlice> {
+  return loadPlayerCatalogSlice(position);
+}
+
+async function loadPlayerCatalogSlice(position: CatalogScope): Promise<PlayerCatalogSlice> {
   const failedUntil = playerPositionFailures.get(position);
   if (failedUntil && failedUntil > Date.now()) {
     throw new Error(`Sleeper's ${position} player catalog is in a temporary retry backoff.`);
@@ -100,7 +108,8 @@ export async function loadFantasyPlayerPositionCatalog(
   const activeRequest = playerPositionRequests.get(position);
   if (activeRequest) return activeRequest;
 
-  const path = `/players/nfl?position=${encodeURIComponent(position)}`;
+  const path = position === 'all' ? '/players/nfl'
+    : `/players/nfl?position=${encodeURIComponent(position)}`;
   const request = (async () => {
     const finished = startProviderHttp('sleeper', 'nfl-players', 'bypass');
     let response: Response;
@@ -151,10 +160,19 @@ export async function loadFantasyPlayerCatalog(
   const results = await Promise.allSettled(
     FANTASY_PLAYER_POSITIONS.map((position) => loadPosition(position)),
   );
-  const catalog = Object.assign(
-    {},
-    ...results.flatMap((result) => result.status === 'fulfilled' ? [result.value.catalog] : []),
-  ) as PlayerCatalog;
+  const catalog: PlayerCatalog = {};
+  const conflictingIds = new Set<string>();
+  for (const result of results) {
+    if (result.status !== 'fulfilled') continue;
+    for (const [id, player] of Object.entries(result.value.catalog)) {
+      if (Object.prototype.hasOwnProperty.call(catalog, id)
+        && stableJson(catalog[id]) !== stableJson(player)) conflictingIds.add(id);
+      else Object.defineProperty(catalog, id, { value: player, enumerable: true, configurable: true });
+    }
+  }
+  // Conflicting memberships never select a last-wins identity, even for readers
+  // that deliberately tolerate an incomplete names catalog.
+  for (const id of conflictingIds) delete catalog[id];
   const failedPositions = FANTASY_PLAYER_POSITIONS
     .filter((_, index) => results[index].status === 'rejected');
   const malformedRows = results.reduce((total, result) => (
@@ -172,6 +190,8 @@ export async function loadFantasyPlayerCatalog(
     ? 'Player names and injury designations are temporarily unavailable. Sleeper player IDs are shown where necessary.'
     : failedPositions.length
       ? `Some player names and injury designations are temporarily unavailable (${failedPositions.join(', ')}). Sleeper player IDs are shown where necessary.`
+      : conflictingIds.size > 0
+        ? `Sleeper returned conflicting player catalog identities (${[...conflictingIds].sort().join(', ')}); all-player ingestion is unavailable.`
       : malformedRows > 0
         ? `Sleeper returned ${malformedRows} malformed player catalog row${malformedRows === 1 ? '' : 's'}; all-player ingestion is unavailable until the catalog is complete.`
         : undefined;
@@ -181,4 +201,24 @@ export async function loadFantasyPlayerCatalog(
     ...(warning ? { warning } : {}),
     complete: warning === undefined,
   };
+}
+
+/** All-player operators replace the six filtered requests with one shared bulk
+ * official catalog read. It uses the same loader, validation, telemetry and
+ * cooldown; website reads retain their existing filtered daily cache. */
+export async function loadCompletePlayerCatalog(): Promise<FantasyPlayerCatalog> {
+  try {
+    const slice = await loadPlayerCatalogSlice('all');
+    return {
+      catalog: slice.catalog,
+      sourceRevision: slice.sourceRevision,
+      complete: slice.malformedRowCount === 0,
+      ...(slice.malformedRowCount === 0 ? {} : {
+        warning: `Sleeper returned ${slice.malformedRowCount} malformed official catalog rows; complete identity classification is unavailable.`,
+      }),
+    };
+  } catch {
+    return { catalog: {}, sourceRevision: null, complete: false,
+      warning: 'The complete official player catalog is unavailable.' };
+  }
 }

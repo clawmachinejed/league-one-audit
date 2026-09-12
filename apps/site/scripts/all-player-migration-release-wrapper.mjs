@@ -161,7 +161,7 @@ CREATE TEMP TABLE all_player_release_before ON COMMIT DROP AS
 `;
 }
 
-function tableAssertions(table, expectedOwner, runtimeRole) {
+function tableAssertions(table, expectedOwner, runtimeRole, requireEmpty = true) {
   const [name, columnCount, columnFingerprint, constraintCount, notNullCount,
     constraintFingerprint, indexCount, indexFingerprint, runtimeInsert, ownerOverride] = table;
   const tableName = literal(name);
@@ -225,7 +225,7 @@ function tableAssertions(table, expectedOwner, runtimeRole) {
         'SELECT WITH GRANT OPTION,INSERT WITH GRANT OPTION,UPDATE WITH GRANT OPTION,REFERENCES WITH GRANT OPTION') THEN
     RAISE EXCEPTION 'release assertion failed: ACL ${name}'; END IF;
   EXECUTE 'SELECT count(*) FROM public.' || quote_ident(${tableName}) INTO actual_rows;
-  IF actual_rows <> 0 THEN RAISE EXCEPTION 'release assertion failed: empty table ${name}'; END IF;
+  ${requireEmpty ? `IF actual_rows <> 0 THEN RAISE EXCEPTION 'release assertion failed: empty table ${name}'; END IF;` : ''}
 `;
 }
 
@@ -421,4 +421,134 @@ export function requireAllPlayerMigrationSentinel(rows) {
     throw new Error(`Migration 010 success sentinel is absent or incorrect; expected ${ALL_PLAYER_MIGRATION_SENTINEL}.`);
   }
   return sentinel;
+}
+
+
+/** The 011 catalog must be captured from guarded PostgreSQL 18 integration,
+ * independently reviewed, and bound to the exact migration checksum. Missing
+ * catalog evidence deliberately prevents producing an executable release. */
+export function buildAllPlayerRepairReleaseWrapper({
+  migrationSql, expectedDatabase, expectedOwner, runtimeRole = 'league_one_runtime', manifest,
+}) {
+  const normalizedMigration = normalizeMigrationText(migrationSql);
+  const checksum = releaseWrapperSha256(normalizedMigration);
+  if (!manifest || manifest.migrationName !== '011_all_player_foundation_guards.sql'
+    || manifest.migrationChecksum !== checksum || manifest.postgresMajor !== 18
+    || manifest.reviewed !== true || !manifest.catalog?.tables?.length
+    || !manifest.catalog?.functions?.length || !manifest.catalog?.triggers?.length) {
+    throw new Error('Migration 011 requires its exact independently reviewed PostgreSQL 18 catalog manifest.');
+  }
+  for (const [label, value] of Object.entries({ expectedDatabase, expectedOwner, runtimeRole })) {
+    if (typeof value !== 'string' || !/^[a-z_][a-z0-9_]*$/u.test(value)) {
+      throw new Error(`${label} is not a safe PostgreSQL identifier.`);
+    }
+  }
+  const catalog = manifest.catalog;
+  const tableNames = catalog.tables.map(([name]) => name);
+  const triggerNames = catalog.triggers.map(([name]) => name);
+  const functionNames = [...new Set(catalog.functions.map(([name]) => name))];
+  const expectedMigrations = [...ACCEPTED_PREVIOUS_MIGRATIONS,
+    [ALL_PLAYER_MIGRATION_NAME, ALL_PLAYER_MIGRATION_CHECKSUM]];
+  const ledgerChecks = expectedMigrations.map(([name, hash]) => `
+  IF (SELECT checksum FROM app_schema_migrations WHERE name = ${literal(name)}) IS DISTINCT FROM ${literal(hash)}
+    THEN RAISE EXCEPTION 'release assertion failed: previous migration ${name}'; END IF;`).join('');
+  const declared = `actual_count integer; actual_not_null_count integer; actual_rows bigint;
+  actual_fingerprint text; actual_table_owner text; actual_function_owner text;
+  actual_public_execute boolean; actual_runtime_execute boolean; actual_public_grant_execute boolean;
+  actual_runtime_grant_execute boolean; before_catalog jsonb; after_catalog jsonb;`;
+  const beforeChecks = REVIEWED_ALL_PLAYER_CATALOG.tables.map((table) =>
+    tableAssertions(table, expectedOwner, runtimeRole, false)).join('')
+    + REVIEWED_ALL_PLAYER_CATALOG.triggers.map((trigger) => triggerAssertions(trigger, expectedOwner)).join('')
+    + REVIEWED_ALL_PLAYER_CATALOG.functions.map((fn) => functionAssertions(fn, expectedOwner, runtimeRole)).join('');
+  const exactObjectChecks = (expected, label) => `
+  IF (SELECT count(*) FROM pg_class relation WHERE relation.relnamespace = 'public'::regnamespace
+      AND relation.relkind = 'r'
+      AND (relation.relname LIKE 'all_player_%' OR relation.relname = 'current_all_player_score_sets'))
+      <> ${expected.tables.length}
+    THEN RAISE EXCEPTION 'release assertion failed: exact ${label} table set'; END IF;
+  IF (SELECT count(*) FROM pg_trigger trigger_record
+      JOIN pg_class relation ON relation.oid = trigger_record.tgrelid
+      JOIN pg_proc function_record ON function_record.oid = trigger_record.tgfoid
+      WHERE relation.relnamespace = 'public'::regnamespace AND NOT trigger_record.tgisinternal
+        AND (trigger_record.tgname LIKE '%all_player%' OR function_record.proname LIKE '%all_player%'))
+      <> ${expected.triggers.length}
+    THEN RAISE EXCEPTION 'release assertion failed: exact ${label} trigger set'; END IF;
+  IF (SELECT count(*) FROM pg_proc function_record
+      WHERE function_record.pronamespace = 'public'::regnamespace
+        AND function_record.proname LIKE '%all_player%') <> ${expected.functions.length}
+    THEN RAISE EXCEPTION 'release assertion failed: exact ${label} function set'; END IF;`;
+  const afterChecks = catalog.tables.map((table) => tableAssertions(table, expectedOwner, runtimeRole,
+    table[0] === 'all_player_score_verifications')).join('')
+    + catalog.triggers.map((trigger) => triggerAssertions(trigger, expectedOwner)).join('')
+    + catalog.functions.map((fn) => functionAssertions(fn, expectedOwner, runtimeRole)).join('');
+  const constraintChecks = catalog.constraintTypes.map(([type, count]) => `
+  IF (SELECT count(*) FROM pg_constraint c JOIN pg_class t ON t.oid = c.conrelid
+    WHERE t.relnamespace = 'public'::regnamespace AND t.relname = ANY(${sqlArray(tableNames)})
+      AND c.contype = ${literal(type)}) <> ${count}
+    THEN RAISE EXCEPTION 'release assertion failed: PostgreSQL 18 constraint type ${type}'; END IF;`).join('');
+  const unaffectedChecks = ['schemas','tables','columns','constraints','indexes','triggers','functions',
+    'roles','memberships','default_privileges'].map((key) => `
+  IF before_catalog->>${literal(key)} IS DISTINCT FROM after_catalog->>${literal(key)}
+    THEN RAISE EXCEPTION 'release assertion failed: unrelated ${key} changed'; END IF;`).join('');
+  const sentinel = `ALL_PLAYER_REPAIR_APPLIED:011_all_player_foundation_guards.sql:${checksum}`;
+  return normalizeMigrationText(`-- Reviewed additive all-player repair; never apply migration 010 again.
+BEGIN;
+SET LOCAL lock_timeout = '5s';
+SET LOCAL statement_timeout = '120s';
+SELECT pg_advisory_xact_lock(hashtext('league-one-schema-migrations'));
+-- Old period-scoped job claims do not use the migration advisory lock. Hold
+-- their ordinary row mutations until the ownership check and install commit.
+LOCK TABLE public.projection_jobs IN SHARE ROW EXCLUSIVE MODE;
+DO $repair_before$
+DECLARE ${declared}
+BEGIN
+  IF current_database() <> ${literal(expectedDatabase)} OR current_user <> ${literal(expectedOwner)}
+    THEN RAISE EXCEPTION 'release assertion failed: database or owner identity'; END IF;
+  IF current_setting('server_version_num')::integer NOT BETWEEN 180000 AND 189999
+    THEN RAISE EXCEPTION 'release assertion failed: reviewed PostgreSQL 18 required'; END IF;
+  IF (SELECT count(*) FROM app_schema_migrations) <> 10
+    THEN RAISE EXCEPTION 'release assertion failed: expected exactly migrations 001-010'; END IF;
+  ${ledgerChecks}
+  IF EXISTS (SELECT 1 FROM pg_roles role WHERE role.rolname <> ${literal(runtimeRole)}
+      AND pg_has_role(${literal(runtimeRole)},role.oid,'SET'))
+    THEN RAISE EXCEPTION 'release assertion failed: runtime role can assume another role'; END IF;
+  IF EXISTS (SELECT 1 FROM projection_jobs WHERE job_type = 'all-player-ingestion'
+      AND state = 'running' AND lease_until > clock_timestamp())
+    THEN RAISE EXCEPTION 'release assertion failed: all-player owner is active'; END IF;
+  ${beforeChecks}
+  ${exactObjectChecks(REVIEWED_ALL_PLAYER_CATALOG, 'migration 010')}
+END; $repair_before$;
+${unaffectedCatalogFunction(tableNames, triggerNames, functionNames)}
+CREATE TEMP TABLE all_player_repair_before_counts ON COMMIT DROP AS
+  SELECT 'all_player_stat_contents' AS name,count(*) AS rows FROM all_player_stat_contents UNION ALL
+  SELECT 'all_player_stat_entries',count(*) FROM all_player_stat_entries UNION ALL
+  SELECT 'all_player_stat_observations',count(*) FROM all_player_stat_observations UNION ALL
+  SELECT 'all_player_score_sets',count(*) FROM all_player_score_sets UNION ALL
+  SELECT 'all_player_scores',count(*) FROM all_player_scores UNION ALL
+  SELECT 'current_all_player_score_sets',count(*) FROM current_all_player_score_sets;
+${normalizedMigration.trimEnd()}
+INSERT INTO app_schema_migrations(name,checksum)
+  VALUES ('011_all_player_foundation_guards.sql',${literal(checksum)});
+DO $repair_after$
+DECLARE ${declared} old_count record;
+BEGIN
+  ${ledgerChecks}
+  ${afterChecks}
+  ${exactObjectChecks(catalog, 'migration 011')}
+  ${constraintChecks}
+  IF (SELECT count(*) FROM app_schema_migrations) <> 11
+    THEN RAISE EXCEPTION 'release assertion failed: migration ledger count'; END IF;
+  IF (SELECT checksum FROM app_schema_migrations WHERE name = '011_all_player_foundation_guards.sql')
+    IS DISTINCT FROM ${literal(checksum)} THEN RAISE EXCEPTION 'release assertion failed: 011 checksum'; END IF;
+  FOR old_count IN SELECT * FROM all_player_repair_before_counts LOOP
+    EXECUTE format('SELECT count(*) FROM public.%I',old_count.name) INTO actual_rows;
+    IF actual_rows <> old_count.rows THEN RAISE EXCEPTION 'release assertion failed: history count changed'; END IF;
+  END LOOP;
+  SELECT fingerprint INTO STRICT before_catalog FROM all_player_release_before;
+  after_catalog := pg_temp.all_player_release_unaffected_catalog();
+  ${unaffectedChecks}
+END; $repair_after$;
+COMMIT;
+SELECT ${literal(sentinel)} AS success_sentinel;
+`);
 }

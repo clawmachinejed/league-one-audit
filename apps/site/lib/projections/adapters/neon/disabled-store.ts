@@ -69,6 +69,12 @@ export function createDisabledProjectionStore(): ProjectionStore {
     async recordAllPlayerBatch() {
       return { kind: 'disabled' };
     },
+    async acquireAllPlayerJob() { return { kind: 'disabled' }; },
+    async readAllPlayerJobState() { return null; },
+    async validateAllPlayerJobFence() { return false; },
+    async markAllPlayerRequest() { return false; },
+    async finishAllPlayerJob() { return false; },
+    async recordAllPlayerPreclaimOutcome() { return 'disabled'; },
     async readAllPlayerLeagueProfiles() { return []; },
     async readAllPlayerIdentityMappings() { return []; },
     async readAllPlayerGameContext() { return []; },

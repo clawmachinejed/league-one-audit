@@ -1,0 +1,1898 @@
+{
+  "kind": "retained-partial-capacity-measurement",
+  "measuredAt": "2026-09-12T18:37:01.789Z",
+  "sourcePeriod": {
+    "season": 2026,
+    "seasonType": "reg",
+    "week": 1
+  },
+  "classification": "actual retained incomplete observation; separately labelled synthetic numeric correction",
+  "initialPhysical": [
+    {
+      "relname": "all_player_score_sets",
+      "heap_bytes": "40960",
+      "index_bytes": "81920",
+      "toast_heap_bytes": "0",
+      "toast_index_bytes": "8192",
+      "total_bytes": "155648"
+    },
+    {
+      "relname": "all_player_score_verifications",
+      "heap_bytes": "32768",
+      "index_bytes": "57344",
+      "toast_heap_bytes": "0",
+      "toast_index_bytes": "8192",
+      "total_bytes": "122880"
+    },
+    {
+      "relname": "all_player_scores",
+      "heap_bytes": "114688",
+      "index_bytes": "172032",
+      "toast_heap_bytes": "0",
+      "toast_index_bytes": "8192",
+      "total_bytes": "319488"
+    },
+    {
+      "relname": "all_player_stat_contents",
+      "heap_bytes": "16384",
+      "index_bytes": "49152",
+      "toast_heap_bytes": "0",
+      "toast_index_bytes": "8192",
+      "total_bytes": "98304"
+    },
+    {
+      "relname": "all_player_stat_entries",
+      "heap_bytes": "90112",
+      "index_bytes": "73728",
+      "toast_heap_bytes": "0",
+      "toast_index_bytes": "8192",
+      "total_bytes": "196608"
+    },
+    {
+      "relname": "all_player_stat_observations",
+      "heap_bytes": "8192",
+      "index_bytes": "65536",
+      "toast_heap_bytes": "0",
+      "toast_index_bytes": "8192",
+      "total_bytes": "81920"
+    },
+    {
+      "relname": "current_all_player_score_sets",
+      "heap_bytes": "8192",
+      "index_bytes": "16384",
+      "toast_heap_bytes": "0",
+      "toast_index_bytes": "8192",
+      "total_bytes": "32768"
+    },
+    {
+      "relname": "external_game_ids",
+      "heap_bytes": "8192",
+      "index_bytes": "32768",
+      "toast_heap_bytes": "0",
+      "toast_index_bytes": "8192",
+      "total_bytes": "49152"
+    },
+    {
+      "relname": "external_scoring_entity_ids",
+      "heap_bytes": "8192",
+      "index_bytes": "32768",
+      "toast_heap_bytes": "0",
+      "toast_index_bytes": "8192",
+      "total_bytes": "49152"
+    },
+    {
+      "relname": "league_period_authorities",
+      "heap_bytes": "8192",
+      "index_bytes": "32768",
+      "toast_heap_bytes": "0",
+      "toast_index_bytes": "8192",
+      "total_bytes": "49152"
+    },
+    {
+      "relname": "league_seasons",
+      "heap_bytes": "8192",
+      "index_bytes": "32768",
+      "toast_heap_bytes": "0",
+      "toast_index_bytes": "0",
+      "total_bytes": "40960"
+    },
+    {
+      "relname": "league_source_connections",
+      "heap_bytes": "8192",
+      "index_bytes": "32768",
+      "toast_heap_bytes": "0",
+      "toast_index_bytes": "8192",
+      "total_bytes": "49152"
+    },
+    {
+      "relname": "league_week_observations",
+      "heap_bytes": "16384",
+      "index_bytes": "81920",
+      "toast_heap_bytes": "0",
+      "toast_index_bytes": "8192",
+      "total_bytes": "131072"
+    },
+    {
+      "relname": "leagues",
+      "heap_bytes": "8192",
+      "index_bytes": "32768",
+      "toast_heap_bytes": "0",
+      "toast_index_bytes": "8192",
+      "total_bytes": "49152"
+    },
+    {
+      "relname": "nfl_games",
+      "heap_bytes": "8192",
+      "index_bytes": "32768",
+      "toast_heap_bytes": "0",
+      "toast_index_bytes": "8192",
+      "total_bytes": "49152"
+    },
+    {
+      "relname": "official_player_point_observations",
+      "heap_bytes": "8192",
+      "index_bytes": "16384",
+      "toast_heap_bytes": "0",
+      "toast_index_bytes": "8192",
+      "total_bytes": "32768"
+    },
+    {
+      "relname": "official_roster_point_observations",
+      "heap_bytes": "8192",
+      "index_bytes": "16384",
+      "toast_heap_bytes": "0",
+      "toast_index_bytes": "8192",
+      "total_bytes": "32768"
+    },
+    {
+      "relname": "projection_jobs",
+      "heap_bytes": "16384",
+      "index_bytes": "49152",
+      "toast_heap_bytes": "0",
+      "toast_index_bytes": "8192",
+      "total_bytes": "98304"
+    },
+    {
+      "relname": "scoring_entities",
+      "heap_bytes": "8192",
+      "index_bytes": "16384",
+      "toast_heap_bytes": "0",
+      "toast_index_bytes": "8192",
+      "total_bytes": "32768"
+    },
+    {
+      "relname": "scoring_profiles",
+      "heap_bytes": "8192",
+      "index_bytes": "32768",
+      "toast_heap_bytes": "0",
+      "toast_index_bytes": "8192",
+      "total_bytes": "49152"
+    }
+  ],
+  "initialTransport": {
+    "statements": 2,
+    "sqlTextBytes": 259,
+    "parameterJsonBytes": 386,
+    "decodedResultJsonBytes": 168,
+    "statementWallTimeMs": 71.47119999999995
+  },
+  "providerReplayCount": 2,
+  "liveProviderRequests": 0,
+  "providerInboundBytesPerReplay": 63989,
+  "scenarios": [
+    {
+      "scenario": "actual-retained-partial-first",
+      "materialHash": "e9cb5d476e70d4a78fac039b3f897596a850e6f44d2eaa1be1208955171e812e",
+      "before": {
+        "physical": [
+          {
+            "relname": "all_player_score_sets",
+            "heap_bytes": "40960",
+            "index_bytes": "81920",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "155648"
+          },
+          {
+            "relname": "all_player_score_verifications",
+            "heap_bytes": "32768",
+            "index_bytes": "57344",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "122880"
+          },
+          {
+            "relname": "all_player_scores",
+            "heap_bytes": "114688",
+            "index_bytes": "172032",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "319488"
+          },
+          {
+            "relname": "all_player_stat_contents",
+            "heap_bytes": "16384",
+            "index_bytes": "49152",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "98304"
+          },
+          {
+            "relname": "all_player_stat_entries",
+            "heap_bytes": "90112",
+            "index_bytes": "73728",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "196608"
+          },
+          {
+            "relname": "all_player_stat_observations",
+            "heap_bytes": "8192",
+            "index_bytes": "65536",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "81920"
+          },
+          {
+            "relname": "current_all_player_score_sets",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "external_game_ids",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          },
+          {
+            "relname": "external_scoring_entity_ids",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          },
+          {
+            "relname": "league_period_authorities",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          },
+          {
+            "relname": "league_seasons",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "0",
+            "total_bytes": "40960"
+          },
+          {
+            "relname": "league_source_connections",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          },
+          {
+            "relname": "league_week_observations",
+            "heap_bytes": "16384",
+            "index_bytes": "81920",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "131072"
+          },
+          {
+            "relname": "leagues",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          },
+          {
+            "relname": "nfl_games",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          },
+          {
+            "relname": "official_player_point_observations",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "official_roster_point_observations",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "projection_jobs",
+            "heap_bytes": "16384",
+            "index_bytes": "49152",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "98304"
+          },
+          {
+            "relname": "scoring_entities",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "scoring_profiles",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          }
+        ],
+        "counts": {
+          "contents": 4,
+          "entries": 103,
+          "observations": 11,
+          "score_sets": 14,
+          "scores": 341,
+          "verifications": 14,
+          "pointers": [
+            {
+              "week": 1,
+              "season": 2199,
+              "provider": "sleeper",
+              "observed_at": "2026-09-15T00:13:01+00:00",
+              "season_type": "reg",
+              "verified_at": "2026-09-15T00:13:01+00:00",
+              "scorer_version": "sleeper-actual-v1",
+              "scoring_profile_id": "4b8d9042-78db-4c29-9e1b-aeea15de0336",
+              "material_changed_at": "2026-09-15T00:02:01+00:00",
+              "all_player_score_set_id": "100e3f8f-b990-5001-9db5-9789e7688ec7",
+              "all_player_stat_observation_id": "62c0db0d-31a2-538f-ada9-70bf8572324c"
+            },
+            {
+              "week": 1,
+              "season": 2199,
+              "provider": "sleeper",
+              "observed_at": "2026-09-15T00:13:01+00:00",
+              "season_type": "reg",
+              "verified_at": "2026-09-15T00:13:01+00:00",
+              "scorer_version": "sleeper-actual-v1",
+              "scoring_profile_id": "8c802a63-bc1d-4898-ac1f-5df9fbca3e03",
+              "material_changed_at": "2026-09-15T00:02:01+00:00",
+              "all_player_score_set_id": "0f24b145-8e7b-5421-ae7c-5eb45961de79",
+              "all_player_stat_observation_id": "62c0db0d-31a2-538f-ada9-70bf8572324c"
+            }
+          ]
+        },
+        "transport": {
+          "statements": 4,
+          "sqlTextBytes": 10384,
+          "parameterJsonBytes": 12298,
+          "decodedResultJsonBytes": 6362,
+          "statementWallTimeMs": 153.8800999999985
+        }
+      },
+      "after": {
+        "physical": [
+          {
+            "relname": "all_player_score_sets",
+            "heap_bytes": "40960",
+            "index_bytes": "81920",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "155648"
+          },
+          {
+            "relname": "all_player_score_verifications",
+            "heap_bytes": "32768",
+            "index_bytes": "57344",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "122880"
+          },
+          {
+            "relname": "all_player_scores",
+            "heap_bytes": "114688",
+            "index_bytes": "172032",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "319488"
+          },
+          {
+            "relname": "all_player_stat_contents",
+            "heap_bytes": "16384",
+            "index_bytes": "49152",
+            "toast_heap_bytes": "32768",
+            "toast_index_bytes": "16384",
+            "total_bytes": "163840"
+          },
+          {
+            "relname": "all_player_stat_entries",
+            "heap_bytes": "1204224",
+            "index_bytes": "843776",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "2080768"
+          },
+          {
+            "relname": "all_player_stat_observations",
+            "heap_bytes": "8192",
+            "index_bytes": "65536",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "81920"
+          },
+          {
+            "relname": "current_all_player_score_sets",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "external_game_ids",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          },
+          {
+            "relname": "external_scoring_entity_ids",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          },
+          {
+            "relname": "league_period_authorities",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          },
+          {
+            "relname": "league_seasons",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "0",
+            "total_bytes": "40960"
+          },
+          {
+            "relname": "league_source_connections",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          },
+          {
+            "relname": "league_week_observations",
+            "heap_bytes": "16384",
+            "index_bytes": "81920",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "131072"
+          },
+          {
+            "relname": "leagues",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          },
+          {
+            "relname": "nfl_games",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          },
+          {
+            "relname": "official_player_point_observations",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "official_roster_point_observations",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "projection_jobs",
+            "heap_bytes": "16384",
+            "index_bytes": "49152",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "98304"
+          },
+          {
+            "relname": "scoring_entities",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "scoring_profiles",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          }
+        ],
+        "counts": {
+          "contents": 5,
+          "entries": 4488,
+          "observations": 12,
+          "score_sets": 14,
+          "scores": 341,
+          "verifications": 14,
+          "pointers": [
+            {
+              "week": 1,
+              "season": 2199,
+              "provider": "sleeper",
+              "observed_at": "2026-09-15T00:13:01+00:00",
+              "season_type": "reg",
+              "verified_at": "2026-09-15T00:13:01+00:00",
+              "scorer_version": "sleeper-actual-v1",
+              "scoring_profile_id": "4b8d9042-78db-4c29-9e1b-aeea15de0336",
+              "material_changed_at": "2026-09-15T00:02:01+00:00",
+              "all_player_score_set_id": "100e3f8f-b990-5001-9db5-9789e7688ec7",
+              "all_player_stat_observation_id": "62c0db0d-31a2-538f-ada9-70bf8572324c"
+            },
+            {
+              "week": 1,
+              "season": 2199,
+              "provider": "sleeper",
+              "observed_at": "2026-09-15T00:13:01+00:00",
+              "season_type": "reg",
+              "verified_at": "2026-09-15T00:13:01+00:00",
+              "scorer_version": "sleeper-actual-v1",
+              "scoring_profile_id": "8c802a63-bc1d-4898-ac1f-5df9fbca3e03",
+              "material_changed_at": "2026-09-15T00:02:01+00:00",
+              "all_player_score_set_id": "0f24b145-8e7b-5421-ae7c-5eb45961de79",
+              "all_player_stat_observation_id": "62c0db0d-31a2-538f-ada9-70bf8572324c"
+            }
+          ]
+        },
+        "transport": {
+          "statements": 5,
+          "sqlTextBytes": 22618,
+          "parameterJsonBytes": 1949456,
+          "decodedResultJsonBytes": 6611,
+          "statementWallTimeMs": 3069.1443999999974
+        }
+      },
+      "result": {
+        "statContentId": "1b14a57b-9abb-59ac-b1ec-dffee12e7992",
+        "statObservationId": "6830b336-86f2-50f5-958a-0e78963e764a",
+        "semanticHash": "e9cb5d476e70d4a78fac039b3f897596a850e6f44d2eaa1be1208955171e812e",
+        "entriesStored": 4385,
+        "entryCount": 4385,
+        "scoreSets": []
+      }
+    },
+    {
+      "scenario": "exact-replay",
+      "materialHash": "e9cb5d476e70d4a78fac039b3f897596a850e6f44d2eaa1be1208955171e812e",
+      "before": {
+        "physical": [
+          {
+            "relname": "all_player_score_sets",
+            "heap_bytes": "40960",
+            "index_bytes": "81920",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "155648"
+          },
+          {
+            "relname": "all_player_score_verifications",
+            "heap_bytes": "32768",
+            "index_bytes": "57344",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "122880"
+          },
+          {
+            "relname": "all_player_scores",
+            "heap_bytes": "114688",
+            "index_bytes": "172032",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "319488"
+          },
+          {
+            "relname": "all_player_stat_contents",
+            "heap_bytes": "16384",
+            "index_bytes": "49152",
+            "toast_heap_bytes": "32768",
+            "toast_index_bytes": "16384",
+            "total_bytes": "163840"
+          },
+          {
+            "relname": "all_player_stat_entries",
+            "heap_bytes": "1204224",
+            "index_bytes": "843776",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "2080768"
+          },
+          {
+            "relname": "all_player_stat_observations",
+            "heap_bytes": "8192",
+            "index_bytes": "65536",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "81920"
+          },
+          {
+            "relname": "current_all_player_score_sets",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "external_game_ids",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          },
+          {
+            "relname": "external_scoring_entity_ids",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          },
+          {
+            "relname": "league_period_authorities",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          },
+          {
+            "relname": "league_seasons",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "0",
+            "total_bytes": "40960"
+          },
+          {
+            "relname": "league_source_connections",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          },
+          {
+            "relname": "league_week_observations",
+            "heap_bytes": "16384",
+            "index_bytes": "81920",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "131072"
+          },
+          {
+            "relname": "leagues",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          },
+          {
+            "relname": "nfl_games",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          },
+          {
+            "relname": "official_player_point_observations",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "official_roster_point_observations",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "projection_jobs",
+            "heap_bytes": "16384",
+            "index_bytes": "49152",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "98304"
+          },
+          {
+            "relname": "scoring_entities",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "scoring_profiles",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          }
+        ],
+        "counts": {
+          "contents": 5,
+          "entries": 4488,
+          "observations": 12,
+          "score_sets": 14,
+          "scores": 341,
+          "verifications": 14,
+          "pointers": [
+            {
+              "week": 1,
+              "season": 2199,
+              "provider": "sleeper",
+              "observed_at": "2026-09-15T00:13:01+00:00",
+              "season_type": "reg",
+              "verified_at": "2026-09-15T00:13:01+00:00",
+              "scorer_version": "sleeper-actual-v1",
+              "scoring_profile_id": "4b8d9042-78db-4c29-9e1b-aeea15de0336",
+              "material_changed_at": "2026-09-15T00:02:01+00:00",
+              "all_player_score_set_id": "100e3f8f-b990-5001-9db5-9789e7688ec7",
+              "all_player_stat_observation_id": "62c0db0d-31a2-538f-ada9-70bf8572324c"
+            },
+            {
+              "week": 1,
+              "season": 2199,
+              "provider": "sleeper",
+              "observed_at": "2026-09-15T00:13:01+00:00",
+              "season_type": "reg",
+              "verified_at": "2026-09-15T00:13:01+00:00",
+              "scorer_version": "sleeper-actual-v1",
+              "scoring_profile_id": "8c802a63-bc1d-4898-ac1f-5df9fbca3e03",
+              "material_changed_at": "2026-09-15T00:02:01+00:00",
+              "all_player_score_set_id": "0f24b145-8e7b-5421-ae7c-5eb45961de79",
+              "all_player_stat_observation_id": "62c0db0d-31a2-538f-ada9-70bf8572324c"
+            }
+          ]
+        },
+        "transport": {
+          "statements": 5,
+          "sqlTextBytes": 22618,
+          "parameterJsonBytes": 1949456,
+          "decodedResultJsonBytes": 6611,
+          "statementWallTimeMs": 3069.1443999999974
+        }
+      },
+      "after": {
+        "physical": [
+          {
+            "relname": "all_player_score_sets",
+            "heap_bytes": "40960",
+            "index_bytes": "81920",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "155648"
+          },
+          {
+            "relname": "all_player_score_verifications",
+            "heap_bytes": "32768",
+            "index_bytes": "57344",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "122880"
+          },
+          {
+            "relname": "all_player_scores",
+            "heap_bytes": "114688",
+            "index_bytes": "172032",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "319488"
+          },
+          {
+            "relname": "all_player_stat_contents",
+            "heap_bytes": "16384",
+            "index_bytes": "49152",
+            "toast_heap_bytes": "32768",
+            "toast_index_bytes": "16384",
+            "total_bytes": "163840"
+          },
+          {
+            "relname": "all_player_stat_entries",
+            "heap_bytes": "1204224",
+            "index_bytes": "843776",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "2080768"
+          },
+          {
+            "relname": "all_player_stat_observations",
+            "heap_bytes": "8192",
+            "index_bytes": "65536",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "81920"
+          },
+          {
+            "relname": "current_all_player_score_sets",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "external_game_ids",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          },
+          {
+            "relname": "external_scoring_entity_ids",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          },
+          {
+            "relname": "league_period_authorities",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          },
+          {
+            "relname": "league_seasons",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "0",
+            "total_bytes": "40960"
+          },
+          {
+            "relname": "league_source_connections",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          },
+          {
+            "relname": "league_week_observations",
+            "heap_bytes": "16384",
+            "index_bytes": "81920",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "131072"
+          },
+          {
+            "relname": "leagues",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          },
+          {
+            "relname": "nfl_games",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          },
+          {
+            "relname": "official_player_point_observations",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "official_roster_point_observations",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "projection_jobs",
+            "heap_bytes": "16384",
+            "index_bytes": "49152",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "98304"
+          },
+          {
+            "relname": "scoring_entities",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "scoring_profiles",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          }
+        ],
+        "counts": {
+          "contents": 5,
+          "entries": 4488,
+          "observations": 12,
+          "score_sets": 14,
+          "scores": 341,
+          "verifications": 14,
+          "pointers": [
+            {
+              "week": 1,
+              "season": 2199,
+              "provider": "sleeper",
+              "observed_at": "2026-09-15T00:13:01+00:00",
+              "season_type": "reg",
+              "verified_at": "2026-09-15T00:13:01+00:00",
+              "scorer_version": "sleeper-actual-v1",
+              "scoring_profile_id": "4b8d9042-78db-4c29-9e1b-aeea15de0336",
+              "material_changed_at": "2026-09-15T00:02:01+00:00",
+              "all_player_score_set_id": "100e3f8f-b990-5001-9db5-9789e7688ec7",
+              "all_player_stat_observation_id": "62c0db0d-31a2-538f-ada9-70bf8572324c"
+            },
+            {
+              "week": 1,
+              "season": 2199,
+              "provider": "sleeper",
+              "observed_at": "2026-09-15T00:13:01+00:00",
+              "season_type": "reg",
+              "verified_at": "2026-09-15T00:13:01+00:00",
+              "scorer_version": "sleeper-actual-v1",
+              "scoring_profile_id": "8c802a63-bc1d-4898-ac1f-5df9fbca3e03",
+              "material_changed_at": "2026-09-15T00:02:01+00:00",
+              "all_player_score_set_id": "0f24b145-8e7b-5421-ae7c-5eb45961de79",
+              "all_player_stat_observation_id": "62c0db0d-31a2-538f-ada9-70bf8572324c"
+            }
+          ]
+        },
+        "transport": {
+          "statements": 6,
+          "sqlTextBytes": 34852,
+          "parameterJsonBytes": 3886614,
+          "decodedResultJsonBytes": 6857,
+          "statementWallTimeMs": 5878.988599999997
+        }
+      },
+      "result": {
+        "statContentId": "1b14a57b-9abb-59ac-b1ec-dffee12e7992",
+        "statObservationId": "6830b336-86f2-50f5-958a-0e78963e764a",
+        "semanticHash": "e9cb5d476e70d4a78fac039b3f897596a850e6f44d2eaa1be1208955171e812e",
+        "entriesStored": 0,
+        "entryCount": 4385,
+        "scoreSets": []
+      }
+    },
+    {
+      "scenario": "actual-adapter-later-unchanged",
+      "materialHash": "e9cb5d476e70d4a78fac039b3f897596a850e6f44d2eaa1be1208955171e812e",
+      "before": {
+        "physical": [
+          {
+            "relname": "all_player_score_sets",
+            "heap_bytes": "40960",
+            "index_bytes": "81920",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "155648"
+          },
+          {
+            "relname": "all_player_score_verifications",
+            "heap_bytes": "32768",
+            "index_bytes": "57344",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "122880"
+          },
+          {
+            "relname": "all_player_scores",
+            "heap_bytes": "114688",
+            "index_bytes": "172032",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "319488"
+          },
+          {
+            "relname": "all_player_stat_contents",
+            "heap_bytes": "16384",
+            "index_bytes": "49152",
+            "toast_heap_bytes": "32768",
+            "toast_index_bytes": "16384",
+            "total_bytes": "163840"
+          },
+          {
+            "relname": "all_player_stat_entries",
+            "heap_bytes": "1204224",
+            "index_bytes": "843776",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "2080768"
+          },
+          {
+            "relname": "all_player_stat_observations",
+            "heap_bytes": "8192",
+            "index_bytes": "65536",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "81920"
+          },
+          {
+            "relname": "current_all_player_score_sets",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "external_game_ids",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          },
+          {
+            "relname": "external_scoring_entity_ids",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          },
+          {
+            "relname": "league_period_authorities",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          },
+          {
+            "relname": "league_seasons",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "0",
+            "total_bytes": "40960"
+          },
+          {
+            "relname": "league_source_connections",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          },
+          {
+            "relname": "league_week_observations",
+            "heap_bytes": "16384",
+            "index_bytes": "81920",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "131072"
+          },
+          {
+            "relname": "leagues",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          },
+          {
+            "relname": "nfl_games",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          },
+          {
+            "relname": "official_player_point_observations",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "official_roster_point_observations",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "projection_jobs",
+            "heap_bytes": "16384",
+            "index_bytes": "49152",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "98304"
+          },
+          {
+            "relname": "scoring_entities",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "scoring_profiles",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          }
+        ],
+        "counts": {
+          "contents": 5,
+          "entries": 4488,
+          "observations": 12,
+          "score_sets": 14,
+          "scores": 341,
+          "verifications": 14,
+          "pointers": [
+            {
+              "week": 1,
+              "season": 2199,
+              "provider": "sleeper",
+              "observed_at": "2026-09-15T00:13:01+00:00",
+              "season_type": "reg",
+              "verified_at": "2026-09-15T00:13:01+00:00",
+              "scorer_version": "sleeper-actual-v1",
+              "scoring_profile_id": "4b8d9042-78db-4c29-9e1b-aeea15de0336",
+              "material_changed_at": "2026-09-15T00:02:01+00:00",
+              "all_player_score_set_id": "100e3f8f-b990-5001-9db5-9789e7688ec7",
+              "all_player_stat_observation_id": "62c0db0d-31a2-538f-ada9-70bf8572324c"
+            },
+            {
+              "week": 1,
+              "season": 2199,
+              "provider": "sleeper",
+              "observed_at": "2026-09-15T00:13:01+00:00",
+              "season_type": "reg",
+              "verified_at": "2026-09-15T00:13:01+00:00",
+              "scorer_version": "sleeper-actual-v1",
+              "scoring_profile_id": "8c802a63-bc1d-4898-ac1f-5df9fbca3e03",
+              "material_changed_at": "2026-09-15T00:02:01+00:00",
+              "all_player_score_set_id": "0f24b145-8e7b-5421-ae7c-5eb45961de79",
+              "all_player_stat_observation_id": "62c0db0d-31a2-538f-ada9-70bf8572324c"
+            }
+          ]
+        },
+        "transport": {
+          "statements": 6,
+          "sqlTextBytes": 34852,
+          "parameterJsonBytes": 3886614,
+          "decodedResultJsonBytes": 6857,
+          "statementWallTimeMs": 5878.988599999997
+        }
+      },
+      "after": {
+        "physical": [
+          {
+            "relname": "all_player_score_sets",
+            "heap_bytes": "40960",
+            "index_bytes": "81920",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "155648"
+          },
+          {
+            "relname": "all_player_score_verifications",
+            "heap_bytes": "32768",
+            "index_bytes": "57344",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "122880"
+          },
+          {
+            "relname": "all_player_scores",
+            "heap_bytes": "114688",
+            "index_bytes": "172032",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "319488"
+          },
+          {
+            "relname": "all_player_stat_contents",
+            "heap_bytes": "16384",
+            "index_bytes": "49152",
+            "toast_heap_bytes": "32768",
+            "toast_index_bytes": "16384",
+            "total_bytes": "163840"
+          },
+          {
+            "relname": "all_player_stat_entries",
+            "heap_bytes": "1204224",
+            "index_bytes": "843776",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "2080768"
+          },
+          {
+            "relname": "all_player_stat_observations",
+            "heap_bytes": "8192",
+            "index_bytes": "65536",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "81920"
+          },
+          {
+            "relname": "current_all_player_score_sets",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "external_game_ids",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          },
+          {
+            "relname": "external_scoring_entity_ids",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          },
+          {
+            "relname": "league_period_authorities",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          },
+          {
+            "relname": "league_seasons",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "0",
+            "total_bytes": "40960"
+          },
+          {
+            "relname": "league_source_connections",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          },
+          {
+            "relname": "league_week_observations",
+            "heap_bytes": "16384",
+            "index_bytes": "81920",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "131072"
+          },
+          {
+            "relname": "leagues",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          },
+          {
+            "relname": "nfl_games",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          },
+          {
+            "relname": "official_player_point_observations",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "official_roster_point_observations",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "projection_jobs",
+            "heap_bytes": "16384",
+            "index_bytes": "49152",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "98304"
+          },
+          {
+            "relname": "scoring_entities",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "scoring_profiles",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          }
+        ],
+        "counts": {
+          "contents": 5,
+          "entries": 4488,
+          "observations": 13,
+          "score_sets": 14,
+          "scores": 341,
+          "verifications": 14,
+          "pointers": [
+            {
+              "week": 1,
+              "season": 2199,
+              "provider": "sleeper",
+              "observed_at": "2026-09-15T00:13:01+00:00",
+              "season_type": "reg",
+              "verified_at": "2026-09-15T00:13:01+00:00",
+              "scorer_version": "sleeper-actual-v1",
+              "scoring_profile_id": "4b8d9042-78db-4c29-9e1b-aeea15de0336",
+              "material_changed_at": "2026-09-15T00:02:01+00:00",
+              "all_player_score_set_id": "100e3f8f-b990-5001-9db5-9789e7688ec7",
+              "all_player_stat_observation_id": "62c0db0d-31a2-538f-ada9-70bf8572324c"
+            },
+            {
+              "week": 1,
+              "season": 2199,
+              "provider": "sleeper",
+              "observed_at": "2026-09-15T00:13:01+00:00",
+              "season_type": "reg",
+              "verified_at": "2026-09-15T00:13:01+00:00",
+              "scorer_version": "sleeper-actual-v1",
+              "scoring_profile_id": "8c802a63-bc1d-4898-ac1f-5df9fbca3e03",
+              "material_changed_at": "2026-09-15T00:02:01+00:00",
+              "all_player_score_set_id": "0f24b145-8e7b-5421-ae7c-5eb45961de79",
+              "all_player_stat_observation_id": "62c0db0d-31a2-538f-ada9-70bf8572324c"
+            }
+          ]
+        },
+        "transport": {
+          "statements": 7,
+          "sqlTextBytes": 47086,
+          "parameterJsonBytes": 5823772,
+          "decodedResultJsonBytes": 7103,
+          "statementWallTimeMs": 8703.222399999999
+        }
+      },
+      "result": {
+        "statContentId": "1b14a57b-9abb-59ac-b1ec-dffee12e7992",
+        "statObservationId": "dd515cdb-5443-57e5-ba56-52db7127d189",
+        "semanticHash": "e9cb5d476e70d4a78fac039b3f897596a850e6f44d2eaa1be1208955171e812e",
+        "entriesStored": 0,
+        "entryCount": 4385,
+        "scoreSets": []
+      }
+    },
+    {
+      "scenario": "synthetic-numeric-correction-of-retained-partial",
+      "materialHash": "446ba421ad63a4bba47fac64c4a607eb3ac12ef83768f3681114d4d543c230f2",
+      "before": {
+        "physical": [
+          {
+            "relname": "all_player_score_sets",
+            "heap_bytes": "40960",
+            "index_bytes": "81920",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "155648"
+          },
+          {
+            "relname": "all_player_score_verifications",
+            "heap_bytes": "32768",
+            "index_bytes": "57344",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "122880"
+          },
+          {
+            "relname": "all_player_scores",
+            "heap_bytes": "114688",
+            "index_bytes": "172032",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "319488"
+          },
+          {
+            "relname": "all_player_stat_contents",
+            "heap_bytes": "16384",
+            "index_bytes": "49152",
+            "toast_heap_bytes": "32768",
+            "toast_index_bytes": "16384",
+            "total_bytes": "163840"
+          },
+          {
+            "relname": "all_player_stat_entries",
+            "heap_bytes": "1204224",
+            "index_bytes": "843776",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "2080768"
+          },
+          {
+            "relname": "all_player_stat_observations",
+            "heap_bytes": "8192",
+            "index_bytes": "65536",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "81920"
+          },
+          {
+            "relname": "current_all_player_score_sets",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "external_game_ids",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          },
+          {
+            "relname": "external_scoring_entity_ids",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          },
+          {
+            "relname": "league_period_authorities",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          },
+          {
+            "relname": "league_seasons",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "0",
+            "total_bytes": "40960"
+          },
+          {
+            "relname": "league_source_connections",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          },
+          {
+            "relname": "league_week_observations",
+            "heap_bytes": "16384",
+            "index_bytes": "81920",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "131072"
+          },
+          {
+            "relname": "leagues",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          },
+          {
+            "relname": "nfl_games",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          },
+          {
+            "relname": "official_player_point_observations",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "official_roster_point_observations",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "projection_jobs",
+            "heap_bytes": "16384",
+            "index_bytes": "49152",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "98304"
+          },
+          {
+            "relname": "scoring_entities",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "scoring_profiles",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          }
+        ],
+        "counts": {
+          "contents": 5,
+          "entries": 4488,
+          "observations": 13,
+          "score_sets": 14,
+          "scores": 341,
+          "verifications": 14,
+          "pointers": [
+            {
+              "week": 1,
+              "season": 2199,
+              "provider": "sleeper",
+              "observed_at": "2026-09-15T00:13:01+00:00",
+              "season_type": "reg",
+              "verified_at": "2026-09-15T00:13:01+00:00",
+              "scorer_version": "sleeper-actual-v1",
+              "scoring_profile_id": "4b8d9042-78db-4c29-9e1b-aeea15de0336",
+              "material_changed_at": "2026-09-15T00:02:01+00:00",
+              "all_player_score_set_id": "100e3f8f-b990-5001-9db5-9789e7688ec7",
+              "all_player_stat_observation_id": "62c0db0d-31a2-538f-ada9-70bf8572324c"
+            },
+            {
+              "week": 1,
+              "season": 2199,
+              "provider": "sleeper",
+              "observed_at": "2026-09-15T00:13:01+00:00",
+              "season_type": "reg",
+              "verified_at": "2026-09-15T00:13:01+00:00",
+              "scorer_version": "sleeper-actual-v1",
+              "scoring_profile_id": "8c802a63-bc1d-4898-ac1f-5df9fbca3e03",
+              "material_changed_at": "2026-09-15T00:02:01+00:00",
+              "all_player_score_set_id": "0f24b145-8e7b-5421-ae7c-5eb45961de79",
+              "all_player_stat_observation_id": "62c0db0d-31a2-538f-ada9-70bf8572324c"
+            }
+          ]
+        },
+        "transport": {
+          "statements": 7,
+          "sqlTextBytes": 47086,
+          "parameterJsonBytes": 5823772,
+          "decodedResultJsonBytes": 7103,
+          "statementWallTimeMs": 8703.222399999999
+        }
+      },
+      "after": {
+        "physical": [
+          {
+            "relname": "all_player_score_sets",
+            "heap_bytes": "40960",
+            "index_bytes": "81920",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "155648"
+          },
+          {
+            "relname": "all_player_score_verifications",
+            "heap_bytes": "32768",
+            "index_bytes": "57344",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "122880"
+          },
+          {
+            "relname": "all_player_scores",
+            "heap_bytes": "114688",
+            "index_bytes": "172032",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "319488"
+          },
+          {
+            "relname": "all_player_stat_contents",
+            "heap_bytes": "16384",
+            "index_bytes": "49152",
+            "toast_heap_bytes": "57344",
+            "toast_index_bytes": "16384",
+            "total_bytes": "188416"
+          },
+          {
+            "relname": "all_player_stat_entries",
+            "heap_bytes": "2318336",
+            "index_bytes": "1589248",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "3940352"
+          },
+          {
+            "relname": "all_player_stat_observations",
+            "heap_bytes": "8192",
+            "index_bytes": "65536",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "81920"
+          },
+          {
+            "relname": "current_all_player_score_sets",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "external_game_ids",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          },
+          {
+            "relname": "external_scoring_entity_ids",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          },
+          {
+            "relname": "league_period_authorities",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          },
+          {
+            "relname": "league_seasons",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "0",
+            "total_bytes": "40960"
+          },
+          {
+            "relname": "league_source_connections",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          },
+          {
+            "relname": "league_week_observations",
+            "heap_bytes": "16384",
+            "index_bytes": "81920",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "131072"
+          },
+          {
+            "relname": "leagues",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          },
+          {
+            "relname": "nfl_games",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          },
+          {
+            "relname": "official_player_point_observations",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "official_roster_point_observations",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "projection_jobs",
+            "heap_bytes": "16384",
+            "index_bytes": "49152",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "98304"
+          },
+          {
+            "relname": "scoring_entities",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "scoring_profiles",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          }
+        ],
+        "counts": {
+          "contents": 6,
+          "entries": 8873,
+          "observations": 14,
+          "score_sets": 14,
+          "scores": 341,
+          "verifications": 14,
+          "pointers": [
+            {
+              "week": 1,
+              "season": 2199,
+              "provider": "sleeper",
+              "observed_at": "2026-09-15T00:13:01+00:00",
+              "season_type": "reg",
+              "verified_at": "2026-09-15T00:13:01+00:00",
+              "scorer_version": "sleeper-actual-v1",
+              "scoring_profile_id": "4b8d9042-78db-4c29-9e1b-aeea15de0336",
+              "material_changed_at": "2026-09-15T00:02:01+00:00",
+              "all_player_score_set_id": "100e3f8f-b990-5001-9db5-9789e7688ec7",
+              "all_player_stat_observation_id": "62c0db0d-31a2-538f-ada9-70bf8572324c"
+            },
+            {
+              "week": 1,
+              "season": 2199,
+              "provider": "sleeper",
+              "observed_at": "2026-09-15T00:13:01+00:00",
+              "season_type": "reg",
+              "verified_at": "2026-09-15T00:13:01+00:00",
+              "scorer_version": "sleeper-actual-v1",
+              "scoring_profile_id": "8c802a63-bc1d-4898-ac1f-5df9fbca3e03",
+              "material_changed_at": "2026-09-15T00:02:01+00:00",
+              "all_player_score_set_id": "0f24b145-8e7b-5421-ae7c-5eb45961de79",
+              "all_player_stat_observation_id": "62c0db0d-31a2-538f-ada9-70bf8572324c"
+            }
+          ]
+        },
+        "transport": {
+          "statements": 8,
+          "sqlTextBytes": 59320,
+          "parameterJsonBytes": 7760944,
+          "decodedResultJsonBytes": 7352,
+          "statementWallTimeMs": 11610.1256
+        }
+      },
+      "result": {
+        "statContentId": "c23177e9-fe4a-5f2a-94b4-633a3e9b4b71",
+        "statObservationId": "c88d4b6f-a667-5883-8e2a-a5184c3f32af",
+        "semanticHash": "446ba421ad63a4bba47fac64c4a607eb3ac12ef83768f3681114d4d543c230f2",
+        "entriesStored": 4385,
+        "entryCount": 4385,
+        "scoreSets": []
+      }
+    }
+  ],
+  "transferScope": "Locally replayed provider-body bytes, SQL UTF-8, parameter JSON and decoded result JSON; excludes original HTTP compression/headers and PostgreSQL/WebSocket/TLS framing/startup. These are not Neon-billed outbound measurements. Statement wall time includes network waits and is not compute usage.",
+  "remainingEvidence": [
+    "legitimately complete period",
+    "complete shared/divergent profiles",
+    "eligibility correction",
+    "identity additions",
+    "actual Neon outbound allowance accounting",
+    "ordinary workload reserve",
+    "season horizon fit"
+  ]
+}
