@@ -1374,6 +1374,8 @@ DECLARE
   actual_function_owner text;
   actual_public_execute boolean;
   actual_runtime_execute boolean;
+  actual_public_grant_execute boolean;
+  actual_runtime_grant_execute boolean;
   before_catalog jsonb;
   after_catalog jsonb;
 BEGIN
@@ -1468,10 +1470,24 @@ BEGIN
       AND index_record.tablename = 'all_player_score_sets';
   IF actual_count <> 5 OR actual_fingerprint IS DISTINCT FROM '9353d8cc843cab2ad4405428b2ab081d' THEN
     RAISE EXCEPTION 'release assertion failed: indexes all_player_score_sets expected count 5 fingerprint 9353d8cc843cab2ad4405428b2ab081d, actual count % fingerprint %', actual_count, actual_fingerprint; END IF;
-  IF has_table_privilege('public', 'public.all_player_score_sets', 'SELECT,INSERT,UPDATE,DELETE')
+  IF has_table_privilege('public', 'public.all_player_score_sets',
+        'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN')
+      OR has_table_privilege('public', 'public.all_player_score_sets',
+        'SELECT WITH GRANT OPTION,INSERT WITH GRANT OPTION,UPDATE WITH GRANT OPTION,DELETE WITH GRANT OPTION,TRUNCATE WITH GRANT OPTION,REFERENCES WITH GRANT OPTION,TRIGGER WITH GRANT OPTION,MAINTAIN WITH GRANT OPTION')
+      OR has_any_column_privilege('public', 'public.all_player_score_sets', 'SELECT,INSERT,UPDATE,REFERENCES')
+      OR has_any_column_privilege('public', 'public.all_player_score_sets',
+        'SELECT WITH GRANT OPTION,INSERT WITH GRANT OPTION,UPDATE WITH GRANT OPTION,REFERENCES WITH GRANT OPTION')
       OR NOT has_table_privilege('league_one_runtime', 'public.all_player_score_sets', 'SELECT')
       OR has_table_privilege('league_one_runtime', 'public.all_player_score_sets', 'INSERT') IS DISTINCT FROM true
-      OR has_table_privilege('league_one_runtime', 'public.all_player_score_sets', 'UPDATE,DELETE') THEN
+      OR has_table_privilege('league_one_runtime', 'public.all_player_score_sets',
+        'UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN')
+      OR has_table_privilege('league_one_runtime', 'public.all_player_score_sets',
+        'SELECT WITH GRANT OPTION,INSERT WITH GRANT OPTION,UPDATE WITH GRANT OPTION,DELETE WITH GRANT OPTION,TRUNCATE WITH GRANT OPTION,REFERENCES WITH GRANT OPTION,TRIGGER WITH GRANT OPTION,MAINTAIN WITH GRANT OPTION')
+      OR has_any_column_privilege('league_one_runtime', 'public.all_player_score_sets', 'INSERT')
+          IS DISTINCT FROM true
+      OR has_any_column_privilege('league_one_runtime', 'public.all_player_score_sets', 'UPDATE,REFERENCES')
+      OR has_any_column_privilege('league_one_runtime', 'public.all_player_score_sets',
+        'SELECT WITH GRANT OPTION,INSERT WITH GRANT OPTION,UPDATE WITH GRANT OPTION,REFERENCES WITH GRANT OPTION') THEN
     RAISE EXCEPTION 'release assertion failed: ACL all_player_score_sets'; END IF;
   EXECUTE 'SELECT count(*) FROM public.' || quote_ident('all_player_score_sets') INTO actual_rows;
   IF actual_rows <> 0 THEN RAISE EXCEPTION 'release assertion failed: empty table all_player_score_sets'; END IF;
@@ -1513,10 +1529,24 @@ BEGIN
       AND index_record.tablename = 'all_player_scores';
   IF actual_count <> 4 OR actual_fingerprint IS DISTINCT FROM 'aa643382ff5f32ec2a0da24e5e0889b9' THEN
     RAISE EXCEPTION 'release assertion failed: indexes all_player_scores expected count 4 fingerprint aa643382ff5f32ec2a0da24e5e0889b9, actual count % fingerprint %', actual_count, actual_fingerprint; END IF;
-  IF has_table_privilege('public', 'public.all_player_scores', 'SELECT,INSERT,UPDATE,DELETE')
+  IF has_table_privilege('public', 'public.all_player_scores',
+        'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN')
+      OR has_table_privilege('public', 'public.all_player_scores',
+        'SELECT WITH GRANT OPTION,INSERT WITH GRANT OPTION,UPDATE WITH GRANT OPTION,DELETE WITH GRANT OPTION,TRUNCATE WITH GRANT OPTION,REFERENCES WITH GRANT OPTION,TRIGGER WITH GRANT OPTION,MAINTAIN WITH GRANT OPTION')
+      OR has_any_column_privilege('public', 'public.all_player_scores', 'SELECT,INSERT,UPDATE,REFERENCES')
+      OR has_any_column_privilege('public', 'public.all_player_scores',
+        'SELECT WITH GRANT OPTION,INSERT WITH GRANT OPTION,UPDATE WITH GRANT OPTION,REFERENCES WITH GRANT OPTION')
       OR NOT has_table_privilege('league_one_runtime', 'public.all_player_scores', 'SELECT')
       OR has_table_privilege('league_one_runtime', 'public.all_player_scores', 'INSERT') IS DISTINCT FROM true
-      OR has_table_privilege('league_one_runtime', 'public.all_player_scores', 'UPDATE,DELETE') THEN
+      OR has_table_privilege('league_one_runtime', 'public.all_player_scores',
+        'UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN')
+      OR has_table_privilege('league_one_runtime', 'public.all_player_scores',
+        'SELECT WITH GRANT OPTION,INSERT WITH GRANT OPTION,UPDATE WITH GRANT OPTION,DELETE WITH GRANT OPTION,TRUNCATE WITH GRANT OPTION,REFERENCES WITH GRANT OPTION,TRIGGER WITH GRANT OPTION,MAINTAIN WITH GRANT OPTION')
+      OR has_any_column_privilege('league_one_runtime', 'public.all_player_scores', 'INSERT')
+          IS DISTINCT FROM true
+      OR has_any_column_privilege('league_one_runtime', 'public.all_player_scores', 'UPDATE,REFERENCES')
+      OR has_any_column_privilege('league_one_runtime', 'public.all_player_scores',
+        'SELECT WITH GRANT OPTION,INSERT WITH GRANT OPTION,UPDATE WITH GRANT OPTION,REFERENCES WITH GRANT OPTION') THEN
     RAISE EXCEPTION 'release assertion failed: ACL all_player_scores'; END IF;
   EXECUTE 'SELECT count(*) FROM public.' || quote_ident('all_player_scores') INTO actual_rows;
   IF actual_rows <> 0 THEN RAISE EXCEPTION 'release assertion failed: empty table all_player_scores'; END IF;
@@ -1558,10 +1588,24 @@ BEGIN
       AND index_record.tablename = 'all_player_stat_contents';
   IF actual_count <> 3 OR actual_fingerprint IS DISTINCT FROM '278865b1e926da53f7783cb5525d094f' THEN
     RAISE EXCEPTION 'release assertion failed: indexes all_player_stat_contents expected count 3 fingerprint 278865b1e926da53f7783cb5525d094f, actual count % fingerprint %', actual_count, actual_fingerprint; END IF;
-  IF has_table_privilege('public', 'public.all_player_stat_contents', 'SELECT,INSERT,UPDATE,DELETE')
+  IF has_table_privilege('public', 'public.all_player_stat_contents',
+        'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN')
+      OR has_table_privilege('public', 'public.all_player_stat_contents',
+        'SELECT WITH GRANT OPTION,INSERT WITH GRANT OPTION,UPDATE WITH GRANT OPTION,DELETE WITH GRANT OPTION,TRUNCATE WITH GRANT OPTION,REFERENCES WITH GRANT OPTION,TRIGGER WITH GRANT OPTION,MAINTAIN WITH GRANT OPTION')
+      OR has_any_column_privilege('public', 'public.all_player_stat_contents', 'SELECT,INSERT,UPDATE,REFERENCES')
+      OR has_any_column_privilege('public', 'public.all_player_stat_contents',
+        'SELECT WITH GRANT OPTION,INSERT WITH GRANT OPTION,UPDATE WITH GRANT OPTION,REFERENCES WITH GRANT OPTION')
       OR NOT has_table_privilege('league_one_runtime', 'public.all_player_stat_contents', 'SELECT')
       OR has_table_privilege('league_one_runtime', 'public.all_player_stat_contents', 'INSERT') IS DISTINCT FROM true
-      OR has_table_privilege('league_one_runtime', 'public.all_player_stat_contents', 'UPDATE,DELETE') THEN
+      OR has_table_privilege('league_one_runtime', 'public.all_player_stat_contents',
+        'UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN')
+      OR has_table_privilege('league_one_runtime', 'public.all_player_stat_contents',
+        'SELECT WITH GRANT OPTION,INSERT WITH GRANT OPTION,UPDATE WITH GRANT OPTION,DELETE WITH GRANT OPTION,TRUNCATE WITH GRANT OPTION,REFERENCES WITH GRANT OPTION,TRIGGER WITH GRANT OPTION,MAINTAIN WITH GRANT OPTION')
+      OR has_any_column_privilege('league_one_runtime', 'public.all_player_stat_contents', 'INSERT')
+          IS DISTINCT FROM true
+      OR has_any_column_privilege('league_one_runtime', 'public.all_player_stat_contents', 'UPDATE,REFERENCES')
+      OR has_any_column_privilege('league_one_runtime', 'public.all_player_stat_contents',
+        'SELECT WITH GRANT OPTION,INSERT WITH GRANT OPTION,UPDATE WITH GRANT OPTION,REFERENCES WITH GRANT OPTION') THEN
     RAISE EXCEPTION 'release assertion failed: ACL all_player_stat_contents'; END IF;
   EXECUTE 'SELECT count(*) FROM public.' || quote_ident('all_player_stat_contents') INTO actual_rows;
   IF actual_rows <> 0 THEN RAISE EXCEPTION 'release assertion failed: empty table all_player_stat_contents'; END IF;
@@ -1603,10 +1647,24 @@ BEGIN
       AND index_record.tablename = 'all_player_stat_entries';
   IF actual_count <> 3 OR actual_fingerprint IS DISTINCT FROM 'a50142ccf1e6a9ce392d9697d1d91534' THEN
     RAISE EXCEPTION 'release assertion failed: indexes all_player_stat_entries expected count 3 fingerprint a50142ccf1e6a9ce392d9697d1d91534, actual count % fingerprint %', actual_count, actual_fingerprint; END IF;
-  IF has_table_privilege('public', 'public.all_player_stat_entries', 'SELECT,INSERT,UPDATE,DELETE')
+  IF has_table_privilege('public', 'public.all_player_stat_entries',
+        'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN')
+      OR has_table_privilege('public', 'public.all_player_stat_entries',
+        'SELECT WITH GRANT OPTION,INSERT WITH GRANT OPTION,UPDATE WITH GRANT OPTION,DELETE WITH GRANT OPTION,TRUNCATE WITH GRANT OPTION,REFERENCES WITH GRANT OPTION,TRIGGER WITH GRANT OPTION,MAINTAIN WITH GRANT OPTION')
+      OR has_any_column_privilege('public', 'public.all_player_stat_entries', 'SELECT,INSERT,UPDATE,REFERENCES')
+      OR has_any_column_privilege('public', 'public.all_player_stat_entries',
+        'SELECT WITH GRANT OPTION,INSERT WITH GRANT OPTION,UPDATE WITH GRANT OPTION,REFERENCES WITH GRANT OPTION')
       OR NOT has_table_privilege('league_one_runtime', 'public.all_player_stat_entries', 'SELECT')
       OR has_table_privilege('league_one_runtime', 'public.all_player_stat_entries', 'INSERT') IS DISTINCT FROM true
-      OR has_table_privilege('league_one_runtime', 'public.all_player_stat_entries', 'UPDATE,DELETE') THEN
+      OR has_table_privilege('league_one_runtime', 'public.all_player_stat_entries',
+        'UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN')
+      OR has_table_privilege('league_one_runtime', 'public.all_player_stat_entries',
+        'SELECT WITH GRANT OPTION,INSERT WITH GRANT OPTION,UPDATE WITH GRANT OPTION,DELETE WITH GRANT OPTION,TRUNCATE WITH GRANT OPTION,REFERENCES WITH GRANT OPTION,TRIGGER WITH GRANT OPTION,MAINTAIN WITH GRANT OPTION')
+      OR has_any_column_privilege('league_one_runtime', 'public.all_player_stat_entries', 'INSERT')
+          IS DISTINCT FROM true
+      OR has_any_column_privilege('league_one_runtime', 'public.all_player_stat_entries', 'UPDATE,REFERENCES')
+      OR has_any_column_privilege('league_one_runtime', 'public.all_player_stat_entries',
+        'SELECT WITH GRANT OPTION,INSERT WITH GRANT OPTION,UPDATE WITH GRANT OPTION,REFERENCES WITH GRANT OPTION') THEN
     RAISE EXCEPTION 'release assertion failed: ACL all_player_stat_entries'; END IF;
   EXECUTE 'SELECT count(*) FROM public.' || quote_ident('all_player_stat_entries') INTO actual_rows;
   IF actual_rows <> 0 THEN RAISE EXCEPTION 'release assertion failed: empty table all_player_stat_entries'; END IF;
@@ -1648,10 +1706,24 @@ BEGIN
       AND index_record.tablename = 'all_player_stat_observations';
   IF actual_count <> 4 OR actual_fingerprint IS DISTINCT FROM 'f4719cf59e3e87d89e0e248f30b49d8d' THEN
     RAISE EXCEPTION 'release assertion failed: indexes all_player_stat_observations expected count 4 fingerprint f4719cf59e3e87d89e0e248f30b49d8d, actual count % fingerprint %', actual_count, actual_fingerprint; END IF;
-  IF has_table_privilege('public', 'public.all_player_stat_observations', 'SELECT,INSERT,UPDATE,DELETE')
+  IF has_table_privilege('public', 'public.all_player_stat_observations',
+        'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN')
+      OR has_table_privilege('public', 'public.all_player_stat_observations',
+        'SELECT WITH GRANT OPTION,INSERT WITH GRANT OPTION,UPDATE WITH GRANT OPTION,DELETE WITH GRANT OPTION,TRUNCATE WITH GRANT OPTION,REFERENCES WITH GRANT OPTION,TRIGGER WITH GRANT OPTION,MAINTAIN WITH GRANT OPTION')
+      OR has_any_column_privilege('public', 'public.all_player_stat_observations', 'SELECT,INSERT,UPDATE,REFERENCES')
+      OR has_any_column_privilege('public', 'public.all_player_stat_observations',
+        'SELECT WITH GRANT OPTION,INSERT WITH GRANT OPTION,UPDATE WITH GRANT OPTION,REFERENCES WITH GRANT OPTION')
       OR NOT has_table_privilege('league_one_runtime', 'public.all_player_stat_observations', 'SELECT')
       OR has_table_privilege('league_one_runtime', 'public.all_player_stat_observations', 'INSERT') IS DISTINCT FROM true
-      OR has_table_privilege('league_one_runtime', 'public.all_player_stat_observations', 'UPDATE,DELETE') THEN
+      OR has_table_privilege('league_one_runtime', 'public.all_player_stat_observations',
+        'UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN')
+      OR has_table_privilege('league_one_runtime', 'public.all_player_stat_observations',
+        'SELECT WITH GRANT OPTION,INSERT WITH GRANT OPTION,UPDATE WITH GRANT OPTION,DELETE WITH GRANT OPTION,TRUNCATE WITH GRANT OPTION,REFERENCES WITH GRANT OPTION,TRIGGER WITH GRANT OPTION,MAINTAIN WITH GRANT OPTION')
+      OR has_any_column_privilege('league_one_runtime', 'public.all_player_stat_observations', 'INSERT')
+          IS DISTINCT FROM true
+      OR has_any_column_privilege('league_one_runtime', 'public.all_player_stat_observations', 'UPDATE,REFERENCES')
+      OR has_any_column_privilege('league_one_runtime', 'public.all_player_stat_observations',
+        'SELECT WITH GRANT OPTION,INSERT WITH GRANT OPTION,UPDATE WITH GRANT OPTION,REFERENCES WITH GRANT OPTION') THEN
     RAISE EXCEPTION 'release assertion failed: ACL all_player_stat_observations'; END IF;
   EXECUTE 'SELECT count(*) FROM public.' || quote_ident('all_player_stat_observations') INTO actual_rows;
   IF actual_rows <> 0 THEN RAISE EXCEPTION 'release assertion failed: empty table all_player_stat_observations'; END IF;
@@ -1693,10 +1765,24 @@ BEGIN
       AND index_record.tablename = 'current_all_player_score_sets';
   IF actual_count <> 1 OR actual_fingerprint IS DISTINCT FROM '5afb7b133b0d448b3ed974426beaac21' THEN
     RAISE EXCEPTION 'release assertion failed: indexes current_all_player_score_sets expected count 1 fingerprint 5afb7b133b0d448b3ed974426beaac21, actual count % fingerprint %', actual_count, actual_fingerprint; END IF;
-  IF has_table_privilege('public', 'public.current_all_player_score_sets', 'SELECT,INSERT,UPDATE,DELETE')
+  IF has_table_privilege('public', 'public.current_all_player_score_sets',
+        'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN')
+      OR has_table_privilege('public', 'public.current_all_player_score_sets',
+        'SELECT WITH GRANT OPTION,INSERT WITH GRANT OPTION,UPDATE WITH GRANT OPTION,DELETE WITH GRANT OPTION,TRUNCATE WITH GRANT OPTION,REFERENCES WITH GRANT OPTION,TRIGGER WITH GRANT OPTION,MAINTAIN WITH GRANT OPTION')
+      OR has_any_column_privilege('public', 'public.current_all_player_score_sets', 'SELECT,INSERT,UPDATE,REFERENCES')
+      OR has_any_column_privilege('public', 'public.current_all_player_score_sets',
+        'SELECT WITH GRANT OPTION,INSERT WITH GRANT OPTION,UPDATE WITH GRANT OPTION,REFERENCES WITH GRANT OPTION')
       OR NOT has_table_privilege('league_one_runtime', 'public.current_all_player_score_sets', 'SELECT')
       OR has_table_privilege('league_one_runtime', 'public.current_all_player_score_sets', 'INSERT') IS DISTINCT FROM false
-      OR has_table_privilege('league_one_runtime', 'public.current_all_player_score_sets', 'UPDATE,DELETE') THEN
+      OR has_table_privilege('league_one_runtime', 'public.current_all_player_score_sets',
+        'UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN')
+      OR has_table_privilege('league_one_runtime', 'public.current_all_player_score_sets',
+        'SELECT WITH GRANT OPTION,INSERT WITH GRANT OPTION,UPDATE WITH GRANT OPTION,DELETE WITH GRANT OPTION,TRUNCATE WITH GRANT OPTION,REFERENCES WITH GRANT OPTION,TRIGGER WITH GRANT OPTION,MAINTAIN WITH GRANT OPTION')
+      OR has_any_column_privilege('league_one_runtime', 'public.current_all_player_score_sets', 'INSERT')
+          IS DISTINCT FROM false
+      OR has_any_column_privilege('league_one_runtime', 'public.current_all_player_score_sets', 'UPDATE,REFERENCES')
+      OR has_any_column_privilege('league_one_runtime', 'public.current_all_player_score_sets',
+        'SELECT WITH GRANT OPTION,INSERT WITH GRANT OPTION,UPDATE WITH GRANT OPTION,REFERENCES WITH GRANT OPTION') THEN
     RAISE EXCEPTION 'release assertion failed: ACL current_all_player_score_sets'; END IF;
   EXECUTE 'SELECT count(*) FROM public.' || quote_ident('current_all_player_score_sets') INTO actual_rows;
   IF actual_rows <> 0 THEN RAISE EXCEPTION 'release assertion failed: empty table current_all_player_score_sets'; END IF;
@@ -1891,8 +1977,11 @@ BEGIN
   
   SELECT count(*)::integer, min(md5(pg_get_functiondef(function_record.oid))), min(owner.rolname),
       bool_or(has_function_privilege('public', function_record.oid, 'EXECUTE')),
-      bool_or(has_function_privilege('league_one_runtime', function_record.oid, 'EXECUTE'))
-    INTO actual_count, actual_fingerprint, actual_function_owner, actual_public_execute, actual_runtime_execute
+      bool_or(has_function_privilege('league_one_runtime', function_record.oid, 'EXECUTE')),
+      bool_or(has_function_privilege('public', function_record.oid, 'EXECUTE WITH GRANT OPTION')),
+      bool_or(has_function_privilege('league_one_runtime', function_record.oid, 'EXECUTE WITH GRANT OPTION'))
+    INTO actual_count, actual_fingerprint, actual_function_owner, actual_public_execute, actual_runtime_execute,
+      actual_public_grant_execute, actual_runtime_grant_execute
     FROM pg_proc function_record JOIN pg_namespace namespace ON namespace.oid = function_record.pronamespace
     JOIN pg_roles owner ON owner.oid = function_record.proowner
     WHERE namespace.nspname = 'public' AND function_record.proname = 'advance_current_all_player_score_set'
@@ -1901,13 +1990,18 @@ BEGIN
       OR actual_function_owner IS DISTINCT FROM 'neondb_owner' THEN
     RAISE EXCEPTION 'release assertion failed: function advance_current_all_player_score_set(p_provider text, p_season smallint, p_season_type text, p_week smallint, p_scoring_profile_id uuid, p_scorer_version text, p_stat_observation_id uuid, p_score_set_id uuid, p_verified_at timestamp with time zone)'; END IF;
   IF actual_public_execute IS DISTINCT FROM false
-      OR actual_runtime_execute IS DISTINCT FROM true THEN
+      OR actual_runtime_execute IS DISTINCT FROM true
+      OR actual_public_grant_execute IS DISTINCT FROM false
+      OR actual_runtime_grant_execute IS DISTINCT FROM false THEN
     RAISE EXCEPTION 'release assertion failed: function ACL advance_current_all_player_score_set(p_provider text, p_season smallint, p_season_type text, p_week smallint, p_scoring_profile_id uuid, p_scorer_version text, p_stat_observation_id uuid, p_score_set_id uuid, p_verified_at timestamp with time zone)'; END IF;
 
   SELECT count(*)::integer, min(md5(pg_get_functiondef(function_record.oid))), min(owner.rolname),
       bool_or(has_function_privilege('public', function_record.oid, 'EXECUTE')),
-      bool_or(has_function_privilege('league_one_runtime', function_record.oid, 'EXECUTE'))
-    INTO actual_count, actual_fingerprint, actual_function_owner, actual_public_execute, actual_runtime_execute
+      bool_or(has_function_privilege('league_one_runtime', function_record.oid, 'EXECUTE')),
+      bool_or(has_function_privilege('public', function_record.oid, 'EXECUTE WITH GRANT OPTION')),
+      bool_or(has_function_privilege('league_one_runtime', function_record.oid, 'EXECUTE WITH GRANT OPTION'))
+    INTO actual_count, actual_fingerprint, actual_function_owner, actual_public_execute, actual_runtime_execute,
+      actual_public_grant_execute, actual_runtime_grant_execute
     FROM pg_proc function_record JOIN pg_namespace namespace ON namespace.oid = function_record.pronamespace
     JOIN pg_roles owner ON owner.oid = function_record.proowner
     WHERE namespace.nspname = 'public' AND function_record.proname = 'all_player_eligibility_evidence_matches'
@@ -1916,13 +2010,18 @@ BEGIN
       OR actual_function_owner IS DISTINCT FROM 'neondb_owner' THEN
     RAISE EXCEPTION 'release assertion failed: function all_player_eligibility_evidence_matches(p_evidence jsonb, p_eligible_game_count smallint, p_appearance_game_count smallint)'; END IF;
   IF actual_public_execute IS DISTINCT FROM false
-      OR actual_runtime_execute IS DISTINCT FROM false THEN
+      OR actual_runtime_execute IS DISTINCT FROM false
+      OR actual_public_grant_execute IS DISTINCT FROM false
+      OR actual_runtime_grant_execute IS DISTINCT FROM false THEN
     RAISE EXCEPTION 'release assertion failed: function ACL all_player_eligibility_evidence_matches(p_evidence jsonb, p_eligible_game_count smallint, p_appearance_game_count smallint)'; END IF;
 
   SELECT count(*)::integer, min(md5(pg_get_functiondef(function_record.oid))), min(owner.rolname),
       bool_or(has_function_privilege('public', function_record.oid, 'EXECUTE')),
-      bool_or(has_function_privilege('league_one_runtime', function_record.oid, 'EXECUTE'))
-    INTO actual_count, actual_fingerprint, actual_function_owner, actual_public_execute, actual_runtime_execute
+      bool_or(has_function_privilege('league_one_runtime', function_record.oid, 'EXECUTE')),
+      bool_or(has_function_privilege('public', function_record.oid, 'EXECUTE WITH GRANT OPTION')),
+      bool_or(has_function_privilege('league_one_runtime', function_record.oid, 'EXECUTE WITH GRANT OPTION'))
+    INTO actual_count, actual_fingerprint, actual_function_owner, actual_public_execute, actual_runtime_execute,
+      actual_public_grant_execute, actual_runtime_grant_execute
     FROM pg_proc function_record JOIN pg_namespace namespace ON namespace.oid = function_record.pronamespace
     JOIN pg_roles owner ON owner.oid = function_record.proowner
     WHERE namespace.nspname = 'public' AND function_record.proname = 'all_player_score_set_is_publication_ready'
@@ -1931,13 +2030,18 @@ BEGIN
       OR actual_function_owner IS DISTINCT FROM 'neondb_owner' THEN
     RAISE EXCEPTION 'release assertion failed: function all_player_score_set_is_publication_ready(p_score_set_id uuid, p_expected_profile_ids jsonb)'; END IF;
   IF actual_public_execute IS DISTINCT FROM false
-      OR actual_runtime_execute IS DISTINCT FROM false THEN
+      OR actual_runtime_execute IS DISTINCT FROM false
+      OR actual_public_grant_execute IS DISTINCT FROM false
+      OR actual_runtime_grant_execute IS DISTINCT FROM false THEN
     RAISE EXCEPTION 'release assertion failed: function ACL all_player_score_set_is_publication_ready(p_score_set_id uuid, p_expected_profile_ids jsonb)'; END IF;
 
   SELECT count(*)::integer, min(md5(pg_get_functiondef(function_record.oid))), min(owner.rolname),
       bool_or(has_function_privilege('public', function_record.oid, 'EXECUTE')),
-      bool_or(has_function_privilege('league_one_runtime', function_record.oid, 'EXECUTE'))
-    INTO actual_count, actual_fingerprint, actual_function_owner, actual_public_execute, actual_runtime_execute
+      bool_or(has_function_privilege('league_one_runtime', function_record.oid, 'EXECUTE')),
+      bool_or(has_function_privilege('public', function_record.oid, 'EXECUTE WITH GRANT OPTION')),
+      bool_or(has_function_privilege('league_one_runtime', function_record.oid, 'EXECUTE WITH GRANT OPTION'))
+    INTO actual_count, actual_fingerprint, actual_function_owner, actual_public_execute, actual_runtime_execute,
+      actual_public_grant_execute, actual_runtime_grant_execute
     FROM pg_proc function_record JOIN pg_namespace namespace ON namespace.oid = function_record.pronamespace
     JOIN pg_roles owner ON owner.oid = function_record.proowner
     WHERE namespace.nspname = 'public' AND function_record.proname = 'all_player_scoring_contract_supported'
@@ -1946,13 +2050,18 @@ BEGIN
       OR actual_function_owner IS DISTINCT FROM 'neondb_owner' THEN
     RAISE EXCEPTION 'release assertion failed: function all_player_scoring_contract_supported(p_provider text, p_scorer_version text, p_rules jsonb)'; END IF;
   IF actual_public_execute IS DISTINCT FROM false
-      OR actual_runtime_execute IS DISTINCT FROM false THEN
+      OR actual_runtime_execute IS DISTINCT FROM false
+      OR actual_public_grant_execute IS DISTINCT FROM false
+      OR actual_runtime_grant_execute IS DISTINCT FROM false THEN
     RAISE EXCEPTION 'release assertion failed: function ACL all_player_scoring_contract_supported(p_provider text, p_scorer_version text, p_rules jsonb)'; END IF;
 
   SELECT count(*)::integer, min(md5(pg_get_functiondef(function_record.oid))), min(owner.rolname),
       bool_or(has_function_privilege('public', function_record.oid, 'EXECUTE')),
-      bool_or(has_function_privilege('league_one_runtime', function_record.oid, 'EXECUTE'))
-    INTO actual_count, actual_fingerprint, actual_function_owner, actual_public_execute, actual_runtime_execute
+      bool_or(has_function_privilege('league_one_runtime', function_record.oid, 'EXECUTE')),
+      bool_or(has_function_privilege('public', function_record.oid, 'EXECUTE WITH GRANT OPTION')),
+      bool_or(has_function_privilege('league_one_runtime', function_record.oid, 'EXECUTE WITH GRANT OPTION'))
+    INTO actual_count, actual_fingerprint, actual_function_owner, actual_public_execute, actual_runtime_execute,
+      actual_public_grant_execute, actual_runtime_grant_execute
     FROM pg_proc function_record JOIN pg_namespace namespace ON namespace.oid = function_record.pronamespace
     JOIN pg_roles owner ON owner.oid = function_record.proowner
     WHERE namespace.nspname = 'public' AND function_record.proname = 'prevent_all_player_history_change'
@@ -1961,13 +2070,18 @@ BEGIN
       OR actual_function_owner IS DISTINCT FROM 'neondb_owner' THEN
     RAISE EXCEPTION 'release assertion failed: function prevent_all_player_history_change()'; END IF;
   IF actual_public_execute IS DISTINCT FROM false
-      OR actual_runtime_execute IS DISTINCT FROM false THEN
+      OR actual_runtime_execute IS DISTINCT FROM false
+      OR actual_public_grant_execute IS DISTINCT FROM false
+      OR actual_runtime_grant_execute IS DISTINCT FROM false THEN
     RAISE EXCEPTION 'release assertion failed: function ACL prevent_all_player_history_change()'; END IF;
 
   SELECT count(*)::integer, min(md5(pg_get_functiondef(function_record.oid))), min(owner.rolname),
       bool_or(has_function_privilege('public', function_record.oid, 'EXECUTE')),
-      bool_or(has_function_privilege('league_one_runtime', function_record.oid, 'EXECUTE'))
-    INTO actual_count, actual_fingerprint, actual_function_owner, actual_public_execute, actual_runtime_execute
+      bool_or(has_function_privilege('league_one_runtime', function_record.oid, 'EXECUTE')),
+      bool_or(has_function_privilege('public', function_record.oid, 'EXECUTE WITH GRANT OPTION')),
+      bool_or(has_function_privilege('league_one_runtime', function_record.oid, 'EXECUTE WITH GRANT OPTION'))
+    INTO actual_count, actual_fingerprint, actual_function_owner, actual_public_execute, actual_runtime_execute,
+      actual_public_grant_execute, actual_runtime_grant_execute
     FROM pg_proc function_record JOIN pg_namespace namespace ON namespace.oid = function_record.pronamespace
     JOIN pg_roles owner ON owner.oid = function_record.proowner
     WHERE namespace.nspname = 'public' AND function_record.proname = 'prevent_all_player_parity_evidence_change'
@@ -1976,13 +2090,18 @@ BEGIN
       OR actual_function_owner IS DISTINCT FROM 'neondb_owner' THEN
     RAISE EXCEPTION 'release assertion failed: function prevent_all_player_parity_evidence_change()'; END IF;
   IF actual_public_execute IS DISTINCT FROM false
-      OR actual_runtime_execute IS DISTINCT FROM false THEN
+      OR actual_runtime_execute IS DISTINCT FROM false
+      OR actual_public_grant_execute IS DISTINCT FROM false
+      OR actual_runtime_grant_execute IS DISTINCT FROM false THEN
     RAISE EXCEPTION 'release assertion failed: function ACL prevent_all_player_parity_evidence_change()'; END IF;
 
   SELECT count(*)::integer, min(md5(pg_get_functiondef(function_record.oid))), min(owner.rolname),
       bool_or(has_function_privilege('public', function_record.oid, 'EXECUTE')),
-      bool_or(has_function_privilege('league_one_runtime', function_record.oid, 'EXECUTE'))
-    INTO actual_count, actual_fingerprint, actual_function_owner, actual_public_execute, actual_runtime_execute
+      bool_or(has_function_privilege('league_one_runtime', function_record.oid, 'EXECUTE')),
+      bool_or(has_function_privilege('public', function_record.oid, 'EXECUTE WITH GRANT OPTION')),
+      bool_or(has_function_privilege('league_one_runtime', function_record.oid, 'EXECUTE WITH GRANT OPTION'))
+    INTO actual_count, actual_fingerprint, actual_function_owner, actual_public_execute, actual_runtime_execute,
+      actual_public_grant_execute, actual_runtime_grant_execute
     FROM pg_proc function_record JOIN pg_namespace namespace ON namespace.oid = function_record.pronamespace
     JOIN pg_roles owner ON owner.oid = function_record.proowner
     WHERE namespace.nspname = 'public' AND function_record.proname = 'validate_all_player_score_lineage'
@@ -1991,13 +2110,18 @@ BEGIN
       OR actual_function_owner IS DISTINCT FROM 'neondb_owner' THEN
     RAISE EXCEPTION 'release assertion failed: function validate_all_player_score_lineage()'; END IF;
   IF actual_public_execute IS DISTINCT FROM false
-      OR actual_runtime_execute IS DISTINCT FROM false THEN
+      OR actual_runtime_execute IS DISTINCT FROM false
+      OR actual_public_grant_execute IS DISTINCT FROM false
+      OR actual_runtime_grant_execute IS DISTINCT FROM false THEN
     RAISE EXCEPTION 'release assertion failed: function ACL validate_all_player_score_lineage()'; END IF;
 
   SELECT count(*)::integer, min(md5(pg_get_functiondef(function_record.oid))), min(owner.rolname),
       bool_or(has_function_privilege('public', function_record.oid, 'EXECUTE')),
-      bool_or(has_function_privilege('league_one_runtime', function_record.oid, 'EXECUTE'))
-    INTO actual_count, actual_fingerprint, actual_function_owner, actual_public_execute, actual_runtime_execute
+      bool_or(has_function_privilege('league_one_runtime', function_record.oid, 'EXECUTE')),
+      bool_or(has_function_privilege('public', function_record.oid, 'EXECUTE WITH GRANT OPTION')),
+      bool_or(has_function_privilege('league_one_runtime', function_record.oid, 'EXECUTE WITH GRANT OPTION'))
+    INTO actual_count, actual_fingerprint, actual_function_owner, actual_public_execute, actual_runtime_execute,
+      actual_public_grant_execute, actual_runtime_grant_execute
     FROM pg_proc function_record JOIN pg_namespace namespace ON namespace.oid = function_record.pronamespace
     JOIN pg_roles owner ON owner.oid = function_record.proowner
     WHERE namespace.nspname = 'public' AND function_record.proname = 'validate_all_player_stat_entry'
@@ -2006,7 +2130,9 @@ BEGIN
       OR actual_function_owner IS DISTINCT FROM 'neondb_owner' THEN
     RAISE EXCEPTION 'release assertion failed: function validate_all_player_stat_entry()'; END IF;
   IF actual_public_execute IS DISTINCT FROM false
-      OR actual_runtime_execute IS DISTINCT FROM false THEN
+      OR actual_runtime_execute IS DISTINCT FROM false
+      OR actual_public_grant_execute IS DISTINCT FROM false
+      OR actual_runtime_grant_execute IS DISTINCT FROM false THEN
     RAISE EXCEPTION 'release assertion failed: function ACL validate_all_player_stat_entry()'; END IF;
 
   IF (SELECT count(*) FROM pg_trigger WHERE NOT tgisinternal AND tgname = ANY(ARRAY['all_player_score_sets_immutable', 'all_player_scores_immutable', 'all_player_scores_lineage_guard', 'all_player_stat_contents_immutable', 'all_player_stat_entries_evidence_guard', 'all_player_stat_entries_immutable', 'all_player_stat_observations_immutable', 'league_week_all_player_parity_immutable', 'official_player_all_player_parity_immutable', 'official_roster_all_player_parity_immutable']::text[])) <> 10 THEN

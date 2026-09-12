@@ -55,7 +55,12 @@ async function assertRolledBack(label: string) {
         WHERE name = '010_all_player_statistics.sql') AS migration_count,
       (SELECT count(*)::integer FROM pg_class relation
         JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
-        WHERE namespace.nspname = 'public' AND relation.relname LIKE 'all_player_%') AS table_count,
+        WHERE namespace.nspname = 'public' AND relation.relkind = 'r'
+          AND relation.relname IN (
+            'all_player_stat_contents', 'all_player_stat_entries',
+            'all_player_stat_observations', 'all_player_score_sets',
+            'all_player_scores', 'current_all_player_score_sets'
+          )) AS table_count,
       (SELECT count(*)::integer FROM pg_proc function_record
         JOIN pg_namespace namespace ON namespace.oid = function_record.pronamespace
         WHERE namespace.nspname = 'public' AND function_record.proname LIKE '%all_player%') AS function_count,
@@ -73,12 +78,13 @@ async function expectFailure(
   label: string,
   expectedMessage: string,
   mutate: (catalog: Catalog) => void,
+  transformWrapper: (wrapper: string) => string = (wrapper) => wrapper,
 ) {
   const catalog = cloneReviewedCatalog();
   mutate(catalog);
   let message = '';
   try {
-    await executeWrapper(build(catalog));
+    await executeWrapper(transformWrapper(build(catalog)));
   } catch (error) {
     message = error instanceof Error ? error.message : String(error);
   }
@@ -116,9 +122,30 @@ try {
   await expectFailure('function', 'release assertion failed: function advance_current_all_player_score_set', (catalog) => {
     catalog.functions[0][2] = '00000000000000000000000000000000';
   });
-  await expectFailure('ACL', 'release assertion failed: ACL all_player_score_sets', (catalog) => {
-    catalog.tables[0][8] = false;
-  });
+  await expectFailure(
+    'inherited table ACL',
+    'release assertion failed: ACL all_player_score_sets',
+    () => undefined,
+    (wrapper) => wrapper.replace(
+      'DO $all_player_postflight$',
+      `CREATE ROLE all_player_release_acl_fixture NOLOGIN;
+GRANT all_player_release_acl_fixture TO league_one_runtime;
+GRANT TRUNCATE ON public.all_player_score_sets TO all_player_release_acl_fixture;
+DO $all_player_postflight$`,
+    ),
+  );
+  await expectFailure(
+    'function grant option ACL',
+    'release assertion failed: function ACL advance_current_all_player_score_set',
+    () => undefined,
+    (wrapper) => wrapper.replace(
+      'DO $all_player_postflight$',
+      `GRANT EXECUTE ON FUNCTION public.advance_current_all_player_score_set(
+  text, smallint, text, smallint, uuid, text, uuid, uuid, timestamptz
+) TO league_one_runtime WITH GRANT OPTION;
+DO $all_player_postflight$`,
+    ),
+  );
 
   const wrapper = build();
   const result = await executeWrapper(wrapper);
@@ -157,8 +184,8 @@ try {
     wrapperSha256: releaseWrapperSha256(wrapper),
     migrationChecksum: ALL_PLAYER_MIGRATION_CHECKSUM,
     successSentinel: sentinel,
-    negativeFixtures: 8,
-    negativeRollbacks: 8,
+    negativeFixtures: 9,
+    negativeRollbacks: 9,
     positiveTables: 6,
     positiveRows: 0,
   })}\n`);

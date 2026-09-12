@@ -203,10 +203,24 @@ function tableAssertions(table, expectedOwner, runtimeRole) {
       AND index_record.tablename = ${tableName};
   IF actual_count <> ${indexCount} OR actual_fingerprint IS DISTINCT FROM ${literal(indexFingerprint)} THEN
     RAISE EXCEPTION 'release assertion failed: indexes ${name} expected count ${indexCount} fingerprint ${indexFingerprint}, actual count % fingerprint %', actual_count, actual_fingerprint; END IF;
-  IF has_table_privilege('public', 'public.${name}', 'SELECT,INSERT,UPDATE,DELETE')
+  IF has_table_privilege('public', 'public.${name}',
+        'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN')
+      OR has_table_privilege('public', 'public.${name}',
+        'SELECT WITH GRANT OPTION,INSERT WITH GRANT OPTION,UPDATE WITH GRANT OPTION,DELETE WITH GRANT OPTION,TRUNCATE WITH GRANT OPTION,REFERENCES WITH GRANT OPTION,TRIGGER WITH GRANT OPTION,MAINTAIN WITH GRANT OPTION')
+      OR has_any_column_privilege('public', 'public.${name}', 'SELECT,INSERT,UPDATE,REFERENCES')
+      OR has_any_column_privilege('public', 'public.${name}',
+        'SELECT WITH GRANT OPTION,INSERT WITH GRANT OPTION,UPDATE WITH GRANT OPTION,REFERENCES WITH GRANT OPTION')
       OR NOT has_table_privilege(${runtime}, 'public.${name}', 'SELECT')
       OR has_table_privilege(${runtime}, 'public.${name}', 'INSERT') IS DISTINCT FROM ${runtimeInsert}
-      OR has_table_privilege(${runtime}, 'public.${name}', 'UPDATE,DELETE') THEN
+      OR has_table_privilege(${runtime}, 'public.${name}',
+        'UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN')
+      OR has_table_privilege(${runtime}, 'public.${name}',
+        'SELECT WITH GRANT OPTION,INSERT WITH GRANT OPTION,UPDATE WITH GRANT OPTION,DELETE WITH GRANT OPTION,TRUNCATE WITH GRANT OPTION,REFERENCES WITH GRANT OPTION,TRIGGER WITH GRANT OPTION,MAINTAIN WITH GRANT OPTION')
+      OR has_any_column_privilege(${runtime}, 'public.${name}', 'INSERT')
+          IS DISTINCT FROM ${runtimeInsert}
+      OR has_any_column_privilege(${runtime}, 'public.${name}', 'UPDATE,REFERENCES')
+      OR has_any_column_privilege(${runtime}, 'public.${name}',
+        'SELECT WITH GRANT OPTION,INSERT WITH GRANT OPTION,UPDATE WITH GRANT OPTION,REFERENCES WITH GRANT OPTION') THEN
     RAISE EXCEPTION 'release assertion failed: ACL ${name}'; END IF;
   EXECUTE 'SELECT count(*) FROM public.' || quote_ident(${tableName}) INTO actual_rows;
   IF actual_rows <> 0 THEN RAISE EXCEPTION 'release assertion failed: empty table ${name}'; END IF;
@@ -239,8 +253,11 @@ function functionAssertions(functionRecord, expectedOwner, runtimeRole) {
   return `
   SELECT count(*)::integer, min(md5(pg_get_functiondef(function_record.oid))), min(owner.rolname),
       bool_or(has_function_privilege('public', function_record.oid, 'EXECUTE')),
-      bool_or(has_function_privilege(${literal(runtimeRole)}, function_record.oid, 'EXECUTE'))
-    INTO actual_count, actual_fingerprint, actual_function_owner, actual_public_execute, actual_runtime_execute
+      bool_or(has_function_privilege(${literal(runtimeRole)}, function_record.oid, 'EXECUTE')),
+      bool_or(has_function_privilege('public', function_record.oid, 'EXECUTE WITH GRANT OPTION')),
+      bool_or(has_function_privilege(${literal(runtimeRole)}, function_record.oid, 'EXECUTE WITH GRANT OPTION'))
+    INTO actual_count, actual_fingerprint, actual_function_owner, actual_public_execute, actual_runtime_execute,
+      actual_public_grant_execute, actual_runtime_grant_execute
     FROM pg_proc function_record JOIN pg_namespace namespace ON namespace.oid = function_record.pronamespace
     JOIN pg_roles owner ON owner.oid = function_record.proowner
     WHERE namespace.nspname = 'public' AND function_record.proname = ${literal(name)}
@@ -249,7 +266,9 @@ function functionAssertions(functionRecord, expectedOwner, runtimeRole) {
       OR actual_function_owner IS DISTINCT FROM ${literal(expectedOwner)} THEN
     RAISE EXCEPTION 'release assertion failed: function ${name}(${argumentsText})'; END IF;
   IF actual_public_execute IS DISTINCT FROM false
-      OR actual_runtime_execute IS DISTINCT FROM ${runtimeExecute} THEN
+      OR actual_runtime_execute IS DISTINCT FROM ${runtimeExecute}
+      OR actual_public_grant_execute IS DISTINCT FROM false
+      OR actual_runtime_grant_execute IS DISTINCT FROM false THEN
     RAISE EXCEPTION 'release assertion failed: function ACL ${name}(${argumentsText})'; END IF;
 `;
 }
@@ -352,6 +371,8 @@ DECLARE
   actual_function_owner text;
   actual_public_execute boolean;
   actual_runtime_execute boolean;
+  actual_public_grant_execute boolean;
+  actual_runtime_grant_execute boolean;
   before_catalog jsonb;
   after_catalog jsonb;
 BEGIN

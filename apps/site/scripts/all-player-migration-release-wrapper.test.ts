@@ -75,6 +75,14 @@ describe('all-player migration release wrapper', () => {
     expect(catalog.tables.reduce((total, table) => total + Number(table[4]), 0)).toBe(74);
   });
 
+  it('checks destructive, inherited, column, and grant-option access', () => {
+    const wrapper = build();
+    expect(wrapper).toContain('TRUNCATE,REFERENCES,TRIGGER,MAINTAIN');
+    expect(wrapper).toContain('MAINTAIN WITH GRANT OPTION');
+    expect(wrapper).toContain('has_any_column_privilege');
+    expect(wrapper).toContain("'EXECUTE WITH GRANT OPTION'");
+  });
+
   it('requires the exact success sentinel', () => {
     expect(requireAllPlayerMigrationSentinel([
       { success_sentinel: ALL_PLAYER_MIGRATION_SENTINEL },

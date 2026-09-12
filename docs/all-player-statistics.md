@@ -153,6 +153,8 @@ rejects any migration checksum change, acquires the existing advisory lock,
 captures unaffected catalog fingerprints inside the transaction, applies the
 reviewed SQL, inserts one ledger row, and checks every table, owner, column,
 constraint, index, trigger, function, and ACL independently before commit. Its
+ACL proof covers effective inherited access, column grants, every PostgreSQL 18
+table privilege (including `TRUNCATE` and `MAINTAIN`), and grant options. Its
 constraint manifest intentionally includes PostgreSQL 18's cataloged `NOT NULL`
 constraints (`pg_constraint.contype = 'n'`): 151 constraints in total, including
 74 `NOT NULL` constraints. The release runner treats an absent exact success
