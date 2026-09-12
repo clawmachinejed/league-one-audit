@@ -24,11 +24,12 @@ export type ProjectionFailureCode =
   | 'authority-missing' | 'authority-stale' | 'authority-provider-mismatch'
   | 'lineup-source-unavailable' | 'lineup-response-invalid' | 'lineup-not-ready' | 'lineup-shape-unavailable'
   | 'claim-superseded' | 'claim-stale' | 'capacity-exceeded' | 'snapshot-publication-failed'
-  | 'current-projection-failed';
+  | 'current-projection-failed'
+  | 'all-player-preflight-unavailable';
 
 export type ProjectionLogEntry = Readonly<{
   stage: string;
-  lane?: 'current' | 'future' | 'lineup-observation';
+  lane?: 'current' | 'future' | 'lineup-observation' | 'all-player';
   cadencePolicyVersion?: string;
   lineupRevisionVersion?: string;
   watchClass?: 'current' | 'future' | 'completed';
@@ -87,6 +88,12 @@ export type ProjectionLogEntry = Readonly<{
   fullSlateResolvedIdentityCount?: number;
   fullSlateSkippedIdentityCount?: number;
   allPlayerRankUnavailablePositions?: readonly string[];
+  allPlayerEntryCount?: number;
+  allPlayerScoringProfileCount?: number;
+  allPlayerParityComparisonCount?: number;
+  allPlayerParityMismatchCount?: number;
+  allPlayerEligibleGameCount?: number;
+  allPlayerActiveZeroCount?: number;
   fullSlateWarnings?: readonly string[];
   snapshotRevision?: string;
   publicationOutcome?: 'published' | 'unchanged' | 'rejected' | 'disabled';

@@ -42,6 +42,47 @@ The adapter makes one no-store weekly request, never a player request, keeps an
 ETag when available, and otherwise produces a stable SHA-256 response fingerprint.
 It never logs the response body.
 
+## Canonical operation and cadence
+
+`runAllPlayerIngestion` is the sole orchestration operation. It reuses the
+canonical Sleeper league loader and catalog, the current stored Tank01 slate,
+the canonical entity mappings and NFL games, the existing scorer contract, and
+`recordAllPlayerBatch`. One invocation loads the all-player response once,
+normalizes it once, builds every unique active scoring profile, verifies both
+leagues' official `players_points`, and hands the complete cross-profile batch
+to the single atomic persistence statement. It does not call Tank01 and does
+not make per-player requests.
+
+The same operation has three modes:
+
+- `shadow` performs the provider, identity, eligibility, coverage, scoring, and
+  parity work but makes no database writes;
+- `backfill` requires an explicit season/type/week plus an environment-bound,
+  period-bound write authorization before using the atomic batch writer;
+- `recurring` derives one shared current active period from the two durable
+  league authorities and is called by the existing live-projection cron. The
+  `ALL_PLAYER_RECURRING_ENABLED` flag is false unless set to exactly `true`.
+
+Shadow and backfill run through the server-only `pnpm all-player:operate`
+command. The command accepts only mode and period as non-secret arguments. It
+requires matching target-environment, database-host, database-name, connected
+role, and exact write-authorization environment safeguards. It refuses Preview,
+non-TLS remote database URLs, a write authorization in shadow mode, and a
+backfill authorization for any other period. Its output is sanitized batch
+evidence, never provider payloads or credentials.
+
+Recurring ingestion uses the existing `projection_jobs` lease rather than a
+new table or cron. UTC cadence slots are 12 hours, and the lease covers the
+whole slot plus five minutes. Concurrent Vercel invocations therefore yield one
+owner; the job claim also requires 12 elapsed hours since the prior completion.
+Completed and failed validation attempts therefore cannot retrieve again in the
+same rolling cadence window, while a later window can capture a final or
+corrected provider revision. In half-open rolling periods, the maximum recurring
+all-player request rate is exactly 1 per hour, 2 per day, and 14 per seven-day
+NFL week. Backfill and shadow are bounded
+release operations outside that recurring allowance. Replays in one slot are
+idempotent, and any failure leaves the prior guarded pointer unchanged.
+
 The current pointer advances only when all of these are true:
 
 - content, observation, and score-set quality are complete;
@@ -95,7 +136,7 @@ kicker, defense, inactive, and active-zero totals.
 
 ## Controlled rollout
 
-Each stage requires its own bounded authorization after the reviewed PR:
+The dormant implementation supports a separately authorized rollout:
 
 1. Apply migration 010 only. Verify its committed checksum, runtime ACLs, six
    table definitions, and that the old application remains healthy.
@@ -107,9 +148,9 @@ Each stage requires its own bounded authorization after the reviewed PR:
 4. With separate backfill authorization, persist that one Week 1 observation and
    its complete score sets atomically. Confirm both profile pointers, active-zero
    rows, eligibility totals, and zero parity mismatches.
-5. With separate activation authorization, attach the same operation to the
-   existing worker/publication ownership path. Do not add another cron, provider
-   feed, scorer, catalog, or browser request path.
+5. With separate activation authorization, set the reviewed recurring flag on
+   the existing worker path. Do not add another cron, provider feed, scorer,
+   catalog, or browser request path.
 
 The incremental provider cost is one all-player weekly-stat request per batch,
 shared by both leagues and all profiles; there is no Tank01 request increment and

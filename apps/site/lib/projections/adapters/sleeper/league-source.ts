@@ -160,55 +160,65 @@ export function createSleeperLeagueSource(
     ): Promise<LeagueWeekState> {
       const leagueId = String(configuration.leagueRef.externalId);
       const source = await loadLeagueWeek(leagueId, targetPeriod);
-      if (source.sleeperLeagueId !== leagueId) {
-        throw new Error('Sleeper returned matchup data for a different league.');
-      }
-
-      const period = sleeperRegularSeasonPeriod(source.data.league.season, source.data.week);
-      if (!samePeriod(period, targetPeriod)) {
-        throw new Error('Sleeper returned matchup data for a different projection period.');
-      }
-      const provider = configuration.leagueRef.provider;
-      const rawLineup = translateSleeperLineupObservation(
-        configuration.leagueRef, period,
-        sleeperLineupObservationShape(configuration.leagueRef, source.matchupShape), source.rawMatchups,
-      );
-      if (rawLineup.status !== 'complete') throw new Error('Sleeper did not provide a complete authoritative lineup.');
-      const lineup = await calculateLineupRevision(rawLineup.observation);
-      return {
-        lineupShape: rawLineup.observation.shape,
-        configuration,
-        leagueName: source.leagueName || configuration.displayName,
-        period,
-        maxWeek: source.data.league.maxWeek,
-        rosterPositions: source.data.league.rosterPositions,
-        participants: participants(source, configuration),
-        matchups: source.data.matchups.map((matchup) => ({
-          matchupRef: externalMatchupRef(configuration.leagueRef, period, matchup.id),
-          status: matchup.status,
-          sides: matchup.sides.map((side) => ({
-            rosterRef: externalRosterRef(configuration.leagueRef, String(side.team.id)),
-            officialPoints: side.points,
-            starters: side.starters.map((player) => lineupSlot(player, provider)),
-          })),
-        })),
-        rosteredEntities: rosteredEntities(source, provider),
-        schedule: leagueWeekSchedule(source),
-        scoringSettings: {
-          provider,
-          rawRules: source.scoringSettings,
-        },
-        requestStartedAt: source.requestStartedAt,
-        requestCompletedAt: source.requestCompletedAt,
-        observedAt: source.requestCompletedAt,
-        sourceRevision: compatibleRevision({
-          requestStartedAt: source.requestStartedAt,
-          requestCompletedAt: source.requestCompletedAt,
-          data: source.data,
-        }),
-        lineup,
-        warning: source.data.warning,
-      };
+      return translateSleeperLeagueWeek(source, configuration, targetPeriod);
     },
+  };
+}
+
+/** Pure translation boundary reused by the projection and all-player workers so
+ * one all-player league load is never repeated merely to obtain raw parity rows. */
+export async function translateSleeperLeagueWeek(
+  source: ProjectionSyncInput,
+  configuration: LeagueConfiguration,
+  targetPeriod: LeaguePeriod,
+): Promise<LeagueWeekState> {
+  const leagueId = String(configuration.leagueRef.externalId);
+  if (source.sleeperLeagueId !== leagueId) {
+    throw new Error('Sleeper returned matchup data for a different league.');
+  }
+  const period = sleeperRegularSeasonPeriod(source.data.league.season, source.data.week);
+  if (!samePeriod(period, targetPeriod)) {
+    throw new Error('Sleeper returned matchup data for a different projection period.');
+  }
+  const provider = configuration.leagueRef.provider;
+  const rawLineup = translateSleeperLineupObservation(
+    configuration.leagueRef, period,
+    sleeperLineupObservationShape(configuration.leagueRef, source.matchupShape), source.rawMatchups,
+  );
+  if (rawLineup.status !== 'complete') throw new Error('Sleeper did not provide a complete authoritative lineup.');
+  const lineup = await calculateLineupRevision(rawLineup.observation);
+  return {
+    lineupShape: rawLineup.observation.shape,
+    configuration,
+    leagueName: source.leagueName || configuration.displayName,
+    period,
+    maxWeek: source.data.league.maxWeek,
+    rosterPositions: source.data.league.rosterPositions,
+    participants: participants(source, configuration),
+    matchups: source.data.matchups.map((matchup) => ({
+      matchupRef: externalMatchupRef(configuration.leagueRef, period, matchup.id),
+      status: matchup.status,
+      sides: matchup.sides.map((side) => ({
+        rosterRef: externalRosterRef(configuration.leagueRef, String(side.team.id)),
+        officialPoints: side.points,
+        starters: side.starters.map((player) => lineupSlot(player, provider)),
+      })),
+    })),
+    rosteredEntities: rosteredEntities(source, provider),
+    schedule: leagueWeekSchedule(source),
+    scoringSettings: {
+      provider,
+      rawRules: source.scoringSettings,
+    },
+    requestStartedAt: source.requestStartedAt,
+    requestCompletedAt: source.requestCompletedAt,
+    observedAt: source.requestCompletedAt,
+    sourceRevision: compatibleRevision({
+      requestStartedAt: source.requestStartedAt,
+      requestCompletedAt: source.requestCompletedAt,
+      data: source.data,
+    }),
+    lineup,
+    warning: source.data.warning,
   };
 }

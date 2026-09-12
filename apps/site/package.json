@@ -16,7 +16,8 @@
     "test": "vitest run",
     "test:integration": "node --env-file=.env.integration.local scripts/run-projection-store-integration.mjs",
     "test:browser": "playwright test",
-    "db:migrate": "node --env-file-if-exists=.env.local scripts/migrate.mjs"
+    "db:migrate": "node --env-file-if-exists=.env.local scripts/migrate.mjs",
+    "all-player:operate": "node --conditions=react-server --import tsx scripts/run-all-player-ingestion.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
@@ -32,6 +33,7 @@
     "@types/react-dom": "^19.2.0",
     "eslint": "^9.39.0",
     "eslint-config-next": "16.3.3",
+    "tsx": "4.20.5",
     "typescript": "~5.9.3",
     "vitest": "4.1.11"
   }

@@ -1605,6 +1605,15 @@ describe.sequential('projection store against an isolated Neon database', () => 
         workerId: loser.workerId,
         leaseSeconds: 120,
       })).toEqual({ kind: 'completed' });
+      expect(await loser.store.acquireJob({
+        jobKey,
+        jobType: 'all-player-ingestion',
+        scheduledFor: time(36),
+        payload: { cadence: '12h' },
+        workerId: loser.workerId,
+        leaseSeconds: 43_500,
+        minimumIntervalSeconds: 43_200,
+      })).toEqual({ kind: 'completed' });
       const next = await loser.store.acquireJob({
         jobKey,
         jobType: 'projection-sync',

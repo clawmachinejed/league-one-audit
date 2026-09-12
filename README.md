@@ -49,6 +49,7 @@ The committed league registry works without an environment file. To run the live
 | `DATABASE_URL` | Pooled, server-only Neon PostgreSQL connection for the restricted `league_one_runtime` role. |
 | `MIGRATION_DATABASE_URL` | Direct schema-owner Neon connection used only by the migration command; do not add it to the deployed application. |
 | `CRON_SECRET` | Long random secret Vercel sends as a bearer token when it runs the projection worker. |
+| `ALL_PLAYER_RECURRING_ENABLED` | Optional server-only activation switch. Only exact `true` enables the reviewed 12-hour all-player lane inside the existing live-projection cron; absent is dormant. |
 
 For a new Neon database, set the schema owner's direct connection as `MIGRATION_DATABASE_URL` locally and run `pnpm db:migrate`. Then run `apps/site/scripts/provision-runtime-role.sql` in Neon's SQL Editor. That script creates the application role through SQL so it does not inherit Neon's administrative role, grants only the tables and operations the worker needs, and fails if the role can create database objects or read the migration ledger. Set a generated password with an unsaved SQL statement, rerun the provisioning script to verify its postconditions, and use that role's pooled connection as `DATABASE_URL`. Never use the schema-owner URL as the application's runtime credential.
 
@@ -101,6 +102,7 @@ The two-league Week 1 target is approximately 13–14 lineup matchup observation
 | `pnpm test:integration` | Destructively test the store facade against an explicitly authorized isolated Neon database; never use production. |
 | `pnpm test:browser` | Run Playwright smoke tests against a local server, or against `BASE_URL` when supplied. |
 | `pnpm db:migrate` | Apply pending, checksummed Neon schema migrations using `apps/site/.env.local`. |
+| `pnpm all-player:operate -- --mode shadow\|backfill --season 2026 --season-type regular --week 1` | Run the guarded server-only all-player shadow or exact-period backfill operation. Target identity and write authorization are supplied only through secured environment state. |
 | `pnpm build` | Create the production build. |
 | `pnpm start` | Run an existing production build locally. |
 | `pnpm verify` | Run lint, type checks, unit tests, and the production build, stopping on failure. |
@@ -129,6 +131,8 @@ Install Playwright's Chromium browser once with `pnpm --filter @l1/site exec pla
 | `apps/site/lib/projections/runtime` | Separate current, future, and thin-observer composition; shared configuration, clocks, projection services, and persistence construction. |
 | `apps/site/lib/projection-store.ts` | Stable low-level Neon store facade used by existing readers and the canonical Neon adapters. |
 | `apps/site/lib/live-projection-worker.ts` | Current worker facade and the existing explicit administrative dispatch. |
+| `apps/site/lib/projections/runtime/all-player-operation.ts` | Sole all-player shadow, backfill, and recurring orchestration operation. |
+| `apps/site/lib/projections/runtime/all-player-composition.ts` | Server-only production composition and disabled-by-default attachment to the existing live worker. |
 | `apps/site/lib/lineup-observation-worker.ts` | Thin lineup-observation facade, with no projection-feed or scoring dependency. |
 | `apps/site/lib/future-projection-worker.ts` | Independent future ingestion and materialization facade. |
 | `apps/site/lib/projection-reader.ts` | Shared stored-snapshot validation and freshness boundary for the page and polling API. |

@@ -16,6 +16,11 @@ export function createJobMethods(client: DatabaseClient): JobMethods {
       if (!Number.isInteger(input.leaseSeconds) || input.leaseSeconds < 1) {
         throw new Error('Job lease must be a positive number of whole seconds.');
       }
+      if (input.minimumIntervalSeconds !== undefined
+        && (!Number.isInteger(input.minimumIntervalSeconds)
+          || input.minimumIntervalSeconds < 1)) {
+        throw new Error('Job minimum interval must be a positive number of whole seconds.');
+      }
       const rows = await client.query(`/* projection-store:acquire-job */
         INSERT INTO projection_jobs (
           job_key, job_type, scheduled_for, state, payload,
@@ -40,11 +45,13 @@ export function createJobMethods(client: DatabaseClient): JobMethods {
           OR (projection_jobs.state = 'running' AND projection_jobs.lease_until < now()
             AND EXCLUDED.scheduled_for >= projection_jobs.scheduled_for)
           OR (projection_jobs.state = 'completed'
-            AND EXCLUDED.scheduled_for > projection_jobs.scheduled_for)
+            AND EXCLUDED.scheduled_for > projection_jobs.scheduled_for
+            AND ($7::integer IS NULL OR projection_jobs.completed_at
+              <= now() - ($7 * interval '1 second')))
         RETURNING attempt_count, lease_until::text`, [
         requiredText(input.jobKey, 'Job key'), requiredText(input.jobType, 'Job type'),
         input.scheduledFor, json(input.payload), requiredText(input.workerId, 'Worker ID'),
-        input.leaseSeconds,
+        input.leaseSeconds, input.minimumIntervalSeconds ?? null,
       ]);
       const acquired = rows[0];
       if (acquired) {

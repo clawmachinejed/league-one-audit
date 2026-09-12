@@ -8,6 +8,7 @@ import {
 import { buildAllPlayerScoreSets, type AllPlayerStatObservation } from '../lib/projections/domain/all-player-statistics';
 import { NFL_TEAM_CODES } from '../lib/projections/domain/contracts';
 import { SLEEPER_ALL_PLAYER_SCORING_RULE_KEYS } from '../lib/projections/adapters/sleeper/scoring-profile';
+import { rulesHash } from '../lib/projections/adapters/neon/database-values';
 import {
   createIndependentDatabase,
   ownerQuery,
@@ -279,6 +280,50 @@ describe('all-player statistics foundation', () => {
         .map((point) => `${point.providerExternalId}\u001f${String(point.points)}`).join('\n')).digest('hex')}`,
     };
   }
+
+  it('reads canonical profiles, identities, game context, and runtime database identity', async () => {
+    await expect(store.readAllPlayerLeagueProfiles({
+      season: DATABASE_SEASON, provider: 'sleeper',
+      leagues: [{
+        leagueKey: 'league1', externalLeagueId: 'all-player-integration-one',
+        rulesHash: rulesHash({ pass_td: 4 }),
+      }, {
+        leagueKey: 'league2', externalLeagueId: 'all-player-integration-two',
+        rulesHash: rulesHash({ pass_td: 6 }),
+      }],
+    })).resolves.toEqual([
+      expect.objectContaining({
+        leagueKey: 'league1', leagueSeasonId: leagueSeasonIds[0],
+        scoringProfileId: profileIds[0], rules: { pass_td: 4 },
+      }),
+      expect.objectContaining({
+        leagueKey: 'league2', leagueSeasonId: leagueSeasonIds[1],
+        scoringProfileId: profileIds[1], rules: { pass_td: 6 },
+      }),
+    ]);
+    await expect(store.readAllPlayerIdentityMappings([{
+      provider: 'sleeper', entityKind: 'player', externalId: 'integration-player-one',
+    }, {
+      provider: 'tank01', entityKind: 'player', externalId: 'unresolved-free-agent',
+    }])).resolves.toEqual([
+      expect.objectContaining({
+        provider: 'sleeper', externalId: 'integration-player-one',
+        scoringEntityId: entityIds['integration-player-one'], mappedEntityKind: 'player',
+      }),
+      {
+        provider: 'tank01', entityKind: 'player', externalId: 'unresolved-free-agent',
+        scoringEntityId: null, mappedEntityKind: null,
+      },
+    ]);
+    await expect(store.readAllPlayerGameContext({
+      season: DATABASE_SEASON, seasonType: 'reg', week: 1, gameStateProvider: 'tank01',
+    })).resolves.toEqual([
+      expect.objectContaining({ nflGameId: gameId, homeTeam: 'NE', awayTeam: 'ATL', phase: 'unknown' }),
+    ]);
+    await expect(store.readDatabaseIdentity()).resolves.toMatchObject({
+      databaseName: expect.any(String), roleName: 'league_one_runtime',
+    });
+  });
 
   it('rejects forged eligibility counts and mismatched NFL game context in the database', async () => {
     await expect(runtimeQuery(`

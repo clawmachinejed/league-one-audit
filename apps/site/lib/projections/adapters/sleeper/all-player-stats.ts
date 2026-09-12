@@ -183,6 +183,10 @@ function sourceRevision(response: Response, raw: unknown): string {
     : `sha256:${createHash('sha256').update(stableJson(raw)).digest('hex')}`;
 }
 
+function evidenceFingerprint(value: unknown): string {
+  return `sha256:${createHash('sha256').update(stableJson(value)).digest('hex')}`;
+}
+
 function normalizedPosition(value: unknown): AllPlayerPosition | null {
   if (typeof value !== 'string') return null;
   const position = value.trim().toUpperCase();
@@ -529,15 +533,15 @@ export function createSleeperAllPlayerStatSource(dependencies: Readonly<{
             expectedInventoryFingerprint: input.inventory.fingerprint,
             catalogRevision: input.inventory.sourceEvidence.catalogRevision,
             scheduleRevision: input.inventory.sourceEvidence.scheduleRevision,
-            rosterInventoryFingerprint: `sha256:${createHash('sha256').update(stableJson(
+            rosterInventoryFingerprint: evidenceFingerprint(
               input.inventory.sourceEvidence.rosteredPlayerIds,
-            )).digest('hex')}`,
-            projectionInventoryFingerprint: `sha256:${createHash('sha256').update(stableJson(
+            ),
+            projectionInventoryFingerprint: evidenceFingerprint(
               input.inventory.sourceEvidence.projectionPlayerIds,
-            )).digest('hex')}`,
-            byeInventoryFingerprint: `sha256:${createHash('sha256').update(stableJson(
+            ),
+            byeInventoryFingerprint: evidenceFingerprint(
               input.inventory.sourceEvidence.byeTeamIds,
-            )).digest('hex')}`,
+            ),
             expectedEntityCount: expectedEntities.length,
             expectedPlayerCount: expectedEntities
               .filter((entity) => entity.entityKind === 'player').length,
