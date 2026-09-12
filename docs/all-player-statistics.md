@@ -60,8 +60,10 @@ The same operation has three modes:
 - `backfill` requires an explicit season/type/week plus an environment-bound,
   period-bound write authorization before using the atomic batch writer;
 - `recurring` derives one shared current active period from the two durable
-  league authorities and is called by the existing live-projection cron. The
-  `ALL_PLAYER_RECURRING_ENABLED` flag is false unless set to exactly `true`.
+  league authorities and is scheduled after the existing authenticated
+  live-projection cron response. The Matchups worker is never made to wait for
+  this lane. The `ALL_PLAYER_RECURRING_ENABLED` flag is false unless set to
+  exactly `true`.
 
 Shadow and backfill run through the server-only `pnpm all-player:operate`
 command. The command accepts only mode and period as non-secret arguments. It
@@ -82,6 +84,11 @@ all-player request rate is exactly 1 per hour, 2 per day, and 14 per seven-day
 NFL week. Backfill and shadow are bounded
 release operations outside that recurring allowance. Replays in one slot are
 idempotent, and any failure leaves the prior guarded pointer unchanged.
+An available partial provider observation is still written as immutable raw
+content plus one append-only observation, with no score sets and no pointer
+movement. A new parity observation for unchanged raw stats produces a distinct
+immutable score-set revision because the exact parity observation identities
+and evidence are part of the score-set semantic hash.
 
 The current pointer advances only when all of these are true:
 

@@ -117,14 +117,13 @@ export function createAllPlayerContextMethods(
           )
         )
         SELECT input.provider, input.entity_kind, input.external_id,
-          mapping.scoring_entity_id, entity.kind AS mapped_entity_kind
+          mapping.scoring_entity_id, entity.kind AS mapped_entity_kind,
+          mapping.mapping_status, mapping.valid_to::text
         FROM input
         LEFT JOIN external_scoring_entity_ids mapping
           ON mapping.provider = input.provider
           AND mapping.entity_kind = input.entity_kind
           AND mapping.external_id = input.external_id
-          AND mapping.mapping_status = 'verified'
-          AND mapping.valid_to IS NULL
         LEFT JOIN scoring_entities entity ON entity.id = mapping.scoring_entity_id
         ORDER BY input.ordinal`, [json(prepared)]);
       return rows.map((row) => ({
@@ -134,6 +133,9 @@ export function createAllPlayerContextMethods(
         scoringEntityId: rowNullableText(row, 'scoring_entity_id'),
         mappedEntityKind: rowNullableText(row, 'mapped_entity_kind') as
           | 'player' | 'team_defense' | null,
+        mappingStatus: rowNullableText(row, 'mapping_status') as
+          | 'verified' | 'unverified' | 'retired' | null,
+        validTo: rowNullableText(row, 'valid_to'),
       }));
     },
 

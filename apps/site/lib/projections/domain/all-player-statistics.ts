@@ -357,6 +357,8 @@ export async function buildAllPlayerScoreSets(input: Readonly<{
         scoringProfileId: profile.scoringProfileId,
         scoringRulesHash,
         scorerVersion: input.scorerVersion,
+        coverage,
+        warnings: input.observation.warnings,
         scores: scoreDocument,
       }),
       quality: 'complete',

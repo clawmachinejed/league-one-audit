@@ -39,28 +39,30 @@ const scores = [{
   eligibleGameCount: 1 as const, appearanceGameCount: 0 as const, gamePhase: 'final' as const,
   scoringBreakdown: { pass_td: { stat: 0, weight: 6, points: 0 } },
 }];
+const scoreCoverage = {
+  complete: true, identity_complete: true, scoring_rules_complete: true,
+  scoring_rules_hash: scoringRulesHash,
+  expected_scoring_profile_ids: [profileId],
+  score_batch_fingerprint: `sha256:${'b'.repeat(64)}`,
+  parity_observation_ids: [officialObservationId], parity_expected_entity_count: 1,
+  parity_observation_evidence: {
+    [officialObservationId]: {
+      version: 'players-points-v1', expectedEntityCount: 1, expectedRosterCount: 1,
+      expectedRosterIds: ['roster-1'],
+      fingerprint: `sha256:${'c'.repeat(64)}`,
+    },
+  },
+  parity_fingerprint: `sha256:${'a'.repeat(64)}`,
+};
 const scoreSet: AllPlayerScoreSet = {
   scoringProfileId: profileId, scoringRulesHash, scorerVersion: 'sleeper-actual-v1',
   semanticHash: allPlayerScoreSemanticHash({
     scoringProfileId: profileId, scoringRulesHash, scorerVersion: 'sleeper-actual-v1',
+    coverage: scoreCoverage, warnings: [],
   }, scores),
   quality: 'complete', scoredEntityCount: 1, eligibleGameCount: 1,
   parityComparisonCount: 1, parityMismatchCount: 0,
-  coverage: {
-    complete: true, identity_complete: true, scoring_rules_complete: true,
-    scoring_rules_hash: scoringRulesHash,
-    expected_scoring_profile_ids: [profileId],
-    score_batch_fingerprint: `sha256:${'b'.repeat(64)}`,
-    parity_observation_ids: [officialObservationId], parity_expected_entity_count: 1,
-    parity_observation_evidence: {
-      [officialObservationId]: {
-        version: 'players-points-v1', expectedEntityCount: 1, expectedRosterCount: 1,
-        expectedRosterIds: ['roster-1'],
-        fingerprint: `sha256:${'c'.repeat(64)}`,
-      },
-    },
-    parity_fingerprint: `sha256:${'a'.repeat(64)}`,
-  },
+  coverage: scoreCoverage,
   warnings: [], scores,
 };
 
@@ -132,6 +134,7 @@ describe('all-player Neon persistence', () => {
       ...scoreSet,
       semanticHash: allPlayerScoreSemanticHash({
         scoringProfileId: profileId, scoringRulesHash, scorerVersion: scoreSet.scorerVersion,
+        coverage: scoreSet.coverage, warnings: scoreSet.warnings,
       }, corruptScores),
       scores: corruptScores,
     };

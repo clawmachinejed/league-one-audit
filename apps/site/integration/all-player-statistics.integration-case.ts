@@ -309,10 +309,11 @@ describe('all-player statistics foundation', () => {
       expect.objectContaining({
         provider: 'sleeper', externalId: 'integration-player-one',
         scoringEntityId: entityIds['integration-player-one'], mappedEntityKind: 'player',
+        mappingStatus: 'verified', validTo: null,
       }),
       {
         provider: 'tank01', entityKind: 'player', externalId: 'unresolved-free-agent',
-        scoringEntityId: null, mappedEntityKind: null,
+        scoringEntityId: null, mappedEntityKind: null, mappingStatus: null, validTo: null,
       },
     ]);
     await expect(store.readAllPlayerGameContext({

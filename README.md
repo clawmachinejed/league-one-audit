@@ -49,7 +49,7 @@ The committed league registry works without an environment file. To run the live
 | `DATABASE_URL` | Pooled, server-only Neon PostgreSQL connection for the restricted `league_one_runtime` role. |
 | `MIGRATION_DATABASE_URL` | Direct schema-owner Neon connection used only by the migration command; do not add it to the deployed application. |
 | `CRON_SECRET` | Long random secret Vercel sends as a bearer token when it runs the projection worker. |
-| `ALL_PLAYER_RECURRING_ENABLED` | Optional server-only activation switch. Only exact `true` enables the reviewed 12-hour all-player lane inside the existing live-projection cron; absent is dormant. |
+| `ALL_PLAYER_RECURRING_ENABLED` | Optional server-only activation switch. Only exact `true` enables the reviewed 12-hour all-player lane after the existing authenticated live-projection cron response; absent is dormant. |
 
 For a new Neon database, set the schema owner's direct connection as `MIGRATION_DATABASE_URL` locally and run `pnpm db:migrate`. Then run `apps/site/scripts/provision-runtime-role.sql` in Neon's SQL Editor. That script creates the application role through SQL so it does not inherit Neon's administrative role, grants only the tables and operations the worker needs, and fails if the role can create database objects or read the migration ledger. Set a generated password with an unsaved SQL statement, rerun the provisioning script to verify its postconditions, and use that role's pooled connection as `DATABASE_URL`. Never use the schema-owner URL as the application's runtime credential.
 

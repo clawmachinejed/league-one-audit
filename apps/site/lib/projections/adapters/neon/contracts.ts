@@ -189,6 +189,8 @@ export type AllPlayerIdentityLookup = Readonly<{
 export type StoredAllPlayerIdentityMapping = AllPlayerIdentityLookup & Readonly<{
   scoringEntityId: string | null;
   mappedEntityKind: ScoringEntityKind | null;
+  mappingStatus: 'verified' | 'unverified' | 'retired' | null;
+  validTo: string | null;
 }>;
 
 export type StoredAllPlayerGameContext = Readonly<{

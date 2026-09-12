@@ -185,6 +185,7 @@ function harness(options: Readonly<{
       }))),
       readAllPlayerIdentityMappings: vi.fn(async (inputs: readonly AllPlayerIdentityLookup[]) => inputs.map((input) => ({
         ...input, scoringEntityId: null, mappedEntityKind: null,
+        mappingStatus: null, validTo: null,
       }))),
       readAllPlayerGameContext: vi.fn(async () => gameContext()),
       upsertScoringEntities,
@@ -306,9 +307,80 @@ describe('canonical all-player ingestion orchestration', () => {
     expect(test.recordAllPlayerBatch).not.toHaveBeenCalled();
   });
 
+  it('persists partial unknown-eligibility evidence without scoring or moving a pointer', async () => {
+    const partial = {
+      ...observation(),
+      quality: 'partial' as const,
+      coverage: { complete: false, unknownEligibilityCount: 1 },
+      entries: observation().entries.map((value, index) => index === 0 ? {
+        ...value,
+        eligibleGameCount: null,
+        appearanceGameCount: null,
+        eligibilityEvidence: {
+          kind: 'missing-provider-row' as const,
+          inventoryFingerprint: `sha256:${'a'.repeat(64)}`,
+        },
+      } : value),
+    };
+    const test = harness({ observation: partial });
+    await expect(runAllPlayerIngestion(test.dependencies, {
+      mode: 'backfill', period: PERIOD,
+    })).resolves.toMatchObject({
+      status: 'unavailable',
+      reason: 'provider-coverage-incomplete',
+      persistedObservation: true,
+    });
+    expect(test.recordLeagueWeekObservation).not.toHaveBeenCalled();
+    expect(test.recordAllPlayerBatch).toHaveBeenCalledOnce();
+    expect(test.recordAllPlayerBatch.mock.calls[0][0]).toMatchObject({
+      observation: { quality: 'partial', coverage: { complete: false } },
+      scoreSets: [],
+    });
+    expect(test.pointers).toEqual([]);
+  });
+
+  it('does not write the same partial evidence in shadow mode', async () => {
+    const partial = {
+      ...observation(), quality: 'partial' as const,
+      coverage: { complete: false, unknownEligibilityCount: 1 },
+    };
+    const test = harness({ observation: partial });
+    await expect(runAllPlayerIngestion(test.dependencies, {
+      mode: 'shadow', period: PERIOD,
+    })).resolves.toMatchObject({
+      status: 'unavailable', reason: 'provider-coverage-incomplete',
+    });
+    expect(test.recordAllPlayerBatch).not.toHaveBeenCalled();
+  });
+
+  it('creates a new immutable score-set revision for fresh parity observations of unchanged stats', async () => {
+    const test = harness();
+    await expect(runAllPlayerIngestion(test.dependencies, {
+      mode: 'backfill', period: PERIOD,
+    })).resolves.toMatchObject({ status: 'completed' });
+    test.recordLeagueWeekObservation
+      .mockResolvedValueOnce({ kind: 'stored', value: {
+        observationId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+        playerPointsStored: 1, rosterPointsStored: 1,
+        unmappedSleeperPlayerIds: [], expectedGamesStored: 0, unmappedTank01GameIds: [],
+      } })
+      .mockResolvedValueOnce({ kind: 'stored', value: {
+        observationId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+        playerPointsStored: 1, rosterPointsStored: 1,
+        unmappedSleeperPlayerIds: [], expectedGamesStored: 0, unmappedTank01GameIds: [],
+      } });
+    await expect(runAllPlayerIngestion(test.dependencies, {
+      mode: 'backfill', period: PERIOD,
+    })).resolves.toMatchObject({ status: 'completed' });
+    expect(test.batches).toHaveLength(2);
+    const [first, second] = test.batches as AllPlayerBatchInput[];
+    expect(first.observation.sourceRevision).toBe(second.observation.sourceRevision);
+    expect(first.scoreSets[0].semanticHash).not.toBe(second.scoreSets[0].semanticHash);
+  });
+
   it.each([
     ['provider validation', () => ({ status: 'unavailable' as const, reason: 'malformed' as const })],
-    ['unknown eligibility', () => ({ status: 'available' as const, observation: {
+    ['inconsistent complete eligibility', () => ({ status: 'available' as const, observation: {
       ...observation(), entries: observation().entries.map((value, index) => index === 0 ? {
         ...value, eligibleGameCount: null, appearanceGameCount: null,
         eligibilityEvidence: { kind: 'missing-provider-row' as const, inventoryFingerprint: `sha256:${'a'.repeat(64)}` },
@@ -334,9 +406,11 @@ describe('canonical all-player ingestion orchestration', () => {
   it('leaves pointers unchanged after identity or persistence failure', async () => {
     const identity = harness();
     vi.mocked(identity.dependencies.store.readAllPlayerIdentityMappings).mockImplementationOnce(
-      async (inputs) => inputs.map((input, index) => ({
+      async (inputs) => inputs.map((input) => ({
         ...input, scoringEntityId: null,
-        mappedEntityKind: index === 0 ? 'team_defense' : null,
+        mappedEntityKind: input.provider === 'sleeper' && input.externalId === 'p1'
+          ? 'team_defense' : null,
+        mappingStatus: null, validTo: null,
       })),
     );
     await expect(runAllPlayerIngestion(identity.dependencies, { mode: 'backfill', period: PERIOD }))
@@ -349,6 +423,34 @@ describe('canonical all-player ingestion orchestration', () => {
       .resolves.toMatchObject({ status: 'unavailable', reason: 'unexpected' });
     expect(persistence.pointers).toEqual([]);
   });
+
+  it.each(['shadow', 'backfill'] as const)(
+    'fails %s consistently for an existing unverified official identity',
+    async (mode) => {
+      const test = harness();
+      vi.mocked(test.dependencies.store.readAllPlayerIdentityMappings).mockImplementationOnce(
+        async (inputs) => inputs.map((input) => input.provider === 'sleeper'
+          && input.externalId === 'p1' ? {
+            ...input,
+            scoringEntityId: deterministicUuid('unverified', 'p1'),
+            mappedEntityKind: 'player',
+            mappingStatus: 'unverified',
+            validTo: null,
+          } : {
+            ...input, scoringEntityId: null, mappedEntityKind: null,
+            mappingStatus: null, validTo: null,
+          }),
+      );
+      await expect(runAllPlayerIngestion(test.dependencies, {
+        mode, period: PERIOD,
+      })).resolves.toMatchObject({
+        status: 'unavailable', reason: 'identity-mapping-unusable',
+      });
+      expect(test.allPlayerSource.load).not.toHaveBeenCalled();
+      expect(test.upsertScoringEntities).not.toHaveBeenCalled();
+      expect(test.recordAllPlayerBatch).not.toHaveBeenCalled();
+    },
+  );
 
   it('stores final corrections as new immutable batches and advances only guarded batch pointers', async () => {
     const test = harness();

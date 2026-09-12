@@ -124,6 +124,8 @@ export type AllPlayerIngestionResult =
       period: LeaguePeriod;
       sourceRevision?: string;
       projectionCoverage?: FullSlateProjectionCoverage;
+      persistedObservation?: boolean;
+      statObservationId?: string;
     }>
   | Readonly<{
       status: 'completed';
@@ -191,6 +193,8 @@ function unavailable(
   evidence: Readonly<{
     sourceRevision?: string;
     projectionCoverage?: FullSlateProjectionCoverage;
+    persistedObservation?: boolean;
+    statObservationId?: string;
   }> = {},
 ): AllPlayerIngestionResult {
   return { status: 'unavailable', mode, period, reason, ...evidence };
@@ -233,20 +237,37 @@ function plannedIdentities(
   inputs: readonly AllPlayerIdentityLookup[],
   mappings: readonly StoredAllPlayerIdentityMapping[],
   officialProvider: ProviderKey,
-): ReadonlyMap<string, string> {
+): Readonly<{
+  byReference: ReadonlyMap<string, string>;
+  unusableOfficialIdentities: readonly string[];
+}> {
   const mappingByKey = new Map(mappings.map((mapping) => [identityLookupKey(mapping), mapping]));
   const planned = new Map<string, string>();
+  const unusableOfficialIdentities: string[] = [];
   for (const input of inputs) {
     const mapping = mappingByKey.get(identityLookupKey(input));
     if (!mapping) throw new Error('Identity mapping inspection was incomplete.');
-    if (mapping.mappedEntityKind !== null && mapping.mappedEntityKind !== input.entityKind) {
-      throw new Error('A provider identity conflicts with its canonical entity kind.');
+    const storedMappingExists = mapping.scoringEntityId !== null
+      || mapping.mappedEntityKind !== null
+      || mapping.mappingStatus != null || mapping.validTo != null;
+    const storedMappingUsable = mapping.scoringEntityId !== null
+      && mapping.mappedEntityKind === input.entityKind
+      && mapping.mappingStatus === 'verified'
+      && mapping.validTo === null;
+    if (storedMappingExists && !storedMappingUsable) {
+      if (input.provider === String(officialProvider)) {
+        unusableOfficialIdentities.push(input.externalId);
+      }
+      continue;
     }
     const scoringEntityId = mapping.scoringEntityId
       ?? (input.provider === String(officialProvider) ? proposedEntityId(input) : null);
     if (scoringEntityId) planned.set(providerIdentityKey(input), scoringEntityId);
   }
-  return planned;
+  return {
+    byReference: planned,
+    unusableOfficialIdentities: [...new Set(unusableOfficialIdentities)].sort(),
+  };
 }
 
 function identityLookups(
@@ -547,7 +568,7 @@ async function execute(
     dependencies.officialProvider,
   );
   const mappingRows = await dependencies.store.readAllPlayerIdentityMappings(lookups);
-  const plannedByReference = plannedIdentities(
+  const identityPlan = plannedIdentities(
     lookups,
     mappingRows,
     dependencies.officialProvider,
@@ -555,8 +576,11 @@ async function execute(
   const projectionCoverage = analyzeFullSlateProjectionCoverage(
     projectionSlate.slate,
     dependencies.officialProvider,
-    plannedByReference,
+    identityPlan.byReference,
   );
+  if (identityPlan.unusableOfficialIdentities.length > 0) {
+    return unavailable(mode, period, 'identity-mapping-unusable', { projectionCoverage });
+  }
   const providerResult = await dependencies.allPlayerSource.load({
     season: period.season,
     week: period.week,
@@ -569,6 +593,29 @@ async function execute(
   }
   const observation = addProjectionEvidence(providerResult.observation, projectionCoverage);
   if (observation.quality !== 'complete' || observation.coverage.complete !== true) {
+    if (mode !== 'shadow'
+      && observation.quality === 'partial'
+      && observation.coverage.complete === false) {
+      const stored = await dependencies.store.recordAllPlayerBatch({
+        observation,
+        scoreSets: [],
+        verifiedAt: dependencies.clock.now().toISOString(),
+      });
+      if (stored.kind !== 'stored'
+        || stored.value.entryCount !== observation.entries.length
+        || stored.value.scoreSets.length !== 0) {
+        return unavailable(mode, period, 'partial-observation-persistence-incomplete', {
+          sourceRevision: observation.sourceRevision,
+          projectionCoverage,
+        });
+      }
+      return unavailable(mode, period, 'provider-coverage-incomplete', {
+        sourceRevision: observation.sourceRevision,
+        projectionCoverage,
+        persistedObservation: true,
+        statObservationId: stored.value.statObservationId,
+      });
+    }
     return unavailable(mode, period, 'provider-coverage-incomplete', {
       sourceRevision: observation.sourceRevision,
       projectionCoverage,
@@ -636,7 +683,7 @@ async function execute(
       entityKind: entry.entityKind,
       externalId: entry.providerExternalId,
     };
-    return [entry.providerExternalId, plannedByReference.get(providerIdentityKey(lookup)) ?? null];
+    return [entry.providerExternalId, identityPlan.byReference.get(providerIdentityKey(lookup)) ?? null];
   }));
   const preliminaryObservationIds = new Map(loaded.map((league) => [
     league.configuration.key,

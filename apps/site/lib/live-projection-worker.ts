@@ -1,7 +1,6 @@
 import 'server-only';
 
 import { runProductionProjectionSync } from './projections/runtime/projection-dispatch';
-import { runProductionAllPlayerRecurring } from './projections/runtime/all-player-composition';
 import type {
   LiveProjectionSyncResult,
   LiveProjectionWorkerDependencies,
@@ -24,10 +23,5 @@ export function createLiveProjectionWorker(dependencies: LiveProjectionWorkerDep
 export async function runLiveProjectionSync(
   options: Readonly<{ force?: boolean }> = {},
 ): Promise<LiveProjectionSyncResult> {
-  if (options.force) return runProductionProjectionSync(options);
-  const [projection] = await Promise.all([
-    runProductionProjectionSync(options),
-    runProductionAllPlayerRecurring().catch(() => ({ status: 'disabled' as const, mode: 'recurring' as const })),
-  ]);
-  return projection;
+  return runProductionProjectionSync(options);
 }

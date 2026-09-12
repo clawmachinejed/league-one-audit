@@ -157,13 +157,16 @@ function normalizeScores(
 }
 
 export function allPlayerScoreSemanticHash(
-  scoreSet: Pick<AllPlayerScoreSet, 'scoringProfileId' | 'scoringRulesHash' | 'scorerVersion'>,
+  scoreSet: Pick<AllPlayerScoreSet,
+    'scoringProfileId' | 'scoringRulesHash' | 'scorerVersion' | 'coverage' | 'warnings'>,
   scores: readonly AllPlayerScore[],
 ): string {
   return createHash('sha256').update(json({
     scoringProfileId: scoreSet.scoringProfileId,
     scoringRulesHash: scoreSet.scoringRulesHash,
     scorerVersion: scoreSet.scorerVersion,
+    coverage: scoreSet.coverage,
+    warnings: sortedWarnings(scoreSet.warnings),
     scores: scores.map((score) => {
       const { ...value } = score;
       return value;
@@ -188,7 +191,13 @@ function normalizeScoreSets(
     const scorerVersion = requiredText(scoreSet.scorerVersion, 'All-player scorer version');
     const scores = normalizeScores(entries, scoreSet.scores);
     const semanticHash = allPlayerScoreSemanticHash(
-      { scoringProfileId, scoringRulesHash: scoreSet.scoringRulesHash, scorerVersion },
+      {
+        scoringProfileId,
+        scoringRulesHash: scoreSet.scoringRulesHash,
+        scorerVersion,
+        coverage: scoreSet.coverage,
+        warnings: scoreSet.warnings,
+      },
       scores.map((score) => {
         const { ordinal, ...value } = score;
         void ordinal;
