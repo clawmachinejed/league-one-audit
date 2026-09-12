@@ -6,6 +6,8 @@ SET LOCAL statement_timeout = '120s';
 SELECT pg_advisory_xact_lock(hashtext('league-one-schema-migrations'));
 
 DO $all_player_preflight$
+DECLARE
+  actual_reachable_role text;
 BEGIN
   IF current_database() IS DISTINCT FROM 'neondb' THEN
     RAISE EXCEPTION 'release assertion failed: database identity expected neondb, actual %', current_database(); END IF;
@@ -13,6 +15,12 @@ BEGIN
     RAISE EXCEPTION 'release assertion failed: migration owner expected neondb_owner, actual %', current_user; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'league_one_runtime') THEN
     RAISE EXCEPTION 'release assertion failed: runtime role league_one_runtime'; END IF;
+
+  SELECT min(role.rolname) INTO actual_reachable_role FROM pg_roles role
+  WHERE role.rolname <> 'league_one_runtime'
+    AND pg_has_role('league_one_runtime', role.oid, 'SET');
+  IF actual_reachable_role IS NOT NULL THEN
+    RAISE EXCEPTION 'release assertion failed: runtime SET ROLE reachability to %', actual_reachable_role; END IF;
   IF to_regclass('public.app_schema_migrations') IS NULL THEN
     RAISE EXCEPTION 'release assertion failed: migration ledger missing'; END IF;
   IF (SELECT count(*) FROM public.app_schema_migrations) <> 9 THEN
@@ -142,7 +150,9 @@ RETURNS jsonb LANGUAGE sql AS $catalog$
         || chr(31) || role.rolcanlogin::text || chr(31) || role.rolreplication::text,
       chr(30) ORDER BY role.rolname), '')) FROM pg_roles role),
     'memberships', (SELECT md5(COALESCE(string_agg(
-      member_role.rolname || chr(31) || granted_role.rolname || chr(31) || membership.admin_option::text,
+      member_role.rolname || chr(31) || granted_role.rolname || chr(31)
+        || membership.admin_option::text || chr(31) || membership.inherit_option::text
+        || chr(31) || membership.set_option::text,
       chr(30) ORDER BY member_role.rolname, granted_role.rolname), ''))
       FROM pg_auth_members membership JOIN pg_roles member_role ON member_role.oid = membership.member
       JOIN pg_roles granted_role ON granted_role.oid = membership.roleid),
@@ -1376,6 +1386,7 @@ DECLARE
   actual_runtime_execute boolean;
   actual_public_grant_execute boolean;
   actual_runtime_grant_execute boolean;
+  actual_reachable_role text;
   before_catalog jsonb;
   after_catalog jsonb;
 BEGIN
@@ -2135,6 +2146,12 @@ BEGIN
       OR actual_runtime_grant_execute IS DISTINCT FROM false THEN
     RAISE EXCEPTION 'release assertion failed: function ACL validate_all_player_stat_entry()'; END IF;
 
+
+  SELECT min(role.rolname) INTO actual_reachable_role FROM pg_roles role
+  WHERE role.rolname <> 'league_one_runtime'
+    AND pg_has_role('league_one_runtime', role.oid, 'SET');
+  IF actual_reachable_role IS NOT NULL THEN
+    RAISE EXCEPTION 'release assertion failed: runtime SET ROLE reachability to %', actual_reachable_role; END IF;
   IF (SELECT count(*) FROM pg_trigger WHERE NOT tgisinternal AND tgname = ANY(ARRAY['all_player_score_sets_immutable', 'all_player_scores_immutable', 'all_player_scores_lineage_guard', 'all_player_stat_contents_immutable', 'all_player_stat_entries_evidence_guard', 'all_player_stat_entries_immutable', 'all_player_stat_observations_immutable', 'league_week_all_player_parity_immutable', 'official_player_all_player_parity_immutable', 'official_roster_all_player_parity_immutable']::text[])) <> 10 THEN
     RAISE EXCEPTION 'release assertion failed: exact migration 010 trigger set'; END IF;
   IF (SELECT count(*) FROM pg_proc function_record JOIN pg_namespace namespace ON namespace.oid = function_record.pronamespace

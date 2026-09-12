@@ -154,7 +154,10 @@ captures unaffected catalog fingerprints inside the transaction, applies the
 reviewed SQL, inserts one ledger row, and checks every table, owner, column,
 constraint, index, trigger, function, and ACL independently before commit. Its
 ACL proof covers effective inherited access, column grants, every PostgreSQL 18
-table privilege (including `TRUNCATE` and `MAINTAIN`), and grant options. Its
+table privilege (including `TRUNCATE` and `MAINTAIN`), and grant options. The
+runtime role must not be able to assume any other role through a direct or
+transitive `SET ROLE` path; membership fingerprints include PostgreSQL 18's
+`inherit_option` and `set_option` fields. Its
 constraint manifest intentionally includes PostgreSQL 18's cataloged `NOT NULL`
 constraints (`pg_constraint.contype = 'n'`): 151 constraints in total, including
 74 `NOT NULL` constraints. The release runner treats an absent exact success

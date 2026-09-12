@@ -49,6 +49,7 @@ async function assertRolledBack(label: string) {
     table_count: number;
     function_count: number;
     trigger_count: number;
+    fixture_role_count: number;
   }>(`
     SELECT
       (SELECT count(*)::integer FROM app_schema_migrations
@@ -65,11 +66,15 @@ async function assertRolledBack(label: string) {
         JOIN pg_namespace namespace ON namespace.oid = function_record.pronamespace
         WHERE namespace.nspname = 'public' AND function_record.proname LIKE '%all_player%') AS function_count,
       (SELECT count(*)::integer FROM pg_trigger
-        WHERE NOT tgisinternal AND tgname LIKE '%all_player%') AS trigger_count
+        WHERE NOT tgisinternal AND tgname LIKE '%all_player%') AS trigger_count,
+      (SELECT count(*)::integer FROM pg_roles WHERE rolname IN (
+        'all_player_release_acl_fixture', 'all_player_release_set_fixture'
+      )) AS fixture_role_count
   `);
   const row = rows[0];
   if (!row || Number(row.migration_count) !== 0 || Number(row.table_count) !== 0
-    || Number(row.function_count) !== 0 || Number(row.trigger_count) !== 0) {
+    || Number(row.function_count) !== 0 || Number(row.trigger_count) !== 0
+    || Number(row.fixture_role_count) !== 0) {
     throw new Error(`${label} did not roll back migration 010 completely.`);
   }
 }
@@ -135,6 +140,19 @@ DO $all_player_postflight$`,
     ),
   );
   await expectFailure(
+    'SET ROLE-only membership',
+    'release assertion failed: runtime SET ROLE reachability to all_player_release_set_fixture',
+    () => undefined,
+    (wrapper) => wrapper.replace(
+      'DO $all_player_postflight$',
+      `CREATE ROLE all_player_release_set_fixture NOLOGIN;
+GRANT all_player_release_set_fixture TO league_one_runtime
+  WITH INHERIT FALSE, SET TRUE;
+GRANT TRUNCATE ON public.all_player_score_sets TO all_player_release_set_fixture;
+DO $all_player_postflight$`,
+    ),
+  );
+  await expectFailure(
     'function grant option ACL',
     'release assertion failed: function ACL advance_current_all_player_score_set',
     () => undefined,
@@ -184,8 +202,8 @@ DO $all_player_postflight$`,
     wrapperSha256: releaseWrapperSha256(wrapper),
     migrationChecksum: ALL_PLAYER_MIGRATION_CHECKSUM,
     successSentinel: sentinel,
-    negativeFixtures: 9,
-    negativeRollbacks: 9,
+    negativeFixtures: 10,
+    negativeRollbacks: 10,
     positiveTables: 6,
     positiveRows: 0,
   })}\n`);

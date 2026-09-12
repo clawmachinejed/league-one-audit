@@ -81,6 +81,9 @@ describe('all-player migration release wrapper', () => {
     expect(wrapper).toContain('MAINTAIN WITH GRANT OPTION');
     expect(wrapper).toContain('has_any_column_privilege');
     expect(wrapper).toContain("'EXECUTE WITH GRANT OPTION'");
+    expect(wrapper).toContain("pg_has_role('league_one_runtime', role.oid, 'SET')");
+    expect(wrapper).toContain('membership.inherit_option');
+    expect(wrapper).toContain('membership.set_option');
   });
 
   it('requires the exact success sentinel', () => {
