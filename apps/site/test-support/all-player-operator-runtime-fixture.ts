@@ -39,26 +39,25 @@ globalThis.fetch = async (input: string | URL | Request) => {
   const url = new URL(input instanceof Request ? input.url : String(input));
   requestUrls.push(url.href);
   if (url.pathname.endsWith('/players/nfl')) {
-    const position = url.searchParams.get('position') as typeof positions[number] | null;
-    if (!position || !positions.includes(position)) return new Response('unknown position', { status: 400 });
-    if (scenario === 'failed-position' && position === 'TE') {
+    if (url.search !== '') return new Response('unexpected catalog filter', { status: 400 });
+    if (scenario === 'failed-position') {
       return new Response('temporary catalog failure', { status: 503 });
     }
-    return Response.json({
-      [playerIds[position]]: {
+    return Response.json(Object.fromEntries(positions.map((position) => [
+      playerIds[position], {
         full_name: `${position} Catalog Player`,
         position,
         team: NFL_TEAM_CODES[positions.indexOf(position)],
         active: true,
         status: 'Active',
       },
-    });
+    ])));
   }
   if (url.pathname === '/v1/stats/nfl/regular/2026/1') {
     const stats = Object.fromEntries([
       ...positions.filter((position) => position !== 'DEF').map((position) => [
         playerIds[position],
-        position === 'RB' ? { gms_active: 1 } : { gms_active: 1, gp: 1 },
+        position === 'RB' ? { gms_active: 1, gp: 0 } : { gms_active: 1, gp: 1 },
       ]),
       ...NFL_TEAM_CODES.map((team) => [team, { gms_active: 1, gp: 1 }]),
     ]);
@@ -163,7 +162,7 @@ const writeTrap = (name: string) => async () => {
   databaseWrites.push(name);
   throw new Error(`shadow database write attempted: ${name}`);
 };
-const productionDependencies = createProductionAllPlayerDependencies('cache-neutral');
+const productionDependencies = createProductionAllPlayerDependencies();
 let catalogEvidence: FantasyPlayerCatalog | null = null;
 let inventoryEvidence: Readonly<{
   entityCount: number;
@@ -178,6 +177,7 @@ const identityLookups: Array<Readonly<{
   externalId: string;
 }>> = [];
 const allPlayerSource: AllPlayerIngestionDependencies['allPlayerSource'] = {
+  access: 'replay',
   load: async (input) => {
     const teamDefenses = input.inventory.entities.filter((entity) => (
       entity.entityKind === 'team_defense'
@@ -196,6 +196,14 @@ const allPlayerSource: AllPlayerIngestionDependencies['allPlayerSource'] = {
 };
 const dependencies = {
   ...productionDependencies,
+  loadReviewedPeriodEvidence: async () => ({ inventory: {
+    source: 'manual-review' as const, sourceRevision: 'synthetic-runtime-inventory-v1',
+    observedAt: '2026-09-01T00:00:00.000Z', effectivePeriod: { ...period, seasonType: 'reg' as const },
+    excludedPlayerReasons: {}, teamsByPlayerId: Object.fromEntries(positions
+      .filter((position) => position !== 'DEF').map((position) => [
+        playerIds[position], NFL_TEAM_CODES[positions.indexOf(position)],
+      ])),
+  } }),
   loadCatalog: async () => {
     catalogEvidence = await productionDependencies.loadCatalog();
     return catalogEvidence;
@@ -206,7 +214,7 @@ const dependencies = {
       leagues: readonly Readonly<{ leagueKey: string; rulesHash: string }>[];
     }>) => input.leagues.map((league, index) => ({
       leagueKey: league.leagueKey,
-      leagueSeasonId: `runtime-season-${index + 1}`,
+      leagueSeasonId: deterministicUuid('runtime-season', String(index + 1)),
       scoringProfileId: '11111111-1111-4111-8111-111111111111',
       rulesHash: rulesHash(rawRules),
       rules: rawRules,
@@ -235,11 +243,15 @@ const dependencies = {
         });
     },
     readAllPlayerGameContext: async () => gameContext,
-    acquireJob: writeTrap('acquireJob'),
+    acquireAllPlayerJob: writeTrap('acquireAllPlayerJob'),
+    markAllPlayerRequest: writeTrap('markAllPlayerRequest'),
     upsertScoringEntities: writeTrap('upsertScoringEntities'),
     recordLeagueWeekObservation: writeTrap('recordLeagueWeekObservation'),
     recordAllPlayerBatch: writeTrap('recordAllPlayerBatch'),
-    completeJob: writeTrap('completeJob'),
+    finishAllPlayerJob: writeTrap('finishAllPlayerJob'),
+    recordAllPlayerPreclaimOutcome: writeTrap('recordAllPlayerPreclaimOutcome'),
+    readAllPlayerJobState: async () => null,
+    validateAllPlayerJobFence: async () => true,
   },
   allPlayerSource,
   projectionRepository: {

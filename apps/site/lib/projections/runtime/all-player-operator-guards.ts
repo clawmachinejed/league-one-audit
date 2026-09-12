@@ -26,6 +26,13 @@ export function parseAllPlayerOperatorInput(
   arguments_: readonly string[],
   environment: OperatorEnvironment = process.env,
 ): AllPlayerExplicitOperatorInput {
+  const normalizedArguments = arguments_[0] === '--' ? arguments_.slice(1) : arguments_;
+  const flags = ['--mode', '--season', '--season-type', '--week'];
+  if (normalizedArguments.length !== flags.length * 2
+    || flags.some((flag) => normalizedArguments.filter((item) => item === flag).length !== 1)
+    || normalizedArguments.some((value, index) => index % 2 === 0 && !flags.includes(value))) {
+    throw new Error('Exactly one mode, season, season-type and week argument is required.');
+  }
   const mode = valueAfter(arguments_, '--mode');
   const seasonValue = valueAfter(arguments_, '--season');
   const seasonType = valueAfter(arguments_, '--season-type');

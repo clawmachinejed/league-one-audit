@@ -10,6 +10,7 @@ import {
   fakeStore,
   fullWeekSchedule,
   projectionResult,
+  officialFixtureInventory,
   workerDependencies,
 } from '../../live-projection-worker.fixtures';
 import { NFL_TEAM_CODES } from '../domain/contracts';
@@ -176,6 +177,7 @@ function scaleSource(configuration: LeagueConfiguration): LeagueWeekState {
     participants,
     matchups,
     rosteredEntities: entities,
+    officialIdentityInventory: officialFixtureInventory(entities),
     schedule: fullWeekSchedule(),
     scoringSettings: {
       provider: OFFICIAL_PROVIDER,

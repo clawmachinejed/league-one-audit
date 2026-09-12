@@ -49,6 +49,10 @@ export function createRetentionMethods(client: DatabaseClient): RetentionMethods
             SELECT 1 FROM all_player_score_sets score_set
             WHERE score_set.coverage->'parity_observation_ids' ? observation.id::text
           )
+          AND NOT EXISTS (
+            SELECT 1 FROM all_player_score_verifications verification
+            WHERE verification.coverage->'parity_observation_ids' ? observation.id::text
+          )
         RETURNING observation.id`, [input.before]);
       const gameObservations = await client.query(`/* projection-store:prune-game-observations */
         DELETE FROM game_state_observations observation
@@ -120,6 +124,7 @@ export function createRetentionMethods(client: DatabaseClient): RetentionMethods
       const jobs = await client.query(`/* projection-store:prune-jobs */
         DELETE FROM projection_jobs job
         WHERE job.updated_at < $1::timestamptz AND job.state = 'completed'
+            AND job.job_key <> 'all-player-ingestion:sleeper'
         RETURNING job.job_key`, [input.before]);
 
       return {

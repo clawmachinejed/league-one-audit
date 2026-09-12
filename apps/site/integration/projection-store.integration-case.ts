@@ -199,6 +199,7 @@ describe.sequential('projection store against an isolated Neon database', () => 
         '008_additive_write_guards.sql',
         '009_game_clock_plausibility.sql',
         '010_all_player_statistics.sql',
+        '011_all_player_foundation_guards.sql',
       ],
     });
     const rows = await ownerQuery<{ name: string; checksum_length: number }>(`
@@ -216,6 +217,7 @@ describe.sequential('projection store against an isolated Neon database', () => 
       { name: '008_additive_write_guards.sql', checksum_length: 64 },
       { name: '009_game_clock_plausibility.sql', checksum_length: 64 },
       { name: '010_all_player_statistics.sql', checksum_length: 64 },
+      { name: '011_all_player_foundation_guards.sql', checksum_length: 64 },
     ]);
   });
 
@@ -666,6 +668,68 @@ describe.sequential('projection store against an isolated Neon database', () => 
       `, [`invalid-materialization-${suffix}`, failureCount, failureCode]))
         .rejects.toThrow(/check constraint/iu);
     }
+  });
+
+  it('rejects unusable mappings before metadata or alias writes while preserving an unrelated valid identity', async () => {
+    for (const scenario of ['unverified', 'retired', 'expired', 'future-start', 'wrong-kind', 'future-expiry'] as const) {
+      const entityId = randomUUID();
+      const externalId = `identity-validity-${scenario}-${randomUUID()}`;
+      const extraAlias = `${externalId}-new`;
+      const safeId = `${externalId}-safe`;
+      await ownerQuery(`INSERT INTO scoring_entities (id, kind, display_name, nfl_team)
+        VALUES ($1, $2, 'Original metadata', 'SEA')`, [entityId, scenario === 'wrong-kind' ? 'team_defense' : 'player']);
+      await ownerQuery(`INSERT INTO external_scoring_entity_ids
+        (provider,entity_kind,external_id,scoring_entity_id,mapping_status,valid_from,valid_to)
+        VALUES ('sleeper','player',$1,$2,$3,
+          CASE WHEN $4='future-start' THEN now()+interval '1 hour' ELSE now()-interval '2 hours' END,
+          CASE WHEN $4='expired' THEN now()-interval '1 hour'
+            WHEN $4='future-expiry' THEN now()+interval '1 hour' ELSE NULL END)`,
+      [externalId, entityId, scenario === 'unverified' || scenario === 'retired' ? scenario : 'verified', scenario]);
+      const inputs = [{
+        key: `player:${externalId}`, kind: 'player' as const, displayName: 'Attempted replacement', nflTeam: 'NE',
+        providerIds: [{ provider: 'sleeper', externalId }, { provider: 'tank01', externalId: extraAlias }],
+      }, {
+        key: `player:${safeId}`, kind: 'player' as const, displayName: 'Unaffected valid identity', nflTeam: 'NE',
+        providerIds: [{ provider: 'sleeper', externalId: safeId }],
+      }];
+      const result = storedValue(await store.upsertScoringEntities(inputs));
+      const candidate = result.find((row) => row.key === inputs[0].key);
+      expect(result.find((row) => row.key === inputs[1].key)).toMatchObject({ conflict: false });
+      expect(result.find((row) => row.key === inputs[1].key)?.entityId).toBeTruthy();
+      if (scenario === 'future-expiry') {
+        expect(candidate).toMatchObject({ conflict: false, entityId });
+      } else {
+        expect(candidate).toMatchObject({ conflict: true, entityId: null });
+        expect(only(await ownerQuery<{ display_name: string; nfl_team: string }>(
+          'SELECT display_name,nfl_team FROM scoring_entities WHERE id=$1', [entityId]), 'Blocked identity'))
+          .toEqual({ display_name: 'Original metadata', nfl_team: 'SEA' });
+        expect(only(await ownerQuery<{ count: number }>(`SELECT count(*)::integer AS count
+          FROM external_scoring_entity_ids WHERE provider='tank01' AND external_id=$1`, [extraAlias]), 'Blocked alias'))
+          .toEqual({ count: 0 });
+      }
+    }
+  });
+
+  it('rejects two distinct official identities collapsing onto one canonical target before ancillary changes', async () => {
+    const entityId = randomUUID();
+    const marker = `identity-collapse-${randomUUID()}`;
+    await ownerQuery(`INSERT INTO scoring_entities (id,kind,display_name,nfl_team)
+      VALUES ($1,'player','Preserved canonical metadata','SEA')`, [entityId]);
+    await ownerQuery(`INSERT INTO external_scoring_entity_ids
+      (provider,entity_kind,external_id,scoring_entity_id,valid_from)
+      VALUES ('sleeper','player',$1,$3,now()-interval '1 hour'),
+        ('sleeper','player',$2,$3,now()-interval '1 hour')`, [`${marker}-a`, `${marker}-b`, entityId]);
+    const result = storedValue(await store.upsertScoringEntities(['a','b'].map((suffix) => ({
+      key: `player:${marker}-${suffix}`, kind: 'player' as const, displayName: 'Forbidden replacement', nflTeam: 'NE',
+      providerIds: [{ provider: 'sleeper', externalId: `${marker}-${suffix}` },
+        { provider: 'tank01', externalId: `${marker}-${suffix}-new` }],
+    }))));
+    expect(result).toHaveLength(2);
+    expect(result.every((row) => row.conflict && row.entityId === null)).toBe(true);
+    expect(only(await ownerQuery<{ display_name: string; aliases: number }>(`SELECT entity.display_name,
+      (SELECT count(*)::integer FROM external_scoring_entity_ids WHERE scoring_entity_id=entity.id) AS aliases
+      FROM scoring_entities entity WHERE id=$1`, [entityId]), 'Collapsed target'))
+      .toEqual({ display_name: 'Preserved canonical metadata', aliases: 2 });
   });
 
   it('resolves concurrent provider identity upserts to one entity without an orphan', async () => {

@@ -392,6 +392,13 @@ describe('canonical provider persistence stage', () => {
     const games = gameSlate();
     const freeAgentOfficialRef = externalPlayerRef(officialProvider, 'free-agent');
     const freeAgentProviderRef = externalPlayerRef(projectionProvider, 'provider-free-agent');
+    const group = providerGroup();
+    const validatedGroup = { ...group, leagues: group.leagues.map((league) => ({
+      ...league, source: { ...league.source, officialIdentityInventory: [{
+        kind: 'player' as const, externalRef: freeAgentOfficialRef,
+        displayName: 'Official Free Agent', nflTeam: 'PHI' as const, position: 'RB', injuryStatus: null,
+      }] },
+    })) };
     const projections = {
       ...projectionSlate(),
       projections: [
@@ -434,7 +441,7 @@ describe('canonical provider persistence stage', () => {
           value: [{ gameRef: games.games[0].gameRef, sourceRevision: 'game-revision', observationId }],
         })),
       },
-    }, providerGroup(), games, projections);
+    }, validatedGroup, games, projections);
 
     expect(result.entityIdsByReferenceKey.has(externalReferenceKey(freeAgentOfficialRef))).toBe(false);
     expect(result.entityIdsByReferenceKey.has(externalReferenceKey(freeAgentProviderRef))).toBe(false);

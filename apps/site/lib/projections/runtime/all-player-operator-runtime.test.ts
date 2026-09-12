@@ -76,7 +76,7 @@ function parseOutput(output: string) {
 }
 
 describe('all-player operator catalog runtime outside Next.js', () => {
-  it('runs the real cache-neutral shadow path with one combined complete catalog and zero writes', async () => {
+  it('runs the real cache-neutral replay with one unfiltered catalog, explicit synthetic period inventory and zero shadow writes', async () => {
     const child = await runFixture('complete');
     expect(child.code, child.stderr).toBe(0);
     expect(child.stderr).not.toContain('incrementalCache');
@@ -107,16 +107,16 @@ describe('all-player operator catalog runtime outside Next.js', () => {
     for (const { defenseId } of evidence.rosteredDefenseIds) {
       expect(evidence.identityLookups.filter((value) => (
         value.provider === 'sleeper' && value.externalId === defenseId
-      ))).toEqual([{ provider: 'sleeper', entityKind: 'team_defense', externalId: defenseId }]);
+      ))).toEqual([{ provider: 'sleeper', entityKind: 'team_defense', externalId: defenseId,
+        requirement: 'required-official' }]);
     }
     expect(evidence.databaseWrites).toEqual([]);
 
     const urls = evidence.requests.map((request) => new URL(request));
     const catalogRequests = urls.filter((url) => url.pathname.endsWith('/players/nfl'));
     const weeklyRequests = urls.filter((url) => url.pathname.includes('/stats/nfl/regular/'));
-    expect(catalogRequests).toHaveLength(6);
-    expect(catalogRequests.map((url) => url.searchParams.get('position')).sort())
-      .toEqual(['DEF', 'K', 'QB', 'RB', 'TE', 'WR']);
+    expect(catalogRequests).toHaveLength(1);
+    expect(catalogRequests[0]?.searchParams.size).toBe(0);
     expect(weeklyRequests.map((url) => url.pathname)).toEqual(['/v1/stats/nfl/regular/2026/1']);
     expect(weeklyRequests[0]?.searchParams.size).toBe(0);
     expect(urls.some((url) => /tank01|\/profile\/|\/player\//iu.test(url.href))).toBe(false);
@@ -134,13 +134,13 @@ describe('all-player operator catalog runtime outside Next.js', () => {
       reason: 'identity-mapping-unusable',
     });
     expect(evidence.identityLookups).toContainEqual({
-      provider: 'sleeper', entityKind: 'team_defense', externalId: 'ARI',
+      provider: 'sleeper', entityKind: 'team_defense', externalId: 'ARI', requirement: 'required-official',
     });
     expect(evidence.requests.some((request) => request.includes('/stats/nfl/'))).toBe(false);
     expect(evidence.databaseWrites).toEqual([]);
   }, 30_000);
 
-  it('keeps one failed position catalog-incomplete without writes or downstream requests', async () => {
+  it('keeps a failed unfiltered catalog incomplete without writes or downstream requests', async () => {
     const child = await runFixture('failed-position');
     expect(child.code, child.stderr).toBe(0);
     expect(child.stderr).not.toContain('incrementalCache');
@@ -153,8 +153,8 @@ describe('all-player operator catalog runtime outside Next.js', () => {
       reason: 'catalog-incomplete',
     });
     expect(evidence.databaseWrites).toEqual([]);
-    expect(evidence.requests.filter((request) => request.includes('/players/nfl?position=')))
-      .toHaveLength(6);
+    expect(evidence.requests.filter((request) => request.endsWith('/players/nfl')))
+      .toHaveLength(1);
     expect(evidence.requests.some((request) => request.includes('/stats/nfl/'))).toBe(false);
   }, 30_000);
 });

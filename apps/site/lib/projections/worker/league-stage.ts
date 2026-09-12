@@ -245,8 +245,12 @@ export async function processLeague(
         const entity = projectionEntityForObservation(
           projection,
           configuration.leagueRef.provider,
+          source.officialIdentityInventory ?? projectionEntities(source),
         );
         if (!entity) continue;
+        // Identity may survive a legitimate team/position transition; the
+        // current projection still needs compatible football metadata to score.
+        if (projectionObservationForEntity(entity, persisted.projections) !== projection) continue;
         const state = stateForEntity(entity, persisted.games, source.schedule);
         if (!state) continue;
         const gameId = persisted.gameIdsByReferenceKey.get(externalReferenceKey(state.gameRef));

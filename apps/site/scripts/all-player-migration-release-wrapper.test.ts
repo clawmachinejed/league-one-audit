@@ -5,6 +5,7 @@ import {
   ALL_PLAYER_MIGRATION_CHECKSUM,
   ALL_PLAYER_MIGRATION_SENTINEL,
   buildAllPlayerMigrationReleaseWrapper,
+  buildAllPlayerRepairReleaseWrapper,
   cloneReviewedCatalog,
   releaseWrapperSha256,
   requireAllPlayerMigrationSentinel,
@@ -27,6 +28,47 @@ function build() {
 }
 
 describe('all-player migration release wrapper', () => {
+  it('refuses an unreviewed or wrong-checksum additive repair manifest', async () => {
+    const sql = (await readFile(new URL('../migrations/011_all_player_foundation_guards.sql', import.meta.url), 'utf8'))
+      .replace(/\r\n?/gu, '\n');
+    const input = { migrationSql: sql, expectedDatabase: 'projection_refactor_test',
+      expectedOwner: 'neondb_owner', manifest: { migrationName: '011_all_player_foundation_guards.sql',
+        migrationChecksum: releaseWrapperSha256(sql), postgresMajor: 18, reviewed: false,
+        catalog: cloneReviewedCatalog() } };
+    expect(() => buildAllPlayerRepairReleaseWrapper(input)).toThrow('independently reviewed');
+    expect(() => buildAllPlayerRepairReleaseWrapper({ ...input,
+      manifest: { ...input.manifest, reviewed: true, migrationChecksum: '0'.repeat(64) },
+    })).toThrow('independently reviewed');
+    expect(() => buildAllPlayerRepairReleaseWrapper({ ...input,
+      manifest: { ...input.manifest, reviewed: true, postgresMajor: 17 },
+    })).toThrow('PostgreSQL 18');
+  });
+
+  it('uses the same strong catalog/ACL assertions for an additive release', async () => {
+    const sql = (await readFile(new URL('../migrations/011_all_player_foundation_guards.sql', import.meta.url), 'utf8'))
+      .replace(/\r\n?/gu, '\n');
+    // A cloned old catalog is a synthetic generator fixture, not a reviewed 011
+    // catalog. The real PG18 capture/rollback suite supplies actual fingerprints.
+    const wrapper = buildAllPlayerRepairReleaseWrapper({ migrationSql: sql,
+      expectedDatabase: 'projection_refactor_test', expectedOwner: 'neondb_owner',
+      manifest: { migrationName: '011_all_player_foundation_guards.sql',
+        migrationChecksum: releaseWrapperSha256(sql), postgresMajor: 18, reviewed: true,
+        catalog: cloneReviewedCatalog() },
+    });
+    expect(wrapper).toContain("current_setting('server_version_num')::integer NOT BETWEEN 180000 AND 189999");
+    expect(wrapper).toContain('history count changed');
+    expect(wrapper).toContain('unrelated memberships changed');
+    expect(wrapper).toContain('MAINTAIN WITH GRANT OPTION');
+    expect(wrapper).toContain('LOCK TABLE public.projection_jobs IN SHARE ROW EXCLUSIVE MODE');
+    expect(wrapper).toContain("WHERE job_type = 'all-player-ingestion'");
+    expect(wrapper).toContain('exact migration 010 function set');
+    expect(wrapper).toContain('exact migration 011 function set');
+    expect(wrapper).toContain('exact migration 011 trigger set');
+    expect(wrapper).toContain('exact migration 011 table set');
+    expect(wrapper).toContain(ALL_PLAYER_MIGRATION_CHECKSUM);
+    expect(wrapper).toContain('ALL_PLAYER_REPAIR_APPLIED:011_all_player_foundation_guards.sql:');
+  });
+
   it('is deterministic and pins the exact reviewed migration and success sentinel', () => {
     const first = build();
     const second = build();
@@ -43,6 +85,26 @@ describe('all-player migration release wrapper', () => {
       expectedOwner: 'neondb_owner',
     });
     expect(await readFile(productionWrapperPath, 'utf8')).toBe(expected);
+  });
+
+  it('binds the prepared additive production executable to the reviewed PG18 capture', async () => {
+    const manifest = JSON.parse(await readFile(
+      new URL('../release/011-catalog.integration.json', import.meta.url), 'utf8',
+    ));
+    const expected = buildAllPlayerRepairReleaseWrapper({
+      migrationSql: await readFile(
+        new URL('../migrations/011_all_player_foundation_guards.sql', import.meta.url), 'utf8',
+      ),
+      expectedDatabase: 'neondb', expectedOwner: 'neondb_owner',
+      runtimeRole: 'league_one_runtime', manifest,
+    });
+    expect(await readFile(new URL(
+      '../release/011_all_player_foundation_guards.production.sql', import.meta.url,
+    ), 'utf8')).toBe(expected);
+    expect(manifest.catalog.tables).toHaveLength(7);
+    expect(manifest.catalog.functions).toHaveLength(21);
+    expect(manifest.catalog.triggers).toHaveLength(16);
+    expect(manifest.catalog.constraintTypes).toContainEqual(['n', 79]);
   });
 
   it('rejects any byte change to migration 010', () => {

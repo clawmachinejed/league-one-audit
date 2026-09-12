@@ -19,6 +19,8 @@ import {
   activeStarters,
   assertUniqueStarters,
   projectionEntities,
+  projectionEntityForObservation,
+  projectionIdentityQuarantined,
   projectionKind,
   projectionObservationForEntity,
   projectionStats,
@@ -255,5 +257,42 @@ describe('canonical worker roster context', () => {
       aliases: [],
     } });
     expect(projectionObservationForEntity(defense, slate([first, second]))).toBeNull();
+  });
+
+  it('requires validated official inventory before proposing an optional native crosswalk', () => {
+    const optional = player('optional');
+    const projected = observation(optional);
+    expect(projectionEntityForObservation(projected, official)).toBeNull();
+    expect(projectionEntityForObservation(projected, official, [optional])).toEqual(optional);
+    expect(projectionEntityForObservation(projected, official, [optional, optional])).toBeNull();
+    expect(projectionEntityForObservation(projected, official, [player('optional', { position: 'DT' })])).toBeNull();
+    expect(projectionEntityForObservation({ ...projected, identity: {
+      ...projected.identity, aliases: [...projected.identity.aliases, externalPlayerRef(official, 'other')],
+    } }, official, [optional])).toBeNull();
+  });
+
+  it('quarantines the reviewed 4429835/8063 pairing even with a falsely valid fantasy identity', () => {
+    const sleeper = providerKey('sleeper');
+    const falseEntity: ScoringEntity = {
+      ...player('8063'), kind: 'player', externalRef: externalPlayerRef(sleeper, '8063'),
+      displayName: '8063', nflTeam: 'SEA', position: 'RB',
+    };
+    const wrong: ProjectionObservation = { ...observation(falseEntity), identity: {
+      primary: externalPlayerRef(providerKey('tank01'), '4429835'),
+      aliases: [falseEntity.externalRef],
+    } };
+    expect(projectionIdentityQuarantined(wrong)).toBe(true);
+    expect(projectionEntityForObservation(wrong, sleeper, [falseEntity])).toBeNull();
+    expect(projectionObservationForEntity(falseEntity, slate([wrong]))).toBeNull();
+  });
+
+  it('retains official identity across metadata transitions and FB fantasy membership without guessing a new alias', () => {
+    const officialEntity = player('fb', { position: 'TE', nflTeam: 'NE' });
+    const fb = observation(officialEntity, { position: 'FB' });
+    expect(projectionEntityForObservation(fb, official, [officialEntity])).toEqual(officialEntity);
+    expect(projectionObservationForEntity(officialEntity, slate([fb]))).toBe(fb);
+    const stale = { ...fb, nflTeam: 'SF' as const };
+    expect(projectionEntityForObservation(stale, official, [officialEntity])).toEqual(officialEntity);
+    expect(projectionObservationForEntity(officialEntity, slate([stale]))).toBeNull();
   });
 });

@@ -10,6 +10,10 @@ const environment = {
 };
 
 describe('all-player explicit operator safeguards', () => {
+  it('rejects duplicated or unknown CLI options', () => {
+    expect(() => parseAllPlayerOperatorInput([...arguments_, '--week', '2'], environment)).toThrow();
+    expect(() => parseAllPlayerOperatorInput([...arguments_, '--force', 'true'], environment)).toThrow();
+  });
   it('accepts an exact shadow target without write authority', () => {
     expect(parseAllPlayerOperatorInput(arguments_, environment)).toMatchObject({
       mode: 'shadow', period: { season: 2026, seasonType: 'regular', week: 1 },

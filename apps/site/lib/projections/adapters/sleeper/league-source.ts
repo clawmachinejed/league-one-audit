@@ -21,6 +21,7 @@ import {
 } from '../../shared/provider-identity';
 import { compatibleRevision } from '../../shared/revision-compatibility';
 import { calculateLineupRevision } from '../../domain/lineup-revision';
+import { officialPlayerIdentityInventory } from '../../shared/official-catalog-identity';
 import { sleeperLineupObservationShape, translateSleeperLineupObservation } from './lineup-observation';
 import {
   sleeperRegularSeasonPeriod,
@@ -187,6 +188,8 @@ export async function translateSleeperLeagueWeek(
   );
   if (rawLineup.status !== 'complete') throw new Error('Sleeper did not provide a complete authoritative lineup.');
   const lineup = await calculateLineupRevision(rawLineup.observation);
+  const officialIdentityInventory: ScoringEntity[] | undefined = source.officialPlayerCatalog?.complete
+    ? officialPlayerIdentityInventory(source.officialPlayerCatalog.catalog, provider) : undefined;
   return {
     lineupShape: rawLineup.observation.shape,
     configuration,
@@ -205,6 +208,7 @@ export async function translateSleeperLeagueWeek(
       })),
     })),
     rosteredEntities: rosteredEntities(source, provider),
+    ...(officialIdentityInventory ? { officialIdentityInventory } : {}),
     schedule: leagueWeekSchedule(source),
     scoringSettings: {
       provider,
