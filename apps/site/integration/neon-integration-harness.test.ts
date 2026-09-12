@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mocked = vi.hoisted(() => ({ pool: vi.fn(), query: vi.fn(), end: vi.fn() }));
+const mocked = vi.hoisted(() => ({ pool: vi.fn(), query: vi.fn(), end: vi.fn(),
+  connect: vi.fn(), sessionQuery: vi.fn(), release: vi.fn() }));
 vi.mock('@neondatabase/serverless', () => ({ Pool: mocked.pool }));
 
 import {
   assertSafeIntegrationDatabase,
+  createPinnedIntegrationDatabase,
   integrationEnvironment,
   prepareIntegrationDatabase,
   type IntegrationEnvironment,
@@ -44,10 +46,13 @@ beforeEach(() => {
   }
   configureEnvironment();
   mocked.end.mockResolvedValue(undefined);
+  mocked.sessionQuery.mockResolvedValue({ rows: [] });
+  mocked.connect.mockResolvedValue({ query: mocked.sessionQuery, release: mocked.release });
   mocked.pool.mockImplementation(function (configuration: { connectionString: string }) {
     const user = new URL(configuration.connectionString).username;
     return {
       query: (statement: string) => mocked.query(statement, user),
+      connect: mocked.connect,
       end: mocked.end,
     };
   });
@@ -66,6 +71,37 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe('existing isolated integration harness safety', () => {
+  it.each(['owner','runtime'] as const)('pins the configured %s connection across expected transaction errors', async (role) => {
+    const session = await createPinnedIntegrationDatabase(role);
+    expect(mocked.pool).toHaveBeenCalledExactlyOnceWith({ connectionString: role === 'owner' ? ownerUrl : runtimeUrl, max: 1 });
+    await session.database.query('BEGIN');
+    await session.database.query('SAVEPOINT expected_failure');
+    mocked.sessionQuery.mockRejectedValueOnce(new Error('synthetic SQL rejection'));
+    await expect(session.database.query('synthetic-invalid-statement')).rejects.toThrow('synthetic SQL rejection');
+    expect(mocked.release).not.toHaveBeenCalled();
+    await session.database.query('ROLLBACK TO SAVEPOINT expected_failure');
+    await session.database.query('ROLLBACK');
+    await session.close();
+    await session.close();
+    expect(mocked.connect).toHaveBeenCalledOnce();
+    expect(mocked.release).toHaveBeenCalledOnce();
+    expect(mocked.end).toHaveBeenCalledOnce();
+    expect(mocked.query).not.toHaveBeenCalled();
+  });
+
+  it('rejects missing integration authorization before opening a pinned connection', async () => {
+    vi.stubEnv('PROJECTION_INTEGRATION_AUTHORIZATION', undefined);
+    await expect(createPinnedIntegrationDatabase('owner')).rejects.toThrow();
+    expect(mocked.pool).not.toHaveBeenCalled();
+  });
+
+  it('closes a pinned pool if obtaining its connection fails', async () => {
+    mocked.connect.mockRejectedValueOnce(new Error('synthetic connection failure'));
+    await expect(createPinnedIntegrationDatabase('runtime')).rejects.toThrow('synthetic connection failure');
+    expect(mocked.end).toHaveBeenCalledOnce();
+    expect(mocked.release).not.toHaveBeenCalled();
+  });
+
   it('accepts matching direct and pooled identities only after both server sentinels pass', async () => {
     await expect(assertSafeIntegrationDatabase(fixture)).resolves.toBeUndefined();
     expect(mocked.pool).toHaveBeenCalledTimes(2);

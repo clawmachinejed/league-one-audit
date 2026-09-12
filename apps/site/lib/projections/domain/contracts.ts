@@ -150,6 +150,9 @@ export type LeagueWeekState = Readonly<{
   matchups: readonly OfficialMatchup[];
   /** Includes bench, reserve, and taxi entities needed to freeze late lineup changes safely. */
   rosteredEntities: readonly ScoringEntity[];
+  /** Validated official catalog identities, reused without another provider read.
+   * Absent when the catalog is incomplete; required roster identities stay required. */
+  officialIdentityInventory?: readonly ScoringEntity[];
   schedule: NflWeekSchedule;
   scoringSettings: SourceScoringSettings;
   requestStartedAt: string;

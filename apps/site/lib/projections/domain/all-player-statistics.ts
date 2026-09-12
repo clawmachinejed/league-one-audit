@@ -1,51 +1,24 @@
+import { allPlayerScoreMaterialCoverage } from './all-player-score-material';
 import { scoreSparseStatistics, type SparseScoringBreakdown } from './scoring';
 import { sha256 } from '../shared/sha256';
 import { stableJson } from '../shared/stable-json';
-import {
-  validateAllPlayerEligibility,
-  type AllPlayerEligibilityEvidence,
-} from './all-player-eligibility';
 export type {
   AllPlayerEligibilityEvidence,
   AllPlayerExplicitIneligibilityEvidence,
   AllPlayerWeeklyEligibilityEvidence,
+  AllPlayerPeriodParticipationEvidence,
+  AllPlayerEffectivePeriod,
 } from './all-player-eligibility';
 
-export const ALL_PLAYER_POSITIONS = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'] as const;
-export type AllPlayerPosition = typeof ALL_PLAYER_POSITIONS[number];
-export type AllPlayerGamePhase = 'live' | 'final' | 'unknown';
-export type AllPlayerEntityKind = 'player' | 'team_defense';
-export type AllPlayerQuality = 'complete' | 'partial' | 'invalid';
-
-export type AllPlayerStatEntry = Readonly<{
-  entityKind: AllPlayerEntityKind;
-  providerExternalId: string;
-  nflGameId: string | null;
-  nflTeam: string | null;
-  position: AllPlayerPosition;
-  stats: Readonly<Record<string, number>>;
-  eligibilityEvidence: AllPlayerEligibilityEvidence;
-  eligibleGameCount: 0 | 1 | null;
-  appearanceGameCount: 0 | 1 | null;
-  gamePhase: AllPlayerGamePhase;
-}>;
-
-export type AllPlayerStatObservation = Readonly<{
-  provider: string;
-  season: number;
-  seasonType: 'pre' | 'reg' | 'post';
-  week: number;
-  normalizerVersion: string;
-  sourceRevision: string;
-  requestStartedAt: string;
-  requestCompletedAt: string;
-  observedAt: string;
-  quality: AllPlayerQuality;
-  coverage: Readonly<Record<string, unknown>>;
-  warnings: readonly string[];
-  entries: readonly AllPlayerStatEntry[];
-}>;
-
+import {
+  validateAllPlayerObservationEvidence, type AllPlayerPosition, type AllPlayerEntityKind,
+  type AllPlayerGamePhase, type AllPlayerStatEntry, type AllPlayerStatObservation,
+} from './all-player-observation-evidence';
+export type {
+  AllPlayerPosition, AllPlayerEntityKind, AllPlayerGamePhase, AllPlayerQuality,
+  AllPlayerStatEntry, AllPlayerStatObservation,
+} from './all-player-observation-evidence';
+export { ALL_PLAYER_POSITIONS, validateAllPlayerObservationEvidence } from './all-player-observation-evidence';
 export type AllPlayerScoringProfile = Readonly<{
   scoringProfileId: string;
   rawRules: Readonly<Record<string, unknown>>;
@@ -161,10 +134,7 @@ export async function buildAllPlayerScoreSets(input: Readonly<{
   if (input.observation.entries.length === 0) {
     return unavailable('incomplete-coverage', ['provider observation has no fantasy entities']);
   }
-  const invalidEntryEvidence = input.observation.entries.flatMap((entry) => (
-    !validateAllPlayerEligibility(entry)
-      ? [`invalid-eligibility-evidence:${entry.providerExternalId}`] : []
-  ));
+  const invalidEntryEvidence = validateAllPlayerObservationEvidence(input.observation);
   if (invalidEntryEvidence.length > 0) return unavailable('invalid-input', invalidEntryEvidence);
   const duplicateProfiles = input.profiles
     .map((profile) => profile.scoringProfileId)
@@ -219,6 +189,17 @@ export async function buildAllPlayerScoreSets(input: Readonly<{
     entry,
     identity: input.resolveIdentity(entry),
   }));
+  const canonicalOwners = new Map<string, string>();
+  const duplicateCanonicalTargets: string[] = [];
+  for (const { entry, identity } of resolved) {
+    if (!identity.scoringEntityId) continue;
+    const previous = canonicalOwners.get(identity.scoringEntityId);
+    if (previous !== undefined && previous !== entry.providerExternalId) {
+      duplicateCanonicalTargets.push(`duplicate-canonical-target:${previous}:${entry.providerExternalId}`);
+    }
+    canonicalOwners.set(identity.scoringEntityId, entry.providerExternalId);
+  }
+  if (duplicateCanonicalTargets.length > 0) return unavailable('identity-unavailable', duplicateCanonicalTargets);
   const identityFailures = resolved.flatMap(({ entry, identity }) => (
     identity.conflict || !identity.scoringEntityId
       || (entry.eligibleGameCount === 1 && !entry.nflGameId)
@@ -340,6 +321,7 @@ export async function buildAllPlayerScoreSets(input: Readonly<{
       parity_observation_ids: officialObservationIds,
       parity_observation_evidence: parityObservationEvidence,
       parity_expected_entity_count: officialPoints.length,
+      parity_points_fingerprint: await fingerprint(officialPoints),
       parity_fingerprint: await fingerprint({
         observationIds: officialObservationIds,
         points: officialPoints,
@@ -357,7 +339,7 @@ export async function buildAllPlayerScoreSets(input: Readonly<{
         scoringProfileId: profile.scoringProfileId,
         scoringRulesHash,
         scorerVersion: input.scorerVersion,
-        coverage,
+        coverage: allPlayerScoreMaterialCoverage(coverage),
         warnings: input.observation.warnings,
         scores: scoreDocument,
       }),

@@ -6,6 +6,7 @@ import { SLEEPER_ALL_PLAYER_SCORING_RULE_KEYS } from '../adapters/sleeper/scorin
 import { allPlayerScoreSemanticHash } from '../adapters/neon/all-player-statistics';
 import {
   buildAllPlayerScoreSets,
+  validateAllPlayerObservationEvidence,
   type AllPlayerStatObservation,
 } from './all-player-statistics';
 
@@ -66,8 +67,8 @@ function observation(overrides: Partial<AllPlayerStatObservation> = {}): AllPlay
       {
         entityKind: 'player', providerExternalId: 'p2',
         nflGameId: '22222222-2222-4222-8222-222222222222', nflTeam: 'ATL', position: 'RB',
-        stats: { gms_active: 1 },
-        eligibilityEvidence: { kind: 'weekly-stat', source: 'weekly-stat-provider', gmsActive: 1 },
+        stats: { gms_active: 1, gp: 0 },
+        eligibilityEvidence: { kind: 'weekly-stat', source: 'weekly-stat-provider', gmsActive: 1, appearances: 0 },
         eligibleGameCount: 1, appearanceGameCount: 0,
         gamePhase: 'final',
       },
@@ -99,6 +100,31 @@ const identity = (entry: { providerExternalId: string }) => ({
 });
 
 describe('all-player score-set construction', () => {
+  it('rejects two distinct official identities resolving to one canonical target', async () => {
+    expect(await buildAllPlayerScoreSets({
+      observation: observation(), scorerVersion: 'sleeper-actual-v1', expectedScoringProfileIds: ['profile'],
+      supportedRuleKeys: SLEEPER_ALL_PLAYER_SCORING_RULE_KEYS,
+      resolveIdentity: (entry) => ({ ...identity(entry), scoringEntityId: entry.providerExternalId === 'p2'
+        ? identity({ providerExternalId: 'p1' }).scoringEntityId : identity(entry).scoringEntityId }),
+      profiles: [{ scoringProfileId: 'profile', rawRules: { pass_td: 6 },
+        officialBatches: [officialBatch([{ providerExternalId: 'p1', points: 12 }])] }],
+    })).toEqual({ status: 'unavailable', reason: 'identity-unavailable', details: ['duplicate-canonical-target:p1:p2'] });
+  });
+
+  it('rejects duplicate official identities before the map can conceal them', () => {
+    expect(validateAllPlayerObservationEvidence(observation({ entries: [observation().entries[0], observation().entries[0]] })))
+      .toEqual(['duplicate-official-identity:p1']);
+  });
+
+  it('rejects reviewed eligibility for another week even when its local counts are valid', () => {
+    const original = observation();
+    expect(validateAllPlayerObservationEvidence(observation({ entries: [{ ...original.entries[0],
+      eligibilityEvidence: { kind: 'period-participation', decision: 'appearance', source: 'gamebook',
+        sourceRevision: 'synthetic-gamebook', observedAt: original.observedAt,
+        effectivePeriod: { season: 2026, seasonType: 'reg', week: 2 }, reason: 'Synthetic fixture.' },
+    }] }))).toEqual(['wrong-period-eligibility-evidence:p1']);
+  });
+
   it('shares raw content while scoring each unique league profile independently', async () => {
     const result = await buildAllPlayerScoreSets({
       observation: observation(), scorerVersion: 'sleeper-actual-v1',
@@ -300,7 +326,7 @@ describe('all-player score-set construction', () => {
   it('rejects nonzero scoring evidence for an active player with no appearance', async () => {
     const inconsistent = observation({
       entries: observation().entries.map((entry) => entry.providerExternalId === 'p2'
-        ? { ...entry, stats: { gms_active: 1, pass_td: 1 } }
+        ? { ...entry, stats: { gms_active: 1, gp: 0, pass_td: 1 } }
         : entry),
     });
     expect(await buildAllPlayerScoreSets({

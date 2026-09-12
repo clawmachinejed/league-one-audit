@@ -479,6 +479,9 @@ function leagueVariant(
       })),
     })),
     scoringSettings: { provider: officialProvider, rawRules },
+    officialIdentityInventory: [player, defense, bench, unresolvedFreeAgent, {
+      ...unresolvedFreeAgent, externalRef: validFreeAgentRef, displayName: 'Validated Free Agent',
+    }],
     sourceRevision: `official-revision:${key}`,
     lineup: {
       revisionVersion: 'lineup-v1',

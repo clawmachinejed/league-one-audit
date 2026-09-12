@@ -2,6 +2,7 @@ import type {
   GameStateSlate,
   LeaguePeriod,
   ProjectionSlate,
+  ScoringEntity,
 } from '../domain/contracts';
 import {
   ALL_PLAYER_POSITIONS,
@@ -27,6 +28,7 @@ import type {
 import { kickoffForGame } from './game-context';
 import {
   canonicalPosition,
+  officialIdentityInventory,
   projectionEntityForObservation,
   scoringIdentityInputs,
 } from './roster-context';
@@ -63,20 +65,26 @@ export function analyzeFullSlateProjectionCoverage(
   projections: ProjectionSlate,
   officialProvider: Parameters<typeof projectionEntityForObservation>[1],
   entityIdsByReferenceKey: ReadonlyMap<string, string>,
+  officialInventory: readonly ScoringEntity[] = [],
+  unusableReferenceKeys: ReadonlySet<string> = new Set(),
 ): FullSlateProjectionCoverage {
   const rankEligibleProjections = projections.projections.flatMap((projection) => {
+    const entity = projectionEntityForObservation(projection, officialProvider, officialInventory);
     const canonical = canonicalPosition(projection.position);
     const position = projection.identity.primary.entityKind === 'team-defense'
       ? projection.nflTeam ? 'DEF' as const : null
+      : entity?.kind === 'player' ? entity.position as AllPlayerPosition
+      : canonical === 'FB' ? 'RB' as const
       : canonical && canonical !== 'DEF' && ALL_PLAYER_POSITIONS.includes(
         canonical as AllPlayerPosition,
       ) ? canonical as AllPlayerPosition : null;
     if (!position) return [];
-    const entity = projectionEntityForObservation(projection, officialProvider);
     return [{ entity, position, projection }];
   });
   const unresolvedProjectionEntities = rankEligibleProjections.filter(({ entity, projection }) => {
     if (!entity) return true;
+    if ([projection.identity.primary, ...projection.identity.aliases]
+      .some((reference) => unusableReferenceKeys.has(externalReferenceKey(reference)))) return true;
     const entityIds = new Set([
       entity.externalRef,
       projection.identity.primary,
@@ -227,10 +235,16 @@ export async function persistProviderGroup(
   }));
   const officialProvider = group.leagues[0]?.configuration.leagueRef.provider;
   if (!officialProvider) throw new Error('The official identity provider is unavailable.');
+  const unusableReferenceKeys = new Set(resolvedEntities.value.flatMap((resolved) => (
+    resolved.status === 'known' ? [] : (identityInputByKey.get(resolved.key)?.providerRefs ?? [])
+      .map(externalReferenceKey)
+  )));
   const fullSlateProjectionCoverage = analyzeFullSlateProjectionCoverage(
     projections,
     officialProvider,
     entityIdsByReferenceKey,
+    officialIdentityInventory(group),
+    unusableReferenceKeys,
   );
 
   const projectionLineage = projectionPersistence.kind === 'stored'

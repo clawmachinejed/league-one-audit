@@ -1,0 +1,26 @@
+{
+  "7527": {
+    "kind": "period-participation", "decision": "dressed-unused", "source": "gamebook",
+    "sourceRevision": "https://media.49ers.1rmg.com/wp-content/uploads/2026/04/10202948/Gamebook_WK1_at_LAR_Melbourne_9-10-26.pdf#page=1",
+    "observedAt": "2026-09-12T14:54:37.000Z", "effectivePeriod": { "season": 2026, "seasonType": "reg", "week": 1 },
+    "reason": "Transcribed September12 audit gamebook review: Mac Jones listed under Did Not Play, separate from inactive list. Timestamp records fixture transcription, not a new provider request."
+  },
+  "11292": {
+    "kind": "period-participation", "decision": "dressed-unused", "source": "gamebook",
+    "sourceRevision": "https://static.clubs.nfl.com/image/upload/patriots/lmdmzornxr5pgi90xvmi.pdf#page=1",
+    "observedAt": "2026-09-12T14:54:37.000Z", "effectivePeriod": { "season": 2026, "seasonType": "reg", "week": 1 },
+    "reason": "Transcribed September12 audit gamebook review: Tommy DeVito listed under Did Not Play, separate from inactive list. Timestamp records fixture transcription, not a new provider request."
+  },
+  "10224": {
+    "kind": "period-participation", "decision": "ambiguous", "source": "manual-review",
+    "sourceRevision": "https://www.49ers.com/news/49ers-promote-ls-jon-weeks-to-active-roster-waive-te-brayden-willis",
+    "observedAt": "2026-09-12T14:54:37.000Z", "effectivePeriod": { "season": 2026, "seasonType": "reg", "week": 1 },
+    "reason": "Transcribed audit review: rank-only gms_active1 conflicts with September5 waiver and absence from gamebook participants/DNP/inactives; do not infer gameday eligibility. Timestamp records fixture transcription."
+  },
+  "5859": {
+    "kind": "period-participation", "decision": "appearance", "source": "gamebook",
+    "sourceRevision": "https://static.clubs.nfl.com/image/upload/patriots/lmdmzornxr5pgi90xvmi.pdf#page=2",
+    "observedAt": "2026-09-12T14:54:37.000Z", "effectivePeriod": { "season": 2026, "seasonType": "reg", "week": 1 },
+    "reason": "Transcribed September12 audit gamebook review: A.J. Brown started and caught three passes for26yards; current Inactive status is not historical evidence. Timestamp records fixture transcription."
+  }
+}

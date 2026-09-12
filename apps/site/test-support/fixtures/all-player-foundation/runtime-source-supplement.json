@@ -1,0 +1,360 @@
+{
+  "observedAt": "2026-09-12T15:51:49.783Z",
+  "provenance": {
+    "source": "Official Sleeper league, roster and matchup endpoints",
+    "requests": [
+      {
+        "url": "https://api.sleeper.app/v1/league/1378850182409490432/rosters",
+        "observedAt": "2026-09-12T15:50:07.923Z"
+      },
+      {
+        "url": "https://api.sleeper.app/v1/league/1378850182409490432/matchups/1",
+        "observedAt": "2026-09-12T15:50:08.073Z"
+      },
+      {
+        "url": "https://api.sleeper.app/v1/league/1378850182409490432",
+        "observedAt": "2026-09-12T15:50:07.941Z"
+      },
+      {
+        "url": "https://api.sleeper.app/v1/league/1378850360529014784/rosters",
+        "observedAt": "2026-09-12T15:50:08.115Z"
+      },
+      {
+        "url": "https://api.sleeper.app/v1/league/1378850360529014784/matchups/1",
+        "observedAt": "2026-09-12T15:50:07.917Z"
+      },
+      {
+        "url": "https://api.sleeper.app/v1/league/1378850360529014784",
+        "observedAt": "2026-09-12T15:50:07.925Z"
+      }
+    ],
+    "noWeeklyStatRequest": true,
+    "noTank01Request": true,
+    "rosterAndMatchupFieldsMatched": true,
+    "comparison": "Every retained roster and matchup property matched recursively, including array order, all player points and custom points. League IDs, seasons, status, scoring settings and roster positions also matched. Original files are unchanged. Only omitted loader fields are supplemented from this later observation.",
+    "leagueSettingsDifferences": [
+      {
+        "league": "league1",
+        "field": "settings.daily_waivers_hour",
+        "retained": 5,
+        "current": 7
+      },
+      {
+        "league": "league2",
+        "field": "settings.daily_waivers_hour",
+        "retained": 5,
+        "current": 7
+      }
+    ]
+  },
+  "leagues": {
+    "league1": {
+      "league": {
+        "name": "League One",
+        "total_rosters": 12
+      },
+      "rosters": {
+        "1": {
+          "settings": {
+            "wins": 0,
+            "losses": 0,
+            "ties": 0,
+            "fpts": 0,
+            "fpts_decimal": 0
+          }
+        },
+        "2": {
+          "settings": {
+            "wins": 0,
+            "losses": 0,
+            "ties": 0,
+            "fpts": 0,
+            "fpts_decimal": 0
+          }
+        },
+        "3": {
+          "settings": {
+            "wins": 0,
+            "losses": 0,
+            "ties": 0,
+            "fpts": 0,
+            "fpts_decimal": 0
+          }
+        },
+        "4": {
+          "settings": {
+            "wins": 0,
+            "losses": 0,
+            "ties": 0,
+            "fpts": 0,
+            "fpts_decimal": 0
+          }
+        },
+        "5": {
+          "settings": {
+            "wins": 0,
+            "losses": 0,
+            "ties": 0,
+            "fpts": 0,
+            "fpts_decimal": 0
+          }
+        },
+        "6": {
+          "settings": {
+            "wins": 0,
+            "losses": 0,
+            "ties": 0,
+            "fpts": 0,
+            "fpts_decimal": 0
+          }
+        },
+        "7": {
+          "settings": {
+            "wins": 0,
+            "losses": 0,
+            "ties": 0,
+            "fpts": 0,
+            "fpts_decimal": 0
+          }
+        },
+        "8": {
+          "settings": {
+            "wins": 0,
+            "losses": 0,
+            "ties": 0,
+            "fpts": 0,
+            "fpts_decimal": 0
+          }
+        },
+        "9": {
+          "settings": {
+            "wins": 0,
+            "losses": 0,
+            "ties": 0,
+            "fpts": 0,
+            "fpts_decimal": 0
+          }
+        },
+        "10": {
+          "settings": {
+            "wins": 0,
+            "losses": 0,
+            "ties": 0,
+            "fpts": 0,
+            "fpts_decimal": 0
+          }
+        },
+        "11": {
+          "settings": {
+            "wins": 0,
+            "losses": 0,
+            "ties": 0,
+            "fpts": 0,
+            "fpts_decimal": 0
+          }
+        },
+        "12": {
+          "settings": {
+            "wins": 0,
+            "losses": 0,
+            "ties": 0,
+            "fpts": 0,
+            "fpts_decimal": 0
+          }
+        }
+      },
+      "matchups": {
+        "1": {
+          "matchup_id": 4
+        },
+        "2": {
+          "matchup_id": 4
+        },
+        "3": {
+          "matchup_id": 1
+        },
+        "4": {
+          "matchup_id": 3
+        },
+        "5": {
+          "matchup_id": 6
+        },
+        "6": {
+          "matchup_id": 2
+        },
+        "7": {
+          "matchup_id": 3
+        },
+        "8": {
+          "matchup_id": 6
+        },
+        "9": {
+          "matchup_id": 5
+        },
+        "10": {
+          "matchup_id": 1
+        },
+        "11": {
+          "matchup_id": 5
+        },
+        "12": {
+          "matchup_id": 2
+        }
+      }
+    },
+    "league2": {
+      "league": {
+        "name": "League Two",
+        "total_rosters": 12
+      },
+      "rosters": {
+        "1": {
+          "settings": {
+            "wins": 0,
+            "losses": 0,
+            "ties": 0,
+            "fpts": 0,
+            "fpts_decimal": 0
+          }
+        },
+        "2": {
+          "settings": {
+            "wins": 0,
+            "losses": 0,
+            "ties": 0,
+            "fpts": 0,
+            "fpts_decimal": 0
+          }
+        },
+        "3": {
+          "settings": {
+            "wins": 0,
+            "losses": 0,
+            "ties": 0,
+            "fpts": 0,
+            "fpts_decimal": 0
+          }
+        },
+        "4": {
+          "settings": {
+            "wins": 0,
+            "losses": 0,
+            "ties": 0,
+            "fpts": 0,
+            "fpts_decimal": 0
+          }
+        },
+        "5": {
+          "settings": {
+            "wins": 0,
+            "losses": 0,
+            "ties": 0,
+            "fpts": 0,
+            "fpts_decimal": 0
+          }
+        },
+        "6": {
+          "settings": {
+            "wins": 0,
+            "losses": 0,
+            "ties": 0,
+            "fpts": 0,
+            "fpts_decimal": 0
+          }
+        },
+        "7": {
+          "settings": {
+            "wins": 0,
+            "losses": 0,
+            "ties": 0,
+            "fpts": 0,
+            "fpts_decimal": 0
+          }
+        },
+        "8": {
+          "settings": {
+            "wins": 0,
+            "losses": 0,
+            "ties": 0,
+            "fpts": 0,
+            "fpts_decimal": 0
+          }
+        },
+        "9": {
+          "settings": {
+            "wins": 0,
+            "losses": 0,
+            "ties": 0,
+            "fpts": 0,
+            "fpts_decimal": 0
+          }
+        },
+        "10": {
+          "settings": {
+            "wins": 0,
+            "losses": 0,
+            "ties": 0,
+            "fpts": 0,
+            "fpts_decimal": 0
+          }
+        },
+        "11": {
+          "settings": {
+            "wins": 0,
+            "losses": 0,
+            "ties": 0,
+            "fpts": 0,
+            "fpts_decimal": 0
+          }
+        },
+        "12": {
+          "settings": {
+            "wins": 0,
+            "losses": 0,
+            "ties": 0,
+            "fpts": 0,
+            "fpts_decimal": 0
+          }
+        }
+      },
+      "matchups": {
+        "1": {
+          "matchup_id": 6
+        },
+        "2": {
+          "matchup_id": 1
+        },
+        "3": {
+          "matchup_id": 5
+        },
+        "4": {
+          "matchup_id": 6
+        },
+        "5": {
+          "matchup_id": 1
+        },
+        "6": {
+          "matchup_id": 4
+        },
+        "7": {
+          "matchup_id": 3
+        },
+        "8": {
+          "matchup_id": 2
+        },
+        "9": {
+          "matchup_id": 4
+        },
+        "10": {
+          "matchup_id": 2
+        },
+        "11": {
+          "matchup_id": 3
+        },
+        "12": {
+          "matchup_id": 5
+        }
+      }
+    }
+  }
+}

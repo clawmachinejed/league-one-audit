@@ -7,10 +7,11 @@ export const runtime = 'nodejs';
 export const maxDuration = 60;
 
 export async function GET(request: Request): Promise<Response> {
+  const invocationStartedAt = Date.now();
   return handleProjectionCronRequest(request, {
     afterAuthorizedRun: () => after(async () => {
       try {
-        await runProductionAllPlayerRecurring();
+        await runProductionAllPlayerRecurring(invocationStartedAt);
       } catch {
         // The durable all-player job records its own sanitized failure evidence.
       }

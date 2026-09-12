@@ -62,6 +62,8 @@ export type ProjectionSyncInput = Readonly<{
   data: MatchupsData;
   /** Every player currently rostered in the league, including bench, IR, and taxi players. */
   rosteredPlayers: readonly Player[];
+  /** Reuses the catalog already loaded for this source; never a new request. */
+  officialPlayerCatalog?: FantasyPlayerCatalog;
   /** Complete weekly NFL schedule, including games without a displayed starter. */
   schedule: WeekSchedule;
   /** Exact raw response used by the full loader; never reconstructed from presentation. */
@@ -769,6 +771,7 @@ async function loadMatchupSource(
 ): Promise<{
   data: MatchupsData;
   rosteredPlayers: readonly Player[];
+  officialPlayerCatalog: FantasyPlayerCatalog;
   sourceLeague: SleeperLeague;
   schedule: WeekSchedule;
   rawMatchups: readonly SleeperMatchup[];
@@ -844,6 +847,7 @@ async function loadMatchupSource(
         displayedRows < rows.length ? 'Some matchup entries could not be matched to a unique league roster.' : undefined),
     },
     rosteredPlayers,
+    officialPlayerCatalog: players,
     sourceLeague: core.sourceLeague,
     schedule: nflSchedule.schedule,
     rawMatchups: rows,
@@ -880,6 +884,7 @@ function projectionSyncInput(
     scoringSettings: source.sourceLeague.scoring_settings ?? null,
     data: source.data,
     rosteredPlayers: source.rosteredPlayers,
+    officialPlayerCatalog: source.officialPlayerCatalog,
     schedule: source.schedule,
     rawMatchups: source.rawMatchups,
     matchupShape: source.matchupShape,

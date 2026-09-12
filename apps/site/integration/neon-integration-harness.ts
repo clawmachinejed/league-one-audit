@@ -392,6 +392,38 @@ export function createIndependentDatabase(
   };
 }
 
+/** Transactions with expected SQL errors must retain one checked-out client.
+ * Pool.query releases its client on error, even when the pool has max: 1.
+ * Only the two configured identities from the guarded integration setup are
+ * accepted here; this helper never creates or changes database roles. */
+export async function createPinnedIntegrationDatabase(
+  role: 'owner' | 'runtime' = 'runtime',
+): Promise<IndependentDatabase> {
+  const env = integrationEnvironment();
+  const pool = new Pool({ connectionString: role === 'owner' ? env.ownerDatabaseUrl : env.runtimeDatabaseUrl, max: 1 });
+  const client = await pool.connect().catch(async (error: unknown) => {
+    await pool.end();
+    throw error;
+  });
+  let closed = false;
+  return {
+    database: {
+      enabled: true,
+      async query<Row extends Readonly<Record<string, unknown>>>(statement: string, parameters: readonly unknown[] = []) {
+        const result = await client.query(statement, [...parameters]);
+        const last = Array.isArray(result) ? result.at(-1) : result;
+        return (last?.rows ?? []) as readonly Row[];
+      },
+    },
+    async close() {
+      if (closed) return;
+      closed = true;
+      client.release();
+      await pool.end();
+    },
+  };
+}
+
 export async function ownerQuery<Row extends QueryRow = QueryRow>(
   statement: string,
   parameters: readonly unknown[] = [],

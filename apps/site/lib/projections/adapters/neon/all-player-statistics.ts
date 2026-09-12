@@ -1,3 +1,4 @@
+import { validateAllPlayerPublicationCoverage } from '../../domain/all-player-publication-coverage';
 import 'server-only';
 
 import { createHash } from 'node:crypto';
@@ -8,6 +9,9 @@ import type {
   AllPlayerStatEntry,
   AllPlayerStatObservation,
 } from '../../domain/all-player-statistics';
+import { validateAllPlayerFenceShape } from './jobs';
+import { validateAllPlayerObservationEvidence } from '../../domain/all-player-observation-evidence';
+import { allPlayerScoreMaterialCoverage } from '../../domain/all-player-score-material';
 import { validateAllPlayerEligibility } from '../../domain/all-player-eligibility';
 import type { AllPlayerBatchInput, ProjectionStore } from './contracts';
 import {
@@ -27,6 +31,13 @@ type NormalizedScoreSet = Omit<AllPlayerScoreSet, 'scores'> & Readonly<{
   scoreSetId: string;
   scores: readonly NormalizedScore[];
 }>;
+
+function uuid(value: string, label: string): string {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(value)) {
+    throw new Error(`${label} must be a UUID.`);
+  }
+  return value;
+}
 
 function season(value: number): number {
   if (!Number.isInteger(value) || value < 1920 || value > 2200) {
@@ -85,7 +96,7 @@ function normalizeEntries(values: readonly AllPlayerStatEntry[]): NormalizedEntr
     return {
       ...entry,
       providerExternalId,
-      nflGameId: entry.nflGameId ? requiredText(entry.nflGameId, 'All-player NFL game ID') : null,
+      nflGameId: entry.nflGameId ? uuid(entry.nflGameId, 'All-player NFL game ID') : null,
       nflTeam: entry.nflTeam ? requiredText(entry.nflTeam, 'All-player NFL team') : null,
       stats: finiteStats(entry.stats),
       eligibilityEvidence: entry.eligibilityEvidence,
@@ -136,6 +147,15 @@ function normalizeScores(
     if (!entryKeys.has(`${score.entityKind}\0${providerExternalId}`)) {
       throw new Error(`All-player score has no matching raw entry: ${providerExternalId}.`);
     }
+    uuid(score.scoringEntityId, `All-player canonical identity for ${providerExternalId}`);
+    const raw = entries.find((entry) => entry.entityKind === score.entityKind
+      && entry.providerExternalId === providerExternalId)!;
+    if (raw.nflGameId !== score.nflGameId || raw.nflTeam !== score.nflTeam
+      || raw.position !== score.position || raw.gamePhase !== score.gamePhase
+      || raw.eligibleGameCount !== score.eligibleGameCount
+      || raw.appearanceGameCount !== score.appearanceGameCount) {
+      throw new Error(`All-player score lineage is inconsistent for ${providerExternalId}.`);
+    }
     if (!Number.isFinite(score.fantasyPoints)) throw new Error('All-player points must be finite.');
     if (score.appearanceGameCount !== null
       && score.appearanceGameCount > score.eligibleGameCount) {
@@ -165,7 +185,7 @@ export function allPlayerScoreSemanticHash(
     scoringProfileId: scoreSet.scoringProfileId,
     scoringRulesHash: scoreSet.scoringRulesHash,
     scorerVersion: scoreSet.scorerVersion,
-    coverage: scoreSet.coverage,
+    coverage: allPlayerScoreMaterialCoverage(scoreSet.coverage),
     warnings: sortedWarnings(scoreSet.warnings),
     scores: scores.map((score) => {
       const { ...value } = score;
@@ -181,7 +201,7 @@ function normalizeScoreSets(
 ): NormalizedScoreSet[] {
   const profileIds = new Set<string>();
   return scoreSets.map((scoreSet) => {
-    const scoringProfileId = requiredText(scoreSet.scoringProfileId, 'Scoring profile ID');
+    const scoringProfileId = uuid(scoreSet.scoringProfileId, 'Scoring profile ID');
     if (profileIds.has(scoringProfileId)) throw new Error('All-player scoring profile is duplicated.');
     profileIds.add(scoringProfileId);
     if (!/^[0-9a-f]{64}$/u.test(scoreSet.scoringRulesHash)
@@ -275,95 +295,114 @@ function normalizeScoreSets(
   }).sort((left, right) => left.scoringProfileId.localeCompare(right.scoringProfileId));
 }
 
+/** Shared deterministic serialization and semantic preflight; performs no database work. */
+export function prepareAllPlayerBatch(input: AllPlayerBatchInput) {
+  const observation = input.observation;
+  const evidenceErrors = validateAllPlayerObservationEvidence(observation);
+  if (evidenceErrors.length > 0) throw new Error(`All-player evidence is invalid: ${evidenceErrors.join(', ')}.`);
+  if (!['pre', 'reg', 'post'].includes(observation.seasonType)
+    || !['complete', 'partial'].includes(observation.quality)
+    || observation.coverage.complete !== (observation.quality === 'complete')) {
+    throw new Error('All-player period or observation quality is invalid.');
+  }
+  const times = [observation.requestStartedAt, observation.requestCompletedAt,
+    observation.observedAt, input.verifiedAt].map(Date.parse);
+  if (times.some((time) => !Number.isFinite(time))
+    || times[0] > times[1] || times[1] > times[2] || times[2] > times[3]) {
+    throw new Error('All-player observation timestamps are invalid or out of order.');
+  }
+  const normalizedProvider = provider(observation.provider);
+  const normalizedSeason = season(observation.season);
+  const normalizedWeek = week(observation.week);
+  const normalizerVersion = requiredText(
+    observation.normalizerVersion,
+    'All-player normalizer version',
+  );
+  const sourceRevision = requiredText(observation.sourceRevision, 'All-player source revision');
+  const entries = normalizeEntries(observation.entries);
+  if (entries.length === 0) throw new Error('All-player observations must contain entries.');
+  if (observation.quality === 'complete' && entries.some((entry) => (
+    entry.eligibleGameCount === null || entry.appearanceGameCount === null
+  ))) {
+    throw new Error('A complete all-player observation requires complete eligibility.');
+  }
+  const warnings = sortedWarnings(observation.warnings);
+  const semanticHash = allPlayerStatSemanticHash(observation, entries);
+  const contextKey = json([
+    normalizedProvider, normalizedSeason, observation.seasonType,
+    normalizedWeek, normalizerVersion,
+  ]);
+  const contentId = deterministicUuid(
+    'all-player-stat-content',
+    `${contextKey}\0${semanticHash}`,
+  );
+  const observationId = deterministicUuid(
+    'all-player-stat-observation',
+    `${contextKey}\0${sourceRevision}\0${observation.observedAt}`,
+  );
+  const scoreSets = normalizeScoreSets(contentId, entries, input.scoreSets);
+  const coverageErrors = validateAllPlayerPublicationCoverage(observation);
+  if (coverageErrors.length > 0) throw new Error(`All-player coverage is invalid: ${coverageErrors.join(', ')}.`);
+  if (scoreSets.length > 0) {
+    const actualProfileIds = scoreSets.map((scoreSet) => scoreSet.scoringProfileId).sort();
+    const expectedProfileIds = scoreSets[0].coverage.expected_scoring_profile_ids;
+    const batchFingerprint = scoreSets[0].coverage.score_batch_fingerprint;
+    if (!Array.isArray(expectedProfileIds)
+      || expectedProfileIds.some((id) => typeof id !== 'string')
+      || json(actualProfileIds) !== json(expectedProfileIds)
+      || scoreSets.some((scoreSet) => (
+        scoreSet.scorerVersion !== scoreSets[0].scorerVersion
+        || scoreSet.coverage.score_batch_fingerprint !== batchFingerprint
+        || json(scoreSet.coverage.expected_scoring_profile_ids) !== json(expectedProfileIds)
+      ))) {
+      throw new Error('All-player score set batch is incomplete.');
+    }
+  }
+  if (scoreSets.length > 0 && observation.quality !== 'complete') {
+    throw new Error('A partial all-player observation cannot publish score sets.');
+  }
+  if (scoreSets.length > 0 && observation.coverage.complete !== true) {
+    throw new Error('An incomplete all-player observation cannot publish score sets.');
+  }
+  const scoreRows = scoreSets.flatMap((scoreSet) => scoreSet.scores.map((score) => ({
+    score_set_id: scoreSet.scoreSetId,
+    content_id: contentId,
+    scoring_entity_id: score.scoringEntityId,
+    entity_kind: score.entityKind,
+    provider_external_id: score.providerExternalId,
+    nfl_game_id: score.nflGameId,
+    nfl_team: score.nflTeam,
+    position: score.position,
+    fantasy_points: score.fantasyPoints,
+    eligible_game_count: score.eligibleGameCount,
+    appearance_game_count: score.appearanceGameCount,
+    game_phase: score.gamePhase,
+    scoring_breakdown: score.scoringBreakdown,
+    ordinal: score.ordinal,
+  })));
+  return { observation, normalizedProvider, normalizedSeason, normalizedWeek, normalizerVersion,
+    sourceRevision, entries, warnings, semanticHash, contextKey, contentId, observationId,
+    scoreSets, scoreRows };
+}
+
 export function createAllPlayerStatisticMethods(client: DatabaseClient): AllPlayerMethods {
   return {
     async recordAllPlayerBatch(input: AllPlayerBatchInput) {
-      const observation = input.observation;
-      const normalizedProvider = provider(observation.provider);
-      const normalizedSeason = season(observation.season);
-      const normalizedWeek = week(observation.week);
-      const normalizerVersion = requiredText(
-        observation.normalizerVersion,
-        'All-player normalizer version',
-      );
-      const sourceRevision = requiredText(observation.sourceRevision, 'All-player source revision');
-      const entries = normalizeEntries(observation.entries);
-      if (entries.length === 0) throw new Error('All-player observations must contain entries.');
-      if (observation.quality === 'complete' && entries.some((entry) => (
-        entry.eligibleGameCount === null || entry.appearanceGameCount === null
-      ))) {
-        throw new Error('A complete all-player observation requires complete eligibility.');
-      }
-      const warnings = sortedWarnings(observation.warnings);
-      const semanticHash = allPlayerStatSemanticHash(observation, entries);
-      const contextKey = json([
-        normalizedProvider, normalizedSeason, observation.seasonType,
-        normalizedWeek, normalizerVersion,
-      ]);
-      const contentId = deterministicUuid(
-        'all-player-stat-content',
-        `${contextKey}\0${semanticHash}`,
-      );
-      const observationId = deterministicUuid(
-        'all-player-stat-observation',
-        `${contextKey}\0${sourceRevision}\0${observation.observedAt}`,
-      );
-      const scoreSets = normalizeScoreSets(contentId, entries, input.scoreSets);
-      if (scoreSets.length > 0) {
-        const actualProfileIds = scoreSets.map((scoreSet) => scoreSet.scoringProfileId);
-        const expectedProfileIds = scoreSets[0].coverage.expected_scoring_profile_ids;
-        const batchFingerprint = scoreSets[0].coverage.score_batch_fingerprint;
-        if (!Array.isArray(expectedProfileIds)
-          || json(expectedProfileIds) !== json(actualProfileIds)
-          || scoreSets.some((scoreSet) => (
-            json(scoreSet.coverage.expected_scoring_profile_ids) !== json(expectedProfileIds)
-            || scoreSet.coverage.score_batch_fingerprint !== batchFingerprint
-            || scoreSet.scorerVersion !== scoreSets[0].scorerVersion
-          ))) {
-          throw new Error('All-player batch does not contain its exact scoring profile inventory.');
-        }
-      }
-      if (scoreSets.length > 0) {
-        const actualProfileIds = scoreSets.map((scoreSet) => scoreSet.scoringProfileId).sort();
-        const expectedProfileIds = scoreSets[0].coverage.expected_scoring_profile_ids;
-        const batchFingerprint = scoreSets[0].coverage.score_batch_fingerprint;
-        if (!Array.isArray(expectedProfileIds)
-          || expectedProfileIds.some((id) => typeof id !== 'string')
-          || json(actualProfileIds) !== json(expectedProfileIds)
-          || scoreSets.some((scoreSet) => (
-            scoreSet.scorerVersion !== scoreSets[0].scorerVersion
-            || scoreSet.coverage.score_batch_fingerprint !== batchFingerprint
-            || json(scoreSet.coverage.expected_scoring_profile_ids) !== json(expectedProfileIds)
-          ))) {
-          throw new Error('All-player score set batch is incomplete.');
-        }
-      }
-      if (scoreSets.length > 0 && observation.quality !== 'complete') {
-        throw new Error('A partial all-player observation cannot publish score sets.');
-      }
-      if (scoreSets.length > 0 && observation.coverage.complete !== true) {
-        throw new Error('An incomplete all-player observation cannot publish score sets.');
-      }
-      const scoreRows = scoreSets.flatMap((scoreSet) => scoreSet.scores.map((score) => ({
-        score_set_id: scoreSet.scoreSetId,
-        content_id: contentId,
-        scoring_entity_id: score.scoringEntityId,
-        entity_kind: score.entityKind,
-        provider_external_id: score.providerExternalId,
-        nfl_game_id: score.nflGameId,
-        nfl_team: score.nflTeam,
-        position: score.position,
-        fantasy_points: score.fantasyPoints,
-        eligible_game_count: score.eligibleGameCount,
-        appearance_game_count: score.appearanceGameCount,
-        game_phase: score.gamePhase,
-        scoring_breakdown: score.scoringBreakdown,
-        ordinal: score.ordinal,
-      })));
+      const { observation, normalizedProvider, normalizedSeason, normalizedWeek, normalizerVersion,
+        sourceRevision, entries, warnings, semanticHash, contentId, observationId, scoreSets,
+        scoreRows } = prepareAllPlayerBatch(input);
+      if (!input.fence) throw new Error('All-player writes require a live job fence.');
+      validateAllPlayerFenceShape(input.fence);
       const rows = await client.query(`/* projection-store:record-all-player-batch */
-        WITH context_lock AS (
-          SELECT pg_advisory_xact_lock(hashtextextended($2 || ':' || $3::smallint::text || ':'
-            || $4 || ':' || $5::smallint::text || ':' || $6, 0))
+        WITH job_fence AS MATERIALIZED (
+          SELECT public.assert_all_player_job_fence($21::jsonb,
+            jsonb_build_object('season', $3::integer, 'seasonType', $4::text, 'week', $5::integer),
+            true) AS checked,
+            $21::jsonb AS fence
+        ), context_lock AS (
+          SELECT pg_advisory_xact_lock(hashtextextended($2::text || ':' || $3::smallint::text || ':'
+            || $4::text || ':' || $5::smallint::text || ':' || $6::text, 0))
+          FROM job_fence
         ), inserted_content AS (
           INSERT INTO all_player_stat_contents (
             id, provider, season, season_type, week, normalizer_version,
@@ -416,6 +455,7 @@ export function createAllPlayerStatisticMethods(client: DatabaseClient): AllPlay
           SELECT $13, content.id, $2, $3::smallint, $4, $5::smallint, $6,
             $14, $15::timestamptz, $16::timestamptz, $17::timestamptz, $8
           FROM valid_content content
+          CROSS JOIN (SELECT count(*) FROM inserted_entries) completed_entries
           ON CONFLICT (
             provider, season, season_type, week, normalizer_version, source_revision, observed_at
           ) DO NOTHING RETURNING *
@@ -478,7 +518,7 @@ export function createAllPlayerStatisticMethods(client: DatabaseClient): AllPlay
             AND stored.eligible_game_count = input.eligible_game_count
             AND stored.parity_comparison_count = input.parity_comparison_count
             AND stored.parity_mismatch_count = input.parity_mismatch_count
-            AND stored.coverage = input.coverage AND stored.warnings = input.warnings
+            AND stored.warnings = input.warnings
         ), score_input AS (
           SELECT * FROM jsonb_to_recordset($19::jsonb) AS value(
             score_set_id uuid, content_id uuid, scoring_entity_id uuid,
@@ -506,6 +546,29 @@ export function createAllPlayerStatisticMethods(client: DatabaseClient): AllPlay
             ON score_set.id = input.score_set_id
             AND score_set.all_player_stat_content_id = input.content_id
           ON CONFLICT DO NOTHING RETURNING all_player_score_set_id
+        ), inserted_verifications AS (
+          INSERT INTO all_player_score_verifications (
+            all_player_stat_observation_id, all_player_score_set_id, scoring_profile_id, coverage
+          )
+          SELECT observation.id, score_set.id, score_set.scoring_profile_id, input.coverage
+          FROM valid_observation observation CROSS JOIN valid_score_sets score_set
+          JOIN score_set_input input ON input.id = score_set.id
+          CROSS JOIN (SELECT count(*) FROM inserted_scores) completed_scores
+          ON CONFLICT DO NOTHING RETURNING *
+        ), verifications AS (
+          SELECT * FROM inserted_verifications
+          UNION ALL
+          SELECT existing.* FROM all_player_score_verifications existing
+          JOIN valid_observation observation ON observation.id = existing.all_player_stat_observation_id
+          JOIN score_set_input input ON input.id = existing.all_player_score_set_id
+          WHERE NOT EXISTS (SELECT 1 FROM inserted_verifications inserted
+            WHERE inserted.all_player_stat_observation_id = existing.all_player_stat_observation_id
+              AND inserted.all_player_score_set_id = existing.all_player_score_set_id)
+        ), valid_verifications AS (
+          SELECT verification.* FROM verifications verification
+          JOIN score_set_input input ON input.id = verification.all_player_score_set_id
+            AND input.scoring_profile_id = verification.scoring_profile_id
+            AND input.coverage = verification.coverage
         ), valid_batch AS (
           SELECT observation.id FROM valid_observation observation
           WHERE (SELECT value FROM prior_entry_count)
@@ -514,13 +577,14 @@ export function createAllPlayerStatisticMethods(client: DatabaseClient): AllPlay
               = jsonb_array_length($18::jsonb)
             AND (SELECT value FROM prior_score_count)
               + (SELECT count(*) FROM inserted_scores) = jsonb_array_length($19::jsonb)
+            AND (SELECT count(*) FROM valid_verifications) = jsonb_array_length($18::jsonb)
         ), batch_assertion AS MATERIALIZED (
           SELECT 1 / count(*)::integer AS valid FROM valid_batch
         ), pointers AS (
           SELECT score_set.id AS score_set_id, score_set.scoring_profile_id,
             public.advance_current_all_player_score_set(
               $2, $3::smallint, $4, $5::smallint, score_set.scoring_profile_id,
-              score_set.scorer_version, observation.id, score_set.id, $20::timestamptz
+              score_set.scorer_version, observation.id, score_set.id, $20::timestamptz, $21::jsonb
             ) AS pointer_outcome
           FROM valid_score_sets score_set CROSS JOIN valid_observation observation
           CROSS JOIN valid_batch CROSS JOIN batch_assertion
@@ -581,6 +645,7 @@ export function createAllPlayerStatisticMethods(client: DatabaseClient): AllPlay
         }))),
         json(scoreRows),
         input.verifiedAt,
+        json(input.fence),
       ]);
       const row = rows[0];
       if (!row) throw new Error('All-player batch could not be persisted consistently.');

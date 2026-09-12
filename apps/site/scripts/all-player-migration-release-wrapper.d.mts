@@ -41,3 +41,17 @@ export function buildAllPlayerMigrationReleaseWrapper(input: {
 export function requireAllPlayerMigrationSentinel(
   rows: readonly Readonly<Record<string, unknown>>[],
 ): string;
+export type AllPlayerRepairManifest = {
+  migrationName: string;
+  migrationChecksum: string;
+  postgresMajor: number;
+  reviewed: boolean;
+  catalog: ReviewedCatalog;
+};
+export function buildAllPlayerRepairReleaseWrapper(input: {
+  migrationSql: string;
+  expectedDatabase: string;
+  expectedOwner: string;
+  runtimeRole?: string;
+  manifest: AllPlayerRepairManifest;
+}): string;

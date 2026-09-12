@@ -201,3 +201,37 @@ GRANT EXECUTE ON FUNCTION public.record_game_state_observations(text, jsonb) TO 
 GRANT EXECUTE ON FUNCTION public.get_or_create_projection_run(
   text, smallint, text, smallint, text, text, timestamptz, timestamptz, timestamptz, text, uuid
 ) TO league_one_runtime;
+
+-- Keep bootstrap compatible with a database intentionally migrated only through
+-- 010, while granting the exact repaired entry points after 011 is installed.
+DO $$ BEGIN
+  IF to_regclass('public.all_player_score_verifications') IS NOT NULL THEN
+    REVOKE ALL ON TABLE public.all_player_score_verifications FROM league_one_runtime;
+    GRANT SELECT, INSERT ON TABLE public.all_player_score_verifications TO league_one_runtime;
+    GRANT EXECUTE ON FUNCTION public.all_player_next_request_at(jsonb),
+      public.all_player_job_fence_is_live(jsonb),
+      public.assert_all_player_job_fence(jsonb,jsonb,boolean),
+      public.claim_all_player_job(text,jsonb,text,integer,timestamptz),
+      public.mark_all_player_request(jsonb,jsonb),
+      public.finish_all_player_job(jsonb,text,jsonb),
+      public.record_all_player_preclaim_outcome(jsonb),
+      public.advance_current_all_player_score_set(
+        text,smallint,text,smallint,uuid,text,uuid,uuid,timestamptz,jsonb)
+      TO league_one_runtime;
+    IF has_table_privilege('league_one_runtime','public.all_player_score_verifications','UPDATE')
+      OR has_table_privilege('league_one_runtime','public.all_player_score_verifications','DELETE')
+      OR has_table_privilege('league_one_runtime','public.all_player_score_verifications','TRUNCATE')
+      OR has_table_privilege('league_one_runtime','public.all_player_score_verifications','REFERENCES')
+      OR has_table_privilege('league_one_runtime','public.all_player_score_verifications','TRIGGER')
+      OR has_table_privilege('league_one_runtime','public.all_player_score_verifications','MAINTAIN')
+      OR NOT has_table_privilege('league_one_runtime','public.all_player_score_verifications','SELECT')
+      OR NOT has_table_privilege('league_one_runtime','public.all_player_score_verifications','INSERT')
+      OR NOT has_function_privilege('league_one_runtime',
+        'public.record_all_player_preclaim_outcome(jsonb)','EXECUTE')
+      OR NOT has_function_privilege('league_one_runtime',
+        'public.advance_current_all_player_score_set(text,smallint,text,smallint,uuid,text,uuid,uuid,timestamptz,jsonb)',
+        'EXECUTE') THEN
+      RAISE EXCEPTION 'league_one_runtime has incorrect repaired all-player privileges';
+    END IF;
+  END IF;
+END; $$;

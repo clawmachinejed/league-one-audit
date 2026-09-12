@@ -12,6 +12,75 @@ type ObservationMethods = Pick<ProjectionStore,
   | 'recordLeagueWeekObservation'
 >;
 
+export function prepareLeagueWeekObservation(input: Parameters<ProjectionStore['recordLeagueWeekObservation']>[0]) {
+  const [lineupVersion, lineupRevision] = observationLineupValues(input.lineupRevisionVersion, input.lineupRevision);
+  const expectedGameIds = normalizeIds(input.expectedTank01GameIds);
+  if (containsScheduledGame(input.sourceData) && expectedGameIds.length === 0) {
+    throw new Error('Scheduled games require expected Tank01 game identifiers.');
+  }
+  if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu.test(input.leagueSeasonId)
+    || !Number.isInteger(input.week) || input.week < 1 || input.week > 18
+    || !['complete', 'partial', 'invalid'].includes(input.quality)) {
+    throw new Error('official-observation-parent-invalid');
+  }
+  const playerPoints = input.playerPoints.map((point) => ({
+    sleeper_player_id: requiredText(point.sleeperPlayerId, 'Sleeper player ID'),
+    entity_kind: point.entityKind,
+    external_roster_id: requiredText(point.externalRosterId, 'External roster ID'),
+    points: point.points,
+    is_starter: point.isStarter,
+    lineup_slot: point.lineupSlot,
+  }));
+  const rosterPoints = input.rosterPoints.map((point) => ({
+    external_roster_id: requiredText(point.externalRosterId, 'External roster ID'),
+    points: point.points,
+  }));
+  const officialPlayerIds = playerPoints.map((point) => point.sleeper_player_id);
+  if (new Set(officialPlayerIds).size !== officialPlayerIds.length) {
+    throw new Error('Official player points must contain every Sleeper player exactly once.');
+  }
+  const officialRosterIds = rosterPoints.map((point) => point.external_roster_id);
+  if (new Set(officialRosterIds).size !== officialRosterIds.length) {
+    throw new Error('Official roster points must contain every roster exactly once.');
+  }
+  const expectedRosterIds = [...officialRosterIds].sort();
+  if (playerPoints.some((point) => !expectedRosterIds.includes(point.external_roster_id))) {
+    throw new Error('Official player points must belong to an observed roster.');
+  }
+  if (playerPoints.some((point) => !Number.isFinite(point.points))
+    || rosterPoints.some((point) => !Number.isFinite(point.points))) {
+    throw new Error('Official points must be finite numbers.');
+  }
+  const officialFingerprint = `sha256:${createHash('sha256').update(playerPoints
+    .map((point) => ({ id: point.sleeper_player_id, points: point.points }))
+    .sort((left, right) => left.id.localeCompare(right.id))
+    .map((point) => `${point.id}\u001f${String(point.points)}`).join('\n')).digest('hex')}`;
+  const officialPlayersPointsEvidence = {
+    version: 'players-points-v1',
+    expectedEntityCount: playerPoints.length,
+    expectedRosterCount: rosterPoints.length,
+    expectedRosterIds,
+    fingerprint: officialFingerprint,
+  };
+  if (typeof input.sourceData.allPlayerSourceRevision === 'string'
+    && json(input.sourceData.officialPlayersPointsEvidence)
+      !== json(officialPlayersPointsEvidence)) {
+    throw new Error('All-player official points require exact provider-validated evidence.');
+  }
+  const sourceData = {
+    ...input.sourceData,
+    officialPlayersPointsEvidence,
+  };
+  requiredText(input.sourceRevision, 'Sleeper source revision');
+  const times = [input.requestStartedAt, input.requestCompletedAt, input.observedAt].map(Date.parse);
+  if (times.some((time) => !Number.isFinite(time)) || times[0] > times[1] || times[2] < times[0]) {
+    throw new Error('official-observation-time-invalid');
+  }
+  // Exercise the exact serializer used by the SQL boundary before ancillary writes.
+  json(sourceData); json(playerPoints); json(rosterPoints);
+  return { lineupVersion, lineupRevision, expectedGameIds, playerPoints, rosterPoints, sourceData };
+}
+
 export function createObservationMethods(client: DatabaseClient): ObservationMethods {
   return {
     async recordGameStates(input) {
@@ -50,59 +119,8 @@ export function createObservationMethods(client: DatabaseClient): ObservationMet
     },
 
     async recordLeagueWeekObservation(input) {
-      const [lineupVersion, lineupRevision] = observationLineupValues(input.lineupRevisionVersion, input.lineupRevision);
-      const expectedGameIds = normalizeIds(input.expectedTank01GameIds);
-      if (containsScheduledGame(input.sourceData) && expectedGameIds.length === 0) {
-        throw new Error('Scheduled games require expected Tank01 game identifiers.');
-      }
-      const playerPoints = input.playerPoints.map((point) => ({
-        sleeper_player_id: requiredText(point.sleeperPlayerId, 'Sleeper player ID'),
-        entity_kind: point.entityKind,
-        external_roster_id: requiredText(point.externalRosterId, 'External roster ID'),
-        points: point.points,
-        is_starter: point.isStarter,
-        lineup_slot: point.lineupSlot,
-      }));
-      const rosterPoints = input.rosterPoints.map((point) => ({
-        external_roster_id: requiredText(point.externalRosterId, 'External roster ID'),
-        points: point.points,
-      }));
-      const officialPlayerIds = playerPoints.map((point) => point.sleeper_player_id);
-      if (new Set(officialPlayerIds).size !== officialPlayerIds.length) {
-        throw new Error('Official player points must contain every Sleeper player exactly once.');
-      }
-      const officialRosterIds = rosterPoints.map((point) => point.external_roster_id);
-      if (new Set(officialRosterIds).size !== officialRosterIds.length) {
-        throw new Error('Official roster points must contain every roster exactly once.');
-      }
-      const expectedRosterIds = [...officialRosterIds].sort();
-      if (playerPoints.some((point) => !expectedRosterIds.includes(point.external_roster_id))) {
-        throw new Error('Official player points must belong to an observed roster.');
-      }
-      if (playerPoints.some((point) => !Number.isFinite(point.points))
-        || rosterPoints.some((point) => !Number.isFinite(point.points))) {
-        throw new Error('Official points must be finite numbers.');
-      }
-      const officialFingerprint = `sha256:${createHash('sha256').update(playerPoints
-        .map((point) => ({ id: point.sleeper_player_id, points: point.points }))
-        .sort((left, right) => left.id.localeCompare(right.id))
-        .map((point) => `${point.id}\u001f${String(point.points)}`).join('\n')).digest('hex')}`;
-      const officialPlayersPointsEvidence = {
-        version: 'players-points-v1',
-        expectedEntityCount: playerPoints.length,
-        expectedRosterCount: rosterPoints.length,
-        expectedRosterIds,
-        fingerprint: officialFingerprint,
-      };
-      if (typeof input.sourceData.allPlayerSourceRevision === 'string'
-        && json(input.sourceData.officialPlayersPointsEvidence)
-          !== json(officialPlayersPointsEvidence)) {
-        throw new Error('All-player official points require exact provider-validated evidence.');
-      }
-      const sourceData = {
-        ...input.sourceData,
-        officialPlayersPointsEvidence,
-      };
+      const { lineupVersion, lineupRevision, expectedGameIds, playerPoints, rosterPoints, sourceData }
+        = prepareLeagueWeekObservation(input);
       const rows = await client.query(`/* projection-store:record-league-week-observation */
         WITH inserted_observation AS (
           INSERT INTO league_week_observations (

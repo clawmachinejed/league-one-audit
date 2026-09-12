@@ -1,200 +1,191 @@
 # All-player statistics foundation
 
-This foundation stores provider-native weekly statistics once and scores the
-same immutable content once for each unique scoring profile referenced by the
-configured leagues. It does not expose PPG, rankings, or a browser/API payload.
+This foundation retains one shared Sleeper weekly response and scores its
+validated immutable content for each distinct registered league scoring profile.
+It adds no rankings, PPG, UI, public API, Tank01 feed, or cron schedule.
 
-## Data model
+The September 12 repair is not an operational-completion claim. The retained
+2026 Week 1 evidence is incomplete. Production release, backfill, and recurring
+activation remain separate gates. See [eligibility](all-player-eligibility.md),
+[identity correction](all-player-identity-repair.md), and the repair release
+record for exact evidence and pending decisions.
 
-Migration `010_all_player_statistics.sql` adds exactly these tables:
+## Authority and inventory
 
-1. `all_player_stat_contents` — deduplicated semantic weekly content.
-2. `all_player_stat_entries` — raw per-player or team-defense statistics plus
-   NFL game, position, team, game phase, eligibility evidence, appearance, and
-   stable ordinal.
-3. `all_player_stat_observations` — append-only retrieval evidence, including
-   source fingerprint/ETag and request times.
-4. `all_player_score_sets` — immutable content/profile/scorer results and the
-   full publication audit.
-5. `all_player_scores` — weekly points, game phase, exact eligible-game count,
-   and per-rule breakdown for each canonical scoring entity.
-6. `current_all_player_score_sets` — one guarded current pointer per provider,
-   period, scoring profile, and scorer version.
+Sleeper is the official identity, roster, lineup, schedule, scoring, and actual
+point authority. Tank01 supplies projections and game state through the existing
+worker; this operation reads stored projection/game evidence and never calls
+Tank01. Neon retains snapshots and immutable statistical history.
 
-Weekly points come from `all_player_scores`. Season points are `sum(fantasy_points)`
-over current weekly score sets. Weekly and season position ranks are window
-functions over those same rows. PPG remains deliberately unimplemented; its
-future denominator is `sum(eligible_game_count)`.
+The existing shared catalog boundary loads one unfiltered official catalog for
+an all-player invocation. Both league loads reuse that same promise. Weekly
+response identities are classified by their official catalog identity, including
+IDP, punters, offensive linemen, fantasy-relevant fullbacks, and unusual stat
+rows. Stat-key shape never proves identity. TEAM_ aggregates remain distinct
+source evidence. The ordinary website catalog path retains its existing behavior.
 
-## Publication gates
+The period inventory is separate from current catalog metadata. It records the
+requested season/week, source revision, observation time, scope exclusions,
+period-specific team context and participation evidence. Current active status,
+team membership, or absence from a filtered catalog cannot prove historical
+eligibility or justify an exclusion. All required roster, reserve, taxi, starter,
+and canonical defense identities remain required even without a weekly stat row.
+The registry independently constructs exactly one entry for each of the 32
+canonical defenses; filtered DEF catalog rows are not the defense authority.
 
-The all-player route is an undocumented dependency isolated in one adapter. A
-retrieval validates every top-level member and every stat value before retaining
-content. Its expected inventory is a deterministic fingerprint over the reused
-complete player catalog, roster and projection identity checks, all 32 team
-defenses, the full NFL week schedule, bye evidence, and reviewed status evidence.
-The fingerprint includes the catalog and schedule revisions plus sorted roster,
-projection-candidate, and bye identity sets. Each of the six position-filtered
-catalog responses must be structurally complete; a malformed catalog row makes
-the inventory unavailable. An unexpected response identity is excluded only
-when its stat shape proves it is an IDP row; otherwise the batch is partial.
-The adapter makes one no-store weekly request, never a player request, keeps an
-ETag when available, and otherwise produces a stable SHA-256 response fingerprint.
-It never logs the response body.
+Without reviewed period inventory evidence, the adapter retains a conservative
+catalog inventory and marks period completeness unproven. This is an honest
+partial observation, not a claim that every historical catalog player belongs
+in the requested season. Unknown identities and missing requested-period
+evidence cannot be removed to manufacture complete coverage.
 
-## Canonical operation and cadence
+Identity provenance distinguishes required official identities, catalog
+inventory, and optional projection aliases. Missing official mappings may be
+proposed only from validated inventory. A stored verified flag is insufficient
+semantic proof: explicit provider crosswalk evidence, official classification,
+entity kinds, canonical consistency and validity intervals must agree.
+Distinct official identities may not collapse onto one canonical target.
 
-`runAllPlayerIngestion` is the sole orchestration operation. It reuses the
-canonical Sleeper league loader and catalog, the current stored Tank01 slate,
-the canonical entity mappings and NFL games, the existing scorer contract, and
-`recordAllPlayerBatch`. One invocation loads the all-player response once,
-normalizes it once, builds every unique active scoring profile, verifies both
-leagues' official `players_points`, and hands the complete cross-profile batch
-to the single atomic persistence statement. It does not call Tank01 and does
-not make per-player requests.
+Unusable optional aliases remain unresolved source evidence with scoped
+diagnostics. They do not veto valid official statistics. Required identities
+remain strict. The reviewed Tank01 4429835 / Sleeper 8063 pairing is quarantined in
+the shared boundary and cannot create future aliases or candidates. No
+replacement is guessed from a name or current team.
 
-The same operation has three modes:
+## Eligibility and finality
 
-- `shadow` performs the provider, identity, eligibility, coverage, scoring, and
-  parity work but makes no database writes;
-- `backfill` requires an explicit season/type/week plus an environment-bound,
-  period-bound write authorization before using the atomic batch writer;
-- `recurring` derives one shared current active period from the two durable
-  league authorities and is scheduled after the existing authenticated
-  live-projection cron response. The Matchups worker is never made to wait for
-  this lane. The `ALL_PLAYER_RECURRING_ENABLED` flag is false unless set to
-  exactly `true`.
+An authoritative appearance yields eligible 1 / appearance 1. Exact-game
+dressed-but-unused evidence yields 1 / 0 and permits a legitimate zero; contradictory
+nonzero points fail validation. Period-specific ineligibility and canonical bye
+evidence yield 0 / 0 with source, observation time and effective period retained.
+Missing rows and ambiguous or malformed participation flags retain null counts.
 
-Shadow and backfill run through the server-only `pnpm all-player:operate`
-command. The command accepts only mode and period as non-secret arguments. It
-requires matching target-environment, database-host, database-name, connected
-role, and exact write-authorization environment safeguards. It refuses Preview,
-non-TLS remote database URLs, a write authorization in shadow mode, and a
-backfill authorization for any other period. Its output is sanitized batch
-evidence, never provider payloads or credentials.
+gms_active=1 without gp is unknown. Sparse numeric statistics may default to
+zero only inside a valid observed record. A missing row is not such a record.
+gms_active=0/gp=1 and malformed flags retain their original evidence and null
+counts through adapter, domain validation and raw persistence.
 
-Recurring ingestion uses the existing `projection_jobs` lease rather than a
-new table or cron. UTC cadence slots are 12 hours, and the lease covers the
-whole slot plus five minutes. Concurrent Vercel invocations therefore yield one
-owner; the job claim also requires 12 elapsed hours since the prior completion.
-Completed and failed validation attempts therefore cannot retrieve again in the
-same rolling cadence window, while a later window can capture a final or
-corrected provider revision. In half-open rolling periods, the maximum recurring
-all-player request rate is exactly 1 per hour, 2 per day, and 14 per seven-day
-NFL week. Backfill and shadow are bounded
-release operations outside that recurring allowance. Replays in one slot are
-idempotent, and any failure leaves the prior guarded pointer unchanged.
-An available partial provider observation is still written as immutable raw
-content plus one append-only observation, with no score sets and no pointer
-movement. A new parity observation for unchanged raw stats produces a distinct
-immutable score-set revision because the exact parity observation identities
-and evidence are part of the score-set semantic hash.
+Completed backfill independently requires every distinct game in the exact
+canonical requested-week schedule to be final. A zero count of nonfinal eligible
+entries cannot establish schedule completion. Recurring current-week capture
+may retain nonfinal observations, subject to the same inventory, eligibility,
+scoring and identity requirements.
 
-The current pointer advances only when all of these are true:
+The sanitized audit fixture is deliberately partial. It retains Jones and
+DeVito's reviewed unused zeros, Willis's ambiguity, Brown's historical
+appearance and 4.1 points despite current Inactive metadata, and Henderson's
+missing row. Its 49 matching official arithmetic comparisons prove a subset only.
 
-- content, observation, and score-set quality are complete;
-- the fingerprinted expected-entity count matches physical entries, including
-  exactly 32 team defenses, with zero unknown eligibility or eligible entities
-  missing an NFL game;
-- every scored identity is unambiguous and backed by the existing verified
-  canonical provider mapping;
-- every eligibility decision is known and every eligible player maps to an NFL
-  game in the same season, week, and team context;
-- discriminated eligibility evidence independently re-derives the stored
-  eligibility and appearance counts in both application and database guards;
-- every active scoring rule is in the database-bound allowlist for the exact
-  provider and `sleeper-actual-v1` scorer contract;
-- one coordinated batch contains exactly the unique scoring profiles used by
-  canonical `league1` and `league2` season registrations;
-- calculated points match every rostered `players_points` value carried by the
-  exact complete league-week observations named by the score set; each
-  observation proves its physical player/roster counts, sorted roster IDs, and
-  fingerprint, matches `league_period_authorities.expected_roster_ids`, and is
-  bound to the same canonical league connection and all-player source revision;
-- every peer scoring profile in the coordinated batch independently has all
-  physical score rows, valid eligibility totals, supported rules, authoritative
-  roster coverage, and physical official-point parity before any profile moves;
-- stored entry, score, and eligible-game totals exactly match the immutable
-  parent records.
+## One operation and substantive preflight
 
-The reused projection pipeline keeps unresolved projection-only identities out
-of canonical candidates without inventing a mapping. Its shared full-slate
-coverage evidence records the rank-eligible, resolved, and skipped counts, fixed
-warning codes, and every affected position. That evidence is emitted for both
-current and future materialization paths and is shared across leagues using the
-same raw slate. An unrelated free-agent conflict therefore cannot remove an
-otherwise valid Matchups snapshot. A rostered entity, starter, or required team
-defense still fails closed. Any later all-player projection ranking must require
-complete identity coverage for its position; a position named in
-`rankUnavailablePositions` remains unavailable rather than ranking a truncated
-pool.
+runAllPlayerIngestion is shared by operator, composition and recurrence.
+It checks period, required inventory/mappings, registered profiles, supported
+active rules and official point readiness before the weekly GET where loaded
+inputs permit. It then validates complete input shape, eligibility, canonical
+game context, scorer arithmetic, every rostered official point including bench,
+and the exact writer serializer before ancillary identity or parity writes.
 
-An active entity with `gms_active=1` and no `gp` evidence receives appearance 0,
-eligibility 1, and exactly 0.0000 points. Explicit `gms_active=0` evidence receives
-eligibility 0. Missing or contradictory evidence remains null and prevents score
-publication. A failure leaves every prior current pointer intact.
-Official parity observations referenced by an immutable score set are excluded
-from retention. Their parents and children cannot be changed or extended; exact
-child replays remain idempotent. Provider-ID fingerprints are reconstructed from
-the immutable score rows rather than the mutable many-alias identity crosswalk.
-Automated parity fixtures retain the exact Sleeper scoring settings shared by
-League One and League Two for 2024–2026 and representative official QB, skill,
-kicker, defense, inactive, and active-zero totals.
+The pure batch preparer is shared with the SQL writer. Official observation
+preparation also uses the writer's pure serializer before identity writes.
+Identical profiles share one score set; divergent profiles each require a
+complete score set. Duplicate official targets, canonical targets, rosters and
+conflicting evidence are rejected.
 
-## Controlled rollout
+Valid partial observations may be retained as raw content and retrieval
+history, with zero complete score sets and no pointer movement. Invalid
+observations are rejected. Complete observations may proceed only after every
+profile's parity succeeds under the existing tolerance.
 
-The dormant implementation supports a separately authorized rollout:
+Shadow must execute the substantive preflight with zero production data writes.
+Its live-request budget policy is a pending release decision: a reusable
+read-only reservation cannot safely authorize repeated live GETs. A supported
+production procedure must either replay one separately budgeted capture or
+explicitly authorize only durable budget/lease bookkeeping for shadow. Do not
+run a live shadow until that decision and its implementation evidence are
+recorded.
 
-Migration 010 is installed with the deterministic, secret-free wrapper generated
-by `apps/site/scripts/all-player-migration-release-wrapper.mjs`; the exact
-Production rendering is retained at
-`apps/site/release/010_all_player_statistics.production.sql`. The generator
-rejects any migration checksum change, acquires the existing advisory lock,
-captures unaffected catalog fingerprints inside the transaction, applies the
-reviewed SQL, inserts one ledger row, and checks every table, owner, column,
-constraint, index, trigger, function, and ACL independently before commit. Its
-ACL proof covers effective inherited access, column grants, every PostgreSQL 18
-table privilege (including `TRUNCATE` and `MAINTAIN`), and grant options. The
-runtime role must not be able to assume any other role through a direct or
-transitive `SET ROLE` path; membership fingerprints include PostgreSQL 18's
-`inherit_option` and `set_option` fields. Its
-constraint manifest intentionally includes PostgreSQL 18's cataloged `NOT NULL`
-constraints (`pg_constraint.contype = 'n'`): 151 constraints in total, including
-74 `NOT NULL` constraints. The release runner treats an absent exact success
-sentinel as ambiguous and never retries it.
+## Persistence and publication
 
-1. Apply migration 010 only. Verify its committed checksum, runtime ACLs, six
-   table definitions, and that the old application remains healthy.
-2. Deploy the dormant application foundation. Do not schedule ingestion yet.
-3. Run one shadow 2026 Week 1 retrieval. Validate structure and coverage, resolve
-   identities through the existing catalog/crosswalk and NFL-game tables, build
-   every unique league scoring profile, and inspect parity without advancing a
-   pointer if any gate fails.
-4. With separate backfill authorization, persist that one Week 1 observation and
-   its complete score sets atomically. Confirm both profile pointers, active-zero
-   rows, eligibility totals, and zero parity mismatches.
-5. With separate activation authorization, set the reviewed recurring flag on
-   the existing worker path. Do not add another cron, provider feed, scorer,
-   catalog, or browser request path.
+Installed migration 010 remains unchanged. Its six tables retain raw content,
+entries, observations, score sets, score rows and current pointers. Additive 011
+hardens ownership, evidence and sealed-child insertion boundaries. It also adds
+one immutable score-verification relation so unchanged score content can be
+reused while a later retrieval retains its own official parity lineage.
 
-The incremental provider cost is one all-player weekly-stat request per batch,
-shared by both leagues and all profiles; there is no Tank01 request increment and
-no per-player fanout. A completed week is expected to contain roughly 550–750
-fantasy entities. The exact 2024–2026 League One/Two scoring settings are one
-shared unique profile, so the expected current batch is roughly 550–750 raw rows
-and 550–750 score rows; if the leagues diverge to two unique profiles, score rows
-double to 1,100–1,500. A conservative planning allowance remains 3–8 MB per week,
-or about 55–145 MB for one 18-week season including JSON breakdowns and indexes,
-until the shadow run supplies measured `pg_total_relation_size` values.
+A later unchanged response may add retrieval and verification evidence without
+copying every raw entry or score. Corrections to meaningful statistics,
+eligibility or official parity material create new content where required.
+Exact replay remains idempotent. Both original and later verification lineage
+must remain protected from retention.
 
-Monitor request outcome and latency, response fingerprint changes, content and
-score row counts, unknown eligibility, ambiguous identity, missing game coverage,
-unsupported rules, parity comparison/mismatch totals, pointer outcome, and pointer
-age. Metrics and errors contain counts and fixed endpoint families, never full raw
-payloads.
+The single all-player SQL batch verifies physical counts, supported scorer and
+rules, current usable mappings, exact period/game context, full official parity
+and the complete peer-profile group. Pointer advancement atomically verifies the
+existing job's live owner, generation, expiry, period and deadline. A stale
+worker cannot publish after takeover or expiry. Completion also rejects lost
+ownership. Child insertion guards reject new entries/scores after the parent is
+sealed or published while preserving initial creation and exact replay.
 
-Rollback is operational and non-destructive: stop the not-yet-existing ingestion
-activation, leave the last verified pointers in place, and deploy the compatible
-pre-feature application if needed. Corrections create new content/observations/
-score sets and advance the guarded pointer; immutable history is not updated or
-deleted. Dropping tables or rewriting production data is not part of rollback.
+Ancillary identity and official observations are not in the same transaction as
+the final batch. Known deterministic failures must occur before them; valid
+ancillary writes are idempotent and observable if a later database failure
+occurs. A durable-outcome failure must retain evidence of any already-confirmed
+publication rather than report that no write occurred.
+
+## Recurrence and request budget
+
+The existing authenticated live-projections route remains the only cron
+attachment. ALL_PLAYER_RECURRING_ENABLED must equal true; disabled mode returns
+before all-player database or provider work. A fifteen-minute in-process
+opportunity check avoids minute-level all-player queries. SQL remains the
+cross-invocation budget authority.
+
+One global Sleeper all-player job covers all periods and explicit operators.
+It permits at least 12 hours between weekly requests and no more than 2 requests in
+a rolling 24 hours. Claiming chooses one period; marking the request is atomic and
+one-use for that generation. Provider failures retain the request budget.
+Failures before a weekly request receive a safe cooldown.
+
+Previous-week final capture receives the first opportunity at rollover, then
+alternates with current-week work inside a finite schedule-derived correction
+window. A missed final capture remains an explicit overdue obligation across
+later rollovers; there is no unlimited historical polling. A successful final
+capture is not erased by a later failed correction.
+
+The all-player execution deadline is at most 50 seconds from the shared
+invocation start, with time reserved inside the existing Vercel limit for
+durable outcome handling. Abort signals reach supported database/provider calls.
+Checkpoints reject late work, and SQL independently rejects late publication.
+A recurring opportunity with insufficient remaining invocation time returns an
+explicit failure without starting another request.
+
+Durable outcomes distinguish publication, retained partial data, validation or
+provider failure, timeout, and lost ownership. Busy/not-due state must remain
+observable without turning cooldown polling into another write or retry storm.
+
+## Release, capacity and recovery
+
+Use the actual checksummed release wrapper and PostgreSQL 18 constraint manifest
+for additive 011. Never edit installed 010 or use a destructive down-migration.
+Keep recurrence disabled through migration, alias correction, deployment,
+complete Week 1 shadow and verified guarded backfill. Verify the exact merged SHA
+in production and both leagues' existing readers before activation.
+
+Do not infer capacity from JSON byte counts or query counts. Measure isolated
+table/index/TOAST growth for complete/partial batches, replay, later unchanged
+retrieval, corrected stats/eligibility, both profile shapes, identity additions
+and official parity history. Separate provider inbound bytes, client database
+writes, Neon outbound responses, physical storage and compute. Recheck actual
+allowances and ordinary workload growth before asserting season fit.
+
+No paid upgrade or history deletion is authorized. The first actual backfill
+must be compared with measured estimates before recurrence is enabled.
+Operational completion requires an actual scheduled success and subsequent
+not-due behavior; local rollover tests do not prove future live events.
+
+Recovery starts by disabling recurrence and preventing stale ownership from
+publishing. Preserve the last verified pointers and all immutable history.
+Roll back only to reviewed compatible code/configuration. Follow the narrow
+alias correction's compensating procedure, abort on changed references or
+unproven identity, and retain additive database guards unless a separately
+reviewed safe migration says otherwise.

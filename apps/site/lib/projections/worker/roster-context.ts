@@ -1,4 +1,5 @@
 import type { LiveProjectionKind } from '../domain/live-calculation';
+import { NFL_TEAM_CODES } from '../domain/contracts';
 import type {
   LeagueWeekState,
   LineupSlot,
@@ -17,6 +18,8 @@ import {
   type ExternalScoringEntityRef,
 } from '../shared/provider-identity';
 import type { ActiveStarter, ProviderGroup } from './contracts';
+import { projectionIdentityQuarantined } from '../shared/reviewed-projection-identities';
+export { projectionIdentityQuarantined } from '../shared/reviewed-projection-identities';
 
 export function finite(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
@@ -77,6 +80,23 @@ export function canonicalPosition(value: string | null): string | null {
 
 const ALL_PROJECTION_POSITIONS = new Set(['QB', 'RB', 'WR', 'TE', 'K']);
 
+/** Required official roster identities remain a fallback for adapters that do
+ * not supply a full catalog. Optional projections never become this inventory. */
+export function officialIdentityInventory(group: ProviderGroup): ScoringEntity[] {
+  const entities = new Map<string, ScoringEntity>();
+  for (const league of group.leagues) {
+    for (const entity of [...(league.source.officialIdentityInventory ?? []), ...projectionEntities(league.source)]) {
+      const key = entityKey(entity);
+      const previous = entities.get(key);
+      if (previous && previous.kind !== entity.kind) {
+        throw new Error('Official identity inventory contains conflicting entity kinds.');
+      }
+      entities.set(key, entity);
+    }
+  }
+  return [...entities.values()];
+}
+
 /**
  * Gives every safely cross-walked fantasy projection one canonical official
  * identity. Unmatched source rows remain in immutable slate content but cannot
@@ -85,9 +105,16 @@ const ALL_PROJECTION_POSITIONS = new Set(['QB', 'RB', 'WR', 'TE', 'K']);
 export function projectionEntityForObservation(
   observation: ProjectionObservation,
   officialProvider: ProviderKey,
+  officialInventory: readonly ScoringEntity[] = [],
 ): ScoringEntity | null {
+  if (projectionIdentityQuarantined(observation)) return null;
   if (observation.identity.primary.entityKind === 'team-defense') {
-    if (!observation.nflTeam) return null;
+    if (!observation.nflTeam || !NFL_TEAM_CODES.includes(observation.nflTeam)) return null;
+    const officialDefenseRefs = observationReferences(observation)
+      .filter((reference) => reference.provider === officialProvider);
+    if (observationReferences(observation).some((reference) => reference.entityKind !== 'team-defense')
+      || officialDefenseRefs.length > 1
+      || officialDefenseRefs.some((reference) => String(reference.externalId) !== observation.nflTeam)) return null;
     return {
       kind: 'team-defense',
       externalRef: externalTeamDefenseRef(officialProvider, observation.nflTeam),
@@ -97,21 +124,16 @@ export function projectionEntityForObservation(
       injuryStatus: null,
     };
   }
-  const position = canonicalPosition(observation.position);
-  if (!position || !ALL_PROJECTION_POSITIONS.has(position)) return null;
   const officialRefs = observationReferences(observation).filter((reference) => (
-    reference.entityKind === 'player' && reference.provider === officialProvider
+    reference.provider === officialProvider
   ));
-  if (officialRefs.length !== 1) return null;
+  if (officialRefs.length !== 1 || officialRefs[0].entityKind !== 'player') return null;
   const officialRef = externalPlayerRef(officialProvider, String(officialRefs[0].externalId));
-  return {
-    kind: 'player',
-    externalRef: officialRef,
-    displayName: String(officialRef.externalId),
-    nflTeam: observation.nflTeam,
-    position,
-    injuryStatus: null,
-  };
+  const matches = officialInventory.filter((entity) => sameExternalReference(entity.externalRef, officialRef));
+  if (matches.length !== 1 || matches[0].kind !== 'player') return null;
+  const position = canonicalPosition(matches[0].position);
+  if (!position || !ALL_PROJECTION_POSITIONS.has(position)) return null;
+  return { ...matches[0], position };
 }
 
 function observationReferences(observation: ProjectionObservation): readonly ExternalScoringEntityRef[] {
@@ -124,12 +146,15 @@ function compatibleObservation(
 ): boolean {
   if (entity.kind === 'team-defense') {
     return observation.identity.primary.entityKind === 'team-defense'
-      && observation.nflTeam === entity.nflTeam;
+      && observation.nflTeam === entity.nflTeam
+      && projectionEntityForObservation(observation, entity.externalRef.provider) !== null;
   }
   return observation.identity.primary.entityKind === 'player'
     && entity.nflTeam !== null
     && observation.nflTeam === entity.nflTeam
-    && canonicalPosition(observation.position) === canonicalPosition(entity.position);
+    && (canonicalPosition(observation.position) === canonicalPosition(entity.position)
+      || canonicalPosition(observation.position) === 'FB'
+        && ['RB', 'TE'].includes(canonicalPosition(entity.position) ?? ''));
 }
 
 /**
@@ -142,6 +167,10 @@ export function projectionObservationForEntity(
   slate: ProjectionSlate,
 ): ProjectionObservation | null {
   const direct = slate.projections.filter((observation) => (
+    !projectionIdentityQuarantined(observation)
+    && observationReferences(observation).filter((reference) => reference.provider === entity.externalRef.provider
+      && reference.entityKind === entity.externalRef.entityKind).length === 1
+    &&
     observationReferences(observation).some((reference) => (
       sameExternalReference(reference, entity.externalRef)
     )) && compatibleObservation(entity, observation)
@@ -164,6 +193,10 @@ function identityObservationForEntity(
   slate: ProjectionSlate,
 ): ProjectionObservation | null {
   const direct = slate.projections.filter((observation) => (
+    !projectionIdentityQuarantined(observation)
+    && observationReferences(observation).filter((reference) => reference.provider === entity.externalRef.provider
+      && reference.entityKind === entity.externalRef.entityKind).length === 1
+    &&
     observationReferences(observation).some((reference) => (
       sameExternalReference(reference, entity.externalRef)
     ))
@@ -195,6 +228,7 @@ export function scoringIdentityInputs(
     }
   }
   const groupEntities = [...groupEntityByKey.values()];
+  const inventory = officialIdentityInventory(group);
   const existingEntityByObservation = new Map<ProjectionObservation, ScoringEntity>();
   for (const entity of groupEntities) {
     const observation = identityObservationForEntity(entity, projections);
@@ -206,7 +240,7 @@ export function scoringIdentityInputs(
     const existingEntity = existingEntityByObservation.get(observation);
     const entity = existingEntity
       ? existingEntity
-      : projectionEntityForObservation(observation, officialProvider);
+      : projectionEntityForObservation(observation, officialProvider, inventory);
     if (!entity) continue;
     const references = [entity.externalRef, ...observationReferences(observation)];
     const providerRefs = [...new Map(references.map((reference) => [
@@ -214,7 +248,7 @@ export function scoringIdentityInputs(
     ])).values()];
     const key = entityKey(entity);
     result.set(key, {
-      key, entity, providerRefs,
+      key, entity, providerRefs, requirement: existingEntity ? 'required' : 'optional',
       ...(existingEntity ? {} : { preserveExistingMetadata: true }),
     });
   }
@@ -230,7 +264,7 @@ export function scoringIdentityInputs(
       externalReferenceKey(reference),
       reference,
     ])).values()];
-    result.set(key, { key, entity, providerRefs });
+    result.set(key, { key, entity, providerRefs, requirement: 'required' });
   }
   return [...result.values()];
 }
