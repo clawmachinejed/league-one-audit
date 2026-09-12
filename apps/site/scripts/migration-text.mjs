@@ -19,3 +19,14 @@ export function normalizeMigrationText(statement) {
 export function migrationChecksum(statement) {
   return createHash('sha256').update(normalizeMigrationText(statement)).digest('hex');
 }
+
+/** Rejects duplicate or skipped numeric prefixes before taking the schema lock. */
+export function validateMigrationSequence(names) {
+  names.forEach((name, index) => {
+    const expected = String(index + 1).padStart(3, '0');
+    if (!name.startsWith(`${expected}_`)) {
+      throw new Error(`Database migration sequence is not contiguous at ${name}.`);
+    }
+  });
+  return names;
+}

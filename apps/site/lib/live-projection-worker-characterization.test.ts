@@ -347,9 +347,12 @@ describe('live projection worker canonical parity characterization', () => {
       requestCompletedAt: '2026-09-13T16:59:59.000Z',
       observedAt: '2026-09-13T16:59:59.000Z',
       quality: 'complete',
-      candidateCount: 3,
+      candidateCount: 13,
     };
-    expect(projectionRuns).toEqual([expectedProjectionRun, expectedProjectionRun]);
+    expect(projectionRuns).toEqual([
+      expectedProjectionRun,
+      { ...expectedProjectionRun, candidateCount: 3 },
+    ]);
 
     const leagueObservations = observationsSpy.mock.calls.map(([input]) => ({
       leagueSeasonId: String(input.leagueSeasonId),

@@ -82,6 +82,14 @@ export async function runCurrentProjectionStages(
         providerGroup: providerGroupName(provider.group),
         stageDurationMs: elapsed(dependencies, providerPersistStartedAt),
         identityConflictCount: persisted.identityConflictCount,
+        fullSlateProjectionIdentityComplete: persisted.fullSlateProjectionCoverage.identityComplete,
+        fullSlateRankEligibleProjectionCount:
+          persisted.fullSlateProjectionCoverage.rankEligibleProjectionCount,
+        fullSlateResolvedIdentityCount: persisted.fullSlateProjectionCoverage.resolvedIdentityCount,
+        fullSlateSkippedIdentityCount: persisted.fullSlateProjectionCoverage.skippedIdentityCount,
+        allPlayerRankUnavailablePositions:
+          persisted.fullSlateProjectionCoverage.rankUnavailablePositions,
+        fullSlateWarnings: persisted.fullSlateProjectionCoverage.warnings,
       });
     } catch {
       failedLeagues += provider.group.leagues.length;
@@ -140,6 +148,17 @@ export async function runCurrentProjectionStages(
               ? {}
               : { applicableSourceSkewSeconds: result.applicableSourceSkewSeconds }),
             identityConflictCount: persisted.identityConflictCount,
+            fullSlateProjectionIdentityComplete:
+              result.fullSlateProjectionCoverage.identityComplete,
+            fullSlateRankEligibleProjectionCount:
+              result.fullSlateProjectionCoverage.rankEligibleProjectionCount,
+            fullSlateResolvedIdentityCount:
+              result.fullSlateProjectionCoverage.resolvedIdentityCount,
+            fullSlateSkippedIdentityCount:
+              result.fullSlateProjectionCoverage.skippedIdentityCount,
+            allPlayerRankUnavailablePositions:
+              result.fullSlateProjectionCoverage.rankUnavailablePositions,
+            fullSlateWarnings: result.fullSlateProjectionCoverage.warnings,
             snapshotRevision: result.snapshotRevision,
             publicationOutcome: result.publicationOutcome,
           });

@@ -18,11 +18,16 @@ import { createLineupWatchObservationMethods } from './projections/adapters/neon
 import { createLineupWatchReadMethods } from './projections/adapters/neon/lineup-watch-read';
 import { createFullLineupObservationMethods } from './projections/adapters/neon/lineup-full-observation';
 import { createProjectionMethods } from './projections/adapters/neon/projections';
+import { createAllPlayerStatisticMethods } from './projections/adapters/neon/all-player-statistics';
+import { createAllPlayerContextMethods } from './projections/adapters/neon/all-player-context';
 import { createProjectionSlateMethods } from './projections/adapters/neon/projection-slates';
 import { createRetentionMethods } from './projections/adapters/neon/retention';
 import { createSnapshotMethods } from './projections/adapters/neon/snapshots';
 
 export type {
+  AllPlayerBatchInput,
+  AllPlayerIdentityLookup,
+  AllPlayerLeagueProfileInput,
   ExternalIdentity,
   FutureRefreshFailureCode,
   GameStateInput,
@@ -56,6 +61,11 @@ export type {
   ScoringEntityKind,
   SeasonType,
   StoredGameState,
+  StoredAllPlayerBatch,
+  StoredAllPlayerGameContext,
+  StoredAllPlayerIdentityMapping,
+  StoredAllPlayerLeagueProfile,
+  StoredDatabaseIdentity,
   StoredFutureMaterializationFreshness,
   StoredLeagueWeekObservation,
   StoredLeaguePeriodAuthority,
@@ -96,6 +106,8 @@ export function createProjectionStore(database: Database = getDatabase()): Proje
   const identities = createIdentityMethods(client);
   const futureRefresh = createFutureRefreshMethods(client);
   const projections = createProjectionMethods(client);
+  const allPlayerStatistics = createAllPlayerStatisticMethods(client);
+  const allPlayerContext = createAllPlayerContextMethods(client);
   const projectionSlates = createProjectionSlateMethods(client);
   const observations = createObservationMethods(client);
   const periods = createPeriodMethods(client);
@@ -143,6 +155,11 @@ export function createProjectionStore(database: Database = getDatabase()): Proje
     beginFutureMaterializationRefresh: futureRefresh.beginFutureMaterializationRefresh,
     failFutureMaterializationRefresh: futureRefresh.failFutureMaterializationRefresh,
     recordProjectionCandidates: projections.recordProjectionCandidates,
+    recordAllPlayerBatch: allPlayerStatistics.recordAllPlayerBatch,
+    readAllPlayerLeagueProfiles: allPlayerContext.readAllPlayerLeagueProfiles,
+    readAllPlayerIdentityMappings: allPlayerContext.readAllPlayerIdentityMappings,
+    readAllPlayerGameContext: allPlayerContext.readAllPlayerGameContext,
+    readDatabaseIdentity: allPlayerContext.readDatabaseIdentity,
     readLatestCandidatesBySleeperIds: projections.readLatestCandidatesBySleeperIds,
     freezeLatestBaselines: projections.freezeLatestBaselines,
     readFrozenBaselinesBySleeperIds: projections.readFrozenBaselinesBySleeperIds,

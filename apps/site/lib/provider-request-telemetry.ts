@@ -8,7 +8,7 @@ export type ProviderEndpointFamily =
   | 'lineup' | 'league-calendar' | 'league-week'
   | 'league' | 'rosters' | 'users' | 'nfl-state' | 'nfl-players' | 'weekly-matchups'
   | 'transactions' | 'weekly-scores' | 'season-schedule' | 'other'
-  | 'projection-slate' | 'player-crosswalk' | 'game-states';
+  | 'projection-slate' | 'player-crosswalk' | 'game-states' | 'all-player-stats';
 type Outcome = 'available' | 'unavailable' | 'invalid' | 'not-ready';
 const context = new AsyncLocalStorage<ProjectionLoggerPort>();
 
@@ -61,6 +61,7 @@ export function startProviderHttp(
 
 /** Returns only a fixed family. External IDs and raw paths never enter metric payloads. */
 export function sleeperEndpointFamily(path: string): ProviderEndpointFamily {
+  if (path.startsWith('/stats/nfl/')) return 'all-player-stats';
   if (path.startsWith('/players/nfl')) return 'nfl-players';
   if (path.startsWith('/state/nfl')) return 'nfl-state';
   if (/\/matchups\/[^/]+$/u.test(path)) return 'weekly-matchups';

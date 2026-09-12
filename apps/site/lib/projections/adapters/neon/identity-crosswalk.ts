@@ -145,6 +145,7 @@ export function createNeonIdentityCrosswalk(store: IdentityStore): IdentityCross
         kind: scoringKind(input),
         displayName: input.entity.displayName,
         nflTeam: input.entity.nflTeam,
+        ...(input.preserveExistingMetadata ? { preserveExistingMetadata: true } : {}),
         providerIds: uniqueScoringReferences(input.providerRefs).map((reference) => ({
           provider: String(reference.provider),
           externalId: String(reference.externalId),

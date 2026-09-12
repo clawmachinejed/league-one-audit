@@ -3,6 +3,10 @@ import type {
   LeaguePeriod,
   ProjectionSlate,
 } from '../domain/contracts';
+import {
+  ALL_PLAYER_POSITIONS,
+  type AllPlayerPosition,
+} from '../domain/all-player-statistics';
 import type { IdentityCrosswalkPort } from '../ports/identity-crosswalk';
 import type {
   ProjectionRepositoryPort,
@@ -15,12 +19,17 @@ import {
 } from '../shared/provider-identity';
 import type {
   LiveProjectionWorkerDependencies,
+  FullSlateProjectionCoverage,
   LoadedLeague,
   PersistedGroup,
   ProviderGroup,
 } from './contracts';
 import { kickoffForGame } from './game-context';
-import { scoringIdentityInputs } from './roster-context';
+import {
+  canonicalPosition,
+  projectionEntityForObservation,
+  scoringIdentityInputs,
+} from './roster-context';
 
 type ProviderLoadDependencies = Pick<
   LiveProjectionWorkerDependencies,
@@ -47,6 +56,56 @@ export type ProjectionSlatePersistence =
       observationId: ProjectionSlateObservationId;
       contentId: ProjectionSlateContentId;
     }>;
+
+/** Shared projection-identity coverage contract used by matchup persistence and
+ * the all-player operation. It never creates or guesses an identity. */
+export function analyzeFullSlateProjectionCoverage(
+  projections: ProjectionSlate,
+  officialProvider: Parameters<typeof projectionEntityForObservation>[1],
+  entityIdsByReferenceKey: ReadonlyMap<string, string>,
+): FullSlateProjectionCoverage {
+  const rankEligibleProjections = projections.projections.flatMap((projection) => {
+    const canonical = canonicalPosition(projection.position);
+    const position = projection.identity.primary.entityKind === 'team-defense'
+      ? projection.nflTeam ? 'DEF' as const : null
+      : canonical && canonical !== 'DEF' && ALL_PLAYER_POSITIONS.includes(
+        canonical as AllPlayerPosition,
+      ) ? canonical as AllPlayerPosition : null;
+    if (!position) return [];
+    const entity = projectionEntityForObservation(projection, officialProvider);
+    return [{ entity, position, projection }];
+  });
+  const unresolvedProjectionEntities = rankEligibleProjections.filter(({ entity, projection }) => {
+    if (!entity) return true;
+    const entityIds = new Set([
+      entity.externalRef,
+      projection.identity.primary,
+      ...projection.identity.aliases,
+    ].flatMap((reference) => {
+      const entityId = entityIdsByReferenceKey.get(externalReferenceKey(reference));
+      return entityId ? [entityId] : [];
+    }));
+    return entityIds.size !== 1;
+  });
+  const unavailablePositionSet = new Set(unresolvedProjectionEntities.map(({ position }) => (
+    position
+  )));
+  const rankUnavailablePositions = ALL_PLAYER_POSITIONS.filter((position) => (
+    unavailablePositionSet.has(position)
+  ));
+  const skippedIdentityCount = unresolvedProjectionEntities.length;
+  return {
+    identityComplete: skippedIdentityCount === 0,
+    rankEligibleProjectionCount: rankEligibleProjections.length,
+    resolvedIdentityCount: rankEligibleProjections.length - skippedIdentityCount,
+    skippedIdentityCount,
+    rankUnavailablePositions,
+    warnings: skippedIdentityCount === 0 ? [] : [
+      `unresolved-all-player-projection-identities:${skippedIdentityCount}`,
+      `all-player-position-ranking-unavailable:${rankUnavailablePositions.join(',')}`,
+    ],
+  };
+}
 
 function validPeriod(period: LeaguePeriod): boolean {
   return /^20\d{2}$/u.test(String(period.season))
@@ -155,9 +214,24 @@ export async function persistProviderGroup(
   if (resolvedEntities.kind !== 'resolved') {
     throw new Error('Scoring identities could not be resolved.');
   }
-  const entityIdsByReferenceKey = new Map(resolvedEntities.value.flatMap((entity) => (
-    entity.status === 'known' ? [[entity.key, entity.entityId] as const] : []
-  )));
+  const identityInputByKey = new Map(identityInputs.map((input) => [input.key, input]));
+  const entityIdsByReferenceKey = new Map(resolvedEntities.value.flatMap((entity) => {
+    if (entity.status !== 'known') return [];
+    const input = identityInputByKey.get(entity.key);
+    return [
+      [entity.key, entity.entityId] as const,
+      ...(input?.providerRefs.map((reference) => (
+        [externalReferenceKey(reference), entity.entityId] as const
+      )) ?? []),
+    ];
+  }));
+  const officialProvider = group.leagues[0]?.configuration.leagueRef.provider;
+  if (!officialProvider) throw new Error('The official identity provider is unavailable.');
+  const fullSlateProjectionCoverage = analyzeFullSlateProjectionCoverage(
+    projections,
+    officialProvider,
+    entityIdsByReferenceKey,
+  );
 
   const projectionLineage = projectionPersistence.kind === 'stored'
     ? projectionPersistence
@@ -181,6 +255,7 @@ export async function persistProviderGroup(
     gameObservationIdsByReferenceKey,
     entityIdsByReferenceKey,
     identityConflictCount: resolvedEntities.value.filter((entity) => entity.status !== 'known').length,
+    fullSlateProjectionCoverage,
     projectionSourceRevision: projections.sourceRevision,
     projectionSlateObservationId: projectionLineage.observationId,
     projectionSlateContentId: projectionLineage.contentId,

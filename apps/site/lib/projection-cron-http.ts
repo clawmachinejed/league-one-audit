@@ -10,12 +10,14 @@ export async function handleProjectionCronRequest(
   options: Readonly<{
     secret?: string;
     run?: CronRunner;
+    afterAuthorizedRun?: () => void;
   }> = {},
 ): Promise<Response> {
   const denied = cronAuthorizationResponse(request, options.secret);
   if (denied) return denied;
 
   const force = new URL(request.url).searchParams.get('force') === '1';
+  if (!force) options.afterAuthorizedRun?.();
   let result: LiveProjectionSyncResult;
   try {
     result = await (options.run ?? runLiveProjectionSync)({ force });
@@ -38,5 +40,4 @@ export async function handleProjectionCronRequest(
   // to Vercel's function health and logs instead of reporting a silent success.
   }, result.failedLeagues > 0 ? 503 : 200);
 }
-
 

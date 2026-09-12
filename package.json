@@ -15,8 +15,10 @@
     "typecheck": "pnpm --filter @l1/site typecheck",
     "test": "pnpm --filter @l1/site test",
     "test:integration": "pnpm --filter @l1/site test:integration",
+    "test:migration-wrapper:integration": "pnpm --filter @l1/site test:migration-wrapper:integration",
     "test:browser": "pnpm --filter @l1/site test:browser",
     "db:migrate": "pnpm --filter @l1/site db:migrate",
+    "all-player:operate": "pnpm --filter @l1/site all-player:operate",
     "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
     "doctor": "node apps/site/scripts/doctor.mjs",
     "verify:full": "node apps/site/scripts/full-verify.mjs"

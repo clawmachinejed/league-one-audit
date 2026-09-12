@@ -7,6 +7,10 @@ import type { PeriodCadenceTiming } from '../../domain/period-cadence-timing';
 import type {
   FutureRefreshFailureCode as CanonicalFutureRefreshFailureCode,
 } from '../../ports/future-refresh-repository';
+import type {
+  AllPlayerScoreSet,
+  AllPlayerStatObservation,
+} from '../../domain/all-player-statistics';
 
 export type FutureRefreshFailureCode = CanonicalFutureRefreshFailureCode;
 
@@ -35,6 +39,7 @@ export type ScoringEntityIdentityInput = Readonly<{
   kind: ScoringEntityKind;
   displayName: string;
   nflTeam: string | null;
+  preserveExistingMetadata?: boolean;
   providerIds: readonly ExternalIdentity[];
 }>;
 
@@ -153,6 +158,65 @@ export type StoredProjectionRun = Readonly<{
   runId: string;
   candidatesStored: number;
   candidateCount: number;
+}>;
+
+export type AllPlayerBatchInput = Readonly<{
+  observation: AllPlayerStatObservation;
+  scoreSets: readonly AllPlayerScoreSet[];
+  verifiedAt: string;
+}>;
+
+export type AllPlayerLeagueProfileInput = Readonly<{
+  leagueKey: string;
+  externalLeagueId: string;
+  rulesHash: string;
+}>;
+
+export type StoredAllPlayerLeagueProfile = Readonly<{
+  leagueKey: string;
+  leagueSeasonId: string;
+  scoringProfileId: string;
+  rulesHash: string;
+  rules: Readonly<Record<string, unknown>>;
+}>;
+
+export type AllPlayerIdentityLookup = Readonly<{
+  provider: string;
+  entityKind: ScoringEntityKind;
+  externalId: string;
+}>;
+
+export type StoredAllPlayerIdentityMapping = AllPlayerIdentityLookup & Readonly<{
+  scoringEntityId: string | null;
+  mappedEntityKind: ScoringEntityKind | null;
+  mappingStatus: 'verified' | 'unverified' | 'retired' | null;
+  validTo: string | null;
+}>;
+
+export type StoredAllPlayerGameContext = Readonly<{
+  nflGameId: string;
+  homeTeam: string;
+  awayTeam: string;
+  kickoffAt: string | null;
+  phase: 'live' | 'final' | 'unknown';
+}>;
+
+export type StoredDatabaseIdentity = Readonly<{
+  databaseName: string;
+  roleName: string;
+}>;
+
+export type StoredAllPlayerBatch = Readonly<{
+  statContentId: string;
+  statObservationId: string;
+  semanticHash: string;
+  entriesStored: number;
+  entryCount: number;
+  scoreSets: readonly Readonly<{
+    scoringProfileId: string;
+    scoreSetId: string;
+    pointerOutcome: 'advanced' | 'verified' | 'superseded';
+  }>[];
 }>;
 
 export type PlayerProjectionRecord = Readonly<{
@@ -557,6 +621,24 @@ export type ProjectionStore = LineupWatchMethods & LineupAcknowledgmentMethods &
   recordProjectionCandidates: (
     input: ProjectionRunInput,
   ) => Promise<PersistenceOutcome<StoredProjectionRun>>;
+  recordAllPlayerBatch: (
+    input: AllPlayerBatchInput,
+  ) => Promise<PersistenceOutcome<StoredAllPlayerBatch>>;
+  readAllPlayerLeagueProfiles: (input: Readonly<{
+    provider: string;
+    season: number;
+    leagues: readonly AllPlayerLeagueProfileInput[];
+  }>) => Promise<readonly StoredAllPlayerLeagueProfile[]>;
+  readAllPlayerIdentityMappings: (
+    inputs: readonly AllPlayerIdentityLookup[],
+  ) => Promise<readonly StoredAllPlayerIdentityMapping[]>;
+  readAllPlayerGameContext: (input: Readonly<{
+    season: number;
+    seasonType: SeasonType;
+    week: number;
+    gameStateProvider: string;
+  }>) => Promise<readonly StoredAllPlayerGameContext[]>;
+  readDatabaseIdentity: () => Promise<StoredDatabaseIdentity>;
   readLatestCandidatesBySleeperIds: (input: Readonly<{
     leagueSeasonId: string;
     season: number;
@@ -600,6 +682,8 @@ export type ProjectionStore = LineupWatchMethods & LineupAcknowledgmentMethods &
     payload: Readonly<Record<string, unknown>>;
     workerId: string;
     leaseSeconds: number;
+    /** Optional durable spacing between completed acquisitions of this job key. */
+    minimumIntervalSeconds?: number;
   }>) => Promise<JobClaim>;
   completeJob: (jobKey: string, workerId: string) => Promise<boolean>;
   failJob: (jobKey: string, workerId: string, message: string) => Promise<boolean>;

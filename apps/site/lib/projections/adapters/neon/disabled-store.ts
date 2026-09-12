@@ -66,6 +66,15 @@ export function createDisabledProjectionStore(): ProjectionStore {
     async recordProjectionCandidates() {
       return { kind: 'disabled' };
     },
+    async recordAllPlayerBatch() {
+      return { kind: 'disabled' };
+    },
+    async readAllPlayerLeagueProfiles() { return []; },
+    async readAllPlayerIdentityMappings() { return []; },
+    async readAllPlayerGameContext() { return []; },
+    async readDatabaseIdentity() {
+      throw new Error('Database identity is unavailable while persistence is disabled.');
+    },
     async readLatestCandidatesBySleeperIds() {
       return [];
     },

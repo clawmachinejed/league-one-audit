@@ -9,6 +9,7 @@ import type {
   ProjectionSlate,
   SourceScoringSettings,
 } from '../domain/contracts';
+import type { AllPlayerPosition } from '../domain/all-player-statistics';
 import type { ClockPort } from '../ports/clock';
 import type { GameStateFeedPort } from '../ports/game-state-feed';
 import type { IdGeneratorPort } from '../ports/id-generator';
@@ -105,9 +106,24 @@ export type PersistedGroup = Readonly<{
   gameObservationIdsByReferenceKey: ReadonlyMap<string, ObservationId>;
   entityIdsByReferenceKey: ReadonlyMap<string, ScoringEntityId>;
   identityConflictCount: number;
+  fullSlateProjectionCoverage: FullSlateProjectionCoverage;
   projectionSourceRevision: string;
   projectionSlateObservationId: ProjectionSlateObservationId;
   projectionSlateContentId: ProjectionSlateContentId;
+}>;
+
+/**
+ * Identity coverage for fantasy-relevant rows in the shared projection slate.
+ * A future all-player rank may be produced only for positions absent from
+ * rankUnavailablePositions; identityComplete covers the whole set.
+ */
+export type FullSlateProjectionCoverage = Readonly<{
+  identityComplete: boolean;
+  rankEligibleProjectionCount: number;
+  resolvedIdentityCount: number;
+  skippedIdentityCount: number;
+  rankUnavailablePositions: readonly AllPlayerPosition[];
+  warnings: readonly string[];
 }>;
 
 export type LeagueStageResult = Readonly<{
@@ -115,6 +131,7 @@ export type LeagueStageResult = Readonly<{
   publicationOutcome: 'published' | 'unchanged';
   starterCount: number;
   candidateCount: number;
+  fullSlateProjectionCoverage: FullSlateProjectionCoverage;
   frozenBaselineCount: number;
   missingBaselineCount: number;
   applicableSourceSkewSeconds: number | null;

@@ -144,17 +144,17 @@ describe('projection-store public behavior characterization', () => {
     }
   });
 
-  it('keeps all 52 store-owned SQL operations marked and unique across adapter modules', async () => {
+  it('keeps all 57 store-owned SQL operations marked and unique across adapter modules', async () => {
     const extraction = await extractProjectionStoreSql();
 
     // A non-template or unmarked database call must fail this audit instead of escaping the baseline.
     expect(extraction.operations).toHaveLength(extraction.queryCallCount);
-    expect(extraction.operations).toHaveLength(52);
+    expect(extraction.operations).toHaveLength(57);
     expect(extraction.operations.every(({ markerCount }) => markerCount === 1)).toBe(true);
 
     const markers = extraction.operations.map(({ marker }) => marker);
     expect(markers.every((value): value is string => value !== null)).toBe(true);
-    expect(new Set(markers).size).toBe(52);
+    expect(new Set(markers).size).toBe(57);
     expect(markers.toSorted()).toEqual([...projectionStoreSqlMarkers]);
   });
 
@@ -447,7 +447,7 @@ describe('projection-store public behavior characterization', () => {
       '2026-09-13T17:00:01.000Z',
       '2026-09-13T17:00:01.000Z',
       'complete',
-      '{"nested":{"one":1,"two":2},"z":"last"}',
+      '{"nested":{"one":1,"two":2},"officialPlayersPointsEvidence":{"expectedEntityCount":2,"expectedRosterCount":1,"expectedRosterIds":["roster-1"],"fingerprint":"sha256:d7552713a3e63614806a9d9b08ccb5faeefd33b5df59e2abc444839f00641dba","version":"players-points-v1"},"z":"last"}',
       '[{"entity_kind":"player","external_roster_id":"roster-1","is_starter":true,"lineup_slot":"WR","points":18.2,"sleeper_player_id":"4046"},{"entity_kind":"team_defense","external_roster_id":"roster-1","is_starter":true,"lineup_slot":"DEF","points":6,"sleeper_player_id":"PHI"}]',
       '[{"external_roster_id":"roster-1","points":24.2}]',
       2,
@@ -584,7 +584,7 @@ describe('projection-store public behavior characterization', () => {
     ]);
     expect(acquireFake.calls[0].parameters).toEqual([
       'projection-job', 'projection-sync', '2026-09-13T17:01:00.000Z',
-      '{"force":false,"z":1}', 'worker-1', 90,
+      '{"force":false,"z":1}', 'worker-1', 90, null,
     ]);
     expect(acquireFake.calls[1].parameters).toEqual(['projection-job']);
 
@@ -645,6 +645,9 @@ describe('projection-store public behavior characterization', () => {
     expect(fake.calls[0].statement).toContain(
       'AND EXCLUDED.scheduled_for > projection_jobs.scheduled_for',
     );
+    expect(fake.calls[0].statement).toContain(
+      'projection_jobs.completed_at',
+    );
   });
 
   it('rejects invalid job leases before querying Neon', async () => {
@@ -659,6 +662,10 @@ describe('projection-store public behavior characterization', () => {
       .rejects.toThrow('positive number of whole seconds');
     await expect(store.acquireJob({ ...input, leaseSeconds: 1.5 }))
       .rejects.toThrow('positive number of whole seconds');
+    await expect(store.acquireJob({ ...input, leaseSeconds: 90, minimumIntervalSeconds: 0 }))
+      .rejects.toThrow('minimum interval');
+    await expect(store.acquireJob({ ...input, leaseSeconds: 90, minimumIntervalSeconds: 1.5 }))
+      .rejects.toThrow('minimum interval');
     expect(fake.calls).toHaveLength(0);
   });
 

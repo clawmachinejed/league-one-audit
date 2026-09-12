@@ -620,9 +620,10 @@ describe.each(SCALE_POINTS)('canonical worker scale readiness: %i leagues', (lea
     expect(meter.count('identity.resolveScoringEntities')).toBe(1);
     expect(first.gameResolutionBatchSizes).toEqual([16]);
     expect(first.gameStateBatchSizes).toEqual([16]);
-    expect(first.entityResolutionBatchSizes).toEqual([12]);
+    expect(first.entityResolutionBatchSizes).toEqual([163]);
     expect(first.candidateBatchSizes).toHaveLength(leagueCount);
-    expect(first.candidateBatchSizes.every((size) => size === 12)).toBe(true);
+    expect(first.candidateBatchSizes.filter((size) => size === 163)).toHaveLength(1);
+    expect(first.candidateBatchSizes.filter((size) => size === 12)).toHaveLength(leagueCount - 1);
     expect(meter.count('repository.acquireJob')).toBe(0);
     expect(meter.count('repository.recordGameStates')).toBe(1);
     expect(meter.count('repository.recordProjectionSlate')).toBe(1);
@@ -694,6 +695,24 @@ describe.each(SCALE_POINTS)('canonical worker scale readiness: %i leagues', (lea
     ));
     expect(providerLoadLog?.entry.providerDurationMs).toEqual(expect.any(Number));
     expect(providerLoadLog!.entry.providerDurationMs!).toBeGreaterThanOrEqual(0);
+    const providerPersistLog = first.metrics.logs.find(({ entry }) => (
+      entry.stage === 'provider-persist' && entry.outcome === 'completed'
+    ));
+    expect(providerPersistLog?.entry).toMatchObject({
+      fullSlateProjectionIdentityComplete: true,
+      fullSlateRankEligibleProjectionCount: 163,
+      fullSlateResolvedIdentityCount: 163,
+      fullSlateSkippedIdentityCount: 0,
+      allPlayerRankUnavailablePositions: [],
+      fullSlateWarnings: [],
+    });
+    expect(first.metrics.logs.filter(({ entry }) => (
+      entry.stage === 'league-publish' && entry.outcome === 'completed'
+    )).every(({ entry }) => (
+      entry.fullSlateProjectionIdentityComplete === true
+      && entry.fullSlateSkippedIdentityCount === 0
+      && entry.allPlayerRankUnavailablePositions?.length === 0
+    ))).toBe(true);
     expect(first.metrics.logs.filter(({ level }) => level === 'warn' || level === 'error'))
       .toEqual([]);
   }, 20_000);
