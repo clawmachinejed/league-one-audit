@@ -1,0 +1,93 @@
+{
+  "observedAt": "2026-09-13T02:59:16.556Z",
+  "kind": "synthetic-partial-context-only",
+  "limitation": "Synthetic 4356 player entries; no actual complete-period evidence or season fit proof. Transaction rolls back. Physical allocation is measured, not inferred from JSON.",
+  "providerRequests": 0,
+  "rows": {
+    "entries": 4356,
+    "observations": 2,
+    "context_bytes": 40150
+  },
+  "before": [
+    {
+      "table_name": "all_player_stat_contents",
+      "heap_bytes": 24576,
+      "indexes_bytes": 49152,
+      "toast_and_auxiliary_bytes": 237568,
+      "total_bytes": 311296
+    },
+    {
+      "table_name": "all_player_stat_entries",
+      "heap_bytes": 8937472,
+      "indexes_bytes": 5636096,
+      "toast_and_auxiliary_bytes": 40960,
+      "total_bytes": 14614528
+    },
+    {
+      "table_name": "all_player_stat_observations",
+      "heap_bytes": 16384,
+      "indexes_bytes": 65536,
+      "toast_and_auxiliary_bytes": 32768,
+      "total_bytes": 114688
+    }
+  ],
+  "afterInitial": [
+    {
+      "table_name": "all_player_stat_contents",
+      "heap_bytes": 24576,
+      "indexes_bytes": 49152,
+      "toast_and_auxiliary_bytes": 237568,
+      "total_bytes": 311296
+    },
+    {
+      "table_name": "all_player_stat_entries",
+      "heap_bytes": 9822208,
+      "indexes_bytes": 6529024,
+      "toast_and_auxiliary_bytes": 40960,
+      "total_bytes": 16392192
+    },
+    {
+      "table_name": "all_player_stat_observations",
+      "heap_bytes": 16384,
+      "indexes_bytes": 65536,
+      "toast_and_auxiliary_bytes": 90112,
+      "total_bytes": 172032
+    }
+  ],
+  "afterContextChange": [
+    {
+      "table_name": "all_player_stat_contents",
+      "heap_bytes": 24576,
+      "indexes_bytes": 49152,
+      "toast_and_auxiliary_bytes": 237568,
+      "total_bytes": 311296
+    },
+    {
+      "table_name": "all_player_stat_entries",
+      "heap_bytes": 9822208,
+      "indexes_bytes": 6529024,
+      "toast_and_auxiliary_bytes": 40960,
+      "total_bytes": 16392192
+    },
+    {
+      "table_name": "all_player_stat_observations",
+      "heap_bytes": 16384,
+      "indexes_bytes": 65536,
+      "toast_and_auxiliary_bytes": 114688,
+      "total_bytes": 196608
+    }
+  ],
+  "rawEntriesStored": [
+    4356,
+    0
+  ],
+  "writeWallMs": [
+    2081.5167,
+    2165.4091000000008
+  ],
+  "eachWriteWithin55Seconds": true,
+  "compactContextBytes": [
+    652552,
+    757096
+  ]
+}

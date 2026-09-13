@@ -4,9 +4,10 @@ This foundation retains one shared Sleeper weekly response and scores its
 validated immutable content for each distinct registered league scoring profile.
 It adds no rankings, PPG, UI, public API, Tank01 feed, or cron schedule.
 
-The September 12 repair is not an operational-completion claim. The retained
-2026 Week 1 evidence is incomplete. Production release, backfill, and recurring
-activation remain separate gates. See [eligibility](all-player-eligibility.md),
+The September 12 repair and partial production capture are not an operational
+completion claim. The retained 2026 Week 1 evidence is incomplete. Complete
+Week 1 scoring, backfill, and recurring activation remain separate gates.
+See [eligibility](all-player-eligibility.md),
 [identity correction](all-player-identity-repair.md), and the repair release
 record for exact evidence and pending decisions.
 
@@ -52,6 +53,45 @@ remain strict. The reviewed Tank01 4429835 / Sleeper 8063 pairing is quarantined
 the shared boundary and cannot create future aliases or candidates. No
 replacement is guessed from a name or current team.
 
+## Participation from existing providers
+
+The selected production policy uses the existing Sleeper and stored Tank01
+inputs. It adds no connection, gamebook feed, player request, or roster feed.
+Sleeper's requested-week statistics supply observed participation; Tank01's
+existing stored game states supply exact-game phase and finality. A projected
+stat line or game state does not itself prove that an individual played.
+
+`sleeper-weekly-stats-v3` retains exact individual offensive, defensive, and
+special-teams snap counts (`off_snp`, `def_snp`, `st_snp`) as weekly evidence.
+At least one positive individual snap count proves an appearance when the row
+contains no contrary participation flag or malformed participation value. Counts
+must be nonnegative safe integers. Team snap totals (`tm_*_snp`), zero individual
+snaps, rank-only rows, and fantasy points alone do not establish participation.
+
+| Requested-week evidence | Eligible | Appearances |
+| --- | ---: | ---: |
+| `gp=1`, with no contradictory participation evidence | 1 | 1 |
+| Positive individual snaps, with no contradictory participation evidence | 1 | 1 |
+| `gms_active=1,gp=0`, with no positive individual snaps | 1 | 0 |
+| `gms_active=0`, with no appearance evidence | 0 | 0 |
+| `gms_active=1`, missing `gp` and no positive individual snaps | Unknown | Unknown |
+| Positive individual snaps with `gp=0` or `gms_active=0` | Unknown | Unknown |
+| Missing row, `gp=0` alone, malformed or conflicting participation evidence | Unknown | Unknown |
+
+Current status and injury designations are retained as dated provider context,
+separate from the evidence that sets these counts. Observation time records when
+the label was obtained; it does not establish that the label applied to the
+requested game. Current Inactive metadata cannot undo an earlier appearance.
+An active roster label cannot establish game-day availability. A healthy scratch
+requires explicit evidence of non-injury inactivity for that game; neither
+missing statistics nor a generic Inactive label supplies the reason. Dressed but
+unused and inactive are different states.
+
+The existing integration does not retain exact-game player inactive reasons
+from Tank01. It therefore cannot resolve every healthy scratch using its stored
+fields. Unknowns remain unknown until sufficient evidence exists in the allowed
+inputs; the implementation does not relabel them merely to finish the week.
+
 ## Eligibility and finality
 
 An authoritative appearance yields eligible 1 / appearance 1. Exact-game
@@ -60,10 +100,13 @@ nonzero points fail validation. Period-specific ineligibility and canonical bye
 evidence yield 0 / 0 with source, observation time and effective period retained.
 Missing rows and ambiguous or malformed participation flags retain null counts.
 
-gms_active=1 without gp is unknown. Sparse numeric statistics may default to
-zero only inside a valid observed record. A missing row is not such a record.
-gms_active=0/gp=1 and malformed flags retain their original evidence and null
-counts through adapter, domain validation and raw persistence.
+`gms_active=1` without `gp` or positive individual snaps is unknown. Sparse
+numeric statistics may default to zero only inside a valid observed record. A
+missing row is not such a record. `gms_active=0,gp=1`, contradictory individual
+snaps, and malformed participation values retain their original evidence and
+null counts through adapter, domain validation and raw persistence. The v3
+writer validates that raw flags and snaps agree with the normalized evidence.
+Installed v2 observations and their exact replays retain the original contract.
 
 Completed backfill independently requires every distinct game in the exact
 canonical requested-week schedule to be final. A zero count of nonfinal eligible
@@ -71,10 +114,23 @@ entries cannot establish schedule completion. Recurring current-week capture
 may retain nonfinal observations, subject to the same inventory, eligibility,
 scoring and identity requirements.
 
-The sanitized audit fixture is deliberately partial. It retains Jones and
-DeVito's reviewed unused zeros, Willis's ambiguity, Brown's historical
-appearance and 4.1 points despite current Inactive metadata, and Henderson's
-missing row. Its 49 matching official arithmetic comparisons prove a subset only.
+The sanitized audit fixture is deliberately partial. Its original reviewed
+gamebook cases remain archival regression evidence and are unchanged. A separate
+provider-only replay omits those review overrides: Jones 7527, DeVito 11292,
+Willis 10224, and Henderson 12529 retain unknown counts. Brown 5859 retains his
+appearance, 31 offensive snaps, and 4.1 official points despite the captured
+Inactive label. This does not erase the independently reviewed dressed-but-unused
+facts about Jones and DeVito; those facts are outside the selected live input.
+
+The retained 301-row response contains 187 rows with positive individual snaps;
+all 187 already report `gp=1`. The new snap rule therefore resolves no additional
+appearances in that capture. The provider-only replay retains 4,385 inventory
+entries, including 32 canonical defenses, with 63 known appearances and 4,322
+unknowns. These are historical fixture counts, not current production totals.
+Its 49 matching official arithmetic comparisons prove a subset only. Real Node
+composition replays both leagues through one shared local weekly response with
+no database writes or Tank01 requests; that is offline execution evidence, not
+a completed production shadow or complete-period parity.
 
 ## One operation and substantive preflight
 
@@ -111,6 +167,8 @@ entries, observations, score sets, score rows and current pointers. Additive 011
 hardens ownership, evidence and sealed-child insertion boundaries. It also adds
 one immutable score-verification relation so unchanged score content can be
 reused while a later retrieval retains its own official parity lineage.
+Additive 012 extends evidence validation for v3 individual snaps and retains
+dated provider context separately from reusable raw statistical content.
 
 A later unchanged response may add retrieval and verification evidence without
 copying every raw entry or score. Corrections to meaningful statistics,

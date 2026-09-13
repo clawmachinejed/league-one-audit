@@ -201,7 +201,7 @@ describe('all-player Neon persistence', () => {
     expect(fake.calls).toHaveLength(1);
     expect(fake.calls[0].statement).toContain('record-all-player-batch');
     expect(fake.calls[0].statement).toContain('advance_current_all_player_score_set');
-    expect(fake.calls[0].parameters).toHaveLength(21);
+    expect(fake.calls[0].parameters).toHaveLength(22);
   });
 
   it('retains a partial observation without attempting to move a score pointer', async () => {

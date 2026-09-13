@@ -11,7 +11,7 @@ import { validateAllPlayerObservationEvidence, buildAllPlayerScoreSets } from '.
 import { SLEEPER_ALL_PLAYER_SCORING_RULE_KEYS } from './scoring-profile';
 import { allPlayerStatSemanticHash, prepareAllPlayerBatch } from '../neon/all-player-statistics';
 
-async function capturedObservation(retrievedAt = foundationFixture.replayObservedAt) {
+async function capturedObservation(retrievedAt = foundationFixture.replayObservedAt, includeReviewedParticipation = true) {
   const catalog = await loadFantasyPlayerCatalog(loadFoundationFixtureCatalogPosition);
   expect(Object.keys(catalog.catalog).flatMap((id) => {
     const classification = classifySleeperCatalogIdentity(catalog.catalog, id);
@@ -28,7 +28,7 @@ async function capturedObservation(retrievedAt = foundationFixture.replayObserve
     ])).filter((id) => id !== '0'),
     projectionPlayerIds: ['8063'], gamesByTeam, byeTeamIds: [], scheduleRevision: 'retained-canonical-week1',
     period: foundationFixture.period, observedAt: retrievedAt,
-    periodEligibilityEvidenceByPlayerId: foundationFixture.reviewedParticipation,
+    ...(includeReviewedParticipation ? { periodEligibilityEvidenceByPlayerId: foundationFixture.reviewedParticipation } : {}),
   });
   if (inventory.status !== 'available') throw new Error(`Fixture inventory failed: ${inventory.reason}`);
   const fetcher = vi.fn<typeof fetch>(async () => new Response(JSON.stringify(foundationFixture.weekly)));
@@ -40,6 +40,35 @@ async function capturedObservation(retrievedAt = foundationFixture.replayObserve
 }
 
 describe('retained September12 incomplete Week1 foundation evidence', () => {
+  it('replays provider-only participation without importing gamebook decisions or inventing resolved rows', async () => {
+    const { observation, fetcher } = await capturedObservation(foundationFixture.replayObservedAt, false);
+    const appearedWithSnaps = Object.values(foundationFixture.weekly).filter((stats) => (
+      (stats.off_snp ?? 0) > 0 || (stats.def_snp ?? 0) > 0 || (stats.st_snp ?? 0) > 0
+    ));
+    expect(appearedWithSnaps).toHaveLength(187);
+    expect(appearedWithSnaps.filter((stats) => stats.gp !== 1)).toEqual([]);
+    expect(observation.normalizerVersion).toBe('sleeper-weekly-stats-v3');
+    expect(observation.quality).toBe('partial');
+    expect(observation.entries).toHaveLength(4385);
+    const named = (id: string) => observation.entries.find((entry) => entry.providerExternalId === id)!;
+    expect(named('5859')).toMatchObject({ eligibleGameCount: 1, appearanceGameCount: 1,
+      stats: { gp: 1, off_snp: 31, rec: 3, rec_yd: 26, pts_half_ppr: 4.1 },
+      eligibilityEvidence: { kind: 'weekly-stat', appearances: 1, individualSnaps: { off_snp: 31 } } });
+    for (const id of ['7527', '11292', '10224']) {
+      expect(named(id)).toMatchObject({ eligibleGameCount: null, appearanceGameCount: null,
+        eligibilityEvidence: { kind: 'weekly-stat', gmsActive: 1 } });
+      expect(named(id).eligibilityEvidence).not.toHaveProperty('individualSnaps');
+    }
+    expect(named('12529')).toMatchObject({ stats: {}, eligibleGameCount: null, appearanceGameCount: null,
+      eligibilityEvidence: { kind: 'missing-provider-row' } });
+    expect(observation.entries.filter((entry) => entry.eligibleGameCount === 1)).toHaveLength(63);
+    expect(observation.coverage.unknownEligibilityCount).toBe(4322);
+    expect(validateAllPlayerObservationEvidence(observation)).toEqual([]);
+    const prepared = prepareAllPlayerBatch({ observation, scoreSets: [], verifiedAt: observation.observedAt });
+    expect(prepared).toMatchObject({ observation: { quality: 'partial' } });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
   it('retains the actual null-role catalog identity as unknown response evidence and rejects it when required', async () => {
     const catalog = { ...loadFoundationWeeklyIdentityCatalog().catalog,
       [nullRoleIdentity.id]: nullRoleIdentity as never };

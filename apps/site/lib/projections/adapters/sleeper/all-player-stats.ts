@@ -8,6 +8,8 @@ import { classifySleeperCatalogIdentity } from '../../../sleeper-player-catalog'
 import { NFL_TEAM_CODES } from '../../domain/contracts';
 import {
   allPlayerEligibilityCounts, allPlayerEvidenceMatchesPeriod,
+  ALL_PLAYER_INDIVIDUAL_SNAP_KEYS, hasAllPlayerWeeklyParticipationConflict,
+  isAllPlayerIndividualSnapCount,
   isAllPlayerEffectivePeriod, isAllPlayerPeriodParticipation,
   type AllPlayerEffectivePeriod, type AllPlayerPeriodParticipationEvidence,
 } from '../../domain/all-player-eligibility';
@@ -23,7 +25,7 @@ import {
 } from '../../domain/all-player-statistics';
 
 const API = 'https://api.sleeper.app/v1';
-export const ALL_PLAYER_STAT_NORMALIZER_VERSION = 'sleeper-weekly-stats-v2';
+export const ALL_PLAYER_STAT_NORMALIZER_VERSION = 'sleeper-weekly-stats-v3';
 const positionSet = new Set<string>(ALL_PLAYER_POSITIONS);
 
 type TeamGame = Readonly<{
@@ -129,20 +131,25 @@ function validateStatsResponse(value: unknown): Readonly<Record<string, Validate
     if (!externalId.trim() || !isRecord(rawStats)) return null;
     const stats: Record<string, number> = {};
     const rawFlags: Record<string, unknown> = {};
+    const individualSnaps: Partial<Record<typeof ALL_PLAYER_INDIVIDUAL_SNAP_KEYS[number], number>> = {};
     for (const [key, rawValue] of Object.entries(rawStats)) {
-      if (['gms_active', 'gp'].includes(key) && rawValue !== 0 && rawValue !== 1) {
+      const snapKey = ALL_PLAYER_INDIVIDUAL_SNAP_KEYS.find((candidate) => candidate === key);
+      if (['gms_active', 'gp'].includes(key) && rawValue !== 0 && rawValue !== 1
+        || snapKey && !isAllPlayerIndividualSnapCount(rawValue)) {
         rawFlags[key] = rawValue;
         if (typeof rawValue === 'number' && Number.isFinite(rawValue)) stats[key] = rawValue;
         continue;
       }
       if (!key.trim() || typeof rawValue !== 'number' || !Number.isFinite(rawValue)) return null;
       stats[key] = rawValue;
+      if (snapKey) individualSnaps[snapKey] = rawValue;
     }
     result[externalId] = { stats, weekly: {
       kind: 'weekly-stat', source: 'weekly-stat-provider',
       ...(rawStats.gms_active === 0 || rawStats.gms_active === 1
         ? { gmsActive: rawStats.gms_active } : {}),
       ...(rawStats.gp === 0 || rawStats.gp === 1 ? { appearances: rawStats.gp } : {}),
+      ...(Object.keys(individualSnaps).length ? { individualSnaps } : {}),
       ...(Object.keys(rawFlags).length ? { rawFlags } : {}),
     } };
   }
@@ -177,8 +184,7 @@ function expectedEligibility(
   const weekly = allPlayerEligibilityCounts(row.weekly)!;
   if (!explicitIneligibility) return { ...weekly, eligibilityEvidence: row.weekly };
   const conflict = weekly.eligibleGameCount === 1 || weekly.appearanceGameCount === 1
-    || row.weekly.rawFlags !== undefined
-    || (row.weekly.gmsActive === 0 && row.weekly.appearances === 1);
+    || hasAllPlayerWeeklyParticipationConflict(row.weekly);
   const eligibilityEvidence: AllPlayerEligibilityEvidence = {
     kind: conflict ? 'conflict' : 'combined-ineligible',
     weekly: row.weekly,
@@ -557,6 +563,12 @@ export function createSleeperAllPlayerStatSource(dependencies: Readonly<{
       let providerPresentEntityCount = 0;
       for (const expected of expectedEntities) {
         const row = validated[expected.providerExternalId];
+        if (expected.entityKind !== 'player' && row && (row.weekly.individualSnaps !== undefined
+          || ALL_PLAYER_INDIVIDUAL_SNAP_KEYS.some((key) => row.weekly.rawFlags !== undefined
+            && Object.prototype.hasOwnProperty.call(row.weekly.rawFlags, key)))) {
+          finished('invalid');
+          return { status: 'unavailable', reason: 'malformed' };
+        }
         if (row) providerPresentEntityCount += 1;
         const nflTeam = expected.nflTeam;
         const game = nflTeam ? input.gamesByTeam[nflTeam] : undefined;

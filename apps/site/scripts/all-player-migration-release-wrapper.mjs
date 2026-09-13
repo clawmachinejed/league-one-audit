@@ -430,13 +430,39 @@ export function requireAllPlayerMigrationSentinel(rows) {
 export function buildAllPlayerRepairReleaseWrapper({
   migrationSql, expectedDatabase, expectedOwner, runtimeRole = 'league_one_runtime', manifest,
 }) {
+  return buildAdditiveAllPlayerReleaseWrapper({ migrationSql, expectedDatabase, expectedOwner, runtimeRole, manifest });
+}
+
+export const ALL_PLAYER_REPAIR_CHECKSUM =
+  '0eaa96bcc0b65053ac8dab48657eb7bfe22fadbfd41b4f4c78c3472ca8a512b6';
+
+export function buildAllPlayerParticipationReleaseWrapper(input) {
+  const previous = input.previousManifest;
+  if (!previous || previous.migrationName !== '011_all_player_foundation_guards.sql'
+    || previous.migrationChecksum !== ALL_PLAYER_REPAIR_CHECKSUM || previous.postgresMajor !== 18
+    || previous.reviewed !== true || !previous.catalog?.tables?.length
+    || !previous.catalog?.functions?.length || !previous.catalog?.triggers?.length) {
+    throw new Error('Migration 012 requires the exact independently reviewed installed 011 catalog.');
+  }
+  return buildAdditiveAllPlayerReleaseWrapper(input, previous.catalog);
+}
+
+function buildAdditiveAllPlayerReleaseWrapper({
+  migrationSql, expectedDatabase, expectedOwner, runtimeRole = 'league_one_runtime', manifest,
+}, previousCatalog) {
+  const participation = previousCatalog !== undefined;
+  const number = participation ? '012' : '011';
+  const previousNumber = participation ? '011' : '010';
+  const previousCount = participation ? 11 : 10;
+  const migrationName = participation ? '012_all_player_provider_participation.sql' : '011_all_player_foundation_guards.sql';
+  const beforeCatalog = previousCatalog ?? REVIEWED_ALL_PLAYER_CATALOG;
   const normalizedMigration = normalizeMigrationText(migrationSql);
   const checksum = releaseWrapperSha256(normalizedMigration);
-  if (!manifest || manifest.migrationName !== '011_all_player_foundation_guards.sql'
+  if (!manifest || manifest.migrationName !== migrationName
     || manifest.migrationChecksum !== checksum || manifest.postgresMajor !== 18
     || manifest.reviewed !== true || !manifest.catalog?.tables?.length
     || !manifest.catalog?.functions?.length || !manifest.catalog?.triggers?.length) {
-    throw new Error('Migration 011 requires its exact independently reviewed PostgreSQL 18 catalog manifest.');
+    throw new Error(`Migration ${number} requires its exact independently reviewed PostgreSQL 18 catalog manifest.`);
   }
   for (const [label, value] of Object.entries({ expectedDatabase, expectedOwner, runtimeRole })) {
     if (typeof value !== 'string' || !/^[a-z_][a-z0-9_]*$/u.test(value)) {
@@ -448,7 +474,8 @@ export function buildAllPlayerRepairReleaseWrapper({
   const triggerNames = catalog.triggers.map(([name]) => name);
   const functionNames = [...new Set(catalog.functions.map(([name]) => name))];
   const expectedMigrations = [...ACCEPTED_PREVIOUS_MIGRATIONS,
-    [ALL_PLAYER_MIGRATION_NAME, ALL_PLAYER_MIGRATION_CHECKSUM]];
+    [ALL_PLAYER_MIGRATION_NAME, ALL_PLAYER_MIGRATION_CHECKSUM],
+    ...(participation ? [['011_all_player_foundation_guards.sql', ALL_PLAYER_REPAIR_CHECKSUM]] : [])];
   const ledgerChecks = expectedMigrations.map(([name, hash]) => `
   IF (SELECT checksum FROM app_schema_migrations WHERE name = ${literal(name)}) IS DISTINCT FROM ${literal(hash)}
     THEN RAISE EXCEPTION 'release assertion failed: previous migration ${name}'; END IF;`).join('');
@@ -456,10 +483,10 @@ export function buildAllPlayerRepairReleaseWrapper({
   actual_fingerprint text; actual_table_owner text; actual_function_owner text;
   actual_public_execute boolean; actual_runtime_execute boolean; actual_public_grant_execute boolean;
   actual_runtime_grant_execute boolean; before_catalog jsonb; after_catalog jsonb;`;
-  const beforeChecks = REVIEWED_ALL_PLAYER_CATALOG.tables.map((table) =>
+  const beforeChecks = beforeCatalog.tables.map((table) =>
     tableAssertions(table, expectedOwner, runtimeRole, false)).join('')
-    + REVIEWED_ALL_PLAYER_CATALOG.triggers.map((trigger) => triggerAssertions(trigger, expectedOwner)).join('')
-    + REVIEWED_ALL_PLAYER_CATALOG.functions.map((fn) => functionAssertions(fn, expectedOwner, runtimeRole)).join('');
+    + beforeCatalog.triggers.map((trigger) => triggerAssertions(trigger, expectedOwner)).join('')
+    + beforeCatalog.functions.map((fn) => functionAssertions(fn, expectedOwner, runtimeRole)).join('');
   const exactObjectChecks = (expected, label) => `
   IF (SELECT count(*) FROM pg_class relation WHERE relation.relnamespace = 'public'::regnamespace
       AND relation.relkind = 'r'
@@ -478,7 +505,7 @@ export function buildAllPlayerRepairReleaseWrapper({
         AND function_record.proname LIKE '%all_player%') <> ${expected.functions.length}
     THEN RAISE EXCEPTION 'release assertion failed: exact ${label} function set'; END IF;`;
   const afterChecks = catalog.tables.map((table) => tableAssertions(table, expectedOwner, runtimeRole,
-    table[0] === 'all_player_score_verifications')).join('')
+    !participation && table[0] === 'all_player_score_verifications')).join('')
     + catalog.triggers.map((trigger) => triggerAssertions(trigger, expectedOwner)).join('')
     + catalog.functions.map((fn) => functionAssertions(fn, expectedOwner, runtimeRole)).join('');
   const constraintChecks = catalog.constraintTypes.map(([type, count]) => `
@@ -490,7 +517,7 @@ export function buildAllPlayerRepairReleaseWrapper({
     'roles','memberships','default_privileges'].map((key) => `
   IF before_catalog->>${literal(key)} IS DISTINCT FROM after_catalog->>${literal(key)}
     THEN RAISE EXCEPTION 'release assertion failed: unrelated ${key} changed'; END IF;`).join('');
-  const sentinel = `ALL_PLAYER_REPAIR_APPLIED:011_all_player_foundation_guards.sql:${checksum}`;
+  const sentinel = `ALL_PLAYER_${participation ? 'PARTICIPATION' : 'REPAIR'}_APPLIED:${migrationName}:${checksum}`;
   return normalizeMigrationText(`-- Reviewed additive all-player repair; never apply migration 010 again.
 BEGIN;
 SET LOCAL lock_timeout = '5s';
@@ -506,8 +533,8 @@ BEGIN
     THEN RAISE EXCEPTION 'release assertion failed: database or owner identity'; END IF;
   IF current_setting('server_version_num')::integer NOT BETWEEN 180000 AND 189999
     THEN RAISE EXCEPTION 'release assertion failed: reviewed PostgreSQL 18 required'; END IF;
-  IF (SELECT count(*) FROM app_schema_migrations) <> 10
-    THEN RAISE EXCEPTION 'release assertion failed: expected exactly migrations 001-010'; END IF;
+  IF (SELECT count(*) FROM app_schema_migrations) <> ${previousCount}
+    THEN RAISE EXCEPTION 'release assertion failed: expected exactly migrations 001-${previousNumber}'; END IF;
   ${ledgerChecks}
   IF EXISTS (SELECT 1 FROM pg_roles role WHERE role.rolname <> ${literal(runtimeRole)}
       AND pg_has_role(${literal(runtimeRole)},role.oid,'SET'))
@@ -516,7 +543,7 @@ BEGIN
       AND state = 'running' AND lease_until > clock_timestamp())
     THEN RAISE EXCEPTION 'release assertion failed: all-player owner is active'; END IF;
   ${beforeChecks}
-  ${exactObjectChecks(REVIEWED_ALL_PLAYER_CATALOG, 'migration 010')}
+  ${exactObjectChecks(beforeCatalog, `migration ${previousNumber}`)}
 END; $repair_before$;
 ${unaffectedCatalogFunction(tableNames, triggerNames, functionNames)}
 CREATE TEMP TABLE all_player_repair_before_counts ON COMMIT DROP AS
@@ -525,21 +552,22 @@ CREATE TEMP TABLE all_player_repair_before_counts ON COMMIT DROP AS
   SELECT 'all_player_stat_observations',count(*) FROM all_player_stat_observations UNION ALL
   SELECT 'all_player_score_sets',count(*) FROM all_player_score_sets UNION ALL
   SELECT 'all_player_scores',count(*) FROM all_player_scores UNION ALL
-  SELECT 'current_all_player_score_sets',count(*) FROM current_all_player_score_sets;
+  SELECT 'current_all_player_score_sets',count(*) FROM current_all_player_score_sets${participation
+    ? " UNION ALL SELECT 'all_player_score_verifications',count(*) FROM all_player_score_verifications" : ''};
 ${normalizedMigration.trimEnd()}
 INSERT INTO app_schema_migrations(name,checksum)
-  VALUES ('011_all_player_foundation_guards.sql',${literal(checksum)});
+  VALUES (${literal(migrationName)},${literal(checksum)});
 DO $repair_after$
 DECLARE ${declared} old_count record;
 BEGIN
   ${ledgerChecks}
   ${afterChecks}
-  ${exactObjectChecks(catalog, 'migration 011')}
+  ${exactObjectChecks(catalog, `migration ${number}`)}
   ${constraintChecks}
-  IF (SELECT count(*) FROM app_schema_migrations) <> 11
+  IF (SELECT count(*) FROM app_schema_migrations) <> ${previousCount + 1}
     THEN RAISE EXCEPTION 'release assertion failed: migration ledger count'; END IF;
-  IF (SELECT checksum FROM app_schema_migrations WHERE name = '011_all_player_foundation_guards.sql')
-    IS DISTINCT FROM ${literal(checksum)} THEN RAISE EXCEPTION 'release assertion failed: 011 checksum'; END IF;
+  IF (SELECT checksum FROM app_schema_migrations WHERE name = ${literal(migrationName)})
+    IS DISTINCT FROM ${literal(checksum)} THEN RAISE EXCEPTION 'release assertion failed: ${number} checksum'; END IF;
   FOR old_count IN SELECT * FROM all_player_repair_before_counts LOOP
     EXECUTE format('SELECT count(*) FROM public.%I',old_count.name) INTO actual_rows;
     IF actual_rows <> old_count.rows THEN RAISE EXCEPTION 'release assertion failed: history count changed'; END IF;

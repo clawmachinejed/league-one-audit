@@ -8,6 +8,7 @@ import {
 } from './all-player-stats';
 import { NFL_TEAM_CODES } from '../../domain/contracts';
 import { validateAllPlayerEligibility } from '../../domain/all-player-eligibility';
+import { validateAllPlayerObservationEvidence } from '../../domain/all-player-observation-evidence';
 import { allPlayerStatSemanticHash } from '../neon/all-player-statistics';
 
 function clock(...values: string[]) {
@@ -47,6 +48,62 @@ function completeInventory() {
 }
 
 describe('Sleeper all-player weekly-stat adapter', () => {
+  it.each(['off_snp', 'def_snp', 'st_snp'] as const)(
+    'uses positive individual %s without manufacturing gp or copying team participation', async (key) => {
+      const fetcher = vi.fn<typeof fetch>(async () => Response.json({
+        p1: { [key]: 2, gms_active: 1 }, p2: { tm_off_snp: 70, tm_st_snp: 20 },
+        inactive: { rush_yd: 10, pts_half_ppr: 1 },
+      }));
+      const result = await createSleeperAllPlayerStatSource({ fetch: fetcher, now: () => new Date(observedAt) })
+        .load({ season: 2026, week: 1, inventory: completeInventory(), gamesByTeam });
+      if (result.status !== 'available') throw new Error('Expected faithful partial observation.');
+      expect(result.observation.normalizerVersion).toBe('sleeper-weekly-stats-v3');
+      expect(result.observation.quality).toBe('partial');
+      expect(result.observation.entries.find((entry) => entry.providerExternalId === 'p1')).toMatchObject({
+        stats: { [key]: 2, gms_active: 1 }, eligibleGameCount: 1, appearanceGameCount: 1,
+        eligibilityEvidence: { individualSnaps: { [key]: 2 }, gmsActive: 1 },
+      });
+      const appeared = result.observation.entries.find((entry) => entry.providerExternalId === 'p1')!;
+      expect(appeared.stats).not.toHaveProperty('gp');
+      expect(appeared.eligibilityEvidence).not.toHaveProperty('appearances');
+      for (const id of ['p2', 'inactive']) expect(result.observation.entries.find((entry) => entry.providerExternalId === id))
+        .toMatchObject({ eligibleGameCount: null, appearanceGameCount: null });
+      expect(validateAllPlayerObservationEvidence(result.observation)).toEqual([]);
+      expect(fetcher).toHaveBeenCalledTimes(1);
+    });
+
+  it.each([-1, 0.5, Number.MAX_SAFE_INTEGER + 1, null, '1', true, [], {}, ''])(
+    'retains malformed snap %j instead of losing raw evidence or inferring participation', async (flag) => {
+      const result = await createSleeperAllPlayerStatSource({ fetch: async () => Response.json({
+        p1: { off_snp: flag, gp: 1, st_snp: 2 },
+      }), now: () => new Date(observedAt) }).load({ season: 2026, week: 1,
+        inventory: completeInventory(), gamesByTeam });
+      if (result.status !== 'available') throw new Error('Malformed participation must remain valid partial evidence.');
+      const actual = result.observation.entries.find((entry) => entry.providerExternalId === 'p1')!;
+      expect(actual).toMatchObject({ eligibleGameCount: null, appearanceGameCount: null,
+        eligibilityEvidence: { appearances: 1, individualSnaps: { st_snp: 2 }, rawFlags: { off_snp: flag } } });
+      if (typeof flag === 'number') expect(actual.stats.off_snp).toBe(flag);
+      else expect(actual.stats).not.toHaveProperty('off_snp');
+      expect(result.observation.quality).toBe('partial');
+      expect(validateAllPlayerObservationEvidence(result.observation)).toEqual([]);
+    });
+
+  it.each([{ gp: 0, st_snp: 1 }, { gms_active: 0, off_snp: 1 },
+    { gms_active: 1, gp: 0, def_snp: 1 }])('retains conflicting participation %j with null denominators', async (stats) => {
+    const result = await createSleeperAllPlayerStatSource({ fetch: async () => Response.json({ p1: stats }),
+      now: () => new Date(observedAt) }).load({ season: 2026, week: 1, inventory: completeInventory(), gamesByTeam });
+    if (result.status !== 'available') throw new Error('Expected retained conflict.');
+    expect(result.observation.entries.find((entry) => entry.providerExternalId === 'p1'))
+      .toMatchObject({ stats, eligibleGameCount: null, appearanceGameCount: null });
+    expect(validateAllPlayerObservationEvidence(result.observation)).toEqual([]);
+  });
+
+  it('rejects individual snap evidence on a canonical defense without deriving appearance', async () => {
+    const result = await createSleeperAllPlayerStatSource({ fetch: async () => Response.json({ NE: { st_snp: 1 } }),
+      now: () => new Date(observedAt) }).load({ season: 2026, week: 1, inventory: completeInventory(), gamesByTeam });
+    expect(result).toEqual({ status: 'unavailable', reason: 'malformed' });
+  });
+
   it.each(['appearance', 'dressed-unused'] as const)(
     'rejects contradictory reviewed inactive and %s inputs before any weekly request', async (decision) => {
       const fetcher = vi.fn<typeof fetch>();

@@ -450,10 +450,10 @@ export function createAllPlayerStatisticMethods(client: DatabaseClient): AllPlay
           INSERT INTO all_player_stat_observations (
             id, all_player_stat_content_id, provider, season, season_type, week,
             normalizer_version, source_revision, request_started_at,
-            request_completed_at, observed_at, quality
+            request_completed_at, observed_at, quality, provider_context
           )
           SELECT $13, content.id, $2, $3::smallint, $4, $5::smallint, $6,
-            $14, $15::timestamptz, $16::timestamptz, $17::timestamptz, $8
+            $14, $15::timestamptz, $16::timestamptz, $17::timestamptz, $8, $22::jsonb
           FROM valid_content content
           CROSS JOIN (SELECT count(*) FROM inserted_entries) completed_entries
           ON CONFLICT (
@@ -475,6 +475,7 @@ export function createAllPlayerStatisticMethods(client: DatabaseClient): AllPlay
             AND observation.request_started_at = $15::timestamptz
             AND observation.request_completed_at = $16::timestamptz
             AND observation.quality = $8
+            AND observation.provider_context IS NOT DISTINCT FROM $22::jsonb
         ), score_set_input AS (
           SELECT * FROM jsonb_to_recordset($18::jsonb) AS value(
             id uuid, scoring_profile_id uuid, scorer_version text, semantic_hash text,
@@ -646,6 +647,7 @@ export function createAllPlayerStatisticMethods(client: DatabaseClient): AllPlay
         json(scoreRows),
         input.verifiedAt,
         json(input.fence),
+        observation.providerContext ? json(observation.providerContext) : null,
       ]);
       const row = rows[0];
       if (!row) throw new Error('All-player batch could not be persisted consistently.');

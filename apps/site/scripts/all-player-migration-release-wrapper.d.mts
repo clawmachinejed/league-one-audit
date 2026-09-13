@@ -55,3 +55,12 @@ export function buildAllPlayerRepairReleaseWrapper(input: {
   runtimeRole?: string;
   manifest: AllPlayerRepairManifest;
 }): string;
+export const ALL_PLAYER_REPAIR_CHECKSUM: string;
+export function buildAllPlayerParticipationReleaseWrapper(input: {
+  migrationSql: string;
+  expectedDatabase: string;
+  expectedOwner: string;
+  runtimeRole?: string;
+  manifest: AllPlayerRepairManifest;
+  previousManifest: AllPlayerRepairManifest;
+}): string;
