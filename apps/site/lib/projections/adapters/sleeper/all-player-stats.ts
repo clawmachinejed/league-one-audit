@@ -9,6 +9,7 @@ import { NFL_TEAM_CODES } from '../../domain/contracts';
 import {
   allPlayerEligibilityCounts, allPlayerEvidenceMatchesPeriod,
   ALL_PLAYER_INDIVIDUAL_SNAP_KEYS, hasAllPlayerWeeklyParticipationConflict,
+  isAllPlayerAssumedNonParticipation,
   isAllPlayerIndividualSnapCount,
   isAllPlayerEffectivePeriod, isAllPlayerPeriodParticipation,
   type AllPlayerEffectivePeriod, type AllPlayerPeriodParticipationEvidence,
@@ -25,7 +26,7 @@ import {
 } from '../../domain/all-player-statistics';
 
 const API = 'https://api.sleeper.app/v1';
-export const ALL_PLAYER_STAT_NORMALIZER_VERSION = 'sleeper-weekly-stats-v3';
+export const ALL_PLAYER_STAT_NORMALIZER_VERSION = 'sleeper-weekly-stats-v4';
 const positionSet = new Set<string>(ALL_PLAYER_POSITIONS);
 
 type TeamGame = Readonly<{
@@ -572,12 +573,24 @@ export function createSleeperAllPlayerStatSource(dependencies: Readonly<{
         if (row) providerPresentEntityCount += 1;
         const nflTeam = expected.nflTeam;
         const game = nflTeam ? input.gamesByTeam[nflTeam] : undefined;
-        const evidence = expectedEligibility(
+        let evidence = expectedEligibility(
           row,
           expected.absentIneligibilityEvidence,
           input.inventory.fingerprint,
           expected.periodEligibilityEvidence,
         );
+        if (expected.entityKind === 'player' && evidence.eligibleGameCount === null
+          && evidence.appearanceGameCount === null
+          && ['weekly-stat', 'missing-provider-row'].includes(evidence.eligibilityEvidence.kind)) {
+          const assumption = {
+            kind: 'assumed-nonparticipation', policy: 'missing-participation-as-zero-v1', source: 'product-policy',
+            effectivePeriod: { season: input.season, seasonType: 'reg', week: input.week },
+            basis: evidence.eligibilityEvidence,
+          };
+          if (isAllPlayerAssumedNonParticipation(assumption)) {
+            evidence = { ...allPlayerEligibilityCounts(assumption)!, eligibilityEvidence: assumption };
+          }
+        }
         entries.push({
           entityKind: expected.entityKind,
           providerExternalId: expected.providerExternalId,
@@ -594,6 +607,8 @@ export function createSleeperAllPlayerStatSource(dependencies: Readonly<{
           .localeCompare(`${right.entityKind}\0${right.providerExternalId}`)
       ));
       const unknownEligibilityCount = entries.filter((entry) => entry.eligibleGameCount === null).length;
+      const unknownAppearanceCount = entries.filter((entry) => entry.appearanceGameCount === null).length;
+      const assumedNonParticipationCount = entries.filter((entry) => entry.eligibilityEvidence.kind === 'assumed-nonparticipation').length;
       const unmappedGameCount = entries.filter((entry) => (
         entry.eligibleGameCount === 1 && entry.nflGameId === null
       )).length;
@@ -677,6 +692,9 @@ export function createSleeperAllPlayerStatSource(dependencies: Readonly<{
             responseEntityCount: Object.keys(validated).length,
             fantasyEntityCount: entries.length,
             unknownEligibilityCount,
+            unknownAppearanceCount,
+            assumedNonParticipationCount,
+            participationAssumptionPolicy: 'missing-participation-as-zero-v1',
             unknownEligibilityIds: entries.filter((entry) => entry.eligibleGameCount === null)
               .map((entry) => entry.providerExternalId).sort(),
             unmappedGameCount,

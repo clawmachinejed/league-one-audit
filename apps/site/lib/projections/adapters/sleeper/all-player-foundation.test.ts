@@ -5,13 +5,15 @@ import { foundationFixture, loadFoundationFixtureCatalogPosition } from '../../.
 import nullRoleIdentity from '../../../../test-support/fixtures/all-player-foundation/null-role-identity.json';
 import { loadFoundationWeeklyIdentityCatalog } from '../../../../test-support/all-player-weekly-identity-fixture';
 import { loadFantasyPlayerCatalog, classifySleeperCatalogIdentity } from '../../../sleeper-player-catalog';
-import { createSleeperAllPlayerStatSource, buildSleeperAllPlayerInventory } from './all-player-stats';
+import { createSleeperAllPlayerStatSource, buildSleeperAllPlayerInventory,
+  type SleeperExplicitIneligibilityEvidence } from './all-player-stats';
 import { scoreSparseStatistics } from '../../domain/scoring';
 import { validateAllPlayerObservationEvidence, buildAllPlayerScoreSets } from '../../domain/all-player-statistics';
 import { SLEEPER_ALL_PLAYER_SCORING_RULE_KEYS } from './scoring-profile';
 import { allPlayerStatSemanticHash, prepareAllPlayerBatch } from '../neon/all-player-statistics';
 
-async function capturedObservation(retrievedAt = foundationFixture.replayObservedAt, includeReviewedParticipation = true) {
+async function capturedObservation(retrievedAt = foundationFixture.replayObservedAt, includeReviewedParticipation = true,
+  syntheticIneligibility?: Readonly<Record<string, SleeperExplicitIneligibilityEvidence>>) {
   const catalog = await loadFantasyPlayerCatalog(loadFoundationFixtureCatalogPosition);
   expect(Object.keys(catalog.catalog).flatMap((id) => {
     const classification = classifySleeperCatalogIdentity(catalog.catalog, id);
@@ -29,6 +31,7 @@ async function capturedObservation(retrievedAt = foundationFixture.replayObserve
     projectionPlayerIds: ['8063'], gamesByTeam, byeTeamIds: [], scheduleRevision: 'retained-canonical-week1',
     period: foundationFixture.period, observedAt: retrievedAt,
     ...(includeReviewedParticipation ? { periodEligibilityEvidenceByPlayerId: foundationFixture.reviewedParticipation } : {}),
+    ...(syntheticIneligibility ? { ineligibilityEvidenceByPlayerId: syntheticIneligibility } : {}),
   });
   if (inventory.status !== 'available') throw new Error(`Fixture inventory failed: ${inventory.reason}`);
   const fetcher = vi.fn<typeof fetch>(async () => new Response(JSON.stringify(foundationFixture.weekly)));
@@ -40,14 +43,27 @@ async function capturedObservation(retrievedAt = foundationFixture.replayObserve
 }
 
 describe('retained September12 incomplete Week1 foundation evidence', () => {
-  it('replays provider-only participation without importing gamebook decisions or inventing resolved rows', async () => {
+  it('distinguishes an explicit synthetic Henderson ineligibility input from the missing-row assumption', async () => {
+    const explicit: SleeperExplicitIneligibilityEvidence = { kind: 'explicit-ineligible', reason: 'inactive',
+      source: 'manual-review', sourceRevision: 'synthetic-user-period-ineligibility',
+      observedAt: foundationFixture.replayObservedAt, effectivePeriod: foundationFixture.period };
+    const { observation } = await capturedObservation(foundationFixture.replayObservedAt, false, { '12529': explicit });
+    expect(foundationFixture.weekly['12529']).toBeUndefined();
+    expect(observation.entries.find((entry) => entry.providerExternalId === '12529')).toMatchObject({
+      stats: {}, eligibleGameCount: 0, appearanceGameCount: 0, eligibilityEvidence: explicit,
+    });
+    expect(validateAllPlayerObservationEvidence(observation)).toEqual([]);
+    expect(observation.quality).toBe('partial');
+  });
+
+  it('replays provider participation with explicit product assumptions and unresolved missing-player eligibility', async () => {
     const { observation, fetcher } = await capturedObservation(foundationFixture.replayObservedAt, false);
     const appearedWithSnaps = Object.values(foundationFixture.weekly).filter((stats) => (
       (stats.off_snp ?? 0) > 0 || (stats.def_snp ?? 0) > 0 || (stats.st_snp ?? 0) > 0
     ));
     expect(appearedWithSnaps).toHaveLength(187);
     expect(appearedWithSnaps.filter((stats) => stats.gp !== 1)).toEqual([]);
-    expect(observation.normalizerVersion).toBe('sleeper-weekly-stats-v3');
+    expect(observation.normalizerVersion).toBe('sleeper-weekly-stats-v4');
     expect(observation.quality).toBe('partial');
     expect(observation.entries).toHaveLength(4385);
     const named = (id: string) => observation.entries.find((entry) => entry.providerExternalId === id)!;
@@ -55,14 +71,19 @@ describe('retained September12 incomplete Week1 foundation evidence', () => {
       stats: { gp: 1, off_snp: 31, rec: 3, rec_yd: 26, pts_half_ppr: 4.1 },
       eligibilityEvidence: { kind: 'weekly-stat', appearances: 1, individualSnaps: { off_snp: 31 } } });
     for (const id of ['7527', '11292', '10224']) {
-      expect(named(id)).toMatchObject({ eligibleGameCount: null, appearanceGameCount: null,
-        eligibilityEvidence: { kind: 'weekly-stat', gmsActive: 1 } });
+      expect(named(id)).toMatchObject({ eligibleGameCount: 1, appearanceGameCount: 0,
+        eligibilityEvidence: { kind: 'assumed-nonparticipation', source: 'product-policy',
+          basis: { kind: 'weekly-stat', gmsActive: 1 } } });
       expect(named(id).eligibilityEvidence).not.toHaveProperty('individualSnaps');
+      expect(named(id).stats).toEqual(foundationFixture.weekly[id]);
     }
-    expect(named('12529')).toMatchObject({ stats: {}, eligibleGameCount: null, appearanceGameCount: null,
-      eligibilityEvidence: { kind: 'missing-provider-row' } });
-    expect(observation.entries.filter((entry) => entry.eligibleGameCount === 1)).toHaveLength(63);
-    expect(observation.coverage.unknownEligibilityCount).toBe(4322);
+    expect(named('12529')).toMatchObject({ stats: {}, eligibleGameCount: null, appearanceGameCount: 0,
+      eligibilityEvidence: { kind: 'assumed-nonparticipation', basis: { kind: 'missing-provider-row' } } });
+    expect(named('12529').eligibilityEvidence).not.toHaveProperty('reason');
+    expect(observation.entries.filter((entry) => entry.eligibleGameCount === 1)).toHaveLength(96);
+    expect(observation.entries.filter((entry) => entry.appearanceGameCount === 1)).toHaveLength(63);
+    expect(observation.coverage).toMatchObject({ unknownEligibilityCount: 4289, unknownAppearanceCount: 28,
+      assumedNonParticipationCount: 4294, participationAssumptionPolicy: 'missing-participation-as-zero-v1' });
     expect(validateAllPlayerObservationEvidence(observation)).toEqual([]);
     const prepared = prepareAllPlayerBatch({ observation, scoreSets: [], verifiedAt: observation.observedAt });
     expect(prepared).toMatchObject({ observation: { quality: 'partial' } });
@@ -144,7 +165,7 @@ describe('retained September12 incomplete Week1 foundation evidence', () => {
     expect(result.observation).toMatchObject({ quality: 'partial', coverage: {
       complete: false, periodInventoryComplete: false, responseEntityCount: 301,
       expectedEntityCount: 4385, expectedTeamDefenseCount: 32,
-      providerPresentEntityCount: 96, providerMissingEntityCount: 4289, unknownEligibilityCount: 4320,
+      providerPresentEntityCount: 96, providerMissingEntityCount: 4289, unknownEligibilityCount: 4290,
       excludedResponseEntityCount: 205, unexpectedResponseEntityCount: 0, unexpectedResponseIds: [],
       nonFinalScheduledGameCount: 14, scheduleFinalityComplete: false,
     } });
@@ -155,7 +176,7 @@ describe('retained September12 incomplete Week1 foundation evidence', () => {
     expect(() => prepareAllPlayerBatch({ observation: result.observation, scoreSets: [],
       verifiedAt: result.observation.observedAt })).not.toThrow();
     expect(original.observation.coverage).toMatchObject({ expectedEntityCount: 4385,
-      unexpectedResponseEntityCount: 201, unknownEligibilityCount: 4320 });
+      unexpectedResponseEntityCount: 201, unknownEligibilityCount: 4290 });
   });
 
   it('reuses unchanged raw material across actual inventory rebuilds and later retrievals while retaining each observation time', async () => {
@@ -183,7 +204,7 @@ describe('retained September12 incomplete Week1 foundation evidence', () => {
     expect(observation.coverage).toMatchObject({ periodInventoryComplete: false,
       scheduledGameCount: 16, nonFinalScheduledGameCount: 14, scheduleFinalityComplete: false,
       responseEntityCount: 301, expectedEntityCount: 4385, expectedTeamDefenseCount: 32,
-      providerPresentEntityCount: 96, providerMissingEntityCount: 4289, unknownEligibilityCount: 4320,
+      providerPresentEntityCount: 96, providerMissingEntityCount: 4289, unknownEligibilityCount: 4290,
       unexpectedResponseEntityCount: 201, unresolvedOptionalProjectionIds: ['8063'],
     });
     expect(inventory.entities.filter((entry) => entry.entityKind === 'team_defense')).toHaveLength(32);
@@ -197,7 +218,7 @@ describe('retained September12 incomplete Week1 foundation evidence', () => {
     });
   });
 
-  it('preserves Jones and DeVito proven zeros, Willis ambiguity, Brown appearance and Henderson unknown', async () => {
+  it('preserves reviewed zeros and ambiguity while keeping Henderson eligibility unknown under the assumption', async () => {
     const { catalog, observation } = await capturedObservation();
     for (const id of ['7527', '11292']) {
       expect(foundationFixture.weekly[id].gp).toBeUndefined();
@@ -217,8 +238,8 @@ describe('retained September12 incomplete Week1 foundation evidence', () => {
       SLEEPER_ALL_PLAYER_SCORING_RULE_KEYS)).toMatchObject({ available: true, points: 4.1 });
     expect(foundationFixture.weekly['12529']).toBeUndefined();
     expect(observation.entries.find((entry) => entry.providerExternalId === '12529')).toMatchObject({
-      eligibleGameCount: null, appearanceGameCount: null, stats: {},
-      eligibilityEvidence: { kind: 'missing-provider-row' },
+      eligibleGameCount: null, appearanceGameCount: 0, stats: {},
+      eligibilityEvidence: { kind: 'assumed-nonparticipation', basis: { kind: 'missing-provider-row' } },
     });
   });
 

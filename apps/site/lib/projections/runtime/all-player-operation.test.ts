@@ -260,6 +260,32 @@ function harness(options: Readonly<{
 }
 
 describe('canonical all-player ingestion orchestration', () => {
+  it('rejects a missing-row assumption detached from the loaded inventory before any writes', async () => {
+    const test = harness();
+    const load = test.allPlayerSource.load.getMockImplementation()!;
+    test.allPlayerSource.load.mockImplementationOnce(async (request) => {
+      const loaded = await load(request);
+      if (loaded.status !== 'available') return loaded;
+      return { ...loaded, observation: { ...loaded.observation, quality: 'partial' as const,
+        coverage: { ...loaded.observation.coverage, complete: false },
+        entries: loaded.observation.entries.map((entry) => entry.providerExternalId !== 'p1' ? entry : {
+          ...entry, stats: {}, eligibleGameCount: null, appearanceGameCount: 0 as const,
+          eligibilityEvidence: { kind: 'assumed-nonparticipation' as const,
+            policy: 'missing-participation-as-zero-v1' as const, source: 'product-policy' as const,
+            effectivePeriod: { season: 2026, seasonType: 'reg' as const, week: 1 },
+            basis: { kind: 'missing-provider-row' as const, inventoryFingerprint: `sha256:${'f'.repeat(64)}` },
+          },
+        }),
+      } };
+    });
+    await expect(runAllPlayerIngestion(test.dependencies, { mode: 'backfill', period: PERIOD }))
+      .resolves.toMatchObject({ status: 'unavailable', reason: 'observation-provenance-mismatch',
+        diagnostics: expect.arrayContaining(['sleeper/p1:eligibility-provenance-conflict']) });
+    expect(test.upsertScoringEntities).not.toHaveBeenCalled();
+    expect(test.recordLeagueWeekObservation).not.toHaveBeenCalled();
+    expect(test.recordAllPlayerBatch).not.toHaveBeenCalled();
+  });
+
   it('retains actual catalog observation time on live retrieval without changing participation', async () => {
     const test = harness();
     const dependencies: AllPlayerIngestionDependencies = { ...test.dependencies,
@@ -507,6 +533,168 @@ describe('canonical all-player ingestion orchestration', () => {
       status: 'unavailable', reason: 'provider-coverage-incomplete',
     });
     expect(test.recordAllPlayerBatch).not.toHaveBeenCalled();
+  });
+
+  it.each(['shadow', 'backfill'] as const)('restores unknown evidence for nonzero assumed participation in %s mode', async (mode) => {
+    const input = observation();
+    const test = harness({ observation: { ...input, entries: input.entries.map((value) => (
+      value.providerExternalId === 'p1' ? { ...value, stats: { gms_active: 1, pass_td: 1 } } : value
+    )) } });
+    const result = await runAllPlayerIngestion(test.dependencies, { mode, period: PERIOD });
+    const conflicts = [`nonzero-assumption-conflict:p1:${PROFILE_ONE}`,
+      `official-nonzero-assumption-conflict:p1:league1:${PROFILE_ONE}`,
+      `official-nonzero-assumption-conflict:p1:league2:${PROFILE_ONE}`];
+    expect(result).toMatchObject({ status: 'unavailable', reason: 'provider-coverage-incomplete',
+      diagnostics: conflicts });
+    expect(test.upsertScoringEntities).not.toHaveBeenCalled();
+    expect(test.recordLeagueWeekObservation).not.toHaveBeenCalled();
+    expect(test.pointers).toEqual([]);
+    if (mode === 'shadow') {
+      expect(test.recordAllPlayerBatch).not.toHaveBeenCalled();
+    } else {
+      expect(result).toMatchObject({ persistedObservation: true });
+      const batch = test.recordAllPlayerBatch.mock.calls[0][0];
+      expect(batch.scoreSets).toEqual([]);
+      expect(batch.observation).toMatchObject({ quality: 'partial', coverage: {
+        complete: false, unknownEligibilityCount: 1, unknownAppearanceCount: 1,
+        assumedNonParticipationCount: 0, unknownEligibilityIds: ['p1'],
+        nonParticipationAssumptionConflicts: conflicts,
+      } });
+      expect(batch.observation.entries.find((value) => value.providerExternalId === 'p1')).toMatchObject({
+        stats: { gms_active: 1, pass_td: 1 }, eligibleGameCount: null, appearanceGameCount: null,
+        eligibilityEvidence: { kind: 'weekly-stat', source: 'weekly-stat-provider', gmsActive: 1 },
+      });
+      expect(batch.observation.warnings).toContain('unknown-eligibility:1');
+    }
+  });
+
+  it('checks each distinct profile and preserves the existing nonzero tolerance', async () => {
+    const input = observation();
+    const test = harness({ divergent: true, observation: { ...input, entries: input.entries.map((value) => (
+      value.providerExternalId === 'free'
+        // Synthetic threshold case: 4 * this value is below tolerance, 6 * it exceeds tolerance.
+        ? { ...value, stats: { gms_active: 1, pass_td: 0.000_000_2 } } : value
+    )) } });
+    await expect(runAllPlayerIngestion(test.dependencies, { mode: 'backfill', period: PERIOD }))
+      .resolves.toMatchObject({ status: 'unavailable', persistedObservation: true,
+        diagnostics: [`nonzero-assumption-conflict:free:${PROFILE_TWO}`] });
+    expect(test.recordAllPlayerBatch.mock.calls[0][0].observation.entries
+      .find((value) => value.providerExternalId === 'free')).toMatchObject({
+      eligibleGameCount: null, appearanceGameCount: null, stats: { pass_td: 0.000_000_2 },
+    });
+    expect(test.pointers).toEqual([]);
+  });
+
+  it.each([
+    { mode: 'shadow', missing: true }, { mode: 'backfill', missing: true },
+    { mode: 'shadow', missing: false }, { mode: 'backfill', missing: false },
+  ] as const)('withdraws assumptions for official nonzero points ($mode, missing=$missing)', async ({ mode, missing }) => {
+    const input = observation();
+    const test = harness({ observation: { ...input, entries: input.entries.map((value) => (
+      value.providerExternalId === 'p1' ? { ...value,
+        stats: missing ? {} : { gms_active: 1, pass_td: 0 },
+        ...(missing ? { eligibilityEvidence: {
+          kind: 'missing-provider-row' as const, inventoryFingerprint: `sha256:${'a'.repeat(64)}`,
+        } } : {}),
+      } : value
+    )) } });
+    const conflicts = [`official-nonzero-assumption-conflict:p1:league1:${PROFILE_ONE}`,
+      `official-nonzero-assumption-conflict:p1:league2:${PROFILE_ONE}`];
+    const result = await runAllPlayerIngestion(test.dependencies, { mode, period: PERIOD });
+    expect(result).toMatchObject({ status: 'unavailable', reason: 'provider-coverage-incomplete', diagnostics: conflicts });
+    expect(test.upsertScoringEntities).not.toHaveBeenCalled();
+    expect(test.recordLeagueWeekObservation).not.toHaveBeenCalled();
+    expect(test.pointers).toEqual([]);
+    if (mode === 'shadow') {
+      expect(test.recordAllPlayerBatch).not.toHaveBeenCalled();
+    } else {
+      expect(result).toMatchObject({ persistedObservation: true });
+      const batch = test.recordAllPlayerBatch.mock.calls[0][0];
+      expect(batch.scoreSets).toEqual([]);
+      expect(batch.observation.coverage).toMatchObject({ complete: false, unknownEligibilityCount: 1,
+        unknownAppearanceCount: 1, assumedNonParticipationCount: 0,
+        nonParticipationAssumptionConflicts: conflicts });
+      const saved = batch.observation.entries.find((value) => value.providerExternalId === 'p1');
+      expect(saved).toMatchObject({ eligibleGameCount: null, appearanceGameCount: null,
+        stats: missing ? {} : { gms_active: 1, pass_td: 0 },
+        eligibilityEvidence: missing ? { kind: 'missing-provider-row' }
+          : { kind: 'weekly-stat', source: 'weekly-stat-provider', gmsActive: 1 },
+      });
+      if (missing) expect(saved?.stats).toEqual({});
+    }
+  });
+
+  it('retains zero weekly assumptions and missing-row assumptions when another weekly row conflicts', async () => {
+    const input = observation();
+    const test = harness({ observation: { ...input, entries: input.entries.map((value) => (
+      value.providerExternalId === 'p1' ? { ...value, stats: { pass_td: -1 } }
+        : value.providerExternalId === 'pzero' ? { ...value, stats: { gms_active: 1 } }
+          : value.providerExternalId === 'free' ? { ...value, stats: {}, eligibilityEvidence: {
+            kind: 'missing-provider-row' as const, inventoryFingerprint: `sha256:${'a'.repeat(64)}`,
+          } } : value
+    )) } });
+    await expect(runAllPlayerIngestion(test.dependencies, { mode: 'backfill', period: PERIOD }))
+      .resolves.toMatchObject({ status: 'unavailable', persistedObservation: true });
+    const saved = test.recordAllPlayerBatch.mock.calls[0][0].observation;
+    expect(saved.coverage).toMatchObject({ unknownEligibilityCount: 2, unknownAppearanceCount: 1,
+      assumedNonParticipationCount: 2, unknownEligibilityIds: ['free', 'p1'] });
+    expect(saved.entries.find((value) => value.providerExternalId === 'p1')).toMatchObject({
+      eligibleGameCount: null, appearanceGameCount: null, stats: { pass_td: -1 },
+      eligibilityEvidence: { kind: 'weekly-stat', source: 'weekly-stat-provider' },
+    });
+    expect(saved.entries.find((value) => value.providerExternalId === 'pzero')).toMatchObject({
+      eligibleGameCount: 1, appearanceGameCount: 0,
+      eligibilityEvidence: { kind: 'assumed-nonparticipation', basis: { kind: 'weekly-stat', gmsActive: 1 } },
+    });
+    expect(saved.entries.find((value) => value.providerExternalId === 'free')).toMatchObject({
+      eligibleGameCount: null, appearanceGameCount: 0, stats: {},
+      eligibilityEvidence: { kind: 'assumed-nonparticipation', basis: { kind: 'missing-provider-row' } },
+    });
+  });
+
+  it('rejects malformed assumption bases with diagnostics before any raw or ancillary writes', async () => {
+    const input = observation();
+    const test = harness({ observation: { ...input, entries: input.entries.map((value) => (
+      value.providerExternalId === 'p1' ? { ...value, stats: { gms_active: 1 } } : value
+    )) } });
+    const load = test.allPlayerSource.load.getMockImplementation()!;
+    test.allPlayerSource.load.mockImplementation(async (request) => {
+      const result = await load(request);
+      if (result.status !== 'available') return result;
+      return { ...result, observation: { ...result.observation,
+        entries: result.observation.entries.map((value) => value.providerExternalId === 'p1' ? {
+          ...value, eligibilityEvidence: { ...value.eligibilityEvidence, basis: null },
+        } : value),
+      } } as unknown as SleeperAllPlayerStatResult;
+    });
+    await expect(runAllPlayerIngestion(test.dependencies, { mode: 'backfill', period: PERIOD }))
+      .resolves.toMatchObject({ status: 'unavailable', reason: 'observation-coverage-invalid',
+        diagnostics: expect.arrayContaining(['invalid-publication-coverage:providerPresentEntityCount']) });
+    expect(test.recordAllPlayerBatch).not.toHaveBeenCalled();
+    expect(test.upsertScoringEntities).not.toHaveBeenCalled();
+    expect(test.recordLeagueWeekObservation).not.toHaveBeenCalled();
+  });
+
+  it('rejects invalid observed scoring material before partial raw writes', async () => {
+    const input = observation();
+    const test = harness({ observation: { ...input, entries: input.entries.map((value) => (
+      value.providerExternalId === 'p1' ? { ...value, stats: { gms_active: 1 } } : value
+    )) } });
+    const load = test.allPlayerSource.load.getMockImplementation()!;
+    test.allPlayerSource.load.mockImplementation(async (request) => {
+      const result = await load(request);
+      if (result.status !== 'available') return result;
+      return { ...result, observation: { ...result.observation,
+        entries: result.observation.entries.map((value) => value.providerExternalId === 'p1'
+          ? { ...value, stats: { ...value.stats, pass_td: Number.NaN } } : value),
+      } };
+    });
+    await expect(runAllPlayerIngestion(test.dependencies, { mode: 'backfill', period: PERIOD }))
+      .resolves.toMatchObject({ status: 'unavailable', reason: 'score-unsupported-scoring',
+        diagnostics: ['invalid-stat:p1:pass_td'] });
+    expect(test.recordAllPlayerBatch).not.toHaveBeenCalled();
+    expect(test.upsertScoringEntities).not.toHaveBeenCalled();
+    expect(test.recordLeagueWeekObservation).not.toHaveBeenCalled();
   });
 
   it('reuses score content while retaining fresh parity observation lineage for unchanged stats', async () => {

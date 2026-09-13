@@ -54,6 +54,42 @@ function observation(gameCount = 16, final = true): AllPlayerStatObservation {
 }
 
 describe('shared publication coverage preflight', () => {
+  it('counts assumed weekly and missing rows honestly while keeping unknown eligibility partial', () => {
+    const source = observation(1);
+    const player = source.entries[0];
+    const assumed = (missing: boolean): AllPlayerStatEntry => ({ ...player,
+      stats: missing ? {} : { gms_active: 1 }, eligibleGameCount: missing ? null : 1, appearanceGameCount: 0,
+      eligibilityEvidence: { kind: 'assumed-nonparticipation', policy: 'missing-participation-as-zero-v1',
+        source: 'product-policy', effectivePeriod: period,
+        basis: missing ? { kind: 'missing-provider-row', inventoryFingerprint: fingerprint }
+          : { kind: 'weekly-stat', source: 'weekly-stat-provider', gmsActive: 1 },
+      },
+    });
+    for (const missing of [false, true]) {
+      const partial: AllPlayerStatObservation = { ...source, quality: 'partial',
+        normalizerVersion: 'sleeper-weekly-stats-v4', entries: [assumed(missing), ...source.entries.slice(1)],
+        coverage: { ...source.coverage, complete: false,
+          providerPresentEntityCount: missing ? 2 : 3, providerMissingEntityCount: missing ? 31 : 30,
+          responseEntityCount: missing ? 2 : 3, unknownEligibilityCount: missing ? 1 : 0,
+          unknownAppearanceCount: 0, assumedNonParticipationCount: 1,
+          participationAssumptionPolicy: 'missing-participation-as-zero-v1',
+        },
+      };
+      expect(validateAllPlayerPublicationCoverage(partial)).toEqual([]);
+      for (const key of ['unknownAppearanceCount', 'assumedNonParticipationCount'] as const) {
+        expect(validateAllPlayerPublicationCoverage({ ...partial,
+          coverage: { ...partial.coverage, [key]: 9 } })).toContain(`invalid-publication-coverage:${key}`);
+        const coverage = { ...partial.coverage };
+        delete coverage[key];
+        expect(validateAllPlayerPublicationCoverage({ ...partial, coverage }))
+          .toContain(`invalid-publication-coverage:${key}`);
+      }
+      if (missing) expect(validateAllPlayerPublicationCoverage({ ...partial, quality: 'complete',
+        coverage: { ...partial.coverage, complete: true } }))
+        .toContain('invalid-publication-coverage:complete-counts');
+    }
+  });
+
   it.each([1, 12, 16])('accepts an honest complete period with %i games', (games) => {
     expect(validateAllPlayerPublicationCoverage(observation(games), { requireFinalCoverage: true })).toEqual([]);
   });

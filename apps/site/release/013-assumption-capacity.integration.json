@@ -1,0 +1,88 @@
+{
+  "observedAt": "2026-09-13T04:03:35.128Z",
+  "kind": "synthetic-1000-player-partial-assumption",
+  "providerRequests": 0,
+  "limitation": "Bounded synthetic raw-history allocation only; no source completion or whole-season fit claim. All writes roll back.",
+  "before": [
+    {
+      "name": "all_player_stat_contents",
+      "heap_bytes": 24576,
+      "index_bytes": 49152,
+      "toast_aux_bytes": 237568,
+      "total_bytes": 311296
+    },
+    {
+      "name": "all_player_stat_entries",
+      "heap_bytes": 11763712,
+      "index_bytes": 6569984,
+      "toast_aux_bytes": 40960,
+      "total_bytes": 18374656
+    },
+    {
+      "name": "all_player_stat_observations",
+      "heap_bytes": 16384,
+      "index_bytes": 65536,
+      "toast_aux_bytes": 114688,
+      "total_bytes": 196608
+    }
+  ],
+  "afterFirst": [
+    {
+      "name": "all_player_stat_contents",
+      "heap_bytes": 24576,
+      "index_bytes": 49152,
+      "toast_aux_bytes": 237568,
+      "total_bytes": 311296
+    },
+    {
+      "name": "all_player_stat_entries",
+      "heap_bytes": 12271616,
+      "index_bytes": 6774784,
+      "toast_aux_bytes": 40960,
+      "total_bytes": 19087360
+    },
+    {
+      "name": "all_player_stat_observations",
+      "heap_bytes": 16384,
+      "index_bytes": 65536,
+      "toast_aux_bytes": 114688,
+      "total_bytes": 196608
+    }
+  ],
+  "afterLater": [
+    {
+      "name": "all_player_stat_contents",
+      "heap_bytes": 24576,
+      "index_bytes": 49152,
+      "toast_aux_bytes": 237568,
+      "total_bytes": 311296
+    },
+    {
+      "name": "all_player_stat_entries",
+      "heap_bytes": 12271616,
+      "index_bytes": 6774784,
+      "toast_aux_bytes": 40960,
+      "total_bytes": 19087360
+    },
+    {
+      "name": "all_player_stat_observations",
+      "heap_bytes": 16384,
+      "index_bytes": 65536,
+      "toast_aux_bytes": 114688,
+      "total_bytes": 196608
+    }
+  ],
+  "count": {
+    "entries": 1000,
+    "unknown_eligible": 1000,
+    "zero_appearances": 1000,
+    "observations": 2
+  },
+  "entriesStored": [
+    1000,
+    0,
+    0
+  ],
+  "firstWallMs": 385.71090000000004,
+  "laterWallMs": 197.01119999999992
+}

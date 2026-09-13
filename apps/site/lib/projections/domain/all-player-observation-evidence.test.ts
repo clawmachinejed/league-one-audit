@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   validateAllPlayerObservationEvidence, type AllPlayerStatEntry, type AllPlayerStatObservation,
 } from './all-player-observation-evidence';
+import type { AllPlayerAssumedNonParticipationEvidence } from './all-player-eligibility';
 
 const entry: AllPlayerStatEntry = {
   entityKind: 'player', providerExternalId: 'player', nflGameId: null, nflTeam: 'NE', position: 'RB',
@@ -88,5 +89,52 @@ describe('individual snap raw/evidence preflight concordance', () => {
     expect(validateAllPlayerObservationEvidence(observation(candidate))).toEqual([]);
     expect(validateAllPlayerObservationEvidence(observation({ ...candidate, eligibleGameCount: 1, appearanceGameCount: 1 })))
       .toContain('invalid-eligibility-evidence:player');
+  });
+});
+
+describe('assumed nonparticipation observation boundary', () => {
+  const missingBasis = { kind: 'missing-provider-row' as const, inventoryFingerprint: `sha256:${'a'.repeat(64)}` };
+  function assumedEntry(basis: AllPlayerAssumedNonParticipationEvidence['basis'] = missingBasis): AllPlayerStatEntry {
+    return { ...entry, stats: {}, eligibleGameCount: null, appearanceGameCount: 0,
+      eligibilityEvidence: { kind: 'assumed-nonparticipation', policy: 'missing-participation-as-zero-v1',
+        source: 'product-policy', effectivePeriod: { season: 2026, seasonType: 'reg', week: 1 }, basis } };
+  }
+  const v4 = (candidate = assumedEntry()) => observation(candidate, 'fixture-weekly-stats-v4');
+
+  it('accepts unknown eligibility and assumed zero appearances only with explicit v4 provenance', () => {
+    expect(validateAllPlayerObservationEvidence(v4())).toEqual([]);
+    for (const version of ['fixture-weekly-stats-v2', 'fixture-weekly-stats-v3', 'fixture-weekly-stats-v5']) {
+      expect(validateAllPlayerObservationEvidence(observation(assumedEntry(), version)))
+        .toContain('invalid-assumption-context:player');
+    }
+    const active = { ...assumedEntry({ kind: 'weekly-stat', source: 'weekly-stat-provider', gmsActive: 1 }),
+      stats: { gms_active: 1 }, eligibleGameCount: 1 as const };
+    expect(validateAllPlayerObservationEvidence(v4(active))).toEqual([]);
+  });
+
+  it.each([{ gp: 1 }, { off_snp: 1 }, { pass_yd: 5 }, { pts_half_ppr: 0 }] as readonly Record<string, number>[])(
+    'rejects populated statistics hidden under an assumed missing row: %j', (stats) => {
+      expect(validateAllPlayerObservationEvidence(v4({ ...assumedEntry(), stats })))
+        .toContain('assumed-missing-row-has-statistics:player');
+    });
+
+  it('binds wrapped weekly raw evidence and disallows hiding positive or malformed snap statistics', () => {
+    const active = { ...assumedEntry({ kind: 'weekly-stat', source: 'weekly-stat-provider', gmsActive: 1 }),
+      stats: { gms_active: 1 }, eligibleGameCount: 1 as const };
+    expect(validateAllPlayerObservationEvidence(v4({ ...active, stats: { ...active.stats, gp: 1 } })))
+      .toContain('weekly-flag-evidence-mismatch:player:gp');
+    for (const off_snp of [1, -1, 0.5]) {
+      expect(validateAllPlayerObservationEvidence(v4({ ...active, stats: { ...active.stats, off_snp } })))
+        .toContain('weekly-snap-evidence-mismatch:player:off_snp');
+    }
+  });
+
+  it('rejects defense and wrong-period assumptions without reinterpreting old observations', () => {
+    expect(validateAllPlayerObservationEvidence(v4({ ...assumedEntry(), entityKind: 'team_defense', position: 'DEF' })))
+      .toContain('invalid-assumption-context:player');
+    expect(validateAllPlayerObservationEvidence({ ...v4(), week: 2 })).toContain('wrong-period-assumption:player');
+    const legacy = { ...assumedEntry(), eligibilityEvidence: missingBasis, appearanceGameCount: null };
+    expect(validateAllPlayerObservationEvidence(observation(legacy, 'fixture-weekly-stats-v3'))).toEqual([]);
+    expect(validateAllPlayerObservationEvidence(v4(legacy))).toEqual([]);
   });
 });
