@@ -255,7 +255,8 @@ export type StoredAllPlayerBatch = Readonly<{
 
 export type StoredAllPlayerPlayerMetric = Readonly<{
   scoringProfileId: string;
-  scoringEntityId: string;
+  /** Validated provisional Sleeper players may not yet have a canonical mapping. */
+  scoringEntityId: string | null;
   providerExternalId: string;
   entityKind: ScoringEntityKind;
   position: 'QB' | 'RB' | 'WR' | 'TE' | 'K' | 'DEF';

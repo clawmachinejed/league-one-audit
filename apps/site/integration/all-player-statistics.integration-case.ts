@@ -616,6 +616,39 @@ describe('all-player statistics foundation', () => {
     });
   });
 
+  it('rejects a currently usable partial mapping that disagrees with its published canonical identity', async () => {
+    const transaction = await createPinnedIntegrationDatabase('owner');
+    try {
+      await transaction.database.query('BEGIN');
+      const reader = createProjectionStore(transaction.database);
+      const snapshot = () => transaction.database.query(`SELECT
+        (SELECT count(*)::integer FROM all_player_stat_contents) AS contents,
+        (SELECT count(*)::integer FROM all_player_stat_entries) AS entries,
+        (SELECT count(*)::integer FROM all_player_stat_observations) AS observations,
+        (SELECT count(*)::integer FROM all_player_score_sets) AS score_sets,
+        (SELECT count(*)::integer FROM all_player_scores) AS scores,
+        (SELECT count(*)::integer FROM all_player_score_verifications) AS verifications,
+        (SELECT md5(string_agg(to_jsonb(pointer)::text,'' ORDER BY scoring_profile_id,
+          provider,season,season_type,week,scorer_version)) FROM current_all_player_score_sets pointer) AS pointers`);
+      // The existing fixture has published Week 1 and partial Week 2. Change only
+      // the isolated current alias; immutable published scores retain their ID.
+      await transaction.database.query(`UPDATE external_scoring_entity_ids
+        SET scoring_entity_id=$1::uuid,valid_from=CURRENT_TIMESTAMP-interval '1 minute',valid_to=NULL
+        WHERE provider='sleeper' AND entity_kind='player' AND external_id='integration-player-one'`,
+      [entityIds['integration-player-zero']]);
+      const before = await snapshot();
+      for (const leagueKey of ['league1', 'league2']) {
+        await expect(reader.readAllPlayerPlayerMetrics({ leagueKey, provider: 'sleeper',
+          season: DATABASE_SEASON, seasonType: 'reg', throughWeek: 2, provisionalWeek: 2,
+          scorerVersion: 'sleeper-actual-v1',
+        }, scoreSparseStatistics)).rejects.toThrow('All-player identities disagree across periods.');
+      }
+      expect(await snapshot()).toEqual(before);
+    } finally {
+      try { await transaction.database.query('ROLLBACK'); } finally { await transaction.close(); }
+    }
+  });
+
   it.each([
     { label: 'a zero-point partial appearance after published points', publishedTouchdowns: 1, partialTouchdowns: 0 },
     { label: 'a published zero-point appearance before partial points', publishedTouchdowns: 0, partialTouchdowns: 1 },
@@ -706,7 +739,7 @@ describe('all-player statistics foundation', () => {
           status: 'provisional', throughWeek: 2, observedAt: '2026-09-16T00:00:01.000Z',
           metrics: [expect.objectContaining({ providerExternalId: 'integration-player-one',
             totalFantasyPoints: 10, appearanceGameCount: 2, publishedWeekCount: 1,
-            pointsPerGame: 5, positionRank: publishedTouchdowns === 0 ? null : 1,
+            pointsPerGame: 5, positionRank: 1,
           })],
         });
       }

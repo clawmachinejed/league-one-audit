@@ -228,11 +228,34 @@ Position rank uses nonzero cumulative fantasy points, independently for each
 league scoring profile and for QB, RB, WR, TE, K, and DEF. The population is all
 usable stored scoring identities, not only rostered players. Exact ties use
 standard competition rank; provider identity supplies deterministic ordering
-without breaking the shared rank.
-Stored `rankUnavailablePositions` coverage and scoring rows without usable
-identity mappings suppress the affected position's rank while preserving valid
-individual PPG. Distinct official identities sharing one canonical entity fail
-the metrics read safely; they cannot enter the ranking population twice.
+without breaking the shared rank. Rank comparison uses four decimal places per
+weekly contribution, matching the existing published `numeric(14,4)` score
+precision, with decimal halves rounded away from zero. Those weekly rank units
+are summed across periods. This removes floating-point artifacts such as
+`3.1000000000000005` versus `3.1` without changing the canonical scorer's totals
+or PPG. A total that is zero at rank precision has no position rank and does not
+shift the ranks of negative totals.
+The accepted raw inventory already classifies official Sleeper player identities.
+A provisional player may therefore compete by its Sleeper ID before a canonical
+mapping has been registered. Its internal canonical ID remains null; the reader
+does not create an identity, link providers, or write to the database. This applies
+only to Sleeper player rows in accepted partial history. Published scores and
+canonical defenses still require their canonical identities.
+
+For partial rows, an existing mapping must be usable at the read transaction's
+time. A legitimate registration after the original observation can enrich that
+source-keyed record without rewriting it. Existing retired, unverified, expired,
+future-valid, wrong-kind, or conflicting mappings cannot fall back to an absent
+mapping. Distinct official identities sharing one canonical entity, or one
+official identity conflicting with a published canonical target, fail the read
+safely. Invalid scoring and unusable mappings continue to withhold the affected
+position's rank.
+
+Legacy `rankUnavailablePositions` raw coverage describes optional projection
+identity gaps. It remains stored diagnostic evidence and does not govern actual
+statistic ranks. An unresolved Tank01 projection cannot hide valid Sleeper actual
+points. Participation uncertainty affects PPG independently from valid observed
+point totals; contradictory known nonparticipation remains guarded.
 
 Because the published side follows current pointers, a verified correction
 replaces the superseded weekly score automatically. Immutable historical score
