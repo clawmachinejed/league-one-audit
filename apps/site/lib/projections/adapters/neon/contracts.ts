@@ -274,6 +274,29 @@ export type StoredAllPlayerMetricRead = Readonly<{
   metrics: readonly StoredAllPlayerPlayerMetric[];
 }>;
 
+export type AllPlayerMetricReadInput = Readonly<{
+  leagueKey: string;
+  provider: string;
+  season: number;
+  seasonType: SeasonType;
+  throughWeek: number;
+  provisionalWeek: number | null;
+  scorerVersion: string;
+}>;
+
+export type AllPlayerMetricSparseScorer = (
+  stats: Readonly<Record<string, number>>,
+  rules: Readonly<Record<string, unknown>>,
+  supportedRuleKeys: ReadonlySet<string>,
+) => Readonly<{ available: boolean; points: number | null }>;
+
+export type AllPlayerMetricReader = Readonly<{
+  readAllPlayerPlayerMetrics: (
+    input: AllPlayerMetricReadInput,
+    scorePartialStatistics: AllPlayerMetricSparseScorer,
+  ) => Promise<StoredAllPlayerMetricRead>;
+}>;
+
 export type PlayerProjectionRecord = Readonly<{
   sleeperPlayerId: string;
   entityId: string;
@@ -679,15 +702,7 @@ export type ProjectionStore = LineupWatchMethods & LineupAcknowledgmentMethods &
   recordAllPlayerBatch: (
     input: AllPlayerBatchInput,
   ) => Promise<PersistenceOutcome<StoredAllPlayerBatch>>;
-  readAllPlayerPlayerMetrics: (input: Readonly<{
-    leagueKey: string;
-    provider: string;
-    season: number;
-    seasonType: SeasonType;
-    throughWeek: number;
-    provisionalWeek: number | null;
-    scorerVersion: string;
-  }>) => Promise<StoredAllPlayerMetricRead>;
+  readAllPlayerPlayerMetrics: AllPlayerMetricReader['readAllPlayerPlayerMetrics'];
   acquireAllPlayerJob: (input: Readonly<{
     mode: 'shadow' | 'backfill' | 'recurring';
     period: AllPlayerJobPeriod;

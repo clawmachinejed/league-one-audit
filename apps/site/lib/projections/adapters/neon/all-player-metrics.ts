@@ -2,9 +2,9 @@ import 'server-only';
 
 import type { DatabaseClient, DatabaseRow } from '../../../database';
 import { SLEEPER_ALL_PLAYER_SCORING_RULE_KEYS } from '../sleeper/scoring-profile';
-import { scoreSparseStatistics } from '../../domain/scoring';
 import type {
-  ProjectionStore,
+  AllPlayerMetricReader,
+  AllPlayerMetricSparseScorer,
   ScoringEntityKind,
   StoredAllPlayerMetricRead,
   StoredAllPlayerPlayerMetric,
@@ -18,7 +18,6 @@ import {
   rowText,
 } from './database-values';
 
-type AllPlayerMetricMethods = Pick<ProjectionStore, 'readAllPlayerPlayerMetrics'>;
 type Position = StoredAllPlayerPlayerMetric['position'];
 
 type MetricCandidate = {
@@ -120,6 +119,7 @@ function combinePartial(
   rules: Readonly<Record<string, unknown>>,
   candidates: Map<string, MetricCandidate>,
   invalidIdentities: Set<string>,
+  scorePartialStatistics: AllPlayerMetricSparseScorer,
 ): boolean {
   const kind = entityKind(row);
   const metricPosition = position(row);
@@ -130,7 +130,7 @@ function combinePartial(
     candidates.delete(key);
     return false;
   }
-  const scored = scoreSparseStatistics(
+  const scored = scorePartialStatistics(
     rowObject(row, 'stats') as Readonly<Record<string, number>>,
     rules,
     SLEEPER_ALL_PLAYER_SCORING_RULE_KEYS,
@@ -214,9 +214,9 @@ function unavailable(rowsRead = 0): StoredAllPlayerMetricRead {
   return { status: 'unavailable', observedAt: null, throughWeek: null, rowsRead, metrics: [] };
 }
 
-export function createAllPlayerMetricMethods(client: DatabaseClient): AllPlayerMetricMethods {
+export function createAllPlayerMetricMethods(client: DatabaseClient): AllPlayerMetricReader {
   return {
-    async readAllPlayerPlayerMetrics(input) {
+    async readAllPlayerPlayerMetrics(input, scorePartialStatistics) {
       const leagueKey = requiredText(input.leagueKey, 'League key');
       const normalizedProvider = provider(input.provider);
       const season = boundedInteger(input.season, 1920, 2200, 'All-player season');
@@ -378,7 +378,9 @@ export function createAllPlayerMetricMethods(client: DatabaseClient): AllPlayerM
       for (const row of rows.filter((value) => value.row_kind === 'partial')) {
         const key = identityKey(entityKind(row), rowText(row, 'provider_external_id'));
         if (!invalidIdentities.has(key)) {
-          usablePartial = combinePartial(row, rules, candidates, invalidIdentities) || usablePartial;
+          usablePartial = combinePartial(
+            row, rules, candidates, invalidIdentities, scorePartialStatistics,
+          ) || usablePartial;
         }
       }
       for (const key of invalidIdentities) candidates.delete(key);

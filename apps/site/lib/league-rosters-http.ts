@@ -3,6 +3,7 @@ import 'server-only';
 import { LEAGUE_IDS } from './config';
 import { LEAGUE_SITES, type LeagueKey } from './leagues';
 import { getProjectionStore, type StoredAllPlayerMetricRead } from './projection-store';
+import { scoreSparseStatistics } from './projections/domain/scoring';
 import { getRostersWithMetricContext, type RostersLoad } from './sleeper';
 import type { RostersData } from './types';
 
@@ -29,7 +30,7 @@ async function loadPlayerMetrics(input: Parameters<LoadMetrics>[0]): Promise<Sto
     throughWeek: input.throughWeek,
     provisionalWeek: input.provisionalWeek,
     scorerVersion: 'sleeper-actual-v1',
-  });
+  }, scoreSparseStatistics);
 }
 
 function applyPlayerMetrics(data: RostersData, read: StoredAllPlayerMetricRead): RostersData {

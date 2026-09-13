@@ -7,6 +7,7 @@ import {
 } from '../lib/projection-store';
 import { buildAllPlayerScoreSets, type AllPlayerScoringProfile, type AllPlayerStatObservation }
   from '../lib/projections/domain/all-player-statistics';
+import { scoreSparseStatistics } from '../lib/projections/domain/scoring';
 import { NFL_TEAM_CODES } from '../lib/projections/domain/contracts';
 import { SLEEPER_ALL_PLAYER_SCORING_RULE_KEYS } from '../lib/projections/adapters/sleeper/scoring-profile';
 import type { AllPlayerJobFence } from '../lib/projections/adapters/neon/contracts';
@@ -524,12 +525,12 @@ describe('all-player statistics foundation', () => {
       leagueKey: 'league1', provider: 'sleeper', season: DATABASE_SEASON,
       seasonType: 'reg', throughWeek: 1, provisionalWeek: null,
       scorerVersion: 'sleeper-actual-v1',
-    });
+    }, scoreSparseStatistics);
     const leagueTwo = await store.readAllPlayerPlayerMetrics({
       leagueKey: 'league2', provider: 'sleeper', season: DATABASE_SEASON,
       seasonType: 'reg', throughWeek: 1, provisionalWeek: null,
       scorerVersion: 'sleeper-actual-v1',
-    });
+    }, scoreSparseStatistics);
     expect(leagueOne).toMatchObject({
       status: 'published', throughWeek: 1,
       metrics: [{
@@ -584,7 +585,7 @@ describe('all-player statistics foundation', () => {
       leagueKey: 'league1', provider: 'sleeper', season: DATABASE_SEASON,
       seasonType: 'reg', throughWeek: 2, provisionalWeek: 2,
       scorerVersion: 'sleeper-actual-v1',
-    });
+    }, scoreSparseStatistics);
     expect(leagueOne).toMatchObject({
       status: 'provisional', throughWeek: 2, observedAt: '2026-09-16T00:01:01.000Z',
       rowsRead: 3,
@@ -597,7 +598,7 @@ describe('all-player statistics foundation', () => {
       leagueKey: 'league2', provider: 'sleeper', season: DATABASE_SEASON,
       seasonType: 'reg', throughWeek: 2, provisionalWeek: 2,
       scorerVersion: 'sleeper-actual-v1',
-    })).resolves.toMatchObject({
+    }, scoreSparseStatistics)).resolves.toMatchObject({
       status: 'provisional', throughWeek: 2,
       metrics: [expect.objectContaining({
         providerExternalId: 'integration-player-one', totalFantasyPoints: 18,
@@ -608,7 +609,7 @@ describe('all-player statistics foundation', () => {
       leagueKey: 'league1', provider: 'sleeper', season: DATABASE_SEASON,
       seasonType: 'reg', throughWeek: 1, provisionalWeek: null,
       scorerVersion: 'sleeper-actual-v1',
-    })).resolves.toMatchObject({
+    }, scoreSparseStatistics)).resolves.toMatchObject({
       status: 'published', throughWeek: 1,
       metrics: [expect.objectContaining({ totalFantasyPoints: 4, pointsPerGame: 4 })],
     });
@@ -993,7 +994,7 @@ describe('all-player statistics foundation', () => {
       leagueKey: 'league1', provider: 'sleeper', season: DATABASE_SEASON,
       seasonType: 'reg', throughWeek: 1, provisionalWeek: null,
       scorerVersion: 'sleeper-actual-v1',
-    })).resolves.toMatchObject({
+    }, scoreSparseStatistics)).resolves.toMatchObject({
       status: 'published', throughWeek: 1,
       metrics: [expect.objectContaining({
         providerExternalId: 'integration-player-one', totalFantasyPoints: 8,

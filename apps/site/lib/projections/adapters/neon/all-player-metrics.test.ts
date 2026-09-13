@@ -64,7 +64,7 @@ function read(rows: readonly DatabaseRow[], options: {
     seasonType: 'reg', throughWeek: options.throughWeek ?? 1,
     provisionalWeek: options.provisionalWeek === undefined ? 1 : options.provisionalWeek,
     scorerVersion: 'sleeper-actual-v1',
-  });
+  }, scoreSparseStatistics);
   return { fake, result };
 }
 
@@ -235,11 +235,11 @@ describe('all-player roster metrics', () => {
     await expect(reader.readAllPlayerPlayerMetrics({
       leagueKey: 'league1', provider: 'sleeper', season: 2026, seasonType: 'reg',
       throughWeek: 0, provisionalWeek: null, scorerVersion: 'sleeper-actual-v1',
-    })).rejects.toThrow('through week is invalid');
+    }, scoreSparseStatistics)).rejects.toThrow('through week is invalid');
     await expect(reader.readAllPlayerPlayerMetrics({
       leagueKey: 'league1', provider: 'sleeper', season: 2026, seasonType: 'reg',
       throughWeek: 1, provisionalWeek: 2, scorerVersion: 'sleeper-actual-v1',
-    })).rejects.toThrow('exceeds the through-week boundary');
+    }, scoreSparseStatistics)).rejects.toThrow('exceeds the through-week boundary');
     expect(fake.calls).toHaveLength(0);
   });
 });
