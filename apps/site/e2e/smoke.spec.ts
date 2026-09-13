@@ -495,6 +495,9 @@ test('Rosters stays in League, is exact-week cached, accessible, and responsive'
       body: JSON.stringify({
         league: { season: '2026', rosterPositions: ['QB', 'BN'], week: 3, maxWeek: 18 },
         week, currentWeek, rostersAvailable: available, updatedAt: '2026-09-08T12:00:00.000Z',
+        playerMetrics: available
+          ? { status: current ? 'provisional' : 'published', observedAt: '2026-09-08T12:00:00.000Z', throughWeek: week }
+          : { status: 'unavailable', observedAt: null, throughWeek: null },
         warning: available ? undefined : 'Sleeper has not established complete lineups for this future week.',
         teams: [{
           id: 1, name: `${leagueKey} First Place`, managerName: `${leagueKey} Manager One`, avatar: null,
@@ -502,8 +505,9 @@ test('Rosters stays in League, is exact-week cached, accessible, and responsive'
           waiverOrder: null, waiverBudgetRemaining: null, standingsRank: 1,
           averagePpg: 115.2, averagePpgRank: 1, rosterAvailable: available,
           sections: available ? [{ name: 'Starters', players: [{
-            id: 'qb-1', name: playerName, position: 'QB', nflTeam: 'IND',
+            id: '5859', name: playerName, position: 'WR', nflTeam: 'IND',
             injuryStatus: current ? 'Questionable' : null, slot: 'QB', byeWeek: 12,
+            positionRank: 1, ppg: 4.1,
             game: current ? { kind: 'scheduled', opponent: 'HOU', location: 'home', date: '2026-09-13', kickoffAt: '2026-09-13T17:00:00.000Z' } : null,
           }] }, { name: 'Bench', players: [] }] : [],
         }, {
@@ -512,8 +516,9 @@ test('Rosters stays in League, is exact-week cached, accessible, and responsive'
           waiverOrder: null, waiverBudgetRemaining: null, standingsRank: 2,
           averagePpg: 109.4, averagePpgRank: 2, rosterAvailable: available,
           sections: available ? [{ name: 'Starters', players: [{
-            id: 'qb-2', name: 'My Quarterback', position: 'QB', nflTeam: null,
+            id: 'wide-rank', name: 'My Quarterback', position: 'WR', nflTeam: null,
             injuryStatus: null, slot: 'SUPER_FLEX', byeWeek: null, game: null,
+            positionRank: 125, ppg: -12.4,
           }] }, { name: 'Bench', players: [] }] : [],
         }],
       }),
@@ -567,14 +572,19 @@ test('Rosters stays in League, is exact-week cached, accessible, and responsive'
       await expect(toggle).toContainText(selectedId === '1'
         ? /7–1\s*1st\s*115\.2\s*1st/u : /6–2\s*2nd\s*109\.4\s*2nd/u);
       await expect(toggle).not.toContainText(/standings|average position|rank/iu);
+      await expect(toggle).not.toContainText(/POS\. RANK|WR1|WR125|4\.1|-12\.4/u);
       const panel = cards.first().locator('[data-roster-content]');
       await expect(panel).toBeHidden();
       await toggle.click();
       await expect(toggle).toHaveAttribute('aria-expanded', 'true');
       await panel.locator('[data-roster-player]').first().click();
       await expect(toggle).toHaveAttribute('aria-expanded', 'true');
-      await expect(panel.locator('[data-roster-section]').first()).toContainText('BYE');
-      await expect(panel).not.toContainText(/actual|projected|player ppg|position rank|time remaining/iu);
+      await expect(panel.locator('[data-roster-section]').first()).toContainText(/POS\. RANK\s*PPG\s*BYE/u);
+      await expect(panel.locator('[data-roster-section]')).toHaveCount(2);
+      await expect(panel.getByText('POS. RANK', { exact: true })).toHaveCount(2);
+      await expect(panel.getByText('PPG', { exact: true })).toHaveCount(2);
+      await expect(panel.getByText('BYE', { exact: true })).toHaveCount(2);
+      await expect(panel).not.toContainText(/actual|projected|time remaining/iu);
 
       const scheduledCard = page.locator('[data-roster-card][data-team-id="1"]');
       const scheduledToggle = scheduledCard.locator('[data-roster-toggle]');
@@ -583,10 +593,30 @@ test('Rosters stays in League, is exact-week cached, accessible, and responsive'
       await expect(scheduledPanel).toContainText('QUES');
       await expect(scheduledPanel).toContainText('Sun 1:00 PM vs HOU');
       await expect(scheduledPanel.locator('[data-roster-player]').first()).toContainText('12');
+      await expect(scheduledPanel.locator('[data-position-rank]').first()).toHaveText('WR1');
+      await expect(scheduledPanel.locator('[data-player-ppg]').first()).toHaveText('4.1');
+      const columns = await scheduledPanel.locator('[data-roster-player]').first().evaluate(row => {
+        const name = row.querySelector<HTMLElement>('[class*=playerInfo]');
+        const rank = row.querySelector<HTMLElement>('[data-position-rank]')!;
+        const ppg = row.querySelector<HTMLElement>('[data-player-ppg]')!;
+        const bye = row.querySelector<HTMLElement>('[aria-label^="Bye week"]')!;
+        const boxes = [name!, rank, ppg, bye].map(element => element.getBoundingClientRect());
+        return {
+          noOverflow: row.scrollWidth <= row.clientWidth,
+          usefulNameWidth: boxes[0].width,
+          ordered: boxes.every((box, index) => index === 0 || boxes[index - 1].right <= box.left),
+        };
+      });
+      expect(columns.noOverflow).toBe(true);
+      expect(columns.usefulNameWidth).toBeGreaterThan(72);
+      expect(columns.ordered).toBe(true);
 
       const otherToggle = cards.nth(1).locator('[data-roster-toggle]');
       if (await otherToggle.getAttribute('aria-expanded') !== 'true') await otherToggle.click();
       await expect(cards.locator('[data-roster-toggle][aria-expanded="true"]')).toHaveCount(2);
+      const wideMetricCard = page.locator('[data-roster-card][data-team-id="2"]');
+      await expect(wideMetricCard.locator('[data-position-rank]').first()).toHaveText('WR125');
+      await expect(wideMetricCard.locator('[data-player-ppg]').first()).toHaveText('-12.4');
       if (viewport.width === 320) {
         const longName = page.locator('[data-roster-card][data-team-id="2"] [data-roster-toggle] strong').first();
         const wrapping = await longName.evaluate(element => {

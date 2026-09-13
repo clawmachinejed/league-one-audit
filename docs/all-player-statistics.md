@@ -3,8 +3,9 @@
 This foundation retains one shared Sleeper weekly response and scores its
 validated immutable content for each distinct registered league scoring profile.
 It derives per-player season total points and points per game from published
-weekly score pointers. It adds no rankings, UI, public API, Tank01 feed, or cron
-schedule.
+weekly score pointers. The server-side Rosters read model also derives provisional
+current-week position ranks and PPG from the latest accepted partial observation.
+It adds no public all-player API, Tank01 feed, ingestion call, or cron schedule.
 
 The September 12 repair and partial production capture are not an operational
 completion claim. The retained 2026 Week 1 evidence is incomplete. Complete
@@ -192,20 +193,41 @@ recorded.
 
 ## Persistence and publication
 
-The server-only player metrics reader derives totals and PPG at read time from
-`current_all_player_score_sets`. It selects the requested league's scoring
-profile, season, season type, scorer version, and weeks through the requested
-boundary. Each player result includes total fantasy points, summed appearances,
-published-week count, and points per game. PPG is total fantasy points divided by
-appearance games. When appearances are zero, PPG is `null` for display as an
-unavailable dash; it is never zero and division by zero never occurs.
+The server-only player metrics reader derives cumulative totals, position rank,
+and PPG in the existing Rosters request. It selects the requested league's
+scoring profile, season, season type, scorer version, and weeks through the
+requested boundary. Compact published totals come from
+`current_all_player_score_sets`. When the boundary includes the active week and
+that week has no published pointer, the same read selects only the newest
+accepted partial observation and returns only entries whose stored sparse stats
+intersect an active scoring rule. The browser never reads this storage directly.
 
-Because the reader follows current pointers, a verified correction replaces the
-superseded weekly score automatically. Immutable historical score sets remain
-unchanged. Partial raw observations have no score pointer and therefore cannot
-enter total points or PPG. League One and League Two remain isolated by their
-registered scoring profiles. The reader returns only player rows; team-defense
-metrics remain outside this player PPG contract.
+The partial row is scored by the same canonical sparse-stat scorer used by the
+all-player operation. Published and provisional records for the same week are
+mutually exclusive, so a week/player cannot be counted twice. Newer immutable
+partial corrections supersede older observations by observation, request, and
+creation time. Historical selection stops at the selected week; future selection
+stops at the active scoring week.
+
+PPG is confirmed cumulative fantasy points divided by confirmed appearances.
+Unknown or conflicting partial participation contributes to neither the PPG
+numerator nor denominator. A zero cumulative total, zero appearances, malformed
+evidence, or unresolved identity yields `null` for display as an unavailable
+dash. Confirmed negative totals and PPG remain valid.
+
+Position rank uses nonzero cumulative fantasy points, independently for each
+league scoring profile and for QB, RB, WR, TE, K, and DEF. The population is all
+usable stored scoring identities, not only rostered players. Exact ties use
+standard competition rank; provider identity supplies deterministic ordering
+without breaking the shared rank.
+
+Because the published side follows current pointers, a verified correction
+replaces the superseded weekly score automatically. Immutable historical score
+sets and partial observations remain unchanged. League One and League Two remain
+isolated by their registered scoring profiles. The reader includes canonical team
+defenses in the DEF ranking population and returns bounded status, observation
+time, and through-week metadata. Storage or scoring failure leaves Rosters usable
+with unavailable metrics.
 
 Installed migration 010 remains unchanged. Its six tables retain raw content,
 entries, observations, score sets, score rows and current pointers. Additive 011

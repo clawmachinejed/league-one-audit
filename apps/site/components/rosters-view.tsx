@@ -17,6 +17,16 @@ function number(value: number | null): string {
   return value === null || !Number.isFinite(value) ? '—' : value.toFixed(1);
 }
 
+function playerPpg(value: number | null): string {
+  return value === null || !Number.isFinite(value) || value === 0 ? '—' : value.toFixed(1);
+}
+
+function positionRank(player: RosterPlayer): string {
+  return player.positionRank !== null && Number.isInteger(player.positionRank)
+    && player.positionRank > 0 && ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'].includes(player.position)
+    ? `${player.position}${player.positionRank}` : '—';
+}
+
 function record(team: RosterTeam): string {
   if (![team.wins, team.losses, team.ties].every((value) => value !== null && Number.isInteger(value) && value >= 0)) return '—';
   return `${team.wins!}–${team.losses!}${team.ties ? `–${team.ties}` : ''}`;
@@ -33,6 +43,8 @@ export function ordinal(value: number | null): string {
 function PlayerRow({ player }: { player: RosterPlayer }) {
   const injury = injuryStatusLabel(player.injuryStatus);
   const details = [player.position === '—' ? null : player.position, player.nflTeam, injury].filter(Boolean).join(' · ');
+  const rank = positionRank(player);
+  const ppg = playerPpg(player.ppg);
   return <div className={styles.playerRow} data-roster-player>
     <span className={styles.slot}>{player.slot}</span>
     <span className={styles.playerInfo}>
@@ -40,13 +52,15 @@ function PlayerRow({ player }: { player: RosterPlayer }) {
       <span className={styles.playerDetails}>{details || '—'}</span>
       <span className={styles.game} data-roster-game>{player.game ? formatNflGame(player.game) : '—'}</span>
     </span>
+    <span className={styles.rank} data-position-rank aria-label={`Position rank ${rank === '—' ? 'unavailable' : rank}`}>{rank}</span>
+    <span className={styles.ppg} data-player-ppg aria-label={`Points per game ${ppg === '—' ? 'unavailable' : ppg}`}>{ppg}</span>
     <span className={styles.bye} aria-label={`Bye week ${player.byeWeek ?? 'unavailable'}`}>{player.byeWeek ?? '—'}</span>
   </div>;
 }
 
 function RosterGroup({ section }: { section: RosterSection }) {
   return <section className={styles.section} data-roster-section aria-label={`${section.name} roster`}>
-    <div className={styles.sectionHeading}><h3>{section.name}</h3><span aria-hidden="true">BYE</span></div>
+    <div className={styles.sectionHeading}><h3>{section.name}</h3><span>POS. RANK</span><span>PPG</span><span>BYE</span></div>
     {section.players.length
       ? <div>{section.players.map((player, index) => <PlayerRow key={`${player.id}-${player.slot}-${index}`} player={player} />)}</div>
       : <p className={styles.emptySection}>No players reported in this group.</p>}

@@ -67,6 +67,7 @@ export type {
   StoredAllPlayerIdentityMapping,
   StoredAllPlayerLeagueProfile,
   StoredAllPlayerPlayerMetric,
+  StoredAllPlayerMetricRead,
   StoredDatabaseIdentity,
   StoredFutureMaterializationFreshness,
   StoredLeagueWeekObservation,

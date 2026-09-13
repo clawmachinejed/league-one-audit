@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { RosterTeam } from './types';
-import { calculateTeamPpg, compareRosterStandings, orderRosterTeams, rosterHistoryBoundary } from './roster-metrics';
+import {
+  calculateTeamPpg,
+  compareRosterStandings,
+  orderRosterTeams,
+  playerMetricBoundary,
+  rosterHistoryBoundary,
+} from './roster-metrics';
 import type { SleeperMatchup } from './transform';
 
 function row(rosterId: number, points: number | null): SleeperMatchup {
@@ -27,6 +33,26 @@ describe('roster history boundary', () => {
     expect(rosterHistoryBoundary({ selectedWeek: 18, activeWeek: null, lastScoredWeek: 17, lifecycle: 'complete' })).toBe(17);
     expect(rosterHistoryBoundary({ selectedWeek: 18, activeWeek: null, lastScoredWeek: null, lifecycle: 'complete' })).toBeNull();
     expect(rosterHistoryBoundary({ selectedWeek: 7, activeWeek: null, lastScoredWeek: null, lifecycle: 'preseason' })).toBe(0);
+  });
+});
+
+describe('player metric boundary', () => {
+  it('uses a partial current week, respects history, and caps a future selection at now', () => {
+    expect(playerMetricBoundary({ selectedWeek: 1, activeWeek: 1, lastScoredWeek: null, lifecycle: 'active' }))
+      .toEqual({ throughWeek: 1, provisionalWeek: 1 });
+    expect(playerMetricBoundary({ selectedWeek: 2, activeWeek: 5, lastScoredWeek: 4, lifecycle: 'active' }))
+      .toEqual({ throughWeek: 2, provisionalWeek: null });
+    expect(playerMetricBoundary({ selectedWeek: 18, activeWeek: 5, lastScoredWeek: 4, lifecycle: 'active' }))
+      .toEqual({ throughWeek: 5, provisionalWeek: 5 });
+  });
+
+  it('uses only published boundaries for completed and unknown active periods', () => {
+    expect(playerMetricBoundary({ selectedWeek: 18, activeWeek: null, lastScoredWeek: 17, lifecycle: 'complete' }))
+      .toEqual({ throughWeek: 17, provisionalWeek: null });
+    expect(playerMetricBoundary({ selectedWeek: 4, activeWeek: null, lastScoredWeek: 3, lifecycle: 'active' }))
+      .toEqual({ throughWeek: 3, provisionalWeek: null });
+    expect(playerMetricBoundary({ selectedWeek: 1, activeWeek: null, lastScoredWeek: null, lifecycle: 'preseason' }))
+      .toEqual({ throughWeek: null, provisionalWeek: null });
   });
 });
 

@@ -522,28 +522,96 @@ describe('all-player statistics foundation', () => {
   it('derives player total points and PPG from current pointers with profile isolation', async () => {
     const leagueOne = await store.readAllPlayerPlayerMetrics({
       leagueKey: 'league1', provider: 'sleeper', season: DATABASE_SEASON,
-      seasonType: 'reg', throughWeek: 1, scorerVersion: 'sleeper-actual-v1',
+      seasonType: 'reg', throughWeek: 1, provisionalWeek: null,
+      scorerVersion: 'sleeper-actual-v1',
     });
     const leagueTwo = await store.readAllPlayerPlayerMetrics({
       leagueKey: 'league2', provider: 'sleeper', season: DATABASE_SEASON,
-      seasonType: 'reg', throughWeek: 1, scorerVersion: 'sleeper-actual-v1',
+      seasonType: 'reg', throughWeek: 1, provisionalWeek: null,
+      scorerVersion: 'sleeper-actual-v1',
     });
-    expect(leagueOne).toEqual([{
-      scoringProfileId: profileIds[0],
-      scoringEntityId: entityIds['integration-player-one'],
-      providerExternalId: 'integration-player-one', totalFantasyPoints: 4,
-      appearanceGameCount: 1, publishedWeekCount: 1, pointsPerGame: 4,
-    }, {
-      scoringProfileId: profileIds[0],
-      scoringEntityId: entityIds['integration-player-zero'],
-      providerExternalId: 'integration-player-zero', totalFantasyPoints: 0,
-      appearanceGameCount: 0, publishedWeekCount: 1, pointsPerGame: null,
-    }]);
-    expect(leagueTwo).toEqual([{
-      ...leagueOne[0], scoringProfileId: profileIds[1], totalFantasyPoints: 6, pointsPerGame: 6,
-    }, {
-      ...leagueOne[1], scoringProfileId: profileIds[1],
-    }]);
+    expect(leagueOne).toMatchObject({
+      status: 'published', throughWeek: 1,
+      metrics: [{
+        scoringProfileId: profileIds[0],
+        scoringEntityId: entityIds['integration-player-one'],
+        providerExternalId: 'integration-player-one', entityKind: 'player', position: 'QB',
+        totalFantasyPoints: 4, appearanceGameCount: 1, publishedWeekCount: 1,
+        pointsPerGame: 4, positionRank: 1,
+      }],
+    });
+    expect(leagueTwo).toMatchObject({
+      status: 'published', throughWeek: 1,
+      metrics: [{
+        scoringProfileId: profileIds[1],
+        providerExternalId: 'integration-player-one',
+        totalFantasyPoints: 6, pointsPerGame: 6, positionRank: 1,
+      }],
+    });
+  });
+
+  it('combines published totals with only the newest compact partial-week correction', async () => {
+    for (const [index, passTouchdowns] of [1, 2].entries()) {
+      const observedAt = `2026-09-16T00:0${index}:01.000Z`;
+      await ownerQuery(`WITH content AS (
+        INSERT INTO all_player_stat_contents (
+          id,provider,season,season_type,week,normalizer_version,semantic_hash,
+          quality,coverage,warnings,entry_count
+        ) VALUES (
+          gen_random_uuid(),'sleeper',$1::smallint,'reg',2,'sleeper-weekly-stats-v4',
+          repeat($2,64),'partial','{"complete":false}'::jsonb,'[]'::jsonb,1
+        ) RETURNING id
+      ), entry AS (
+        INSERT INTO all_player_stat_entries (
+          all_player_stat_content_id,entity_kind,provider_external_id,nfl_game_id,
+          nfl_team,position,stats,eligibility_evidence,eligible_game_count,
+          appearance_game_count,game_phase,ordinal
+        ) SELECT id,'player','integration-player-one',$3::uuid,'NE','QB',
+          jsonb_build_object('gms_active',1,'gp',1,'pass_td',$4::integer),
+          '{"kind":"weekly-stat","source":"weekly-stat-provider","gmsActive":1,"appearances":1}'::jsonb,
+          1,1,'final',0 FROM content
+        RETURNING all_player_stat_content_id
+      ) INSERT INTO all_player_stat_observations (
+        id,all_player_stat_content_id,provider,season,season_type,week,normalizer_version,
+        source_revision,request_started_at,request_completed_at,observed_at,quality
+      ) SELECT gen_random_uuid(),id,'sleeper',$1::smallint,'reg',2,'sleeper-weekly-stats-v4',
+        $5,$6::timestamptz - interval '1 second',$6::timestamptz,$6::timestamptz,'partial'
+        FROM content
+        JOIN entry ON entry.all_player_stat_content_id = content.id`, [DATABASE_SEASON, String(index + 1), wrongWeekGameId,
+        passTouchdowns, `etag:partial-week2-${index + 1}`, observedAt]);
+    }
+    const leagueOne = await store.readAllPlayerPlayerMetrics({
+      leagueKey: 'league1', provider: 'sleeper', season: DATABASE_SEASON,
+      seasonType: 'reg', throughWeek: 2, provisionalWeek: 2,
+      scorerVersion: 'sleeper-actual-v1',
+    });
+    expect(leagueOne).toMatchObject({
+      status: 'provisional', throughWeek: 2, observedAt: '2026-09-16T00:01:01.000Z',
+      rowsRead: 3,
+      metrics: [expect.objectContaining({
+        providerExternalId: 'integration-player-one', totalFantasyPoints: 12,
+        appearanceGameCount: 2, pointsPerGame: 6, positionRank: 1,
+      })],
+    });
+    await expect(store.readAllPlayerPlayerMetrics({
+      leagueKey: 'league2', provider: 'sleeper', season: DATABASE_SEASON,
+      seasonType: 'reg', throughWeek: 2, provisionalWeek: 2,
+      scorerVersion: 'sleeper-actual-v1',
+    })).resolves.toMatchObject({
+      status: 'provisional', throughWeek: 2,
+      metrics: [expect.objectContaining({
+        providerExternalId: 'integration-player-one', totalFantasyPoints: 18,
+        appearanceGameCount: 2, pointsPerGame: 9, positionRank: 1,
+      })],
+    });
+    await expect(store.readAllPlayerPlayerMetrics({
+      leagueKey: 'league1', provider: 'sleeper', season: DATABASE_SEASON,
+      seasonType: 'reg', throughWeek: 1, provisionalWeek: null,
+      scorerVersion: 'sleeper-actual-v1',
+    })).resolves.toMatchObject({
+      status: 'published', throughWeek: 1,
+      metrics: [expect.objectContaining({ totalFantasyPoints: 4, pointsPerGame: 4 })],
+    });
   });
 
   it('rejects self-consistent official points that omit an authoritative roster', async () => {
@@ -923,14 +991,16 @@ describe('all-player statistics foundation', () => {
     expect(points).toEqual([{ weight: '4', points: '8.0000' }, { weight: '6', points: '12.0000' }]);
     await expect(store.readAllPlayerPlayerMetrics({
       leagueKey: 'league1', provider: 'sleeper', season: DATABASE_SEASON,
-      seasonType: 'reg', throughWeek: 1, scorerVersion: 'sleeper-actual-v1',
-    })).resolves.toEqual([expect.objectContaining({
-      providerExternalId: 'integration-player-one', totalFantasyPoints: 8,
-      appearanceGameCount: 1, publishedWeekCount: 1, pointsPerGame: 8,
-    }), expect.objectContaining({
-      providerExternalId: 'integration-player-zero', totalFantasyPoints: 0,
-      appearanceGameCount: 0, publishedWeekCount: 1, pointsPerGame: null,
-    })]);
+      seasonType: 'reg', throughWeek: 1, provisionalWeek: null,
+      scorerVersion: 'sleeper-actual-v1',
+    })).resolves.toMatchObject({
+      status: 'published', throughWeek: 1,
+      metrics: [expect.objectContaining({
+        providerExternalId: 'integration-player-one', totalFantasyPoints: 8,
+        appearanceGameCount: 1, publishedWeekCount: 1, pointsPerGame: 8,
+        positionRank: 1,
+      })],
+    });
   });
 
   it('serializes concurrent replay and rolls back an equal-time conflicting correction', async () => {

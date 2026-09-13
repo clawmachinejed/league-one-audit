@@ -7,15 +7,25 @@ import { ordinal, rosterCacheKey, RosterContent } from './rosters-view';
 const data: RostersData = {
   league: { season: '2026', rosterPositions: ['QB', 'BN'], week: 3, maxWeek: 18 },
   week: 3, currentWeek: 3, rostersAvailable: true, updatedAt: '2026-09-08T12:00:00.000Z',
+  playerMetrics: { status: 'provisional', observedAt: '2026-09-08T12:00:00.000Z', throughWeek: 3 },
   teams: [{
     id: 2, name: 'A Team Name That Can Wrap Safely', managerName: 'Manager Name', avatar: null,
     wins: 6, losses: 2, ties: 0, pointsFor: 899,
     waiverOrder: null, waiverBudgetRemaining: null, standingsRank: 2, averagePpg: 112.4, averagePpgRank: 4,
     rosterAvailable: true, sections: [{ name: 'Starters', players: [{
-      id: 'qb', name: 'An Exceptionally Long Quarterback Name', position: 'QB', nflTeam: 'IND', injuryStatus: 'Questionable',
+      id: '5859', name: 'A.J. Brown', position: 'WR', nflTeam: 'PHI', injuryStatus: 'Questionable',
       game: { kind: 'scheduled', opponent: 'HOU', location: 'away', date: '2026-09-13', kickoffAt: '2026-09-13T17:00:00.000Z' },
-      slot: 'QB', byeWeek: 12,
-    }] }, { name: 'Bench', players: [] }],
+      slot: 'WR', byeWeek: 12, positionRank: 1, ppg: 4.1,
+    }] }, { name: 'Bench', players: [{
+      id: '7527', name: 'Mac Jones', position: 'QB', nflTeam: 'SF', injuryStatus: null,
+      game: null, slot: 'BN', byeWeek: 14, positionRank: null, ppg: null,
+    }, {
+      id: '12529', name: 'TreVeyon Henderson', position: 'RB', nflTeam: 'NE', injuryStatus: null,
+      game: null, slot: 'BN', byeWeek: 14, positionRank: null, ppg: 0,
+    }, {
+      id: 'wide-rank', name: 'Long Rank Example', position: 'WR', nflTeam: 'IND', injuryStatus: null,
+      game: null, slot: 'BN', byeWeek: 11, positionRank: 125, ppg: -12.4,
+    }] }],
   }, {
     id: 1, name: 'First Place', managerName: 'Other Manager', avatar: null,
     wins: 7, losses: 1, ties: 0, pointsFor: 920,
@@ -30,15 +40,25 @@ describe('rosters presentation', () => {
       .toEqual(['1st', '2nd', '3rd', '4th', '11th', '—']);
   });
 
-  it('shows team headings once and the BYE heading once per section', () => {
+  it('shows player metric headings once per section and compact values only in expanded content', () => {
     const html = renderToStaticMarkup(<RosterContent data={data} selected={2} />);
     expect(html.match(/>TEAM</gu)).toHaveLength(1);
     expect(html.match(/>RECORD</gu)).toHaveLength(1);
     expect(html.match(/>AVG PPG</gu)).toHaveLength(1);
+    expect(html.match(/>POS\. RANK</gu)).toHaveLength(2);
+    expect(html.match(/>PPG</gu)).toHaveLength(2);
     expect(html.match(/>BYE</gu)).toHaveLength(2);
+    expect(html).toContain('>WR1<');
+    expect(html).toContain('>4.1<');
+    expect(html).toContain('>WR125<');
+    expect(html).toContain('>-12.4<');
+    expect(html).toContain('Points per game unavailable');
+    expect(html).not.toContain('>0.0<');
     expect(html).toContain('>12<');
     expect(html).toContain('Sun 1:00 PM @ HOU');
-    expect(html).not.toMatch(/projected|time remaining|live game clock|position rank/iu);
+    expect(html).not.toMatch(/projected|time remaining|live game clock/iu);
+    const firstSummary = html.match(/<button[^>]*data-roster-toggle="true"[^>]*>.*?<\/button>/su)?.[0] ?? '';
+    expect(firstSummary).not.toMatch(/POS\. RANK|WR1|4\.1/gu);
   });
 
   it('puts My Team first, retains its ranks, and starts every roster collapsed', () => {
@@ -74,5 +94,7 @@ describe('rosters presentation', () => {
     expect(css).toMatch(/\.teamName\{[^}]*text-wrap:balance;overflow-wrap:anywhere/gu);
     expect(css).not.toMatch(/\.teamName\{[^}]*(?:text-overflow:ellipsis|white-space:nowrap)/gu);
     expect(css).toMatch(/\.managerMeta :global\(\.avatar\)\{width:14px;height:14px/gu);
+    expect(css).toContain('grid-template-columns:32px minmax(0,1fr) 48px 42px 30px');
+    expect(css).toContain('font-variant-numeric:tabular-nums');
   });
 });

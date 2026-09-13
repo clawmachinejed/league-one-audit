@@ -2,101 +2,244 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('server-only', () => ({}));
 
+import type { DatabaseRow } from '../../../database';
 import { createFakeProjectionDatabase } from '../../../projection-store-test-support';
+import { foundationFixture } from '../../../../test-support/all-player-foundation-fixture';
+import { scoreSparseStatistics } from '../../domain/scoring';
+import { SLEEPER_ALL_PLAYER_SCORING_RULE_KEYS } from '../sleeper/scoring-profile';
 import { createAllPlayerMetricMethods } from './all-player-metrics';
 
 const profileId = '11111111-1111-4111-8111-111111111111';
+const observedAt = '2026-09-12T03:30:00.000Z';
+const rules = {
+  pass_yd: 0.04, rush_yd: 0.1, rec: 1, rec_yd: 0.1,
+  fgm: 3, sack: 1, fum_lost: -2,
+};
 
-describe('all-player player metrics', () => {
-  it('uses appearances as the PPG denominator and returns no numeric value for zero appearances', async () => {
-    const fake = createFakeProjectionDatabase(() => [{
-      scoring_profile_id: profileId,
-      scoring_entity_id: '22222222-2222-4222-8222-222222222222',
-      provider_external_id: '7527', total_fantasy_points: '0.0000',
-      appearance_game_count: 0, published_week_count: 1,
-      points_per_game: null, denominator_complete: true,
-    }, {
-      scoring_profile_id: profileId,
-      scoring_entity_id: '33333333-3333-4333-8333-333333333333',
-      provider_external_id: '12529', total_fantasy_points: '0.0000',
-      appearance_game_count: 0, published_week_count: 1,
-      points_per_game: null, denominator_complete: true,
-    }, {
-      scoring_profile_id: profileId,
-      scoring_entity_id: '44444444-4444-4444-8444-444444444444',
-      provider_external_id: '5859', total_fantasy_points: '4.1000',
-      appearance_game_count: 1, published_week_count: 1,
-      points_per_game: '4.1000000000000000', denominator_complete: true,
-    }, {
-      scoring_profile_id: profileId,
-      scoring_entity_id: '55555555-5555-4555-8555-555555555555',
-      provider_external_id: 'multi-week-player', total_fantasy_points: '18.3000',
-      appearance_game_count: 2, published_week_count: 3,
-      points_per_game: '9.1500000000000000', denominator_complete: true,
-    }]);
-    await expect(createAllPlayerMetricMethods(fake.database).readAllPlayerPlayerMetrics({
-      leagueKey: 'league1', provider: ' Sleeper ', season: 2026,
-      seasonType: 'reg', throughWeek: 3, scorerVersion: 'sleeper-actual-v1',
-    })).resolves.toEqual([{
-      scoringProfileId: profileId,
-      scoringEntityId: '22222222-2222-4222-8222-222222222222',
-      providerExternalId: '7527', totalFantasyPoints: 0,
-      appearanceGameCount: 0, publishedWeekCount: 1, pointsPerGame: null,
-    }, {
-      scoringProfileId: profileId,
-      scoringEntityId: '33333333-3333-4333-8333-333333333333',
-      providerExternalId: '12529', totalFantasyPoints: 0,
-      appearanceGameCount: 0, publishedWeekCount: 1, pointsPerGame: null,
-    }, {
-      scoringProfileId: profileId,
-      scoringEntityId: '44444444-4444-4444-8444-444444444444',
-      providerExternalId: '5859', totalFantasyPoints: 4.1,
-      appearanceGameCount: 1, publishedWeekCount: 1, pointsPerGame: 4.1,
-    }, {
-      scoringProfileId: profileId,
-      scoringEntityId: '55555555-5555-4555-8555-555555555555',
-      providerExternalId: 'multi-week-player', totalFantasyPoints: 18.3,
-      appearanceGameCount: 2, publishedWeekCount: 3, pointsPerGame: 9.15,
-    }]);
+function metadata(overrides: DatabaseRow = {}): DatabaseRow {
+  return {
+    row_kind: 'metadata', scoring_profile_id: profileId, rules,
+    published_week_count: 0, published_through_week: null, published_observed_at: null,
+    partial_week: 1, partial_observed_at: observedAt,
+    ...overrides,
+  };
+}
+
+function published(input: Readonly<{
+  id: string; position: string; points: number; appearances: number;
+  kind?: 'player' | 'team_defense'; entityId?: string;
+}>): DatabaseRow {
+  return {
+    row_kind: 'published', scoring_profile_id: profileId,
+    scoring_entity_id: input.entityId ?? `entity-${input.id}`,
+    provider_external_id: input.id, entity_kind: input.kind ?? 'player', position: input.position,
+    total_fantasy_points: String(input.points),
+    ppg_fantasy_points: input.appearances > 0 ? String(input.points) : '0',
+    appearance_game_count: input.appearances,
+    published_week_count: 1,
+  };
+}
+
+function partial(input: Readonly<{
+  id: string; position: string; stats: Readonly<Record<string, unknown>>;
+  appearance?: number | null; eligible?: number | null;
+  kind?: 'player' | 'team_defense'; entityId?: string;
+}>): DatabaseRow {
+  return {
+    row_kind: 'partial', scoring_profile_id: profileId,
+    scoring_entity_id: input.entityId ?? `entity-${input.id}`,
+    provider_external_id: input.id, entity_kind: input.kind ?? 'player', position: input.position,
+    stats: input.stats,
+    appearance_game_count: input.appearance === undefined ? 1 : input.appearance,
+    eligible_game_count: input.eligible === undefined ? 1 : input.eligible,
+  };
+}
+
+function read(rows: readonly DatabaseRow[], options: {
+  leagueKey?: string; throughWeek?: number; provisionalWeek?: number | null;
+} = {}) {
+  const fake = createFakeProjectionDatabase(() => rows);
+  const result = createAllPlayerMetricMethods(fake.database).readAllPlayerPlayerMetrics({
+    leagueKey: options.leagueKey ?? 'league1', provider: ' Sleeper ', season: 2026,
+    seasonType: 'reg', throughWeek: options.throughWeek ?? 1,
+    provisionalWeek: options.provisionalWeek === undefined ? 1 : options.provisionalWeek,
+    scorerVersion: 'sleeper-actual-v1',
+  });
+  return { fake, result };
+}
+
+describe('all-player roster metrics', () => {
+  it('reads the Production-shaped two-game Week 1 fixture without returning empty inventory rows', async () => {
+    expect(foundationFixture.games.filter((game) => game.phase === 'final')).toHaveLength(2);
+    const scoringRules = foundationFixture.leagues[0].settings.scoring_settings;
+    const fixtureRows: DatabaseRow[] = [metadata({
+      rules: scoringRules,
+      partial_observed_at: foundationFixture.replayObservedAt,
+    })];
+    for (const metricPosition of ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'] as const) {
+      for (const identity of foundationFixture.catalogs[metricPosition]) {
+        const providerExternalId = identity.id;
+        const stats = foundationFixture.weekly[metricPosition === 'DEF'
+          ? `TEAM_${providerExternalId}` : providerExternalId];
+        if (!stats) continue;
+        const score = scoreSparseStatistics(stats, scoringRules, SLEEPER_ALL_PLAYER_SCORING_RULE_KEYS);
+        if (!score.available || score.points === null || score.points === 0) continue;
+        const appeared = stats.gp === 1 || (stats.off_snp ?? 0) > 0
+          || (stats.def_snp ?? 0) > 0 || (stats.st_snp ?? 0) > 0;
+        fixtureRows.push(partial({
+          id: providerExternalId,
+          position: metricPosition,
+          kind: metricPosition === 'DEF' ? 'team_defense' : 'player',
+          stats,
+          appearance: appeared ? 1 : null,
+          eligible: appeared ? 1 : null,
+        }));
+      }
+    }
+    const value = await read(fixtureRows).result;
+    const brown = value.metrics.find((metric) => metric.providerExternalId === '5859');
+    expect(value).toMatchObject({
+      status: 'provisional', throughWeek: 1, observedAt: foundationFixture.replayObservedAt,
+      rowsRead: fixtureRows.length,
+    });
+    expect(fixtureRows).toHaveLength(47);
+    expect(brown).toMatchObject({
+      position: 'WR', totalFantasyPoints: 4.1, appearanceGameCount: 1, pointsPerGame: 4.1,
+    });
+    expect(brown?.positionRank).toBe(9);
+    expect(value.metrics.some((metric) => metric.providerExternalId === '7527')).toBe(false);
+    expect(value.metrics.some((metric) => metric.providerExternalId === '12529')).toBe(false);
+    expect(new Set(value.metrics.map((metric) => metric.position)))
+      .toEqual(new Set(['QB', 'RB', 'WR', 'TE', 'K', 'DEF']));
+    const rostered = new Set(foundationFixture.leagues.flatMap((league) => league.rosters
+      .flatMap((roster) => roster.players)));
+    expect(value.metrics.some((metric) => !rostered.has(metric.providerExternalId))).toBe(true);
+  });
+
+  it('derives provisional ranks and PPG from partial Week 1 without waiting for completion', async () => {
+    const { fake, result } = read([
+      metadata(),
+      partial({ id: '5859', position: 'WR', stats: { rec: 3, rec_yd: 11 } }),
+      partial({ id: 'unrostered-wr', position: 'WR', stats: { rec: 2, rec_yd: 25 } }),
+    ]);
+    await expect(result).resolves.toMatchObject({
+      status: 'provisional', observedAt, throughWeek: 1, rowsRead: 3,
+      metrics: expect.arrayContaining([
+        expect.objectContaining({ providerExternalId: '5859', positionRank: 2, pointsPerGame: 4.1 }),
+        expect.objectContaining({ providerExternalId: 'unrostered-wr', positionRank: 1, pointsPerGame: 4.5 }),
+      ]),
+    });
     expect(fake.calls).toHaveLength(1);
     expect(fake.calls[0].parameters).toEqual([
-      'league1', 'sleeper', 2026, 'reg', 3, 'sleeper-actual-v1',
+      'league1', 'sleeper', 2026, 'reg', 1, 'sleeper-actual-v1', 1,
     ]);
-    expect(fake.calls[0].statement).toContain('JOIN current_all_player_score_sets pointer');
-    expect(fake.calls[0].statement).toContain("score.entity_kind = 'player'");
-    expect(fake.calls[0].statement).toContain('sum(score.appearance_game_count)');
+    expect(fake.calls[0].statement).toContain("observation.quality = 'partial'");
+    expect(fake.calls[0].statement).toContain('ORDER BY observation.observed_at DESC');
+    expect(fake.calls[0].statement).toContain('NOT EXISTS');
+    expect(fake.calls[0].statement).toContain('score.fantasy_points <> 0 OR score.appearance_game_count = 1');
+    expect(fake.calls[0].statement).not.toContain("score.entity_kind = 'player'");
   });
 
-  it('rejects a numeric PPG when the appearance denominator is zero', async () => {
-    const fake = createFakeProjectionDatabase(() => [{
-      scoring_profile_id: profileId,
-      scoring_entity_id: '22222222-2222-4222-8222-222222222222',
-      provider_external_id: '7527', total_fantasy_points: '0',
-      appearance_game_count: 0, published_week_count: 1,
-      points_per_game: '0', denominator_complete: true,
-    }]);
-    await expect(createAllPlayerMetricMethods(fake.database).readAllPlayerPlayerMetrics({
-      leagueKey: 'league1', provider: 'sleeper', season: 2026,
-      seasonType: 'reg', throughWeek: 1, scorerVersion: 'sleeper-actual-v1',
-    })).rejects.toThrow('denominator and value disagree');
+  it('uses standard competition ranks, exact totals, deterministic tie ordering, and keeps negatives rankable', async () => {
+    const { result } = read([
+      metadata({ published_week_count: 1, published_through_week: 1, published_observed_at: observedAt,
+        partial_week: null, partial_observed_at: null }),
+      published({ id: 'winner', position: 'WR', points: 20, appearances: 1 }),
+      published({ id: 'tie-z', position: 'WR', points: 10, appearances: 1 }),
+      published({ id: 'tie-a', position: 'WR', points: 10, appearances: 1 }),
+      published({ id: 'negative', position: 'WR', points: -2, appearances: 1 }),
+      published({ id: 'zero', position: 'WR', points: 0, appearances: 1 }),
+    ], { provisionalWeek: null });
+    const value = await result;
+    expect(value.status).toBe('published');
+    expect(value.metrics.filter((metric) => metric.position === 'WR').map((metric) => ({
+      id: metric.providerExternalId, rank: metric.positionRank, ppg: metric.pointsPerGame,
+    }))).toEqual([
+      { id: 'winner', rank: 1, ppg: 20 },
+      { id: 'tie-a', rank: 2, ppg: 10 },
+      { id: 'tie-z', rank: 2, ppg: 10 },
+      { id: 'negative', rank: 4, ppg: -2 },
+    ]);
   });
 
-  it('rejects a partial denominator and invalid query bounds', async () => {
-    const partial = createFakeProjectionDatabase(() => [{
-      scoring_profile_id: profileId,
-      scoring_entity_id: '22222222-2222-4222-8222-222222222222',
-      provider_external_id: '7527', total_fantasy_points: '0',
-      appearance_game_count: 0, published_week_count: 1,
-      points_per_game: null, denominator_complete: false,
-    }]);
-    const reader = createAllPlayerMetricMethods(partial.database);
+  it('ranks QB, RB, WR, TE, K, and team defense populations independently', async () => {
+    const { result } = read([
+      metadata(),
+      partial({ id: 'qb', position: 'QB', stats: { pass_yd: 25 } }),
+      partial({ id: 'rb', position: 'RB', stats: { rush_yd: 10 } }),
+      partial({ id: 'wr', position: 'WR', stats: { rec_yd: 10 } }),
+      partial({ id: 'te', position: 'TE', stats: { rec: 1 } }),
+      partial({ id: 'k', position: 'K', stats: { fgm: 1 } }),
+      partial({ id: 'PHI', position: 'DEF', kind: 'team_defense', stats: { sack: 1 } }),
+    ]);
+    const value = await result;
+    expect(value.metrics.map((metric) => [metric.position, metric.positionRank]))
+      .toEqual([['DEF', 1], ['K', 1], ['QB', 1], ['RB', 1], ['TE', 1], ['WR', 1]]);
+  });
+
+  it('withholds zero, conflicting participation, and missing identity evidence while preserving unknown PPG semantics', async () => {
+    const { result } = read([
+      metadata({ published_week_count: 1, published_through_week: 1, published_observed_at: observedAt,
+        partial_week: 1, partial_observed_at: observedAt }),
+      published({ id: 'known', position: 'WR', points: 10, appearances: 1 }),
+      partial({ id: 'known', position: 'WR', stats: { rec: 5 }, appearance: null, eligible: null }),
+      partial({ id: 'zero', position: 'WR', stats: { rec: 0 } }),
+      partial({ id: 'conflict', position: 'WR', stats: { rec: 2 }, appearance: 0, eligible: 0 }),
+      partial({ id: 'malformed', position: 'WR', stats: { rec: 'not-a-number' } }),
+    ]);
+    const value = await result;
+    expect(value.metrics.find((metric) => metric.providerExternalId === 'known')).toMatchObject({
+      totalFantasyPoints: 15, appearanceGameCount: 1, pointsPerGame: 10,
+    });
+    expect(value.metrics.some((metric) => ['zero', 'conflict', 'malformed']
+      .includes(metric.providerExternalId))).toBe(false);
+  });
+
+  it('combines completed totals with a current partial week exactly once', async () => {
+    const { result } = read([
+      metadata({ published_week_count: 1, published_through_week: 1,
+        published_observed_at: '2026-09-08T03:00:00.000Z', partial_week: 2 }),
+      published({ id: 'combo', position: 'RB', points: 7, appearances: 1 }),
+      partial({ id: 'combo', position: 'RB', stats: { rush_yd: 30 } }),
+    ], { throughWeek: 2, provisionalWeek: 2 });
+    await expect(result).resolves.toMatchObject({
+      status: 'provisional', throughWeek: 2,
+      metrics: [expect.objectContaining({
+        providerExternalId: 'combo', totalFantasyPoints: 10,
+        appearanceGameCount: 2, pointsPerGame: 5,
+      })],
+    });
+  });
+
+  it('calculates each league independently from its exact scoring profile', async () => {
+    const rowsFor = (scoringRules: DatabaseRow['rules']) => [
+      metadata({ rules: scoringRules }),
+      partial({ id: 'catcher', position: 'WR', stats: { rec: 1 } }),
+      partial({ id: 'yardage', position: 'WR', stats: { rec_yd: 15 } }),
+    ];
+    const leagueOne = await read(rowsFor({ rec: 1, rec_yd: 0.1 }), { leagueKey: 'league1' }).result;
+    const leagueTwo = await read(rowsFor({ rec: 2, rec_yd: 0.1 }), { leagueKey: 'league2' }).result;
+    expect(leagueOne.metrics.find((metric) => metric.providerExternalId === 'yardage')?.positionRank).toBe(1);
+    expect(leagueTwo.metrics.find((metric) => metric.providerExternalId === 'catcher')?.positionRank).toBe(1);
+  });
+
+  it('fails softly at the read model boundary when no scoring profile is available', async () => {
+    await expect(read([]).result).resolves.toEqual({
+      status: 'unavailable', observedAt: null, throughWeek: null, rowsRead: 0, metrics: [],
+    });
+  });
+
+  it('rejects invalid temporal bounds before database work', async () => {
+    const fake = createFakeProjectionDatabase();
+    const reader = createAllPlayerMetricMethods(fake.database);
     await expect(reader.readAllPlayerPlayerMetrics({
-      leagueKey: 'league1', provider: 'sleeper', season: 2026,
-      seasonType: 'reg', throughWeek: 1, scorerVersion: 'sleeper-actual-v1',
-    })).rejects.toThrow('denominator is incomplete');
-    await expect(reader.readAllPlayerPlayerMetrics({
-      leagueKey: 'league1', provider: 'sleeper', season: 2026,
-      seasonType: 'reg', throughWeek: 0, scorerVersion: 'sleeper-actual-v1',
+      leagueKey: 'league1', provider: 'sleeper', season: 2026, seasonType: 'reg',
+      throughWeek: 0, provisionalWeek: null, scorerVersion: 'sleeper-actual-v1',
     })).rejects.toThrow('through week is invalid');
+    await expect(reader.readAllPlayerPlayerMetrics({
+      leagueKey: 'league1', provider: 'sleeper', season: 2026, seasonType: 'reg',
+      throughWeek: 1, provisionalWeek: 2, scorerVersion: 'sleeper-actual-v1',
+    })).rejects.toThrow('exceeds the through-week boundary');
+    expect(fake.calls).toHaveLength(0);
   });
 });

@@ -257,10 +257,21 @@ export type StoredAllPlayerPlayerMetric = Readonly<{
   scoringProfileId: string;
   scoringEntityId: string;
   providerExternalId: string;
+  entityKind: ScoringEntityKind;
+  position: 'QB' | 'RB' | 'WR' | 'TE' | 'K' | 'DEF';
   totalFantasyPoints: number;
   appearanceGameCount: number;
   publishedWeekCount: number;
   pointsPerGame: number | null;
+  positionRank: number;
+}>;
+
+export type StoredAllPlayerMetricRead = Readonly<{
+  status: 'published' | 'provisional' | 'unavailable';
+  observedAt: string | null;
+  throughWeek: number | null;
+  rowsRead: number;
+  metrics: readonly StoredAllPlayerPlayerMetric[];
 }>;
 
 export type PlayerProjectionRecord = Readonly<{
@@ -674,8 +685,9 @@ export type ProjectionStore = LineupWatchMethods & LineupAcknowledgmentMethods &
     season: number;
     seasonType: SeasonType;
     throughWeek: number;
+    provisionalWeek: number | null;
     scorerVersion: string;
-  }>) => Promise<readonly StoredAllPlayerPlayerMetric[]>;
+  }>) => Promise<StoredAllPlayerMetricRead>;
   acquireAllPlayerJob: (input: Readonly<{
     mode: 'shadow' | 'backfill' | 'recurring';
     period: AllPlayerJobPeriod;

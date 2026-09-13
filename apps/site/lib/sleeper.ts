@@ -27,7 +27,7 @@ import type { LeagueTransactionsData, ManagerData, MatchupsData, OverviewData, P
 import type { LeagueKey } from './leagues';
 import { normalizeLeagueTransactions } from './league-transactions';
 import { matchupTemporalState, type MatchupPeriodContext } from './matchup-period';
-import { calculateTeamPpg, compareRosterStandings, rosterHistoryBoundary } from './roster-metrics';
+import { calculateTeamPpg, compareRosterStandings, playerMetricBoundary, rosterHistoryBoundary } from './roster-metrics';
 import { canonicalNflTeam } from './nfl-teams';
 import { startingSlots } from './sleeper-lineup';
 import {
@@ -629,22 +629,41 @@ function rosterPlayer(
     game: canDecorate && nflTeam ? schedule[nflTeam] ?? null : null,
     slot,
     byeWeek: canDecorate && nflTeam ? byeWeeks[nflTeam] ?? null : null,
+    positionRank: null,
+    ppg: null,
   };
 }
 
+export type RosterMetricContext = Readonly<{
+  season: number | null;
+  seasonType: 'reg';
+  throughWeek: number | null;
+  provisionalWeek: number | null;
+}>;
+
+export type RostersLoad = Readonly<{
+  data: RostersData;
+  metricContext: RosterMetricContext;
+}>;
+
 /** One bounded league/week load supplies every expandable roster card. */
-export async function getRosters(leagueId: string, requestedWeek?: number): Promise<RostersData> {
+export async function getRostersWithMetricContext(
+  leagueId: string,
+  requestedWeek?: number,
+): Promise<RostersLoad> {
   const core = await getRosterCore(leagueId);
   const selectedWeek = requestedWeek === undefined ? core.overview.league.week
     : Number.isInteger(requestedWeek) && requestedWeek >= 1 && requestedWeek <= core.overview.league.maxWeek
       ? requestedWeek : core.overview.league.week;
   const lifecycle = sleeperLeagueLifecycle(core.sourceLeague, core.state);
-  const historyThrough = rosterHistoryBoundary({
+  const boundaryInput = {
     selectedWeek,
     activeWeek: sleeperActiveScoringWeek(core.sourceLeague, core.state),
     lastScoredWeek: lastScoredWeek(core.sourceLeague),
     lifecycle,
-  });
+  } as const;
+  const historyThrough = rosterHistoryBoundary(boundaryInput);
+  const metricBoundary = playerMetricBoundary(boundaryInput);
   const canDecorate = canDecorateMatchupWeek(core.sourceLeague, core.state, selectedWeek);
   const [selectedObservation, history, players, nflSchedule] = await Promise.all([
     getCachedRosterWeek(leagueId, selectedWeek),
@@ -727,11 +746,12 @@ export async function getRosters(leagueId: string, requestedWeek?: number): Prom
     };
   });
   const historyProblems = [...new Set([...history.failedWeeks, ...history.malformedWeeks])].sort((a, b) => a - b);
-  return {
+  const data: RostersData = {
     league: core.overview.league,
     week: selectedWeek,
     currentWeek: core.overview.league.week,
     rostersAvailable: teams.some((team) => team.rosterAvailable),
+    playerMetrics: { status: 'unavailable', observedAt: null, throughWeek: null },
     teams,
     updatedAt: selectedObservation.requestCompletedAt,
     warning: joinWarnings(core.overview.warning, players.warning, nflSchedule.warning,
@@ -740,6 +760,19 @@ export async function getRosters(leagueId: string, requestedWeek?: number): Prom
       historyThrough === null ? 'Sleeper did not identify the last completed scoring week; team averages are unavailable.' : undefined,
       historyProblems.length ? `Official scoring history could not be proved for week${historyProblems.length === 1 ? '' : 's'} ${historyProblems.join(', ')}; affected averages and rankings are unavailable.` : undefined),
   };
+  const season = Number(core.sourceLeague.season);
+  return {
+    data,
+    metricContext: {
+      season: Number.isSafeInteger(season) && season >= 1920 && season <= 2200 ? season : null,
+      seasonType: 'reg',
+      ...metricBoundary,
+    },
+  };
+}
+
+export async function getRosters(leagueId: string, requestedWeek?: number): Promise<RostersData> {
+  return (await getRostersWithMetricContext(leagueId, requestedWeek)).data;
 }
 
 type MatchupSourceOptions = Readonly<{

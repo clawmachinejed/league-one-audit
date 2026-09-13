@@ -69,7 +69,9 @@ export function createDisabledProjectionStore(): ProjectionStore {
     async recordAllPlayerBatch() {
       return { kind: 'disabled' };
     },
-    async readAllPlayerPlayerMetrics() { return []; },
+    async readAllPlayerPlayerMetrics() {
+      return { status: 'unavailable', observedAt: null, throughWeek: null, rowsRead: 0, metrics: [] };
+    },
     async acquireAllPlayerJob() { return { kind: 'disabled' }; },
     async readAllPlayerJobState() { return null; },
     async validateAllPlayerJobFence() { return false; },
