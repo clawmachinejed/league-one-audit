@@ -7,6 +7,7 @@ import {
 } from '../lib/projection-store';
 import { buildAllPlayerScoreSets, type AllPlayerScoringProfile, type AllPlayerStatObservation }
   from '../lib/projections/domain/all-player-statistics';
+import { scoreSparseStatistics } from '../lib/projections/domain/scoring';
 import { NFL_TEAM_CODES } from '../lib/projections/domain/contracts';
 import { SLEEPER_ALL_PLAYER_SCORING_RULE_KEYS } from '../lib/projections/adapters/sleeper/scoring-profile';
 import type { AllPlayerJobFence } from '../lib/projections/adapters/neon/contracts';
@@ -16,6 +17,7 @@ import { runSyntheticCompleteCapacity } from './all-player-synthetic-capacity';
 import { rulesHash } from '../lib/projections/adapters/neon/database-values';
 import {
   createIndependentDatabase,
+  createPinnedIntegrationDatabase,
   ownerQuery,
   runtimeQuery as unfencedRuntimeQuery,
   type IndependentDatabase,
@@ -522,28 +524,281 @@ describe('all-player statistics foundation', () => {
   it('derives player total points and PPG from current pointers with profile isolation', async () => {
     const leagueOne = await store.readAllPlayerPlayerMetrics({
       leagueKey: 'league1', provider: 'sleeper', season: DATABASE_SEASON,
-      seasonType: 'reg', throughWeek: 1, scorerVersion: 'sleeper-actual-v1',
-    });
+      seasonType: 'reg', throughWeek: 1, provisionalWeek: null,
+      scorerVersion: 'sleeper-actual-v1',
+    }, scoreSparseStatistics);
     const leagueTwo = await store.readAllPlayerPlayerMetrics({
       leagueKey: 'league2', provider: 'sleeper', season: DATABASE_SEASON,
-      seasonType: 'reg', throughWeek: 1, scorerVersion: 'sleeper-actual-v1',
+      seasonType: 'reg', throughWeek: 1, provisionalWeek: null,
+      scorerVersion: 'sleeper-actual-v1',
+    }, scoreSparseStatistics);
+    expect(leagueOne).toMatchObject({
+      status: 'published', throughWeek: 1,
+      metrics: [{
+        scoringProfileId: profileIds[0],
+        scoringEntityId: entityIds['integration-player-one'],
+        providerExternalId: 'integration-player-one', entityKind: 'player', position: 'QB',
+        totalFantasyPoints: 4, appearanceGameCount: 1, publishedWeekCount: 1,
+        pointsPerGame: 4, positionRank: 1,
+      }],
     });
-    expect(leagueOne).toEqual([{
-      scoringProfileId: profileIds[0],
-      scoringEntityId: entityIds['integration-player-one'],
-      providerExternalId: 'integration-player-one', totalFantasyPoints: 4,
-      appearanceGameCount: 1, publishedWeekCount: 1, pointsPerGame: 4,
-    }, {
-      scoringProfileId: profileIds[0],
-      scoringEntityId: entityIds['integration-player-zero'],
-      providerExternalId: 'integration-player-zero', totalFantasyPoints: 0,
-      appearanceGameCount: 0, publishedWeekCount: 1, pointsPerGame: null,
-    }]);
-    expect(leagueTwo).toEqual([{
-      ...leagueOne[0], scoringProfileId: profileIds[1], totalFantasyPoints: 6, pointsPerGame: 6,
-    }, {
-      ...leagueOne[1], scoringProfileId: profileIds[1],
-    }]);
+    expect(leagueTwo).toMatchObject({
+      status: 'published', throughWeek: 1,
+      metrics: [{
+        scoringProfileId: profileIds[1],
+        providerExternalId: 'integration-player-one',
+        totalFantasyPoints: 6, pointsPerGame: 6, positionRank: 1,
+      }],
+    });
+  });
+
+  it('combines published totals with only the newest compact partial-week correction', async () => {
+    for (const [index, passTouchdowns] of [1, 2].entries()) {
+      const observedAt = `2026-09-16T00:0${index}:01.000Z`;
+      await ownerQuery(`WITH content AS (
+        INSERT INTO all_player_stat_contents (
+          id,provider,season,season_type,week,normalizer_version,semantic_hash,
+          quality,coverage,warnings,entry_count
+        ) VALUES (
+          gen_random_uuid(),'sleeper',$1::smallint,'reg',2,'sleeper-weekly-stats-v4',
+          repeat($2,64),'partial','{"complete":false}'::jsonb,'[]'::jsonb,1
+        ) RETURNING id
+      ), entry AS (
+        INSERT INTO all_player_stat_entries (
+          all_player_stat_content_id,entity_kind,provider_external_id,nfl_game_id,
+          nfl_team,position,stats,eligibility_evidence,eligible_game_count,
+          appearance_game_count,game_phase,ordinal
+        ) SELECT id,'player','integration-player-one',$3::uuid,'NE','QB',
+          jsonb_build_object('gms_active',1,'gp',1,'pass_td',$4::integer),
+          '{"kind":"weekly-stat","source":"weekly-stat-provider","gmsActive":1,"appearances":1}'::jsonb,
+          1,1,'final',0 FROM content
+        RETURNING all_player_stat_content_id
+      ) INSERT INTO all_player_stat_observations (
+        id,all_player_stat_content_id,provider,season,season_type,week,normalizer_version,
+        source_revision,request_started_at,request_completed_at,observed_at,quality
+      ) SELECT gen_random_uuid(),id,'sleeper',$1::smallint,'reg',2,'sleeper-weekly-stats-v4',
+        $5,$6::timestamptz - interval '1 second',$6::timestamptz,$6::timestamptz,'partial'
+        FROM content
+        JOIN entry ON entry.all_player_stat_content_id = content.id`, [DATABASE_SEASON, String(index + 1), wrongWeekGameId,
+        passTouchdowns, `etag:partial-week2-${index + 1}`, observedAt]);
+    }
+    const leagueOne = await store.readAllPlayerPlayerMetrics({
+      leagueKey: 'league1', provider: 'sleeper', season: DATABASE_SEASON,
+      seasonType: 'reg', throughWeek: 2, provisionalWeek: 2,
+      scorerVersion: 'sleeper-actual-v1',
+    }, scoreSparseStatistics);
+    expect(leagueOne).toMatchObject({
+      status: 'provisional', throughWeek: 2, observedAt: '2026-09-16T00:01:01.000Z',
+      rowsRead: 5,
+      metrics: [expect.objectContaining({
+        providerExternalId: 'integration-player-one', totalFantasyPoints: 12,
+        appearanceGameCount: 2, pointsPerGame: 6, positionRank: 1,
+      })],
+    });
+    await expect(store.readAllPlayerPlayerMetrics({
+      leagueKey: 'league2', provider: 'sleeper', season: DATABASE_SEASON,
+      seasonType: 'reg', throughWeek: 2, provisionalWeek: 2,
+      scorerVersion: 'sleeper-actual-v1',
+    }, scoreSparseStatistics)).resolves.toMatchObject({
+      status: 'provisional', throughWeek: 2,
+      metrics: [expect.objectContaining({
+        providerExternalId: 'integration-player-one', totalFantasyPoints: 18,
+        appearanceGameCount: 2, pointsPerGame: 9, positionRank: 1,
+      })],
+    });
+    await expect(store.readAllPlayerPlayerMetrics({
+      leagueKey: 'league1', provider: 'sleeper', season: DATABASE_SEASON,
+      seasonType: 'reg', throughWeek: 1, provisionalWeek: null,
+      scorerVersion: 'sleeper-actual-v1',
+    }, scoreSparseStatistics)).resolves.toMatchObject({
+      status: 'published', throughWeek: 1,
+      metrics: [expect.objectContaining({ totalFantasyPoints: 4, pointsPerGame: 4 })],
+    });
+  });
+
+  it.each([
+    { label: 'a zero-point partial appearance after published points', publishedTouchdowns: 1, partialTouchdowns: 0 },
+    { label: 'a published zero-point appearance before partial points', publishedTouchdowns: 0, partialTouchdowns: 1 },
+  ])('counts $label in cumulative PPG', async ({ publishedTouchdowns, partialTouchdowns }) => {
+    const transaction = await createPinnedIntegrationDatabase('owner');
+    const saved = { store, fence, leagueSeasonIds, profileIds, profileWeights, parityExternalGameId };
+    const metricSeason = 2200;
+    const period = { season: metricSeason, seasonType: 'reg' as const, week: 1 };
+    try {
+      await transaction.database.query('BEGIN');
+      store = createProjectionStore(transaction.database);
+      await transaction.database.query('DELETE FROM projection_jobs WHERE job_key = $1', [fence.jobKey]);
+      const claim = await store.acquireAllPlayerJob({ mode: 'backfill', period,
+        workerId: 'zero-point-ppg-regression', leaseSeconds: 60,
+        deadlineAt: new Date(Date.now() + 55_000).toISOString(),
+      });
+      if (claim.kind !== 'acquired') throw new Error('The isolated PPG claim was not acquired.');
+      fence = claim.fence;
+      expect(await store.markAllPlayerRequest({ fence, period })).toBe(true);
+      const registered = await Promise.all(['one', 'two'].map(async (suffix, index) => stored(
+        await store.registerLeagueSeason({ leagueKey: `league${index + 1}`,
+          leagueName: `Zero Point PPG ${suffix}`, season: metricSeason,
+          sleeperLeagueId: `zero-point-ppg-${suffix}`, scoringRules: { pass_td: 10 },
+        }),
+      )));
+      leagueSeasonIds = registered.map((league) => league.leagueSeasonId);
+      profileIds = registered.map((league) => league.scoringProfileId);
+      profileWeights = [10, 10];
+      await transaction.database.query(`UPDATE league_period_authorities SET
+        default_season = $1, active_season = $1,
+        source_revision = 'zero-point-ppg-authority',
+        source_external_league_id = CASE league_key WHEN 'league1' THEN 'zero-point-ppg-one'
+          ELSE 'zero-point-ppg-two' END
+        WHERE league_key IN ('league1', 'league2')`, [metricSeason]);
+      parityExternalGameId = 'zero-point-ppg-week1-game';
+      const games = stored(await store.upsertNflGames([1, 2].map((week) => ({
+        key: `zero-point-ppg-week${week}-game`, provider: 'tank01' as const,
+        externalGameId: `zero-point-ppg-week${week}-game`, season: metricSeason,
+        seasonType: 'reg' as const, week, homeTeam: 'NE', awayTeam: 'ATL',
+        kickoffAt: week === 1 ? '2026-09-13T17:00:00.000Z' : '2026-09-20T17:00:00.000Z',
+      }))));
+      const source = observation(publishedTouchdowns, 'etag:zero-point-ppg-published', '2026-09-15T00:00:01.000Z');
+      const published: AllPlayerStatObservation = {
+        ...source, season: metricSeason,
+        coverage: { ...source.coverage, periodInventoryEvidence: {
+          ...(source.coverage.periodInventoryEvidence as Record<string, unknown>), effectivePeriod: period,
+        } },
+        entries: source.entries.map((entry) => ({
+          ...entry, nflGameId: entry.nflGameId ? games[0].gameId : null,
+          eligibilityEvidence: entry.eligibilityEvidence.kind === 'explicit-ineligible'
+            ? { ...entry.eligibilityEvidence, effectivePeriod: period } : entry.eligibilityEvidence,
+        })),
+      };
+      expect(stored(await store.recordAllPlayerBatch(await batch(published))).scoreSets)
+        .toEqual([expect.objectContaining({ pointerOutcome: 'advanced' })]);
+      await transaction.database.query(`WITH content AS (
+        INSERT INTO all_player_stat_contents (
+          id,provider,season,season_type,week,normalizer_version,semantic_hash,
+          quality,coverage,warnings,entry_count
+        ) VALUES (
+          gen_random_uuid(),'sleeper',$1::smallint,'reg',2,'sleeper-weekly-stats-v4',
+          repeat('e',64),'partial',$4::jsonb,'[]'::jsonb,1
+        ) RETURNING id
+      ), entry AS (
+        INSERT INTO all_player_stat_entries (
+          all_player_stat_content_id,entity_kind,provider_external_id,nfl_game_id,
+          nfl_team,position,stats,eligibility_evidence,eligible_game_count,
+          appearance_game_count,game_phase,ordinal
+        ) SELECT id,'player','integration-player-one',$2::uuid,'NE','QB',
+          jsonb_build_object('gms_active',1,'gp',1,'pass_td',$3::integer),
+          '{"kind":"weekly-stat","source":"weekly-stat-provider","gmsActive":1,"appearances":1}'::jsonb,
+          1,1,'final',0 FROM content RETURNING all_player_stat_content_id
+      ) INSERT INTO all_player_stat_observations (
+        id,all_player_stat_content_id,provider,season,season_type,week,normalizer_version,
+        source_revision,request_started_at,request_completed_at,observed_at,quality
+      ) SELECT gen_random_uuid(),id,'sleeper',$1::smallint,'reg',2,'sleeper-weekly-stats-v4',
+        'etag:zero-point-ppg-partial','2026-09-16T00:00:00Z','2026-09-16T00:00:01Z',
+        '2026-09-16T00:00:01Z','partial' FROM content
+        JOIN entry ON entry.all_player_stat_content_id = content.id`,
+      [metricSeason, games[1].gameId, partialTouchdowns, JSON.stringify({
+        complete: false, rankUnavailablePositions: publishedTouchdowns === 0 ? ['QB'] : [],
+      })]);
+      for (const leagueKey of ['league1', 'league2']) {
+        await expect(store.readAllPlayerPlayerMetrics({ leagueKey, provider: 'sleeper',
+          season: metricSeason, seasonType: 'reg', throughWeek: 2, provisionalWeek: 2,
+          scorerVersion: 'sleeper-actual-v1',
+        }, scoreSparseStatistics)).resolves.toMatchObject({
+          status: 'provisional', throughWeek: 2, observedAt: '2026-09-16T00:00:01.000Z',
+          metrics: [expect.objectContaining({ providerExternalId: 'integration-player-one',
+            totalFantasyPoints: 10, appearanceGameCount: 2, publishedWeekCount: 1,
+            pointsPerGame: 5, positionRank: publishedTouchdowns === 0 ? null : 1,
+          })],
+        });
+      }
+    } finally {
+      store = saved.store; fence = saved.fence; leagueSeasonIds = saved.leagueSeasonIds;
+      profileIds = saved.profileIds; profileWeights = saved.profileWeights;
+      parityExternalGameId = saved.parityExternalGameId;
+      try { await transaction.database.query('ROLLBACK'); } finally { await transaction.close(); }
+    }
+  });
+
+  it('retains each partial week across rollover, applies per-week corrections, and detects missing history', async () => {
+    const transaction = await createPinnedIntegrationDatabase('owner');
+    try {
+      await transaction.database.query('BEGIN');
+      const reader = createProjectionStore(transaction.database);
+      const insertPartialWeekOne = async (passTouchdowns: number, revision: number) => {
+        await transaction.database.query(`WITH content AS (
+          INSERT INTO all_player_stat_contents (
+            id,provider,season,season_type,week,normalizer_version,semantic_hash,
+            quality,coverage,warnings,entry_count
+          ) VALUES (
+            gen_random_uuid(),'sleeper',$1::smallint,'reg',1,'sleeper-weekly-stats-v4',
+            repeat($2,64),'partial','{"complete":false}'::jsonb,'[]'::jsonb,1
+          ) RETURNING id
+        ), entry AS (
+          INSERT INTO all_player_stat_entries (
+            all_player_stat_content_id,entity_kind,provider_external_id,nfl_game_id,
+            nfl_team,position,stats,eligibility_evidence,eligible_game_count,
+            appearance_game_count,game_phase,ordinal
+          ) SELECT id,'player','integration-player-one',$3::uuid,'NE','QB',
+            jsonb_build_object('gms_active',1,'gp',1,'pass_td',$4::integer),
+            '{"kind":"weekly-stat","source":"weekly-stat-provider","gmsActive":1,"appearances":1}'::jsonb,
+            1,1,'final',0 FROM content RETURNING all_player_stat_content_id
+        ) INSERT INTO all_player_stat_observations (
+          id,all_player_stat_content_id,provider,season,season_type,week,normalizer_version,
+          source_revision,request_started_at,request_completed_at,observed_at,quality
+        ) SELECT gen_random_uuid(),id,'sleeper',$1::smallint,'reg',1,'sleeper-weekly-stats-v4',
+          $5,$6::timestamptz - interval '1 second',$6::timestamptz,$6::timestamptz,'partial'
+          FROM content JOIN entry ON entry.all_player_stat_content_id = content.id`,
+        [DATABASE_SEASON, String(revision), gameId, passTouchdowns,
+          `etag:carryforward-week1-${revision}`, `2026-09-17T00:0${revision}:01.000Z`]);
+      };
+      const readMetrics = (throughWeek: number, provisionalWeek: number | null) => reader.readAllPlayerPlayerMetrics({
+        leagueKey: 'league1', provider: 'sleeper', season: DATABASE_SEASON,
+        seasonType: 'reg', throughWeek, provisionalWeek, scorerVersion: 'sleeper-actual-v1',
+      }, scoreSparseStatistics);
+
+      // Preserve the existing pointer in the transaction until the same-week
+      // exclusion is proven. A later raw partial must never replace it.
+      await transaction.database.query('SAVEPOINT before_partial');
+      await insertPartialWeekOne(9, 7);
+      await expect(readMetrics(2, 2)).resolves.toMatchObject({
+        status: 'provisional', throughWeek: 2, observedAt: '2026-09-16T00:01:01.000Z',
+        metrics: [expect.objectContaining({ totalFantasyPoints: 12,
+          appearanceGameCount: 2, pointsPerGame: 6, publishedWeekCount: 1 })],
+      });
+      await transaction.database.query('ROLLBACK TO SAVEPOINT before_partial');
+      await transaction.database.query(`DELETE FROM current_all_player_score_sets
+        WHERE scoring_profile_id = $1::uuid AND provider = 'sleeper'
+          AND season = $2::smallint AND season_type = 'reg' AND week = 1`,
+      [profileIds[0], DATABASE_SEASON]);
+
+      await expect(readMetrics(2, 2)).resolves.toMatchObject({
+        status: 'provisional', throughWeek: 2, observedAt: '2026-09-16T00:01:01.000Z',
+        metrics: [expect.objectContaining({ totalFantasyPoints: 8,
+          appearanceGameCount: 1, pointsPerGame: 8, positionRank: null, publishedWeekCount: 0 })],
+      });
+
+      // Week 1 was captured independently of Week 2, including a later correction.
+      await insertPartialWeekOne(1, 7);
+      await expect(readMetrics(2, 2)).resolves.toMatchObject({
+        status: 'provisional', throughWeek: 2, observedAt: '2026-09-17T00:07:01.000Z',
+        metrics: [expect.objectContaining({ totalFantasyPoints: 12,
+          appearanceGameCount: 2, pointsPerGame: 6, positionRank: 1, publishedWeekCount: 0 })],
+      });
+      await insertPartialWeekOne(3, 8);
+      await expect(readMetrics(2, 2)).resolves.toMatchObject({
+        status: 'provisional', throughWeek: 2, observedAt: '2026-09-17T00:08:01.000Z',
+        rowsRead: 3,
+        metrics: [expect.objectContaining({ totalFantasyPoints: 20,
+          appearanceGameCount: 2, pointsPerGame: 10, positionRank: 1 })],
+      });
+      await expect(readMetrics(1, null)).resolves.toMatchObject({
+        status: 'provisional', throughWeek: 1,
+        metrics: [expect.objectContaining({ totalFantasyPoints: 12,
+          appearanceGameCount: 1, pointsPerGame: 12, positionRank: 1 })],
+      });
+
+    } finally {
+      try { await transaction.database.query('ROLLBACK'); } finally { await transaction.close(); }
+    }
   });
 
   it('rejects self-consistent official points that omit an authoritative roster', async () => {
@@ -923,14 +1178,16 @@ describe('all-player statistics foundation', () => {
     expect(points).toEqual([{ weight: '4', points: '8.0000' }, { weight: '6', points: '12.0000' }]);
     await expect(store.readAllPlayerPlayerMetrics({
       leagueKey: 'league1', provider: 'sleeper', season: DATABASE_SEASON,
-      seasonType: 'reg', throughWeek: 1, scorerVersion: 'sleeper-actual-v1',
-    })).resolves.toEqual([expect.objectContaining({
-      providerExternalId: 'integration-player-one', totalFantasyPoints: 8,
-      appearanceGameCount: 1, publishedWeekCount: 1, pointsPerGame: 8,
-    }), expect.objectContaining({
-      providerExternalId: 'integration-player-zero', totalFantasyPoints: 0,
-      appearanceGameCount: 0, publishedWeekCount: 1, pointsPerGame: null,
-    })]);
+      seasonType: 'reg', throughWeek: 1, provisionalWeek: null,
+      scorerVersion: 'sleeper-actual-v1',
+    }, scoreSparseStatistics)).resolves.toMatchObject({
+      status: 'published', throughWeek: 1,
+      metrics: [expect.objectContaining({
+        providerExternalId: 'integration-player-one', totalFantasyPoints: 8,
+        appearanceGameCount: 1, publishedWeekCount: 1, pointsPerGame: 8,
+        positionRank: 1,
+      })],
+    });
   });
 
   it('serializes concurrent replay and rolls back an equal-time conflicting correction', async () => {
@@ -938,30 +1195,86 @@ describe('all-player statistics foundation', () => {
     const input = await batch(concurrent);
     const peer = createIndependentDatabase();
     const peerStore = createProjectionStore(peer.database);
-    let outcomes: string[];
+    const blocker = await createPinnedIntegrationDatabase('owner');
+    const historyCounts = async () => (await ownerQuery<{
+      contents: number; entries: number; observations: number;
+      score_sets: number; scores: number; verifications: number;
+    }>(`SELECT
+      (SELECT count(*)::integer FROM all_player_stat_contents) AS contents,
+      (SELECT count(*)::integer FROM all_player_stat_entries) AS entries,
+      (SELECT count(*)::integer FROM all_player_stat_observations) AS observations,
+      (SELECT count(*)::integer FROM all_player_score_sets) AS score_sets,
+      (SELECT count(*)::integer FROM all_player_scores) AS scores,
+      (SELECT count(*)::integer FROM all_player_score_verifications) AS verifications
+    `))[0];
+    const beforeReplay = await historyCounts();
+    let pending: Promise<Awaited<ReturnType<ProjectionStore['recordAllPlayerBatch']>>>[] = [];
+    let outcomes: string[] = [];
     try {
-      const results = await Promise.allSettled([
+      // Start both statements while the job row is locked so the regression
+      // cannot pass merely because a cold peer connects after the first commit.
+      const sessions = await Promise.all([database.database, peer.database].map(async (client) =>
+        (await client.query<{ pid: number }>('SELECT pg_backend_pid() AS pid'))[0].pid));
+      await blocker.database.query('BEGIN');
+      await blocker.database.query(`SELECT job_key FROM projection_jobs
+        WHERE job_key = 'all-player-ingestion:sleeper' FOR UPDATE`);
+      pending = [
         store.recordAllPlayerBatch(input), peerStore.recordAllPlayerBatch(input),
-      ]);
+      ];
+      const pendingResults = Promise.allSettled(pending);
+      let blocked = 0;
+      for (let tries = 0; tries < 30 && blocked < 2; tries += 1) {
+        await blocker.database.query('SELECT pg_stat_clear_snapshot(), pg_sleep(0.02)');
+        blocked = Number((await blocker.database.query<{ count: number }>(`
+          SELECT count(*)::integer AS count FROM pg_stat_activity
+          WHERE pid = ANY($1::integer[]) AND wait_event_type = 'Lock'
+        `, [sessions]))[0].count);
+      }
+      expect(blocked).toBe(2);
+      await blocker.database.query('COMMIT');
+      const results = await pendingResults;
+      // Even a rejected competing statement must leave exactly one whole
+      // immutable batch and the complete peer-profile pointer group.
+      expect(await historyCounts()).toEqual({
+        contents: beforeReplay.contents + 1,
+        entries: beforeReplay.entries + input.observation.entries.length,
+        observations: beforeReplay.observations + 1,
+        score_sets: beforeReplay.score_sets + input.scoreSets.length,
+        scores: beforeReplay.scores + input.scoreSets.reduce((count, set) => count + set.scores.length, 0),
+        verifications: beforeReplay.verifications + input.scoreSets.length,
+      });
+      expect(await ownerQuery<{ count: number; profiles: number; observations: number }>(`
+        SELECT count(*)::integer AS count,
+          count(DISTINCT current.scoring_profile_id)::integer AS profiles,
+          count(DISTINCT current.all_player_stat_observation_id)::integer AS observations
+        FROM current_all_player_score_sets current
+        JOIN all_player_stat_observations observation
+          ON observation.id = current.all_player_stat_observation_id
+        WHERE observation.source_revision = $1
+      `, [concurrent.sourceRevision])).toEqual([{
+        count: input.scoreSets.length, profiles: input.scoreSets.length, observations: 1,
+      }]);
+      expect(results.map((result) => result.status === 'fulfilled' ? 'stored'
+        : String((result.reason as { code?: unknown }).code ?? 'rejected')))
+        .toEqual(['stored', 'stored']);
       outcomes = results.flatMap((result) => {
         if (result.status !== 'fulfilled') throw result.reason;
         return stored(result.value).scoreSets.map((set) => set.pointerOutcome);
       });
-    } finally { await peer.close(); }
+    } finally {
+      await blocker.database.query('ROLLBACK');
+      await Promise.allSettled(pending);
+      await blocker.close();
+      await peer.close();
+    }
     expect(outcomes.filter((outcome) => outcome === 'advanced')).toHaveLength(2);
     expect(outcomes.filter((outcome) => outcome === 'verified')).toHaveLength(2);
 
-    const before = (await ownerQuery<{ contents: number; observations: number }>(`
-      SELECT (SELECT count(*)::integer FROM all_player_stat_contents) AS contents,
-        (SELECT count(*)::integer FROM all_player_stat_observations) AS observations
-    `))[0];
+    const before = await historyCounts();
     const conflict = observation(4, 'etag:integration-conflict', concurrent.observedAt);
     await expect(store.recordAllPlayerBatch(await batch(conflict)))
       .rejects.toThrow(/equal observation time/iu);
-    const after = (await ownerQuery<{ contents: number; observations: number }>(`
-      SELECT (SELECT count(*)::integer FROM all_player_stat_contents) AS contents,
-        (SELECT count(*)::integer FROM all_player_stat_observations) AS observations
-    `))[0];
+    const after = await historyCounts();
     expect(after).toEqual(before);
   });
 
@@ -1124,6 +1437,59 @@ describe('all-player statistics foundation', () => {
       (SELECT count(*) FROM all_player_stat_observations)::integer AS observations,
       (SELECT jsonb_agg(row_to_json(pointer)) FROM current_all_player_score_sets pointer) AS pointers`))
       .toEqual(before);
+  });
+
+  it.each(['deadline', 'takeover'] as const)('rechecks %s changes after waiting for the initial job lock', async (change) => {
+    const input = await batch(observation(4, `etag:wait-${change}`, '2026-09-15T00:10:31.000Z'));
+    const snapshot = () => ownerQuery(`SELECT
+      (SELECT count(*)::integer FROM all_player_stat_contents) AS contents,
+      (SELECT count(*)::integer FROM all_player_stat_entries) AS entries,
+      (SELECT count(*)::integer FROM all_player_stat_observations) AS observations,
+      (SELECT count(*)::integer FROM all_player_score_sets) AS score_sets,
+      (SELECT count(*)::integer FROM all_player_scores) AS scores,
+      (SELECT count(*)::integer FROM all_player_score_verifications) AS verifications,
+      (SELECT jsonb_agg(to_jsonb(pointer) ORDER BY pointer.scoring_profile_id)
+        FROM current_all_player_score_sets pointer) AS pointers`);
+    const before = await snapshot();
+    const pid = (await database.database.query<{ pid: number }>('SELECT pg_backend_pid() AS pid'))[0].pid;
+    const blocker = await createPinnedIntegrationDatabase('owner');
+    let pending: Promise<unknown> | null = null;
+    try {
+      await blocker.database.query('BEGIN');
+      await blocker.database.query('SELECT job_key FROM projection_jobs WHERE job_key = $1 FOR UPDATE', [fence.jobKey]);
+      pending = store.recordAllPlayerBatch(input);
+      const settled = Promise.allSettled([pending]);
+      let blocked = false;
+      for (let tries = 0; tries < 30 && !blocked; tries += 1) {
+        await blocker.database.query('SELECT pg_stat_clear_snapshot(), pg_sleep(0.02)');
+        blocked = (await blocker.database.query<{ blocked: boolean }>(`SELECT EXISTS (
+          SELECT 1 FROM pg_stat_activity WHERE pid = $1 AND wait_event_type = 'Lock'
+        ) AS blocked`, [pid]))[0].blocked;
+      }
+      expect(blocked).toBe(true);
+      if (change === 'deadline') {
+        await blocker.database.query(`UPDATE projection_jobs SET payload = jsonb_set(payload,'{deadlineAt}',
+          to_jsonb((clock_timestamp() - interval '1 second')::text)) WHERE job_key = $1`, [fence.jobKey]);
+      } else {
+        await blocker.database.query(`UPDATE projection_jobs SET lease_owner = 'wait-successor',
+          attempt_count = attempt_count + 1 WHERE job_key = $1`, [fence.jobKey]);
+      }
+      await blocker.database.query('COMMIT');
+      const result = (await settled)[0];
+      expect(result.status).toBe('rejected');
+      if (result.status === 'rejected') {
+        expect((result.reason as Error).message).toMatch(/all-player lease, generation, period, request or deadline/iu);
+      }
+      expect(await store.finishAllPlayerJob({ fence, outcome: 'partial', diagnostic: {} })).toBe(false);
+      expect(await snapshot()).toEqual(before);
+    } finally {
+      await blocker.database.query('ROLLBACK');
+      if (pending) await Promise.allSettled([pending]);
+      await blocker.close();
+      await ownerQuery(`UPDATE projection_jobs SET lease_owner = $2, attempt_count = $3,
+        payload = jsonb_set(payload,'{deadlineAt}',to_jsonb($4::text)) WHERE job_key = $1`,
+      [fence.jobKey, fence.workerId, fence.generation, fence.deadlineAt]);
+    }
   });
 
   it('rolls back a deadline that expires inside the SQL pointer statement', async () => {
@@ -1403,5 +1769,7 @@ describe('all-player statistics foundation', () => {
       await ownerQuery('INSERT INTO projection_jobs SELECT * FROM jsonb_populate_record(NULL::projection_jobs,$1::jsonb)',
         [JSON.stringify(priorJob)]);
     }
-  },240_000);
+  // This envelope covers 27 independent batches, below the fixture's 550-second
+  // deadline; the production invocation deadline remains unchanged.
+  },480_000);
 });

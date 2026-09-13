@@ -395,7 +395,8 @@ export function createAllPlayerStatisticMethods(client: DatabaseClient): AllPlay
         scoreRows } = prepareAllPlayerBatch(input);
       if (!input.fence) throw new Error('All-player writes require a live job fence.');
       validateAllPlayerFenceShape(input.fence);
-      const rows = await client.query(`/* projection-store:record-all-player-batch */
+      if (!client.queryAfterLock) throw new Error('All-player writes require atomic locked database transactions.');
+      const [, rows] = await client.queryAfterLock(`/* projection-store:record-all-player-batch */
         WITH job_fence AS MATERIALIZED (
           SELECT public.assert_all_player_job_fence($21::jsonb,
             jsonb_build_object('season', $3::integer, 'seasonType', $4::text, 'week', $5::integer),
@@ -650,7 +651,12 @@ export function createAllPlayerStatisticMethods(client: DatabaseClient): AllPlay
         input.verifiedAt,
         json(input.fence),
         observation.providerContext ? json(observation.providerContext) : null,
-      ]);
+      ], {
+        statement: `/* projection-store:lock-all-player-batch */
+          SELECT public.assert_all_player_job_fence($1::jsonb, $2::jsonb, true) AS checked`,
+        parameters: [json(input.fence), json({ season: normalizedSeason,
+          seasonType: observation.seasonType, week: normalizedWeek })],
+      });
       const row = rows[0];
       if (!row) throw new Error('All-player batch could not be persisted consistently.');
       const pointerValue = row.pointers;

@@ -60,9 +60,12 @@ describe('assumed participation at the immutable writer boundary', () => {
         leaseUntil: '2026-09-15T00:05:00.000Z', deadlineAt: '2026-09-15T00:04:00.000Z' },
     });
     expect(result).toMatchObject({ kind: 'stored', value: { entriesStored: 2, scoreSets: [] } });
-    expect(fake.calls).toHaveLength(1);
-    expect(JSON.parse(String(fake.calls[0].parameters[17]))).toEqual([]);
-    expect(JSON.parse(String(fake.calls[0].parameters[18]))).toEqual([]);
+    expect(fake.calls).toHaveLength(2);
+    expect(fake.lockedTransactions).toEqual([[fake.calls[0], fake.calls[1]]]);
+    expect(fake.calls[0].statement).toContain('lock-all-player-batch');
+    expect(fake.calls[1].statement).toContain('record-all-player-batch');
+    expect(JSON.parse(String(fake.calls[1].parameters[17]))).toEqual([]);
+    expect(JSON.parse(String(fake.calls[1].parameters[18]))).toEqual([]);
   });
 
   it('does not permit a complete observation while availability remains unknown', () => {

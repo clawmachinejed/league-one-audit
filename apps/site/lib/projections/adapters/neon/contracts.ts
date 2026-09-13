@@ -257,10 +257,44 @@ export type StoredAllPlayerPlayerMetric = Readonly<{
   scoringProfileId: string;
   scoringEntityId: string;
   providerExternalId: string;
+  entityKind: ScoringEntityKind;
+  position: 'QB' | 'RB' | 'WR' | 'TE' | 'K' | 'DEF';
   totalFantasyPoints: number;
   appearanceGameCount: number;
   publishedWeekCount: number;
   pointsPerGame: number | null;
+  positionRank: number | null;
+}>;
+
+export type StoredAllPlayerMetricRead = Readonly<{
+  status: 'published' | 'provisional' | 'unavailable';
+  observedAt: string | null;
+  throughWeek: number | null;
+  rowsRead: number;
+  metrics: readonly StoredAllPlayerPlayerMetric[];
+}>;
+
+export type AllPlayerMetricReadInput = Readonly<{
+  leagueKey: string;
+  provider: string;
+  season: number;
+  seasonType: SeasonType;
+  throughWeek: number;
+  provisionalWeek: number | null;
+  scorerVersion: string;
+}>;
+
+export type AllPlayerMetricSparseScorer = (
+  stats: Readonly<Record<string, number>>,
+  rules: Readonly<Record<string, unknown>>,
+  supportedRuleKeys: ReadonlySet<string>,
+) => Readonly<{ available: boolean; points: number | null }>;
+
+export type AllPlayerMetricReader = Readonly<{
+  readAllPlayerPlayerMetrics: (
+    input: AllPlayerMetricReadInput,
+    scorePartialStatistics: AllPlayerMetricSparseScorer,
+  ) => Promise<StoredAllPlayerMetricRead>;
 }>;
 
 export type PlayerProjectionRecord = Readonly<{
@@ -668,14 +702,7 @@ export type ProjectionStore = LineupWatchMethods & LineupAcknowledgmentMethods &
   recordAllPlayerBatch: (
     input: AllPlayerBatchInput,
   ) => Promise<PersistenceOutcome<StoredAllPlayerBatch>>;
-  readAllPlayerPlayerMetrics: (input: Readonly<{
-    leagueKey: string;
-    provider: string;
-    season: number;
-    seasonType: SeasonType;
-    throughWeek: number;
-    scorerVersion: string;
-  }>) => Promise<readonly StoredAllPlayerPlayerMetric[]>;
+  readAllPlayerPlayerMetrics: AllPlayerMetricReader['readAllPlayerPlayerMetrics'];
   acquireAllPlayerJob: (input: Readonly<{
     mode: 'shadow' | 'backfill' | 'recurring';
     period: AllPlayerJobPeriod;

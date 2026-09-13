@@ -8,6 +8,11 @@ export type RosterHistoryBoundaryInput = Readonly<{
   lifecycle: 'preseason' | 'active' | 'complete';
 }>;
 
+export type PlayerMetricBoundary = Readonly<{
+  throughWeek: number | null;
+  provisionalWeek: number | null;
+}>;
+
 type RosterStandingsCandidate = Readonly<{
   id: number;
   name: string;
@@ -29,6 +34,30 @@ export function rosterHistoryBoundary(input: RosterHistoryBoundaryInput): number
   }
   if (validWeek(input.activeWeek)) return Math.max(0, Math.min(input.selectedWeek, input.activeWeek - 1));
   return validWeek(input.lastScoredWeek) ? Math.min(input.selectedWeek, input.lastScoredWeek) : null;
+}
+
+/** Cumulative player metrics stop at the selected week and include only the active week provisionally. */
+export function playerMetricBoundary(input: RosterHistoryBoundaryInput): PlayerMetricBoundary {
+  if (input.lifecycle === 'preseason') return { throughWeek: null, provisionalWeek: null };
+  if (input.lifecycle === 'complete') {
+    return {
+      throughWeek: validWeek(input.lastScoredWeek)
+        ? Math.min(input.selectedWeek, input.lastScoredWeek) : null,
+      provisionalWeek: null,
+    };
+  }
+  if (validWeek(input.activeWeek)) {
+    const throughWeek = Math.min(input.selectedWeek, input.activeWeek);
+    return {
+      throughWeek,
+      provisionalWeek: input.selectedWeek >= input.activeWeek ? input.activeWeek : null,
+    };
+  }
+  return {
+    throughWeek: validWeek(input.lastScoredWeek)
+      ? Math.min(input.selectedWeek, input.lastScoredWeek) : null,
+    provisionalWeek: null,
+  };
 }
 
 function sourcePointsHundredths(row: SleeperMatchup): number | null {

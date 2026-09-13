@@ -57,6 +57,7 @@ export function buildAllPlayerRepairReleaseWrapper(input: {
 }): string;
 export const ALL_PLAYER_REPAIR_CHECKSUM: string;
 export const ALL_PLAYER_PARTICIPATION_CHECKSUM: string;
+export const ALL_PLAYER_PARTICIPATION_ASSUMPTION_CHECKSUM: string;
 export function buildAllPlayerParticipationReleaseWrapper(input: {
   migrationSql: string;
   expectedDatabase: string;
@@ -66,6 +67,14 @@ export function buildAllPlayerParticipationReleaseWrapper(input: {
   previousManifest: AllPlayerRepairManifest;
 }): string;
 export function buildAllPlayerParticipationAssumptionReleaseWrapper(input: {
+  migrationSql: string;
+  expectedDatabase: string;
+  expectedOwner: string;
+  runtimeRole?: string;
+  manifest: AllPlayerRepairManifest;
+  previousManifest: AllPlayerRepairManifest;
+}): string;
+export function buildAllPlayerHourlyReleaseWrapper(input: {
   migrationSql: string;
   expectedDatabase: string;
   expectedOwner: string;

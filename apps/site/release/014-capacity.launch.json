@@ -1,0 +1,647 @@
+{
+  "measurementSourceRevision": "8eeba4be098b7f64935cc1b26c0ef8384dbe1a05",
+  "classification": "Guarded isolated measurements. Complete statistics and game evidence are synthetic; real profile width and roster populations are retained. Not production Week 1 completion or a season bound.",
+  "generatedAt": "2026-09-13T18:07:40.388Z",
+  "synthetic": [
+    {
+      "scenario": "register-4351-synthetic-identities",
+      "physicalGrowthBytes": 1925120,
+      "countDelta": {
+        "contents": 0,
+        "entries": 0,
+        "observations": 0,
+        "score_sets": 0,
+        "scores": 0,
+        "verifications": 0,
+        "entities": 4351,
+        "aliases": 4351,
+        "official_observations": 0,
+        "official_player_points": 0,
+        "official_roster_points": 0
+      },
+      "transportDelta": {
+        "statements": 2,
+        "sqlTextBytes": 5519,
+        "parameterJsonBytes": 3078298,
+        "decodedResultJsonBytes": 735349,
+        "statementWallTimeMs": 1811.6569999999992
+      },
+      "wallMs": 1871.2150000000001
+    },
+    {
+      "scenario": "4385-divergent-complete-first",
+      "physicalGrowthBytes": 6930432,
+      "countDelta": {
+        "contents": 1,
+        "entries": 4385,
+        "observations": 1,
+        "score_sets": 2,
+        "scores": 8770,
+        "verifications": 2,
+        "entities": 0,
+        "aliases": 0,
+        "official_observations": 2,
+        "official_player_points": 4,
+        "official_roster_points": 2
+      },
+      "transportDelta": {
+        "statements": 4,
+        "sqlTextBytes": 23378,
+        "parameterJsonBytes": 7385082,
+        "decodedResultJsonBytes": 1010,
+        "statementWallTimeMs": 13454.250499999998
+      },
+      "wallMs": 13819.142
+    },
+    {
+      "scenario": "4385-divergent-exact-replay",
+      "physicalGrowthBytes": 0,
+      "countDelta": {
+        "contents": 0,
+        "entries": 0,
+        "observations": 0,
+        "score_sets": 0,
+        "scores": 0,
+        "verifications": 0,
+        "entities": 0,
+        "aliases": 0,
+        "official_observations": 0,
+        "official_player_points": 0,
+        "official_roster_points": 0
+      },
+      "transportDelta": {
+        "statements": 4,
+        "sqlTextBytes": 23378,
+        "parameterJsonBytes": 7385082,
+        "decodedResultJsonBytes": 1007,
+        "statementWallTimeMs": 10998.314100000003
+      },
+      "wallMs": 11333.4794
+    },
+    {
+      "scenario": "4385-divergent-later-unchanged",
+      "physicalGrowthBytes": 49152,
+      "countDelta": {
+        "contents": 0,
+        "entries": 0,
+        "observations": 1,
+        "score_sets": 0,
+        "scores": 0,
+        "verifications": 2,
+        "entities": 0,
+        "aliases": 0,
+        "official_observations": 2,
+        "official_player_points": 4,
+        "official_roster_points": 2
+      },
+      "transportDelta": {
+        "statements": 4,
+        "sqlTextBytes": 23378,
+        "parameterJsonBytes": 7385019,
+        "decodedResultJsonBytes": 1007,
+        "statementWallTimeMs": 11254.757599999997
+      },
+      "wallMs": 11594.2621
+    },
+    {
+      "scenario": "4385-divergent-twenty-unchanged-retrievals",
+      "physicalGrowthBytes": 1064960,
+      "countDelta": {
+        "contents": 0,
+        "entries": 0,
+        "observations": 20,
+        "score_sets": 0,
+        "scores": 0,
+        "verifications": 40,
+        "entities": 0,
+        "aliases": 0,
+        "official_observations": 40,
+        "official_player_points": 80,
+        "official_roster_points": 40
+      },
+      "transportDelta": {
+        "statements": 80,
+        "sqlTextBytes": 467560,
+        "parameterJsonBytes": 147701857,
+        "decodedResultJsonBytes": 20140,
+        "statementWallTimeMs": 216888.63299999997
+      }
+    },
+    {
+      "scenario": "4385-divergent-stat-correction",
+      "physicalGrowthBytes": 6791168,
+      "countDelta": {
+        "contents": 1,
+        "entries": 4385,
+        "observations": 1,
+        "score_sets": 2,
+        "scores": 8770,
+        "verifications": 2,
+        "entities": 0,
+        "aliases": 0,
+        "official_observations": 2,
+        "official_player_points": 4,
+        "official_roster_points": 2
+      },
+      "transportDelta": {
+        "statements": 4,
+        "sqlTextBytes": 23378,
+        "parameterJsonBytes": 7385047,
+        "decodedResultJsonBytes": 1010,
+        "statementWallTimeMs": 10767.756399999955
+      },
+      "wallMs": 11076.260300000024
+    },
+    {
+      "scenario": "4385-divergent-eligibility-correction",
+      "physicalGrowthBytes": 6619136,
+      "countDelta": {
+        "contents": 1,
+        "entries": 4385,
+        "observations": 1,
+        "score_sets": 2,
+        "scores": 8770,
+        "verifications": 2,
+        "entities": 0,
+        "aliases": 0,
+        "official_observations": 2,
+        "official_player_points": 4,
+        "official_roster_points": 2
+      },
+      "transportDelta": {
+        "statements": 4,
+        "sqlTextBytes": 23378,
+        "parameterJsonBytes": 7385096,
+        "decodedResultJsonBytes": 1010,
+        "statementWallTimeMs": 12203.69060000003
+      },
+      "wallMs": 12504.45730000001
+    },
+    {
+      "scenario": "register-separate-shared-profile-period",
+      "physicalGrowthBytes": 0,
+      "countDelta": {
+        "contents": 0,
+        "entries": 0,
+        "observations": 0,
+        "score_sets": 0,
+        "scores": 0,
+        "verifications": 0,
+        "entities": 0,
+        "aliases": 0,
+        "official_observations": 0,
+        "official_player_points": 0,
+        "official_roster_points": 0
+      },
+      "transportDelta": {
+        "statements": 6,
+        "sqlTextBytes": 13020,
+        "parameterJsonBytes": 1388,
+        "decodedResultJsonBytes": 909,
+        "statementWallTimeMs": 240.86170000000857
+      }
+    },
+    {
+      "scenario": "4385-shared-profile-separate-period",
+      "physicalGrowthBytes": 4702208,
+      "countDelta": {
+        "contents": 1,
+        "entries": 4385,
+        "observations": 1,
+        "score_sets": 1,
+        "scores": 4385,
+        "verifications": 1,
+        "entities": 0,
+        "aliases": 0,
+        "official_observations": 2,
+        "official_player_points": 4,
+        "official_roster_points": 2
+      },
+      "transportDelta": {
+        "statements": 4,
+        "sqlTextBytes": 23378,
+        "parameterJsonBytes": 4760056,
+        "decodedResultJsonBytes": 870,
+        "statementWallTimeMs": 8762.799400000018
+      },
+      "wallMs": 8915.755200000014
+    },
+    {
+      "scenario": "register-one-additional-synthetic-identity",
+      "physicalGrowthBytes": 0,
+      "countDelta": {
+        "contents": 0,
+        "entries": 0,
+        "observations": 0,
+        "score_sets": 0,
+        "scores": 0,
+        "verifications": 0,
+        "entities": 1,
+        "aliases": 1,
+        "official_observations": 0,
+        "official_player_points": 0,
+        "official_roster_points": 0
+      },
+      "transportDelta": {
+        "statements": 2,
+        "sqlTextBytes": 5519,
+        "parameterJsonBytes": 712,
+        "decodedResultJsonBytes": 196,
+        "statementWallTimeMs": 77.34230000001844
+      },
+      "wallMs": 78.76970000000438
+    },
+    {
+      "scenario": "4386-shared-profile-identity-addition",
+      "physicalGrowthBytes": 4481024,
+      "countDelta": {
+        "contents": 1,
+        "entries": 4386,
+        "observations": 1,
+        "score_sets": 1,
+        "scores": 4386,
+        "verifications": 1,
+        "entities": 0,
+        "aliases": 0,
+        "official_observations": 2,
+        "official_player_points": 4,
+        "official_roster_points": 2
+      },
+      "transportDelta": {
+        "statements": 4,
+        "sqlTextBytes": 23378,
+        "parameterJsonBytes": 4761159,
+        "decodedResultJsonBytes": 870,
+        "statementWallTimeMs": 8754.934299999964
+      },
+      "wallMs": 8935.70730000001
+    }
+  ],
+  "real": [
+    {
+      "stage": "identity-registration",
+      "physicalGrowthBytes": 1826816,
+      "physicalDelta": [
+        {
+          "relation": "external_scoring_entity_ids",
+          "heap_bytes": 466944,
+          "index_bytes": 737280,
+          "toast_heap_bytes": 0,
+          "toast_index_bytes": 0,
+          "total_bytes": 1228800
+        },
+        {
+          "relation": "scoring_entities",
+          "heap_bytes": 434176,
+          "index_bytes": 139264,
+          "toast_heap_bytes": 0,
+          "toast_index_bytes": 0,
+          "total_bytes": 598016
+        }
+      ],
+      "countDelta": {
+        "contents": 0,
+        "entries": 0,
+        "observations": 0,
+        "score_sets": 0,
+        "scores": 0,
+        "verifications": 0,
+        "official_players": 0,
+        "official_rosters": 0,
+        "pointers": 0
+      },
+      "transportDelta": {
+        "statements": 2,
+        "sqlTextBytes": 5519,
+        "parameterJsonBytes": 2969914,
+        "decodedResultJsonBytes": 717285,
+        "statementWallTimeMs": 4182.7246
+      }
+    },
+    {
+      "stage": "first-complete",
+      "physicalGrowthBytes": 6356992,
+      "physicalDelta": [
+        {
+          "relation": "all_player_score_sets",
+          "heap_bytes": 8192,
+          "index_bytes": 40960,
+          "toast_heap_bytes": 24576,
+          "toast_index_bytes": 8192,
+          "total_bytes": 106496
+        },
+        {
+          "relation": "all_player_score_verifications",
+          "heap_bytes": 8192,
+          "index_bytes": 24576,
+          "toast_heap_bytes": 24576,
+          "toast_index_bytes": 8192,
+          "total_bytes": 90112
+        },
+        {
+          "relation": "all_player_scores",
+          "heap_bytes": 2768896,
+          "index_bytes": 1040384,
+          "toast_heap_bytes": 0,
+          "toast_index_bytes": 0,
+          "total_bytes": 3833856
+        },
+        {
+          "relation": "all_player_stat_contents",
+          "heap_bytes": 8192,
+          "index_bytes": 24576,
+          "toast_heap_bytes": 24576,
+          "toast_index_bytes": 8192,
+          "total_bytes": 90112
+        },
+        {
+          "relation": "all_player_stat_entries",
+          "heap_bytes": 1343488,
+          "index_bytes": 573440,
+          "toast_heap_bytes": 0,
+          "toast_index_bytes": 0,
+          "total_bytes": 1941504
+        },
+        {
+          "relation": "all_player_stat_observations",
+          "heap_bytes": 8192,
+          "index_bytes": 32768,
+          "toast_heap_bytes": 24576,
+          "toast_index_bytes": 8192,
+          "total_bytes": 98304
+        },
+        {
+          "relation": "current_all_player_score_sets",
+          "heap_bytes": 8192,
+          "index_bytes": 8192,
+          "toast_heap_bytes": 0,
+          "toast_index_bytes": 0,
+          "total_bytes": 16384
+        },
+        {
+          "relation": "external_scoring_entity_ids",
+          "heap_bytes": 0,
+          "index_bytes": 0,
+          "toast_heap_bytes": 0,
+          "toast_index_bytes": 0,
+          "total_bytes": 8192
+        },
+        {
+          "relation": "league_week_observations",
+          "heap_bytes": 8192,
+          "index_bytes": 40960,
+          "toast_heap_bytes": 0,
+          "toast_index_bytes": 0,
+          "total_bytes": 49152
+        },
+        {
+          "relation": "official_player_point_observations",
+          "heap_bytes": 32768,
+          "index_bytes": 40960,
+          "toast_heap_bytes": 0,
+          "toast_index_bytes": 0,
+          "total_bytes": 98304
+        },
+        {
+          "relation": "official_roster_point_observations",
+          "heap_bytes": 8192,
+          "index_bytes": 8192,
+          "toast_heap_bytes": 0,
+          "toast_index_bytes": 0,
+          "total_bytes": 16384
+        },
+        {
+          "relation": "scoring_entities",
+          "heap_bytes": 0,
+          "index_bytes": 0,
+          "toast_heap_bytes": 0,
+          "toast_index_bytes": 0,
+          "total_bytes": 8192
+        }
+      ],
+      "countDelta": {
+        "contents": 1,
+        "entries": 4385,
+        "observations": 1,
+        "score_sets": 1,
+        "scores": 4385,
+        "verifications": 1,
+        "official_players": 336,
+        "official_rosters": 24,
+        "pointers": 1
+      },
+      "transportDelta": {
+        "statements": 4,
+        "sqlTextBytes": 23378,
+        "parameterJsonBytes": 13898150,
+        "decodedResultJsonBytes": 882,
+        "statementWallTimeMs": 22022.641799999998
+      },
+      "preparationMs": 428.07760000000053,
+      "writerMs": 22215.511300000002,
+      "totalWallMs": 22643.588900000002
+    },
+    {
+      "stage": "exact-replay",
+      "physicalGrowthBytes": 0,
+      "physicalDelta": [],
+      "countDelta": {
+        "contents": 0,
+        "entries": 0,
+        "observations": 0,
+        "score_sets": 0,
+        "scores": 0,
+        "verifications": 0,
+        "official_players": 0,
+        "official_rosters": 0,
+        "pointers": 0
+      },
+      "transportDelta": {
+        "statements": 4,
+        "sqlTextBytes": 23378,
+        "parameterJsonBytes": 13898150,
+        "decodedResultJsonBytes": 873,
+        "statementWallTimeMs": 22265.046700000006
+      },
+      "preparationMs": 411.8638000000028,
+      "writerMs": 22497.927700000004,
+      "totalWallMs": 22909.791500000007
+    },
+    {
+      "stage": "later-unchanged",
+      "physicalGrowthBytes": 114688,
+      "physicalDelta": [
+        {
+          "relation": "all_player_score_verifications",
+          "heap_bytes": 0,
+          "index_bytes": 0,
+          "toast_heap_bytes": 24576,
+          "toast_index_bytes": 0,
+          "total_bytes": 24576
+        },
+        {
+          "relation": "all_player_scores",
+          "heap_bytes": 0,
+          "index_bytes": 0,
+          "toast_heap_bytes": 0,
+          "toast_index_bytes": 0,
+          "total_bytes": 8192
+        },
+        {
+          "relation": "all_player_stat_entries",
+          "heap_bytes": 0,
+          "index_bytes": 0,
+          "toast_heap_bytes": 0,
+          "toast_index_bytes": 0,
+          "total_bytes": 8192
+        },
+        {
+          "relation": "all_player_stat_observations",
+          "heap_bytes": 0,
+          "index_bytes": 0,
+          "toast_heap_bytes": 24576,
+          "toast_index_bytes": 0,
+          "total_bytes": 24576
+        },
+        {
+          "relation": "official_player_point_observations",
+          "heap_bytes": 24576,
+          "index_bytes": 24576,
+          "toast_heap_bytes": 0,
+          "toast_index_bytes": 0,
+          "total_bytes": 49152
+        }
+      ],
+      "countDelta": {
+        "contents": 0,
+        "entries": 0,
+        "observations": 1,
+        "score_sets": 0,
+        "scores": 0,
+        "verifications": 1,
+        "official_players": 336,
+        "official_rosters": 24,
+        "pointers": 0
+      },
+      "transportDelta": {
+        "statements": 4,
+        "sqlTextBytes": 23378,
+        "parameterJsonBytes": 13898150,
+        "decodedResultJsonBytes": 879,
+        "statementWallTimeMs": 19442.36869999999
+      },
+      "preparationMs": 384.49930000000313,
+      "writerMs": 19694.131800000003,
+      "totalWallMs": 20078.631100000006
+    },
+    {
+      "stage": "one-stat-correction",
+      "physicalGrowthBytes": 6168576,
+      "physicalDelta": [
+        {
+          "relation": "all_player_score_sets",
+          "heap_bytes": 0,
+          "index_bytes": 0,
+          "toast_heap_bytes": 24576,
+          "toast_index_bytes": 0,
+          "total_bytes": 24576
+        },
+        {
+          "relation": "all_player_score_verifications",
+          "heap_bytes": 0,
+          "index_bytes": 0,
+          "toast_heap_bytes": 24576,
+          "toast_index_bytes": 0,
+          "total_bytes": 24576
+        },
+        {
+          "relation": "all_player_scores",
+          "heap_bytes": 2760704,
+          "index_bytes": 966656,
+          "toast_heap_bytes": 0,
+          "toast_index_bytes": 0,
+          "total_bytes": 3727360
+        },
+        {
+          "relation": "all_player_stat_contents",
+          "heap_bytes": 0,
+          "index_bytes": 0,
+          "toast_heap_bytes": 24576,
+          "toast_index_bytes": 0,
+          "total_bytes": 24576
+        },
+        {
+          "relation": "all_player_stat_entries",
+          "heap_bytes": 1343488,
+          "index_bytes": 942080,
+          "toast_heap_bytes": 0,
+          "toast_index_bytes": 0,
+          "total_bytes": 2285568
+        },
+        {
+          "relation": "all_player_stat_observations",
+          "heap_bytes": 0,
+          "index_bytes": 0,
+          "toast_heap_bytes": 24576,
+          "toast_index_bytes": 0,
+          "total_bytes": 24576
+        },
+        {
+          "relation": "official_player_point_observations",
+          "heap_bytes": 24576,
+          "index_bytes": 32768,
+          "toast_heap_bytes": 0,
+          "toast_index_bytes": 0,
+          "total_bytes": 57344
+        }
+      ],
+      "countDelta": {
+        "contents": 1,
+        "entries": 4385,
+        "observations": 1,
+        "score_sets": 1,
+        "scores": 4385,
+        "verifications": 1,
+        "official_players": 336,
+        "official_rosters": 24,
+        "pointers": 0
+      },
+      "transportDelta": {
+        "statements": 4,
+        "sqlTextBytes": 23378,
+        "parameterJsonBytes": 13898180,
+        "decodedResultJsonBytes": 882,
+        "statementWallTimeMs": 21238.60870000001
+      },
+      "preparationMs": 453.25410000000556,
+      "writerMs": 21376.293300000005,
+      "totalWallMs": 21829.54740000001
+    },
+    {
+      "stage": "metric-reader-league1",
+      "transportDelta": {
+        "statements": 1,
+        "sqlTextBytes": 7772,
+        "parameterJsonBytes": 59,
+        "decodedResultJsonBytes": 93995,
+        "statementWallTimeMs": 76.6648000000132
+      },
+      "wallMs": 78.03800000000047,
+      "rowsRead": 169,
+      "metrics": 20
+    },
+    {
+      "stage": "metric-reader-league2",
+      "transportDelta": {
+        "statements": 1,
+        "sqlTextBytes": 7772,
+        "parameterJsonBytes": 59,
+        "decodedResultJsonBytes": 93995,
+        "statementWallTimeMs": 51.3921999999875
+      },
+      "wallMs": 51.92119999999704,
+      "rowsRead": 169,
+      "metrics": 20
+    }
+  ]
+}

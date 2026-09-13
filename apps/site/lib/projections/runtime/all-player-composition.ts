@@ -18,6 +18,7 @@ import {
 } from './all-player-operation';
 import { createProductionSharedServices, officialProvider } from './shared-services';
 import { isAllPlayerPollingOpportunity, selectAllPlayerRecurringPeriod } from './all-player-cadence';
+import { prepareAllPlayerDiagnostics } from './all-player-diagnostics';
 
 const projectionProvider = ACTIVE_PROJECTION_SOURCE.provider;
 
@@ -114,7 +115,9 @@ export async function runProductionAllPlayerRecurring(
   // diagnostic helper, independently of ownership and provider request claims.
   const logger = createProductionSharedServices('all-player-ingestion').logger;
   const now = new Date();
-  const pollingOpportunity = isAllPlayerPollingOpportunity(now);
+  // Use cron entry time: the current worker may consume part of this minute.
+  const pollingOpportunity = isAllPlayerPollingOpportunity(Number.isFinite(invocationStartedAt)
+    ? new Date(invocationStartedAt) : now);
   const preclaim = async (
     result: Extract<AllPlayerIngestionResult, { status: 'skipped' | 'unavailable' }>,
     stage: string,
@@ -157,11 +160,14 @@ export async function runProductionAllPlayerRecurring(
       }
     }
     const durableFailure = durability === 'persistence-failed' || durability === 'deadline-unavailable';
+    const diagnostics = result.status === 'unavailable' ? result.diagnostics ?? [] : [];
+    const diagnosticEvidence = prepareAllPlayerDiagnostics([`preclaim-durability:${durability}`, ...diagnostics]);
     logger.write(result.status === 'skipped' && !durableFailure ? 'info' : 'warn', {
       stage: 'all-player-recurring-preclaim', lane: 'all-player', cadence: 'recurring',
       outcome: result.status === 'skipped' ? 'skipped' : 'failed',
       allPlayerFailureStage: stage, allPlayerReason: reason,
-      allPlayerDiagnostics: [`preclaim-durability:${durability}`], allPlayerDiagnosticCount: 1,
+      allPlayerDiagnostics: diagnosticEvidence.diagnostics,
+      allPlayerDiagnosticCount: 1 + (result.status === 'unavailable' ? result.diagnosticCount ?? diagnostics.length : 0),
       allPlayerPersistedObservation: false, allPlayerConfirmedPublication: false,
       allPlayerRetryDisposition: 'global-budget', upstreamRequests: 0,
       ...(period ? { period } : {}),
@@ -172,7 +178,7 @@ export async function runProductionAllPlayerRecurring(
     status: 'skipped', mode: 'recurring', reason: 'not-due',
   }, 'polling-opportunity');
   const remainingMs = invocationStartedAt + 50_000 - Date.now();
-  if (remainingMs < 10_000) return preclaim({
+  if (!Number.isFinite(remainingMs) || remainingMs < 10_000) return preclaim({
     status: 'unavailable', mode: 'recurring', reason: 'insufficient-invocation-budget', stage: 'recurring-preflight',
   }, 'invocation-budget');
   let preclaimStage = 'recurring-composition';
@@ -201,15 +207,19 @@ export async function runProductionAllPlayerRecurring(
     const selection = selectAllPlayerRecurringPeriod(authorities, job, now);
     if (selection.kind === 'unavailable') {
       const overdue = /^final-capture-overdue:(\d{4}):regular:(\d{1,2})$/u.exec(selection.reason);
-      const period = overdue ? diagnosticPeriod({ season: Number(overdue[1]), seasonType: 'reg', week: Number(overdue[2]) }) : undefined;
+      const period = selection.period ?? (overdue
+        ? diagnosticPeriod({ season: Number(overdue[1]), seasonType: 'reg', week: Number(overdue[2]) }) : undefined);
       return preclaim({
         status: 'unavailable', mode: 'recurring', reason: selection.reason, stage: 'period-selection',
+        ...(period ? { period } : {}),
+        ...(selection.diagnostics ? prepareAllPlayerDiagnostics(selection.diagnostics) : {}),
       }, 'period-selection', period);
     }
     return runAllPlayerIngestion(dependencies, {
       mode: 'recurring',
       period: selection.period,
       requireFinalCoverage: selection.requireFinalCoverage,
+      ...(selection.diagnostics ? { cadenceDiagnostics: selection.diagnostics } : {}),
     });
   } catch {
     return preclaim({ status: 'unavailable', mode: 'recurring', reason: 'recurring-preflight-failed', stage: 'recurring-preflight' }, preclaimStage);

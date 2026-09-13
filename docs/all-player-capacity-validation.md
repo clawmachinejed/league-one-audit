@@ -1,5 +1,10 @@
 # All-player retained-history capacity validation
 
+This is the historical September 12 measurement record. The September 13
+hourly-cadence change and its current capacity gate are recorded in
+[the hourly release runbook](live-roster-hourly-release.md). Historical byte
+measurements below are retained with their original scope and limitations.
+
 **Activation capacity is not established.** The isolated measurements below
 prove physical growth and unchanged-run reuse for explicitly identified inputs.
 They do not establish legitimate completed Week 1 evidence, the eventual

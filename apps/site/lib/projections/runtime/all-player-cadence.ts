@@ -1,17 +1,19 @@
 import type { AllPlayerJobState, StoredLeagueAuthorityRead } from '../adapters/neon/contracts';
 import type { LeaguePeriod } from '../domain/contracts';
+import { isAllPlayerRefreshOpportunity } from '../../all-player-refresh-schedule';
 
-export const ALL_PLAYER_POLL_MINUTES = 15;
 const DAY_MS = 86_400_000;
 
 /** A cheap opportunity gate; SQL remains the cross-invocation budget authority. */
 export function isAllPlayerPollingOpportunity(now: Date): boolean {
-  return Number.isFinite(now.getTime()) && now.getUTCMinutes() % ALL_PLAYER_POLL_MINUTES === 0;
+  return isAllPlayerRefreshOpportunity(now);
 }
 
 type Selection =
-  | Readonly<{ kind: 'selected'; period: LeaguePeriod; requireFinalCoverage: boolean }>
-  | Readonly<{ kind: 'unavailable'; reason: string }>;
+  | Readonly<{ kind: 'selected'; period: LeaguePeriod; requireFinalCoverage: boolean;
+      diagnostics?: readonly string[] }>
+  | Readonly<{ kind: 'unavailable'; reason: string; period?: LeaguePeriod;
+      diagnostics?: readonly string[] }>;
 
 export function selectAllPlayerRecurringPeriod(
   authorities: readonly StoredLeagueAuthorityRead[],
@@ -49,30 +51,50 @@ export function selectAllPlayerRecurringPeriod(
     && 'seasonType' in entry.period && entry.period.seasonType === 'reg'
     && 'week' in entry.period && entry.period.week === targetWeek
     && 'finalCoverage' in entry && entry.finalCoverage === true);
-  // Final capture is a season obligation, not a moving current-week-minus-one
-  // query. A missed older period remains visible after any later rollover.
+  const diagnostics: string[] = [];
+  const selected = (target: LeaguePeriod, requireFinalCoverage: boolean): Selection => ({
+    kind: 'selected', period: target, requireFinalCoverage,
+    ...(diagnostics.length ? { diagnostics } : {}),
+  });
+  const unavailable = (reason: string): Selection => ({
+    kind: 'unavailable', reason, period: diagnostics.length
+      ? { ...period, week: Number(diagnostics[0].split(':').at(-1)) } : period,
+    ...(diagnostics.length ? { diagnostics } : {}),
+  });
+  // Retain overdue complete-score obligations without stopping accepted current
+  // raw evidence. The finite correction window prevents unbounded old polling.
   for (let targetWeek = 1; targetWeek < week - (completed ? 0 : 1); targetWeek += 1) {
-    if (!capturedFinal(targetWeek)) return {
-      kind: 'unavailable', reason: `final-capture-overdue:${season}:regular:${targetWeek}`,
-    };
+    if (!capturedFinal(targetWeek)) diagnostics.push(`final-capture-overdue:${season}:regular:${targetWeek}`);
+  }
+  if (!completed && week === 1) return selected(period, false);
+  // A league can advance its display period while its active scoring period is
+  // unchanged. Default-period timing never establishes the correction deadline
+  // for a different active week. Exact current game context is checked in ingestion.
+  if (!completed && available.some(({ authority }) => authority.defaultSeason !== season
+    || authority.defaultSeasonType !== seasonType || authority.defaultWeek !== week)) {
+    diagnostics.push(`correction-window-period-unavailable:${season}:regular:${week - 1}`);
+    return selected(period, false);
   }
   const kickoffTimes = available.flatMap(({ authority }) => authority.defaultPeriodCadence.games)
     .map((game) => game.kickoffAt ? Date.parse(game.kickoffAt) : NaN);
   if (!kickoffTimes.length || kickoffTimes.some((time) => !Number.isFinite(time))) {
-    return { kind: 'unavailable', reason: 'correction-window-schedule-unavailable' };
+    if (completed) return unavailable('correction-window-schedule-unavailable');
+    diagnostics.push(`correction-window-schedule-unavailable:${season}:regular:${week - 1}`);
+    return selected(period, false);
   }
   // End after the new week's normal Monday, based on its actual first kickoff.
   // This is a finite correction policy, not evidence that any game is final.
   const correctionEndsAt = (completed ? Math.max(...kickoffTimes) : Math.min(...kickoffTimes)) + 5 * DAY_MS;
-  if (completed) return now.getTime() <= correctionEndsAt
-    ? { kind: 'selected', period, requireFinalCoverage: true }
-    : { kind: 'unavailable', reason: 'season-correction-window-closed' };
-  if (week === 1) return { kind: 'selected', period, requireFinalCoverage: false };
+  if (completed) {
+    if (now.getTime() <= correctionEndsAt) return selected(period, true);
+    if (!capturedFinal(week)) diagnostics.push(`final-capture-overdue:${season}:regular:${week}`);
+    return unavailable('season-correction-window-closed');
+  }
   const prior: LeaguePeriod = { ...period, week: week - 1 };
   const priorFinal = capturedFinal(prior.week);
   if (now.getTime() > correctionEndsAt) {
-    return priorFinal ? { kind: 'selected', period, requireFinalCoverage: false }
-      : { kind: 'unavailable', reason: 'previous-week-final-capture-overdue' };
+    if (!priorFinal) diagnostics.push(`final-capture-overdue:${season}:regular:${prior.week}`);
+    return selected(period, false);
   }
   const last = job?.payload.period;
   const lastWasPrior = last && typeof last === 'object'
@@ -80,6 +102,5 @@ export function selectAllPlayerRecurringPeriod(
     && 'week' in last && last.week === prior.week;
   // Previous final capture gets the first opportunity at rollover. Alternation
   // then provides corrections without starving the current period.
-  return lastWasPrior ? { kind: 'selected', period, requireFinalCoverage: false }
-    : { kind: 'selected', period: prior, requireFinalCoverage: true };
+  return lastWasPrior ? selected(period, false) : selected(prior, true);
 }

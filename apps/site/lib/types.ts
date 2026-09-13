@@ -37,6 +37,16 @@ export interface Player {
 
 export interface RosterPlayer extends Omit<Player, 'points' | 'projectedPoints'> {
   byeWeek: number | null;
+  positionRank: number | null;
+  ppg: number | null;
+}
+
+export type PlayerMetricStatus = 'published' | 'provisional' | 'unavailable';
+
+export interface PlayerMetricMetadata {
+  status: PlayerMetricStatus;
+  observedAt: string | null;
+  throughWeek: number | null;
 }
 
 export interface RosterSection {
@@ -60,6 +70,7 @@ export interface RostersData extends Pick<OverviewData, 'league' | 'updatedAt' |
   week: number;
   currentWeek: number;
   rostersAvailable: boolean;
+  playerMetrics: PlayerMetricMetadata;
   teams: RosterTeam[];
 }
 

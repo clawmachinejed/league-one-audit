@@ -10,6 +10,7 @@ import { buildSleeperAllPlayerInventory, createSleeperAllPlayerStatSource }
 import { foundationFixture, loadFoundationFixtureCatalogPosition }
   from '../test-support/all-player-foundation-fixture';
 import { ownerQuery, type IndependentDatabase } from './neon-integration-harness';
+import type { DatabaseQueryOptions, DatabaseStatement } from '../lib/database';
 
 const TABLES = [
   'all_player_stat_contents', 'all_player_stat_entries', 'all_player_stat_observations',
@@ -43,15 +44,32 @@ export function measuredAllPlayerStore(database: IndependentDatabase['database']
   const store = createProjectionStore({
     enabled: true,
     async query<Row extends Readonly<Record<string, unknown>>>(
-      statement: string, parameters: readonly unknown[] = [],
+      statement: string, parameters: readonly unknown[] = [], options: DatabaseQueryOptions = {},
     ): Promise<readonly Row[]> {
       bytes.statements += 1;
       bytes.sqlTextBytes += Buffer.byteLength(statement, 'utf8');
       bytes.parameterJsonBytes += Buffer.byteLength(JSON.stringify(parameters), 'utf8');
       const started = performance.now();
-      const result = await database.query<Row>(statement, parameters);
+      const result = await database.query<Row>(statement, parameters, options);
       bytes.statementWallTimeMs += performance.now() - started;
       bytes.decodedResultJsonBytes += Buffer.byteLength(JSON.stringify(result), 'utf8');
+      return result;
+    },
+    async queryAfterLock<Row extends Readonly<Record<string, unknown>>>(
+      statement: string, parameters: readonly unknown[], lock: DatabaseStatement,
+      options: DatabaseQueryOptions = {},
+    ) {
+      if (!database.queryAfterLock) throw new Error('Capacity measurements require atomic locked transactions.');
+      bytes.statements += 2;
+      bytes.sqlTextBytes += Buffer.byteLength(lock.statement, 'utf8') + Buffer.byteLength(statement, 'utf8');
+      bytes.parameterJsonBytes += Buffer.byteLength(JSON.stringify(lock.parameters), 'utf8')
+        + Buffer.byteLength(JSON.stringify(parameters), 'utf8');
+      const started = performance.now();
+      const result = await database.queryAfterLock<Row>(statement, parameters, lock, options);
+      bytes.statementWallTimeMs += performance.now() - started;
+      bytes.decodedResultJsonBytes += result.reduce((total, rows) => (
+        total + Buffer.byteLength(JSON.stringify(rows), 'utf8')
+      ), 0);
       return result;
     },
   });

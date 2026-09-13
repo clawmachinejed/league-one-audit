@@ -1,5 +1,5 @@
 import { readdir, readFile } from 'node:fs/promises';
-import type { DatabaseClient, DatabaseRow } from './database';
+import type { DatabaseClient, DatabaseRow, DatabaseStatement } from './database';
 import type { MatchupsData, Team } from './types';
 
 export type ProjectionStoreQueryCall = Readonly<{
@@ -9,16 +9,27 @@ export type ProjectionStoreQueryCall = Readonly<{
 
 export function createFakeProjectionDatabase(
   respond: (call: ProjectionStoreQueryCall) => readonly DatabaseRow[] = () => [],
-): Readonly<{ database: DatabaseClient; calls: ProjectionStoreQueryCall[] }> {
+): Readonly<{ database: DatabaseClient; calls: ProjectionStoreQueryCall[];
+  lockedTransactions: readonly [ProjectionStoreQueryCall, ProjectionStoreQueryCall][] }> {
   const calls: ProjectionStoreQueryCall[] = [];
+  const lockedTransactions: [ProjectionStoreQueryCall, ProjectionStoreQueryCall][] = [];
   return {
     calls,
+    lockedTransactions,
     database: {
       enabled: true,
       async query<Row extends DatabaseRow>(statement: string, parameters: readonly unknown[] = []) {
         const call = { statement, parameters };
         calls.push(call);
         return respond(call) as readonly Row[];
+      },
+      async queryAfterLock<Row extends DatabaseRow>(
+        statement: string, parameters: readonly unknown[], lock: DatabaseStatement,
+      ) {
+        const batch = { statement, parameters };
+        calls.push(lock, batch);
+        lockedTransactions.push([lock, batch]);
+        return [[{ checked: true }], respond(batch) as readonly Row[]] as const;
       },
     },
   };
@@ -208,6 +219,7 @@ export const projectionStoreSqlMarkers = [
   'fail-lineup-observation',
   'finish-all-player-job',
   'freeze-latest-baselines',
+  'lock-all-player-batch',
   'mark-all-player-request',
   'prune-game-observations',
   'prune-jobs',
@@ -310,8 +322,11 @@ export async function extractProjectionStoreSql(): Promise<ProjectionStoreSqlExt
     const source = await readFile(sourceUrl, 'utf8');
     queryCallCount += [...source.matchAll(/\.query(?:<[^>]+>)?\s*\(/gu)].length;
     const templates = source.matchAll(/\.query(?:<[^>]+>)?\s*\(\s*`([\s\S]*?)`/gu);
-    for (const template of templates) {
-      const sql = template[1];
+    const lockedTemplates = [...source.matchAll(/\.queryAfterLock(?:<[^>]+>)?\s*\(\s*`([\s\S]*?)`[\s\S]*?statement:\s*`([\s\S]*?)`/gu)];
+    queryCallCount += [...source.matchAll(/\.queryAfterLock(?:<[^>]+>)?\s*\(/gu)].length * 2;
+    const statements = [...templates].map((template) => template[1])
+      .concat(lockedTemplates.flatMap((template) => [template[1], template[2]]));
+    for (const sql of statements) {
       const markers = [...sql.matchAll(/\/\*\s*projection-store:([a-z0-9-]+)\s*\*\//gu)];
       operations.push({
         marker: markers.length === 1 ? markers[0][1] : null,

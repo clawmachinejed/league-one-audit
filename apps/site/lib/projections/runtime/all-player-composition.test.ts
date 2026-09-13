@@ -75,13 +75,13 @@ describe('production all-player recurring composition', () => {
 
   it('gives cleanup queries their own bounded cancellation signal beyond the execution deadline', () => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-09-12T12:00:00.000Z'));
+    vi.setSystemTime(new Date('2026-09-12T16:00:00.000Z'));
     const execution = new AbortController();
     const cleanup = new AbortController();
     const scope = vi.spyOn(databaseModule, 'withDatabaseAbortSignal');
     const timeout = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(cleanup.signal);
     try {
-      createProductionAllPlayerDependencies({ signal: execution.signal, deadlineAt: '2026-09-12T12:00:50.000Z' });
+      createProductionAllPlayerDependencies({ signal: execution.signal, deadlineAt: '2026-09-12T16:00:50.000Z' });
       expect(scope.mock.calls.map((call) => call[1])).toEqual([execution.signal, cleanup.signal]);
       expect(timeout).toHaveBeenCalledExactlyOnceWith(54_000);
       execution.abort();
@@ -91,14 +91,14 @@ describe('production all-player recurring composition', () => {
 
   it('uses only remaining cleanup time and immediately aborts an exhausted cleanup scope', () => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-09-12T12:00:52.000Z'));
+    vi.setSystemTime(new Date('2026-09-12T16:00:52.000Z'));
     const scope = vi.spyOn(databaseModule, 'withDatabaseAbortSignal');
     const timeout = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(new AbortController().signal);
     try {
-      createProductionAllPlayerDependencies({ signal: new AbortController().signal, deadlineAt: '2026-09-12T12:00:50.000Z' });
+      createProductionAllPlayerDependencies({ signal: new AbortController().signal, deadlineAt: '2026-09-12T16:00:50.000Z' });
       expect(timeout).toHaveBeenCalledExactlyOnceWith(2_000);
-      vi.setSystemTime(new Date('2026-09-12T12:00:54.000Z'));
-      createProductionAllPlayerDependencies({ signal: new AbortController().signal, deadlineAt: '2026-09-12T12:00:50.000Z' });
+      vi.setSystemTime(new Date('2026-09-12T16:00:54.000Z'));
+      createProductionAllPlayerDependencies({ signal: new AbortController().signal, deadlineAt: '2026-09-12T16:00:50.000Z' });
       expect(timeout).toHaveBeenCalledTimes(1);
       expect(scope.mock.calls[3][1].aborted).toBe(true);
     } finally { scope.mockRestore(); timeout.mockRestore(); }
@@ -124,12 +124,12 @@ describe('production all-player recurring composition', () => {
 
   it('derives one shared active period and invokes the canonical operation in recurring mode', async () => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-09-12T12:00:00Z'));
+    vi.setSystemTime(new Date('2026-09-12T16:00:00Z'));
     process.env.ALL_PLAYER_RECURRING_ENABLED = 'true';
     store.readLeagueLineupAuthorities.mockResolvedValueOnce(['league1', 'league2'].map((leagueKey) => ({
       kind: 'available', leagueKey, authority: {
         leagueLifecycle: 'active', activeSeason: 2026, activeSeasonType: 'reg', activeWeek: 1,
-        sourceProvider: 'sleeper', verifiedAt: '2026-09-12T12:00:00Z',
+        sourceProvider: 'sleeper', verifiedAt: '2026-09-12T16:00:00Z',
         defaultPeriodCadence: { games: [{ kickoffAt: '2026-09-10T00:00:00Z' }] },
       },
     })));
@@ -146,7 +146,7 @@ describe('production all-player recurring composition', () => {
 
   it('skips between polling opportunities before any all-player database reads', async () => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-09-12T12:01:00Z'));
+    vi.setSystemTime(new Date('2026-09-12T16:02:00Z'));
     process.env.ALL_PLAYER_RECURRING_ENABLED = 'true';
     await expect(runProductionAllPlayerRecurring()).resolves.toMatchObject({
       status: 'skipped', reason: 'not-due',
@@ -162,9 +162,60 @@ describe('production all-player recurring composition', () => {
     expect(store.recordAllPlayerPreclaimOutcome).not.toHaveBeenCalled();
   });
 
+  it.each(['2026-09-12T15:00:00Z', '2026-09-13T05:00:00Z', '2026-12-12T16:00:00Z',
+    '2026-09-12T16:02:00Z', '2026-09-12T16:15:00Z', '2026-09-12T16:59:00Z'])
+  ('does no all-player database or source work outside the two-minute Eastern opportunity at %s', async (timestamp) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(timestamp));
+    process.env.ALL_PLAYER_RECURRING_ENABLED = 'true';
+    await expect(runProductionAllPlayerRecurring()).resolves.toMatchObject({ status: 'skipped', reason: 'not-due' });
+    expect(store.readAllPlayerJobState).not.toHaveBeenCalled();
+    expect(store.readLeagueLineupAuthorities).not.toHaveBeenCalled();
+    expect(store.recordAllPlayerPreclaimOutcome).not.toHaveBeenCalled();
+    expect(catalogLoaders.neutral).not.toHaveBeenCalled();
+    expect(canonicalOperation).not.toHaveBeenCalled();
+  });
+
+  it('uses minute one after the prior-day rolling request limit expires without retrying in later minutes', async () => {
+    vi.useFakeTimers();
+    process.env.ALL_PLAYER_RECURRING_ENABLED = 'true';
+    // The SQL guard returns the actual prior request + 24h, not a moving now().
+    store.readAllPlayerJobState.mockResolvedValue({ payload: {}, nextRequestAt: '2026-09-13T16:00:49Z' });
+    vi.setSystemTime(new Date('2026-09-13T16:00:02Z'));
+    await expect(runProductionAllPlayerRecurring()).resolves.toMatchObject({ status: 'skipped', reason: 'not-due' });
+    expect(canonicalOperation).not.toHaveBeenCalled();
+    vi.setSystemTime(new Date('2026-09-13T16:01:02Z'));
+    store.readLeagueLineupAuthorities.mockResolvedValueOnce(['league1', 'league2'].map((leagueKey) => ({
+      kind: 'available', leagueKey, authority: {
+        leagueLifecycle: 'active', activeSeason: 2026, activeSeasonType: 'reg', activeWeek: 1,
+        sourceProvider: 'sleeper', verifiedAt: '2026-09-13T16:01:00Z',
+        defaultPeriodCadence: { games: [{ kickoffAt: '2026-09-10T00:00:00Z' }] },
+      },
+    })));
+    canonicalOperation.mockResolvedValueOnce({ status: 'partial', mode: 'recurring' });
+    await expect(runProductionAllPlayerRecurring()).resolves.toMatchObject({ status: 'partial' });
+    expect(canonicalOperation).toHaveBeenCalledOnce();
+    vi.setSystemTime(new Date('2026-09-13T16:02:00Z'));
+    await expect(runProductionAllPlayerRecurring()).resolves.toMatchObject({ status: 'skipped', reason: 'not-due' });
+    expect(store.readAllPlayerJobState).toHaveBeenCalledTimes(2);
+    expect(canonicalOperation).toHaveBeenCalledOnce();
+    store.readAllPlayerJobState.mockReset();
+  });
+
+  it('uses cron entry time when the preceding projection work finishes in the next minute', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-13T16:02:10Z'));
+    process.env.ALL_PLAYER_RECURRING_ENABLED = 'true';
+    store.readAllPlayerJobState.mockResolvedValueOnce({ payload: {}, nextRequestAt: '2026-09-13T17:00:00Z' });
+    await expect(runProductionAllPlayerRecurring(Date.parse('2026-09-13T16:01:40Z')))
+      .resolves.toMatchObject({ status: 'skipped', reason: 'not-due' });
+    expect(store.readAllPlayerJobState).toHaveBeenCalledOnce();
+    expect(canonicalOperation).not.toHaveBeenCalled();
+  });
+
   it('reads only compact budget state when the global request is not due', async () => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-09-12T12:00:00Z'));
+    vi.setSystemTime(new Date('2026-09-12T16:00:00Z'));
     process.env.ALL_PLAYER_RECURRING_ENABLED = 'true';
     store.readAllPlayerJobState.mockResolvedValueOnce({ payload: {}, nextRequestAt: '2026-09-13T00:00:00Z' });
     await expect(runProductionAllPlayerRecurring()).resolves.toMatchObject({ status: 'skipped', reason: 'not-due' });
@@ -182,7 +233,7 @@ describe('production all-player recurring composition', () => {
 
   it('reserves cleanup time after work sharing the current cron invocation', async () => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-09-12T12:00:00Z'));
+    vi.setSystemTime(new Date('2026-09-12T16:00:45Z'));
     process.env.ALL_PLAYER_RECURRING_ENABLED = 'true';
     await expect(runProductionAllPlayerRecurring(Date.now() - 45_000)).resolves.toMatchObject({
       status: 'unavailable', reason: 'insufficient-invocation-budget',
@@ -199,12 +250,12 @@ describe('production all-player recurring composition', () => {
 
   it.each(['busy', 'cooldown'] as const)('logs %s with the validated relevant period and no new claim', async (variant) => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-09-12T12:00:00Z'));
+    vi.setSystemTime(new Date('2026-09-12T16:00:00Z'));
     process.env.ALL_PLAYER_RECURRING_ENABLED = 'true';
     store.readAllPlayerJobState.mockResolvedValueOnce({
-      state: 'running', leaseUntil: '2026-09-12T12:00:55Z', nextRequestAt: null,
+      state: 'running', leaseUntil: '2026-09-12T16:00:55Z', nextRequestAt: null,
       payload: { period: { season: 2026, seasonType: 'reg', week: 1 },
-        ...(variant === 'cooldown' ? { nextAttemptAt: '2026-09-12T13:00:00Z' } : {}),
+        ...(variant === 'cooldown' ? { nextAttemptAt: '2026-09-12T17:00:00Z' } : {}),
         ignoredPrivateMetadata: 'postgresql://credential.invalid/private',
       },
     });
@@ -226,7 +277,7 @@ describe('production all-player recurring composition', () => {
 
   it('logs unavailable period selection and database errors without raw payloads', async () => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-09-12T12:00:00Z'));
+    vi.setSystemTime(new Date('2026-09-12T16:00:00Z'));
     process.env.ALL_PLAYER_RECURRING_ENABLED = 'true';
     store.readLeagueLineupAuthorities.mockResolvedValueOnce([]);
     await expect(runProductionAllPlayerRecurring()).resolves.toMatchObject({ reason: 'authority-missing' });
@@ -244,38 +295,64 @@ describe('production all-player recurring composition', () => {
     expect(store.recordAllPlayerPreclaimOutcome).toHaveBeenCalledTimes(2);
   });
 
-  it('logs an overdue final-capture period without claiming that it was selected', async () => {
+  it('carries overdue final-capture diagnostics while selecting current data after the correction window', async () => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-09-25T12:00:00Z'));
+    vi.setSystemTime(new Date('2026-09-25T16:00:00Z'));
     process.env.ALL_PLAYER_RECURRING_ENABLED = 'true';
     store.readLeagueLineupAuthorities.mockResolvedValueOnce(['league1', 'league2'].map((leagueKey) => ({
       kind: 'available', leagueKey, authority: {
         leagueLifecycle: 'active', activeSeason: 2026, activeSeasonType: 'reg', activeWeek: 3,
-        sourceProvider: 'sleeper', verifiedAt: '2026-09-25T12:00:00Z',
+        defaultSeason: 2026, defaultSeasonType: 'reg', defaultWeek: 3,
+        sourceProvider: 'sleeper', verifiedAt: '2026-09-25T16:00:00Z',
+        defaultPeriodCadence: { games: [{ kickoffAt: '2026-09-18T00:00:00Z' }] },
       },
     })));
-    await expect(runProductionAllPlayerRecurring()).resolves.toMatchObject({ reason: 'final-capture-overdue:2026:regular:1' });
-    expect(logger.write).toHaveBeenCalledExactlyOnceWith('warn', expect.objectContaining({
-      stage: 'all-player-recurring-preclaim', allPlayerReason: 'final-capture-overdue:2026:regular:1',
-      period: { season: 2026, seasonType: 'regular', week: 1 },
-    }));
+    canonicalOperation.mockResolvedValueOnce({ status: 'partial', mode: 'recurring' });
+    await expect(runProductionAllPlayerRecurring()).resolves.toMatchObject({ status: 'partial' });
+    expect(canonicalOperation).toHaveBeenCalledExactlyOnceWith(expect.anything(), {
+      mode: 'recurring', period: { season: 2026, seasonType: 'regular', week: 3 }, requireFinalCoverage: false,
+      cadenceDiagnostics: ['final-capture-overdue:2026:regular:1', 'final-capture-overdue:2026:regular:2'],
+    });
+    expect(store.recordAllPlayerPreclaimOutcome).not.toHaveBeenCalled();
+  });
+
+  it('retains the exact overdue periods after completed-season corrections close without another ingestion', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-25T16:00:00Z'));
+    process.env.ALL_PLAYER_RECURRING_ENABLED = 'true';
+    store.readLeagueLineupAuthorities.mockResolvedValueOnce(['league1', 'league2'].map((leagueKey) => ({
+      kind: 'available', leagueKey, authority: {
+        leagueLifecycle: 'complete', defaultSeason: 2026, defaultSeasonType: 'reg', defaultWeek: 3,
+        sourceProvider: 'sleeper', verifiedAt: '2026-09-25T16:00:00Z',
+        defaultPeriodCadence: { games: [{ kickoffAt: '2026-09-18T00:00:00Z' }] },
+      },
+    })));
+    const diagnostics = ['final-capture-overdue:2026:regular:1', 'final-capture-overdue:2026:regular:2',
+      'final-capture-overdue:2026:regular:3'];
+    await expect(runProductionAllPlayerRecurring()).resolves.toMatchObject({ status: 'unavailable',
+      reason: 'season-correction-window-closed', period: { season: 2026, seasonType: 'regular', week: 1 },
+      diagnostics, diagnosticCount: 3,
+    });
     expect(canonicalOperation).not.toHaveBeenCalled();
     expect(store.recordAllPlayerPreclaimOutcome).toHaveBeenCalledExactlyOnceWith({
-      outcome: 'validation-failed', stage: 'period-selection', reason: 'final-capture-overdue:2026:regular:1',
+      outcome: 'validation-failed', stage: 'period-selection', reason: 'season-correction-window-closed',
       period: { season: 2026, seasonType: 'reg', week: 1 }, retryDisposition: 'manual-review',
     });
+    expect(logger.write).toHaveBeenLastCalledWith('warn', expect.objectContaining({
+      allPlayerDiagnostics: ['preclaim-durability:recorded', ...diagnostics], allPlayerDiagnosticCount: 4,
+    }));
   });
 
   it('sanitizes malformed stored period metadata and composition exceptions', async () => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-09-12T12:00:00Z'));
+    vi.setSystemTime(new Date('2026-09-12T16:00:00Z'));
     process.env.ALL_PLAYER_RECURRING_ENABLED = 'true';
-    store.readAllPlayerJobState.mockResolvedValueOnce({ state: 'running', leaseUntil: '2026-09-12T12:00:55Z',
+    store.readAllPlayerJobState.mockResolvedValueOnce({ state: 'running', leaseUntil: '2026-09-12T16:00:55Z',
       payload: { period: { season: 'credential.invalid', seasonType: 'reg', week: 1 } } });
     await runProductionAllPlayerRecurring();
     expect(logger.write.mock.calls[0][1]).not.toHaveProperty('period');
-    await expect(runProductionAllPlayerRecurring(NaN)).resolves.toMatchObject({ reason: 'recurring-preflight-failed' });
-    expect(logger.write).toHaveBeenLastCalledWith('warn', expect.objectContaining({ allPlayerFailureStage: 'recurring-composition' }));
+    await expect(runProductionAllPlayerRecurring(NaN)).resolves.toMatchObject({ reason: 'insufficient-invocation-budget' });
+    expect(logger.write).toHaveBeenLastCalledWith('warn', expect.objectContaining({ allPlayerFailureStage: 'invocation-budget' }));
     expect(JSON.stringify(logger.write.mock.calls)).not.toContain('credential.invalid');
     expect(canonicalOperation).not.toHaveBeenCalled();
     expect(store.recordAllPlayerPreclaimOutcome).toHaveBeenCalledTimes(1);
@@ -283,7 +360,7 @@ describe('production all-player recurring composition', () => {
 
   it.each(['unchanged', 'throttled', 'disabled'] as const)('logs durable diagnostic disposition %s without implying a new write', async (disposition) => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-09-12T12:00:00Z'));
+    vi.setSystemTime(new Date('2026-09-12T16:00:00Z'));
     process.env.ALL_PLAYER_RECURRING_ENABLED = 'true';
     store.readAllPlayerJobState.mockResolvedValueOnce({ payload: {}, nextRequestAt: '2026-09-13T00:00:00Z' });
     store.recordAllPlayerPreclaimOutcome.mockResolvedValueOnce(disposition);
@@ -295,7 +372,7 @@ describe('production all-player recurring composition', () => {
 
   it('bounds failed durable handling and never logs the database error text', async () => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-09-12T12:00:00Z'));
+    vi.setSystemTime(new Date('2026-09-12T16:00:00Z'));
     process.env.ALL_PLAYER_RECURRING_ENABLED = 'true';
     store.readAllPlayerJobState.mockResolvedValue({ payload: {}, nextRequestAt: '2026-09-13T00:00:00Z' });
     store.recordAllPlayerPreclaimOutcome.mockRejectedValueOnce(new Error('postgresql://credential.invalid/private'));
@@ -314,7 +391,7 @@ describe('production all-player recurring composition', () => {
 
   it('does not attempt durable work after the invocation cleanup reserve is exhausted', async () => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-09-12T12:00:00Z'));
+    vi.setSystemTime(new Date('2026-09-12T16:00:55Z'));
     process.env.ALL_PLAYER_RECURRING_ENABLED = 'true';
     await runProductionAllPlayerRecurring(Date.now() - 55_000);
     expect(store.recordAllPlayerPreclaimOutcome).not.toHaveBeenCalled();

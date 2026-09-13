@@ -27,6 +27,9 @@ import { createSnapshotMethods } from './projections/adapters/neon/snapshots';
 
 export type {
   AllPlayerBatchInput,
+  AllPlayerMetricReadInput,
+  AllPlayerMetricReader,
+  AllPlayerMetricSparseScorer,
   AllPlayerIdentityLookup,
   AllPlayerLeagueProfileInput,
   ExternalIdentity,
@@ -67,6 +70,7 @@ export type {
   StoredAllPlayerIdentityMapping,
   StoredAllPlayerLeagueProfile,
   StoredAllPlayerPlayerMetric,
+  StoredAllPlayerMetricRead,
   StoredDatabaseIdentity,
   StoredFutureMaterializationFreshness,
   StoredLeagueWeekObservation,
