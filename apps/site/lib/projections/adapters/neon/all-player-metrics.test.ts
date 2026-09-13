@@ -21,7 +21,7 @@ function metadata(overrides: DatabaseRow = {}): DatabaseRow {
     row_kind: 'metadata', scoring_profile_id: profileId, rules,
     published_week_count: 0, published_through_week: null, published_observed_at: null,
     partial_week: 1, partial_observed_at: observedAt,
-    rank_unavailable_positions: [],
+    rank_unavailable_positions: [], missing_prior_week_count: 0,
     ...overrides,
   };
 }
@@ -43,7 +43,7 @@ function published(input: Readonly<{
 
 function partial(input: Readonly<{
   id: string; position: string; stats: Readonly<Record<string, unknown>>;
-  appearance?: number | null; eligible?: number | null;
+  appearance?: number | null; eligible?: number | null; week?: number;
   kind?: 'player' | 'team_defense'; entityId?: string;
 }>): DatabaseRow {
   return {
@@ -51,6 +51,7 @@ function partial(input: Readonly<{
     scoring_entity_id: input.entityId ?? `entity-${input.id}`,
     provider_external_id: input.id, entity_kind: input.kind ?? 'player', position: input.position,
     stats: input.stats,
+    partial_week: input.week ?? 1,
     appearance_game_count: input.appearance === undefined ? 1 : input.appearance,
     eligible_game_count: input.eligible === undefined ? 1 : input.eligible,
   };
@@ -135,7 +136,9 @@ describe('all-player roster metrics', () => {
       'league1', 'sleeper', 2026, 'reg', 1, 'sleeper-actual-v1', 1,
     ]);
     expect(fake.calls[0].statement).toContain("observation.quality = 'partial'");
-    expect(fake.calls[0].statement).toContain('ORDER BY observation.observed_at DESC');
+    expect(fake.calls[0].statement).toContain('SELECT DISTINCT ON (observation.week)');
+    expect(fake.calls[0].statement).toContain('ORDER BY observation.week, observation.observed_at DESC');
+    expect(fake.calls[0].statement).toContain('observation.week <= $5::smallint');
     expect(fake.calls[0].statement).toContain('NOT EXISTS');
     expect(fake.calls[0].statement).toContain('score.fantasy_points <> 0 OR score.appearance_game_count = 1');
     expect(fake.calls[0].statement).not.toContain("score.entity_kind = 'player'");
@@ -181,13 +184,13 @@ describe('all-player roster metrics', () => {
   it('withholds zero, conflicting participation, and missing identity evidence while preserving unknown PPG semantics', async () => {
     const { result } = read([
       metadata({ published_week_count: 1, published_through_week: 1, published_observed_at: observedAt,
-        partial_week: 1, partial_observed_at: observedAt }),
+        partial_week: 2, partial_observed_at: observedAt }),
       published({ id: 'known', position: 'WR', points: 10, appearances: 1 }),
-      partial({ id: 'known', position: 'WR', stats: { rec: 5 }, appearance: null, eligible: null }),
-      partial({ id: 'zero', position: 'WR', stats: { rec: 0 } }),
-      partial({ id: 'conflict', position: 'WR', stats: { rec: 2 }, appearance: 0, eligible: 0 }),
-      partial({ id: 'malformed', position: 'WR', stats: { rec: 'not-a-number' } }),
-    ]);
+      partial({ id: 'known', position: 'WR', stats: { rec: 5 }, appearance: null, eligible: null, week: 2 }),
+      partial({ id: 'zero', position: 'WR', stats: { rec: 0 }, week: 2 }),
+      partial({ id: 'conflict', position: 'WR', stats: { rec: 2 }, appearance: 0, eligible: 0, week: 2 }),
+      partial({ id: 'malformed', position: 'WR', stats: { rec: 'not-a-number' }, week: 2 }),
+    ], { throughWeek: 2, provisionalWeek: 2 });
     const value = await result;
     expect(value.metrics.find((metric) => metric.providerExternalId === 'known')).toMatchObject({
       totalFantasyPoints: 15, appearanceGameCount: 1, pointsPerGame: 10,
@@ -201,7 +204,7 @@ describe('all-player roster metrics', () => {
       metadata({ published_week_count: 1, published_through_week: 1,
         published_observed_at: '2026-09-08T03:00:00.000Z', partial_week: 2 }),
       published({ id: 'combo', position: 'RB', points: 7, appearances: 1 }),
-      partial({ id: 'combo', position: 'RB', stats: { rush_yd: 30 } }),
+      partial({ id: 'combo', position: 'RB', stats: { rush_yd: 30 }, week: 2 }),
     ], { throughWeek: 2, provisionalWeek: 2 });
     await expect(result).resolves.toMatchObject({
       status: 'provisional', throughWeek: 2,
@@ -212,13 +215,119 @@ describe('all-player roster metrics', () => {
     });
   });
 
+  it('carries each earlier partial week into season PPG when the active week advances', async () => {
+    const value = await read([
+      metadata({ partial_week: 2 }),
+      partial({ id: 'carry', position: 'WR', stats: { rec: 4 }, week: 1 }),
+      partial({ id: 'carry', position: 'WR', stats: { rec: 8 }, week: 2 }),
+    ], { throughWeek: 2, provisionalWeek: 2 }).result;
+    expect(value).toMatchObject({ status: 'provisional', throughWeek: 2,
+      metrics: [expect.objectContaining({ totalFantasyPoints: 12,
+        appearanceGameCount: 2, pointsPerGame: 6, positionRank: 1, publishedWeekCount: 0 })] });
+  });
+
+  it('retains a historical partial when the requested week has no active provisional overlay', async () => {
+    const { fake, result } = read([
+      metadata(), partial({ id: 'past', position: 'WR', stats: { rec: 4 }, week: 1 }),
+    ], { throughWeek: 1, provisionalWeek: null });
+    await expect(result).resolves.toMatchObject({ status: 'provisional', throughWeek: 1,
+      metrics: [expect.objectContaining({ pointsPerGame: 4, appearanceGameCount: 1 })] });
+    expect(fake.calls[0].parameters[6]).toBeNull();
+    expect(fake.calls[0].statement).not.toContain('WHERE $7::smallint IS NOT NULL');
+  });
+
+  it('keeps the latest covered week when an older partial correction follows newer publication', async () => {
+    const value = await read([
+      metadata({ published_week_count: 1, published_through_week: 2,
+        published_observed_at: '2026-09-11T03:00:00.000Z' }),
+      published({ id: 'carry', position: 'WR', points: 8, appearances: 1 }),
+      partial({ id: 'carry', position: 'WR', stats: { rec: 4 }, week: 1 }),
+    ], { throughWeek: 2, provisionalWeek: null }).result;
+    expect(value).toMatchObject({ status: 'provisional', throughWeek: 2, observedAt,
+      metrics: [expect.objectContaining({ totalFantasyPoints: 12,
+        pointsPerGame: 6, publishedWeekCount: 1 })] });
+  });
+
+  it.each(['partial', 'published'] as const)(
+    'withholds every positional rank when an entire prior week is missing before %s data', async (kind) => {
+      const value = await read([
+        metadata({ missing_prior_week_count: 1,
+          ...(kind === 'partial' ? { partial_week: 2 } : {
+            partial_week: null, partial_observed_at: null, published_week_count: 1,
+            published_through_week: 2, published_observed_at: observedAt,
+          }) }),
+        ...(kind === 'partial' ? [
+          partial({ id: 'known', position: 'WR', stats: { rec: 4 }, week: 2 }),
+          partial({ id: 'other', position: 'RB', stats: { rush_yd: 20 }, week: 2 }),
+        ] : [
+          published({ id: 'known', position: 'WR', points: 4, appearances: 1 }),
+          published({ id: 'other', position: 'RB', points: 2, appearances: 1 }),
+        ]),
+      ], { throughWeek: 2, provisionalWeek: 2 }).result;
+      expect(value).toMatchObject({ status: 'provisional', throughWeek: 2 });
+      expect(value.metrics).toHaveLength(2);
+      expect(value.metrics.every((metric) => metric.positionRank === null)).toBe(true);
+      expect(value.metrics.find((metric) => metric.providerExternalId === 'known'))
+        .toMatchObject({ totalFantasyPoints: 4, appearanceGameCount: 1, pointsPerGame: 4 });
+    },
+  );
+
+  it('marks retained published metrics provisional when a captured partial has no scoreable rows', async () => {
+    const value = await read([
+      metadata({ published_week_count: 1, published_through_week: 1,
+        published_observed_at: observedAt, partial_week: 2 }),
+      published({ id: 'known', position: 'WR', points: 4, appearances: 1 }),
+    ], { throughWeek: 2, provisionalWeek: 2 }).result;
+    expect(value).toMatchObject({ status: 'provisional', throughWeek: 2 });
+  });
+
+  it.each([
+    { stats: { rec: 0 }, appearance: 0, eligible: 0, expectedCount: 1 },
+    { stats: { rec: 0 }, appearance: 1, eligible: 1, expectedCount: 2 },
+    { stats: { gp: 1 }, appearance: 1, eligible: 1, expectedCount: 2 },
+  ])('preserves prior partial points with a later zero record (%j)', async (scenario) => {
+    const value = await read([
+      metadata({ partial_week: 2 }),
+      partial({ id: 'carry', position: 'WR', stats: { rec: 4 }, week: 1 }),
+      partial({ id: 'carry', position: 'WR', week: 2, ...scenario }),
+    ], { throughWeek: 2, provisionalWeek: 2 }).result;
+    expect(value.metrics).toEqual([expect.objectContaining({ totalFantasyPoints: 4,
+      appearanceGameCount: scenario.expectedCount, pointsPerGame: 4 / scenario.expectedCount })]);
+  });
+
+  it('rejects conflicting canonical identities across partial weeks even for a zero record', async () => {
+    await expect(read([
+      metadata({ partial_week: 2 }),
+      partial({ id: 'carry', position: 'WR', stats: { rec: 4 }, week: 1 }),
+      partial({ id: 'carry', entityId: 'different', position: 'WR', stats: { rec: 0 }, week: 2 }),
+    ], { throughWeek: 2, provisionalWeek: 2 }).result).rejects.toThrow('identities disagree across periods');
+  });
+
+  it.each([
+    { stats: { rec: 2 }, appearance: 0, eligible: 0 },
+    { stats: { rec: 'malformed' }, appearance: 1, eligible: 1 },
+  ])('retains known prior contributions when a later period is unusable (%j)', async (scenario) => {
+    const value = await read([
+      metadata({ partial_week: 2 }),
+      partial({ id: 'carry', position: 'WR', stats: { rec: 4 }, week: 1 }),
+      partial({ id: 'peer', position: 'WR', stats: { rec: 2 }, week: 1 }),
+      partial({ id: 'carry', position: 'WR', week: 2, ...scenario }),
+    ], { throughWeek: 2, provisionalWeek: 2 }).result;
+    expect(value).toMatchObject({ status: 'provisional', throughWeek: 2 });
+    expect(value.metrics).toEqual(expect.arrayContaining([
+      expect.objectContaining({ providerExternalId: 'carry', totalFantasyPoints: 4,
+        appearanceGameCount: 1, pointsPerGame: 4, positionRank: null }),
+      expect.objectContaining({ providerExternalId: 'peer', positionRank: null }),
+    ]));
+  });
+
   it.each([{ gp: 1 }, { rec: 0 }, { rec: 2, fum_lost: 1 }])(
     'includes a confirmed zero-point current appearance in cumulative PPG (%j)', async (stats) => {
       const value = await read([
         metadata({ published_week_count: 1, published_through_week: 1,
           published_observed_at: observedAt, partial_week: 2 }),
         published({ id: 'played-zero', position: 'WR', points: 10, appearances: 1 }),
-        partial({ id: 'played-zero', position: 'WR', stats }),
+        partial({ id: 'played-zero', position: 'WR', stats, week: 2 }),
       ], { throughWeek: 2, provisionalWeek: 2 }).result;
       expect(value).toMatchObject({ status: 'provisional', throughWeek: 2,
         metrics: [expect.objectContaining({ totalFantasyPoints: 10,
@@ -231,7 +340,7 @@ describe('all-player roster metrics', () => {
       metadata({ published_week_count: 2, published_through_week: 2,
         published_observed_at: observedAt, partial_week: 3 }),
       published({ id: 'cancelled', position: 'WR', points: 0, appearances: 2 }),
-      partial({ id: 'cancelled', position: 'WR', stats: { rec: 6 } }),
+      partial({ id: 'cancelled', position: 'WR', stats: { rec: 6 }, week: 3 }),
     ], { throughWeek: 3, provisionalWeek: 3 }).result;
     expect(value.metrics).toEqual([expect.objectContaining({ totalFantasyPoints: 6,
       appearanceGameCount: 3, pointsPerGame: 2 })]);
@@ -265,7 +374,7 @@ describe('all-player roster metrics', () => {
       metadata({ published_week_count: 1, published_through_week: 1,
         published_observed_at: observedAt, partial_week: 2 }),
       published({ id: 'old-id', position: 'WR', points: 2, appearances: 1, entityId: 'same-entity' }),
-      partial({ id: 'new-id', position: 'WR', stats: { rec: 6 }, entityId: 'same-entity' }),
+      partial({ id: 'new-id', position: 'WR', stats: { rec: 6 }, entityId: 'same-entity', week: 2 }),
     ], { throughWeek: 2, provisionalWeek: 2 }).result).rejects.toThrow('share one canonical target');
   });
 

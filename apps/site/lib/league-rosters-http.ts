@@ -73,6 +73,7 @@ export async function handleLeagueRostersRequest(
   if (!isLeagueKey(league)) {
     return Response.json({ error: 'Unknown league.' }, { status: 404, headers: responseHeaders });
   }
+  const scopedHeaders = { ...responseHeaders, 'X-Roster-League': league };
   const rawWeek = new URL(request.url).searchParams.get('week');
   if (rawWeek === null || !/^\d{1,2}$/u.test(rawWeek)) {
     return Response.json({ error: 'A valid roster week is required.' }, { status: 400, headers: responseHeaders });
@@ -84,8 +85,13 @@ export async function handleLeagueRostersRequest(
   try {
     const loaded = await loadRosters(LEAGUE_IDS[league], week);
     const boundary = loaded.metricContext;
+    // The active metric week can differ from the public default display week.
+    // Retain this scope even when the database metric read is unavailable.
+    const metricHeaders = { ...scopedHeaders,
+      'X-Roster-Provisional-Week': !boundary.activeWeekKnown ? 'unknown'
+        : boundary.provisionalWeek === null ? 'none' : String(boundary.provisionalWeek) };
     if (boundary.season === null || boundary.throughWeek === null) {
-      return Response.json(loaded.data, { headers: responseHeaders });
+      return Response.json(loaded.data, { headers: metricHeaders });
     }
     try {
       const metrics = await loadMetrics({
@@ -94,9 +100,9 @@ export async function handleLeagueRostersRequest(
         throughWeek: boundary.throughWeek,
         provisionalWeek: boundary.provisionalWeek,
       });
-      return Response.json(applyPlayerMetrics(loaded.data, metrics), { headers: responseHeaders });
+      return Response.json(applyPlayerMetrics(loaded.data, metrics), { headers: metricHeaders });
     } catch {
-      return Response.json(loaded.data, { headers: responseHeaders });
+      return Response.json(loaded.data, { headers: metricHeaders });
     }
   } catch {
     return Response.json(

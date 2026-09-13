@@ -492,8 +492,9 @@ test('Rosters stays in League, is exact-week cached, accessible, and responsive'
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
+      headers: { 'X-Roster-League': leagueKey, 'X-Roster-Provisional-Week': week >= currentWeek ? String(currentWeek) : 'none' },
       body: JSON.stringify({
-        league: { season: '2026', rosterPositions: ['QB', 'BN'], week: 3, maxWeek: 18 },
+        league: { season: '2026', rosterPositions: ['QB', 'BN'], week: currentWeek, maxWeek: 18 },
         week, currentWeek, rostersAvailable: available, updatedAt: '2026-09-08T12:00:00.000Z',
         playerMetrics: available
           ? { status: current ? 'provisional' : 'published', observedAt: '2026-09-08T12:00:00.000Z', throughWeek: week }

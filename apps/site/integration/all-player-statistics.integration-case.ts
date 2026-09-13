@@ -718,6 +718,89 @@ describe('all-player statistics foundation', () => {
     }
   });
 
+  it('retains each partial week across rollover, applies per-week corrections, and detects missing history', async () => {
+    const transaction = await createPinnedIntegrationDatabase('owner');
+    try {
+      await transaction.database.query('BEGIN');
+      const reader = createProjectionStore(transaction.database);
+      const insertPartialWeekOne = async (passTouchdowns: number, revision: number) => {
+        await transaction.database.query(`WITH content AS (
+          INSERT INTO all_player_stat_contents (
+            id,provider,season,season_type,week,normalizer_version,semantic_hash,
+            quality,coverage,warnings,entry_count
+          ) VALUES (
+            gen_random_uuid(),'sleeper',$1::smallint,'reg',1,'sleeper-weekly-stats-v4',
+            repeat($2,64),'partial','{"complete":false}'::jsonb,'[]'::jsonb,1
+          ) RETURNING id
+        ), entry AS (
+          INSERT INTO all_player_stat_entries (
+            all_player_stat_content_id,entity_kind,provider_external_id,nfl_game_id,
+            nfl_team,position,stats,eligibility_evidence,eligible_game_count,
+            appearance_game_count,game_phase,ordinal
+          ) SELECT id,'player','integration-player-one',$3::uuid,'NE','QB',
+            jsonb_build_object('gms_active',1,'gp',1,'pass_td',$4::integer),
+            '{"kind":"weekly-stat","source":"weekly-stat-provider","gmsActive":1,"appearances":1}'::jsonb,
+            1,1,'final',0 FROM content RETURNING all_player_stat_content_id
+        ) INSERT INTO all_player_stat_observations (
+          id,all_player_stat_content_id,provider,season,season_type,week,normalizer_version,
+          source_revision,request_started_at,request_completed_at,observed_at,quality
+        ) SELECT gen_random_uuid(),id,'sleeper',$1::smallint,'reg',1,'sleeper-weekly-stats-v4',
+          $5,$6::timestamptz - interval '1 second',$6::timestamptz,$6::timestamptz,'partial'
+          FROM content JOIN entry ON entry.all_player_stat_content_id = content.id`,
+        [DATABASE_SEASON, String(revision), gameId, passTouchdowns,
+          `etag:carryforward-week1-${revision}`, `2026-09-17T00:0${revision}:01.000Z`]);
+      };
+      const readMetrics = (throughWeek: number, provisionalWeek: number | null) => reader.readAllPlayerPlayerMetrics({
+        leagueKey: 'league1', provider: 'sleeper', season: DATABASE_SEASON,
+        seasonType: 'reg', throughWeek, provisionalWeek, scorerVersion: 'sleeper-actual-v1',
+      }, scoreSparseStatistics);
+
+      // Preserve the existing pointer in the transaction until the same-week
+      // exclusion is proven. A later raw partial must never replace it.
+      await transaction.database.query('SAVEPOINT before_partial');
+      await insertPartialWeekOne(9, 7);
+      await expect(readMetrics(2, 2)).resolves.toMatchObject({
+        status: 'provisional', throughWeek: 2, observedAt: '2026-09-16T00:01:01.000Z',
+        metrics: [expect.objectContaining({ totalFantasyPoints: 12,
+          appearanceGameCount: 2, pointsPerGame: 6, publishedWeekCount: 1 })],
+      });
+      await transaction.database.query('ROLLBACK TO SAVEPOINT before_partial');
+      await transaction.database.query(`DELETE FROM current_all_player_score_sets
+        WHERE scoring_profile_id = $1::uuid AND provider = 'sleeper'
+          AND season = $2::smallint AND season_type = 'reg' AND week = 1`,
+      [profileIds[0], DATABASE_SEASON]);
+
+      await expect(readMetrics(2, 2)).resolves.toMatchObject({
+        status: 'provisional', throughWeek: 2, observedAt: '2026-09-16T00:01:01.000Z',
+        metrics: [expect.objectContaining({ totalFantasyPoints: 8,
+          appearanceGameCount: 1, pointsPerGame: 8, positionRank: null, publishedWeekCount: 0 })],
+      });
+
+      // Week 1 was captured independently of Week 2, including a later correction.
+      await insertPartialWeekOne(1, 7);
+      await expect(readMetrics(2, 2)).resolves.toMatchObject({
+        status: 'provisional', throughWeek: 2, observedAt: '2026-09-17T00:07:01.000Z',
+        metrics: [expect.objectContaining({ totalFantasyPoints: 12,
+          appearanceGameCount: 2, pointsPerGame: 6, positionRank: 1, publishedWeekCount: 0 })],
+      });
+      await insertPartialWeekOne(3, 8);
+      await expect(readMetrics(2, 2)).resolves.toMatchObject({
+        status: 'provisional', throughWeek: 2, observedAt: '2026-09-17T00:08:01.000Z',
+        rowsRead: 3,
+        metrics: [expect.objectContaining({ totalFantasyPoints: 20,
+          appearanceGameCount: 2, pointsPerGame: 10, positionRank: 1 })],
+      });
+      await expect(readMetrics(1, null)).resolves.toMatchObject({
+        status: 'provisional', throughWeek: 1,
+        metrics: [expect.objectContaining({ totalFantasyPoints: 12,
+          appearanceGameCount: 1, pointsPerGame: 12, positionRank: 1 })],
+      });
+
+    } finally {
+      try { await transaction.database.query('ROLLBACK'); } finally { await transaction.close(); }
+    }
+  });
+
   it('rejects self-consistent official points that omit an authoritative roster', async () => {
     const current = (await runtimeQuery<{
       score_set_id: string; observation_id: string;

@@ -639,6 +639,8 @@ export type RosterMetricContext = Readonly<{
   seasonType: 'reg';
   throughWeek: number | null;
   provisionalWeek: number | null;
+  /** Distinguishes a proved nonactive selection from temporarily missing authority. */
+  activeWeekKnown: boolean;
 }>;
 
 export type RostersLoad = Readonly<{
@@ -767,6 +769,7 @@ export async function getRostersWithMetricContext(
       season: Number.isSafeInteger(season) && season >= 1920 && season <= 2200 ? season : null,
       seasonType: 'reg',
       ...metricBoundary,
+      activeWeekKnown: lifecycle === 'complete' || boundaryInput.activeWeek !== null,
     },
   };
 }

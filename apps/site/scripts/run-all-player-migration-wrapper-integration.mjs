@@ -20,7 +20,9 @@ for (const name of requiredEnvironmentNames) {
   }
 }
 process.env.PROJECTION_INTEGRATION_ENV_FILE = '.env.integration.local';
-await import(process.argv.includes('--participation-assumption')
+await import(process.argv.includes('--hourly')
+  ? './verify-all-player-hourly-release-wrapper.ts'
+  : process.argv.includes('--participation-assumption')
   ? './verify-all-player-participation-assumption-release-wrapper.ts'
   : process.argv.includes('--participation')
   ? './verify-all-player-participation-release-wrapper.ts'

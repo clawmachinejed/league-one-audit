@@ -4,7 +4,7 @@ This foundation retains one shared Sleeper weekly response and scores its
 validated immutable content for each distinct registered league scoring profile.
 It derives per-player season total points and points per game from published
 weekly score pointers. The server-side Rosters read model also derives provisional
-current-week position ranks and PPG from the latest accepted partial observation.
+position ranks and PPG from each permitted week's latest accepted partial observation.
 It adds no public all-player API, Tank01 feed, ingestion call, or cron schedule.
 
 The September 12 repair and partial production capture are not an operational
@@ -197,9 +197,9 @@ The server-only player metrics reader derives cumulative totals, position rank,
 and PPG in the existing Rosters request. It selects the requested league's
 scoring profile, season, season type, scorer version, and weeks through the
 requested boundary. Compact published totals come from
-`current_all_player_score_sets`. When the boundary includes the active week and
-that week has no published pointer, the same read selects only the newest
-accepted partial observation and returns entries with confirmed appearances or
+`current_all_player_score_sets`. For each permitted week without a published
+pointer, the same read selects that week's newest accepted partial observation
+and returns entries with confirmed appearances or
 stored sparse stats that intersect an active scoring rule. Empty unplayed inventory
 rows remain excluded. The browser never reads this storage directly.
 
@@ -207,12 +207,17 @@ The partial row is scored by the same canonical sparse-stat scorer used by the
 all-player operation. Published and provisional records for the same week are
 mutually exclusive, so a week/player cannot be counted twice. Newer immutable
 partial corrections supersede older observations by observation, request, and
-creation time. Historical selection stops at the selected week; future selection
-stops at the active scoring week.
+creation time. Valid partial weeks continue contributing after rollover and in
+historical views; a later complete publication replaces only its own week's
+partial contribution. Historical selection stops at the selected week; future
+selection stops at the active scoring week. If a whole required prior week has
+no accepted capture or publication, known metrics remain explicitly partial and
+position ranks are withheld. No denominator is invented for that missing period.
 
 PPG is confirmed cumulative fantasy points divided by confirmed appearances.
 Unknown or conflicting partial participation contributes to neither the PPG
-numerator nor denominator. A zero cumulative total, zero appearances, malformed
+numerator nor denominator. An unusable later period cannot erase an earlier
+valid contribution; the affected position's rank is withheld. A zero cumulative total, zero appearances, malformed
 evidence, or unresolved identity yields `null` for display as an unavailable
 dash. Confirmed negative totals and PPG remain valid.
 Confirmed zero-point appearances remain in the cumulative denominator, including
@@ -272,21 +277,33 @@ publication rather than report that no write occurred.
 
 The existing authenticated live-projections route remains the only cron
 attachment. ALL_PLAYER_RECURRING_ENABLED must equal true; disabled mode returns
-before all-player database or provider work. A fifteen-minute in-process
-opportunity check avoids minute-level all-player queries. SQL remains the
-cross-invocation budget authority.
+before all-player database or provider work. The user-authorized hourly schedule
+uses `America/New_York`, including daylight saving time: noon, 1–11 PM, and
+midnight every day. The cron checks the first two minutes of each eligible hour;
+the second opportunity allows recovery when existing projection work consumed
+the first invocation's deadline. Other minutes and overnight hours perform no
+all-player database or provider work. SQL remains the cross-invocation authority.
 
 One global Sleeper all-player job covers all periods and explicit operators.
-It permits at least 12 hours between weekly requests and no more than 2 requests in
-a rolling 24 hours. Claiming chooses one period; marking the request is atomic and
-one-use for that generation. Provider failures retain the request budget.
-Failures before a weekly request receive a safe cooldown.
+It permits one weekly request per scheduled Eastern hour and no more than 13
+actual request starts in a rolling 24 hours. This replaces the former 12-hour,
+two-request policy through additive migration 014. Wall-clock slots tolerate
+ordinary cron jitter; they are not a sliding sixty-minute delay between starts.
+Claiming chooses one period; marking the request is atomic and one-use for that
+generation. Explicit operators share the same window, ownership and budget.
+Provider failures retain their consumed slot. Failures before a weekly request
+receive a safe cooldown. These are bounded opportunities, not a guarantee that
+every request succeeds; late prior-day requests can delay admission under the
+rolling cap.
 
 Previous-week final capture receives the first opportunity at rollover, then
 alternates with current-week work inside a finite schedule-derived correction
 window. A missed final capture remains an explicit overdue obligation across
-later rollovers; there is no unlimited historical polling. A successful final
-capture is not erased by a later failed correction.
+later rollovers. It does not halt valid current-week raw collection after that
+window: the operation retains the overdue diagnostics for review. There is no
+unlimited historical polling. A successful final capture is not erased by a
+later failed correction, and a partial capture never counts as complete final
+scoring or backfill.
 
 The all-player execution deadline is at most 50 seconds from the shared
 invocation start, with time reserved inside the existing Vercel limit for
@@ -295,17 +312,23 @@ Checkpoints reject late work, and SQL independently rejects late publication.
 A recurring opportunity with insufficient remaining invocation time returns an
 explicit failure without starting another request.
 
-Durable outcomes distinguish publication, retained partial data, validation or
-provider failure, timeout, and lost ownership. Busy/not-due state must remain
+Durable outcomes distinguish publication, successful retained partial data,
+validation or provider failure, timeout, and lost ownership. A valid recurring
+partial capture reports `partial`, preserves the observation and makes supported
+player metrics readable without claiming complete score publication. Busy/not-due state must remain
 observable without turning cooldown polling into another write or retry storm.
 
 ## Release, capacity and recovery
 
 Use the actual checksummed release wrapper and PostgreSQL 18 constraint manifest
-for the reviewed additive migration. Never edit installed 010–012 or use a
-destructive down-migration. Keep recurrence disabled through migration, deployment,
-complete Week 1 shadow and verified guarded backfill. Verify the exact merged SHA
-in production and both leagues' existing readers before activation.
+for the reviewed additive migration. Never edit installed 010–013 or use a
+destructive down-migration. The September 13 authorization permits hourly capture
+of valid current-week partial observations and their roster metrics independently
+of complete Week 1 backfill. Keep recurrence disabled through migration,
+deployment, identity/capacity verification and reader checks. Follow the
+[hourly release runbook](live-roster-hourly-release.md) before activation and
+verify an actual scheduled capture. Complete shadow, scoring and backfill retain
+their independent inventory, eligibility, finality and full-parity requirements.
 
 The user's product decision resolves missing appearance values by an explicit
 assumption. It does not resolve historical inventory, eligibility for entirely
@@ -319,8 +342,10 @@ and official parity history. Separate provider inbound bytes, client database
 writes, Neon outbound responses, physical storage and compute. Recheck actual
 allowances and ordinary workload growth before asserting season fit.
 
-No paid upgrade or history deletion is authorized. The first actual backfill
-must be compared with measured estimates before recurrence is enabled.
+The user plans to upgrade Neon separately; this does not authorize the agent to
+purchase a plan. No history deletion is authorized. Verify effective capacity
+before enabling the hourly lane, then compare the first actual capture with
+measured estimates. Complete backfill requires its separate capacity evidence.
 Operational completion requires an actual scheduled success and subsequent
 not-due behavior; local rollover tests do not prove future live events.
 

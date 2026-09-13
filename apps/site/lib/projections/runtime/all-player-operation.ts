@@ -67,11 +67,12 @@ import { officialPlayerIdentityInventory } from '../shared/official-catalog-iden
 import { validateAllPlayerPublicationCoverage } from '../domain/all-player-publication-coverage';
 import { prepareAllPlayerDiagnostics } from './all-player-diagnostics';
 import { sleeperAllPlayerCatalogContext } from '../adapters/sleeper/all-player-catalog-context';
+import { ALL_PLAYER_REFRESH_INTERVAL_MS } from '../../all-player-refresh-schedule';
 
 export const ALL_PLAYER_SCORER_VERSION = 'sleeper-actual-v1';
 const ALL_PLAYER_PARITY_TOLERANCE = 0.000_001;
-export const ALL_PLAYER_CADENCE_HOURS = 12;
-export const ALL_PLAYER_CADENCE_MS = ALL_PLAYER_CADENCE_HOURS * 60 * 60 * 1_000;
+export const ALL_PLAYER_CADENCE_MS = ALL_PLAYER_REFRESH_INTERVAL_MS;
+export const ALL_PLAYER_CADENCE_HOURS = ALL_PLAYER_CADENCE_MS / 3_600_000;
 const ALL_PLAYER_LEASE_SECONDS = 55;
 export const ALL_PLAYER_EXECUTION_MS = 50_000;
 
@@ -143,6 +144,24 @@ export type AllPlayerIngestionDependencies = Readonly<{
 
 export type AllPlayerIngestionResult =
   | Readonly<{ status: 'disabled'; mode: AllPlayerIngestionMode }>
+  | Readonly<{
+      /** Accepted current/correction evidence, never complete score publication. */
+      status: 'partial';
+      mode: 'recurring';
+      period: LeaguePeriod;
+      reason: 'provider-coverage-incomplete';
+      sourceRevision: string;
+      projectionCoverage: FullSlateProjectionCoverage;
+      persistedObservation: true;
+      statObservationId: string;
+      entryCount: number;
+      scoringProfileCount: 0;
+      eligibleGameCount: number;
+      appearanceGameCount: number;
+      warnings: readonly string[];
+      diagnostics: readonly string[];
+      diagnosticCount: number;
+    }>
   | Readonly<{
       status: 'skipped';
       mode: AllPlayerIngestionMode;
@@ -688,6 +707,7 @@ async function execute(
     mode: AllPlayerIngestionMode;
     period: LeaguePeriod;
     requireFinalCoverage?: boolean;
+    cadenceDiagnostics?: readonly string[];
     fence?: AllPlayerJobFence;
     checkpoint: (stage: string, write?: boolean) => Promise<void>;
   }>,
@@ -856,6 +876,9 @@ async function execute(
   if (mode !== 'shadow' && (!input.fence || !await dependencies.store.markAllPlayerRequest({
     fence: input.fence, period: { ...period, seasonType: 'reg' },
   }))) return unavailable(mode, period, 'request-budget-unavailable');
+  // A slow reservation may consume the remaining invocation time. A reserved
+  // attempt stays budgeted even when it is too late to begin the provider GET.
+  await input.checkpoint('weekly-stat-request');
   const providerResult = await dependencies.allPlayerSource.load({
     season: period.season,
     week: period.week,
@@ -878,6 +901,10 @@ async function execute(
       }),
     } : {}),
   }, projectionCoverage, [...new Set(identityDiagnostics)].sort());
+  if (input.cadenceDiagnostics?.length) observation = {
+    ...observation,
+    warnings: [...new Set([...observation.warnings, ...input.cadenceDiagnostics])].sort(),
+  };
   await input.checkpoint('loaded-preflight');
   if (observation.provider !== String(dependencies.officialProvider)
     || observation.season !== period.season || observation.seasonType !== 'reg' || observation.week !== period.week) {
@@ -954,7 +981,10 @@ async function execute(
   if (evidenceFailures.length) return unavailable(mode, period, 'observation-evidence-invalid', {
     projectionCoverage, diagnostics: evidenceFailures,
   });
-  const participation = reconcileNonParticipationAssumptions(observation, loaded);
+  const reconciled = reconcileNonParticipationAssumptions(observation, loaded);
+  const participation = { ...reconciled, diagnostics: [
+    ...(input.cadenceDiagnostics ?? []), ...reconciled.diagnostics,
+  ] };
   if (participation.failures.length) return unavailable(mode, period, 'score-unsupported-scoring', {
     projectionCoverage, diagnostics: participation.failures,
   });
@@ -980,6 +1010,16 @@ async function execute(
           diagnostics: participation.diagnostics,
         });
       }
+      if (mode === 'recurring') return {
+        status: 'partial', mode, period, reason: 'provider-coverage-incomplete',
+        sourceRevision: observation.sourceRevision, projectionCoverage,
+        persistedObservation: true, statObservationId: stored.value.statObservationId,
+        entryCount: observation.entries.length, scoringProfileCount: 0,
+        eligibleGameCount: observation.entries.reduce((total, entry) => total + (entry.eligibleGameCount ?? 0), 0),
+        appearanceGameCount: observation.entries.reduce((total, entry) => total + (entry.appearanceGameCount ?? 0), 0),
+        warnings: observation.warnings,
+        ...prepareAllPlayerDiagnostics(participation.diagnostics),
+      };
       return unavailable(mode, period, 'provider-coverage-incomplete', {
         sourceRevision: observation.sourceRevision,
         projectionCoverage,
@@ -1154,10 +1194,14 @@ export async function runAllPlayerIngestion(
     mode: AllPlayerIngestionMode;
     period: LeaguePeriod;
     requireFinalCoverage?: boolean;
+    cadenceDiagnostics?: readonly string[];
   }>,
 ): Promise<AllPlayerIngestionResult> {
   const { mode, period } = input;
   assertPeriod(period);
+  if (input.cadenceDiagnostics?.some((value) => !/^(?:final-capture-overdue|correction-window-(?:period|schedule)-unavailable):\d{4}:regular:(?:[1-9]|1[0-8])$/u.test(value))) {
+    throw new Error('All-player cadence diagnostics are invalid.');
+  }
   if (!dependencies.store.enabled) return { status: 'disabled', mode };
   const runId = dependencies.idGenerator.generate();
   const startedAt = dependencies.clock.monotonicNow();
@@ -1247,29 +1291,35 @@ export async function runAllPlayerIngestion(
     } : result.status === 'unavailable' && result.confirmedPublication ? {
       confirmedPublication: result.confirmedPublication,
       persistedObservation: result.persistedObservation, statObservationId: result.statObservationId,
-    } : result.status === 'unavailable' && result.persistedObservation ? {
+    } : (result.status === 'unavailable' || result.status === 'partial') && result.persistedObservation ? {
       persistedObservation: true, statObservationId: result.statObservationId,
     } : {};
     const outcome = result.status === 'completed' ? 'published'
       : result.status === 'unavailable' && ['old-observation-rejected', 'profile-publication-inconsistent'].includes(result.reason)
         ? 'validation-failed'
-      : result.status === 'unavailable' && result.persistedObservation ? 'partial'
+      : result.status === 'partial' || result.status === 'unavailable' && result.persistedObservation ? 'partial'
       : result.status === 'unavailable' && result.reason === 'timeout' ? 'timeout'
       : result.status === 'unavailable' && result.reason === 'lease-lost' ? 'lease-lost'
       : stage === 'weekly-stat-request' ? 'provider-failed' : 'validation-failed';
     const cleanup = dependencies.cleanupStore ?? dependencies.store;
+    const resultDiagnostics = result.status === 'unavailable' || result.status === 'partial'
+      ? result.diagnostics ?? [] : [];
+    const extraDiagnostics = (input.cadenceDiagnostics ?? []).filter((value) => !resultDiagnostics.includes(value));
+    const outcomeDiagnostics = prepareAllPlayerDiagnostics([...extraDiagnostics, ...resultDiagnostics]);
+    const diagnosticCount = (result.status === 'unavailable' || result.status === 'partial'
+      ? result.diagnosticCount ?? resultDiagnostics.length : resultDiagnostics.length) + extraDiagnostics.length;
     let cleanupTimeout: ReturnType<typeof setTimeout> | undefined;
     try {
       const finished = await Promise.race([
         cleanup.finishAllPlayerJob({ fence, outcome, diagnostic: {
-          stage, period, reason: result.status === 'unavailable' ? result.reason : result.status,
-          ...(result.status === 'unavailable' && result.diagnostics ? {
-            diagnostics: result.diagnostics, diagnosticCount: result.diagnosticCount ?? result.diagnostics.length,
+          stage, period, reason: result.status === 'unavailable' || result.status === 'partial' ? result.reason : result.status,
+          ...(diagnosticCount ? {
+            diagnostics: outcomeDiagnostics.diagnostics, diagnosticCount,
           } : {}),
           retryDisposition: 'global-budget',
           finalCoverage: result.status === 'completed'
             && (input.requireFinalCoverage ?? mode !== 'recurring'),
-          ...(result.status === 'completed' ? { entryCount: result.entryCount,
+          ...(result.status === 'completed' || result.status === 'partial' ? { entryCount: result.entryCount,
             scoringProfileCount: result.scoringProfileCount } : {}),
         } }),
         new Promise<false>((resolve) => { cleanupTimeout = setTimeout(() => resolve(false), 4_000); }),
@@ -1309,9 +1359,9 @@ export async function runAllPlayerIngestion(
       finally { if (cleanupTimeout) clearTimeout(cleanupTimeout); }
     }
   }
-  dependencies.logger.write(result.status === 'completed' ? 'info' : 'warn', {
+  dependencies.logger.write(result.status === 'completed' || result.status === 'partial' ? 'info' : 'warn', {
     stage: 'all-player-ingestion', lane: 'all-player',
-    outcome: result.status === 'completed' ? 'completed'
+    outcome: result.status === 'completed' || result.status === 'partial' ? 'completed'
       : result.status === 'skipped' ? 'skipped' : 'failed',
     runId, period, cadence: mode,
     stageDurationMs: Math.max(0, dependencies.clock.monotonicNow() - startedAt),
@@ -1323,6 +1373,16 @@ export async function runAllPlayerIngestion(
       allPlayerPersistedObservation: result.persistedObservation === true,
       allPlayerConfirmedPublication: result.confirmedPublication !== undefined,
       allPlayerRetryDisposition: result.confirmedPublication ? 'inspect-before-retry' as const : 'global-budget' as const,
+    } : result.status === 'partial' ? {
+      allPlayerReason: 'partial-observation-retained',
+      allPlayerDiagnosticCount: result.diagnosticCount,
+      allPlayerDiagnostics: result.diagnostics,
+      allPlayerPersistedObservation: true, allPlayerConfirmedPublication: false,
+      allPlayerEntryCount: result.entryCount, allPlayerScoringProfileCount: 0,
+      allPlayerEligibleGameCount: result.eligibleGameCount,
+      allPlayerRetryDisposition: 'global-budget' as const,
+      fullSlateWarnings: result.warnings,
+      allPlayerRankUnavailablePositions: result.projectionCoverage.rankUnavailablePositions,
     } : result.status === 'skipped' ? { allPlayerReason: result.reason } : {}),
     ...(preclaimDurability ? {
       allPlayerFailureStage: stage,
@@ -1344,6 +1404,7 @@ export async function runAllPlayerIngestion(
       fullSlateProjectionIdentityComplete: result.projectionCoverage.identityComplete,
       fullSlateSkippedIdentityCount: result.projectionCoverage.skippedIdentityCount,
       allPlayerRankUnavailablePositions: result.projectionCoverage.rankUnavailablePositions,
+      fullSlateWarnings: result.warnings,
     } : {}),
   });
   return result;

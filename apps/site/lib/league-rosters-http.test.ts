@@ -36,7 +36,7 @@ function load(): RostersLoad {
   };
   return {
     data,
-    metricContext: { season: 2026, seasonType: 'reg', throughWeek: 1, provisionalWeek: 1 },
+    metricContext: { season: 2026, seasonType: 'reg', throughWeek: 1, provisionalWeek: 1, activeWeekKnown: true },
   };
 }
 
@@ -64,6 +64,8 @@ describe('league rosters HTTP boundary', () => {
     );
     expect(response.status).toBe(200);
     expect(response.headers.get('cache-control')).toBe('private, no-store');
+    expect(response.headers.get('x-roster-league')).toBe('league2');
+    expect(response.headers.get('x-roster-provisional-week')).toBe('1');
     expect(getRostersWithMetricContext).toHaveBeenCalledWith(LEAGUE_IDS.league2, 1);
     expect(readMetrics).toHaveBeenCalledOnce();
     expect(readMetrics).toHaveBeenCalledWith({
@@ -82,6 +84,43 @@ describe('league rosters HTTP boundary', () => {
       { name: 'Not Played', positionRank: null, ppg: null },
     ]);
     expect(JSON.stringify(body)).not.toContain('rowsRead');
+  });
+
+  it('retains the saved-stat observation time when roster metadata was fetched later', async () => {
+    const later = load();
+    later.data.updatedAt = '2026-09-13T18:02:00.000Z';
+    const response = await handleLeagueRostersRequest(
+      new Request('https://example.test/api/rosters/league1?week=1'), 'league1',
+      async () => later, async () => metrics(),
+    );
+    expect(response.headers.get('x-roster-league')).toBe('league1');
+    const body = await response.json() as RostersData;
+    expect(body.updatedAt).toBe('2026-09-13T18:02:00.000Z');
+    expect(body.playerMetrics.observedAt).toBe('2026-09-12T03:30:00.000Z');
+  });
+
+  it('preserves active-week scope independently of an advanced display week and failed metric read', async () => {
+    const advanced = load();
+    advanced.data.currentWeek = 2;
+    advanced.data.league.week = 2;
+    const response = await handleLeagueRostersRequest(
+      new Request('https://example.test/api/rosters/league1?week=1'), 'league1',
+      async () => advanced, async () => { throw new Error('database unavailable'); },
+    );
+    expect(response.headers.get('x-roster-provisional-week')).toBe('1');
+    const body = await response.json() as RostersData;
+    expect(body.currentWeek).toBe(2);
+    expect(body.playerMetrics.status).toBe('unavailable');
+  });
+
+  it.each([true, false])('distinguishes a proved nonactive selection from missing active authority (%s)', async (known) => {
+    const source = load();
+    const response = await handleLeagueRostersRequest(
+      new Request('https://example.test/api/rosters/league1?week=1'), 'league1',
+      async () => ({ ...source, metricContext: { ...source.metricContext, provisionalWeek: null, activeWeekKnown: known } }),
+      async () => metrics(),
+    );
+    expect(response.headers.get('x-roster-provisional-week')).toBe(known ? 'none' : 'unknown');
   });
 
   it('leaves the Rosters response usable when the metric reader is unavailable', async () => {

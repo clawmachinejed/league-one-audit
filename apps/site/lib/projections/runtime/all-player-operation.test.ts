@@ -485,6 +485,24 @@ describe('canonical all-player ingestion orchestration', () => {
     expect(test.recordAllPlayerBatch).not.toHaveBeenCalled();
   });
 
+  it('does not start a weekly provider request after a slow reservation exhausts the deadline', async () => {
+    const test = harness();
+    let clockNow = new Date('2026-09-15T01:00:00Z');
+    vi.mocked(test.dependencies.store.markAllPlayerRequest).mockImplementationOnce(async () => {
+      clockNow = new Date('2026-09-15T01:00:51Z');
+      return true;
+    });
+    const result = await runAllPlayerIngestion({ ...test.dependencies,
+      clock: { now: () => clockNow, monotonicNow: () => clockNow.getTime() },
+    }, { mode: 'recurring', period: PERIOD });
+    expect(result).toMatchObject({ status: 'unavailable', reason: 'timeout', stage: 'weekly-stat-request' });
+    expect(test.allPlayerSource.load).not.toHaveBeenCalled();
+    expect(test.recordAllPlayerBatch).not.toHaveBeenCalled();
+    expect(test.dependencies.store.finishAllPlayerJob).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      outcome: 'timeout',
+    }));
+  });
+
   it('persists partial unknown-eligibility evidence without scoring or moving a pointer', async () => {
     const partial = {
       ...observation(),
@@ -533,6 +551,67 @@ describe('canonical all-player ingestion orchestration', () => {
       status: 'unavailable', reason: 'provider-coverage-incomplete',
     });
     expect(test.recordAllPlayerBatch).not.toHaveBeenCalled();
+  });
+
+  it('reports accepted recurring partial capture as successful retention with durable diagnostics and no score pointers', async () => {
+    const partial = { ...observation(), quality: 'partial' as const,
+      coverage: { complete: false, unknownEligibilityCount: 1 },
+      entries: observation().entries.map((value, index) => index === 0 ? {
+        ...value, stats: {}, eligibleGameCount: null, appearanceGameCount: null,
+        eligibilityEvidence: { kind: 'missing-provider-row' as const, inventoryFingerprint: `sha256:${'a'.repeat(64)}` },
+      } : value),
+    };
+    const test = harness({ observation: partial });
+    const cadenceDiagnostics = ['final-capture-overdue:2026:regular:1'];
+    const result = await runAllPlayerIngestion(test.dependencies, {
+      mode: 'recurring', period: PERIOD, requireFinalCoverage: false, cadenceDiagnostics,
+    });
+    expect(result).toMatchObject({ status: 'partial', mode: 'recurring',
+      persistedObservation: true, scoringProfileCount: 0, statObservationId: expect.any(String),
+      entryCount: 37, diagnostics: expect.arrayContaining(cadenceDiagnostics),
+      warnings: expect.arrayContaining(cadenceDiagnostics),
+    });
+    expect(test.dependencies.store.finishAllPlayerJob).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      outcome: 'partial', diagnostic: expect.objectContaining({ stage: 'partial-persistence',
+        finalCoverage: false, scoringProfileCount: 0, entryCount: 37,
+        diagnostics: expect.arrayContaining(cadenceDiagnostics),
+      }),
+    }));
+    expect(test.dependencies.logger.write).toHaveBeenLastCalledWith('info', expect.objectContaining({
+      outcome: 'completed', allPlayerReason: 'partial-observation-retained',
+      allPlayerPersistedObservation: true, allPlayerConfirmedPublication: false,
+      allPlayerDiagnostics: expect.arrayContaining(cadenceDiagnostics),
+    }));
+    expect(test.recordAllPlayerBatch).toHaveBeenCalledOnce();
+    expect(test.recordAllPlayerBatch.mock.calls[0][0].scoreSets).toEqual([]);
+    expect(test.recordAllPlayerBatch.mock.calls[0][0].observation.warnings).toEqual(expect.arrayContaining(cadenceDiagnostics));
+    expect(test.upsertScoringEntities).not.toHaveBeenCalled();
+    expect(test.recordLeagueWeekObservation).not.toHaveBeenCalled();
+    expect(test.pointers).toEqual([]);
+  });
+
+  it.each(['lost', 'failed'] as const)('retains raw capture evidence when partial completion ownership is %s', async (variant) => {
+    const partial = { ...observation(), quality: 'partial' as const,
+      coverage: { complete: false, unknownEligibilityCount: 1 },
+      entries: observation().entries.map((value, index) => index === 0 ? {
+        ...value, stats: {}, eligibleGameCount: null, appearanceGameCount: null,
+        eligibilityEvidence: { kind: 'missing-provider-row' as const, inventoryFingerprint: `sha256:${'a'.repeat(64)}` },
+      } : value),
+    };
+    const test = harness({ observation: partial });
+    if (variant === 'lost') vi.mocked(test.dependencies.store.finishAllPlayerJob).mockResolvedValueOnce(false);
+    else vi.mocked(test.dependencies.store.finishAllPlayerJob).mockRejectedValueOnce(new Error('private-database-error'));
+    const result = await runAllPlayerIngestion(test.dependencies, {
+      mode: 'recurring', period: PERIOD, requireFinalCoverage: false,
+    });
+    expect(result).toMatchObject({ status: 'unavailable', stage: 'durable-outcome',
+      reason: variant === 'lost' ? 'lease-lost' : 'outcome-persistence-failed',
+      persistedObservation: true, statObservationId: expect.any(String),
+    });
+    expect(test.pointers).toEqual([]);
+    expect(test.dependencies.logger.write).toHaveBeenLastCalledWith('warn', expect.objectContaining({
+      outcome: 'failed', allPlayerPersistedObservation: true, allPlayerConfirmedPublication: false,
+    }));
   });
 
   it.each(['shadow', 'backfill'] as const)('restores unknown evidence for nonzero assumed participation in %s mode', async (mode) => {
