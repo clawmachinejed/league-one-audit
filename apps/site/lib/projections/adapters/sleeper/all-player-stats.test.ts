@@ -57,7 +57,7 @@ describe('Sleeper all-player weekly-stat adapter', () => {
       const result = await createSleeperAllPlayerStatSource({ fetch: fetcher, now: () => new Date(observedAt) })
         .load({ season: 2026, week: 1, inventory: completeInventory(), gamesByTeam });
       if (result.status !== 'available') throw new Error('Expected faithful partial observation.');
-      expect(result.observation.normalizerVersion).toBe('sleeper-weekly-stats-v3');
+      expect(result.observation.normalizerVersion).toBe('sleeper-weekly-stats-v4');
       expect(result.observation.quality).toBe('partial');
       expect(result.observation.entries.find((entry) => entry.providerExternalId === 'p1')).toMatchObject({
         stats: { [key]: 2, gms_active: 1 }, eligibleGameCount: 1, appearanceGameCount: 1,
@@ -67,7 +67,8 @@ describe('Sleeper all-player weekly-stat adapter', () => {
       expect(appeared.stats).not.toHaveProperty('gp');
       expect(appeared.eligibilityEvidence).not.toHaveProperty('appearances');
       for (const id of ['p2', 'inactive']) expect(result.observation.entries.find((entry) => entry.providerExternalId === id))
-        .toMatchObject({ eligibleGameCount: null, appearanceGameCount: null });
+        .toMatchObject({ eligibleGameCount: null, appearanceGameCount: 0,
+          eligibilityEvidence: { kind: 'assumed-nonparticipation', source: 'product-policy' } });
       expect(validateAllPlayerObservationEvidence(result.observation)).toEqual([]);
       expect(fetcher).toHaveBeenCalledTimes(1);
     });
@@ -102,6 +103,31 @@ describe('Sleeper all-player weekly-stat adapter', () => {
     const result = await createSleeperAllPlayerStatSource({ fetch: async () => Response.json({ NE: { st_snp: 1 } }),
       now: () => new Date(observedAt) }).load({ season: 2026, week: 1, inventory: completeInventory(), gamesByTeam });
     expect(result).toEqual({ status: 'unavailable', reason: 'malformed' });
+  });
+
+  it('keeps future-game assumptions provisional and retains canonical defense and finality requirements', async () => {
+    const pendingGames = { ...gamesByTeam, ATL: { ...gamesByTeam.ATL, phase: 'unknown' as const } };
+    const inventory = buildSleeperAllPlayerInventory({ catalog, catalogComplete: true, catalogRevision: 'fixture',
+      rosteredPlayerIds: [], projectionPlayerIds: [], gamesByTeam: pendingGames, byeTeamIds,
+      scheduleRevision: 'fixture-schedule', period, observedAt, periodInventoryEvidence,
+    });
+    if (inventory.status !== 'available') throw new Error('Expected valid inventory.');
+    const result = await createSleeperAllPlayerStatSource({ fetch: async () => Response.json({ p1: { gms_active: 1 } }),
+      now: () => new Date(observedAt) }).load({ season: 2026, week: 1, inventory: inventory.inventory,
+      gamesByTeam: pendingGames, requireFinalCoverage: true });
+    if (result.status !== 'available') throw new Error('Expected partial assumptions.');
+    expect(result.observation.entries.find((entry) => entry.providerExternalId === 'p2')).toMatchObject({
+      gamePhase: 'unknown', stats: {}, eligibleGameCount: null, appearanceGameCount: 0,
+      eligibilityEvidence: { kind: 'assumed-nonparticipation', basis: { kind: 'missing-provider-row' } },
+    });
+    expect(result.observation.entries.find((entry) => entry.providerExternalId === 'ATL')).toMatchObject({
+      eligibleGameCount: null, appearanceGameCount: null, eligibilityEvidence: { kind: 'missing-provider-row' },
+    });
+    expect(result.observation).toMatchObject({ quality: 'partial', coverage: {
+      complete: false, scheduledGameCount: 2, nonFinalScheduledGameCount: 1, scheduleFinalityComplete: false,
+      unknownAppearanceCount: 2, assumedNonParticipationCount: 3,
+    } });
+    expect(validateAllPlayerObservationEvidence(result.observation)).toEqual([]);
   });
 
   it.each(['appearance', 'dressed-unused'] as const)(
@@ -185,7 +211,7 @@ describe('Sleeper all-player weekly-stat adapter', () => {
     expect(result.observation.quality).toBe('partial');
   });
 
-  it('does not create dressed-unused evidence from gms_active alone or reject faithful 0/1 contradictions', async () => {
+  it('labels active-without-participation as an assumption while retaining 0/1 contradictions as unknown', async () => {
     const result = await createSleeperAllPlayerStatSource({
       fetch: vi.fn(async () => new Response(JSON.stringify({ p1: { gms_active: 0, gp: 1 }, p2: { gms_active: 1 } }))),
       now: () => new Date(observedAt),
@@ -193,7 +219,9 @@ describe('Sleeper all-player weekly-stat adapter', () => {
     if (result.status !== 'available') throw new Error('Expected partial evidence.');
     for (const id of ['p1', 'p2']) {
       const entry = result.observation.entries.find((value) => value.providerExternalId === id)!;
-      expect(entry).toMatchObject({ eligibleGameCount: null, appearanceGameCount: null });
+      expect(entry).toMatchObject(id === 'p1' ? { eligibleGameCount: null, appearanceGameCount: null }
+        : { eligibleGameCount: 1, appearanceGameCount: 0,
+          eligibilityEvidence: { kind: 'assumed-nonparticipation', basis: { kind: 'weekly-stat', gmsActive: 1 } } });
       expect(validateAllPlayerEligibility(entry)).toBe(true);
     }
   });
@@ -352,7 +380,8 @@ describe('Sleeper all-player weekly-stat adapter', () => {
       complete: false, unknownEligibilityCount: 4,
     });
     expect(result.observation.entries.find((entry) => entry.providerExternalId === 'p1'))
-      .toMatchObject({ eligibleGameCount: null, appearanceGameCount: null });
+      .toMatchObject({ eligibleGameCount: null, appearanceGameCount: 0,
+        eligibilityEvidence: { kind: 'assumed-nonparticipation' } });
   });
 
   it('does not let contradictory explicit eligibility evidence become an active zero', async () => {
@@ -390,7 +419,7 @@ describe('Sleeper all-player weekly-stat adapter', () => {
     expect(left.observation.sourceRevision).toMatch(/^sha256:[0-9a-f]{64}$/u);
   });
 
-  it('keeps an omitted unrostered target unknown instead of silently treating it as zero', async () => {
+  it('keeps omitted-player eligibility unknown while explicitly assuming nonparticipation', async () => {
     const source = createSleeperAllPlayerStatSource({
       fetch: vi.fn(async () => new Response(JSON.stringify({
         p1: { gms_active: 1, gp: 1 },
@@ -408,8 +437,9 @@ describe('Sleeper all-player weekly-stat adapter', () => {
     expect(result.observation.quality).toBe('partial');
     expect(result.observation.entries.find((entry) => entry.providerExternalId === 'p2'))
       .toMatchObject({
-        stats: {}, eligibleGameCount: null, appearanceGameCount: null,
-        eligibilityEvidence: { kind: 'missing-provider-row' },
+        stats: {}, eligibleGameCount: null, appearanceGameCount: 0,
+        eligibilityEvidence: { kind: 'assumed-nonparticipation', policy: 'missing-participation-as-zero-v1',
+          basis: { kind: 'missing-provider-row' } },
       });
   });
 

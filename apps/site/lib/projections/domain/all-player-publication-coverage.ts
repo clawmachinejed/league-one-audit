@@ -15,7 +15,8 @@ function hasWeeklyRow(entry: AllPlayerStatEntry): boolean {
   const evidence = entry.eligibilityEvidence;
   return evidence.kind === 'weekly-stat' || evidence.kind === 'unknown-weekly-stat'
     || evidence.kind === 'combined-ineligible' || evidence.kind === 'conflict'
-    || evidence.kind === 'period-participation' && evidence.weekly !== undefined;
+    || evidence.kind === 'period-participation' && evidence.weekly !== undefined
+    || evidence.kind === 'assumed-nonparticipation' && evidence.basis?.kind === 'weekly-stat';
 }
 
 /**
@@ -74,6 +75,16 @@ export function validateAllPlayerPublicationCoverage(
   count('providerPresentEntityCount', present);
   count('providerMissingEntityCount', entries.length - present);
   count('unknownEligibilityCount', unknown);
+  const usesParticipationAssumption = observation.normalizerVersion.endsWith('-weekly-stats-v4');
+  count('unknownAppearanceCount', entries.filter((entry) => entry.appearanceGameCount === null).length,
+    usesParticipationAssumption);
+  count('assumedNonParticipationCount', entries.filter((entry) => (
+    entry.eligibilityEvidence.kind === 'assumed-nonparticipation'
+  )).length, usesParticipationAssumption);
+  if ((usesParticipationAssumption || coverage.participationAssumptionPolicy !== undefined)
+    && coverage.participationAssumptionPolicy !== 'missing-participation-as-zero-v1') {
+    fail('participationAssumptionPolicy');
+  }
   count('unmappedGameCount', unmapped);
   const unexpected = count('unexpectedResponseEntityCount');
   const excluded = count('excludedResponseEntityCount', undefined, false);

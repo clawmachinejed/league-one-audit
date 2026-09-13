@@ -201,6 +201,7 @@ describe.sequential('projection store against an isolated Neon database', () => 
         '010_all_player_statistics.sql',
         '011_all_player_foundation_guards.sql',
         '012_all_player_provider_participation.sql',
+        '013_all_player_participation_assumption.sql',
       ],
     });
     const rows = await ownerQuery<{ name: string; checksum_length: number }>(`
@@ -220,6 +221,7 @@ describe.sequential('projection store against an isolated Neon database', () => 
       { name: '010_all_player_statistics.sql', checksum_length: 64 },
       { name: '011_all_player_foundation_guards.sql', checksum_length: 64 },
       { name: '012_all_player_provider_participation.sql', checksum_length: 64 },
+      { name: '013_all_player_participation_assumption.sql', checksum_length: 64 },
     ]);
   });
 

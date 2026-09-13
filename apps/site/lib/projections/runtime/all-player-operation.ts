@@ -28,6 +28,7 @@ import { prepareAllPlayerBatch } from '../adapters/neon/all-player-statistics';
 import { prepareLeagueWeekObservation } from '../adapters/neon/observations';
 import {
   buildAllPlayerScoreSets,
+  validateAllPlayerObservationEvidence,
   type AllPlayerIdentity,
   type AllPlayerScoreSet,
   type AllPlayerScoringProfile,
@@ -35,6 +36,7 @@ import {
   type AllPlayerStatObservation,
   type AllPlayerPeriodParticipationEvidence,
 } from '../domain/all-player-statistics';
+import { scoreSparseStatistics } from '../domain/scoring';
 import type {
   LeagueConfiguration,
   LeaguePeriod,
@@ -67,6 +69,7 @@ import { prepareAllPlayerDiagnostics } from './all-player-diagnostics';
 import { sleeperAllPlayerCatalogContext } from '../adapters/sleeper/all-player-catalog-context';
 
 export const ALL_PLAYER_SCORER_VERSION = 'sleeper-actual-v1';
+const ALL_PLAYER_PARITY_TOLERANCE = 0.000_001;
 export const ALL_PLAYER_CADENCE_HOURS = 12;
 export const ALL_PLAYER_CADENCE_MS = ALL_PLAYER_CADENCE_HOURS * 60 * 60 * 1_000;
 const ALL_PLAYER_LEASE_SECONDS = 55;
@@ -432,6 +435,82 @@ function addProjectionEvidence(
   };
 }
 
+/** A product assumption cannot replace contradictory observed score material. */
+function reconcileNonParticipationAssumptions(
+  observation: AllPlayerStatObservation,
+  leagues: readonly LoadedLeague[],
+): Readonly<{ observation: AllPlayerStatObservation; diagnostics: readonly string[]; failures: readonly string[] }> {
+  const profiles = new Map<string, Readonly<Record<string, unknown>>>();
+  const officialPoints = new Map<string, Array<Readonly<{ leagueKey: string; profileId: string; points: number }>>>();
+  for (const league of leagues) {
+    const previous = profiles.get(league.scoringProfileId);
+    if (previous && stableJson(previous) !== stableJson(league.rawRules)) {
+      throw new Error('One scoring profile has conflicting source rules.');
+    }
+    profiles.set(league.scoringProfileId, league.rawRules);
+    for (const point of league.official.points) {
+      const observations = officialPoints.get(point.providerExternalId) ?? [];
+      observations.push({ leagueKey: league.configuration.key, profileId: league.scoringProfileId, points: point.points });
+      officialPoints.set(point.providerExternalId, observations);
+    }
+  }
+  const diagnostics = new Set<string>();
+  const failures = new Set<string>();
+  const entries = observation.entries.map((entry): AllPlayerStatEntry => {
+    const evidence = entry.eligibilityEvidence;
+    if (evidence.kind !== 'assumed-nonparticipation') return entry;
+    let conflict = false;
+    for (const point of officialPoints.get(entry.providerExternalId) ?? []) {
+      if (Number.isFinite(point.points) && Math.abs(point.points) > ALL_PLAYER_PARITY_TOLERANCE) {
+        conflict = true;
+        diagnostics.add(`official-nonzero-assumption-conflict:${entry.providerExternalId}:${point.leagueKey}:${point.profileId}`);
+      }
+    }
+    // A missing row is not an observed sparse-stat record to score.
+    for (const [profileId, rawRules] of evidence.basis.kind === 'weekly-stat' ? profiles : []) {
+      const score = scoreSparseStatistics(entry.stats, rawRules, SLEEPER_ALL_PLAYER_SCORING_RULE_KEYS);
+      if (!score.available || score.points === null) {
+        for (const key of score.invalidRuleKeys) failures.add(`invalid:${key}`);
+        for (const key of score.unsupportedRuleKeys) failures.add(`unsupported:${key}`);
+        for (const key of score.invalidStatKeys) failures.add(`invalid-stat:${entry.providerExternalId}:${key}`);
+      } else if (!Number.isFinite(score.points)) {
+        failures.add(`invalid-score:${entry.providerExternalId}:${profileId}`);
+      } else if (Math.abs(score.points) > ALL_PLAYER_PARITY_TOLERANCE) {
+        conflict = true;
+        diagnostics.add(`nonzero-assumption-conflict:${entry.providerExternalId}:${profileId}`);
+      }
+    }
+    return conflict ? {
+      ...entry, eligibilityEvidence: evidence.basis, eligibleGameCount: null, appearanceGameCount: null,
+    } : entry;
+  });
+  if (diagnostics.size === 0) return { observation, diagnostics: [], failures: [...failures].sort() };
+  const unknownEligibilityIds = entries.filter((entry) => entry.eligibleGameCount === null)
+    .map((entry) => entry.providerExternalId).sort();
+  const unmappedGameCount = entries.filter((entry) => entry.eligibleGameCount === 1 && !entry.nflGameId).length;
+  const nonFinalEligibleCount = observation.coverage.mode === 'completed-backfill'
+    ? entries.filter((entry) => entry.eligibleGameCount === 1 && entry.gamePhase !== 'final').length : 0;
+  const conflicts = [...diagnostics].sort();
+  const warnings = observation.warnings.filter((warning) => !/^(?:unknown-eligibility|unmapped-games|non-final-games):/u.test(warning));
+  if (unknownEligibilityIds.length) warnings.push(`unknown-eligibility:${unknownEligibilityIds.length}`);
+  if (unmappedGameCount) warnings.push(`unmapped-games:${unmappedGameCount}`);
+  if (nonFinalEligibleCount) warnings.push(`non-final-games:${nonFinalEligibleCount}`);
+  return {
+    observation: {
+      ...observation, entries, quality: 'partial',
+      coverage: {
+        ...observation.coverage, complete: false,
+        unknownEligibilityCount: unknownEligibilityIds.length, unknownEligibilityIds,
+        unknownAppearanceCount: entries.filter((entry) => entry.appearanceGameCount === null).length,
+        assumedNonParticipationCount: entries.filter((entry) => entry.eligibilityEvidence.kind === 'assumed-nonparticipation').length,
+        unmappedGameCount, nonFinalEligibleCount, nonParticipationAssumptionConflicts: conflicts,
+      },
+      warnings: [...new Set([...warnings, ...conflicts])].sort(),
+    },
+    diagnostics: conflicts, failures: [...failures].sort(),
+  };
+}
+
 function officialPlayerInputs(
   league: LoadedLeague,
   observation: AllPlayerStatObservation,
@@ -789,7 +868,7 @@ async function execute(
     return unavailable(mode, period, `provider-${providerResult.reason}`, { projectionCoverage });
   }
   const sourceObservation = providerResult.observation;
-  const observation = addProjectionEvidence({
+  let observation = addProjectionEvidence({
     ...sourceObservation,
     // Replays retain their original context. Never date old labels as newly observed.
     ...(dependencies.allPlayerSource.access !== 'replay' && catalog.observedAt ? {
@@ -843,8 +922,11 @@ async function execute(
     }
     const actualIneligibility = evidence.kind === 'explicit-ineligible' ? evidence
       : evidence.kind === 'combined-ineligible' || evidence.kind === 'conflict' ? evidence.ineligibility : null;
+    const missingRow = evidence.kind === 'missing-provider-row' ? evidence
+      : evidence.kind === 'assumed-nonparticipation' && evidence.basis?.kind === 'missing-provider-row'
+        ? evidence.basis : null;
     return stableJson(actualIneligibility) !== stableJson(expected.absentIneligibilityEvidence)
-      || evidence.kind === 'missing-provider-row' && evidence.inventoryFingerprint !== inventoryResult.inventory.fingerprint;
+      || missingRow !== null && missingRow.inventoryFingerprint !== inventoryResult.inventory.fingerprint;
   }).map((entry) => entry.providerExternalId);
   if (mismatchedEntries.length || missingEntries.length
     || observation.coverage.expectedInventoryFingerprint !== inventoryResult.inventory.fingerprint
@@ -868,6 +950,15 @@ async function execute(
   if (coverageFailures.length) return unavailable(mode, period, 'observation-coverage-invalid', {
     projectionCoverage, diagnostics: coverageFailures,
   });
+  const evidenceFailures = validateAllPlayerObservationEvidence(observation);
+  if (evidenceFailures.length) return unavailable(mode, period, 'observation-evidence-invalid', {
+    projectionCoverage, diagnostics: evidenceFailures,
+  });
+  const participation = reconcileNonParticipationAssumptions(observation, loaded);
+  if (participation.failures.length) return unavailable(mode, period, 'score-unsupported-scoring', {
+    projectionCoverage, diagnostics: participation.failures,
+  });
+  observation = participation.observation;
   if (observation.quality !== 'complete' || observation.coverage.complete !== true) {
     prepareAllPlayerBatch({ observation, scoreSets: [], verifiedAt: dependencies.clock.now().toISOString() });
     if (mode !== 'shadow'
@@ -886,6 +977,7 @@ async function execute(
         return unavailable(mode, period, 'partial-observation-persistence-incomplete', {
           sourceRevision: observation.sourceRevision,
           projectionCoverage,
+          diagnostics: participation.diagnostics,
         });
       }
       return unavailable(mode, period, 'provider-coverage-incomplete', {
@@ -893,11 +985,13 @@ async function execute(
         projectionCoverage,
         persistedObservation: true,
         statObservationId: stored.value.statObservationId,
+        diagnostics: participation.diagnostics,
       });
     }
     return unavailable(mode, period, 'provider-coverage-incomplete', {
       sourceRevision: observation.sourceRevision,
       projectionCoverage,
+      diagnostics: participation.diagnostics,
     });
   }
 
@@ -924,6 +1018,7 @@ async function execute(
       expectedScoringProfileIds: expectedProfileIds,
       scorerVersion: ALL_PLAYER_SCORER_VERSION,
       supportedRuleKeys: SLEEPER_ALL_PLAYER_SCORING_RULE_KEYS,
+      parityTolerance: ALL_PLAYER_PARITY_TOLERANCE,
       resolveIdentity: (entry): AllPlayerIdentity => ({
         scoringEntityId: entryIds.get(entry.providerExternalId) ?? null,
         conflict: false,
@@ -1005,6 +1100,7 @@ async function execute(
     expectedScoringProfileIds: expectedProfileIds,
     scorerVersion: ALL_PLAYER_SCORER_VERSION,
     supportedRuleKeys: SLEEPER_ALL_PLAYER_SCORING_RULE_KEYS,
+    parityTolerance: ALL_PLAYER_PARITY_TOLERANCE,
     resolveIdentity: (entry) => ({
       scoringEntityId: actualEntityIds.get(entry.providerExternalId) ?? null,
       conflict: false,

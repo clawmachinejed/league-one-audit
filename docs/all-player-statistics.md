@@ -58,15 +58,21 @@ replacement is guessed from a name or current team.
 The selected production policy uses the existing Sleeper and stored Tank01
 inputs. It adds no connection, gamebook feed, player request, or roster feed.
 Sleeper's requested-week statistics supply observed participation; Tank01's
-existing stored game states supply exact-game phase and finality. A projected
-stat line or game state does not itself prove that an individual played.
+existing stored game states supply exact-game phase and finality. The user has
+also selected an explicit product assumption: when an individual player's clean
+participation values are zero or missing and no positive appearance is recorded,
+record an assumed appearance count of zero. This replaces the previous policy
+that left such appearances unknown. It does not create a provider fact, an
+injury designation, or an eligible denominator for an entirely missing row.
 
-`sleeper-weekly-stats-v3` retains exact individual offensive, defensive, and
+`sleeper-weekly-stats-v4` retains exact individual offensive, defensive, and
 special-teams snap counts (`off_snp`, `def_snp`, `st_snp`) as weekly evidence.
 At least one positive individual snap count proves an appearance when the row
 contains no contrary participation flag or malformed participation value. Counts
-must be nonnegative safe integers. Team snap totals (`tm_*_snp`), zero individual
-snaps, rank-only rows, and fantasy points alone do not establish participation.
+must be nonnegative safe integers. Clean `gp=1` continues to establish appearance
+even if individual snap fields are absent or zero. Team totals (`tm_*_snp`) and
+fantasy points alone do not establish participation. The new assumption applies
+only to players; canonical defense evidence and missing-row rules are unchanged.
 
 | Requested-week evidence | Eligible | Appearances |
 | --- | ---: | ---: |
@@ -74,9 +80,18 @@ snaps, rank-only rows, and fantasy points alone do not establish participation.
 | Positive individual snaps, with no contradictory participation evidence | 1 | 1 |
 | `gms_active=1,gp=0`, with no positive individual snaps | 1 | 0 |
 | `gms_active=0`, with no appearance evidence | 0 | 0 |
-| `gms_active=1`, missing `gp` and no positive individual snaps | Unknown | Unknown |
+| Clean `gms_active=1`, missing `gp` and no positive individual snaps | 1 | 0, assumed |
+| Entirely missing player row without separate period evidence | Unknown | 0, assumed |
+| Clean player row without `gms_active` or positive appearance evidence | Unknown | 0, assumed |
 | Positive individual snaps with `gp=0` or `gms_active=0` | Unknown | Unknown |
-| Missing row, `gp=0` alone, malformed or conflicting participation evidence | Unknown | Unknown |
+| Malformed, conflicting, or reviewed ambiguous participation evidence | Unknown | Unknown |
+
+An assumption is stored as `assumed-nonparticipation`, policy
+`missing-participation-as-zero-v1`, source `product-policy`, and the requested
+effective period. Its basis retains the untouched weekly evidence or the
+original missing-row inventory fingerprint. Coverage separately counts assumed
+nonappearances, unknown eligibility, and unknown appearances. The adapter never
+inserts an artificial `gp=0` into the source record or erases observed statistics.
 
 Current status and injury designations are retained as dated provider context,
 separate from the evidence that sets these counts. Observation time records when
@@ -88,9 +103,10 @@ missing statistics nor a generic Inactive label supplies the reason. Dressed but
 unused and inactive are different states.
 
 The existing integration does not retain exact-game player inactive reasons
-from Tank01. It therefore cannot resolve every healthy scratch using its stored
-fields. Unknowns remain unknown until sufficient evidence exists in the allowed
-inputs; the implementation does not relabel them merely to finish the week.
+from Tank01. The approved appearance assumption therefore leaves the cause of a
+missing row unresolved. Separate valid exact-period inactive/injury evidence
+could establish eligible 0 / appearance 0; the product policy itself supplies no
+injury reason. It never hardcodes an exception for Henderson or any other player.
 
 ## Eligibility and finality
 
@@ -98,35 +114,47 @@ An authoritative appearance yields eligible 1 / appearance 1. Exact-game
 dressed-but-unused evidence yields 1 / 0 and permits a legitimate zero; contradictory
 nonzero points fail validation. Period-specific ineligibility and canonical bye
 evidence yield 0 / 0 with source, observation time and effective period retained.
-Missing rows and ambiguous or malformed participation flags retain null counts.
+Ambiguous, contradictory or malformed participation retains null counts even
+under the new policy. A clean missing player row instead retains unknown
+eligibility and an explicitly assumed appearance zero.
 
-`gms_active=1` without `gp` or positive individual snaps is unknown. Sparse
-numeric statistics may default to zero only inside a valid observed record. A
-missing row is not such a record. `gms_active=0,gp=1`, contradictory individual
-snaps, and malformed participation values retain their original evidence and
-null counts through adapter, domain validation and raw persistence. The v3
-writer validates that raw flags and snaps agree with the normalized evidence.
-Installed v2 observations and their exact replays retain the original contract.
+`gms_active=1` without `gp` or positive individual snaps receives the policy's
+eligible 1 / appearance 0 assumption. Sparse numeric statistics keep their
+existing scorer behavior; the assumption does not replace a missing source row
+with an observed numeric record. Nonzero calculated or official points must not
+be zeroed to fit a nonappearance. If those points contradict an assumption, the
+runtime withdraws that assumption, restores its unchanged original evidence and
+unknown counts, and retains a valid partial observation with scoped diagnostics.
+It never scores an entirely missing row. Confirmed nonappearance contradictions
+still fail scoring validation. The v4 writer validates that raw flags and snaps
+agree with the nested original basis. Installed v2/v3 observations and exact
+replays retain their original contracts; corrections create new immutable content.
 
 Completed backfill independently requires every distinct game in the exact
 canonical requested-week schedule to be final. A zero count of nonfinal eligible
 entries cannot establish schedule completion. Recurring current-week capture
 may retain nonfinal observations, subject to the same inventory, eligibility,
-scoring and identity requirements.
+scoring and identity requirements. An assumed zero before a game is not a final
+DNP conclusion. A later positive `gp` or snap observation supplies the normal
+immutable correction; the policy never marks an unplayed game final.
 
 The sanitized audit fixture is deliberately partial. Its original reviewed
 gamebook cases remain archival regression evidence and are unchanged. A separate
-provider-only replay omits those review overrides: Jones 7527, DeVito 11292,
-Willis 10224, and Henderson 12529 retain unknown counts. Brown 5859 retains his
+provider-only policy replay omits those review overrides: Jones 7527, DeVito
+11292, and Willis 10224 receive assumed 1 / 0 from clean weekly activity rows.
+Henderson 12529's missing row receives unknown / 0, without an invented injury
+or game-day inactive designation. Brown 5859 retains his
 appearance, 31 offensive snaps, and 4.1 official points despite the captured
 Inactive label. This does not erase the independently reviewed dressed-but-unused
 facts about Jones and DeVito; those facts are outside the selected live input.
 
 The retained 301-row response contains 187 rows with positive individual snaps;
 all 187 already report `gp=1`. The new snap rule therefore resolves no additional
-appearances in that capture. The provider-only replay retains 4,385 inventory
-entries, including 32 canonical defenses, with 63 known appearances and 4,322
-unknowns. These are historical fixture counts, not current production totals.
+positive appearances in that capture. The v4 provider-only replay retains 4,385
+inventory entries, including 32 canonical defenses: 96 known eligible entries,
+63 appearances, 4,294 assumed nonappearances, 4,289 unknown eligibility counts,
+and 28 unknown appearances from missing defense rows. These are historical
+fixture counts, not current production totals.
 Its 49 matching official arithmetic comparisons prove a subset only. Real Node
 composition replays both leagues through one shared local weekly response with
 no database writes or Tank01 requests; that is offline execution evidence, not
@@ -169,6 +197,9 @@ one immutable score-verification relation so unchanged score content can be
 reused while a later retrieval retains its own official parity lineage.
 Additive 012 extends evidence validation for v3 individual snaps and retains
 dated provider context separately from reusable raw statistical content.
+The additive v4 policy migration validates explicit assumptions and allows a
+faithful unknown eligible count alongside an assumed appearance zero. Installed
+migrations and historical v2/v3 counts remain unchanged.
 
 A later unchanged response may add retrieval and verification evidence without
 copying every raw entry or score. Corrections to meaningful statistics,
@@ -224,10 +255,15 @@ observable without turning cooldown polling into another write or retry storm.
 ## Release, capacity and recovery
 
 Use the actual checksummed release wrapper and PostgreSQL 18 constraint manifest
-for additive 011. Never edit installed 010 or use a destructive down-migration.
-Keep recurrence disabled through migration, alias correction, deployment,
+for the reviewed additive migration. Never edit installed 010–012 or use a
+destructive down-migration. Keep recurrence disabled through migration, deployment,
 complete Week 1 shadow and verified guarded backfill. Verify the exact merged SHA
 in production and both leagues' existing readers before activation.
+
+The user's product decision resolves missing appearance values by an explicit
+assumption. It does not resolve historical inventory, eligibility for entirely
+missing rows, incomplete defense evidence, final schedule, full parity, or
+capacity. Those gates still prevent incomplete score sets or pointer movement.
 
 Do not infer capacity from JSON byte counts or query counts. Measure isolated
 table/index/TOAST growth for complete/partial batches, replay, later unchanged

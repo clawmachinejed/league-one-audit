@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   allPlayerEligibilityCounts, validateAllPlayerEligibility,
   ALL_PLAYER_INDIVIDUAL_SNAP_KEYS,
+  allPlayerWeeklyEligibilityEvidence, allPlayerMissingRowEvidence,
   type AllPlayerEligibilityEvidence, type AllPlayerPeriodParticipationEvidence,
 } from './all-player-eligibility';
 
@@ -76,6 +77,54 @@ describe('exact-period all-player eligibility evidence', () => {
     expect(allPlayerEligibilityCounts({ kind: 'weekly-stat', source: 'weekly-stat-provider', rawFlags: { gp: NaN } })).toBeNull();
     expect(allPlayerEligibilityCounts({ kind: 'weekly-stat', source: 'weekly-stat-provider', extra: true })).toBeNull();
     expect(allPlayerEligibilityCounts({ ...periodEvidence, weekly: { kind: 'unknown-weekly-stat', source: 'weekly-stat-provider' } })).toBeNull();
+  });
+});
+
+describe('explicit product nonparticipation assumption', () => {
+  const assumed = (basis: unknown) => ({ kind: 'assumed-nonparticipation',
+    policy: 'missing-participation-as-zero-v1', source: 'product-policy',
+    effectivePeriod: { season: 2026, seasonType: 'reg', week: 1 }, basis });
+  const weekly = (fields: Record<string, unknown> = {}) => ({
+    kind: 'weekly-stat', source: 'weekly-stat-provider', ...fields,
+  });
+
+  it.each([
+    [weekly(), null], [weekly({ appearances: 0 }), null],
+    [weekly({ individualSnaps: { off_snp: 0, st_snp: 0 } }), null],
+    [weekly({ gmsActive: 1 }), 1], [weekly({ gmsActive: 1, individualSnaps: { off_snp: 0 } }), 1],
+    [{ kind: 'missing-provider-row', inventoryFingerprint: `sha256:${'f'.repeat(64)}` }, null],
+  ])('separates assumed appearance zero from eligibility in %j', (basis, eligible) => {
+    const evidence = assumed(basis);
+    expect(allPlayerEligibilityCounts(evidence)).toEqual({ eligibleGameCount: eligible, appearanceGameCount: 0 });
+    expect(evidence.basis).toBe(basis);
+    expect(evidence).not.toHaveProperty('observedAt');
+  });
+
+  it.each([
+    weekly({ appearances: 1 }), weekly({ individualSnaps: { st_snp: 1 } }),
+    weekly({ gmsActive: 0 }), weekly({ gmsActive: 1, appearances: 0 }),
+    weekly({ gmsActive: 0, appearances: 1 }), weekly({ appearances: 0, individualSnaps: { off_snp: 1 } }),
+    weekly({ rawFlags: { gp: '1' } }), weekly({ rawFlags: { st_snp: -1 } }),
+    weekly({ gmsActive: 1, rawFlags: { gp: null } }),
+    { ...periodEvidence, decision: 'ambiguous' }, { kind: 'unknown-weekly-stat', source: 'weekly-stat-provider' },
+    { kind: 'missing-provider-row', inventoryFingerprint: 'invented' },
+  ])('rejects hiding positive, known, malformed or contradictory evidence under an assumption: %j', (basis) => {
+    expect(allPlayerEligibilityCounts(assumed(basis))).toBeNull();
+  });
+
+  it('preserves old unknown semantics and extracts unchanged bases for concordance', () => {
+    const basis = weekly({ gmsActive: 1 });
+    expect(allPlayerEligibilityCounts(basis)).toEqual({ eligibleGameCount: null, appearanceGameCount: null });
+    expect(allPlayerWeeklyEligibilityEvidence(assumed(basis))).toBe(basis);
+    const missing = { kind: 'missing-provider-row', inventoryFingerprint: `sha256:${'a'.repeat(64)}` };
+    expect(allPlayerEligibilityCounts(missing)).toEqual({ eligibleGameCount: null, appearanceGameCount: null });
+    expect(allPlayerMissingRowEvidence(assumed(missing))).toBe(missing);
+    for (const malformed of [{ ...assumed(basis), policy: 'unreviewed' },
+      { ...assumed(basis), source: 'weekly-stat-provider' },
+      { ...assumed(basis), effectivePeriod: { season: 2026, seasonType: 'reg', week: 19 } },
+      { ...assumed(basis), injury: 'Out' }, { ...assumed(basis), basis: null }]) {
+      expect(allPlayerEligibilityCounts(malformed)).toBeNull();
+    }
   });
 });
 

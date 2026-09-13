@@ -39,6 +39,20 @@ export type AllPlayerPeriodParticipationEvidence = Readonly<{
   weekly?: AllPlayerWeeklyEligibilityEvidence;
 }>;
 
+export type AllPlayerMissingProviderRowEvidence = Readonly<{
+  kind: 'missing-provider-row';
+  inventoryFingerprint: string;
+}>;
+
+/** Product assumption, distinct from observed participation and eligibility. */
+export type AllPlayerAssumedNonParticipationEvidence = Readonly<{
+  kind: 'assumed-nonparticipation';
+  policy: 'missing-participation-as-zero-v1';
+  source: 'product-policy';
+  effectivePeriod: AllPlayerEffectivePeriod;
+  basis: AllPlayerWeeklyEligibilityEvidence | AllPlayerMissingProviderRowEvidence;
+}>;
+
 export type AllPlayerEligibilityEvidence =
   | AllPlayerWeeklyEligibilityEvidence
   | AllPlayerExplicitIneligibilityEvidence
@@ -48,7 +62,8 @@ export type AllPlayerEligibilityEvidence =
       weekly: AllPlayerWeeklyEligibilityEvidence;
       ineligibility: AllPlayerExplicitIneligibilityEvidence;
     }>
-  | Readonly<{ kind: 'missing-provider-row'; inventoryFingerprint: string }>
+  | AllPlayerMissingProviderRowEvidence
+  | AllPlayerAssumedNonParticipationEvidence
   | Readonly<{ kind: 'unknown-weekly-stat'; source: 'weekly-stat-provider' }>;
 
 export type AllPlayerEligibilityCounts = Readonly<{
@@ -155,6 +170,40 @@ function weeklyEligibilityCounts(value: unknown): AllPlayerEligibilityCounts | n
   return unknownCounts;
 }
 
+function isMissingProviderRow(value: unknown): value is AllPlayerMissingProviderRowEvidence {
+  return isRecord(value) && value.kind === 'missing-provider-row'
+    && onlyKeys(value, ['kind', 'inventoryFingerprint'])
+    && typeof value.inventoryFingerprint === 'string'
+    && /^sha256:[0-9a-f]{64}$/u.test(value.inventoryFingerprint);
+}
+
+export function isAllPlayerAssumedNonParticipation(value: unknown): value is AllPlayerAssumedNonParticipationEvidence {
+  if (!isRecord(value) || value.kind !== 'assumed-nonparticipation'
+    || !onlyKeys(value, ['kind', 'policy', 'source', 'effectivePeriod', 'basis'])
+    || value.policy !== 'missing-participation-as-zero-v1' || value.source !== 'product-policy'
+    || !isAllPlayerEffectivePeriod(value.effectivePeriod)) return false;
+  if (isMissingProviderRow(value.basis)) return true;
+  const weekly = weeklyEligibilityCounts(value.basis);
+  return weekly !== null && weekly.eligibleGameCount === null && weekly.appearanceGameCount === null
+    && !hasAllPlayerWeeklyParticipationConflict(value.basis as AllPlayerWeeklyEligibilityEvidence);
+}
+
+/** Extracts the unchanged weekly row beneath any supported provenance wrapper. */
+export function allPlayerWeeklyEligibilityEvidence(value: unknown): AllPlayerWeeklyEligibilityEvidence | undefined {
+  if (!isRecord(value)) return undefined;
+  const candidate = value.kind === 'weekly-stat' ? value
+    : value.kind === 'assumed-nonparticipation' ? value.basis
+      : ['combined-ineligible', 'conflict', 'period-participation'].includes(String(value.kind)) ? value.weekly : undefined;
+  return isRecord(candidate) && candidate.kind === 'weekly-stat'
+    ? candidate as AllPlayerWeeklyEligibilityEvidence : undefined;
+}
+
+export function allPlayerMissingRowEvidence(value: unknown): AllPlayerMissingProviderRowEvidence | undefined {
+  if (isMissingProviderRow(value)) return value;
+  return isRecord(value) && value.kind === 'assumed-nonparticipation' && isMissingProviderRow(value.basis)
+    ? value.basis : undefined;
+}
+
 function isExplicitIneligibility(value: unknown): value is AllPlayerExplicitIneligibilityEvidence {
   return isRecord(value) && value.kind === 'explicit-ineligible'
     && onlyKeys(value, ['kind', 'reason', 'source', 'sourceRevision', 'observedAt', 'effectivePeriod'])
@@ -177,6 +226,10 @@ export function isAllPlayerPeriodParticipation(
 
 /** Shared adapter/writer derivation. Contradictions remain valid raw history. */
 export function allPlayerEligibilityCounts(value: unknown): AllPlayerEligibilityCounts | null {
+  if (isAllPlayerAssumedNonParticipation(value)) {
+    return { eligibleGameCount: value.basis.kind === 'weekly-stat' && value.basis.gmsActive === 1 ? 1 : null,
+      appearanceGameCount: 0 };
+  }
   if (isRecord(value) && value.kind === 'weekly-stat') return weeklyEligibilityCounts(value);
   if (isExplicitIneligibility(value)) return { eligibleGameCount: 0, appearanceGameCount: 0 };
   if (isAllPlayerPeriodParticipation(value)) {
@@ -207,10 +260,7 @@ export function allPlayerEligibilityCounts(value: unknown): AllPlayerEligibility
       ? hasConflict ? unknownCounts : null
       : hasConflict ? null : { eligibleGameCount: 0, appearanceGameCount: 0 };
   }
-  if (isRecord(value) && value.kind === 'missing-provider-row'
-    && onlyKeys(value, ['kind', 'inventoryFingerprint'])
-    && typeof value.inventoryFingerprint === 'string'
-    && /^sha256:[0-9a-f]{64}$/u.test(value.inventoryFingerprint)) return unknownCounts;
+  if (isMissingProviderRow(value)) return unknownCounts;
   if (isRecord(value) && value.kind === 'unknown-weekly-stat'
     && onlyKeys(value, ['kind', 'source'])
     && value.source === 'weekly-stat-provider') return unknownCounts;

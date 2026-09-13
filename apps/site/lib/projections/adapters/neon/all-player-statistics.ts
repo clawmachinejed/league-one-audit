@@ -78,7 +78,9 @@ function record(value: unknown, label: string): Readonly<Record<string, unknown>
 function normalizeEntries(values: readonly AllPlayerStatEntry[]): NormalizedEntry[] {
   const entries = values.map((entry) => {
     const providerExternalId = requiredText(entry.providerExternalId, 'All-player provider ID');
-    if (entry.eligibleGameCount === null !== (entry.appearanceGameCount === null)
+    if ((entry.eligibleGameCount === null && entry.appearanceGameCount !== null
+        && entry.appearanceGameCount !== 0)
+      || (entry.eligibleGameCount !== null && entry.appearanceGameCount === null)
       || (entry.eligibleGameCount !== null && entry.appearanceGameCount !== null
         && entry.appearanceGameCount > entry.eligibleGameCount)) {
       throw new Error(`All-player eligibility is inconsistent for ${providerExternalId}.`);

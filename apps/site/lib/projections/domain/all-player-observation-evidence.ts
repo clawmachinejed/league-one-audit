@@ -1,6 +1,7 @@
 import type { AllPlayerEligibilityEvidence } from './all-player-eligibility';
 import {
   ALL_PLAYER_INDIVIDUAL_SNAP_KEYS, validateAllPlayerEligibility, allPlayerEvidenceMatchesPeriod,
+  allPlayerWeeklyEligibilityEvidence, allPlayerMissingRowEvidence, isAllPlayerAssumedNonParticipation,
 } from './all-player-eligibility';
 import { validateAllPlayerProviderContext, type AllPlayerProviderContext } from './all-player-provider-context';
 
@@ -48,7 +49,9 @@ export function validateAllPlayerObservationEvidence(
 ): readonly string[] {
   const details: string[] = [];
   const identities = new Set<string>();
-  const requiresIndividualSnaps = observation.normalizerVersion.endsWith('-weekly-stats-v3');
+  const usesNonParticipationAssumption = observation.normalizerVersion.endsWith('-weekly-stats-v4');
+  const requiresIndividualSnaps = observation.normalizerVersion.endsWith('-weekly-stats-v3')
+    || usesNonParticipationAssumption;
   for (const entry of observation.entries) {
     if (identities.has(entry.providerExternalId)) details.push(`duplicate-official-identity:${entry.providerExternalId}`);
     identities.add(entry.providerExternalId);
@@ -58,9 +61,21 @@ export function validateAllPlayerObservationEvidence(
     }
     if (!validateAllPlayerEligibility(entry)) details.push(`invalid-eligibility-evidence:${entry.providerExternalId}`);
     const evidence = entry.eligibilityEvidence;
-    const weekly = evidence.kind === 'weekly-stat' ? evidence
-      : evidence.kind === 'combined-ineligible' || evidence.kind === 'conflict'
-        || evidence.kind === 'period-participation' ? evidence.weekly : undefined;
+    const weekly = allPlayerWeeklyEligibilityEvidence(evidence);
+    if (evidence.kind === 'assumed-nonparticipation') {
+      if (!usesNonParticipationAssumption || entry.entityKind !== 'player') {
+        details.push(`invalid-assumption-context:${entry.providerExternalId}`);
+      }
+      if (isAllPlayerAssumedNonParticipation(evidence) && (observation.seasonType !== 'reg'
+        || evidence.effectivePeriod.season !== observation.season
+        || evidence.effectivePeriod.seasonType !== observation.seasonType
+        || evidence.effectivePeriod.week !== observation.week)) {
+        details.push(`wrong-period-assumption:${entry.providerExternalId}`);
+      }
+      if (allPlayerMissingRowEvidence(evidence) && Object.keys(entry.stats).length !== 0) {
+        details.push(`assumed-missing-row-has-statistics:${entry.providerExternalId}`);
+      }
+    }
     const hasSnapEvidence = weekly?.individualSnaps !== undefined
       || ALL_PLAYER_INDIVIDUAL_SNAP_KEYS.some((key) => weekly?.rawFlags !== undefined
         && Object.prototype.hasOwnProperty.call(weekly.rawFlags, key));

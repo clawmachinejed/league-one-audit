@@ -6,15 +6,17 @@ import {
   buildAllPlayerMigrationReleaseWrapper,
   buildAllPlayerRepairReleaseWrapper,
   buildAllPlayerParticipationReleaseWrapper,
+  buildAllPlayerParticipationAssumptionReleaseWrapper,
   releaseWrapperSha256,
 } from './all-player-migration-release-wrapper.mjs';
 
 const repair = process.argv.slice(2).includes('--repair');
 const participation = process.argv.slice(2).includes('--participation');
-if ((repair && participation) || process.argv.slice(2).some((argument) => !['--repair','--participation'].includes(argument))) {
-  throw new Error('The production wrapper renderer accepts only one of --repair or --participation.');
+const assumption = process.argv.slice(2).includes('--participation-assumption');
+if (process.argv.slice(2).length > 1 || process.argv.slice(2).some((argument) => !['--repair','--participation','--participation-assumption'].includes(argument))) {
+  throw new Error('The production wrapper renderer accepts only one release selector.');
 }
-const migrationName = participation ? '012_all_player_provider_participation.sql' : repair
+const migrationName = assumption ? '013_all_player_participation_assumption.sql' : participation ? '012_all_player_provider_participation.sql' : repair
   ? '011_all_player_foundation_guards.sql'
   : '010_all_player_statistics.sql';
 const migrationPath = fileURLToPath(
@@ -30,10 +32,13 @@ const input = {
   expectedDatabase: 'neondb',
   expectedOwner: 'neondb_owner',
 };
-const manifest = (repair || participation) ? JSON.parse(await readFile(
-  new URL(`../release/${participation ? '012' : '011'}-catalog.integration.json`, import.meta.url), 'utf8',
+const manifest = (repair || participation || assumption) ? JSON.parse(await readFile(
+  new URL(`../release/${assumption ? '013' : participation ? '012' : '011'}-catalog.integration.json`, import.meta.url), 'utf8',
 )) : null;
-const wrapper = participation
+const wrapper = assumption
+  ? buildAllPlayerParticipationAssumptionReleaseWrapper({ ...input, runtimeRole: 'league_one_runtime', manifest,
+    previousManifest: JSON.parse(await readFile(new URL('../release/012-catalog.integration.json', import.meta.url), 'utf8')) })
+  : participation
   ? buildAllPlayerParticipationReleaseWrapper({ ...input, runtimeRole: 'league_one_runtime', manifest,
     previousManifest: JSON.parse(await readFile(new URL('../release/011-catalog.integration.json', import.meta.url), 'utf8')) })
   : repair
@@ -45,7 +50,7 @@ await writeFile(outputPath, wrapper, 'utf8');
 process.stdout.write(`${JSON.stringify({
   output: `apps/site/release/${outputName}`,
   sha256: releaseWrapperSha256(wrapper),
-  sentinel: (repair || participation)
-    ? `ALL_PLAYER_${participation ? 'PARTICIPATION' : 'REPAIR'}_APPLIED:${migrationName}:${manifest.migrationChecksum}`
+  sentinel: (repair || participation || assumption)
+    ? `ALL_PLAYER_${assumption ? 'PARTICIPATION_ASSUMPTION' : participation ? 'PARTICIPATION' : 'REPAIR'}_APPLIED:${migrationName}:${manifest.migrationChecksum}`
     : ALL_PLAYER_MIGRATION_SENTINEL,
 })}\n`);

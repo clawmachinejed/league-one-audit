@@ -47,7 +47,7 @@ describe('production-shaped retained fixture in real Node outside Next', () => {
       addedIdentityCount: 201, overlappingIdentityCount: 97, overlapMetadataDifferences: [],
     });
     expect(evidence.observation.cases.find((entry) => entry.providerExternalId === '12529'))
-      .toMatchObject({ eligibleGameCount: null, appearanceGameCount: null });
+      .toMatchObject({ eligibleGameCount: null, appearanceGameCount: 0 });
     expect(evidence.observation.cases.find((entry) => entry.providerExternalId === '5859'))
       .toMatchObject({ eligibleGameCount: 1, appearanceGameCount: 1 });
     expect(evidence.databaseWrites).toEqual([]);
