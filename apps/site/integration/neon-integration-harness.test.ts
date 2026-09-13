@@ -6,6 +6,7 @@ vi.mock('@neondatabase/serverless', () => ({ Pool: mocked.pool }));
 
 import {
   assertSafeIntegrationDatabase,
+  createIndependentDatabase,
   createPinnedIntegrationDatabase,
   integrationEnvironment,
   prepareIntegrationDatabase,
@@ -46,7 +47,9 @@ beforeEach(() => {
   }
   configureEnvironment();
   mocked.end.mockResolvedValue(undefined);
-  mocked.sessionQuery.mockResolvedValue({ rows: [] });
+  mocked.sessionQuery.mockImplementation(async (statement: string) => ({
+    rows: statement === 'SHOW transaction_isolation' ? [{ transaction_isolation: 'read committed' }] : [],
+  }));
   mocked.connect.mockResolvedValue({ query: mocked.sessionQuery, release: mocked.release });
   mocked.pool.mockImplementation(function (configuration: { connectionString: string }) {
     const user = new URL(configuration.connectionString).username;
@@ -71,6 +74,56 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe('existing isolated integration harness safety', () => {
+  it.each([false, true])('pins an independent locked transaction through completion (failure=%s)', async (failure) => {
+    const session = createIndependentDatabase();
+    const statements: string[] = [];
+    mocked.sessionQuery.mockImplementation(async (statement: string) => {
+      statements.push(statement);
+      if (failure && statement === 'batch') throw new Error('synthetic batch failure');
+      return { rows: [{ stage: statement }] };
+    });
+    const result = session.database.queryAfterLock!('batch', [2], { statement: 'lock', parameters: [1] });
+    if (failure) await expect(result).rejects.toThrow('synthetic batch failure');
+    else await expect(result).resolves.toEqual([[{ stage: 'lock' }], [{ stage: 'batch' }]]);
+    expect(statements).toEqual(['BEGIN ISOLATION LEVEL READ COMMITTED', 'lock', 'batch', failure ? 'ROLLBACK' : 'COMMIT']);
+    expect(mocked.connect).toHaveBeenCalledOnce();
+    expect(mocked.release).toHaveBeenCalledOnce();
+    expect(mocked.query).not.toHaveBeenCalled();
+    await session.close();
+  });
+
+  it.each([false, true])('preserves a pinned caller transaction with a nested savepoint (failure=%s)', async (failure) => {
+    const session = await createPinnedIntegrationDatabase('owner');
+    await session.database.query('BEGIN');
+    const defaultQuery = mocked.sessionQuery.getMockImplementation()!;
+    mocked.sessionQuery.mockImplementation(async (statement: string, parameters: unknown[]) => {
+      if (failure && statement === 'batch') throw new Error('synthetic batch failure');
+      return defaultQuery(statement, parameters);
+    });
+    const result = session.database.queryAfterLock!('batch', [], { statement: 'lock', parameters: [] });
+    if (failure) await expect(result).rejects.toThrow('synthetic batch failure');
+    else await expect(result).resolves.toEqual([[], []]);
+    const statements = mocked.sessionQuery.mock.calls.map(([statement]) => statement);
+    expect(statements).toEqual(['BEGIN', 'SHOW transaction_isolation', 'SAVEPOINT all_player_locked_batch_1',
+      'lock', 'batch', ...(failure ? ['ROLLBACK TO SAVEPOINT all_player_locked_batch_1'] : []),
+      'RELEASE SAVEPOINT all_player_locked_batch_1']);
+    expect(mocked.release).not.toHaveBeenCalled();
+    await session.database.query('ROLLBACK');
+    await session.close();
+  });
+
+  it('rejects a nested locked query whose outer snapshot is not READ COMMITTED', async () => {
+    const session = await createPinnedIntegrationDatabase('owner');
+    await session.database.query('BEGIN ISOLATION LEVEL REPEATABLE READ');
+    mocked.sessionQuery.mockResolvedValueOnce({ rows: [{ transaction_isolation: 'repeatable read' }] });
+    await expect(session.database.queryAfterLock!('batch', [], { statement: 'lock', parameters: [] }))
+      .rejects.toThrow('READ COMMITTED isolation');
+    expect(mocked.sessionQuery.mock.calls.map(([statement]) => statement))
+      .toEqual(['BEGIN ISOLATION LEVEL REPEATABLE READ', 'SHOW transaction_isolation']);
+    await session.database.query('ROLLBACK');
+    await session.close();
+  });
+
   it.each(['owner','runtime'] as const)('pins the configured %s connection across expected transaction errors', async (role) => {
     const session = await createPinnedIntegrationDatabase(role);
     expect(mocked.pool).toHaveBeenCalledExactlyOnceWith({ connectionString: role === 'owner' ? ownerUrl : runtimeUrl, max: 1 });

@@ -177,7 +177,7 @@ describe('all-player Neon persistence', () => {
     })).not.toBe(hash);
   });
 
-  it('writes content, observation, every profile, scores, and pointers in one guarded statement', async () => {
+  it('locks ownership before writing the unchanged batch in one atomic transaction', async () => {
     const fake = createFakeProjectionDatabase(({ parameters }) => [{
       observation_id: parameters[12], content_id: parameters[0], semantic_hash: parameters[6],
       entries_stored: 33, entry_count: 33,
@@ -198,10 +198,24 @@ describe('all-player Neon persistence', () => {
         scoreSets: [{ scoringProfileId: profileId, pointerOutcome: 'advanced' }],
       },
     });
-    expect(fake.calls).toHaveLength(1);
-    expect(fake.calls[0].statement).toContain('record-all-player-batch');
-    expect(fake.calls[0].statement).toContain('advance_current_all_player_score_set');
-    expect(fake.calls[0].parameters).toHaveLength(22);
+    expect(fake.calls).toHaveLength(2);
+    expect(fake.lockedTransactions).toEqual([[fake.calls[0], fake.calls[1]]]);
+    expect(fake.calls[0].statement).toContain('lock-all-player-batch');
+    expect(fake.calls[0].statement).toContain('assert_all_player_job_fence');
+    expect(fake.calls[0].parameters.map((parameter) => JSON.parse(String(parameter)))).toEqual([fence, {
+      season: observation.season, seasonType: observation.seasonType, week: observation.week,
+    }]);
+    expect(fake.calls[1].statement).toContain('record-all-player-batch');
+    expect(fake.calls[1].statement).toContain('advance_current_all_player_score_set');
+    expect(fake.calls[1].parameters).toHaveLength(22);
+  });
+
+  it('fails closed without the atomic locked-transaction capability', async () => {
+    const fake = createFakeProjectionDatabase();
+    await expect(createAllPlayerStatisticMethods({ enabled: true, query: fake.database.query })
+      .recordAllPlayerBatch({ fence, observation, scoreSets: [scoreSet],
+        verifiedAt: observation.observedAt })).rejects.toThrow('atomic locked database transactions');
+    expect(fake.calls).toHaveLength(0);
   });
 
   it('retains a partial observation without attempting to move a score pointer', async () => {

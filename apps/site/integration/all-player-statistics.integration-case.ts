@@ -1195,30 +1195,86 @@ describe('all-player statistics foundation', () => {
     const input = await batch(concurrent);
     const peer = createIndependentDatabase();
     const peerStore = createProjectionStore(peer.database);
-    let outcomes: string[];
+    const blocker = await createPinnedIntegrationDatabase('owner');
+    const historyCounts = async () => (await ownerQuery<{
+      contents: number; entries: number; observations: number;
+      score_sets: number; scores: number; verifications: number;
+    }>(`SELECT
+      (SELECT count(*)::integer FROM all_player_stat_contents) AS contents,
+      (SELECT count(*)::integer FROM all_player_stat_entries) AS entries,
+      (SELECT count(*)::integer FROM all_player_stat_observations) AS observations,
+      (SELECT count(*)::integer FROM all_player_score_sets) AS score_sets,
+      (SELECT count(*)::integer FROM all_player_scores) AS scores,
+      (SELECT count(*)::integer FROM all_player_score_verifications) AS verifications
+    `))[0];
+    const beforeReplay = await historyCounts();
+    let pending: Promise<Awaited<ReturnType<ProjectionStore['recordAllPlayerBatch']>>>[] = [];
+    let outcomes: string[] = [];
     try {
-      const results = await Promise.allSettled([
+      // Start both statements while the job row is locked so the regression
+      // cannot pass merely because a cold peer connects after the first commit.
+      const sessions = await Promise.all([database.database, peer.database].map(async (client) =>
+        (await client.query<{ pid: number }>('SELECT pg_backend_pid() AS pid'))[0].pid));
+      await blocker.database.query('BEGIN');
+      await blocker.database.query(`SELECT job_key FROM projection_jobs
+        WHERE job_key = 'all-player-ingestion:sleeper' FOR UPDATE`);
+      pending = [
         store.recordAllPlayerBatch(input), peerStore.recordAllPlayerBatch(input),
-      ]);
+      ];
+      const pendingResults = Promise.allSettled(pending);
+      let blocked = 0;
+      for (let tries = 0; tries < 30 && blocked < 2; tries += 1) {
+        await blocker.database.query('SELECT pg_stat_clear_snapshot(), pg_sleep(0.02)');
+        blocked = Number((await blocker.database.query<{ count: number }>(`
+          SELECT count(*)::integer AS count FROM pg_stat_activity
+          WHERE pid = ANY($1::integer[]) AND wait_event_type = 'Lock'
+        `, [sessions]))[0].count);
+      }
+      expect(blocked).toBe(2);
+      await blocker.database.query('COMMIT');
+      const results = await pendingResults;
+      // Even a rejected competing statement must leave exactly one whole
+      // immutable batch and the complete peer-profile pointer group.
+      expect(await historyCounts()).toEqual({
+        contents: beforeReplay.contents + 1,
+        entries: beforeReplay.entries + input.observation.entries.length,
+        observations: beforeReplay.observations + 1,
+        score_sets: beforeReplay.score_sets + input.scoreSets.length,
+        scores: beforeReplay.scores + input.scoreSets.reduce((count, set) => count + set.scores.length, 0),
+        verifications: beforeReplay.verifications + input.scoreSets.length,
+      });
+      expect(await ownerQuery<{ count: number; profiles: number; observations: number }>(`
+        SELECT count(*)::integer AS count,
+          count(DISTINCT current.scoring_profile_id)::integer AS profiles,
+          count(DISTINCT current.all_player_stat_observation_id)::integer AS observations
+        FROM current_all_player_score_sets current
+        JOIN all_player_stat_observations observation
+          ON observation.id = current.all_player_stat_observation_id
+        WHERE observation.source_revision = $1
+      `, [concurrent.sourceRevision])).toEqual([{
+        count: input.scoreSets.length, profiles: input.scoreSets.length, observations: 1,
+      }]);
+      expect(results.map((result) => result.status === 'fulfilled' ? 'stored'
+        : String((result.reason as { code?: unknown }).code ?? 'rejected')))
+        .toEqual(['stored', 'stored']);
       outcomes = results.flatMap((result) => {
         if (result.status !== 'fulfilled') throw result.reason;
         return stored(result.value).scoreSets.map((set) => set.pointerOutcome);
       });
-    } finally { await peer.close(); }
+    } finally {
+      await blocker.database.query('ROLLBACK');
+      await Promise.allSettled(pending);
+      await blocker.close();
+      await peer.close();
+    }
     expect(outcomes.filter((outcome) => outcome === 'advanced')).toHaveLength(2);
     expect(outcomes.filter((outcome) => outcome === 'verified')).toHaveLength(2);
 
-    const before = (await ownerQuery<{ contents: number; observations: number }>(`
-      SELECT (SELECT count(*)::integer FROM all_player_stat_contents) AS contents,
-        (SELECT count(*)::integer FROM all_player_stat_observations) AS observations
-    `))[0];
+    const before = await historyCounts();
     const conflict = observation(4, 'etag:integration-conflict', concurrent.observedAt);
     await expect(store.recordAllPlayerBatch(await batch(conflict)))
       .rejects.toThrow(/equal observation time/iu);
-    const after = (await ownerQuery<{ contents: number; observations: number }>(`
-      SELECT (SELECT count(*)::integer FROM all_player_stat_contents) AS contents,
-        (SELECT count(*)::integer FROM all_player_stat_observations) AS observations
-    `))[0];
+    const after = await historyCounts();
     expect(after).toEqual(before);
   });
 
@@ -1381,6 +1437,59 @@ describe('all-player statistics foundation', () => {
       (SELECT count(*) FROM all_player_stat_observations)::integer AS observations,
       (SELECT jsonb_agg(row_to_json(pointer)) FROM current_all_player_score_sets pointer) AS pointers`))
       .toEqual(before);
+  });
+
+  it.each(['deadline', 'takeover'] as const)('rechecks %s changes after waiting for the initial job lock', async (change) => {
+    const input = await batch(observation(4, `etag:wait-${change}`, '2026-09-15T00:10:31.000Z'));
+    const snapshot = () => ownerQuery(`SELECT
+      (SELECT count(*)::integer FROM all_player_stat_contents) AS contents,
+      (SELECT count(*)::integer FROM all_player_stat_entries) AS entries,
+      (SELECT count(*)::integer FROM all_player_stat_observations) AS observations,
+      (SELECT count(*)::integer FROM all_player_score_sets) AS score_sets,
+      (SELECT count(*)::integer FROM all_player_scores) AS scores,
+      (SELECT count(*)::integer FROM all_player_score_verifications) AS verifications,
+      (SELECT jsonb_agg(to_jsonb(pointer) ORDER BY pointer.scoring_profile_id)
+        FROM current_all_player_score_sets pointer) AS pointers`);
+    const before = await snapshot();
+    const pid = (await database.database.query<{ pid: number }>('SELECT pg_backend_pid() AS pid'))[0].pid;
+    const blocker = await createPinnedIntegrationDatabase('owner');
+    let pending: Promise<unknown> | null = null;
+    try {
+      await blocker.database.query('BEGIN');
+      await blocker.database.query('SELECT job_key FROM projection_jobs WHERE job_key = $1 FOR UPDATE', [fence.jobKey]);
+      pending = store.recordAllPlayerBatch(input);
+      const settled = Promise.allSettled([pending]);
+      let blocked = false;
+      for (let tries = 0; tries < 30 && !blocked; tries += 1) {
+        await blocker.database.query('SELECT pg_stat_clear_snapshot(), pg_sleep(0.02)');
+        blocked = (await blocker.database.query<{ blocked: boolean }>(`SELECT EXISTS (
+          SELECT 1 FROM pg_stat_activity WHERE pid = $1 AND wait_event_type = 'Lock'
+        ) AS blocked`, [pid]))[0].blocked;
+      }
+      expect(blocked).toBe(true);
+      if (change === 'deadline') {
+        await blocker.database.query(`UPDATE projection_jobs SET payload = jsonb_set(payload,'{deadlineAt}',
+          to_jsonb((clock_timestamp() - interval '1 second')::text)) WHERE job_key = $1`, [fence.jobKey]);
+      } else {
+        await blocker.database.query(`UPDATE projection_jobs SET lease_owner = 'wait-successor',
+          attempt_count = attempt_count + 1 WHERE job_key = $1`, [fence.jobKey]);
+      }
+      await blocker.database.query('COMMIT');
+      const result = (await settled)[0];
+      expect(result.status).toBe('rejected');
+      if (result.status === 'rejected') {
+        expect((result.reason as Error).message).toMatch(/all-player lease, generation, period, request or deadline/iu);
+      }
+      expect(await store.finishAllPlayerJob({ fence, outcome: 'partial', diagnostic: {} })).toBe(false);
+      expect(await snapshot()).toEqual(before);
+    } finally {
+      await blocker.database.query('ROLLBACK');
+      if (pending) await Promise.allSettled([pending]);
+      await blocker.close();
+      await ownerQuery(`UPDATE projection_jobs SET lease_owner = $2, attempt_count = $3,
+        payload = jsonb_set(payload,'{deadlineAt}',to_jsonb($4::text)) WHERE job_key = $1`,
+      [fence.jobKey, fence.workerId, fence.generation, fence.deadlineAt]);
+    }
   });
 
   it('rolls back a deadline that expires inside the SQL pointer statement', async () => {

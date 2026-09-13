@@ -2,7 +2,9 @@ import { createHash } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Pool } from '@neondatabase/serverless';
+import { Pool, type PoolClient } from '@neondatabase/serverless';
+import type { DatabaseClient, DatabaseQueryOptions, DatabaseRow, DatabaseStatement,
+  DatabaseLockedQueryResult } from '../lib/database';
 
 const AUTHORIZATION = 'I_ACKNOWLEDGE_THIS_RESETS_AN_ISOLATED_DATABASE';
 const COMMENT_PURPOSE = 'league-one-projection-store-integration';
@@ -44,13 +46,7 @@ type UrlIdentity = Readonly<{
 }>;
 
 export type IndependentDatabase = Readonly<{
-  database: Readonly<{
-    enabled: true;
-    query: <Row extends Readonly<Record<string, unknown>> = Readonly<Record<string, unknown>>>(
-      statement: string,
-      parameters?: readonly unknown[],
-    ) => Promise<readonly Row[]>;
-  }>;
+  database: DatabaseClient;
   close: () => Promise<void>;
 }>;
 
@@ -373,6 +369,37 @@ export async function cleanIntegrationDatabase(): Promise<void> {
   }
 }
 
+async function queryAfterLock<Row extends DatabaseRow>(
+  client: PoolClient,
+  statement: string,
+  parameters: readonly unknown[],
+  lock: DatabaseStatement,
+  options: DatabaseQueryOptions,
+  savepoint: string | null = null,
+): Promise<DatabaseLockedQueryResult<Row>> {
+  options.signal?.throwIfAborted();
+  if (savepoint) {
+    const isolation = await client.query('SHOW transaction_isolation');
+    if (isolation.rows[0]?.transaction_isolation !== 'read committed') {
+      throw new Error('The isolated locked transaction requires READ COMMITTED isolation.');
+    }
+  }
+  await client.query(savepoint ? `SAVEPOINT ${savepoint}` : 'BEGIN ISOLATION LEVEL READ COMMITTED');
+  try {
+    options.signal?.throwIfAborted();
+    const locked = await client.query(lock.statement, [...lock.parameters]);
+    options.signal?.throwIfAborted();
+    const result = await client.query(statement, [...parameters]);
+    options.signal?.throwIfAborted();
+    await client.query(savepoint ? `RELEASE SAVEPOINT ${savepoint}` : 'COMMIT');
+    return [locked.rows, result.rows] as DatabaseLockedQueryResult<Row>;
+  } catch (error) {
+    await client.query(savepoint ? `ROLLBACK TO SAVEPOINT ${savepoint}` : 'ROLLBACK');
+    if (savepoint) await client.query(`RELEASE SAVEPOINT ${savepoint}`);
+    throw error;
+  }
+}
+
 export function createIndependentDatabase(
   databaseUrl = integrationEnvironment().runtimeDatabaseUrl,
 ): IndependentDatabase {
@@ -386,6 +413,17 @@ export function createIndependentDatabase(
       ) {
         const result = await pool.query(statement, [...parameters]);
         return result.rows as unknown as readonly Row[];
+      },
+      async queryAfterLock<Row extends DatabaseRow>(
+        statement: string, parameters: readonly unknown[], lock: DatabaseStatement,
+        options: DatabaseQueryOptions = {},
+      ) {
+        const client = await pool.connect();
+        try {
+          return await queryAfterLock<Row>(client, statement, parameters, lock, options);
+        } finally {
+          client.release();
+        }
       },
     },
     close: () => pool.end(),
@@ -406,13 +444,25 @@ export async function createPinnedIntegrationDatabase(
     throw error;
   });
   let closed = false;
+  let inTransaction = false;
+  let savepointSequence = 0;
   return {
     database: {
       enabled: true,
       async query<Row extends Readonly<Record<string, unknown>>>(statement: string, parameters: readonly unknown[] = []) {
         const result = await client.query(statement, [...parameters]);
+        if (/^\s*(?:BEGIN|START\s+TRANSACTION)\b/iu.test(statement)) inTransaction = true;
+        if (/^\s*(?:COMMIT|END|ROLLBACK(?!\s+TO))\b/iu.test(statement)) inTransaction = false;
         const last = Array.isArray(result) ? result.at(-1) : result;
         return (last?.rows ?? []) as readonly Row[];
+      },
+      queryAfterLock<Row extends DatabaseRow>(
+        statement: string, parameters: readonly unknown[], lock: DatabaseStatement,
+        options: DatabaseQueryOptions = {},
+      ) {
+        savepointSequence += 1;
+        return queryAfterLock<Row>(client, statement, parameters, lock, options,
+          inTransaction ? `all_player_locked_batch_${savepointSequence}` : null);
       },
     },
     async close() {

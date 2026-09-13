@@ -17,14 +17,60 @@ in the release evidence; source review alone does not establish live operation.
 | Partial-week carryforward | The prior reader dropped Week 1's valid partial points when Week 2 began and excluded them from historical views. The same reader now selects each permitted week's latest partial capture unless that profile has a published score set for that week. | Reader unit and isolated regression cases, independently reviewed source. |
 | Incomplete cumulative coverage | A wholly missing prior week must not yield complete-looking season ranks. Known PPG remains partial and ranks are withheld; an unusable later period cannot erase earlier valid points and appearances. | Missing-period and contradictory-period regressions. |
 | Migration/catalog | Only two owner-only helpers and three existing bodies change. Installed migrations, tables, triggers, constraints, runtime grants and history are preserved. | Actual wrapper commit, corrupt-manifest rollback, actual catalog comparison and eight isolated SQL cases. |
+| Concurrent exact replay | A batch statement could take its snapshot before waiting for the job lock, then miss the winner's committed replay rows. The existing client now executes the fence lock and unchanged batch statement in one ordered Read Committed transaction. | Deterministic isolated barrier reproduction, production-driver transport probe and independent client/fence review; final regression results below. |
 
 The first full database correctness run passed 224 cases across 16 files, with
 four large capacity benchmarks explicitly deferred for available-plan headroom.
 That result does not claim the full verification workflow passed. The first
 browser run passed 49 cases and exposed three test-fixture problems: a paused
 clock blocked cold streamed page rendering, and broad label selectors included
-an inert prerendered subtree. The corrected browser fixture must pass before
-release; none of those failed runs is counted as a passing browser gate.
+an inert prerendered subtree. After the fixture correction, all 52 Chromium
+cases passed locally at `d7073db4f1449d24c922ddc5db5b97dc0be0c6c9`; GitHub
+verification and browser checks also passed for that candidate. Its local
+verification passed lint, type checking, build and 1,859 tests, with one existing
+IPv6 skip. None of the earlier failed runs is counted as a passing gate.
+
+The final isolated database run for that candidate passed 224 cases, failed one
+concurrent replay case, and deferred four capacity benchmarks. Two transactions
+can begin the existing batch statement before either obtains its job lock. The
+waiting statement's old snapshot cannot see the winner's committed replay rows,
+even though uniqueness checks see them. The batch fails atomically instead of
+recognizing the exact replay. This was treated as a confirmed release blocker,
+not a passing or ignored flaky test.
+
+The guarded isolated reproduction at September 13, 13:14 Eastern held both
+independent sessions behind the same job-row lock before releasing them. The
+winner committed exactly one content, 34 entries, one observation, two profile
+score sets, 68 scores and two verifications; both pointers shared that observation.
+The other identical replay failed with SQLSTATE `22012`. All physical-count and
+pointer assertions passed before the expected replay-success assertion failed.
+There was no partial commit or duplicate history.
+
+Independent review confirmed that the installed Neon driver sends the two lazy
+queries in one HTTP transaction, in order, with explicit `ReadCommitted` isolation
+and the same cancellation signal. The probe used mocked HTTP and no database
+or provider access. The existing database fence checks the real clock after
+waiting for its row lock; batch and deferred pointer guards remain unchanged.
+Client-side cancellation is not presented as server-side cancellation proof.
+The fix adds no migration, function or grant, and clients without the required
+atomic capability fail closed.
+
+After the repair, all five focused isolated cases passed at September 13,
+13:21:22 Eastern (19.94 seconds; 33 other cases filtered out). Exact concurrent
+replay returned one advancing and one verifying result for the same physical
+batch. Deadline-token changes and owner/generation takeover while a backend was
+proved to be waiting rejected both writing and completion with unchanged raw,
+score and pointer contents. Existing expired-owner and deadline-during-publication
+rollback cases also passed. One hundred focused client/writer/harness tests,
+TypeScript and focused lint passed. The full unit suite additionally required
+updating the existing partial-batch test to identify the batch after its new lock
+statement; independent review confirmed its empty-score assertions were retained.
+
+The final source then passed the complete local `pnpm verify` command: lint,
+Next.js type generation, TypeScript, 1,874 tests (one existing IPv6 skip), and
+the production build. The full isolated correctness run and exact-candidate
+browser/preview evidence are recorded separately in the release report; the four
+capacity benchmarks remain deferred pending effective plan headroom.
 
 No source review result replaces capacity proof, complete Week 1 parity, guarded
 backfill or actual scheduled production success. The incomplete retained fixture

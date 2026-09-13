@@ -57,6 +57,15 @@ and explicit operators. A previous day's delayed request can postpone admission;
 an outage or validation failure can leave an hour without new data. Failures
 retain budget and prior verified data.
 
+The existing batch writer uses one Neon HTTP transaction at `ReadCommitted`:
+first acquire and validate the existing global job fence, then execute the
+unchanged guarded batch statement. The second statement receives a fresh snapshot
+after any lock wait, so it can recognize a concurrent exact replay. Both steps
+share one connection and transaction, cancellation is propagated, and the batch
+and deferred publication guards still reject expired or lost ownership. A client
+without this atomic capability fails before writes. There is no independent
+preliminary lock request, retry loop, new SQL function or grant expansion.
+
 At rollover the previous week receives the first opportunity and bounded
 correction opportunities, alternating with current-week work. Overdue complete
 final verification stays visible after the finite correction window but does

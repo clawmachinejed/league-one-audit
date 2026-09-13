@@ -8,6 +8,14 @@ export type DatabaseQueryOptions = Readonly<{
   signal?: AbortSignal;
 }>;
 
+export type DatabaseStatement = Readonly<{
+  statement: string;
+  parameters: readonly unknown[];
+}>;
+
+export type DatabaseLockedQueryResult<Row extends DatabaseRow = DatabaseRow> =
+  readonly [readonly DatabaseRow[], readonly Row[]];
+
 export type DatabaseClient = Readonly<{
   enabled: true;
   query: <Row extends DatabaseRow = DatabaseRow>(
@@ -15,6 +23,14 @@ export type DatabaseClient = Readonly<{
     parameters?: readonly unknown[],
     options?: DatabaseQueryOptions,
   ) => Promise<readonly Row[]>;
+  /** One atomic READ COMMITTED transaction: lock first, then a fresh batch snapshot.
+   * Callers requiring this capability must fail closed when it is absent. */
+  queryAfterLock?: <Row extends DatabaseRow = DatabaseRow>(
+    statement: string,
+    parameters: readonly unknown[],
+    lock: DatabaseStatement,
+    options?: DatabaseQueryOptions,
+  ) => Promise<DatabaseLockedQueryResult<Row>>;
 }>;
 
 export type DisabledDatabase = Readonly<{
@@ -76,6 +92,23 @@ export function createDatabase(databaseUrl: string | undefined = process.env.DAT
       );
       return rows as readonly Row[];
     },
+    async queryAfterLock<Row extends DatabaseRow = DatabaseRow>(
+      statement: string,
+      parameters: readonly unknown[],
+      lock: DatabaseStatement,
+      options: DatabaseQueryOptions = {},
+    ) {
+      options.signal?.throwIfAborted();
+      const results = await sql.transaction((transaction) => [
+        transaction.query(lock.statement, [...lock.parameters]),
+        transaction.query(statement, [...parameters]),
+      ], {
+        isolationLevel: 'ReadCommitted',
+        ...(options.signal ? { fetchOptions: { signal: options.signal } } : {}),
+      });
+      if (results.length !== 2) throw new Error('The locked database transaction returned invalid results.');
+      return [results[0], results[1]] as DatabaseLockedQueryResult<Row>;
+    },
   };
 }
 
@@ -90,6 +123,15 @@ export function withDatabaseAbortSignal(database: Database, signal: AbortSignal)
         : signal;
       return database.query(statement, parameters, { signal: querySignal });
     },
+    ...(database.queryAfterLock ? {
+      queryAfterLock<Row extends DatabaseRow = DatabaseRow>(
+        statement: string, parameters: readonly unknown[], lock: DatabaseStatement,
+        options: DatabaseQueryOptions = {},
+      ) {
+        const querySignal = options.signal ? AbortSignal.any([signal, options.signal]) : signal;
+        return database.queryAfterLock!<Row>(statement, parameters, lock, { signal: querySignal });
+      },
+    } : {}),
   };
 }
 
