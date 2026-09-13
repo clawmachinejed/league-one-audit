@@ -36,6 +36,27 @@ const player = (id: string, projectedPoints: number | null): Player => ({
 });
 
 describe('MatchupBoard player projection presentation', () => {
+  it('shows each final NFL result while the fantasy matchup remains live', () => {
+    const away = player('away', 20);
+    const home = player('home', 21);
+    away.game = { kind: 'scheduled', opponent: 'TEN', location: 'away', date: '2026-09-13',
+      kickoffAt: '2026-09-13T17:00:00.000Z', finalScore: { teamScore: 23, opponentScore: 10 } };
+    home.game = { kind: 'scheduled', opponent: 'NYJ', location: 'home', date: '2026-09-13',
+      kickoffAt: '2026-09-13T17:00:00.000Z', finalScore: { teamScore: 10, opponentScore: 24 } };
+    const html = renderToStaticMarkup(
+      <LeagueSiteProvider site={LEAGUE_SITES.league1}>
+        <MatchupBoard matchups={[{ id: '1', status: 'live', sides: [
+          { team: team(1), points: 23.2, projectedPoints: 23.2, starters: [away] },
+          { team: team(2), points: 23.2, projectedPoints: 23.2, starters: [home] },
+        ] }]} selected={null} avatar={() => null} />
+      </LeagueSiteProvider>,
+    );
+    expect(html).toContain('Final W 23-10 @ TEN');
+    expect(html).toContain('Final L 10-24 vs NYJ');
+    expect(html).not.toContain('Sun 1:00 PM');
+    expect(html).toContain('In progress');
+  });
+
   it('renders a missing final baseline as a dash and a valid frozen zero as 0.00', () => {
     const matchup: Matchup = {
       id: '1',

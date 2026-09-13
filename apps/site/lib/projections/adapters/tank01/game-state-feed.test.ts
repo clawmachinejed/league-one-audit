@@ -112,6 +112,84 @@ describe('Tank01 canonical game-state normalization', () => {
     });
   });
 
+  it('reads the documented final score pair and incorporates score corrections into the revision', () => {
+    // Sanitized Tank01 primary-documentation Example Responses, observed 2026-09-13.
+    // https://rapidapi.com/tank01/api/tank01-nfl-live-in-game-real-time-statistics-nfl/playground/apiendpoint_170ffbd1-36a2-4570-9671-0888277ee728
+    // This is documentation evidence, not a newly requested production game feed.
+    const row = game('20240107_KC@LAC', 'LAC', 'KC', {
+      gameStatusCode: '2', gameStatus: 'Completed', homePts: '12', awayPts: '13',
+      lineScore: {
+        home: { totalPts: '12', teamAbv: 'LAC' },
+        away: { totalPts: '13', teamAbv: 'KC' },
+      },
+    });
+    const normalize = (value: Record<string, unknown>) => normalizeTank01GameStates(
+      envelope([['20240107_KC@LAC', value]]),
+      { season: 2023, seasonType: 'regular', week: 18 }, startedAt, completedAt, provider,
+    ).games[0];
+    const state = normalize(row);
+    expect(state).toMatchObject({
+      phase: 'final', statusCode: 2, homeTeam: 'LAC', awayTeam: 'KC', homeScore: 12, awayScore: 13,
+    });
+    expect(state.sourceRevision).toBe(compatibleRevision({
+      gameId: '20240107_KC@LAC', fetchedAt: '2026-09-13T16:00:00.250Z',
+      statusCode: 2, phase: 'final', clock: null, remainingFraction: 0, homeScore: 12, awayScore: 13,
+    }));
+    expect(normalize({ ...row, homePts: 12, awayPts: 13 }).sourceRevision).toBe(state.sourceRevision);
+    expect(normalize({ ...row, homePts: 14, lineScore: undefined }).sourceRevision).not.toBe(state.sourceRevision);
+  });
+
+  it.each([
+    ['zero away', '23', '0'],
+    ['zero home', 0, 23],
+    ['tie', '17', '17'],
+    ['trimmed integer strings', ' 23 ', ' 10 '],
+  ])('preserves complete numeric score pairs: %s', (_label, homePts, awayPts) => {
+    const state = normalizeTank01GameStates(envelope([['id', game('id', 'TEN', 'KC', {
+      gameStatusCode: 2, homePts, awayPts,
+    })]]), period, startedAt, completedAt, provider).games[0];
+    expect(state).toMatchObject({ homeScore: Number(homePts), awayScore: Number(awayPts), phase: 'final' });
+  });
+
+  it.each([
+    ['both missing', {}],
+    ['one missing', { homePts: 23 }],
+    ['null score', { homePts: null, awayPts: 0 }],
+    ['empty score', { homePts: '', awayPts: '10' }],
+    ['whitespace score', { homePts: ' ', awayPts: '10' }],
+    ['negative numeric score', { homePts: -1, awayPts: 10 }],
+    ['negative string score', { homePts: '-1', awayPts: '10' }],
+    ['fractional numeric score', { homePts: 23.5, awayPts: 10 }],
+    ['fractional string score', { homePts: '23.5', awayPts: '10' }],
+    ['nonnumeric score', { homePts: 'TBD', awayPts: '10' }],
+    ['exponent score', { homePts: '2e1', awayPts: '10' }],
+    ['boolean score', { homePts: true, awayPts: '10' }],
+    ['infinite score', { homePts: Infinity, awayPts: '10' }],
+    ['NaN score', { homePts: NaN, awayPts: '10' }],
+    ['unsafe score', { homePts: Number.MAX_SAFE_INTEGER + 1, awayPts: '10' }],
+    ['conflicting total', { homePts: '23', awayPts: '10', lineScore: { home: { totalPts: '24' } } }],
+    ['malformed total', { homePts: '23', awayPts: '10', lineScore: { away: { totalPts: 'ten' } } }],
+    ['wrong team', { homePts: '23', awayPts: '10', lineScore: { home: { teamAbv: 'KC' } } }],
+    ['malformed line-score side', { homePts: '23', awayPts: '10', lineScore: { away: '10' } }],
+  ])('keeps the established game-state observation with scores unavailable: %s', (_label, overrides) => {
+    const state = normalizeTank01GameStates(envelope([['id', game('id', 'TEN', 'KC', {
+      gameStatusCode: 1, gameStatus: 'Q4', gameClock: '8:00', ...overrides,
+    })]]), period, startedAt, completedAt, provider).games[0];
+    expect(state).toMatchObject({ homeScore: null, awayScore: null, phase: 'q4', clockSeconds: 480 });
+    expect(state.sourceRevision).toBe(compatibleRevision({
+      gameId: 'id', fetchedAt: '2026-09-13T16:00:00.250Z', statusCode: 1,
+      phase: 'q4', clock: '8:00', remainingFraction: 480 / 3600,
+    }));
+  });
+
+  it('accepts canonical team aliases and equivalent totals in the optional line score', () => {
+    const state = normalizeTank01GameStates(envelope([['id', game('id', 'WAS', 'JAX', {
+      homePts: 23, awayPts: 10,
+      lineScore: { home: { totalPts: '23', teamAbv: 'WSH' }, away: { totalPts: '10', teamAbv: 'JAC' } },
+    })]]), period, startedAt, completedAt, provider).games[0];
+    expect(state).toMatchObject({ homeScore: 23, awayScore: 10 });
+  });
+
   it('accepts equivalent period aliases and clock spellings without revision churn', () => {
     const result = normalizeTank01GameStates(envelope([[
       'equivalent-live',

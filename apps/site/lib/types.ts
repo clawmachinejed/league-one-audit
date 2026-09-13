@@ -80,6 +80,8 @@ export type NflGame = {
   location: 'home' | 'away';
   date: string;
   kickoffAt: string | null;
+  /** Present only for a final NFL game; scores are from this player's team perspective. */
+  finalScore?: { teamScore: number; opponentScore: number };
 } | {
   kind: 'bye';
 };
