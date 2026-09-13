@@ -1,6 +1,7 @@
 import { calculateLiveProjection } from '../domain/live-calculation';
 import type {
   GameStateSlate,
+  LeaguePeriod,
   LeagueWeekState,
   NflWeekSchedule,
   ProjectedLineupSlot,
@@ -188,17 +189,47 @@ function presentationTeam(
   };
 }
 
-function presentationGame(entity: ScoringEntity, schedule: NflWeekSchedule): NflGame | null {
+function samePeriod(left: LeaguePeriod, right: LeaguePeriod): boolean {
+  return left.season === right.season && left.seasonType === right.seasonType && left.week === right.week;
+}
+
+function presentationGame(
+  entity: ScoringEntity,
+  schedule: NflWeekSchedule,
+  period: LeaguePeriod,
+  games?: GameStateSlate,
+): NflGame | null {
   if (!entity.nflTeam) return null;
   const game = schedule[entity.nflTeam];
   if (!game) return null;
-  return game.kind === 'bye' ? { kind: 'bye' } : { ...game };
+  if (game.kind === 'bye') return { kind: 'bye' };
+  if (!games || !samePeriod(games.period, period)) return { ...game };
+  const candidates = games.games.filter((candidate) => (
+    candidate.homeTeam === entity.nflTeam || candidate.awayTeam === entity.nflTeam
+  ));
+  const state = candidates.length === 1 ? candidates[0] : null;
+  if (!state || !samePeriod(state.period, period) || state.statusCode !== 2 || state.phase !== 'final'
+    || state.homeScore === null || state.awayScore === null
+    || !Number.isSafeInteger(state.homeScore) || state.homeScore < 0
+    || !Number.isSafeInteger(state.awayScore) || state.awayScore < 0) return { ...game };
+  const isHome = state.homeTeam === entity.nflTeam;
+  if (game.opponent !== (isHome ? state.awayTeam : state.homeTeam)
+    || game.location !== (isHome ? 'home' : 'away')) return { ...game };
+  return {
+    ...game,
+    finalScore: {
+      teamScore: isHome ? state.homeScore : state.awayScore,
+      opponentScore: isHome ? state.awayScore : state.homeScore,
+    },
+  };
 }
 
 function presentationPlayer(
   slot: ProjectedLineupSlot,
   index: number,
   schedule: NflWeekSchedule,
+  period: LeaguePeriod,
+  games?: GameStateSlate,
 ): Player {
   if (slot.kind === 'empty') {
     return {
@@ -219,7 +250,7 @@ function presentationPlayer(
     position: slot.entity.position,
     nflTeam: slot.entity.nflTeam,
     injuryStatus: slot.entity.injuryStatus,
-    game: presentationGame(slot.entity, schedule),
+    game: presentationGame(slot.entity, schedule, period, games),
     slot: slot.slot,
     points: slot.officialPoints,
     projectedPoints: slot.presentationProjectedPoints,
@@ -230,6 +261,7 @@ function presentationPlayer(
 export function toMatchupsData(
   snapshot: ProjectedMatchupSnapshot,
   schedule: NflWeekSchedule,
+  games?: GameStateSlate,
 ): MatchupsData {
   assertMatchupScopes(snapshot);
   const teams = snapshot.participants.map(presentationTeam);
@@ -247,7 +279,7 @@ export function toMatchupsData(
         team,
         points: side.officialPoints,
         projectedPoints: side.projectedPoints,
-        starters: side.starters.map((slot, index) => presentationPlayer(slot, index, schedule)),
+        starters: side.starters.map((slot, index) => presentationPlayer(slot, index, schedule, snapshot.period, games)),
       };
     }),
   }));
@@ -283,5 +315,5 @@ function assertMatchupScopes(snapshot: Pick<ProjectedMatchupSnapshot, 'configura
 
 /** Builds canonical state first, then performs one presentation conversion. */
 export function buildSnapshot(input: BuildSnapshotInput): MatchupsData {
-  return toMatchupsData(buildProjectedMatchupSnapshot(input), input.source.schedule);
+  return toMatchupsData(buildProjectedMatchupSnapshot(input), input.source.schedule, input.games);
 }

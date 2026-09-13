@@ -161,6 +161,62 @@ test('same content advances freshness and changed content preserves expanded car
   await expect(toggle).toHaveAttribute('aria-expanded', 'true');
 });
 
+for (const league of ['league1', 'league2'] as const) {
+  test(`${league} replaces scheduled NFL labels with final team results after refresh at 360px`, async ({ page }) => {
+    await page.setViewportSize({ width: 360, height: 800 });
+    const fixture = await openFixture(page, { league, temporal: 'active', adopt: false });
+    const matchup = fixture.payload.matchups[0];
+    matchup.status = 'live';
+    fixture.payload.league.rosterPositions = ['QB', 'RB'];
+    const [left, right] = matchup.sides;
+    left.starters[0].game = { kind: 'scheduled', opponent: 'TEN', location: 'away',
+      date: '2026-09-03', kickoffAt: '2026-09-04T00:20:00.000Z' };
+    right.starters[0].game = { kind: 'scheduled', opponent: 'NYJ', location: 'home',
+      date: '2026-09-03', kickoffAt: '2026-09-04T00:20:00.000Z' };
+    left.starters.push({ ...left.starters[0], id: 'fixture-tie-player', name: 'Fixture Tie Player',
+      position: 'RB', slot: 'RB', game: { kind: 'scheduled', opponent: 'LAR', location: 'home',
+        date: '2026-09-03', kickoffAt: '2026-09-04T00:20:00.000Z' } });
+    right.starters.push({ ...right.starters[0], id: 'fixture-unfinished-player', name: 'Fixture Unfinished Player',
+      position: 'RB', slot: 'RB', game: { kind: 'scheduled', opponent: 'KC', location: 'away',
+        date: '2026-09-07', kickoffAt: '2026-09-08T00:15:00.000Z' } });
+    await page.getByRole('button', { name: 'Refresh matchups', exact: true }).click();
+    await expect(page.getByText('Fixture Alpha', { exact: true })).toBeVisible();
+    const toggle = page.locator('button[data-matchup-toggle]').first();
+    await toggle.click();
+    const labels = page.locator('[data-player-game]');
+    await expect(labels).toHaveText([
+      'Thu 8:20 PM @ TEN', 'Thu 8:20 PM vs NYJ', 'Thu 8:20 PM vs LAR', 'Mon 8:15 PM @ KC',
+    ]);
+
+    // The NFL games finish independently while the fantasy matchup and week remain live.
+    if (left.starters[0].game?.kind !== 'scheduled' || right.starters[0].game?.kind !== 'scheduled'
+      || left.starters[1].game?.kind !== 'scheduled') throw new Error('Expected scheduled fixture games.');
+    left.starters[0].game.finalScore = { teamScore: 23, opponentScore: 10 };
+    right.starters[0].game.finalScore = { teamScore: 10, opponentScore: 24 };
+    left.starters[1].game.finalScore = { teamScore: 17, opponentScore: 17 };
+    fixture.revision = SNAPSHOT_C;
+    fixture.verifiedAt = UPDATED_TIME;
+    await nextPoll(page, fixture);
+    await expect(labels).toHaveText([
+      'Final W 23-10 @ TEN', 'Final L 10-24 vs NYJ', 'Final T 17-17 vs LAR', 'Mon 8:15 PM @ KC',
+    ]);
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(fixture.fullCount).toBe(2);
+    const layout = await labels.evaluateAll((nodes) => nodes.map((node) => {
+      const game = node as HTMLElement;
+      const meta = game.closest<HTMLElement>('[data-player-meta]');
+      const row = game.closest<HTMLElement>('div[class*="playerRow"]');
+      return { label: game.textContent, width: game.scrollWidth, availableWidth: meta?.clientWidth ?? 0,
+        rowHeight: row?.getBoundingClientRect().height ?? 0 };
+    }));
+    for (const row of layout) {
+      expect(row.width, `${row.label} should fit without clipping`).toBeLessThanOrEqual(row.availableWidth + 1);
+      expect(row.rowHeight).toBeCloseTo(52, 0);
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
+  });
+}
+
 test('publication races retry compact metadata once and never adopt a mismatched requested revision', async ({ page }) => {
   const fixture = await openFixture(page);
   fixture.revision = SNAPSHOT_A;

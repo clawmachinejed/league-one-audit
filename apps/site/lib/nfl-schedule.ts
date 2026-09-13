@@ -191,6 +191,12 @@ const timeFormatter = new Intl.DateTimeFormat('en-US', {
 
 export function formatNflGame(game: NflGame): string {
   if (game.kind === 'bye') return 'BYE';
+  const final = game.finalScore;
+  if (final && Number.isSafeInteger(final.teamScore) && final.teamScore >= 0
+    && Number.isSafeInteger(final.opponentScore) && final.opponentScore >= 0) {
+    const result = final.teamScore > final.opponentScore ? 'W' : final.teamScore < final.opponentScore ? 'L' : 'T';
+    return `Final ${result} ${final.teamScore}-${final.opponentScore} ${game.location === 'home' ? 'vs' : '@'} ${game.opponent}`;
+  }
   const kickoffDate = game.kickoffAt ? new Date(game.kickoffAt) : null;
   const daySource = kickoffDate && Number.isFinite(kickoffDate.getTime())
     ? kickoffDate : new Date(`${game.date}T12:00:00Z`);

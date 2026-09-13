@@ -478,6 +478,93 @@ describe('canonical worker game context and snapshot builder', () => {
     expect(payload.matchups[0].sides[0].projectedPoints).toBeCloseTo(69.2, 12);
   });
 
+  it('carries final NFL scores from each player or defense perspective without changing fantasy calculations', () => {
+    const input = snapshotInput();
+    const finalGames = games({
+      games: input.games.games.map((state) => state.homeTeam === 'DAL'
+        ? { ...state, homeScore: 24, awayScore: 10 }
+        : state.homeTeam === 'JAX'
+          ? { ...state, statusCode: 2 as const, phase: 'final' as const, remainingFraction: 0,
+              homeScore: 23, awayScore: 10 }
+          : state),
+    });
+    const payload = buildSnapshot({ ...input, games: finalGames });
+    const prior = buildSnapshot({ ...input, games: {
+      ...finalGames,
+      games: finalGames.games.map((state) => ({ ...state, homeScore: null, awayScore: null })),
+    } });
+    const starters = payload.matchups[0].sides[0].starters;
+    expect(starters.find((starter) => starter.id === 'final')?.game).toEqual({
+      ...input.source.schedule.PHI,
+      finalScore: { teamScore: 10, opponentScore: 24 },
+    });
+    expect(starters.find((starter) => starter.id === 'JAX')?.game).toEqual({
+      ...input.source.schedule.JAX,
+      finalScore: { teamScore: 23, opponentScore: 10 },
+    });
+    expect(payload.matchups.map((matchup) => matchup.sides.map((side) => ({
+      points: side.points,
+      projectedPoints: side.projectedPoints,
+      players: side.starters.map(({ points, projectedPoints }) => ({ points, projectedPoints })),
+    })))).toEqual(prior.matchups.map((matchup) => matchup.sides.map((side) => ({
+      points: side.points,
+      projectedPoints: side.projectedPoints,
+      players: side.starters.map(({ points, projectedPoints }) => ({ points, projectedPoints })),
+    }))));
+    expect(starters.find((starter) => starter.id === 'live')?.game).toEqual(input.source.schedule.KC);
+    expect(starters.find((starter) => starter.id === 'bye')?.game).toEqual({ kind: 'bye' });
+  });
+
+  it('preserves shutout and tied final scores', () => {
+    const input = snapshotInput();
+    for (const [homeScore, awayScore] of [[0, 23], [17, 17], [0, 0]]) {
+      const payload = buildSnapshot({ ...input, games: {
+        ...input.games,
+        games: input.games.games.map((state) => state.homeTeam === 'DAL'
+          ? { ...state, homeScore, awayScore } : state),
+      } });
+      expect(payload.matchups[0].sides[0].starters.find((starter) => starter.id === 'final')?.game)
+        .toMatchObject({ finalScore: { teamScore: awayScore, opponentScore: homeScore } });
+    }
+  });
+
+  it('omits optional NFL final scores unless finality, both scores, period, and schedule identity all agree', () => {
+    const input = snapshotInput();
+    const canonical = buildProjectedMatchupSnapshot(input);
+    const original = input.games.games.find((state) => state.homeTeam === 'DAL')!;
+    const completed = { ...original, homeScore: 24, awayScore: 10 };
+    const unchanged = toMatchupsData(canonical, input.source.schedule);
+    const alteredStates: GameStateObservation[] = [
+      { ...completed, statusCode: 1, phase: 'q4' },
+      { ...completed, statusCode: 2, phase: 'unknown' },
+      { ...completed, statusCode: 4, phase: 'suspended' },
+      { ...completed, homeScore: null },
+      { ...completed, awayScore: null },
+      { ...completed, homeScore: -1 },
+      { ...completed, awayScore: 10.5 },
+      { ...completed, homeScore: Number.NaN },
+      { ...completed, awayScore: Number.POSITIVE_INFINITY },
+      { ...completed, homeScore: Number.MAX_SAFE_INTEGER + 1 },
+      { ...completed, period: { ...period, week: 2 } },
+      { ...completed, period: { ...period, season: 2025 } },
+      { ...completed, period: { ...period, seasonType: 'postseason' } },
+      { ...completed, homeTeam: 'NYG' },
+      { ...completed, homeTeam: 'PHI', awayTeam: 'DAL' },
+    ];
+    for (const altered of alteredStates) {
+      expect(toMatchupsData(canonical, input.source.schedule, {
+        ...input.games,
+        games: input.games.games.map((state) => state === original ? altered : state),
+      })).toEqual(unchanged);
+    }
+    for (const slate of [
+      { ...input.games, period: { ...period, week: 2 }, games: [completed] },
+      { ...input.games, games: [completed, completed] },
+    ]) {
+      expect(toMatchupsData(canonical, input.source.schedule, slate)).toEqual(unchanged);
+    }
+  });
+
   it('shows no final player projection when frozen evidence is absent or invalid and never retains the last live value', () => {
     const input = snapshotInput();
     const priorGames = games({

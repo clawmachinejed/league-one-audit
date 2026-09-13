@@ -74,6 +74,21 @@ export function validationCases(): ValidationCase[] {
     changed('scheduled kickoff empty', true, (p) => { Object.assign(p.matchups[0].sides[0].starters[0].game!, { kickoffAt: '' }); }),
     changed('scheduled kickoff unparseable remains valid', true, (p) => { Object.assign(p.matchups[0].sides[0].starters[0].game!, { kickoffAt: 'unknown' }); }),
     changed('scheduled kickoff valid', true, (p) => { Object.assign(p.matchups[0].sides[0].starters[0].game!, { kickoffAt: '2026-09-13T17:00:00Z' }); }),
+    changed('scheduled game final score', true, (p) => {
+      Object.assign(p.matchups[0].sides[0].starters[0].game!, { finalScore: { teamScore: 23, opponentScore: 10 } });
+    }),
+    changed('scheduled game zero final score', true, (p) => {
+      Object.assign(p.matchups[0].sides[0].starters[0].game!, { finalScore: { teamScore: 0, opponentScore: 10 } });
+    }),
+    changed('scheduled game incomplete final score', false, (p) => {
+      Object.assign(p.matchups[0].sides[0].starters[0].game!, { finalScore: { teamScore: 23 } });
+    }),
+    changed('scheduled game string final score', false, (p) => {
+      Object.assign(p.matchups[0].sides[0].starters[0].game!, { finalScore: { teamScore: '23', opponentScore: 10 } });
+    }),
+    changed('scheduled game null final score', false, (p) => {
+      Object.assign(p.matchups[0].sides[0].starters[0].game!, { finalScore: null });
+    }),
     changed('date invalid', false, (p) => { p.updatedAt = 'not-a-date'; }),
     changed('date null', false, (p) => { Object.assign(p, { updatedAt: null }); }),
     changed('date non-ISO accepted by JS', true, (p) => { p.updatedAt = 'September 13, 2026 18:00 GMT'; }),

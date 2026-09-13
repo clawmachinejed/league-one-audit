@@ -42,6 +42,21 @@ const completeSeasonSchedule = () => Array.from({ length: 18 }, (_, index) => in
   })));
 
 describe('Sleeper NFL schedule', () => {
+  it.each([
+    { teamScore: 23, opponentScore: 10, location: 'away', opponent: 'TEN', expected: 'Final W 23-10 @ TEN' },
+    { teamScore: 10, opponentScore: 24, location: 'home', opponent: 'NYJ', expected: 'Final L 10-24 vs NYJ' },
+    { teamScore: 17, opponentScore: 17, location: 'home', opponent: 'NYJ', expected: 'Final T 17-17 vs NYJ' },
+    { teamScore: 0, opponentScore: 14, location: 'away', opponent: 'TEN', expected: 'Final L 0-14 @ TEN' },
+  ] as const)('formats a final result as $expected', ({ teamScore, opponentScore, location, opponent, expected }) => {
+    expect(formatNflGame({ kind: 'scheduled', opponent, location, date: '2026-09-13',
+      kickoffAt: '2026-09-13T20:25:00.000Z', finalScore: { teamScore, opponentScore } })).toBe(expected);
+  });
+
+  it.each([NaN, Infinity, -1, 1.5, Number.MAX_SAFE_INTEGER + 1])('does not display an invalid final score %s', (teamScore) => {
+    expect(formatNflGame({ kind: 'scheduled', opponent: 'ARI', location: 'home', date: '2026-09-13',
+      kickoffAt: '2026-09-13T20:25:00.000Z', finalScore: { teamScore, opponentScore: 10 } })).toBe('Sun 4:25 PM vs ARI');
+  });
+
   it('normalizes both sides of a game with the verified kickoff timestamp', () => {
     const schedule = normalizeSleeperScores([score()], '2026', 1);
     expect(schedule.LAC).toEqual({

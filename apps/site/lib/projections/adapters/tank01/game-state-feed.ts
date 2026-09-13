@@ -129,6 +129,40 @@ function gameIdFrom(mapKey: string, row: Record<string, unknown>): string | null
   return rowId ?? keyId;
 }
 
+function scoreFrom(value: unknown): number | null {
+  const score = typeof value === 'number' ? value
+    : typeof value === 'string' && /^\d+$/u.test(value.trim()) ? Number(value.trim()) : null;
+  return score !== null && Number.isSafeInteger(score) && score >= 0 ? score : null;
+}
+
+/**
+ * Tank01's documented scores-only example uses homePts/awayPts and optional
+ * lineScore.home/away.totalPts plus teamAbv. These presentation-only values must
+ * agree, but an unusable score pair must not discard an otherwise valid clock.
+ * https://rapidapi.com/tank01/api/tank01-nfl-live-in-game-real-time-statistics-nfl/playground/apiendpoint_170ffbd1-36a2-4570-9671-0888277ee728
+ */
+function gameScoresFrom(
+  row: Record<string, unknown>,
+  lineScore: Record<string, unknown> | null,
+  homeTeam: GameStateObservation['homeTeam'],
+  awayTeam: GameStateObservation['awayTeam'],
+): Pick<GameStateObservation, 'homeScore' | 'awayScore'> {
+  const unavailable = { homeScore: null, awayScore: null };
+  const homeScore = scoreFrom(row.homePts);
+  const awayScore = scoreFrom(row.awayPts);
+  if (homeScore === null || awayScore === null) return unavailable;
+  for (const [side, team, score] of [
+    ['home', homeTeam, homeScore], ['away', awayTeam, awayScore],
+  ] as const) {
+    const detail = lineScore?.[side];
+    if (detail === undefined || detail === null) continue;
+    if (!isRecord(detail)
+      || (detail.totalPts !== undefined && scoreFrom(detail.totalPts) !== score)
+      || (detail.teamAbv !== undefined && canonicalNflTeam(detail.teamAbv) !== team)) return unavailable;
+  }
+  return { homeScore, awayScore };
+}
+
 /**
  * Strictly validates one complete Tank01 response boundary. A malformed row rejects
  * the observation so an atomic caller can retain its prior complete league snapshot.
@@ -185,6 +219,7 @@ export function normalizeTank01GameStates(
       throw new Tank01GameStateFailure('invalid-response');
     }
     const time = resolveGameTime({ statusCode, period: sourcePeriod, statusText, clock });
+    const scores = gameScoresFrom(value, lineScore, homeTeam, awayTeam);
     const game: GameStateObservation = {
       gameRef: externalGameRef(provider, gameId),
       period,
@@ -195,8 +230,7 @@ export function normalizeTank01GameStates(
       sourcePeriod,
       gameClock: clock,
       ...time,
-      homeScore: null,
-      awayScore: null,
+      ...scores,
       requestStartedAt,
       requestCompletedAt,
       observedAt: fetchedAt,
@@ -207,6 +241,7 @@ export function normalizeTank01GameStates(
         phase: time.phase,
         clock,
         remainingFraction: time.remainingFraction,
+        ...(scores.homeScore === null ? {} : scores),
       }),
     };
     games.push(game);
