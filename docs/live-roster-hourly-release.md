@@ -74,43 +74,74 @@ complete score sets, move complete score pointers, or satisfy complete backfill.
 
 ## Capacity gate
 
-The preimplementation Neon console reported 98.9% of monthly network transfer
-used (4.95 GB), with metrics potentially delayed by an hour. This is insufficient
-evidence to activate additional sustained traffic on the existing Free plan.
-The later September 13 check still showed Free, 4.95 / 5 GB transfer,
-0.44 / 0.5 GB storage usage and 66.62 / 100 CU-hours. The project listing's
-267.42 MB storage value differs from the dashboard usage figure; these scopes
-must not be silently treated as interchangeable headroom. History was 0.25 GB
-with a six-hour retention window. No plan change was performed.
-Recheck the user's effective plan, allowance scope, spend controls, billing
-window and ordinary-workload headroom before large capacity measurements and
-production activation. Do not perform the plan purchase for the user. The bounded
-014 wrapper and eight isolated job-only tests passed on September 13; their
-decoded responses were estimated below 1 MB before execution, with no statistics
-batches or provider requests. This estimate is not a measured Neon billing delta.
-The remaining database correctness checks can run separately while the four
-`measures ...` capacity benchmarks are explicitly deferred. This is partial
-verification, not completion of the repository's full verification workflow.
+The user's Neon Launch upgrade was verified on September 13 before activation.
+The existing project includes 500 GB monthly public network transfer; storage
+is metered at the displayed $0.35/GB-month and restore history at $0.20/GB-month.
+The billing window is September 13–October 1. Reset usage counters can lag an
+hour and do not mean the database is empty: its measured physical size was
+266,756,096 bytes at 17:46:53 UTC. Existing compute settings and the six-hour
+restore window were retained; no plan purchase or billing setting was performed.
 
-The requested cadence permits at most 1,638 requests over 18 weeks/126 days,
-shared by current, correction and explicit operator work. Reusing the historical
-measured shapes gives the following sensitivity calculations, before ordinary
-application reserve and before unmeasured source distribution:
+Fresh isolated measurements use the unchanged application at
+`8eeba4be098b7f64935cc1b26c0ef8384dbe1a05`, migration 014, and the existing guarded
+harness. The retained partial fixture remains partial. A separate synthetic
+complete inventory contains 4,385 entries, all 32 canonical defenses, the actual
+37 active scoring rules shared by both leagues, 336 official player occurrences,
+24 roster occurrences and 179 distinct parity comparisons. Its statistics, teams
+and completed-game evidence are constructed for testing, not production Week 1
+completion or live parity evidence. The sanitized measurement summary is
+`apps/site/release/014-capacity.launch.json`.
 
-| Historical measurement shape | 18-week distribution | Calculated physical growth |
-| --- | --- | ---: |
-| Retained partial | 18 first captures + 1,620 changed captures | 3.087 GB |
-| Synthetic divergent complete, small parity population | 18 first + 1,620 unchanged | 0.220 GB |
-| Synthetic divergent complete, small parity population | 18 first + 1,620 changed | 10.838–11.184 GB |
+| Fresh measured shape | Physical relation growth |
+| --- | ---: |
+| Retained partial first batch | 2,760,704 B |
+| Retained partial statistics correction | 2,596,864 B |
+| Full shared 37-rule profile, first complete batch | 6,356,992 B |
+| Full shared 37-rule profile, exact replay | 0 B; no new rows |
+| Full shared 37-rule profile, later unchanged retrieval | 114,688 B |
+| Full shared 37-rule profile, statistics correction | 6,168,576 B |
 
-These are arithmetic applications of the retained physical measurements, not
-fresh measurements, a bound on real data, or a season-fit claim. The source
-context and assumption changes can alter row width. The complete synthetic
-shape has far fewer official parity rows than the real leagues. Before release,
-run the guarded measurements against the final migration/application and retain
-separate provider-inbound, client-to-database, decoded database-response,
-physical table/index/TOAST, and actual plan-usage evidence. Query counts do not
-measure compute; parameter JSON is not Neon outbound transfer.
+The later unchanged complete retrieval adds one observation, one verification,
+336 official player rows and 24 roster rows, with no duplicate raw entries or
+scores. The separate divergent-profile stress test measured 20 unchanged runs
+at 53,248 bytes per run on average, preserving their smaller parity lineage.
+The 114,688-byte full-profile result is a single observed allocation, not an
+amortized marginal coefficient; allocated pages can be reused by later runs.
+These different shapes must not be substituted for one another. Full-profile
+preparation plus each writer operation took 20.079–22.910 seconds; these timings
+exclude provider retrieval, composition and repeated identity lookups and do
+not measure compute. Production retains its 50-second work deadline. The stress
+test's 480-second outer allowance covers 27 independent batches and stays below
+its 550-second fixture deadline; it does not extend production execution.
+
+Each league's one-week metrics reader returned 169 SQL rows and 93,995 decoded
+bytes in 52–78 milliseconds. The sparse fixture has only 20 nonzero score
+candidates; the existing cumulative zero-score exclusion explains that output.
+This does not measure an entire season, all 4,385 players scoring nonzero,
+concurrent visitor traffic, or multiple retained partial weeks.
+
+At 13 hourly opportunities daily, an illustrative 18-week/126-day horizon allows
+at most 1,638 total requests across current, correction and explicit operator
+work. Applying measured first/corrected complete coefficients to 18 first captures
+and 1,620 changed captures gives 10.107 GB of physical relation growth; applying
+the unchanged coefficient instead gives 0.300 GB. These are sensitivity cases,
+not bounds on source distributions or billed storage. Partial historical weeks,
+reader traffic, identity growth, normal application history and restore history
+remain separate. No retention deletion or weaker completeness policy is assumed.
+
+For bounded initial activation, reserve 100 GB of the 500 GB transfer allowance
+for ordinary activity and 2 GB of near-term ordinary physical growth. These are
+planning assumptions, not measured demand or a fixed storage quota. The prior
+4.95 GB over approximately 11 days averaged 0.45 GB/day; the 100 GB reserve over
+the remaining 18-day billing window is about 12 times that average. Additional
+CU-hours remain unmeasured. Provider inbound, client-to-database parameters,
+decoded Neon responses, billed outbound and physical table/index/TOAST
+allocation are distinct quantities. Compare actual physical growth, duration,
+request counts and both readers after the first natural scheduled capture;
+inspect delayed billing metrics before making a sustained-cost claim.
+Unexpected growth or ownership/deadline failures require disabling recurrence
+while preserving data.
+
 
 ## Reviewed migration artifact
 

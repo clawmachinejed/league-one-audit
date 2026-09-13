@@ -1769,5 +1769,7 @@ describe('all-player statistics foundation', () => {
       await ownerQuery('INSERT INTO projection_jobs SELECT * FROM jsonb_populate_record(NULL::projection_jobs,$1::jsonb)',
         [JSON.stringify(priorJob)]);
     }
-  },240_000);
+  // This envelope covers 27 independent batches, below the fixture's 550-second
+  // deadline; the production invocation deadline remains unchanged.
+  },480_000);
 });

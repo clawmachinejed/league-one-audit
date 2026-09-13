@@ -70,7 +70,31 @@ The final source then passed the complete local `pnpm verify` command: lint,
 Next.js type generation, TypeScript, 1,874 tests (one existing IPv6 skip), and
 the production build. The full isolated correctness run and exact-candidate
 browser/preview evidence are recorded separately in the release report; the four
-capacity benchmarks remain deferred pending effective plan headroom.
+capacity benchmarks were deferred pending effective plan headroom at that point.
+
+After the user completed the Launch upgrade, three capacity cases passed and
+the 27-write synthetic benchmark exceeded its 240-second aggregate test limit.
+The same guarded benchmark passed with a larger test-only envelope in 323.61
+seconds; each independent batch took 8.916–14.211 seconds. Independent review
+approved changing only that test's outer allowance to 480 seconds, below its
+550-second fixture deadline. Production retains its existing 50-second deadline.
+
+A separate complete synthetic case used both real 37-rule scoring profiles
+(identical, therefore shared), 336 official player occurrences, 24 rosters,
+179 distinct comparisons, and 4,385 entries including all 32 defenses. Its first
+attempt correctly failed preflight for omitted v4 coverage metadata before any
+all-player batch write; isolated identity and parity setup had occurred. After
+faithful synthetic metadata was supplied, all first/replay/unchanged/correction
+assertions passed in 102.23 seconds. The existing scorer and writer were used,
+with zero provider requests and no production writes. Physical measurements and
+their scope are recorded in the release runbook and sanitized Launch summary.
+The 20 returned reader metrics are explained by the fixture's 20 nonzero scores,
+not identity loss; its 169-row query is not a season-wide traffic bound.
+
+The complete standard repository workflow is rerun at the final release head
+after this test-only allowance and capacity documentation update. Exact results
+and production observations belong in the final release record; these synthetic
+cases cannot establish completed production Week 1 parity or backfill.
 
 No source review result replaces capacity proof, complete Week 1 parity, guarded
 backfill or actual scheduled production success. The incomplete retained fixture
