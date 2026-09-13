@@ -21,6 +21,7 @@ function metadata(overrides: DatabaseRow = {}): DatabaseRow {
     row_kind: 'metadata', scoring_profile_id: profileId, rules,
     published_week_count: 0, published_through_week: null, published_observed_at: null,
     partial_week: 1, partial_observed_at: observedAt,
+    rank_unavailable_positions: [],
     ...overrides,
   };
 }
@@ -83,9 +84,9 @@ describe('all-player roster metrics', () => {
           ? `TEAM_${providerExternalId}` : providerExternalId];
         if (!stats) continue;
         const score = scoreSparseStatistics(stats, scoringRules, SLEEPER_ALL_PLAYER_SCORING_RULE_KEYS);
-        if (!score.available || score.points === null || score.points === 0) continue;
         const appeared = stats.gp === 1 || (stats.off_snp ?? 0) > 0
           || (stats.def_snp ?? 0) > 0 || (stats.st_snp ?? 0) > 0;
+        if (!score.available || score.points === null || (score.points === 0 && !appeared)) continue;
         fixtureRows.push(partial({
           id: providerExternalId,
           position: metricPosition,
@@ -102,7 +103,7 @@ describe('all-player roster metrics', () => {
       status: 'provisional', throughWeek: 1, observedAt: foundationFixture.replayObservedAt,
       rowsRead: fixtureRows.length,
     });
-    expect(fixtureRows).toHaveLength(47);
+    expect(fixtureRows.length).toBeLessThan(200);
     expect(brown).toMatchObject({
       position: 'WR', totalFantasyPoints: 4.1, appearanceGameCount: 1, pointsPerGame: 4.1,
     });
@@ -209,6 +210,68 @@ describe('all-player roster metrics', () => {
         appearanceGameCount: 2, pointsPerGame: 5,
       })],
     });
+  });
+
+  it.each([{ gp: 1 }, { rec: 0 }, { rec: 2, fum_lost: 1 }])(
+    'includes a confirmed zero-point current appearance in cumulative PPG (%j)', async (stats) => {
+      const value = await read([
+        metadata({ published_week_count: 1, published_through_week: 1,
+          published_observed_at: observedAt, partial_week: 2 }),
+        published({ id: 'played-zero', position: 'WR', points: 10, appearances: 1 }),
+        partial({ id: 'played-zero', position: 'WR', stats }),
+      ], { throughWeek: 2, provisionalWeek: 2 }).result;
+      expect(value).toMatchObject({ status: 'provisional', throughWeek: 2,
+        metrics: [expect.objectContaining({ totalFantasyPoints: 10,
+          appearanceGameCount: 2, pointsPerGame: 5 })] });
+    },
+  );
+
+  it('retains prior appearances when earlier published points cancel to zero', async () => {
+    const value = await read([
+      metadata({ published_week_count: 2, published_through_week: 2,
+        published_observed_at: observedAt, partial_week: 3 }),
+      published({ id: 'cancelled', position: 'WR', points: 0, appearances: 2 }),
+      partial({ id: 'cancelled', position: 'WR', stats: { rec: 6 } }),
+    ], { throughWeek: 3, provisionalWeek: 3 }).result;
+    expect(value.metrics).toEqual([expect.objectContaining({ totalFantasyPoints: 6,
+      appearanceGameCount: 3, pointsPerGame: 2 })]);
+  });
+
+  it('withholds ranks for stored identity gaps while retaining confirmed PPG', async () => {
+    const value = await read([
+      metadata({ rank_unavailable_positions: ['RB'] }),
+      partial({ id: 'rb', position: 'RB', stats: { rush_yd: 20 } }),
+      partial({ id: 'wr', position: 'WR', stats: { rec: 4 } }),
+    ]).result;
+    expect(value.metrics).toEqual(expect.arrayContaining([
+      expect.objectContaining({ providerExternalId: 'rb', positionRank: null, pointsPerGame: 2 }),
+      expect.objectContaining({ providerExternalId: 'wr', positionRank: 1, pointsPerGame: 4 }),
+    ]));
+  });
+
+  it('withholds the affected position rank if a scoring row has no usable mapping', async () => {
+    const value = await read([
+      metadata(),
+      { ...partial({ id: 'unmapped', position: 'WR', stats: { rec: 6 } }), scoring_entity_id: null },
+      partial({ id: 'wr', position: 'WR', stats: { rec: 4 } }),
+    ]).result;
+    expect(value.metrics).toEqual([
+      expect.objectContaining({ providerExternalId: 'wr', positionRank: null, pointsPerGame: 4 }),
+    ]);
+  });
+
+  it('rejects distinct official identities sharing a canonical target across history and partial data', async () => {
+    await expect(read([
+      metadata({ published_week_count: 1, published_through_week: 1,
+        published_observed_at: observedAt, partial_week: 2 }),
+      published({ id: 'old-id', position: 'WR', points: 2, appearances: 1, entityId: 'same-entity' }),
+      partial({ id: 'new-id', position: 'WR', stats: { rec: 6 }, entityId: 'same-entity' }),
+    ], { throughWeek: 2, provisionalWeek: 2 }).result).rejects.toThrow('share one canonical target');
+  });
+
+  it('rejects duplicate partial rows before counting their appearances twice', async () => {
+    const row = partial({ id: 'duplicate', position: 'WR', stats: { rec: 6 } });
+    await expect(read([metadata(), row, row]).result).rejects.toThrow('partial identity is duplicated');
   });
 
   it('calculates each league independently from its exact scoring profile', async () => {

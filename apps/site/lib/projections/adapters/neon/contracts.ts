@@ -263,7 +263,7 @@ export type StoredAllPlayerPlayerMetric = Readonly<{
   appearanceGameCount: number;
   publishedWeekCount: number;
   pointsPerGame: number | null;
-  positionRank: number;
+  positionRank: number | null;
 }>;
 
 export type StoredAllPlayerMetricRead = Readonly<{

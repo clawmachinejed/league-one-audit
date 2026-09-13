@@ -135,10 +135,11 @@ function combinePartial(
     rules,
     SLEEPER_ALL_PLAYER_SCORING_RULE_KEYS,
   );
-  if (!scored.available || scored.points === null || scored.points === 0) return false;
+  if (!scored.available || scored.points === null) return false;
 
   const eligible = nullableBoundedInteger(row, 'eligible_game_count', 0, 1, 'All-player eligibility count');
   const appearance = nullableBoundedInteger(row, 'appearance_game_count', 0, 1, 'All-player appearance count');
+  if (scored.points === 0 && appearance !== 1) return false;
   if (((eligible !== null || appearance !== null)
       && (eligible === null || appearance === null || appearance > eligible))
     || eligible === 0 || appearance === 0) {
@@ -153,9 +154,7 @@ function combinePartial(
   if (current && (current.scoringProfileId !== scoringProfileId
     || current.scoringEntityId !== scoringEntityId
     || current.position !== metricPosition)) {
-    invalidIdentities.add(key);
-    candidates.delete(key);
-    return false;
+    throw new Error('All-player published and partial identities disagree.');
   }
   const partialConfirmed = appearance === 1;
   candidates.set(key, {
@@ -172,7 +171,10 @@ function combinePartial(
   return true;
 }
 
-function rankCandidates(candidates: Iterable<MetricCandidate>): StoredAllPlayerPlayerMetric[] {
+function rankCandidates(
+  candidates: Iterable<MetricCandidate>,
+  rankUnavailablePositions: ReadonlySet<string>,
+): StoredAllPlayerPlayerMetric[] {
   const byPosition = new Map<Position, MetricCandidate[]>();
   for (const candidate of candidates) {
     if (!Number.isFinite(candidate.totalFantasyPoints) || candidate.totalFantasyPoints === 0) continue;
@@ -200,13 +202,13 @@ function rankCandidates(candidates: Iterable<MetricCandidate>): StoredAllPlayerP
         appearanceGameCount: candidate.appearanceGameCount,
         publishedWeekCount: candidate.publishedWeekCount,
         pointsPerGame,
-        positionRank: rank,
+        positionRank: rankUnavailablePositions.has(candidate.position) ? null : rank,
       });
       previousTotal = candidate.totalFantasyPoints;
     });
   }
   return metrics.sort((left, right) => compareText(left.position, right.position)
-    || left.positionRank - right.positionRank
+    || (left.positionRank ?? 0) - (right.positionRank ?? 0)
     || compareText(left.providerExternalId, right.providerExternalId));
 }
 
@@ -267,9 +269,8 @@ export function createAllPlayerMetricMethods(client: DatabaseClient): AllPlayerM
             AND (score.fantasy_points <> 0 OR score.appearance_game_count = 1)
           GROUP BY profile.scoring_profile_id, score.scoring_entity_id, score.entity_kind,
             score.provider_external_id, score.position, summary.published_week_count
-          HAVING sum(score.fantasy_points) <> 0
         ), latest_partial AS (
-          SELECT observation.*
+          SELECT observation.*, content.coverage AS partial_coverage
           FROM all_player_stat_observations observation
           JOIN all_player_stat_contents content
             ON content.id = observation.all_player_stat_content_id
@@ -284,25 +285,41 @@ export function createAllPlayerMetricMethods(client: DatabaseClient): AllPlayerM
           ORDER BY observation.observed_at DESC, observation.request_completed_at DESC,
             observation.created_at DESC, observation.id DESC
           LIMIT 1
+        ), rank_exclusions AS (
+          SELECT exclusion.value AS position
+          FROM published_pointers pointer
+          JOIN all_player_stat_observations observation
+            ON observation.id = pointer.all_player_stat_observation_id
+          JOIN all_player_stat_contents content
+            ON content.id = observation.all_player_stat_content_id
+          CROSS JOIN LATERAL jsonb_array_elements_text(
+            COALESCE(content.coverage->'rankUnavailablePositions', '[]'::jsonb)
+          ) exclusion
+          UNION
+          SELECT exclusion.value
+          FROM latest_partial observation
+          CROSS JOIN LATERAL jsonb_array_elements_text(
+            COALESCE(observation.partial_coverage->'rankUnavailablePositions', '[]'::jsonb)
+          ) exclusion
         ), partial_metrics AS (
           SELECT profile.scoring_profile_id::text AS scoring_profile_id,
-            mapping.scoring_entity_id::text AS scoring_entity_id,
+            entity.id::text AS scoring_entity_id,
             entry.entity_kind, entry.provider_external_id, entry.position, entry.stats,
             entry.eligible_game_count, entry.appearance_game_count
           FROM latest_partial observation
           JOIN target_profile profile ON true
           JOIN all_player_stat_entries entry
             ON entry.all_player_stat_content_id = observation.all_player_stat_content_id
-          JOIN external_scoring_entity_ids mapping
+          LEFT JOIN external_scoring_entity_ids mapping
             ON mapping.provider = observation.provider
             AND mapping.entity_kind = entry.entity_kind
             AND mapping.external_id = entry.provider_external_id
             AND mapping.mapping_status = 'verified'
             AND mapping.valid_from <= observation.observed_at
             AND (mapping.valid_to IS NULL OR mapping.valid_to > observation.observed_at)
-          JOIN scoring_entities entity
+          LEFT JOIN scoring_entities entity
             ON entity.id = mapping.scoring_entity_id AND entity.kind = entry.entity_kind
-          WHERE EXISTS (
+          WHERE entry.appearance_game_count = 1 OR EXISTS (
             SELECT 1
             FROM jsonb_each(entry.stats) stat
             JOIN jsonb_each(profile.rules) rule ON rule.key = stat.key
@@ -321,7 +338,8 @@ export function createAllPlayerMetricMethods(client: DatabaseClient): AllPlayerM
           NULL::text AS provider_external_id, NULL::text AS position,
           NULL::text AS total_fantasy_points, NULL::text AS ppg_fantasy_points,
           NULL::integer AS appearance_game_count,
-          NULL::jsonb AS stats, NULL::integer AS eligible_game_count
+          NULL::jsonb AS stats, NULL::integer AS eligible_game_count,
+          ARRAY(SELECT position FROM rank_exclusions)::text[] AS rank_unavailable_positions
         FROM target_profile profile
         JOIN published_summary summary ON true
         LEFT JOIN latest_partial partial ON true
@@ -329,12 +347,12 @@ export function createAllPlayerMetricMethods(client: DatabaseClient): AllPlayerM
         SELECT 'published', metric.scoring_profile_id, NULL, metric.published_week_count, NULL, NULL, NULL, NULL,
           metric.scoring_entity_id, metric.entity_kind, metric.provider_external_id, metric.position,
           metric.total_fantasy_points, metric.ppg_fantasy_points,
-          metric.appearance_game_count, NULL, NULL
+          metric.appearance_game_count, NULL, NULL, NULL::text[]
         FROM published_metrics metric
         UNION ALL
         SELECT 'partial', metric.scoring_profile_id, NULL, NULL, NULL, NULL, NULL, NULL,
           metric.scoring_entity_id, metric.entity_kind, metric.provider_external_id, metric.position,
-          NULL, NULL, metric.appearance_game_count, metric.stats, metric.eligible_game_count
+          NULL, NULL, metric.appearance_game_count, metric.stats, metric.eligible_game_count, NULL::text[]
         FROM partial_metrics metric`, [
         leagueKey, normalizedProvider, season, input.seasonType, throughWeek, scorerVersion, provisionalWeek,
       ]);
@@ -343,6 +361,12 @@ export function createAllPlayerMetricMethods(client: DatabaseClient): AllPlayerM
       if (metadata.length !== 1) throw new Error('All-player metric metadata is ambiguous.');
       const profileId = rowText(metadata[0], 'scoring_profile_id');
       const rules = rowObject(metadata[0], 'rules');
+      const rankExclusions = metadata[0].rank_unavailable_positions;
+      if (!Array.isArray(rankExclusions)
+        || rankExclusions.some((value) => typeof value !== 'string' || !POSITIONS.has(value))) {
+        throw new Error('All-player rank coverage is invalid.');
+      }
+      const rankUnavailablePositions = new Set<string>(rankExclusions);
       const publishedWeekCount = boundedInteger(
         rowNumber(metadata[0], 'published_week_count'), 0, 18, 'All-player published week count',
       );
@@ -361,6 +385,26 @@ export function createAllPlayerMetricMethods(client: DatabaseClient): AllPlayerM
 
       const candidates = new Map<string, MetricCandidate>();
       const invalidIdentities = new Set<string>();
+      const canonicalOwners = new Map<string, string>();
+      const partialIdentities = new Set<string>();
+      for (const row of rows.filter((value) => value.row_kind !== 'metadata')) {
+        const key = identityKey(entityKind(row), rowText(row, 'provider_external_id'));
+        const canonicalId = rowNullableText(row, 'scoring_entity_id');
+        if (!canonicalId) {
+          rankUnavailablePositions.add(position(row));
+          invalidIdentities.add(key);
+          continue;
+        }
+        const owner = canonicalOwners.get(canonicalId);
+        if (owner !== undefined && owner !== key) {
+          throw new Error('Distinct all-player identities share one canonical target.');
+        }
+        canonicalOwners.set(canonicalId, key);
+        if (row.row_kind === 'partial') {
+          if (partialIdentities.has(key)) throw new Error('All-player partial identity is duplicated.');
+          partialIdentities.add(key);
+        }
+      }
       for (const row of rows.filter((value) => value.row_kind === 'published')) {
         const candidate = publishedCandidate(row);
         if (candidate.scoringProfileId !== profileId) {
@@ -368,8 +412,7 @@ export function createAllPlayerMetricMethods(client: DatabaseClient): AllPlayerM
         }
         const key = identityKey(candidate.entityKind, candidate.providerExternalId);
         if (candidates.has(key)) {
-          invalidIdentities.add(key);
-          candidates.delete(key);
+          throw new Error('All-player published identity is duplicated.');
         } else if (!invalidIdentities.has(key)) {
           candidates.set(key, candidate);
         }
@@ -393,7 +436,7 @@ export function createAllPlayerMetricMethods(client: DatabaseClient): AllPlayerM
           ? laterTimestamp(publishedObservedAt, partialObservedAt) : hasPublished ? publishedObservedAt : null,
         throughWeek: hasProvisional ? partialThroughWeek : hasPublished ? publishedThroughWeek : null,
         rowsRead: rows.length,
-        metrics: rankCandidates(candidates.values()),
+        metrics: rankCandidates(candidates.values(), rankUnavailablePositions),
       };
     },
   };

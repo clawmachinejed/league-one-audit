@@ -199,8 +199,9 @@ scoring profile, season, season type, scorer version, and weeks through the
 requested boundary. Compact published totals come from
 `current_all_player_score_sets`. When the boundary includes the active week and
 that week has no published pointer, the same read selects only the newest
-accepted partial observation and returns only entries whose stored sparse stats
-intersect an active scoring rule. The browser never reads this storage directly.
+accepted partial observation and returns entries with confirmed appearances or
+stored sparse stats that intersect an active scoring rule. Empty unplayed inventory
+rows remain excluded. The browser never reads this storage directly.
 
 The partial row is scored by the same canonical sparse-stat scorer used by the
 all-player operation. Published and provisional records for the same week are
@@ -214,12 +215,19 @@ Unknown or conflicting partial participation contributes to neither the PPG
 numerator nor denominator. A zero cumulative total, zero appearances, malformed
 evidence, or unresolved identity yields `null` for display as an unavailable
 dash. Confirmed negative totals and PPG remain valid.
+Confirmed zero-point appearances remain in the cumulative denominator, including
+when earlier published totals cancel to zero. For example, 10 points followed by
+a zero-point appearance gives 5.0 PPG across two appearances.
 
 Position rank uses nonzero cumulative fantasy points, independently for each
 league scoring profile and for QB, RB, WR, TE, K, and DEF. The population is all
 usable stored scoring identities, not only rostered players. Exact ties use
 standard competition rank; provider identity supplies deterministic ordering
 without breaking the shared rank.
+Stored `rankUnavailablePositions` coverage and scoring rows without usable
+identity mappings suppress the affected position's rank while preserving valid
+individual PPG. Distinct official identities sharing one canonical entity fail
+the metrics read safely; they cannot enter the ranking population twice.
 
 Because the published side follows current pointers, a verified correction
 replaces the superseded weekly score automatically. Immutable historical score
