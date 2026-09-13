@@ -528,6 +528,122 @@ describe('canonical worker game context and snapshot builder', () => {
     }
   });
 
+  it('carries live clocks and halftime scores for home players, away players, and defenses without altering fantasy calculations', () => {
+    const input = snapshotInput();
+    const liveGames = {
+      ...input.games,
+      games: input.games.games.map((state) => state.homeTeam === 'KC'
+        ? { ...state, phase: 'q3' as const, gameClock: '2:45', clockSeconds: 165,
+            remainingFraction: 1065 / 3600, homeScore: 23, awayScore: 10 }
+        : state.homeTeam === 'DAL'
+          ? { ...state, statusCode: 1 as const, phase: 'q3' as const, gameClock: '2:45', clockSeconds: 165,
+              remainingFraction: 1065 / 3600, homeScore: 10, awayScore: 23 }
+          : state.homeTeam === 'JAX'
+            ? { ...state, phase: 'halftime' as const, gameClock: null, clockSeconds: null,
+                remainingFraction: 0.5, homeScore: 10, awayScore: 24 }
+            : state),
+    };
+    const payload = buildSnapshot({ ...input, games: liveGames });
+    const scoreless = buildSnapshot({ ...input, games: {
+      ...liveGames,
+      games: liveGames.games.map((state) => ({ ...state, homeScore: null, awayScore: null })),
+    } });
+    const starters = payload.matchups[0].sides[0].starters;
+    expect(starters.find((starter) => starter.id === 'live')?.game).toEqual({
+      ...input.source.schedule.KC,
+      liveScore: { teamScore: 23, opponentScore: 10, phase: 'q3', clockSeconds: 165 },
+    });
+    expect(starters.find((starter) => starter.id === 'final')?.game).toEqual({
+      ...input.source.schedule.PHI,
+      liveScore: { teamScore: 23, opponentScore: 10, phase: 'q3', clockSeconds: 165 },
+    });
+    expect(starters.find((starter) => starter.id === 'JAX')?.game).toEqual({
+      ...input.source.schedule.JAX,
+      liveScore: { teamScore: 10, opponentScore: 24, phase: 'halftime', clockSeconds: null },
+    });
+    const fantasyValues = (value: typeof payload) => value.matchups.map((matchup) => matchup.sides.map((side) => ({
+      points: side.points, projectedPoints: side.projectedPoints,
+      players: side.starters.map(({ points, projectedPoints }) => ({ points, projectedPoints })),
+    })));
+    expect(fantasyValues(payload)).toEqual(fantasyValues(scoreless));
+    expect(starters.find((starter) => starter.id === 'pregame')?.game).toEqual(input.source.schedule.BUF);
+    expect(starters.find((starter) => starter.id === 'bye')?.game).toEqual({ kind: 'bye' });
+    expect(starters.find((starter) => starter.id.startsWith('empty-'))?.game).toBeNull();
+  });
+
+  it.each([
+    ['q1', 900], ['q2', 0], ['q3', 165], ['q4', 1],
+    ['halftime', null], ['overtime', 900], ['overtime', 165], ['overtime', 0], ['overtime', null],
+  ] as const)('preserves observed %s state with clock %s, zero scores, and ties', (phase, clockSeconds) => {
+    const input = snapshotInput();
+    const canonical = buildProjectedMatchupSnapshot(input);
+    const state = input.games.games.find((candidate) => candidate.homeTeam === 'DAL')!;
+    const payload = toMatchupsData(canonical, input.source.schedule, {
+      ...input.games,
+      games: [{ ...state, statusCode: 1, phase, clockSeconds, homeScore: 0, awayScore: 0 }],
+    });
+    expect(payload.matchups[0].sides[0].starters.find((starter) => starter.id === 'final')?.game)
+      .toEqual({ ...input.source.schedule.PHI,
+        liveScore: { teamScore: 0, opponentScore: 0, phase, clockSeconds } });
+  });
+
+  it('uses no live score for missing, malformed, non-live, or mismatched state evidence', () => {
+    const input = snapshotInput();
+    const canonical = buildProjectedMatchupSnapshot(input);
+    const original = input.games.games.find((state) => state.homeTeam === 'DAL')!;
+    const liveState: GameStateObservation = { ...original, statusCode: 1, phase: 'q3',
+      gameClock: '2:45', clockSeconds: 165, remainingFraction: 1065 / 3600, homeScore: 10, awayScore: 23 };
+    const unchanged = toMatchupsData(canonical, input.source.schedule);
+    const invalidStates: GameStateObservation[] = [
+      ...[null, -1, 901, 1.5, Number.NaN, Number.POSITIVE_INFINITY].map((clockSeconds) => ({ ...liveState, clockSeconds })),
+      { ...liveState, phase: 'overtime', clockSeconds: 901 },
+      { ...liveState, statusCode: 0, phase: 'pregame' },
+      { ...liveState, statusCode: 3, phase: 'postponed' },
+      { ...liveState, statusCode: 4, phase: 'suspended' },
+      { ...liveState, statusCode: 2 },
+      { ...liveState, phase: 'unknown' },
+      { ...liveState, homeScore: null },
+      { ...liveState, awayScore: null },
+      { ...liveState, homeScore: -1 },
+      { ...liveState, awayScore: 2.5 },
+      { ...liveState, homeScore: Number.NaN },
+      { ...liveState, awayScore: Number.POSITIVE_INFINITY },
+      { ...liveState, period: { ...period, season: 2025 } },
+      { ...liveState, period: { ...period, week: 2 } },
+      { ...liveState, period: { ...period, seasonType: 'postseason' } },
+      { ...liveState, homeTeam: 'NYG' },
+      { ...liveState, homeTeam: 'PHI', awayTeam: 'DAL' },
+    ];
+    for (const state of invalidStates) {
+      expect(toMatchupsData(canonical, input.source.schedule, { ...input.games, games: [state] }))
+        .toEqual(unchanged);
+    }
+    for (const slate of [
+      { ...input.games, period: { ...period, week: 2 }, games: [liveState] },
+      { ...input.games, games: [liveState, liveState] },
+    ]) expect(toMatchupsData(canonical, input.source.schedule, slate)).toEqual(unchanged);
+  });
+
+  it('replaces live state with an exclusive final score while preserving the earlier snapshot', () => {
+    const input = snapshotInput();
+    const original = input.games.games.find((state) => state.homeTeam === 'DAL')!;
+    const liveGames = { ...input.games, games: input.games.games.map((state) => state === original
+      ? { ...state, statusCode: 1 as const, phase: 'q4' as const, gameClock: '0:00', clockSeconds: 0,
+          remainingFraction: 0, homeScore: 10, awayScore: 23 } : state) };
+    const before = buildSnapshot({ ...input, games: liveGames });
+    const beforeJson = JSON.stringify(before);
+    const after = buildSnapshot({ ...input, prior: before, games: {
+      ...input.games,
+      games: input.games.games.map((state) => state === original ? { ...state, homeScore: 10, awayScore: 23 } : state),
+    } });
+    expect(before.matchups[0].sides[0].starters.find((starter) => starter.id === 'final')?.game)
+      .toEqual({ ...input.source.schedule.PHI,
+        liveScore: { teamScore: 23, opponentScore: 10, phase: 'q4', clockSeconds: 0 } });
+    expect(after.matchups[0].sides[0].starters.find((starter) => starter.id === 'final')?.game)
+      .toEqual({ ...input.source.schedule.PHI, finalScore: { teamScore: 23, opponentScore: 10 } });
+    expect(JSON.stringify(before)).toBe(beforeJson);
+  });
+
   it('omits optional NFL final scores unless finality, both scores, period, and schedule identity all agree', () => {
     const input = snapshotInput();
     const canonical = buildProjectedMatchupSnapshot(input);

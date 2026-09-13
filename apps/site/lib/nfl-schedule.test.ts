@@ -7,7 +7,7 @@ import {
   normalizeSleeperScores,
   resolveSleeperSchedule,
 } from './nfl-schedule';
-import type { Matchup, Player, Team } from './types';
+import type { Matchup, NflGame, Player, Team } from './types';
 
 const score = (overrides: Record<string, unknown> = {}) => ({
   status: 'pre_game',
@@ -42,6 +42,57 @@ const completeSeasonSchedule = () => Array.from({ length: 18 }, (_, index) => in
   })));
 
 describe('Sleeper NFL schedule', () => {
+  const liveGame = {
+    kind: 'scheduled', opponent: 'TEN', location: 'away', date: '2026-09-13',
+    kickoffAt: '2026-09-13T20:25:00.000Z',
+  } as const;
+
+  it.each([
+    { phase: 'q1', clockSeconds: 900, expected: '15:00 1st 23-10 @ TEN' },
+    { phase: 'q2', clockSeconds: 5, expected: '00:05 2nd 23-10 @ TEN' },
+    { phase: 'q3', clockSeconds: 165, expected: '02:45 3rd 23-10 @ TEN' },
+    { phase: 'q4', clockSeconds: 0, expected: '00:00 4th 23-10 @ TEN' },
+    { phase: 'halftime', clockSeconds: null, expected: 'Half 23-10 @ TEN' },
+    { phase: 'overtime', clockSeconds: 165, expected: '02:45 OT 23-10 @ TEN' },
+    { phase: 'overtime', clockSeconds: null, expected: 'OT 23-10 @ TEN' },
+  ] as const)('formats the observed live game as $expected', ({ phase, clockSeconds, expected }) => {
+    expect(formatNflGame({ ...liveGame, liveScore: { teamScore: 23, opponentScore: 10, phase, clockSeconds } })).toBe(expected);
+  });
+
+  it('uses the requested home-team halftime format without a clock or win/loss', () => {
+    expect(formatNflGame({ ...liveGame, opponent: 'NYJ', location: 'home',
+      liveScore: { teamScore: 10, opponentScore: 24, phase: 'halftime', clockSeconds: null } })).toBe('Half 10-24 vs NYJ');
+  });
+
+  it('retains legitimate zero scores and a zero game clock', () => {
+    expect(formatNflGame({ ...liveGame,
+      liveScore: { teamScore: 0, opponentScore: 0, phase: 'q2', clockSeconds: 0 } })).toBe('00:00 2nd 0-0 @ TEN');
+  });
+
+  it.each([null, NaN, Infinity, -1, 1.5, 901])('retains the schedule for an unusable regulation clock %s', (clockSeconds) => {
+    expect(formatNflGame({ ...liveGame,
+      liveScore: { teamScore: 23, opponentScore: 10, phase: 'q3', clockSeconds } })).toBe('Sun 4:25 PM @ TEN');
+  });
+
+  it.each([NaN, Infinity, -1, 1.5, Number.MAX_SAFE_INTEGER + 1])('retains the schedule for an invalid live score %s', (invalid) => {
+    for (const scores of [{ teamScore: invalid, opponentScore: 10 }, { teamScore: 23, opponentScore: invalid }]) {
+      expect(formatNflGame({ ...liveGame,
+        liveScore: { ...scores, phase: 'halftime', clockSeconds: null } })).toBe('Sun 4:25 PM @ TEN');
+    }
+  });
+
+  it('does not render an unknown live phase', () => {
+    const malformed = { ...liveGame, liveScore: { teamScore: 23, opponentScore: 10,
+      phase: 'unknown', clockSeconds: 165 } } as unknown as NflGame;
+    expect(formatNflGame(malformed)).toBe('Sun 4:25 PM @ TEN');
+  });
+
+  it('gives a final result priority over a retained live value', () => {
+    expect(formatNflGame({ ...liveGame,
+      finalScore: { teamScore: 23, opponentScore: 10 },
+      liveScore: { teamScore: 20, opponentScore: 10, phase: 'q4', clockSeconds: 165 } })).toBe('Final W 23-10 @ TEN');
+  });
+
   it.each([
     { teamScore: 23, opponentScore: 10, location: 'away', opponent: 'TEN', expected: 'Final W 23-10 @ TEN' },
     { teamScore: 10, opponentScore: 24, location: 'home', opponent: 'NYJ', expected: 'Final L 10-24 vs NYJ' },

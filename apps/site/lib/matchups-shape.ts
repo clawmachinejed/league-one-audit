@@ -26,6 +26,13 @@ const game = nullable({ kind: 'union', alternatives: [
     location: { kind: 'union', alternatives: [literal('home'), literal('away')] },
     date: string, kickoffAt: nullable(string),
     finalScore: { kind: 'optional', value: object({ teamScore: number, opponentScore: number }) },
+    liveScore: { kind: 'optional', value: object({
+      teamScore: number, opponentScore: number,
+      phase: { kind: 'union', alternatives: [
+        literal('q1'), literal('q2'), literal('halftime'), literal('q3'), literal('q4'), literal('overtime'),
+      ] },
+      clockSeconds: nullable(number),
+    }) },
   }),
 ] });
 const player = object({

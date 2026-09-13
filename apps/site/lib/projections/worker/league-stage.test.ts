@@ -741,7 +741,7 @@ describe('canonical league projection stage', () => {
     expect(normalize).toHaveBeenCalledTimes(2);
   });
 
-  it('preserves exact candidate and snapshot payloads with cached slate scores', async () => {
+  it('preserves exact candidates and fantasy scores while publishing the observed live NFL score', async () => {
     const harness = repositoryHarness();
 
     await processTestLeague(dependencies(harness.repository));
@@ -930,6 +930,7 @@ describe('canonical league projection stage', () => {
                 location: 'home',
                 date: '2026-09-13',
                 kickoffAt: '2026-09-13T15:00:00.000Z',
+                liveScore: { teamScore: 14, opponentScore: 7, phase: 'q2', clockSeconds: 900 },
               },
               slot: 'WR',
               points: 10,

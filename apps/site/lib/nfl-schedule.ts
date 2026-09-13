@@ -197,6 +197,22 @@ export function formatNflGame(game: NflGame): string {
     const result = final.teamScore > final.opponentScore ? 'W' : final.teamScore < final.opponentScore ? 'L' : 'T';
     return `Final ${result} ${final.teamScore}-${final.opponentScore} ${game.location === 'home' ? 'vs' : '@'} ${game.opponent}`;
   }
+  const live = game.liveScore;
+  if (live && Number.isSafeInteger(live.teamScore) && live.teamScore >= 0
+    && Number.isSafeInteger(live.opponentScore) && live.opponentScore >= 0) {
+    const validClock = live.clockSeconds !== null && Number.isInteger(live.clockSeconds)
+      && live.clockSeconds >= 0 && live.clockSeconds <= 900;
+    const quarter = { q1: '1st', q2: '2nd', q3: '3rd', q4: '4th', overtime: 'OT' } as const;
+    let time: string | null = null;
+    if (live.phase === 'halftime') time = 'Half';
+    else if (live.phase === 'overtime' && live.clockSeconds === null) time = 'OT';
+    else if (validClock && Object.hasOwn(quarter, live.phase)) {
+      const seconds = live.clockSeconds!;
+      const clock = `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+      time = `${clock} ${quarter[live.phase as keyof typeof quarter]}`;
+    }
+    if (time) return `${time} ${live.teamScore}-${live.opponentScore} ${game.location === 'home' ? 'vs' : '@'} ${game.opponent}`;
+  }
   const kickoffDate = game.kickoffAt ? new Date(game.kickoffAt) : null;
   const daySource = kickoffDate && Number.isFinite(kickoffDate.getTime())
     ? kickoffDate : new Date(`${game.date}T12:00:00Z`);
