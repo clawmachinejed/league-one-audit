@@ -19,6 +19,7 @@ import { createLineupWatchReadMethods } from './projections/adapters/neon/lineup
 import { createFullLineupObservationMethods } from './projections/adapters/neon/lineup-full-observation';
 import { createProjectionMethods } from './projections/adapters/neon/projections';
 import { createAllPlayerStatisticMethods } from './projections/adapters/neon/all-player-statistics';
+import { createAllPlayerMetricMethods } from './projections/adapters/neon/all-player-metrics';
 import { createAllPlayerContextMethods } from './projections/adapters/neon/all-player-context';
 import { createProjectionSlateMethods } from './projections/adapters/neon/projection-slates';
 import { createRetentionMethods } from './projections/adapters/neon/retention';
@@ -65,6 +66,7 @@ export type {
   StoredAllPlayerGameContext,
   StoredAllPlayerIdentityMapping,
   StoredAllPlayerLeagueProfile,
+  StoredAllPlayerPlayerMetric,
   StoredDatabaseIdentity,
   StoredFutureMaterializationFreshness,
   StoredLeagueWeekObservation,
@@ -107,6 +109,7 @@ export function createProjectionStore(database: Database = getDatabase()): Proje
   const futureRefresh = createFutureRefreshMethods(client);
   const projections = createProjectionMethods(client);
   const allPlayerStatistics = createAllPlayerStatisticMethods(client);
+  const allPlayerMetrics = createAllPlayerMetricMethods(client);
   const allPlayerContext = createAllPlayerContextMethods(client);
   const projectionSlates = createProjectionSlateMethods(client);
   const observations = createObservationMethods(client);
@@ -156,6 +159,7 @@ export function createProjectionStore(database: Database = getDatabase()): Proje
     failFutureMaterializationRefresh: futureRefresh.failFutureMaterializationRefresh,
     recordProjectionCandidates: projections.recordProjectionCandidates,
     recordAllPlayerBatch: allPlayerStatistics.recordAllPlayerBatch,
+    readAllPlayerPlayerMetrics: allPlayerMetrics.readAllPlayerPlayerMetrics,
     acquireAllPlayerJob: jobs.acquireAllPlayerJob,
     readAllPlayerJobState: jobs.readAllPlayerJobState,
     validateAllPlayerJobFence: jobs.validateAllPlayerJobFence,

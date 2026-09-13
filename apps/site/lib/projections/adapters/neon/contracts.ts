@@ -253,6 +253,16 @@ export type StoredAllPlayerBatch = Readonly<{
   }>[];
 }>;
 
+export type StoredAllPlayerPlayerMetric = Readonly<{
+  scoringProfileId: string;
+  scoringEntityId: string;
+  providerExternalId: string;
+  totalFantasyPoints: number;
+  appearanceGameCount: number;
+  publishedWeekCount: number;
+  pointsPerGame: number | null;
+}>;
+
 export type PlayerProjectionRecord = Readonly<{
   sleeperPlayerId: string;
   entityId: string;
@@ -658,6 +668,14 @@ export type ProjectionStore = LineupWatchMethods & LineupAcknowledgmentMethods &
   recordAllPlayerBatch: (
     input: AllPlayerBatchInput,
   ) => Promise<PersistenceOutcome<StoredAllPlayerBatch>>;
+  readAllPlayerPlayerMetrics: (input: Readonly<{
+    leagueKey: string;
+    provider: string;
+    season: number;
+    seasonType: SeasonType;
+    throughWeek: number;
+    scorerVersion: string;
+  }>) => Promise<readonly StoredAllPlayerPlayerMetric[]>;
   acquireAllPlayerJob: (input: Readonly<{
     mode: 'shadow' | 'backfill' | 'recurring';
     period: AllPlayerJobPeriod;
