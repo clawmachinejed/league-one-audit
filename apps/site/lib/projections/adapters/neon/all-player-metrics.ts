@@ -22,11 +22,12 @@ type Position = StoredAllPlayerPlayerMetric['position'];
 
 type MetricCandidate = {
   scoringProfileId: string;
-  scoringEntityId: string;
+  scoringEntityId: string | null;
   providerExternalId: string;
   entityKind: ScoringEntityKind;
   position: Position;
   totalFantasyPoints: number;
+  rankUnits: bigint;
   ppgFantasyPoints: number;
   appearanceGameCount: number;
   publishedWeekCount: number;
@@ -91,6 +92,26 @@ function compareText(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }
 
+// Match PostgreSQL numeric(14,4) for each weekly score. Decimal strings avoid
+// binary rounding differences; PostgreSQL rounds halfway away from zero.
+function rankUnits(value: number | string): bigint {
+  const match = /^([+-]?)(\d+)(?:\.(\d*))?(?:e([+-]?\d+))?$/iu.exec(String(value));
+  if (match === null) throw new Error('All-player rank score is invalid.');
+  const fraction = match[3] ?? '';
+  const coefficient = BigInt(`${match[2]}${fraction}`);
+  if (coefficient === 0n) return 0n;
+  const shift = 4 + Number(match[4] ?? 0) - fraction.length;
+  let units: bigint;
+  if (shift >= 0) {
+    units = coefficient * (10n ** BigInt(shift));
+  } else {
+    const divisor = 10n ** BigInt(-shift);
+    units = coefficient / divisor;
+    if ((coefficient % divisor) * 2n >= divisor) units += 1n;
+  }
+  return match[1] === '-' ? -units : units;
+}
+
 function publishedCandidate(row: DatabaseRow): MetricCandidate {
   const kind = entityKind(row);
   const metricPosition = position(row);
@@ -104,6 +125,7 @@ function publishedCandidate(row: DatabaseRow): MetricCandidate {
     entityKind: kind,
     position: metricPosition,
     totalFantasyPoints: rowNumber(row, 'total_fantasy_points'),
+    rankUnits: rankUnits(rowText(row, 'total_fantasy_points')),
     ppgFantasyPoints: rowNumber(row, 'ppg_fantasy_points'),
     appearanceGameCount: boundedInteger(
       rowNumber(row, 'appearance_game_count'), 0, 18, 'All-player appearance count',
@@ -136,38 +158,44 @@ function combinePartial(
     rules,
     SLEEPER_ALL_PLAYER_SCORING_RULE_KEYS,
   );
-  if (!scored.available || scored.points === null) {
+  if (!scored.available || scored.points === null || !Number.isFinite(scored.points)) {
     rankUnavailablePositions.add(metricPosition);
     return false;
   }
 
   const eligible = nullableBoundedInteger(row, 'eligible_game_count', 0, 1, 'All-player eligibility count');
   const appearance = nullableBoundedInteger(row, 'appearance_game_count', 0, 1, 'All-player appearance count');
-  if (scored.points === 0 && appearance !== 1) return false;
-  if (((eligible !== null || appearance !== null)
-      && (eligible === null || appearance === null || appearance > eligible))
-    || eligible === 0 || appearance === 0) {
+  const partialConfirmed = eligible === 1 && appearance === 1;
+  if (scored.points === 0 && !partialConfirmed) return false;
+  if (eligible === 0 || appearance === 0) {
     rankUnavailablePositions.add(metricPosition);
     return false;
   }
 
   const scoringProfileId = rowText(row, 'scoring_profile_id');
-  const scoringEntityId = rowText(row, 'scoring_entity_id');
+  const scoringEntityId = rowNullableText(row, 'scoring_entity_id');
   const current = candidates.get(key);
   if (current && (current.scoringProfileId !== scoringProfileId
-    || current.scoringEntityId !== scoringEntityId
+    || (current.scoringEntityId !== null && scoringEntityId !== null
+      && current.scoringEntityId !== scoringEntityId)
     || current.position !== metricPosition)) {
     throw new Error('All-player published and partial identities disagree.');
   }
-  const partialConfirmed = appearance === 1;
+  const totalFantasyPoints = (current?.totalFantasyPoints ?? 0) + scored.points;
+  const ppgFantasyPoints = (current?.ppgFantasyPoints ?? 0) + (partialConfirmed ? scored.points : 0);
+  if (!Number.isFinite(totalFantasyPoints) || !Number.isFinite(ppgFantasyPoints)) {
+    rankUnavailablePositions.add(metricPosition);
+    return false;
+  }
   candidates.set(key, {
     scoringProfileId,
-    scoringEntityId,
+    scoringEntityId: scoringEntityId ?? current?.scoringEntityId ?? null,
     providerExternalId,
     entityKind: kind,
     position: metricPosition,
-    totalFantasyPoints: (current?.totalFantasyPoints ?? 0) + scored.points,
-    ppgFantasyPoints: (current?.ppgFantasyPoints ?? 0) + (partialConfirmed ? scored.points : 0),
+    totalFantasyPoints,
+    rankUnits: (current?.rankUnits ?? 0n) + rankUnits(scored.points),
+    ppgFantasyPoints,
     appearanceGameCount: (current?.appearanceGameCount ?? 0) + (partialConfirmed ? 1 : 0),
     publishedWeekCount: current?.publishedWeekCount ?? 0,
   });
@@ -180,19 +208,25 @@ function rankCandidates(
 ): StoredAllPlayerPlayerMetric[] {
   const byPosition = new Map<Position, MetricCandidate[]>();
   for (const candidate of candidates) {
-    if (!Number.isFinite(candidate.totalFantasyPoints) || candidate.totalFantasyPoints === 0) continue;
+    if (!Number.isFinite(candidate.totalFantasyPoints)
+      || (candidate.totalFantasyPoints === 0 && candidate.rankUnits === 0n)) continue;
     const values = byPosition.get(candidate.position) ?? [];
     values.push(candidate);
     byPosition.set(candidate.position, values);
   }
   const metrics: StoredAllPlayerPlayerMetric[] = [];
   for (const values of byPosition.values()) {
-    values.sort((left, right) => right.totalFantasyPoints - left.totalFantasyPoints
+    values.sort((left, right) => (left.rankUnits > right.rankUnits ? -1 : left.rankUnits < right.rankUnits ? 1 : 0)
       || compareText(left.providerExternalId, right.providerExternalId));
     let rank = 0;
-    let previousTotal: number | null = null;
-    values.forEach((candidate, index) => {
-      if (previousTotal === null || candidate.totalFantasyPoints !== previousTotal) rank = index + 1;
+    let rankedCount = 0;
+    let previousUnits: bigint | null = null;
+    values.forEach((candidate) => {
+      if (candidate.rankUnits !== 0n) {
+        rankedCount += 1;
+        if (previousUnits === null || candidate.rankUnits !== previousUnits) rank = rankedCount;
+        previousUnits = candidate.rankUnits;
+      }
       const pointsPerGame = candidate.appearanceGameCount > 0 && candidate.ppgFantasyPoints !== 0
         ? candidate.ppgFantasyPoints / candidate.appearanceGameCount : null;
       metrics.push({
@@ -205,9 +239,8 @@ function rankCandidates(
         appearanceGameCount: candidate.appearanceGameCount,
         publishedWeekCount: candidate.publishedWeekCount,
         pointsPerGame,
-        positionRank: rankUnavailablePositions.has(candidate.position) ? null : rank,
+        positionRank: candidate.rankUnits === 0n || rankUnavailablePositions.has(candidate.position) ? null : rank,
       });
-      previousTotal = candidate.totalFantasyPoints;
     });
   }
   return metrics.sort((left, right) => compareText(left.position, right.position)
@@ -273,7 +306,7 @@ export function createAllPlayerMetricMethods(client: DatabaseClient): AllPlayerM
           GROUP BY profile.scoring_profile_id, score.scoring_entity_id, score.entity_kind,
             score.provider_external_id, score.position, summary.published_week_count
         ), latest_partial AS (
-          SELECT DISTINCT ON (observation.week) observation.*, content.coverage AS partial_coverage
+          SELECT DISTINCT ON (observation.week) observation.*
           FROM all_player_stat_observations observation
           JOIN all_player_stat_contents content
             ON content.id = observation.all_player_stat_content_id
@@ -296,38 +329,32 @@ export function createAllPlayerMetricMethods(client: DatabaseClient): AllPlayerM
           WHERE requested.week IS DISTINCT FROM $7::smallint
             AND NOT EXISTS (SELECT 1 FROM published_pointers pointer WHERE pointer.week = requested.week)
             AND NOT EXISTS (SELECT 1 FROM latest_partial partial WHERE partial.week = requested.week)
-        ), rank_exclusions AS (
-          SELECT exclusion.value AS position
-          FROM published_pointers pointer
-          JOIN all_player_stat_observations observation
-            ON observation.id = pointer.all_player_stat_observation_id
-          JOIN all_player_stat_contents content
-            ON content.id = observation.all_player_stat_content_id
-          CROSS JOIN LATERAL jsonb_array_elements_text(
-            COALESCE(content.coverage->'rankUnavailablePositions', '[]'::jsonb)
-          ) exclusion
-          UNION
-          SELECT exclusion.value
-          FROM latest_partial observation
-          CROSS JOIN LATERAL jsonb_array_elements_text(
-            COALESCE(observation.partial_coverage->'rankUnavailablePositions', '[]'::jsonb)
-          ) exclusion
+        ), mapping_inventory AS (
+          SELECT external_id, count(*) AS mapping_count
+          FROM external_scoring_entity_ids
+          WHERE provider = $2
+          GROUP BY external_id
         ), partial_metrics AS (
           SELECT profile.scoring_profile_id::text AS scoring_profile_id,
             entity.id::text AS scoring_entity_id,
             entry.entity_kind, entry.provider_external_id, entry.position, entry.stats,
-            entry.eligible_game_count, entry.appearance_game_count, observation.week
+            entry.eligible_game_count, entry.appearance_game_count, observation.week,
+            CASE WHEN inventory.mapping_count IS NULL THEN 'absent'
+              WHEN inventory.mapping_count = 1 AND entity.id IS NOT NULL
+                AND mapping.mapping_status = 'verified'
+                AND mapping.valid_from <= CURRENT_TIMESTAMP
+                AND (mapping.valid_to IS NULL OR mapping.valid_to > CURRENT_TIMESTAMP)
+                THEN 'usable'
+              ELSE 'unusable' END AS mapping_state
           FROM latest_partial observation
           JOIN target_profile profile ON true
           JOIN all_player_stat_entries entry
             ON entry.all_player_stat_content_id = observation.all_player_stat_content_id
+          LEFT JOIN mapping_inventory inventory ON inventory.external_id = entry.provider_external_id
           LEFT JOIN external_scoring_entity_ids mapping
             ON mapping.provider = observation.provider
             AND mapping.entity_kind = entry.entity_kind
             AND mapping.external_id = entry.provider_external_id
-            AND mapping.mapping_status = 'verified'
-            AND mapping.valid_from <= observation.observed_at
-            AND (mapping.valid_to IS NULL OR mapping.valid_to > observation.observed_at)
           LEFT JOIN scoring_entities entity
             ON entity.id = mapping.scoring_entity_id AND entity.kind = entry.entity_kind
           WHERE entry.appearance_game_count = 1 OR EXISTS (
@@ -350,7 +377,7 @@ export function createAllPlayerMetricMethods(client: DatabaseClient): AllPlayerM
           NULL::text AS total_fantasy_points, NULL::text AS ppg_fantasy_points,
           NULL::integer AS appearance_game_count,
           NULL::jsonb AS stats, NULL::integer AS eligible_game_count,
-          ARRAY(SELECT position FROM rank_exclusions)::text[] AS rank_unavailable_positions,
+          NULL::text AS mapping_state,
           missing.missing_prior_week_count
         FROM target_profile profile
         JOIN published_summary summary ON true
@@ -360,12 +387,13 @@ export function createAllPlayerMetricMethods(client: DatabaseClient): AllPlayerM
         SELECT 'published', metric.scoring_profile_id, NULL, metric.published_week_count, NULL, NULL, NULL, NULL,
           metric.scoring_entity_id, metric.entity_kind, metric.provider_external_id, metric.position,
           metric.total_fantasy_points, metric.ppg_fantasy_points,
-          metric.appearance_game_count, NULL, NULL, NULL::text[], NULL::integer
+          metric.appearance_game_count, NULL, NULL, 'usable'::text, NULL::integer
         FROM published_metrics metric
         UNION ALL
         SELECT 'partial', metric.scoring_profile_id, NULL, NULL, NULL, NULL, metric.week::integer, NULL,
           metric.scoring_entity_id, metric.entity_kind, metric.provider_external_id, metric.position,
-          NULL, NULL, metric.appearance_game_count, metric.stats, metric.eligible_game_count, NULL::text[], NULL::integer
+          NULL, NULL, metric.appearance_game_count, metric.stats, metric.eligible_game_count,
+          metric.mapping_state, NULL::integer
         FROM partial_metrics metric
         ORDER BY row_kind, partial_week, provider_external_id`, [
         leagueKey, normalizedProvider, season, input.seasonType, throughWeek, scorerVersion, provisionalWeek,
@@ -375,12 +403,8 @@ export function createAllPlayerMetricMethods(client: DatabaseClient): AllPlayerM
       if (metadata.length !== 1) throw new Error('All-player metric metadata is ambiguous.');
       const profileId = rowText(metadata[0], 'scoring_profile_id');
       const rules = rowObject(metadata[0], 'rules');
-      const rankExclusions = metadata[0].rank_unavailable_positions;
-      if (!Array.isArray(rankExclusions)
-        || rankExclusions.some((value) => typeof value !== 'string' || !POSITIONS.has(value))) {
-        throw new Error('All-player rank coverage is invalid.');
-      }
-      const rankUnavailablePositions = new Set<string>(rankExclusions);
+      // Projection-only coverage does not determine actual-stat position ranks.
+      const rankUnavailablePositions = new Set<string>();
       const missingPriorWeekCount = boundedInteger(
         rowNumber(metadata[0], 'missing_prior_week_count'), 0, throughWeek, 'All-player missing prior week count',
       );
@@ -406,36 +430,65 @@ export function createAllPlayerMetricMethods(client: DatabaseClient): AllPlayerM
       const candidates = new Map<string, MetricCandidate>();
       const invalidIdentities = new Set<string>();
       const canonicalOwners = new Map<string, string>();
-      const identityTargets = new Map<string, string>();
+      const officialKinds = new Map<string, ScoringEntityKind>();
+      const identityTargets = new Map<string, Readonly<{
+        canonicalId: string | null; position: Position; scoringProfileId: string;
+      }>>();
       const partialIdentities = new Set<string>();
       for (const row of rows.filter((value) => value.row_kind !== 'metadata')) {
         if (rowText(row, 'scoring_profile_id') !== profileId) {
           throw new Error('All-player metric scoring profiles disagree.');
         }
-        const key = identityKey(entityKind(row), rowText(row, 'provider_external_id'));
-        const canonicalId = rowNullableText(row, 'scoring_entity_id');
-        if (!canonicalId) {
-          rankUnavailablePositions.add(position(row));
-          invalidIdentities.add(key);
-          continue;
+        const kind = entityKind(row);
+        const metricPosition = position(row);
+        const officialId = rowText(row, 'provider_external_id');
+        const key = identityKey(kind, officialId);
+        const existingKind = officialKinds.get(officialId);
+        if (existingKind !== undefined && existingKind !== kind) {
+          throw new Error('All-player official identity kinds disagree across periods.');
         }
-        const owner = canonicalOwners.get(canonicalId);
-        if (owner !== undefined && owner !== key) {
-          throw new Error('Distinct all-player identities share one canonical target.');
-        }
-        canonicalOwners.set(canonicalId, key);
-        const identityTarget = `${canonicalId}:${position(row)}:${rowText(row, 'scoring_profile_id')}`;
+        officialKinds.set(officialId, kind);
+        const scoringProfileId = rowText(row, 'scoring_profile_id');
         const existingTarget = identityTargets.get(key);
-        if (existingTarget !== undefined && existingTarget !== identityTarget) {
+        if (existingTarget !== undefined && (existingTarget.position !== metricPosition
+          || existingTarget.scoringProfileId !== scoringProfileId)) {
           throw new Error('All-player identities disagree across periods.');
         }
-        identityTargets.set(key, identityTarget);
+        identityTargets.set(key, { canonicalId: existingTarget?.canonicalId ?? null,
+          position: metricPosition, scoringProfileId });
         if (row.row_kind === 'partial') {
           const week = boundedInteger(rowNumber(row, 'partial_week'), 1, throughWeek, 'All-player partial week');
           const periodIdentity = `${week}:${key}`;
           if (partialIdentities.has(periodIdentity)) throw new Error('All-player partial identity is duplicated.');
           partialIdentities.add(periodIdentity);
         }
+        const canonicalId = rowNullableText(row, 'scoring_entity_id');
+        const mappingState = row.row_kind === 'partial' ? rowText(row, 'mapping_state') : 'usable';
+        if (!['absent', 'usable', 'unusable'].includes(mappingState)
+          || (mappingState === 'absent' && canonicalId !== null)) {
+          throw new Error('All-player metric mapping state is invalid.');
+        }
+        const sourceOnly = row.row_kind === 'partial' && normalizedProvider === 'sleeper'
+          && kind === 'player' && mappingState === 'absent' && /^[1-9]\d*$/u.test(officialId);
+        if (!validIdentityShape(kind, metricPosition)
+          || (!sourceOnly && (mappingState !== 'usable' || canonicalId === null))) {
+          rankUnavailablePositions.add(metricPosition);
+          invalidIdentities.add(key);
+          continue;
+        }
+        if (canonicalId !== null) {
+          const owner = canonicalOwners.get(canonicalId);
+          if (owner !== undefined && owner !== key) {
+            throw new Error('Distinct all-player identities share one canonical target.');
+          }
+          canonicalOwners.set(canonicalId, key);
+        }
+        if (existingTarget !== undefined && existingTarget.canonicalId !== null && canonicalId !== null
+          && existingTarget.canonicalId !== canonicalId) {
+          throw new Error('All-player identities disagree across periods.');
+        }
+        identityTargets.set(key, { canonicalId: canonicalId ?? existingTarget?.canonicalId ?? null,
+          position: metricPosition, scoringProfileId });
       }
       for (const row of rows.filter((value) => value.row_kind === 'published')) {
         const candidate = publishedCandidate(row);

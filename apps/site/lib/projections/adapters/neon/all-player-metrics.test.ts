@@ -5,6 +5,7 @@ vi.mock('server-only', () => ({}));
 import type { DatabaseRow } from '../../../database';
 import { createFakeProjectionDatabase } from '../../../projection-store-test-support';
 import { foundationFixture } from '../../../../test-support/all-player-foundation-fixture';
+import actualRankFixture from '../../../../test-support/fixtures/actual-player-ranks/production.json';
 import { scoreSparseStatistics } from '../../domain/scoring';
 import { SLEEPER_ALL_PLAYER_SCORING_RULE_KEYS } from '../sleeper/scoring-profile';
 import { createAllPlayerMetricMethods } from './all-player-metrics';
@@ -28,11 +29,11 @@ function metadata(overrides: DatabaseRow = {}): DatabaseRow {
 
 function published(input: Readonly<{
   id: string; position: string; points: number; appearances: number;
-  kind?: 'player' | 'team_defense'; entityId?: string;
+  kind?: 'player' | 'team_defense'; entityId?: string | null;
 }>): DatabaseRow {
   return {
     row_kind: 'published', scoring_profile_id: profileId,
-    scoring_entity_id: input.entityId ?? `entity-${input.id}`,
+    scoring_entity_id: input.entityId === undefined ? `entity-${input.id}` : input.entityId,
     provider_external_id: input.id, entity_kind: input.kind ?? 'player', position: input.position,
     total_fantasy_points: String(input.points),
     ppg_fantasy_points: input.appearances > 0 ? String(input.points) : '0',
@@ -44,25 +45,27 @@ function published(input: Readonly<{
 function partial(input: Readonly<{
   id: string; position: string; stats: Readonly<Record<string, unknown>>;
   appearance?: number | null; eligible?: number | null; week?: number;
-  kind?: 'player' | 'team_defense'; entityId?: string;
+  kind?: 'player' | 'team_defense'; entityId?: string | null;
+  mappingState?: 'absent' | 'usable' | 'unusable';
 }>): DatabaseRow {
   return {
     row_kind: 'partial', scoring_profile_id: profileId,
-    scoring_entity_id: input.entityId ?? `entity-${input.id}`,
+    scoring_entity_id: input.entityId === undefined ? `entity-${input.id}` : input.entityId,
     provider_external_id: input.id, entity_kind: input.kind ?? 'player', position: input.position,
     stats: input.stats,
     partial_week: input.week ?? 1,
     appearance_game_count: input.appearance === undefined ? 1 : input.appearance,
     eligible_game_count: input.eligible === undefined ? 1 : input.eligible,
+    mapping_state: input.mappingState ?? (input.entityId === null ? 'absent' : 'usable'),
   };
 }
 
 function read(rows: readonly DatabaseRow[], options: {
-  leagueKey?: string; throughWeek?: number; provisionalWeek?: number | null;
+  leagueKey?: string; throughWeek?: number; provisionalWeek?: number | null; provider?: string;
 } = {}) {
   const fake = createFakeProjectionDatabase(() => rows);
   const result = createAllPlayerMetricMethods(fake.database).readAllPlayerPlayerMetrics({
-    leagueKey: options.leagueKey ?? 'league1', provider: ' Sleeper ', season: 2026,
+    leagueKey: options.leagueKey ?? 'league1', provider: options.provider ?? ' Sleeper ', season: 2026,
     seasonType: 'reg', throughWeek: options.throughWeek ?? 1,
     provisionalWeek: options.provisionalWeek === undefined ? 1 : options.provisionalWeek,
     scorerVersion: 'sleeper-actual-v1',
@@ -71,6 +74,223 @@ function read(rows: readonly DatabaseRow[], options: {
 }
 
 describe('all-player roster metrics', () => {
+  it('ranks decimal ties at stored weekly precision without changing totals or PPG', async () => {
+    const value = await read([metadata(),
+      partial({ id: 'binary', position: 'RB', stats: { rush_yd: 35, rec: 0.5 } }),
+      partial({ id: 'decimal', position: 'RB', stats: { rec: 4 } }),
+      partial({ id: 'distinct', position: 'RB', stats: { rec: 4.0001 } }),
+    ]).result;
+    expect(value.metrics.map((metric) => [metric.providerExternalId, metric.positionRank]))
+      .toEqual([['distinct', 1], ['binary', 2], ['decimal', 2]]);
+    expect(value.metrics.find((metric) => metric.providerExternalId === 'distinct'))
+      .toMatchObject({ totalFantasyPoints: 4.0001, pointsPerGame: 4.0001 });
+  });
+
+  it('rounds positive and negative halfway scores away from zero and excludes rounded zero from rank counts', async () => {
+    const value = await read([metadata(),
+      ...[['positive-half', 0.00005], ['positive-unit', 0.0001],
+        ['negative-half', -0.00005], ['negative-unit', -0.0001],
+        ['positive-zero', 0.00001], ['negative-zero', -0.00001]].map(([id, score]) =>
+        partial({ id: String(id), position: 'WR', stats: { rec: Number(score) } })),
+    ]).result;
+    const ranks = Object.fromEntries(value.metrics.map((metric) => [metric.providerExternalId, metric.positionRank]));
+    expect(ranks).toEqual({ 'positive-half': 1, 'positive-unit': 1,
+      'negative-half': 3, 'negative-unit': 3, 'positive-zero': null, 'negative-zero': null });
+    expect(value.metrics.find((metric) => metric.providerExternalId === 'negative-half'))
+      .toMatchObject({ totalFantasyPoints: -0.00005, pointsPerGame: -0.00005 });
+    expect(() => JSON.stringify(value)).not.toThrow();
+  });
+
+  it('sums independently rounded weekly scores just like published numeric scores', async () => {
+    const value = await read([metadata({ published_week_count: 1, published_through_week: 1,
+      published_observed_at: observedAt, partial_week: 3 }),
+    published({ id: 'published-peer', position: 'WR', points: 0.0002, appearances: 1 }),
+    partial({ id: 'partial-peer', position: 'WR', stats: { rec: 0.00006 }, week: 2 }),
+    partial({ id: 'partial-peer', position: 'WR', stats: { rec: 0.00006 }, week: 3 }),
+    ], { throughWeek: 3, provisionalWeek: 3 }).result;
+    expect(value.metrics.map((metric) => [metric.providerExternalId, metric.positionRank]))
+      .toEqual([['partial-peer', 1], ['published-peer', 1]]);
+    expect(value.metrics.find((metric) => metric.providerExternalId === 'partial-peer'))
+      .toMatchObject({ totalFantasyPoints: 0.00012, pointsPerGame: 0.00006 });
+  });
+
+  it('retains a nonzero summed weekly rank key when unrounded totals cancel', async () => {
+    const value = await read([metadata({ partial_week: 3 }),
+      partial({ id: 'rounded', position: 'WR', stats: { rec: 0.00006 }, week: 1 }),
+      partial({ id: 'rounded', position: 'WR', stats: { rec: 0.00006 }, week: 2 }),
+      partial({ id: 'rounded', position: 'WR', stats: { rec: -0.00012 }, week: 3 }),
+      partial({ id: 'peer', position: 'WR', stats: { rec: -0.0001 }, week: 3 }),
+    ], { throughWeek: 3, provisionalWeek: 3 }).result;
+    expect(value.metrics).toEqual([
+      expect.objectContaining({ providerExternalId: 'rounded', totalFantasyPoints: 0,
+        pointsPerGame: null, positionRank: 1 }),
+      expect.objectContaining({ providerExternalId: 'peer', positionRank: 2 }),
+    ]);
+  });
+
+  it.each(['league1', 'league2'])('ranks the entire retained live scoring population for %s', async (leagueKey) => {
+    const profile = actualRankFixture.profiles[0];
+    // The capture retains two zero-participation controls in addition to the
+    // real SQL candidates; replay only rows returned by the reader predicate.
+    const candidates = actualRankFixture.entries.filter((entry) => entry.appearance_game_count === 1
+      || Object.entries(entry.stats).some(([key, value]) => {
+        const weight = (profile.rules as Readonly<Record<string, number>>)[key];
+        return typeof value === 'number' && value !== 0 && typeof weight === 'number' && weight !== 0;
+      }));
+    const rows: DatabaseRow[] = [metadata({ scoring_profile_id: profile.id, rules: profile.rules,
+      partial_observed_at: actualRankFixture.observation.observedAt,
+      rank_unavailable_positions: actualRankFixture.observation.projectionRankUnavailablePositions,
+    }), ...candidates.map((entry) => ({ ...entry, row_kind: 'partial',
+      scoring_profile_id: profile.id, partial_week: actualRankFixture.period.week }))];
+    const value = await read(rows, { leagueKey }).result;
+    expect(actualRankFixture.entries).toHaveLength(323);
+    expect(candidates).toHaveLength(321);
+    expect(value).toMatchObject({ status: 'provisional', throughWeek: 1,
+      observedAt: '2026-09-13T19:00:28.921Z', rowsRead: 322 });
+    expect(value.metrics).toHaveLength(202);
+    expect(value.metrics.every((metric) => metric.positionRank !== null)).toBe(true);
+    expect(new Set(value.metrics.map((metric) => metric.position)))
+      .toEqual(new Set(['QB', 'RB', 'WR', 'TE', 'K', 'DEF']));
+    for (const [id, rank] of [['11280', 23], ['12048', 25], ['12732', 50]] as const) {
+      expect(value.metrics.find((metric) => metric.providerExternalId === id))
+        .toMatchObject({ scoringEntityId: null, positionRank: rank });
+    }
+    for (const [left, right, rank] of [['11576', '8228', 21], ['10219', '12474', 28],
+      ['12969', '7567', 32], ['5967', '9757', 34]] as const) {
+      for (const id of [left, right]) {
+        expect(value.metrics.find((metric) => metric.providerExternalId === id))
+          .toMatchObject({ position: 'RB', positionRank: rank });
+      }
+    }
+    expect(value.metrics.find((metric) => metric.providerExternalId === '12732'))
+      .toMatchObject({ totalFantasyPoints: 1.6, pointsPerGame: null, appearanceGameCount: 0 });
+    expect(value.metrics.find((metric) => metric.providerExternalId === '5859'))
+      .toMatchObject({ totalFantasyPoints: 4.1, pointsPerGame: 4.1, appearanceGameCount: 1, positionRank: 29 });
+    expect(value.metrics.some((metric) => ['7527', '12529'].includes(metric.providerExternalId))).toBe(false);
+  });
+
+  it.each(['QB', 'RB', 'WR', 'TE', 'K'])('ranks absent-mapping %s players with mapped peers and valid negatives', async (metricPosition) => {
+    const value = await read([metadata(),
+      partial({ id: '990001', position: metricPosition, stats: { rec: 6 }, entityId: null }),
+      partial({ id: 'mapped', position: metricPosition, stats: { rec: 4 } }),
+      partial({ id: '990002', position: metricPosition, stats: { fum_lost: 1 }, entityId: null }),
+      partial({ id: '990003', position: metricPosition, stats: { rec: 0 }, entityId: null }),
+    ]).result;
+    expect(value.metrics.map((metric) => [metric.providerExternalId, metric.scoringEntityId,
+      metric.positionRank, metric.pointsPerGame])).toEqual([
+      ['990001', null, 1, 6], ['mapped', 'entity-mapped', 2, 4], ['990002', null, 3, -2],
+    ]);
+  });
+
+  it.each([
+    { eligible: 1, appearance: 1, ppg: 4, denominator: 1 },
+    { eligible: null, appearance: 1, ppg: null, denominator: 0 },
+    { eligible: 1, appearance: null, ppg: null, denominator: 0 },
+    { eligible: null, appearance: null, ppg: null, denominator: 0 },
+  ])('keeps actual totals independent of unknown PPG participation (%j)', async ({ ppg, denominator, ...counts }) => {
+    const value = await read([metadata(),
+      partial({ id: '990004', position: 'WR', stats: { rec: 4 }, entityId: null, ...counts }),
+      partial({ id: 'peer', position: 'WR', stats: { rec: 2 } }),
+    ]).result;
+    expect(value.metrics).toEqual(expect.arrayContaining([
+      expect.objectContaining({ providerExternalId: '990004', totalFantasyPoints: 4,
+        positionRank: 1, pointsPerGame: ppg, appearanceGameCount: denominator }),
+      expect.objectContaining({ providerExternalId: 'peer', positionRank: 2, pointsPerGame: 2 }),
+    ]));
+  });
+
+  it.each([0, 1])('keeps nonzero statistics with known zero appearances unavailable (eligible=%i)', async (eligible) => {
+    const value = await read([metadata(),
+      partial({ id: 'conflict', position: 'WR', stats: { rec: 4 }, eligible, appearance: 0 }),
+      partial({ id: 'peer', position: 'WR', stats: { rec: 2 } }),
+    ]).result;
+    expect(value.metrics).toEqual([expect.objectContaining({ providerExternalId: 'peer', positionRank: null })]);
+  });
+
+  it('does not fall back to the source ID for a SQL-classified unusable mapping', async () => {
+      const value = await read([metadata(),
+        partial({ id: 'invalid', position: 'WR', stats: { rec: 4 }, entityId: null, mappingState: 'unusable' }),
+        partial({ id: 'peer', position: 'WR', stats: { rec: 2 } }),
+      ]).result;
+      expect(value.metrics).toEqual([expect.objectContaining({ providerExternalId: 'peer', positionRank: null })]);
+  });
+
+  it('keeps canonical mapping mandatory for defenses and non-Sleeper sources', async () => {
+    const defense = await read([metadata(),
+      partial({ id: 'NE', position: 'DEF', kind: 'team_defense', stats: { sack: 2 }, entityId: null }),
+      partial({ id: 'ATL', position: 'DEF', kind: 'team_defense', stats: { sack: 1 } }),
+    ]).result;
+    expect(defense.metrics).toEqual([expect.objectContaining({ providerExternalId: 'ATL', positionRank: null })]);
+    const otherProvider = await read([metadata(),
+      partial({ id: 'absent', position: 'WR', stats: { rec: 4 }, entityId: null }),
+      partial({ id: 'peer', position: 'WR', stats: { rec: 2 } }),
+    ], { provider: 'tank01' }).result;
+    expect(otherProvider.metrics).toEqual([expect.objectContaining({ providerExternalId: 'peer', positionRank: null })]);
+    await expect(read([metadata({ published_week_count: 1, published_through_week: 1,
+      published_observed_at: observedAt, partial_week: null, partial_observed_at: null }),
+    published({ id: 'published', position: 'WR', points: 4, appearances: 1, entityId: null }),
+    ]).result).rejects.toThrow();
+  });
+
+  it.each([false, true])('combines source-only and mapped weeks without inventing canonical IDs (reverse=%s)', async (reverse) => {
+    const rows = [
+      partial({ id: '990005', position: 'WR', stats: { rec: 4 }, week: 1, entityId: null }),
+      partial({ id: '990005', position: 'WR', stats: { rec: 8 }, week: 2 }),
+    ];
+    const value = await read([metadata({ partial_week: 2 }), ...(reverse ? rows.reverse() : rows)],
+      { throughWeek: 2, provisionalWeek: 2 }).result;
+    expect(value.metrics).toEqual([expect.objectContaining({ providerExternalId: '990005',
+      scoringEntityId: 'entity-990005', totalFantasyPoints: 12, pointsPerGame: 6,
+      appearanceGameCount: 2, positionRank: 1 })]);
+  });
+
+  it('rejects source-only duplicate periods and cross-period classification conflicts', async () => {
+    const row = partial({ id: '990005', position: 'WR', stats: { rec: 4 }, entityId: null });
+    await expect(read([metadata(), row, row]).result).rejects.toThrow('partial identity is duplicated');
+    await expect(read([metadata({ partial_week: 2 }), row,
+      partial({ id: '990005', position: 'RB', stats: { rush_yd: 10 }, week: 2 }),
+    ], { throughWeek: 2, provisionalWeek: 2 }).result).rejects.toThrow('identities disagree across periods');
+  });
+
+  it('rejects cross-period classification conflicts before skipping an unusable mapping', async () => {
+    await expect(read([metadata({ published_week_count: 1, published_through_week: 1,
+      published_observed_at: observedAt, partial_week: 2 }),
+    published({ id: 'subject', position: 'WR', points: 10, appearances: 1 }),
+    published({ id: 'peer', position: 'WR', points: 5, appearances: 1 }),
+    partial({ id: 'subject', position: 'RB', stats: { rec: 2 }, week: 2,
+      entityId: null, mappingState: 'unusable' }),
+    ], { throughWeek: 2, provisionalWeek: 2 }).result).rejects.toThrow('identities disagree across periods');
+  });
+
+  it.each(['not-an-official-id', '0', '01234'])('does not accept malformed source-only Sleeper ID %s', async (id) => {
+    const value = await read([metadata(),
+      partial({ id, position: 'WR', stats: { rec: 4 }, entityId: null }),
+      partial({ id: 'peer', position: 'WR', stats: { rec: 2 } }),
+    ]).result;
+    expect(value.metrics).toEqual([expect.objectContaining({ providerExternalId: 'peer', positionRank: null })]);
+  });
+
+  it('rejects one official ID changing entity kind even when its later mapping is unusable', async () => {
+    await expect(read([metadata({ partial_week: 2 }),
+      partial({ id: '990005', position: 'WR', stats: { rec: 4 }, week: 1, entityId: null }),
+      partial({ id: '990005', position: 'DEF', kind: 'team_defense', stats: { sack: 2 }, week: 2,
+        entityId: null, mappingState: 'unusable' }),
+    ], { throughWeek: 2, provisionalWeek: 2 }).result).rejects.toThrow('identity kinds disagree across periods');
+  });
+
+  it.each([2, -1, 0.5, 'malformed'])('rejects malformed participation counts (%s)', async (count) => {
+    await expect(read([metadata(), { ...partial({ id: '990007', position: 'WR', stats: { rec: 4 }, entityId: null }),
+      appearance_game_count: count }]).result).rejects.toThrow();
+  });
+
+  it('withholds a position when finite inputs overflow scoring rather than silently excluding its competitor', async () => {
+    const value = await read([metadata({ rules: { rec: 2 } }),
+      partial({ id: '990006', position: 'WR', stats: { rec: 1e308 }, entityId: null }),
+      partial({ id: 'peer', position: 'WR', stats: { rec: 1 } }),
+    ]).result;
+    expect(value.metrics).toEqual([expect.objectContaining({ providerExternalId: 'peer', positionRank: null })]);
+  });
+
   it('reads the Production-shaped two-game Week 1 fixture without returning empty inventory rows', async () => {
     expect(foundationFixture.games.filter((game) => game.phase === 'final')).toHaveLength(2);
     const scoringRules = foundationFixture.leagues[0].settings.scoring_settings;
@@ -346,14 +566,14 @@ describe('all-player roster metrics', () => {
       appearanceGameCount: 3, pointsPerGame: 2 })]);
   });
 
-  it('withholds ranks for stored identity gaps while retaining confirmed PPG', async () => {
+  it('does not use legacy projection coverage to suppress actual-stat ranks', async () => {
     const value = await read([
       metadata({ rank_unavailable_positions: ['RB'] }),
       partial({ id: 'rb', position: 'RB', stats: { rush_yd: 20 } }),
       partial({ id: 'wr', position: 'WR', stats: { rec: 4 } }),
     ]).result;
     expect(value.metrics).toEqual(expect.arrayContaining([
-      expect.objectContaining({ providerExternalId: 'rb', positionRank: null, pointsPerGame: 2 }),
+      expect.objectContaining({ providerExternalId: 'rb', positionRank: 1, pointsPerGame: 2 }),
       expect.objectContaining({ providerExternalId: 'wr', positionRank: 1, pointsPerGame: 4 }),
     ]));
   });
