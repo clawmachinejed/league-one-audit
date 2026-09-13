@@ -43,6 +43,12 @@ is also synthetic. Those cases prove read-time enrichment and fail-closed guards
 they do not assert that those bad states were observed in production.
 
 Database tests run only through the existing guarded isolated Neon harness.
-Runtime reads must issue one SELECT-based statement and leave raw history,
-canonical mappings, score history and pointers unchanged. No test installs a
-migration, changes production data, adds a provider feed or relaxes writer rules.
+Fixture semantics are checked in the rollback-only owner transaction so no
+synthetic history must be committed or deleted. Every reader invocation issues
+one SELECT-based statement and leaves raw history, canonical mappings, score
+history and pointers unchanged. A separate actual runtime-credential session
+executes the identical query to prove permissions; the uncommitted fixture is
+not visible to that session, so it returns no metrics. The owner cannot assume
+the runtime role, and the tests do not grant that capability. The normal harness
+applies existing migrations to its freshly reset isolated database; no test adds
+a migration, changes production data, adds a provider feed or relaxes writer rules.

@@ -4,7 +4,8 @@ import type { DatabaseClient, DatabaseRow } from '../lib/database';
 import { createProjectionStore } from '../lib/projection-store';
 import { scoreSparseStatistics } from '../lib/projections/domain/scoring';
 import production from '../test-support/fixtures/actual-player-ranks/production.json';
-import { createPinnedIntegrationDatabase, type IndependentDatabase } from './neon-integration-harness';
+import { createIndependentDatabase, createPinnedIntegrationDatabase,
+  type IndependentDatabase } from './neon-integration-harness';
 
 type FixtureEntry = {
   stats: Record<string, number>;
@@ -21,7 +22,7 @@ const entries = production.entries as unknown as readonly FixtureEntry[];
 const SEASON = 2197;
 const ABSENT_PLAYER = '11280';
 
-describe('actual all-player position ranks through the runtime SQL reader', () => {
+describe('actual all-player position ranks through the stored SQL reader', () => {
   let transaction: IndependentDatabase;
   let db: DatabaseClient;
   let addedEntityId: string;
@@ -96,13 +97,11 @@ describe('actual all-player position ranks through the runtime SQL reader', () =
         return db.query<Row>(statement, parameters);
       },
     });
-    await db.query('SET LOCAL ROLE league_one_runtime');
     try {
       return await reader.readAllPlayerPlayerMetrics({ leagueKey, provider: 'sleeper', season: SEASON,
         seasonType: 'reg', throughWeek, provisionalWeek: throughWeek, scorerVersion: 'sleeper-actual-v1',
       }, scoreSparseStatistics);
     } finally {
-      await db.query('RESET ROLE');
       expect(statements).toHaveLength(1);
       expect(await historyFingerprint()).toEqual(before);
     }
@@ -162,6 +161,24 @@ describe('actual all-player position ranks through the runtime SQL reader', () =
   afterAll(async () => {
     if (transaction) {
       try { await db.query('ROLLBACK'); } finally { await transaction.close(); }
+    }
+  });
+
+  it('executes the identical query with actual restricted runtime credentials without role escalation', async () => {
+    const runtime = createIndependentDatabase();
+    const before = await historyFingerprint();
+    try {
+      // The synthetic fixture remains uncommitted in the owner transaction, so
+      // this runtime session sees no target profile. PostgreSQL still checks the
+      // actual query's complete table permissions. No test grants SET ROLE.
+      const actual = await createProjectionStore(runtime.database).readAllPlayerPlayerMetrics({
+        leagueKey: 'league1', provider: 'sleeper', season: SEASON, seasonType: 'reg',
+        throughWeek: 1, provisionalWeek: 1, scorerVersion: 'sleeper-actual-v1',
+      }, scoreSparseStatistics);
+      expect(actual).toMatchObject({ status: 'unavailable', rowsRead: 0, metrics: [] });
+      expect(await historyFingerprint()).toEqual(before);
+    } finally {
+      await runtime.close();
     }
   });
 
