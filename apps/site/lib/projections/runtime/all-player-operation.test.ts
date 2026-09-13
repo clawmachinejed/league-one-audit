@@ -260,6 +260,41 @@ function harness(options: Readonly<{
 }
 
 describe('canonical all-player ingestion orchestration', () => {
+  it('retains actual catalog observation time on live retrieval without changing participation', async () => {
+    const test = harness();
+    const dependencies: AllPlayerIngestionDependencies = { ...test.dependencies,
+      allPlayerSource: { ...test.allPlayerSource, access: 'live' },
+      loadCatalog: async () => ({ catalog: { ...catalog,
+        p1: { ...catalog.p1, status: 'Inactive', active: false },
+      }, complete: true, sourceRevision: `sha256:${'a'.repeat(64)}`,
+      identityRevision: 'catalog-identity-revision', observedAt: '2026-09-15T00:59:00.000Z' }),
+    };
+    await runAllPlayerIngestion(dependencies, { mode: 'backfill', period: PERIOD });
+    expect(test.recordAllPlayerBatch).toHaveBeenCalledOnce();
+    const saved = test.recordAllPlayerBatch.mock.calls[0][0].observation;
+    expect(saved.providerContext).toMatchObject({ observedAt: '2026-09-15T00:59:00.000Z',
+      role: 'context-only', effectivePeriod: null, sourceRevision: `sha256:${'a'.repeat(64)}` });
+    expect(saved.providerContext?.players.find((player) => player.providerExternalId === 'p1'))
+      .toMatchObject({ status: 'Inactive', active: false });
+    expect(saved.entries.find((entry) => entry.providerExternalId === 'p1'))
+      .toMatchObject({ eligibleGameCount: 1, appearanceGameCount: 1 });
+    expect(saved.coverage.catalogRevision).toBe('catalog-identity-revision');
+  });
+
+  it('rejects catalog time after weekly observation before canonical or official writes', async () => {
+    const test = harness();
+    const dependencies: AllPlayerIngestionDependencies = { ...test.dependencies,
+      allPlayerSource: { ...test.allPlayerSource, access: 'live' },
+      loadCatalog: async () => ({ catalog, complete: true,
+        sourceRevision: `sha256:${'a'.repeat(64)}`, observedAt: '2026-09-16T00:00:00.000Z' }),
+    };
+    await expect(runAllPlayerIngestion(dependencies, { mode: 'backfill', period: PERIOD }))
+      .resolves.toMatchObject({ status: 'unavailable' });
+    expect(test.upsertScoringEntities).not.toHaveBeenCalled();
+    expect(test.recordLeagueWeekObservation).not.toHaveBeenCalled();
+    expect(test.recordAllPlayerBatch).not.toHaveBeenCalled();
+  });
+
   it.each(['catalog', 'schedule', 'manifest', 'participation'] as const)(
     'rejects substituted %s provenance with unchanged inventory and scores', async (variant) => {
       const test = harness();

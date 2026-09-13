@@ -4,11 +4,16 @@ export type AllPlayerEffectivePeriod = Readonly<{
   week: number;
 }>;
 
+export const ALL_PLAYER_INDIVIDUAL_SNAP_KEYS = ['off_snp', 'def_snp', 'st_snp'] as const;
+export type AllPlayerIndividualSnapKey = typeof ALL_PLAYER_INDIVIDUAL_SNAP_KEYS[number];
+
 export type AllPlayerWeeklyEligibilityEvidence = Readonly<{
   kind: 'weekly-stat';
   source: 'weekly-stat-provider';
   gmsActive?: 0 | 1;
   appearances?: 0 | 1;
+  /** Observed individual snaps; team totals are never participation evidence. */
+  individualSnaps?: Readonly<Partial<Record<AllPlayerIndividualSnapKey, number>>>;
   /** Malformed flags are retained verbatim, never coerced or discarded. */
   rawFlags?: Readonly<Record<string, unknown>>;
 }>;
@@ -63,6 +68,17 @@ function isCount(value: unknown): value is 0 | 1 {
   return value === 0 || value === 1;
 }
 
+export function isAllPlayerIndividualSnapCount(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
+/** A contradiction cannot be replaced by a nested reviewed eligibility decision. */
+export function hasAllPlayerWeeklyParticipationConflict(value: AllPlayerWeeklyEligibilityEvidence): boolean {
+  const positiveSnaps = Object.values(value.individualSnaps ?? {}).some((count) => count > 0);
+  return value.rawFlags !== undefined || value.gmsActive === 0 && value.appearances === 1
+    || positiveSnaps && (value.gmsActive === 0 || value.appearances === 0);
+}
+
 function onlyKeys(value: Readonly<Record<string, unknown>>, keys: readonly string[]): boolean {
   return Object.keys(value).every((key) => keys.includes(key));
 }
@@ -105,20 +121,33 @@ export function allPlayerEvidenceMatchesPeriod(
 function weeklyEligibilityCounts(value: unknown): AllPlayerEligibilityCounts | null {
   if (!isRecord(value) || value.kind !== 'weekly-stat'
     || value.source !== 'weekly-stat-provider'
-    || !onlyKeys(value, ['kind', 'source', 'gmsActive', 'appearances', 'rawFlags'])) return null;
+    || !onlyKeys(value, ['kind', 'source', 'gmsActive', 'appearances', 'individualSnaps', 'rawFlags'])) return null;
   const hasActive = Object.prototype.hasOwnProperty.call(value, 'gmsActive');
   const hasAppearance = Object.prototype.hasOwnProperty.call(value, 'appearances');
   if ((hasActive && !isCount(value.gmsActive))
     || (hasAppearance && !isCount(value.appearances))) return null;
+  if (value.individualSnaps !== undefined && (!isRecord(value.individualSnaps)
+    || Object.keys(value.individualSnaps).length === 0
+    || !onlyKeys(value.individualSnaps, ALL_PLAYER_INDIVIDUAL_SNAP_KEYS)
+    || Object.values(value.individualSnaps).some((count) => !isAllPlayerIndividualSnapCount(count)))) return null;
   if (value.rawFlags !== undefined) {
     if (!isRecord(value.rawFlags) || Object.keys(value.rawFlags).length === 0
-      || Object.keys(value.rawFlags).some((key) => !['gms_active', 'gp'].includes(key))) return null;
-    if (Object.values(value.rawFlags).some((flag) => isCount(flag) || !isJsonValue(flag))) return null;
+      || !onlyKeys(value.rawFlags, ['gms_active', 'gp', ...ALL_PLAYER_INDIVIDUAL_SNAP_KEYS])) return null;
+    if (Object.entries(value.rawFlags).some(([key, flag]) => {
+      if (!isJsonValue(flag)) return true;
+      if (key === 'gms_active') return hasActive || isCount(flag);
+      if (key === 'gp') return hasAppearance || isCount(flag);
+      return isAllPlayerIndividualSnapCount(flag)
+        || isRecord(value.individualSnaps) && Object.prototype.hasOwnProperty.call(value.individualSnaps, key);
+    })) return null;
     return unknownCounts;
   }
-  if (value.gmsActive === 0) return value.appearances === 1
-    ? unknownCounts : { eligibleGameCount: 0, appearanceGameCount: 0 };
-  if (value.appearances === 1) return { eligibleGameCount: 1, appearanceGameCount: 1 };
+  const weekly = value as AllPlayerWeeklyEligibilityEvidence;
+  if (hasAllPlayerWeeklyParticipationConflict(weekly)) return unknownCounts;
+  if (value.gmsActive === 0) return { eligibleGameCount: 0, appearanceGameCount: 0 };
+  if (value.appearances === 1 || Object.values(weekly.individualSnaps ?? {}).some((count) => count > 0)) {
+    return { eligibleGameCount: 1, appearanceGameCount: 1 };
+  }
   if (value.gmsActive === 1 && value.appearances === 0) {
     return { eligibleGameCount: 1, appearanceGameCount: 0 };
   }
@@ -159,7 +188,7 @@ export function allPlayerEligibilityCounts(value: unknown): AllPlayerEligibility
         : { eligibleGameCount: 0 as const, appearanceGameCount: 0 as const };
     if (!value.weekly) return expected;
     const weekly = weeklyEligibilityCounts(value.weekly);
-    if (value.weekly.rawFlags || (value.weekly.gmsActive === 0 && value.weekly.appearances === 1)) {
+    if (hasAllPlayerWeeklyParticipationConflict(value.weekly)) {
       return unknownCounts;
     }
     if (weekly && weekly.eligibleGameCount !== null
@@ -173,8 +202,7 @@ export function allPlayerEligibilityCounts(value: unknown): AllPlayerEligibility
     const weekly = weeklyEligibilityCounts(value.weekly);
     if (!weekly) return null;
     const hasConflict = weekly.eligibleGameCount === 1 || weekly.appearanceGameCount === 1
-      || (isRecord(value.weekly) && (value.weekly.rawFlags !== undefined
-        || (value.weekly.gmsActive === 0 && value.weekly.appearances === 1)));
+      || hasAllPlayerWeeklyParticipationConflict(value.weekly as AllPlayerWeeklyEligibilityEvidence);
     return value.kind === 'conflict'
       ? hasConflict ? unknownCounts : null
       : hasConflict ? null : { eligibleGameCount: 0, appearanceGameCount: 0 };

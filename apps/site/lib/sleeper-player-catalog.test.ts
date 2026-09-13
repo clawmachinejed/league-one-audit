@@ -63,6 +63,8 @@ describe('shared official catalog identity boundary', () => {
     expect(fetcher.mock.calls[0][0]).toBe('https://api.sleeper.app/v1/players/nfl');
     expect(first).toEqual(second);
     expect(first.complete).toBe(true);
+    expect(Number.isFinite(Date.parse(first.observedAt!))).toBe(true);
+    expect(first.identityRevision).toMatch(/^sha256:[0-9a-f]{64}$/u);
     expect(classifySleeperCatalogIdentity(first.catalog, '8063').status).toBe('out-of-scope');
   });
 

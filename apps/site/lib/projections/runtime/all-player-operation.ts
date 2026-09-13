@@ -64,6 +64,7 @@ import { projectionEntities, projectionEntityForObservation } from '../worker/ro
 import { officialPlayerIdentityInventory } from '../shared/official-catalog-identity';
 import { validateAllPlayerPublicationCoverage } from '../domain/all-player-publication-coverage';
 import { prepareAllPlayerDiagnostics } from './all-player-diagnostics';
+import { sleeperAllPlayerCatalogContext } from '../adapters/sleeper/all-player-catalog-context';
 
 export const ALL_PLAYER_SCORER_VERSION = 'sleeper-actual-v1';
 export const ALL_PLAYER_CADENCE_HOURS = 12;
@@ -109,6 +110,8 @@ export type AllPlayerIngestionDependencies = Readonly<{
     catalog: PlayerCatalog;
     complete: boolean;
     sourceRevision: string | null;
+    observedAt?: string;
+    identityRevision?: string;
   }>>;
   loadReviewedPeriodEvidence?: (period: LeaguePeriod) => Promise<Readonly<{
     inventory: SleeperPeriodInventoryEvidence;
@@ -660,7 +663,7 @@ async function execute(
       ? { scheduleObservedAt: reviewedEvidence.scheduleObservedAt } : {}),
     catalog: catalog.catalog,
     catalogComplete: catalog.complete,
-    catalogRevision: catalog.sourceRevision,
+    catalogRevision: catalog.identityRevision ?? catalog.sourceRevision,
     rosteredPlayerIds: rosteredPlayerIds(leagueLoads),
     projectionPlayerIds: projectionIds,
     gamesByTeam: games,
@@ -785,7 +788,17 @@ async function execute(
   if (providerResult.status !== 'available') {
     return unavailable(mode, period, `provider-${providerResult.reason}`, { projectionCoverage });
   }
-  const observation = addProjectionEvidence(providerResult.observation, projectionCoverage, [...new Set(identityDiagnostics)].sort());
+  const sourceObservation = providerResult.observation;
+  const observation = addProjectionEvidence({
+    ...sourceObservation,
+    // Replays retain their original context. Never date old labels as newly observed.
+    ...(dependencies.allPlayerSource.access !== 'replay' && catalog.observedAt ? {
+      providerContext: sleeperAllPlayerCatalogContext({
+        catalog: catalog.catalog, sourceRevision: catalog.sourceRevision,
+        observedAt: catalog.observedAt, entries: sourceObservation.entries,
+      }),
+    } : {}),
+  }, projectionCoverage, [...new Set(identityDiagnostics)].sort());
   await input.checkpoint('loaded-preflight');
   if (observation.provider !== String(dependencies.officialProvider)
     || observation.season !== period.season || observation.seasonType !== 'reg' || observation.week !== period.week) {

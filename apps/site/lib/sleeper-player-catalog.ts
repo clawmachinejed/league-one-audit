@@ -19,6 +19,10 @@ export type FantasyPlayerCatalog = Readonly<{
   catalog: PlayerCatalog;
   complete: boolean;
   sourceRevision: string | null;
+  /** Actual catalog retrieval time; never a claim about a past game's status. */
+  observedAt?: string;
+  /** All-player inventory revision excludes advisory current status labels. */
+  identityRevision?: string;
   warning?: string;
 }>;
 
@@ -27,11 +31,21 @@ type PlayerCatalogSlice = Readonly<{
   sourceRevision: string;
   rowCount: number;
   malformedRowCount: number;
+  observedAt?: string;
 }>;
 
 export type FantasyPlayerPositionLoader = (
   position: FantasyPlayerPosition,
 ) => Promise<PlayerCatalogSlice>;
+
+export function playerCatalogIdentityRevision(catalog: PlayerCatalog): string {
+  const identities = Object.fromEntries(Object.entries(catalog).map(([id, player]) => {
+    const { active, status, injury_status, ...identity } = player;
+    void active; void status; void injury_status;
+    return [id, identity];
+  }));
+  return `sha256:${createHash('sha256').update(stableJson(identities)).digest('hex')}`;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -135,7 +149,7 @@ async function loadPlayerCatalogSlice(position: CatalogScope): Promise<PlayerCat
       finished('invalid');
       throw error;
     }
-    return projectPlayerCatalog(raw);
+    return { ...projectPlayerCatalog(raw), observedAt: new Date().toISOString() };
   })()
     .then((catalog) => {
       playerPositionFailures.delete(position);
@@ -212,6 +226,8 @@ export async function loadCompletePlayerCatalog(): Promise<FantasyPlayerCatalog>
     return {
       catalog: slice.catalog,
       sourceRevision: slice.sourceRevision,
+      observedAt: slice.observedAt,
+      identityRevision: playerCatalogIdentityRevision(slice.catalog),
       complete: slice.malformedRowCount === 0,
       ...(slice.malformedRowCount === 0 ? {} : {
         warning: `Sleeper returned ${slice.malformedRowCount} malformed official catalog rows; complete identity classification is unavailable.`,

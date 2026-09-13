@@ -20,6 +20,8 @@ for (const name of requiredEnvironmentNames) {
   }
 }
 process.env.PROJECTION_INTEGRATION_ENV_FILE = '.env.integration.local';
-await import(process.argv.includes('--repair')
+await import(process.argv.includes('--participation')
+  ? './verify-all-player-participation-release-wrapper.ts'
+  : process.argv.includes('--repair')
   ? './verify-all-player-repair-release-wrapper.ts'
   : './verify-all-player-migration-release-wrapper.ts');
