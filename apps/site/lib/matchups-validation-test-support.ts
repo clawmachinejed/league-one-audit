@@ -89,6 +89,49 @@ export function validationCases(): ValidationCase[] {
     changed('scheduled game null final score', false, (p) => {
       Object.assign(p.matchups[0].sides[0].starters[0].game!, { finalScore: null });
     }),
+    changed('scheduled game live quarter score', true, (p) => {
+      Object.assign(p.matchups[0].sides[0].starters[0].game!, {
+        liveScore: { teamScore: 23, opponentScore: 10, phase: 'q3', clockSeconds: 165 },
+      });
+    }),
+    changed('scheduled game halftime score', true, (p) => {
+      Object.assign(p.matchups[0].sides[0].starters[0].game!, {
+        liveScore: { teamScore: 10, opponentScore: 24, phase: 'halftime', clockSeconds: null },
+      });
+    }),
+    changed('scheduled game overtime without clock', true, (p) => {
+      Object.assign(p.matchups[0].sides[0].starters[0].game!, {
+        liveScore: { teamScore: 0, opponentScore: 0, phase: 'overtime', clockSeconds: null },
+      });
+    }),
+    changed('scheduled game incomplete live score', false, (p) => {
+      Object.assign(p.matchups[0].sides[0].starters[0].game!, {
+        liveScore: { teamScore: 23, phase: 'q3', clockSeconds: 165 },
+      });
+    }),
+    changed('scheduled game string live score', false, (p) => {
+      Object.assign(p.matchups[0].sides[0].starters[0].game!, {
+        liveScore: { teamScore: '23', opponentScore: 10, phase: 'q3', clockSeconds: 165 },
+      });
+    }),
+    changed('scheduled game string live clock', false, (p) => {
+      Object.assign(p.matchups[0].sides[0].starters[0].game!, {
+        liveScore: { teamScore: 23, opponentScore: 10, phase: 'q3', clockSeconds: '2:45' },
+      });
+    }),
+    changed('scheduled game missing live clock', false, (p) => {
+      Object.assign(p.matchups[0].sides[0].starters[0].game!, {
+        liveScore: { teamScore: 23, opponentScore: 10, phase: 'q3' },
+      });
+    }),
+    changed('scheduled game unknown live phase', false, (p) => {
+      Object.assign(p.matchups[0].sides[0].starters[0].game!, {
+        liveScore: { teamScore: 23, opponentScore: 10, phase: 'unknown', clockSeconds: 165 },
+      });
+    }),
+    changed('scheduled game null live score', false, (p) => {
+      Object.assign(p.matchups[0].sides[0].starters[0].game!, { liveScore: null });
+    }),
     changed('date invalid', false, (p) => { p.updatedAt = 'not-a-date'; }),
     changed('date null', false, (p) => { Object.assign(p, { updatedAt: null }); }),
     changed('date non-ISO accepted by JS', true, (p) => { p.updatedAt = 'September 13, 2026 18:00 GMT'; }),

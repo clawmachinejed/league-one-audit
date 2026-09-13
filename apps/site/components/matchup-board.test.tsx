@@ -36,6 +36,34 @@ const player = (id: string, projectedPoints: number | null): Player => ({
 });
 
 describe('MatchupBoard player projection presentation', () => {
+  it.each(['league1', 'league2'] as const)('%s shows each live NFL clock and Half label without changing fantasy points', (league) => {
+    const away = player('away', 20);
+    const home = player('home', 21);
+    away.game = { kind: 'scheduled', opponent: 'TEN', location: 'away', date: '2026-09-13',
+      kickoffAt: '2026-09-13T17:00:00.000Z',
+      liveScore: { teamScore: 23, opponentScore: 10, phase: 'q3', clockSeconds: 165 } };
+    home.game = { kind: 'scheduled', opponent: 'NYJ', location: 'home', date: '2026-09-13',
+      kickoffAt: '2026-09-13T17:00:00.000Z',
+      liveScore: { teamScore: 10, opponentScore: 24, phase: 'halftime', clockSeconds: null } };
+    const html = renderToStaticMarkup(
+      <LeagueSiteProvider site={LEAGUE_SITES[league]}>
+        <MatchupBoard matchups={[{ id: '1', status: 'live', sides: [
+          { team: team(1), points: 23.2, projectedPoints: 30, starters: [away] },
+          { team: team(2), points: 23.2, projectedPoints: 31, starters: [home] },
+        ] }]} selected={null} avatar={() => null} />
+      </LeagueSiteProvider>,
+    );
+    expect(html).toContain('02:45 3rd 23-10 @ TEN');
+    expect(html).toContain('Half 10-24 vs NYJ');
+    expect(html).not.toContain('Sun 1:00 PM');
+    expect(html).not.toContain('Final W');
+    expect(html).toContain('In progress');
+    expect([...html.matchAll(/data-player-score-number="true"[^>]*>([^<]+)</gu)].map((match) => match[1]))
+      .toEqual(['23.20', '23.20']);
+    expect([...html.matchAll(/data-player-projection-number="true"[^>]*>([^<]+)</gu)].map((match) => match[1]))
+      .toEqual(['20.00', '21.00']);
+  });
+
   it('shows each final NFL result while the fantasy matchup remains live', () => {
     const away = player('away', 20);
     const home = player('home', 21);

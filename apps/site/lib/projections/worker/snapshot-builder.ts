@@ -208,20 +208,31 @@ function presentationGame(
     candidate.homeTeam === entity.nflTeam || candidate.awayTeam === entity.nflTeam
   ));
   const state = candidates.length === 1 ? candidates[0] : null;
-  if (!state || !samePeriod(state.period, period) || state.statusCode !== 2 || state.phase !== 'final'
+  if (!state || !samePeriod(state.period, period)
     || state.homeScore === null || state.awayScore === null
     || !Number.isSafeInteger(state.homeScore) || state.homeScore < 0
     || !Number.isSafeInteger(state.awayScore) || state.awayScore < 0) return { ...game };
   const isHome = state.homeTeam === entity.nflTeam;
   if (game.opponent !== (isHome ? state.awayTeam : state.homeTeam)
     || game.location !== (isHome ? 'home' : 'away')) return { ...game };
-  return {
-    ...game,
-    finalScore: {
-      teamScore: isHome ? state.homeScore : state.awayScore,
-      opponentScore: isHome ? state.awayScore : state.homeScore,
-    },
+  const scores = {
+    teamScore: isHome ? state.homeScore : state.awayScore,
+    opponentScore: isHome ? state.awayScore : state.homeScore,
   };
+  if (state.statusCode === 2 && state.phase === 'final') return { ...game, finalScore: scores };
+  if (state.statusCode !== 1) return { ...game };
+  if (state.phase === 'halftime') {
+    return { ...game, liveScore: { ...scores, phase: 'halftime', clockSeconds: null } };
+  }
+  if (state.phase !== 'q1' && state.phase !== 'q2' && state.phase !== 'q3'
+    && state.phase !== 'q4' && state.phase !== 'overtime') return { ...game };
+  // Overtime has no remaining regulation projection and may arrive without a
+  // clock. Regulation quarters require the existing canonical 0–15 minute clock.
+  if (state.clockSeconds === null ? state.phase !== 'overtime'
+    : !Number.isInteger(state.clockSeconds) || state.clockSeconds < 0 || state.clockSeconds > 900) {
+    return { ...game };
+  }
+  return { ...game, liveScore: { ...scores, phase: state.phase, clockSeconds: state.clockSeconds } };
 }
 
 function presentationPlayer(

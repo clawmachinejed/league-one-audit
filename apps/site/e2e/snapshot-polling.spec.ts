@@ -162,7 +162,7 @@ test('same content advances freshness and changed content preserves expanded car
 });
 
 for (const league of ['league1', 'league2'] as const) {
-  test(`${league} replaces scheduled NFL labels with final team results after refresh at 360px`, async ({ page }) => {
+  test(`${league} refreshes scheduled NFL labels through live, Half, and final results at supported widths`, async ({ page }) => {
     await page.setViewportSize({ width: 360, height: 800 });
     const fixture = await openFixture(page, { league, temporal: 'active', adopt: false });
     const matchup = fixture.payload.matchups[0];
@@ -184,36 +184,71 @@ for (const league of ['league1', 'league2'] as const) {
     const toggle = page.locator('button[data-matchup-toggle]').first();
     await toggle.click();
     const labels = page.locator('[data-player-game]');
+    const expectLabelFit = async () => {
+      for (const width of [360, 390, 430, 1280]) {
+        await page.setViewportSize({ width, height: 900 });
+        await expect.poll(async () => labels.evaluateAll((nodes) => nodes.every((node) => {
+          const game = node as HTMLElement;
+          const meta = game.closest<HTMLElement>('[data-player-meta]');
+          return !!meta && game.scrollWidth <= meta.clientWidth + 1;
+        })), `NFL labels should fit without clipping at ${width}px`).toBe(true);
+        const heights = await labels.evaluateAll((nodes) => nodes.map((node) => (
+          node.closest<HTMLElement>('div[class*="playerRow"]')?.getBoundingClientRect().height ?? 0
+        )));
+        for (const height of heights) expect(height).toBeCloseTo(52, 0);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
+      }
+      await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    };
     await expect(labels).toHaveText([
       'Thu 8:20 PM @ TEN', 'Thu 8:20 PM vs NYJ', 'Thu 8:20 PM vs LAR', 'Mon 8:15 PM @ KC',
     ]);
+    await expectLabelFit();
 
-    // The NFL games finish independently while the fantasy matchup and week remain live.
     if (left.starters[0].game?.kind !== 'scheduled' || right.starters[0].game?.kind !== 'scheduled'
       || left.starters[1].game?.kind !== 'scheduled') throw new Error('Expected scheduled fixture games.');
-    left.starters[0].game.finalScore = { teamScore: 23, opponentScore: 10 };
-    right.starters[0].game.finalScore = { teamScore: 10, opponentScore: 24 };
-    left.starters[1].game.finalScore = { teamScore: 17, opponentScore: 17 };
-    fixture.revision = SNAPSHOT_C;
-    fixture.verifiedAt = UPDATED_TIME;
-    await nextPoll(page, fixture);
-    await expect(labels).toHaveText([
+    const [awayGame, homeGame, tieGame] = [left.starters[0].game, right.starters[0].game, left.starters[1].game];
+    let adoptedCount = 1;
+    const adoptLabels = async (expected: string[]) => {
+      // New revisions exercise the real compact-to-full browser adoption protocol.
+      fixture.revision = (adoptedCount + 11).toString(16).repeat(64);
+      fixture.verifiedAt = new Date(Date.parse(INITIAL_TIME) + adoptedCount * 60_000).toISOString();
+      await nextPoll(page, fixture);
+      await expect(labels).toHaveText(expected);
+      adoptedCount += 1;
+      expect(fixture.fullCount).toBe(adoptedCount);
+      await expectLabelFit();
+    };
+    awayGame.liveScore = { teamScore: 0, opponentScore: 0, phase: 'q1', clockSeconds: 900 };
+    homeGame.liveScore = { teamScore: 10, opponentScore: 24, phase: 'q2', clockSeconds: 0 };
+    tieGame.liveScore = { teamScore: 17, opponentScore: 17, phase: 'overtime', clockSeconds: 165 };
+    await adoptLabels([
+      '15:00 1st 0-0 @ TEN', '00:00 2nd 10-24 vs NYJ', '02:45 OT 17-17 vs LAR', 'Mon 8:15 PM @ KC',
+    ]);
+    awayGame.liveScore = { teamScore: 10, opponentScore: 7, phase: 'halftime', clockSeconds: null };
+    homeGame.liveScore = { teamScore: 10, opponentScore: 24, phase: 'halftime', clockSeconds: null };
+    tieGame.liveScore = { teamScore: 17, opponentScore: 17, phase: 'overtime', clockSeconds: null };
+    await adoptLabels([
+      'Half 10-7 @ TEN', 'Half 10-24 vs NYJ', 'OT 17-17 vs LAR', 'Mon 8:15 PM @ KC',
+    ]);
+    awayGame.liveScore = { teamScore: 23, opponentScore: 10, phase: 'q3', clockSeconds: 165 };
+    homeGame.liveScore = { teamScore: 10, opponentScore: 24, phase: 'q4', clockSeconds: 5 };
+    await adoptLabels([
+      '02:45 3rd 23-10 @ TEN', '00:05 4th 10-24 vs NYJ', 'OT 17-17 vs LAR', 'Mon 8:15 PM @ KC',
+    ]);
+
+    // Individual NFL games finish while the fantasy matchup and week remain live.
+    delete awayGame.liveScore;
+    delete homeGame.liveScore;
+    delete tieGame.liveScore;
+    awayGame.finalScore = { teamScore: 23, opponentScore: 10 };
+    homeGame.finalScore = { teamScore: 10, opponentScore: 24 };
+    tieGame.finalScore = { teamScore: 17, opponentScore: 17 };
+    await adoptLabels([
       'Final W 23-10 @ TEN', 'Final L 10-24 vs NYJ', 'Final T 17-17 vs LAR', 'Mon 8:15 PM @ KC',
     ]);
-    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
-    expect(fixture.fullCount).toBe(2);
-    const layout = await labels.evaluateAll((nodes) => nodes.map((node) => {
-      const game = node as HTMLElement;
-      const meta = game.closest<HTMLElement>('[data-player-meta]');
-      const row = game.closest<HTMLElement>('div[class*="playerRow"]');
-      return { label: game.textContent, width: game.scrollWidth, availableWidth: meta?.clientWidth ?? 0,
-        rowHeight: row?.getBoundingClientRect().height ?? 0 };
-    }));
-    for (const row of layout) {
-      expect(row.width, `${row.label} should fit without clipping`).toBeLessThanOrEqual(row.availableWidth + 1);
-      expect(row.rowHeight).toBeCloseTo(52, 0);
-    }
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
+    expect(fixture.refreshCount).toBe(0);
+    expect(await page.evaluate((key) => localStorage.getItem(key), `league-one:my-team:${LEAGUE_IDS[league]}`)).toBe('2');
   });
 }
 

@@ -82,6 +82,13 @@ export type NflGame = {
   kickoffAt: string | null;
   /** Present only for a final NFL game; scores are from this player's team perspective. */
   finalScore?: { teamScore: number; opponentScore: number };
+  /** Latest observed live game state; the clock is not a browser countdown. */
+  liveScore?: {
+    teamScore: number;
+    opponentScore: number;
+    phase: 'q1' | 'q2' | 'halftime' | 'q3' | 'q4' | 'overtime';
+    clockSeconds: number | null;
+  };
 } | {
   kind: 'bye';
 };
