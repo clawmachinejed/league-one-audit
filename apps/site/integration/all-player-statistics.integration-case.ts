@@ -519,6 +519,33 @@ describe('all-player statistics foundation', () => {
     expect(shared[0]).toEqual({ distinct_contents: 1, distinct_profiles: 2 });
   });
 
+  it('derives player total points and PPG from current pointers with profile isolation', async () => {
+    const leagueOne = await store.readAllPlayerPlayerMetrics({
+      leagueKey: 'league1', provider: 'sleeper', season: DATABASE_SEASON,
+      seasonType: 'reg', throughWeek: 1, scorerVersion: 'sleeper-actual-v1',
+    });
+    const leagueTwo = await store.readAllPlayerPlayerMetrics({
+      leagueKey: 'league2', provider: 'sleeper', season: DATABASE_SEASON,
+      seasonType: 'reg', throughWeek: 1, scorerVersion: 'sleeper-actual-v1',
+    });
+    expect(leagueOne).toEqual([{
+      scoringProfileId: profileIds[0],
+      scoringEntityId: entityIds['integration-player-one'],
+      providerExternalId: 'integration-player-one', totalFantasyPoints: 4,
+      appearanceGameCount: 1, publishedWeekCount: 1, pointsPerGame: 4,
+    }, {
+      scoringProfileId: profileIds[0],
+      scoringEntityId: entityIds['integration-player-zero'],
+      providerExternalId: 'integration-player-zero', totalFantasyPoints: 0,
+      appearanceGameCount: 0, publishedWeekCount: 1, pointsPerGame: null,
+    }]);
+    expect(leagueTwo).toEqual([{
+      ...leagueOne[0], scoringProfileId: profileIds[1], totalFantasyPoints: 6, pointsPerGame: 6,
+    }, {
+      ...leagueOne[1], scoringProfileId: profileIds[1],
+    }]);
+  });
+
   it('rejects self-consistent official points that omit an authoritative roster', async () => {
     const current = (await runtimeQuery<{
       score_set_id: string; observation_id: string;
@@ -894,6 +921,16 @@ describe('all-player statistics foundation', () => {
       ORDER BY weight
     `);
     expect(points).toEqual([{ weight: '4', points: '8.0000' }, { weight: '6', points: '12.0000' }]);
+    await expect(store.readAllPlayerPlayerMetrics({
+      leagueKey: 'league1', provider: 'sleeper', season: DATABASE_SEASON,
+      seasonType: 'reg', throughWeek: 1, scorerVersion: 'sleeper-actual-v1',
+    })).resolves.toEqual([expect.objectContaining({
+      providerExternalId: 'integration-player-one', totalFantasyPoints: 8,
+      appearanceGameCount: 1, publishedWeekCount: 1, pointsPerGame: 8,
+    }), expect.objectContaining({
+      providerExternalId: 'integration-player-zero', totalFantasyPoints: 0,
+      appearanceGameCount: 0, publishedWeekCount: 1, pointsPerGame: null,
+    })]);
   });
 
   it('serializes concurrent replay and rolls back an equal-time conflicting correction', async () => {

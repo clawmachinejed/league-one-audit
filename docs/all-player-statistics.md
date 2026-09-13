@@ -2,7 +2,9 @@
 
 This foundation retains one shared Sleeper weekly response and scores its
 validated immutable content for each distinct registered league scoring profile.
-It adds no rankings, PPG, UI, public API, Tank01 feed, or cron schedule.
+It derives per-player season total points and points per game from published
+weekly score pointers. It adds no rankings, UI, public API, Tank01 feed, or cron
+schedule.
 
 The September 12 repair and partial production capture are not an operational
 completion claim. The retained 2026 Week 1 evidence is incomplete. Complete
@@ -189,6 +191,21 @@ run a live shadow until that decision and its implementation evidence are
 recorded.
 
 ## Persistence and publication
+
+The server-only player metrics reader derives totals and PPG at read time from
+`current_all_player_score_sets`. It selects the requested league's scoring
+profile, season, season type, scorer version, and weeks through the requested
+boundary. Each player result includes total fantasy points, summed appearances,
+published-week count, and points per game. PPG is total fantasy points divided by
+appearance games. When appearances are zero, PPG is `null` for display as an
+unavailable dash; it is never zero and division by zero never occurs.
+
+Because the reader follows current pointers, a verified correction replaces the
+superseded weekly score automatically. Immutable historical score sets remain
+unchanged. Partial raw observations have no score pointer and therefore cannot
+enter total points or PPG. League One and League Two remain isolated by their
+registered scoring profiles. The reader returns only player rows; team-defense
+metrics remain outside this player PPG contract.
 
 Installed migration 010 remains unchanged. Its six tables retain raw content,
 entries, observations, score sets, score rows and current pointers. Additive 011
