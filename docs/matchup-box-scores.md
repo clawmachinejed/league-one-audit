@@ -1,15 +1,18 @@
 # Matchup player box scores
 
-Inside an expanded matchup, a player whose accepted NFL game is live or final
-has a disclosure control across their player cell. Tapping it reveals that
-player's reported box-score statistics beneath the lineup row; tapping again
-collapses it. The opponent's disclosure is independent. Pregame games, byes,
-empty slots and unavailable game state have no disclosure. Current injury labels
+Inside an expanded matchup, each starting-position row has one disclosure control
+when either player's accepted NFL game is live or final. Tapping anywhere across
+the summary row, including the starting position or either team's points, reveals
+both players' available box scores together beneath that row; tapping again
+collapses both. Player names have no disclosure arrows. Rows remain independent,
+including repeated RB, WR or FLEX slots. A side with a pregame game, bye, empty
+slot or unavailable game state stays blank in the details. Current injury labels
 and elapsed kickoff times are not used as proof of game state or participation.
 
 The original 52px summary rows, official fantasy scores, projections and matchup
-expansion remain unchanged. Player expansion is keyed by team and official player
-identity and survives ordinary matchup updates. Changing league, season or week
+expansion remain unchanged. Box-score expansion is keyed by starting-slot index
+and label, so a replacement player occupies the same expanded row after a lineup
+update. Changing league, season or week
 resets the board and cancels outstanding statistics requests.
 
 ## Source and presentation
@@ -51,8 +54,8 @@ the browser shares each result among players on its currently selected board.
 Unavailable storage or invalid scope fails safely; requests never initiate
 Sleeper/Tank01 collection or write to Neon.
 
-The first player expansion makes one bulk request shared by every player on the
-board. Additional player taps reuse that result. Active-week pages check again
+The first starter-row expansion makes one bulk request shared by every player on
+the board. Additional row taps reuse that result. Active-week pages check again
 three minutes after each existing noon-through-midnight Eastern collection slot.
 Historical pages load on demand without scheduled polling. Hidden pages cancel
 in-flight requests and do not make statistics checks. Requests have a 15-second
@@ -71,8 +74,8 @@ states the freshness actually available.
 
 Unit coverage exercises positional display, zero/missing/negative values, exact
 scope, a single accepted raw capture, bounded identity selection, disabled-store
-silence and safe HTTP failure. Browser fixtures exercise independent tap/keyboard
-disclosures, unchanged summary geometry, shared retrieval, hourly updates and
+silence and safe HTTP failure. Browser fixtures exercise paired tap/keyboard
+disclosures, independent slots, unchanged summary geometry, shared retrieval, hourly updates and
 navigation isolation. Those fixtures do not prove a deployed database connection;
 check the real endpoint and observed player values for both leagues after release.
 

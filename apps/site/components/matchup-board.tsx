@@ -50,22 +50,18 @@ function TeamMeta({ team, opposite, avatar }: { team: Team; opposite?: boolean; 
   </span>;
 }
 
-function Starter({ player, opposite, high, pending, boxScoreExpanded = false, boxScorePanelId, onBoxScoreToggle }: {
+function Starter({ player, opposite, high, pending }: {
   player?: Player; opposite?: boolean; high?: boolean; pending?: boolean;
-  boxScoreExpanded?: boolean; boxScorePanelId?: string; onBoxScoreToggle?: () => void;
 }) {
-  const scoreId = useId();
   const name = player?.name || (pending ? 'Not posted' : 'Empty slot');
   const injury = injuryStatusLabel(player?.injuryStatus);
   const game = player?.game ? formatNflGame(player.game) : null;
-  const expandable = player && canExpandPlayerBoxScore(player) && boxScorePanelId && onBoxScoreToggle;
   return <div className={`${styles.player} ${opposite ? styles.rightPlayer : ''}`}>
     <div className={styles.playerInfo}>
       <span className={styles.playerName} data-player-name>
         <span className="sr-only">{name}</span>
         <span className={styles.fullName} aria-hidden="true">{name}</span>
         <span className={styles.shortName} aria-hidden="true">{compactPlayerName(name, player?.position)}</span>
-        {expandable && <svg className={`${styles.playerChevron} ${boxScoreExpanded ? styles.rotated : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>}
       </span>
       <small className={styles.playerMeta} data-player-meta>
         <span className={styles.playerDetails} data-player-details>
@@ -75,14 +71,10 @@ function Starter({ player, opposite, high, pending, boxScoreExpanded = false, bo
         {game && <span className={styles.game} data-player-game>{game}</span>}
       </small>
     </div>
-    <span id={scoreId} className={`${styles.playerPoints} ${high ? styles.higherScore : ''}`} data-player-score-side={opposite ? 'right' : 'left'} role="group" aria-label={`Official score ${spokenScore(player?.points)}; ${spokenProjection(player?.projectedPoints)}`}>
+    <span className={`${styles.playerPoints} ${high ? styles.higherScore : ''}`} data-player-score-side={opposite ? 'right' : 'left'} role="group" aria-label={`Official score ${spokenScore(player?.points)}; ${spokenProjection(player?.projectedPoints)}`}>
       <span className={styles.playerOfficial} data-player-score-number aria-hidden="true">{points(player?.points)}</span>
       <span className={styles.playerProjection} data-player-projection-number aria-hidden="true">{points(player?.projectedPoints)}</span>
     </span>
-    {expandable && <button type="button" className={styles.playerDisclosure}
-      data-player-box-score-toggle data-box-score-key={playerBoxScoreKey(player)} data-player-side={opposite ? 'right' : 'left'}
-      aria-label={`${name} game statistics`} aria-expanded={boxScoreExpanded} aria-controls={boxScorePanelId}
-      aria-describedby={scoreId} onClick={onBoxScoreToggle} />}
   </div>;
 }
 
@@ -108,7 +100,7 @@ function MatchupCard({ matchup, selected, avatar, boxScores, boxScoresLoading, o
 } & BoxScoreProps) {
   const site = useLeagueSite();
   const [expanded, setExpanded] = useState(false);
-  const [expandedPlayers, setExpandedPlayers] = useState<ReadonlySet<string>>(() => new Set());
+  const [expandedSlots, setExpandedSlots] = useState<ReadonlySet<string>>(() => new Set());
   const panelId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
   const left = matchup.sides[0];
@@ -116,9 +108,9 @@ function MatchupCard({ matchup, selected, avatar, boxScores, boxScoresLoading, o
   const mine = matchup.sides.some(side => side.team.id === selected);
   const count = Math.max(left?.starters.length || 0, right?.starters.length || 0);
 
-  function togglePlayer(key: string) {
-    const opening = !expandedPlayers.has(key);
-    setExpandedPlayers((current) => {
+  function toggleSlot(key: string) {
+    const opening = !expandedSlots.has(key);
+    setExpandedSlots((current) => {
       const next = new Set(current);
       if (opening) next.add(key);
       else next.delete(key);
@@ -193,26 +185,30 @@ function MatchupCard({ matchup, selected, avatar, boxScores, boxScoresLoading, o
           const a = left.starters[index];
           const b = right?.starters[index];
           const comparable = typeof a?.points === 'number' && typeof b?.points === 'number';
-          const aKey = a ? `${left.team.id}:${playerBoxScoreKey(a)}` : '';
-          const bKey = b && right ? `${right.team.id}:${playerBoxScoreKey(b)}` : '';
+          const slot = a?.slot || b?.slot || '—';
+          const slotKey = `${index}-${slot}`;
           const aEligible = canExpandPlayerBoxScore(a);
           const bEligible = canExpandPlayerBoxScore(b);
-          const aExpanded = aEligible && expandedPlayers.has(aKey);
-          const bExpanded = bEligible && expandedPlayers.has(bKey);
+          const expandable = aEligible || bEligible;
+          const rowExpanded = expandable && expandedSlots.has(slotKey);
+          const rowPanelId = `${panelId}-starter-${index}`;
           const aPanelId = `${panelId}-player-${index}-left`;
           const bPanelId = `${panelId}-player-${index}-right`;
-          return <Fragment key={`${index}-${a?.slot || b?.slot || 'slot'}`}>
+          return <Fragment key={slotKey}>
             <div className={styles.playerRow}>
-              <Starter player={a} high={comparable && a!.points! > b!.points!}
-                boxScoreExpanded={aExpanded} boxScorePanelId={aPanelId} onBoxScoreToggle={() => togglePlayer(aKey)} />
-              <span className={styles.slot}>{a?.slot || b?.slot || '—'}</span>
-              <Starter player={b} opposite pending={!right} high={comparable && b!.points! > a!.points!}
-                boxScoreExpanded={bExpanded} boxScorePanelId={bPanelId} onBoxScoreToggle={() => togglePlayer(bKey)} />
+              <Starter player={a} high={comparable && a!.points! > b!.points!} />
+              <span className={styles.slot}>{slot}</span>
+              <Starter player={b} opposite pending={!right} high={comparable && b!.points! > a!.points!} />
+              {expandable && <button type="button" className={styles.starterDisclosure}
+                data-starter-box-score-toggle data-starter-index={index}
+                aria-label={`${slot} row ${index + 1} game statistics for both teams`}
+                aria-expanded={rowExpanded} aria-controls={rowPanelId} onClick={() => toggleSlot(slotKey)} />}
             </div>
-            {(aEligible || bEligible) && <div className={styles.boxScoreRow} hidden={!aExpanded && !bExpanded}>
-              {aEligible && a && <PlayerBoxScore player={a} panelId={aPanelId} expanded={aExpanded}
+            {expandable && <div id={rowPanelId} className={styles.boxScoreRow}
+              data-starter-box-score-row data-starter-index={index} hidden={!rowExpanded}>
+              {aEligible && a && <PlayerBoxScore player={a} panelId={aPanelId} expanded={rowExpanded}
                 boxScores={boxScores} boxScoresLoading={boxScoresLoading} />}
-              {bEligible && b && <PlayerBoxScore player={b} panelId={bPanelId} expanded={bExpanded} opposite
+              {bEligible && b && <PlayerBoxScore player={b} panelId={bPanelId} expanded={rowExpanded} opposite
                 boxScores={boxScores} boxScoresLoading={boxScoresLoading} />}
             </div>}
           </Fragment>;
