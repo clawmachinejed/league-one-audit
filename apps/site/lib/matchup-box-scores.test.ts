@@ -1,31 +1,30 @@
 import { describe, expect, it } from 'vitest';
-import { boxScoreGroups, boxScoreObservedLabel, boxScoreResponseMatchesScope, canExpandPlayerBoxScore, playerBoxScoreKey } from './matchup-box-scores';
+import { boxScoreSummary, boxScoreObservedLabel, boxScoreResponseMatchesScope, canExpandPlayerBoxScore, playerBoxScoreKey } from './matchup-box-scores';
 import { snapshotFixture } from '../test-support/matchup-snapshot-fixtures';
 import { nextBoxScoreRefreshAt } from '../components/use-matchup-box-scores';
 
 describe('position-specific actual box scores', () => {
   it('shows observed zeroes and negative yardage without fabricating absent statistics', () => {
-    expect(boxScoreGroups('QB', { pass_cmp: 0, pass_att: 0, rush_yd: -2, pass_td: 0, pts_ppr: 6 }))
-      .toEqual([
-        { label: 'Passing', stats: [{ label: 'Completions', value: '0' }, { label: 'Attempts', value: '0' }, { label: 'TD', value: '0' }] },
-        { label: 'Rushing', stats: [{ label: 'Yards', value: '-2' }] },
-      ]);
-    expect(boxScoreGroups('WR', {})).toEqual([]);
-    expect(boxScoreGroups('WR', { pos_rank_ppr: 1, pts_ppr: 14, rec_yd: NaN })).toEqual([]);
+    expect(boxScoreSummary('QB', { pass_cmp: 0, pass_att: 0, rush_yd: -2, pass_td: 0, pts_ppr: 6 }).map(stat => stat.text))
+      .toEqual(['0/0 CMP', '0 TD', '-2 YD']);
+    expect(boxScoreSummary('QB', { pass_cmp: 17 }).map(stat => stat.text)).toEqual(['17 CMP']);
+    expect(boxScoreSummary('QB', { pass_att: 27 }).map(stat => stat.text)).toEqual(['27 ATT']);
+    expect(boxScoreSummary('WR', {})).toEqual([]);
+    expect(boxScoreSummary('WR', { pos_rank_ppr: 1, pts_ppr: 14, rec_yd: NaN })).toEqual([]);
   });
 
   it.each(['RB', 'FB', 'WR', 'TE'])('%s shows receiving and relevant unusual offensive statistics', position => {
-    const groups = boxScoreGroups(position, { rec: 3, rec_tgt: 5, rec_yd: 41, rec_td: 0, pass_td: 1, rush_yd: 8, fum_lost: 1 });
-    expect(groups.map(group => group.label)).toEqual(['Passing', 'Rushing', 'Receiving', 'Fumbles']);
-    expect(groups.find(group => group.label === 'Receiving')?.stats).toContainEqual({ label: 'TD', value: '0' });
+    const summary = boxScoreSummary(position, { rec: 3, rec_tgt: 5, rec_yd: 41, rec_td: 0, pass_td: 1, rush_yd: 8, fum_lost: 1 });
+    expect(summary.map(stat => stat.text).join(', ')).toBe('1 TD, 8 YD, 3 REC, 5 TGT, 41 YD, 0 TD, 1 LOST');
+    expect(summary).toContainEqual({ text: '0 TD', description: 'Receiving: 0 TD' });
   });
 
   it('keeps kicking, defensive, and special teams statistics distinct', () => {
-    expect(boxScoreGroups('K', { fgm: 2, fga: 3, xpm: 0, xpa: 0, fgm_lng: 53, rec_yd: 0 })[0].stats)
-      .toContainEqual({ label: 'Longest FG', value: '53' });
-    const stats = boxScoreGroups('DEF', { sack: 2, int: 1, fum_rec: 0, def_td: 1, def_st_td: 1, pts_allow: 0, pts_ppr: 14 })[0].stats;
-    expect(stats).toContainEqual({ label: 'Points allowed', value: '0' });
-    expect(stats.filter(stat => stat.label.includes('TD'))).toEqual([{ label: 'Defense TD', value: '1' }, { label: 'Special teams TD', value: '1' }]);
+    expect(boxScoreSummary('K', { fgm: 2, fga: 3, xpm: 0, xpa: 0, fgm_lng: 53, rec_yd: 0 }).map(stat => stat.text))
+      .toEqual(['2/3 FG', '0/0 XP', '53 LNG']);
+    const stats = boxScoreSummary('DEF', { sack: 2, int: 1, fum_rec: 0, def_td: 1, def_st_td: 1, pts_allow: 0, pts_ppr: 14 });
+    expect(stats).toContainEqual({ text: '0 PA', description: 'Defense / special teams: 0 Points allowed' });
+    expect(stats.filter(stat => stat.text.includes('TD')).map(stat => stat.text)).toEqual(['1 TD', '1 ST TD']);
   });
 
   it('requires accepted live/final NFL state and keeps player and defense identities separate', () => {

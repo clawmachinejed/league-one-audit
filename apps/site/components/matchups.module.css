@@ -71,17 +71,13 @@
 .lineup[data-roomy-names=true] .rightPlayer .playerPoints { left:0; right:auto; }
 .lineup[data-roomy-names=true] .rightPlayer .playerMeta { margin-left:auto; }
 .boxScoreRow { display:grid; grid-template-columns:minmax(0,1fr) 30px minmax(0,1fr); column-gap:6px; align-items:start; padding:0 0 8px; }
-.boxScorePanel { grid-column:1; min-width:0; padding:7px; border:1px solid var(--line-soft); border-radius:7px; background:var(--surface-subtle); color:var(--ink); text-align:left; }
-.rightBoxScore { grid-column:3; }
+.boxScorePanel { grid-column:1; min-width:0; color:var(--ink); text-align:left; }
+.rightBoxScore { grid-column:3; text-align:right; }
 .boxScoreRow[hidden],.boxScorePanel[hidden] { display:none; }
-.boxScoreGroup + .boxScoreGroup { margin-top:9px; }
-.boxScoreGroup h3 { margin:0 0 5px; font-size:10px; line-height:13px; font-weight:600; color:var(--green); overflow-wrap:anywhere; }
-.boxScoreGroup dl { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; margin:0; }
-.boxScoreStat { min-width:0; }
-.boxScoreStat dt { font-size:9px; line-height:12px; color:var(--muted); overflow-wrap:anywhere; }
-.boxScoreStat dd { margin:1px 0 0; font-size:12px; line-height:15px; font-weight:600; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
+.boxScoreSummary { margin:0; font-size:10px; line-height:14px; font-variant-numeric:tabular-nums; }
+.boxScoreSummary span { white-space:nowrap; }
 .boxScoreMessage { margin:0; font-size:10px; line-height:14px; color:var(--muted); }
-.boxScoreObserved { margin:8px 0 0; font-size:9px; line-height:12px; color:var(--muted); overflow-wrap:anywhere; }
+.boxScoreObserved { margin:8px 0 0; font-size:9px; line-height:12px; color:var(--muted); text-align:center; overflow-wrap:anywhere; }
 .boxScoreObserved span { display:block; }
 .lineupNote { font-size:10px; line-height:14px; color:var(--muted); text-align:center; padding:8px 0; }
 .unavailable { font-size:12px; line-height:1.5; padding:18px 4px; color:var(--muted); }

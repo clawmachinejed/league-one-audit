@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { LEAGUE_IDS } from '../lib/config';
 import type { MatchupPeriodContext } from '../lib/matchup-period';
 import type { MatchupBoxScores } from '../lib/matchup-box-score-types';
@@ -11,6 +11,7 @@ const RIGHT = 'player:fixture-player-1';
 const UNKNOWN = 'player:fixture-missing';
 const DEFENSE = 'defense:BAL';
 const FRESH_LINEAGE = '2099-09-03T12:00:00.000Z';
+const quarterbackSummary = (yards = 209) => `17/27 CMP, ${yards} YD, 1 TD, 1 INT, 5 CAR, 29 YD`;
 
 function deferred() {
   let resolve!: () => void;
@@ -20,11 +21,11 @@ function deferred() {
 
 function boardFixture(week = 1) {
   const data = snapshotFixture(week);
-  data.league.rosterPositions = ['WR', 'RB', 'FLEX'];
+  data.league.rosterPositions = ['QB', 'RB', 'FLEX'];
   const matchup = data.matchups[0];
   matchup.status = 'live';
   const [left, right] = matchup.sides;
-  left.starters[0] = { ...left.starters[0], name: 'Fixture Receiver One', position: 'WR', slot: 'WR',
+  left.starters[0] = { ...left.starters[0], name: 'Fixture Quarterback One', position: 'QB', slot: 'QB',
     game: { kind: 'scheduled', opponent: 'TEN', location: 'away', date: '2026-09-13', kickoffAt: '2026-09-13T17:00:00.000Z',
       liveScore: { teamScore: 7, opponentScore: 3, phase: 'q2', clockSeconds: 300 } } };
   right.starters[0] = { ...right.starters[0], name: 'Fixture Receiver Two', position: 'WR', slot: 'WR',
@@ -41,7 +42,7 @@ function boardFixture(week = 1) {
 
 async function openFixture(page: Page, league: League = 'league1') {
   const state = {
-    receptions: 3, boxStatus: 200, observedAt: '2026-09-13T16:00:00.000Z',
+    passingYards: 209, boxStatus: 200, observedAt: '2026-09-13T16:00:00.000Z',
     boxRequests: [] as Array<{ league: string; season: string | null; week: number; queryKeys: string[] }>,
     compactCount: 0, fullCount: 0, documentCount: 0,
     holdBox: null as Promise<void> | null, completedBoxes: 0, abortedBoxes: [] as string[], providerRequests: [] as string[],
@@ -88,8 +89,9 @@ async function openFixture(page: Page, league: League = 'league1') {
       state.boxRequests.push({ league: requestedLeague, season: url.searchParams.get('season'), week,
         queryKeys: [...url.searchParams.keys()].sort() });
       const payload: MatchupBoxScores = { leagueKey: requestedLeague, season: '2026', week, status: 'available',
-        observedAt: state.observedAt, revision: `box-${state.receptions}`, players: {
-          [LEFT]: { stats: { rec: state.receptions, rec_tgt: 5, rec_yd: 26, rec_td: 0 }, gamePhase: 'live' },
+        observedAt: state.observedAt, revision: `box-${state.passingYards}`, players: {
+          [LEFT]: { stats: { pass_cmp: 17, pass_att: 27, pass_yd: state.passingYards, pass_td: 1,
+            pass_int: 1, rush_att: 5, rush_yd: 29 }, gamePhase: 'live' },
           [RIGHT]: { stats: { rec: 5, rec_yd: 61, rec_td: 1 }, gamePhase: 'final' },
           [DEFENSE]: { stats: { sack: 2, int: 1, pts_allow: 17 }, gamePhase: 'final' },
         } };
@@ -125,9 +127,6 @@ function toggle(page: Page, key: string, side: 'left' | 'right') {
 function panel(page: Page, key: string, side: 'left' | 'right') {
   return page.locator(`[data-player-box-score][data-box-score-key="${key}"][data-player-side="${side}"]`);
 }
-function stat(panel: Locator, label: string) {
-  return panel.locator('dl > div').filter({ has: panel.page().getByText(label, { exact: true }) }).locator('dd');
-}
 async function visibility(page: Page, value: 'visible' | 'hidden') {
   await page.evaluate((state) => {
     Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state });
@@ -140,7 +139,7 @@ for (const league of ['league1', 'league2'] as const) {
     const state = await openFixture(page, league);
     const left = toggle(page, LEFT, 'left');
     const right = toggle(page, RIGHT, 'right');
-    await expect(left).toHaveAccessibleName('Fixture Receiver One game statistics');
+    await expect(left).toHaveAccessibleName('Fixture Quarterback One game statistics');
     await expect(right).toHaveAccessibleName('Fixture Receiver Two game statistics');
     await expect(left).toHaveAttribute('aria-expanded', 'false');
     await expect(right).toHaveAttribute('aria-expanded', 'false');
@@ -148,21 +147,21 @@ for (const league of ['league1', 'league2'] as const) {
     await expect(page.getByRole('button', { name: 'Fixture Bye Player game statistics' })).toHaveCount(0);
     expect(state.boxRequests).toHaveLength(0);
     await left.click();
-    await expect(stat(panel(page, LEFT, 'left'), 'Receptions')).toHaveText('3');
+    await expect(panel(page, LEFT, 'left').locator('[data-box-score-summary]')).toHaveText(quarterbackSummary());
     await expect(right).toHaveAttribute('aria-expanded', 'false');
     await right.focus();
     await right.press('Enter');
-    await expect(stat(panel(page, RIGHT, 'right'), 'Receptions')).toHaveText('5');
+    await expect(panel(page, RIGHT, 'right').locator('[data-box-score-summary]')).toHaveText('5 REC, 61 YD, 1 TD');
     await expect(left).toHaveAttribute('aria-expanded', 'true');
     await right.press('Space');
     await expect(panel(page, RIGHT, 'right')).toBeHidden();
     await expect(panel(page, LEFT, 'left')).toBeVisible();
     await right.press('Enter');
     await toggle(page, UNKNOWN, 'left').click();
-    await expect(panel(page, UNKNOWN, 'left')).toContainText('Statistics not available yet.');
-    await expect(panel(page, UNKNOWN, 'left').locator('dd')).toHaveCount(0);
+    await expect(panel(page, UNKNOWN, 'left')).toHaveText('Statistics not available yet.');
     await toggle(page, DEFENSE, 'right').click();
-    await expect(stat(panel(page, DEFENSE, 'right'), 'Sacks')).toHaveText('2');
+    await expect(panel(page, DEFENSE, 'right').locator('[data-box-score-summary]')).toHaveText('2 SACK, 1 INT, 17 PA');
+    await expect(page.locator('[data-box-score-source]')).toHaveCount(1);
     expect(state.boxRequests).toEqual([{ league, season: '2026', week: 1, queryKeys: ['season', 'week'] }]);
 
     for (const width of [360, 390, 430, 1280]) {
@@ -177,6 +176,9 @@ for (const league of ['league1', 'league2'] as const) {
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
       const target = await left.boundingBox();
       expect(target?.height).toBeGreaterThanOrEqual(44);
+      if (league === 'league1' && width === 390) {
+        await page.screenshot({ path: '../../test-results/compact-box-score-mobile.png', fullPage: true });
+      }
     }
     await left.click();
     await expect(panel(page, LEFT, 'left')).toBeHidden();
@@ -185,12 +187,12 @@ for (const league of ['league1', 'league2'] as const) {
     expect(state.boxRequests).toHaveLength(1);
     expect(state.providerRequests).toEqual([]);
 
-    state.receptions = 7;
+    state.passingYards = 247;
     state.observedAt = '2026-09-13T16:02:00.000Z';
     await page.clock.runFor(59_999);
     expect(state.boxRequests).toHaveLength(1);
     await page.clock.runFor(1);
-    await expect(stat(panel(page, LEFT, 'left'), 'Receptions')).toHaveText('7');
+    await expect(panel(page, LEFT, 'left').locator('[data-box-score-summary]')).toHaveText(quarterbackSummary(247));
     expect(state.boxRequests).toHaveLength(2);
     expect(state.fullCount).toBe(1);
     await expect(left).toHaveAttribute('aria-expanded', 'true');
@@ -198,8 +200,8 @@ for (const league of ['league1', 'league2'] as const) {
     state.boxStatus = 503;
     await page.clock.fastForward(3_600_000);
     await expect.poll(() => state.completedBoxes).toBe(3);
-    await expect(stat(panel(page, LEFT, 'left'), 'Receptions')).toHaveText('7');
-    await expect(panel(page, LEFT, 'left')).toContainText('12:02 PM ET');
+    await expect(panel(page, LEFT, 'left').locator('[data-box-score-summary]')).toHaveText(quarterbackSummary(247));
+    await expect(page.locator('[data-box-score-source]')).toContainText('12:02 PM ET');
     await expect(left).toHaveAttribute('aria-expanded', 'true');
     expect(state.fullCount).toBe(1);
     expect(state.providerRequests).toEqual([]);
@@ -209,10 +211,10 @@ for (const league of ['league1', 'league2'] as const) {
 test('hidden boards abort an outstanding box-score refresh and catch up once when visible', async ({ page }) => {
   const state = await openFixture(page);
   await toggle(page, LEFT, 'left').click();
-  await expect(stat(panel(page, LEFT, 'left'), 'Receptions')).toHaveText('3');
+  await expect(panel(page, LEFT, 'left').locator('[data-box-score-summary]')).toHaveText(quarterbackSummary());
   const held = deferred();
   state.holdBox = held.promise;
-  state.receptions = 99;
+  state.passingYards = 999;
   await page.clock.runFor(60_000);
   await expect.poll(() => state.boxRequests.length).toBe(2);
   await visibility(page, 'hidden');
@@ -221,10 +223,10 @@ test('hidden boards abort an outstanding box-score refresh and catch up once whe
   await expect.poll(() => state.abortedBoxes.length).toBe(1);
   await page.clock.runFor(3_600_000);
   expect(state.boxRequests).toHaveLength(2);
-  await expect(stat(panel(page, LEFT, 'left'), 'Receptions')).toHaveText('3');
-  state.receptions = 8;
+  await expect(panel(page, LEFT, 'left').locator('[data-box-score-summary]')).toHaveText(quarterbackSummary());
+  state.passingYards = 258;
   await visibility(page, 'visible');
-  await expect(stat(panel(page, LEFT, 'left'), 'Receptions')).toHaveText('8');
+  await expect(panel(page, LEFT, 'left').locator('[data-box-score-summary]')).toHaveText(quarterbackSummary(258));
   expect(state.boxRequests).toHaveLength(3);
   await expect(toggle(page, LEFT, 'left')).toHaveAttribute('aria-expanded', 'true');
 });
@@ -235,7 +237,7 @@ for (const destination of ['league', 'week'] as const) {
     const state = await openFixture(page);
     const held = deferred();
     state.holdBox = held.promise;
-    state.receptions = 987654321;
+    state.passingYards = 987654321;
     await toggle(page, LEFT, 'left').click();
     await expect.poll(() => state.boxRequests.length).toBe(1);
     if (destination === 'league') {
@@ -254,7 +256,7 @@ for (const destination of ['league', 'week'] as const) {
     await expect.poll(() => state.abortedBoxes.length).toBe(1);
     await page.clock.runFor(1);
     await expect(panel(page, LEFT, 'left')).toHaveCount(0);
-    await expect(page.getByText('987654321', { exact: true })).toHaveCount(0);
+    await expect(page.getByText(/987654321/u)).toHaveCount(0);
     expect(state.boxRequests).toEqual([{ league: 'league1', season: '2026', week: 1, queryKeys: ['season', 'week'] }]);
   });
 }
