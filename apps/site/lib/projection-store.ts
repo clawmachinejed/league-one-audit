@@ -20,6 +20,7 @@ import { createFullLineupObservationMethods } from './projections/adapters/neon/
 import { createProjectionMethods } from './projections/adapters/neon/projections';
 import { createAllPlayerStatisticMethods } from './projections/adapters/neon/all-player-statistics';
 import { createAllPlayerMetricMethods } from './projections/adapters/neon/all-player-metrics';
+import { createAllPlayerBoxScoreMethods } from './projections/adapters/neon/all-player-box-scores';
 import { createAllPlayerContextMethods } from './projections/adapters/neon/all-player-context';
 import { createProjectionSlateMethods } from './projections/adapters/neon/projection-slates';
 import { createRetentionMethods } from './projections/adapters/neon/retention';
@@ -114,6 +115,7 @@ export function createProjectionStore(database: Database = getDatabase()): Proje
   const projections = createProjectionMethods(client);
   const allPlayerStatistics = createAllPlayerStatisticMethods(client);
   const allPlayerMetrics = createAllPlayerMetricMethods(client);
+  const allPlayerBoxScores = createAllPlayerBoxScoreMethods(client);
   const allPlayerContext = createAllPlayerContextMethods(client);
   const projectionSlates = createProjectionSlateMethods(client);
   const observations = createObservationMethods(client);
@@ -164,6 +166,7 @@ export function createProjectionStore(database: Database = getDatabase()): Proje
     recordProjectionCandidates: projections.recordProjectionCandidates,
     recordAllPlayerBatch: allPlayerStatistics.recordAllPlayerBatch,
     readAllPlayerPlayerMetrics: allPlayerMetrics.readAllPlayerPlayerMetrics,
+    readAllPlayerBoxScores: allPlayerBoxScores.readAllPlayerBoxScores,
     acquireAllPlayerJob: jobs.acquireAllPlayerJob,
     readAllPlayerJobState: jobs.readAllPlayerJobState,
     validateAllPlayerJobFence: jobs.validateAllPlayerJobFence,

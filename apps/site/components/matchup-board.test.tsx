@@ -1,5 +1,5 @@
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { LEAGUE_SITES } from '../lib/leagues';
 import type { Matchup, Player, Team } from '../lib/types';
 import { LeagueSiteProvider } from './league-context';
@@ -36,6 +36,56 @@ const player = (id: string, projectedPoints: number | null): Player => ({
 });
 
 describe('MatchupBoard player projection presentation', () => {
+  it('offers independent, initially collapsed live/final disclosures without nesting the score groups in buttons or loading data', () => {
+    const live = player('live', 20);
+    const final = player('final', 21);
+    live.game = { kind: 'scheduled', opponent: 'TEN', location: 'away', date: '2026-09-13',
+      kickoffAt: '2026-09-13T17:00:00.000Z',
+      liveScore: { teamScore: 23, opponentScore: 10, phase: 'q3', clockSeconds: 165 } };
+    final.game = { kind: 'scheduled', opponent: 'NYJ', location: 'home', date: '2026-09-13',
+      kickoffAt: '2026-09-13T17:00:00.000Z', finalScore: { teamScore: 10, opponentScore: 24 } };
+    const onBoxScoreOpen = vi.fn();
+    const html = renderToStaticMarkup(<LeagueSiteProvider site={LEAGUE_SITES.league1}>
+      <MatchupBoard matchups={[{ id: '1', status: 'live', sides: [
+        { team: team(1), points: 23.2, projectedPoints: 30, starters: [live] },
+        { team: team(2), points: 23.2, projectedPoints: 31, starters: [final] },
+      ] }]} selected={null} avatar={() => null} onBoxScoreOpen={onBoxScoreOpen} />
+    </LeagueSiteProvider>);
+    const controls = [...html.matchAll(/<button[^>]*data-player-box-score-toggle="true"[^>]*><\/button>/gu)].map((match) => match[0]);
+    expect(controls).toHaveLength(2);
+    const panelIds: string[] = [];
+    for (const [index, control] of controls.entries()) {
+      expect(control).toContain('aria-expanded="false"');
+      expect(control).toContain(`aria-label="Player ${index ? 'final' : 'live'} game statistics"`);
+      expect(control).toContain(`data-player-side="${index ? 'right' : 'left'}"`);
+      const panelId = /aria-controls="([^"]+)"/u.exec(control)![1];
+      const scoreId = /aria-describedby="([^"]+)"/u.exec(control)![1];
+      panelIds.push(panelId);
+      const section = [...html.matchAll(/<section[^>]*>/gu)].map((match) => match[0])
+        .find((section) => section.includes(`id="${panelId}"`));
+      expect(section).toContain('hidden=""');
+      expect(html).toContain(`<span id="${scoreId}"`);
+    }
+    expect(new Set(panelIds).size).toBe(2);
+    expect([...html.matchAll(/role="group" aria-label="Official score/gu)]).toHaveLength(2);
+    expect(onBoxScoreOpen).not.toHaveBeenCalled();
+  });
+
+  it('does not expose a box-score control for scheduled, bye, or unknown games despite current Active metadata and nonzero points', () => {
+    const scheduled = { ...player('scheduled', 10), injuryStatus: 'Active' };
+    const bye = { ...player('bye', 10), injuryStatus: 'Active', game: { kind: 'bye' as const } };
+    const unknown = { ...player('unknown', 10), injuryStatus: 'Active', game: null };
+    const html = renderToStaticMarkup(<LeagueSiteProvider site={LEAGUE_SITES.league1}>
+      <MatchupBoard matchups={[{ id: '1', status: 'live', sides: [
+        { team: team(1), points: 69.6, projectedPoints: 30, starters: [scheduled, bye, unknown] },
+      ] }]} selected={null} avatar={() => null} />
+    </LeagueSiteProvider>);
+    expect(html).not.toContain('data-player-box-score-toggle');
+    expect(html).not.toContain('data-player-box-score="true"');
+    expect([...html.matchAll(/data-player-name="true"/gu)]).toHaveLength(6);
+    expect(html).toContain('Official score 23.20 points');
+  });
+
   it.each(['league1', 'league2'] as const)('%s shows each live NFL clock and Half label without changing fantasy points', (league) => {
     const away = player('away', 20);
     const home = player('home', 21);

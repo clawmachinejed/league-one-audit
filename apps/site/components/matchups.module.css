@@ -35,12 +35,16 @@
 .lineup[hidden] { display:none; }
 .playerRow { display:grid; grid-template-columns:minmax(0,1fr) 30px minmax(0,1fr); gap:6px; align-items:center; height:52px; padding:4px 0; border-top:1px solid var(--line); }
 .playerRow:first-child { border-top-color:transparent; }
-.player { min-width:0; display:grid; grid-template-columns:minmax(0,1fr) 31px; align-items:center; gap:4px; font-size:12px; line-height:16px; }
+.player { position:relative; min-width:0; display:grid; grid-template-columns:minmax(0,1fr) 31px; align-items:center; gap:4px; font-size:12px; line-height:16px; }
 .playerInfo { min-width:0; }
 .playerName { display:block; white-space:nowrap; line-height:16px; font-size:12px; }
 .shortName { display:none; }
 .playerName[data-compact=true] .fullName { display:none; }
 .playerName[data-compact=true] .shortName { display:inline; }
+.playerChevron { display:inline-block; width:8px; height:8px; margin-left:2px; vertical-align:1px; color:var(--green); transition:transform .14s ease; }
+.playerDisclosure { position:absolute; z-index:1; top:50%; left:0; width:100%; height:44px; transform:translateY(-50%); padding:0; border:0; border-radius:5px; background:transparent; cursor:pointer; }
+.playerDisclosure:focus-visible { outline:2px solid var(--focus); outline-offset:-2px; }
+.player:has(.playerDisclosure:hover) .playerName,.player:has(.playerDisclosure[aria-expanded=true]) .playerName { color:var(--green); }
 .playerMeta { display:grid; justify-items:start; color:var(--muted); font-size:10px; line-height:13px; margin-top:1px; white-space:nowrap; font-weight:400; }
 .playerDetails { display:flex; gap:5px; min-width:0; white-space:nowrap; }
 .game { color:var(--ink); font-size:9px; line-height:12px; white-space:nowrap; }
@@ -66,6 +70,19 @@
 .lineup[data-roomy-names=true] .playerPoints { position:absolute; top:0; right:0; width:31px; }
 .lineup[data-roomy-names=true] .rightPlayer .playerPoints { left:0; right:auto; }
 .lineup[data-roomy-names=true] .rightPlayer .playerMeta { margin-left:auto; }
+.boxScoreRow { display:grid; grid-template-columns:minmax(0,1fr) 30px minmax(0,1fr); column-gap:6px; align-items:start; padding:0 0 8px; }
+.boxScorePanel { grid-column:1; min-width:0; padding:7px; border:1px solid var(--line-soft); border-radius:7px; background:var(--surface-subtle); color:var(--ink); text-align:left; }
+.rightBoxScore { grid-column:3; }
+.boxScoreRow[hidden],.boxScorePanel[hidden] { display:none; }
+.boxScoreGroup + .boxScoreGroup { margin-top:9px; }
+.boxScoreGroup h3 { margin:0 0 5px; font-size:10px; line-height:13px; font-weight:600; color:var(--green); overflow-wrap:anywhere; }
+.boxScoreGroup dl { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; margin:0; }
+.boxScoreStat { min-width:0; }
+.boxScoreStat dt { font-size:9px; line-height:12px; color:var(--muted); overflow-wrap:anywhere; }
+.boxScoreStat dd { margin:1px 0 0; font-size:12px; line-height:15px; font-weight:600; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
+.boxScoreMessage { margin:0; font-size:10px; line-height:14px; color:var(--muted); }
+.boxScoreObserved { margin:8px 0 0; font-size:9px; line-height:12px; color:var(--muted); overflow-wrap:anywhere; }
+.boxScoreObserved span { display:block; }
 .lineupNote { font-size:10px; line-height:14px; color:var(--muted); text-align:center; padding:8px 0; }
 .unavailable { font-size:12px; line-height:1.5; padding:18px 4px; color:var(--muted); }
 .profileLinks { display:flex; justify-content:space-between; gap:12px; border-top:1px solid var(--line); }
@@ -82,4 +99,4 @@
   .season { font-size:11px; line-height:14px; }
   .board { grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
 }
-@media(prefers-reduced-motion:reduce) { .chevron { transition:none; } }
+@media(prefers-reduced-motion:reduce) { .chevron,.playerChevron { transition:none; } }
