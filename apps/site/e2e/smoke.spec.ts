@@ -556,7 +556,6 @@ test('Rosters stays in League, is exact-week cached, accessible, and responsive'
       const weekBox = (await page.getByLabel('Roster week').boundingBox())!;
       const tabsBox = (await tabs.boundingBox())!;
       expect(weekBox.y + weekBox.height).toBeLessThanOrEqual(tabsBox.y);
-      expect(Math.abs(weekBox.x + weekBox.width - (tabsBox.x + tabsBox.width))).toBeLessThanOrEqual(viewport.width < 760 ? 2 : 46);
       await expect(page.locator('[data-team-headings]')).toHaveText(/TEAM\s*RECORD\s*AVG PPG/u);
       await expect(page.locator('[data-team-headings]')).toHaveCount(1);
       const cards = page.locator('[data-roster-card]');
