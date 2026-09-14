@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { LEAGUE_SITES, leagueSiteForPathname } from './leagues';
 
 describe('league route identity', () => {
-  it('uses the dedicated League Two PNG brand asset', () => {
-    expect(LEAGUE_SITES.league2.logo).toBe('/league2-logo.png');
+  it('uses the provided JPEG brand assets for each league', () => {
+    expect(LEAGUE_SITES.league1.logo).toBe('/league-one-logo-63ab193e.jpg');
+    expect(LEAGUE_SITES.league2.logo).toBe('/league-two-logo-6c951682.jpg');
   });
 
   it.each(['/league2', '/league2/matchups', '/league2/managers/3/transactions'])(

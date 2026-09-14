@@ -5,7 +5,7 @@ export interface LeagueSite {
   name: 'League One' | 'League Two';
   brand: 'LEAGUE ONE' | 'LEAGUE TWO';
   prefix: '' | '/league2';
-  logo: '/logo.png' | '/league2-logo.png';
+  logo: '/league-one-logo-63ab193e.jpg' | '/league-two-logo-6c951682.jpg';
 }
 
 export const LEAGUE_SITES: Record<LeagueKey, LeagueSite> = {
@@ -14,14 +14,14 @@ export const LEAGUE_SITES: Record<LeagueKey, LeagueSite> = {
     name: 'League One',
     brand: 'LEAGUE ONE',
     prefix: '',
-    logo: '/logo.png',
+    logo: '/league-one-logo-63ab193e.jpg',
   },
   league2: {
     key: 'league2',
     name: 'League Two',
     brand: 'LEAGUE TWO',
     prefix: '/league2',
-    logo: '/league2-logo.png',
+    logo: '/league-two-logo-6c951682.jpg',
   },
 };
 
