@@ -2,6 +2,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 import { LEAGUE_IDS } from '../lib/config';
 import type { MatchupPeriodContext } from '../lib/matchup-period';
 import type { MatchupBoxScores } from '../lib/matchup-box-score-types';
+import { isMatchupsData } from '../lib/matchups-response';
 import { contextFixture, snapshotFixture, snapshotHeaders, SNAPSHOT_A, SNAPSHOT_B } from '../test-support/matchup-snapshot-fixtures';
 
 type League = 'league1' | 'league2';
@@ -34,6 +35,7 @@ function boardFixture(week = 1) {
   right.starters.push({ ...right.starters[0], id: 'fixture-upcoming', name: 'Fixture Upcoming Player', slot: 'RB',
     game: { kind: 'scheduled', opponent: 'KC', location: 'away', date: '2026-09-14', kickoffAt: '2026-09-15T00:15:00.000Z' } },
   { ...right.starters[0], id: 'BAL', name: 'Baltimore Ravens', position: 'DEF', nflTeam: 'BAL', slot: 'FLEX' });
+  expect(isMatchupsData(data), 'the intercepted board must pass the real snapshot boundary').toBe(true);
   return data;
 }
 
@@ -45,6 +47,9 @@ async function openFixture(page: Page, league: League = 'league1') {
     holdBox: null as Promise<void> | null, completedBoxes: 0, abortedBoxes: [] as string[], providerRequests: [] as string[],
   };
   await page.clock.install({ time: new Date('2026-09-13T16:00:00.000Z') });
+  // Pause before hydration starts its interval. Advancing an existing interval
+  // here could start a request that the next clock jump immediately times out.
+  await page.clock.pauseAt(new Date('2026-09-13T16:01:00.000Z'));
   await page.addInitScript((keys) => keys.forEach((key) => localStorage.setItem(key, '2')),
     [LEAGUE_IDS.league1, LEAGUE_IDS.league2].map((id) => `league-one:my-team:${id}`));
   page.on('request', (request) => {
@@ -105,9 +110,9 @@ async function openFixture(page: Page, league: League = 'league1') {
   });
   await page.goto(`${league === 'league2' ? '/league2' : ''}/matchups?week=1`, { waitUntil: 'networkidle' });
   expect(state.documentCount).toBe(1);
-  await page.clock.pauseAt(new Date('2026-09-13T16:01:00.000Z'));
-  await page.clock.runFor(60_000);
+  await page.clock.runFor(61_000);
   await expect(page.getByText('Fixture Alpha', { exact: true })).toBeVisible();
+  await page.clock.setSystemTime(new Date('2026-09-13T16:02:00.000Z'));
   expect(state.fullCount).toBe(1);
   expect(state.boxRequests).toHaveLength(0);
   await page.locator('[data-matchup-toggle]').first().click();

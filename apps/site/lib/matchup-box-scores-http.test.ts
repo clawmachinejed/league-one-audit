@@ -63,7 +63,7 @@ describe('Matchups box-score HTTP boundary', () => {
     const original = JSON.stringify(test.stored.snapshot);
     const response = await handleMatchupBoxScoresRequest(request(), league, test.store, now);
     expect(response.status).toBe(200);
-    expect(response.headers.get('cache-control')).toBe('public, max-age=0, s-maxage=60');
+    expect(response.headers.get('cache-control')).toBe('no-store');
     expect(await response.json()).toEqual({
       leagueKey: league, season: '2026', week: 1, ...test.values,
     });
@@ -82,6 +82,22 @@ describe('Matchups box-score HTTP boundary', () => {
     const response = await handleMatchupBoxScoresRequest(request(), 'league1', test.store, now);
     expect(response.status).toBe(200);
     expect(test.boxRead.mock.calls[0][0]).toMatchObject({ season: 2026, week: 1 });
+  });
+
+  it('does not cache a former lineup under the same season/week URL', async () => {
+    const test = fixture();
+    const first = await handleMatchupBoxScoresRequest(request(), 'league1', test.store, now);
+    expect(first.headers.get('cache-control')).toBe('no-store');
+    test.payload.matchups[0].sides[0].starters[0] = {
+      ...test.payload.matchups[0].sides[0].starters[0], id: '11292',
+    };
+    test.values.players['player:11292'] = { stats: { pass_att: 0 }, gamePhase: 'final' };
+    const next = await handleMatchupBoxScoresRequest(request(), 'league1', test.store, now);
+    expect(next.headers.get('cache-control')).toBe('no-store');
+    const result = await next.json();
+    expect(result.players['player:11292']).toEqual({ stats: { pass_att: 0 }, gamePhase: 'final' });
+    expect(result.players['player:5859']).toBeUndefined();
+    expect(test.boxRead).toHaveBeenCalledTimes(2);
   });
 
   it('does not read actuals for a future selection or a requested different season', async () => {

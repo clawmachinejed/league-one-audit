@@ -41,6 +41,8 @@ to the existing matchup transport. Its response has its own statistics revision
 and source observation time. It never changes the immutable Matchups payload,
 snapshot revision or compact/full protocol. The server validates league, exact
 season/week and accepted snapshot scope before the bounded raw-stat query.
+Responses are `no-store` because the lineup may change under the same week URL;
+the browser shares each result among players on its currently selected board.
 Unavailable storage or invalid scope fails safely; requests never initiate
 Sleeper/Tank01 collection or write to Neon.
 

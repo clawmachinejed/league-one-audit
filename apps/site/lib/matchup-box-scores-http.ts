@@ -11,7 +11,6 @@ import { getProjectionStore, type ProjectionStore } from './projection-store';
 import type { MatchupsData } from './types';
 
 const noStore = { 'Cache-Control': 'no-store' };
-const cached = { 'Cache-Control': 'public, max-age=0, s-maxage=60' };
 const statKeys = new Set<string>(MATCHUP_BOX_SCORE_STAT_KEYS);
 
 function identitiesFor(data: MatchupsData): AllPlayerBoxScoreIdentity[] {
@@ -99,7 +98,9 @@ export async function handleMatchupBoxScoresRequest(
       season: Number(season), week, identities,
     }), identities);
     return Response.json({ leagueKey: league, season, week, ...read } satisfies MatchupBoxScores, {
-      headers: read.status === 'available' ? cached : noStore,
+      // Identity selection follows the accepted lineup, which can change between
+      // taps. The browser already shares this bounded read for the whole board.
+      headers: noStore,
     });
   } catch {
     return unavailable(503);
