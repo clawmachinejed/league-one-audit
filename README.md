@@ -19,6 +19,8 @@ The League page has a **Projected standings** switch above the Rosters tab. It a
 
 Projected standings use the existing stored-snapshot reader and browser refresh protocol: an immediate check on enable, then checks every 60 seconds while the Standings tab is visible. This does not change provider collection cadence. OFF, another League tab, and a hidden browser stop these checks. A missing team total, unproved completed-week baseline, unsupported league format, stale snapshot, or week rollover keeps the official table visible with an explanation. One bounded page refresh retries a missing baseline on enable or rebuilds the baseline after rollover; missing evidence is never replaced with zero. Completed weeks are reconstructed through the existing cached Sleeper matchup-history loader, including official custom score overrides, so an active week's totals cannot be counted twice as Sleeper updates its aggregates.
 
+Rosters shows its week picker in the same upper-right League header area, directly above the Rosters tab. The compact picker appears only on Rosters, marks the current week in its native menu, and offers a return-to-current button when viewing another week. Changing tabs preserves the selected week and expanded rosters. Existing exact-week loading, caching, and scheduled refresh behavior remain unchanged.
+
 History, rivalries, awards, a separate statistics section, and a separate schedule section are outside this rebuild's scope.
 
 ## Repository and hosting

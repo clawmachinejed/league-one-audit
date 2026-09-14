@@ -1,6 +1,5 @@
 .view{min-width:0}
-.weekToolbar{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-bottom:9px;min-height:44px}
-.currentWeek{min-height:44px;color:var(--green);font-size:10px;text-decoration:underline;text-underline-offset:3px}
+.headerControls{margin-left:auto;min-width:0}
 .inlineState{display:flex;min-height:190px;align-items:center;justify-content:center;padding:20px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--muted);font-size:12px;text-align:center}
 .inlineState strong{display:block;color:var(--ink);font-size:14px}.inlineState p{margin-top:6px;line-height:1.5}.inlineState button{min-height:44px;margin-top:7px;color:var(--green);font-weight:700}
 .teamHeadings{display:grid;grid-template-columns:minmax(0,1fr) 62px 72px;gap:5px;padding:0 28px 5px 8px;color:var(--muted);font-size:8px;font-weight:750;letter-spacing:.04em;text-align:center}.teamHeadings span:first-child{text-align:left}
