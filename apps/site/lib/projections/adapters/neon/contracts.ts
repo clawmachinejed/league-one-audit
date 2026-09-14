@@ -1,4 +1,5 @@
 import type { MatchupsData } from '../../../types';
+import type { AllPlayerBoxScoreReadInput, StoredAllPlayerBoxScores } from '../../../matchup-box-score-types';
 import type { SnapshotFreshnessMetadata } from '../../../matchup-snapshot-metadata';
 import type { LineupWatchMethods } from './lineup-watch-contracts';
 import type { StoreLineupPublicationFence, StoreLineupMaterializationTarget, LineupAcknowledgmentMethods } from './lineup-publication-contracts';
@@ -704,6 +705,7 @@ export type ProjectionStore = LineupWatchMethods & LineupAcknowledgmentMethods &
     input: AllPlayerBatchInput,
   ) => Promise<PersistenceOutcome<StoredAllPlayerBatch>>;
   readAllPlayerPlayerMetrics: AllPlayerMetricReader['readAllPlayerPlayerMetrics'];
+  readAllPlayerBoxScores?: (input: AllPlayerBoxScoreReadInput) => Promise<StoredAllPlayerBoxScores>;
   acquireAllPlayerJob: (input: Readonly<{
     mode: 'shadow' | 'backfill' | 'recurring';
     period: AllPlayerJobPeriod;

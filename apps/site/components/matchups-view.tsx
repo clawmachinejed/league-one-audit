@@ -3,10 +3,12 @@
 import { useRouter } from 'next/navigation';
 import { useMemo } from 'react';
 import { useMatchupSnapshot } from './use-matchup-snapshot';
+import { useMatchupBoxScores } from './use-matchup-box-scores';
+import { playerBoxScoreKey } from '../lib/matchup-box-scores';
 import {
   type MatchupPeriodContext,
 } from '../lib/matchup-period';
-import type { MatchupsData } from '../lib/types';
+import type { Matchup, MatchupsData } from '../lib/types';
 import { WeekSelector } from './week-selector';
 import { useLeagueSite } from './league-context';
 import { Avatar, EmptyState, Warning } from './league-primitives';
@@ -25,6 +27,17 @@ function SnapshotUpdated({ value, refreshing }: { value: string; refreshing: boo
       ? 'Checking for matchup updates…'
       : time ? <>Latest matchup update {time} ET · Source data may be cached</> : 'Matchup data may be delayed'}
   </p>;
+}
+
+function MatchupsWithBoxScores({ matchups, selected, leagueKey, season, week, refreshAutomatically }: {
+  matchups: Matchup[]; selected: number | null; leagueKey: string; season: string; week: number;
+  refreshAutomatically: boolean;
+}) {
+  const lineupKey = [...new Set(matchups.flatMap(matchup => matchup.sides.flatMap(side => side.starters
+    .filter(player => player.id).map(playerBoxScoreKey))))].sort().join(',');
+  const boxScores = useMatchupBoxScores({ leagueKey, season, week, lineupKey, refreshAutomatically });
+  return <MatchupBoard matchups={matchups} selected={selected} avatar={team => <Avatar team={team} />}
+    boxScores={boxScores.data} boxScoresLoading={boxScores.loading} onBoxScoreOpen={boxScores.request} />;
 }
 
 export function MatchupsView({
@@ -55,7 +68,10 @@ export function MatchupsView({
         hrefForWeek={week => `${matchupsPath}?week=${week}`} />
     </div>
     <Warning message={data.warning} />
-    {matchups.length ? <MatchupBoard key={data.week} matchups={matchups} selected={selected} avatar={team => <Avatar team={team} />} /> : <EmptyState title="No matchups posted yet">Week {data.week} matchups will appear when Sleeper publishes the schedule. You can still browse teams and standings.</EmptyState>}
+    {matchups.length ? <MatchupsWithBoxScores key={`${site.key}:${data.league.season}:${data.week}`}
+      matchups={matchups} selected={selected} leagueKey={site.key} season={data.league.season}
+      week={data.week} refreshAutomatically={periodContext.temporalState === 'active'} />
+      : <EmptyState title="No matchups posted yet">Week {data.week} matchups will appear when Sleeper publishes the schedule. You can still browse teams and standings.</EmptyState>}
     <SnapshotUpdated value={updatedAt} refreshing={refreshing} />
     {automaticallyUpdating && <p className="refresh-note">Checks for a newer matchup snapshot every minute while this page is open.</p>}
   </div>;

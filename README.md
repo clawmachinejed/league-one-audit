@@ -5,6 +5,7 @@ A mobile-first home for League One and its League 2 promotion and relegation lea
 ## What stays central
 
 - Expandable matchup cards: scan team scores, then open the player and lineup comparison.
+- Tap a live or completed player row for [position-specific box-score statistics](docs/matchup-box-scores.md) from the saved Sleeper weekly data.
 - Pregame player projections derived from Tank01's raw weekly statistics using each league's Sleeper scoring settings.
 - Live projected finishes that combine official Sleeper points already scored with the frozen pregame projection scaled by the share of the NFL game remaining.
 - A persistent My Team selection, stored independently for each league and validated against that league's current teams.

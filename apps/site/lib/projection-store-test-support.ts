@@ -229,6 +229,7 @@ export const projectionStoreSqlMarkers = [
   'prune-projection-slate-observations',
   'prune-snapshots',
   'publish-snapshot',
+  'read-all-player-box-scores',
   'read-all-player-game-context',
   'read-all-player-identity-mappings',
   'read-all-player-job',
