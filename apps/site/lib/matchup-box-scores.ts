@@ -11,8 +11,7 @@ export function canExpandPlayerBoxScore(player: Player | undefined): boolean {
     && (player.game.liveScore || player.game.finalScore));
 }
 
-type Stat = Readonly<{ label: string; value: string }>;
-export type BoxScoreGroup = Readonly<{ label: string; stats: readonly Stat[] }>;
+export type BoxScoreStat = Readonly<{ text: string; description: string }>;
 type Field = readonly [key: string, label: string];
 const passing: readonly Field[] = [['pass_cmp', 'Completions'], ['pass_att', 'Attempts'], ['pass_yd', 'Yards'], ['pass_td', 'TD'], ['pass_int', 'INT']];
 const rushing: readonly Field[] = [['rush_att', 'Carries'], ['rush_yd', 'Yards'], ['rush_td', 'TD']];
@@ -20,13 +19,34 @@ const receiving: readonly Field[] = [['rec', 'Receptions'], ['rec_tgt', 'Targets
 const kicking: readonly Field[] = [['fgm', 'FG made'], ['fga', 'FG attempts'], ['xpm', 'XP made'], ['xpa', 'XP attempts'], ['fgm_lng', 'Longest FG']];
 const defense: readonly Field[] = [['sack', 'Sacks'], ['int', 'Interceptions'], ['fum_rec', 'Fumble recoveries'], ['def_td', 'Defense TD'], ['def_st_td', 'Special teams TD'], ['pts_allow', 'Points allowed'], ['yds_allow', 'Yards allowed'], ['safe', 'Safeties'], ['blk_kick', 'Blocked kicks']];
 
-/** Display reported statistics only. Missing keys/rows do not become invented zeroes. */
-export function boxScoreGroups(position: string, source: Record<string, number>): readonly BoxScoreGroup[] {
-  const groups: BoxScoreGroup[] = [];
+const abbreviations: Readonly<Record<string, string>> = {
+  pass_cmp: 'CMP', pass_att: 'ATT', pass_yd: 'YD', pass_td: 'TD', pass_int: 'INT',
+  rush_att: 'CAR', rush_yd: 'YD', rush_td: 'TD', rec: 'REC', rec_tgt: 'TGT', rec_yd: 'YD', rec_td: 'TD',
+  fgm: 'FG', fga: 'FGA', xpm: 'XP', xpa: 'XPA', fgm_lng: 'LNG',
+  sack: 'SACK', int: 'INT', fum_rec: 'FR', def_td: 'TD', def_st_td: 'ST TD', pts_allow: 'PA',
+  yds_allow: 'YA', safe: 'SFTY', blk_kick: 'BLK', fum: 'FUM', fum_lost: 'LOST',
+  kr_yd: 'KR YD', kr_td: 'KR TD', pr_yd: 'PR YD', pr_td: 'PR TD',
+  pass_2pt: 'PASS 2PT', rush_2pt: 'RUSH 2PT', rec_2pt: 'REC 2PT',
+};
+const attempts: Readonly<Record<string, string>> = { pass_cmp: 'pass_att', fgm: 'fga', xpm: 'xpa' };
+
+/** Compact reported statistics only. Missing keys/rows do not become invented zeroes. */
+export function boxScoreSummary(position: string, source: Record<string, number>): readonly BoxScoreStat[] {
+  const summary: BoxScoreStat[] = [];
   function add(label: string, fields: readonly Field[], primary = false) {
     const stats = fields.filter(([key]) => typeof source[key] === 'number' && Number.isFinite(source[key]));
     if (!stats.length || (!primary && !stats.some(([key]) => source[key] !== 0))) return;
-    groups.push({ label, stats: stats.map(([key, name]) => ({ label: name, value: String(source[key]) })) });
+    const paired = new Set<string>();
+    for (const [key, name] of stats) {
+      if (paired.has(key)) continue;
+      const attemptKey = attempts[key];
+      const attempt = stats.find(([key]) => key === attemptKey);
+      if (attempt) paired.add(attemptKey);
+      summary.push({
+        text: `${source[key]}${attempt ? `/${source[attemptKey]}` : ''} ${abbreviations[key]}`,
+        description: `${label}: ${source[key]} ${name}${attempt ? `, ${source[attemptKey]} ${attempt[1]}` : ''}`,
+      });
+    }
   }
   if (position === 'DEF') {
     add('Defense / special teams', defense, true);
@@ -39,7 +59,7 @@ export function boxScoreGroups(position: string, source: Record<string, number>)
     add('Returns', [['kr_yd', 'Kick return yards'], ['kr_td', 'Kick return TD'], ['pr_yd', 'Punt return yards'], ['pr_td', 'Punt return TD']]);
     add('Conversions', [['pass_2pt', 'Passing 2PT'], ['rush_2pt', 'Rushing 2PT'], ['rec_2pt', 'Receiving 2PT']]);
   }
-  return groups;
+  return summary;
 }
 
 export function boxScoreObservedLabel(value: string | null): string | null {

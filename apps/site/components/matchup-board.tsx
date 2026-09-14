@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { Fragment, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { injuryStatusLabel } from '../lib/injury-status';
 import type { MatchupBoxScores } from '../lib/matchup-box-score-types';
-import { boxScoreGroups, boxScoreObservedLabel, canExpandPlayerBoxScore, playerBoxScoreKey } from '../lib/matchup-box-scores';
+import { boxScoreSummary, boxScoreObservedLabel, canExpandPlayerBoxScore, playerBoxScoreKey } from '../lib/matchup-box-scores';
 import { formatNflGame } from '../lib/nfl-schedule';
 import { compactPlayerName } from '../lib/player-name';
 import type { Matchup, Player, Team } from '../lib/types';
@@ -90,20 +90,16 @@ function PlayerBoxScore({ player, panelId, expanded, opposite, boxScores, boxSco
   player: Player; panelId: string; expanded: boolean; opposite?: boolean;
 } & Pick<BoxScoreProps, 'boxScores' | 'boxScoresLoading'>) {
   const entry = boxScores?.status === 'available' ? boxScores.players[playerBoxScoreKey(player)] : undefined;
-  const groups = expanded && entry ? boxScoreGroups(player.position, entry.stats) : [];
-  const observed = boxScores?.status === 'available' ? boxScoreObservedLabel(boxScores.observedAt) : null;
+  const summary = expanded && entry ? boxScoreSummary(player.position, entry.stats) : [];
   return <section id={panelId} className={`${styles.boxScorePanel} ${opposite ? styles.rightBoxScore : ''}`}
     data-player-box-score data-box-score-key={playerBoxScoreKey(player)} data-player-side={opposite ? 'right' : 'left'}
     aria-label={`${player.name} game statistics`} aria-busy={expanded && boxScoresLoading} hidden={!expanded}>
-    {expanded && <>
-      {groups.length ? groups.map((group) => <div className={styles.boxScoreGroup} key={group.label}>
-        <h3>{group.label}</h3>
-        <dl>{group.stats.map((stat) => <div className={styles.boxScoreStat} key={stat.label}>
-          <dt>{stat.label}</dt><dd>{stat.value}</dd>
-        </div>)}</dl>
-      </div>) : <p className={styles.boxScoreMessage} role="status">{boxScoresLoading ? 'Loading statistics…' : 'Statistics not available yet.'}</p>}
-      {observed && <p className={styles.boxScoreObserved}>{observed}<span>Sleeper · hourly collection</span></p>}
-    </>}
+    {expanded && (summary.length ? <p className={styles.boxScoreSummary} data-box-score-summary
+      role="group" aria-label={summary.map(stat => stat.description).join('; ')}>
+      {summary.map((stat, index) => <Fragment key={stat.description}>
+        {index > 0 && ' '}<span aria-hidden="true">{stat.text}{index < summary.length - 1 ? ',' : ''}</span>
+      </Fragment>)}
+    </p> : <p className={styles.boxScoreMessage} role="status">{boxScoresLoading ? 'Loading statistics…' : 'Statistics not available yet.'}</p>)}
   </section>;
 }
 
@@ -255,7 +251,10 @@ export function MatchupBoard({ matchups, selected, avatar, boxScores, boxScoresL
     void document.fonts.ready.then(align);
     return () => { active = false; observer.disconnect(); };
   }, [matchups]);
-  return <div ref={boardRef} className={styles.board}>{matchups.map(matchup => <MatchupCard key={matchup.id}
+  const observed = boxScores?.status === 'available' ? boxScoreObservedLabel(boxScores.observedAt) : null;
+  return <><div ref={boardRef} className={styles.board}>{matchups.map(matchup => <MatchupCard key={matchup.id}
     matchup={matchup} selected={selected} avatar={avatar} boxScores={boxScores}
-    boxScoresLoading={boxScoresLoading} onBoxScoreOpen={onBoxScoreOpen} />)}</div>;
+    boxScoresLoading={boxScoresLoading} onBoxScoreOpen={onBoxScoreOpen} />)}</div>
+    {observed && <p className={styles.boxScoreObserved} data-box-score-source>{observed}<span>Sleeper · hourly collection</span></p>}
+  </>;
 }

@@ -27,8 +27,13 @@ Player and defense kinds stay separate. Rows from older captures are not stitche
 into a newer capture. Invalid observations, unrelated weeks, provider fantasy
 point/rank fields and private eligibility evidence are not returned.
 
-Only finite reported values are displayed, grouped for QB, RB/FB, WR/TE, K and
-D/ST. Relevant unusual offensive, return and conversion statistics can appear
+Only finite reported values are displayed in one compact comma-separated summary
+for QB, RB/FB, WR/TE, K and D/ST. For example: **17/27 CMP, 209 YD, 1 TD, 1 INT,
+5 CAR, 29 YD**. Statistics wrap between entries beneath the corresponding player,
+without category headings or individual stat cards. Screen readers retain category
+descriptions so passing and rushing yards remain distinguishable. Completions and
+attempts (and kicking made/attempted pairs) combine only when both are reported.
+Relevant unusual offensive, return and conversion statistics can appear
 when present. An actual zero remains zero. A missing key or player row is not
 converted into a zero; a panel without displayable data says **Statistics not
 available yet.** Defensive and special-team totals are shown as separately named
@@ -55,8 +60,9 @@ timeout; repeated taps cannot retry a failed request more often than once per
 minute. Automatic failures wait for the next scheduled display check. Older or
 unavailable responses cannot replace a newer valid observation.
 
-Each available panel shows **Stats as of** the actual source observation time and
-identifies Sleeper and hourly collection. Fantasy scores may update sooner than
+A single note below the matchup board shows **Stats as of** the actual source
+observation time and identifies Sleeper and hourly collection after data loads.
+Fantasy scores may update sooner than
 the detailed box score. The selected period may also wait for the collector's
 existing rollover/correction priority. The timestamp, rather than a page refresh,
 states the freshness actually available.
