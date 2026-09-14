@@ -960,8 +960,8 @@ test('My Team standings highlighting remains isolated by league and survives rel
     .toHaveAttribute('href', `/managers/${leagueOneTeamId}`);
 });
 
-test('both Managers pages reuse the Matchups intro without matchup controls', async ({ page }) => {
-  for (const viewport of [viewports[1], viewports[3]]) {
+test('both Managers pages reuse the Matchups intro with compact profile rows', async ({ page }) => {
+  for (const viewport of viewports) {
     await test.step(viewport.name, async () => {
       await page.setViewportSize(viewport);
       await page.goto('/matchups', { waitUntil: 'networkidle' });
@@ -1006,16 +1006,18 @@ test('both Managers pages reuse the Matchups intro without matchup controls', as
         await expect(main.getByLabel('Matchup week')).toHaveCount(0);
         await expect(main.getByRole('button', { name: 'Refresh matchups' })).toHaveCount(0);
         await expect(main.locator('select')).toHaveCount(0);
+        await expect(main.locator('.preference-banner, .section-label, .manager-card-bottom, .manager-profile-cta, .manager-pf, .my-team-button')).toHaveCount(0);
+        await expect(main.getByRole('heading', { name: 'The managers', exact: true })).toHaveCount(0);
 
         const actual = await intro.evaluate(element => {
           const mainElement = element.closest('main')!;
           const heading = element.querySelector('h1')!;
           const season = element.querySelector('p')!;
           const toolbar = element.parentElement!;
-          const content = mainElement.querySelector('.preference-banner')!;
+          const content = mainElement.querySelector('.managers-grid');
           const introRect = element.getBoundingClientRect();
           const toolbarRect = toolbar.getBoundingClientRect();
-          const contentRect = content.getBoundingClientRect();
+          const contentRect = content?.getBoundingClientRect();
           const read = (node: Element) => {
             const style = getComputedStyle(node);
             return {
@@ -1029,8 +1031,8 @@ test('both Managers pages reuse the Matchups intro without matchup controls', as
           return {
             mainPadding: [mainStyle.paddingTop, mainStyle.paddingRight, mainStyle.paddingBottom, mainStyle.paddingLeft],
             introTop: introRect.top,
-            contentGap: mainElement.querySelector('.data-warning') ? null : contentRect.top - introRect.bottom,
-            contentAlignment: [contentRect.left - toolbarRect.left, toolbarRect.right - contentRect.right],
+            contentGap: mainElement.querySelector('.data-warning') || !contentRect ? null : contentRect.top - introRect.bottom,
+            contentAlignment: contentRect ? [contentRect.left - toolbarRect.left, toolbarRect.right - contentRect.right] : null,
             toolbarMarginBottom: getComputedStyle(toolbar).marginBottom,
             heading: read(heading),
             season: { ...read(season), color: getComputedStyle(season).color, textTransform: getComputedStyle(season).textTransform },
@@ -1042,7 +1044,7 @@ test('both Managers pages reuse the Matchups intro without matchup controls', as
         expect(actual.season).toEqual(reference.season);
         expect(actual.toolbarMarginBottom).toBe(reference.toolbarMarginBottom);
         expect(actual.titleSeasonGap).toBe(reference.titleSeasonGap);
-        expect(actual.contentAlignment).toEqual([0, 0]);
+        if (actual.contentAlignment) expect(actual.contentAlignment).toEqual([0, 0]);
         expect(Math.abs(actual.introTop - reference.introTop)).toBeLessThanOrEqual(1);
         if (actual.contentGap !== null && reference.contentGap !== null) {
           expect(Math.abs(actual.contentGap - reference.contentGap)).toBeLessThanOrEqual(1);
@@ -1051,12 +1053,31 @@ test('both Managers pages reuse the Matchups intro without matchup controls', as
 
         const prefix = route.startsWith('/league2') ? '/league2' : '';
         const managerLinks = main.locator(`a[href^="${prefix}/managers/"]`);
-        const teamCountText = await main.locator('.section-label > span').textContent();
-        const teamCount = Number(teamCountText?.match(/^\d+/u)?.[0]);
-        expect(teamCount).toBeGreaterThan(0);
+        const cards = main.locator('.manager-card');
+        const teamCount = await cards.count();
+        if (!teamCount) {
+          test.info().annotations.push({ type: 'Sleeper data',
+            description: `${route} returned no manager cards, so compact-card measurements were not applicable.` });
+          await expect(main.getByRole('heading', { name: 'Managers are on their way' })).toBeVisible();
+          continue;
+        }
         await expect(managerLinks).toHaveCount(teamCount);
         for (const href of await managerLinks.evaluateAll(links => links.map(link => link.getAttribute('href')))) {
           expect(href).toMatch(new RegExp(`^${prefix}/managers/\\d+$`, 'u'));
+        }
+        const dimensions = await cards.evaluateAll(elements => elements.map(card => {
+          const link = card.querySelector<HTMLAnchorElement>('a')!;
+          const cardRect = card.getBoundingClientRect();
+          const linkRect = link.getBoundingClientRect();
+          return { height: cardRect.height, linkHeight: linkRect.height,
+            linkWidth: linkRect.width, cardWidth: cardRect.width, linkCount: card.querySelectorAll('a').length };
+        }));
+        for (const card of dimensions) {
+          expect(card.linkCount).toBe(1);
+          expect(card.height, 'manager cards should stay compact').toBeLessThanOrEqual(72);
+          expect(card.linkHeight, 'the whole compact card remains a touch target').toBeGreaterThanOrEqual(44);
+          expect(card.cardWidth - card.linkWidth).toBeLessThanOrEqual(2);
+          expect(card.height - card.linkHeight).toBeLessThanOrEqual(2);
         }
       }
     });
@@ -1156,16 +1177,27 @@ test('My Team remains selected after a reload', async ({ page }) => {
   await page.evaluate(() => localStorage.clear());
   await page.reload({ waitUntil: 'networkidle' });
 
-  const selectButton = page.locator('.my-team-button').first();
-  test.skip((await selectButton.count()) === 0, 'Sleeper has not returned any manager cards.');
+  const managerLink = page.locator('.manager-card-link').first();
+  test.skip((await managerLink.count()) === 0, 'Sleeper has not returned any manager cards.');
+  const profilePath = await managerLink.getAttribute('href');
+  expect(profilePath).toMatch(/^\/managers\/\d+$/u);
+  await expect(page.locator('.my-team-button')).toHaveCount(0);
+  await managerLink.click();
+  await expect(page).toHaveURL(new RegExp(`${profilePath}$`, 'u'));
+  const selectButton = page.locator('.manager-heading .my-team-button');
 
   await expect(selectButton).toHaveAttribute('aria-pressed', 'false');
   await selectButton.click();
   await expect(selectButton).toHaveAttribute('aria-pressed', 'true');
 
   await page.reload({ waitUntil: 'networkidle' });
-  await expect(page.locator('button[aria-pressed="true"]')).toHaveCount(1);
-  await expect(page.getByText('Saved in this browser. Highlighted across the league.')).toBeVisible();
+  await expect(selectButton).toHaveAttribute('aria-pressed', 'true');
+  await page.goto('/managers', { waitUntil: 'networkidle' });
+  await expect(page.locator('.manager-card.selected-manager')).toHaveCount(1);
+  await expect(page.locator('.manager-card.selected-manager a')).toHaveAttribute('href', profilePath!);
+  await page.reload({ waitUntil: 'networkidle' });
+  await expect(page.locator('.manager-card.selected-manager a')).toHaveAttribute('href', profilePath!);
+  await expect(page.locator('.preference-banner, .my-team-button')).toHaveCount(0);
 });
 
 test('manager transactions remain readable and filtering works when available', async ({ page }) => {
