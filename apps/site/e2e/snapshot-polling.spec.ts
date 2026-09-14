@@ -356,10 +356,18 @@ test('a timed-out automatic future check retains good data and permits the next 
   held.resolve(); fixture.holdCompact = null;
   fixture.revision = SNAPSHOT_C;
   fixture.payload = snapshotFixture(5, 'After Timeout');
-  await nextPoll(page, fixture);
+  // The interval is still anchored to the previous poll. Advance only the
+  // remaining part of that minute, then let mocked network responses settle;
+  // advancing a whole minute here also fires the new request's timeout.
+  await page.clock.runFor(60_000 - 15_001);
+  await expect.poll(() => fixture.compactCount).toBe(3);
   await expect(page.getByText('After Timeout', { exact: true })).toBeVisible();
+  await expect(page.locator('.updated')).not.toContainText('Checking for matchup updates');
   expect(fixture.fullCount).toBe(2);
   expect(fixture.refreshCount).toBe(0);
+  await nextPoll(page, fixture);
+  expect(fixture.compactCount).toBe(4);
+  expect(fixture.fullCount).toBe(2);
 });
 
 test('hiding during an outstanding request cancels it without triggering fallback', async ({ page }) => {

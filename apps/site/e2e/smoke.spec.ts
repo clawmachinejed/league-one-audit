@@ -128,7 +128,7 @@ test('matchups fit supported widths and expanded lineup rows remain 52px', async
       await expect(page.getByRole('heading', { level: 1, name: 'Matchups' })).toBeVisible();
       await expectNoPageOverflow(page);
 
-      await expectTouchHeight(page.getByRole('button', { name: /refresh matchups/i }));
+      await expect(page.getByRole('button', { name: /refresh(?:ing)? matchups/i })).toHaveCount(0);
       await expectTouchHeight(page.getByLabel('Matchup week'));
 
       if (viewport.width < 760) {
