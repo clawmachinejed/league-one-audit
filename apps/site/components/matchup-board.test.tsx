@@ -36,7 +36,7 @@ const player = (id: string, projectedPoints: number | null): Player => ({
 });
 
 describe('MatchupBoard player projection presentation', () => {
-  it('offers independent, initially collapsed live/final disclosures without nesting the score groups in buttons or loading data', () => {
+  it('offers one initially collapsed control per starter slot without nesting score groups or loading data', () => {
     const live = player('live', 20);
     const final = player('final', 21);
     live.game = { kind: 'scheduled', opponent: 'TEN', location: 'away', date: '2026-09-13',
@@ -47,27 +47,26 @@ describe('MatchupBoard player projection presentation', () => {
     const onBoxScoreOpen = vi.fn();
     const html = renderToStaticMarkup(<LeagueSiteProvider site={LEAGUE_SITES.league1}>
       <MatchupBoard matchups={[{ id: '1', status: 'live', sides: [
-        { team: team(1), points: 23.2, projectedPoints: 30, starters: [live] },
-        { team: team(2), points: 23.2, projectedPoints: 31, starters: [final] },
+        { team: team(1), points: 46.4, projectedPoints: 60, starters: [live, { ...live, id: 'live-2' }] },
+        { team: team(2), points: 46.4, projectedPoints: 62, starters: [final, { ...final, id: 'final-2' }] },
       ] }]} selected={null} avatar={() => null} onBoxScoreOpen={onBoxScoreOpen} />
     </LeagueSiteProvider>);
-    const controls = [...html.matchAll(/<button[^>]*data-player-box-score-toggle="true"[^>]*><\/button>/gu)].map((match) => match[0]);
+    const controls = [...html.matchAll(/<button[^>]*data-starter-box-score-toggle="true"[^>]*><\/button>/gu)].map((match) => match[0]);
     expect(controls).toHaveLength(2);
     const panelIds: string[] = [];
     for (const [index, control] of controls.entries()) {
       expect(control).toContain('aria-expanded="false"');
-      expect(control).toContain(`aria-label="Player ${index ? 'final' : 'live'} game statistics"`);
-      expect(control).toContain(`data-player-side="${index ? 'right' : 'left'}"`);
+      expect(control).toContain(`aria-label="WR row ${index + 1} game statistics for both teams"`);
+      expect(control).toContain(`data-starter-index="${index}"`);
       const panelId = /aria-controls="([^"]+)"/u.exec(control)![1];
-      const scoreId = /aria-describedby="([^"]+)"/u.exec(control)![1];
       panelIds.push(panelId);
-      const section = [...html.matchAll(/<section[^>]*>/gu)].map((match) => match[0])
-        .find((section) => section.includes(`id="${panelId}"`));
-      expect(section).toContain('hidden=""');
-      expect(html).toContain(`<span id="${scoreId}"`);
+      const row = [...html.matchAll(/<div[^>]*data-starter-box-score-row[^>]*>/gu)].map((match) => match[0])
+        .find((row) => row.includes(`id="${panelId}"`));
+      expect(row).toContain('hidden=""');
     }
     expect(new Set(panelIds).size).toBe(2);
-    expect([...html.matchAll(/role="group" aria-label="Official score/gu)]).toHaveLength(2);
+    expect([...html.matchAll(/role="group" aria-label="Official score/gu)]).toHaveLength(4);
+    expect(html).not.toContain('data-player-box-score-toggle');
     expect(onBoxScoreOpen).not.toHaveBeenCalled();
   });
 
@@ -80,7 +79,7 @@ describe('MatchupBoard player projection presentation', () => {
         { team: team(1), points: 69.6, projectedPoints: 30, starters: [scheduled, bye, unknown] },
       ] }]} selected={null} avatar={() => null} />
     </LeagueSiteProvider>);
-    expect(html).not.toContain('data-player-box-score-toggle');
+    expect(html).not.toContain('data-starter-box-score-toggle');
     expect(html).not.toContain('data-player-box-score="true"');
     expect([...html.matchAll(/data-player-name="true"/gu)]).toHaveLength(6);
     expect(html).toContain('Official score 23.20 points');
