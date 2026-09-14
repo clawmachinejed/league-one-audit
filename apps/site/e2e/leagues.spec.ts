@@ -284,8 +284,15 @@ test('My Team choices remain independent between League One and League Two', asy
   await page.evaluate(() => localStorage.clear());
   await page.reload({ waitUntil: 'networkidle' });
 
-  const leagueOneButton = page.locator('.my-team-button').first();
-  test.skip((await leagueOneButton.count()) === 0, 'Sleeper has not returned League One manager cards.');
+  const leagueOneLink = page.locator('.manager-card-link').first();
+  test.skip((await leagueOneLink.count()) === 0, 'Sleeper has not returned League One manager cards.');
+  const leagueOneProfile = await leagueOneLink.getAttribute('href');
+  expect(leagueOneProfile).toMatch(/^\/managers\/\d+$/u);
+  await expect(page.locator('.my-team-button')).toHaveCount(0);
+  await leagueOneLink.click();
+  await expect(page).toHaveURL(new RegExp(`${leagueOneProfile}$`, 'u'));
+  const leagueOneButton = page.locator('.manager-heading .my-team-button');
+  await expect(leagueOneButton).toHaveAttribute('aria-pressed', 'false');
   await leagueOneButton.click();
   await expect(leagueOneButton).toHaveAttribute('aria-pressed', 'true');
 
@@ -294,9 +301,15 @@ test('My Team choices remain independent between League One and League Two', asy
   await page.getByRole('link', { name: 'View League Two' }).click();
   await expect(page).toHaveURL(/\/league2\/managers$/u);
 
-  const leagueTwoButton = page.locator('.my-team-button').first();
-  test.skip((await leagueTwoButton.count()) === 0, 'Sleeper has not returned League Two manager cards.');
-  await expect(page.locator('button.my-team-button[aria-pressed="true"]')).toHaveCount(0);
+  const leagueTwoLink = page.locator('.manager-card-link').first();
+  test.skip((await leagueTwoLink.count()) === 0, 'Sleeper has not returned League Two manager cards.');
+  const leagueTwoProfile = await leagueTwoLink.getAttribute('href');
+  expect(leagueTwoProfile).toMatch(/^\/league2\/managers\/\d+$/u);
+  await expect(page.locator('.my-team-button, .manager-card.selected-manager')).toHaveCount(0);
+  await leagueTwoLink.click();
+  await expect(page).toHaveURL(new RegExp(`${leagueTwoProfile}$`, 'u'));
+  const leagueTwoButton = page.locator('.manager-heading .my-team-button');
+  await expect(leagueTwoButton).toHaveAttribute('aria-pressed', 'false');
   await leagueTwoButton.click();
   await expect(leagueTwoButton).toHaveAttribute('aria-pressed', 'true');
 
@@ -304,9 +317,15 @@ test('My Team choices remain independent between League One and League Two', asy
     .getByRole('button', { name: 'Choose league, current League Two' }).click();
   await page.getByRole('link', { name: 'View League One' }).click();
   await expect(page).toHaveURL(/\/managers$/u);
-  await expect(page.locator('button.my-team-button[aria-pressed="true"]')).toHaveCount(1);
+  await expect(page.locator('.manager-card.selected-manager')).toHaveCount(1);
+  await expect(page.locator('.manager-card.selected-manager a')).toHaveAttribute('href', leagueOneProfile!);
+  await page.locator('.manager-card.selected-manager a').click();
+  await expect(page.locator('.manager-heading .my-team-button')).toHaveAttribute('aria-pressed', 'true');
 
   const storedKeys = await page.evaluate(() => Object.keys(localStorage).filter(key => key.startsWith('league-one:my-team:')).sort());
   const expectedKeys = Object.values(LEAGUE_IDS).map(id => `league-one:my-team:${id}`).sort();
   expect(storedKeys).toEqual(expectedKeys);
+  const stored = await page.evaluate((keys) => keys.map(key => localStorage.getItem(key)),
+    [`league-one:my-team:${LEAGUE_IDS.league1}`, `league-one:my-team:${LEAGUE_IDS.league2}`]);
+  expect(stored).toEqual([leagueOneProfile!.split('/').at(-1), leagueTwoProfile!.split('/').at(-1)]);
 });

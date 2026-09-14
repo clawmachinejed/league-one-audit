@@ -26,6 +26,8 @@ Matchups has no routine header refresh button. Current and future weeks automati
 
 History, rivalries, awards, a separate statistics section, and a separate schedule section are outside this rebuild's scope.
 
+Managers uses compact team cards sized like the League roster summaries. Each card shows the team name, manager and record, and opens the manager profile. The directory omits the extra section heading, team count, selection banner and PF. My Team can still be selected or cleared on a manager profile; the saved choice remains highlighted across the league.
+
 ## Repository and hosting
 
 | Service | Location |
