@@ -124,7 +124,7 @@ button{border:0}
 .site-header{position:sticky;top:0;z-index:40;background:var(--surface);border-bottom:1px solid var(--line)}
 .header-inner{max-width:1100px;margin:auto;padding:17px 20px;display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:80px}
 .brand{display:inline-flex;align-items:center;gap:11px;min-width:0}
-.brand-mark{height:39px;width:39px;border-radius:3px}
+.brand-mark{height:39px;width:39px;object-fit:contain}
 .brand-name{display:block;font-size:18px;font-weight:900;line-height:1.15;letter-spacing:-.055em;color:var(--navy)}
 .brand-period{color:var(--green)}
 .brand-caption{display:block;font-size:8px;font-weight:700;letter-spacing:.2em;margin-top:4px;color:var(--muted)}
@@ -139,7 +139,7 @@ button{border:0}
 .league-switcher-desktop{display:none}
 .league-switcher-trigger,.league-switcher-choice{display:flex;align-items:center;justify-content:center;width:44px;height:44px;padding:6px;border:1px solid transparent;border-radius:9px;background:transparent;color:var(--muted)}
 .league-switcher-trigger:hover,.league-switcher-choice:hover{background:var(--green-soft);border-color:var(--green-border)}
-.league-switcher-trigger img,.league-switcher-choice img{width:30px;height:30px;border-radius:4px;object-fit:cover}
+.league-switcher-trigger img,.league-switcher-choice img{width:30px;height:30px;object-fit:contain}
 .league-switcher-panel{position:absolute;z-index:60;display:flex;gap:6px;width:max-content;padding:6px;border:1px solid var(--line);border-radius:11px;background:var(--surface);box-shadow:0 8px 28px var(--nav-shadow)}
 .league-switcher-mobile .league-switcher-panel{bottom:calc(100% + 10px);left:0}
 .league-switcher-desktop .league-switcher-panel{top:calc(100% + 9px);left:0}
