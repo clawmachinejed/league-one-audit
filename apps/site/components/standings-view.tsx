@@ -151,12 +151,12 @@ export function StandingsView({ data, projectionSource = null }: { data: Standin
     const unavailableReason = projection?.kind === 'unavailable' ? projection.reason
       : data.projectionBasis?.kind === 'unavailable' ? data.projectionBasis.reason
         : 'Live matchup projections are temporarily unavailable.';
-    const status = !projected ? 'Off' : view !== 'standings' ? 'Standings only'
+    const status = !projected ? 'Off'
       : displayedProjection ? `Week ${displayedProjection.week} · Live` : 'Unavailable';
 
     return <div className={`${matchupStyles.page} ${matchupStyles.standingsPage}`}>
     <div className={matchupStyles.toolbar}><PageIntro title="League" league={data.league} />
-      <ProjectedStandingsSwitch checked={projected} onChange={setProjected} status={status} />
+      {view === 'standings' && <ProjectedStandingsSwitch checked={projected} onChange={setProjected} status={status} />}
     </div>
     {(view === 'standings' || view === 'waivers') && <Warning message={data.warning} />}
     {projected && view === 'standings' && !displayedProjection && <Warning message={`Showing official standings. ${unavailableReason}`} />}
