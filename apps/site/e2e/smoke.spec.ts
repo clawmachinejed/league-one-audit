@@ -128,7 +128,7 @@ test('matchups fit supported widths and expanded lineup rows remain 52px', async
       await expect(page.getByRole('heading', { level: 1, name: 'Matchups' })).toBeVisible();
       await expectNoPageOverflow(page);
 
-      await expectTouchHeight(page.getByRole('button', { name: /refresh matchups/i }));
+      await expect(page.getByRole('button', { name: /refresh(?:ing)? matchups/i })).toHaveCount(0);
       await expectTouchHeight(page.getByLabel('Matchup week'));
 
       if (viewport.width < 760) {
@@ -181,6 +181,8 @@ test('both standings pages reuse the Matchups title and season layout', async ({
       await page.setViewportSize(viewport);
       await page.goto('/matchups', { waitUntil: 'networkidle' });
       const matchupsIntro = page.locator('[data-page-intro]');
+      await expect(page.getByRole('button', { name: /Refresh(?:ing)? matchups/u })).toHaveCount(0);
+      await expectTouchHeight(page.getByLabel('Matchup week'));
       await expect(matchupsIntro.getByRole('heading', { level: 1, name: 'Matchups' })).toBeVisible();
       const reference = await matchupsIntro.evaluate(element => {
         const main = element.closest('main')!;

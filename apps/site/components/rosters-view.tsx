@@ -9,7 +9,7 @@ import { orderRosterTeams } from '../lib/roster-metrics';
 import type { League, RosterPlayer, RosterSection, RosterTeam, RostersData } from '../lib/types';
 import { useLeagueSite } from './league-context';
 import { Avatar, EmptyState, Updated, Warning } from './league-primitives';
-import { RosterWeekSelector } from './roster-week-selector';
+import { WeekSelector } from './week-selector';
 import styles from './rosters.module.css';
 
 type LoadState = 'idle' | 'loading' | 'ready' | 'error';
@@ -316,7 +316,7 @@ export function RostersView({ active, league, selected, controlsTarget }: {
 
   return <div className={styles.view}>
     {active && controlsTarget && createPortal(
-      <RosterWeekSelector week={week} currentWeek={currentWeek} maxWeek={league.maxWeek} onChange={setWeek} />,
+      <WeekSelector label="Roster week" week={week} currentWeek={currentWeek} maxWeek={league.maxWeek} onChange={setWeek} />,
       controlsTarget,
     )}
     {data && error && <Warning message={`${error} Showing the last saved roster.`} />}

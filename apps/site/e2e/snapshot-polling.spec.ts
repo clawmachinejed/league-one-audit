@@ -33,7 +33,26 @@ async function openFixture(page: Page, { league = 'league1', temporal = 'future'
     const lineage = /\\"snapshotRevision\\":(?:null|\\"[a-f0-9]{64}\\"),\\"verifiedAt\\":(?:null|\\"[^"\\]+\\")/gu;
     expect(dates.length, 'SSR must include a serialized matchup timestamp').toBeGreaterThan(0);
     expect([...html.matchAll(lineage)], 'SSR must include exactly one MatchupsView lineage').toHaveLength(1);
-    const body = html.replace(lineage, `\\"snapshotRevision\\":\\"${SNAPSHOT_A}\\",\\"verifiedAt\\":\\"${dates[0][1]}\\"`);
+    let body = html.replace(lineage, `\\"snapshotRevision\\":\\"${SNAPSHOT_A}\\",\\"verifiedAt\\":\\"${dates[0][1]}\\"`);
+    const period = /\\"periodContext\\":(\{[^{}]*\})/gu;
+    expect([...body.matchAll(period)], 'SSR must include exactly one MatchupsView period context').toHaveLength(1);
+    // Keep the server's display period (and its visible week-control markup), but
+    // make fixture polling independent of the real NFL calendar. API responses
+    // below remain the authority for subsequent active/future/completed transitions.
+    body = body.replace(period, (_match, serialized: string) => {
+      const initial = JSON.parse(serialized.replace(/\\"/gu, '"')) as MatchupPeriodContext;
+      const controlled: MatchupPeriodContext = { ...initial, lifecycle: 'active', nflPhase: 'regular',
+        activeSeason: temporal === 'future' && week === 1 ? 2025 : 2026,
+        activeWeek: temporal === 'future' ? week === 1 ? 18 : week - 1 : temporal === 'past' ? week + 1 : week,
+        temporalState: temporal, refreshDue: false };
+      return `\\"periodContext\\":${JSON.stringify(controlled).replace(/"/gu, '\\"')}`;
+    });
+    // A historical server response omits this note. Keep its initial markup in
+    // agreement with the controlled non-past context without replacing the board.
+    if (temporal !== 'past' && !body.includes('class="refresh-note"')) {
+      body = body.replace(/(<p class="updated"[^>]*>[\s\S]*?<\/p>)/u,
+        '$1<p class="refresh-note">Checks for a newer matchup snapshot every minute while this page is open.</p>');
+    }
     state.initialLineageInjections += 1;
     await route.fulfill({ response, body });
   });
@@ -71,10 +90,10 @@ async function openFixture(page: Page, { league = 'league1', temporal = 'future'
   });
   await page.goto(`${prefix}/matchups?week=${week}`, { waitUntil: 'networkidle' });
   expect(state.initialLineageInjections).toBe(1);
+  await expect(page.getByRole('button', { name: /refresh(?:ing)? matchups/iu })).toHaveCount(0);
   if (adopt) {
-    await page.getByRole('button', { name: 'Refresh matchups', exact: true }).click();
+    await nextPoll(page, state);
     await expect(page.getByText('Fixture Alpha', { exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Refresh matchups', exact: true })).toBeEnabled();
   }
   return state;
 }
@@ -88,14 +107,14 @@ async function nextPoll(page: Page, fixture: BrowserFixture) {
   const count = fixture.compactCount;
   await page.clock.runFor(60_000);
   await expect.poll(() => fixture.compactCount).toBe(count + 1);
-  await expect(page.getByRole('button', { name: 'Refresh matchups', exact: true })).toBeEnabled();
+  await expect(page.locator('.updated')).not.toContainText('Checking for matchup updates');
 }
 
 for (const league of ['league1', 'league2'] as const) {
   test(`${league} starts with SSR lineage and skips the full body when its first revision is unchanged`, async ({ page }) => {
     const fixture = await openFixture(page, { league, adopt: false });
     fixture.revision = SNAPSHOT_A;
-    await page.getByRole('button', { name: 'Refresh matchups', exact: true }).click();
+    await nextPoll(page, fixture);
     await expect.poll(() => fixture.compactCount).toBe(1);
     await expect(page.locator('.updated')).toContainText('8:00 AM ET');
     expect(fixture.fullCount).toBe(0);
@@ -112,7 +131,7 @@ for (const temporal of ['active', 'future'] as const) {
     await expect.poll(() => fixture.compactCount).toBe(2);
     await page.clock.runFor(5_000);
     held.resolve(); fixture.holdCompact = null;
-    await expect(page.getByRole('button', { name: 'Refresh matchups', exact: true })).toBeEnabled();
+    await expect(page.locator('.updated')).not.toContainText('Checking for matchup updates');
     await page.clock.runFor(55_000);
     await expect.poll(() => fixture.compactCount).toBe(3);
     expect(fixture.fullCount).toBe(fullCount);
@@ -179,7 +198,7 @@ for (const league of ['league1', 'league2'] as const) {
     right.starters.push({ ...right.starters[0], id: 'fixture-unfinished-player', name: 'Fixture Unfinished Player',
       position: 'RB', slot: 'RB', game: { kind: 'scheduled', opponent: 'KC', location: 'away',
         date: '2026-09-07', kickoffAt: '2026-09-08T00:15:00.000Z' } });
-    await page.getByRole('button', { name: 'Refresh matchups', exact: true }).click();
+    await nextPoll(page, fixture);
     await expect(page.getByText('Fixture Alpha', { exact: true })).toBeVisible();
     const toggle = page.locator('button[data-matchup-toggle]').first();
     await toggle.click();
@@ -257,7 +276,7 @@ test('publication races retry compact metadata once and never adopt a mismatched
   fixture.revision = SNAPSHOT_A;
   fixture.conflicts = 1;
   fixture.payload = snapshotFixture(5, 'Race Winner');
-  await page.getByRole('button', { name: 'Refresh matchups', exact: true }).click();
+  await page.clock.runFor(60_000);
   await expect(page.getByText('Race Winner', { exact: true })).toBeVisible();
   expect(fixture.fullRevisions.slice(-2)).toEqual([SNAPSHOT_A, SNAPSHOT_C]);
   expect(fixture.compactCount).toBe(3);
@@ -273,16 +292,23 @@ test('publication races retry compact metadata once and never adopt a mismatched
   expect(fixture.fullCount).toBe(fullBefore + 2);
 });
 
-test('automatic future failures retain last good data while manual failures use the server fallback', async ({ page }) => {
+test('repeated automatic future failures retain last good data and the next good poll recovers', async ({ page }) => {
   const fixture = await openFixture(page);
   fixture.compactStatus = 503;
   await nextPoll(page, fixture);
   await expect(page.getByText('Fixture Alpha', { exact: true })).toBeVisible();
   expect(fixture.refreshCount).toBe(0);
-  await page.getByRole('button', { name: 'Refresh matchups', exact: true }).click();
-  await expect.poll(() => fixture.refreshCount).toBe(1);
-  await expect(page.getByText('Fixture Alpha', { exact: true })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Refresh matchups', exact: true })).toBeEnabled();
+  await nextPoll(page, fixture);
+  await expect(page.getByText('Fixture Alpha', { exact: true })).toBeVisible();
+  expect(fixture.refreshCount).toBe(0);
+  expect(fixture.fullCount).toBe(1);
+  fixture.compactStatus = 200;
+  fixture.revision = SNAPSHOT_C;
+  fixture.payload = snapshotFixture(5, 'Recovered Alpha');
+  await nextPoll(page, fixture);
+  await expect(page.getByText('Recovered Alpha', { exact: true })).toBeVisible();
+  expect(fixture.fullCount).toBe(2);
+  expect(fixture.refreshCount).toBe(0);
 });
 
 test('automatic current failures refresh official data', async ({ page }) => {
@@ -291,7 +317,7 @@ test('automatic current failures refresh official data', async ({ page }) => {
   await nextPoll(page, fixture);
   await expect.poll(() => fixture.refreshCount).toBe(1);
   await expect(page.getByText('Fixture Alpha', { exact: true })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Refresh matchups', exact: true })).toBeEnabled();
+  await expect(page.locator('.updated')).not.toContainText('Checking for matchup updates');
 });
 
 test('malformed full data cannot replace the future page and does not trigger a route refresh', async ({ page }) => {
@@ -303,15 +329,45 @@ test('malformed full data cannot replace the future page and does not trigger a 
   expect(fixture.refreshCount).toBe(0);
 });
 
-test('a timed-out manual refresh finishes and falls back without leaving the control active', async ({ page }) => {
-  const fixture = await openFixture(page);
+test('a timed-out automatic current check falls back and clears the checking status', async ({ page }) => {
+  const fixture = await openFixture(page, { temporal: 'active' });
   const held = deferred(); fixture.holdCompact = held.promise;
-  await page.getByRole('button', { name: 'Refresh matchups', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Refreshing matchups', exact: true })).toBeDisabled();
+  await page.clock.runFor(60_000);
+  await expect.poll(() => fixture.compactCount).toBe(2);
+  await expect(page.locator('.updated')).toContainText('Checking for matchup updates');
   await page.clock.runFor(15_001);
   await expect.poll(() => fixture.refreshCount).toBe(1);
-  await expect(page.getByRole('button', { name: 'Refresh matchups', exact: true })).toBeEnabled();
+  await expect(page.getByText('Fixture Alpha', { exact: true })).toHaveCount(0);
+  await expect(page.locator('.updated')).not.toContainText('Checking for matchup updates');
   held.resolve();
+});
+
+test('a timed-out automatic future check retains good data and permits the next scheduled check', async ({ page }) => {
+  const fixture = await openFixture(page);
+  const held = deferred(); fixture.holdCompact = held.promise;
+  await page.clock.runFor(60_000);
+  await expect.poll(() => fixture.compactCount).toBe(2);
+  await expect(page.locator('.updated')).toContainText('Checking for matchup updates');
+  await page.clock.runFor(15_001);
+  await expect(page.locator('.updated')).not.toContainText('Checking for matchup updates');
+  await expect(page.getByText('Fixture Alpha', { exact: true })).toBeVisible();
+  expect(fixture.refreshCount).toBe(0);
+  expect(fixture.fullCount).toBe(1);
+  held.resolve(); fixture.holdCompact = null;
+  fixture.revision = SNAPSHOT_C;
+  fixture.payload = snapshotFixture(5, 'After Timeout');
+  // The interval is still anchored to the previous poll. Advance only the
+  // remaining part of that minute, then let mocked network responses settle;
+  // advancing a whole minute here also fires the new request's timeout.
+  await page.clock.runFor(60_000 - 15_001);
+  await expect.poll(() => fixture.compactCount).toBe(3);
+  await expect(page.getByText('After Timeout', { exact: true })).toBeVisible();
+  await expect(page.locator('.updated')).not.toContainText('Checking for matchup updates');
+  expect(fixture.fullCount).toBe(2);
+  expect(fixture.refreshCount).toBe(0);
+  await nextPoll(page, fixture);
+  expect(fixture.compactCount).toBe(4);
+  expect(fixture.fullCount).toBe(2);
 });
 
 test('hiding during an outstanding request cancels it without triggering fallback', async ({ page }) => {
