@@ -21,7 +21,7 @@ export function ManagersView({ data }: { data: OverviewData }) {
         <Link href={`${site.prefix}/managers/${team.id}`} className="manager-card-link">
           <div className="manager-card-identity">
             <h2>{team.name}</h2>
-            <p className="manager-card-meta"><Avatar team={team} /><span>{team.managerName}</span></p>
+            <p className="manager-card-meta"><Avatar team={team} /><span className="manager-card-name">{team.managerName}</span>{selected === team.id && <span className="manager-card-selected">My Team</span>}</p>
           </div>
           <span className="manager-card-record">{teamRecord(team)}<small>RECORD</small></span>
         </Link>

@@ -1195,6 +1195,8 @@ test('My Team remains selected after a reload', async ({ page }) => {
   await page.goto('/managers', { waitUntil: 'networkidle' });
   await expect(page.locator('.manager-card.selected-manager')).toHaveCount(1);
   await expect(page.locator('.manager-card.selected-manager a')).toHaveAttribute('href', profilePath!);
+  await expect(page.locator('.manager-card-selected')).toHaveText('My Team');
+  await expect(page.locator('.manager-card.selected-manager a')).toHaveAccessibleName(/My Team/u);
   await page.reload({ waitUntil: 'networkidle' });
   await expect(page.locator('.manager-card.selected-manager a')).toHaveAttribute('href', profilePath!);
   await expect(page.locator('.preference-banner, .my-team-button')).toHaveCount(0);
