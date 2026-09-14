@@ -6,5 +6,5 @@ export const metadata: Metadata = { title: 'Standings' };
 export const dynamic = 'force-dynamic';
 
 export default function StandingsPage() {
-  return <LeagueStandingsPage leagueId={LEAGUE_IDS.league2} />;
+  return <LeagueStandingsPage leagueId={LEAGUE_IDS.league2} leagueKey="league2" />;
 }

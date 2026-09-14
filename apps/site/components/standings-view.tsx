@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useId, useRef, useState, type KeyboardEvent } from 'react';
+import type { projectStandings } from '../lib/projected-standings';
 import type { LeagueTransactionsData, StandingsData, StandingsTeam } from '../lib/types';
 import { Avatar, EmptyState, teamRecord, Updated, Warning } from './league-primitives';
 import { useLeagueSite } from './league-context';
@@ -21,6 +22,8 @@ import {
 import { useTeamPreference } from './team-preference';
 import { LeagueTransactionsView } from './league-transactions-view';
 import { RostersView } from './rosters-view';
+import { ProjectedStandingsSwitch } from './projected-standings-switch';
+import { ProjectedStandingsLive, ProjectedStandingsRecovery, type StandingsProjectionSource } from './projected-standings-live';
 
 type Column = Readonly<{ key: StandingsSortKey; label: string; className: string }>;
 
@@ -77,10 +80,11 @@ function metricValue(team: RankedStandingsTeam, key: StandingsSortKey, scoringHa
   }
 }
 
-export function StandingsView({ data }: { data: StandingsData }) {
+export function StandingsView({ data, projectionSource = null }: { data: StandingsData; projectionSource?: StandingsProjectionSource | null }) {
   const site = useLeagueSite();
   const { selected } = useTeamPreference(data.teams);
   const [view, setView] = useState<StandingsViewName>('standings');
+  const [projected, setProjected] = useState(false);
   const [sorts, setSorts] = useState<Record<StandingsTableViewName, StandingsSort | null>>(initialStandingsSorts);
   const [transactionState, setTransactionState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [transactionData, setTransactionData] = useState<LeagueTransactionsData | null>(null);
@@ -88,15 +92,9 @@ export function StandingsView({ data }: { data: StandingsData }) {
   const transactionRequestStarted = useRef(false);
   const tabRefs = useRef<Record<StandingsViewName, HTMLButtonElement | null>>({ standings: null, waivers: null, transactions: null, rosters: null });
   const id = useId();
-  const rankedTeams = useMemo(() => rankStandingsTeams(data.teams), [data.teams]);
-  const scoringHasBegun = useMemo(() => standingsHaveScoringEvidence(data.teams), [data.teams]);
   const tableView: StandingsTableViewName = view === 'waivers' ? 'waivers' : 'standings';
-  const teams = useMemo(() => sortStandingsTeams(rankedTeams, sorts[tableView]), [rankedTeams, sorts, tableView]);
   const columns = tableView === 'standings' ? standingsColumns : waiverColumns;
   const emptyTitle = view === 'standings' ? 'League standings are on their way' : 'Waivers are on their way';
-  const note = view === 'standings'
-    ? 'PF = points for · PA = points against'
-    : 'Order = current waiver claim priority · $ = budget remaining';
   const panelId = `${id}-standings-panel`;
 
   async function loadTransactions() {
@@ -141,9 +139,27 @@ export function StandingsView({ data }: { data: StandingsData }) {
     setSorts(current => ({ ...current, [tableView]: nextStandingsSort(current[tableView], key) }));
   }
 
-  return <div className={`${matchupStyles.page} ${matchupStyles.standingsPage}`}>
-    <div className={matchupStyles.toolbar}><PageIntro title="League" league={data.league} /></div>
+  function renderStandings(projection: ReturnType<typeof projectStandings> | null, projectedUpdatedAt?: string) {
+    const displayedProjection = projected && view === 'standings' && projection?.kind === 'projected' ? projection : null;
+    const displayedTeams = displayedProjection?.teams ?? data.teams;
+    const rankedTeams = rankStandingsTeams(displayedTeams);
+    const scoringHasBegun = standingsHaveScoringEvidence(displayedTeams);
+    const teams = sortStandingsTeams(rankedTeams, sorts[tableView]);
+    const note = view === 'standings'
+      ? `${displayedProjection ? `Includes Week ${displayedProjection.week} live matchup projections as results · ` : ''}PF = points for · PA = points against`
+      : 'Order = current waiver claim priority · $ = budget remaining';
+    const unavailableReason = projection?.kind === 'unavailable' ? projection.reason
+      : data.projectionBasis?.kind === 'unavailable' ? data.projectionBasis.reason
+        : 'Live matchup projections are temporarily unavailable.';
+    const status = !projected ? 'Off' : view !== 'standings' ? 'Standings only'
+      : displayedProjection ? `Week ${displayedProjection.week} · Live` : 'Unavailable';
+
+    return <div className={`${matchupStyles.page} ${matchupStyles.standingsPage}`}>
+    <div className={matchupStyles.toolbar}><PageIntro title="League" league={data.league} />
+      <ProjectedStandingsSwitch checked={projected} onChange={setProjected} status={status} />
+    </div>
     {(view === 'standings' || view === 'waivers') && <Warning message={data.warning} />}
+    {projected && view === 'standings' && !displayedProjection && <Warning message={`Showing official standings. ${unavailableReason}`} />}
     <div className="standings-view-tabs" role="tablist" aria-label="Standings views">
       {viewOptions.map(option => <button
         key={option.value}
@@ -165,9 +181,10 @@ export function StandingsView({ data }: { data: StandingsData }) {
       className="standings-view-panel standings-wrap"
       role="tabpanel"
       aria-labelledby={`${id}-${view}-tab`}
-    ><table className="standings-table" data-view={tableView}>
+    ><table className="standings-table" data-view={tableView} data-projected={Boolean(displayedProjection)}>
       <caption className="sr-only">{view === 'standings'
-        ? 'League standings with official rank, team, record, points for, and points against.'
+        ? displayedProjection ? `Projected standings including Week ${displayedProjection.week} live matchup projections as results.`
+          : 'League standings with official rank, team, record, points for, and points against.'
         : 'Waiver table with official standings rank, team, record, waiver claim priority, and budget remaining.'}</caption>
       <colgroup><col className="standings-rank-column" /><col className="standings-team-column" /><col className="standings-metric-column" /><col className="standings-metric-column" /><col className="standings-metric-column" /></colgroup>
       <thead><tr>{columns.map(column => {
@@ -195,6 +212,11 @@ export function StandingsView({ data }: { data: StandingsData }) {
       <RostersView active={view === 'rosters'} league={data.league} selected={selected} />
     </div>
     {(view === 'standings' || view === 'waivers') && <p className="table-note">{note}</p>}
-    {(view === 'standings' || view === 'waivers') && <Updated value={data.updatedAt} />}
+    {(view === 'standings' || view === 'waivers') && <Updated value={displayedProjection ? projectedUpdatedAt ?? data.updatedAt : data.updatedAt} />}
   </div>;
+  }
+
+  return projectionSource
+    ? <ProjectedStandingsLive data={data} source={projectionSource} enabled={projected && view === 'standings'}>{renderStandings}</ProjectedStandingsLive>
+    : <>{projected && view === 'standings' && <ProjectedStandingsRecovery />}{renderStandings(null)}</>;
 }

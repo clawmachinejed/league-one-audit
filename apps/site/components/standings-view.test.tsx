@@ -41,6 +41,14 @@ describe('Standings waiver balance presentation', () => {
 });
 
 describe('Standings shared view presentation', () => {
+  it('renders the projected standings switch off and the official table on initial load', () => {
+    const { html } = renderedPointCells([team({ wins: 1, pointsFor: 42, pointsAgainst: 21 })]);
+    expect(html).toContain('role="switch" aria-label="Projected standings" aria-checked="false"');
+    expect(html).toContain('data-projected="false"');
+    expect(html).toContain('League standings with official rank');
+    expect(html).not.toContain('Showing official standings.');
+  });
+
   it('uses League as the visible heading without renaming the internal tabs', () => {
     const source = readFileSync(new URL('./standings-view.tsx', import.meta.url), 'utf8');
     expect(source).toContain('<PageIntro title="League"');

@@ -15,6 +15,10 @@ The two public Sleeper league IDs have one canonical source in [`apps/site/lib/c
 
 League One keeps its existing routes, such as `/matchups`. League 2 mirrors the same experience under `/league2`, such as `/league2/matchups`. The league selector changes the active league across Matchups, Standings, and Managers. Switching from a team-specific page returns to the selected league's Managers page because Sleeper roster numbers are only unique within one league.
 
+The League page has a **Projected standings** switch above the Rosters tab. It starts off on a fresh page load or league change. Turning it on adds the active regular-season week's stored Matchups team projection totals to completed official matchup history and recalculates W–L (including ties), rank, PF, and PA. Ranking uses the existing win percentage, PF, then higher PA tiebreakers. Turning it off restores Sleeper's official standings; Waivers, Transactions, and Rosters always keep their normal data. The projected view never writes results or changes scoring.
+
+Projected standings use the existing stored-snapshot reader and browser refresh protocol: an immediate check on enable, then checks every 60 seconds while the Standings tab is visible. This does not change provider collection cadence. OFF, another League tab, and a hidden browser stop these checks. A missing team total, unproved completed-week baseline, unsupported league format, stale snapshot, or week rollover keeps the official table visible with an explanation. One bounded page refresh retries a missing baseline on enable or rebuilds the baseline after rollover; missing evidence is never replaced with zero. Completed weeks are reconstructed through the existing cached Sleeper matchup-history loader, including official custom score overrides, so an active week's totals cannot be counted twice as Sleeper updates its aggregates.
+
 History, rivalries, awards, a separate statistics section, and a separate schedule section are outside this rebuild's scope.
 
 ## Repository and hosting
