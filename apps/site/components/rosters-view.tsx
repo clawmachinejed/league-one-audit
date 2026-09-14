@@ -1,15 +1,15 @@
 'use client';
 
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { nextAllPlayerRefreshAt } from '../lib/all-player-refresh-schedule';
 import { injuryStatusLabel } from '../lib/injury-status';
 import { formatNflGame } from '../lib/nfl-schedule';
 import { orderRosterTeams } from '../lib/roster-metrics';
 import type { League, RosterPlayer, RosterSection, RosterTeam, RostersData } from '../lib/types';
-import { Icon } from './icon';
 import { useLeagueSite } from './league-context';
 import { Avatar, EmptyState, Updated, Warning } from './league-primitives';
-import matchupStyles from './matchups.module.css';
+import { RosterWeekSelector } from './roster-week-selector';
 import styles from './rosters.module.css';
 
 type LoadState = 'idle' | 'loading' | 'ready' | 'error';
@@ -184,7 +184,9 @@ export function rosterCacheKey(leagueKey: string, season: string, week: number):
   return `${leagueKey}:${season}:${week}`;
 }
 
-export function RostersView({ active, league, selected }: { active: boolean; league: League; selected: number | null }) {
+export function RostersView({ active, league, selected, controlsTarget }: {
+  active: boolean; league: League; selected: number | null; controlsTarget: HTMLDivElement | null;
+}) {
   const site = useLeagueSite();
   const [week, setWeek] = useState(league.week);
   const [state, setState] = useState<LoadState>('idle');
@@ -313,14 +315,10 @@ export function RostersView({ active, league, selected }: { active: boolean; lea
   }, [active, retry, key, site.key, league.season, authorityScope, currentWeek, shouldRefresh, week]);
 
   return <div className={styles.view}>
-    <div className={styles.weekToolbar}>
-      {week !== currentWeek && <button type="button" className={styles.currentWeek} onClick={() => setWeek(currentWeek)}>Back to current</button>}
-      <div className={matchupStyles.weekControl}>
-        <button type="button" className={matchupStyles.weekArrow} disabled={week <= 1} onClick={() => setWeek((value) => Math.max(1, value - 1))} aria-label={`Previous week, week ${week - 1}`}><Icon name="arrow" /></button>
-        <label className={matchupStyles.weekSelect}><span className="sr-only">Roster week</span><select value={week} onChange={(event) => setWeek(Number(event.target.value))}>{Array.from({ length: league.maxWeek }, (_, index) => <option key={index + 1} value={index + 1}>Week {index + 1}{index + 1 === currentWeek ? ' · Current' : ''}</option>)}</select><Icon name="chevron" /></label>
-        <button type="button" className={matchupStyles.weekArrow} disabled={week >= league.maxWeek} onClick={() => setWeek((value) => Math.min(league.maxWeek, value + 1))} aria-label={`Next week, week ${week + 1}`}><Icon name="arrow" className="arrow-forward" /></button>
-      </div>
-    </div>
+    {active && controlsTarget && createPortal(
+      <RosterWeekSelector week={week} currentWeek={currentWeek} maxWeek={league.maxWeek} onChange={setWeek} />,
+      controlsTarget,
+    )}
     {data && error && <Warning message={`${error} Showing the last saved roster.`} />}
     {data ? <RosterContent key={key} data={data} selected={selected} />
       : state === 'error' ? <div className={styles.inlineState}><div><strong>League rosters unavailable</strong><p>{error}</p><button type="button" onClick={() => { cache.current.delete(key); setRetry((value) => value + 1); }}>Try again</button></div></div>

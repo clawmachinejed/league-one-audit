@@ -16,7 +16,7 @@ async function visibility(page: Page, value: 'visible' | 'hidden') {
 }
 
 function rosterWeek(page: Page) {
-  return page.getByRole('tabpanel', { name: 'Rosters', exact: true }).getByLabel('Roster week');
+  return page.getByRole('combobox', { name: 'Roster week', exact: true });
 }
 
 async function openRosters(page: Page, league: 'league1' | 'league2' = 'league1') {

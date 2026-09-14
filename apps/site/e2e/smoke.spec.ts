@@ -552,6 +552,10 @@ test('Rosters stays in League, is exact-week cached, accessible, and responsive'
       await expect(page.getByText('Loading the league…')).toHaveCount(0);
       const currentWeek = await page.getByLabel('Roster week').inputValue();
       await expect(page.getByLabel('Roster week').locator('option:checked')).toContainText('Current');
+      await expectTouchHeight(page.getByLabel('Roster week'));
+      const weekBox = (await page.getByLabel('Roster week').boundingBox())!;
+      const tabsBox = (await tabs.boundingBox())!;
+      expect(weekBox.y + weekBox.height).toBeLessThanOrEqual(tabsBox.y);
       await expect(page.locator('[data-team-headings]')).toHaveText(/TEAM\s*RECORD\s*AVG PPG/u);
       await expect(page.locator('[data-team-headings]')).toHaveCount(1);
       const cards = page.locator('[data-roster-card]');
@@ -633,6 +637,7 @@ test('Rosters stays in League, is exact-week cached, accessible, and responsive'
 
       for (const tabName of ['Standings', 'Waivers', 'Transactions']) {
         await tabs.getByRole('tab', { name: tabName, exact: true }).click();
+        await expect(page.getByLabel('Roster week')).toHaveCount(0);
         await tabs.getByRole('tab', { name: 'Rosters', exact: true }).click();
         await expect(cards.locator('[data-roster-toggle][aria-expanded="true"]')).toHaveCount(2);
         expect(requests.slice(before)).toEqual([`${leagueKey}:${currentWeek}`]);

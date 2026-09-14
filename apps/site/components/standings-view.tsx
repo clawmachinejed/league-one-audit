@@ -22,6 +22,7 @@ import {
 import { useTeamPreference } from './team-preference';
 import { LeagueTransactionsView } from './league-transactions-view';
 import { RostersView } from './rosters-view';
+import rosterStyles from './rosters.module.css';
 import { ProjectedStandingsSwitch } from './projected-standings-switch';
 import { ProjectedStandingsLive, ProjectedStandingsRecovery, type StandingsProjectionSource } from './projected-standings-live';
 
@@ -85,6 +86,7 @@ export function StandingsView({ data, projectionSource = null }: { data: Standin
   const { selected } = useTeamPreference(data.teams);
   const [view, setView] = useState<StandingsViewName>('standings');
   const [projected, setProjected] = useState(false);
+  const [rosterControlsTarget, setRosterControlsTarget] = useState<HTMLDivElement | null>(null);
   const [sorts, setSorts] = useState<Record<StandingsTableViewName, StandingsSort | null>>(initialStandingsSorts);
   const [transactionState, setTransactionState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [transactionData, setTransactionData] = useState<LeagueTransactionsData | null>(null);
@@ -157,6 +159,7 @@ export function StandingsView({ data, projectionSource = null }: { data: Standin
     return <div className={`${matchupStyles.page} ${matchupStyles.standingsPage}`}>
     <div className={matchupStyles.toolbar}><PageIntro title="League" league={data.league} />
       {view === 'standings' && <ProjectedStandingsSwitch checked={projected} onChange={setProjected} status={status} />}
+      <div ref={setRosterControlsTarget} className={rosterStyles.headerControls} hidden={view !== 'rosters'} />
     </div>
     {(view === 'standings' || view === 'waivers') && <Warning message={data.warning} />}
     {projected && view === 'standings' && !displayedProjection && <Warning message={`Showing official standings. ${unavailableReason}`} />}
@@ -209,7 +212,7 @@ export function StandingsView({ data, projectionSource = null }: { data: Standin
       </tr>)}</tbody>
     </table></div> : <div className="standings-view-panel"><EmptyState title={emptyTitle}>Teams will appear when Sleeper has league rosters available.</EmptyState></div>}
     <div id={view === 'rosters' ? panelId : undefined} className="standings-view-panel" role={view === 'rosters' ? 'tabpanel' : undefined} aria-labelledby={view === 'rosters' ? `${id}-rosters-tab` : undefined} hidden={view !== 'rosters'}>
-      <RostersView active={view === 'rosters'} league={data.league} selected={selected} />
+      <RostersView active={view === 'rosters'} league={data.league} selected={selected} controlsTarget={rosterControlsTarget} />
     </div>
     {(view === 'standings' || view === 'waivers') && <p className="table-note">{note}</p>}
     {(view === 'standings' || view === 'waivers') && <Updated value={displayedProjection ? projectedUpdatedAt ?? data.updatedAt : data.updatedAt} />}
