@@ -3,16 +3,6 @@
 .heading { min-width:0; }
 .toolbar h1 { font-size:26px; line-height:1.1; letter-spacing:-1px; white-space:nowrap; flex-shrink:0; }
 .season { margin-top:4px; color:var(--green); font-size:9px; font-weight:700; line-height:12px; letter-spacing:.025em; text-transform:uppercase; }
-.weekControl { display:flex; align-items:center; border:1px solid var(--line); border-radius:8px; background:var(--surface); margin-left:auto; }
-.weekArrow { width:44px; height:44px; display:none; place-items:center; }
-.weekArrow:global(.disabled) { opacity:.25; pointer-events:none; }
-.weekArrow :global(.icon) { width:14px; height:14px; }
-.weekSelect { position:relative; display:flex; align-items:center; }
-.weekSelect select { appearance:none; height:44px; width:87px; border:0; padding:0 20px 0 5px; background:transparent; color:var(--ink); font-size:16px; cursor:pointer; }
-.weekSelect :global(.icon) { width:12px; height:12px; position:absolute; right:5px; pointer-events:none; }
-.refresh { width:44px; height:44px; background:transparent; display:grid; place-items:center; flex-shrink:0; }
-.refresh :global(.icon) { width:17px; height:17px; }
-.backToCurrent { min-height:44px; display:flex; align-items:center; width:fit-content; margin-bottom:7px; color:var(--green); font-size:11px; text-decoration:underline; text-underline-offset:3px; }
 .standingsPage :global(.section-label) { margin-top:0; }
 .page :global(.updated) { margin-top:12px; }
 .board { --name-height:36px; --meta-height:16px; --score-width:112px; display:grid; gap:5px; align-items:start; }
@@ -87,7 +77,6 @@
   .score { font-size:13px; }
 }
 @media(min-width:760px) {
-  .weekArrow { display:grid; }
   .toolbar h1 { font-size:34px; }
   .toolbar { margin-bottom:10px; }
   .season { font-size:11px; line-height:14px; }
