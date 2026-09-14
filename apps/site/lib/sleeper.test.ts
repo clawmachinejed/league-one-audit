@@ -27,6 +27,7 @@ vi.mock('next/cache', () => ({
   },
 }));
 import { LEAGUE_IDS } from './config';
+import { addWaiverBalances, normalizeTeams, type SleeperRoster, type SleeperUser } from './transform';
 import {
   getCurrentLeagueWeek,
   getFantasyPlayerCatalog,
@@ -239,6 +240,143 @@ function makeProjectionWeekReady(
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+});
+
+function standingsSource(
+  week: number,
+  official: Array<Record<string, unknown>>,
+  history: Record<number, unknown>,
+  settings: Record<string, unknown> = {},
+) {
+  expectedRosterCount = official.length;
+  rawRosters = official.map((record, index) => ({
+    roster_id: index + 1, owner_id: `member-${index + 1}`, players: ['qb'], starters: ['qb'],
+    settings: { ...rosterSettings, ...record },
+  }));
+  rawUsers = official.map((_, index) => ({ user_id: `member-${index + 1}`, display_name: `Manager ${index + 1}` }));
+  const concurrency = { active: 0, maximum: 0 };
+  vi.mocked(fetch).mockImplementation(async (input) => {
+    const path = requestPath(input);
+    if (path === '/state/nfl') return Response.json({ season: stateSeason, season_type: seasonType, leg: week, week, display_week: week });
+    if (path === leaguePath) {
+      const league = valueFor(path) as Record<string, unknown>;
+      return Response.json({ ...league, settings: {
+        ...(league.settings as Record<string, unknown>), start_week: 1,
+        playoff_week_start: 0, league_average_match: 0, best_ball: 0, ...settings,
+      } });
+    }
+    if (path.startsWith(`${leaguePath}/matchups/`)) {
+      concurrency.active += 1;
+      concurrency.maximum = Math.max(concurrency.maximum, concurrency.active);
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      concurrency.active -= 1;
+      if (failures.has(path)) return new Response('Unavailable', { status: 503 });
+      return Response.json(history[Number(path.split('/').at(-1))] ?? []);
+    }
+    return Response.json(valueFor(path));
+  });
+  return concurrency;
+}
+
+describe('official basis for projected standings', () => {
+  const weekRows = (left: number, right: number) => [
+    { roster_id: 1, matchup_id: 1, points: left, players: ['qb'], starters: ['qb'] },
+    { roster_id: 2, matchup_id: 1, points: right, players: ['qb'], starters: ['qb'] },
+  ];
+
+  it('uses actual Week 1 zero aggregates without fetching matchup history, players, or another provider', async () => {
+    standingsSource(1, [{ fpts_against: undefined }, { fpts_against: undefined }], {});
+    const original = addWaiverBalances(normalizeTeams(rawRosters as SleeperRoster[], rawUsers as SleeperUser[]), rawRosters as SleeperRoster[], 100);
+    const data = await getStandings(leagueOneId);
+    expect(data.teams).toEqual(original);
+    expect(data.teams.every((team) => team.pointsAgainst === null)).toBe(true);
+    expect(data.projectionBasis).toMatchObject({ kind: 'ready', week: 1, teams: [
+      { id: 1, wins: 0, losses: 0, ties: 0, pointsFor: 0, pointsAgainst: 0 },
+      { id: 2, wins: 0, losses: 0, ties: 0, pointsFor: 0, pointsAgainst: 0 },
+    ] });
+    expect(vi.mocked(fetch).mock.calls.map(([input]) => requestPath(input)).sort()).toEqual([
+      leaguePath, `${leaguePath}/rosters`, `${leaguePath}/users`, '/state/nfl',
+    ].sort());
+  });
+
+  it('reuses completed-week history with at most four concurrent cached calls and preserves official OFF values exactly', async () => {
+    const concurrency = standingsSource(7, [
+      { wins: 6, fpts: 60, fpts_against: 30 }, { losses: 6, fpts: 30, fpts_against: 60 },
+    ], Object.fromEntries(Array.from({ length: 6 }, (_, index) => [index + 1, weekRows(10, 5)])));
+    const original = addWaiverBalances(normalizeTeams(rawRosters as SleeperRoster[], rawUsers as SleeperUser[]), rawRosters as SleeperRoster[], 100);
+    const data = await getStandings(leagueOneId);
+    expect(data.teams).toEqual(original);
+    expect(data.projectionBasis).toEqual({ kind: 'ready', week: 7, teams: original });
+    expect(concurrency.maximum).toBe(4);
+    const historyCalls = vi.mocked(fetch).mock.calls.filter(([input]) => requestPath(input).includes('/matchups/'));
+    expect(historyCalls).toHaveLength(6);
+    expect(historyCalls.map(([input]) => requestPath(input)).sort()).toEqual(Array.from({ length: 6 }, (_, index) => `${leaguePath}/matchups/${index + 1}`));
+    expect(historyCalls.every(([, options]) => (options as RequestInit & { next?: { revalidate: number } }).next?.revalidate === 60)).toBe(true);
+  });
+
+  it('shares existing cached history with the roster reader without adding a standings cache or provider feed', async () => {
+    reactCacheControl.enabled = true;
+    standingsSource(3, [
+      { wins: 2, fpts: 20, fpts_against: 10 }, { losses: 2, fpts: 10, fpts_against: 20 },
+    ], { 1: weekRows(10, 5), 2: weekRows(10, 5), 3: weekRows(2, 1) });
+    const [standings, rosters] = await Promise.all([getStandings(leagueOneId), getRosters(leagueOneId, 3)]);
+    expect(standings.projectionBasis?.kind).toBe('ready');
+    expect(rosters.teams.find((team) => team.id === 1)?.averagePpg).toBe(10);
+    for (const week of [1, 2]) expect(vi.mocked(fetch).mock.calls.filter(([input]) => requestPath(input) === `${leaguePath}/matchups/${week}`)).toHaveLength(1);
+    expect(vi.mocked(fetch).mock.calls.every(([input]) => new URL(String(input)).hostname.startsWith('api.sleeper.'))).toBe(true);
+  });
+
+  it('reconciles official aggregates that already include the active week without including it in the baseline', async () => {
+    const previous = weekRows(100, 80);
+    previous[0] = { ...previous[0], points: 99, custom_points: 100 } as typeof previous[number];
+    standingsSource(2, [
+      { wins: 2, fpts: 230, fpts_against: 190 }, { losses: 2, fpts: 190, fpts_against: 230 },
+    ], { 1: previous, 2: weekRows(130, 110) }, { last_scored_leg: 2 });
+    const data = await getStandings(leagueOneId);
+    expect(data.teams[0]).toMatchObject({ wins: 2, pointsFor: 230, pointsAgainst: 190 });
+    expect(data.projectionBasis).toMatchObject({ kind: 'ready', week: 2, teams: [
+      { id: 1, wins: 1, pointsFor: 100, pointsAgainst: 80 }, { id: 2, losses: 1, pointsFor: 80, pointsAgainst: 100 },
+    ] });
+    expect(vi.mocked(fetch).mock.calls.filter(([input]) => requestPath(input).includes('/matchups/'))).toHaveLength(2);
+  });
+
+  it.each(['failed', 'malformed', 'missing', 'unpaired', 'duplicate'])('retains OFF standings when completed history is %s', async (failure) => {
+    let rows: unknown = weekRows(10, 5);
+    if (failure === 'malformed') rows = [{ roster_id: 1, matchup_id: 1, points: 'bad' }, weekRows(10, 5)[1]];
+    if (failure === 'missing') rows = weekRows(10, 5).slice(1);
+    if (failure === 'unpaired') rows = weekRows(10, 5).map((row) => ({ ...row, matchup_id: null }));
+    if (failure === 'duplicate') rows = [weekRows(10, 5)[0], weekRows(10, 5)[0], weekRows(10, 5)[1]];
+    standingsSource(2, [{ wins: 1, fpts: 10, fpts_against: 5 }, { losses: 1, fpts: 5, fpts_against: 10 }], { 1: rows });
+    if (failure === 'failed') failures.add(`${leaguePath}/matchups/1`);
+    const original = addWaiverBalances(normalizeTeams(rawRosters as SleeperRoster[], rawUsers as SleeperUser[]), rawRosters as SleeperRoster[], 100);
+    const data = await getStandings(leagueOneId);
+    expect(data.teams).toEqual(original);
+    expect(data.projectionBasis?.kind).toBe('unavailable');
+  });
+
+  it('retains OFF manual adjustments when the complete official history cannot explain them', async () => {
+    standingsSource(2, [{ wins: 1, fpts: 11, fpts_against: 5 }, { losses: 1, fpts: 5, fpts_against: 10 }], { 1: weekRows(10, 5), 2: weekRows(8, 9) });
+    const data = await getStandings(leagueOneId);
+    expect(data.teams[0].pointsFor).toBe(11);
+    expect(data.projectionBasis).toEqual({ kind: 'unavailable', reason: 'Official standings and completed matchup history do not agree.' });
+  });
+
+  it.each([
+    { league_average_match: 1 }, { best_ball: 1 }, { divisions: 2 }, { start_week: 2 },
+    { playoff_week_start: 2 }, { playoff_week_start: undefined }, { best_ball: undefined },
+  ])('does not fetch history for unsupported or unproved settings: %j', async (settings) => {
+    standingsSource(2, [{}, {}], {}, settings);
+    const data = await getStandings(leagueOneId);
+    expect(data.projectionBasis?.kind).toBe('unavailable');
+    expect(vi.mocked(fetch).mock.calls.some(([input]) => requestPath(input).includes('/matchups/'))).toBe(false);
+  });
+
+  it.each(['pre', 'post'])('does not construct an active-week basis in the %s season phase', async (phase) => {
+    standingsSource(2, [{}, {}], {});
+    seasonType = phase;
+    expect((await getStandings(leagueOneId)).projectionBasis?.kind).toBe('unavailable');
+    expect(vi.mocked(fetch).mock.calls.some(([input]) => requestPath(input).includes('/matchups/'))).toBe(false);
+  });
 });
 
 describe('Sleeper service error handling', () => {

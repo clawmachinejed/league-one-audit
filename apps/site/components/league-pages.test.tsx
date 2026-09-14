@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   getCurrentMatchupPeriodContext: vi.fn(),
   getOfficialMatchups: vi.fn(),
   getOverview: vi.fn(),
+  getStandings: vi.fn(),
   readStoredMatchups: vi.fn(),
 }));
 
@@ -17,6 +18,7 @@ vi.mock('@/lib/sleeper', () => ({
   getCurrentMatchupPeriodContext: mocks.getCurrentMatchupPeriodContext,
   getOfficialMatchups: mocks.getOfficialMatchups,
   getOverview: mocks.getOverview,
+  getStandings: mocks.getStandings,
   getManager: vi.fn(),
   getTransactions: vi.fn(),
 }));
@@ -26,8 +28,9 @@ vi.mock('./managers-view', () => ({ ManagersView: () => null }));
 vi.mock('./standings-view', () => ({ StandingsView: () => null }));
 vi.mock('./transactions-view', () => ({ TransactionsView: () => null }));
 
-import type { MatchupsData } from '@/lib/types';
-import { LeagueMatchupsPage } from './league-pages';
+import type { MatchupsData, StandingsData } from '@/lib/types';
+import type { StandingsProjectionSource } from './projected-standings-live';
+import { LeagueMatchupsPage, LeagueStandingsPage } from './league-pages';
 
 function matchups(week: number): MatchupsData {
   return {
@@ -38,6 +41,59 @@ function matchups(week: number): MatchupsData {
     matchups: [],
   };
 }
+
+describe('LeagueStandingsPage', () => {
+  const context = { defaultSeason: 2026, defaultWeek: 3, activeSeason: 2026, activeWeek: 2,
+    lifecycle: 'active', nflPhase: 'regular', temporalState: 'active', refreshDue: false } as const;
+  const standings: StandingsData = { ...matchups(3), teams: [], projectionBasis: { kind: 'ready', week: 2, teams: [] } };
+  type Props = { data: StandingsData; projectionSource: StandingsProjectionSource | null };
+
+  beforeEach(() => {
+    vi.resetAllMocks();
+    mocks.getStandings.mockResolvedValue(standings);
+    mocks.getCurrentMatchupPeriodContext.mockResolvedValue(context);
+  });
+
+  it.each(['league1', 'league2'] as const)('uses the %s stored active-week team projections, even when display week is later', async leagueKey => {
+    const payload = matchups(2);
+    mocks.readStoredMatchups.mockResolvedValue({ kind: 'usable', payload, context,
+      snapshotRevision: 'a'.repeat(64), verifiedAt: '2026-09-10T12:00:00.000Z' });
+    const rendered = await LeagueStandingsPage({ leagueId: `id-${leagueKey}`, leagueKey }) as ReactElement<Props>;
+    expect(mocks.readStoredMatchups).toHaveBeenCalledExactlyOnceWith(leagueKey, 2);
+    expect(rendered.key).toBe(leagueKey);
+    expect(rendered.props.data).toBe(standings);
+    expect(rendered.props.projectionSource?.data).toBe(payload);
+    expect(rendered.props.projectionSource?.snapshotRevision).toBe('a'.repeat(64));
+    expect(mocks.getOfficialMatchups).not.toHaveBeenCalled();
+    expect(mocks.getCurrentMatchupPeriodContext).not.toHaveBeenCalled();
+  });
+
+  it('keeps an empty recoverable seed when stored projections are unavailable, without inventing scores', async () => {
+    mocks.readStoredMatchups.mockResolvedValue({ kind: 'missing' });
+    const rendered = await LeagueStandingsPage({ leagueId: 'id-league1', leagueKey: 'league1' }) as ReactElement<Props>;
+    expect(rendered.props.projectionSource?.data.matchups).toEqual([]);
+    expect(rendered.props.projectionSource?.data.week).toBe(2);
+    expect(rendered.props.projectionSource?.snapshotRevision).toBeNull();
+    expect(mocks.getCurrentMatchupPeriodContext).toHaveBeenCalledExactlyOnceWith('id-league1', 2);
+    expect(mocks.getOfficialMatchups).not.toHaveBeenCalled();
+  });
+
+  it('keeps official standings available when period authority fails', async () => {
+    mocks.readStoredMatchups.mockResolvedValue({ kind: 'database-error' });
+    mocks.getCurrentMatchupPeriodContext.mockRejectedValue(new Error('unavailable'));
+    const rendered = await LeagueStandingsPage({ leagueId: 'id-league1', leagueKey: 'league1' }) as ReactElement<Props>;
+    expect(rendered.props.data).toBe(standings);
+    expect(rendered.props.projectionSource).toBeNull();
+  });
+
+  it('does not read projections when a completed-week baseline cannot be proved', async () => {
+    mocks.getStandings.mockResolvedValue({ ...standings, projectionBasis: { kind: 'unavailable', reason: 'History unavailable.' } });
+    const rendered = await LeagueStandingsPage({ leagueId: 'id-league1', leagueKey: 'league1' }) as ReactElement<Props>;
+    expect(rendered.props.projectionSource).toBeNull();
+    expect(mocks.readStoredMatchups).not.toHaveBeenCalled();
+    expect(mocks.getCurrentMatchupPeriodContext).not.toHaveBeenCalled();
+  });
+});
 
 describe('LeagueMatchupsPage', () => {
   beforeEach(() => {

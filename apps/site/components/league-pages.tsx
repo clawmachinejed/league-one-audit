@@ -10,6 +10,7 @@ import { MatchupsView } from './matchups-view';
 import { ManagerView } from './manager-view';
 import { ManagersView } from './managers-view';
 import { StandingsView } from './standings-view';
+import type { StandingsProjectionSource } from './projected-standings-live';
 import { TransactionsView } from './transactions-view';
 
 type MatchupSearchParams = Promise<{ week?: string }>;
@@ -57,8 +58,27 @@ export async function LeagueMatchupsPage({
   return <MatchupsView data={data} periodContext={periodContext} snapshotRevision={null} verifiedAt={null} />;
 }
 
-export async function LeagueStandingsPage({ leagueId }: { leagueId: string }) {
-  return <StandingsView data={await getStandings(leagueId)} />;
+export async function LeagueStandingsPage({ leagueId, leagueKey }: { leagueId: string; leagueKey: LeagueKey }) {
+  const data = await getStandings(leagueId);
+  let projectionSource: StandingsProjectionSource | null = null;
+  if (data.projectionBasis?.kind === 'ready') {
+    const week = data.projectionBasis.week;
+    const persisted = await readStoredMatchups(leagueKey, week);
+    if (persisted.kind === 'usable') {
+      projectionSource = { data: persisted.payload, periodContext: persisted.context,
+        snapshotRevision: persisted.snapshotRevision, verifiedAt: persisted.verifiedAt };
+    } else {
+      let periodContext = 'context' in persisted ? persisted.context : undefined;
+      if (!periodContext) {
+        try { periodContext = await getCurrentMatchupPeriodContext(leagueId, week); } catch { /* Keep official standings usable. */ }
+      }
+      if (periodContext) {
+        // An empty seed is explicitly unavailable until the existing snapshot reader recovers.
+        projectionSource = { data: { ...data, week, matchups: [] }, periodContext, snapshotRevision: null, verifiedAt: null };
+      }
+    }
+  }
+  return <StandingsView key={leagueKey} data={data} projectionSource={projectionSource} />;
 }
 
 export async function LeagueManagersPage({ leagueId }: { leagueId: string }) {

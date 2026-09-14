@@ -23,13 +23,14 @@ import {
   resolveSleeperSchedule,
   type WeekSchedule,
 } from './nfl-schedule';
-import type { LeagueTransactionsData, ManagerData, MatchupsData, OverviewData, Player, RosterPlayer, RosterSection, RostersData, StandingsData, TransactionsData } from './types';
+import type { LeagueTransactionsData, ManagerData, MatchupsData, OverviewData, Player, ProjectedStandingsBasis, RosterPlayer, RosterSection, RostersData, StandingsData, StandingsTeam, TransactionsData } from './types';
 import type { LeagueKey } from './leagues';
 import { normalizeLeagueTransactions } from './league-transactions';
 import { matchupTemporalState, type MatchupPeriodContext } from './matchup-period';
 import { calculateTeamPpg, compareRosterStandings, playerMetricBoundary, rosterHistoryBoundary } from './roster-metrics';
 import { canonicalNflTeam } from './nfl-teams';
 import { startingSlots } from './sleeper-lineup';
+import { buildCompletedStandingsBasis, reconcileStandingsBasis, standingsTotalsMatch } from './projected-standings';
 import {
   canDecorateMatchupWeek,
   addWaiverBalances,
@@ -532,11 +533,49 @@ export async function getOverview(leagueId: string): Promise<OverviewData> {
 }
 
 export async function getStandings(leagueId: string): Promise<StandingsData> {
-  const { overview, rosters, sourceLeague } = await getCore(leagueId);
+  const { overview, rosters, sourceLeague, state } = await getCore(leagueId);
+  const teams = addWaiverBalances(overview.teams, rosters, sourceLeague.settings?.waiver_budget);
   return {
     ...overview,
-    teams: addWaiverBalances(overview.teams, rosters, sourceLeague.settings?.waiver_budget),
+    teams,
+    projectionBasis: await getStandingsProjectionBasis(leagueId, sourceLeague, state, rosters, teams),
   };
+}
+
+async function getStandingsProjectionBasis(
+  leagueId: string,
+  league: SleeperLeague,
+  state: SleeperState | null,
+  rosters: readonly SleeperRoster[],
+  teams: readonly StandingsTeam[],
+): Promise<ProjectedStandingsBasis> {
+  const week = sleeperActiveScoringWeek(league, state);
+  if (week === null) return { kind: 'unavailable', reason: 'There is no confirmed active regular-season week.' };
+  const settings = league.settings;
+  const playoffStart = settings?.playoff_week_start;
+  // These leagues use ordinary head-to-head records. Do not silently project a
+  // median game, division seed, best-ball result, or an unproved scoring period.
+  if (settings?.start_week !== 1 || settings.league_average_match !== 0 || settings.best_ball !== 0
+    || (settings.divisions !== undefined && settings.divisions !== 0)
+    || rosters.some((roster) => roster.settings?.division != null && roster.settings.division !== 0)
+    || typeof playoffStart !== 'number' || !Number.isInteger(playoffStart) || playoffStart < 0 || playoffStart > 18
+    || (playoffStart > 0 && week >= playoffStart)) {
+    return { kind: 'unavailable', reason: 'Projected standings are unavailable for these league settings.' };
+  }
+  const history = await loadRosterHistory(leagueId, week - 1);
+  if (history.failedWeeks.length || history.malformedWeeks.length) {
+    return { kind: 'unavailable', reason: 'Completed matchup history is temporarily incomplete.' };
+  }
+  const basis = buildCompletedStandingsBasis(teams, week, history.rows);
+  if (basis.kind === 'unavailable' || standingsTotalsMatch(teams, basis.teams)) return basis;
+  // Aggregates may already include this week. Prove that from the existing raw
+  // reader rather than trusting last_scored_leg or subtracting projected points.
+  try {
+    const current = await getCachedRosterWeek(leagueId, week);
+    return reconcileStandingsBasis(basis, teams, current.invalidRowCount ? null : current.rows);
+  } catch {
+    return { kind: 'unavailable', reason: 'Official standings could not be reconciled with matchup history.' };
+  }
 }
 
 function lastScoredWeek(league: SleeperLeague): number | null {

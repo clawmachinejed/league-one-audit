@@ -23,13 +23,15 @@ type Session = Readonly<{
 }>;
 
 export function useMatchupSnapshot({
-  leagueKey, data, periodContext, snapshotRevision, verifiedAt,
+  leagueKey, data, periodContext, snapshotRevision, verifiedAt, enabled = true, checkOnEnable = false,
 }: Readonly<{
   leagueKey: string;
   data: MatchupsData;
   periodContext: MatchupPeriodContext;
   snapshotRevision: string | null;
   verifiedAt: string | null;
+  enabled?: boolean;
+  checkOnEnable?: boolean;
 }>) {
   const scope: MatchupSnapshotScope = { leagueKey, season: data.league.season, week: data.week };
   const scopeKey = matchupSnapshotScopeKey(scope);
@@ -49,6 +51,7 @@ export function useMatchupSnapshot({
   const [fetchingGeneration, setFetchingGeneration] = useState<number | null>(null);
   const sequence = useRef(0);
   const activeRequest = useRef<AbortController | null>(null);
+  const wasEnabled = useRef(false);
   const generation = session.generation;
   const snapshot = session.snapshot;
 
@@ -58,6 +61,7 @@ export function useMatchupSnapshot({
   }, [generation, router]);
 
   const check = useCallback(async (manual: boolean) => {
+    if (!enabled) return;
     if (!manual && activeRequest.current) return;
     activeRequest.current?.abort();
     const controller = new AbortController();
@@ -84,14 +88,17 @@ export function useMatchupSnapshot({
         setFetchingGeneration(null);
       }
     }
-  }, [data.league.season, data.week, generation, leagueKey, refreshRoute, snapshot]);
+  }, [data.league.season, data.week, enabled, generation, leagueKey, refreshRoute, snapshot]);
 
   const polling = snapshot.context.temporalState !== 'past';
   const checkAutomatically = useEffectEvent(() => { void check(false); });
   useEffect(() => {
+    const justEnabled = enabled && !wasEnabled.current;
+    wasEnabled.current = enabled;
     const cancel = () => { sequence.current += 1; activeRequest.current?.abort(); activeRequest.current = null; };
-    if (!polling) return cancel;
+    if (!enabled || !polling) return cancel;
     const checkVisible = () => { if (document.visibilityState === 'visible') checkAutomatically(); };
+    if (checkOnEnable && justEnabled) checkVisible();
     const visibilityChanged = () => {
       if (document.visibilityState === 'visible') checkVisible();
       else { cancel(); setFetchingGeneration(null); }
@@ -103,14 +110,14 @@ export function useMatchupSnapshot({
       window.clearInterval(timer);
       document.removeEventListener('visibilitychange', visibilityChanged);
     };
-  }, [generation, polling]);
+  }, [checkOnEnable, enabled, generation, polling]);
 
   return {
     data: snapshot.data,
     periodContext: snapshot.context,
     updatedAt: snapshot.context.temporalState === 'past' ? snapshot.data.updatedAt
       : snapshot.verifiedAt ?? snapshot.data.updatedAt,
-    refreshing: fetchingGeneration === generation || routeRefreshing,
+    refreshing: enabled && (fetchingGeneration === generation || routeRefreshing),
     refresh: () => check(true),
   };
 }

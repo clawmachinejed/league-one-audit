@@ -102,7 +102,18 @@ export interface OverviewData {
 
 export interface StandingsData extends Omit<OverviewData, 'teams'> {
   teams: StandingsTeam[];
+  /** Official completed-week totals used only by the optional live projection view. */
+  projectionBasis?: ProjectedStandingsBasis;
 }
+
+export type ProjectedStandingsBasis = {
+  kind: 'ready';
+  week: number;
+  teams: StandingsTeam[];
+} | {
+  kind: 'unavailable';
+  reason: string;
+};
 
 export interface MatchupSide {
   team: Team;
