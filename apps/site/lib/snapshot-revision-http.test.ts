@@ -156,6 +156,52 @@ describe('full snapshot revision fencing', () => {
 
 describe('full and compact reader selection parity', () => {
   it.each([
+    { age: '2026-09-13T18:03:00.000Z', expected: 'usable' },
+    { age: '2026-09-13T18:03:00.001Z', expected: 'stale' },
+  ])('uses active freshness for explicit Week 2 while display remains Week 1 at $age', async ({ age, expected }) => {
+    const data = fixture(2, 1);
+    Object.assign(data.stored.authority, { sourceObservedAt: age, verifiedAt: age });
+    Object.assign(data.stored, { futureRefresh: {
+      nextRefreshAt: '2026-09-14T18:00:00.000Z', lastSucceededAt: verifiedAt,
+      activeAttemptExpiresAt: null, lastSnapshotRevision: revision,
+      lastProjectionSlateContentId: 'week-2-content', currentProjectionSlateContentId: 'week-2-content',
+    } });
+    const options = { store: data.store, now: new Date(age) };
+    for (const read of [readStoredMatchups, readStoredMatchupRevision]) {
+      await expect(read('league1', 2, options)).resolves.toMatchObject({
+        kind: 'usable', historical: false,
+        context: { defaultWeek: 1, activeWeek: 1, temporalState: 'future', refreshDue: false },
+      });
+    }
+
+    // Only scoring authority advances; neither the display marker nor the snapshot is rewritten.
+    Object.assign(data.stored.authority, { activeWeek: 2 });
+    const full = await readStoredMatchups('league1', 2, options);
+    const compact = await readStoredMatchupRevision('league1', 2, options);
+    expect(full).toMatchObject({
+      kind: expected,
+      context: { defaultWeek: 1, activeWeek: 2, temporalState: 'active', refreshDue: expected === 'stale' },
+    });
+    if (full.kind === 'usable') {
+      const { payload, ...metadata } = full;
+      expect(payload).toEqual(data.stored.snapshot.payload);
+      expect(payload).toMatchObject({ week: 2, league: { week: 2 } });
+      expect(metadata).toMatchObject({ historical: false, snapshotRevision: revision, verifiedAt });
+      expect(compact).toEqual(metadata);
+    } else {
+      expect(full).not.toHaveProperty('payload');
+      expect(compact).toEqual(full);
+    }
+    expect(compact).not.toHaveProperty('payload');
+    expect(data.full).toHaveBeenCalledTimes(2);
+    expect(data.compact).toHaveBeenCalledTimes(2);
+    for (const reader of [data.full, data.compact]) {
+      expect(reader).toHaveBeenNthCalledWith(1, 'league1', 2, expect.any(Object));
+      expect(reader).toHaveBeenNthCalledWith(2, 'league1', 2, expect.any(Object));
+    }
+  });
+
+  it.each([
     { week: 1, activeWeek: 1, age: '2026-09-13T18:03:00Z' },
     { week: 1, activeWeek: 1, age: '2026-09-13T18:03:00.001Z' },
     { week: 1, activeWeek: 1, age: '2026-09-13T18:10:00.001Z' },

@@ -40,6 +40,7 @@ import {
   getStandings,
   getLeagueTransactions,
   getRosters,
+  getRostersWithMetricContext,
   getTransactions,
 } from './sleeper';
 
@@ -1017,6 +1018,43 @@ describe('Sleeper official matchup fallback', () => {
 });
 
 describe('Sleeper league rosters view', () => {
+  it('uses the active scoring week when display week lags, isolating a null starter list', async () => {
+    expectedRosterCount = 2;
+    playerInjury = 'Questionable';
+    rawRosters = [
+      { roster_id: 1, owner_id: 'member-1', players: ['qb', 'ir', 'taxi'], starters: ['qb'],
+        reserve: ['ir'], taxi: ['taxi'], settings: { ...rosterSettings } },
+      { roster_id: 2, owner_id: 'member-2', players: ['rb'], starters: ['rb'], settings: { ...rosterSettings } },
+    ];
+    rawUsers.push({ user_id: 'member-2', display_name: 'Beta' });
+    rawMatchups = [
+      { roster_id: 1, matchup_id: 1, points: null, players: ['qb', 'ir', 'taxi'], starters: ['qb'] },
+      { roster_id: 2, matchup_id: 1, points: null, players: ['rb'], starters: null },
+    ];
+    const originalFetch = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation((input, init) => requestPath(input) === '/state/nfl'
+      ? Promise.resolve(Response.json({ season: '2026', season_type: 'regular', week: 2, leg: 2, display_week: 1 }))
+      : originalFetch(input, init));
+
+    const { data, metricContext } = await getRostersWithMetricContext(leagueOneId, 2);
+    expect(data).toMatchObject({ week: 2, currentWeek: 1, rostersAvailable: true, league: { week: 1 } });
+    expect(metricContext).toMatchObject({ throughWeek: 2, provisionalWeek: 2, activeWeekKnown: true });
+    const ready = data.teams.find((team) => team.id === 1)!;
+    expect(ready.rosterAvailable).toBe(true);
+    expect(ready.sections.map((section) => section.name)).toEqual(['Starters', 'Bench', 'IR', 'Taxi']);
+    expect(ready.sections[0].players[0]).toMatchObject({ id: 'qb', injuryStatus: 'Questionable' });
+    expect(data.teams.find((team) => team.id === 2)).toMatchObject({ rosterAvailable: false, sections: [] });
+    expect(data.warning ?? '').not.toContain('future week');
+    expect((rawMatchups[1] as { starters: null }).starters).toBeNull();
+
+    const historical = await getRosters(leagueOneId, 1);
+    expect(historical.teams.find((team) => team.id === 1)!.sections.map((section) => section.name))
+      .toEqual(['Starters', 'Bench']);
+    expect(historical.teams.flatMap((team) => team.sections.flatMap((section) => section.players))
+      .every((player) => player.injuryStatus === null)).toBe(true);
+    expect(vi.mocked(fetch).mock.calls.every(([input]) => new URL(String(input)).hostname.startsWith('api.sleeper.'))).toBe(true);
+  });
+
   it('uses exact-week membership and limits current-only injury, IR, and taxi metadata', async () => {
     playerInjury = 'Questionable';
     rawRosters = [{
@@ -1050,6 +1088,23 @@ describe('Sleeper league rosters view', () => {
     expect(data.rostersAvailable).toBe(false);
     expect(data.teams[0].rosterAvailable).toBe(false);
     expect(data.warning).toContain('has not established complete lineups');
+  });
+
+  it.each([
+    { name: 'advanced display week', state: { season: '2026', season_type: 'regular', leg: 1, week: 1, display_week: 2 }, selectedWeek: 2, displayWeek: 2 },
+    { name: 'preseason', state: { season: '2026', season_type: 'pre', leg: 2, week: 2, display_week: 2 }, selectedWeek: 2, displayWeek: 1 },
+    { name: 'missing NFL state', state: null, selectedWeek: 4, displayWeek: 3 },
+  ])('keeps future lineup readiness strict with $name', async ({ state, selectedWeek, displayWeek }) => {
+    rawMatchups = [{ roster_id: 1, matchup_id: null, points: null, players: ['qb'], starters: ['qb'] }];
+    const originalFetch = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation((input, init) => requestPath(input) === '/state/nfl'
+      ? Promise.resolve(state === null ? new Response('Unavailable', { status: 503 }) : Response.json(state))
+      : originalFetch(input, init));
+
+    const data = await getRosters(leagueOneId, selectedWeek);
+    expect(data).toMatchObject({ week: selectedWeek, currentWeek: displayWeek, rostersAvailable: false });
+    expect(data.teams[0]).toMatchObject({ rosterAvailable: false, sections: [] });
+    expect(data.warning).toContain('has not established complete lineups for this future week');
   });
 
   it('uses record then Points For standings order while preserving independent average ranks', async () => {

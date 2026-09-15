@@ -87,7 +87,7 @@ describe('all-player operator catalog runtime outside Next.js', () => {
       positions: ['DEF', 'K', 'QB', 'RB', 'TE', 'WR'],
       playerCount: 6,
     });
-    expect(evidence.result).toMatchObject({
+    expect(evidence.result, JSON.stringify(evidence.result)).toMatchObject({
       status: 'completed',
       mode: 'shadow',
       persisted: false,

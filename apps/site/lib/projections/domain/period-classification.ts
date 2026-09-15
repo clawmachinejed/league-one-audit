@@ -70,7 +70,7 @@ export function classifyLineupWatchPeriod(
     || !['preseason', 'active', 'complete'].includes(authority.lifecycle)
     || (authority.lifecycle === 'active') !== (active !== null)
     || (active !== null && (!validPeriod(active) || active.season !== defaultPeriod.season
-      || active.seasonType !== defaultPeriod.seasonType || active.week > defaultPeriod.week))) {
+      || active.seasonType !== defaultPeriod.seasonType))) {
     return unavailable('malformed');
   }
   if (now - observed > maxAge || now - verified > maxAge) return unavailable('stale');
@@ -82,6 +82,7 @@ export function classifyLineupWatchPeriod(
   if (authority.lifecycle === 'complete' || period.season < defaultPeriod.season) {
     return { kind: 'classified', watchClass: 'completed', materializationLane: null };
   }
+  // Display can lead or lag scoring during provider rollover; scoring owns work.
   const anchor = active ?? defaultPeriod;
   if (period.week < anchor.week) return { kind: 'classified', watchClass: 'completed', materializationLane: null };
   if (period.week > anchor.week) return { kind: 'classified', watchClass: 'future', materializationLane: 'future' };

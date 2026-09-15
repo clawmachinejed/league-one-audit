@@ -1,5 +1,6 @@
 import 'server-only';
 
+import { mock } from 'node:test';
 import { LEAGUE_IDS } from '../lib/config';
 import { deterministicUuid, rulesHash } from '../lib/projections/adapters/neon/database-values';
 import { NFL_TEAM_CODES, type NflTeam } from '../lib/projections/domain/contracts';
@@ -14,6 +15,10 @@ const scenario = process.argv[2];
 if (scenario !== 'complete' && scenario !== 'failed-position' && scenario !== 'unresolved-defense') {
   throw new Error('A supported catalog runtime scenario is required.');
 }
+
+// All fixture evidence precedes this instant. Freeze Date before composition
+// captures its source clock; leave real timers and monotonic deadlines intact.
+mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-09-15T00:00:01.000Z') });
 
 const positions = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'] as const;
 const playerIds = Object.fromEntries(positions.map((position) => [
@@ -195,6 +200,8 @@ const allPlayerSource: AllPlayerIngestionDependencies['allPlayerSource'] = {
   },
 };
 const dependencies = {
+  // Keep the composition's clock shared with its captured source loader so
+  // observation and verification timestamps stay ordered on every test date.
   ...productionDependencies,
   loadReviewedPeriodEvidence: async () => ({ inventory: {
     source: 'manual-review' as const, sourceRevision: 'synthetic-runtime-inventory-v1',
@@ -288,10 +295,6 @@ const dependencies = {
         warnings: [],
       },
     }),
-  },
-  clock: {
-    now: () => new Date('2026-09-15T00:00:01.000Z'),
-    monotonicNow: () => 1,
   },
   idGenerator: { generate: () => 'runtime-shadow-run' },
   logger: { write: () => undefined },
