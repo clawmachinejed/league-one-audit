@@ -253,6 +253,51 @@ function snapshotInput() {
 }
 
 describe('canonical worker game context and snapshot builder', () => {
+  it('retains healthy projections and exact official totals while an unknown lineup stays empty and unprojected', () => {
+    const input = snapshotInput();
+    const before = buildSnapshot(input);
+    const source = { ...input.source, matchups: input.source.matchups.map((matchup) => ({
+      ...matchup, sides: matchup.sides.map((side, index) => index === 1
+        ? { ...side, starters: [], officialPoints: 17.5 } : side),
+    })) };
+    const result = buildSnapshot({ ...input, source, prior: before });
+    expect(result.matchups[0].sides[0]).toEqual(before.matchups[0].sides[0]);
+    expect(result.matchups[0].sides[1]).toMatchObject({ points: 17.5, projectedPoints: null, starters: [] });
+  });
+
+  it('does not infer finality for an unknown lineup when only the known opponent finished', () => {
+    const input = snapshotInput();
+    const source = { ...input.source, matchups: input.source.matchups.map((matchup) => ({
+      ...matchup, status: 'unknown' as const, sides: matchup.sides.map((side, index) => index === 1
+        ? { ...side, starters: [] } : side),
+    })) };
+    const result = buildSnapshot({ ...input, source, games: { ...input.games, games: input.games.games.map((game) => ({
+      ...game, phase: 'final' as const, statusCode: 2, remainingFraction: 0,
+    })) } });
+    expect(result.matchups[0].status).toBe('unknown');
+  });
+
+  it.each(['pregame', 'postponed'] as const)(
+    'keeps an unavailable-lineup matchup live after an early final while a known game is %s', (phase) => {
+      const input = snapshotInput();
+      const gameStates = { ...input.games, games: input.games.games.map((game): GameStateObservation => (
+        game.homeTeam === 'BUF'
+          ? { ...game, phase, statusCode: phase === 'pregame' ? 0 : 3, remainingFraction: phase === 'pregame' ? 1 : null }
+          : { ...game, phase: 'final', statusCode: 2, remainingFraction: 0 }
+      )) };
+      const before = buildSnapshot({ ...input, games: gameStates });
+      const source = { ...input.source, matchups: input.source.matchups.map((matchup) => ({
+        ...matchup, sides: matchup.sides.map((side, index) => index === 1
+          ? { ...side, starters: [], officialPoints: null } : side),
+      })) };
+      const result = buildSnapshot({ ...input, source, games: gameStates, prior: before });
+      expect(before.matchups[0].status).toBe('live');
+      expect(result.matchups[0].status).toBe('live');
+      expect(result.matchups[0].sides[0]).toEqual(before.matchups[0].sides[0]);
+      expect(result.matchups[0].sides[1]).toMatchObject({ points: null, projectedPoints: null, starters: [] });
+    },
+  );
+
   it('accepts synchronized game coverage, explicit byes, and the inclusive skew limit', () => {
     const loaded: LoadedLeague = {
       configuration: source().configuration,

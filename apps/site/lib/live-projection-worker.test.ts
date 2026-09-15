@@ -63,6 +63,42 @@ async function seedDurableAuthorities(dependencies: ReturnType<typeof workerDepe
 describe('live projection worker', () => {
   afterEach(() => vi.restoreAllMocks());
 
+  it('publishes healthy team projections with explicit unknown-lineup coverage and recovers without assigning invented starters', async () => {
+    const store = fakeStore();
+    const dependencies = workerDependencies(store);
+    dependencies.loggerMock.mockImplementation(() => undefined);
+    const observe = vi.spyOn(dependencies.repository, 'recordLeagueWeekObservation');
+    const load = vi.mocked(dependencies.leagueSource.getLeagueWeek).getMockImplementation()!;
+    dependencies.sourceMock.mockImplementation(async (...args: Parameters<typeof load>) => {
+      const original = await load(...args);
+      return { ...original, lineup: { ...original.lineup, lineupRevision: 'e'.repeat(64) },
+        sourceRevision: 'missing-lineup-source', matchups: original.matchups.map((matchup) => ({
+          ...matchup, sides: matchup.sides.map((side, index) => index === 1
+            ? { ...side, starters: [], officialPoints: null } : side),
+        })) };
+    });
+    const result = await createLiveProjectionWorker(dependencies).run({ force: true });
+    expect(result).toMatchObject({ status: 'completed', publishedLeagues: 2, failedLeagues: 0 });
+    expect(dependencies.projectionMock).toHaveBeenCalledTimes(1);
+    expect(dependencies.gamesMock).toHaveBeenCalledTimes(1);
+    for (const payload of store.published) {
+      expect(payload.matchups[0].sides[0].projectedPoints).toEqual(expect.any(Number));
+      expect(payload.matchups[0].sides[1]).toMatchObject({ starters: [], points: null, projectedPoints: null });
+    }
+    expect(observe.mock.calls[0][0].sourceData).toMatchObject({ lineupAvailability: {
+      version: 'lineup-availability-v1', availableRosterIds: ['1'], unavailableRosterIds: ['2'],
+    } });
+    expect(observe.mock.calls[0][0].entityPoints.every((point) => String(point.rosterRef.externalId) !== '2')).toBe(true);
+    const originalCandidateCounts = store.candidateBatches.map((batch) => batch.length);
+    dependencies.sourceMock.mockImplementation(load);
+    dependencies.clockMock.mockReturnValue(new Date(NOW.getTime() + 60_000));
+    const recovered = await createLiveProjectionWorker(dependencies).run({ force: true });
+    expect(recovered).toMatchObject({ status: 'completed', publishedLeagues: 2, failedLeagues: 0 });
+    expect(store.published.at(-1)?.matchups[0].sides[1].projectedPoints).toEqual(expect.any(Number));
+    expect(store.candidateBatches.slice(originalCandidateCounts.length).map((batch) => batch.length)).toEqual(originalCandidateCounts);
+    expect(store.publishInputs.at(-1)?.revisionKey).not.toBe(store.publishInputs[0].revisionKey);
+  });
+
   it('returns disabled without loading cadence, claiming a job, or calling providers', async () => {
     const store = fakeStore(true, false);
     const dependencies = workerDependencies(store);

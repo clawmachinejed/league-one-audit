@@ -50,10 +50,10 @@ function TeamMeta({ team, opposite, avatar }: { team: Team; opposite?: boolean; 
   </span>;
 }
 
-function Starter({ player, opposite, high, pending }: {
-  player?: Player; opposite?: boolean; high?: boolean; pending?: boolean;
+function Starter({ player, opposite, high, pending, unavailable }: {
+  player?: Player; opposite?: boolean; high?: boolean; pending?: boolean; unavailable?: boolean;
 }) {
-  const name = player?.name || (pending ? 'Not posted' : 'Empty slot');
+  const name = player?.name || (unavailable ? 'Lineup unavailable' : pending ? 'Not posted' : 'Empty slot');
   const injury = injuryStatusLabel(player?.injuryStatus);
   const game = player?.game ? formatNflGame(player.game) : null;
   return <div className={`${styles.player} ${opposite ? styles.rightPlayer : ''}`}>
@@ -65,7 +65,7 @@ function Starter({ player, opposite, high, pending }: {
       </span>
       <small className={styles.playerMeta} data-player-meta>
         <span className={styles.playerDetails} data-player-details>
-          <span>{player ? [player.position, player.nflTeam].filter(Boolean).join(' · ') || 'No NFL team' : pending ? 'Opponent pending' : 'Empty slot'}</span>
+          <span>{player ? [player.position, player.nflTeam].filter(Boolean).join(' · ') || 'No NFL team' : unavailable ? 'Awaiting Sleeper' : pending ? 'Opponent pending' : 'Empty slot'}</span>
           {injury && <span className={`${styles.injury} ${injury === 'QUES' ? styles.questionable : ''}`} aria-label={`Current injury designation: ${player?.injuryStatus}`}>{injury}</span>}
         </span>
         {game && <span className={styles.game} data-player-game>{game}</span>}
@@ -196,9 +196,9 @@ function MatchupCard({ matchup, selected, avatar, boxScores, boxScoresLoading, o
           const bPanelId = `${panelId}-player-${index}-right`;
           return <Fragment key={slotKey}>
             <div className={styles.playerRow}>
-              <Starter player={a} high={comparable && a!.points! > b!.points!} />
+              <Starter player={a} unavailable={left.starters.length === 0} high={comparable && a!.points! > b!.points!} />
               <span className={styles.slot}>{slot}</span>
-              <Starter player={b} opposite pending={!right} high={comparable && b!.points! > a!.points!} />
+              <Starter player={b} opposite pending={!right} unavailable={right?.starters.length === 0} high={comparable && b!.points! > a!.points!} />
               {expandable && <button type="button" className={styles.starterDisclosure}
                 data-starter-box-score-toggle data-starter-index={index}
                 aria-label={`${slot} row ${index + 1} game statistics for both teams`}
@@ -214,7 +214,7 @@ function MatchupCard({ matchup, selected, avatar, boxScores, boxScoresLoading, o
           </Fragment>;
         })}
         <p className={styles.lineupNote}>{matchup.status === 'upcoming' ? 'Lineups may change before kickoff.' : 'Scores reported by Sleeper.'}</p>
-      </> : <p className={styles.unavailable}>Starting lineups have not been posted for this week.</p>}
+      </> : <p className={styles.unavailable}>Starting lineups are unavailable from Sleeper for this week.</p>}
       <div className={styles.profileLinks}><Link href={`${site.prefix}/managers/${left.team.id}`} aria-label={`View ${left.team.name} profile`}>Team profile</Link>{right && <Link href={`${site.prefix}/managers/${right.team.id}`} aria-label={`View ${right.team.name} profile`}>Team profile</Link>}</div>
     </div>
   </article>;

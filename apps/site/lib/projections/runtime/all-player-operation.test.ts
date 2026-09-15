@@ -260,6 +260,21 @@ function harness(options: Readonly<{
 }
 
 describe('canonical all-player ingestion orchestration', () => {
+  it.each([null, []])('rejects unknown official starter assignments before weekly retrieval or writes (%j)', async (starters) => {
+    const test = harness();
+    const load = test.dependencies.loadLeagueWeek;
+    test.dependencies = { ...test.dependencies, loadLeagueWeek: async (...args) => {
+      const league = await load(...args);
+      return { ...league, rawMatchups: league.rawMatchups.map((row) => ({ ...row, starters })) };
+    } };
+    const result = await runAllPlayerIngestion(test.dependencies, { mode: 'shadow', period: PERIOD });
+    expect(result).toMatchObject({ status: 'unavailable', reason: 'official-starters-unavailable' });
+    expect(test.allPlayerSource.load).not.toHaveBeenCalled();
+    expect(test.upsertScoringEntities).not.toHaveBeenCalled();
+    expect(test.recordLeagueWeekObservation).not.toHaveBeenCalled();
+    expect(test.recordAllPlayerBatch).not.toHaveBeenCalled();
+  });
+
   it('rejects a missing-row assumption detached from the loaded inventory before any writes', async () => {
     const test = harness();
     const load = test.allPlayerSource.load.getMockImplementation()!;

@@ -409,6 +409,11 @@ describe('live projection worker canonical parity characterization', () => {
         missingFrozenBaselineCount: 0,
         missingBaselinePolicy: 'zero',
         rosterIds: ['1', '2'],
+        lineupAvailability: {
+          version: 'lineup-availability-v1',
+          availableRosterIds: ['1', '2'],
+          unavailableRosterIds: [],
+        },
         warning: null,
       },
       expectedGameIds: ['game-1'],

@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { startingSlots } from '../../../sleeper-lineup';
+import { sleeperLineupEntryId, startingSlots } from '../../../sleeper-lineup';
 import type { SleeperMatchup, SleeperRoster } from '../../../transform';
 
 export type RawSleeperMatchupObservation = Readonly<{
@@ -144,7 +144,8 @@ export function assertMatchupCompleteness(
     return;
   }
   const rosterIds = new Set(rosters.map((roster) => roster.roster_id));
-  if (rows.length !== rosterIds.size || rows.some((row) => !rosterIds.has(row.roster_id))) {
+  if (rows.length !== rosterIds.size || new Set(rows.map((row) => row.roster_id)).size !== rows.length
+    || rows.some((row) => !rosterIds.has(row.roster_id))) {
     throw new Error('Sleeper returned an incomplete matchup slate for this league.');
   }
   const pairedCounts = new Map<string, number>();
@@ -169,9 +170,14 @@ export function assertProjectionMatchupReadiness(
   }
 
   const requiredSlots = startingSlots(rosterPositions);
-  if (!requiredSlots.length || rows.some((row) => !Array.isArray(row.starters)
-    || row.starters.length !== requiredSlots.length
-    || row.starters.some((starter) => !starter.trim()))) {
+  if (!requiredSlots.length || rows.some((row) => row.starters != null && (!Array.isArray(row.starters)
+    || row.starters.length > 0 && row.starters.length !== requiredSlots.length
+    || row.starters.some((starter) => typeof starter !== 'string' || !starter.trim())))) {
     throw new Error('Sleeper has not published complete lineups for the requested projection week.');
+  }
+  const occupied = rows.flatMap((row) => (row.starters ?? [])
+    .flatMap((starter) => sleeperLineupEntryId(starter) === null ? [] : [starter]));
+  if (new Set(occupied).size !== occupied.length) {
+    throw new Error('Sleeper returned a duplicate starter for the requested projection week.');
   }
 }

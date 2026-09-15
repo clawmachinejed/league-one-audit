@@ -108,6 +108,14 @@ export function matchupStatus(
         || schedule[slot.entity.nflTeam]?.kind !== 'bye');
     })
     .map((slot) => stateForEntity(slot.entity, games, schedule)?.phase ?? 'unknown');
+  // One known side finishing cannot establish that the unknown side has finished.
+  if (matchup.sides.some((side) => side.starters.length === 0) && matchup.status !== 'final') {
+    if (phases.some((phase) => !['pregame', 'postponed', 'final', 'unknown'].includes(phase))) return 'live';
+    if (phases.includes('final')
+      && phases.some((phase) => phase === 'pregame' || phase === 'postponed')) return 'live';
+    if (phases.length && phases.every((phase) => phase === 'pregame' || phase === 'postponed')) return 'upcoming';
+    return 'unknown';
+  }
   if (phases.length === 0) return matchup.status;
   if (phases.every((phase) => phase === 'pregame' || phase === 'postponed')) return 'upcoming';
   if (phases.every((phase) => phase === 'final')) return 'final';

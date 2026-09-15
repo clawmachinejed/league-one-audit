@@ -39,8 +39,8 @@ describe('one raw lineup normalization for full and thin consumers', () => {
     expect(thin.status).toBe('complete');
     if (full.status !== 'complete' || thin.status !== 'complete') throw new Error('Fixture must be complete.');
     expect(await calculateLineupRevision(full.observation)).toEqual(await calculateLineupRevision(thin.observation));
-    expect(full.observation.rows[1].starters[2]).toBeNull();
-    expect(full.observation.rows[0].starters[3]?.resource).toBe('lineup-entry');
+    expect(full.observation.rows[1].starters?.[2]).toBeNull();
+    expect(full.observation.rows[0].starters?.[3]?.resource).toBe('lineup-entry');
     expect(readJson).toHaveBeenCalledTimes(2);
     // Two independent fixture consumers, never two production requests for comparison.
     expect(readJson.mock.calls).toEqual([
@@ -58,11 +58,38 @@ describe('one raw lineup normalization for full and thin consumers', () => {
     expect(await calculateLineupRevision(before.observation)).not.toEqual(await calculateLineupRevision(changed.observation));
   });
 
-  it('does not convert blank or absent starter arrays into healthy empty lineups', () => {
-    for (const starters of [undefined, ['qb-a', '', '0', 'NYJ']]) {
+  it.each([undefined, null, []])('retains a missing whole starter list as unavailable: %j', async (starters) => {
+    const rows = [{ ...rawRows[0], starters }, rawRows[1]];
+    const before = structuredClone(rows);
+    const readJson = vi.fn(async () => rows);
+    const load = createRawSleeperMatchupLoader({ readJson, now: () => '2026-09-03T12:00:00.000Z' });
+    const loaded = await load(String(league.externalId), period.week, 0);
+    expect(() => assertProjectionMatchupReadiness(loaded.rows, rosters, positions)).not.toThrow();
+    const full = translateSleeperLineupObservation(league, period, shape, loaded.rows);
+    const thin = translateSleeperLineupObservation(league, period, shape, rows);
+    expect(full.status).toBe('complete');
+    if (full.status !== 'complete' || thin.status !== 'complete') throw new Error('Identity universe must be complete.');
+    expect(full.observation.rows[0].starters).toBeNull();
+    expect(full.observation.rows[1].starters).toHaveLength(4);
+    expect(full.observation.rows[1].starters?.[2]).toBeNull();
+    expect(await calculateLineupRevision(full.observation)).toEqual(await calculateLineupRevision(thin.observation));
+    expect(rows).toEqual(before);
+    expect(loaded.rows[0].points).toBe(15.75);
+    expect(readJson).toHaveBeenCalledOnce();
+  });
+
+  it('rejects malformed nonempty starter lists instead of converting them to unavailable', () => {
+    for (const starters of [['qb-a'], ['qb-a', '', '0', 'NYJ'], ['qb-a', ' ', '0', 'NYJ']]) {
       expect(translateSleeperLineupObservation(league, period, shape, [{ ...rawRows[0], starters }, rawRows[1]]))
         .toEqual({ status: 'invalid', reason: 'starter-shape-invalid' });
     }
+  });
+
+  it('retains all roster identities when every whole list is missing', () => {
+    const result = translateSleeperLineupObservation(league, period, shape, rawRows.map((row) => ({ ...row, starters: null })));
+    expect(result.status).toBe('complete');
+    if (result.status !== 'complete') throw new Error('Identity universe must be complete.');
+    expect(result.observation.rows.map((row) => [row.rosterRef.externalId, row.starters])).toEqual([['1', null], ['2', null]]);
   });
 
   it('distinguishes not-yet-published pairings and empty rows from a partial response', () => {

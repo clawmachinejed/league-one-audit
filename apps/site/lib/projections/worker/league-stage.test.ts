@@ -821,6 +821,11 @@ describe('canonical league projection stage', () => {
         missingFrozenBaselineCount: 1,
         missingBaselinePolicy: 'zero',
         rosterIds: ['1', '2'],
+        lineupAvailability: {
+          version: 'lineup-availability-v1',
+          availableRosterIds: ['1', '2'],
+          unavailableRosterIds: [],
+        },
         warning: 'fixture warning',
       },
       expectedGameRefs: [liveGameRef, pregameGameRef],

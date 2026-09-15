@@ -47,9 +47,9 @@ export function prepareLeagueWeekObservation(input: Parameters<ProjectionStore['
   if (playerPoints.some((point) => !expectedRosterIds.includes(point.external_roster_id))) {
     throw new Error('Official player points must belong to an observed roster.');
   }
-  if (playerPoints.some((point) => !Number.isFinite(point.points))
-    || rosterPoints.some((point) => !Number.isFinite(point.points))) {
-    throw new Error('Official points must be finite numbers.');
+  if (playerPoints.some((point) => point.points !== null && !Number.isFinite(point.points))
+    || rosterPoints.some((point) => point.points !== null && !Number.isFinite(point.points))) {
+    throw new Error('Official points must be finite numbers or explicit null.');
   }
   const officialFingerprint = `sha256:${createHash('sha256').update(playerPoints
     .map((point) => ({ id: point.sleeper_player_id, points: point.points }))

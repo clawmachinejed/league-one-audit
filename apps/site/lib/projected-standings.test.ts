@@ -113,7 +113,8 @@ describe('live projected standings', () => {
   it('adds exactly one current result, PF and opposing PA, then reuses win rate/PF/PA ranking', () => {
     const { data, matchups } = fixtures();
     const result = projectStandings(data, matchups, context);
-    expect(result).toEqual({ kind: 'projected', week: 2, teams: [
+    expect(result).toEqual({ kind: 'projected', week: 2,
+      coverage: { includedMatchups: 2, totalMatchups: 2, unresolvedTeamIds: [] }, teams: [
       team(4, { wins: 1, ties: 1, pointsFor: 190, pointsAgainst: 170 }),
       team(1, { wins: 1, losses: 1, pointsFor: 210, pointsAgainst: 200 }),
       team(2, { wins: 1, losses: 1, pointsFor: 200, pointsAgainst: 210 }),
@@ -133,6 +134,86 @@ describe('live projected standings', () => {
     if (refreshed.kind === 'projected') expect(refreshed.teams.find((value) => value.id === 1))
       .toMatchObject({ wins: 2, losses: 0, pointsFor: 250, pointsAgainst: 200 });
   });
+
+  it('includes healthy pairs while preserving both sides of an unresolved matchup at the completed-week baseline', () => {
+    const { data, matchups, basis } = fixtures();
+    matchups.matchups[0].sides[0].projectedPoints = null;
+    matchups.matchups[0].sides[0].starters = [];
+    const before = structuredClone({ data, matchups });
+    const result = projectStandings(data, matchups, context);
+    expect(result).toEqual({ kind: 'projected', week: 2,
+      coverage: { includedMatchups: 1, totalMatchups: 2, unresolvedTeamIds: [1, 2] },
+      teams: [basis.teams.find((value) => value.id === 1),
+        team(4, { wins: 1, ties: 1, pointsFor: 190, pointsAgainst: 170 }),
+        team(3, { losses: 1, ties: 1, pointsFor: 170, pointsAgainst: 190 }),
+        basis.teams.find((value) => value.id === 2)],
+    });
+    expect(projectStandings(data, matchups, context)).toEqual(result);
+    expect({ data, matchups }).toEqual(before);
+  });
+
+  it('restores the resolved pair exactly once on refresh, without accumulating the other pair again', () => {
+    const { data, matchups } = fixtures();
+    const complete = projectStandings(data, matchups, context);
+    matchups.matchups[0].sides[1].projectedPoints = null;
+    expect(projectStandings(data, matchups, context)).toMatchObject({ kind: 'projected',
+      coverage: { includedMatchups: 1, unresolvedTeamIds: [1, 2] } });
+    matchups.matchups[0].sides[1].projectedPoints = 120;
+    expect(projectStandings(data, matchups, context)).toEqual(complete);
+  });
+
+  it('does not let unknown game status from a missing lineup block a different complete pair', () => {
+    const { data, matchups, basis } = fixtures();
+    matchups.matchups[0].status = 'unknown';
+    matchups.matchups[0].sides[0].projectedPoints = null;
+    matchups.matchups[0].sides[0].starters = [];
+    const result = projectStandings(data, matchups, context);
+    expect(result).toMatchObject({ kind: 'projected', coverage: {
+      includedMatchups: 1, totalMatchups: 2, unresolvedTeamIds: [1, 2],
+    } });
+    if (result.kind !== 'projected') throw new Error(result.reason);
+    expect(result.teams.find((value) => value.id === 1)).toEqual(basis.teams.find((value) => value.id === 1));
+    expect(result.teams.find((value) => value.id === 2)).toEqual(basis.teams.find((value) => value.id === 2));
+    expect(result.teams.find((value) => value.id === 4)).toMatchObject({ wins: 1, ties: 1, pointsFor: 190, pointsAgainst: 170 });
+  });
+
+  it('shows the completed-week baseline when all known pairs are unresolved, without importing active official totals', () => {
+    const { data, matchups, basis } = fixtures();
+    data.teams = data.teams.map((value) => ({ ...value, wins: value.wins + 1, pointsFor: value.pointsFor + 999 }));
+    for (const matchup of matchups.matchups) matchup.sides[0].projectedPoints = null;
+    expect(projectStandings(data, matchups, context)).toEqual({ kind: 'projected', week: 2, teams: basis.teams,
+      coverage: { includedMatchups: 0, totalMatchups: 2, unresolvedTeamIds: [1, 2, 3, 4] } });
+    expect(projectStandings(data, { ...matchups, matchups: [] }, context).kind).toBe('unavailable');
+  });
+
+  it('accepts a true zero projected result in a healthy pair while another pair is unresolved', () => {
+    const { data, matchups } = fixtures([0, 0, 100, 100]);
+    matchups.matchups[1].sides[0].projectedPoints = null;
+    const result = projectStandings(data, matchups, context);
+    expect(result).toMatchObject({ kind: 'projected', coverage: { includedMatchups: 1, unresolvedTeamIds: [3, 4] } });
+    if (result.kind !== 'projected') throw new Error(result.reason);
+    expect(result.teams.find((value) => value.id === 1)).toMatchObject({ wins: 1, ties: 1, pointsFor: 100, pointsAgainst: 80 });
+    expect(result.teams.find((value) => value.id === 2)).toMatchObject({ losses: 1, ties: 1, pointsFor: 80, pointsAgainst: 100 });
+  });
+
+  it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, undefined, '12'])
+    ('rejects malformed projection %s even when its opponent is unresolved', (points) => {
+      const { data, matchups } = fixtures();
+      matchups.matchups[0].sides[0].projectedPoints = null;
+      matchups.matchups[0].sides[1].projectedPoints = points as number;
+      expect(projectStandings(data, matchups, context).kind).toBe('unavailable');
+    });
+
+  it.each(['duplicate side', 'unknown side', 'duplicate matchup', 'missing pair'])
+    ('rejects %s even when a projection would otherwise exclude the pair', (failure) => {
+      const { data, matchups } = fixtures();
+      matchups.matchups[0].sides[0].projectedPoints = null;
+      if (failure === 'duplicate side') matchups.matchups[1].sides[0].team = matchups.matchups[0].sides[0].team;
+      if (failure === 'unknown side') matchups.matchups[0].sides[0].team = team(99);
+      if (failure === 'duplicate matchup') matchups.matchups[1].id = matchups.matchups[0].id;
+      if (failure === 'missing pair') matchups.matchups.pop();
+      expect(projectStandings(data, matchups, context).kind).toBe('unavailable');
+    });
 
   it('does not double count the active week when official cumulative data already contains it', () => {
     const { data, matchups } = fixtures();
@@ -197,8 +278,8 @@ describe('live projected standings', () => {
       .toEqual({ kind: 'unavailable', reason: 'History unavailable.' });
   });
 
-  it.each(['missing team', 'duplicate team', 'missing side', 'duplicate side', 'unknown side', 'duplicate matchup', 'unknown status', 'null projection', 'NaN projection'])
-    ('rejects %s instead of publishing a partially projected league', (failure) => {
+  it.each(['missing team', 'duplicate team', 'missing side', 'duplicate side', 'unknown side', 'duplicate matchup', 'unknown status', 'NaN projection'])
+    ('rejects %s instead of concealing invalid current-week evidence', (failure) => {
       const { data, matchups } = fixtures();
       if (failure === 'missing team') matchups.teams = matchups.teams.slice(1);
       if (failure === 'duplicate team') matchups.teams = [matchups.teams[0], ...matchups.teams.slice(0, 3)];
@@ -207,7 +288,6 @@ describe('live projected standings', () => {
       if (failure === 'unknown side') matchups.matchups[0].sides[0].team = team(99);
       if (failure === 'duplicate matchup') matchups.matchups[1].id = matchups.matchups[0].id;
       if (failure === 'unknown status') matchups.matchups[0].status = 'unknown';
-      if (failure === 'null projection') matchups.matchups[0].sides[0].projectedPoints = null;
       if (failure === 'NaN projection') matchups.matchups[0].sides[0].projectedPoints = Number.NaN;
       expect(projectStandings(data, matchups, context).kind).toBe('unavailable');
     });

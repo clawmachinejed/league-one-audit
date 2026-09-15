@@ -352,6 +352,14 @@ export async function processLeague(
       updatedAt: source.observedAt,
       matchupCount: source.matchups.length,
       rosteredPlayerCount: candidateEntities.length,
+      // Complete describes the observed roster/pair envelope, not known starters for every team.
+      lineupAvailability: {
+        version: 'lineup-availability-v1',
+        availableRosterIds: source.matchups.flatMap((matchup) => matchup.sides
+          .filter((side) => side.starters.length > 0).map((side) => String(side.rosterRef.externalId))),
+        unavailableRosterIds: source.matchups.flatMap((matchup) => matchup.sides
+          .filter((side) => side.starters.length === 0).map((side) => String(side.rosterRef.externalId))),
+      },
       missingFrozenBaselineCount,
       missingBaselinePolicy: 'zero',
       rosterIds: source.matchups.flatMap((matchup) => matchup.sides.map((side) => (

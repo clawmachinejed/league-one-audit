@@ -7,7 +7,7 @@ export type { LineupRevision } from './contracts';
 
 export const LINEUP_REVISION_VERSION = 'lineup-v1' as const;
 
-/** Only listed semantic fields enter the hash; presentation and timestamps cannot leak in. */
+/** Existing array hashes remain unchanged; a null list distinctly records unavailable starters. */
 export function canonicalLineupRevisionInput(input: LineupObservationInput): string {
   if (validateLineupObservation(input).status !== 'complete') {
     throw new Error('Only a complete lineup observation can produce a revision.');
@@ -15,7 +15,7 @@ export function canonicalLineupRevisionInput(input: LineupObservationInput): str
   const rows = input.rows.map((row) => ({
     rosterRef: externalReferenceKey(row.rosterRef),
     matchupRef: row.matchupRef === null ? null : externalReferenceKey(row.matchupRef),
-    starters: row.starters.map((entry, slotIndex) => ({
+    starters: row.starters === null ? null : row.starters.map((entry, slotIndex) => ({
       slotIndex,
       assignment: entry === null ? null : externalReferenceKey(entry),
     })),

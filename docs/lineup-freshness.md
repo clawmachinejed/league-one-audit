@@ -69,12 +69,26 @@ Both paths use one raw Sleeper matchup parser and one canonical lineup revision 
 
 Responses are classified as:
 
-- **Complete:** the expected roster rows and ordered starter slots form a valid observation.
+- **Complete:** every expected roster and matchup pairing is accounted for. Each team's starter list is either a valid ordered assignment or explicitly unavailable. This describes the observed envelope, not complete starter coverage.
 - **Not ready:** upstream matchups are not yet available under the existing readiness rules; keep accepted data and retry at normal cadence.
-- **Invalid:** partial or contradictory rows, malformed assignments, duplicate identities, or incompatible shape; never replace accepted state.
+- **Invalid:** missing or contradictory roster/pair identities, malformed nonempty assignments, duplicate identities, or incompatible shape; never replace accepted state.
 - **Unavailable:** request or provider failure; keep accepted state and retry with backoff.
 
 Provider-scoped roster, matchup, player, and defense references are distinct. Raw lineup assignment references are not assumed to be canonical scoring entities. Player names and team-name matching cannot silently establish identity.
+
+### Missing team starter lists
+
+A missing, null, or zero-length whole starter list is a team-local unknown. The canonical observation uses `starters: null`; it never pads unknown assignments with empty slots, copies another week's lineup, or uses current roster starters as exact-week evidence. A valid full-length list of Sleeper `"0"` markers still means intentional empty slots. Nonempty lists must retain the exact expected shape and valid unique identities.
+
+Healthy teams continue through the same scorer, provider group, snapshot builder and guarded publication. The unavailable team remains in its official matchup with its observed official total (including a faithful null), `starters: []` and `projectedPoints: null`. The source observation stores `lineupAvailability` with available and unavailable roster IDs. Its `quality: complete` means the full roster/pair envelope was faithfully observed. It does not claim all player assignments or actual player points are known. All-player score ingestion separately requires complete starter assignments and full official parity; this projection policy cannot classify an unknown player as a bench player.
+
+The additive `lineup-v1` null-list representation preserves every existing valid-array digest. Known → unavailable → recovered lists produce the appropriate distinct revisions and use existing pending work and ownership fences. A coherent unknown list clears transport/invalid-response failure backoff and is checked at the existing current-minute or future-three-minute cadence. Actual request failures and invalid identities retain their backoff. An inherited pre-release failure can still wait until its already scheduled retry; no manual watch or pointer repair is necessary.
+
+Projected standings apply only complete matchup pairs to the completed-week baseline. An unresolved pair contributes no projected result or PF/PA increment; its two teams retain their completed-week totals. All ranks are recalculated together using the existing comparator. The table reports provisional coverage and labels excluded teams. All-unknown but coherent pairs show the baseline as provisional; a missing snapshot or invalid identity remains unavailable. Turning the switch off always restores official standings. No projected standings are persisted as actual results.
+
+One known opponent's NFL games becoming final cannot establish finality for the unavailable lineup. Frozen baseline coverage still includes rostered bench/reserve/taxi players, so a subsequently recovered official starter can use its eligible immutable baseline.
+
+This change needs no migration, new schedule, provider configuration, or public payload shape. Existing SQL accepts nullable official totals, explicit source metadata, and unavailable public sides. Application rollback remains compatible with stored snapshots; older workers reject missing full-source starter lists and retain their normal safety gates. Never rewrite historical observations, frozen baselines, current pointers, or installed migrations to roll back.
 
 ## Game-clock plausibility and recovery
 

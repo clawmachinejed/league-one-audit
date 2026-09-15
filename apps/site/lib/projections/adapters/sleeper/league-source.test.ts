@@ -133,6 +133,16 @@ function input(overrides: Partial<ProjectionSyncInput> = {}): ProjectionSyncInpu
 }
 
 describe('Sleeper league-source adapter', () => {
+  it('preserves unknown assignments even if presentation input contained padded empty slots', async () => {
+    const source = input();
+    source.rawMatchups[1].starters = null;
+    const result = await createSleeperLeagueSource(async () => source).getLeagueWeek(configuration, targetPeriod);
+    expect(result.matchups[0].sides[0].starters).toHaveLength(3);
+    expect(result.matchups[0].sides[1].starters).toEqual([]);
+    expect(result.matchups[0].sides[1].officialPoints).toBe(4);
+    expect(result.rosteredEntities).toEqual((await createSleeperLeagueSource(async () => input()).getLeagueWeek(configuration, targetPeriod)).rosteredEntities);
+  });
+
   it('loads once and translates identities, participants, lineups, and source metadata', async () => {
     const source = input();
     const load = vi.fn(async () => source);

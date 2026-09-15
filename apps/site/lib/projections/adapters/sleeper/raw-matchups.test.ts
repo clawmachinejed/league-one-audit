@@ -135,14 +135,44 @@ describe('shared raw Sleeper matchup boundary', () => {
       .toThrow('invalid matchup grouping');
   });
 
-  it('retains projection readiness rules and accepts explicit empty starter slots', () => {
+  it('keeps complete roster and pairing validation when whole starter lists are unavailable', () => {
+    const unknown = rows().map((row) => ({ ...row, starters: null }));
+    expect(() => assertProjectionMatchupReadiness(unknown, rosterIdentities, positions)).not.toThrow();
+    expect(() => assertProjectionMatchupReadiness([unknown[0], unknown[0]], rosterIdentities, positions))
+      .toThrow('incomplete matchup slate');
+    expect(() => assertProjectionMatchupReadiness(unknown.slice(0, 1), rosterIdentities, positions))
+      .toThrow('incomplete matchup slate');
+    expect(() => assertProjectionMatchupReadiness(unknown.map((row, index) => ({ ...row, matchup_id: index + 1 })), rosterIdentities, positions))
+      .toThrow('invalid matchup grouping');
+    expect(() => assertProjectionMatchupReadiness(unknown, rosterIdentities, ['BN']))
+      .toThrow('has not published complete lineups');
+  });
+
+  it.each([undefined, null, []])('accepts a missing whole starter list without modifying sourced points: %j', (starters) => {
+    const input = rows();
+    input[0] = { ...input[0], starters };
+    const before = structuredClone(input);
+    expect(() => assertProjectionMatchupReadiness(input, rosterIdentities, positions)).not.toThrow();
+    expect(input).toEqual(before);
+  });
+
+  it('retains nonempty list validation and accepts explicit empty starter slots', () => {
     expect(() => assertProjectionMatchupReadiness(rows(), rosterIdentities, positions)).not.toThrow();
-    for (const starters of [null, [], ['qb-b'], ['qb-b', 'rb-b', ' ', 'BAL']]) {
+    for (const starters of [['qb-b'], ['qb-b', 'rb-b', ' ', 'BAL']]) {
       const incomplete = rows();
       incomplete[0] = { ...incomplete[0], starters };
       expect(() => assertProjectionMatchupReadiness(incomplete, rosterIdentities, positions))
         .toThrow('has not published complete lineups');
     }
+  });
+
+  it('rejects duplicate occupied starters but allows repeated explicit empty slots', () => {
+    const duplicate = rows();
+    duplicate[1] = { ...duplicate[1], starters: ['qb-b', 'rb-a', '0', 'NYJ'] };
+    expect(() => assertProjectionMatchupReadiness(duplicate, rosterIdentities, positions))
+      .toThrow('duplicate starter');
+    const empty = rows().map((row) => ({ ...row, starters: ['0', '0', '0', '0'] }));
+    expect(() => assertProjectionMatchupReadiness(empty, rosterIdentities, positions)).not.toThrow();
   });
 
   it('derives expected raw shape from authoritative rosters and configured positions', () => {

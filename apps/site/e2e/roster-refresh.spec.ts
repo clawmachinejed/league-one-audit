@@ -285,8 +285,12 @@ test('a selected active week keeps refreshing behind the display week, survives 
 test('a proved completed display week stops automatic roster requests', async ({ page }) => {
   const state = await openRosters(page);
   state.activeWeek = null;
+  state.points = 6.4;
   await page.clock.runFor(240_000);
   await expect.poll(() => state.requests.length).toBe(2);
+  // Request counts advance before the response is adopted. Prove the completed
+  // response reached the UI before advancing through future polling deadlines.
+  await expect(page.locator('[data-player-ppg]')).toHaveText(['6.4', '—', '6.4', '—']);
   await page.clock.runFor(3 * 3_600_000);
   expect(state.requests).toHaveLength(2);
   await visibility(page, 'hidden');

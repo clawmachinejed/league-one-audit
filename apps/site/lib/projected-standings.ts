@@ -8,6 +8,11 @@ type Unavailable = Extract<ProjectedStandingsBasis, { kind: 'unavailable' }>;
 type ResultPair = readonly [{ id: number; points: number }, { id: number; points: number }];
 export type ProjectedStandingsResult = {
   kind: 'projected'; teams: StandingsTeam[]; week: number;
+  coverage: Readonly<{
+    includedMatchups: number;
+    totalMatchups: number;
+    unresolvedTeamIds: readonly number[];
+  }>;
 } | Unavailable;
 
 function unavailable(reason: string): Unavailable {
@@ -34,8 +39,12 @@ function validTeams(teams: readonly StandingsTeam[]): boolean {
         || (team.pointsAgainst === null && team.wins + team.losses + team.ties === 0 && team.pointsFor === 0)));
 }
 
-/** Apply a whole league exactly once, in integer hundredths like the displayed team totals. */
-function addResults(teams: readonly StandingsTeam[], pairs: readonly ResultPair[]): StandingsTeam[] | null {
+/** Official history requires the whole league; a projection may add only proved pairs. */
+function addResults(
+  teams: readonly StandingsTeam[],
+  pairs: readonly ResultPair[],
+  coverage: 'whole-league' | 'known-pairs' = 'whole-league',
+): StandingsTeam[] | null {
   if (!validTeams(teams)) return null;
   const result = new Map(teams.map((team) => [team.id, { ...team }]));
   const seen = new Set<number>();
@@ -59,7 +68,7 @@ function addResults(teams: readonly StandingsTeam[], pairs: readonly ResultPair[
       else team.ties += 1;
     }
   }
-  return seen.size === teams.length ? [...result.values()].sort(compareTeams) : null;
+  return coverage === 'known-pairs' || seen.size === teams.length ? [...result.values()].sort(compareTeams) : null;
 }
 
 function officialPairs(rows: readonly SleeperMatchup[]): ResultPair[] | null {
@@ -152,22 +161,46 @@ export function projectStandings(
     return unavailable('Current-week projections do not cover every league team.');
   }
   const ids = new Set<string>();
+  const expectedTeamIds = new Set(basis.teams.map((team) => team.id));
+  const seenTeamIds = new Set<number>();
+  const unresolvedTeamIds: number[] = [];
   const pairs: ResultPair[] = [];
   for (const matchup of matchups.matchups) {
-    if (!matchup.id || ids.has(matchup.id) || matchup.sides.length !== 2 || matchup.status === 'unknown') {
+    if (!matchup.id || ids.has(matchup.id) || matchup.sides.length !== 2) {
       return unavailable('Current-week matchup pairings are incomplete.');
     }
     ids.add(matchup.id);
     const [left, right] = matchup.sides;
-    if (hundredths(left.projectedPoints) === null || hundredths(right.projectedPoints) === null) {
-      return unavailable('A team is missing its current-week projected total.');
+    // Validate even the unresolved sides. Skipping a missing projection must not
+    // conceal a duplicate team, an unknown roster or a malformed numeric value.
+    for (const side of matchup.sides) {
+      if (!expectedTeamIds.has(side.team.id) || seenTeamIds.has(side.team.id)) {
+        return unavailable('Current-week matchup pairings are incomplete.');
+      }
+      seenTeamIds.add(side.team.id);
+      if (side.projectedPoints !== null && hundredths(side.projectedPoints) === null) {
+        return unavailable('A current-week projected total is invalid.');
+      }
+    }
+    if (left.projectedPoints === null || right.projectedPoints === null) {
+      // Neither team's record or PF/PA changes without both sides of the result.
+      unresolvedTeamIds.push(left.team.id, right.team.id);
+      continue;
+    }
+    if (matchup.status === 'unknown') {
+      return unavailable('Current-week matchup status is unknown.');
     }
     pairs.push([
       { id: left.team.id, points: left.projectedPoints! },
       { id: right.team.id, points: right.projectedPoints! },
     ]);
   }
-  const teams = addResults(basis.teams, pairs);
-  return teams ? { kind: 'projected', week: basis.week, teams }
+  if (seenTeamIds.size !== expectedTeamIds.size) {
+    return unavailable('Current-week projections do not cover every league team.');
+  }
+  const teams = addResults(basis.teams, pairs, 'known-pairs');
+  return teams ? { kind: 'projected', week: basis.week, teams,
+    coverage: { includedMatchups: pairs.length, totalMatchups: matchups.matchups.length,
+      unresolvedTeamIds: unresolvedTeamIds.sort((left, right) => left - right) } }
     : unavailable('Current-week projections do not cover every league team.');
 }

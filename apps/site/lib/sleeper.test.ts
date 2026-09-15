@@ -755,7 +755,6 @@ describe('Sleeper service error handling', () => {
   });
 
   it.each([
-    { caseName: 'missing', starters: null },
     { caseName: 'shortened', starters: ['qb'] },
     { caseName: 'overfilled', starters: ['qb', '0', '0'] },
   ])('rejects a $caseName target-week lineup instead of inventing or discarding slots', async ({ starters }) => {
@@ -773,6 +772,17 @@ describe('Sleeper service error handling', () => {
       seasonType: 'regular',
       week: 18,
     })).rejects.toThrow('has not published complete lineups');
+  });
+
+  it.each([null, []])('keeps a missing target-week lineup unknown beside healthy starters (%j)', async (starters) => {
+    rosterPositions = ['QB', 'FLEX', 'BN'];
+    makeProjectionWeekReady(['qb', '0'], ['rb', '0']);
+    rawMatchups[0] = { ...(rawMatchups[0] as Record<string, unknown>), starters };
+    const input = await getProjectionSyncInput(leagueOneId, { season: 2026, seasonType: 'regular', week: 18 });
+    const sides = input.data.matchups.flatMap((matchup) => matchup.sides);
+    expect(sides.find((side) => side.team.id === 1)).toMatchObject({ starters: [], projectedPoints: null });
+    expect(sides.find((side) => side.team.id === 2)?.starters.map((player) => player.id)).toEqual(['rb', 'empty-FLEX-1']);
+    expect(input.rawMatchups[0].starters).toEqual(starters);
   });
 
   it('accepts explicit empty starter IDs when every target-week lineup slot is present', async () => {
@@ -1288,6 +1298,11 @@ describe('Sleeper league rosters view', () => {
     expect(data.teams.find((team) => team.id === 2)).toMatchObject({ rosterAvailable: false, sections: [] });
     expect(data.warning ?? '').not.toContain('future week');
     expect((rawMatchups[1] as { starters: null }).starters).toBeNull();
+
+    const future = await getRosters(leagueOneId, 4);
+    expect(future.rostersAvailable).toBe(true);
+    expect(future.teams.find((team) => team.id === 1)?.rosterAvailable).toBe(true);
+    expect(future.teams.find((team) => team.id === 2)).toMatchObject({ rosterAvailable: false, sections: [] });
 
     const historical = await getRosters(leagueOneId, 1);
     expect(historical).toMatchObject({ week: 1, currentWeek: 2, league: { week: 2 } });
