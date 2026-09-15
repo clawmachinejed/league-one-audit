@@ -41,16 +41,20 @@ export async function LeagueMatchupsPage({
   let periodContext: MatchupPeriodContext | undefined = 'context' in persisted
     ? persisted.context : undefined;
   let selectedWeek = requestedWeek;
-  if (selectedWeek === undefined && periodContext) {
-    selectedWeek = currentMatchupWeek(periodContext);
-    if (selectedWeek !== periodContext.defaultWeek) {
-      // Stored default selection remains provider display authority. The page's
-      // Current view instead reads the exact active week, even if it is unavailable.
+  let storedWeek = requestedWeek ?? periodContext?.defaultWeek;
+  if (requestedWeek === undefined && periodContext) {
+    // Follow a rollover discovered by the first exact read, but bound retries.
+    // A newer authority after this budget uses the latest week in official fallback.
+    for (let reread = 0; reread < 2; reread += 1) {
+      selectedWeek = currentMatchupWeek(periodContext);
+      if (selectedWeek === storedWeek) break;
       persisted = await readStoredMatchups(leagueKey, selectedWeek);
-      if ('context' in persisted) periodContext = persisted.context;
+      storedWeek = selectedWeek;
+      if ('context' in persisted && persisted.context) periodContext = persisted.context;
     }
+    selectedWeek = currentMatchupWeek(periodContext);
   }
-  if (persisted.kind === 'usable') {
+  if (persisted.kind === 'usable' && (selectedWeek === undefined || persisted.payload.week === selectedWeek)) {
     return <MatchupsView data={persisted.payload} periodContext={persisted.context}
       snapshotRevision={persisted.snapshotRevision} verifiedAt={persisted.verifiedAt} />;
   }

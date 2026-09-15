@@ -186,6 +186,80 @@ describe('LeagueMatchupsPage', () => {
     expect(mocks.getOfficialMatchups).toHaveBeenCalledExactlyOnceWith('league-id', 2);
   });
 
+  it.each(['usable', 'stale'] as const)('follows authority advancing during a %s exact-week read instead of showing a newly historical week', async kind => {
+    const nextContext = { ...rolloverContext, activeWeek: 3, temporalState: 'past' as const };
+    const current = matchups(3);
+    mocks.readStoredMatchups
+      .mockResolvedValueOnce({ kind: 'usable', payload: matchups(1), context: rolloverContext })
+      .mockResolvedValueOnce({ kind, payload: matchups(2), context: nextContext })
+      .mockResolvedValueOnce({ kind: 'usable', payload: current,
+        context: { ...nextContext, temporalState: 'active' }, snapshotRevision: 'c'.repeat(64),
+        verifiedAt: '2026-09-22T12:00:00.000Z' });
+    mocks.getOfficialMatchups.mockResolvedValue(matchups(2));
+
+    const rendered = await LeagueMatchupsPage({ leagueKey: 'league1', leagueId: 'league-id',
+      searchParams: Promise.resolve({}) }) as ReactElement<MatchupsProps>;
+
+    expect(mocks.readStoredMatchups.mock.calls).toEqual([['league1', undefined], ['league1', 2], ['league1', 3]]);
+    expect(rendered.props.data).toBe(current);
+    expect(rendered.props.snapshotRevision).toBe('c'.repeat(64));
+    expect(rendered.props.periodContext).toMatchObject({ defaultWeek: 1, activeWeek: 3, temporalState: 'active' });
+    expect(mocks.getOfficialMatchups).not.toHaveBeenCalled();
+    expect(mocks.getCurrentMatchupPeriodContext).not.toHaveBeenCalled();
+  });
+
+  it('uses the newly active official week if the exact read discovers rollover and its next snapshot is missing', async () => {
+    const nextContext = { ...rolloverContext, activeWeek: 3, temporalState: 'past' as const };
+    const current = matchups(3);
+    mocks.readStoredMatchups
+      .mockResolvedValueOnce({ kind: 'usable', payload: matchups(1), context: rolloverContext })
+      .mockResolvedValueOnce({ kind: 'missing', context: nextContext })
+      .mockResolvedValueOnce({ kind: 'missing' });
+    mocks.getOfficialMatchups.mockResolvedValue(current);
+
+    const rendered = await LeagueMatchupsPage({ leagueKey: 'league2', leagueId: 'league-id',
+      searchParams: Promise.resolve({}) }) as ReactElement<MatchupsProps>;
+
+    expect(mocks.readStoredMatchups.mock.calls).toEqual([['league2', undefined], ['league2', 2], ['league2', 3]]);
+    expect(mocks.getOfficialMatchups).toHaveBeenCalledExactlyOnceWith('league-id', 3);
+    expect(mocks.getCurrentMatchupPeriodContext).not.toHaveBeenCalled();
+    expect(rendered.props).toMatchObject({ data: current, snapshotRevision: null, verifiedAt: null,
+      periodContext: { defaultWeek: 1, activeWeek: 3, temporalState: 'active' } });
+  });
+
+  it('bounds changing authority to two exact rereads and falls back to the latest observed current week', async () => {
+    const current = matchups(4);
+    mocks.readStoredMatchups
+      .mockResolvedValueOnce({ kind: 'usable', payload: matchups(1), context: rolloverContext })
+      .mockResolvedValueOnce({ kind: 'usable', payload: matchups(2), context: { ...rolloverContext, activeWeek: 3 } })
+      .mockResolvedValueOnce({ kind: 'usable', payload: matchups(3), context: { ...rolloverContext, activeWeek: 4 } });
+    mocks.getOfficialMatchups.mockResolvedValue(current);
+
+    const rendered = await LeagueMatchupsPage({ leagueKey: 'league1', leagueId: 'league-id',
+      searchParams: Promise.resolve({}) }) as ReactElement<MatchupsProps>;
+
+    expect(mocks.readStoredMatchups.mock.calls).toEqual([['league1', undefined], ['league1', 2], ['league1', 3]]);
+    expect(mocks.getOfficialMatchups).toHaveBeenCalledExactlyOnceWith('league-id', 4);
+    expect(mocks.getCurrentMatchupPeriodContext).not.toHaveBeenCalled();
+    expect(rendered.props).toMatchObject({ data: current, snapshotRevision: null, verifiedAt: null,
+      periodContext: { defaultWeek: 1, activeWeek: 4, temporalState: 'active' } });
+  });
+
+  it('does not retarget an explicit week when its read discovers a later active week', async () => {
+    const selected = matchups(2);
+    mocks.readStoredMatchups.mockResolvedValue({ kind: 'usable', payload: selected,
+      context: { ...rolloverContext, activeWeek: 3 }, snapshotRevision: 'b'.repeat(64),
+      verifiedAt: '2026-09-21T12:00:00.000Z' });
+
+    const rendered = await LeagueMatchupsPage({ leagueKey: 'league1', leagueId: 'league-id',
+      searchParams: Promise.resolve({ week: '2' }) }) as ReactElement<MatchupsProps>;
+
+    expect(mocks.readStoredMatchups).toHaveBeenCalledExactlyOnceWith('league1', 2);
+    expect(rendered.props.data).toBe(selected);
+    expect(rendered.props.periodContext).toMatchObject({ activeWeek: 3, temporalState: 'past' });
+    expect(mocks.getOfficialMatchups).not.toHaveBeenCalled();
+  });
+
   it.each(['missing', 'disabled'] as const)('uses the calendar active week with %s database data and a lagging display week', async kind => {
     mocks.readStoredMatchups.mockResolvedValue({ kind });
     mocks.getCurrentMatchupPeriodContext.mockResolvedValue(rolloverContext);

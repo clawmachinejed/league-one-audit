@@ -12,6 +12,8 @@ The display week can lead or lag the active scoring week during provider rollove
 
 The Matchups and Rosters UI uses the validated active scoring week for Current during the active season. Explicit selections stay exact, including historical weeks. Outside that lifecycle, or without valid same-season active authority, the UI retains the display fallback. This presentation choice does not rewrite provider period metadata, stored reader defaults, ownership, or publication readiness.
 
+Matchups also re-resolves Current when an exact-week read observes newer authority. After at most two extra stored reads, continued movement uses the latest observed week in the official fallback; a usable snapshot for an older week cannot satisfy that default page request. Explicit week requests do not follow rollover.
+
 Runtime supplies each league's matchup range; the current configuration covers Weeks 1–18. Scheduling uses that supplied range rather than a second hardcoded horizon. Ownership changes invalidate incompatible in-flight work.
 
 ## Two separate preparation actions
