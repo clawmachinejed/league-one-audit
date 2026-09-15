@@ -50,8 +50,9 @@ describe('My Team shared matchup view', () => {
   it.each(['league1', 'league2'] as const)('uses the current snapshot and bench-enabled board in %s without saving the default', leagueKey => {
     const html = render('my-team', leagueKey);
     expect(html).toContain('<h1>My Team</h1>');
-    expect(html).toContain('aria-label="Current matchup week 2"');
-    expect(html).not.toContain('<select');
+    expect(html).toContain('<select');
+    expect(html).toContain('>Week 2 · Current</option>');
+    expect(html).toContain(`href="${LEAGUE_SITES[leagueKey].prefix}/my-team?week=3"`);
     expect(mocks.board.mock.calls[0][0]).toMatchObject({ selected: 2, showBench: true,
       matchups: [{ id: 'one', sides: [{ team: { id: 2 } }, { team: { id: 1 } }] }] });
     expect(mocks.board.mock.calls[0][0].matchups).toHaveLength(1);

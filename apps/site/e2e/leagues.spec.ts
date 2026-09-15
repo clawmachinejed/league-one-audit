@@ -304,20 +304,24 @@ test('selecting the active league preserves the viewed matchup week', async ({ p
   await expect(page.getByLabel('Matchup week')).toHaveValue('5');
 });
 
-test('My Team stays in the same section when switching leagues and always shows the current week', async ({ page }) => {
+test('My Team preserves an explicit week in its league and switches leagues to the destination current week', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/my-team?week=1', { waitUntil: 'networkidle' });
   await expect(page.getByRole('heading', { name: 'My Team', exact: true })).toBeVisible();
-  await expect(page.getByLabel('Matchup week', { exact: true })).toHaveCount(0);
-  await expect(page.getByLabel(/^Current matchup week \d+$/u)).toBeVisible();
+  const picker = page.getByRole('combobox', { name: 'Matchup week', exact: true });
+  await expect(picker).toHaveValue('1');
   const mobileNav = page.getByRole('navigation', { name: 'Mobile navigation' });
   await expect(mobileNav.getByRole('link', { name: 'My Team', exact: true })).toHaveAttribute('aria-current', 'page');
+  await mobileNav.getByRole('button', { name: 'Choose league, current League One' }).click();
+  await mobileNav.getByRole('link', { name: 'View League One' }).click();
+  await expect(page).toHaveURL(/\/my-team\?week=1$/u);
+  await expect(picker).toHaveValue('1');
   await mobileNav.getByRole('button', { name: 'Choose league, current League One' }).click();
   await expect(mobileNav.getByRole('link', { name: 'View League Two' })).toHaveAttribute('href', '/league2/my-team');
   await mobileNav.getByRole('link', { name: 'View League Two' }).click();
   await expect(page).toHaveURL(/\/league2\/my-team$/u);
   await expect(page.getByRole('heading', { name: 'My Team', exact: true })).toBeVisible();
-  await expect(page.getByLabel(/^Current matchup week \d+$/u)).toBeVisible();
+  await expect(picker.locator('option:checked')).toHaveText(/^Week \d+ · Current$/u);
   await expect(mobileNav.getByRole('link', { name: 'My Team', exact: true })).toHaveAttribute('href', '/league2/my-team');
   await expectNoPageOverflow(page);
 });
