@@ -31,6 +31,19 @@ describe('lineup-watch period ownership', () => {
     expect(classifyLineupWatchPeriod(source, period, options)).toEqual({ kind: 'classified', watchClass: 'current', materializationLane: 'current' });
     expect(classifyLineupWatchPeriod(source, { ...period, week: 6 }, options)).toEqual({ kind: 'classified', watchClass: 'future', materializationLane: 'future' });
   });
+  it('owns Week 2 when the authoritative display marker still shows Week 1', () => {
+    const source = authority({
+      defaultDisplayPeriod: { ...period, week: 1 },
+      activeScoringPeriod: { ...period, week: 2 },
+    });
+    expect([1, 2, 3].map((week) => classifyLineupWatchPeriod(source, { ...period, week }, options)))
+      .toEqual([
+        { kind: 'classified', watchClass: 'completed', materializationLane: null },
+        { kind: 'classified', watchClass: 'current', materializationLane: 'current' },
+        { kind: 'classified', watchClass: 'future', materializationLane: 'future' },
+      ]);
+    expect(source.defaultDisplayPeriod.week).toBe(1);
+  });
   it('retires earlier periods only after authority advances', () => {
     expect(classifyLineupWatchPeriod(authority(), { ...period, week: 4 }, options)).toEqual({ kind: 'classified', watchClass: 'completed', materializationLane: null });
     expect(classifyLineupWatchPeriod(authority(), period, options)).toEqual({ kind: 'classified', watchClass: 'current', materializationLane: 'current' });
@@ -57,12 +70,16 @@ describe('lineup-watch period ownership', () => {
   it('rejects contradictory lifecycle and active period', () => {
     expect(classifyLineupWatchPeriod(authority({ activeScoringPeriod: null }), period, options)).toEqual({ kind: 'unavailable', reason: 'malformed' });
     expect(classifyLineupWatchPeriod(authority({ lifecycle: 'preseason' }), period, options)).toEqual({ kind: 'unavailable', reason: 'malformed' });
-    expect(classifyLineupWatchPeriod(authority({ activeScoringPeriod: { ...period, week: 6 } }), period, options)).toEqual({ kind: 'unavailable', reason: 'malformed' });
+    expect(classifyLineupWatchPeriod(authority({ activeScoringPeriod: { ...period, season: 2027 } }), period, options)).toEqual({ kind: 'unavailable', reason: 'malformed' });
+    expect(classifyLineupWatchPeriod(authority({ activeScoringPeriod: { ...period, seasonType: 'postseason' } }), period, options)).toEqual({ kind: 'unavailable', reason: 'malformed' });
   });
   it('rejects regressing week or lifecycle but permits a new season', () => {
     expect(classifyLineupWatchPeriod(authority({ defaultDisplayPeriod: { ...period, week: 4 }, activeScoringPeriod: { ...period, week: 4 } }), period, { ...options, previousAuthority: authority() }))
       .toEqual({ kind: 'unavailable', reason: 'regressing' });
     expect(classifyLineupWatchPeriod(authority({ lifecycle: 'preseason', activeScoringPeriod: null }), period, { ...options, previousAuthority: authority() }))
+      .toEqual({ kind: 'unavailable', reason: 'regressing' });
+    expect(classifyLineupWatchPeriod(authority({ defaultDisplayPeriod: { ...period, week: 1 }, activeScoringPeriod: { ...period, week: 1 } }), period,
+      { ...options, previousAuthority: authority({ defaultDisplayPeriod: { ...period, week: 1 }, activeScoringPeriod: { ...period, week: 2 } }) }))
       .toEqual({ kind: 'unavailable', reason: 'regressing' });
     const newPeriod = { ...period, season: 2027, week: 1 };
     expect(classifyLineupWatchPeriod(authority({ defaultDisplayPeriod: newPeriod, lifecycle: 'preseason', activeScoringPeriod: null }), newPeriod, { ...options, previousAuthority: authority({ lifecycle: 'complete', activeScoringPeriod: null }) }).kind).toBe('classified');

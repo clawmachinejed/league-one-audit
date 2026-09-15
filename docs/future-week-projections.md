@@ -8,6 +8,8 @@ The current lane refreshes operational NFL and league authority approximately ev
 
 The default display period and active scoring period are distinct. The highest stored snapshot never defines the current week. During preseason, the default display period is observed every minute but is materialized by the future lane. Later configured periods receive three-minute observation. During the active season, the active scoring period belongs to the current lane and later periods belong to the future lane. Earlier periods, or all periods of a completed league, receive no automatic observation. An NFL game becoming final does not by itself advance the fantasy week.
 
+The display week can lead or lag the active scoring week during provider rollover. Neither ordering is malformed by itself; both periods must still agree on season and type and pass source, lifecycle, freshness and regression validation. See the [Week 2 rollover repair](week-two-rollover-repair.md) for captured evidence and the separate incomplete-lineup gate.
+
 Runtime supplies each league's matchup range; the current configuration covers Weeks 1–18. Scheduling uses that supplied range rather than a second hardcoded horizon. Ownership changes invalidate incompatible in-flight work.
 
 ## Two separate preparation actions

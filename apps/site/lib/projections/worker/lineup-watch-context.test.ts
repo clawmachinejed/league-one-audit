@@ -25,6 +25,28 @@ describe('shared complete-horizon lineup watch context', () => {
     expect(harness.lineupRepository.synchronizeLineupWatchStates.mock.calls[0][0]).toMatchObject({ registeredLeagueKeys: ['one', 'two'] });
     expect(result.kind === 'stored' && result.states.every((state) => state.configuration.key === 'one')).toBe(true);
   });
+  it('plans both complete horizons from active Week 2 despite a Week 1 display marker', async () => {
+    const harness = lineupHarness();
+    const authorities = harness.configurations.map((configuration) => {
+      const value = lineupAuthority(configuration);
+      return lineupAuthorityResult({ ...value, authorityGeneration: 2,
+        authority: { ...value.authority, activeScoringPeriod: { season: 2026, seasonType: 'regular', week: 2 } } });
+    });
+    const result = await synchronizeLineupWatches(harness.lineupRepository, harness.configurations,
+      authorities, lineupNow);
+    expect(result).toMatchObject({ kind: 'stored', skippedLeagueKeys: [],
+      capacity: { status: 'supported', currentTargets: 2, futureTargets: 32 } });
+    const targets = harness.lineupRepository.synchronizeLineupWatchStates.mock.calls[0][0].targets;
+    expect(targets).toHaveLength(36);
+    for (const configuration of harness.configurations) {
+      const owned = targets.filter((target) => target.configuration.key === configuration.key);
+      expect(owned.map((target) => target.period.week)).toEqual(Array.from({ length: 18 }, (_, index) => index + 1));
+      expect(owned[0]).toMatchObject({ watchClass: 'completed', materializationLane: null, initialNextCheckAt: null });
+      expect(owned[1]).toMatchObject({ watchClass: 'current', materializationLane: 'current',
+        authorityGeneration: 2, initialNextCheckAt: lineupNow.toISOString() });
+      expect(owned.slice(2).every((target) => target.watchClass === 'future' && target.materializationLane === 'future')).toBe(true);
+    }
+  });
   it('retains the same healthy phases while another authority is temporarily missing', async () => {
     const h = lineupHarness();
     const results = h.configurations.map((configuration) => lineupAuthorityResult(lineupAuthority(configuration)));

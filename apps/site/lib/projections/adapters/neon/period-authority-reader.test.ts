@@ -49,6 +49,23 @@ describe('canonical durable period authority reader', () => {
     expect(await adapter.readAuthorities(['alpha', 'alpha'], asOf, 600_000)).toHaveLength(1);
     expect(readLeagueLineupAuthorities).toHaveBeenCalledExactlyOnceWith(['alpha']);
   });
+  it('preserves usable Week 2 authority for both leagues while display remains Week 1', async () => {
+    const { adapter, readLeagueLineupAuthorities } = reader(configurations.map(({ key }) => stored(key, {
+      defaultWeek: 1, activeWeek: 2,
+    })));
+    const result = await adapter.readAuthorities(['alpha', 'beta'], asOf, 600_000);
+    expect(readLeagueLineupAuthorities).toHaveBeenCalledExactlyOnceWith(['alpha', 'beta']);
+    expect(result).toEqual(configurations.map((configuration) => expect.objectContaining({
+      kind: 'present', leagueKey: configuration.key,
+      value: expect.objectContaining({
+        configuration, authorityGeneration: 7,
+        authority: expect.objectContaining({
+          defaultDisplayPeriod: { season: 2026, seasonType: 'regular', week: 1 },
+          activeScoringPeriod: { season: 2026, seasonType: 'regular', week: 2 },
+        }),
+      }),
+    })));
+  });
   it('keeps missing and malformed outcomes isolated from healthy leagues', async () => {
     for (const kind of ['missing', 'malformed'] as const) {
       const { adapter } = reader([{ kind, leagueKey: 'beta' }, stored()]);

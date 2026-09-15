@@ -728,15 +728,18 @@ export async function getRostersWithMetricContext(
     ? [...standingsTeams].sort(compareRosterStandings)
     : [...standingsTeams].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }) || a.id - b.id);
   const slots = startingSlots(core.overview.league.rosterPositions);
+  // Display week can lag or lead the scoring week. It remains only the fallback
+  // when no active scoring period is available (including preseason).
+  const rosterReferenceWeek = boundaryInput.activeWeek ?? core.overview.league.week;
   let futureSlateReady = true;
-  if (selectedWeek > core.overview.league.week) {
+  if (selectedWeek > rosterReferenceWeek) {
     try {
       assertProjectionMatchupReadiness(selectedObservation.rows, core.rosterFeed.rosters, core.overview.league.rosterPositions);
     } catch {
       futureSlateReady = false;
     }
   }
-  const currentMetadataAuthoritative = selectedWeek === core.overview.league.week
+  const currentMetadataAuthoritative = selectedWeek === rosterReferenceWeek
     && lifecycle !== 'complete' && core.sourceLeague.season === core.state?.season;
   const showCurrentGroups = currentMetadataAuthoritative;
   const showCurrentInjury = currentMetadataAuthoritative;
