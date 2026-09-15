@@ -28,29 +28,24 @@ const readStoredCalendarFloor = cache(async (leagueKey: string): Promise<readonl
   }
 });
 
-/**
- * A stored period is a monotonic floor, even when too old to serve as fresh
- * operational authority. It never substitutes for the current schedule policy.
- */
-export async function assertSiteCalendarNotRegressed(proposal: SiteCalendarProposal): Promise<void> {
-  const registration = Object.entries(LEAGUE_IDS).find(([, leagueId]) => leagueId === proposal.leagueId);
-  if (!registration || !validSeason(proposal.season) || !validWeek(proposal.week)
-    || !Object.hasOwn(lifecycleOrder, proposal.lifecycle)) {
+async function validatedStoredCalendar(leagueId: string) {
+  const registration = Object.entries(LEAGUE_IDS).find(([, registeredId]) => registeredId === leagueId);
+  if (!registration) {
     throw new Error('Site calendar proposal has an invalid league or period.');
   }
   const [leagueKey] = registration;
   const rows = await readStoredCalendarFloor(leagueKey);
-  if (rows === null || (Array.isArray(rows) && rows.length === 0)) return;
+  if (rows === null || (Array.isArray(rows) && rows.length === 0)) return null;
   if (!Array.isArray(rows) || rows.length !== 1 || !rows[0] || rows[0].leagueKey !== leagueKey
     || !['available', 'missing'].includes(rows[0].kind)) {
     throw new Error('Stored site calendar authority is malformed.');
   }
   const row: StoredLeagueAuthorityRead = rows[0];
-  if (row.kind === 'missing') return;
+  if (row.kind === 'missing') return null;
   if (row.kind !== 'available') throw new Error('Stored site calendar authority is malformed.');
   const stored = row.authority;
   if (!stored || stored.leagueKey !== leagueKey || stored.sourceProvider !== 'sleeper'
-    || stored.lineupShape?.sourceExternalLeagueId !== proposal.leagueId) {
+    || stored.lineupShape?.sourceExternalLeagueId !== leagueId) {
     throw new Error('Stored site calendar authority conflicts with the selected league identity.');
   }
   const active = stored.leagueLifecycle === 'active';
@@ -61,6 +56,28 @@ export async function assertSiteCalendarNotRegressed(proposal: SiteCalendarPropo
       : stored.activeSeason !== null || stored.activeSeasonType !== null || stored.activeWeek !== null)) {
     throw new Error('Stored site calendar authority has an invalid period.');
   }
+  return stored;
+}
+
+/** Display-only recovery: retained authority may be old, but cannot invent a new period. */
+export async function getRetainedSiteCalendar(leagueId: string, season: number): Promise<{
+  week: number; lifecycle: SiteCalendarProposal['lifecycle'];
+} | null> {
+  if (!validSeason(season)) throw new Error('Site calendar proposal has an invalid league or period.');
+  const stored = await validatedStoredCalendar(leagueId);
+  if (!stored || stored.defaultSeason !== season) return null;
+  return { week: Math.max(stored.defaultWeek, stored.activeWeek ?? stored.defaultWeek),
+    lifecycle: stored.leagueLifecycle };
+}
+
+/** A retained period remains a monotonic floor without becoming fresh authority. */
+export async function assertSiteCalendarNotRegressed(proposal: SiteCalendarProposal): Promise<void> {
+  if (!validSeason(proposal.season) || !validWeek(proposal.week)
+    || !Object.hasOwn(lifecycleOrder, proposal.lifecycle)) {
+    throw new Error('Site calendar proposal has an invalid league or period.');
+  }
+  const stored = await validatedStoredCalendar(proposal.leagueId);
+  if (!stored) return;
   if (stored.defaultSeason > proposal.season
     || (stored.defaultSeason === proposal.season
       && (stored.defaultWeek > proposal.week || (stored.activeWeek !== null && stored.activeWeek > proposal.week)

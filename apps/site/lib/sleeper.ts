@@ -31,7 +31,7 @@ import { calculateTeamPpg, compareRosterStandings, playerMetricBoundary, rosterH
 import { canonicalNflTeam, NFL_TEAMS } from './nfl-teams';
 import { startingSlots } from './sleeper-lineup';
 import { resolveSiteWeek, type SiteWeekResolution } from './site-week';
-import { assertSiteCalendarNotRegressed } from './site-calendar-authority';
+import { assertSiteCalendarNotRegressed, getRetainedSiteCalendar } from './site-calendar-authority';
 import { buildCompletedStandingsBasis, reconcileStandingsBasis, standingsTotalsMatch } from './projected-standings';
 import {
   canDecorateMatchupWeek,
@@ -395,13 +395,25 @@ const getLeagueCalendar = cache(async (leagueId: string, revalidate: number, eva
   // Sleeper retains league lifecycle authority. Once a league is in season,
   // retain the site's calendar through completion so a later provider phase or
   // last_scored_leg cannot move a published display week backward.
-  const siteWeek: SiteWeekResolution | null = lifecycle !== 'preseason'
-    ? resolveSiteWeek({ season: rawLeague.season,
-      seasonSchedule: await getSeasonSchedule(rawLeague.season), evaluatedAt: asOf })
-    : null;
+  let siteWeek: SiteWeekResolution | null = null;
+  let calendarUnavailable = false;
+  if (lifecycle !== 'preseason') {
+    try {
+      siteWeek = resolveSiteWeek({ season: rawLeague.season,
+        seasonSchedule: await getSeasonSchedule(rawLeague.season), evaluatedAt: asOf });
+    } catch {
+      // A schedule outage must not hide official teams, scores or transactions.
+      // A retained display choice is never fresh worker or scoring authority.
+      calendarUnavailable = true;
+    }
+  }
   if (siteWeek?.lastCompletedWeek === 18) lifecycle = 'complete';
   const league = normalizeLeague(rawLeague, state);
   if (siteWeek) league.week = siteWeek.week;
+  if (calendarUnavailable && evaluatedAt === undefined) {
+    const retained = await getRetainedSiteCalendar(leagueId, Number(rawLeague.season));
+    if (retained) { league.week = retained.week; lifecycle = retained.lifecycle; }
+  }
   const activeWeek = lifecycle === 'active' ? siteWeek?.week ?? null : null;
   // Current workers check their proposal against the existing batched durable
   // read after SQL publication. Reader calls use the same authority as a floor.
@@ -416,6 +428,10 @@ const getLeagueCalendar = cache(async (leagueId: string, revalidate: number, eva
     lifecycle,
     activeWeek,
     siteWeek,
+    calendarUnavailable,
+    warning: calendarUnavailable
+      ? 'NFL calendar is temporarily unavailable. The displayed week is a fallback; automatic week advancement is paused.'
+      : undefined,
     evaluatedAt: asOf,
     requestStartedAt,
     requestCompletedAt,
@@ -494,6 +510,7 @@ const getCore = cache(async (leagueId: string) => {
     teams,
     updatedAt: new Date().toISOString(),
     warning: joinWarnings(
+      calendar.warning,
       state ? undefined : 'NFL week information is temporarily unavailable; game status cannot be confirmed.',
       teams.length ? undefined : 'Sleeper has not provided any league rosters yet.',
     ),
@@ -516,6 +533,7 @@ const getRosterCore = cache(async (leagueId: string) => {
     teams,
     updatedAt: calendar.requestCompletedAt,
     warning: joinWarnings(
+      calendar.warning,
       state ? undefined : 'NFL week information is temporarily unavailable; game status cannot be confirmed.',
       teams.length ? undefined : 'Sleeper has not provided any league rosters yet.',
       affected ? `Sleeper returned incomplete or malformed data for ${affected} roster${affected === 1 ? '' : 's'}; other teams remain available.` : undefined,
@@ -781,6 +799,7 @@ export async function getRostersWithMetricContext(
     }
   }
   const currentMetadataAuthoritative = selectedWeek === rosterReferenceWeek
+    && !core.calendar.calendarUnavailable
     && lifecycle !== 'complete' && core.sourceLeague.season === core.state?.season;
   const showCurrentGroups = currentMetadataAuthoritative;
   const showCurrentInjury = currentMetadataAuthoritative;
@@ -909,6 +928,9 @@ async function loadMatchupSource(
     throw new Error('A matchup load cannot combine website and projection week selection.');
   }
   const core = await getCore(leagueId);
+  if (projectionTarget && core.calendar.calendarUnavailable) {
+    throw new Error('NFL calendar authority is unavailable for projection or statistics ingestion.');
+  }
   const defaultWeek = core.overview.league.week;
   const week = projectionTarget
     ? projectionTargetWeek(projectionTarget, core.sourceLeague, core.overview.league.maxWeek)
@@ -1043,6 +1065,9 @@ export async function getProjectionCadenceInput(leagueId: string, evaluatedAt?: 
   const {
     sourceLeague, state, league, requestStartedAt, requestCompletedAt,
   } = calendar;
+  if (calendar.calendarUnavailable) {
+    throw new Error('NFL calendar authority is unavailable for worker cadence.');
+  }
   assertRosterCompleteness(sourceLeague, rosters);
   const activeScoringWeek = calendar.activeWeek;
   const workerWeek = activeScoringWeek ?? league.week;

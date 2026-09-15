@@ -12,7 +12,7 @@ vi.mock('./projection-store', () => ({
   getProjectionStore: () => ({ enabled: fake.enabled, readLeagueLineupAuthorities: fake.read }),
 }));
 
-import { assertSiteCalendarNotRegressed } from './site-calendar-authority';
+import { assertSiteCalendarNotRegressed, getRetainedSiteCalendar } from './site-calendar-authority';
 
 const proposal = { leagueId: LEAGUE_IDS.league1, season: 2026, week: 2, lifecycle: 'active' as const };
 
@@ -40,6 +40,41 @@ beforeEach(() => {
 });
 
 describe('site calendar monotonic read guard', () => {
+  it('returns stale same-season authority solely as a retained display choice', async () => {
+    fake.read.mockResolvedValue([available(stored({ defaultWeek: 1, activeWeek: 2,
+      sourceObservedAt: '2026-09-01T00:00:00Z', verifiedAt: '2026-09-01T00:00:00Z' }))]);
+    await expect(getRetainedSiteCalendar(LEAGUE_IDS.league1, 2026)).resolves.toEqual({ week: 2, lifecycle: 'active' });
+    expect(fake.read).toHaveBeenCalledExactlyOnceWith(['league1']);
+  });
+
+  it('keeps the accepted display floor when it leads the active period', async () => {
+    fake.read.mockResolvedValue([available(stored({ defaultWeek: 3, activeWeek: 2 }))]);
+    await expect(getRetainedSiteCalendar(LEAGUE_IDS.league1, 2026)).resolves.toEqual({ week: 3, lifecycle: 'active' });
+  });
+
+  it.each([2025, 2027])('never borrows a retained period from season %i', async (season) => {
+    fake.read.mockResolvedValue([available(stored({ defaultSeason: season, activeSeason: season }))]);
+    await expect(getRetainedSiteCalendar(LEAGUE_IDS.league1, 2026)).resolves.toBeNull();
+  });
+
+  it('returns no retained period when storage is disabled, empty or unavailable', async () => {
+    fake.enabled = false;
+    await expect(getRetainedSiteCalendar(LEAGUE_IDS.league1, 2026)).resolves.toBeNull();
+    expect(fake.read).not.toHaveBeenCalled();
+    fake.enabled = true;
+    fake.read.mockResolvedValue([]);
+    await expect(getRetainedSiteCalendar(LEAGUE_IDS.league1, 2026)).resolves.toBeNull();
+    fake.read.mockRejectedValue(new Error('transport unavailable'));
+    await expect(getRetainedSiteCalendar(LEAGUE_IDS.league1, 2026)).resolves.toBeNull();
+  });
+
+  it('does not disguise a retained identity conflict or malformed period as an outage', async () => {
+    fake.read.mockResolvedValue([available(stored({ sourceProvider: 'tank01' }))]);
+    await expect(getRetainedSiteCalendar(LEAGUE_IDS.league1, 2026)).rejects.toThrow('selected league identity');
+    fake.read.mockResolvedValue([available(stored({ activeWeek: null }))]);
+    await expect(getRetainedSiteCalendar(LEAGUE_IDS.league1, 2026)).rejects.toThrow('invalid period');
+  });
+
   it('does no authority query when persistence is disabled', async () => {
     fake.enabled = false;
     await expect(assertSiteCalendarNotRegressed(proposal)).resolves.toBeUndefined();

@@ -1,10 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { StoredLeagueAuthorityRead } from './projection-store';
 
 const nextCacheEntries = vi.hoisted(() => [] as Array<{
   keys: string[];
   options: { revalidate?: number };
 }>);
 const reactCacheControl = vi.hoisted(() => ({ enabled: false, generation: 0 }));
+const calendarStore = vi.hoisted(() => ({ enabled: false,
+  read: vi.fn<(keys: readonly string[]) => Promise<readonly StoredLeagueAuthorityRead[]>>() }));
 
 vi.mock('server-only', () => ({}));
 vi.mock('react', () => ({
@@ -26,6 +29,10 @@ vi.mock('next/cache', () => ({
     return fn;
   },
 }));
+vi.mock('./projection-store', async (original) => ({
+  ...await original<typeof import('./projection-store')>(),
+  getProjectionStore: () => ({ enabled: calendarStore.enabled, readLeagueLineupAuthorities: calendarStore.read }),
+}));
 import { LEAGUE_IDS } from './config';
 import seasonEvidence from '../test-support/fixtures/sleeper-2026-season-schedule.json';
 import { addWaiverBalances, normalizeTeams, type SleeperRoster, type SleeperUser } from './transform';
@@ -39,6 +46,7 @@ import {
   getManager,
   getProjectionCadenceInput,
   getProjectionSyncInput,
+  getOperatorProjectionSyncInput,
   getRawLineupMatchups,
   getStandings,
   getLeagueTransactions,
@@ -191,7 +199,23 @@ function valueFor(path: string): unknown {
   throw new Error(`Unexpected test endpoint: ${path}`);
 }
 
+function retainedCalendar(leagueKey: 'league1' | 'league2', week = 2,
+  lifecycle: 'active' | 'complete' = 'active'): StoredLeagueAuthorityRead {
+  return { kind: 'available', leagueKey, authority: {
+    leagueKey, defaultSeason: 2026, defaultSeasonType: 'reg', defaultWeek: week,
+    activeSeason: lifecycle === 'active' ? 2026 : null, activeSeasonType: lifecycle === 'active' ? 'reg' : null,
+    activeWeek: lifecycle === 'active' ? week : null, leagueLifecycle: lifecycle,
+    nflPhase: 'regular', sourceProvider: 'sleeper', sourceRevision: 'retained-fixture-policy',
+    sourceObservedAt: '2026-09-01T16:00:00.000Z', verifiedAt: '2026-09-01T16:00:00.000Z', authorityGeneration: 2,
+    lineupShape: { sourceExternalLeagueId: LEAGUE_IDS[leagueKey], expectedRosterCount: 1,
+      expectedStarterSlotCount: 1, expectedRosterIds: ['1'] },
+    defaultPeriodCadence: { isCurrentRegularPeriod: true, games: [] },
+  } };
+}
+
 beforeEach(() => {
+  calendarStore.enabled = false;
+  calendarStore.read.mockReset().mockResolvedValue([]);
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date('2026-09-13T16:00:00Z'));
   siteScheduleWeek = 3;
@@ -348,11 +372,94 @@ describe('shared schedule-based site calendar', () => {
     expect(await getSiteWeekRollover(leagueOneId)).toMatchObject({ week: 1, nextRolloverAt: '2026-09-15T16:00:00.000Z' });
   });
 
-  it('reports missing schedule authority instead of substituting Sleeper display or scoring week', async () => {
+  it('keeps ordinary source data readable while rejecting unavailable calendar authority for workers', async () => {
     failures.add('/schedule/nfl/regular/2026');
-    await expect(getCurrentLeagueWeek(leagueOneId)).rejects.toThrow('schedule data could not be loaded');
-    await expect(getProjectionCadenceInput(leagueOneId)).rejects.toThrow('schedule data could not be loaded');
+    expect(await getCurrentLeagueWeek(leagueOneId)).toBe(3);
+    expect(await getOverview(leagueOneId)).toMatchObject({ league: { week: 3 }, warning: expect.stringContaining('calendar is temporarily unavailable') });
+    expect(await getCurrentMatchupPeriodContext(leagueOneId)).toMatchObject({ defaultWeek: 3, activeWeek: null });
+    expect(await getSiteWeekRollover(leagueOneId)).toMatchObject({ week: 3, nextRolloverAt: null });
+    for (const evaluatedAt of [undefined, '2026-09-13T16:00:00.000Z']) {
+      await expect(getProjectionCadenceInput(leagueOneId, evaluatedAt)).rejects.toThrow('calendar authority is unavailable for worker cadence');
+    }
+    const period = { season: 2026, seasonType: 'regular' as const, week: 1 };
+    const catalog = vi.fn();
+    await expect(getProjectionSyncInput(leagueOneId, period)).rejects.toThrow('calendar authority is unavailable for projection or statistics ingestion');
+    await expect(getOperatorProjectionSyncInput(leagueOneId, period, catalog)).rejects.toThrow('calendar authority is unavailable for projection or statistics ingestion');
+    expect(catalog).not.toHaveBeenCalled();
     expect(vi.mocked(fetch).mock.calls.some(([input]) => requestPath(input).startsWith('/scores/'))).toBe(false);
+  });
+
+  it.each(['http', 'malformed'] as const)('retains both leagues and their official data through a %s schedule outage', async (failure) => {
+    if (failure === 'http') failures.add('/schedule/nfl/regular/2026');
+    else siteSeasonEvidence = [];
+    reactCacheControl.enabled = true;
+    calendarStore.enabled = true;
+    calendarStore.read.mockImplementation(async (keys) => keys.map((key) => retainedCalendar(key as 'league1' | 'league2')));
+    for (const key of ['league1', 'league2'] as const) {
+      const id = LEAGUE_IDS[key];
+      const pages = await Promise.all([getOverview(id), getStandings(id), getManager(id, 1), getRosters(id),
+        getOfficialMatchups(id), getTransactions(id, 1), getLeagueTransactions(id, key)]);
+      for (const page of pages) expect(page).toMatchObject({ league: { week: 2 },
+        warning: expect.stringContaining('calendar is temporarily unavailable') });
+      expect((await getStandings(id)).projectionBasis?.kind).toBe('unavailable');
+      expect(await getCurrentMatchupPeriodContext(id)).toMatchObject({ defaultWeek: 2, activeWeek: null });
+      expect(await getSiteWeekRollover(id)).toMatchObject({ week: 2, nextRolloverAt: null });
+    }
+    expect(calendarStore.read.mock.calls).toEqual([[['league1']], [['league2']]]);
+    const original = await getOfficialMatchups(leagueOneId);
+    expect(original.matchups[0].sides[0]).toMatchObject({ points: null, projectedPoints: null,
+      starters: [expect.objectContaining({ points: 12.34 })] });
+  });
+
+  it('retains a completed season display when its schedule is unavailable', async () => {
+    failures.add('/schedule/nfl/regular/2026');
+    leagueStatus = 'complete';
+    lastScoredLeg = 17;
+    calendarStore.enabled = true;
+    calendarStore.read.mockResolvedValue([retainedCalendar('league1', 18, 'complete')]);
+    expect(await getOverview(leagueOneId)).toMatchObject({ league: { week: 18 },
+      warning: expect.stringContaining('calendar is temporarily unavailable') });
+    expect(await getCurrentMatchupPeriodContext(leagueOneId)).toMatchObject({ defaultWeek: 18,
+      activeWeek: null, lifecycle: 'complete' });
+    await expect(getProjectionCadenceInput(leagueOneId)).rejects.toThrow('calendar authority is unavailable');
+  });
+
+  it('does not attach current injury, IR or taxi metadata to a retained fallback week', async () => {
+    failures.add('/schedule/nfl/regular/2026');
+    calendarStore.enabled = true;
+    calendarStore.read.mockResolvedValue([retainedCalendar('league1')]);
+    playerInjury = 'Questionable';
+    rawRosters = [{ roster_id: 1, owner_id: 'member-1', players: ['qb', 'ir', 'taxi'], starters: ['qb'],
+      reserve: ['ir'], taxi: ['taxi'], settings: { ...rosterSettings } }];
+    rawMatchups = [{ roster_id: 1, matchup_id: 1, points: 12.34,
+      players: ['qb', 'ir', 'taxi'], starters: ['qb'], starters_points: [12.34] }];
+    const result = await getRosters(leagueOneId);
+    expect(result).toMatchObject({ week: 2, currentWeek: 2 });
+    expect(result.teams[0].sections.map((section) => section.name)).toEqual(['Starters', 'Bench']);
+    expect(result.teams[0].sections.flatMap((section) => section.players).every((player) => player.injuryStatus === null)).toBe(true);
+    expect(result.teams[0].sections[1].players.map((player) => player.id)).toEqual(['ir', 'taxi']);
+  });
+
+  it('keeps durable identity conflicts and proved regressions outside the outage fallback', async () => {
+    calendarStore.enabled = true;
+    const row = retainedCalendar('league1');
+    if (row.kind !== 'available') throw new Error('Expected retained authority.');
+    calendarStore.read.mockResolvedValue([{ ...row, authority: { ...row.authority, sourceProvider: 'tank01' } }]);
+    failures.add('/schedule/nfl/regular/2026');
+    await expect(getOverview(leagueOneId)).rejects.toThrow('selected league identity');
+    failures.clear();
+    calendarStore.read.mockResolvedValue([retainedCalendar('league1', 4)]);
+    await expect(getOverview(leagueOneId)).rejects.toThrow('backward week change was rejected');
+  });
+
+  it('resumes the validated site calendar after a later request recovers its schedule', async () => {
+    calendarStore.enabled = true;
+    calendarStore.read.mockResolvedValue([retainedCalendar('league1')]);
+    failures.add('/schedule/nfl/regular/2026');
+    expect(await getCurrentMatchupPeriodContext(leagueOneId)).toMatchObject({ defaultWeek: 2, activeWeek: null });
+    failures.clear();
+    expect(await getCurrentMatchupPeriodContext(leagueOneId)).toMatchObject({ defaultWeek: 3, activeWeek: 3 });
+    expect((await getOverview(leagueOneId)).warning ?? '').not.toContain('calendar is temporarily unavailable');
   });
 
   it('includes new-week transactions when every raw Sleeper week field is behind', async () => {

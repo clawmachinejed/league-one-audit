@@ -59,6 +59,24 @@ read of the existing compact authority row to reject a known backward period or
 lifecycle. Missing/disabled storage and transport failure preserve the existing
 official-source fallback; malformed identity or a proved regression does not.
 
+A failed schedule request or malformed season schedule does not hide otherwise
+available official teams, standings, roster rows, scores or transactions. Readers
+retain the highest already accepted display/active week for the same league and
+season, using the same compact authority read even when that observation is old.
+When no usable retained authority is available, the existing bounded official
+display default remains a clearly warned temporary fallback. Neither fallback
+establishes an active scoring week, schedules a new rollover, or attaches current
+injury, IR or taxi metadata to a retained roster week. The page reports that the
+calendar is unavailable and automatic advancement is paused.
+
+Worker cadence and explicit projection/statistics operators reject either
+fallback before downstream ingestion or ancillary writes. A retained observation
+never receives a new authority timestamp or publication solely because a reader
+used it. Recovery resumes the normal policy on a later request with valid schedule
+evidence. This outage handling catches only schedule retrieval/validation;
+malformed stored identities and a valid schedule that proposes a backward period
+remain explicit failures outside that fallback.
+
 Explicit operator targets retain their exact NFL schedule, including canonical
 byes derived from full-season evidence, even after that week becomes historical.
 This does not attach current player-team metadata to historical player rows.
@@ -85,6 +103,8 @@ The season request is shared with exact-week schedule loads. Its cache lifetime
 and the hourly all-player budget are unchanged. The reader regression guard adds
 at most one existing compact authority read per league per server render/request
 memoization scope; the current worker reuses its existing batched authority read.
+Outside an active React memoization scope, schedule-outage recovery may perform
+two bounded, read-only compact authority calls; normal valid-calendar reads use one.
 There are no added history tables, score copies, retained snapshots, or migrations.
 This is a query-bound statement, not a claim about measured compute cost or Neon
 physical storage.
