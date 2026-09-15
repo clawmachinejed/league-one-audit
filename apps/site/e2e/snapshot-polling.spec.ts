@@ -389,7 +389,9 @@ test('a previous league response cannot overwrite the newly selected league at t
   // The real league picker opens the destination's Current week. Keep this race
   // at that same week without assuming the live NFL calendar is always Week 1.
   await page.goto('/league2/matchups');
-  const destinationWeek = Number(await page.getByLabel('Matchup week').inputValue());
+  const destinationPicker = page.getByRole('combobox', { name: 'Matchup week', exact: true });
+  await expect(destinationPicker).toBeVisible();
+  const destinationWeek = Number(await destinationPicker.inputValue());
   expect(Number.isInteger(destinationWeek) && destinationWeek >= 1 && destinationWeek <= 18).toBe(true);
   const fixture = await openFixture(page, { week: destinationWeek, temporal: 'active' });
   fixture.revision = SNAPSHOT_C;
