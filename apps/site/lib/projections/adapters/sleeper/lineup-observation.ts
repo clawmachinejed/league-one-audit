@@ -31,8 +31,8 @@ export function translateSleeperLineupObservation(
   shape: LineupShape,
   rawRows: readonly SleeperMatchup[],
 ): LineupObservationResult {
-  if (rawRows.some((row) => !Array.isArray(row.starters)
-    || row.starters.some((entry) => typeof entry !== 'string' || !entry.trim()))) {
+  if (rawRows.some((row) => row.starters != null && (!Array.isArray(row.starters)
+    || row.starters.some((entry) => typeof entry !== 'string' || !entry.trim())))) {
     return { status: 'invalid', reason: 'starter-shape-invalid' };
   }
   try {
@@ -44,7 +44,8 @@ export function translateSleeperLineupObservation(
         rosterRef: externalRosterRef(leagueRef, String(row.roster_id)),
         matchupRef: row.matchup_id == null
           ? null : externalMatchupRef(leagueRef, period, String(row.matchup_id)),
-        starters: row.starters!.map((entry) => {
+        // Missing whole lists never become inferred or intentionally empty slots.
+        starters: !row.starters?.length ? null : row.starters.map((entry) => {
           const rawId = sleeperLineupEntryId(entry);
           return rawId === null ? null : externalLineupEntryRef(leagueRef, rawId);
         }),

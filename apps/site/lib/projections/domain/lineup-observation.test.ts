@@ -12,7 +12,7 @@ const league = externalLeagueRef('official-test-provider', 'league-A');
 const period = { season: 2026, seasonType: 'regular' as const, week: 5 };
 const matchup = externalMatchupRef(league, period, '1');
 
-function observation(): LineupObservationInput {
+function observation() {
   return {
     leagueRef: league,
     period,
@@ -29,13 +29,36 @@ function observation(): LineupObservationInput {
         null,
       ],
     })),
-  };
+  } satisfies LineupObservationInput;
 }
 
 describe('canonical lineup observation', () => {
   it('accepts a complete matchup with empty starter slots', () => {
     const input = observation();
     expect(validateLineupObservation(input)).toEqual({ status: 'complete', observation: input });
+  });
+
+  it('preserves one unavailable list without changing its opponent or inventing empty slots', () => {
+    const input = observation();
+    const available = input.rows[1];
+    const unresolved = { ...input, rows: [{ ...input.rows[0], starters: null }, available] };
+    expect(validateLineupObservation(unresolved)).toEqual({ status: 'complete', observation: unresolved });
+    expect(unresolved.rows[0].starters).toBeNull();
+    expect(unresolved.rows[1]).toBe(available);
+  });
+
+  it('accepts an all-unavailable observation only with the complete identity and pairing universe', () => {
+    const input = observation();
+    const unknownRows = input.rows.map((row) => ({ ...row, starters: null }));
+    expect(validateLineupObservation({ ...input, rows: unknownRows }).status).toBe('complete');
+    expect(validateLineupObservation({ ...input, rows: unknownRows.slice(0, 1) }))
+      .toEqual({ status: 'invalid', reason: 'roster-population-incomplete' });
+    expect(validateLineupObservation({ ...input, rows: [unknownRows[0], unknownRows[0]] }))
+      .toEqual({ status: 'invalid', reason: 'duplicate-roster' });
+    expect(validateLineupObservation({ ...input, rows: [unknownRows[0], { ...unknownRows[1], matchupRef: null }] }))
+      .toEqual({ status: 'invalid', reason: 'matchup-pairing-invalid' });
+    expect(validateLineupObservation({ ...input, rows: unknownRows.map((row) => ({ ...row, matchupRef: null })) }))
+      .toEqual({ status: 'not-ready', reason: 'unpaired' });
   });
 
   it('treats empty future rows as healthy not-ready but rejects partial nonempty populations', () => {
@@ -142,6 +165,26 @@ describe('canonical lineup observation', () => {
 });
 
 describe('lineup-v1 revision semantics', () => {
+  it('retains the known digest from main 67efec8 for an existing valid array observation', async () => {
+    expect(await calculateLineupRevision(observation())).toEqual({
+      revisionVersion: 'lineup-v1',
+      lineupRevision: 'bcfa96102542975fcad7d725993e43c8b0a1321688633fc448db483096824ac1',
+    });
+  });
+
+  it('distinguishes unavailable lists from explicitly empty slots and detects disappearance and recovery', async () => {
+    const input = observation();
+    const unknown = { ...input, rows: [{ ...input.rows[0], starters: null }, input.rows[1]] };
+    const empty = { ...input, rows: [{ ...input.rows[0], starters: [null, null, null] }, input.rows[1]] };
+    const initialRevision = await calculateLineupRevision(input);
+    const unknownRevision = await calculateLineupRevision(unknown);
+    expect(unknownRevision).not.toEqual(initialRevision);
+    expect(unknownRevision).not.toEqual(await calculateLineupRevision(empty));
+    expect(JSON.parse(canonicalLineupRevisionInput(unknown)).rows[0].starters).toBeNull();
+    expect(await calculateLineupRevision({ ...unknown, rows: [...unknown.rows].reverse() })).toEqual(unknownRevision);
+    expect(await calculateLineupRevision({ ...unknown, rows: input.rows })).toEqual(initialRevision);
+  });
+
   it('hashes exact canonical UTF-8 with SHA-256 and agrees with an independent Node digest', async () => {
     const input = observation();
     const actual = await calculateLineupRevision(input);

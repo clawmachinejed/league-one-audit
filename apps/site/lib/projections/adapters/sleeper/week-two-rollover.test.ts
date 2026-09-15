@@ -27,7 +27,7 @@ describe('captured September 15 Week 2 rollover', () => {
       .toEqual({ kind: 'classified', watchClass: 'current', materializationLane: 'current' });
   });
 
-  it.each(capture.leagues)('retains the separate incomplete-lineup gate for $leagueId', (league) => {
+  it.each(capture.leagues)('isolates the captured missing lineup without copying current starters for $leagueId', (league) => {
     const rows = parseRawSleeperMatchups(league.weekly, `/league/${league.leagueId}/matchups/2`);
     expect(rows).toHaveLength(12);
     expect(() => assertMatchupCompleteness(rows, league.currentRosters, true)).not.toThrow();
@@ -37,7 +37,7 @@ describe('captured September 15 Week 2 rollover', () => {
     expect(league.currentRosters.find((row) => row.roster_id === incomplete[0].roster_id)?.starters)
       .toHaveLength(9);
     expect(() => assertProjectionMatchupReadiness(rows, league.currentRosters, league.rosterPositions))
-      .toThrow('Sleeper has not published complete lineups for the requested projection week.');
+      .not.toThrow();
     expect(rows).toEqual(league.weekly);
   });
 });

@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 vi.mock('server-only', () => ({}));
 import { createFakeProjectionDatabase, projectionStoreSnapshot } from '../../../projection-store-test-support';
-import { createObservationMethods } from './observations';
+import { createObservationMethods, prepareLeagueWeekObservation } from './observations';
+import { isMatchupsData } from '../../../matchups-response';
+import { matchupData } from '../../../live-projection-worker.fixtures';
 import { createSnapshotMethods } from './snapshots';
 import { createLineupAcknowledgmentMethods } from './lineup-acknowledgment';
 import { createMaterializationFutureRefreshMethods } from './future-refresh-materialization';
@@ -17,6 +19,36 @@ const revisionB = 'b'.repeat(64);
 const target = { watchId, watchGeneration: 1, authorityGeneration: 2, observedVersion: 3, lineupRevision: revisionA };
 
 describe('official lineup lineage and atomic publication boundaries', () => {
+  it('serializes unknown official totals as null and publishes an unavailable side without dropping its identity', async () => {
+    const prepared = prepareLeagueWeekObservation({
+      leagueSeasonId: watchId, week: 1, sourceRevision: 'unknown-starter-source',
+      requestStartedAt: at, requestCompletedAt: at, observedAt: at, quality: 'complete',
+      sourceData: { lineupAvailability: { version: 'lineup-availability-v1', unavailableRosterIds: ['2'] } },
+      expectedTank01GameIds: [], playerPoints: [], rosterPoints: [{ externalRosterId: '2', points: null }],
+      lineupRevisionVersion: 'lineup-v1', lineupRevision: revisionA,
+    });
+    expect(prepared.rosterPoints).toEqual([{ external_roster_id: '2', points: null }]);
+    const payload = matchupData();
+    payload.matchups[0].sides[0].starters = [];
+    payload.matchups[0].sides[0].projectedPoints = null;
+    payload.matchups[0].sides[0].points = null;
+    for (const matchup of payload.matchups) {
+      for (const side of matchup.sides) for (const player of side.starters) player.game = null;
+    }
+    expect(isMatchupsData(payload)).toBe(true);
+    const fake = createFakeProjectionDatabase();
+    await createSnapshotMethods(fake.database).publishSnapshot({
+      leagueSeasonId: watchId, week: 1, modelVersion: 'clock-v1', revisionKey: 'unknown-starter-snapshot',
+      leagueWeekObservationId: observationId, gameStateObservationIds: [], calculatedAt: at,
+      payload, activityWindows: [],
+      lineupFence: { watchId, watchGeneration: 1, authorityGeneration: 2, ownerLane: 'current', runId: 'run' },
+    });
+    expect(fake.calls).toHaveLength(1);
+    expect(fake.calls[0].statement).toContain('EXISTS (SELECT 1 FROM publication_lineup_guard)');
+    expect(fake.calls[0].parameters.some((value) => typeof value === 'string'
+      && value.includes('"starters":[]') && value.includes('"projectedPoints":null'))).toBe(true);
+  });
+
   it('accepts legacy absent lineage but rejects partial or malformed lineage', () => {
     expect(observationLineupValues()).toEqual([null, null]);
     expect(observationLineupValues('lineup-v1', revisionA)).toEqual(['lineup-v1', revisionA]);

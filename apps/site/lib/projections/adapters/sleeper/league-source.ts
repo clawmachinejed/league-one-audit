@@ -188,6 +188,8 @@ export async function translateSleeperLeagueWeek(
   );
   if (rawLineup.status !== 'complete') throw new Error('Sleeper did not provide a complete authoritative lineup.');
   const lineup = await calculateLineupRevision(rawLineup.observation);
+  const unavailableRosterIds = new Set(rawLineup.observation.rows
+    .filter((row) => row.starters === null).map((row) => String(row.rosterRef.externalId)));
   const officialIdentityInventory: ScoringEntity[] | undefined = source.officialPlayerCatalog?.complete
     ? officialPlayerIdentityInventory(source.officialPlayerCatalog.catalog, provider) : undefined;
   return {
@@ -204,7 +206,8 @@ export async function translateSleeperLeagueWeek(
       sides: matchup.sides.map((side) => ({
         rosterRef: externalRosterRef(configuration.leagueRef, String(side.team.id)),
         officialPoints: side.points,
-        starters: side.starters.map((player) => lineupSlot(player, provider)),
+        starters: unavailableRosterIds.has(String(side.team.id))
+          ? [] : side.starters.map((player) => lineupSlot(player, provider)),
       })),
     })),
     rosteredEntities: rosteredEntities(source, provider),

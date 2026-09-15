@@ -452,7 +452,10 @@ export function normalizeMatchups(
       team,
       points: numberOrNull(row.custom_points) ?? numberOrNull(row.points),
       projectedPoints: null,
-      starters: lineup(row.starters, league.rosterPositions, catalog, row.starters_points, row.players_points),
+      // An absent whole lineup is unknown, not a set of intentionally empty slots.
+      starters: row.starters?.length
+        ? lineup(row.starters, league.rosterPositions, catalog, row.starters_points, row.players_points)
+        : [],
     });
     groups.set(id, group);
   }

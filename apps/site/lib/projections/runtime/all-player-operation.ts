@@ -542,7 +542,10 @@ function officialPlayerInputs(
     if (!Array.isArray(row.players) || !row.players_points) {
       throw new Error('Official roster point rows are incomplete.');
     }
-    const starters = Array.isArray(row.starters) ? row.starters : [];
+    if (!Array.isArray(row.starters) || row.starters.length !== league.starterSlots.length) {
+      throw new Error('Official starter assignments are unavailable.');
+    }
+    const starters = row.starters;
     return row.players.map((externalId) => {
       const entry = entityByExternalId.get(externalId);
       const points = row.players_points?.[externalId];
@@ -743,6 +746,11 @@ async function execute(
   }
   if (leagueLoads.some((league) => !samePeriod(league.state.period, period))) {
     return unavailable(mode, period, 'league-period-mismatch');
+  }
+  // Team-local projection recovery must not turn unknown assignments into official bench facts.
+  if (leagueLoads.some((league) => league.rawMatchups.some((row) =>
+    !Array.isArray(row.starters) || row.starters.length !== league.starterSlots.length))) {
+    return unavailable(mode, period, 'official-starters-unavailable');
   }
   await input.checkpoint('inventory');
   const schedule = scheduleFor(leagueLoads);

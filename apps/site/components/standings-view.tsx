@@ -149,14 +149,19 @@ export function StandingsView({ data, projectionSource = null, rollover }: { dat
     const rankedTeams = rankStandingsTeams(displayedTeams);
     const scoringHasBegun = standingsHaveScoringEvidence(displayedTeams);
     const teams = sortStandingsTeams(rankedTeams, sorts[tableView]);
+    const unresolvedTeamIds = new Set(displayedProjection?.coverage.unresolvedTeamIds ?? []);
+    const provisional = unresolvedTeamIds.size > 0;
+    const provisionalNote = displayedProjection && provisional
+      ? `Provisional: ${displayedProjection.coverage.includedMatchups} of ${displayedProjection.coverage.totalMatchups} Week ${displayedProjection.week} matchups included. Marked teams retain completed-week records and points; all ranks are recalculated.`
+      : null;
     const note = view === 'standings'
-      ? `${displayedProjection ? `Includes Week ${displayedProjection.week} live matchup projections as results · ` : ''}PF = points for · PA = points against`
+      ? `${provisionalNote ? `${provisionalNote} ` : displayedProjection ? `Includes Week ${displayedProjection.week} live matchup projections as results · ` : ''}PF = points for · PA = points against`
       : 'Order = current waiver claim priority · $ = budget remaining';
     const unavailableReason = projection?.kind === 'unavailable' ? projection.reason
       : data.projectionBasis?.kind === 'unavailable' ? data.projectionBasis.reason
         : 'Live matchup projections are temporarily unavailable.';
     const status = !projected ? 'Off'
-      : displayedProjection ? `Week ${displayedProjection.week} · Live` : 'Unavailable';
+      : displayedProjection ? `Week ${displayedProjection.week} · ${provisional ? 'Provisional' : 'Live'}` : 'Unavailable';
 
     return <div className={`${matchupStyles.page} ${matchupStyles.standingsPage}`}>
     <div className={matchupStyles.toolbar}><PageIntro title="League" league={data.league} />
@@ -186,9 +191,10 @@ export function StandingsView({ data, projectionSource = null, rollover }: { dat
       className="standings-view-panel standings-wrap"
       role="tabpanel"
       aria-labelledby={`${id}-${view}-tab`}
-    ><table className="standings-table" data-view={tableView} data-projected={Boolean(displayedProjection)}>
+    ><table className="standings-table" data-view={tableView} data-projected={Boolean(displayedProjection)} data-provisional={provisional}>
       <caption className="sr-only">{view === 'standings'
-        ? displayedProjection ? `Projected standings including Week ${displayedProjection.week} live matchup projections as results.`
+        ? provisionalNote ? `Projected standings. ${provisionalNote}`
+          : displayedProjection ? `Projected standings including Week ${displayedProjection.week} live matchup projections as results.`
           : 'League standings with official rank, team, record, points for, and points against.'
         : 'Waiver table with official standings rank, team, record, waiver claim priority, and budget remaining.'}</caption>
       <colgroup><col className="standings-rank-column" /><col className="standings-team-column" /><col className="standings-metric-column" /><col className="standings-metric-column" /><col className="standings-metric-column" /></colgroup>
@@ -206,10 +212,10 @@ export function StandingsView({ data, projectionSource = null, rollover }: { dat
         <th scope="row" className="team-cell"><Link
           href={`${site.prefix}/managers/${team.id}`}
           className="standings-team"
-          aria-label={`${team.name}, managed by ${team.managerName}${selected === team.id ? ', My Team' : ''}`}
+          aria-label={`${team.name}, managed by ${team.managerName}${selected === team.id ? ', My Team' : ''}${unresolvedTeamIds.has(team.id) ? `, Week ${displayedProjection!.week} not included` : ''}`}
         ><span className="team-text"><span className="team-name">{team.name}</span><span className="manager-meta"><Avatar team={team} />
           <span className="manager-name">{selected === team.id && <span className="my-team-label">MY TEAM<span aria-hidden="true"> · </span></span>}{team.managerName}</span>
-        </span></span></Link></th>
+        </span>{unresolvedTeamIds.has(team.id) && <span className="manager-name" data-projection-excluded>Week {displayedProjection!.week} not included</span>}</span></Link></th>
         {columns.slice(2).map(column => <td key={column.key} className={column.className}>{metricValue(team, column.key, scoringHasBegun)}</td>)}
       </tr>)}</tbody>
     </table></div> : <div className="standings-view-panel"><EmptyState title={emptyTitle}>Teams will appear when Sleeper has league rosters available.</EmptyState></div>}

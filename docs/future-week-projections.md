@@ -8,7 +8,7 @@ The current lane refreshes operational NFL and league authority approximately ev
 
 The default display period and active scoring period are distinct. The highest stored snapshot never defines the current week. During preseason, the default display period is observed every minute but is materialized by the future lane. Later configured periods receive three-minute observation. During the active season, the active scoring period belongs to the current lane and later periods belong to the future lane. Earlier periods, or all periods of a completed league, receive no automatic observation. An NFL game becoming final does not by itself advance the fantasy week.
 
-Raw Sleeper display and scoring weeks can lead or lag one another. The current site policy derives both regular-season periods from the complete NFL schedule and the following-day noon Eastern boundary; it preserves the raw provider fields as evidence. Both periods still pass source, lifecycle, freshness and regression validation. See the [site week calendar](site-week-calendar.md) and the historical [Week 2 rollover repair](week-two-rollover-repair.md); the incomplete-lineup gate remains separate.
+Raw Sleeper display and scoring weeks can lead or lag one another. The current site policy derives both regular-season periods from the complete NFL schedule and the following-day noon Eastern boundary; it preserves the raw provider fields as evidence. Both periods still pass source, lifecycle, freshness and regression validation. See the [site week calendar](site-week-calendar.md), the historical [Week 2 rollover repair](week-two-rollover-repair.md), and the current [team-local missing-lineup policy](lineup-freshness.md#missing-team-starter-lists).
 
 All site defaults and metric boundaries use that shared calendar. The existing current worker persists its resolved periods for all other lanes and readers. Explicit selections stay exact, including historical weeks. Open Current views refresh at the known boundary; stored-authority lag uses the exact official fallback until the normal worker adopts the new period. Calendar advancement never substitutes for lineup or score-publication readiness.
 
@@ -38,7 +38,7 @@ The worker reads the stored slate, reserves full-source observation, loads fresh
 6. Builds and publishes the existing `MatchupsData` snapshot with an ownership fence.
 7. Atomically completes future materialization and acknowledges the lineup revision proved by that official observation.
 
-Materialization makes no Tank01 projection-feed request. It does request game states. An absent individual projection becomes zero only after slate-level validation succeeds. Incomplete fantasy matchups, contradictory schedules, and unresolved pairings cannot publish fabricated snapshots.
+Materialization makes no Tank01 projection-feed request. It does request game states. An absent individual projection becomes zero only after slate-level validation succeeds. A missing whole team starter list remains explicitly unavailable while healthy teams publish; it never becomes a zero-point lineup. Missing roster identities, contradictory schedules, and unresolved pairings still block publication.
 
 ## Dirty-lineup priority
 

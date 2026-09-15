@@ -12,8 +12,8 @@ import {
 export type LineupObservationRow = Readonly<{
   rosterRef: ExternalRosterRef;
   matchupRef: ExternalMatchupRef | null;
-  /** Order is material; null is the only canonical empty-slot marker. */
-  starters: readonly (ExternalLineupEntryRef | null)[];
+  /** A null list is unavailable. Within a known ordered list, null is an explicit empty slot. */
+  starters: readonly (ExternalLineupEntryRef | null)[] | null;
 }>;
 
 export type LineupObservationInput = Readonly<{
@@ -29,6 +29,7 @@ export type LineupInvalidReason =
   | 'starter-shape-invalid' | 'duplicate-starter' | 'matchup-pairing-invalid';
 
 export type LineupObservationResult =
+  /** Complete roster identities and pairings; individual starter lists may be unavailable. */
   | Readonly<{ status: 'complete'; observation: LineupObservationInput }>
   | Readonly<{ status: 'not-ready'; reason: 'empty' | 'unpaired' }>
   | Readonly<{ status: 'invalid'; reason: LineupInvalidReason }>
@@ -109,8 +110,9 @@ export function validateLineupObservation(input: LineupObservationInput): Lineup
     if (!expectedRosterKeys.has(rosterKey)) return invalid('roster-population-incomplete');
     if (rosterKeys.has(rosterKey)) return invalid('duplicate-roster');
     rosterKeys.add(rosterKey);
-    if (row.starters.length !== input.shape.expectedStarterSlotCount) return invalid('starter-shape-invalid');
-    for (const starter of row.starters) {
+    if (row.starters !== null && (!Array.isArray(row.starters)
+      || row.starters.length !== input.shape.expectedStarterSlotCount)) return invalid('starter-shape-invalid');
+    for (const starter of row.starters ?? []) {
       if (starter === null) continue;
       if (starter.resource !== 'lineup-entry' || !validScopedIdentity(starter, leagueRef)) {
         return invalid('identity-invalid');

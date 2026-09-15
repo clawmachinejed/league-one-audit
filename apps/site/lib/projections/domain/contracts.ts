@@ -107,6 +107,7 @@ export type LineupSlot = EmptyLineupSlot | OccupiedLineupSlot;
 export type OfficialMatchupSide = Readonly<{
   rosterRef: ExternalRosterRef;
   officialPoints: number | null;
+  /** No entries means the whole lineup is unavailable. Known empty slots stay explicit. */
   starters: readonly LineupSlot[];
 }>;
 

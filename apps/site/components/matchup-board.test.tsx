@@ -36,6 +36,21 @@ const player = (id: string, projectedPoints: number | null): Player => ({
 });
 
 describe('MatchupBoard player projection presentation', () => {
+  it('labels the missing team lineup without claiming its slots are empty or hiding the opponent projection', () => {
+    const matchups: Matchup[] = [{ id: '1', status: 'live', sides: [
+      { team: team(1), points: 23.2, projectedPoints: 40, starters: [player('known', 40)] },
+      { team: team(2), points: 7, projectedPoints: null, starters: [] },
+    ] }];
+    const html = renderToStaticMarkup(<LeagueSiteProvider site={LEAGUE_SITES.league1}>
+      <MatchupBoard matchups={matchups} selected={null} avatar={() => null} />
+    </LeagueSiteProvider>);
+    expect(html).toContain('Lineup unavailable');
+    expect(html).toContain('Awaiting Sleeper');
+    expect(html).not.toContain('Empty slot');
+    expect(html).toContain('projected score 40.00 points');
+    expect(html).toContain('official score 7.00 points, projected score unavailable');
+  });
+
   it('offers one initially collapsed control per starter slot without nesting score groups or loading data', () => {
     const live = player('live', 20);
     const final = player('final', 21);
