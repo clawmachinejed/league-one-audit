@@ -6,6 +6,12 @@ import { snapshotFixture, snapshotHeaders, SNAPSHOT_A } from '../test-support/ma
 const CUTOFF = '2026-09-15T16:00:00.000Z';
 const BEFORE = '2026-09-15T15:59:58.000Z';
 
+test.afterEach(async ({ page }) => {
+  // Roster assertions can finish before the concurrent RSC refresh response.
+  // Drain its handler before context teardown disposes the fetched response.
+  await page.unrouteAll({ behavior: 'wait' });
+});
+
 async function visibility(page: Page, visible: boolean) {
   await page.evaluate(value => {
     Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => value ? 'visible' : 'hidden' });
