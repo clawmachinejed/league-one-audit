@@ -178,8 +178,10 @@ for (const league of ['league1', 'league2'] as const) {
     await picker.selectOption(String(pinnedWeek));
     await expect(page).toHaveURL(new RegExp(`${path}\\?week=${pinnedWeek}$`, 'u'));
     await page.reload({ waitUntil: 'networkidle' });
-    await expect(picker).toHaveValue(String(pinnedWeek));
+    // The paused clock also controls React's streamed suspense reveal on reload.
+    // Advance it before inspecting the page, as on the initial fixture load.
     await page.clock.runFor(61_000);
+    await expect(picker).toHaveValue(String(pinnedWeek));
     await expect.poll(() => state.fullCount).toBe(2);
     await expect(card.locator('[data-team-name]')).toHaveText(['Fixture Beta', 'Fixture Alpha']);
     await expect(header).toHaveAttribute('aria-expanded', 'false');
