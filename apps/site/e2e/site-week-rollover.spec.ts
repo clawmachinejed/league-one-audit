@@ -14,6 +14,7 @@ async function visibility(page: Page, visible: boolean) {
 }
 
 async function openCalendar(page: Page, league: 'league1' | 'league2', target: 'matchups' | 'standings') {
+  await page.setViewportSize({ width: 390, height: 844 });
   const prefix = league === 'league2' ? '/league2' : '';
   const state = { currentWeek: 1, navigations: [] as Array<{ path: string; week: number | null }>, rosterRequests: [] as number[] };
   const context = (week: number): MatchupPeriodContext => ({ defaultSeason: 2026, defaultWeek: state.currentWeek,

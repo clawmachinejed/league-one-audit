@@ -284,9 +284,13 @@ for (const destination of ['league', 'week'] as const) {
       await expect(page).toHaveURL(/\/league2\/matchups$/u);
       await expect(page.getByRole('link', { name: 'League Two home' })).toBeVisible();
     } else {
-      await page.getByLabel('Matchup week').selectOption('2');
-      await expect(page).toHaveURL(/\/matchups\?week=2$/u);
-      await expect(page.getByLabel('Matchup week')).toHaveValue('2');
+      const picker = page.getByLabel('Matchup week');
+      // Current deliberately uses the unpinned route. This race exercises an
+      // explicit different week, independently of the live calendar's default.
+      const targetWeek = (await picker.locator('option[value="2"]').textContent())?.includes('Current') ? '3' : '2';
+      await picker.selectOption(targetWeek);
+      await expect(page).toHaveURL(new RegExp(`/matchups\\?week=${targetWeek}$`, 'u'));
+      await expect(picker).toHaveValue(targetWeek);
     }
     held.resolve();
     state.holdBox = null;
