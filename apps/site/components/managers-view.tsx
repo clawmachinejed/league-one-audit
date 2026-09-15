@@ -7,8 +7,10 @@ import { Avatar, EmptyState, teamRecord, Updated, Warning } from './league-primi
 import matchupStyles from './matchups.module.css';
 import { PageIntro } from './page-intro';
 import { useTeamPreference } from './team-preference';
+import { useSiteWeekRollover, type SiteWeekRollover } from './use-site-week-rollover';
 
-export function ManagersView({ data }: { data: OverviewData }) {
+export function ManagersView({ data, rollover }: { data: OverviewData; rollover?: SiteWeekRollover | null }) {
+  useSiteWeekRollover(rollover);
   const site = useLeagueSite();
   const { selected, storageWarning } = useTeamPreference(data.teams);
   const teams = [...data.teams].sort((a, b) => a.managerName.localeCompare(b.managerName));

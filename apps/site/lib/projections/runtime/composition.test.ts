@@ -1,12 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ProjectionCadenceInput } from '../../sleeper';
 
 const calls = vi.hoisted(() => ({ query: vi.fn<(...parameters: unknown[]) => Promise<never[]>>(async () => []),
-  cacheFactory: vi.fn((...args: unknown[]) => args[0]) }));
+  cacheFactory: vi.fn((...args: unknown[]) => args[0]),
+  cadence: vi.fn<(leagueId: string, evaluatedAt?: string) => Promise<ProjectionCadenceInput>>() }));
 vi.mock('server-only', () => ({}));
 vi.mock('next/cache', () => ({ unstable_cache: calls.cacheFactory }));
 vi.mock('../../database', async (original) => ({
   ...await original<typeof import('../../database')>(),
   getDatabase: () => ({ enabled: true, query: calls.query }),
+}));
+vi.mock('../../sleeper', async (original) => ({
+  ...await original<typeof import('../../sleeper')>(),
+  getProjectionCadenceInput: calls.cadence,
 }));
 
 import { LEAGUE_IDS } from '../../config';
@@ -16,8 +22,8 @@ import { createProductionLineupObservationDependencies } from './lineup-observat
 import { createProductionProjectionDependencies } from './projection-composition';
 import { createProductionFutureProjectionDependencies } from './future-projection-composition';
 
-beforeEach(() => { calls.query.mockClear(); vi.stubGlobal('fetch', vi.fn()); });
-afterEach(() => { vi.unstubAllGlobals(); });
+beforeEach(() => { calls.query.mockClear(); calls.cadence.mockReset(); vi.stubGlobal('fetch', vi.fn()); });
+afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); vi.restoreAllMocks(); });
 
 function expectScopedQueries(signal: AbortSignal, minimum: number): void {
   expect(calls.query.mock.calls.length).toBeGreaterThanOrEqual(minimum);
@@ -63,6 +69,35 @@ describe('production worker capability composition', () => {
     expect(future).not.toHaveProperty('lineupSource');
     expect(future).not.toHaveProperty('persistence');
     expect(future).toHaveProperty('futurePersistence');
+    expect(calls.query).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('uses one rollover evaluation instant for both leagues and a fresh instant for the next invocation', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-15T15:59:59.000Z'));
+    vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    calls.cadence.mockImplementation(async (leagueId, evaluatedAt) => ({
+      sleeperLeagueId: leagueId, season: '2026', defaultDisplayWeek: 1, week: 1,
+      activeScoringWeek: 1, leagueLifecycle: 'active', leagueStatus: 'in_season', schedule: {},
+      matchupShape: { rosterIds: [1], expectedRosterCount: 1, expectedStarterSlotCount: 1, starterSlots: ['QB'] },
+      currentNflSeason: '2026', currentNflWeek: 1, currentNflSeasonType: 'regular',
+      requestStartedAt: evaluatedAt!, requestCompletedAt: new Date().toISOString(), verifiedAt: new Date().toISOString(),
+      siteWeekPolicy: { version: 'schedule-noon-eastern-v1', scheduleRevision: 'fixture-season-schedule',
+        nextRolloverAt: '2026-09-15T16:00:00.000Z', evaluatedAt: evaluatedAt! },
+    }));
+    const first = createProductionProjectionDependencies();
+    const [leagueOne, leagueTwo] = first.leagueRegistry.listActiveLeagues();
+    await first.nflCalendar.getCadenceState(leagueOne);
+    vi.setSystemTime(new Date('2026-09-15T16:00:01.000Z'));
+    await first.nflCalendar.getCadenceState(leagueTwo);
+    const next = createProductionProjectionDependencies();
+    await next.nflCalendar.getCadenceState(leagueOne);
+    expect(calls.cadence.mock.calls).toEqual([
+      [String(leagueOne.leagueRef.externalId), '2026-09-15T15:59:59.000Z'],
+      [String(leagueTwo.leagueRef.externalId), '2026-09-15T15:59:59.000Z'],
+      [String(leagueOne.leagueRef.externalId), '2026-09-15T16:00:01.000Z'],
+    ]);
     expect(calls.query).not.toHaveBeenCalled();
     expect(fetch).not.toHaveBeenCalled();
   });

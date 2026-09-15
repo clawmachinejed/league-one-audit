@@ -31,6 +31,12 @@ const requests: string[] = [];
 const unexpectedRequests: string[] = [];
 const databaseWrites: string[] = [];
 const fixtureFailures: string[] = [];
+// Separate September 15 calendar evidence lets the real loader resolve the site
+// week. It never replaces September 12 statistics or stored game-phase evidence.
+const calendarCapture = JSON.parse(readFileSync(new URL(
+  './fixtures/sleeper-2026-season-schedule.json', import.meta.url,
+), 'utf8')) as { source: string; observedAt: string; body: unknown[] };
+const calendarCanonicalSha256 = createHash('sha256').update(JSON.stringify(calendarCapture.body)).digest('hex');
 const weeklyIdentitySupplement = loadFoundationWeeklyIdentityCatalog();
 const catalog = weeklyIdentitySupplement.catalog;
 type RuntimeSourceSupplement = {
@@ -96,8 +102,7 @@ globalThis.fetch = async (request: string | URL | Request) => {
       start_time: Date.parse(game.kickoffAt), week: 1, season_type: 'regular', season: '2026',
     })));
   }
-  // No full-season schedule was retained; never fabricate one to infer byes.
-  if (url.pathname === '/schedule/nfl/regular/2026') return Response.json([]);
+  if (url.pathname === '/schedule/nfl/regular/2026') return Response.json(calendarCapture.body);
   const match = /^\/v1\/league\/([^/]+)(?:\/(rosters|users|matchups\/1))?$/u.exec(url.pathname);
   if (match && leaguesById.has(match[1])) {
     const league = leaguesById.get(match[1])!;
@@ -204,6 +209,8 @@ const result = await runAllPlayerIngestion(dependencies, { mode: 'shadow', perio
 const retainedObservation = observation as AllPlayerStatObservation | null;
 process.stdout.write(`${JSON.stringify({
   result, requests, unexpectedRequests, databaseWrites, fixtureFailures,
+  calendarEvidence: { source: calendarCapture.source, observedAt: calendarCapture.observedAt,
+    canonicalJsonSha256: calendarCanonicalSha256, scope: 'separate-site-calendar-evidence' },
   runtimeSupplement: { observedAt: supplement.observedAt, canonicalJsonSha256: supplementCanonicalSha256 },
   weeklyIdentitySupplement: {
     observedAt: weeklyIdentitySupplement.supplement.observedAt,
@@ -219,5 +226,5 @@ process.stdout.write(`${JSON.stringify({
     defenseCount: retainedObservation.entries.filter((entry) => entry.entityKind === 'team_defense').length,
     cases: retainedObservation.entries.filter((entry) => ['7527', '11292', '10224', '5859', '12529'].includes(entry.providerExternalId)),
   },
-  fixtureClassification: 'retained incomplete Week 1 with separately observed omitted loader fields and absent current catalog identities; original metadata preserved; schedule transformed from stored context; projection identities only; no complete-period claim',
+  fixtureClassification: 'retained incomplete Week 1 with separately observed omitted loader fields, absent current catalog identities and September 15 season-calendar evidence; original weekly statistics and stored game phases preserved; exact-week score schedule transformed from original stored context; projection identities only; no complete-period claim',
 })}\n`);

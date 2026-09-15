@@ -1,7 +1,8 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
+import { useSiteWeekRollover, type SiteWeekRollover } from './use-site-week-rollover';
 import { useMatchupSnapshot } from './use-matchup-snapshot';
 import { useMatchupBoxScores } from './use-matchup-box-scores';
 import { playerBoxScoreKey } from '../lib/matchup-box-scores';
@@ -46,12 +47,17 @@ export function MatchupsView({
   periodContext: initialPeriodContext,
   snapshotRevision,
   verifiedAt,
+  rollover,
+  followCurrent = false,
 }: {
   data: MatchupsData;
   periodContext: MatchupPeriodContext;
   snapshotRevision: string | null;
   verifiedAt: string | null;
+  rollover?: SiteWeekRollover | null;
+  followCurrent?: boolean;
 }) {
+  useSiteWeekRollover(rollover);
   const site = useLeagueSite();
   const matchupsPath = `${site.prefix}/matchups`;
   const { data, periodContext, updatedAt, refreshing } = useMatchupSnapshot({
@@ -59,14 +65,24 @@ export function MatchupsView({
   });
   const { selected } = useTeamPreference(data.teams);
   const router = useRouter();
+  const observedCurrentWeek = currentMatchupWeek(periodContext);
+  const currentWeek = rollover?.week ?? observedCurrentWeek;
+  const refreshedPeriod = useRef<string | null>(null);
+  useEffect(() => {
+    if (!followCurrent || data.week === observedCurrentWeek) return;
+    const target = `${site.key}:${periodContext.defaultSeason}:${observedCurrentWeek}`;
+    if (refreshedPeriod.current === target) return;
+    refreshedPeriod.current = target;
+    router.refresh();
+  }, [observedCurrentWeek, data.week, followCurrent, periodContext.defaultSeason, router, site.key]);
   const automaticallyUpdating = periodContext.temporalState !== 'past';
   const matchups = useMemo(() => [...data.matchups].sort((a, b) => Number(b.sides.some(side => side.team.id === selected)) - Number(a.sides.some(side => side.team.id === selected))), [data.matchups, selected]);
   return <div className={matchupStyles.page}>
     <div className={matchupStyles.toolbar}>
       <PageIntro title="Matchups" league={data.league} />
-      <WeekSelector label="Matchup week" week={data.week} currentWeek={currentMatchupWeek(periodContext)}
-        maxWeek={data.league.maxWeek} onChange={week => router.push(`${matchupsPath}?week=${week}`)}
-        hrefForWeek={week => `${matchupsPath}?week=${week}`} />
+      <WeekSelector label="Matchup week" week={data.week} currentWeek={currentWeek}
+        maxWeek={data.league.maxWeek} onChange={week => router.push(week === currentWeek ? matchupsPath : `${matchupsPath}?week=${week}`)}
+        hrefForWeek={week => `${matchupsPath}?week=${week}`} currentHref={matchupsPath} />
     </div>
     <Warning message={data.warning} />
     {matchups.length ? <MatchupsWithBoxScores key={`${site.key}:${data.league.season}:${data.week}`}

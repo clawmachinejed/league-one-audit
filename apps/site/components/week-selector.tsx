@@ -11,9 +11,11 @@ type WeekSelectorProps = {
   maxWeek: number;
   onChange: (week: number) => void;
   hrefForWeek?: (week: number) => string;
+  currentHref?: string;
+  onCurrent?: () => void;
 };
 
-export function WeekSelector({ label, week, currentWeek, maxWeek, onChange, hrefForWeek }: WeekSelectorProps) {
+export function WeekSelector({ label, week, currentWeek, maxWeek, onChange, hrefForWeek, currentHref, onCurrent }: WeekSelectorProps) {
   function arrow(target: number, direction: 'Previous' | 'Next', disabled: boolean) {
     const icon = <Icon name="arrow" className={direction === 'Next' ? 'arrow-forward' : undefined} />;
     const name = `${direction} week, week ${target}`;
@@ -25,8 +27,8 @@ export function WeekSelector({ label, week, currentWeek, maxWeek, onChange, href
 
   return <div className={styles.controls}>
     {week !== currentWeek && (hrefForWeek
-      ? <Link className={styles.reset} href={hrefForWeek(currentWeek)} aria-label="Back to current">Current</Link>
-      : <button type="button" className={styles.reset} onClick={() => onChange(currentWeek)} aria-label="Back to current">Current</button>)}
+      ? <Link className={styles.reset} href={currentHref ?? hrefForWeek(currentWeek)} aria-label="Back to current">Current</Link>
+      : <button type="button" className={styles.reset} onClick={onCurrent ?? (() => onChange(currentWeek))} aria-label="Back to current">Current</button>)}
     <div className={styles.picker}>
       {arrow(Math.max(1, week - 1), 'Previous', week <= 1)}
       <label className={styles.selection}>

@@ -188,30 +188,22 @@ export function RostersView({ active, league, selected, controlsTarget }: {
   active: boolean; league: League; selected: number | null; controlsTarget: HTMLDivElement | null;
 }) {
   const site = useLeagueSite();
-  const [week, setWeek] = useState(league.week);
+  const authorityScope = `${site.key}:${league.season}`;
+  const [selection, setSelection] = useState<{ scope: string; week: number | null }>({ scope: authorityScope, week: null });
   const [state, setState] = useState<LoadState>('idle');
   const [loaded, setLoaded] = useState<Readonly<{ key: string; data: RostersData; provisionalWeek: RosterRefreshWeek }> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
-  const authorityScope = `${site.key}:${league.season}`;
   const [currentAuthority, setCurrentAuthority] = useState({ scope: authorityScope, week: league.week });
   const currentWeek = currentAuthority.scope === authorityScope
     ? Math.max(league.week, currentAuthority.week) : league.week;
+  const week = selection.scope === authorityScope ? selection.week ?? currentWeek : currentWeek;
   const cache = useRef(new Map<string, CachedRosters>());
   const requestGeneration = useRef(0);
-  const previousPeriod = useRef({ scope: authorityScope, week: currentWeek });
   const key = rosterCacheKey(site.key, league.season, week);
   const data = loaded?.key === key ? loaded.data : null;
   const provisionalWeek = loaded?.key === key ? loaded.provisionalWeek : undefined;
   const shouldRefresh = week === currentWeek && provisionalWeek !== null || provisionalWeek === week;
-
-  useEffect(() => {
-    const previous = previousPeriod.current;
-    previousPeriod.current = { scope: authorityScope, week: currentWeek };
-    if (previous.scope !== authorityScope || (previous.week !== currentWeek && week === previous.week)) {
-      setWeek(currentWeek);
-    }
-  }, [authorityScope, currentWeek, week]);
 
   useEffect(() => {
     if (!active) return;
@@ -316,7 +308,9 @@ export function RostersView({ active, league, selected, controlsTarget }: {
 
   return <div className={styles.view}>
     {active && controlsTarget && createPortal(
-      <WeekSelector label="Roster week" week={week} currentWeek={currentWeek} maxWeek={league.maxWeek} onChange={setWeek} />,
+      <WeekSelector label="Roster week" week={week} currentWeek={currentWeek} maxWeek={league.maxWeek}
+        onChange={selectedWeek => setSelection({ scope: authorityScope, week: selectedWeek === currentWeek ? null : selectedWeek })}
+        onCurrent={() => setSelection({ scope: authorityScope, week: null })} />,
       controlsTarget,
     )}
     {data && error && <Warning message={`${error} Showing the last saved roster.`} />}

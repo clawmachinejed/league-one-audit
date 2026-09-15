@@ -26,6 +26,27 @@ function nflPhase(value: string | null): NflPhase {
   return 'unknown';
 }
 
+function periodPolicyRevision(source: ProjectionCadenceInput) {
+  const policy = source.siteWeekPolicy;
+  if (!policy) return undefined;
+  const evaluatedAt = Date.parse(policy.evaluatedAt);
+  const observedAt = Date.parse(source.requestCompletedAt);
+  const verifiedAt = Date.parse(source.verifiedAt);
+  if (!policy.version || policy.version !== policy.version.trim()
+    || !policy.scheduleRevision || policy.scheduleRevision !== policy.scheduleRevision.trim()
+    || !Number.isFinite(evaluatedAt) || !Number.isFinite(observedAt) || !Number.isFinite(verifiedAt)
+    || evaluatedAt > observedAt || observedAt > verifiedAt
+    || (policy.nextRolloverAt !== null && !Number.isFinite(Date.parse(policy.nextRolloverAt)))
+    || source.defaultDisplayWeek !== source.week
+    || (source.leagueLifecycle === 'active' && source.activeScoringWeek !== source.week)) {
+    throw new Error('Sleeper schedule-based period policy is malformed.');
+  }
+  // A new observation may confirm unchanged policy content. Its evaluation time
+  // belongs to freshness metadata, not the semantic authority revision.
+  return { version: policy.version, scheduleRevision: policy.scheduleRevision,
+    nextRolloverAt: policy.nextRolloverAt };
+}
+
 export function sleeperPeriodAuthority(
   configuration: LeagueConfiguration,
   source: ProjectionCadenceInput,
@@ -41,12 +62,14 @@ export function sleeperPeriodAuthority(
     throw new Error('Sleeper returned a scoring week outside an active league season.');
   }
   const phase = nflPhase(source.currentNflSeasonType);
+  const siteWeekPolicy = periodPolicyRevision(source);
   const sourceRevision = compatibleRevision({
     leagueId: source.sleeperLeagueId,
     defaultDisplayPeriod,
     activeScoringPeriod,
     lifecycle: source.leagueLifecycle,
     nflPhase: phase,
+    ...(siteWeekPolicy ? { siteWeekPolicy } : {}),
   });
   return {
     configuration,

@@ -186,15 +186,23 @@ export function currentWeek(league: SleeperLeague, state: SleeperState | null): 
 }
 
 /** Current player-team metadata is safe only for this season's active or future weeks. */
+export type ResolvedScoringContext = Readonly<{
+  activeWeek: number | null;
+  lifecycle: 'preseason' | 'active' | 'complete';
+}>;
+
 export function canDecorateMatchupWeek(
   league: SleeperLeague,
   state: SleeperState | null,
   week: number,
+  period?: ResolvedScoringContext,
 ): boolean {
   if (!state || league.status === 'complete' || league.season !== state.season
     || !Number.isInteger(week) || week < 1 || week > 18) return false;
+  if (period?.lifecycle === 'complete') return false;
   if (state.season_type === 'pre') return true;
   if (state.season_type !== 'regular') return false;
+  if (period) return period.activeWeek !== null && week >= period.activeWeek;
   const scoringWeek = weekWithinSeason(state.leg ?? state.week ?? state.display_week ?? league.settings?.leg);
   return week >= scoringWeek;
 }
@@ -374,6 +382,7 @@ export function matchupStatus(
   state: SleeperState | null,
   week: number,
   now = Date.now(),
+  period?: ResolvedScoringContext,
 ): Matchup['status'] {
   const leagueYear = numberOrNull(league.season);
   const stateYear = numberOrNull(state?.season);
@@ -384,6 +393,14 @@ export function matchupStatus(
   if (state.season_type === 'pre' || (Number.isFinite(seasonStart) && now < seasonStart)) return 'upcoming';
   if (state.season_type === 'post') return 'final';
   if (state.season_type !== 'regular') return 'unknown';
+  if (period) {
+    if (period.lifecycle === 'complete') return 'final';
+    if (period.activeWeek === null) return 'unknown';
+    // The site authority only advances after the complete schedule and noon
+    // cutoff validate. This classifies the week; score publication still needs
+    // independent exact-game finality, official points and full parity.
+    return week < period.activeWeek ? 'final' : week > period.activeWeek ? 'upcoming' : 'unknown';
+  }
   // display_week may advance ahead of the scoring week. Use leg/week to decide finality.
   const scoringWeek = weekWithinSeason(state.leg ?? state.week);
   if (week < scoringWeek) return 'final';
@@ -397,9 +414,11 @@ export function matchupSlateExpected(
   state: SleeperState | null,
   week: number,
   now = Date.now(),
+  period?: ResolvedScoringContext,
 ): boolean {
   if (!['in_season', 'complete'].includes(league.status)
-    || matchupStatus(league, state, week, now) === 'upcoming') return false;
+    || matchupStatus(league, state, week, now, period) === 'upcoming') return false;
+  if (period?.lifecycle === 'active' && period.activeWeek !== null) return week <= period.activeWeek;
   const leagueYear = numberOrNull(league.season);
   const stateYear = numberOrNull(state?.season);
   const useLeagueHorizon = league.status === 'complete' || !state
