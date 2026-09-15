@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { selectMyTeamMatchup } from './my-team-matchup';
+import { matchupWithTeamOnLeft, selectMyTeamMatchup } from './my-team-matchup';
 import type { Matchup, MatchupSide, Team } from './types';
 
 function team(id: number, name: string, values: Partial<Team> = {}): Team {
@@ -15,6 +15,10 @@ function side(team: Team, points: number | null = 0): MatchupSide {
 const matchup: Matchup = { id: 'one', status: 'live', sides: [side(alpha, 12), side(bravo, null)] };
 
 describe('My Team matchup display selection', () => {
+  it.each([null, 999, alpha.id])('preserves the source side order when %s needs no reorientation', selected => {
+    expect(matchupWithTeamOnLeft(matchup, selected)).toBe(matchup);
+  });
+
   it('honors the saved team and moves its intact side left without changing source order or scores', () => {
     const original = JSON.stringify(matchup);
     const result = selectMyTeamMatchup([alpha, bravo], [matchup], bravo.id);

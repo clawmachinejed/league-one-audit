@@ -6,6 +6,8 @@ import { isMatchupsData } from '../lib/matchups-response';
 import { contextFixture, snapshotFixture, snapshotHeaders, SNAPSHOT_A, SNAPSHOT_B, SNAPSHOT_C } from '../test-support/matchup-snapshot-fixtures';
 
 type League = 'league1' | 'league2';
+// These keys identify source sides. Saved roster 2 renders on the left, so its
+// receiver/defense display left and the source-left quarterback displays right.
 const LEFT = 'player:fixture-player-0';
 const RIGHT = 'player:fixture-player-1';
 const UNKNOWN = 'player:fixture-missing';
@@ -117,6 +119,8 @@ async function openFixture(page: Page, league: League = 'league1') {
   expect(state.documentCount).toBe(1);
   await page.clock.runFor(61_000);
   await expect(page.getByText('Fixture Alpha', { exact: true })).toBeVisible();
+  await expect(page.locator('[data-matchup-toggle]').first().locator('[data-team-name]'))
+    .toHaveText(['Fixture Beta', 'Fixture Alpha']);
   await page.clock.setSystemTime(new Date('2026-09-13T16:02:00.000Z'));
   expect(state.fullCount).toBe(1);
   expect(state.boxRequests).toHaveLength(0);
@@ -142,7 +146,7 @@ for (const league of ['league1', 'league2'] as const) {
     const state = await openFixture(page, league);
     const row = toggle(page);
     const details = page.locator('[data-starter-box-score-row][data-starter-index="0"]');
-    await expect(row).toHaveAccessibleName('QB row 1 game statistics for both teams');
+    await expect(row).toHaveAccessibleName('WR row 1 game statistics for both teams');
     await expect(row).toHaveAttribute('aria-expanded', 'false');
     await expect(row).toHaveAttribute('aria-controls', (await details.getAttribute('id'))!);
     await expect(page.locator('[data-player-box-score-toggle]')).toHaveCount(0);
@@ -152,35 +156,35 @@ for (const league of ['league1', 'league2'] as const) {
     const leftScore = await row.locator('..').locator('[data-player-score-side="left"]').boundingBox();
     expect(leftScore).not.toBeNull();
     await page.mouse.click(leftScore!.x + leftScore!.width / 2, leftScore!.y + leftScore!.height / 2);
-    await expect(panel(page, LEFT, 'left').locator('[data-box-score-summary]')).toHaveText(quarterbackSummary());
-    await expect(panel(page, RIGHT, 'right').locator('[data-box-score-summary]')).toHaveText('5 REC, 61 YD, 1 TD');
+    await expect(panel(page, LEFT, 'right').locator('[data-box-score-summary]')).toHaveText(quarterbackSummary());
+    await expect(panel(page, RIGHT, 'left').locator('[data-box-score-summary]')).toHaveText('5 REC, 61 YD, 1 TD');
     await expect(row).toHaveAttribute('aria-expanded', 'true');
     const rightScore = await row.locator('..').locator('[data-player-score-side="right"]').boundingBox();
     expect(rightScore).not.toBeNull();
     await page.mouse.click(rightScore!.x + rightScore!.width / 2, rightScore!.y + rightScore!.height / 2);
-    await expect(panel(page, RIGHT, 'right')).toBeHidden();
-    await expect(panel(page, LEFT, 'left')).toBeHidden();
+    await expect(panel(page, RIGHT, 'left')).toBeHidden();
+    await expect(panel(page, LEFT, 'right')).toBeHidden();
     const center = await row.boundingBox();
     await row.click({ position: { x: center!.width / 2, y: center!.height / 2 } });
-    await expect(panel(page, RIGHT, 'right')).toBeVisible();
-    await expect(panel(page, LEFT, 'left')).toBeVisible();
+    await expect(panel(page, RIGHT, 'left')).toBeVisible();
+    await expect(panel(page, LEFT, 'right')).toBeVisible();
     await row.focus();
     await row.press('Space');
-    await expect(panel(page, RIGHT, 'right')).toBeHidden();
-    await expect(panel(page, LEFT, 'left')).toBeHidden();
+    await expect(panel(page, RIGHT, 'left')).toBeHidden();
+    await expect(panel(page, LEFT, 'right')).toBeHidden();
     await row.press('Enter');
-    await expect(panel(page, RIGHT, 'right')).toBeVisible();
-    await expect(panel(page, LEFT, 'left')).toBeVisible();
+    await expect(panel(page, RIGHT, 'left')).toBeVisible();
+    await expect(panel(page, LEFT, 'right')).toBeVisible();
     await toggle(page, 1).click();
-    await expect(panel(page, UNKNOWN, 'left')).toHaveText('Statistics not available yet.');
+    await expect(panel(page, UNKNOWN, 'right')).toHaveText('Statistics not available yet.');
     await expect(toggle(page, 1)).toHaveAccessibleName('FLEX row 2 game statistics for both teams');
     await expect(toggle(page, 2)).toHaveAttribute('aria-expanded', 'false');
     await toggle(page, 2).click();
     await expect(toggle(page, 2)).toHaveAccessibleName('FLEX row 3 game statistics for both teams');
     await expect(toggle(page, 1)).toHaveAttribute('aria-expanded', 'true');
-    await expect(panel(page, DEFENSE, 'right').locator('[data-box-score-summary]')).toHaveText('2 SACK, 1 INT, 17 PA');
-    await expect(panel(page, 'player:fixture-upcoming', 'right')).toHaveCount(0);
-    await expect(panel(page, 'player:fixture-bye', 'left')).toHaveCount(0);
+    await expect(panel(page, DEFENSE, 'left').locator('[data-box-score-summary]')).toHaveText('2 SACK, 1 INT, 17 PA');
+    await expect(panel(page, 'player:fixture-upcoming', 'left')).toHaveCount(0);
+    await expect(panel(page, 'player:fixture-bye', 'right')).toHaveCount(0);
     await expect(page.locator('[data-box-score-source]')).toHaveCount(1);
     expect(state.boxRequests).toEqual([{ league, season: '2026', week: 1, queryKeys: ['season', 'week'] }]);
 
@@ -201,8 +205,8 @@ for (const league of ['league1', 'league2'] as const) {
       }
     }
     await toggle(page, 2).click();
-    await expect(panel(page, DEFENSE, 'right')).toBeHidden();
-    await expect(panel(page, UNKNOWN, 'left')).toBeVisible();
+    await expect(panel(page, DEFENSE, 'left')).toBeHidden();
+    await expect(panel(page, UNKNOWN, 'right')).toBeVisible();
     await expect(row).toHaveAttribute('aria-expanded', 'true');
     expect(state.boxRequests).toHaveLength(1);
     expect(state.providerRequests).toEqual([]);
@@ -212,15 +216,15 @@ for (const league of ['league1', 'league2'] as const) {
     await page.clock.runFor(59_999);
     expect(state.boxRequests).toHaveLength(1);
     await page.clock.runFor(1);
-    await expect(panel(page, LEFT, 'left').locator('[data-box-score-summary]')).toHaveText(quarterbackSummary(247));
+    await expect(panel(page, LEFT, 'right').locator('[data-box-score-summary]')).toHaveText(quarterbackSummary(247));
     expect(state.boxRequests).toHaveLength(2);
     expect(state.fullCount).toBe(1);
     await expect(row).toHaveAttribute('aria-expanded', 'true');
-    await expect(panel(page, RIGHT, 'right')).toBeVisible();
+    await expect(panel(page, RIGHT, 'left')).toBeVisible();
     state.boxStatus = 503;
     await page.clock.fastForward(3_600_000);
     await expect.poll(() => state.completedBoxes).toBe(3);
-    await expect(panel(page, LEFT, 'left').locator('[data-box-score-summary]')).toHaveText(quarterbackSummary(247));
+    await expect(panel(page, LEFT, 'right').locator('[data-box-score-summary]')).toHaveText(quarterbackSummary(247));
     await expect(page.locator('[data-box-score-source]')).toContainText('12:02 PM ET');
     await expect(row).toHaveAttribute('aria-expanded', 'true');
     expect(state.fullCount).toBe(1);
@@ -233,10 +237,10 @@ for (const league of ['league1', 'league2'] as const) {
     state.observedAt = '2026-09-13T17:03:00.000Z';
     await visibility(page, 'hidden');
     await visibility(page, 'visible');
-    await expect(panel(page, 'player:fixture-replacement', 'left').locator('[data-box-score-summary]'))
+    await expect(panel(page, 'player:fixture-replacement', 'right').locator('[data-box-score-summary]'))
       .toHaveText(quarterbackSummary(247));
-    await expect(panel(page, LEFT, 'left')).toHaveCount(0);
-    await expect(panel(page, RIGHT, 'right')).toBeVisible();
+    await expect(panel(page, LEFT, 'right')).toHaveCount(0);
+    await expect(panel(page, RIGHT, 'left')).toBeVisible();
     await expect(row).toHaveAttribute('aria-expanded', 'true');
     await expect(toggle(page, 1)).toHaveAttribute('aria-expanded', 'true');
     await expect(toggle(page, 2)).toHaveAttribute('aria-expanded', 'false');
@@ -248,7 +252,7 @@ for (const league of ['league1', 'league2'] as const) {
 test('hidden boards abort an outstanding box-score refresh and catch up once when visible', async ({ page }) => {
   const state = await openFixture(page);
   await toggle(page).click();
-  await expect(panel(page, LEFT, 'left').locator('[data-box-score-summary]')).toHaveText(quarterbackSummary());
+  await expect(panel(page, LEFT, 'right').locator('[data-box-score-summary]')).toHaveText(quarterbackSummary());
   const held = deferred();
   state.holdBox = held.promise;
   state.passingYards = 999;
@@ -260,10 +264,10 @@ test('hidden boards abort an outstanding box-score refresh and catch up once whe
   await expect.poll(() => state.abortedBoxes.length).toBe(1);
   await page.clock.runFor(3_600_000);
   expect(state.boxRequests).toHaveLength(2);
-  await expect(panel(page, LEFT, 'left').locator('[data-box-score-summary]')).toHaveText(quarterbackSummary());
+  await expect(panel(page, LEFT, 'right').locator('[data-box-score-summary]')).toHaveText(quarterbackSummary());
   state.passingYards = 258;
   await visibility(page, 'visible');
-  await expect(panel(page, LEFT, 'left').locator('[data-box-score-summary]')).toHaveText(quarterbackSummary(258));
+  await expect(panel(page, LEFT, 'right').locator('[data-box-score-summary]')).toHaveText(quarterbackSummary(258));
   expect(state.boxRequests).toHaveLength(3);
   await expect(toggle(page)).toHaveAttribute('aria-expanded', 'true');
 });
@@ -296,7 +300,7 @@ for (const destination of ['league', 'week'] as const) {
     state.holdBox = null;
     await expect.poll(() => state.abortedBoxes.length).toBe(1);
     await page.clock.runFor(1);
-    await expect(panel(page, LEFT, 'left')).toHaveCount(0);
+    await expect(panel(page, LEFT, 'right')).toHaveCount(0);
     await expect(page.getByText(/987654321/u)).toHaveCount(0);
     expect(state.boxRequests).toEqual([{ league: 'league1', season: '2026', week: 1, queryKeys: ['season', 'week'] }]);
   });

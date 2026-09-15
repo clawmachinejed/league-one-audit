@@ -11,7 +11,7 @@ import {
   type MatchupPeriodContext,
 } from '../lib/matchup-period';
 import type { Matchup, MatchupsData } from '../lib/types';
-import { selectMyTeamMatchup } from '../lib/my-team-matchup';
+import { matchupWithTeamOnLeft, selectMyTeamMatchup } from '../lib/my-team-matchup';
 import { WeekSelector } from './week-selector';
 import { useLeagueSite } from './league-context';
 import { Avatar, EmptyState, Warning } from './league-primitives';
@@ -85,7 +85,9 @@ export function MatchupsView({
   const myTeamView = mode === 'my-team';
   const myTeam = useMemo(() => selectMyTeamMatchup(data.teams, data.matchups, selected), [data.teams, data.matchups, selected]);
   const matchups = useMemo(() => myTeamView ? (myTeam.matchup ? [myTeam.matchup] : [])
-    : [...data.matchups].sort((a, b) => Number(b.sides.some(side => side.team.id === selected)) - Number(a.sides.some(side => side.team.id === selected))), [data.matchups, myTeamView, myTeam.matchup, selected]);
+    : [...data.matchups]
+      .sort((a, b) => Number(b.sides.some(side => side.team.id === selected)) - Number(a.sides.some(side => side.team.id === selected)))
+      .map(matchup => matchupWithTeamOnLeft(matchup, selected)), [data.matchups, myTeamView, myTeam.matchup, selected]);
   return <div className={matchupStyles.page}>
     <div className={matchupStyles.toolbar}>
       <PageIntro title={myTeamView ? 'My Team' : 'Matchups'} league={data.league} />
