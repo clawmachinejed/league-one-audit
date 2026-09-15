@@ -111,6 +111,8 @@ export function matchupStatus(
   // One known side finishing cannot establish that the unknown side has finished.
   if (matchup.sides.some((side) => side.starters.length === 0) && matchup.status !== 'final') {
     if (phases.some((phase) => !['pregame', 'postponed', 'final', 'unknown'].includes(phase))) return 'live';
+    if (phases.includes('final')
+      && phases.some((phase) => phase === 'pregame' || phase === 'postponed')) return 'live';
     if (phases.length && phases.every((phase) => phase === 'pregame' || phase === 'postponed')) return 'upcoming';
     return 'unknown';
   }
