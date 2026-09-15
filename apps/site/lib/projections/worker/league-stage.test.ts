@@ -324,7 +324,8 @@ function repositoryHarness(
     operations.push('freeze');
     return { kind: 'stored' as const, value: [] };
   });
-  const readLatestCandidates = vi.fn(async () => {
+  const readLatestCandidates = vi.fn(async (input: Parameters<ProjectionRepositoryPort['readLatestCandidates']>[0]) => {
+    void input;
     operations.push('read-latest');
     return [{
       officialEntityRef: defenseRef,
@@ -344,9 +345,10 @@ function repositoryHarness(
       frozenAt: null,
     }];
   });
-  const readFrozenBaselines = vi.fn(async (): Promise<Awaited<
+  const readFrozenBaselines = vi.fn(async (input: Parameters<ProjectionRepositoryPort['readFrozenBaselines']>[0]): Promise<Awaited<
     ReturnType<ProjectionRepositoryPort['readFrozenBaselines']>
   >> => {
+    void input;
     operations.push('read-frozen');
     return [];
   });
@@ -354,9 +356,10 @@ function repositoryHarness(
     operations.push('read-prior');
     return null;
   });
-  const recordLeagueWeekObservation = vi.fn(async (): Promise<Awaited<
+  const recordLeagueWeekObservation = vi.fn(async (input: Parameters<ProjectionRepositoryPort['recordLeagueWeekObservation']>[0]): Promise<Awaited<
     ReturnType<ProjectionRepositoryPort['recordLeagueWeekObservation']>
   >> => {
+    void input;
     operations.push('observation');
     return {
       kind: 'stored' as const,
@@ -535,6 +538,43 @@ function groupWithFreeAgentIdentityGap(): PersistedGroup {
 }
 
 describe('canonical league projection stage', () => {
+  it.each([0, -2.5, null])('persists sourced bench points %s through the existing observation without adding them to team totals', async (points) => {
+    const harness = repositoryHarness();
+    const selectedSource: LeagueWeekState = { ...source, matchups: [{ ...source.matchups[0], sides: [
+      { ...source.matchups[0].sides[0], bench: [{ kind: 'occupied', entity: bench, slot: 'BN', officialPoints: points }] },
+      source.matchups[0].sides[1],
+    ] }] };
+    harness.mocks.recordLeagueWeekObservation.mockResolvedValue({ kind: 'stored', value: {
+      observationId, entityPointsStored: 3, rosterPointsStored: 2, expectedGamesStored: 2,
+      unmappedEntityRefs: [], unmappedGameRefs: [],
+    } });
+    await processTestLeague(dependencies(harness.repository), { ...league, source: selectedSource });
+    expect(harness.mocks.readLatestCandidates.mock.calls[0][0]).toMatchObject({ officialEntityRefs: [playerRef, defenseRef, benchRef] });
+    expect(harness.mocks.readFrozenBaselines.mock.calls[0][0]).toMatchObject({ officialEntityRefs: [playerRef, defenseRef, benchRef] });
+    const observation = harness.mocks.recordLeagueWeekObservation.mock.calls[0][0];
+    expect(observation.entityPoints).toContainEqual({ entityRef: benchRef, rosterRef: rosterOne, points, isStarter: false, lineupSlot: 'BN' });
+    expect(observation.sourceData.benchPointsEvidence).toEqual([{ entityRef: benchRef, rosterRef: rosterOne, points, isStarter: false, lineupSlot: 'BN' }]);
+    const side = harness.mocks.publishSnapshot.mock.calls[0][0].payload.matchups[0].sides[0];
+    expect(side).toMatchObject({ points: 10, projectedPoints: 10 });
+    expect(side.bench?.[0]).toMatchObject({ id: 'bench-1', points, projectedPoints: null });
+  });
+
+  it('retains unmapped optional bench evidence without creating an identity or blocking known starters', async () => {
+    const harness = repositoryHarness();
+    const entity = { ...bench, externalRef: externalPlayerRef(officialProvider, 'unmapped-bench') };
+    const selectedSource: LeagueWeekState = { ...source, matchups: [{ ...source.matchups[0], sides: [
+      { ...source.matchups[0].sides[0], bench: [{ kind: 'occupied', entity, slot: 'BN', officialPoints: 3 }] },
+      source.matchups[0].sides[1],
+    ] }] };
+    await processTestLeague(dependencies(harness.repository), { ...league, source: selectedSource });
+    const observation = harness.mocks.recordLeagueWeekObservation.mock.calls[0][0];
+    expect(observation.entityPoints).toHaveLength(2);
+    expect(observation.sourceData.benchPointsEvidence).toEqual([{ entityRef: entity.externalRef, rosterRef: rosterOne,
+      points: 3, isStarter: false, lineupSlot: 'BN' }]);
+    expect(harness.mocks.publishSnapshot.mock.calls[0][0].payload.matchups[0].sides[0].bench?.[0])
+      .toMatchObject({ id: 'unmapped-bench', points: 3, projectedPoints: null });
+  });
+
   it('skips one unresolved free agent for both leagues while retaining complete matchup publication', async () => {
     const firstHarness = repositoryHarness(
       'shared-profile' as ScoringProfileId,

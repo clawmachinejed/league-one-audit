@@ -232,6 +232,60 @@ function baseline(
 
 const scored: PregameProjectionSet = { status: 'available', projections: [] };
 
+describe('optional exact-week bench projections', () => {
+  it.each([
+    { name: 'pregame', team: 'BUF' as const, officialPoints: 0, expected: 20 },
+    { name: 'live', team: 'KC' as const, officialPoints: 4, expected: 14 },
+    { name: 'final', team: 'PHI' as const, officialPoints: 13, expected: 20 },
+    { name: 'missing live points', team: 'KC' as const, officialPoints: null, expected: null },
+    { name: 'missing final points', team: 'PHI' as const, officialPoints: null, expected: null },
+    { name: 'missing baseline', team: 'BUF' as const, officialPoints: 0, expected: null, noBaseline: true },
+    { name: 'missing team context', team: null, officialPoints: -2, expected: null },
+  ])('uses clock-v1 for $name without changing starter totals', ({ name, team, officialPoints, expected, noBaseline }) => {
+    const input = snapshotInput();
+    const before = buildSnapshot(input);
+    const entity = player(`bench-${name}`, team);
+    const side = input.source.matchups[0].sides[0];
+    const withBench: LeagueWeekState = { ...input.source, matchups: [{ ...input.source.matchups[0],
+      sides: [{ ...side, bench: [{ kind: 'occupied', entity, slot: 'BN', officialPoints }] }, input.source.matchups[0].sides[1]],
+    }] };
+    const record = baseline(entity, 20, 'bench');
+    const result = buildSnapshot({ ...input, source: withBench,
+      latest: noBaseline ? input.latest : [...input.latest, record],
+      frozen: noBaseline ? input.frozen : [...input.frozen, record],
+    });
+    const published = result.matchups[0].sides[0];
+    expect(published.bench?.[0]).toMatchObject({ id: `bench-${name}`, slot: 'BN', points: officialPoints, projectedPoints: expected });
+    expect(published.starters).toEqual(before.matchups[0].sides[0].starters);
+    expect(published.projectedPoints).toBe(before.matchups[0].sides[0].projectedPoints);
+    expect(published.points).toBe(before.matchups[0].sides[0].points);
+  });
+
+  it('keeps a known bye projection at zero without inventing its official score', () => {
+    const input = snapshotInput();
+    const entity = player('bench-bye', 'SF');
+    const source: LeagueWeekState = { ...input.source, matchups: [{ ...input.source.matchups[0], sides: [
+      { ...input.source.matchups[0].sides[0], bench: [{ kind: 'occupied', entity, slot: 'BN', officialPoints: null }] },
+      input.source.matchups[0].sides[1],
+    ] }] };
+    expect(buildSnapshot({ ...input, source }).matchups[0].sides[0].bench?.[0]).toMatchObject({
+      points: null, projectedPoints: 0, game: { kind: 'bye' },
+    });
+  });
+
+  it.each(['unknown starters', 'duplicate membership', 'starter overlap'])('does not invent bench assignments for %s', (condition) => {
+    const input = snapshotInput();
+    const entity = condition === 'starter overlap' ? live : player('bench', 'BUF');
+    const entry = { kind: 'occupied' as const, entity, slot: 'BN', officialPoints: 0 };
+    const source: LeagueWeekState = { ...input.source, matchups: [{ ...input.source.matchups[0], sides: [
+      { ...input.source.matchups[0].sides[0], ...(condition === 'unknown starters' ? { starters: [] } : {}),
+        bench: condition === 'duplicate membership' ? [entry, entry] : [entry] },
+      input.source.matchups[0].sides[1],
+    ] }] };
+    expect(buildSnapshot({ ...input, source }).matchups[0].sides[0].bench).toBeNull();
+  });
+});
+
 function snapshotInput() {
   return {
     source: source(),

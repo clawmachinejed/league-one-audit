@@ -36,6 +36,57 @@ const player = (id: string, projectedPoints: number | null): Player => ({
 });
 
 describe('MatchupBoard player projection presentation', () => {
+  it('uses the same player rows for unequal benches while preserving sourced zero, missing values and team totals', () => {
+    const matchup: Matchup = { id: '1', status: 'upcoming', sides: [
+      { team: team(1), points: 23.2, projectedPoints: 40, starters: [player('starter', 40)],
+        bench: [{ ...player('bench-zero', 0), slot: 'BN', points: 0 },
+          { ...player('bench-unknown', null), slot: 'BN', points: null }] },
+      { team: team(2), points: 7, projectedPoints: 30, starters: [player('other-starter', 30)],
+        bench: [{ ...player('other-bench', 14), slot: 'BN', points: 12 }] },
+    ] };
+    const render = (showBench: boolean) => renderToStaticMarkup(<LeagueSiteProvider site={LEAGUE_SITES.league1}>
+      <MatchupBoard matchups={[matchup]} selected={1} avatar={() => null} showBench={showBench} />
+    </LeagueSiteProvider>);
+    const original = JSON.stringify(matchup);
+    const html = render(true);
+    expect(html).toContain('Expand starting lineups and benches');
+    expect([...html.matchAll(/data-bench-row="true"/gu)]).toHaveLength(2);
+    expect(html).toContain('Official score 0.00 points; projected score 0.00 points');
+    expect(html).toContain('Official score unavailable; projected score unavailable');
+    expect(html).toContain('official score 23.20 points, projected score 40.00 points');
+    expect(html).not.toContain('Empty slot');
+    expect(render(false)).not.toContain('bench-zero');
+    expect(JSON.stringify(matchup)).toBe(original);
+  });
+
+  it('keeps legacy or unavailable bench membership unknown instead of inventing bench players', () => {
+    const html = renderToStaticMarkup(<LeagueSiteProvider site={LEAGUE_SITES.league1}>
+      <MatchupBoard matchups={[{ id: '1', status: 'unknown', sides: [
+        { team: team(1), points: 0, projectedPoints: null, starters: [], bench: null },
+        { team: team(2), points: 0, projectedPoints: 20, starters: [player('known', 20)] },
+      ] }]} selected={1} avatar={() => null} showBench />
+    </LeagueSiteProvider>);
+    expect(html).toContain('Bench unavailable');
+    expect(html).toContain('Awaiting Sleeper');
+    expect(html).not.toContain('No bench players');
+    expect(html).not.toContain('Empty slot');
+  });
+
+  it('keeps bench box-score rows separate from starting-position disclosures', () => {
+    const live = { ...player('bench-live', 9), slot: 'BN', game: {
+      kind: 'scheduled' as const, opponent: 'TEN', location: 'away' as const, date: '2026-09-13',
+      kickoffAt: '2026-09-13T17:00:00Z',
+      liveScore: { teamScore: 10, opponentScore: 7, phase: 'q2' as const, clockSeconds: 120 },
+    } };
+    const html = renderToStaticMarkup(<LeagueSiteProvider site={LEAGUE_SITES.league1}>
+      <MatchupBoard matchups={[{ id: '1', status: 'upcoming', sides: [
+        { team: team(1), points: 0, projectedPoints: 20, starters: [player('starter', 20)], bench: [live] },
+      ] }]} selected={1} avatar={() => null} showBench />
+    </LeagueSiteProvider>);
+    expect(html).toContain('data-bench-box-score-toggle="true"');
+    expect(html).toContain('Bench row 1 game statistics for both teams');
+    expect(html).not.toContain('data-starter-box-score-toggle');
+  });
   it('labels the missing team lineup without claiming its slots are empty or hiding the opponent projection', () => {
     const matchups: Matchup[] = [{ id: '1', status: 'live', sides: [
       { team: team(1), points: 23.2, projectedPoints: 40, starters: [player('known', 40)] },

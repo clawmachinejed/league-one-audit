@@ -95,6 +95,21 @@ function activeWeekBetweenGames(
 }
 
 describe('period-aware projection freshness', () => {
+  it('uses a bench-only game window while preserving legacy and unknown benches', () => {
+    const stored = withStarterGame(null);
+    const side = stored.payload.matchups[0].sides[0];
+    const now = new Date('2026-09-13T18:04:00.000Z');
+    expect(selectSnapshot(stored, context('active'), now).kind).toBe('usable');
+    side.bench = null;
+    expect(selectSnapshot(stored, context('active'), now).kind).toBe('usable');
+    side.bench = [{ ...side.starters[0], id: 'bench-1', slot: 'BN', game: {
+      kind: 'scheduled', opponent: 'KC', location: 'away', date: '2026-09-13',
+      kickoffAt: '2026-09-13T17:00:00.000Z',
+    } }];
+    expect(snapshotFreshnessMetadata(stored).scheduledKickoffs).toEqual(['2026-09-13T17:00:00.000Z']);
+    expect(selectSnapshot(stored, context('active'), now).kind).toBe('stale');
+  });
+
   it.each([
     { elapsedMs: 180_000, expected: 'usable' },
     { elapsedMs: 180_001, expected: 'stale' },

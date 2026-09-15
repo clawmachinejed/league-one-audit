@@ -431,12 +431,27 @@ export function matchupSlateExpected(
   return week <= horizon;
 }
 
+/** A missing starter list never establishes that all rostered players are benched. */
+function matchupBench(row: SleeperMatchup, league: League, catalog: PlayerCatalog, excluded?: ReadonlySet<string>): Player[] | null {
+  if (!Array.isArray(row.players) || !Array.isArray(row.starters)
+    || row.starters.length !== startingSlots(league.rosterPositions).length
+    || row.players.some((id) => typeof id !== 'string' || !id.trim() || id.trim() !== id || id === '0')
+    || row.starters.some((id) => typeof id !== 'string' || !id.trim() || id.trim() !== id)
+    || new Set(row.players).size !== row.players.length) return null;
+  const starterIds = row.starters.filter((id) => id !== '0');
+  if (new Set(starterIds).size !== starterIds.length || starterIds.some((id) => !row.players!.includes(id))) return null;
+  const assigned = new Set(starterIds);
+  return row.players.filter((id) => !assigned.has(id) && !excluded?.has(id))
+    .map((id) => playerFromId(id, 'BN', catalog, row.players_points?.[id]));
+}
+
 export function normalizeMatchups(
   rows: SleeperMatchup[],
   teams: Team[],
   league: League,
   catalog: PlayerCatalog,
   status: Matchup['status'],
+  excludedBenchIds?: ReadonlyMap<number, ReadonlySet<string>>,
 ): Matchup[] {
   const byRoster = new Map(teams.map((team) => [team.id, team]));
   const groups = new Map<string, Matchup>();
@@ -456,6 +471,7 @@ export function normalizeMatchups(
       starters: row.starters?.length
         ? lineup(row.starters, league.rosterPositions, catalog, row.starters_points, row.players_points)
         : [],
+      bench: matchupBench(row, league, catalog, excludedBenchIds?.get(row.roster_id)),
     });
     groups.set(id, group);
   }

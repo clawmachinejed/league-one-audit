@@ -120,6 +120,8 @@ export interface MatchupSide {
   points: number | null;
   projectedPoints: number | null;
   starters: Player[];
+  /** Exact-week nonstarters. Null or absent means membership is unavailable. */
+  bench?: Player[] | null;
 }
 
 export interface Matchup {

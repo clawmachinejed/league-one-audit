@@ -1,6 +1,6 @@
 # League One and League 2
 
-A mobile-first home for League One and its League 2 promotion and relegation league, powered by public Sleeper league data. The site keeps the weekly experience focused: Matchups, Standings, and Managers, with rosters and transaction history inside each manager profile.
+A mobile-first home for League One and its League 2 promotion and relegation league, powered by public Sleeper league data. The site keeps the weekly experience focused: My Team, Matchups, Standings, and Managers, with rosters and transaction history inside each manager profile.
 
 ## What stays central
 
@@ -14,7 +14,9 @@ A mobile-first home for League One and its League 2 promotion and relegation lea
 
 The two public Sleeper league IDs have one canonical source in [`apps/site/lib/config.ts`](apps/site/lib/config.ts). Change a league ID only in that registry; every route and browser storage key references it. Sleeper IDs remain strings because they can exceed JavaScript's safe integer range. The site uses real data, shows empty states when appropriate, and reports unavailable or incomplete data without substituting demonstration teams or results.
 
-League One keeps its existing routes, such as `/matchups`. League 2 mirrors the same experience under `/league2`, such as `/league2/matchups`. The league selector changes the active league across Matchups, Standings, and Managers. Switching from a team-specific page returns to the selected league's Managers page because Sleeper roster numbers are only unique within one league.
+League One keeps its existing routes, such as `/matchups`. League 2 mirrors the same experience under `/league2`, such as `/league2/matchups`. The league selector changes the active league across My Team, Matchups, Standings, and Managers. Switching from a manager profile returns to the selected league's Managers page because Sleeper roster numbers are only unique within one league.
+
+My Team appears immediately before Matchups in the navigation. `/my-team` and `/league2/my-team` show the selected team's current-week matchup with that team always on the left. Without a valid saved selection, the page uses the first team in official standings order, including the existing alphabetical tiebreaker, without changing the saved preference. Expanding the shared matchup card shows both starting lineups and benches with available official scores and projections. Bench points never enter team totals. The page follows the same site week rollover and stored-snapshot refresh as Matchups; see [My Team behavior and release checks](docs/my-team.md).
 
 The shared league registry also selects each league's supplied artwork for the header, league picker, browser icon and Apple touch icon. The original JPEGs use content-versioned public filenames so a logo replacement does not reuse a cached image URL. Artwork stays square and uncropped; existing display sizes and navigation remain unchanged.
 

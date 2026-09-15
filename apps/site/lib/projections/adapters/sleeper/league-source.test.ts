@@ -133,6 +133,29 @@ function input(overrides: Partial<ProjectionSyncInput> = {}): ProjectionSyncInpu
 }
 
 describe('Sleeper league-source adapter', () => {
+  it('uses exact-week nonstarter membership and raw official points without another load', async () => {
+    const source = input();
+    source.rawMatchups[0].players = ['p1', 'p2', 'JAX'];
+    source.rawMatchups[0].players_points = { p1: 12.3, p2: 0, JAX: 8 };
+    source.data.matchups[0].sides[0].bench = [player('p2', { slot: 'BN', points: 999 })];
+    const load = vi.fn(async () => source);
+    const result = await createSleeperLeagueSource(load).getLeagueWeek(configuration, targetPeriod);
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(result.matchups[0].sides[0].bench).toEqual([expect.objectContaining({
+      kind: 'occupied', slot: 'BN', officialPoints: 0, entity: expect.objectContaining({ externalRef: externalPlayerRef('official-source', 'p2') }),
+    })]);
+    source.rawMatchups[0].starters = null;
+    expect((await createSleeperLeagueSource(load).getLeagueWeek(configuration, targetPeriod)).matchups[0].sides[0].bench).toBeNull();
+  });
+
+  it('does not accept current-roster bench membership as exact-week evidence', async () => {
+    const source = input();
+    source.data.matchups[0].sides[0].bench = [player('p2', { slot: 'BN', points: 7 })];
+    const result = await createSleeperLeagueSource(async () => source).getLeagueWeek(configuration, targetPeriod);
+    expect(result.matchups[0].sides[0].starters).toHaveLength(3);
+    expect(result.matchups[0].sides[0].bench).toBeNull();
+  });
+
   it('preserves unknown assignments even if presentation input contained padded empty slots', async () => {
     const source = input();
     source.rawMatchups[1].starters = null;

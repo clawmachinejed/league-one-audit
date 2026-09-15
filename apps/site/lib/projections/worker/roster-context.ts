@@ -52,6 +52,19 @@ export function activeStarters(source: LeagueWeekState): ActiveStarter[] {
     .map((starter) => ({ rosterRef: side.rosterRef, starter }))));
 }
 
+/** Conflicting optional membership stays unavailable instead of changing starter authority. */
+export function availableBench(source: LeagueWeekState): ActiveStarter[] {
+  const starters = new Set(activeStarters(source).map(({ starter }) => entityKey(starter.entity)));
+  const rows = source.matchups.flatMap((matchup) => matchup.sides.flatMap((side) => side.starters.length === 0
+    ? [] : (side.bench ?? []).map((starter) => ({ rosterRef: side.rosterRef, starter }))));
+  const counts = new Map<string, number>();
+  for (const { starter } of rows) {
+    const key = entityKey(starter.entity);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return rows.filter(({ starter }) => !starters.has(entityKey(starter.entity)) && counts.get(entityKey(starter.entity)) === 1);
+}
+
 export function projectionEntities(source: LeagueWeekState): ScoringEntity[] {
   const entities = new Map<string, ScoringEntity>();
   for (const entity of source.rosteredEntities) entities.set(entityKey(entity), entity);

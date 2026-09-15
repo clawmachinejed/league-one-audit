@@ -9,12 +9,13 @@ import { Icon, type IconName } from './icon';
 import { LeagueSiteProvider } from './league-context';
 import { TeamPreferenceProvider } from './team-preference';
 
-type LeagueSection = '/matchups' | '/standings' | '/managers';
+type LeagueSection = '/my-team' | '/matchups' | '/standings' | '/managers';
 
 function currentSection(pathname: string, site: LeagueSite): LeagueSection {
   const localPath = site.prefix && pathname.startsWith(site.prefix)
     ? pathname.slice(site.prefix.length)
     : pathname;
+  if (localPath === '/my-team' || localPath.startsWith('/my-team/')) return '/my-team';
   if (localPath === '/standings' || localPath.startsWith('/standings/')) return '/standings';
   if (localPath === '/managers' || localPath.startsWith('/managers/')) return '/managers';
   return '/matchups';
@@ -88,9 +89,11 @@ export function AppShell({ children, leagueIds }: { children: ReactNode; leagueI
   const pathname = usePathname();
   const site = leagueSiteForPathname(pathname);
   const compactMain = pathname === leagueHref(site, '/matchups')
+    || pathname === leagueHref(site, '/my-team')
     || pathname === leagueHref(site, '/standings')
     || pathname === leagueHref(site, '/managers');
   const nav: { href: string; label: string; icon: IconName }[] = [
+    { href: leagueHref(site, '/my-team'), label: 'My Team', icon: 'my-team' },
     { href: leagueHref(site, '/matchups'), label: 'Matchups', icon: 'matchups' },
     { href: leagueHref(site, '/standings'), label: 'League', icon: 'standings' },
     { href: leagueHref(site, '/managers'), label: 'Managers', icon: 'managers' },

@@ -35,13 +35,15 @@ export async function LeagueMatchupsPage({
   leagueId,
   leagueKey,
   searchParams,
+  mode = 'matchups',
 }: {
   leagueId: string;
   leagueKey: LeagueKey;
   searchParams: MatchupSearchParams;
+  mode?: 'matchups' | 'my-team';
 }) {
   const { week } = await searchParams;
-  const requestedWeek = parseMatchupWeek(week) ?? undefined;
+  const requestedWeek = mode === 'my-team' ? undefined : parseMatchupWeek(week) ?? undefined;
   const [rollover, initialStored] = await Promise.all([
     loadRollover(leagueId), readStoredMatchups(leagueKey, requestedWeek),
   ]);
@@ -67,7 +69,7 @@ export async function LeagueMatchupsPage({
     && (selectedWeek === undefined || persisted.payload.week === selectedWeek)) {
     return <MatchupsView data={persisted.payload} periodContext={persisted.context}
       snapshotRevision={persisted.snapshotRevision} verifiedAt={persisted.verifiedAt}
-      rollover={rollover} followCurrent={requestedWeek === undefined} />;
+      rollover={rollover} followCurrent={requestedWeek === undefined} mode={mode} />;
   }
 
   if (!authorityAgrees) periodContext = undefined;
@@ -93,7 +95,11 @@ export async function LeagueMatchupsPage({
   };
   periodContext = contextForSelectedWeek(periodContext, data.week);
   return <MatchupsView data={data} periodContext={periodContext} snapshotRevision={null} verifiedAt={null}
-    rollover={rollover} followCurrent={requestedWeek === undefined} />;
+    rollover={rollover} followCurrent={requestedWeek === undefined} mode={mode} />;
+}
+
+export function LeagueMyTeamPage({ leagueId, leagueKey }: { leagueId: string; leagueKey: LeagueKey }) {
+  return LeagueMatchupsPage({ leagueId, leagueKey, searchParams: Promise.resolve({}), mode: 'my-team' });
 }
 
 export async function LeagueStandingsPage({ leagueId, leagueKey }: { leagueId: string; leagueKey: LeagueKey }) {

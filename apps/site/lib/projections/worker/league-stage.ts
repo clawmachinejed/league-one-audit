@@ -30,6 +30,7 @@ import {
 } from './game-context';
 import {
   activeStarters,
+  availableBench,
   assertUniqueStarters,
   finite,
   projectionEntities,
@@ -131,7 +132,7 @@ function uniqueRelevantGames(
   persisted: PersistedGroup,
 ): ExternalGameRef[] {
   const games = new Map<string, ExternalGameRef>();
-  for (const { starter } of activeStarters(league.source)) {
+  for (const { starter } of [...activeStarters(league.source), ...availableBench(league.source)]) {
     const game = stateForEntity(starter.entity, persisted.games, league.source.schedule);
     if (game) games.set(externalReferenceKey(game.gameRef), game.gameRef);
   }
@@ -284,7 +285,8 @@ export async function processLeague(
   );
   if (!persistedFullSlate) await persistCandidates(candidates);
 
-  const officialEntityRefs = starters.map(({ starter }) => starter.entity.externalRef);
+  const bench = availableBench(source);
+  const officialEntityRefs = [...starters, ...bench].map(({ starter }) => starter.entity.externalRef);
   const startedGameRefs = persisted.games.games.filter(startedGame).map((game) => game.gameRef);
   if (startedGameRefs.length > 0) {
     const frozen = await dependencies.repository.freezeLatestBaselines({
@@ -336,6 +338,23 @@ export async function processLeague(
     rosterRef: side.rosterRef,
     points: finite(side.officialPoints) ? side.officialPoints : null,
   })));
+  const benchPoints = bench.map(({ rosterRef, starter }) => ({
+    entityRef: starter.entity.externalRef,
+    rosterRef,
+    points: finite(starter.officialPoints) ? starter.officialPoints : null,
+    isStarter: false,
+    lineupSlot: starter.slot || null,
+  }));
+  const entityPoints = [
+    ...starters.map(({ rosterRef, starter }) => ({
+      entityRef: starter.entity.externalRef,
+      rosterRef,
+      points: finite(starter.officialPoints) ? starter.officialPoints : null,
+      isStarter: true,
+      lineupSlot: starter.slot || null,
+    })),
+    ...benchPoints.filter((point) => persisted.entityIdsByReferenceKey.has(externalReferenceKey(point.entityRef))),
+  ];
   const observation = await dependencies.repository.recordLeagueWeekObservation({
     lineup: source.lineup,
     leagueSeasonId: leagueSeason.value.leagueSeasonId,
@@ -362,23 +381,19 @@ export async function processLeague(
       },
       missingFrozenBaselineCount,
       missingBaselinePolicy: 'zero',
+      // Retain exact-week optional evidence even if its canonical mapping is not ready.
+      ...(benchPoints.length ? { benchPointsEvidence: benchPoints } : {}),
       rosterIds: source.matchups.flatMap((matchup) => matchup.sides.map((side) => (
         String(side.rosterRef.externalId)
       ))),
       warning: source.warning ?? null,
     },
     expectedGameRefs: relevantGameRefs,
-    entityPoints: starters.map(({ rosterRef, starter }) => ({
-      entityRef: starter.entity.externalRef,
-      rosterRef,
-      points: finite(starter.officialPoints) ? starter.officialPoints : null,
-      isStarter: true,
-      lineupSlot: starter.slot || null,
-    })),
+    entityPoints,
     rosterPoints,
   });
   if (observation.kind !== 'stored'
-    || observation.value.entityPointsStored !== starters.length
+    || observation.value.entityPointsStored !== entityPoints.length
     || observation.value.rosterPointsStored !== rosterPoints.length
     || observation.value.unmappedEntityRefs.length > 0
     || observation.value.unmappedGameRefs.length > 0

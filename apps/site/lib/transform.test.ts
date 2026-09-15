@@ -208,6 +208,34 @@ describe('standings, avatars and scores', () => {
 });
 
 describe('rosters and matchups', () => {
+  it('preserves exact-week bench source scores, including zero, negatives and unknowns', () => {
+    const selectedLeague = { ...league, rosterPositions: ['QB', 'BN'] };
+    const rows = [{ roster_id: 1, matchup_id: 1, starters: ['qb'],
+      players: ['qb', 'rb', 'wr', 'missing'], players_points: { qb: 20, rb: 0, wr: -1.2 } }];
+    const side = normalizeMatchups(rows, teams, selectedLeague, catalog, 'live')[0].sides[0];
+    expect(side.bench?.map(({ id, points, slot, projectedPoints }) => ({ id, points, slot, projectedPoints }))).toEqual([
+      { id: 'rb', points: 0, slot: 'BN', projectedPoints: null },
+      { id: 'wr', points: -1.2, slot: 'BN', projectedPoints: null },
+      { id: 'missing', points: null, slot: 'BN', projectedPoints: null },
+    ]);
+    const excluded = new Map([[1, new Set(['wr'])]]);
+    expect(normalizeMatchups(rows, teams, selectedLeague, catalog, 'live', excluded)[0].sides[0].bench?.map(({ id }) => id))
+      .toEqual(['rb', 'missing']);
+  });
+
+  it.each([
+    { starters: null, players: ['qb', 'rb'] },
+    { starters: [], players: ['qb', 'rb'] },
+    { starters: ['qb'], players: null },
+    { starters: ['qb'], players: ['rb'] },
+    { starters: ['qb'], players: ['qb', 'rb', 'rb'] },
+    { starters: ['qb', 'rb'], players: ['qb', 'rb'] },
+  ])('keeps ambiguous bench membership unavailable: %j', (membership) => {
+    const side = normalizeMatchups([{ roster_id: 1, matchup_id: 1, ...membership }], teams,
+      { ...league, rosterPositions: ['QB', 'BN'] }, catalog, 'unknown')[0].sides[0];
+    expect(side.bench).toBeNull();
+  });
+
   it('keeps injury metadata independent from lineup slots, player names and fractional scores', () => {
     const players = lineup(['wr', '0', 'missing'], ['FLEX', 'FLEX', 'FLEX'], {
       wr: { ...catalog.wr, injury_status: ' Questionable ' },

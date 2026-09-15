@@ -11,6 +11,7 @@ import {
   type MatchupPeriodContext,
 } from '../lib/matchup-period';
 import type { Matchup, MatchupsData } from '../lib/types';
+import { selectMyTeamMatchup } from '../lib/my-team-matchup';
 import { WeekSelector } from './week-selector';
 import { useLeagueSite } from './league-context';
 import { Avatar, EmptyState, Warning } from './league-primitives';
@@ -31,14 +32,17 @@ function SnapshotUpdated({ value, refreshing }: { value: string; refreshing: boo
   </p>;
 }
 
-function MatchupsWithBoxScores({ matchups, selected, leagueKey, season, week, refreshAutomatically }: {
+function MatchupsWithBoxScores({ matchups, selected, leagueKey, season, week, refreshAutomatically, showBench }: {
   matchups: Matchup[]; selected: number | null; leagueKey: string; season: string; week: number;
   refreshAutomatically: boolean;
+  showBench: boolean;
 }) {
-  const lineupKey = [...new Set(matchups.flatMap(matchup => matchup.sides.flatMap(side => side.starters
-    .filter(player => player.id).map(playerBoxScoreKey))))].sort().join(',');
+  const lineupKey = [...new Set(matchups.flatMap(matchup => matchup.sides.flatMap(side =>
+    [...side.starters, ...(showBench ? side.bench ?? [] : [])]
+      .filter(player => player.id).map(playerBoxScoreKey))))].sort().join(',');
   const boxScores = useMatchupBoxScores({ leagueKey, season, week, lineupKey, refreshAutomatically });
   return <MatchupBoard matchups={matchups} selected={selected} avatar={team => <Avatar team={team} />}
+    showBench={showBench}
     boxScores={boxScores.data} boxScoresLoading={boxScores.loading} onBoxScoreOpen={boxScores.request} />;
 }
 
@@ -49,6 +53,7 @@ export function MatchupsView({
   verifiedAt,
   rollover,
   followCurrent = false,
+  mode = 'matchups',
 }: {
   data: MatchupsData;
   periodContext: MatchupPeriodContext;
@@ -56,6 +61,7 @@ export function MatchupsView({
   verifiedAt: string | null;
   rollover?: SiteWeekRollover | null;
   followCurrent?: boolean;
+  mode?: 'matchups' | 'my-team';
 }) {
   useSiteWeekRollover(rollover);
   const site = useLeagueSite();
@@ -76,19 +82,26 @@ export function MatchupsView({
     router.refresh();
   }, [observedCurrentWeek, data.week, followCurrent, periodContext.defaultSeason, router, site.key]);
   const automaticallyUpdating = periodContext.temporalState !== 'past';
-  const matchups = useMemo(() => [...data.matchups].sort((a, b) => Number(b.sides.some(side => side.team.id === selected)) - Number(a.sides.some(side => side.team.id === selected))), [data.matchups, selected]);
+  const myTeamView = mode === 'my-team';
+  const myTeam = useMemo(() => selectMyTeamMatchup(data.teams, data.matchups, selected), [data.teams, data.matchups, selected]);
+  const matchups = useMemo(() => myTeamView ? (myTeam.matchup ? [myTeam.matchup] : [])
+    : [...data.matchups].sort((a, b) => Number(b.sides.some(side => side.team.id === selected)) - Number(a.sides.some(side => side.team.id === selected))), [data.matchups, myTeamView, myTeam.matchup, selected]);
   return <div className={matchupStyles.page}>
     <div className={matchupStyles.toolbar}>
-      <PageIntro title="Matchups" league={data.league} />
-      <WeekSelector label="Matchup week" week={data.week} currentWeek={currentWeek}
+      <PageIntro title={myTeamView ? 'My Team' : 'Matchups'} league={data.league} />
+      {myTeamView ? <p className={matchupStyles.season} aria-label={`Current matchup week ${data.week}`}>Week {data.week}</p>
+        : <WeekSelector label="Matchup week" week={data.week} currentWeek={currentWeek}
         maxWeek={data.league.maxWeek} onChange={week => router.push(week === currentWeek ? matchupsPath : `${matchupsPath}?week=${week}`)}
-        hrefForWeek={week => `${matchupsPath}?week=${week}`} currentHref={matchupsPath} />
+        hrefForWeek={week => `${matchupsPath}?week=${week}`} currentHref={matchupsPath} />}
     </div>
     <Warning message={data.warning} />
     {matchups.length ? <MatchupsWithBoxScores key={`${site.key}:${data.league.season}:${data.week}`}
-      matchups={matchups} selected={selected} leagueKey={site.key} season={data.league.season}
+      matchups={matchups} selected={myTeamView ? myTeam.team?.id ?? null : selected} leagueKey={site.key} season={data.league.season}
+      showBench={myTeamView}
       week={data.week} refreshAutomatically={periodContext.temporalState === 'active'} />
-      : <EmptyState title="No matchups posted yet">Week {data.week} matchups will appear when Sleeper publishes the schedule. You can still browse teams and standings.</EmptyState>}
+      : <EmptyState title="No matchups posted yet">{myTeamView && myTeam.team
+        ? `${myTeam.team.name} has no posted Week ${data.week} matchup yet.`
+        : `Week ${data.week} matchups will appear when Sleeper publishes the schedule.`} You can still browse teams and standings.</EmptyState>}
     <SnapshotUpdated value={updatedAt} refreshing={refreshing} />
     {automaticallyUpdating && <p className="refresh-note">Checks for a newer matchup snapshot every minute while this page is open.</p>}
   </div>;

@@ -58,6 +58,22 @@ function request(query = 'season=2026&week=1') {
 }
 
 describe('Matchups box-score HTTP boundary', () => {
+  it('includes exact-week bench identities in the existing single bounded read', async () => {
+    const test = fixture();
+    const side = test.payload.matchups[0].sides[0];
+    side.bench = [{ ...side.starters[0], id: '7527', slot: 'BN', position: 'QB' }];
+    test.values.players['player:7527'] = { stats: { pass_att: 0 }, gamePhase: 'final' };
+    const response = await handleMatchupBoxScoresRequest(request(), 'league1', test.store, now);
+    expect(response.status).toBe(200);
+    expect(test.boxRead).toHaveBeenCalledOnce();
+    expect(test.boxRead.mock.calls[0][0].identities).toContainEqual({ entityKind: 'player', providerExternalId: '7527' });
+    expect((await response.json()).players['player:7527'].stats).toEqual({ pass_att: 0 });
+    side.bench = null;
+    test.boxRead.mockClear();
+    const unknown = await handleMatchupBoxScoresRequest(request(), 'league1', test.store, now);
+    expect((await unknown.json()).players['player:7527']).toBeUndefined();
+    expect(test.boxRead.mock.calls[0][0].identities).not.toContainEqual({ entityKind: 'player', providerExternalId: '7527' });
+  });
   it.each(['league1', 'league2'])('scopes one bulk read to %s displayed starter identities and preserves source freshness', async (league) => {
     const test = fixture(league);
     const original = JSON.stringify(test.stored.snapshot);
