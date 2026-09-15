@@ -42,6 +42,13 @@ league horizons, roster membership and historical metadata isolation, plus
 the captured source response. Three ownership regressions and the roster
 visibility regression failed before their respective application fixes.
 
+Full verification also reproduced an existing standalone all-player CLI fixture
+failure on unchanged main: its fixed operation clock could precede real source
+observation timestamps once September 15 arrived. The fixture now freezes only
+the child process Date and retains the composition's shared clock; real timers
+and execution deadlines continue to run. This changes test setup only and
+preserves production timestamp validation and zero-write shadow assertions.
+
 ## Separate source gate
 
 The captured Week 2 slate has all 12 roster rows and six complete pairings per
