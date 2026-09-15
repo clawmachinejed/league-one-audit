@@ -26,6 +26,16 @@ export type MatchupPeriodContext = Readonly<{
   refreshDue: boolean;
 }>;
 
+/** UI selection follows the confirmed scoring period; provider display metadata stays intact. */
+export function currentMatchupWeek(
+  context: Pick<MatchupPeriodContext, 'defaultSeason' | 'defaultWeek' | 'activeSeason' | 'activeWeek' | 'lifecycle'>,
+): number {
+  const active = context.activeWeek;
+  return context.lifecycle === 'active' && context.activeSeason === context.defaultSeason
+    && active !== null && Number.isInteger(active) && active >= 1 && active <= 18
+    ? active : context.defaultWeek;
+}
+
 function comparePeriod(left: LeaguePeriod, right: LeaguePeriod): number {
   return left.season - right.season || left.week - right.week;
 }

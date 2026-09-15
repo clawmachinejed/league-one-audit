@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { LeaguePeriodAuthority } from './projections/domain/contracts';
 import { externalLeagueRef } from './projections/shared/provider-identity';
 import {
+  currentMatchupWeek,
   matchupPeriodContext,
   matchupPeriodContextFromHeaders,
   matchupPeriodHeaders,
@@ -29,6 +30,25 @@ function authority(
 }
 
 describe('matchup period context', () => {
+  it.each([
+    { name: 'lagging display', defaultWeek: 1, activeWeek: 2, expected: 2 },
+    { name: 'leading display', defaultWeek: 3, activeWeek: 2, expected: 2 },
+    { name: 'unavailable active week', defaultWeek: 3, activeWeek: null, expected: 3 },
+    { name: 'zero active week', defaultWeek: 3, activeWeek: 0, expected: 3 },
+    { name: 'out-of-range active week', defaultWeek: 3, activeWeek: 19, expected: 3 },
+    { name: 'fractional active week', defaultWeek: 3, activeWeek: 2.5, expected: 3 },
+  ])('selects an honest Current week with $name', ({ defaultWeek, activeWeek, expected }) => {
+    const context = { ...matchupPeriodContext(authority(), 1), defaultWeek, activeWeek };
+    expect(currentMatchupWeek(context)).toBe(expected);
+    expect(context.defaultWeek).toBe(defaultWeek);
+  });
+
+  it('keeps the display fallback outside the matching active season', () => {
+    expect(currentMatchupWeek({ ...matchupPeriodContext(authority(), 1), activeSeason: 2027 })).toBe(2);
+    expect(currentMatchupWeek(matchupPeriodContext(authority('preseason'), 1))).toBe(2);
+    expect(currentMatchupWeek(matchupPeriodContext(authority('complete'), 18))).toBe(2);
+  });
+
   it('classifies explicit weeks against active scoring rather than the display default', () => {
     expect(matchupPeriodContext(authority(), 1).temporalState).toBe('active');
     expect(matchupPeriodContext(authority(), 2).temporalState).toBe('future');

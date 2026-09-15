@@ -30,6 +30,7 @@ import { LEAGUE_IDS } from './config';
 import { addWaiverBalances, normalizeTeams, type SleeperRoster, type SleeperUser } from './transform';
 import {
   getCurrentLeagueWeek,
+  getCurrentMatchupPeriodContext,
   getFantasyPlayerCatalog,
   getOfficialMatchups,
   getOverview,
@@ -1002,6 +1003,24 @@ describe('Sleeper current injury metadata', () => {
 });
 
 describe('Sleeper official matchup fallback', () => {
+  it.each([1, 3])('defaults page data to active Week 2 with display Week %i', async (displayWeek) => {
+    const originalFetch = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation((input, init) => requestPath(input) === '/state/nfl'
+      ? Promise.resolve(Response.json({ season: '2026', season_type: 'regular', week: 2, leg: 2, display_week: displayWeek }))
+      : originalFetch(input, init));
+
+    expect((await getOfficialMatchups(leagueOneId)).week).toBe(2);
+    expect((await getOfficialMatchups(leagueOneId, 1)).week).toBe(1);
+    expect((await getStandings(leagueOneId)).league.week).toBe(2);
+    expect((await getOverview(leagueOneId)).league.week).toBe(displayWeek);
+    expect(await getCurrentMatchupPeriodContext(leagueOneId)).toMatchObject({
+      defaultWeek: displayWeek, activeWeek: 2, temporalState: 'active',
+    });
+    expect(await getCurrentMatchupPeriodContext(leagueOneId, 1)).toMatchObject({
+      defaultWeek: displayWeek, activeWeek: 2, temporalState: 'past',
+    });
+  });
+
   it('loads current official scores without a static projection on the degraded fallback path', async () => {
     const data = await getOfficialMatchups(leagueOneId, 3);
 
@@ -1036,8 +1055,8 @@ describe('Sleeper league rosters view', () => {
       ? Promise.resolve(Response.json({ season: '2026', season_type: 'regular', week: 2, leg: 2, display_week: 1 }))
       : originalFetch(input, init));
 
-    const { data, metricContext } = await getRostersWithMetricContext(leagueOneId, 2);
-    expect(data).toMatchObject({ week: 2, currentWeek: 1, rostersAvailable: true, league: { week: 1 } });
+    const { data, metricContext } = await getRostersWithMetricContext(leagueOneId);
+    expect(data).toMatchObject({ week: 2, currentWeek: 2, rostersAvailable: true, league: { week: 2 } });
     expect(metricContext).toMatchObject({ throughWeek: 2, provisionalWeek: 2, activeWeekKnown: true });
     const ready = data.teams.find((team) => team.id === 1)!;
     expect(ready.rosterAvailable).toBe(true);
@@ -1048,6 +1067,7 @@ describe('Sleeper league rosters view', () => {
     expect((rawMatchups[1] as { starters: null }).starters).toBeNull();
 
     const historical = await getRosters(leagueOneId, 1);
+    expect(historical).toMatchObject({ week: 1, currentWeek: 2, league: { week: 2 } });
     expect(historical.teams.find((team) => team.id === 1)!.sections.map((section) => section.name))
       .toEqual(['Starters', 'Bench']);
     expect(historical.teams.flatMap((team) => team.sections.flatMap((section) => section.players))
@@ -1091,7 +1111,7 @@ describe('Sleeper league rosters view', () => {
   });
 
   it.each([
-    { name: 'advanced display week', state: { season: '2026', season_type: 'regular', leg: 1, week: 1, display_week: 2 }, selectedWeek: 2, displayWeek: 2 },
+    { name: 'advanced display week', state: { season: '2026', season_type: 'regular', leg: 1, week: 1, display_week: 2 }, selectedWeek: 2, displayWeek: 1 },
     { name: 'preseason', state: { season: '2026', season_type: 'pre', leg: 2, week: 2, display_week: 2 }, selectedWeek: 2, displayWeek: 1 },
     { name: 'missing NFL state', state: null, selectedWeek: 4, displayWeek: 3 },
   ])('keeps future lineup readiness strict with $name', async ({ state, selectedWeek, displayWeek }) => {

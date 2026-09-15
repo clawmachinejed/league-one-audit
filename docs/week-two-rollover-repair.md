@@ -35,7 +35,11 @@ and hid every roster when one weekly lineup was incomplete. Readiness and
 current metadata now use the known active scoring week, retaining the existing
 display fallback when active authority is unavailable. Exact-week membership
 validation still hides an incomplete team; it does not synthesize starters.
-The default week selector continues to follow Sleeper's display week.
+The initial rollover repair retained the display week for the default selector.
+The subsequent Current-week repair makes the Matchups and Rosters selectors
+follow the validated active scoring week, while preserving explicit selections
+and truthful provider display metadata. If the active snapshot is unavailable,
+the page uses the exact-week official fallback instead of showing a prior week.
 
 Regression evidence covers the classifier, stored authority reader, both
 league horizons, roster membership and historical metadata isolation, plus

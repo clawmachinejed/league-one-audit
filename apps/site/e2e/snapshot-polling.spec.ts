@@ -386,16 +386,21 @@ test('hiding during an outstanding request cancels it without triggering fallbac
 
 test('a previous league response cannot overwrite the newly selected league at the same week', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  const fixture = await openFixture(page, { week: 1 });
+  // The real league picker opens the destination's Current week. Keep this race
+  // at that same week without assuming the live NFL calendar is always Week 1.
+  await page.goto('/league2/matchups');
+  const destinationWeek = Number(await page.getByLabel('Matchup week').inputValue());
+  expect(Number.isInteger(destinationWeek) && destinationWeek >= 1 && destinationWeek <= 18).toBe(true);
+  const fixture = await openFixture(page, { week: destinationWeek, temporal: 'active' });
   fixture.revision = SNAPSHOT_C;
-  fixture.payload = snapshotFixture(1, 'Late League One');
+  fixture.payload = snapshotFixture(destinationWeek, 'Late League One');
   const held = deferred(); fixture.holdFull = held.promise;
   await page.clock.runFor(60_000);
   await expect.poll(() => fixture.fullCount).toBe(2);
   await page.getByRole('navigation', { name: 'Mobile navigation' }).getByRole('button', { name: 'Choose league, current League One' }).click();
   await page.getByRole('link', { name: 'View League Two' }).click();
   await expect(page).toHaveURL(/\/league2\/matchups$/u);
-  await expect(page.getByLabel('Matchup week')).toHaveValue('1');
+  await expect(page.getByLabel('Matchup week')).toHaveValue(String(destinationWeek));
   await expect(page.getByRole('link', { name: 'League Two home' })).toBeVisible();
   held.resolve();
   await page.clock.runFor(1);
