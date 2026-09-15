@@ -26,7 +26,7 @@ import {
 import type { LeagueTransactionsData, ManagerData, MatchupsData, OverviewData, Player, ProjectedStandingsBasis, RosterPlayer, RosterSection, RostersData, StandingsData, StandingsTeam, TransactionsData } from './types';
 import type { LeagueKey } from './leagues';
 import { normalizeLeagueTransactions } from './league-transactions';
-import { matchupTemporalState, type MatchupPeriodContext } from './matchup-period';
+import { currentMatchupWeek, matchupTemporalState, type MatchupPeriodContext } from './matchup-period';
 import { calculateTeamPpg, compareRosterStandings, playerMetricBoundary, rosterHistoryBoundary } from './roster-metrics';
 import { canonicalNflTeam } from './nfl-teams';
 import { startingSlots } from './sleeper-lineup';
@@ -532,11 +532,22 @@ export async function getOverview(leagueId: string): Promise<OverviewData> {
   return (await getCore(leagueId)).overview;
 }
 
+function presentationWeek(league: SleeperLeague, state: SleeperState | null, displayWeek: number): number {
+  return currentMatchupWeek({
+    defaultSeason: Number(league.season),
+    defaultWeek: displayWeek,
+    activeSeason: state === null ? null : Number(state.season),
+    activeWeek: sleeperActiveScoringWeek(league, state),
+    lifecycle: sleeperLeagueLifecycle(league, state),
+  });
+}
+
 export async function getStandings(leagueId: string): Promise<StandingsData> {
   const { overview, rosters, sourceLeague, state } = await getCore(leagueId);
   const teams = addWaiverBalances(overview.teams, rosters, sourceLeague.settings?.waiver_budget);
   return {
     ...overview,
+    league: { ...overview.league, week: presentationWeek(sourceLeague, state, overview.league.week) },
     teams,
     projectionBasis: await getStandingsProjectionBasis(leagueId, sourceLeague, state, rosters, teams),
   };
@@ -693,9 +704,10 @@ export async function getRostersWithMetricContext(
   requestedWeek?: number,
 ): Promise<RostersLoad> {
   const core = await getRosterCore(leagueId);
-  const selectedWeek = requestedWeek === undefined ? core.overview.league.week
+  const currentWeek = presentationWeek(core.sourceLeague, core.state, core.overview.league.week);
+  const selectedWeek = requestedWeek === undefined ? currentWeek
     : Number.isInteger(requestedWeek) && requestedWeek >= 1 && requestedWeek <= core.overview.league.maxWeek
-      ? requestedWeek : core.overview.league.week;
+      ? requestedWeek : currentWeek;
   const lifecycle = sleeperLeagueLifecycle(core.sourceLeague, core.state);
   const boundaryInput = {
     selectedWeek,
@@ -791,9 +803,9 @@ export async function getRostersWithMetricContext(
   });
   const historyProblems = [...new Set([...history.failedWeeks, ...history.malformedWeeks])].sort((a, b) => a - b);
   const data: RostersData = {
-    league: core.overview.league,
+    league: { ...core.overview.league, week: currentWeek },
     week: selectedWeek,
-    currentWeek: core.overview.league.week,
+    currentWeek,
     rostersAvailable: teams.some((team) => team.rosterAvailable),
     playerMetrics: { status: 'unavailable', observedAt: null, throughWeek: null },
     teams,
@@ -868,11 +880,12 @@ async function loadMatchupSource(
     throw new Error('A matchup load cannot combine website and projection week selection.');
   }
   const core = await getCore(leagueId);
+  const defaultWeek = presentationWeek(core.sourceLeague, core.state, core.overview.league.week);
   const week = projectionTarget
     ? projectionTargetWeek(projectionTarget, core.sourceLeague, core.overview.league.maxWeek)
-    : requestedWeek === undefined ? core.overview.league.week
+    : requestedWeek === undefined ? defaultWeek
       : Number.isInteger(requestedWeek) && requestedWeek >= 1 && requestedWeek <= core.overview.league.maxWeek
-        ? requestedWeek : core.overview.league.week;
+        ? requestedWeek : defaultWeek;
   const status = matchupStatus(core.sourceLeague, core.state, week);
   const canDecorate = canDecorateMatchupWeek(core.sourceLeague, core.state, week);
   const [matchupObservation, players, nflSchedule] = await Promise.all([
@@ -1048,7 +1061,7 @@ export async function getCurrentMatchupPeriodContext(
   const defaultDisplayPeriod = { season, seasonType: 'regular' as const, week: league.week };
   const activeScoringPeriod = activeWeek === null
     ? null : { season, seasonType: 'regular' as const, week: activeWeek };
-  const targetWeek = requestedWeek ?? league.week;
+  const targetWeek = requestedWeek ?? presentationWeek(sourceLeague, state, league.week);
   return {
     defaultSeason: season,
     defaultWeek: league.week,

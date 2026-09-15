@@ -2,7 +2,7 @@ import 'server-only';
 
 import { notFound } from 'next/navigation';
 import { parseMatchupWeek } from '@/lib/matchup-week';
-import type { MatchupPeriodContext } from '@/lib/matchup-period';
+import { currentMatchupWeek, type MatchupPeriodContext } from '@/lib/matchup-period';
 import { readStoredMatchups } from '@/lib/projection-reader';
 import type { LeagueKey } from '@/lib/leagues';
 import { getCurrentMatchupPeriodContext, getOfficialMatchups, getOverview, getManager, getStandings, getTransactions } from '@/lib/sleeper';
@@ -16,6 +16,16 @@ import { TransactionsView } from './transactions-view';
 type MatchupSearchParams = Promise<{ week?: string }>;
 type ManagerParams = Promise<{ id: string }>;
 
+function contextForSelectedWeek(context: MatchupPeriodContext, week: number): MatchupPeriodContext {
+  const currentWeek = currentMatchupWeek(context);
+  return {
+    ...context,
+    temporalState: context.lifecycle === 'preseason' ? 'future'
+      : context.lifecycle === 'complete' ? 'past'
+        : week < currentWeek ? 'past' : week > currentWeek ? 'future' : 'active',
+  };
+}
+
 export async function LeagueMatchupsPage({
   leagueId,
   leagueKey,
@@ -27,22 +37,36 @@ export async function LeagueMatchupsPage({
 }) {
   const { week } = await searchParams;
   const requestedWeek = parseMatchupWeek(week) ?? undefined;
-  const persisted = await readStoredMatchups(leagueKey, requestedWeek);
-  if (persisted.kind === 'usable') {
+  let persisted = await readStoredMatchups(leagueKey, requestedWeek);
+  let periodContext: MatchupPeriodContext | undefined = 'context' in persisted
+    ? persisted.context : undefined;
+  let selectedWeek = requestedWeek;
+  let storedWeek = requestedWeek ?? periodContext?.defaultWeek;
+  if (requestedWeek === undefined && periodContext) {
+    // Follow a rollover discovered by the first exact read, but bound retries.
+    // A newer authority after this budget uses the latest week in official fallback.
+    for (let reread = 0; reread < 2; reread += 1) {
+      selectedWeek = currentMatchupWeek(periodContext);
+      if (selectedWeek === storedWeek) break;
+      persisted = await readStoredMatchups(leagueKey, selectedWeek);
+      storedWeek = selectedWeek;
+      if ('context' in persisted && persisted.context) periodContext = persisted.context;
+    }
+    selectedWeek = currentMatchupWeek(periodContext);
+  }
+  if (persisted.kind === 'usable' && (selectedWeek === undefined || persisted.payload.week === selectedWeek)) {
     return <MatchupsView data={persisted.payload} periodContext={persisted.context}
       snapshotRevision={persisted.snapshotRevision} verifiedAt={persisted.verifiedAt} />;
   }
 
-  let periodContext: MatchupPeriodContext | undefined = 'context' in persisted
-    ? persisted.context : undefined;
   if (!periodContext) {
     try {
-      periodContext = await getCurrentMatchupPeriodContext(leagueId, requestedWeek);
+      periodContext = await getCurrentMatchupPeriodContext(leagueId, selectedWeek);
     } catch {
       // The complete Sleeper matchup load below remains the final safe fallback.
     }
   }
-  const selectedWeek = requestedWeek ?? periodContext?.defaultWeek;
+  selectedWeek ??= periodContext ? currentMatchupWeek(periodContext) : undefined;
   const data = await getOfficialMatchups(leagueId, selectedWeek);
   periodContext ??= {
     defaultSeason: Number(data.league.season),
@@ -55,6 +79,7 @@ export async function LeagueMatchupsPage({
       : data.week > data.league.week ? 'future' : 'active',
     refreshDue: false,
   };
+  periodContext = contextForSelectedWeek(periodContext, data.week);
   return <MatchupsView data={data} periodContext={periodContext} snapshotRevision={null} verifiedAt={null} />;
 }
 

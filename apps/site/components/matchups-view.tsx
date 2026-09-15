@@ -6,6 +6,7 @@ import { useMatchupSnapshot } from './use-matchup-snapshot';
 import { useMatchupBoxScores } from './use-matchup-box-scores';
 import { playerBoxScoreKey } from '../lib/matchup-box-scores';
 import {
+  currentMatchupWeek,
   type MatchupPeriodContext,
 } from '../lib/matchup-period';
 import type { Matchup, MatchupsData } from '../lib/types';
@@ -63,7 +64,7 @@ export function MatchupsView({
   return <div className={matchupStyles.page}>
     <div className={matchupStyles.toolbar}>
       <PageIntro title="Matchups" league={data.league} />
-      <WeekSelector label="Matchup week" week={data.week} currentWeek={periodContext.defaultWeek}
+      <WeekSelector label="Matchup week" week={data.week} currentWeek={currentMatchupWeek(periodContext)}
         maxWeek={data.league.maxWeek} onChange={week => router.push(`${matchupsPath}?week=${week}`)}
         hrefForWeek={week => `${matchupsPath}?week=${week}`} />
     </div>
