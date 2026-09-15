@@ -5,16 +5,21 @@ import { parseMatchupWeek } from '@/lib/matchup-week';
 import { currentMatchupWeek, type MatchupPeriodContext } from '@/lib/matchup-period';
 import { readStoredMatchups } from '@/lib/projection-reader';
 import type { LeagueKey } from '@/lib/leagues';
-import { getCurrentMatchupPeriodContext, getOfficialMatchups, getOverview, getManager, getStandings, getTransactions } from '@/lib/sleeper';
+import { getCurrentMatchupPeriodContext, getOfficialMatchups, getOverview, getManager, getStandings, getTransactions, getSiteWeekRollover } from '@/lib/sleeper';
 import { MatchupsView } from './matchups-view';
 import { ManagerView } from './manager-view';
 import { ManagersView } from './managers-view';
 import { StandingsView } from './standings-view';
 import type { StandingsProjectionSource } from './projected-standings-live';
 import { TransactionsView } from './transactions-view';
+import type { SiteWeekRollover } from './use-site-week-rollover';
 
 type MatchupSearchParams = Promise<{ week?: string }>;
 type ManagerParams = Promise<{ id: string }>;
+
+async function loadRollover(leagueId: string): Promise<SiteWeekRollover | null> {
+  try { return await getSiteWeekRollover(leagueId); } catch { return null; }
+}
 
 function contextForSelectedWeek(context: MatchupPeriodContext, week: number): MatchupPeriodContext {
   const currentWeek = currentMatchupWeek(context);
@@ -37,28 +42,35 @@ export async function LeagueMatchupsPage({
 }) {
   const { week } = await searchParams;
   const requestedWeek = parseMatchupWeek(week) ?? undefined;
-  let persisted = await readStoredMatchups(leagueKey, requestedWeek);
+  const [rollover, initialStored] = await Promise.all([
+    loadRollover(leagueId), readStoredMatchups(leagueKey, requestedWeek),
+  ]);
+  let persisted = initialStored;
   let periodContext: MatchupPeriodContext | undefined = 'context' in persisted
     ? persisted.context : undefined;
-  let selectedWeek = requestedWeek;
+  let selectedWeek = requestedWeek ?? rollover?.week;
   let storedWeek = requestedWeek ?? periodContext?.defaultWeek;
   if (requestedWeek === undefined && periodContext) {
     // Follow a rollover discovered by the first exact read, but bound retries.
     // A newer authority after this budget uses the latest week in official fallback.
     for (let reread = 0; reread < 2; reread += 1) {
-      selectedWeek = currentMatchupWeek(periodContext);
+      selectedWeek = rollover?.week ?? currentMatchupWeek(periodContext);
       if (selectedWeek === storedWeek) break;
       persisted = await readStoredMatchups(leagueKey, selectedWeek);
       storedWeek = selectedWeek;
       if ('context' in persisted && persisted.context) periodContext = persisted.context;
     }
-    selectedWeek = currentMatchupWeek(periodContext);
+    selectedWeek = rollover?.week ?? currentMatchupWeek(periodContext);
   }
-  if (persisted.kind === 'usable' && (selectedWeek === undefined || persisted.payload.week === selectedWeek)) {
+  const authorityAgrees = !rollover || !periodContext || currentMatchupWeek(periodContext) === rollover.week;
+  if (persisted.kind === 'usable' && authorityAgrees
+    && (selectedWeek === undefined || persisted.payload.week === selectedWeek)) {
     return <MatchupsView data={persisted.payload} periodContext={persisted.context}
-      snapshotRevision={persisted.snapshotRevision} verifiedAt={persisted.verifiedAt} />;
+      snapshotRevision={persisted.snapshotRevision} verifiedAt={persisted.verifiedAt}
+      rollover={rollover} followCurrent={requestedWeek === undefined} />;
   }
 
+  if (!authorityAgrees) periodContext = undefined;
   if (!periodContext) {
     try {
       periodContext = await getCurrentMatchupPeriodContext(leagueId, selectedWeek);
@@ -80,11 +92,12 @@ export async function LeagueMatchupsPage({
     refreshDue: false,
   };
   periodContext = contextForSelectedWeek(periodContext, data.week);
-  return <MatchupsView data={data} periodContext={periodContext} snapshotRevision={null} verifiedAt={null} />;
+  return <MatchupsView data={data} periodContext={periodContext} snapshotRevision={null} verifiedAt={null}
+    rollover={rollover} followCurrent={requestedWeek === undefined} />;
 }
 
 export async function LeagueStandingsPage({ leagueId, leagueKey }: { leagueId: string; leagueKey: LeagueKey }) {
-  const data = await getStandings(leagueId);
+  const [data, rollover] = await Promise.all([getStandings(leagueId), loadRollover(leagueId)]);
   let projectionSource: StandingsProjectionSource | null = null;
   if (data.projectionBasis?.kind === 'ready') {
     const week = data.projectionBasis.week;
@@ -103,25 +116,26 @@ export async function LeagueStandingsPage({ leagueId, leagueKey }: { leagueId: s
       }
     }
   }
-  return <StandingsView key={leagueKey} data={data} projectionSource={projectionSource} />;
+  return <StandingsView key={leagueKey} data={data} projectionSource={projectionSource} rollover={rollover} />;
 }
 
 export async function LeagueManagersPage({ leagueId }: { leagueId: string }) {
-  return <ManagersView data={await getOverview(leagueId)} />;
+  const [data, rollover] = await Promise.all([getOverview(leagueId), loadRollover(leagueId)]);
+  return <ManagersView data={data} rollover={rollover} />;
 }
 
 export async function LeagueManagerPage({ leagueId, params }: { leagueId: string; params: ManagerParams }) {
   const { id } = await params;
   if (!/^\d+$/u.test(id)) notFound();
-  const data = await getManager(leagueId, Number(id));
+  const [data, rollover] = await Promise.all([getManager(leagueId, Number(id)), loadRollover(leagueId)]);
   if (!data) notFound();
-  return <ManagerView data={data} />;
+  return <ManagerView data={data} rollover={rollover} />;
 }
 
 export async function LeagueTransactionsPage({ leagueId, params }: { leagueId: string; params: ManagerParams }) {
   const { id } = await params;
   if (!/^\d+$/u.test(id)) notFound();
-  const data = await getTransactions(leagueId, Number(id));
+  const [data, rollover] = await Promise.all([getTransactions(leagueId, Number(id)), loadRollover(leagueId)]);
   if (!data) notFound();
-  return <TransactionsView data={data} />;
+  return <TransactionsView data={data} rollover={rollover} />;
 }

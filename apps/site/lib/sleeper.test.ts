@@ -27,10 +27,12 @@ vi.mock('next/cache', () => ({
   },
 }));
 import { LEAGUE_IDS } from './config';
+import seasonEvidence from '../test-support/fixtures/sleeper-2026-season-schedule.json';
 import { addWaiverBalances, normalizeTeams, type SleeperRoster, type SleeperUser } from './transform';
 import {
   getCurrentLeagueWeek,
   getCurrentMatchupPeriodContext,
+  getSiteWeekRollover,
   getFantasyPlayerCatalog,
   getOfficialMatchups,
   getOverview,
@@ -66,6 +68,9 @@ let rawUsers: unknown[];
 let rawMatchups: unknown[];
 let playerCatalog: unknown | undefined;
 let testNow = 0;
+// Calendar evidence is independent of raw Sleeper display/leg fields.
+let siteScheduleWeek: number;
+let siteSeasonEvidence: unknown | undefined;
 
 const rosterSettings = {
   wins: 0,
@@ -126,7 +131,9 @@ function schedulePairsForWeek(week: number) {
 function seasonSchedule() {
   return Array.from({ length: 18 }, (_, index) => index + 1)
     .flatMap((week) => schedulePairsForWeek(week).map(([home, away]) => ({
-      status: 'pre_game', date: '2026-09-13', home, away, week, game_id: `${week}-${home}-${away}`,
+      status: week < siteScheduleWeek || leagueStatus === 'complete' || stateSeason > '2026' ? 'complete' : 'pre_game',
+      date: new Date(Date.parse('2026-09-13T00:00:00Z') + (week - siteScheduleWeek) * 7 * 86_400_000).toISOString().slice(0, 10),
+      home, away, week, game_id: `${week}-${home}-${away}`,
     })));
 }
 
@@ -148,7 +155,7 @@ function valueFor(path: string): unknown {
   if (path === '/players/nfl') return playerCatalog ?? {
     qb: { full_name: 'Quarter Back', position: 'QB', team: 'IND', injury_status: playerInjury, status: 'Active' },
   };
-  if (path === '/schedule/nfl/regular/2026') return seasonSchedule();
+  if (path === '/schedule/nfl/regular/2026') return siteSeasonEvidence ?? seasonSchedule();
   if (path.startsWith('/scores/nfl/regular/2026/')) {
     const week = Number(path.split('/').at(-1));
     return schedulePairsForWeek(week).map(([home, away]) => ({
@@ -185,6 +192,10 @@ function valueFor(path: string): unknown {
 }
 
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-09-13T16:00:00Z'));
+  siteScheduleWeek = 3;
+  siteSeasonEvidence = undefined;
   reactCacheControl.enabled = false;
   reactCacheControl.generation += 1;
   testNow += 301_000;
@@ -241,6 +252,7 @@ function makeProjectionWeekReady(
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -250,6 +262,7 @@ function standingsSource(
   history: Record<number, unknown>,
   settings: Record<string, unknown> = {},
 ) {
+  siteScheduleWeek = week;
   expectedRosterCount = official.length;
   rawRosters = official.map((record, index) => ({
     roster_id: index + 1, owner_id: `member-${index + 1}`, players: ['qb'], starters: ['qb'],
@@ -280,6 +293,105 @@ function standingsSource(
   return concurrency;
 }
 
+describe('shared schedule-based site calendar', () => {
+  it.each([
+    ['2026-09-15T15:59:59.999Z', 1],
+    ['2026-09-15T16:00:00.000Z', 2],
+  ] as const)('uses the same week across both leagues and every loader at %s', async (at, expectedWeek) => {
+    vi.setSystemTime(new Date(at));
+    siteSeasonEvidence = seasonEvidence.body;
+    rawMatchups = [{ roster_id: 1, matchup_id: null, points: null, players: ['qb'], starters: ['qb'] }];
+    for (const id of [leagueOneId, leagueTwoId]) {
+      const [overview, standings, matchups, rosterLoad, context, cadence, rollover] = await Promise.all([
+        getOverview(id), getStandings(id), getOfficialMatchups(id), getRostersWithMetricContext(id),
+        getCurrentMatchupPeriodContext(id), getProjectionCadenceInput(id, at), getSiteWeekRollover(id),
+      ]);
+      expect([overview.league.week, standings.league.week, matchups.week, rosterLoad.data.currentWeek,
+        rosterLoad.data.week, context.defaultWeek, context.activeWeek, cadence.week,
+        cadence.defaultDisplayWeek, cadence.activeScoringWeek, cadence.currentNflWeek, rollover.week])
+        .toEqual(Array(12).fill(expectedWeek));
+      expect(cadence.sourceNflWeek).toBe(3); // Raw Sleeper data was not rewritten.
+      expect(cadence.siteWeekPolicy).toMatchObject({ evaluatedAt: at });
+      expect(rosterLoad.metricContext).toMatchObject({ throughWeek: expectedWeek, provisionalWeek: expectedWeek });
+      expect((await getOfficialMatchups(id, 1)).week).toBe(1);
+      expect((await getOfficialMatchups(id, 3)).week).toBe(3);
+    }
+    expect(vi.mocked(fetch).mock.calls.every(([input]) => new URL(String(input)).hostname.startsWith('api.sleeper.'))).toBe(true);
+  });
+
+  it('reevaluates unchanged cached schedule evidence when a new request crosses noon', async () => {
+    siteSeasonEvidence = seasonEvidence.body;
+    reactCacheControl.enabled = true;
+    vi.setSystemTime(new Date('2026-09-15T15:59:59.999Z'));
+    const before = await getProjectionCadenceInput(leagueOneId);
+    reactCacheControl.generation += 1;
+    vi.setSystemTime(new Date('2026-09-15T16:00:00.000Z'));
+    const after = await getProjectionCadenceInput(leagueOneId);
+    expect(before.week).toBe(1);
+    expect(after.week).toBe(2);
+    expect(before.siteWeekPolicy?.scheduleRevision).toBe(after.siteWeekPolicy?.scheduleRevision);
+    expect(before.siteWeekPolicy?.nextRolloverAt).not.toBe(after.siteWeekPolicy?.nextRolloverAt);
+  });
+
+  it('shares a single season request with both league calendars and exact-week schedule loads', async () => {
+    reactCacheControl.enabled = true;
+    await Promise.all([getProjectionCadenceInput(leagueOneId), getProjectionCadenceInput(leagueTwoId),
+      getOfficialMatchups(leagueOneId), getOfficialMatchups(leagueTwoId)]);
+    expect(vi.mocked(fetch).mock.calls.filter(([input]) => requestPath(input) === '/schedule/nfl/regular/2026')).toHaveLength(1);
+  });
+
+  it('does not advance an unfinished game after the scheduled noon boundary', async () => {
+    vi.setSystemTime(new Date('2026-09-15T17:00:00Z'));
+    siteSeasonEvidence = seasonEvidence.body.map((game) => game.game_id === '202610116'
+      ? { ...game, status: 'in_progress' } : game);
+    expect(await getCurrentMatchupPeriodContext(leagueOneId)).toMatchObject({ defaultWeek: 1, activeWeek: 1 });
+    expect(await getSiteWeekRollover(leagueOneId)).toMatchObject({ week: 1, nextRolloverAt: '2026-09-15T16:00:00.000Z' });
+  });
+
+  it('reports missing schedule authority instead of substituting Sleeper display or scoring week', async () => {
+    failures.add('/schedule/nfl/regular/2026');
+    await expect(getCurrentLeagueWeek(leagueOneId)).rejects.toThrow('schedule data could not be loaded');
+    await expect(getProjectionCadenceInput(leagueOneId)).rejects.toThrow('schedule data could not be loaded');
+    expect(vi.mocked(fetch).mock.calls.some(([input]) => requestPath(input).startsWith('/scores/'))).toBe(false);
+  });
+
+  it('includes new-week transactions when every raw Sleeper week field is behind', async () => {
+    siteScheduleWeek = 2;
+    leagueLeg = 1;
+    const originalFetch = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation((input, init) => requestPath(input) === '/state/nfl'
+      ? Promise.resolve(Response.json({ season: '2026', season_type: 'regular', week: 1, leg: 1, display_week: 1 }))
+      : originalFetch(input, init));
+    await getLeagueTransactions(leagueOneId, 'league1');
+    expect(vi.mocked(fetch).mock.calls.some(([input]) => requestPath(input) === `${leaguePath}/transactions/2`)).toBe(true);
+  });
+
+  it('keeps completed Week 18 and its correction schedule when Sleeper later changes phase', async () => {
+    vi.setSystemTime(new Date('2027-02-01T17:00:00Z'));
+    siteSeasonEvidence = seasonEvidence.body.map((game) => game.status === 'canceled' ? game : { ...game, status: 'complete' });
+    lastScoredLeg = 17;
+    for (const phase of ['regular', 'post']) {
+      seasonType = phase;
+      const input = await getProjectionCadenceInput(leagueOneId);
+      expect(input).toMatchObject({ week: 18, defaultDisplayWeek: 18, activeScoringWeek: null, leagueLifecycle: 'complete' });
+      expect(Object.keys(input.schedule).length).toBe(32);
+    }
+  });
+
+  it.each([17, 18])('retains exact Week %i schedule for final/correction operators without decorating historical players', async (week) => {
+    vi.setSystemTime(new Date('2027-02-01T17:00:00Z'));
+    leagueStatus = 'complete';
+    makeProjectionWeekReady();
+    const source = await getProjectionSyncInput(leagueOneId, { season: 2026, seasonType: 'regular', week });
+    expect(source.data.week).toBe(week);
+    expect(Object.keys(source.schedule)).toHaveLength(32);
+    expect(Object.values(source.schedule).filter((game) => game.kind === 'bye')).toHaveLength(2);
+    expect(source.rosteredPlayers.every((player) => player.game === null)).toBe(true);
+    expect(source.data.matchups.flatMap((matchup) => matchup.sides)
+      .flatMap((side) => side.starters).every((player) => player.game === null)).toBe(true);
+  });
+});
+
 describe('official basis for projected standings', () => {
   const weekRows = (left: number, right: number) => [
     { roster_id: 1, matchup_id: 1, points: left, players: ['qb'], starters: ['qb'] },
@@ -297,7 +409,7 @@ describe('official basis for projected standings', () => {
       { id: 2, wins: 0, losses: 0, ties: 0, pointsFor: 0, pointsAgainst: 0 },
     ] });
     expect(vi.mocked(fetch).mock.calls.map(([input]) => requestPath(input)).sort()).toEqual([
-      leaguePath, `${leaguePath}/rosters`, `${leaguePath}/users`, '/state/nfl',
+      leaguePath, `${leaguePath}/rosters`, `${leaguePath}/users`, '/state/nfl', '/schedule/nfl/regular/2026',
     ].sort());
   });
 
@@ -430,14 +542,15 @@ describe('Sleeper service error handling', () => {
       || path.includes('/players/nfl') || path.includes('/matchups/'))).toBe(false);
   });
 
-  it('loads the current league week from only cached league and NFL-state inputs', async () => {
+  it('loads the current league week from cached league, NFL phase and the shared season schedule', async () => {
     await expect(getCurrentLeagueWeek(leagueOneId)).resolves.toBe(3);
 
     const calls = vi.mocked(fetch).mock.calls;
-    expect(calls.map(([input]) => requestPath(input))).toEqual([leaguePath, '/state/nfl']);
+    expect(calls.map(([input]) => requestPath(input))).toEqual([leaguePath, '/state/nfl', '/schedule/nfl/regular/2026']);
     expect(calls.map(([, init]) => init)).toEqual([
       expect.objectContaining({ next: { revalidate: 60 } }),
       expect.objectContaining({ next: { revalidate: 60 } }),
+      expect.objectContaining({ next: { revalidate: 3600 } }),
     ]);
   });
 
@@ -619,7 +732,7 @@ describe('Sleeper service error handling', () => {
     expect(leagueTwo.teams[0].waiverBudgetRemaining).toBe(220);
     expect(leagueTwo.teams[0].waiverOrder).toBe(4);
     const paths = vi.mocked(fetch).mock.calls.map(([input]) => requestPath(input));
-    expect(paths).toHaveLength(8);
+    expect(paths).toHaveLength(10);
     expect(paths).toEqual(expect.arrayContaining([
       leaguePath,
       `${leaguePath}/rosters`,
@@ -936,17 +1049,18 @@ describe('Sleeper NFL game details', () => {
     expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes('/scores/nfl/regular/2026/1'))).toBe(false);
   });
 
-  it('uses a completed league\'s last scored week and never decorates its Week 18 history', async () => {
+  it('retains the completed NFL calendar week without decorating completed-season history', async () => {
+    vi.setSystemTime(new Date('2027-02-01T17:00:00Z'));
     leagueStatus = 'complete';
     leagueLeg = 18;
     lastScoredLeg = 17;
     stateSeason = '2027';
     const latest = await getOfficialMatchups(leagueOneId);
     const week18 = await getOfficialMatchups(leagueOneId, 18);
-    expect(latest.week).toBe(17);
+    expect(latest.week).toBe(18);
     expect(latest.matchups[0].sides[0].starters[0].game).toBeNull();
     expect(week18.matchups[0].sides[0].starters[0].game).toBeNull();
-    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes('/schedule/nfl/regular/'))).toBe(false);
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes('/schedule/nfl/regular/2026'))).toBe(true);
     expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes('/scores/nfl/regular/'))).toBe(false);
   });
 
@@ -1004,6 +1118,7 @@ describe('Sleeper current injury metadata', () => {
 
 describe('Sleeper official matchup fallback', () => {
   it.each([1, 3])('defaults page data to active Week 2 with display Week %i', async (displayWeek) => {
+    siteScheduleWeek = 2;
     const originalFetch = vi.mocked(fetch).getMockImplementation()!;
     vi.mocked(fetch).mockImplementation((input, init) => requestPath(input) === '/state/nfl'
       ? Promise.resolve(Response.json({ season: '2026', season_type: 'regular', week: 2, leg: 2, display_week: displayWeek }))
@@ -1012,12 +1127,12 @@ describe('Sleeper official matchup fallback', () => {
     expect((await getOfficialMatchups(leagueOneId)).week).toBe(2);
     expect((await getOfficialMatchups(leagueOneId, 1)).week).toBe(1);
     expect((await getStandings(leagueOneId)).league.week).toBe(2);
-    expect((await getOverview(leagueOneId)).league.week).toBe(displayWeek);
+    expect((await getOverview(leagueOneId)).league.week).toBe(2);
     expect(await getCurrentMatchupPeriodContext(leagueOneId)).toMatchObject({
-      defaultWeek: displayWeek, activeWeek: 2, temporalState: 'active',
+      defaultWeek: 2, activeWeek: 2, temporalState: 'active',
     });
     expect(await getCurrentMatchupPeriodContext(leagueOneId, 1)).toMatchObject({
-      defaultWeek: displayWeek, activeWeek: 2, temporalState: 'past',
+      defaultWeek: 2, activeWeek: 2, temporalState: 'past',
     });
   });
 
@@ -1038,6 +1153,7 @@ describe('Sleeper official matchup fallback', () => {
 
 describe('Sleeper league rosters view', () => {
   it('uses the active scoring week when display week lags, isolating a null starter list', async () => {
+    siteScheduleWeek = 2;
     expectedRosterCount = 2;
     playerInjury = 'Questionable';
     rawRosters = [
@@ -1115,6 +1231,7 @@ describe('Sleeper league rosters view', () => {
     { name: 'preseason', state: { season: '2026', season_type: 'pre', leg: 2, week: 2, display_week: 2 }, selectedWeek: 2, displayWeek: 1 },
     { name: 'missing NFL state', state: null, selectedWeek: 4, displayWeek: 3 },
   ])('keeps future lineup readiness strict with $name', async ({ state, selectedWeek, displayWeek }) => {
+    siteScheduleWeek = displayWeek;
     rawMatchups = [{ roster_id: 1, matchup_id: null, points: null, players: ['qb'], starters: ['qb'] }];
     const originalFetch = vi.mocked(fetch).getMockImplementation()!;
     vi.mocked(fetch).mockImplementation((input, init) => requestPath(input) === '/state/nfl'
@@ -1239,6 +1356,7 @@ describe('Sleeper league rosters view', () => {
   });
 
   it('never treats current injury, IR, or taxi fields as completed-season history', async () => {
+    vi.setSystemTime(new Date('2027-02-01T17:00:00Z'));
     leagueStatus = 'complete';
     leagueLeg = 18;
     lastScoredLeg = 17;

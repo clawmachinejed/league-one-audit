@@ -39,6 +39,15 @@ const schedulePairs = Array.from({ length: NFL_TEAM_CODES.length / 2 }, (_, inde
   awayTeam: NFL_TEAM_CODES[index * 2],
   homeTeam: NFL_TEAM_CODES[index * 2 + 1],
 }));
+// This entire operator fixture is synthetic. Extend its unchanged Week 1 pairs
+// into a complete calendar: every team plays 17 times, with one bye in Weeks 3–18.
+const calendarSchedule = Array.from({ length: 18 }, (_, index) => index + 1).flatMap((week) => (
+  schedulePairs.filter((_, index) => week < 3 || index !== week - 3).map(({ awayTeam, homeTeam }) => ({
+    status: week === 1 ? 'complete' : 'pre_game',
+    date: new Date(Date.parse('2026-09-13T00:00:00.000Z') + (week - 1) * 7 * 86_400_000).toISOString().slice(0, 10),
+    away: awayTeam, home: homeTeam, week, game_id: `${week}-${awayTeam}-${homeTeam}`,
+  }))
+));
 
 globalThis.fetch = async (input: string | URL | Request) => {
   const url = new URL(input instanceof Request ? input.url : String(input));
@@ -77,10 +86,7 @@ globalThis.fetch = async (input: string | URL | Request) => {
     });
   }
   if (url.pathname === '/schedule/nfl/regular/2026') {
-    return Response.json(schedulePairs.map(({ awayTeam, homeTeam }) => ({
-      status: 'complete', date: '2026-09-13', away: awayTeam, home: homeTeam,
-      week: 1, game_id: `1-${awayTeam}-${homeTeam}`,
-    })));
+    return Response.json(calendarSchedule);
   }
   if (url.pathname === '/scores/nfl/regular/2026/1') {
     return Response.json(schedulePairs.map(({ awayTeam, homeTeam }) => ({
@@ -309,6 +315,7 @@ if (!catalogEvidence) throw new Error('The production operator did not load its 
 const catalog: FantasyPlayerCatalog = catalogEvidence;
 process.stdout.write(`${JSON.stringify({
   scenario,
+  calendarFixtureClassification: 'synthetic complete 272-game calendar; original synthetic Week 1 pairs and statistics unchanged',
   result,
   catalog: {
     complete: catalog.complete,

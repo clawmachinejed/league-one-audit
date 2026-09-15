@@ -25,6 +25,7 @@ import { RostersView } from './rosters-view';
 import rosterStyles from './rosters.module.css';
 import { ProjectedStandingsSwitch } from './projected-standings-switch';
 import { ProjectedStandingsLive, ProjectedStandingsRecovery, type StandingsProjectionSource } from './projected-standings-live';
+import { useSiteWeekRollover, type SiteWeekRollover } from './use-site-week-rollover';
 
 type Column = Readonly<{ key: StandingsSortKey; label: string; className: string }>;
 
@@ -81,7 +82,8 @@ function metricValue(team: RankedStandingsTeam, key: StandingsSortKey, scoringHa
   }
 }
 
-export function StandingsView({ data, projectionSource = null }: { data: StandingsData; projectionSource?: StandingsProjectionSource | null }) {
+export function StandingsView({ data, projectionSource = null, rollover }: { data: StandingsData; projectionSource?: StandingsProjectionSource | null; rollover?: SiteWeekRollover | null }) {
+  useSiteWeekRollover(rollover);
   const site = useLeagueSite();
   const { selected } = useTeamPreference(data.teams);
   const [view, setView] = useState<StandingsViewName>('standings');

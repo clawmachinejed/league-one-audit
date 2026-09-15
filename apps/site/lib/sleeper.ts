@@ -26,10 +26,12 @@ import {
 import type { LeagueTransactionsData, ManagerData, MatchupsData, OverviewData, Player, ProjectedStandingsBasis, RosterPlayer, RosterSection, RostersData, StandingsData, StandingsTeam, TransactionsData } from './types';
 import type { LeagueKey } from './leagues';
 import { normalizeLeagueTransactions } from './league-transactions';
-import { currentMatchupWeek, matchupTemporalState, type MatchupPeriodContext } from './matchup-period';
+import { matchupTemporalState, type MatchupPeriodContext } from './matchup-period';
 import { calculateTeamPpg, compareRosterStandings, playerMetricBoundary, rosterHistoryBoundary } from './roster-metrics';
-import { canonicalNflTeam } from './nfl-teams';
+import { canonicalNflTeam, NFL_TEAMS } from './nfl-teams';
 import { startingSlots } from './sleeper-lineup';
+import { resolveSiteWeek, type SiteWeekResolution } from './site-week';
+import { assertSiteCalendarNotRegressed } from './site-calendar-authority';
 import { buildCompletedStandingsBasis, reconcileStandingsBasis, standingsTotalsMatch } from './projected-standings';
 import {
   canDecorateMatchupWeek,
@@ -44,7 +46,6 @@ import {
   normalizeTransactions,
   managerLineup,
   playerFromId,
-  sleeperActiveScoringWeek,
   sleeperLeagueLifecycle,
   transactionEndWeek,
   type PlayerCatalog,
@@ -97,6 +98,14 @@ export type ProjectionCadenceInput = Readonly<{
   requestStartedAt: string;
   requestCompletedAt: string;
   verifiedAt: string;
+  siteWeekPolicy?: Readonly<{
+    version: string;
+    scheduleRevision: string;
+    nextRolloverAt: string | null;
+    evaluatedAt: string;
+  }>;
+  /** Unmodified provider week retained separately from the site's operational week. */
+  sourceNflWeek?: number | null;
 }>;
 
 const API = 'https://api.sleeper.app/v1';
@@ -361,7 +370,14 @@ function joinWarnings(...warnings: Array<string | undefined>): string | undefine
   return warnings.filter(Boolean).join(' ') || undefined;
 }
 
-const getLeagueCalendar = cache(async (leagueId: string, revalidate: number) => {
+// Reuse the existing season feed/cache across calendar and exact-week schedule
+// reads. The decision itself is evaluated per request, never cached for an hour.
+const getSeasonSchedule = cache((season: string) => (
+  fetchExternalJson(`${SEASON_SCHEDULE_API}/${season}`, SEASON_SCHEDULE_CACHE_SECONDS)
+));
+const calendarEvaluationTime = cache(() => new Date().toISOString());
+
+const getLeagueCalendar = cache(async (leagueId: string, revalidate: number, evaluatedAt?: string) => {
   const requestStartedAt = new Date().toISOString();
   const [rawLeague, stateResult] = await Promise.all([
     fetchJson(`/league/${leagueId}`, revalidate),
@@ -374,11 +390,33 @@ const getLeagueCalendar = cache(async (leagueId: string, revalidate: number) => 
     throw new Error('Sleeper did not return a valid league. Please check the league configuration.');
   }
   const state = isSleeperState(stateResult.value) ? stateResult.value : null;
+  let lifecycle = sleeperLeagueLifecycle(rawLeague, state);
+  const asOf = evaluatedAt ?? calendarEvaluationTime();
+  // Sleeper retains league lifecycle authority. Once a league is in season,
+  // retain the site's calendar through completion so a later provider phase or
+  // last_scored_leg cannot move a published display week backward.
+  const siteWeek: SiteWeekResolution | null = lifecycle !== 'preseason'
+    ? resolveSiteWeek({ season: rawLeague.season,
+      seasonSchedule: await getSeasonSchedule(rawLeague.season), evaluatedAt: asOf })
+    : null;
+  if (siteWeek?.lastCompletedWeek === 18) lifecycle = 'complete';
+  const league = normalizeLeague(rawLeague, state);
+  if (siteWeek) league.week = siteWeek.week;
+  const activeWeek = lifecycle === 'active' ? siteWeek?.week ?? null : null;
+  // Current workers check their proposal against the existing batched durable
+  // read after SQL publication. Reader calls use the same authority as a floor.
+  if (evaluatedAt === undefined) await assertSiteCalendarNotRegressed({
+    leagueId, season: Number(rawLeague.season), week: league.week, lifecycle,
+  });
   const requestCompletedAt = new Date().toISOString();
   return {
     sourceLeague: rawLeague,
     state,
-    league: normalizeLeague(rawLeague, state),
+    league,
+    lifecycle,
+    activeWeek,
+    siteWeek,
+    evaluatedAt: asOf,
     requestStartedAt,
     requestCompletedAt,
   };
@@ -460,7 +498,7 @@ const getCore = cache(async (leagueId: string) => {
       teams.length ? undefined : 'Sleeper has not provided any league rosters yet.',
     ),
   };
-  return { overview, sourceLeague, state, rosters };
+  return { overview, sourceLeague, state, rosters, calendar };
 });
 
 const getRosterCore = cache(async (leagueId: string) => {
@@ -483,7 +521,7 @@ const getRosterCore = cache(async (leagueId: string) => {
       affected ? `Sleeper returned incomplete or malformed data for ${affected} roster${affected === 1 ? '' : 's'}; other teams remain available.` : undefined,
     ),
   };
-  return { overview, sourceLeague, state, rosterFeed };
+  return { overview, sourceLeague, state, rosterFeed, calendar };
 });
 
 // Cache only the small fields we display. Position-filtered responses avoid the
@@ -516,12 +554,16 @@ async function getWeekSchedule(season: string, week: number): Promise<{
     return { schedule: {}, byeWeeks: {}, canIdentifyByes: false, warning: 'NFL opponent and kickoff information is temporarily unavailable.' };
   }
   const [seasonScheduleValue, scoresValue] = await Promise.all([
-    fetchExternalJson(`${SEASON_SCHEDULE_API}/${season}`, SEASON_SCHEDULE_CACHE_SECONDS).catch(() => null),
+    getSeasonSchedule(season).catch(() => null),
     fetchExternalJson(`${SCORES_API}/${season}/${week}`).catch(() => null),
   ]);
   const result = resolveSleeperSchedule(seasonScheduleValue, scoresValue, season, week);
+  const schedule: WeekSchedule = { ...result.schedule };
+  // Canonical bye identities come from complete season evidence, independently
+  // of which teams happen to occur in current player metadata or league rosters.
+  if (result.canIdentifyByes) for (const team of NFL_TEAMS) schedule[team] ??= { kind: 'bye' };
   return {
-    schedule: result.schedule,
+    schedule,
     byeWeeks: normalizeSleeperByeWeeks(seasonScheduleValue),
     canIdentifyByes: result.canIdentifyByes,
     warning: result.complete ? undefined : 'Some NFL opponent or kickoff information is temporarily unavailable.',
@@ -532,35 +574,23 @@ export async function getOverview(leagueId: string): Promise<OverviewData> {
   return (await getCore(leagueId)).overview;
 }
 
-function presentationWeek(league: SleeperLeague, state: SleeperState | null, displayWeek: number): number {
-  return currentMatchupWeek({
-    defaultSeason: Number(league.season),
-    defaultWeek: displayWeek,
-    activeSeason: state === null ? null : Number(state.season),
-    activeWeek: sleeperActiveScoringWeek(league, state),
-    lifecycle: sleeperLeagueLifecycle(league, state),
-  });
-}
-
 export async function getStandings(leagueId: string): Promise<StandingsData> {
-  const { overview, rosters, sourceLeague, state } = await getCore(leagueId);
+  const { overview, rosters, sourceLeague, calendar } = await getCore(leagueId);
   const teams = addWaiverBalances(overview.teams, rosters, sourceLeague.settings?.waiver_budget);
   return {
     ...overview,
-    league: { ...overview.league, week: presentationWeek(sourceLeague, state, overview.league.week) },
     teams,
-    projectionBasis: await getStandingsProjectionBasis(leagueId, sourceLeague, state, rosters, teams),
+    projectionBasis: await getStandingsProjectionBasis(leagueId, sourceLeague, calendar.activeWeek, rosters, teams),
   };
 }
 
 async function getStandingsProjectionBasis(
   leagueId: string,
   league: SleeperLeague,
-  state: SleeperState | null,
+  week: number | null,
   rosters: readonly SleeperRoster[],
   teams: readonly StandingsTeam[],
 ): Promise<ProjectedStandingsBasis> {
-  const week = sleeperActiveScoringWeek(league, state);
   if (week === null) return { kind: 'unavailable', reason: 'There is no confirmed active regular-season week.' };
   const settings = league.settings;
   const playoffStart = settings?.playoff_week_start;
@@ -704,20 +734,20 @@ export async function getRostersWithMetricContext(
   requestedWeek?: number,
 ): Promise<RostersLoad> {
   const core = await getRosterCore(leagueId);
-  const currentWeek = presentationWeek(core.sourceLeague, core.state, core.overview.league.week);
+  const currentWeek = core.overview.league.week;
   const selectedWeek = requestedWeek === undefined ? currentWeek
     : Number.isInteger(requestedWeek) && requestedWeek >= 1 && requestedWeek <= core.overview.league.maxWeek
       ? requestedWeek : currentWeek;
-  const lifecycle = sleeperLeagueLifecycle(core.sourceLeague, core.state);
+  const lifecycle = core.calendar.lifecycle;
   const boundaryInput = {
     selectedWeek,
-    activeWeek: sleeperActiveScoringWeek(core.sourceLeague, core.state),
+    activeWeek: core.calendar.activeWeek,
     lastScoredWeek: lastScoredWeek(core.sourceLeague),
     lifecycle,
   } as const;
   const historyThrough = rosterHistoryBoundary(boundaryInput);
   const metricBoundary = playerMetricBoundary(boundaryInput);
-  const canDecorate = canDecorateMatchupWeek(core.sourceLeague, core.state, selectedWeek);
+  const canDecorate = canDecorateMatchupWeek(core.sourceLeague, core.state, selectedWeek, core.calendar);
   const [selectedObservation, history, players, nflSchedule] = await Promise.all([
     getCachedRosterWeek(leagueId, selectedWeek),
     loadRosterHistory(leagueId, historyThrough),
@@ -740,8 +770,7 @@ export async function getRostersWithMetricContext(
     ? [...standingsTeams].sort(compareRosterStandings)
     : [...standingsTeams].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }) || a.id - b.id);
   const slots = startingSlots(core.overview.league.rosterPositions);
-  // Display week can lag or lead the scoring week. It remains only the fallback
-  // when no active scoring period is available (including preseason).
+  // The same site calendar controls lineup reference, history and metric bounds.
   const rosterReferenceWeek = boundaryInput.activeWeek ?? core.overview.league.week;
   let futureSlateReady = true;
   if (selectedWeek > rosterReferenceWeek) {
@@ -880,14 +909,14 @@ async function loadMatchupSource(
     throw new Error('A matchup load cannot combine website and projection week selection.');
   }
   const core = await getCore(leagueId);
-  const defaultWeek = presentationWeek(core.sourceLeague, core.state, core.overview.league.week);
+  const defaultWeek = core.overview.league.week;
   const week = projectionTarget
     ? projectionTargetWeek(projectionTarget, core.sourceLeague, core.overview.league.maxWeek)
     : requestedWeek === undefined ? defaultWeek
       : Number.isInteger(requestedWeek) && requestedWeek >= 1 && requestedWeek <= core.overview.league.maxWeek
         ? requestedWeek : defaultWeek;
-  const status = matchupStatus(core.sourceLeague, core.state, week);
-  const canDecorate = canDecorateMatchupWeek(core.sourceLeague, core.state, week);
+  const status = matchupStatus(core.sourceLeague, core.state, week, Date.parse(core.calendar.evaluatedAt), core.calendar);
+  const canDecorate = canDecorateMatchupWeek(core.sourceLeague, core.state, week, core.calendar);
   const [matchupObservation, players, nflSchedule] = await Promise.all([
     loadRawMatchups(
       leagueId,
@@ -895,7 +924,7 @@ async function loadMatchupSource(
       freshMatchups ? 0 : CORE_CACHE_SECONDS,
     ),
     loadPlayerCatalog(),
-    canDecorate
+    (projectionTarget || canDecorate)
       ? getWeekSchedule(core.overview.league.season, week)
       : Promise.resolve({ schedule: {} as WeekSchedule, canIdentifyByes: false, warning: undefined }),
   ]);
@@ -903,14 +932,15 @@ async function loadMatchupSource(
   if (projectionTarget) {
     assertProjectionMatchupReadiness(rows, core.rosters, core.overview.league.rosterPositions);
   } else {
-    const slateExpected = matchupSlateExpected(core.sourceLeague, core.state, week);
+    const slateExpected = matchupSlateExpected(core.sourceLeague, core.state, week,
+      Date.parse(core.calendar.evaluatedAt), core.calendar);
     assertMatchupCompleteness(rows, core.rosters, slateExpected);
   }
   const scheduledMatchups = addScheduleToMatchups(
     normalizeMatchups(rows, core.overview.teams, core.overview.league, players.catalog,
       status),
-    nflSchedule.schedule,
-    nflSchedule.canIdentifyByes,
+    canDecorate ? nflSchedule.schedule : {},
+    canDecorate && nflSchedule.canIdentifyByes,
   );
   const rosteredPlayers = includeRosteredPlayers
     ? addScheduleToPlayers(
@@ -921,8 +951,8 @@ async function loadMatchupSource(
         ...(roster.taxi ?? []),
       ]).filter((id): id is string => typeof id === 'string' && id !== '0'))]
         .map((id, index) => playerFromId(id, 'BN', players.catalog, null, index)),
-      nflSchedule.schedule,
-      nflSchedule.canIdentifyByes,
+      canDecorate ? nflSchedule.schedule : {},
+      canDecorate && nflSchedule.canIdentifyByes,
     )
     : [];
   const displayedRows = scheduledMatchups.reduce((count, matchup) => count + matchup.sides.length, 0);
@@ -1006,20 +1036,22 @@ export async function getOperatorProjectionSyncInput(
  * one-minute operational cache and the shared roster metadata. Schedule caching
  * remains unchanged; managers, player catalogs and matchup scores are omitted.
  */
-export async function getProjectionCadenceInput(leagueId: string): Promise<ProjectionCadenceInput> {
+export async function getProjectionCadenceInput(leagueId: string, evaluatedAt?: string): Promise<ProjectionCadenceInput> {
   const [calendar, rosters] = await Promise.all([
-    getLeagueCalendar(leagueId, CORE_CACHE_SECONDS), getLeagueRosters(leagueId),
+    getLeagueCalendar(leagueId, CORE_CACHE_SECONDS, evaluatedAt), getLeagueRosters(leagueId),
   ]);
   const {
     sourceLeague, state, league, requestStartedAt, requestCompletedAt,
   } = calendar;
   assertRosterCompleteness(sourceLeague, rosters);
-  const activeScoringWeek = sleeperActiveScoringWeek(sourceLeague, state);
+  const activeScoringWeek = calendar.activeWeek;
   const workerWeek = activeScoringWeek ?? league.week;
-  const schedule = canDecorateMatchupWeek(sourceLeague, state, workerWeek)
+  // Keep the final week's canonical schedule available for the existing final
+  // capture/correction lane even after the site calendar finishes Week 18.
+  const schedule = calendar.siteWeek || canDecorateMatchupWeek(sourceLeague, state, workerWeek, calendar)
     ? (await getWeekSchedule(league.season, workerWeek)).schedule
     : {};
-  const currentNflWeek = state
+  const sourceNflWeek = state
     ? [state.leg, state.week]
       .find((value): value is number => typeof value === 'number'
         && Number.isInteger(value) && value >= 1 && value <= 18) ?? null
@@ -1030,38 +1062,52 @@ export async function getProjectionCadenceInput(leagueId: string): Promise<Proje
     defaultDisplayWeek: league.week,
     week: workerWeek,
     activeScoringWeek,
-    leagueLifecycle: sleeperLeagueLifecycle(sourceLeague, state),
+    leagueLifecycle: calendar.lifecycle,
     leagueStatus: sourceLeague.status,
     schedule,
     matchupShape: sleeperMatchupShape(rosters, league.rosterPositions),
-    currentNflSeason: state?.season ?? null,
-    currentNflWeek,
+    currentNflSeason: calendar.siteWeek ? league.season : state?.season ?? null,
+    currentNflWeek: calendar.siteWeek ? calendar.siteWeek.week : sourceNflWeek,
     currentNflSeasonType: state?.season_type ?? null,
+    sourceNflWeek,
+    ...(calendar.siteWeek ? { siteWeekPolicy: {
+      version: calendar.siteWeek.policyVersion,
+      scheduleRevision: calendar.siteWeek.scheduleRevision,
+      nextRolloverAt: calendar.siteWeek.nextRolloverAt,
+      evaluatedAt: calendar.evaluatedAt,
+    } } : {}),
     requestStartedAt,
     requestCompletedAt,
     verifiedAt: new Date().toISOString(),
   };
 }
 
-/** Returns the current league week without loading rosters, managers, players, scores, or schedules. */
+/** Shared calendar only: league identity, NFL phase and the cached season schedule. */
 export async function getCurrentLeagueWeek(leagueId: string): Promise<number> {
   return (await getLeagueCalendar(leagueId, CORE_CACHE_SECONDS)).league.week;
 }
 
-/** Direct Sleeper fallback for period context when the persisted authority is unavailable. */
+/** Browser refresh signal from the same server decision used by worker authority. */
+export async function getSiteWeekRollover(leagueId: string): Promise<{
+  week: number; nextRolloverAt: string | null; evaluatedAt: string;
+}> {
+  const calendar = await getLeagueCalendar(leagueId, CORE_CACHE_SECONDS);
+  return { week: calendar.league.week, nextRolloverAt: calendar.siteWeek?.nextRolloverAt ?? null,
+    evaluatedAt: calendar.evaluatedAt };
+}
+
+/** Shared site-calendar fallback when the persisted authority is unavailable. */
 export async function getCurrentMatchupPeriodContext(
   leagueId: string,
   requestedWeek?: number,
 ): Promise<MatchupPeriodContext> {
-  const { sourceLeague, state, league } = await getLeagueCalendar(leagueId, CORE_CACHE_SECONDS);
+  const { state, league, lifecycle, activeWeek } = await getLeagueCalendar(leagueId, CORE_CACHE_SECONDS);
   const season = Number(league.season);
   if (!Number.isInteger(season)) throw new Error('Sleeper returned an invalid league season.');
-  const lifecycle = sleeperLeagueLifecycle(sourceLeague, state);
-  const activeWeek = sleeperActiveScoringWeek(sourceLeague, state);
   const defaultDisplayPeriod = { season, seasonType: 'regular' as const, week: league.week };
   const activeScoringPeriod = activeWeek === null
     ? null : { season, seasonType: 'regular' as const, week: activeWeek };
-  const targetWeek = requestedWeek ?? presentationWeek(sourceLeague, state, league.week);
+  const targetWeek = requestedWeek ?? league.week;
   return {
     defaultSeason: season,
     defaultWeek: league.week,
@@ -1137,7 +1183,7 @@ export const getTransactionWeeks = cache(async (leagueId: string, lastWeek: numb
 export async function getLeagueTransactions(leagueId: string, leagueKey: LeagueKey): Promise<LeagueTransactionsData> {
   const core = await getCore(leagueId);
   const [history, players] = await Promise.all([
-    getTransactionWeeks(leagueId, transactionEndWeek(core.sourceLeague, core.state)),
+    getTransactionWeeks(leagueId, Math.max(core.overview.league.week, transactionEndWeek(core.sourceLeague, core.state))),
     getPlayers(),
   ]);
   const partial = history.failedWeeks.length > 0;
@@ -1163,7 +1209,7 @@ export async function getTransactions(leagueId: string, id: number): Promise<Tra
   const team = core.overview.teams.find((candidate) => candidate.id === id);
   if (!team) return null;
   const [history, players] = await Promise.all([
-    getTransactionWeeks(leagueId, transactionEndWeek(core.sourceLeague, core.state)),
+    getTransactionWeeks(leagueId, Math.max(core.overview.league.week, transactionEndWeek(core.sourceLeague, core.state))),
     getPlayers(),
   ]);
   const partial = history.failedWeeks.length > 0;

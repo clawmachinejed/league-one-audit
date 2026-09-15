@@ -19,6 +19,7 @@ export type ProjectionFailureCode =
   | 'projection-provider-unavailable'
   | 'provider-persistence-failed'
   | 'period-authority-conflict'
+  | 'period-authority-regression'
   | 'period-authority-unavailable'
   | 'unexpected-worker-failure'
   | 'authority-missing' | 'authority-stale' | 'authority-provider-mismatch'
@@ -62,6 +63,7 @@ export type ProjectionLogEntry = Readonly<{
   weekDistance?: number;
   leagueKey?: string;
   period?: LeaguePeriod;
+  storedAuthorityPeriod?: LeaguePeriod;
   providerGroup?: string;
   modelVersion?: string;
   stageDurationMs?: number;

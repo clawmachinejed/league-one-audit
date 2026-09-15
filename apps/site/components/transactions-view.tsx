@@ -7,6 +7,7 @@ import { EmptyState, formatNumber, Updated } from './league-primitives';
 import { ManagerHeader } from './manager-profile';
 import { useTeamPreference } from './team-preference';
 import { transactionDateLabel, transactionMovementClass, transactionTypeLabel } from './transaction-format';
+import { useSiteWeekRollover, type SiteWeekRollover } from './use-site-week-rollover';
 
 function TransactionCard({ transaction }: { transaction: Transaction }) {
   const resultClass = transaction.result === 'Won' || transaction.result === 'Complete' ? 'positive' : transaction.result === 'Lost' || transaction.result === 'Failed' ? 'negative' : 'neutral';
@@ -16,7 +17,8 @@ function TransactionCard({ transaction }: { transaction: Transaction }) {
   </article>;
 }
 
-export function TransactionsView({ data }: { data: TransactionsData }) {
+export function TransactionsView({ data, rollover }: { data: TransactionsData; rollover?: SiteWeekRollover | null }) {
+  useSiteWeekRollover(rollover);
   useTeamPreference(data.teams);
   const [filter, setFilter] = useState('all');
   const types = [...new Set(data.transactions.map(transaction => transaction.type))].sort();

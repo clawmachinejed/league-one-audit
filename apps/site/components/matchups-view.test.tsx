@@ -38,7 +38,7 @@ describe('Matchups current-week control', () => {
     const currentLink = html.match(/<a[^>]*aria-label="Back to current"[^>]*>Current<\/a>/u)?.[0];
     expect(html).toContain('>Week 2 · Current</option>');
     expect(html).not.toContain('>Week 1 · Current</option>');
-    expect(currentLink).toContain(`href="${LEAGUE_SITES[leagueKey].prefix}/matchups?week=2"`);
+    expect(currentLink).toContain(`href="${LEAGUE_SITES[leagueKey].prefix}/matchups"`);
     expect(html).toContain('value="1" selected=""');
   });
 
@@ -58,6 +58,6 @@ describe('Matchups current-week control', () => {
     const html = render('league1', 2, { ...context, lifecycle: 'preseason', nflPhase: 'preseason',
       activeSeason: null, activeWeek: null, temporalState: 'future' });
     expect(html).toContain('>Week 1 · Current</option>');
-    expect(html).toContain('href="/matchups?week=1"');
+    expect(html).toContain('href="/matchups"');
   });
 });

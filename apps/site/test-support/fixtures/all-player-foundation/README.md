@@ -80,6 +80,19 @@ a content change or cause a false mismatch. The original audit files remain
 unchanged. No weekly-statistics or Tank01 request was made for this supplement;
 the weekly response and incomplete-period outcome remain the original evidence.
 
+The schedule-based calendar runtime replay also uses the separate
+[`sleeper-2026-season-schedule.json`](../sleeper-2026-season-schedule.json) capture
+observed on September 15, 2026 at 17:33:44 UTC. This supplies the complete season
+inventory needed to resolve the site's current week; the original audit did not
+retain that response. The fixture reports this calendar's source, observation
+time and canonical body hash separately. Its later completion labels never
+replace the September 12 stored game phases or weekly statistics. The runtime
+replay must still retain fourteen nonfinal games, unknown participation and an
+incomplete shadow result. It is mixed-date fixture evidence, not a completed
+production observation. The separate synthetic operator fixture extends its
+existing synthetic Week 1 pairs into a clearly labeled 272-game calendar; that
+fixture proves runtime behavior only.
+
 Offline verification of the entire retained raw catalog completed at
 `2026-09-12T18:33:54.622Z` with Node 24.19.0. All 12,227 raw rows passed through
 the shared classifier, `projectPlayerCatalog` and the official identity inventory

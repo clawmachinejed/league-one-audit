@@ -6,6 +6,7 @@ vi.mock('server-only', () => ({}));
 
 const mocks = vi.hoisted(() => ({
   getCurrentMatchupPeriodContext: vi.fn(),
+  getSiteWeekRollover: vi.fn(),
   getOfficialMatchups: vi.fn(),
   getOverview: vi.fn(),
   getStandings: vi.fn(),
@@ -16,6 +17,7 @@ vi.mock('next/navigation', () => ({ notFound: vi.fn() }));
 vi.mock('@/lib/projection-reader', () => ({ readStoredMatchups: mocks.readStoredMatchups }));
 vi.mock('@/lib/sleeper', () => ({
   getCurrentMatchupPeriodContext: mocks.getCurrentMatchupPeriodContext,
+  getSiteWeekRollover: mocks.getSiteWeekRollover,
   getOfficialMatchups: mocks.getOfficialMatchups,
   getOverview: mocks.getOverview,
   getStandings: mocks.getStandings,
@@ -51,6 +53,7 @@ describe('LeagueStandingsPage', () => {
 
   beforeEach(() => {
     vi.resetAllMocks();
+    mocks.getSiteWeekRollover.mockResolvedValue(null);
     mocks.getStandings.mockResolvedValue(standings);
     mocks.getCurrentMatchupPeriodContext.mockResolvedValue(context);
   });
@@ -108,10 +111,40 @@ describe('LeagueMatchupsPage', () => {
 
   beforeEach(() => {
     vi.resetAllMocks();
+    mocks.getSiteWeekRollover.mockResolvedValue(null);
     mocks.getCurrentMatchupPeriodContext.mockResolvedValue({
       defaultSeason: 2026, defaultWeek: 2, activeSeason: 2026, activeWeek: 2,
       lifecycle: 'active', nflPhase: 'regular', temporalState: 'active', refreshDue: false,
     });
+  });
+  it.each(['league1', 'league2'] as const)('uses fresh site Week 2 for %s at noon while stored authority still says Week 1', async leagueKey => {
+    const rollover = { week: 2, nextRolloverAt: '2026-09-22T16:00:00.000Z', evaluatedAt: '2026-09-15T16:00:00.000Z' };
+    mocks.getSiteWeekRollover.mockResolvedValue(rollover);
+    const oldContext = { ...rolloverContext, defaultWeek: 1, activeWeek: 1, temporalState: 'active' };
+    mocks.readStoredMatchups
+      .mockResolvedValueOnce({ kind: 'usable', payload: matchups(1), context: oldContext })
+      .mockResolvedValueOnce({ kind: 'usable', payload: matchups(2), context: { ...oldContext, temporalState: 'future' } });
+    const current = matchups(2);
+    mocks.getOfficialMatchups.mockResolvedValue(current);
+    const rendered = await LeagueMatchupsPage({ leagueId: `id-${leagueKey}`, leagueKey,
+      searchParams: Promise.resolve({}) }) as ReactElement<MatchupsProps & { rollover: typeof rollover; followCurrent: boolean }>;
+    expect(mocks.readStoredMatchups.mock.calls).toEqual([[leagueKey, undefined], [leagueKey, 2]]);
+    expect(mocks.getCurrentMatchupPeriodContext).toHaveBeenCalledExactlyOnceWith(`id-${leagueKey}`, 2);
+    expect(mocks.getOfficialMatchups).toHaveBeenCalledExactlyOnceWith(`id-${leagueKey}`, 2);
+    expect(rendered.props).toMatchObject({ data: current, snapshotRevision: null, rollover, followCurrent: true });
+    expect(rendered.props.periodContext).toMatchObject({ defaultWeek: 2, activeWeek: 2, temporalState: 'active' });
+  });
+
+  it('retains explicit Week 1 at the boundary while updating Current authority', async () => {
+    mocks.getSiteWeekRollover.mockResolvedValue({ week: 2, nextRolloverAt: null, evaluatedAt: '2026-09-15T16:00:00.000Z' });
+    mocks.readStoredMatchups.mockResolvedValue({ kind: 'missing' });
+    mocks.getOfficialMatchups.mockResolvedValue(matchups(1));
+    const rendered = await LeagueMatchupsPage({ leagueId: 'id-league1', leagueKey: 'league1',
+      searchParams: Promise.resolve({ week: '1' }) }) as ReactElement<MatchupsProps & { followCurrent: boolean }>;
+    expect(mocks.getOfficialMatchups).toHaveBeenCalledExactlyOnceWith('id-league1', 1);
+    expect(rendered.props.data.week).toBe(1);
+    expect(rendered.props.followCurrent).toBe(false);
+    expect(rendered.props.periodContext).toMatchObject({ activeWeek: 2, temporalState: 'past' });
   });
   it('supplies the exact stored revision lineage to the browser without a provider request', async () => {
     const current = matchups(2);

@@ -29,6 +29,7 @@ describe('production-shaped retained fixture in real Node outside Next', () => {
     const evidence = JSON.parse(child.stdout) as {
       result: Record<string, unknown>; requests: string[]; unexpectedRequests: string[]; databaseWrites: string[];
       fixtureFailures: string[];
+      calendarEvidence: Record<string, unknown>;
       weeklyIdentitySupplement: Record<string, unknown>;
       observation: { quality: string; entryCount: number; defenseCount: number; coverage: Record<string, unknown>;
         cases: { providerExternalId: string; eligibleGameCount: number | null; appearanceGameCount: number | null }[] };
@@ -45,6 +46,12 @@ describe('production-shaped retained fixture in real Node outside Next', () => {
       observedAt: '2026-09-12T16:36:36.000Z',
       canonicalJsonSha256: '1ce72b13e654617fbfe81c3f408c2ad0a2574f81d7c3a73b70c5b4cce226146e',
       addedIdentityCount: 201, overlappingIdentityCount: 97, overlapMetadataDifferences: [],
+    });
+    expect(evidence.calendarEvidence).toEqual({
+      source: 'https://api.sleeper.com/schedule/nfl/regular/2026',
+      observedAt: '2026-09-15T17:33:44.1032175Z',
+      canonicalJsonSha256: expect.stringMatching(/^[0-9a-f]{64}$/u),
+      scope: 'separate-site-calendar-evidence',
     });
     expect(evidence.observation.cases.find((entry) => entry.providerExternalId === '12529'))
       .toMatchObject({ eligibleGameCount: null, appearanceGameCount: 0 });

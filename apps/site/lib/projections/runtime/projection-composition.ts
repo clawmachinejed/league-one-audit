@@ -13,7 +13,10 @@ import { createProjectionPersistence } from './projection-persistence';
 /** Current work alone receives the calendar source and owns authority refreshes. */
 export function createProductionProjectionDependencies(): LiveProjectionWorkerDependencies {
   const shared = createProductionSharedServices('live-projection-sync');
-  const calendar = createSleeperNflCalendar(getProjectionCadenceInput);
+  // This composition is created once per invocation. Both leagues must evaluate
+  // the rollover at the same instant even when their source loads straddle noon.
+  const evaluatedAt = shared.clock.now().toISOString();
+  const calendar = createSleeperNflCalendar((leagueId) => getProjectionCadenceInput(leagueId, evaluatedAt));
   const lineup = createSleeperLineupSource(getRawLineupMatchups, shared.clock.now);
   return {
     ...shared,

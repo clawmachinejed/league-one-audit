@@ -63,15 +63,25 @@ export function normalizeSleeperScores(value: unknown, season: string, week: num
   return result;
 }
 
-export function normalizeSleeperSeasonSchedule(value: unknown, week: number): WeekSchedule {
-  if (!Array.isArray(value) || !Number.isInteger(week) || week < 1 || week > regularSeasonWeeks) return {};
-  const games: Array<{ week: number; home: string; away: string; date: string }> = [];
+export type SleeperSeasonGame = Readonly<{
+  gameId: string;
+  week: number;
+  home: string;
+  away: string;
+  date: string;
+  status: string | null;
+}>;
+
+/** The shared full-season identity and coverage boundary; canceled rows are excluded. */
+export function validatedSleeperSeasonGames(value: unknown): readonly SleeperSeasonGame[] | null {
+  if (!Array.isArray(value)) return null;
+  const games: SleeperSeasonGame[] = [];
   const gameIds = new Set<string>();
   const teamAppearances = new Map<string, number>();
   const teamsByWeek = Array.from({ length: regularSeasonWeeks + 1 }, () => new Set<string>());
 
   for (const row of value) {
-    if (!isRecord(row)) return {};
+    if (!isRecord(row)) return null;
     if (row.status === 'canceled') continue;
     const gameWeek = typeof row.week === 'number' && Number.isInteger(row.week) ? row.week : null;
     const home = team(row.home);
@@ -80,18 +90,26 @@ export function normalizeSleeperSeasonSchedule(value: unknown, week: number): We
     const gameId = text(row.game_id);
     if (!gameWeek || gameWeek < 1 || gameWeek > regularSeasonWeeks || !home || !away || home === away
       || !gameDate || !gameId || gameIds.has(gameId)
-      || teamsByWeek[gameWeek].has(home) || teamsByWeek[gameWeek].has(away)) return {};
+      || teamsByWeek[gameWeek].has(home) || teamsByWeek[gameWeek].has(away)) return null;
     gameIds.add(gameId);
     teamsByWeek[gameWeek].add(home);
     teamsByWeek[gameWeek].add(away);
     teamAppearances.set(home, (teamAppearances.get(home) ?? 0) + 1);
     teamAppearances.set(away, (teamAppearances.get(away) ?? 0) + 1);
-    games.push({ week: gameWeek, home, away, date: gameDate });
+    games.push({ gameId, week: gameWeek, home, away, date: gameDate,
+      status: typeof row.status === 'string' ? row.status : null });
   }
 
   if (games.length !== regularSeasonGames || teamAppearances.size !== NFL_TEAM_COUNT
     || [...teamAppearances.values()].some((appearances) => appearances !== 17)
-    || teamsByWeek.slice(1).some((teams) => teams.size < 26 || teams.size > 32 || teams.size % 2 !== 0)) return {};
+    || teamsByWeek.slice(1).some((teams) => teams.size < 26 || teams.size > 32 || teams.size % 2 !== 0)) return null;
+  return games;
+}
+
+export function normalizeSleeperSeasonSchedule(value: unknown, week: number): WeekSchedule {
+  if (!Number.isInteger(week) || week < 1 || week > regularSeasonWeeks) return {};
+  const games = validatedSleeperSeasonGames(value);
+  if (!games) return {};
 
   const result: WeekSchedule = {};
   for (const game of games) {

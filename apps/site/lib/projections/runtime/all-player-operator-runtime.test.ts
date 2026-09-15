@@ -50,6 +50,7 @@ function runFixture(scenario: 'complete' | 'failed-position' | 'unresolved-defen
 function parseOutput(output: string) {
   return JSON.parse(output) as Readonly<{
     scenario: string;
+    calendarFixtureClassification: string;
     result: Readonly<Record<string, unknown>>;
     catalog: Readonly<{
       complete: boolean;
@@ -81,6 +82,8 @@ describe('all-player operator catalog runtime outside Next.js', () => {
     expect(child.code, child.stderr).toBe(0);
     expect(child.stderr).not.toContain('incrementalCache');
     const evidence = parseOutput(child.stdout);
+    expect(evidence.calendarFixtureClassification)
+      .toBe('synthetic complete 272-game calendar; original synthetic Week 1 pairs and statistics unchanged');
     expect(evidence.catalog).toMatchObject({
       complete: true,
       sourceRevision: expect.stringMatching(/^sha256:[0-9a-f]{64}$/u),

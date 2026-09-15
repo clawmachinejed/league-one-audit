@@ -46,7 +46,7 @@ The root store facade remains the supported entry point. Runtime-only shared pro
 
 Operational NFL period and league lifecycle reads target no more than 60 seconds of cache age. The current lane writes the normalized durable authority. New lanes read it in a batch and reject a league with missing, malformed, mismatched, regressing, or more-than-ten-minute-old authority. The ten-minute limit is an outage safety threshold, not the healthy refresh target. Schedule/presentation caches remain separate.
 
-Each runtime league configuration supplies its matchup horizon; the current configuration covers Weeks 1–18. The display period can differ from the active scoring period. Snapshot order, today's date alone, and NFL games becoming final do not determine the fantasy current week.
+Each runtime league configuration supplies its matchup horizon; the current configuration covers Weeks 1–18. The authority model retains distinct display and scoring fields, while the [site week calendar](site-week-calendar.md) resolves both regular-season weeks together at noon Eastern after the last scheduled NFL game day, requiring complete-game evidence. Snapshot order or a date alone cannot advance the week. Existing exact-game finality and publication guards remain independent.
 
 | Authoritative state | Observed period | Healthy observation | Materialization owner |
 | --- | --- | --- | --- |

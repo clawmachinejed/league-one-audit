@@ -1,10 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { LEAGUE_SITES } from '../lib/leagues';
 import type { StandingsData, StandingsTeam } from '../lib/types';
 import { LeagueSiteProvider } from './league-context';
 import { formatStandingsPoints, formatWaiverBalance, StandingsView, standingsHaveScoringEvidence } from './standings-view';
+
+vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 
 const team = (overrides: Partial<StandingsTeam> = {}): StandingsTeam => ({
   id: 1, name: 'Team One', managerName: 'Manager One', avatar: null,
