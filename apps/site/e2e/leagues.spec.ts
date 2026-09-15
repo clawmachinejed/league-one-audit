@@ -385,6 +385,30 @@ test('My Team choices remain independent between League One and League Two', asy
     } else {
       await expect(page.getByText(new RegExp(`${teamName.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')} has no posted Week`, 'u'))).toBeVisible();
     }
+    const expectMyMatchupFirstAndLeft = async (stage: string) => {
+      await expect(page.getByRole('heading', { name: 'Matchups', exact: true })).toBeVisible();
+      const matchupCards = page.locator('article:has([data-matchup-toggle])');
+      const teamNames = await matchupCards.locator('[data-team-name]').allTextContents();
+      if (!teamNames.includes(teamName)) {
+        test.info().annotations.push({ type: 'Sleeper data',
+          description: `${prefix || 'League One'} did not return a matchup for ${teamName} ${stage}; first-card orientation was not applicable.` });
+        return;
+      }
+      await expect(matchupCards.first().locator('[data-team-name]').first(),
+        `${prefix || 'League One'} My Team must be first and on the left ${stage}`).toHaveText(teamName);
+    };
+    await mobileNav.getByRole('link', { name: 'Matchups', exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(`${prefix}/matchups$`, 'u'));
+    await expectMyMatchupFirstAndLeft('on the current week');
+    await page.reload({ waitUntil: 'networkidle' });
+    await expectMyMatchupFirstAndLeft('after reloading the current week');
+    const weekPicker = page.getByRole('combobox', { name: 'Matchup week', exact: true });
+    const currentWeek = Number(await weekPicker.inputValue());
+    const anotherWeek = currentWeek < 18 ? currentWeek + 1 : currentWeek - 1;
+    await weekPicker.selectOption(String(anotherWeek));
+    await expect(page).toHaveURL(new RegExp(`${prefix}/matchups\\?week=${anotherWeek}$`, 'u'));
+    await expect(weekPicker).toHaveValue(String(anotherWeek));
+    await expectMyMatchupFirstAndLeft(`after selecting Week ${anotherWeek}`);
     const afterReload = await page.evaluate((keys) => keys.map(key => localStorage.getItem(key)),
       [`league-one:my-team:${LEAGUE_IDS.league1}`, `league-one:my-team:${LEAGUE_IDS.league2}`]);
     expect(afterReload).toEqual(stored);

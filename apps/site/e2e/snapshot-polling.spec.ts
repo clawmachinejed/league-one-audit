@@ -202,7 +202,11 @@ for (const league of ['league1', 'league2'] as const) {
     await expect(page.getByText('Fixture Alpha', { exact: true })).toBeVisible();
     const toggle = page.locator('button[data-matchup-toggle]').first();
     await toggle.click();
+    await expect(toggle.locator('[data-team-name]')).toHaveText(['Fixture Beta', 'Fixture Alpha']);
     const labels = page.locator('[data-player-game]');
+    // The fixture saves roster 2 as My Team. Keep source games unchanged and
+    // assert each starter row in the rendered Beta-left, Alpha-right order.
+    const displayedLabels = (sourceOrder: readonly string[]) => [sourceOrder[1], sourceOrder[0], sourceOrder[3], sourceOrder[2]];
     const expectLabelFit = async () => {
       for (const width of [360, 390, 430, 1280]) {
         await page.setViewportSize({ width, height: 900 });
@@ -219,9 +223,9 @@ for (const league of ['league1', 'league2'] as const) {
       }
       await expect(toggle).toHaveAttribute('aria-expanded', 'true');
     };
-    await expect(labels).toHaveText([
+    await expect(labels).toHaveText(displayedLabels([
       'Thu 8:20 PM @ TEN', 'Thu 8:20 PM vs NYJ', 'Thu 8:20 PM vs LAR', 'Mon 8:15 PM @ KC',
-    ]);
+    ]));
     await expectLabelFit();
 
     if (left.starters[0].game?.kind !== 'scheduled' || right.starters[0].game?.kind !== 'scheduled'
@@ -233,7 +237,7 @@ for (const league of ['league1', 'league2'] as const) {
       fixture.revision = (adoptedCount + 11).toString(16).repeat(64);
       fixture.verifiedAt = new Date(Date.parse(INITIAL_TIME) + adoptedCount * 60_000).toISOString();
       await nextPoll(page, fixture);
-      await expect(labels).toHaveText(expected);
+      await expect(labels).toHaveText(displayedLabels(expected));
       adoptedCount += 1;
       expect(fixture.fullCount).toBe(adoptedCount);
       await expectLabelFit();

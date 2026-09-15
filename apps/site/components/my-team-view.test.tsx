@@ -71,12 +71,26 @@ describe('My Team shared matchup view', () => {
     expect(mocks.select).not.toHaveBeenCalled();
   });
 
-  it('keeps the Matchups page picker, all cards, source orientation and starter-only statistics unchanged', () => {
-    mocks.selected = 2;
-    const html = render('matchups');
+  it.each(['league1', 'league2'] as const)('puts the saved team first and left on Matchups in %s without changing source data', leagueKey => {
+    mocks.selected = 4;
+    const original = JSON.stringify(data);
+    const html = render('matchups', leagueKey);
     expect(html).toContain('<h1>Matchups</h1>');
     expect(html).toContain('<select');
-    expect(mocks.board.mock.calls[0][0]).toMatchObject({ selected: 2, showBench: false, matchups: data.matchups });
+    const board = mocks.board.mock.calls[0][0];
+    expect(board).toMatchObject({ selected: 4, showBench: false, matchups: [
+      { id: 'two', sides: [{ team: { id: 4 } }, { team: { id: 3 } }] }, data.matchups[0],
+    ] });
+    expect(board.matchups).toHaveLength(data.matchups.length);
+    expect(board.matchups[0].sides[0]).toBe(data.matchups[1].sides[1]);
+    expect(JSON.stringify(data)).toBe(original);
+    expect(mocks.select).not.toHaveBeenCalled();
     expect(mocks.boxScores.mock.calls[0][0].lineupKey).not.toContain('bench');
+  });
+
+  it('keeps every Matchups card in source order when no team is selected', () => {
+    render('matchups');
+    expect(mocks.board.mock.calls[0][0]).toMatchObject({ selected: null, showBench: false, matchups: data.matchups });
+    expect(mocks.select).not.toHaveBeenCalled();
   });
 });

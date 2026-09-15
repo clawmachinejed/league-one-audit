@@ -8,6 +8,8 @@ The page shares `LeagueMatchupsPage`, `MatchupsView`, and `MatchupBoard` with Ma
 
 The current week follows the site calendar: noon Eastern on the day after the week's last scheduled NFL game. My Team has a compact current-week label and no historical week selector. Existing calendar validation, rollover refresh, league isolation and safe fallback remain in use.
 
+On Matchups, a saved My Team selection places that matchup first and the selected team on its left for the displayed week. The remaining matchups retain their relative order. Without a saved selection, Matchups preserves source order and side orientation; the standings fallback belongs only to the My Team page. Both pages move the complete side only for display, leaving stored scores, lineups and snapshots unchanged.
+
 ## Bench authority and scoring
 
 The existing bulk Sleeper matchup request supplies exact-week `players`, `starters` and `players_points`. A validated bench is the requested-week player list minus occupied starter IDs. Current reserve/taxi exclusions apply only when the loader has authoritative current-period roster context. Missing, malformed or conflicting membership produces an unavailable bench, not an assumption that all players are benched. An explicit empty starter slot remains different from an unavailable starter list.
