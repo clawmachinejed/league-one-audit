@@ -24,7 +24,7 @@ export const COMPACT_MATCHUP_PAYLOAD_COLUMNS = `
     SELECT jsonb_agg(DISTINCT starter.value #>> '{game,kickoffAt}')
     FROM jsonb_array_elements(${safeJsonArray("snapshot.payload -> 'matchups'")}) matchup(value)
     CROSS JOIN jsonb_array_elements(${safeJsonArray("matchup.value -> 'sides'")}) side(value)
-    CROSS JOIN jsonb_array_elements(${safeJsonArray("side.value -> 'starters'")}) starter(value)
+    CROSS JOIN jsonb_array_elements(${safeJsonArray("side.value -> 'starters'")} || ${safeJsonArray("side.value -> 'bench'")}) starter(value)
     WHERE starter.value #>> '{game,kind}' = 'scheduled'
       AND COALESCE(starter.value #>> '{game,kickoffAt}', '') <> ''
   ), '[]'::jsonb) AS scheduled_kickoffs,
@@ -32,7 +32,7 @@ export const COMPACT_MATCHUP_PAYLOAD_COLUMNS = `
     SELECT jsonb_agg(DISTINCT starter.value #>> '{game,date}')
     FROM jsonb_array_elements(${safeJsonArray("snapshot.payload -> 'matchups'")}) matchup(value)
     CROSS JOIN jsonb_array_elements(${safeJsonArray("matchup.value -> 'sides'")}) side(value)
-    CROSS JOIN jsonb_array_elements(${safeJsonArray("side.value -> 'starters'")}) starter(value)
+    CROSS JOIN jsonb_array_elements(${safeJsonArray("side.value -> 'starters'")} || ${safeJsonArray("side.value -> 'bench'")}) starter(value)
     WHERE starter.value #>> '{game,kind}' = 'scheduled'
       AND COALESCE(starter.value #>> '{game,kickoffAt}', '') = ''
   ), '[]'::jsonb) AS scheduled_dates_without_kickoff`;
@@ -102,4 +102,3 @@ export function createSnapshotRevisionMethods(client: DatabaseClient): RevisionM
     },
   };
 }
-

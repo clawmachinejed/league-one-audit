@@ -1,11 +1,13 @@
 import type { ProjectionSyncInput, ProjectionTargetPeriod } from '../../../sleeper';
 import { canonicalNflTeam } from '../../../nfl-teams';
 import type { Player } from '../../../types';
+import { numberOrNull, type SleeperMatchup } from '../../../transform';
 import type {
   LeagueConfiguration,
   LeaguePeriod,
   LeagueWeekState,
   LineupSlot,
+  OccupiedLineupSlot,
   NflWeekSchedule,
   ProjectionParticipant,
   ScoringEntity,
@@ -85,6 +87,23 @@ function lineupSlot(player: Player, provider: ProviderKey): LineupSlot {
     entity: scoringEntity(player, provider),
     officialPoints: player.points,
   };
+}
+
+function benchSlots(players: readonly Player[] | null | undefined, row: SleeperMatchup | undefined,
+  provider: ProviderKey): OccupiedLineupSlot[] | null | undefined {
+  if (players == null) return players;
+  if (!row || !Array.isArray(row.players) || !row.starters?.length
+    || row.players.some((id) => typeof id !== 'string' || !id.trim() || id !== id.trim() || id === '0')
+    || new Set(row.players).size !== row.players.length || new Set(players.map((player) => player.id)).size !== players.length
+    || row.starters.some((id) => id !== '0' && !row.players!.includes(id))
+    || players.some((player) => !row.players!.includes(player.id) || row.starters!.includes(player.id))) return null;
+  try {
+    const slots = players.map((player) => lineupSlot({ ...player, points: numberOrNull(row.players_points?.[player.id]) }, provider));
+    return slots.every((slot): slot is OccupiedLineupSlot => slot.kind === 'occupied') ? slots : null;
+  } catch {
+    // Optional bench metadata cannot invalidate the known starting lineup.
+    return null;
+  }
 }
 
 function participants(
@@ -208,6 +227,10 @@ export async function translateSleeperLeagueWeek(
         officialPoints: side.points,
         starters: unavailableRosterIds.has(String(side.team.id))
           ? [] : side.starters.map((player) => lineupSlot(player, provider)),
+        ...(side.bench === undefined ? {} : {
+          bench: unavailableRosterIds.has(String(side.team.id)) ? null
+            : benchSlots(side.bench, source.rawMatchups.find((row) => row.roster_id === side.team.id), provider),
+        }),
       })),
     })),
     rosteredEntities: rosteredEntities(source, provider),

@@ -109,6 +109,8 @@ export type OfficialMatchupSide = Readonly<{
   officialPoints: number | null;
   /** No entries means the whole lineup is unavailable. Known empty slots stay explicit. */
   starters: readonly LineupSlot[];
+  /** Only supplied when the exact-week roster and starter assignments are known. */
+  bench?: readonly OccupiedLineupSlot[] | null;
 }>;
 
 export type MatchupStatus = 'upcoming' | 'live' | 'final' | 'unknown';
@@ -362,6 +364,7 @@ export type ProjectedMatchupSide = Readonly<{
   officialPoints: number | null;
   projectedPoints: number | null;
   starters: readonly ProjectedLineupSlot[];
+  bench?: readonly (OccupiedLineupSlot & Readonly<{ presentationProjectedPoints: number | null }>)[] | null;
 }>;
 
 export type ProjectedMatchup = Readonly<{

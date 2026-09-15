@@ -6,10 +6,12 @@ const sharedNavigationViewports = [
   { name: 'minimum supported width', width: 320, height: 800 },
   { name: 'iPhone width', width: 390, height: 844 },
   { name: 'wide mobile', width: 504, height: 932 },
+  { name: 'desktop navigation boundary', width: 760, height: 900 },
   { name: 'desktop', width: 1280, height: 900 },
 ] as const;
 
 const primaryNavigation = [
+  { section: 'my-team', label: 'My Team' },
   { section: 'matchups', label: 'Matchups' },
   { section: 'standings', label: 'League' },
   { section: 'managers', label: 'Managers' },
@@ -140,6 +142,7 @@ test('the shared navigation uses Matchups geometry at every required width in bo
           await expect(navigation.getByRole('link', { name: item.label, exact: true }))
             .toHaveAttribute('href', `${prefix}/${item.section}`);
         }
+        await expect(navigation.locator(':scope > a')).toHaveText(primaryNavigation.map(item => item.label));
 
         if (viewport.width >= 760) return;
 
@@ -158,7 +161,7 @@ test('the shared navigation uses Matchups geometry at every required width in bo
         expect(geometry.trigger?.width).toBeCloseTo(44, 1);
         expect(geometry.trigger?.height).toBeCloseTo(44, 1);
 
-        const expectedColumnWidth = (geometry.width - geometry.paddingLeft - geometry.paddingRight) / 4;
+        const expectedColumnWidth = (geometry.width - geometry.paddingLeft - geometry.paddingRight) / 5;
         for (const item of geometry.items) {
           expect(item.width).toBeCloseTo(expectedColumnWidth, 1);
           expect(item.height).toBeCloseTo(44, 1);
@@ -172,18 +175,19 @@ test('the shared navigation uses Matchups geometry at every required width in bo
           expect(item.iconHeight).toBeCloseTo(19, 1);
           expect(item.iconStrokeWidth).toBe('1.7');
         }
-        expect(geometry.items.map(item => item.y)).toEqual([geometry.items[0].y, geometry.items[0].y, geometry.items[0].y]);
-        expect(geometry.items.map(item => item.iconY)).toEqual([geometry.items[0].iconY, geometry.items[0].iconY, geometry.items[0].iconY]);
-        expect(geometry.items.map(item => item.labelY)).toEqual([geometry.items[0].labelY, geometry.items[0].labelY, geometry.items[0].labelY]);
+        expect(geometry.items.map(item => item.y)).toEqual(geometry.items.map(() => geometry.items[0].y));
+        expect(geometry.items.map(item => item.iconY)).toEqual(geometry.items.map(() => geometry.items[0].iconY));
+        expect(geometry.items.map(item => item.labelY)).toEqual(geometry.items.map(() => geometry.items[0].labelY));
         expect(geometry.items[1].x - geometry.items[0].x).toBeCloseTo(expectedColumnWidth, 1);
         expect(geometry.items[2].x - geometry.items[1].x).toBeCloseTo(expectedColumnWidth, 1);
+        expect(geometry.items[3].x - geometry.items[2].x).toBeCloseTo(expectedColumnWidth, 1);
       });
     }
   }
 });
 
 test('League navigation stays distinct from Standings content and does not resize between sections', async ({ page }) => {
-  for (const viewport of [sharedNavigationViewports[1], sharedNavigationViewports[3]]) {
+  for (const viewport of [sharedNavigationViewports[1], sharedNavigationViewports[4]]) {
     for (const prefix of ['', '/league2'] as const) {
       await test.step(`${prefix || 'League One'} at ${viewport.name}`, async () => {
         await page.setViewportSize(viewport);
@@ -300,6 +304,24 @@ test('selecting the active league preserves the viewed matchup week', async ({ p
   await expect(page.getByLabel('Matchup week')).toHaveValue('5');
 });
 
+test('My Team stays in the same section when switching leagues and always shows the current week', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/my-team?week=1', { waitUntil: 'networkidle' });
+  await expect(page.getByRole('heading', { name: 'My Team', exact: true })).toBeVisible();
+  await expect(page.getByLabel('Matchup week', { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel(/^Current matchup week \d+$/u)).toBeVisible();
+  const mobileNav = page.getByRole('navigation', { name: 'Mobile navigation' });
+  await expect(mobileNav.getByRole('link', { name: 'My Team', exact: true })).toHaveAttribute('aria-current', 'page');
+  await mobileNav.getByRole('button', { name: 'Choose league, current League One' }).click();
+  await expect(mobileNav.getByRole('link', { name: 'View League Two' })).toHaveAttribute('href', '/league2/my-team');
+  await mobileNav.getByRole('link', { name: 'View League Two' }).click();
+  await expect(page).toHaveURL(/\/league2\/my-team$/u);
+  await expect(page.getByRole('heading', { name: 'My Team', exact: true })).toBeVisible();
+  await expect(page.getByLabel(/^Current matchup week \d+$/u)).toBeVisible();
+  await expect(mobileNav.getByRole('link', { name: 'My Team', exact: true })).toHaveAttribute('href', '/league2/my-team');
+  await expectNoPageOverflow(page);
+});
+
 test('My Team choices remain independent between League One and League Two', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/managers', { waitUntil: 'networkidle' });
@@ -313,6 +335,7 @@ test('My Team choices remain independent between League One and League Two', asy
   await expect(page.locator('.my-team-button')).toHaveCount(0);
   await leagueOneLink.click();
   await expect(page).toHaveURL(new RegExp(`${leagueOneProfile}$`, 'u'));
+  const leagueOneTeamName = await page.locator('.profile-identity h1').innerText();
   const leagueOneButton = page.locator('.manager-heading .my-team-button');
   await expect(leagueOneButton).toHaveAttribute('aria-pressed', 'false');
   await leagueOneButton.click();
@@ -330,6 +353,7 @@ test('My Team choices remain independent between League One and League Two', asy
   await expect(page.locator('.my-team-button, .manager-card.selected-manager')).toHaveCount(0);
   await leagueTwoLink.click();
   await expect(page).toHaveURL(new RegExp(`${leagueTwoProfile}$`, 'u'));
+  const leagueTwoTeamName = await page.locator('.profile-identity h1').innerText();
   const leagueTwoButton = page.locator('.manager-heading .my-team-button');
   await expect(leagueTwoButton).toHaveAttribute('aria-pressed', 'false');
   await leagueTwoButton.click();
@@ -350,4 +374,19 @@ test('My Team choices remain independent between League One and League Two', asy
   const stored = await page.evaluate((keys) => keys.map(key => localStorage.getItem(key)),
     [`league-one:my-team:${LEAGUE_IDS.league1}`, `league-one:my-team:${LEAGUE_IDS.league2}`]);
   expect(stored).toEqual([leagueOneProfile!.split('/').at(-1), leagueTwoProfile!.split('/').at(-1)]);
+
+  for (const [prefix, teamName] of [['', leagueOneTeamName], ['/league2', leagueTwoTeamName]]) {
+    await page.goto(`${prefix}/my-team`, { waitUntil: 'networkidle' });
+    await page.reload({ waitUntil: 'networkidle' });
+    const cards = page.locator('article:has([data-matchup-toggle])');
+    if (await cards.count()) {
+      await expect(cards).toHaveCount(1);
+      await expect(cards.locator('[data-team-name]').first()).toHaveText(teamName);
+    } else {
+      await expect(page.getByText(new RegExp(`${teamName.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')} has no posted Week`, 'u'))).toBeVisible();
+    }
+    const afterReload = await page.evaluate((keys) => keys.map(key => localStorage.getItem(key)),
+      [`league-one:my-team:${LEAGUE_IDS.league1}`, `league-one:my-team:${LEAGUE_IDS.league2}`]);
+    expect(afterReload).toEqual(stored);
+  }
 });

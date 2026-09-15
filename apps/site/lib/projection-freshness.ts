@@ -26,7 +26,7 @@ export type SnapshotMetadataSelection = Readonly<{
 
 export function snapshotFreshnessMetadata(snapshot: StoredProjectionSnapshot): SnapshotFreshnessMetadata {
   const games = snapshot.payload.matchups.flatMap((matchup) => matchup.sides)
-    .flatMap((side) => side.starters).flatMap((player) => (
+    .flatMap((side) => [...side.starters, ...(side.bench ?? [])]).flatMap((player) => (
       player.game?.kind === 'scheduled' ? [player.game] : []
     ));
   return {

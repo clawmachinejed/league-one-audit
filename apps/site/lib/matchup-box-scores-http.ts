@@ -17,7 +17,7 @@ function identitiesFor(data: MatchupsData): AllPlayerBoxScoreIdentity[] {
   const identities = new Map<string, AllPlayerBoxScoreIdentity>();
   for (const matchup of data.matchups) {
     for (const side of matchup.sides) {
-      for (const player of side.starters) {
+      for (const player of [...side.starters, ...(side.bench ?? [])]) {
         if (player.id.startsWith('empty-')) continue;
         const defense = player.position === 'DEF';
         if (defense ? !isNflTeam(player.id) : !/^[1-9]\d{0,19}$/u.test(player.id)) {

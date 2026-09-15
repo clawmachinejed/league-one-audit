@@ -40,7 +40,8 @@ const player = object({
   injuryStatus: nullable(string), game, slot: string,
   points: nullable(number), projectedPoints: nullable(number),
 });
-const side = object({ team, points: nullable(number), projectedPoints: nullable(number), starters: array(player) });
+const side = object({ team, points: nullable(number), projectedPoints: nullable(number), starters: array(player),
+  bench: { kind: 'optional', value: nullable(array(player)) } });
 
 export const MATCHUPS_SHAPE: MatchupsShape = object({
   league: object({ season: string, rosterPositions: array(string), week: number, maxWeek: number }),

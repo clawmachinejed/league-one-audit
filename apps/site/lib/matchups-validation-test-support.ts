@@ -64,6 +64,38 @@ export function validationCases(): ValidationCase[] {
     changed('official score string', false, (p) => { Object.assign(p.matchups[0].sides[0], { points: '10.5' }); }),
     changed('starter list null', false, (p) => { Object.assign(p.matchups[0].sides[0], { starters: null }); }),
     changed('empty starters', true, (p) => { p.matchups[0].sides[0].starters = []; }),
+    changed('unknown bench', true, (p) => { p.matchups[0].sides[0].bench = null; }),
+    changed('empty bench', true, (p) => { p.matchups[0].sides[0].bench = []; }),
+    changed('bench with source zero and unavailable projection', true, (p) => {
+      const side = p.matchups[0].sides[0];
+      side.bench = [{ ...side.starters[0], id: 'bench-player', slot: 'BN', points: 0, projectedPoints: null }];
+    }),
+    changed('bench-only kickoff window', true, (p) => {
+      const side = p.matchups[0].sides[0];
+      side.bench = [{ ...side.starters[0], id: 'bench-player', slot: 'BN', game: {
+        kind: 'scheduled', opponent: 'HOU', location: 'home', date: '2026-09-13',
+        kickoffAt: '2026-09-13T17:00:00.000Z',
+      } }];
+      side.starters[0].game = null;
+      p.matchups[0].status = 'upcoming';
+    }),
+    changed('bench-only date without kickoff', true, (p) => {
+      const side = p.matchups[0].sides[0];
+      side.bench = [{ ...side.starters[0], id: 'bench-player', slot: 'BN' }];
+      side.starters[0].game = null;
+      p.matchups[0].status = 'upcoming';
+    }),
+    changed('bench object', false, (p) => { Object.assign(p.matchups[0].sides[0], { bench: {} }); }),
+    changed('bench score string', false, (p) => {
+      const side = p.matchups[0].sides[0];
+      side.bench = [{ ...side.starters[0], slot: 'BN' }];
+      Object.assign(side.bench[0], { points: '0' });
+    }),
+    changed('bench name missing', false, (p) => {
+      const side = p.matchups[0].sides[0];
+      side.bench = [{ ...side.starters[0], slot: 'BN' }];
+      Reflect.deleteProperty(side.bench[0], 'name');
+    }),
     changed('starter name absent', false, (p) => { Reflect.deleteProperty(p.matchups[0].sides[0].starters[0], 'name'); }),
     changed('starter game absent', false, (p) => { Reflect.deleteProperty(p.matchups[0].sides[0].starters[0], 'game'); }),
     changed('starter game null', true, (p) => { p.matchups[0].sides[0].starters[0].game = null; }),

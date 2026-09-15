@@ -180,6 +180,9 @@ export function addScheduleToMatchups(
             : null,
         };
       }),
+      ...(side.bench === undefined ? {} : {
+        bench: side.bench === null ? null : addScheduleToPlayers(side.bench, schedule, canIdentifyByes),
+      }),
     })),
   }));
 }

@@ -958,9 +958,15 @@ async function loadMatchupSource(
       Date.parse(core.calendar.evaluatedAt), core.calendar);
     assertMatchupCompleteness(rows, core.rosters, slateExpected);
   }
+  const currentGroupsAuthoritative = week === (core.calendar.activeWeek ?? core.overview.league.week)
+    && !core.calendar.calendarUnavailable && core.calendar.lifecycle !== 'complete'
+    && core.sourceLeague.season === core.state?.season;
+  const excludedBenchIds = currentGroupsAuthoritative ? new Map(core.rosters.map((roster) => [
+    roster.roster_id, new Set([...(roster.reserve ?? []), ...(roster.taxi ?? [])]),
+  ])) : undefined;
   const scheduledMatchups = addScheduleToMatchups(
     normalizeMatchups(rows, core.overview.teams, core.overview.league, players.catalog,
-      status),
+      status, excludedBenchIds),
     canDecorate ? nflSchedule.schedule : {},
     canDecorate && nflSchedule.canIdentifyByes,
   );

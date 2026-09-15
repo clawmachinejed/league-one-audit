@@ -50,10 +50,12 @@ function TeamMeta({ team, opposite, avatar }: { team: Team; opposite?: boolean; 
   </span>;
 }
 
-function Starter({ player, opposite, high, pending, unavailable }: {
+function Starter({ player, opposite, high, pending, unavailable, bench, blank }: {
   player?: Player; opposite?: boolean; high?: boolean; pending?: boolean; unavailable?: boolean;
+  bench?: boolean; blank?: boolean;
 }) {
-  const name = player?.name || (unavailable ? 'Lineup unavailable' : pending ? 'Not posted' : 'Empty slot');
+  if (blank) return <div className={`${styles.player} ${opposite ? styles.rightPlayer : ''}`} aria-hidden="true" />;
+  const name = player?.name || (unavailable ? bench ? 'Bench unavailable' : 'Lineup unavailable' : pending ? 'Not posted' : 'Empty slot');
   const injury = injuryStatusLabel(player?.injuryStatus);
   const game = player?.game ? formatNflGame(player.game) : null;
   return <div className={`${styles.player} ${opposite ? styles.rightPlayer : ''}`}>
@@ -95,8 +97,8 @@ function PlayerBoxScore({ player, panelId, expanded, opposite, boxScores, boxSco
   </section>;
 }
 
-function MatchupCard({ matchup, selected, avatar, boxScores, boxScoresLoading, onBoxScoreOpen }: {
-  matchup: Matchup; selected: number | null; avatar: AvatarRenderer;
+function MatchupCard({ matchup, selected, avatar, boxScores, boxScoresLoading, onBoxScoreOpen, showBench = false }: {
+  matchup: Matchup; selected: number | null; avatar: AvatarRenderer; showBench?: boolean;
 } & BoxScoreProps) {
   const site = useLeagueSite();
   const [expanded, setExpanded] = useState(false);
@@ -162,7 +164,47 @@ function MatchupCard({ matchup, selected, avatar, boxScores, boxScoresLoading, o
   const rightSummary = right
     ? `${right.team.name}, managed by ${right.team.managerName}, record ${spokenRecord(right.team)}, official score ${spokenScore(right.points)}, ${spokenProjection(right.projectedPoints)}`
     : 'opponent not posted, official score unavailable, projected score unavailable';
-  const accessibleLabel = `${leftSummary}; versus ${rightSummary}. ${label}${mine ? '. My matchup' : ''}. ${expanded ? 'Collapse' : 'Expand'} starting lineups.`;
+  const accessibleLabel = `${leftSummary}; versus ${rightSummary}. ${label}${mine ? '. My matchup' : ''}. ${expanded ? 'Collapse' : 'Expand'} ${showBench ? 'starting lineups and benches' : 'starting lineups'}.`;
+  const benchCount = Math.max(left.bench?.length ?? 0, right?.bench?.length ?? 0,
+    left.bench == null || (right && right.bench == null) ? 1 : 0);
+
+  function renderPlayerRow(index: number, section: 'starter' | 'bench') {
+    const bench = section === 'bench';
+    const a = (bench ? left.bench : left.starters)?.[index];
+    const b = (bench ? right?.bench : right?.starters)?.[index];
+    const comparable = typeof a?.points === 'number' && typeof b?.points === 'number';
+    const slot = bench ? 'BN' : a?.slot || b?.slot || '—';
+    const slotKey = `${section}-${index}-${slot}`;
+    const aEligible = canExpandPlayerBoxScore(a);
+    const bEligible = canExpandPlayerBoxScore(b);
+    const expandable = aEligible || bEligible;
+    const rowExpanded = expandable && expandedSlots.has(slotKey);
+    const rowPanelId = `${panelId}-${section}-${index}`;
+    const aUnavailable = bench ? left.bench == null && index === 0 : left.starters.length === 0;
+    const bUnavailable = bench ? Boolean(right && right.bench == null && index === 0) : right?.starters.length === 0;
+    return <Fragment key={slotKey}>
+      <div className={styles.playerRow} data-bench-row={bench || undefined}>
+        <Starter player={a} bench={bench} unavailable={aUnavailable} blank={bench && !a && !aUnavailable}
+          high={comparable && a!.points! > b!.points!} />
+        <span className={styles.slot}>{slot}</span>
+        <Starter player={b} opposite bench={bench} pending={!right} unavailable={bUnavailable}
+          blank={bench && !b && !bUnavailable} high={comparable && b!.points! > a!.points!} />
+        {expandable && <button type="button" className={styles.starterDisclosure}
+          data-starter-box-score-toggle={!bench || undefined} data-starter-index={bench ? undefined : index}
+          data-bench-box-score-toggle={bench || undefined} data-bench-index={bench ? index : undefined}
+          aria-label={`${bench ? 'Bench' : slot} row ${index + 1} game statistics for both teams`}
+          aria-expanded={rowExpanded} aria-controls={rowPanelId} onClick={() => toggleSlot(slotKey)} />}
+      </div>
+      {expandable && <div id={rowPanelId} className={styles.boxScoreRow}
+        data-starter-box-score-row={!bench || undefined} data-starter-index={bench ? undefined : index}
+        data-bench-box-score-row={bench || undefined} data-bench-index={bench ? index : undefined} hidden={!rowExpanded}>
+        {aEligible && a && <PlayerBoxScore player={a} panelId={`${rowPanelId}-left`} expanded={rowExpanded}
+          boxScores={boxScores} boxScoresLoading={boxScoresLoading} />}
+        {bEligible && b && <PlayerBoxScore player={b} panelId={`${rowPanelId}-right`} expanded={rowExpanded} opposite
+          boxScores={boxScores} boxScoresLoading={boxScoresLoading} />}
+      </div>}
+    </Fragment>;
+  }
   return <article className={`${styles.card} ${mine ? styles.myMatchup : ''}`} aria-label={`${left.team.name}${right ? ` versus ${right.team.name}` : ', opponent pending'}`}>
     <button className={styles.toggle} type="button" data-matchup-toggle aria-expanded={expanded} aria-controls={panelId} onClick={() => setExpanded(value => !value)} aria-label={accessibleLabel}>
       <span className={styles.teamName} data-team-name>{left.team.name}</span>
@@ -181,47 +223,21 @@ function MatchupCard({ matchup, selected, avatar, boxScores, boxScoresLoading, o
     </button>
     <div id={panelId} ref={panelRef} className={styles.lineup} hidden={!expanded}>
       {count ? <>
-        {Array.from({ length: count }, (_, index) => {
-          const a = left.starters[index];
-          const b = right?.starters[index];
-          const comparable = typeof a?.points === 'number' && typeof b?.points === 'number';
-          const slot = a?.slot || b?.slot || '—';
-          const slotKey = `${index}-${slot}`;
-          const aEligible = canExpandPlayerBoxScore(a);
-          const bEligible = canExpandPlayerBoxScore(b);
-          const expandable = aEligible || bEligible;
-          const rowExpanded = expandable && expandedSlots.has(slotKey);
-          const rowPanelId = `${panelId}-starter-${index}`;
-          const aPanelId = `${panelId}-player-${index}-left`;
-          const bPanelId = `${panelId}-player-${index}-right`;
-          return <Fragment key={slotKey}>
-            <div className={styles.playerRow}>
-              <Starter player={a} unavailable={left.starters.length === 0} high={comparable && a!.points! > b!.points!} />
-              <span className={styles.slot}>{slot}</span>
-              <Starter player={b} opposite pending={!right} unavailable={right?.starters.length === 0} high={comparable && b!.points! > a!.points!} />
-              {expandable && <button type="button" className={styles.starterDisclosure}
-                data-starter-box-score-toggle data-starter-index={index}
-                aria-label={`${slot} row ${index + 1} game statistics for both teams`}
-                aria-expanded={rowExpanded} aria-controls={rowPanelId} onClick={() => toggleSlot(slotKey)} />}
-            </div>
-            {expandable && <div id={rowPanelId} className={styles.boxScoreRow}
-              data-starter-box-score-row data-starter-index={index} hidden={!rowExpanded}>
-              {aEligible && a && <PlayerBoxScore player={a} panelId={aPanelId} expanded={rowExpanded}
-                boxScores={boxScores} boxScoresLoading={boxScoresLoading} />}
-              {bEligible && b && <PlayerBoxScore player={b} panelId={bPanelId} expanded={rowExpanded} opposite
-                boxScores={boxScores} boxScoresLoading={boxScoresLoading} />}
-            </div>}
-          </Fragment>;
-        })}
+        {Array.from({ length: count }, (_, index) => renderPlayerRow(index, 'starter'))}
         <p className={styles.lineupNote}>{matchup.status === 'upcoming' ? 'Lineups may change before kickoff.' : 'Scores reported by Sleeper.'}</p>
       </> : <p className={styles.unavailable}>Starting lineups are unavailable from Sleeper for this week.</p>}
+      {showBench && <section aria-label="Bench players" className={styles.bench}>
+        <h2 className={styles.benchHeading}>Bench</h2>
+        {benchCount ? Array.from({ length: benchCount }, (_, index) => renderPlayerRow(index, 'bench'))
+          : <p className={styles.lineupNote}>No bench players.</p>}
+      </section>}
       <div className={styles.profileLinks}><Link href={`${site.prefix}/managers/${left.team.id}`} aria-label={`View ${left.team.name} profile`}>Team profile</Link>{right && <Link href={`${site.prefix}/managers/${right.team.id}`} aria-label={`View ${right.team.name} profile`}>Team profile</Link>}</div>
     </div>
   </article>;
 }
 
-export function MatchupBoard({ matchups, selected, avatar, boxScores, boxScoresLoading, onBoxScoreOpen }: {
-  matchups: Matchup[]; selected: number | null; avatar: AvatarRenderer;
+export function MatchupBoard({ matchups, selected, avatar, boxScores, boxScoresLoading, onBoxScoreOpen, showBench = false }: {
+  matchups: Matchup[]; selected: number | null; avatar: AvatarRenderer; showBench?: boolean;
 } & BoxScoreProps) {
   const boardRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -250,7 +266,7 @@ export function MatchupBoard({ matchups, selected, avatar, boxScores, boxScoresL
   const observed = boxScores?.status === 'available' ? boxScoreObservedLabel(boxScores.observedAt) : null;
   return <><div ref={boardRef} className={styles.board}>{matchups.map(matchup => <MatchupCard key={matchup.id}
     matchup={matchup} selected={selected} avatar={avatar} boxScores={boxScores}
-    boxScoresLoading={boxScoresLoading} onBoxScoreOpen={onBoxScoreOpen} />)}</div>
+    boxScoresLoading={boxScoresLoading} onBoxScoreOpen={onBoxScoreOpen} showBench={showBench} />)}</div>
     {observed && <p className={styles.boxScoreObserved} data-box-score-source>{observed}<span>Sleeper · hourly collection</span></p>}
   </>;
 }

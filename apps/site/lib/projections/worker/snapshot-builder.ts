@@ -15,7 +15,7 @@ import { externalReferenceKey, sameExternalReference } from '../shared/provider-
 import type { MatchupsData, NflGame, Player, Team } from '../../types';
 import { matchupStatus, startedGame, stateForEntity } from './game-context';
 import type { PregameProjectionSet } from './contracts';
-import { activeStarters, finite, projectionKind } from './roster-context';
+import { activeStarters, availableBench, finite, projectionKind } from './roster-context';
 
 export type BuildSnapshotInput = Readonly<{
   source: LeagueWeekState;
@@ -41,7 +41,7 @@ function priorProjectionMap(data: MatchupsData | null): Map<string, number> {
   if (!data) return result;
   for (const matchup of data.matchups) {
     for (const side of matchup.sides) {
-      for (const player of side.starters) {
+      for (const player of [...side.starters, ...(side.bench ?? [])]) {
         if (!player.id.startsWith('empty-') && finite(player.projectedPoints)) {
           result.set(player.id, player.projectedPoints);
         }
@@ -62,21 +62,25 @@ function pregameProjectionMap(input: PregameProjectionSet): Map<string, Readonly
 }
 
 function projectedPlayerMap(input: BuildSnapshotInput): Map<string, Readonly<{
-  projectedPoints: number;
+  projectedPoints: number | null;
   presentationProjectedPoints: number | null;
-  projectionQuality: Exclude<ProjectionPointQuality, 'unavailable'>;
+  projectionQuality: ProjectionPointQuality;
 }>> {
   const latest = baselineMap(input.latest);
   const frozen = baselineMap(input.frozen);
   const fallback = pregameProjectionMap(input.scored);
   const prior = priorProjectionMap(input.prior);
   const result = new Map<string, Readonly<{
-    projectedPoints: number;
+    projectedPoints: number | null;
     presentationProjectedPoints: number | null;
-    projectionQuality: Exclude<ProjectionPointQuality, 'unavailable'>;
+    projectionQuality: ProjectionPointQuality;
   }>>();
 
-  for (const { starter } of activeStarters(input.source)) {
+  const entries = [
+    ...activeStarters(input.source).map((entry) => ({ ...entry, required: true })),
+    ...availableBench(input.source).map((entry) => ({ ...entry, required: false })),
+  ];
+  for (const { starter, required } of entries) {
     const entity = starter.entity;
     const key = externalReferenceKey(entity.externalRef);
     const state = stateForEntity(entity, input.games, input.source.schedule);
@@ -95,7 +99,20 @@ function projectedPlayerMap(input: BuildSnapshotInput): Map<string, Readonly<{
     const gameState = state
       ? { phase: state.phase, remainingFraction: state.remainingFraction }
       : { phase: 'pregame' as const, remainingFraction: 1 };
-    if (state?.phase === 'final' && !finite(starter.officialPoints)) {
+    const scheduled = entity.nflTeam ? input.source.schedule[entity.nflTeam] : undefined;
+    const benchContextValid = scheduled?.kind === 'bye' || scheduled?.kind === 'scheduled'
+      && state !== null && samePeriod(state.period, input.source.period)
+      && scheduled.opponent === (state.homeTeam === entity.nflTeam ? state.awayTeam : state.homeTeam)
+      && scheduled.location === (state.homeTeam === entity.nflTeam ? 'home' : 'away')
+      && state.phase !== 'unknown'
+      && (state.statusCode !== 1 || finite(state.remainingFraction)
+        && state.remainingFraction >= 0 && state.remainingFraction <= 1);
+    if (!required && (!benchContextValid || scheduled?.kind !== 'bye' && (!baseline || baseline.quality !== 'complete')
+      || state && startedGame(state) && !finite(starter.officialPoints))) {
+      result.set(key, { projectedPoints: null, presentationProjectedPoints: null, projectionQuality: 'unavailable' });
+      continue;
+    }
+    if (required && state?.phase === 'final' && !finite(starter.officialPoints)) {
       throw new Error('The league source did not provide a final official score for a starter.');
     }
     const calculated = calculateLiveProjection({
@@ -105,7 +122,7 @@ function projectedPlayerMap(input: BuildSnapshotInput): Map<string, Readonly<{
       officialPoints: finite(starter.officialPoints) ? starter.officialPoints : null,
       priorProjectedPoints: prior.get(String(entity.externalRef.externalId)) ?? null,
     });
-    if (!finite(calculated.projectedPoints) || calculated.quality === 'unavailable') {
+    if (required && (!finite(calculated.projectedPoints) || calculated.quality === 'unavailable')) {
       throw new Error('A complete player projection could not be calculated.');
     }
     result.set(key, {
@@ -126,6 +143,7 @@ export function buildProjectedMatchupSnapshot(
 ): ProjectedMatchupSnapshot {
   assertMatchupScopes(input.source);
   const projections = projectedPlayerMap(input);
+  const benchKeys = new Set(availableBench(input.source).map(({ starter }) => externalReferenceKey(starter.entity.externalRef)));
   const matchups = input.source.matchups.map((matchup) => ({
     matchupRef: matchup.matchupRef,
     status: matchupStatus(matchup, input.source.schedule, input.games),
@@ -133,8 +151,10 @@ export function buildProjectedMatchupSnapshot(
       const starters: ProjectedLineupSlot[] = side.starters.map((slot) => {
         if (slot.kind === 'empty') return slot;
         const projection = projections.get(externalReferenceKey(slot.entity.externalRef));
-        if (!projection) throw new Error('A complete player projection could not be calculated.');
-        return { ...slot, ...projection };
+        if (!projection || !finite(projection.projectedPoints) || projection.projectionQuality === 'unavailable') {
+          throw new Error('A complete player projection could not be calculated.');
+        }
+        return { ...slot, ...projection, projectedPoints: projection.projectedPoints, projectionQuality: projection.projectionQuality };
       });
       const occupied = starters.filter((slot) => slot.kind === 'occupied');
       const projectedPoints = occupied.length > 0
@@ -148,6 +168,13 @@ export function buildProjectedMatchupSnapshot(
         officialPoints: side.officialPoints,
         projectedPoints,
         starters,
+        ...(side.bench === undefined ? {} : {
+          bench: side.starters.length === 0 || side.bench === null
+            || side.bench.some((slot) => !benchKeys.has(externalReferenceKey(slot.entity.externalRef)))
+            ? null : side.bench.map((slot) => ({ ...slot,
+              presentationProjectedPoints: projections.get(externalReferenceKey(slot.entity.externalRef))!.presentationProjectedPoints,
+            })),
+        }),
       };
     }),
   }));
@@ -236,7 +263,7 @@ function presentationGame(
 }
 
 function presentationPlayer(
-  slot: ProjectedLineupSlot,
+  slot: ProjectedLineupSlot | NonNullable<ProjectedMatchup['sides'][number]['bench']>[number],
   index: number,
   schedule: NflWeekSchedule,
   period: LeaguePeriod,
@@ -291,6 +318,9 @@ export function toMatchupsData(
         points: side.officialPoints,
         projectedPoints: side.projectedPoints,
         starters: side.starters.map((slot, index) => presentationPlayer(slot, index, schedule, snapshot.period, games)),
+        ...(side.bench === undefined ? {} : {
+          bench: side.bench === null ? null : side.bench.map((slot, index) => presentationPlayer(slot, index, schedule, snapshot.period, games)),
+        }),
       };
     }),
   }));
