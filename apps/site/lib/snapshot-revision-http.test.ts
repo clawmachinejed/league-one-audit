@@ -175,7 +175,7 @@ describe('full and compact reader selection parity', () => {
     }
 
     // Only scoring authority advances; neither the display marker nor the snapshot is rewritten.
-    data.stored.authority.activeWeek = 2;
+    Object.assign(data.stored.authority, { activeWeek: 2 });
     const full = await readStoredMatchups('league1', 2, options);
     const compact = await readStoredMatchupRevision('league1', 2, options);
     expect(full).toMatchObject({
