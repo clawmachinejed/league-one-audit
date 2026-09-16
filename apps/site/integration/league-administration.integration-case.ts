@@ -89,6 +89,109 @@ describe.sequential('portable league administration against the isolated Neon da
       .rejects.toThrow(/compare-and-swap/u);
   });
 
+  it('retains reordered collection evidence and provenance without advancing its semantic generation', async () => {
+    const f = await fixture();
+    const users = [{ user_id: 'manager-a', display_name: 'A' }, { user_id: 'manager-b', display_name: 'B' }];
+    const firstInput = normalizeAdministrationObservation(envelope(f, 1, users, 'users'));
+    const reorderedInput = normalizeAdministrationObservation(envelope(f, 2, [...users].reverse(), 'users'));
+    expect(firstInput.status).toBe('accepted'); expect(reorderedInput.status).toBe('accepted');
+    expect(reorderedInput.contentHash).not.toBe(firstInput.contentHash);
+    expect(reorderedInput.semanticHash).toBe(firstInput.semanticHash);
+    const first = await administration.recordObservation(firstInput);
+    const reordered = await administration.recordObservation(reorderedInput);
+    expect(first).toMatchObject({ status: 'changed', generation: 1 });
+    expect(reordered).toMatchObject({ status: 'unchanged', generation: first.generation });
+    expect(reordered.observationId).not.toBe(first.observationId);
+    expect(await ownerQuery(`SELECT count(*)::integer AS contents,count(DISTINCT content_hash)::integer AS raw_hashes,
+      count(DISTINCT semantic_hash)::integer AS semantic_hashes FROM league_administration_contents
+      WHERE league_season_id=$1 AND family='users'`, [f.leagueSeasonId]))
+      .toEqual([{ contents: 2, raw_hashes: 2, semantic_hashes: 1 }]);
+    expect(await ownerQuery(`SELECT observation.id,observation.outcome,content.payload
+      FROM league_administration_observations observation JOIN league_administration_contents content ON content.id=observation.content_id
+      WHERE observation.league_season_id=$1 AND observation.family='users' ORDER BY observation.source_observed_at`, [f.leagueSeasonId]))
+      .toEqual([{ id: first.observationId, outcome: 'changed', payload: users },
+        { id: reordered.observationId, outcome: 'unchanged', payload: [...users].reverse() }]);
+    expect(await ownerQuery(`SELECT accepted_observation_id,latest_observation_id FROM league_administration_heads
+      WHERE league_season_id=$1 AND family='users'`, [f.leagueSeasonId]))
+      .toEqual([{ accepted_observation_id: reordered.observationId, latest_observation_id: reordered.observationId }]);
+    expect(await administration.readSource({ ...firstInput.envelope.scope, family: 'users', week: null }))
+      .toMatchObject({ status: 'available', observationId: reordered.observationId, generation: first.generation,
+        checkedAt: reorderedInput.envelope.provenance.checkedAt, verifiedAt: reorderedInput.envelope.provenance.sourceObservedAt,
+        envelope: reorderedInput.envelope });
+    const changedUsers = [{ ...users[0], display_name: 'Renamed A' }, users[1]];
+    const changedInput = normalizeAdministrationObservation(envelope(f, 3, changedUsers, 'users'));
+    expect(changedInput.semanticHash).not.toBe(firstInput.semanticHash);
+    const changed = await administration.recordObservation(changedInput);
+    expect(changed).toMatchObject({ status: 'changed', generation: 2 });
+    expect(changed.observationId).not.toBe(reordered.observationId);
+    expect(await administration.readSource({ ...firstInput.envelope.scope, family: 'users', week: null }))
+      .toMatchObject({ status: 'available', observationId: changed.observationId, generation: changed.generation,
+        envelope: { payload: changedUsers } });
+  });
+
+  it('preserves collection stale, equal-time and unknown-age cache guards despite equivalent semantic hashes', async () => {
+    const f = await fixture();
+    const users = [{ user_id: 'manager-a', display_name: 'A' }, { user_id: 'manager-b', display_name: 'B' }];
+    const acceptedInput = normalizeAdministrationObservation(envelope(f, 3, users, 'users'));
+    const accepted = await administration.recordObservation(acceptedInput);
+    const readInput = { ...acceptedInput.envelope.scope, family: 'users' as const, week: null };
+    const acceptedRead = await administration.readSource(readInput);
+    const olderInput = normalizeAdministrationObservation(envelope(f, 2, [...users].reverse(), 'users'));
+    expect(olderInput.semanticHash).toBe(acceptedInput.semanticHash);
+    expect((await administration.recordObservation(olderInput)).status).toBe('stale');
+    expect(await administration.readSource(readInput)).toEqual(acceptedRead);
+    const cachedEnvelope = envelope(f, 4, [...users].reverse(), 'users');
+    const cachedInput = normalizeAdministrationObservation({ ...cachedEnvelope, provenance: { ...cachedEnvelope.provenance,
+      origin: 'cache', requestStartedAt: null, requestCompletedAt: null, sourceObservedAt: null } });
+    expect((await administration.recordObservation(cachedInput)).status).toBe('stale');
+    expect(await administration.readSource(readInput)).toEqual(acceptedRead);
+    const sameCachedInput = normalizeAdministrationObservation({ ...cachedInput.envelope, payload: users });
+    expect((await administration.recordObservation(sameCachedInput)).status).toBe('unchanged');
+    expect(await administration.readSource(readInput)).toEqual(acceptedRead);
+    const equalTime = await administration.recordObservation(normalizeAdministrationObservation(envelope(f, 3, [...users].reverse(), 'users')));
+    expect(equalTime).toMatchObject({ status: 'rejected', reason: 'equal_source_time_has_different_content', generation: 2 });
+    expect(await administration.readSource(readInput))
+      .toEqual({ status: 'conflict', reason: 'equal_source_time_has_different_content' });
+    expect(await ownerQuery(`SELECT accepted_observation_id,latest_observation_id,
+      checked_at=$2::timestamptz AS original_checked_at,verified_at=$3::timestamptz AS original_verified_at
+      FROM league_administration_heads WHERE league_season_id=$1 AND family='users'`,
+    [f.leagueSeasonId, acceptedInput.envelope.provenance.checkedAt, acceptedInput.envelope.provenance.sourceObservedAt]))
+      .toEqual([{ accepted_observation_id: accepted.observationId, latest_observation_id: equalTime.observationId,
+        original_checked_at: true, original_verified_at: true }]);
+    const recoveredInput = normalizeAdministrationObservation(envelope(f, 5, users, 'users'));
+    const recovered = await administration.recordObservation(recoveredInput);
+    expect(recovered).toMatchObject({ status: 'unchanged', generation: 3 });
+    expect(await administration.readSource(readInput))
+      .toMatchObject({ status: 'available', observationId: recovered.observationId, generation: recovered.generation,
+        envelope: recoveredInput.envelope });
+  });
+
+  it('updates readable league operational evidence while reusing the unchanged settings version', async () => {
+    const f = await fixture();
+    const payload = envelope(f, 1).payload as Record<string, JsonValue>;
+    const settings = payload.settings as Record<string, JsonValue>;
+    const firstInput = normalizeAdministrationObservation(envelope(f, 1, { ...payload, status: 'pre_draft',
+      settings: { ...settings, leg: 1, last_scored_leg: 0 } }));
+    const nextInput = normalizeAdministrationObservation(envelope(f, 2, { ...payload, status: 'in_season',
+      settings: { ...settings, leg: 2, last_scored_leg: 1 } }));
+    expect(firstInput.status).toBe('accepted'); expect(nextInput.status).toBe('accepted');
+    expect(nextInput.contentHash).not.toBe(firstInput.contentHash);
+    expect(nextInput.semanticHash).toBe(firstInput.semanticHash);
+    const first = await administration.recordObservation(firstInput);
+    const next = await administration.recordObservation(nextInput);
+    expect(first).toMatchObject({ status: 'changed', generation: 1 });
+    expect(next).toMatchObject({ status: 'changed', generation: 2, versionId: first.versionId });
+    expect(next.observationId).not.toBe(first.observationId);
+    expect(await administration.readSource({ ...nextInput.envelope.scope, family: 'league', week: null }))
+      .toMatchObject({ status: 'available', observationId: next.observationId, versionId: first.versionId,
+        generation: next.generation, verifiedAt: nextInput.envelope.provenance.sourceObservedAt, envelope: nextInput.envelope });
+    expect(await ownerQuery(`SELECT
+      (SELECT count(*)::integer FROM league_configuration_versions WHERE league_season_id=$1) AS versions,
+      (SELECT count(*)::integer FROM league_administration_contents WHERE league_season_id=$1) AS contents,
+      (SELECT count(*)::integer FROM league_administration_observations WHERE league_season_id=$1) AS observations`, [f.leagueSeasonId]))
+      .toEqual([{ versions: 1, contents: 2, observations: 2 }]);
+  });
+
   it('serializes replaying captures, keeps older and unproven cache evidence from replacing newer source facts', async () => {
     const f = await fixture();
     const input = normalizeAdministrationObservation(envelope(f, 3));

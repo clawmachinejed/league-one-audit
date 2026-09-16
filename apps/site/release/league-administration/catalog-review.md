@@ -1,5 +1,7 @@
 # PostgreSQL catalog and release-wrapper review
 
+Current catalog approval is the **20:18 UTC collection-semantics follow-up** at the end of this report. Its migration, capture and expected rendering hashes supersede the historical values below. The initial review is retained unchanged as release history.
+
 Reviewed on 2026-09-16 at 19:18 UTC by the scoring/schema review agent. The source baseline was commit `18fa6cc23fded410f11f4f194e27e18054ecf48c`; the release-tool corrections listed below were also reviewed in the shared worktree. This review used files only. The separate database owner produced the isolated PostgreSQL 18.6 evidence; this reviewer made no database connection.
 
 **Outcome: the captured catalog is approved for rendering the reviewed release bundle. No unresolved release-wrapper or catalog mismatch was found. This is not production authorization or evidence of production installation.** Full application, integration and capacity results remain separate release requirements.
@@ -74,3 +76,26 @@ The concrete `wrapper-verification.integration.json` records nine passing checks
 The production runbook orders the compatible schema install before application deployment, performs bounded shadow then authorized write collection from the reviewed revision, and verifies the initial evidence before deploying the new recurring collector. The planned three-league, Weeks 0–2 plus metadata scope is 36 family/period documents. It correctly describes independent family commits and partial completion. Rollback keeps additive history and uses the prior compatible application only while the approved original enrollment and mappings remain unchanged.
 
 The runbook distinguishes a missing sentinel from a proved rollback, preserves the existing production provider failure as separate baseline evidence, and does not claim production health or release authority. Source data collected now cannot reconstruct unobserved past edits. Native league administration, new scoring semantics and historical rescoring remain outside this release.
+
+## Collection-semantics follow-up — 2026-09-16 20:18 UTC
+
+Approved the regenerated catalog for rendering after independently reviewing the release owner’s 11-line SQL correction against commit `9da67a4fe6e9a6e2ac75d1677abe7dc4b34c2f97`. This reviewer made no database connection. A pure synthetic users reproduction confirmed accepted reordered collections have different raw hashes, equal semantic hashes and an `unchanged` pure classification; the previous SQL classified them as changes.
+
+The correction applies semantic comparison only to accepted non-league collections. A raw-different, semantically unchanged capture retains a new immutable observation and provenance, advances its readable raw pointer and valid freshness, and keeps the generation stable. Identical raw content retains the freshness-only fast path. Real material changes and conflict recovery still advance the generation. League lifecycle/counter changes still expose their new raw payload while reusing the unchanged settings version. Stale ordering, unknown-age-cache exact-content gates and equal-time raw conflicts are unchanged.
+
+The three added integration cases were independently inspected for raw content/observation retention, current pointer and provenance, real mutation, stale/cache/equal-time behavior, conflict recovery and raw league operational updates. Their execution and final suite total remain separately recorded by the release owner; source review alone does not claim they ran.
+
+The new real PostgreSQL 180006 capture at `2026-09-16T20:16:08.803Z` was compared with the committed prior catalog. The full baseline, all tables/columns/constraints/indexes/grants, all 20 triggers, and every other affected function are identical. Only `record_league_administration_observation(jsonb)` changes its definition fingerprint, to `79783731c76cdc8041b669b4cd8b6f32`; its captured body exactly matches the corrected migration. All readable definition fingerprints were recomputed and matched. The corrected actual wrapper passed its nine isolated rollback/commit/replay checks again.
+
+| Current evidence | SHA-256 |
+| --- | --- |
+| Migration 016, normalized LF | `d662d9e9709153a4e9a6cbc93522bdd4d14c5b0a0c74a7c7ea8648455896596c` |
+| Migration 017, unchanged normalized LF | `1247dbfbdfbc79f41a448cf3b2e95fb4f9387e951a26f340e9533754e5c9c361` |
+| New catalog before its review flag changed | `b26dbd99fdfee8c33f8424fde648c1e7c048a420420e269142e98b32e57c4d2c` |
+| New readable definitions, file bytes | `ce1b57a92d26d131ab470f16c222ef56bb37b58e2a810c53209d61119f0ecefb` |
+| New wrapper verification before review metadata changed | `bdef65e630d95ffa8f91845838ae438cf821c4138f5c156b879446b8147d5800` |
+| JSON.stringify({before: manifest.before, after: manifest.after}) | `a625d37fc33d14103483a7ef7fe717f9e3acd45e228d450a0017c73018e21c18` |
+| Expected corrected executable rendering | `f3e710d4f19bd492fe276949bcee240b4bf33cdc37706d7ee4e91507cadb6e07` |
+| Expected corrected comments-only rendering | `d87b802b6bb2156067b0f559fa7995bc794a786c027e08f1cbc27207993de8ee` |
+
+The renderer/tooling source hashes from the earlier formatting follow-up remain unchanged. The corrected render hashes were calculated in memory; the release owner must regenerate and compare the actual files. The current manifest is marked reviewed only after the concrete file comparison, and its before/after payload is unchanged by that approval. No unresolved finding remains in this corrective diff or catalog review. This review neither executes a production operation nor substitutes for the separate release authority and execution evidence.

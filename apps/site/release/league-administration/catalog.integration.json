@@ -2,12 +2,12 @@
   "format": "league-administration-release-v1",
   "postgresVersion": 180006,
   "expectedOwner": "neondb_owner",
-  "observedAt": "2026-09-16T19:14:39.672Z",
+  "observedAt": "2026-09-16T20:16:08.803Z",
   "reviewed": true,
   "migrations": [
     {
       "name": "016_portable_league_administration.sql",
-      "checksum": "0106ab529c3c978cfd2a72b8d3628e24660f325ff278d9428758d52367e123aa"
+      "checksum": "d662d9e9709153a4e9a6cbc93522bdd4d14c5b0a0c74a7c7ea8648455896596c"
     },
     {
       "name": "017_enrolled_all_player_publication.sql",
@@ -563,7 +563,7 @@
           "search_path=pg_catalog, public, pg_temp"
         ],
         "publicExecute": false,
-        "definitionHash": "f17f51eff1c43b30de58e9aa4b3fede5",
+        "definitionHash": "79783731c76cdc8041b669b4cd8b6f32",
         "runtimeExecute": true,
         "securityDefiner": true
       },

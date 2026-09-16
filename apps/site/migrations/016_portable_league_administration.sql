@@ -392,12 +392,16 @@ BEGIN
     WHEN head.ordering_at IS NOT NULL AND (order_time<head.ordering_at
       OR (observed_time IS NULL AND provenance->>'origin'<>'network')) THEN 'stale'
     WHEN NOT accepted_value OR conflict_reason IS NOT NULL THEN 'rejected'
-    WHEN old_content.id=content_row.id THEN 'unchanged' ELSE 'changed' END;
+    WHEN old_content.id=content_row.id OR (family_value<>'league' AND old_content.accepted
+      AND old_content.semantic_hash=content_row.semantic_hash) THEN 'unchanged' ELSE 'changed' END;
   IF head.ordering_at=order_time AND old_content.id IS DISTINCT FROM content_row.id THEN
     result_status:='rejected'; conflict_reason:='equal_source_time_has_different_content';
   END IF;
   IF NOT accepted_value THEN conflict_reason:=head.read_conflict; END IF;
-  IF result_status='unchanged' AND head.read_conflict IS NULL THEN
+  -- Identical raw content needs only a freshness update. A reordered collection
+  -- retains its distinct raw evidence and observation without a semantic change.
+  -- League operational counters still advance raw evidence independently of settings.
+  IF result_status='unchanged' AND head.read_conflict IS NULL AND old_content.id=content_row.id THEN
     IF fence IS NOT NULL AND (NOT EXISTS (SELECT 1 FROM public.projection_jobs WHERE job_key=fence->>'jobKey'
       AND lease_until>clock_timestamp()) OR (fence->>'deadlineAt')::timestamptz<=clock_timestamp()) THEN
       RAISE EXCEPTION 'league administration writer fence expired'; END IF;
@@ -419,7 +423,8 @@ BEGIN
       RAISE EXCEPTION 'league administration writer fence expired'; END IF;
     UPDATE public.league_administration_heads SET latest_observation_id=observation_id,
       accepted_observation_id=CASE WHEN result_status IN ('changed','unchanged') THEN observation_id ELSE accepted_observation_id END,
-      generation=generation+1,ordering_at=order_time,attempted_at=GREATEST(attempted_at,checked_time),
+      generation=generation+CASE WHEN result_status='unchanged' AND head.read_conflict IS NULL THEN 0 ELSE 1 END,
+      ordering_at=order_time,attempted_at=GREATEST(attempted_at,checked_time),
       checked_at=CASE WHEN result_status IN ('changed','unchanged') THEN GREATEST(checked_at,checked_time) ELSE checked_at END,
       verified_at=CASE WHEN result_status IN ('changed','unchanged') AND provenance->>'origin'='network'
         THEN GREATEST(verified_at,observed_time)

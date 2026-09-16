@@ -1,6 +1,6 @@
 # Production release and initial collection
 
-Prepared for PR #220, the existing three 2026 Sleeper leagues, and migrations 016/017 only. This document is not production authorization. The user's September 16 approval permits resetting and testing only the dedicated `projection_refactor_test` database. Production migration, data collection, merge and deployment still require release approval after the final evidence is reviewed.
+Prepared for PR #220, the existing three 2026 Sleeper leagues, and migrations 016/017 only. This document does not grant production authorization. Execute it only under explicit authority covering production migration, bounded data collection, merge and deployment; the isolated test database authorization alone is insufficient. Record the actual authorization and release status in the operator's release evidence.
 
 ## Preconditions
 

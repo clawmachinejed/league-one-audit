@@ -1,5 +1,5 @@
 {
-  "recordedAt": "2026-09-16T19:30:40Z",
+  "recordedAt": "2026-09-16T20:24:00Z",
   "status": "approved-isolated-verification-passed",
   "approval": {
     "source": "User explicitly approved the pending reset/test of the named dedicated isolated database in the current conversation.",
@@ -14,7 +14,7 @@
   "migrations": [
     {
       "name": "016_portable_league_administration.sql",
-      "checksum": "0106ab529c3c978cfd2a72b8d3628e24660f325ff278d9428758d52367e123aa"
+      "checksum": "d662d9e9709153a4e9a6cbc93522bdd4d14c5b0a0c74a7c7ea8648455896596c"
     },
     {
       "name": "017_enrolled_all_player_publication.sql",
@@ -46,17 +46,17 @@
       "reviewed": true,
       "review": "catalog-review.md",
       "productionSqlArtifact": "016-017.production.sql",
-      "productionSqlSha256": "5917776ae1e306df85c80a2a1a05049ee737496811449d55e63ceb3d185b666e",
+      "productionSqlSha256": "f3e710d4f19bd492fe276949bcee240b4bf33cdc37706d7ee4e91507cadb6e07",
       "productionSqlExecuted": false
     },
     "fullIntegrationSuite": {
       "outcome": "passed",
       "command": "node --env-file=.env.integration.local scripts/run-projection-store-integration.mjs",
-      "passed": 289,
+      "passed": 292,
       "failed": 0,
       "skipped": 0,
       "files": 19,
-      "durationSeconds": 354.23,
+      "durationSeconds": 356.21,
       "historicalArtifacts": "The four suite-regenerated 011 partial/synthetic, 012 context and 013 assumption capacity artifacts were restored byte-for-byte from HEAD; existing historical release evidence was preserved."
     },
     "physicalMeasurement": {
@@ -117,8 +117,18 @@
     "reviewSqlLfSha256": "9339f7472af9a6e10d30086f9c8b5022beae8f1e7411cc9ed588ebbe05fbf487",
     "verification": "11 focused wrapper tests and targeted ESLint passed; rendered artifacts have no trailing whitespace. No database rerun was needed for the proven whitespace-only change."
   },
-  "pending": [
-    "production release authorization"
-  ],
+  "lateCollectionReviewCorrection": {
+    "reviewComment": "https://github.com/clawmachinejed/league-one-audit/pull/220#discussion_r4030153146",
+    "finding": "Reordered collection sets had equal semantic hashes but raw content identity incorrectly classified them as changed.",
+    "fix": "Retain distinct raw contents and immutable observations with fresh provenance, classify equivalent collections as unchanged, and preserve semantic generation except when clearing a blocking conflict. League operational updates and stale, equal-time and unknown-cache guards remain intact.",
+    "databaseOwner": "root; sequential guarded wrapper and full integration runs; cleanup complete",
+    "newIntegrationRegressions": 3,
+    "fullIntegrationPassed": 292,
+    "wrapperChecksPassed": 9,
+    "independentReview": "catalog-review.md corrective follow-up; only the intended observation function changed",
+    "localVerify": "lint, typecheck, 2675 tests plus one environment-dependent skip, and production build passed",
+    "capacityEvidence": "Earlier finite physical measurement retained. This correction changes classification and generation only; table structures and raw-history retention remain unchanged. It is not a new capacity measurement."
+  },
+  "pending": ["corrected published-head CI and Preview", "authorized production execution and verification"],
   "note": "This status record is not a catalog manifest or database validation result. The earlier rejection was not bypassed. Execution resumed only after the user explicitly approved the named isolated database reset/test. All existing identity, sentinel, TLS, role and production-denylist guards remain required."
 }

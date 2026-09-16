@@ -43,6 +43,8 @@ Only the known operational counters `leg`, `last_scored_leg`, `daily_waivers_las
 
 There are no full weekly copies of unchanged settings. Consecutive identical accepted network documents advance successful verification without another observation or configuration version. A → B → A reuses version A's content and creates a new observation and changed component activation for the return to A. The system cannot detect a source change that occurred and reverted between checks.
 
+Collection endpoints represent sets of scoped entities. Reordering the same entities retains the distinct raw content and a new immutable observation with its actual retrieval times, classified as `unchanged`. The accepted pointer advances to that raw evidence while the semantic generation stays fixed. Actual collection changes, league operational-state changes and recovery from a blocking conflict still advance generation. Equal-time raw conflicts and unknown-age cache protections remain unchanged.
+
 ## Observation time and applicability
 
 An envelope identifies its source family and exact scope and carries `origin`, request start/end, nullable `sourceObservedAt`, and `checkedAt`. Database `recorded_at` is a separate fact. Importing an old matchup today records when it was actually retrieved; it does not manufacture its original observation time.
