@@ -30,7 +30,9 @@ The site's active scoring and default display weeks advance at noon Eastern loca
 
 Matchups has no routine header refresh button. Current and future weeks automatically check for a newer stored snapshot every minute while visible and immediately after returning to the page. These checks do not trigger provider collection. Current-week failures still use the existing official server fallback; future failures retain the last good view and retry on the established schedule. Historical weeks do not poll. An ordinary browser reload can request the page again when a manual retry is needed.
 
-History, rivalries, awards, a separate statistics section, and a separate schedule section are outside this rebuild's scope.
+My Team has **My Team** and **Schedule** tabs styled like the League page tabs. Schedule shows only Weeks 1–15 for the same saved or automatically chosen team, always on the left. Completed weeks include official Sleeper scores and Win, Loss or Tie; unfinished weeks never show a final result. Missing schedule or score evidence stays unavailable. Schedule uses the existing cached official matchup-history loader only when opened, without loading player catalogs or projections for fifteen weeks.
+
+History, rivalries, awards, and a separate statistics section are outside this rebuild's scope.
 
 Managers uses compact team cards sized like the League roster summaries. Each card shows the team name, manager and record, and opens the manager profile. The directory omits the extra section heading, team count, selection banner and PF. My Team can still be selected or cleared on a manager profile; the saved choice remains highlighted across the league.
 

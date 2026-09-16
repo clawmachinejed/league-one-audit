@@ -5,7 +5,7 @@ import { parseMatchupWeek } from '@/lib/matchup-week';
 import { currentMatchupWeek, type MatchupPeriodContext } from '@/lib/matchup-period';
 import { readStoredMatchups } from '@/lib/projection-reader';
 import type { LeagueKey } from '@/lib/leagues';
-import { getCurrentMatchupPeriodContext, getOfficialMatchups, getOverview, getManager, getStandings, getTransactions, getSiteWeekRollover } from '@/lib/sleeper';
+import { getCurrentMatchupPeriodContext, getOfficialMatchups, getOverview, getManager, getStandings, getTransactions, getSiteWeekRollover, getMyTeamSchedule } from '@/lib/sleeper';
 import { MatchupsView } from './matchups-view';
 import { ManagerView } from './manager-view';
 import { ManagersView } from './managers-view';
@@ -13,6 +13,7 @@ import { StandingsView } from './standings-view';
 import type { StandingsProjectionSource } from './projected-standings-live';
 import { TransactionsView } from './transactions-view';
 import type { SiteWeekRollover } from './use-site-week-rollover';
+import { MyTeamScheduleView } from './my-team-schedule-view';
 
 type MatchupSearchParams = Promise<{ week?: string }>;
 type ManagerParams = Promise<{ id: string }>;
@@ -98,9 +99,14 @@ export async function LeagueMatchupsPage({
     rollover={rollover} followCurrent={requestedWeek === undefined} mode={mode} />;
 }
 
-export function LeagueMyTeamPage({ leagueId, leagueKey, searchParams }: {
-  leagueId: string; leagueKey: LeagueKey; searchParams: MatchupSearchParams;
+export async function LeagueMyTeamPage({ leagueId, leagueKey, searchParams }: {
+  leagueId: string; leagueKey: LeagueKey; searchParams: Promise<{ week?: string; view?: string }>;
 }) {
+  const query = await searchParams;
+  if (query.view === 'schedule') {
+    const [data, rollover] = await Promise.all([getMyTeamSchedule(leagueId), loadRollover(leagueId)]);
+    return <MyTeamScheduleView data={data} rollover={rollover} week={parseMatchupWeek(query.week) ?? undefined} />;
+  }
   return LeagueMatchupsPage({ leagueId, leagueKey, searchParams, mode: 'my-team' });
 }
 

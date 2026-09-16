@@ -21,6 +21,7 @@ import {
   addScheduleToPlayers,
   normalizeSleeperByeWeeks,
   resolveSleeperSchedule,
+  validatedSleeperSeasonGames,
   type WeekSchedule,
 } from './nfl-schedule';
 import type { LeagueTransactionsData, ManagerData, MatchupsData, OverviewData, Player, ProjectedStandingsBasis, RosterPlayer, RosterSection, RostersData, StandingsData, StandingsTeam, TransactionsData } from './types';
@@ -33,6 +34,7 @@ import { startingSlots } from './sleeper-lineup';
 import { resolveSiteWeek, type SiteWeekResolution } from './site-week';
 import { assertSiteCalendarNotRegressed, getRetainedSiteCalendar } from './site-calendar-authority';
 import { buildCompletedStandingsBasis, reconcileStandingsBasis, standingsTotalsMatch } from './projected-standings';
+import { buildMyTeamScheduleWeeks, MY_TEAM_SCHEDULE_WEEKS, type MyTeamScheduleData } from './my-team-schedule';
 import {
   canDecorateMatchupWeek,
   addWaiverBalances,
@@ -688,6 +690,35 @@ async function loadRosterHistory(leagueId: string, throughWeek: number | null): 
     rows,
     failedWeeks: failedWeeks.sort((a, b) => a - b),
     malformedWeeks: malformedWeeks.sort((a, b) => a - b),
+  };
+}
+
+/** Reuse the cached official history reader; schedule cards need no player or projection loads. */
+export async function getMyTeamSchedule(leagueId: string): Promise<MyTeamScheduleData> {
+  const core = await getCore(leagueId);
+  const [history, seasonSchedule] = await Promise.all([
+    loadRosterHistory(leagueId, MY_TEAM_SCHEDULE_WEEKS),
+    core.calendar.siteWeek ? getSeasonSchedule(core.sourceLeague.season) : Promise.resolve(null),
+  ]);
+  // The existing calendar validates the complete season's identities and dates.
+  // Exact-week complete-game evidence may finish before the display's noon rollover.
+  // A retained display week or last_scored_leg alone never manufactures a result.
+  const games = core.calendar.siteWeek ? validatedSleeperSeasonGames(seasonSchedule) : null;
+  const completedWeeks = games ? Array.from({ length: MY_TEAM_SCHEDULE_WEEKS }, (_, index) => index + 1)
+    .filter(week => week <= core.calendar.siteWeek!.week
+      && games.filter(game => game.week === week).every(game => game.status === 'complete')) : [];
+  return {
+    ...core.overview,
+    // A malformed row may conceal a third side or conflicting pairing. The
+    // tolerant history loader omits it, so this new display must withhold that
+    // week's pairings rather than infer a result from the remaining two rows.
+    weeks: buildMyTeamScheduleWeeks(core.overview.teams,
+      history.rows.map((rows, index) => history.malformedWeeks.includes(index + 1) ? null : rows), {
+      completedWeeks, activeWeek: core.calendar.activeWeek, preseason: core.calendar.lifecycle === 'preseason',
+    }),
+    warning: joinWarnings(core.overview.warning,
+      history.failedWeeks.length || history.malformedWeeks.length
+        ? 'Some weekly schedule or result data is temporarily unavailable.' : undefined),
   };
 }
 

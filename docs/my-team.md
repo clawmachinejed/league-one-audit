@@ -10,6 +10,16 @@ The current week follows the site calendar: noon Eastern on the day after the we
 
 On Matchups, a saved My Team selection places that matchup first and the selected team on its left for the displayed week. The remaining matchups retain their relative order. Without a saved selection, Matchups preserves source order and side orientation; the standings fallback belongs only to the My Team page. Both pages move the complete side only for display, leaving stored scores, lineups and snapshots unchanged.
 
+## Schedule tab
+
+The top-level My Team ribbon page contains My Team and Schedule tabs in the same location and style as the League page tabs. The default My Team tab retains its week selector and expandable matchup. Schedule uses `?view=schedule` on the same route; an explicit `week` query is preserved when returning to the matchup. Schedule does not show a single-week picker because it always lists exactly Weeks 1–15. Switching leagues keeps the existing My Team/current navigation behavior and each league's independent preference.
+
+The schedule resolves its team through the same saved-selection and official-standings fallback as the matchup view, without saving the fallback. Every row places that team on the left. Official pairing and scores come from the existing cached bulk Sleeper matchup-history loader, with at most four requests in flight and no player/catalog/game fanout. The fifteen-week data is loaded only for Schedule; opening My Team or Matchups does not fetch it. No new API, provider, worker, database table, cache subsystem or schedule is added.
+
+Win/Loss/Tie requires exact-week canonical NFL completion evidence and valid official totals on both sides. Completed-game evidence can establish a result before the next-noon display rollover. Official `custom_points` overrides, including zero, take precedence over `points`. Comparisons use the official values; scores display to two decimals. Upcoming/unfinished weeks display no final scores or result. Missing or contradictory pairing, missing scores and calendar failure remain explicit unavailable states; missing starters alone do not invalidate a team-level schedule.
+
+Schedule refreshes through normal page navigation/reload and the existing site-week rollover hook. It does not poll fifteen weeks or run projection collection. A browser-only test fixture proves UI behavior, while the actual preview verifies real Sleeper schedule rendering.
+
 ## Bench authority and scoring
 
 The existing bulk Sleeper matchup request supplies exact-week `players`, `starters` and `players_points`. A validated bench is the requested-week player list minus occupied starter IDs. Current reserve/taxi exclusions apply only when the loader has authoritative current-period roster context. Missing, malformed or conflicting membership produces an unavailable bench, not an assumption that all players are benched. An explicit empty starter slot remains different from an unavailable starter list.
