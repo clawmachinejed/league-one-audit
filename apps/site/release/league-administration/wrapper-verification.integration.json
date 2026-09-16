@@ -1,0 +1,27 @@
+{
+  "outcome": "passed",
+  "postgresVersion": 180006,
+  "migrations": [
+    {
+      "name": "016_portable_league_administration.sql",
+      "checksum": "d662d9e9709153a4e9a6cbc93522bdd4d14c5b0a0c74a7c7ea8648455896596c"
+    },
+    {
+      "name": "017_enrolled_all_player_publication.sql",
+      "checksum": "1247dbfbdfbc79f41a448cf3b2e95fb4f9387e951a26f340e9533754e5c9c361"
+    }
+  ],
+  "sentinel": "LEAGUE_ADMINISTRATION_APPLIED:016_portable_league_administration.sql:d662d9e9709153a4e9a6cbc93522bdd4d14c5b0a0c74a7c7ea8648455896596c|017_enrolled_all_player_publication.sql:1247dbfbdfbc79f41a448cf3b2e95fb4f9387e951a26f340e9533754e5c9c361",
+  "catalogReview": "completed; see catalog-review.md for the corrected collection semantics, file-only catalog review and reviewer authorship limits",
+  "checks": [
+    "exact-001-through-015-ledger",
+    "postgres-180006-not-null-constraint-catalog",
+    "unaffected-catalog-and-acls",
+    "corrupt-manifest-full-rollback",
+    "actual-wrapper-commit",
+    "exact-success-sentinel",
+    "installed-bundle-replay-refused",
+    "same-session-continue-after-error-replay-no-success",
+    "same-session-wrong-target-no-success"
+  ]
+}

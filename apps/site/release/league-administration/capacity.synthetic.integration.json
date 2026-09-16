@@ -1,0 +1,1019 @@
+{
+  "observedAt": "2026-09-16T19:22:08.116Z",
+  "postgresVersion": 180006,
+  "workload": {
+    "source": "synthetic administration evidence using retained public configuration shapes; no provider calls",
+    "leagues": 3,
+    "configurationShapeFixture": "test-support/fixtures/dynasty-league-settings.json",
+    "teamsPerLeague": [
+      12,
+      12,
+      10
+    ],
+    "playersPerRoster": [
+      14,
+      14,
+      20
+    ],
+    "sourceDocumentsInitially": 33,
+    "transactionRowsPerLeagueWeek": 20,
+    "transactionWeeks": [
+      0,
+      1,
+      2
+    ],
+    "matchupWeek": 2,
+    "metadataFamilies": [
+      "drafts",
+      "traded_picks",
+      "winners_bracket",
+      "losers_bracket"
+    ],
+    "draftPicksPerLeague": [
+      168,
+      168,
+      200
+    ],
+    "unchangedWriteAttempts": 330,
+    "brandingReversionWrites": 6,
+    "correctionWrites": 9
+  },
+  "interpretation": "Measured relation allocations include heap, indexes and TOAST. Repeated head updates may allocate pages without growing immutable content. JSON byte counts are serialized application payloads, not measured wire transfer. This finite workload is not a production capacity or cost forecast.",
+  "phases": [
+    {
+      "name": "seeded-before-source-documents",
+      "measurement": {
+        "relations": [
+          {
+            "relname": "league_administration_contents",
+            "heap_bytes": "0",
+            "index_bytes": "24576",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "league_administration_enrollment_seasons",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "league_administration_enrollments",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "league_administration_heads",
+            "heap_bytes": "0",
+            "index_bytes": "8192",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "16384"
+          },
+          {
+            "relname": "league_administration_manager_entries",
+            "heap_bytes": "0",
+            "index_bytes": "8192",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "16384"
+          },
+          {
+            "relname": "league_administration_memberships",
+            "heap_bytes": "0",
+            "index_bytes": "8192",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "16384"
+          },
+          {
+            "relname": "league_administration_observations",
+            "heap_bytes": "0",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "40960"
+          },
+          {
+            "relname": "league_administration_team_entries",
+            "heap_bytes": "0",
+            "index_bytes": "8192",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "16384"
+          },
+          {
+            "relname": "league_administration_transaction_entries",
+            "heap_bytes": "0",
+            "index_bytes": "8192",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "16384"
+          },
+          {
+            "relname": "league_configuration_activations",
+            "heap_bytes": "0",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "40960"
+          },
+          {
+            "relname": "league_configuration_heads",
+            "heap_bytes": "0",
+            "index_bytes": "8192",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "16384"
+          },
+          {
+            "relname": "league_configuration_versions",
+            "heap_bytes": "0",
+            "index_bytes": "24576",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "league_season_teams",
+            "heap_bytes": "0",
+            "index_bytes": "24576",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "league_source_connection_history",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "league_source_manager_accounts",
+            "heap_bytes": "0",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "24576"
+          }
+        ],
+        "counts": [
+          {
+            "name": "league_administration_contents",
+            "rows": 0
+          },
+          {
+            "name": "league_administration_enrollment_seasons",
+            "rows": 3
+          },
+          {
+            "name": "league_administration_enrollments",
+            "rows": 3
+          },
+          {
+            "name": "league_administration_heads",
+            "rows": 0
+          },
+          {
+            "name": "league_administration_manager_entries",
+            "rows": 0
+          },
+          {
+            "name": "league_administration_memberships",
+            "rows": 0
+          },
+          {
+            "name": "league_administration_observations",
+            "rows": 0
+          },
+          {
+            "name": "league_administration_team_entries",
+            "rows": 0
+          },
+          {
+            "name": "league_administration_transaction_entries",
+            "rows": 0
+          },
+          {
+            "name": "league_configuration_activations",
+            "rows": 0
+          },
+          {
+            "name": "league_configuration_heads",
+            "rows": 0
+          },
+          {
+            "name": "league_configuration_versions",
+            "rows": 0
+          },
+          {
+            "name": "league_season_teams",
+            "rows": 0
+          },
+          {
+            "name": "league_source_connection_history",
+            "rows": 3
+          },
+          {
+            "name": "league_source_manager_accounts",
+            "rows": 0
+          }
+        ],
+        "transport": {
+          "statements": 0,
+          "serializedParameterBytes": 0,
+          "decodedResultBytes": 0,
+          "statementWallTimeMs": 0
+        }
+      }
+    },
+    {
+      "name": "initial-33-source-documents",
+      "measurement": {
+        "relations": [
+          {
+            "relname": "league_administration_contents",
+            "heap_bytes": "40960",
+            "index_bytes": "49152",
+            "toast_heap_bytes": "49152",
+            "toast_index_bytes": "16384",
+            "total_bytes": "204800"
+          },
+          {
+            "relname": "league_administration_enrollment_seasons",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "league_administration_enrollments",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "league_administration_heads",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "league_administration_manager_entries",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "league_administration_memberships",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "league_administration_observations",
+            "heap_bytes": "8192",
+            "index_bytes": "65536",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "81920"
+          },
+          {
+            "relname": "league_administration_team_entries",
+            "heap_bytes": "40960",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "90112"
+          },
+          {
+            "relname": "league_administration_transaction_entries",
+            "heap_bytes": "114688",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "163840"
+          },
+          {
+            "relname": "league_configuration_activations",
+            "heap_bytes": "8192",
+            "index_bytes": "57344",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "73728"
+          },
+          {
+            "relname": "league_configuration_heads",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "league_configuration_versions",
+            "heap_bytes": "8192",
+            "index_bytes": "49152",
+            "toast_heap_bytes": "8192",
+            "toast_index_bytes": "16384",
+            "total_bytes": "81920"
+          },
+          {
+            "relname": "league_season_teams",
+            "heap_bytes": "8192",
+            "index_bytes": "49152",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "65536"
+          },
+          {
+            "relname": "league_source_connection_history",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "league_source_manager_accounts",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          }
+        ],
+        "counts": [
+          {
+            "name": "league_administration_contents",
+            "rows": 33
+          },
+          {
+            "name": "league_administration_enrollment_seasons",
+            "rows": 3
+          },
+          {
+            "name": "league_administration_enrollments",
+            "rows": 3
+          },
+          {
+            "name": "league_administration_heads",
+            "rows": 33
+          },
+          {
+            "name": "league_administration_manager_entries",
+            "rows": 34
+          },
+          {
+            "name": "league_administration_memberships",
+            "rows": 34
+          },
+          {
+            "name": "league_administration_observations",
+            "rows": 33
+          },
+          {
+            "name": "league_administration_team_entries",
+            "rows": 68
+          },
+          {
+            "name": "league_administration_transaction_entries",
+            "rows": 180
+          },
+          {
+            "name": "league_configuration_activations",
+            "rows": 15
+          },
+          {
+            "name": "league_configuration_heads",
+            "rows": 15
+          },
+          {
+            "name": "league_configuration_versions",
+            "rows": 3
+          },
+          {
+            "name": "league_season_teams",
+            "rows": 34
+          },
+          {
+            "name": "league_source_connection_history",
+            "rows": 3
+          },
+          {
+            "name": "league_source_manager_accounts",
+            "rows": 37
+          }
+        ],
+        "transport": {
+          "statements": 33,
+          "serializedParameterBytes": 461388,
+          "decodedResultBytes": 6372,
+          "statementWallTimeMs": 1330.590299999999
+        }
+      }
+    },
+    {
+      "name": "ten-unchanged-refreshes-330-writes",
+      "measurement": {
+        "relations": [
+          {
+            "relname": "league_administration_contents",
+            "heap_bytes": "40960",
+            "index_bytes": "49152",
+            "toast_heap_bytes": "49152",
+            "toast_index_bytes": "16384",
+            "total_bytes": "204800"
+          },
+          {
+            "relname": "league_administration_enrollment_seasons",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "league_administration_enrollments",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "league_administration_heads",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "league_administration_manager_entries",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "league_administration_memberships",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "league_administration_observations",
+            "heap_bytes": "8192",
+            "index_bytes": "65536",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "81920"
+          },
+          {
+            "relname": "league_administration_team_entries",
+            "heap_bytes": "40960",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "90112"
+          },
+          {
+            "relname": "league_administration_transaction_entries",
+            "heap_bytes": "114688",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "163840"
+          },
+          {
+            "relname": "league_configuration_activations",
+            "heap_bytes": "8192",
+            "index_bytes": "57344",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "73728"
+          },
+          {
+            "relname": "league_configuration_heads",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "league_configuration_versions",
+            "heap_bytes": "8192",
+            "index_bytes": "49152",
+            "toast_heap_bytes": "8192",
+            "toast_index_bytes": "16384",
+            "total_bytes": "81920"
+          },
+          {
+            "relname": "league_season_teams",
+            "heap_bytes": "8192",
+            "index_bytes": "49152",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "65536"
+          },
+          {
+            "relname": "league_source_connection_history",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "league_source_manager_accounts",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          }
+        ],
+        "counts": [
+          {
+            "name": "league_administration_contents",
+            "rows": 33
+          },
+          {
+            "name": "league_administration_enrollment_seasons",
+            "rows": 3
+          },
+          {
+            "name": "league_administration_enrollments",
+            "rows": 3
+          },
+          {
+            "name": "league_administration_heads",
+            "rows": 33
+          },
+          {
+            "name": "league_administration_manager_entries",
+            "rows": 34
+          },
+          {
+            "name": "league_administration_memberships",
+            "rows": 34
+          },
+          {
+            "name": "league_administration_observations",
+            "rows": 33
+          },
+          {
+            "name": "league_administration_team_entries",
+            "rows": 68
+          },
+          {
+            "name": "league_administration_transaction_entries",
+            "rows": 180
+          },
+          {
+            "name": "league_configuration_activations",
+            "rows": 15
+          },
+          {
+            "name": "league_configuration_heads",
+            "rows": 15
+          },
+          {
+            "name": "league_configuration_versions",
+            "rows": 3
+          },
+          {
+            "name": "league_season_teams",
+            "rows": 34
+          },
+          {
+            "name": "league_source_connection_history",
+            "rows": 3
+          },
+          {
+            "name": "league_source_manager_accounts",
+            "rows": 37
+          }
+        ],
+        "transport": {
+          "statements": 363,
+          "serializedParameterBytes": 5075268,
+          "decodedResultBytes": 66132,
+          "statementWallTimeMs": 13668.410499999993
+        }
+      }
+    },
+    {
+      "name": "branding-A-B-A-for-three-leagues",
+      "measurement": {
+        "relations": [
+          {
+            "relname": "league_administration_contents",
+            "heap_bytes": "49152",
+            "index_bytes": "49152",
+            "toast_heap_bytes": "57344",
+            "toast_index_bytes": "16384",
+            "total_bytes": "221184"
+          },
+          {
+            "relname": "league_administration_enrollment_seasons",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "league_administration_enrollments",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "league_administration_heads",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "league_administration_manager_entries",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "league_administration_memberships",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "league_administration_observations",
+            "heap_bytes": "16384",
+            "index_bytes": "65536",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "114688"
+          },
+          {
+            "relname": "league_administration_team_entries",
+            "heap_bytes": "40960",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "90112"
+          },
+          {
+            "relname": "league_administration_transaction_entries",
+            "heap_bytes": "114688",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "163840"
+          },
+          {
+            "relname": "league_configuration_activations",
+            "heap_bytes": "8192",
+            "index_bytes": "57344",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "73728"
+          },
+          {
+            "relname": "league_configuration_heads",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "league_configuration_versions",
+            "heap_bytes": "8192",
+            "index_bytes": "49152",
+            "toast_heap_bytes": "16384",
+            "toast_index_bytes": "16384",
+            "total_bytes": "114688"
+          },
+          {
+            "relname": "league_season_teams",
+            "heap_bytes": "8192",
+            "index_bytes": "49152",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "65536"
+          },
+          {
+            "relname": "league_source_connection_history",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "league_source_manager_accounts",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          }
+        ],
+        "counts": [
+          {
+            "name": "league_administration_contents",
+            "rows": 36
+          },
+          {
+            "name": "league_administration_enrollment_seasons",
+            "rows": 3
+          },
+          {
+            "name": "league_administration_enrollments",
+            "rows": 3
+          },
+          {
+            "name": "league_administration_heads",
+            "rows": 33
+          },
+          {
+            "name": "league_administration_manager_entries",
+            "rows": 34
+          },
+          {
+            "name": "league_administration_memberships",
+            "rows": 34
+          },
+          {
+            "name": "league_administration_observations",
+            "rows": 39
+          },
+          {
+            "name": "league_administration_team_entries",
+            "rows": 68
+          },
+          {
+            "name": "league_administration_transaction_entries",
+            "rows": 180
+          },
+          {
+            "name": "league_configuration_activations",
+            "rows": 21
+          },
+          {
+            "name": "league_configuration_heads",
+            "rows": 15
+          },
+          {
+            "name": "league_configuration_versions",
+            "rows": 6
+          },
+          {
+            "name": "league_season_teams",
+            "rows": 34
+          },
+          {
+            "name": "league_source_connection_history",
+            "rows": 3
+          },
+          {
+            "name": "league_source_manager_accounts",
+            "rows": 37
+          }
+        ],
+        "transport": {
+          "statements": 369,
+          "serializedParameterBytes": 5113090,
+          "decodedResultBytes": 67476,
+          "statementWallTimeMs": 13887.944499999996
+        }
+      }
+    },
+    {
+      "name": "nine-team-score-transaction-corrections",
+      "measurement": {
+        "relations": [
+          {
+            "relname": "league_administration_contents",
+            "heap_bytes": "65536",
+            "index_bytes": "49152",
+            "toast_heap_bytes": "73728",
+            "toast_index_bytes": "16384",
+            "total_bytes": "253952"
+          },
+          {
+            "relname": "league_administration_enrollment_seasons",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "league_administration_enrollments",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "league_administration_heads",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "league_administration_manager_entries",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "league_administration_memberships",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "league_administration_observations",
+            "heap_bytes": "16384",
+            "index_bytes": "65536",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "114688"
+          },
+          {
+            "relname": "league_administration_team_entries",
+            "heap_bytes": "73728",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "122880"
+          },
+          {
+            "relname": "league_administration_transaction_entries",
+            "heap_bytes": "147456",
+            "index_bytes": "40960",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "221184"
+          },
+          {
+            "relname": "league_configuration_activations",
+            "heap_bytes": "8192",
+            "index_bytes": "57344",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "73728"
+          },
+          {
+            "relname": "league_configuration_heads",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "league_configuration_versions",
+            "heap_bytes": "8192",
+            "index_bytes": "49152",
+            "toast_heap_bytes": "16384",
+            "toast_index_bytes": "16384",
+            "total_bytes": "114688"
+          },
+          {
+            "relname": "league_season_teams",
+            "heap_bytes": "8192",
+            "index_bytes": "49152",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "65536"
+          },
+          {
+            "relname": "league_source_connection_history",
+            "heap_bytes": "8192",
+            "index_bytes": "16384",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "32768"
+          },
+          {
+            "relname": "league_source_manager_accounts",
+            "heap_bytes": "8192",
+            "index_bytes": "32768",
+            "toast_heap_bytes": "0",
+            "toast_index_bytes": "8192",
+            "total_bytes": "49152"
+          }
+        ],
+        "counts": [
+          {
+            "name": "league_administration_contents",
+            "rows": 45
+          },
+          {
+            "name": "league_administration_enrollment_seasons",
+            "rows": 3
+          },
+          {
+            "name": "league_administration_enrollments",
+            "rows": 3
+          },
+          {
+            "name": "league_administration_heads",
+            "rows": 33
+          },
+          {
+            "name": "league_administration_manager_entries",
+            "rows": 34
+          },
+          {
+            "name": "league_administration_memberships",
+            "rows": 68
+          },
+          {
+            "name": "league_administration_observations",
+            "rows": 48
+          },
+          {
+            "name": "league_administration_team_entries",
+            "rows": 136
+          },
+          {
+            "name": "league_administration_transaction_entries",
+            "rows": 240
+          },
+          {
+            "name": "league_configuration_activations",
+            "rows": 21
+          },
+          {
+            "name": "league_configuration_heads",
+            "rows": 15
+          },
+          {
+            "name": "league_configuration_versions",
+            "rows": 6
+          },
+          {
+            "name": "league_season_teams",
+            "rows": 34
+          },
+          {
+            "name": "league_source_connection_history",
+            "rows": 3
+          },
+          {
+            "name": "league_source_manager_accounts",
+            "rows": 38
+          }
+        ],
+        "transport": {
+          "statements": 378,
+          "serializedParameterBytes": 5235304,
+          "decodedResultBytes": 69186,
+          "statementWallTimeMs": 14234.499699999998
+        }
+      }
+    }
+  ]
+}

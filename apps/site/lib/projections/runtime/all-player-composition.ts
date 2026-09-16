@@ -3,6 +3,9 @@ import 'server-only';
 import { ACTIVE_PROJECTION_SOURCE } from '../../projection-source-config';
 import { createProjectionStore, getProjectionStore } from '../../projection-store';
 import { getDatabase, withDatabaseAbortSignal } from '../../database';
+import { loadAdministrationRegistry } from '../../league-administration/registry';
+import { createLeagueAdministrationStore } from '../../league-administration/store';
+import type { LeagueRegistryPort } from '../ports/league-registry';
 import { getOperatorProjectionSyncInput } from '../../sleeper';
 import { loadCompletePlayerCatalog } from '../../sleeper-player-catalog';
 import { createNeonProjectionRepository } from '../adapters/neon/repository';
@@ -34,8 +37,9 @@ function diagnosticPeriod(value: unknown): LeaguePeriod | undefined {
 
 export function createProductionAllPlayerDependencies(
   execution?: Readonly<{ signal: AbortSignal; deadlineAt: string }>,
+  registry?: LeagueRegistryPort,
 ): AllPlayerIngestionDependencies {
-  const shared = createProductionSharedServices('all-player-ingestion');
+  const shared = createProductionSharedServices('all-player-ingestion', registry);
   const store = execution
     ? createProjectionStore(withDatabaseAbortSignal(getDatabase(), execution.signal))
     : getProjectionStore();
@@ -94,7 +98,9 @@ export async function runProductionAllPlayerOperation(
 ): Promise<AllPlayerIngestionResult> {
   const deadlineAt = new Date(Date.now() + 50_000).toISOString();
   const signal = AbortSignal.timeout(50_000);
-  const dependencies = createProductionAllPlayerDependencies({ signal, deadlineAt });
+  const registry = await loadAdministrationRegistry(
+    createLeagueAdministrationStore(withDatabaseAbortSignal(getDatabase(), signal)), period.season);
+  const dependencies = createProductionAllPlayerDependencies({ signal, deadlineAt }, registry);
   return runAllPlayerIngestion(dependencies, {
     mode,
     period,
@@ -185,7 +191,7 @@ export async function runProductionAllPlayerRecurring(
   try {
     const dependencies = createProductionAllPlayerDependencies({
       signal: AbortSignal.timeout(remainingMs), deadlineAt: new Date(invocationStartedAt + 50_000).toISOString(),
-    });
+    }, await loadAdministrationRegistry());
     preclaimStage = 'global-budget';
     const job = await dependencies.store.readAllPlayerJobState();
     const previousPeriod = diagnosticPeriod(job?.payload.period);

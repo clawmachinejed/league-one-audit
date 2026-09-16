@@ -1,4 +1,5 @@
 import 'server-only';
+import { loadAdministrationRegistry } from './league-administration/registry';
 import { createProductionFutureProjectionDependencies } from './projections/runtime/future-projection-composition';
 import type { ForcedFuturePeriod, FutureProjectionSyncResult, FutureProjectionWorkerDependencies } from './projections/worker/future-contracts';
 import { runFutureWithDependencies } from './projections/worker/future-orchestrator';
@@ -12,5 +13,5 @@ export function createFutureProjectionWorker(dependencies: FutureProjectionWorke
 }
 
 export async function runFutureProjectionSync(): Promise<FutureProjectionSyncResult> {
-  return runFutureWithDependencies(createProductionFutureProjectionDependencies());
+  return runFutureWithDependencies(createProductionFutureProjectionDependencies(await loadAdministrationRegistry()));
 }

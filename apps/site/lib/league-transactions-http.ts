@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { LEAGUE_IDS } from './config';
+import { getCurrentLeagueIds } from './league-administration/registry';
 import { LEAGUE_SITES, type LeagueKey } from './leagues';
 import { getLeagueTransactions } from './sleeper';
 
@@ -19,7 +19,7 @@ export async function handleLeagueTransactionsRequest(
   }
   let data;
   try {
-    data = await loadTransactions(LEAGUE_IDS[league], league);
+    data = await loadTransactions((await getCurrentLeagueIds())[league], league);
   } catch {
     return Response.json(
       { error: 'League transaction history is temporarily unavailable. Please try again.' },

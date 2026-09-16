@@ -235,3 +235,26 @@ DO $$ BEGIN
     END IF;
   END IF;
 END; $$;
+
+-- Portable administration uses one atomic writer; immutable evidence and heads
+-- are SELECT-only. Remapping and historical activation remain owner-only.
+DO $$ DECLARE object_name text; BEGIN
+  IF to_regclass('public.league_administration_enrollments') IS NOT NULL THEN
+    FOREACH object_name IN ARRAY ARRAY['league_administration_enrollments','league_administration_enrollment_seasons','league_source_connection_history',
+      'league_configuration_versions','league_administration_contents','league_administration_observations',
+      'league_administration_heads','league_configuration_activations','league_configuration_heads',
+      'league_season_teams','league_source_manager_accounts','league_administration_team_entries',
+      'league_administration_manager_entries','league_administration_memberships','league_administration_transaction_entries'] LOOP
+      EXECUTE format('REVOKE ALL ON TABLE public.%I FROM league_one_runtime',object_name);
+      EXECUTE format('GRANT SELECT ON TABLE public.%I TO league_one_runtime',object_name);
+      IF EXISTS (SELECT 1 FROM pg_class object JOIN pg_namespace namespace ON namespace.oid=object.relnamespace
+        JOIN pg_roles owner ON owner.oid=object.relowner WHERE namespace.nspname='public'
+          AND object.relname=object_name AND owner.rolname='league_one_runtime') THEN
+        RAISE EXCEPTION 'league_one_runtime owns protected administration object'; END IF;
+    END LOOP;
+    REVOKE ALL ON FUNCTION public.remap_league_source_connection(uuid,text,text,text,text) FROM league_one_runtime;
+    REVOKE ALL ON FUNCTION public.connect_league_administration_season(uuid,smallint,text,text,text,jsonb,text) FROM league_one_runtime;
+    REVOKE ALL ON FUNCTION public.activate_league_configuration_component(uuid,text,text,smallint,smallint,text,bigint) FROM league_one_runtime;
+    GRANT EXECUTE ON FUNCTION public.record_league_administration_observation(jsonb) TO league_one_runtime;
+  END IF;
+END; $$;

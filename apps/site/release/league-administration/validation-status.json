@@ -1,0 +1,134 @@
+{
+  "recordedAt": "2026-09-16T20:24:00Z",
+  "status": "approved-isolated-verification-passed",
+  "approval": {
+    "source": "User explicitly approved the pending reset/test of the named dedicated isolated database in the current conversation.",
+    "database": "projection_refactor_test",
+    "branchId": "br-still-breeze-avaibago",
+    "branchName": "projection-integration-test",
+    "excludedDatabase": "neondb",
+    "sequence": ["release-wrapper verification", "full integration suite", "physical storage measurement"],
+    "singleDatabaseOwner": "league_settings_worker_audit",
+    "databaseOwnership": "released after all three sequential runners completed cleanup"
+  },
+  "migrations": [
+    {
+      "name": "016_portable_league_administration.sql",
+      "checksum": "d662d9e9709153a4e9a6cbc93522bdd4d14c5b0a0c74a7c7ea8648455896596c"
+    },
+    {
+      "name": "017_enrolled_all_player_publication.sql",
+      "checksum": "1247dbfbdfbc79f41a448cf3b2e95fb4f9387e951a26f340e9533754e5c9c361"
+    }
+  ],
+  "command": "node --env-file=.env.integration.local --import tsx scripts/run-league-administration-release-wrapper-integration.mjs",
+  "workingDirectory": "apps/site",
+  "sandboxAttempt": {
+    "outcome": "failed-before-database-import",
+    "reason": "tsx initialization called os.userInfo; Windows uv_os_get_passwd returned ENOMEM."
+  },
+  "escalatedAttempt": {
+    "outcome": "rejected-before-execution",
+    "reason": "Automatic approval review classified the isolated database reset and migration verification as destructive and could not establish explicit user authorization for that exact database mutation. Script authorization guards were not accepted as independent authority."
+  },
+  "databaseStatementsExecutedByThisValidation": true,
+  "execution": {
+    "nodeVersion": "24.19.0",
+    "nodeBinary": "C:/Users/Robert Finchum/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node.exe",
+    "postgresVersion": 180006,
+    "environmentResolution": "The first approved elevated invocation resolved unsupported Node20 and failed the identity query before reset. The successful guarded runs used the exact supported Node24 binary and PATH; no identity check was weakened.",
+    "wrapper": {
+      "outcome": "passed",
+      "catalog": "catalog.integration.json",
+      "readableDefinitions": "catalog-definitions.integration.json",
+      "verification": "wrapper-verification.integration.json",
+      "checksPassed": 9,
+      "reviewed": true,
+      "review": "catalog-review.md",
+      "productionSqlArtifact": "016-017.production.sql",
+      "productionSqlSha256": "f3e710d4f19bd492fe276949bcee240b4bf33cdc37706d7ee4e91507cadb6e07",
+      "productionSqlExecuted": false
+    },
+    "fullIntegrationSuite": {
+      "outcome": "passed",
+      "command": "node --env-file=.env.integration.local scripts/run-projection-store-integration.mjs",
+      "passed": 292,
+      "failed": 0,
+      "skipped": 0,
+      "files": 19,
+      "durationSeconds": 356.21,
+      "historicalArtifacts": "The four suite-regenerated 011 partial/synthetic, 012 context and 013 assumption capacity artifacts were restored byte-for-byte from HEAD; existing historical release evidence was preserved."
+    },
+    "physicalMeasurement": {
+      "outcome": "passed",
+      "command": "node --conditions=react-server --env-file=.env.integration.local --import tsx scripts/run-league-administration-capacity-integration.mjs",
+      "artifact": "capacity.synthetic.integration.json",
+      "measuredTables": 15,
+      "writerStatements": 378,
+      "totalRelationBytesByPhase": {
+        "seededBeforeDocuments": 401408,
+        "initial33Documents": 1040384,
+        "after330UnchangedChecks": 1040384,
+        "afterSixBrandingReversionWrites": 1122304,
+        "afterNineCorrections": 1245184
+      },
+      "unchangedChecksPreservedAllRowCounts": true,
+      "finalContents": 45,
+      "finalObservations": 48,
+      "finalConfigurationVersions": 6,
+      "serializedParameterBytes": 5235304,
+      "decodedResultJsonBytes": 69186,
+      "writerStatementWallTimeMilliseconds": 14234.499699999998,
+      "limits": "Finite synthetic workload; relation allocation excludes shared tables, WAL, history, branch and dashboard storage. JSON byte counts are not wire transfer; statement wall time is not compute units. No production capacity or cost extrapolation."
+    },
+    "cleanup": "Every successful prepared runner completed the existing guarded harness cleanup; no database process remained when ownership was released."
+  },
+  "reproducedAndFixedToolingDefects": [
+    "PostgreSQL catalog policy command requires explicit internal-char to text cast.",
+    "An installed-bundle replay could emit success if the client continued after error; the real database regression reproduced it.",
+    "A pre-BEGIN session-marker clear without a commit is rolled back by a failed simple-query batch, restoring a previous success marker; the same-session regression reproduced it. The reset now commits separately before the migration transaction, which requires a fresh idle session."
+  ],
+  "localVerification": {
+    "initialTargetedTests": { "passed": 74, "failed": 0, "files": 4 },
+    "finalWrapperUnitTests": { "passed": 11, "failed": 0, "files": 1 },
+    "typescript": "passed",
+    "targetedEslint": "passed",
+    "finalWorkspaceVerifyReportedByRoot": {
+      "command": "pnpm verify",
+      "lint": "passed",
+      "typecheck": "passed",
+      "productionBuild": "passed",
+      "testsPassed": 2675,
+      "testsSkipped": 1,
+      "testFiles": 150
+    }
+  },
+  "formatOnlyFollowup": {
+    "observedAt": "2026-09-16T19:30:40Z",
+    "reason": "Git diff --check found indentation on three generated executable blank lines and trailing spaces on review comment lines.",
+    "executableSqlDiff": "Only trailing whitespace changed relative to the staged artifact from the passing isolated wrapper run.",
+    "reviewSqlDiff": "Only trailing whitespace changed relative to its staged artifact.",
+    "migrationBodies": "Both complete LF-normalized original migration bodies remain byte-identical inside the generated executable SQL.",
+    "catalogQuery": "Affected query differs only in trailing whitespace; unaffected query is byte-identical.",
+    "capturedCatalogArtifacts": "Both catalog.integration.json and catalog-definitions.integration.json remain unchanged.",
+    "catalogGeneratorLfSha256": "511f10bf87cddea0673a7289bd936e4a22fb981df49cd582c7cada1df03451be",
+    "rendererLfSha256": "83ca9f1e0b97510bce03f5c6c11b49552f22c4b446985178aee5ea7afb6e9f2d",
+    "executableSqlLfSha256": "5917776ae1e306df85c80a2a1a05049ee737496811449d55e63ceb3d185b666e",
+    "reviewSqlLfSha256": "9339f7472af9a6e10d30086f9c8b5022beae8f1e7411cc9ed588ebbe05fbf487",
+    "verification": "11 focused wrapper tests and targeted ESLint passed; rendered artifacts have no trailing whitespace. No database rerun was needed for the proven whitespace-only change."
+  },
+  "lateCollectionReviewCorrection": {
+    "reviewComment": "https://github.com/clawmachinejed/league-one-audit/pull/220#discussion_r4030153146",
+    "finding": "Reordered collection sets had equal semantic hashes but raw content identity incorrectly classified them as changed.",
+    "fix": "Retain distinct raw contents and immutable observations with fresh provenance, classify equivalent collections as unchanged, and preserve semantic generation except when clearing a blocking conflict. League operational updates and stale, equal-time and unknown-cache guards remain intact.",
+    "databaseOwner": "root; sequential guarded wrapper and full integration runs; cleanup complete",
+    "newIntegrationRegressions": 3,
+    "fullIntegrationPassed": 292,
+    "wrapperChecksPassed": 9,
+    "independentReview": "catalog-review.md corrective follow-up; only the intended observation function changed",
+    "localVerify": "lint, typecheck, 2675 tests plus one environment-dependent skip, and production build passed",
+    "capacityEvidence": "Earlier finite physical measurement retained. This correction changes classification and generation only; table structures and raw-history retention remain unchanged. It is not a new capacity measurement."
+  },
+  "pending": ["corrected published-head CI and Preview", "authorized production execution and verification"],
+  "note": "This status record is not a catalog manifest or database validation result. The earlier rejection was not bypassed. Execution resumed only after the user explicitly approved the named isolated database reset/test. All existing identity, sentinel, TLS, role and production-denylist guards remain required."
+}

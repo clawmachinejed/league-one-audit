@@ -29,22 +29,37 @@ vi.mock('../../sleeper-player-catalog', () => ({
 }));
 vi.mock('./shared-services', async (original) => {
   const actual = await original<typeof import('./shared-services')>();
-  return { ...actual, createProductionSharedServices: (service: string) => ({
-    ...actual.createProductionSharedServices(service), logger,
+  return { ...actual, createProductionSharedServices: (service: string, registry?: Parameters<typeof actual.createProductionSharedServices>[1]) => ({
+    ...actual.createProductionSharedServices(service, registry), logger,
   }) };
 });
 
 import {
   createProductionAllPlayerDependencies,
+  runProductionAllPlayerOperation,
   runProductionAllPlayerRecurring,
 } from './all-player-composition';
 import * as databaseModule from '../../database';
+import * as administrationRegistry from '../../league-administration/registry';
 
 describe('production all-player recurring composition', () => {
   afterEach(() => {
     delete process.env.ALL_PLAYER_RECURRING_ENABLED;
     vi.clearAllMocks();
     vi.useRealTimers();
+  });
+
+  it('loads the requested season enrollment before an explicit historical operation', async () => {
+    const registry = administrationRegistry.bootstrapLeagueRegistry();
+    const loadRegistry = vi.spyOn(administrationRegistry, 'loadAdministrationRegistry').mockResolvedValue(registry);
+    const period = { season: 2026, seasonType: 'regular', week: 1 } as const;
+    canonicalOperation.mockResolvedValue({ status: 'completed' });
+    try {
+      await runProductionAllPlayerOperation('backfill', period);
+      expect(loadRegistry).toHaveBeenCalledWith(expect.any(Object), 2026);
+      expect(canonicalOperation.mock.calls[0][0].leagueRegistry).toBe(registry);
+      expect(canonicalOperation.mock.calls[0][1]).toMatchObject({ mode: 'backfill', period });
+    } finally { loadRegistry.mockRestore(); }
   });
 
   it('is dormant by default without reading database or provider state', async () => {

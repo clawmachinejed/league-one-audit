@@ -18,7 +18,8 @@
     "test:migration-wrapper:integration": "node --env-file=.env.integration.local --import tsx scripts/run-all-player-migration-wrapper-integration.mjs",
     "test:browser": "playwright test",
     "db:migrate": "node --env-file-if-exists=.env.local scripts/migrate.mjs",
-    "all-player:operate": "node --conditions=react-server --import tsx scripts/run-all-player-ingestion.ts"
+    "all-player:operate": "node --conditions=react-server --import tsx scripts/run-all-player-ingestion.ts",
+    "league-administration:operate": "node --conditions=react-server --import tsx scripts/run-league-administration.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",

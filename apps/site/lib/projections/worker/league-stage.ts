@@ -365,6 +365,7 @@ export async function processLeague(
     observedAt: source.observedAt,
     quality: 'complete',
     sourceData: {
+      ...(source.administrationContext ? { administration: source.administrationContext } : {}),
       leagueKey: configuration.key,
       season: String(source.period.season),
       week: source.period.week,

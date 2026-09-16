@@ -1,0 +1,1768 @@
+-- Reviewed portable league administration bundle. Installed migrations 001-015 remain untouched.
+-- Rendered for neondb/neondb_owner. Obtain release authority and revalidate service identities before execution.
+-- Execute from an idle session, outside any existing transaction. The marker is
+-- cleared before BEGIN and can survive COMMIT only after every postcondition passes.
+SELECT set_config('league_one.administration_release_committed','',false) AS administration_release_marker_reset;
+-- End the reset's implicit transaction even when submitted as one simple-query
+-- batch. Otherwise a later error could restore this session's prior success marker.
+COMMIT;
+BEGIN;
+SET LOCAL lock_timeout='5s';
+SET LOCAL statement_timeout='120s';
+SET LOCAL search_path=pg_catalog,public;
+SELECT pg_advisory_xact_lock(hashtext('league-one-schema-migrations'));
+LOCK TABLE public.app_schema_migrations IN EXCLUSIVE MODE;
+LOCK TABLE public.projection_jobs,public.league_week_lineup_watch_states,
+  public.projection_period_refresh_states,public.league_week_materialization_states IN SHARE ROW EXCLUSIVE MODE;
+DO $administration_before$
+DECLARE actual_catalog jsonb;
+BEGIN
+  IF current_database() IS DISTINCT FROM 'neondb' OR current_user IS DISTINCT FROM 'neondb_owner'
+    THEN RAISE EXCEPTION 'administration release database or owner identity mismatch'; END IF;
+  IF current_setting('server_version_num')::integer<>180006
+    THEN RAISE EXCEPTION 'administration release requires reviewed PostgreSQL 180006 constraint catalog'; END IF;
+  IF (SELECT jsonb_agg(jsonb_build_array(name,checksum) ORDER BY name) FROM public.app_schema_migrations) IS DISTINCT FROM '[["001_projection_foundation.sql","eefa3aa224dbc6f0c6bb3edc9e4690425e2d6af7094938f3528059717d205050"],["002_manager_snapshot_payloads.sql","74585dec3e2717eede0579f9281a041a4e3cc0b0cd8378383fe2e3d64fd7214d"],["003_league_period_authority.sql","6f98e09646834cc542a6413e00c0d0c2d84ad4a5ff33905e429aba87c951406e"],["004_durable_projection_slates.sql","8ad48c22dea0d942a0a14027dcb240cda18f1bd728403e41aafa6b76f42f95b9"],["005_future_projection_refresh.sql","02bb6a3c6a183e7074fbea156b5f393d5772619098ab7c07be9dcc5528003c75"],["006_flexed_kickoff_candidate_index.sql","d2c54c4e17439d3773cfab8db8ed68bf332abd1073fe793f62138efa89e1a3b0"],["007_lineup_freshness.sql","1a92f9517294fe289bd25d74923dd042d0cb394d143b5c89d33ed017963c3e47"],["008_additive_write_guards.sql","2447ffac523e1f5536e218887d5c29895c3a095385f89bd6beb55cb7c5e95814"],["009_game_clock_plausibility.sql","86df8afd868bb4fd589a76bf1e1693cdc546037cfc61b54ae972e660fbda056a"],["010_all_player_statistics.sql","f9f2aa0c4dc7a0a3097bf770a7f08ef0719ed7f019307dcf629fa17058af31b4"],["011_all_player_foundation_guards.sql","0eaa96bcc0b65053ac8dab48657eb7bfe22fadbfd41b4f4c78c3472ca8a512b6"],["012_all_player_provider_participation.sql","bea4bd568c05eee7da177811b25a1389180d37329b9061b3e79ee60d546aa4ed"],["013_all_player_participation_assumption.sql","4e03581db2b9a33d0df77110fe32b81745bec7f1ab001a20bfd788c4b4283d80"],["014_all_player_hourly_collection.sql","3aa6e19555c1e38bf7805199d401b0c6acd3ada00716950e04e54573867b1fc3"],["015_all_player_dynasty_publication.sql","f7bf9b74cc14c0ede7a7534257ea956f99edc2615983b5b66ae546f2812fef8a"]]'::jsonb
+    THEN RAISE EXCEPTION 'administration release expected exactly migrations 001-015 and their accepted checksums'; END IF;
+  IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='league_one_runtime' AND NOT rolsuper AND NOT rolcreaterole AND NOT rolcreatedb AND NOT rolbypassrls)
+    OR EXISTS(SELECT 1 FROM pg_roles WHERE rolname<>'league_one_runtime' AND pg_has_role('league_one_runtime',oid,'SET'))
+    THEN RAISE EXCEPTION 'administration runtime role is privileged or can assume another role'; END IF;
+  IF EXISTS(SELECT 1 FROM public.projection_jobs WHERE state='running' AND lease_until>clock_timestamp())
+    OR EXISTS(SELECT 1 FROM public.league_week_lineup_watch_states WHERE active_attempt_id IS NOT NULL AND lease_expires_at>clock_timestamp())
+    OR EXISTS(SELECT 1 FROM public.projection_period_refresh_states WHERE active_attempt_id IS NOT NULL AND active_attempt_expires_at>clock_timestamp())
+    OR EXISTS(SELECT 1 FROM public.league_week_materialization_states WHERE active_attempt_id IS NOT NULL AND active_attempt_expires_at>clock_timestamp())
+    THEN RAISE EXCEPTION 'administration release found an active worker owner'; END IF;
+  SELECT catalog INTO actual_catalog FROM (SELECT jsonb_build_object(
+    'tables', COALESCE((SELECT jsonb_agg(jsonb_build_object(
+      'name',t.relname,'kind',t.relkind,'owner',owner.rolname,'acl',COALESCE(t.relacl::text,''),
+      'rls',t.relrowsecurity,'forceRls',t.relforcerowsecurity,
+      'runtimePrivileges',(SELECT jsonb_agg(privilege ORDER BY privilege) FROM unnest(ARRAY['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']) privilege
+        WHERE has_table_privilege('league_one_runtime',t.oid,privilege)),
+      'publicPrivileges',COALESCE((SELECT jsonb_agg(acl.privilege_type ORDER BY acl.privilege_type)
+        FROM aclexplode(COALESCE(t.relacl,acldefault('r',t.relowner))) acl WHERE acl.grantee=0),'[]'::jsonb),
+      'columns',columns.n,'columnHash',columns.hash,
+      'constraints',constraints.n,'notNullConstraints',constraints.nn,'constraintHash',constraints.hash,
+      'indexes',indexes.n,'indexHash',indexes.hash,'policyHash',policies.hash
+    ) ORDER BY t.relname) FROM pg_class t JOIN pg_namespace ns ON ns.oid=t.relnamespace
+    JOIN pg_roles owner ON owner.oid=t.relowner
+    CROSS JOIN LATERAL (SELECT count(*) AS n,md5(COALESCE(string_agg(
+      a.attname||chr(31)||format_type(a.atttypid,a.atttypmod)||chr(31)||a.attnotnull::text
+      ||chr(31)||COALESCE(a.attacl::text,'')||chr(31)||COALESCE(pg_get_expr(d.adbin,d.adrelid),''),chr(30) ORDER BY a.attnum),'')) AS hash
+      FROM pg_attribute a LEFT JOIN pg_attrdef d ON d.adrelid=a.attrelid AND d.adnum=a.attnum
+      WHERE a.attrelid=t.oid AND a.attnum>0 AND NOT a.attisdropped) columns
+    CROSS JOIN LATERAL (SELECT count(*) AS n,count(*) FILTER(WHERE c.contype='n') AS nn,
+      md5(COALESCE(string_agg(c.conname||chr(31)||c.contype::text||chr(31)||c.convalidated::text||chr(31)
+      ||pg_get_constraintdef(c.oid,true),chr(30) ORDER BY c.conname),'')) AS hash
+      FROM pg_constraint c WHERE c.conrelid=t.oid) constraints
+    CROSS JOIN LATERAL (SELECT count(*) AS n,md5(COALESCE(string_agg(i.indexname||chr(31)||i.indexdef,
+      chr(30) ORDER BY i.indexname),'')) AS hash FROM pg_indexes i WHERE i.schemaname='public' AND i.tablename=t.relname) indexes
+    CROSS JOIN LATERAL (SELECT md5(COALESCE(string_agg(p.polname||chr(31)||p.polcmd::text||chr(31)||p.polpermissive::text
+      ||chr(31)||p.polroles::text||chr(31)||COALESCE(pg_get_expr(p.polqual,p.polrelid),'')||chr(31)
+      ||COALESCE(pg_get_expr(p.polwithcheck,p.polrelid),''),chr(30) ORDER BY p.polname),'')) AS hash
+      FROM pg_policy p WHERE p.polrelid=t.oid) policies
+    WHERE ns.nspname='public' AND t.relkind IN ('r','p','v','m','f') AND t.relname =ANY(ARRAY['league_administration_enrollments','league_administration_enrollment_seasons','league_source_connection_history','league_configuration_versions','league_administration_contents','league_administration_observations','league_administration_heads','league_configuration_activations','league_configuration_heads','league_season_teams','league_source_manager_accounts','league_administration_team_entries','league_administration_manager_entries','league_administration_memberships','league_administration_transaction_entries']::text[])),'[]'::jsonb),
+    'constraintTypes',COALESCE((SELECT jsonb_agg(jsonb_build_array(kind,n) ORDER BY kind) FROM (
+      SELECT c.contype::text AS kind,count(*) AS n FROM pg_constraint c JOIN pg_class t ON t.oid=c.conrelid
+      WHERE t.relnamespace='public'::regnamespace AND t.relname =ANY(ARRAY['league_administration_enrollments','league_administration_enrollment_seasons','league_source_connection_history','league_configuration_versions','league_administration_contents','league_administration_observations','league_administration_heads','league_configuration_activations','league_configuration_heads','league_season_teams','league_source_manager_accounts','league_administration_team_entries','league_administration_manager_entries','league_administration_memberships','league_administration_transaction_entries']::text[]) GROUP BY c.contype) kinds),'[]'::jsonb),
+    'functions',COALESCE((SELECT jsonb_agg(jsonb_build_object('signature',p.proname||'('||replace(oidvectortypes(p.proargtypes),', ',',')||')',
+      'definitionHash',md5(pg_get_functiondef(p.oid)),'owner',owner.rolname,'securityDefiner',p.prosecdef,
+      'configuration',p.proconfig,'acl',COALESCE(p.proacl::text,''),
+      'runtimeExecute',has_function_privilege('league_one_runtime',p.oid,'EXECUTE'),
+      'publicExecute',EXISTS(SELECT 1 FROM aclexplode(COALESCE(p.proacl,acldefault('f',p.proowner))) acl
+        WHERE acl.grantee=0 AND acl.privilege_type='EXECUTE')) ORDER BY p.proname||'('||replace(oidvectortypes(p.proargtypes),', ',',')||')')
+      FROM pg_proc p JOIN pg_roles owner ON owner.oid=p.proowner
+      WHERE p.pronamespace='public'::regnamespace AND p.prokind='f' AND p.proname||'('||replace(oidvectortypes(p.proargtypes),', ',',')||')' =ANY(ARRAY['prevent_league_administration_history_change()','record_league_administration_observation(jsonb)','guard_league_administration_entry()','validate_official_administration_lineage()','validate_published_administration_lineage()','guard_league_source_connection_history()','remap_league_source_connection(uuid,text,text,text,text)','connect_league_administration_season(uuid,smallint,text,text,text,jsonb,text)','activate_league_configuration_component(uuid,text,text,smallint,smallint,text,bigint)','all_player_score_set_is_publication_ready(uuid,jsonb,uuid)','advance_current_all_player_score_set(text,smallint,text,smallint,uuid,text,uuid,uuid,timestamp with time zone)']::text[])),'[]'::jsonb),
+    'triggers',COALESCE((SELECT jsonb_agg(jsonb_build_object('key',t.relname||'.'||tr.tgname,
+      'function',p.proname,'enabled',tr.tgenabled,'definitionHash',md5(pg_get_triggerdef(tr.oid,true))) ORDER BY t.relname,tr.tgname)
+      FROM pg_trigger tr JOIN pg_class t ON t.oid=tr.tgrelid JOIN pg_proc p ON p.oid=tr.tgfoid
+      WHERE t.relnamespace='public'::regnamespace AND NOT tr.tgisinternal AND (t.relname=ANY(ARRAY['league_administration_enrollments','league_administration_enrollment_seasons','league_source_connection_history','league_configuration_versions','league_administration_contents','league_administration_observations','league_administration_heads','league_configuration_activations','league_configuration_heads','league_season_teams','league_source_manager_accounts','league_administration_team_entries','league_administration_manager_entries','league_administration_memberships','league_administration_transaction_entries']::text[]) OR (t.relname||'.'||tr.tgname)=ANY(ARRAY['league_week_observations.official_administration_lineage','current_projection_snapshots.published_administration_lineage','league_source_connections.guard_administration_connection','league_source_connections.record_administration_connection']::text[]))),'[]'::jsonb)
+
+  ) AS catalog) captured;
+  IF actual_catalog IS DISTINCT FROM '{"tables":[],"triggers":[],"functions":[{"acl":"{neondb_owner=X/neondb_owner,league_one_runtime=X/neondb_owner}","owner":"neondb_owner","signature":"advance_current_all_player_score_set(text,smallint,text,smallint,uuid,text,uuid,uuid,timestamp with time zone)","configuration":["search_path=pg_catalog, public, pg_temp"],"publicExecute":false,"definitionHash":"199414e509b0b090ce96c0333a4fee35","runtimeExecute":true,"securityDefiner":true},{"acl":"{neondb_owner=X/neondb_owner}","owner":"neondb_owner","signature":"all_player_score_set_is_publication_ready(uuid,jsonb,uuid)","configuration":["search_path=pg_catalog, public, pg_temp"],"publicExecute":false,"definitionHash":"411726166ee442c675e1c6c40e3f0dc3","runtimeExecute":false,"securityDefiner":true}],"constraintTypes":[]}'::jsonb
+    THEN RAISE EXCEPTION 'administration installed 015 catalog, ownership, or grants mismatch'; END IF;
+END; $administration_before$;
+CREATE TEMP TABLE administration_release_unaffected_before ON COMMIT DROP AS SELECT jsonb_build_object(
+    'tables', COALESCE((SELECT jsonb_agg(jsonb_build_object(
+      'name',t.relname,'kind',t.relkind,'owner',owner.rolname,'acl',COALESCE(t.relacl::text,''),
+      'rls',t.relrowsecurity,'forceRls',t.relforcerowsecurity,
+      'runtimePrivileges',(SELECT jsonb_agg(privilege ORDER BY privilege) FROM unnest(ARRAY['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']) privilege
+        WHERE has_table_privilege('league_one_runtime',t.oid,privilege)),
+      'publicPrivileges',COALESCE((SELECT jsonb_agg(acl.privilege_type ORDER BY acl.privilege_type)
+        FROM aclexplode(COALESCE(t.relacl,acldefault('r',t.relowner))) acl WHERE acl.grantee=0),'[]'::jsonb),
+      'columns',columns.n,'columnHash',columns.hash,
+      'constraints',constraints.n,'notNullConstraints',constraints.nn,'constraintHash',constraints.hash,
+      'indexes',indexes.n,'indexHash',indexes.hash,'policyHash',policies.hash
+    ) ORDER BY t.relname) FROM pg_class t JOIN pg_namespace ns ON ns.oid=t.relnamespace
+    JOIN pg_roles owner ON owner.oid=t.relowner
+    CROSS JOIN LATERAL (SELECT count(*) AS n,md5(COALESCE(string_agg(
+      a.attname||chr(31)||format_type(a.atttypid,a.atttypmod)||chr(31)||a.attnotnull::text
+      ||chr(31)||COALESCE(a.attacl::text,'')||chr(31)||COALESCE(pg_get_expr(d.adbin,d.adrelid),''),chr(30) ORDER BY a.attnum),'')) AS hash
+      FROM pg_attribute a LEFT JOIN pg_attrdef d ON d.adrelid=a.attrelid AND d.adnum=a.attnum
+      WHERE a.attrelid=t.oid AND a.attnum>0 AND NOT a.attisdropped) columns
+    CROSS JOIN LATERAL (SELECT count(*) AS n,count(*) FILTER(WHERE c.contype='n') AS nn,
+      md5(COALESCE(string_agg(c.conname||chr(31)||c.contype::text||chr(31)||c.convalidated::text||chr(31)
+      ||pg_get_constraintdef(c.oid,true),chr(30) ORDER BY c.conname),'')) AS hash
+      FROM pg_constraint c WHERE c.conrelid=t.oid) constraints
+    CROSS JOIN LATERAL (SELECT count(*) AS n,md5(COALESCE(string_agg(i.indexname||chr(31)||i.indexdef,
+      chr(30) ORDER BY i.indexname),'')) AS hash FROM pg_indexes i WHERE i.schemaname='public' AND i.tablename=t.relname) indexes
+    CROSS JOIN LATERAL (SELECT md5(COALESCE(string_agg(p.polname||chr(31)||p.polcmd::text||chr(31)||p.polpermissive::text
+      ||chr(31)||p.polroles::text||chr(31)||COALESCE(pg_get_expr(p.polqual,p.polrelid),'')||chr(31)
+      ||COALESCE(pg_get_expr(p.polwithcheck,p.polrelid),''),chr(30) ORDER BY p.polname),'')) AS hash
+      FROM pg_policy p WHERE p.polrelid=t.oid) policies
+    WHERE ns.nspname='public' AND t.relkind IN ('r','p','v','m','f') AND t.relname <>ALL(ARRAY['league_administration_enrollments','league_administration_enrollment_seasons','league_source_connection_history','league_configuration_versions','league_administration_contents','league_administration_observations','league_administration_heads','league_configuration_activations','league_configuration_heads','league_season_teams','league_source_manager_accounts','league_administration_team_entries','league_administration_manager_entries','league_administration_memberships','league_administration_transaction_entries']::text[])),'[]'::jsonb),
+    'constraintTypes',COALESCE((SELECT jsonb_agg(jsonb_build_array(kind,n) ORDER BY kind) FROM (
+      SELECT c.contype::text AS kind,count(*) AS n FROM pg_constraint c JOIN pg_class t ON t.oid=c.conrelid
+      WHERE t.relnamespace='public'::regnamespace AND t.relname <>ALL(ARRAY['league_administration_enrollments','league_administration_enrollment_seasons','league_source_connection_history','league_configuration_versions','league_administration_contents','league_administration_observations','league_administration_heads','league_configuration_activations','league_configuration_heads','league_season_teams','league_source_manager_accounts','league_administration_team_entries','league_administration_manager_entries','league_administration_memberships','league_administration_transaction_entries']::text[]) GROUP BY c.contype) kinds),'[]'::jsonb),
+    'functions',COALESCE((SELECT jsonb_agg(jsonb_build_object('signature',p.proname||'('||replace(oidvectortypes(p.proargtypes),', ',',')||')',
+      'definitionHash',md5(pg_get_functiondef(p.oid)),'owner',owner.rolname,'securityDefiner',p.prosecdef,
+      'configuration',p.proconfig,'acl',COALESCE(p.proacl::text,''),
+      'runtimeExecute',has_function_privilege('league_one_runtime',p.oid,'EXECUTE'),
+      'publicExecute',EXISTS(SELECT 1 FROM aclexplode(COALESCE(p.proacl,acldefault('f',p.proowner))) acl
+        WHERE acl.grantee=0 AND acl.privilege_type='EXECUTE')) ORDER BY p.proname||'('||replace(oidvectortypes(p.proargtypes),', ',',')||')')
+      FROM pg_proc p JOIN pg_roles owner ON owner.oid=p.proowner
+      WHERE p.pronamespace='public'::regnamespace AND p.prokind='f' AND p.proname||'('||replace(oidvectortypes(p.proargtypes),', ',',')||')' <>ALL(ARRAY['prevent_league_administration_history_change()','record_league_administration_observation(jsonb)','guard_league_administration_entry()','validate_official_administration_lineage()','validate_published_administration_lineage()','guard_league_source_connection_history()','remap_league_source_connection(uuid,text,text,text,text)','connect_league_administration_season(uuid,smallint,text,text,text,jsonb,text)','activate_league_configuration_component(uuid,text,text,smallint,smallint,text,bigint)','all_player_score_set_is_publication_ready(uuid,jsonb,uuid)','advance_current_all_player_score_set(text,smallint,text,smallint,uuid,text,uuid,uuid,timestamp with time zone)']::text[])),'[]'::jsonb),
+    'triggers',COALESCE((SELECT jsonb_agg(jsonb_build_object('key',t.relname||'.'||tr.tgname,
+      'function',p.proname,'enabled',tr.tgenabled,'definitionHash',md5(pg_get_triggerdef(tr.oid,true))) ORDER BY t.relname,tr.tgname)
+      FROM pg_trigger tr JOIN pg_class t ON t.oid=tr.tgrelid JOIN pg_proc p ON p.oid=tr.tgfoid
+      WHERE t.relnamespace='public'::regnamespace AND NOT tr.tgisinternal AND (t.relname<>ALL(ARRAY['league_administration_enrollments','league_administration_enrollment_seasons','league_source_connection_history','league_configuration_versions','league_administration_contents','league_administration_observations','league_administration_heads','league_configuration_activations','league_configuration_heads','league_season_teams','league_source_manager_accounts','league_administration_team_entries','league_administration_manager_entries','league_administration_memberships','league_administration_transaction_entries']::text[]) AND (t.relname||'.'||tr.tgname)<>ALL(ARRAY['league_week_observations.official_administration_lineage','current_projection_snapshots.published_administration_lineage','league_source_connections.guard_administration_connection','league_source_connections.record_administration_connection']::text[]))),'[]'::jsonb)
+    ,
+    'schemas',(SELECT md5(COALESCE(string_agg(n.nspname||chr(31)||r.rolname||chr(31)||COALESCE(n.nspacl::text,''),chr(30) ORDER BY n.nspname),''))
+      FROM pg_namespace n JOIN pg_roles r ON r.oid=n.nspowner WHERE n.nspname !~ '^pg_(toast_)?temp_'),
+    'sequences',(SELECT md5(COALESCE(string_agg(t.relname||chr(31)||r.rolname||chr(31)||COALESCE(t.relacl::text,''),chr(30) ORDER BY t.relname),''))
+      FROM pg_class t JOIN pg_roles r ON r.oid=t.relowner WHERE t.relnamespace='public'::regnamespace AND t.relkind='S'),
+    'roles',(SELECT md5(COALESCE(string_agg(r.rolname||chr(31)||r.rolsuper::text||chr(31)||r.rolinherit::text||chr(31)
+      ||r.rolcreaterole::text||chr(31)||r.rolcreatedb::text||chr(31)||r.rolcanlogin::text||chr(31)||r.rolreplication::text
+      ||chr(31)||r.rolbypassrls::text,chr(30) ORDER BY r.rolname),'')) FROM pg_roles r),
+    'memberships',(SELECT md5(COALESCE(string_agg(m.rolname||chr(31)||r.rolname||chr(31)||a.admin_option::text
+      ||chr(31)||a.inherit_option::text||chr(31)||a.set_option::text,chr(30) ORDER BY m.rolname,r.rolname),''))
+      FROM pg_auth_members a JOIN pg_roles m ON m.oid=a.member JOIN pg_roles r ON r.oid=a.roleid),
+    'defaultPrivileges',(SELECT md5(COALESCE(string_agg(r.rolname||chr(31)||COALESCE(n.nspname,'')||chr(31)||a.defaclobjtype::text
+      ||chr(31)||a.defaclacl::text,chr(30) ORDER BY r.rolname,n.nspname,a.defaclobjtype),''))
+      FROM pg_default_acl a JOIN pg_roles r ON r.oid=a.defaclrole LEFT JOIN pg_namespace n ON n.oid=a.defaclnamespace)
+  ) AS catalog;
+CREATE TEMP TABLE administration_release_history_before ON COMMIT DROP AS SELECT 'scoring_profiles' AS name,count(*)::bigint AS rows FROM public.scoring_profiles
+UNION ALL
+SELECT 'league_seasons' AS name,count(*)::bigint AS rows FROM public.league_seasons
+UNION ALL
+SELECT 'league_source_connections' AS name,count(*)::bigint AS rows FROM public.league_source_connections
+UNION ALL
+SELECT 'league_week_observations' AS name,count(*)::bigint AS rows FROM public.league_week_observations
+UNION ALL
+SELECT 'projection_snapshots' AS name,count(*)::bigint AS rows FROM public.projection_snapshots
+UNION ALL
+SELECT 'pregame_projection_baselines' AS name,count(*)::bigint AS rows FROM public.pregame_projection_baselines
+UNION ALL
+SELECT 'all_player_stat_contents' AS name,count(*)::bigint AS rows FROM public.all_player_stat_contents
+UNION ALL
+SELECT 'all_player_stat_entries' AS name,count(*)::bigint AS rows FROM public.all_player_stat_entries
+UNION ALL
+SELECT 'all_player_stat_observations' AS name,count(*)::bigint AS rows FROM public.all_player_stat_observations
+UNION ALL
+SELECT 'all_player_score_sets' AS name,count(*)::bigint AS rows FROM public.all_player_score_sets
+UNION ALL
+SELECT 'all_player_scores' AS name,count(*)::bigint AS rows FROM public.all_player_scores
+UNION ALL
+SELECT 'all_player_score_verifications' AS name,count(*)::bigint AS rows FROM public.all_player_score_verifications
+UNION ALL
+SELECT 'current_all_player_score_sets' AS name,count(*)::bigint AS rows FROM public.current_all_player_score_sets;
+
+-- Portable Sleeper administration. Source evidence and applicability are distinct;
+-- this migration never changes an existing season's scoring profile or snapshots.
+CREATE TABLE public.league_administration_enrollments (
+  league_id uuid PRIMARY KEY REFERENCES public.leagues(id),
+  provider text NOT NULL CHECK (provider = 'sleeper'),
+  active boolean NOT NULL DEFAULT true,
+  evidence text NOT NULL CHECK (btrim(evidence) <> ''),
+  enrolled_at timestamptz NOT NULL DEFAULT clock_timestamp()
+);
+INSERT INTO public.league_administration_enrollments (league_id,provider,evidence)
+SELECT DISTINCT league.id,'sleeper','016: existing registered Sleeper connection'
+FROM public.leagues league JOIN public.league_seasons season ON season.league_id=league.id
+JOIN public.league_source_connections connection ON connection.league_season_id=season.id
+WHERE league.league_key IN ('league1','league2','dynasty') AND connection.provider='sleeper';
+
+-- Intended season membership is independent of registration completeness. A
+-- missing profile/connection must fail a group, never silently shrink it.
+CREATE TABLE public.league_administration_enrollment_seasons (
+  league_id uuid NOT NULL REFERENCES public.leagues(id),
+  season smallint NOT NULL CHECK (season BETWEEN 1920 AND 2200),
+  provider text NOT NULL CHECK (provider='sleeper'),
+  evidence text NOT NULL CHECK (btrim(evidence)<>''),
+  recorded_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  PRIMARY KEY (league_id,season)
+);
+INSERT INTO public.league_administration_enrollment_seasons(league_id,season,provider,evidence)
+SELECT season.league_id,season.season,'sleeper','016: existing registered season membership'
+FROM public.league_seasons season JOIN public.league_administration_enrollments enrollment
+  ON enrollment.league_id=season.league_id JOIN public.league_source_connections connection
+  ON connection.league_season_id=season.id AND connection.provider='sleeper';
+
+CREATE TABLE public.league_source_connection_history (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  league_season_id uuid NOT NULL REFERENCES public.league_seasons(id),
+  provider text NOT NULL,
+  previous_external_league_id text,
+  external_league_id text NOT NULL CHECK (btrim(external_league_id) <> ''),
+  evidence text NOT NULL CHECK (btrim(evidence) <> ''),
+  recorded_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  transaction_id bigint NOT NULL DEFAULT txid_current()
+);
+INSERT INTO public.league_source_connection_history
+  (league_season_id,provider,external_league_id,evidence)
+SELECT league_season_id,provider,external_league_id,'016: existing registered connection'
+FROM public.league_source_connections;
+
+CREATE TABLE public.league_configuration_versions (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  league_season_id uuid NOT NULL REFERENCES public.league_seasons(id),
+  dialect text NOT NULL CHECK (dialect='sleeper-nfl-v1'),
+  normalizer_version text NOT NULL,
+  semantic_hash text NOT NULL CHECK (semantic_hash ~ '^(sha256:)?[0-9a-f]{64}$'),
+  scoring_profile_id uuid REFERENCES public.scoring_profiles(id),
+  total_rosters integer CHECK (total_rosters > 0),
+  components jsonb NOT NULL CHECK (jsonb_typeof(components)='array'),
+  created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  UNIQUE (league_season_id,normalizer_version,semantic_hash),
+  UNIQUE (id,league_season_id)
+);
+CREATE TABLE public.league_administration_contents (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  league_season_id uuid NOT NULL REFERENCES public.league_seasons(id),
+  provider text NOT NULL CHECK (provider='sleeper'),
+  external_league_id text NOT NULL,
+  family text NOT NULL CHECK (family IN ('league','rosters','users','matchups','transactions','drafts','traded_picks','winners_bracket','losers_bracket')),
+  week smallint NOT NULL CHECK (week BETWEEN 0 AND 30),
+  normalizer_version text NOT NULL,
+  content_hash text NOT NULL CHECK (content_hash ~ '^(sha256:)?[0-9a-f]{64}$'),
+  semantic_hash text CHECK (semantic_hash ~ '^(sha256:)?[0-9a-f]{64}$'),
+  completeness text NOT NULL CHECK (completeness IN ('complete','partial')),
+  accepted boolean NOT NULL,
+  payload jsonb NOT NULL,
+  normalized_value jsonb,
+  diagnostics jsonb NOT NULL CHECK (jsonb_typeof(diagnostics)='array'),
+  configuration_version_id uuid,
+  created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  CHECK ((family='matchups' AND week>0) OR family='transactions'
+    OR (family IN ('league','rosters','users','drafts','traded_picks','winners_bracket','losers_bracket') AND week=0)),
+  FOREIGN KEY (configuration_version_id,league_season_id)
+    REFERENCES public.league_configuration_versions(id,league_season_id),
+  UNIQUE (league_season_id,provider,external_league_id,family,week,normalizer_version,content_hash,completeness,accepted),
+  UNIQUE (id,league_season_id,family,week)
+);
+CREATE TABLE public.league_administration_observations (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  league_season_id uuid NOT NULL REFERENCES public.league_seasons(id),
+  family text NOT NULL,
+  week smallint NOT NULL,
+  content_id uuid NOT NULL,
+  origin text NOT NULL CHECK (origin IN ('network','cache','bootstrap')),
+  request_started_at timestamptz,
+  request_completed_at timestamptz,
+  source_observed_at timestamptz,
+  checked_at timestamptz NOT NULL,
+  ordering_at timestamptz NOT NULL,
+  replay_key text NOT NULL,
+  diagnostics jsonb NOT NULL CHECK (jsonb_typeof(diagnostics)='array'),
+  outcome text NOT NULL CHECK (outcome IN ('changed','unchanged','stale','rejected')),
+  recorded_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  FOREIGN KEY (content_id,league_season_id,family,week)
+    REFERENCES public.league_administration_contents(id,league_season_id,family,week),
+  CHECK (request_started_at IS NULL OR request_completed_at IS NULL OR request_started_at<=request_completed_at),
+  UNIQUE (league_season_id,family,week,replay_key),
+  UNIQUE (id,league_season_id),
+  UNIQUE (id,league_season_id,family,week)
+);
+CREATE TABLE public.league_administration_heads (
+  league_season_id uuid NOT NULL REFERENCES public.league_seasons(id),
+  family text NOT NULL CHECK (family IN ('league','rosters','users','matchups','transactions','drafts','traded_picks','winners_bracket','losers_bracket')),
+  week smallint NOT NULL,
+  latest_observation_id uuid,
+  accepted_observation_id uuid,
+  generation bigint NOT NULL DEFAULT 0 CHECK (generation>=0),
+  ordering_at timestamptz,
+  checked_at timestamptz,
+  verified_at timestamptz,
+  attempted_at timestamptz,
+  read_conflict text,
+  CHECK (verified_at IS NULL OR (checked_at IS NOT NULL AND verified_at<=checked_at)),
+  PRIMARY KEY (league_season_id,family,week),
+  FOREIGN KEY (latest_observation_id,league_season_id,family,week)
+    REFERENCES public.league_administration_observations(id,league_season_id,family,week),
+  FOREIGN KEY (accepted_observation_id,league_season_id,family,week)
+    REFERENCES public.league_administration_observations(id,league_season_id,family,week),
+  CHECK ((family='matchups' AND week>0) OR family='transactions'
+    OR (family IN ('league','rosters','users','drafts','traded_picks','winners_bracket','losers_bracket') AND week=0)),
+  CHECK (week BETWEEN 0 AND 30)
+);
+CREATE TABLE public.league_configuration_activations (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  league_season_id uuid NOT NULL REFERENCES public.league_seasons(id),
+  configuration_version_id uuid NOT NULL,
+  observation_id uuid,
+  component text NOT NULL CHECK (component IN ('scoring','roster','competition','display','extensions')),
+  component_hash text NOT NULL CHECK (component_hash ~ '^(sha256:)?[0-9a-f]{64}$'),
+  applicability text NOT NULL CHECK (applicability IN ('observed_current','evidenced_period')),
+  season_type text,
+  from_week smallint,
+  through_week smallint,
+  evidence text NOT NULL CHECK (btrim(evidence) <> ''),
+  generation bigint NOT NULL CHECK (generation > 0),
+  recorded_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  FOREIGN KEY (configuration_version_id,league_season_id)
+    REFERENCES public.league_configuration_versions(id,league_season_id),
+  FOREIGN KEY (observation_id,league_season_id)
+    REFERENCES public.league_administration_observations(id,league_season_id),
+  CHECK ((applicability='observed_current' AND season_type IS NULL AND from_week IS NULL AND through_week IS NULL)
+    OR (applicability='evidenced_period' AND season_type IS NOT NULL AND from_week IS NOT NULL AND through_week IS NOT NULL
+      AND btrim(season_type)<>'' AND from_week BETWEEN 1 AND 30
+      AND through_week BETWEEN from_week AND 30)),
+  UNIQUE (league_season_id,component,generation),
+  UNIQUE (id,league_season_id,component)
+);
+CREATE INDEX league_configuration_period_lookup ON public.league_configuration_activations
+  (league_season_id,component,season_type,from_week,through_week,generation DESC)
+  WHERE applicability='evidenced_period';
+CREATE TABLE public.league_configuration_heads (
+  league_season_id uuid NOT NULL REFERENCES public.league_seasons(id),
+  component text NOT NULL,
+  activation_id uuid NOT NULL,
+  PRIMARY KEY (league_season_id,component),
+  FOREIGN KEY (activation_id,league_season_id,component)
+    REFERENCES public.league_configuration_activations(id,league_season_id,component)
+);
+
+-- Canonical team identity is season scoped. Provider manager accounts are not
+-- app login accounts or inferred cross-provider people/franchises.
+CREATE TABLE public.league_season_teams (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  league_season_id uuid NOT NULL REFERENCES public.league_seasons(id),
+  provider text NOT NULL CHECK (provider='sleeper'),
+  external_league_id text NOT NULL,
+  external_roster_id text NOT NULL CHECK (btrim(external_roster_id)<>''),
+  created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  UNIQUE (league_season_id,provider,external_league_id,external_roster_id),
+  UNIQUE (id,league_season_id)
+);
+CREATE TABLE public.league_source_manager_accounts (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  provider text NOT NULL CHECK (provider='sleeper'),
+  external_manager_id text NOT NULL CHECK (btrim(external_manager_id)<>''),
+  created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  UNIQUE (provider,external_manager_id)
+);
+CREATE TABLE public.league_administration_team_entries (
+  content_id uuid NOT NULL REFERENCES public.league_administration_contents(id),
+  league_season_id uuid NOT NULL,
+  team_id uuid NOT NULL,
+  source_value jsonb NOT NULL CHECK (jsonb_typeof(source_value)='object'),
+  PRIMARY KEY (content_id,team_id),
+  FOREIGN KEY (team_id,league_season_id) REFERENCES public.league_season_teams(id,league_season_id)
+);
+CREATE TABLE public.league_administration_manager_entries (
+  content_id uuid NOT NULL REFERENCES public.league_administration_contents(id),
+  manager_id uuid NOT NULL REFERENCES public.league_source_manager_accounts(id),
+  source_value jsonb NOT NULL CHECK (jsonb_typeof(source_value)='object'),
+  PRIMARY KEY (content_id,manager_id)
+);
+CREATE TABLE public.league_administration_memberships (
+  content_id uuid NOT NULL REFERENCES public.league_administration_contents(id),
+  league_season_id uuid NOT NULL,
+  team_id uuid NOT NULL,
+  manager_id uuid NOT NULL REFERENCES public.league_source_manager_accounts(id),
+  role text NOT NULL CHECK (role IN ('owner','co_owner')),
+  PRIMARY KEY (content_id,team_id,manager_id,role),
+  FOREIGN KEY (team_id,league_season_id) REFERENCES public.league_season_teams(id,league_season_id)
+);
+CREATE TABLE public.league_administration_transaction_entries (
+  content_id uuid NOT NULL REFERENCES public.league_administration_contents(id),
+  external_transaction_id text NOT NULL CHECK (btrim(external_transaction_id)<>''),
+  source_value jsonb NOT NULL CHECK (jsonb_typeof(source_value)='object'),
+  PRIMARY KEY (content_id,external_transaction_id)
+);
+
+CREATE FUNCTION public.prevent_league_administration_history_change()
+RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,public,pg_temp AS $$
+BEGIN RAISE EXCEPTION 'league administration history is immutable'; END; $$;
+DO $$ DECLARE object_name text; BEGIN
+  FOREACH object_name IN ARRAY ARRAY['league_administration_enrollment_seasons','league_source_connection_history','league_configuration_versions',
+    'league_administration_contents','league_administration_observations','league_configuration_activations',
+    'league_season_teams','league_source_manager_accounts','league_administration_team_entries',
+    'league_administration_manager_entries','league_administration_memberships','league_administration_transaction_entries']
+  LOOP
+    EXECUTE format('CREATE TRIGGER immutable_history BEFORE UPDATE OR DELETE ON public.%I FOR EACH ROW EXECUTE FUNCTION public.prevent_league_administration_history_change()',object_name);
+  END LOOP;
+END; $$;
+
+CREATE FUNCTION public.record_league_administration_observation(p_input jsonb)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
+DECLARE
+  envelope jsonb:=p_input->'envelope'; scope_value jsonb:=p_input->'envelope'->'scope';
+  provenance jsonb:=p_input->'envelope'->'provenance'; normalized jsonb:=p_input->'value';
+  family_value text:=envelope->>'family'; week_value smallint:=COALESCE((envelope->>'week')::smallint,0);
+  accepted_value boolean:=p_input->>'status'='accepted' AND envelope->>'completeness'='complete';
+  season_row record; head public.league_administration_heads%ROWTYPE;
+  content_row public.league_administration_contents%ROWTYPE; old_content public.league_administration_contents%ROWTYPE;
+  observation_id uuid; version_id uuid; profile_id uuid; activation_id uuid; entity_id uuid; manager_id uuid;
+  component_value jsonb; source_value jsonb; next_generation bigint; current_hash text;
+  observed_time timestamptz:=(provenance->>'sourceObservedAt')::timestamptz;
+  checked_time timestamptz:=(provenance->>'checkedAt')::timestamptz;
+  started_time timestamptz:=(provenance->>'requestStartedAt')::timestamptz;
+  completed_time timestamptz:=(provenance->>'requestCompletedAt')::timestamptz;
+  order_time timestamptz; replay_value text; result_status text; conflict_reason text; new_content boolean;
+  fence jsonb:=p_input->'writeFence';
+  replay_row record; accepted_content_id uuid;
+BEGIN
+  IF envelope->>'schemaVersion' IS DISTINCT FROM 'league-administration-v1'
+    OR envelope->>'normalizerVersion' IS DISTINCT FROM 'sleeper-administration-v1'
+    OR envelope->>'dialect' IS DISTINCT FROM 'sleeper-nfl-v1'
+    OR scope_value->>'provider' IS DISTINCT FROM 'sleeper'
+    OR p_input->>'status' NOT IN ('accepted','rejected')
+    OR jsonb_typeof(p_input->'diagnostics') IS DISTINCT FROM 'array'
+    OR checked_time IS NULL OR checked_time>clock_timestamp()+interval '5 minutes'
+    OR (observed_time IS NOT NULL AND observed_time>checked_time)
+    OR (completed_time IS NOT NULL AND completed_time>checked_time)
+    OR (started_time IS NOT NULL AND completed_time IS NOT NULL AND started_time>completed_time)
+    OR (provenance->>'origin'='network' AND (started_time IS NULL OR completed_time IS NULL
+      OR (accepted_value AND observed_time IS NULL)))
+    OR (accepted_value AND normalized->>'family' IS DISTINCT FROM family_value) THEN
+    RAISE EXCEPTION 'invalid league administration envelope';
+  END IF;
+  IF fence IS NOT NULL THEN
+    PERFORM 1 FROM public.projection_jobs job WHERE job.job_key=fence->>'jobKey'
+      AND job.state='running' AND job.lease_owner=fence->>'workerId'
+      AND job.attempt_count=(fence->>'generation')::integer AND job.lease_until>clock_timestamp()
+      AND (fence->>'deadlineAt')::timestamptz>clock_timestamp() FOR UPDATE;
+    IF NOT FOUND THEN RAISE EXCEPTION 'league administration writer fence is stale'; END IF;
+  END IF;
+  SELECT season.id,season.league_id,season.scoring_profile_id,profile.rules_hash
+  INTO STRICT season_row FROM public.league_seasons season
+  JOIN public.leagues league ON league.id=season.league_id
+  JOIN public.scoring_profiles profile ON profile.id=season.scoring_profile_id
+  JOIN public.league_source_connections connection ON connection.league_season_id=season.id
+  JOIN public.league_administration_enrollment_seasons enrollment ON enrollment.league_id=league.id AND enrollment.season=season.season
+  WHERE league.league_key=scope_value->>'leagueKey' AND season.season=(scope_value->>'season')::smallint
+    AND connection.provider=scope_value->>'provider' AND connection.external_league_id=scope_value->>'externalLeagueId'
+    AND enrollment.provider=connection.provider;
+  PERFORM pg_advisory_xact_lock(hashtextextended('league-configuration:'||season_row.id::text,0));
+  -- Lock the verified source identity too: an owner remap cannot race a capture.
+  PERFORM 1 FROM public.league_source_connections WHERE league_season_id=season_row.id
+    AND provider=scope_value->>'provider' AND external_league_id=scope_value->>'externalLeagueId' FOR SHARE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'league administration source connection changed'; END IF;
+  INSERT INTO public.league_administration_heads(league_season_id,family,week)
+    VALUES(season_row.id,family_value,week_value) ON CONFLICT DO NOTHING;
+  SELECT * INTO STRICT head FROM public.league_administration_heads
+    WHERE league_season_id=season_row.id AND family=family_value AND week=week_value FOR UPDATE;
+  order_time:=COALESCE(observed_time,completed_time,checked_time);
+  replay_value:=encode(digest(convert_to(jsonb_build_object('content',p_input->>'contentHash',
+    'provenance',provenance,'completeness',envelope->>'completeness','status',p_input->>'status',
+    'diagnostics',p_input->'diagnostics')::text,'UTF8'),'sha256'),'hex');
+  SELECT observation.id,observation.outcome,content.configuration_version_id INTO replay_row
+    FROM public.league_administration_observations observation
+    JOIN public.league_administration_contents content ON content.id=observation.content_id
+    WHERE observation.league_season_id=season_row.id AND observation.family=family_value
+      AND observation.week=week_value AND observation.replay_key=replay_value;
+  IF FOUND THEN RETURN jsonb_build_object('status',CASE
+    WHEN replay_row.id=head.accepted_observation_id AND head.read_conflict IS NULL THEN 'replayed'
+    WHEN replay_row.outcome='rejected' THEN 'rejected' ELSE 'stale' END,
+    'observationId',replay_row.id,'versionId',replay_row.configuration_version_id,
+    'generation',head.generation,'leagueSeasonId',season_row.id); END IF;
+  IF accepted_value AND family_value='league' THEN
+    IF normalized->>'externalLeagueId' IS DISTINCT FROM scope_value->>'externalLeagueId'
+      OR normalized->>'season' IS DISTINCT FROM scope_value->>'season'
+      OR jsonb_typeof(normalized->'components') IS DISTINCT FROM 'array' THEN
+      RAISE EXCEPTION 'configuration identity does not match its approved source'; END IF;
+    IF normalized->>'rawScoringRulesHash' IS NOT NULL THEN
+      profile_id:=public.get_or_create_scoring_profile(normalized->>'rawScoringRulesHash',envelope->'payload'->'scoring_settings');
+    END IF;
+    INSERT INTO public.league_configuration_versions
+      (league_season_id,dialect,normalizer_version,semantic_hash,scoring_profile_id,total_rosters,components)
+    VALUES(season_row.id,envelope->>'dialect',envelope->>'normalizerVersion',p_input->>'semanticHash',
+      profile_id,(normalized->>'totalRosters')::integer,normalized->'components') ON CONFLICT DO NOTHING;
+    SELECT id INTO STRICT version_id FROM public.league_configuration_versions
+      WHERE league_season_id=season_row.id AND normalizer_version=envelope->>'normalizerVersion'
+        AND semantic_hash=p_input->>'semanticHash';
+    IF profile_id IS DISTINCT FROM season_row.scoring_profile_id THEN
+      conflict_reason:='scoring_profile_change_requires_explicit_compatibility_and_period_review';
+    END IF;
+  END IF;
+  INSERT INTO public.league_administration_contents
+    (league_season_id,provider,external_league_id,family,week,normalizer_version,content_hash,
+      semantic_hash,completeness,accepted,payload,normalized_value,diagnostics,configuration_version_id)
+  VALUES(season_row.id,scope_value->>'provider',scope_value->>'externalLeagueId',family_value,week_value,
+    envelope->>'normalizerVersion',p_input->>'contentHash',p_input->>'semanticHash',envelope->>'completeness',
+    accepted_value,envelope->'payload',normalized,p_input->'diagnostics',version_id)
+  ON CONFLICT DO NOTHING RETURNING * INTO content_row;
+  new_content:=FOUND;
+  IF NOT new_content THEN
+    SELECT * INTO STRICT content_row FROM public.league_administration_contents
+      WHERE league_season_id=season_row.id AND provider=scope_value->>'provider'
+        AND external_league_id=scope_value->>'externalLeagueId' AND family=family_value AND week=week_value
+        AND normalizer_version=envelope->>'normalizerVersion' AND content_hash=p_input->>'contentHash'
+        AND completeness=envelope->>'completeness' AND accepted=accepted_value;
+    IF content_row.payload IS DISTINCT FROM envelope->'payload' OR content_row.normalized_value IS DISTINCT FROM normalized THEN
+      RAISE EXCEPTION 'league administration content identity conflict'; END IF;
+    version_id:=content_row.configuration_version_id;
+  END IF;
+  IF new_content AND accepted_value THEN
+    IF family_value IN ('rosters','matchups') THEN
+      FOR source_value IN SELECT value FROM jsonb_array_elements(CASE WHEN family_value='rosters'
+        THEN normalized->'teams' ELSE normalized->'matchups' END) LOOP
+        INSERT INTO public.league_season_teams(league_season_id,provider,external_league_id,external_roster_id)
+        VALUES(season_row.id,'sleeper',scope_value->>'externalLeagueId',source_value->>'externalRosterId') ON CONFLICT DO NOTHING;
+        SELECT id INTO STRICT entity_id FROM public.league_season_teams WHERE league_season_id=season_row.id
+          AND provider='sleeper' AND external_league_id=scope_value->>'externalLeagueId'
+          AND external_roster_id=source_value->>'externalRosterId';
+        INSERT INTO public.league_administration_team_entries(content_id,league_season_id,team_id,source_value)
+          VALUES(content_row.id,season_row.id,entity_id,source_value);
+      END LOOP;
+    END IF;
+    IF family_value='users' THEN
+      FOR source_value IN SELECT value FROM jsonb_array_elements(normalized->'managers') LOOP
+        INSERT INTO public.league_source_manager_accounts(provider,external_manager_id)
+          VALUES('sleeper',source_value->>'externalManagerId') ON CONFLICT DO NOTHING;
+        SELECT id INTO STRICT manager_id FROM public.league_source_manager_accounts
+          WHERE provider='sleeper' AND external_manager_id=source_value->>'externalManagerId';
+        INSERT INTO public.league_administration_manager_entries(content_id,manager_id,source_value)
+          VALUES(content_row.id,manager_id,source_value);
+      END LOOP;
+    ELSIF family_value='rosters' THEN
+      FOR source_value IN SELECT value FROM jsonb_array_elements(normalized->'memberships') LOOP
+        INSERT INTO public.league_source_manager_accounts(provider,external_manager_id)
+          VALUES('sleeper',source_value->>'externalManagerId') ON CONFLICT DO NOTHING;
+        SELECT id INTO STRICT manager_id FROM public.league_source_manager_accounts
+          WHERE provider='sleeper' AND external_manager_id=source_value->>'externalManagerId';
+        SELECT id INTO STRICT entity_id FROM public.league_season_teams WHERE league_season_id=season_row.id
+          AND provider='sleeper' AND external_league_id=scope_value->>'externalLeagueId'
+          AND external_roster_id=source_value->>'externalRosterId';
+        INSERT INTO public.league_administration_memberships(content_id,league_season_id,team_id,manager_id,role)
+          VALUES(content_row.id,season_row.id,entity_id,manager_id,source_value->>'role');
+      END LOOP;
+    ELSIF family_value='transactions' THEN
+      FOR source_value IN SELECT value FROM jsonb_array_elements(normalized->'transactions') LOOP
+        INSERT INTO public.league_administration_transaction_entries(content_id,external_transaction_id,source_value)
+          VALUES(content_row.id,source_value->>'externalTransactionId',source_value);
+      END LOOP;
+    END IF;
+  END IF;
+  SELECT content.* INTO old_content FROM public.league_administration_observations observation
+    JOIN public.league_administration_contents content ON content.id=observation.content_id
+    WHERE observation.id=head.latest_observation_id;
+  SELECT content_id INTO accepted_content_id FROM public.league_administration_observations
+    WHERE id=head.accepted_observation_id;
+  -- A cache with unknown provider observation time can reuse an identical
+  -- accepted document, but cannot refresh its source freshness or ordering.
+  IF observed_time IS NULL AND provenance->>'origin'<>'network' AND accepted_value
+    AND accepted_content_id=content_row.id AND head.read_conflict IS NULL THEN
+    RETURN jsonb_build_object('status','unchanged','observationId',head.accepted_observation_id,
+      'versionId',version_id,'generation',head.generation,'leagueSeasonId',season_row.id);
+  END IF;
+  result_status:=CASE
+    WHEN head.ordering_at IS NOT NULL AND (order_time<head.ordering_at
+      OR (observed_time IS NULL AND provenance->>'origin'<>'network')) THEN 'stale'
+    WHEN NOT accepted_value OR conflict_reason IS NOT NULL THEN 'rejected'
+    WHEN old_content.id=content_row.id OR (family_value<>'league' AND old_content.accepted
+      AND old_content.semantic_hash=content_row.semantic_hash) THEN 'unchanged' ELSE 'changed' END;
+  IF head.ordering_at=order_time AND old_content.id IS DISTINCT FROM content_row.id THEN
+    result_status:='rejected'; conflict_reason:='equal_source_time_has_different_content';
+  END IF;
+  IF NOT accepted_value THEN conflict_reason:=head.read_conflict; END IF;
+  -- Identical raw content needs only a freshness update. A reordered collection
+  -- retains its distinct raw evidence and observation without a semantic change.
+  -- League operational counters still advance raw evidence independently of settings.
+  IF result_status='unchanged' AND head.read_conflict IS NULL AND old_content.id=content_row.id THEN
+    IF fence IS NOT NULL AND (NOT EXISTS (SELECT 1 FROM public.projection_jobs WHERE job_key=fence->>'jobKey'
+      AND lease_until>clock_timestamp()) OR (fence->>'deadlineAt')::timestamptz<=clock_timestamp()) THEN
+      RAISE EXCEPTION 'league administration writer fence expired'; END IF;
+    UPDATE public.league_administration_heads SET checked_at=GREATEST(checked_at,checked_time),
+      verified_at=CASE WHEN provenance->>'origin'='network' THEN GREATEST(verified_at,observed_time) ELSE verified_at END,
+      attempted_at=GREATEST(attempted_at,checked_time),ordering_at=order_time
+      WHERE league_season_id=season_row.id AND family=family_value AND week=week_value;
+    RETURN jsonb_build_object('status','unchanged','observationId',head.accepted_observation_id,
+      'versionId',version_id,'generation',head.generation,'leagueSeasonId',season_row.id);
+  END IF;
+  INSERT INTO public.league_administration_observations
+    (league_season_id,family,week,content_id,origin,request_started_at,request_completed_at,
+      source_observed_at,checked_at,ordering_at,replay_key,diagnostics,outcome)
+  VALUES(season_row.id,family_value,week_value,content_row.id,provenance->>'origin',started_time,completed_time,
+    observed_time,checked_time,order_time,replay_value,p_input->'diagnostics',result_status) RETURNING id INTO observation_id;
+  IF result_status<>'stale' THEN
+    IF fence IS NOT NULL AND (NOT EXISTS (SELECT 1 FROM public.projection_jobs WHERE job_key=fence->>'jobKey'
+      AND lease_until>clock_timestamp()) OR (fence->>'deadlineAt')::timestamptz<=clock_timestamp()) THEN
+      RAISE EXCEPTION 'league administration writer fence expired'; END IF;
+    UPDATE public.league_administration_heads SET latest_observation_id=observation_id,
+      accepted_observation_id=CASE WHEN result_status IN ('changed','unchanged') THEN observation_id ELSE accepted_observation_id END,
+      generation=generation+CASE WHEN result_status='unchanged' AND head.read_conflict IS NULL THEN 0 ELSE 1 END,
+      ordering_at=order_time,attempted_at=GREATEST(attempted_at,checked_time),
+      checked_at=CASE WHEN result_status IN ('changed','unchanged') THEN GREATEST(checked_at,checked_time) ELSE checked_at END,
+      verified_at=CASE WHEN result_status IN ('changed','unchanged') AND provenance->>'origin'='network'
+        THEN GREATEST(verified_at,observed_time)
+        WHEN result_status IN ('changed','unchanged') THEN NULL ELSE verified_at END,
+      read_conflict=conflict_reason
+      WHERE league_season_id=season_row.id AND family=family_value AND week=week_value
+      RETURNING generation INTO head.generation;
+    IF accepted_value AND family_value='league' AND conflict_reason IS DISTINCT FROM 'equal_source_time_has_different_content' THEN
+      FOR component_value IN SELECT value FROM jsonb_array_elements(normalized->'components') LOOP
+        IF component_value->>'name'='scoring' AND profile_id IS DISTINCT FROM season_row.scoring_profile_id THEN CONTINUE; END IF;
+        SELECT activation.component_hash INTO current_hash FROM public.league_configuration_heads pointer
+          JOIN public.league_configuration_activations activation ON activation.id=pointer.activation_id
+          WHERE pointer.league_season_id=season_row.id AND pointer.component=component_value->>'name';
+        IF current_hash IS NOT DISTINCT FROM component_value->>'hash' THEN CONTINUE; END IF;
+        SELECT COALESCE(max(generation),0)+1 INTO next_generation FROM public.league_configuration_activations
+          WHERE league_season_id=season_row.id AND component=component_value->>'name';
+        INSERT INTO public.league_configuration_activations(league_season_id,configuration_version_id,observation_id,
+          component,component_hash,applicability,evidence,generation)
+        VALUES(season_row.id,version_id,observation_id,component_value->>'name',component_value->>'hash',
+          'observed_current','source observation; historical effective period unknown',next_generation) RETURNING id INTO activation_id;
+        INSERT INTO public.league_configuration_heads(league_season_id,component,activation_id)
+          VALUES(season_row.id,component_value->>'name',activation_id)
+          ON CONFLICT (league_season_id,component) DO UPDATE SET activation_id=EXCLUDED.activation_id;
+      END LOOP;
+    END IF;
+  END IF;
+  RETURN jsonb_build_object('status',result_status,'observationId',observation_id,'versionId',version_id,
+    'generation',head.generation,'leagueSeasonId',season_row.id,'reason',CASE
+      WHEN result_status='stale' AND observed_time IS NULL AND provenance->>'origin'<>'network'
+      THEN 'unproven_cache_change' ELSE conflict_reason END);
+END; $$;
+
+CREATE FUNCTION public.guard_league_administration_entry()
+RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,public,pg_temp AS $$
+DECLARE content_row public.league_administration_contents%ROWTYPE;
+BEGIN
+  SELECT * INTO STRICT content_row FROM public.league_administration_contents WHERE id=NEW.content_id;
+  IF EXISTS (SELECT 1 FROM public.league_administration_observations WHERE content_id=NEW.content_id) THEN
+    RAISE EXCEPTION 'observed league administration content is sealed'; END IF;
+  IF NOT content_row.accepted THEN RAISE EXCEPTION 'rejected source content cannot have accepted entries'; END IF;
+  IF TG_TABLE_NAME IN ('league_administration_team_entries','league_administration_memberships') THEN
+    IF (to_jsonb(NEW)->>'league_season_id')::uuid<>content_row.league_season_id THEN
+      RAISE EXCEPTION 'administration entry scope mismatch'; END IF;
+  END IF;
+  IF (TG_TABLE_NAME='league_administration_memberships' AND content_row.family<>'rosters')
+    OR (TG_TABLE_NAME='league_administration_team_entries' AND content_row.family NOT IN ('rosters','matchups'))
+    OR (TG_TABLE_NAME='league_administration_manager_entries' AND content_row.family<>'users')
+    OR (TG_TABLE_NAME='league_administration_transaction_entries' AND content_row.family<>'transactions') THEN
+    RAISE EXCEPTION 'administration entry family mismatch'; END IF;
+  RETURN NEW;
+END; $$;
+DO $$ DECLARE object_name text; BEGIN
+  FOREACH object_name IN ARRAY ARRAY['league_administration_team_entries','league_administration_manager_entries',
+    'league_administration_memberships','league_administration_transaction_entries'] LOOP
+    EXECUTE format('CREATE TRIGGER seal_entries BEFORE INSERT ON public.%I FOR EACH ROW EXECUTE FUNCTION public.guard_league_administration_entry()',object_name);
+  END LOOP;
+END; $$;
+
+CREATE FUNCTION public.validate_official_administration_lineage()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
+DECLARE context_value jsonb:=NEW.source_data->'administration';
+BEGIN
+  IF context_value IS NULL THEN RETURN NEW; END IF;
+  PERFORM 1 FROM public.league_source_connections
+    WHERE league_season_id=NEW.league_season_id AND provider=NEW.provider FOR SHARE;
+  PERFORM 1 FROM public.league_administration_heads
+    WHERE league_season_id=NEW.league_season_id AND family='league' AND week=0 FOR SHARE;
+  IF jsonb_typeof(context_value)<>'object' OR NOT EXISTS (
+    SELECT 1 FROM public.league_administration_heads head
+    JOIN public.league_administration_observations observation ON observation.id=head.accepted_observation_id
+    JOIN public.league_administration_contents content ON content.id=observation.content_id
+    WHERE head.league_season_id=NEW.league_season_id AND head.family='league' AND head.week=0
+      AND head.read_conflict IS NULL AND head.generation=(context_value->>'generation')::bigint
+      AND observation.id=(context_value->>'observationId')::uuid
+      AND content.configuration_version_id=(context_value->>'configurationVersionId')::uuid
+      AND content.accepted AND content.completeness='complete'
+      AND content.provider=NEW.provider
+      AND EXISTS (SELECT 1 FROM public.league_source_connections connection
+        WHERE connection.league_season_id=NEW.league_season_id AND connection.provider=NEW.provider
+          AND connection.external_league_id=content.external_league_id)
+  ) THEN RAISE EXCEPTION 'official observation administration lineage is stale or mismatched'; END IF;
+  RETURN NEW;
+END; $$;
+CREATE TRIGGER official_administration_lineage BEFORE INSERT ON public.league_week_observations
+FOR EACH ROW EXECUTE FUNCTION public.validate_official_administration_lineage();
+
+-- Publication rechecks the verification observation, which may be newer than
+-- an immutable snapshot reused because its displayed content is unchanged.
+CREATE FUNCTION public.validate_published_administration_lineage()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
+DECLARE source_row public.league_week_observations%ROWTYPE; context_value jsonb;
+BEGIN
+  SELECT observation.* INTO source_row FROM public.league_week_observations observation
+    WHERE observation.id=COALESCE(NEW.verification_source_observation_id,
+      (SELECT league_week_observation_id FROM public.projection_snapshots WHERE id=NEW.snapshot_id))
+      AND observation.league_season_id=NEW.league_season_id AND observation.week=NEW.week;
+  IF NOT FOUND THEN RAISE EXCEPTION 'published snapshot administration lineage has a mismatched source scope'; END IF;
+  context_value:=source_row.source_data->'administration';
+  IF context_value IS NULL THEN RETURN NEW; END IF;
+  PERFORM 1 FROM public.league_source_connections
+    WHERE league_season_id=NEW.league_season_id AND provider=source_row.provider FOR SHARE;
+  PERFORM 1 FROM public.league_administration_heads
+    WHERE league_season_id=NEW.league_season_id AND family='league' AND week=0 FOR SHARE;
+  IF jsonb_typeof(context_value)<>'object' OR NOT EXISTS (
+    SELECT 1 FROM public.league_administration_heads head
+    JOIN public.league_administration_observations observation ON observation.id=head.accepted_observation_id
+    JOIN public.league_administration_contents content ON content.id=observation.content_id
+    WHERE head.league_season_id=NEW.league_season_id AND head.family='league' AND head.week=0
+      AND head.read_conflict IS NULL AND head.generation=(context_value->>'generation')::bigint
+      AND observation.id=(context_value->>'observationId')::uuid
+      AND content.configuration_version_id=(context_value->>'configurationVersionId')::uuid
+      AND content.accepted AND content.completeness='complete' AND content.provider=source_row.provider
+      AND EXISTS (SELECT 1 FROM public.league_source_connections connection
+        WHERE connection.league_season_id=NEW.league_season_id AND connection.provider=source_row.provider
+          AND connection.external_league_id=content.external_league_id)
+  ) THEN RAISE EXCEPTION 'published snapshot administration lineage is stale or mismatched'; END IF;
+  RETURN NEW;
+END; $$;
+CREATE TRIGGER published_administration_lineage BEFORE INSERT OR UPDATE ON public.current_projection_snapshots
+FOR EACH ROW EXECUTE FUNCTION public.validate_published_administration_lineage();
+
+CREATE FUNCTION public.guard_league_source_connection_history()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
+BEGIN
+  IF TG_OP='DELETE' THEN RAISE EXCEPTION 'source connections require an evidenced owner remap'; END IF;
+  IF TG_OP='UPDATE' AND (NEW.league_season_id IS DISTINCT FROM OLD.league_season_id OR NEW.provider IS DISTINCT FROM OLD.provider) THEN
+    RAISE EXCEPTION 'source connection season and provider are immutable'; END IF;
+  IF TG_OP='UPDATE' AND NEW.external_league_id IS DISTINCT FROM OLD.external_league_id THEN
+    IF NOT EXISTS (SELECT 1 FROM public.league_source_connection_history history
+      WHERE history.league_season_id=OLD.league_season_id AND history.provider=OLD.provider
+        AND history.previous_external_league_id=OLD.external_league_id
+        AND history.external_league_id=NEW.external_league_id AND history.transaction_id=txid_current()) THEN
+      RAISE EXCEPTION 'source connections require an evidenced owner remap';
+    END IF;
+  ELSIF TG_OP='INSERT' THEN
+    IF EXISTS (SELECT 1 FROM public.league_seasons season
+      JOIN public.league_administration_enrollments enrollment ON enrollment.league_id=season.league_id
+      WHERE season.id=NEW.league_season_id)
+      AND NOT EXISTS (SELECT 1 FROM public.league_source_connection_history history
+        WHERE history.league_season_id=NEW.league_season_id AND history.provider=NEW.provider
+          AND history.external_league_id=NEW.external_league_id AND history.transaction_id=txid_current()) THEN
+      RAISE EXCEPTION 'enrolled league annual source requires evidenced owner continuity approval';
+    END IF;
+    IF EXISTS (SELECT 1 FROM public.league_source_connection_history history
+      WHERE history.league_season_id=NEW.league_season_id AND history.provider=NEW.provider
+        AND history.external_league_id=NEW.external_league_id AND history.transaction_id=txid_current()) THEN RETURN NEW; END IF;
+    INSERT INTO public.league_source_connection_history
+      (league_season_id,provider,external_league_id,evidence)
+    VALUES (NEW.league_season_id,NEW.provider,NEW.external_league_id,'registered season source connection');
+  END IF;
+  RETURN NEW;
+END; $$;
+CREATE TRIGGER guard_administration_connection BEFORE UPDATE OR DELETE
+ON public.league_source_connections FOR EACH ROW EXECUTE FUNCTION public.guard_league_source_connection_history();
+CREATE TRIGGER record_administration_connection AFTER INSERT
+ON public.league_source_connections FOR EACH ROW EXECUTE FUNCTION public.guard_league_source_connection_history();
+
+CREATE FUNCTION public.remap_league_source_connection(
+  p_season_id uuid,p_provider text,p_expected_external_id text,p_external_id text,p_evidence text)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
+DECLARE existing_id text;
+BEGIN
+  IF btrim(COALESCE(p_evidence,''))='' OR btrim(COALESCE(p_external_id,''))='' THEN
+    RAISE EXCEPTION 'source remap requires evidence and target'; END IF;
+  SELECT external_league_id INTO STRICT existing_id FROM public.league_source_connections
+    WHERE league_season_id=p_season_id AND provider=p_provider FOR UPDATE;
+  IF existing_id IS DISTINCT FROM p_expected_external_id THEN RAISE EXCEPTION 'source remap compare-and-swap conflict'; END IF;
+  IF existing_id=p_external_id THEN RETURN; END IF;
+  INSERT INTO public.league_source_connection_history
+    (league_season_id,provider,previous_external_league_id,external_league_id,evidence)
+  VALUES (p_season_id,p_provider,existing_id,p_external_id,p_evidence);
+  UPDATE public.league_source_connections SET external_league_id=p_external_id,connected_at=clock_timestamp()
+    WHERE league_season_id=p_season_id AND provider=p_provider;
+  UPDATE public.league_administration_heads SET read_conflict='source_connection_remapped',generation=generation+1
+    WHERE league_season_id=p_season_id;
+END; $$;
+
+CREATE FUNCTION public.connect_league_administration_season(
+  p_league_id uuid,p_season smallint,p_previous_external_id text,p_external_id text,
+  p_rules_hash text,p_rules jsonb,p_evidence text)
+RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
+DECLARE previous_id text; previous_season smallint; profile_id uuid; season_id uuid;
+BEGIN
+  IF btrim(COALESCE(p_evidence,''))='' OR btrim(COALESCE(p_external_id,''))='' THEN
+    RAISE EXCEPTION 'annual connection requires evidence and target'; END IF;
+  PERFORM 1 FROM public.leagues WHERE id=p_league_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'unknown canonical league'; END IF;
+  SELECT connection.external_league_id,season.season INTO STRICT previous_id,previous_season
+    FROM public.league_seasons season JOIN public.league_source_connections connection
+      ON connection.league_season_id=season.id AND connection.provider='sleeper'
+    WHERE season.league_id=p_league_id ORDER BY season.season DESC LIMIT 1;
+  IF previous_id IS DISTINCT FROM p_previous_external_id OR p_season<>previous_season+1 THEN
+    RAISE EXCEPTION 'annual source continuity compare-and-swap conflict'; END IF;
+  profile_id:=public.get_or_create_scoring_profile(p_rules_hash,p_rules);
+  INSERT INTO public.league_seasons(league_id,season,scoring_profile_id)
+    VALUES(p_league_id,p_season,profile_id) RETURNING id INTO season_id;
+  INSERT INTO public.league_source_connection_history
+    (league_season_id,provider,previous_external_league_id,external_league_id,evidence)
+    VALUES(season_id,'sleeper',previous_id,p_external_id,p_evidence);
+  INSERT INTO public.league_source_connections(league_season_id,provider,external_league_id)
+    VALUES(season_id,'sleeper',p_external_id);
+  INSERT INTO public.league_administration_enrollment_seasons(league_id,season,provider,evidence)
+    VALUES(p_league_id,p_season,'sleeper',p_evidence) ON CONFLICT DO NOTHING;
+  RETURN season_id;
+END; $$;
+
+-- Explicit corrections append a component-specific evidenced range. Overlapping
+-- corrections resolve by greatest generation; previous decisions remain intact.
+CREATE FUNCTION public.activate_league_configuration_component(
+  p_version_id uuid,p_component text,p_season_type text,p_from_week smallint,p_through_week smallint,
+  p_evidence text,p_expected_generation bigint)
+RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
+DECLARE version_row public.league_configuration_versions%ROWTYPE; component_value jsonb; next_generation bigint; activation_id uuid;
+BEGIN
+  SELECT * INTO STRICT version_row FROM public.league_configuration_versions WHERE id=p_version_id;
+  PERFORM pg_advisory_xact_lock(hashtextextended('league-configuration:'||version_row.league_season_id::text,0));
+  SELECT value INTO STRICT component_value FROM jsonb_array_elements(version_row.components)
+    WHERE value->>'name'=p_component;
+  SELECT COALESCE(max(generation),0)+1 INTO next_generation FROM public.league_configuration_activations
+    WHERE league_season_id=version_row.league_season_id AND component=p_component;
+  IF next_generation-1<>p_expected_generation THEN RAISE EXCEPTION 'configuration activation compare-and-swap conflict'; END IF;
+  INSERT INTO public.league_configuration_activations
+    (league_season_id,configuration_version_id,component,component_hash,applicability,
+      season_type,from_week,through_week,evidence,generation)
+  VALUES (version_row.league_season_id,p_version_id,p_component,component_value->>'hash','evidenced_period',
+    p_season_type,p_from_week,p_through_week,p_evidence,next_generation) RETURNING id INTO activation_id;
+  RETURN activation_id;
+END; $$;
+
+-- Explicit, exact privileges: history and pointer tables are read-only to the
+-- runtime role. Only the atomic source writer is an application entry point.
+DO $$ DECLARE object_name text; BEGIN
+  FOREACH object_name IN ARRAY ARRAY['league_administration_enrollments','league_administration_enrollment_seasons','league_source_connection_history',
+    'league_configuration_versions','league_administration_contents','league_administration_observations',
+    'league_administration_heads','league_configuration_activations','league_configuration_heads',
+    'league_season_teams','league_source_manager_accounts','league_administration_team_entries',
+    'league_administration_manager_entries','league_administration_memberships','league_administration_transaction_entries'] LOOP
+    EXECUTE format('REVOKE ALL ON TABLE public.%I FROM PUBLIC',object_name);
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='league_one_runtime') THEN
+      EXECUTE format('REVOKE ALL ON TABLE public.%I FROM league_one_runtime',object_name);
+      EXECUTE format('GRANT SELECT ON TABLE public.%I TO league_one_runtime',object_name);
+    END IF;
+  END LOOP;
+END; $$;
+REVOKE ALL ON FUNCTION public.prevent_league_administration_history_change() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.guard_league_source_connection_history() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.guard_league_administration_entry() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.validate_official_administration_lineage() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.validate_published_administration_lineage() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.record_league_administration_observation(jsonb) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.remap_league_source_connection(uuid,text,text,text,text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.connect_league_administration_season(uuid,smallint,text,text,text,jsonb,text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.activate_league_configuration_component(uuid,text,text,smallint,smallint,text,bigint) FROM PUBLIC;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='league_one_runtime') THEN
+    REVOKE ALL ON FUNCTION public.remap_league_source_connection(uuid,text,text,text,text) FROM league_one_runtime;
+    REVOKE ALL ON FUNCTION public.connect_league_administration_season(uuid,smallint,text,text,text,jsonb,text) FROM league_one_runtime;
+    REVOKE ALL ON FUNCTION public.activate_league_configuration_component(uuid,text,text,smallint,smallint,text,bigint) FROM league_one_runtime;
+    GRANT EXECUTE ON FUNCTION public.record_league_administration_observation(jsonb) TO league_one_runtime;
+  END IF;
+END; $$;
+INSERT INTO public.app_schema_migrations(name,checksum) VALUES ('016_portable_league_administration.sql','d662d9e9709153a4e9a6cbc93522bdd4d14c5b0a0c74a7c7ea8648455896596c');
+
+-- Owner-approved exact-season publication membership replaces bootstrap league names.
+-- Installed migrations remain unchanged. Existing parity, scoring, lease and
+-- atomic publication checks are preserved. A missing enrolled registration or
+-- source connection fails closed, while later enrollment does not rewrite history.
+CREATE OR REPLACE FUNCTION public.all_player_score_set_is_publication_ready(
+  p_score_set_id uuid,
+  p_expected_profile_ids jsonb,
+  p_stat_observation_id uuid
+)
+RETURNS boolean
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+DECLARE
+  candidate record;
+  verification_coverage jsonb;
+  provided_observation_count integer;
+  expected_observation_count integer;
+  intended_league_count integer;
+  registered_league_count integer;
+  enrolled_profile_ids jsonb;
+  matched_observation_count integer;
+  matched_league_count integer;
+  evidence_mismatch_count integer;
+  parity_row_count integer;
+  parity_nonnull_count integer;
+  parity_entity_count integer;
+  parity_conflict_count integer;
+  parity_score_mismatch_count integer;
+BEGIN
+  SELECT score_set.*, content.entry_count, profile.rules AS scoring_rules,
+    profile.rules_hash AS scoring_rules_hash
+  INTO candidate
+  FROM public.all_player_score_sets score_set
+  JOIN public.all_player_stat_contents content
+    ON content.id = score_set.all_player_stat_content_id
+  JOIN public.scoring_profiles profile ON profile.id = score_set.scoring_profile_id
+  WHERE score_set.id = p_score_set_id;
+  IF NOT FOUND THEN RETURN false; END IF;
+  SELECT coverage INTO verification_coverage FROM public.all_player_score_verifications
+    WHERE all_player_stat_observation_id = p_stat_observation_id
+      AND all_player_score_set_id = p_score_set_id;
+  IF NOT FOUND THEN RETURN false; END IF;
+  candidate.coverage := verification_coverage;
+  IF NOT EXISTS (SELECT 1 FROM public.current_all_player_score_sets pointer
+    JOIN public.all_player_stat_observations observed ON observed.id = p_stat_observation_id
+    WHERE pointer.provider = candidate.provider AND pointer.season = candidate.season
+      AND pointer.season_type = candidate.season_type AND pointer.week = candidate.week
+      AND pointer.scoring_profile_id = candidate.scoring_profile_id
+      AND pointer.scorer_version = candidate.scorer_version
+      AND observed.observed_at <= pointer.observed_at)
+    AND EXISTS (SELECT 1 FROM public.all_player_scores score
+      WHERE score.all_player_score_set_id = p_score_set_id AND NOT EXISTS (
+        SELECT 1 FROM public.external_scoring_entity_ids mapping
+        JOIN public.scoring_entities entity ON entity.id = mapping.scoring_entity_id
+          AND entity.kind = score.entity_kind
+        WHERE mapping.provider = candidate.provider AND mapping.entity_kind = score.entity_kind
+          AND mapping.external_id = score.provider_external_id
+          AND mapping.scoring_entity_id = score.scoring_entity_id
+          AND mapping.mapping_status = 'verified' AND mapping.valid_from <= clock_timestamp()
+          AND (mapping.valid_to IS NULL OR mapping.valid_to > clock_timestamp())
+      )) THEN RETURN false; END IF;
+
+
+  IF candidate.quality <> 'complete'
+    OR candidate.scored_entity_count <> candidate.entry_count
+    OR candidate.parity_comparison_count = 0
+    OR candidate.parity_mismatch_count <> 0
+    OR NOT candidate.coverage @> '{"complete":true,"identity_complete":true,"scoring_rules_complete":true}'::jsonb
+    OR candidate.coverage->>'scoring_rules_hash' IS DISTINCT FROM candidate.scoring_rules_hash
+    OR candidate.coverage->'expected_scoring_profile_ids' IS DISTINCT FROM p_expected_profile_ids
+    OR btrim(COALESCE(candidate.coverage->>'all_player_source_revision', '')) = ''
+    OR COALESCE(candidate.coverage->>'score_batch_fingerprint', '')
+      !~ '^sha256:[0-9a-f]{64}$'
+    OR jsonb_typeof(candidate.coverage->'parity_observation_ids') IS DISTINCT FROM 'array'
+    OR jsonb_typeof(candidate.coverage->'parity_observation_evidence') IS DISTINCT FROM 'object'
+    OR jsonb_typeof(candidate.coverage->'parity_expected_entity_count') IS DISTINCT FROM 'number'
+    OR COALESCE(candidate.coverage->>'parity_fingerprint', '')
+      !~ '^sha256:[0-9a-f]{64}$'
+    OR public.all_player_scoring_contract_supported(
+      candidate.provider, candidate.scorer_version, candidate.scoring_rules
+    ) IS DISTINCT FROM true
+    OR candidate.scored_entity_count <> (
+      SELECT count(*) FROM public.all_player_scores score
+      WHERE score.all_player_score_set_id = candidate.id
+    )
+    OR candidate.eligible_game_count <> COALESCE((
+      SELECT sum(score.eligible_game_count) FROM public.all_player_scores score
+      WHERE score.all_player_score_set_id = candidate.id
+    ), 0)
+    OR EXISTS (
+      SELECT 1 FROM public.all_player_scores score
+      WHERE score.all_player_score_set_id = candidate.id
+        AND score.eligible_game_count = 1 AND score.nfl_game_id IS NULL
+    ) THEN
+    RETURN false;
+  END IF;
+
+  WITH intended_leagues AS (
+    SELECT league_id FROM public.league_administration_enrollment_seasons
+    WHERE season = candidate.season AND provider = candidate.provider
+  ), registered_leagues AS (
+    SELECT season.scoring_profile_id
+    FROM intended_leagues enrollment
+    JOIN public.league_seasons season ON season.league_id = enrollment.league_id
+      AND season.season = candidate.season
+    JOIN public.league_source_connections connection ON connection.league_season_id = season.id
+      AND connection.provider = candidate.provider
+    JOIN public.scoring_profiles profile ON profile.id = season.scoring_profile_id
+  ), expected_profiles AS (
+    SELECT DISTINCT scoring_profile_id FROM registered_leagues
+  )
+  SELECT (SELECT count(*) FROM intended_leagues), (SELECT count(*) FROM registered_leagues),
+    (SELECT jsonb_agg(scoring_profile_id::text ORDER BY scoring_profile_id::text) FROM expected_profiles)
+  INTO intended_league_count, registered_league_count, enrolled_profile_ids;
+  IF intended_league_count = 0 OR registered_league_count <> intended_league_count
+    OR enrolled_profile_ids IS DISTINCT FROM p_expected_profile_ids THEN RETURN false; END IF;
+
+  provided_observation_count := jsonb_array_length(
+    candidate.coverage->'parity_observation_ids'
+  );
+  SELECT count(*) INTO expected_observation_count
+  FROM public.league_administration_enrollment_seasons enrollment
+  JOIN public.league_seasons season ON season.league_id = enrollment.league_id
+    AND season.season = enrollment.season
+  WHERE enrollment.provider = candidate.provider AND enrollment.season = candidate.season
+    AND season.scoring_profile_id = candidate.scoring_profile_id;
+
+  WITH provided AS (
+    SELECT value::uuid AS observation_id
+    FROM jsonb_array_elements_text(candidate.coverage->'parity_observation_ids') value
+  ), matched AS (
+    SELECT observation.id, observation.league_season_id
+    FROM provided
+    JOIN public.league_week_observations observation
+      ON observation.id = provided.observation_id
+    JOIN public.league_seasons season ON season.id = observation.league_season_id
+    JOIN public.leagues league ON league.id = season.league_id
+    JOIN public.league_source_connections connection
+      ON connection.league_season_id = season.id
+      AND connection.provider = candidate.provider
+    JOIN public.league_period_authorities authority
+      ON authority.league_key = league.league_key
+      AND authority.source_provider = candidate.provider
+      AND authority.source_external_league_id = connection.external_league_id
+      AND authority.default_season = candidate.season
+    WHERE observation.provider = candidate.provider
+      AND observation.week = candidate.week
+      AND observation.quality = 'complete'
+      AND season.season = candidate.season
+      AND season.scoring_profile_id = candidate.scoring_profile_id
+      AND EXISTS (SELECT 1 FROM public.league_administration_enrollment_seasons enrollment
+        WHERE enrollment.league_id = season.league_id AND enrollment.season = season.season
+          AND enrollment.provider = candidate.provider)
+      AND observation.source_data->>'allPlayerSourceRevision'
+        = candidate.coverage->>'all_player_source_revision'
+  )
+  SELECT count(*), count(DISTINCT league_season_id)
+  INTO matched_observation_count, matched_league_count
+  FROM matched;
+  IF provided_observation_count = 0
+    OR provided_observation_count <> expected_observation_count
+    OR provided_observation_count <> matched_observation_count
+    OR matched_observation_count <> matched_league_count THEN
+    RETURN false;
+  END IF;
+
+  WITH provided AS (
+    SELECT value::uuid AS observation_id
+    FROM jsonb_array_elements_text(candidate.coverage->'parity_observation_ids') value
+  ), matched AS (
+    SELECT observation.id, observation.source_data,
+      candidate.coverage->'parity_observation_evidence'->observation.id::text
+        AS score_evidence,
+      authority.expected_roster_count,
+      (SELECT jsonb_agg(roster_id ORDER BY roster_id)
+        FROM unnest(authority.expected_roster_ids) roster_id) AS expected_roster_ids
+    FROM provided
+    JOIN public.league_week_observations observation
+      ON observation.id = provided.observation_id
+    JOIN public.league_seasons season ON season.id = observation.league_season_id
+    JOIN public.leagues league ON league.id = season.league_id
+    JOIN public.league_source_connections connection
+      ON connection.league_season_id = season.id
+      AND connection.provider = candidate.provider
+    JOIN public.league_period_authorities authority
+      ON authority.league_key = league.league_key
+      AND authority.source_provider = candidate.provider
+      AND authority.source_external_league_id = connection.external_league_id
+      AND authority.default_season = candidate.season
+    WHERE season.scoring_profile_id = candidate.scoring_profile_id
+  ), physical AS (
+    SELECT matched.id,
+      count(points.*)::integer AS player_count,
+      count(points.points)::integer AS nonnull_player_count,
+      count(score.provider_external_id)::integer AS mapped_player_count,
+      count(DISTINCT points.scoring_entity_id)::integer AS unique_player_count,
+      count(DISTINCT points.external_roster_id)::integer AS player_roster_count,
+      ('sha256:' || encode(digest(convert_to(COALESCE(string_agg(
+        score.provider_external_id || chr(31) || points.points::text,
+        chr(10) ORDER BY score.provider_external_id
+      ), ''), 'UTF8'), 'sha256'), 'hex')) AS fingerprint
+    FROM matched
+    LEFT JOIN public.official_player_point_observations points
+      ON points.league_week_observation_id = matched.id
+    LEFT JOIN public.all_player_scores score
+      ON score.all_player_score_set_id = candidate.id
+      AND score.scoring_entity_id = points.scoring_entity_id
+    GROUP BY matched.id
+  ), roster_physical AS (
+    SELECT matched.id, count(rosters.*)::integer AS roster_count,
+      COALESCE(jsonb_agg(rosters.external_roster_id ORDER BY rosters.external_roster_id)
+        FILTER (WHERE rosters.external_roster_id IS NOT NULL), '[]'::jsonb) AS roster_ids
+    FROM matched
+    LEFT JOIN public.official_roster_point_observations rosters
+      ON rosters.league_week_observation_id = matched.id
+    GROUP BY matched.id
+  )
+  SELECT count(*) INTO evidence_mismatch_count
+  FROM matched
+  JOIN physical ON physical.id = matched.id
+  JOIN roster_physical ON roster_physical.id = matched.id
+  WHERE jsonb_typeof(matched.score_evidence) IS DISTINCT FROM 'object'
+    OR matched.source_data->>'allPlayerSourceRevision'
+      IS DISTINCT FROM candidate.coverage->>'all_player_source_revision'
+    OR matched.source_data->'officialPlayersPointsEvidence' IS DISTINCT FROM matched.score_evidence
+    OR matched.score_evidence->>'version' IS DISTINCT FROM 'players-points-v1'
+    OR matched.score_evidence->>'expectedEntityCount' IS DISTINCT FROM physical.player_count::text
+    OR matched.score_evidence->>'expectedRosterCount' IS DISTINCT FROM matched.expected_roster_count::text
+    OR matched.score_evidence->'expectedRosterIds' IS DISTINCT FROM matched.expected_roster_ids
+    OR matched.score_evidence->>'fingerprint' IS DISTINCT FROM physical.fingerprint
+    OR physical.player_count = 0
+    OR physical.player_count <> physical.nonnull_player_count
+    OR physical.player_count <> physical.mapped_player_count
+    OR physical.player_count <> physical.unique_player_count
+    OR physical.player_roster_count <> matched.expected_roster_count
+    OR roster_physical.roster_count <> matched.expected_roster_count
+    OR roster_physical.roster_ids IS DISTINCT FROM matched.expected_roster_ids
+    OR EXISTS (
+      SELECT 1 FROM public.official_player_point_observations player_point
+      WHERE player_point.league_week_observation_id = matched.id
+        AND NOT EXISTS (
+          SELECT 1 FROM public.official_roster_point_observations roster_point
+          WHERE roster_point.league_week_observation_id = matched.id
+            AND roster_point.external_roster_id = player_point.external_roster_id
+        )
+    );
+  IF evidence_mismatch_count <> 0 THEN RETURN false; END IF;
+
+  WITH provided AS (
+    SELECT value::uuid AS observation_id
+    FROM jsonb_array_elements_text(candidate.coverage->'parity_observation_ids') value
+  ), official AS (
+    SELECT points.scoring_entity_id, points.points
+    FROM provided
+    JOIN public.official_player_point_observations points
+      ON points.league_week_observation_id = provided.observation_id
+  ), grouped AS (
+    SELECT scoring_entity_id, min(points) AS points, count(DISTINCT points) AS point_values
+    FROM official GROUP BY scoring_entity_id
+  )
+  SELECT
+    (SELECT count(*) FROM official),
+    (SELECT count(*) FROM official WHERE points IS NOT NULL),
+    (SELECT count(*) FROM grouped),
+    (SELECT count(*) FROM grouped WHERE point_values <> 1),
+    (SELECT count(*) FROM grouped
+      LEFT JOIN public.all_player_scores score
+        ON score.all_player_score_set_id = candidate.id
+        AND score.scoring_entity_id = grouped.scoring_entity_id
+      WHERE score.scoring_entity_id IS NULL
+        OR abs(score.fantasy_points - grouped.points) > 0.0001)
+  INTO parity_row_count, parity_nonnull_count, parity_entity_count,
+    parity_conflict_count, parity_score_mismatch_count;
+  RETURN parity_row_count > 0
+    AND parity_row_count = parity_nonnull_count
+    AND parity_entity_count = candidate.parity_comparison_count
+    AND parity_entity_count = (candidate.coverage->>'parity_expected_entity_count')::integer
+    AND parity_conflict_count = 0
+    AND parity_score_mismatch_count = 0;
+EXCEPTION WHEN OTHERS THEN
+  RETURN false;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.advance_current_all_player_score_set(
+  p_provider text,
+  p_season smallint,
+  p_season_type text,
+  p_week smallint,
+  p_scoring_profile_id uuid,
+  p_scorer_version text,
+  p_stat_observation_id uuid,
+  p_score_set_id uuid,
+  p_verified_at timestamptz
+)
+RETURNS text
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+DECLARE
+  candidate record;
+  fence jsonb;
+  current_pointer public.current_all_player_score_sets%ROWTYPE;
+  current_semantic_hash text;
+  provided_parity_observation_count integer;
+  matched_parity_observation_count integer;
+  matched_parity_league_count integer;
+  parity_row_count integer;
+  parity_nonnull_count integer;
+  parity_entity_count integer;
+  parity_conflict_count integer;
+  parity_score_mismatch_count integer;
+  parity_evidence_mismatch_count integer;
+  expected_league_count integer;
+  registered_league_count integer;
+  expected_profile_count integer;
+  expected_profile_ids jsonb;
+  expected_parity_league_count integer;
+  coordinated_score_set_count integer;
+  result text;
+BEGIN
+  fence := NULLIF(current_setting('league_one.all_player_fence', true), '')::jsonb;
+  PERFORM public.assert_all_player_job_fence(fence,
+    jsonb_build_object('season', p_season, 'seasonType', p_season_type, 'week', p_week), true);
+  PERFORM pg_advisory_xact_lock(hashtextextended(
+    p_provider || ':' || p_season::text || ':' || p_season_type || ':' || p_week::text
+      || ':' || p_scoring_profile_id::text || ':' || p_scorer_version,
+    0
+  ));
+
+  SELECT observation.observed_at, observation.source_revision,
+    observation.quality AS observation_quality,
+    observation.all_player_stat_content_id,
+    content.quality AS content_quality, content.coverage AS content_coverage,
+    content.entry_count,
+    score_set.semantic_hash, score_set.quality AS score_quality,
+    score_set.scored_entity_count, score_set.eligible_game_count,
+    score_set.parity_comparison_count, score_set.parity_mismatch_count,
+    verification.coverage, profile.rules_hash AS scoring_rules_hash,
+    profile.rules AS scoring_rules
+  INTO STRICT candidate
+  FROM public.all_player_stat_observations observation
+  JOIN public.all_player_stat_contents content
+    ON content.id = observation.all_player_stat_content_id
+  JOIN public.all_player_score_sets score_set
+    ON score_set.id = p_score_set_id
+    AND score_set.all_player_stat_content_id = observation.all_player_stat_content_id
+  JOIN public.all_player_score_verifications verification
+    ON verification.all_player_stat_observation_id = observation.id
+      AND verification.all_player_score_set_id = score_set.id
+  JOIN public.scoring_profiles profile ON profile.id = score_set.scoring_profile_id
+  WHERE observation.id = p_stat_observation_id
+    AND observation.provider = p_provider
+    AND observation.season = p_season
+    AND observation.season_type = p_season_type
+    AND observation.week = p_week
+    AND score_set.provider = p_provider
+    AND score_set.season = p_season
+    AND score_set.season_type = p_season_type
+    AND score_set.week = p_week
+    AND score_set.scoring_profile_id = p_scoring_profile_id
+    AND score_set.scorer_version = p_scorer_version;
+
+  IF p_season < 2026 OR p_season_type <> 'reg' THEN
+    RAISE EXCEPTION 'all-player publication is limited to 2026+ regular seasons';
+  END IF;
+  IF candidate.observation_quality <> 'complete'
+    OR candidate.content_quality <> 'complete'
+    OR NOT candidate.content_coverage @> '{"complete":true}'::jsonb
+    OR candidate.content_coverage->>'expectedInventoryFingerprint' IS NULL
+    OR candidate.content_coverage->>'expectedInventoryFingerprint' !~ '^sha256:[0-9a-f]{64}$'
+    OR btrim(COALESCE(candidate.content_coverage->>'catalogRevision', '')) = ''
+    OR btrim(COALESCE(candidate.content_coverage->>'scheduleRevision', '')) = ''
+    OR COALESCE(candidate.content_coverage->>'rosterInventoryFingerprint', '')
+      !~ '^sha256:[0-9a-f]{64}$'
+    OR COALESCE(candidate.content_coverage->>'projectionInventoryFingerprint', '')
+      !~ '^sha256:[0-9a-f]{64}$'
+    OR COALESCE(candidate.content_coverage->>'byeInventoryFingerprint', '')
+      !~ '^sha256:[0-9a-f]{64}$'
+    OR jsonb_typeof(candidate.content_coverage->'expectedEntityCount') IS DISTINCT FROM 'number'
+    OR jsonb_typeof(candidate.content_coverage->'expectedPlayerCount') IS DISTINCT FROM 'number'
+    OR jsonb_typeof(candidate.content_coverage->'providerPresentEntityCount') IS DISTINCT FROM 'number'
+    OR jsonb_typeof(candidate.content_coverage->'providerMissingEntityCount') IS DISTINCT FROM 'number'
+    OR candidate.content_coverage->>'expectedTeamDefenseCount' IS DISTINCT FROM '32'
+    OR candidate.content_coverage->>'expectedEntityCount' IS DISTINCT FROM candidate.entry_count::text
+    OR candidate.content_coverage->>'fantasyEntityCount' IS DISTINCT FROM candidate.entry_count::text
+    OR candidate.content_coverage->>'unknownEligibilityCount' IS DISTINCT FROM '0'
+    OR candidate.content_coverage->>'unmappedGameCount' IS DISTINCT FROM '0'
+    OR candidate.content_coverage->>'unexpectedResponseEntityCount' IS DISTINCT FROM '0'
+    OR (candidate.content_coverage->>'providerPresentEntityCount')::integer
+      + (candidate.content_coverage->>'providerMissingEntityCount')::integer
+      <> candidate.entry_count
+    OR candidate.score_quality <> 'complete'
+    OR candidate.parity_comparison_count = 0
+    OR candidate.parity_mismatch_count <> 0
+    OR NOT candidate.coverage @> '{"complete":true,"identity_complete":true,"scoring_rules_complete":true}'::jsonb
+    OR candidate.coverage->>'scoring_rules_hash' IS DISTINCT FROM candidate.scoring_rules_hash
+    OR candidate.coverage->>'all_player_source_revision' IS DISTINCT FROM candidate.source_revision
+    OR jsonb_typeof(candidate.coverage->'parity_observation_ids') IS DISTINCT FROM 'array'
+    OR jsonb_typeof(candidate.coverage->'parity_observation_evidence') IS DISTINCT FROM 'object'
+    OR jsonb_typeof(candidate.coverage->'expected_scoring_profile_ids') IS DISTINCT FROM 'array'
+    OR COALESCE(candidate.coverage->>'score_batch_fingerprint', '')
+      !~ '^sha256:[0-9a-f]{64}$'
+    OR jsonb_typeof(candidate.coverage->'parity_expected_entity_count') IS DISTINCT FROM 'number'
+    OR candidate.coverage->>'parity_fingerprint' IS NULL
+    OR candidate.coverage->>'parity_fingerprint' !~ '^sha256:[0-9a-f]{64}$'
+    OR candidate.entry_count <> (
+      SELECT count(*) FROM public.all_player_stat_entries entry
+      WHERE entry.all_player_stat_content_id = candidate.all_player_stat_content_id
+    )
+    OR 32 <> (
+      SELECT count(*) FROM public.all_player_stat_entries entry
+      WHERE entry.all_player_stat_content_id = candidate.all_player_stat_content_id
+        AND entry.entity_kind = 'team_defense' AND entry.position = 'DEF'
+    )
+    OR (candidate.content_coverage->>'expectedPlayerCount')::integer <> (
+      SELECT count(*) FROM public.all_player_stat_entries entry
+      WHERE entry.all_player_stat_content_id = candidate.all_player_stat_content_id
+        AND entry.entity_kind = 'player'
+    )
+    OR EXISTS (
+      SELECT 1 FROM public.all_player_stat_entries entry
+      WHERE entry.all_player_stat_content_id = candidate.all_player_stat_content_id
+        AND (entry.eligible_game_count IS NULL OR entry.appearance_game_count IS NULL)
+    )
+    OR candidate.scored_entity_count <> (
+      SELECT count(*) FROM public.all_player_scores score
+      WHERE score.all_player_score_set_id = p_score_set_id
+    )
+    OR candidate.scored_entity_count <> candidate.entry_count
+    OR EXISTS (
+      SELECT 1 FROM public.all_player_scores score
+      WHERE score.all_player_score_set_id = p_score_set_id
+        AND score.eligible_game_count = 1 AND score.nfl_game_id IS NULL
+    )
+    OR candidate.eligible_game_count <> COALESCE((
+      SELECT sum(score.eligible_game_count) FROM public.all_player_scores score
+      WHERE score.all_player_score_set_id = p_score_set_id
+    ), 0) THEN
+    RAISE EXCEPTION 'all-player score set is not publication eligible';
+  END IF;
+  IF public.all_player_scoring_contract_supported(
+    p_provider, p_scorer_version, candidate.scoring_rules
+  ) IS DISTINCT FROM true THEN
+    RAISE EXCEPTION 'all-player scoring profile is unsupported by this scorer contract';
+  END IF;
+
+  -- Serialize publication with exact-season enrollment, connection and profile
+  -- registration. Intended membership is independent of registration completeness.
+  LOCK TABLE public.league_seasons, public.league_source_connections,
+    public.league_administration_enrollment_seasons IN SHARE MODE;
+  WITH intended_leagues AS (
+    SELECT league_id FROM public.league_administration_enrollment_seasons
+    WHERE season = p_season AND provider = p_provider
+  ), canonical_leagues AS (
+    SELECT season.id AS league_season_id, season.scoring_profile_id
+    FROM intended_leagues enrollment
+    JOIN public.league_seasons season ON season.league_id = enrollment.league_id
+      AND season.season = p_season
+    JOIN public.league_source_connections connection ON connection.league_season_id = season.id
+      AND connection.provider = p_provider
+    JOIN public.scoring_profiles profile ON profile.id = season.scoring_profile_id
+  ), expected_profiles AS (
+    SELECT DISTINCT scoring_profile_id FROM canonical_leagues
+  )
+  SELECT
+    (SELECT count(*) FROM intended_leagues),
+    (SELECT count(*) FROM canonical_leagues),
+    (SELECT count(*) FROM expected_profiles),
+    (SELECT jsonb_agg(scoring_profile_id::text ORDER BY scoring_profile_id::text)
+      FROM expected_profiles),
+    (SELECT count(*) FROM canonical_leagues
+      WHERE scoring_profile_id = p_scoring_profile_id)
+  INTO expected_league_count, registered_league_count, expected_profile_count, expected_profile_ids,
+    expected_parity_league_count;
+  IF expected_league_count = 0 OR registered_league_count <> expected_league_count OR expected_profile_count = 0
+    OR expected_parity_league_count = 0
+    OR candidate.coverage->'expected_scoring_profile_ids' IS DISTINCT FROM expected_profile_ids THEN
+    RAISE EXCEPTION 'all-player score batch does not cover the canonical league scoring profiles';
+  END IF;
+  SELECT count(DISTINCT coordinated.scoring_profile_id) INTO coordinated_score_set_count
+  FROM public.all_player_score_sets coordinated
+  JOIN public.all_player_score_verifications peer_verification
+    ON peer_verification.all_player_score_set_id = coordinated.id
+      AND peer_verification.all_player_stat_observation_id = p_stat_observation_id
+  WHERE coordinated.all_player_stat_content_id = candidate.all_player_stat_content_id
+    AND coordinated.provider = p_provider
+    AND coordinated.season = p_season
+    AND coordinated.season_type = p_season_type
+    AND coordinated.week = p_week
+    AND coordinated.scorer_version = p_scorer_version
+    AND coordinated.quality = 'complete'
+    AND peer_verification.coverage->>'score_batch_fingerprint'
+      = candidate.coverage->>'score_batch_fingerprint'
+    AND peer_verification.coverage->>'all_player_source_revision' = candidate.source_revision
+    AND peer_verification.coverage->'expected_scoring_profile_ids' = expected_profile_ids
+    AND public.all_player_score_set_is_publication_ready(
+      coordinated.id, expected_profile_ids, p_stat_observation_id
+    ) IS TRUE
+    AND coordinated.scoring_profile_id IN (
+      SELECT DISTINCT season.scoring_profile_id
+      FROM public.league_administration_enrollment_seasons enrollment
+      JOIN public.league_seasons season ON season.league_id = enrollment.league_id
+        AND season.season = enrollment.season
+      WHERE enrollment.season = p_season AND enrollment.provider = p_provider
+    );
+  IF coordinated_score_set_count <> expected_profile_count THEN
+    RAISE EXCEPTION 'all-player score batch is missing a canonical scoring profile';
+  END IF;
+
+  SELECT jsonb_array_length(candidate.coverage->'parity_observation_ids')
+  INTO provided_parity_observation_count;
+  WITH provided AS (
+    SELECT value::uuid AS observation_id
+    FROM jsonb_array_elements_text(candidate.coverage->'parity_observation_ids') value
+  ), matched AS (
+    SELECT observation.id, observation.league_season_id, observation.source_data
+    FROM provided
+    JOIN public.league_week_observations observation
+      ON observation.id = provided.observation_id
+    JOIN public.league_seasons season ON season.id = observation.league_season_id
+    JOIN public.leagues league ON league.id = season.league_id
+    JOIN public.league_source_connections connection
+      ON connection.league_season_id = season.id AND connection.provider = p_provider
+    JOIN public.league_period_authorities authority
+      ON authority.league_key = league.league_key
+      AND authority.source_provider = p_provider
+      AND authority.source_external_league_id = connection.external_league_id
+      AND authority.default_season = p_season
+    WHERE observation.provider = p_provider AND observation.week = p_week
+      AND observation.quality = 'complete' AND season.season = p_season
+      AND season.scoring_profile_id = p_scoring_profile_id
+      AND EXISTS (SELECT 1 FROM public.league_administration_enrollment_seasons enrollment
+        WHERE enrollment.league_id = season.league_id AND enrollment.season = season.season
+          AND enrollment.provider = p_provider)
+      AND observation.source_data->>'allPlayerSourceRevision' = candidate.source_revision
+  )
+  SELECT count(*), count(DISTINCT league_season_id)
+  INTO matched_parity_observation_count, matched_parity_league_count
+  FROM matched;
+  IF provided_parity_observation_count = 0
+    OR provided_parity_observation_count <> matched_parity_observation_count
+    OR matched_parity_observation_count <> matched_parity_league_count
+    OR matched_parity_league_count <> expected_parity_league_count THEN
+    RAISE EXCEPTION 'all-player parity observations are incomplete';
+  END IF;
+
+  WITH provided AS (
+    SELECT value::uuid AS observation_id
+    FROM jsonb_array_elements_text(candidate.coverage->'parity_observation_ids') value
+  ), matched AS (
+    SELECT observation.id, observation.source_data,
+      candidate.coverage->'parity_observation_evidence'->observation.id::text
+        AS score_evidence,
+      authority.expected_roster_count,
+      (SELECT jsonb_agg(roster_id ORDER BY roster_id)
+        FROM unnest(authority.expected_roster_ids) roster_id) AS expected_roster_ids
+    FROM provided
+    JOIN public.league_week_observations observation
+      ON observation.id = provided.observation_id
+    JOIN public.league_seasons season ON season.id = observation.league_season_id
+    JOIN public.leagues league ON league.id = season.league_id
+    JOIN public.league_source_connections connection
+      ON connection.league_season_id = season.id AND connection.provider = p_provider
+    JOIN public.league_period_authorities authority
+      ON authority.league_key = league.league_key
+      AND authority.source_provider = p_provider
+      AND authority.source_external_league_id = connection.external_league_id
+      AND authority.default_season = p_season
+    WHERE season.scoring_profile_id = p_scoring_profile_id
+  ), physical AS (
+    SELECT matched.id,
+      count(points.*)::integer AS player_count,
+      count(points.points)::integer AS nonnull_player_count,
+      count(score.provider_external_id)::integer AS mapped_player_count,
+      count(DISTINCT points.scoring_entity_id)::integer AS unique_player_count,
+      count(DISTINCT points.external_roster_id)::integer AS player_roster_count,
+      ('sha256:' || encode(digest(convert_to(COALESCE(string_agg(
+        score.provider_external_id || chr(31) || points.points::text,
+        chr(10) ORDER BY score.provider_external_id
+      ), ''), 'UTF8'), 'sha256'), 'hex')) AS fingerprint
+    FROM matched
+    LEFT JOIN public.official_player_point_observations points
+      ON points.league_week_observation_id = matched.id
+    LEFT JOIN public.all_player_scores score
+      ON score.all_player_score_set_id = p_score_set_id
+      AND score.scoring_entity_id = points.scoring_entity_id
+    GROUP BY matched.id
+  ), roster_physical AS (
+    SELECT matched.id, count(rosters.*)::integer AS roster_count,
+      COALESCE(jsonb_agg(rosters.external_roster_id ORDER BY rosters.external_roster_id)
+        FILTER (WHERE rosters.external_roster_id IS NOT NULL), '[]'::jsonb) AS roster_ids
+    FROM matched
+    LEFT JOIN public.official_roster_point_observations rosters
+      ON rosters.league_week_observation_id = matched.id
+    GROUP BY matched.id
+  )
+  SELECT count(*) INTO parity_evidence_mismatch_count
+  FROM matched
+  JOIN physical ON physical.id = matched.id
+  JOIN roster_physical ON roster_physical.id = matched.id
+  WHERE jsonb_typeof(matched.score_evidence) IS DISTINCT FROM 'object'
+    OR matched.source_data->>'allPlayerSourceRevision' IS DISTINCT FROM candidate.source_revision
+    OR matched.source_data->'officialPlayersPointsEvidence' IS DISTINCT FROM matched.score_evidence
+    OR matched.score_evidence->>'version' IS DISTINCT FROM 'players-points-v1'
+    OR matched.score_evidence->>'expectedEntityCount' IS DISTINCT FROM physical.player_count::text
+    OR matched.score_evidence->>'expectedRosterCount' IS DISTINCT FROM matched.expected_roster_count::text
+    OR matched.score_evidence->'expectedRosterIds' IS DISTINCT FROM matched.expected_roster_ids
+    OR matched.score_evidence->>'fingerprint' IS DISTINCT FROM physical.fingerprint
+    OR physical.player_count = 0
+    OR physical.player_count <> physical.nonnull_player_count
+    OR physical.player_count <> physical.mapped_player_count
+    OR physical.player_count <> physical.unique_player_count
+    OR physical.player_roster_count <> matched.expected_roster_count
+    OR roster_physical.roster_count <> matched.expected_roster_count
+    OR roster_physical.roster_ids IS DISTINCT FROM matched.expected_roster_ids
+    OR EXISTS (
+      SELECT 1 FROM public.official_player_point_observations player_point
+      WHERE player_point.league_week_observation_id = matched.id
+        AND NOT EXISTS (
+          SELECT 1 FROM public.official_roster_point_observations roster_point
+          WHERE roster_point.league_week_observation_id = matched.id
+            AND roster_point.external_roster_id = player_point.external_roster_id
+        )
+    );
+  IF parity_evidence_mismatch_count <> 0 THEN
+    RAISE EXCEPTION 'all-player parity evidence is stale, partial, or malformed';
+  END IF;
+
+  WITH provided AS (
+    SELECT value::uuid AS observation_id
+    FROM jsonb_array_elements_text(candidate.coverage->'parity_observation_ids') value
+  ), official AS (
+    SELECT points.scoring_entity_id, points.points
+    FROM provided
+    JOIN public.official_player_point_observations points
+      ON points.league_week_observation_id = provided.observation_id
+  ), grouped AS (
+    SELECT scoring_entity_id, min(points) AS points, count(DISTINCT points) AS point_values
+    FROM official GROUP BY scoring_entity_id
+  )
+  SELECT
+    (SELECT count(*) FROM official),
+    (SELECT count(*) FROM official WHERE points IS NOT NULL),
+    (SELECT count(*) FROM grouped),
+    (SELECT count(*) FROM grouped WHERE point_values <> 1),
+    (SELECT count(*) FROM grouped
+      LEFT JOIN public.all_player_scores score
+        ON score.all_player_score_set_id = p_score_set_id
+        AND score.scoring_entity_id = grouped.scoring_entity_id
+      WHERE score.scoring_entity_id IS NULL
+        OR abs(score.fantasy_points - grouped.points) > 0.0001)
+  INTO parity_row_count, parity_nonnull_count, parity_entity_count,
+    parity_conflict_count, parity_score_mismatch_count;
+  IF parity_row_count = 0 OR parity_row_count <> parity_nonnull_count
+    OR parity_entity_count <> candidate.parity_comparison_count
+    OR parity_entity_count <> (candidate.coverage->>'parity_expected_entity_count')::integer
+    OR parity_conflict_count <> 0 OR parity_score_mismatch_count <> 0 THEN
+    RAISE EXCEPTION 'all-player rostered scoring parity is incomplete or mismatched';
+  END IF;
+  IF p_verified_at < candidate.observed_at THEN
+    RAISE EXCEPTION 'all-player verification precedes its observation';
+  END IF;
+
+  SELECT pointer.* INTO current_pointer
+  FROM public.current_all_player_score_sets pointer
+  WHERE pointer.provider = p_provider AND pointer.season = p_season
+    AND pointer.season_type = p_season_type AND pointer.week = p_week
+    AND pointer.scoring_profile_id = p_scoring_profile_id
+    AND pointer.scorer_version = p_scorer_version
+  FOR UPDATE;
+
+  IF FOUND AND candidate.observed_at < current_pointer.observed_at THEN
+    RETURN 'superseded';
+  END IF;
+  IF FOUND AND candidate.observed_at = current_pointer.observed_at
+    AND (p_stat_observation_id <> current_pointer.all_player_stat_observation_id
+      OR p_score_set_id <> current_pointer.all_player_score_set_id) THEN
+    RAISE EXCEPTION 'all-player pointer conflict: equal observation time has different content';
+  END IF;
+
+  IF FOUND THEN
+    SELECT score_set.semantic_hash INTO STRICT current_semantic_hash
+    FROM public.all_player_score_sets score_set
+    WHERE score_set.id = current_pointer.all_player_score_set_id;
+    result := CASE WHEN current_semantic_hash = candidate.semantic_hash
+      THEN 'verified' ELSE 'advanced' END;
+  ELSE
+    result := 'advanced';
+  END IF;
+
+  -- Locking prevents takeover during this transaction; check the real clock again
+  -- after parity validation so an owner that expired during SQL cannot publish.
+  PERFORM public.assert_all_player_job_fence(fence,
+    jsonb_build_object('season', p_season, 'seasonType', p_season_type, 'week', p_week), true);
+  INSERT INTO public.current_all_player_score_sets (
+    provider, season, season_type, week, scoring_profile_id, scorer_version,
+    all_player_stat_observation_id, all_player_score_set_id, observed_at,
+    verified_at, material_changed_at
+  ) VALUES (
+    p_provider, p_season, p_season_type, p_week, p_scoring_profile_id, p_scorer_version,
+    p_stat_observation_id, p_score_set_id, candidate.observed_at,
+    p_verified_at, p_verified_at
+  )
+  ON CONFLICT (provider, season, season_type, week, scoring_profile_id, scorer_version)
+  DO UPDATE SET
+    all_player_stat_observation_id = EXCLUDED.all_player_stat_observation_id,
+    all_player_score_set_id = EXCLUDED.all_player_score_set_id,
+    observed_at = EXCLUDED.observed_at,
+    verified_at = GREATEST(
+      public.current_all_player_score_sets.verified_at, EXCLUDED.verified_at
+    ),
+    material_changed_at = CASE
+      WHEN result = 'verified'
+      THEN public.current_all_player_score_sets.material_changed_at
+      ELSE EXCLUDED.material_changed_at
+    END;
+  UPDATE public.projection_jobs SET payload = payload || jsonb_build_object('lastPublication',
+    jsonb_build_object('generation',(fence->>'generation')::integer,
+      'period',jsonb_build_object('season',p_season,'seasonType',p_season_type,'week',p_week),
+      'observationId',p_stat_observation_id,'scorerVersion',p_scorer_version,
+      'profileIds',expected_profile_ids,'publishedAt',clock_timestamp()))
+    WHERE job_key = 'all-player-ingestion:sleeper';
+  RETURN result;
+END;
+$$;
+-- CREATE OR REPLACE retains ownership and privileges. Readiness remains owner
+-- only; both existing publication signatures retain their runtime grants and
+-- require the same valid job fence. PUBLIC receives no execution rights.
+REVOKE ALL ON FUNCTION public.all_player_score_set_is_publication_ready(uuid,jsonb,uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.advance_current_all_player_score_set(text,smallint,text,smallint,uuid,text,uuid,uuid,timestamptz) FROM PUBLIC;
+INSERT INTO public.app_schema_migrations(name,checksum) VALUES ('017_enrolled_all_player_publication.sql','1247dbfbdfbc79f41a448cf3b2e95fb4f9387e951a26f340e9533754e5c9c361');
+
+DO $administration_after$
+DECLARE actual_catalog jsonb; old_count record; new_count bigint;
+BEGIN
+  IF (SELECT jsonb_agg(jsonb_build_array(name,checksum) ORDER BY name) FROM public.app_schema_migrations) IS DISTINCT FROM '[["001_projection_foundation.sql","eefa3aa224dbc6f0c6bb3edc9e4690425e2d6af7094938f3528059717d205050"],["002_manager_snapshot_payloads.sql","74585dec3e2717eede0579f9281a041a4e3cc0b0cd8378383fe2e3d64fd7214d"],["003_league_period_authority.sql","6f98e09646834cc542a6413e00c0d0c2d84ad4a5ff33905e429aba87c951406e"],["004_durable_projection_slates.sql","8ad48c22dea0d942a0a14027dcb240cda18f1bd728403e41aafa6b76f42f95b9"],["005_future_projection_refresh.sql","02bb6a3c6a183e7074fbea156b5f393d5772619098ab7c07be9dcc5528003c75"],["006_flexed_kickoff_candidate_index.sql","d2c54c4e17439d3773cfab8db8ed68bf332abd1073fe793f62138efa89e1a3b0"],["007_lineup_freshness.sql","1a92f9517294fe289bd25d74923dd042d0cb394d143b5c89d33ed017963c3e47"],["008_additive_write_guards.sql","2447ffac523e1f5536e218887d5c29895c3a095385f89bd6beb55cb7c5e95814"],["009_game_clock_plausibility.sql","86df8afd868bb4fd589a76bf1e1693cdc546037cfc61b54ae972e660fbda056a"],["010_all_player_statistics.sql","f9f2aa0c4dc7a0a3097bf770a7f08ef0719ed7f019307dcf629fa17058af31b4"],["011_all_player_foundation_guards.sql","0eaa96bcc0b65053ac8dab48657eb7bfe22fadbfd41b4f4c78c3472ca8a512b6"],["012_all_player_provider_participation.sql","bea4bd568c05eee7da177811b25a1389180d37329b9061b3e79ee60d546aa4ed"],["013_all_player_participation_assumption.sql","4e03581db2b9a33d0df77110fe32b81745bec7f1ab001a20bfd788c4b4283d80"],["014_all_player_hourly_collection.sql","3aa6e19555c1e38bf7805199d401b0c6acd3ada00716950e04e54573867b1fc3"],["015_all_player_dynasty_publication.sql","f7bf9b74cc14c0ede7a7534257ea956f99edc2615983b5b66ae546f2812fef8a"],["016_portable_league_administration.sql","d662d9e9709153a4e9a6cbc93522bdd4d14c5b0a0c74a7c7ea8648455896596c"],["017_enrolled_all_player_publication.sql","1247dbfbdfbc79f41a448cf3b2e95fb4f9387e951a26f340e9533754e5c9c361"]]'::jsonb
+    THEN RAISE EXCEPTION 'administration release final migration ledger mismatch'; END IF;
+  SELECT catalog INTO actual_catalog FROM (SELECT jsonb_build_object(
+    'tables', COALESCE((SELECT jsonb_agg(jsonb_build_object(
+      'name',t.relname,'kind',t.relkind,'owner',owner.rolname,'acl',COALESCE(t.relacl::text,''),
+      'rls',t.relrowsecurity,'forceRls',t.relforcerowsecurity,
+      'runtimePrivileges',(SELECT jsonb_agg(privilege ORDER BY privilege) FROM unnest(ARRAY['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']) privilege
+        WHERE has_table_privilege('league_one_runtime',t.oid,privilege)),
+      'publicPrivileges',COALESCE((SELECT jsonb_agg(acl.privilege_type ORDER BY acl.privilege_type)
+        FROM aclexplode(COALESCE(t.relacl,acldefault('r',t.relowner))) acl WHERE acl.grantee=0),'[]'::jsonb),
+      'columns',columns.n,'columnHash',columns.hash,
+      'constraints',constraints.n,'notNullConstraints',constraints.nn,'constraintHash',constraints.hash,
+      'indexes',indexes.n,'indexHash',indexes.hash,'policyHash',policies.hash
+    ) ORDER BY t.relname) FROM pg_class t JOIN pg_namespace ns ON ns.oid=t.relnamespace
+    JOIN pg_roles owner ON owner.oid=t.relowner
+    CROSS JOIN LATERAL (SELECT count(*) AS n,md5(COALESCE(string_agg(
+      a.attname||chr(31)||format_type(a.atttypid,a.atttypmod)||chr(31)||a.attnotnull::text
+      ||chr(31)||COALESCE(a.attacl::text,'')||chr(31)||COALESCE(pg_get_expr(d.adbin,d.adrelid),''),chr(30) ORDER BY a.attnum),'')) AS hash
+      FROM pg_attribute a LEFT JOIN pg_attrdef d ON d.adrelid=a.attrelid AND d.adnum=a.attnum
+      WHERE a.attrelid=t.oid AND a.attnum>0 AND NOT a.attisdropped) columns
+    CROSS JOIN LATERAL (SELECT count(*) AS n,count(*) FILTER(WHERE c.contype='n') AS nn,
+      md5(COALESCE(string_agg(c.conname||chr(31)||c.contype::text||chr(31)||c.convalidated::text||chr(31)
+      ||pg_get_constraintdef(c.oid,true),chr(30) ORDER BY c.conname),'')) AS hash
+      FROM pg_constraint c WHERE c.conrelid=t.oid) constraints
+    CROSS JOIN LATERAL (SELECT count(*) AS n,md5(COALESCE(string_agg(i.indexname||chr(31)||i.indexdef,
+      chr(30) ORDER BY i.indexname),'')) AS hash FROM pg_indexes i WHERE i.schemaname='public' AND i.tablename=t.relname) indexes
+    CROSS JOIN LATERAL (SELECT md5(COALESCE(string_agg(p.polname||chr(31)||p.polcmd::text||chr(31)||p.polpermissive::text
+      ||chr(31)||p.polroles::text||chr(31)||COALESCE(pg_get_expr(p.polqual,p.polrelid),'')||chr(31)
+      ||COALESCE(pg_get_expr(p.polwithcheck,p.polrelid),''),chr(30) ORDER BY p.polname),'')) AS hash
+      FROM pg_policy p WHERE p.polrelid=t.oid) policies
+    WHERE ns.nspname='public' AND t.relkind IN ('r','p','v','m','f') AND t.relname =ANY(ARRAY['league_administration_enrollments','league_administration_enrollment_seasons','league_source_connection_history','league_configuration_versions','league_administration_contents','league_administration_observations','league_administration_heads','league_configuration_activations','league_configuration_heads','league_season_teams','league_source_manager_accounts','league_administration_team_entries','league_administration_manager_entries','league_administration_memberships','league_administration_transaction_entries']::text[])),'[]'::jsonb),
+    'constraintTypes',COALESCE((SELECT jsonb_agg(jsonb_build_array(kind,n) ORDER BY kind) FROM (
+      SELECT c.contype::text AS kind,count(*) AS n FROM pg_constraint c JOIN pg_class t ON t.oid=c.conrelid
+      WHERE t.relnamespace='public'::regnamespace AND t.relname =ANY(ARRAY['league_administration_enrollments','league_administration_enrollment_seasons','league_source_connection_history','league_configuration_versions','league_administration_contents','league_administration_observations','league_administration_heads','league_configuration_activations','league_configuration_heads','league_season_teams','league_source_manager_accounts','league_administration_team_entries','league_administration_manager_entries','league_administration_memberships','league_administration_transaction_entries']::text[]) GROUP BY c.contype) kinds),'[]'::jsonb),
+    'functions',COALESCE((SELECT jsonb_agg(jsonb_build_object('signature',p.proname||'('||replace(oidvectortypes(p.proargtypes),', ',',')||')',
+      'definitionHash',md5(pg_get_functiondef(p.oid)),'owner',owner.rolname,'securityDefiner',p.prosecdef,
+      'configuration',p.proconfig,'acl',COALESCE(p.proacl::text,''),
+      'runtimeExecute',has_function_privilege('league_one_runtime',p.oid,'EXECUTE'),
+      'publicExecute',EXISTS(SELECT 1 FROM aclexplode(COALESCE(p.proacl,acldefault('f',p.proowner))) acl
+        WHERE acl.grantee=0 AND acl.privilege_type='EXECUTE')) ORDER BY p.proname||'('||replace(oidvectortypes(p.proargtypes),', ',',')||')')
+      FROM pg_proc p JOIN pg_roles owner ON owner.oid=p.proowner
+      WHERE p.pronamespace='public'::regnamespace AND p.prokind='f' AND p.proname||'('||replace(oidvectortypes(p.proargtypes),', ',',')||')' =ANY(ARRAY['prevent_league_administration_history_change()','record_league_administration_observation(jsonb)','guard_league_administration_entry()','validate_official_administration_lineage()','validate_published_administration_lineage()','guard_league_source_connection_history()','remap_league_source_connection(uuid,text,text,text,text)','connect_league_administration_season(uuid,smallint,text,text,text,jsonb,text)','activate_league_configuration_component(uuid,text,text,smallint,smallint,text,bigint)','all_player_score_set_is_publication_ready(uuid,jsonb,uuid)','advance_current_all_player_score_set(text,smallint,text,smallint,uuid,text,uuid,uuid,timestamp with time zone)']::text[])),'[]'::jsonb),
+    'triggers',COALESCE((SELECT jsonb_agg(jsonb_build_object('key',t.relname||'.'||tr.tgname,
+      'function',p.proname,'enabled',tr.tgenabled,'definitionHash',md5(pg_get_triggerdef(tr.oid,true))) ORDER BY t.relname,tr.tgname)
+      FROM pg_trigger tr JOIN pg_class t ON t.oid=tr.tgrelid JOIN pg_proc p ON p.oid=tr.tgfoid
+      WHERE t.relnamespace='public'::regnamespace AND NOT tr.tgisinternal AND (t.relname=ANY(ARRAY['league_administration_enrollments','league_administration_enrollment_seasons','league_source_connection_history','league_configuration_versions','league_administration_contents','league_administration_observations','league_administration_heads','league_configuration_activations','league_configuration_heads','league_season_teams','league_source_manager_accounts','league_administration_team_entries','league_administration_manager_entries','league_administration_memberships','league_administration_transaction_entries']::text[]) OR (t.relname||'.'||tr.tgname)=ANY(ARRAY['league_week_observations.official_administration_lineage','current_projection_snapshots.published_administration_lineage','league_source_connections.guard_administration_connection','league_source_connections.record_administration_connection']::text[]))),'[]'::jsonb)
+
+  ) AS catalog) captured;
+  IF actual_catalog IS DISTINCT FROM '{"tables":[{"acl":"{neondb_owner=arwdDxtm/neondb_owner,league_one_runtime=r/neondb_owner}","rls":false,"kind":"r","name":"league_administration_contents","owner":"neondb_owner","columns":16,"indexes":3,"forceRls":false,"indexHash":"c5528bb76b6dc5760c85fe6f00b40f9c","columnHash":"178d4d2e7b616c8100d98da8aa078c76","policyHash":"d41d8cd98f00b204e9800998ecf8427e","constraints":26,"constraintHash":"e5cec2eb9a915e1915907e8811950221","publicPrivileges":[],"runtimePrivileges":["SELECT"],"notNullConstraints":13},{"acl":"{neondb_owner=arwdDxtm/neondb_owner,league_one_runtime=r/neondb_owner}","rls":false,"kind":"r","name":"league_administration_enrollment_seasons","owner":"neondb_owner","columns":5,"indexes":1,"forceRls":false,"indexHash":"aee8e5f71548d70e218ab888e3ab9992","columnHash":"969b7bfc6d04f790c856b52efefd824b","policyHash":"d41d8cd98f00b204e9800998ecf8427e","constraints":10,"constraintHash":"be3e2460e43810bfed006a05f6ac3118","publicPrivileges":[],"runtimePrivileges":["SELECT"],"notNullConstraints":5},{"acl":"{neondb_owner=arwdDxtm/neondb_owner,league_one_runtime=r/neondb_owner}","rls":false,"kind":"r","name":"league_administration_enrollments","owner":"neondb_owner","columns":5,"indexes":1,"forceRls":false,"indexHash":"f8f6a6072ec6fd73ea1a445b3191fbc0","columnHash":"f9e264af3edeaa9c1e5d30f603154f07","policyHash":"d41d8cd98f00b204e9800998ecf8427e","constraints":9,"constraintHash":"391b5673ee45c8aeb7a15b2ab84de693","publicPrivileges":[],"runtimePrivileges":["SELECT"],"notNullConstraints":5},{"acl":"{neondb_owner=arwdDxtm/neondb_owner,league_one_runtime=r/neondb_owner}","rls":false,"kind":"r","name":"league_administration_heads","owner":"neondb_owner","columns":11,"indexes":1,"forceRls":false,"indexHash":"85db6df32c46f7c9c6d7ec23b567e21a","columnHash":"514ca483268c0da2546fbf2329bc874e","policyHash":"d41d8cd98f00b204e9800998ecf8427e","constraints":13,"constraintHash":"ea6cd5b30e24de4386907c27e07ba33d","publicPrivileges":[],"runtimePrivileges":["SELECT"],"notNullConstraints":4},{"acl":"{neondb_owner=arwdDxtm/neondb_owner,league_one_runtime=r/neondb_owner}","rls":false,"kind":"r","name":"league_administration_manager_entries","owner":"neondb_owner","columns":3,"indexes":1,"forceRls":false,"indexHash":"74cb85d1b9141d23eda439af5fc0e61c","columnHash":"eee5ce4ecf56d1916a320b3f4373330b","policyHash":"d41d8cd98f00b204e9800998ecf8427e","constraints":7,"constraintHash":"d2f3d0cc1c125de561c2c2673453732a","publicPrivileges":[],"runtimePrivileges":["SELECT"],"notNullConstraints":3},{"acl":"{neondb_owner=arwdDxtm/neondb_owner,league_one_runtime=r/neondb_owner}","rls":false,"kind":"r","name":"league_administration_memberships","owner":"neondb_owner","columns":5,"indexes":1,"forceRls":false,"indexHash":"2db550093fa663b5d3df6f5749eee52c","columnHash":"3f696959057c1963da77464fd1aa8d78","policyHash":"d41d8cd98f00b204e9800998ecf8427e","constraints":10,"constraintHash":"2ba6ff9e7ff2e576a7b5953e96c9b12d","publicPrivileges":[],"runtimePrivileges":["SELECT"],"notNullConstraints":5},{"acl":"{neondb_owner=arwdDxtm/neondb_owner,league_one_runtime=r/neondb_owner}","rls":false,"kind":"r","name":"league_administration_observations","owner":"neondb_owner","columns":15,"indexes":4,"forceRls":false,"indexHash":"5385c9d4b3355f20421135561e79dc75","columnHash":"1ef8f8c7e256c15b6d2d41f60cdc83d1","policyHash":"d41d8cd98f00b204e9800998ecf8427e","constraints":22,"constraintHash":"6a9b1711c2f0beb14fafbbc1144e80cc","publicPrivileges":[],"runtimePrivileges":["SELECT"],"notNullConstraints":12},{"acl":"{neondb_owner=arwdDxtm/neondb_owner,league_one_runtime=r/neondb_owner}","rls":false,"kind":"r","name":"league_administration_team_entries","owner":"neondb_owner","columns":4,"indexes":1,"forceRls":false,"indexHash":"bfcd543ebdc1e37e218afb31e60df3bd","columnHash":"d186551d92d1940038dc7b8a50d36ed0","policyHash":"d41d8cd98f00b204e9800998ecf8427e","constraints":8,"constraintHash":"6222ff8390bea9de609640a6831553cf","publicPrivileges":[],"runtimePrivileges":["SELECT"],"notNullConstraints":4},{"acl":"{neondb_owner=arwdDxtm/neondb_owner,league_one_runtime=r/neondb_owner}","rls":false,"kind":"r","name":"league_administration_transaction_entries","owner":"neondb_owner","columns":3,"indexes":1,"forceRls":false,"indexHash":"535850118e2869afaac69639c9c4c0c1","columnHash":"9efcd4243b79e7c98aa50f7b3b85a6df","policyHash":"d41d8cd98f00b204e9800998ecf8427e","constraints":7,"constraintHash":"2867faf80d9f6d689bc8979cc242ad21","publicPrivileges":[],"runtimePrivileges":["SELECT"],"notNullConstraints":3},{"acl":"{neondb_owner=arwdDxtm/neondb_owner,league_one_runtime=r/neondb_owner}","rls":false,"kind":"r","name":"league_configuration_activations","owner":"neondb_owner","columns":13,"indexes":4,"forceRls":false,"indexHash":"cf4d45bfe7f218e0124d44024a660217","columnHash":"6e42368bab0ad006f7305f5b71774d59","policyHash":"d41d8cd98f00b204e9800998ecf8427e","constraints":21,"constraintHash":"1b69f94209d2127093d1b0d2ca5cfe6d","publicPrivileges":[],"runtimePrivileges":["SELECT"],"notNullConstraints":9},{"acl":"{neondb_owner=arwdDxtm/neondb_owner,league_one_runtime=r/neondb_owner}","rls":false,"kind":"r","name":"league_configuration_heads","owner":"neondb_owner","columns":3,"indexes":1,"forceRls":false,"indexHash":"436550368c5e93ff8da3e3aa8cfc1f00","columnHash":"a714328a220d16b5c2236df46dfe01f8","policyHash":"d41d8cd98f00b204e9800998ecf8427e","constraints":6,"constraintHash":"184a90f23695089933c4914c3639227a","publicPrivileges":[],"runtimePrivileges":["SELECT"],"notNullConstraints":3},{"acl":"{neondb_owner=arwdDxtm/neondb_owner,league_one_runtime=r/neondb_owner}","rls":false,"kind":"r","name":"league_configuration_versions","owner":"neondb_owner","columns":9,"indexes":3,"forceRls":false,"indexHash":"47226671281be8ca2f3a20382384d7ce","columnHash":"364055a485567072c04dd0c0faa50769","policyHash":"d41d8cd98f00b204e9800998ecf8427e","constraints":16,"constraintHash":"843866d6726eab4dba2a4dc28644cc43","publicPrivileges":[],"runtimePrivileges":["SELECT"],"notNullConstraints":7},{"acl":"{neondb_owner=arwdDxtm/neondb_owner,league_one_runtime=r/neondb_owner}","rls":false,"kind":"r","name":"league_season_teams","owner":"neondb_owner","columns":6,"indexes":3,"forceRls":false,"indexHash":"b73eb9d3bc925b2cbea9d9aeff5f28e2","columnHash":"0ad04202268e7fa77399343dce5d0bb9","policyHash":"d41d8cd98f00b204e9800998ecf8427e","constraints":12,"constraintHash":"516bd050fec82b9a5b2082832face9c8","publicPrivileges":[],"runtimePrivileges":["SELECT"],"notNullConstraints":6},{"acl":"{neondb_owner=arwdDxtm/neondb_owner,league_one_runtime=r/neondb_owner}","rls":false,"kind":"r","name":"league_source_connection_history","owner":"neondb_owner","columns":8,"indexes":1,"forceRls":false,"indexHash":"34ade3b2dc078ed50d59823b14d71ceb","columnHash":"cd45b8868935eb0b0f9c049d7fe0d9d1","policyHash":"d41d8cd98f00b204e9800998ecf8427e","constraints":11,"constraintHash":"d1b0509ae0c313856c5263b36aa76c90","publicPrivileges":[],"runtimePrivileges":["SELECT"],"notNullConstraints":7},{"acl":"{neondb_owner=arwdDxtm/neondb_owner,league_one_runtime=r/neondb_owner}","rls":false,"kind":"r","name":"league_source_manager_accounts","owner":"neondb_owner","columns":4,"indexes":2,"forceRls":false,"indexHash":"bc99c5893f0bdbb1e5ec14c97771b02a","columnHash":"90824386aa5712bde533bc3aeb70c9aa","policyHash":"d41d8cd98f00b204e9800998ecf8427e","constraints":8,"constraintHash":"bb7a305e042a0fe7f475266e0bf5536f","publicPrivileges":[],"runtimePrivileges":["SELECT"],"notNullConstraints":4}],"triggers":[{"key":"current_projection_snapshots.published_administration_lineage","enabled":"O","function":"validate_published_administration_lineage","definitionHash":"3c0c19b32204ba60ca06c5543cdc6d94"},{"key":"league_administration_contents.immutable_history","enabled":"O","function":"prevent_league_administration_history_change","definitionHash":"8912dbc388f9fd9b6b664b26fccae35b"},{"key":"league_administration_enrollment_seasons.immutable_history","enabled":"O","function":"prevent_league_administration_history_change","definitionHash":"e48f2f1c5296d29dfbdb5b52ae005a8c"},{"key":"league_administration_manager_entries.immutable_history","enabled":"O","function":"prevent_league_administration_history_change","definitionHash":"2ecebbd74c23c79a69c323185ef871f2"},{"key":"league_administration_manager_entries.seal_entries","enabled":"O","function":"guard_league_administration_entry","definitionHash":"819c0514c77d2e85c8745dbb204e5519"},{"key":"league_administration_memberships.immutable_history","enabled":"O","function":"prevent_league_administration_history_change","definitionHash":"23e8e49ab9587fb07010bf34a4cc2883"},{"key":"league_administration_memberships.seal_entries","enabled":"O","function":"guard_league_administration_entry","definitionHash":"0b02c841f26d84d47c936f2d986d3399"},{"key":"league_administration_observations.immutable_history","enabled":"O","function":"prevent_league_administration_history_change","definitionHash":"38039ddeee508c1d1541b5920d44b2f7"},{"key":"league_administration_team_entries.immutable_history","enabled":"O","function":"prevent_league_administration_history_change","definitionHash":"035ad9f8e23bbb4a64076eb930a89df2"},{"key":"league_administration_team_entries.seal_entries","enabled":"O","function":"guard_league_administration_entry","definitionHash":"2f8fffde0f295eb7b217878ccd282e46"},{"key":"league_administration_transaction_entries.immutable_history","enabled":"O","function":"prevent_league_administration_history_change","definitionHash":"cfa00368e9708f5d4d6f9327b7c5ec71"},{"key":"league_administration_transaction_entries.seal_entries","enabled":"O","function":"guard_league_administration_entry","definitionHash":"f325a1859df834fecbcf0b5287288af9"},{"key":"league_configuration_activations.immutable_history","enabled":"O","function":"prevent_league_administration_history_change","definitionHash":"3b737bc1413c9456b7e5504c17b345ff"},{"key":"league_configuration_versions.immutable_history","enabled":"O","function":"prevent_league_administration_history_change","definitionHash":"b1c49d436d67e47e33704d042c8aa4c4"},{"key":"league_season_teams.immutable_history","enabled":"O","function":"prevent_league_administration_history_change","definitionHash":"851975971f53db5c476c1286c678a2cc"},{"key":"league_source_connection_history.immutable_history","enabled":"O","function":"prevent_league_administration_history_change","definitionHash":"b6beac836cc91056536fca4825e55769"},{"key":"league_source_connections.guard_administration_connection","enabled":"O","function":"guard_league_source_connection_history","definitionHash":"890d4bfd756639b969d8202a9cc34075"},{"key":"league_source_connections.record_administration_connection","enabled":"O","function":"guard_league_source_connection_history","definitionHash":"bdafe06596b7fd2000fbe451be042e2d"},{"key":"league_source_manager_accounts.immutable_history","enabled":"O","function":"prevent_league_administration_history_change","definitionHash":"16e8749c9205448144e87298cfa95b2b"},{"key":"league_week_observations.official_administration_lineage","enabled":"O","function":"validate_official_administration_lineage","definitionHash":"29bfbebba0ec547544754b2be69dd666"}],"functions":[{"acl":"{neondb_owner=X/neondb_owner}","owner":"neondb_owner","signature":"activate_league_configuration_component(uuid,text,text,smallint,smallint,text,bigint)","configuration":["search_path=pg_catalog, public, pg_temp"],"publicExecute":false,"definitionHash":"bbf45cc0a921fd826c549fabdaf90773","runtimeExecute":false,"securityDefiner":true},{"acl":"{neondb_owner=X/neondb_owner,league_one_runtime=X/neondb_owner}","owner":"neondb_owner","signature":"advance_current_all_player_score_set(text,smallint,text,smallint,uuid,text,uuid,uuid,timestamp with time zone)","configuration":["search_path=pg_catalog, public, pg_temp"],"publicExecute":false,"definitionHash":"dc6bacec8a3aa4f1ef9b45a6a59d88d0","runtimeExecute":true,"securityDefiner":true},{"acl":"{neondb_owner=X/neondb_owner}","owner":"neondb_owner","signature":"all_player_score_set_is_publication_ready(uuid,jsonb,uuid)","configuration":["search_path=pg_catalog, public, pg_temp"],"publicExecute":false,"definitionHash":"fb91efe412a7e97ea3ab77050718d24e","runtimeExecute":false,"securityDefiner":true},{"acl":"{neondb_owner=X/neondb_owner}","owner":"neondb_owner","signature":"connect_league_administration_season(uuid,smallint,text,text,text,jsonb,text)","configuration":["search_path=pg_catalog, public, pg_temp"],"publicExecute":false,"definitionHash":"b56a17b9bd029e4b575927d6846dfd5b","runtimeExecute":false,"securityDefiner":true},{"acl":"{neondb_owner=X/neondb_owner}","owner":"neondb_owner","signature":"guard_league_administration_entry()","configuration":["search_path=pg_catalog, public, pg_temp"],"publicExecute":false,"definitionHash":"b082b9ce57cc552d1cacb0c6264789ff","runtimeExecute":false,"securityDefiner":false},{"acl":"{neondb_owner=X/neondb_owner}","owner":"neondb_owner","signature":"guard_league_source_connection_history()","configuration":["search_path=pg_catalog, public, pg_temp"],"publicExecute":false,"definitionHash":"c45842dff089ae7238301d47d4fccc5a","runtimeExecute":false,"securityDefiner":true},{"acl":"{neondb_owner=X/neondb_owner}","owner":"neondb_owner","signature":"prevent_league_administration_history_change()","configuration":["search_path=pg_catalog, public, pg_temp"],"publicExecute":false,"definitionHash":"914f52697903d2aa19fc92894393e8d7","runtimeExecute":false,"securityDefiner":false},{"acl":"{neondb_owner=X/neondb_owner,league_one_runtime=X/neondb_owner}","owner":"neondb_owner","signature":"record_league_administration_observation(jsonb)","configuration":["search_path=pg_catalog, public, pg_temp"],"publicExecute":false,"definitionHash":"79783731c76cdc8041b669b4cd8b6f32","runtimeExecute":true,"securityDefiner":true},{"acl":"{neondb_owner=X/neondb_owner}","owner":"neondb_owner","signature":"remap_league_source_connection(uuid,text,text,text,text)","configuration":["search_path=pg_catalog, public, pg_temp"],"publicExecute":false,"definitionHash":"119bed01beb760ca66ac27bae9c5696a","runtimeExecute":false,"securityDefiner":true},{"acl":"{neondb_owner=X/neondb_owner}","owner":"neondb_owner","signature":"validate_official_administration_lineage()","configuration":["search_path=pg_catalog, public, pg_temp"],"publicExecute":false,"definitionHash":"659779fcf995ea2e0cddae76faae469d","runtimeExecute":false,"securityDefiner":true},{"acl":"{neondb_owner=X/neondb_owner}","owner":"neondb_owner","signature":"validate_published_administration_lineage()","configuration":["search_path=pg_catalog, public, pg_temp"],"publicExecute":false,"definitionHash":"ed76ce01e3c882269a416bacafab7281","runtimeExecute":false,"securityDefiner":true}],"constraintTypes":[["c",43],["f",26],["n",90],["p",15],["u",12]]}'::jsonb
+    THEN RAISE EXCEPTION 'administration final catalog, NOT NULL constraints, ownership, or grants mismatch'; END IF;
+  SELECT catalog INTO actual_catalog FROM (SELECT jsonb_build_object(
+    'tables', COALESCE((SELECT jsonb_agg(jsonb_build_object(
+      'name',t.relname,'kind',t.relkind,'owner',owner.rolname,'acl',COALESCE(t.relacl::text,''),
+      'rls',t.relrowsecurity,'forceRls',t.relforcerowsecurity,
+      'runtimePrivileges',(SELECT jsonb_agg(privilege ORDER BY privilege) FROM unnest(ARRAY['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']) privilege
+        WHERE has_table_privilege('league_one_runtime',t.oid,privilege)),
+      'publicPrivileges',COALESCE((SELECT jsonb_agg(acl.privilege_type ORDER BY acl.privilege_type)
+        FROM aclexplode(COALESCE(t.relacl,acldefault('r',t.relowner))) acl WHERE acl.grantee=0),'[]'::jsonb),
+      'columns',columns.n,'columnHash',columns.hash,
+      'constraints',constraints.n,'notNullConstraints',constraints.nn,'constraintHash',constraints.hash,
+      'indexes',indexes.n,'indexHash',indexes.hash,'policyHash',policies.hash
+    ) ORDER BY t.relname) FROM pg_class t JOIN pg_namespace ns ON ns.oid=t.relnamespace
+    JOIN pg_roles owner ON owner.oid=t.relowner
+    CROSS JOIN LATERAL (SELECT count(*) AS n,md5(COALESCE(string_agg(
+      a.attname||chr(31)||format_type(a.atttypid,a.atttypmod)||chr(31)||a.attnotnull::text
+      ||chr(31)||COALESCE(a.attacl::text,'')||chr(31)||COALESCE(pg_get_expr(d.adbin,d.adrelid),''),chr(30) ORDER BY a.attnum),'')) AS hash
+      FROM pg_attribute a LEFT JOIN pg_attrdef d ON d.adrelid=a.attrelid AND d.adnum=a.attnum
+      WHERE a.attrelid=t.oid AND a.attnum>0 AND NOT a.attisdropped) columns
+    CROSS JOIN LATERAL (SELECT count(*) AS n,count(*) FILTER(WHERE c.contype='n') AS nn,
+      md5(COALESCE(string_agg(c.conname||chr(31)||c.contype::text||chr(31)||c.convalidated::text||chr(31)
+      ||pg_get_constraintdef(c.oid,true),chr(30) ORDER BY c.conname),'')) AS hash
+      FROM pg_constraint c WHERE c.conrelid=t.oid) constraints
+    CROSS JOIN LATERAL (SELECT count(*) AS n,md5(COALESCE(string_agg(i.indexname||chr(31)||i.indexdef,
+      chr(30) ORDER BY i.indexname),'')) AS hash FROM pg_indexes i WHERE i.schemaname='public' AND i.tablename=t.relname) indexes
+    CROSS JOIN LATERAL (SELECT md5(COALESCE(string_agg(p.polname||chr(31)||p.polcmd::text||chr(31)||p.polpermissive::text
+      ||chr(31)||p.polroles::text||chr(31)||COALESCE(pg_get_expr(p.polqual,p.polrelid),'')||chr(31)
+      ||COALESCE(pg_get_expr(p.polwithcheck,p.polrelid),''),chr(30) ORDER BY p.polname),'')) AS hash
+      FROM pg_policy p WHERE p.polrelid=t.oid) policies
+    WHERE ns.nspname='public' AND t.relkind IN ('r','p','v','m','f') AND t.relname <>ALL(ARRAY['league_administration_enrollments','league_administration_enrollment_seasons','league_source_connection_history','league_configuration_versions','league_administration_contents','league_administration_observations','league_administration_heads','league_configuration_activations','league_configuration_heads','league_season_teams','league_source_manager_accounts','league_administration_team_entries','league_administration_manager_entries','league_administration_memberships','league_administration_transaction_entries']::text[])),'[]'::jsonb),
+    'constraintTypes',COALESCE((SELECT jsonb_agg(jsonb_build_array(kind,n) ORDER BY kind) FROM (
+      SELECT c.contype::text AS kind,count(*) AS n FROM pg_constraint c JOIN pg_class t ON t.oid=c.conrelid
+      WHERE t.relnamespace='public'::regnamespace AND t.relname <>ALL(ARRAY['league_administration_enrollments','league_administration_enrollment_seasons','league_source_connection_history','league_configuration_versions','league_administration_contents','league_administration_observations','league_administration_heads','league_configuration_activations','league_configuration_heads','league_season_teams','league_source_manager_accounts','league_administration_team_entries','league_administration_manager_entries','league_administration_memberships','league_administration_transaction_entries']::text[]) GROUP BY c.contype) kinds),'[]'::jsonb),
+    'functions',COALESCE((SELECT jsonb_agg(jsonb_build_object('signature',p.proname||'('||replace(oidvectortypes(p.proargtypes),', ',',')||')',
+      'definitionHash',md5(pg_get_functiondef(p.oid)),'owner',owner.rolname,'securityDefiner',p.prosecdef,
+      'configuration',p.proconfig,'acl',COALESCE(p.proacl::text,''),
+      'runtimeExecute',has_function_privilege('league_one_runtime',p.oid,'EXECUTE'),
+      'publicExecute',EXISTS(SELECT 1 FROM aclexplode(COALESCE(p.proacl,acldefault('f',p.proowner))) acl
+        WHERE acl.grantee=0 AND acl.privilege_type='EXECUTE')) ORDER BY p.proname||'('||replace(oidvectortypes(p.proargtypes),', ',',')||')')
+      FROM pg_proc p JOIN pg_roles owner ON owner.oid=p.proowner
+      WHERE p.pronamespace='public'::regnamespace AND p.prokind='f' AND p.proname||'('||replace(oidvectortypes(p.proargtypes),', ',',')||')' <>ALL(ARRAY['prevent_league_administration_history_change()','record_league_administration_observation(jsonb)','guard_league_administration_entry()','validate_official_administration_lineage()','validate_published_administration_lineage()','guard_league_source_connection_history()','remap_league_source_connection(uuid,text,text,text,text)','connect_league_administration_season(uuid,smallint,text,text,text,jsonb,text)','activate_league_configuration_component(uuid,text,text,smallint,smallint,text,bigint)','all_player_score_set_is_publication_ready(uuid,jsonb,uuid)','advance_current_all_player_score_set(text,smallint,text,smallint,uuid,text,uuid,uuid,timestamp with time zone)']::text[])),'[]'::jsonb),
+    'triggers',COALESCE((SELECT jsonb_agg(jsonb_build_object('key',t.relname||'.'||tr.tgname,
+      'function',p.proname,'enabled',tr.tgenabled,'definitionHash',md5(pg_get_triggerdef(tr.oid,true))) ORDER BY t.relname,tr.tgname)
+      FROM pg_trigger tr JOIN pg_class t ON t.oid=tr.tgrelid JOIN pg_proc p ON p.oid=tr.tgfoid
+      WHERE t.relnamespace='public'::regnamespace AND NOT tr.tgisinternal AND (t.relname<>ALL(ARRAY['league_administration_enrollments','league_administration_enrollment_seasons','league_source_connection_history','league_configuration_versions','league_administration_contents','league_administration_observations','league_administration_heads','league_configuration_activations','league_configuration_heads','league_season_teams','league_source_manager_accounts','league_administration_team_entries','league_administration_manager_entries','league_administration_memberships','league_administration_transaction_entries']::text[]) AND (t.relname||'.'||tr.tgname)<>ALL(ARRAY['league_week_observations.official_administration_lineage','current_projection_snapshots.published_administration_lineage','league_source_connections.guard_administration_connection','league_source_connections.record_administration_connection']::text[]))),'[]'::jsonb)
+    ,
+    'schemas',(SELECT md5(COALESCE(string_agg(n.nspname||chr(31)||r.rolname||chr(31)||COALESCE(n.nspacl::text,''),chr(30) ORDER BY n.nspname),''))
+      FROM pg_namespace n JOIN pg_roles r ON r.oid=n.nspowner WHERE n.nspname !~ '^pg_(toast_)?temp_'),
+    'sequences',(SELECT md5(COALESCE(string_agg(t.relname||chr(31)||r.rolname||chr(31)||COALESCE(t.relacl::text,''),chr(30) ORDER BY t.relname),''))
+      FROM pg_class t JOIN pg_roles r ON r.oid=t.relowner WHERE t.relnamespace='public'::regnamespace AND t.relkind='S'),
+    'roles',(SELECT md5(COALESCE(string_agg(r.rolname||chr(31)||r.rolsuper::text||chr(31)||r.rolinherit::text||chr(31)
+      ||r.rolcreaterole::text||chr(31)||r.rolcreatedb::text||chr(31)||r.rolcanlogin::text||chr(31)||r.rolreplication::text
+      ||chr(31)||r.rolbypassrls::text,chr(30) ORDER BY r.rolname),'')) FROM pg_roles r),
+    'memberships',(SELECT md5(COALESCE(string_agg(m.rolname||chr(31)||r.rolname||chr(31)||a.admin_option::text
+      ||chr(31)||a.inherit_option::text||chr(31)||a.set_option::text,chr(30) ORDER BY m.rolname,r.rolname),''))
+      FROM pg_auth_members a JOIN pg_roles m ON m.oid=a.member JOIN pg_roles r ON r.oid=a.roleid),
+    'defaultPrivileges',(SELECT md5(COALESCE(string_agg(r.rolname||chr(31)||COALESCE(n.nspname,'')||chr(31)||a.defaclobjtype::text
+      ||chr(31)||a.defaclacl::text,chr(30) ORDER BY r.rolname,n.nspname,a.defaclobjtype),''))
+      FROM pg_default_acl a JOIN pg_roles r ON r.oid=a.defaclrole LEFT JOIN pg_namespace n ON n.oid=a.defaclnamespace)
+  ) AS catalog) captured;
+  IF actual_catalog IS DISTINCT FROM (SELECT catalog FROM administration_release_unaffected_before)
+    THEN RAISE EXCEPTION 'administration release changed unaffected functions, triggers, tables, policies, ACLs, roles, or defaults'; END IF;
+  FOR old_count IN SELECT * FROM administration_release_history_before LOOP
+    EXECUTE format('SELECT count(*)::bigint FROM public.%I',old_count.name) INTO new_count;
+    IF new_count IS DISTINCT FROM old_count.rows THEN RAISE EXCEPTION 'administration release altered historical row counts for %',old_count.name; END IF;
+  END LOOP;
+  PERFORM set_config('league_one.administration_release_committed','LEAGUE_ADMINISTRATION_APPLIED:016_portable_league_administration.sql:d662d9e9709153a4e9a6cbc93522bdd4d14c5b0a0c74a7c7ea8648455896596c|017_enrolled_all_player_publication.sql:1247dbfbdfbc79f41a448cf3b2e95fb4f9387e951a26f340e9533754e5c9c361',false);
+END; $administration_after$;
+COMMIT;
+-- Even a SQL client configured to continue after errors cannot emit success
+-- after an aborted invocation: its transactionally committed marker must match.
+SELECT 'LEAGUE_ADMINISTRATION_APPLIED:016_portable_league_administration.sql:d662d9e9709153a4e9a6cbc93522bdd4d14c5b0a0c74a7c7ea8648455896596c|017_enrolled_all_player_publication.sql:1247dbfbdfbc79f41a448cf3b2e95fb4f9387e951a26f340e9533754e5c9c361' AS success_sentinel
+WHERE current_setting('league_one.administration_release_committed',true)='LEAGUE_ADMINISTRATION_APPLIED:016_portable_league_administration.sql:d662d9e9709153a4e9a6cbc93522bdd4d14c5b0a0c74a7c7ea8648455896596c|017_enrolled_all_player_publication.sql:1247dbfbdfbc79f41a448cf3b2e95fb4f9387e951a26f340e9533754e5c9c361'
+  AND current_database()='neondb' AND current_user='neondb_owner'
+  AND current_setting('server_version_num')::integer=180006
+  AND (SELECT jsonb_agg(jsonb_build_array(name,checksum) ORDER BY name) FROM public.app_schema_migrations)='[["001_projection_foundation.sql","eefa3aa224dbc6f0c6bb3edc9e4690425e2d6af7094938f3528059717d205050"],["002_manager_snapshot_payloads.sql","74585dec3e2717eede0579f9281a041a4e3cc0b0cd8378383fe2e3d64fd7214d"],["003_league_period_authority.sql","6f98e09646834cc542a6413e00c0d0c2d84ad4a5ff33905e429aba87c951406e"],["004_durable_projection_slates.sql","8ad48c22dea0d942a0a14027dcb240cda18f1bd728403e41aafa6b76f42f95b9"],["005_future_projection_refresh.sql","02bb6a3c6a183e7074fbea156b5f393d5772619098ab7c07be9dcc5528003c75"],["006_flexed_kickoff_candidate_index.sql","d2c54c4e17439d3773cfab8db8ed68bf332abd1073fe793f62138efa89e1a3b0"],["007_lineup_freshness.sql","1a92f9517294fe289bd25d74923dd042d0cb394d143b5c89d33ed017963c3e47"],["008_additive_write_guards.sql","2447ffac523e1f5536e218887d5c29895c3a095385f89bd6beb55cb7c5e95814"],["009_game_clock_plausibility.sql","86df8afd868bb4fd589a76bf1e1693cdc546037cfc61b54ae972e660fbda056a"],["010_all_player_statistics.sql","f9f2aa0c4dc7a0a3097bf770a7f08ef0719ed7f019307dcf629fa17058af31b4"],["011_all_player_foundation_guards.sql","0eaa96bcc0b65053ac8dab48657eb7bfe22fadbfd41b4f4c78c3472ca8a512b6"],["012_all_player_provider_participation.sql","bea4bd568c05eee7da177811b25a1389180d37329b9061b3e79ee60d546aa4ed"],["013_all_player_participation_assumption.sql","4e03581db2b9a33d0df77110fe32b81745bec7f1ab001a20bfd788c4b4283d80"],["014_all_player_hourly_collection.sql","3aa6e19555c1e38bf7805199d401b0c6acd3ada00716950e04e54573867b1fc3"],["015_all_player_dynasty_publication.sql","f7bf9b74cc14c0ede7a7534257ea956f99edc2615983b5b66ae546f2812fef8a"],["016_portable_league_administration.sql","d662d9e9709153a4e9a6cbc93522bdd4d14c5b0a0c74a7c7ea8648455896596c"],["017_enrolled_all_player_publication.sql","1247dbfbdfbc79f41a448cf3b2e95fb4f9387e951a26f340e9533754e5c9c361"]]'::jsonb
+  AND (SELECT catalog FROM (SELECT jsonb_build_object(
+    'tables', COALESCE((SELECT jsonb_agg(jsonb_build_object(
+      'name',t.relname,'kind',t.relkind,'owner',owner.rolname,'acl',COALESCE(t.relacl::text,''),
+      'rls',t.relrowsecurity,'forceRls',t.relforcerowsecurity,
+      'runtimePrivileges',(SELECT jsonb_agg(privilege ORDER BY privilege) FROM unnest(ARRAY['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']) privilege
+        WHERE has_table_privilege('league_one_runtime',t.oid,privilege)),
+      'publicPrivileges',COALESCE((SELECT jsonb_agg(acl.privilege_type ORDER BY acl.privilege_type)
+        FROM aclexplode(COALESCE(t.relacl,acldefault('r',t.relowner))) acl WHERE acl.grantee=0),'[]'::jsonb),
+      'columns',columns.n,'columnHash',columns.hash,
+      'constraints',constraints.n,'notNullConstraints',constraints.nn,'constraintHash',constraints.hash,
+      'indexes',indexes.n,'indexHash',indexes.hash,'policyHash',policies.hash
+    ) ORDER BY t.relname) FROM pg_class t JOIN pg_namespace ns ON ns.oid=t.relnamespace
+    JOIN pg_roles owner ON owner.oid=t.relowner
+    CROSS JOIN LATERAL (SELECT count(*) AS n,md5(COALESCE(string_agg(
+      a.attname||chr(31)||format_type(a.atttypid,a.atttypmod)||chr(31)||a.attnotnull::text
+      ||chr(31)||COALESCE(a.attacl::text,'')||chr(31)||COALESCE(pg_get_expr(d.adbin,d.adrelid),''),chr(30) ORDER BY a.attnum),'')) AS hash
+      FROM pg_attribute a LEFT JOIN pg_attrdef d ON d.adrelid=a.attrelid AND d.adnum=a.attnum
+      WHERE a.attrelid=t.oid AND a.attnum>0 AND NOT a.attisdropped) columns
+    CROSS JOIN LATERAL (SELECT count(*) AS n,count(*) FILTER(WHERE c.contype='n') AS nn,
+      md5(COALESCE(string_agg(c.conname||chr(31)||c.contype::text||chr(31)||c.convalidated::text||chr(31)
+      ||pg_get_constraintdef(c.oid,true),chr(30) ORDER BY c.conname),'')) AS hash
+      FROM pg_constraint c WHERE c.conrelid=t.oid) constraints
+    CROSS JOIN LATERAL (SELECT count(*) AS n,md5(COALESCE(string_agg(i.indexname||chr(31)||i.indexdef,
+      chr(30) ORDER BY i.indexname),'')) AS hash FROM pg_indexes i WHERE i.schemaname='public' AND i.tablename=t.relname) indexes
+    CROSS JOIN LATERAL (SELECT md5(COALESCE(string_agg(p.polname||chr(31)||p.polcmd::text||chr(31)||p.polpermissive::text
+      ||chr(31)||p.polroles::text||chr(31)||COALESCE(pg_get_expr(p.polqual,p.polrelid),'')||chr(31)
+      ||COALESCE(pg_get_expr(p.polwithcheck,p.polrelid),''),chr(30) ORDER BY p.polname),'')) AS hash
+      FROM pg_policy p WHERE p.polrelid=t.oid) policies
+    WHERE ns.nspname='public' AND t.relkind IN ('r','p','v','m','f') AND t.relname =ANY(ARRAY['league_administration_enrollments','league_administration_enrollment_seasons','league_source_connection_history','league_configuration_versions','league_administration_contents','league_administration_observations','league_administration_heads','league_configuration_activations','league_configuration_heads','league_season_teams','league_source_manager_accounts','league_administration_team_entries','league_administration_manager_entries','league_administration_memberships','league_administration_transaction_entries']::text[])),'[]'::jsonb),
+    'constraintTypes',COALESCE((SELECT jsonb_agg(jsonb_build_array(kind,n) ORDER BY kind) FROM (
+      SELECT c.contype::text AS kind,count(*) AS n FROM pg_constraint c JOIN pg_class t ON t.oid=c.conrelid
+      WHERE t.relnamespace='public'::regnamespace AND t.relname =ANY(ARRAY['league_administration_enrollments','league_administration_enrollment_seasons','league_source_connection_history','league_configuration_versions','league_administration_contents','league_administration_observations','league_administration_heads','league_configuration_activations','league_configuration_heads','league_season_teams','league_source_manager_accounts','league_administration_team_entries','league_administration_manager_entries','league_administration_memberships','league_administration_transaction_entries']::text[]) GROUP BY c.contype) kinds),'[]'::jsonb),
+    'functions',COALESCE((SELECT jsonb_agg(jsonb_build_object('signature',p.proname||'('||replace(oidvectortypes(p.proargtypes),', ',',')||')',
+      'definitionHash',md5(pg_get_functiondef(p.oid)),'owner',owner.rolname,'securityDefiner',p.prosecdef,
+      'configuration',p.proconfig,'acl',COALESCE(p.proacl::text,''),
+      'runtimeExecute',has_function_privilege('league_one_runtime',p.oid,'EXECUTE'),
+      'publicExecute',EXISTS(SELECT 1 FROM aclexplode(COALESCE(p.proacl,acldefault('f',p.proowner))) acl
+        WHERE acl.grantee=0 AND acl.privilege_type='EXECUTE')) ORDER BY p.proname||'('||replace(oidvectortypes(p.proargtypes),', ',',')||')')
+      FROM pg_proc p JOIN pg_roles owner ON owner.oid=p.proowner
+      WHERE p.pronamespace='public'::regnamespace AND p.prokind='f' AND p.proname||'('||replace(oidvectortypes(p.proargtypes),', ',',')||')' =ANY(ARRAY['prevent_league_administration_history_change()','record_league_administration_observation(jsonb)','guard_league_administration_entry()','validate_official_administration_lineage()','validate_published_administration_lineage()','guard_league_source_connection_history()','remap_league_source_connection(uuid,text,text,text,text)','connect_league_administration_season(uuid,smallint,text,text,text,jsonb,text)','activate_league_configuration_component(uuid,text,text,smallint,smallint,text,bigint)','all_player_score_set_is_publication_ready(uuid,jsonb,uuid)','advance_current_all_player_score_set(text,smallint,text,smallint,uuid,text,uuid,uuid,timestamp with time zone)']::text[])),'[]'::jsonb),
+    'triggers',COALESCE((SELECT jsonb_agg(jsonb_build_object('key',t.relname||'.'||tr.tgname,
+      'function',p.proname,'enabled',tr.tgenabled,'definitionHash',md5(pg_get_triggerdef(tr.oid,true))) ORDER BY t.relname,tr.tgname)
+      FROM pg_trigger tr JOIN pg_class t ON t.oid=tr.tgrelid JOIN pg_proc p ON p.oid=tr.tgfoid
+      WHERE t.relnamespace='public'::regnamespace AND NOT tr.tgisinternal AND (t.relname=ANY(ARRAY['league_administration_enrollments','league_administration_enrollment_seasons','league_source_connection_history','league_configuration_versions','league_administration_contents','league_administration_observations','league_administration_heads','league_configuration_activations','league_configuration_heads','league_season_teams','league_source_manager_accounts','league_administration_team_entries','league_administration_manager_entries','league_administration_memberships','league_administration_transaction_entries']::text[]) OR (t.relname||'.'||tr.tgname)=ANY(ARRAY['league_week_observations.official_administration_lineage','current_projection_snapshots.published_administration_lineage','league_source_connections.guard_administration_connection','league_source_connections.record_administration_connection']::text[]))),'[]'::jsonb)
+
+  ) AS catalog) committed)='{"tables":[{"acl":"{neondb_owner=arwdDxtm/neondb_owner,league_one_runtime=r/neondb_owner}","rls":false,"kind":"r","name":"league_administration_contents","owner":"neondb_owner","columns":16,"indexes":3,"forceRls":false,"indexHash":"c5528bb76b6dc5760c85fe6f00b40f9c","columnHash":"178d4d2e7b616c8100d98da8aa078c76","policyHash":"d41d8cd98f00b204e9800998ecf8427e","constraints":26,"constraintHash":"e5cec2eb9a915e1915907e8811950221","publicPrivileges":[],"runtimePrivileges":["SELECT"],"notNullConstraints":13},{"acl":"{neondb_owner=arwdDxtm/neondb_owner,league_one_runtime=r/neondb_owner}","rls":false,"kind":"r","name":"league_administration_enrollment_seasons","owner":"neondb_owner","columns":5,"indexes":1,"forceRls":false,"indexHash":"aee8e5f71548d70e218ab888e3ab9992","columnHash":"969b7bfc6d04f790c856b52efefd824b","policyHash":"d41d8cd98f00b204e9800998ecf8427e","constraints":10,"constraintHash":"be3e2460e43810bfed006a05f6ac3118","publicPrivileges":[],"runtimePrivileges":["SELECT"],"notNullConstraints":5},{"acl":"{neondb_owner=arwdDxtm/neondb_owner,league_one_runtime=r/neondb_owner}","rls":false,"kind":"r","name":"league_administration_enrollments","owner":"neondb_owner","columns":5,"indexes":1,"forceRls":false,"indexHash":"f8f6a6072ec6fd73ea1a445b3191fbc0","columnHash":"f9e264af3edeaa9c1e5d30f603154f07","policyHash":"d41d8cd98f00b204e9800998ecf8427e","constraints":9,"constraintHash":"391b5673ee45c8aeb7a15b2ab84de693","publicPrivileges":[],"runtimePrivileges":["SELECT"],"notNullConstraints":5},{"acl":"{neondb_owner=arwdDxtm/neondb_owner,league_one_runtime=r/neondb_owner}","rls":false,"kind":"r","name":"league_administration_heads","owner":"neondb_owner","columns":11,"indexes":1,"forceRls":false,"indexHash":"85db6df32c46f7c9c6d7ec23b567e21a","columnHash":"514ca483268c0da2546fbf2329bc874e","policyHash":"d41d8cd98f00b204e9800998ecf8427e","constraints":13,"constraintHash":"ea6cd5b30e24de4386907c27e07ba33d","publicPrivileges":[],"runtimePrivileges":["SELECT"],"notNullConstraints":4},{"acl":"{neondb_owner=arwdDxtm/neondb_owner,league_one_runtime=r/neondb_owner}","rls":false,"kind":"r","name":"league_administration_manager_entries","owner":"neondb_owner","columns":3,"indexes":1,"forceRls":false,"indexHash":"74cb85d1b9141d23eda439af5fc0e61c","columnHash":"eee5ce4ecf56d1916a320b3f4373330b","policyHash":"d41d8cd98f00b204e9800998ecf8427e","constraints":7,"constraintHash":"d2f3d0cc1c125de561c2c2673453732a","publicPrivileges":[],"runtimePrivileges":["SELECT"],"notNullConstraints":3},{"acl":"{neondb_owner=arwdDxtm/neondb_owner,league_one_runtime=r/neondb_owner}","rls":false,"kind":"r","name":"league_administration_memberships","owner":"neondb_owner","columns":5,"indexes":1,"forceRls":false,"indexHash":"2db550093fa663b5d3df6f5749eee52c","columnHash":"3f696959057c1963da77464fd1aa8d78","policyHash":"d41d8cd98f00b204e9800998ecf8427e","constraints":10,"constraintHash":"2ba6ff9e7ff2e576a7b5953e96c9b12d","publicPrivileges":[],"runtimePrivileges":["SELECT"],"notNullConstraints":5},{"acl":"{neondb_owner=arwdDxtm/neondb_owner,league_one_runtime=r/neondb_owner}","rls":false,"kind":"r","name":"league_administration_observations","owner":"neondb_owner","columns":15,"indexes":4,"forceRls":false,"indexHash":"5385c9d4b3355f20421135561e79dc75","columnHash":"1ef8f8c7e256c15b6d2d41f60cdc83d1","policyHash":"d41d8cd98f00b204e9800998ecf8427e","constraints":22,"constraintHash":"6a9b1711c2f0beb14fafbbc1144e80cc","publicPrivileges":[],"runtimePrivileges":["SELECT"],"notNullConstraints":12},{"acl":"{neondb_owner=arwdDxtm/neondb_owner,league_one_runtime=r/neondb_owner}","rls":false,"kind":"r","name":"league_administration_team_entries","owner":"neondb_owner","columns":4,"indexes":1,"forceRls":false,"indexHash":"bfcd543ebdc1e37e218afb31e60df3bd","columnHash":"d186551d92d1940038dc7b8a50d36ed0","policyHash":"d41d8cd98f00b204e9800998ecf8427e","constraints":8,"constraintHash":"6222ff8390bea9de609640a6831553cf","publicPrivileges":[],"runtimePrivileges":["SELECT"],"notNullConstraints":4},{"acl":"{neondb_owner=arwdDxtm/neondb_owner,league_one_runtime=r/neondb_owner}","rls":false,"kind":"r","name":"league_administration_transaction_entries","owner":"neondb_owner","columns":3,"indexes":1,"forceRls":false,"indexHash":"535850118e2869afaac69639c9c4c0c1","columnHash":"9efcd4243b79e7c98aa50f7b3b85a6df","policyHash":"d41d8cd98f00b204e9800998ecf8427e","constraints":7,"constraintHash":"2867faf80d9f6d689bc8979cc242ad21","publicPrivileges":[],"runtimePrivileges":["SELECT"],"notNullConstraints":3},{"acl":"{neondb_owner=arwdDxtm/neondb_owner,league_one_runtime=r/neondb_owner}","rls":false,"kind":"r","name":"league_configuration_activations","owner":"neondb_owner","columns":13,"indexes":4,"forceRls":false,"indexHash":"cf4d45bfe7f218e0124d44024a660217","columnHash":"6e42368bab0ad006f7305f5b71774d59","policyHash":"d41d8cd98f00b204e9800998ecf8427e","constraints":21,"constraintHash":"1b69f94209d2127093d1b0d2ca5cfe6d","publicPrivileges":[],"runtimePrivileges":["SELECT"],"notNullConstraints":9},{"acl":"{neondb_owner=arwdDxtm/neondb_owner,league_one_runtime=r/neondb_owner}","rls":false,"kind":"r","name":"league_configuration_heads","owner":"neondb_owner","columns":3,"indexes":1,"forceRls":false,"indexHash":"436550368c5e93ff8da3e3aa8cfc1f00","columnHash":"a714328a220d16b5c2236df46dfe01f8","policyHash":"d41d8cd98f00b204e9800998ecf8427e","constraints":6,"constraintHash":"184a90f23695089933c4914c3639227a","publicPrivileges":[],"runtimePrivileges":["SELECT"],"notNullConstraints":3},{"acl":"{neondb_owner=arwdDxtm/neondb_owner,league_one_runtime=r/neondb_owner}","rls":false,"kind":"r","name":"league_configuration_versions","owner":"neondb_owner","columns":9,"indexes":3,"forceRls":false,"indexHash":"47226671281be8ca2f3a20382384d7ce","columnHash":"364055a485567072c04dd0c0faa50769","policyHash":"d41d8cd98f00b204e9800998ecf8427e","constraints":16,"constraintHash":"843866d6726eab4dba2a4dc28644cc43","publicPrivileges":[],"runtimePrivileges":["SELECT"],"notNullConstraints":7},{"acl":"{neondb_owner=arwdDxtm/neondb_owner,league_one_runtime=r/neondb_owner}","rls":false,"kind":"r","name":"league_season_teams","owner":"neondb_owner","columns":6,"indexes":3,"forceRls":false,"indexHash":"b73eb9d3bc925b2cbea9d9aeff5f28e2","columnHash":"0ad04202268e7fa77399343dce5d0bb9","policyHash":"d41d8cd98f00b204e9800998ecf8427e","constraints":12,"constraintHash":"516bd050fec82b9a5b2082832face9c8","publicPrivileges":[],"runtimePrivileges":["SELECT"],"notNullConstraints":6},{"acl":"{neondb_owner=arwdDxtm/neondb_owner,league_one_runtime=r/neondb_owner}","rls":false,"kind":"r","name":"league_source_connection_history","owner":"neondb_owner","columns":8,"indexes":1,"forceRls":false,"indexHash":"34ade3b2dc078ed50d59823b14d71ceb","columnHash":"cd45b8868935eb0b0f9c049d7fe0d9d1","policyHash":"d41d8cd98f00b204e9800998ecf8427e","constraints":11,"constraintHash":"d1b0509ae0c313856c5263b36aa76c90","publicPrivileges":[],"runtimePrivileges":["SELECT"],"notNullConstraints":7},{"acl":"{neondb_owner=arwdDxtm/neondb_owner,league_one_runtime=r/neondb_owner}","rls":false,"kind":"r","name":"league_source_manager_accounts","owner":"neondb_owner","columns":4,"indexes":2,"forceRls":false,"indexHash":"bc99c5893f0bdbb1e5ec14c97771b02a","columnHash":"90824386aa5712bde533bc3aeb70c9aa","policyHash":"d41d8cd98f00b204e9800998ecf8427e","constraints":8,"constraintHash":"bb7a305e042a0fe7f475266e0bf5536f","publicPrivileges":[],"runtimePrivileges":["SELECT"],"notNullConstraints":4}],"triggers":[{"key":"current_projection_snapshots.published_administration_lineage","enabled":"O","function":"validate_published_administration_lineage","definitionHash":"3c0c19b32204ba60ca06c5543cdc6d94"},{"key":"league_administration_contents.immutable_history","enabled":"O","function":"prevent_league_administration_history_change","definitionHash":"8912dbc388f9fd9b6b664b26fccae35b"},{"key":"league_administration_enrollment_seasons.immutable_history","enabled":"O","function":"prevent_league_administration_history_change","definitionHash":"e48f2f1c5296d29dfbdb5b52ae005a8c"},{"key":"league_administration_manager_entries.immutable_history","enabled":"O","function":"prevent_league_administration_history_change","definitionHash":"2ecebbd74c23c79a69c323185ef871f2"},{"key":"league_administration_manager_entries.seal_entries","enabled":"O","function":"guard_league_administration_entry","definitionHash":"819c0514c77d2e85c8745dbb204e5519"},{"key":"league_administration_memberships.immutable_history","enabled":"O","function":"prevent_league_administration_history_change","definitionHash":"23e8e49ab9587fb07010bf34a4cc2883"},{"key":"league_administration_memberships.seal_entries","enabled":"O","function":"guard_league_administration_entry","definitionHash":"0b02c841f26d84d47c936f2d986d3399"},{"key":"league_administration_observations.immutable_history","enabled":"O","function":"prevent_league_administration_history_change","definitionHash":"38039ddeee508c1d1541b5920d44b2f7"},{"key":"league_administration_team_entries.immutable_history","enabled":"O","function":"prevent_league_administration_history_change","definitionHash":"035ad9f8e23bbb4a64076eb930a89df2"},{"key":"league_administration_team_entries.seal_entries","enabled":"O","function":"guard_league_administration_entry","definitionHash":"2f8fffde0f295eb7b217878ccd282e46"},{"key":"league_administration_transaction_entries.immutable_history","enabled":"O","function":"prevent_league_administration_history_change","definitionHash":"cfa00368e9708f5d4d6f9327b7c5ec71"},{"key":"league_administration_transaction_entries.seal_entries","enabled":"O","function":"guard_league_administration_entry","definitionHash":"f325a1859df834fecbcf0b5287288af9"},{"key":"league_configuration_activations.immutable_history","enabled":"O","function":"prevent_league_administration_history_change","definitionHash":"3b737bc1413c9456b7e5504c17b345ff"},{"key":"league_configuration_versions.immutable_history","enabled":"O","function":"prevent_league_administration_history_change","definitionHash":"b1c49d436d67e47e33704d042c8aa4c4"},{"key":"league_season_teams.immutable_history","enabled":"O","function":"prevent_league_administration_history_change","definitionHash":"851975971f53db5c476c1286c678a2cc"},{"key":"league_source_connection_history.immutable_history","enabled":"O","function":"prevent_league_administration_history_change","definitionHash":"b6beac836cc91056536fca4825e55769"},{"key":"league_source_connections.guard_administration_connection","enabled":"O","function":"guard_league_source_connection_history","definitionHash":"890d4bfd756639b969d8202a9cc34075"},{"key":"league_source_connections.record_administration_connection","enabled":"O","function":"guard_league_source_connection_history","definitionHash":"bdafe06596b7fd2000fbe451be042e2d"},{"key":"league_source_manager_accounts.immutable_history","enabled":"O","function":"prevent_league_administration_history_change","definitionHash":"16e8749c9205448144e87298cfa95b2b"},{"key":"league_week_observations.official_administration_lineage","enabled":"O","function":"validate_official_administration_lineage","definitionHash":"29bfbebba0ec547544754b2be69dd666"}],"functions":[{"acl":"{neondb_owner=X/neondb_owner}","owner":"neondb_owner","signature":"activate_league_configuration_component(uuid,text,text,smallint,smallint,text,bigint)","configuration":["search_path=pg_catalog, public, pg_temp"],"publicExecute":false,"definitionHash":"bbf45cc0a921fd826c549fabdaf90773","runtimeExecute":false,"securityDefiner":true},{"acl":"{neondb_owner=X/neondb_owner,league_one_runtime=X/neondb_owner}","owner":"neondb_owner","signature":"advance_current_all_player_score_set(text,smallint,text,smallint,uuid,text,uuid,uuid,timestamp with time zone)","configuration":["search_path=pg_catalog, public, pg_temp"],"publicExecute":false,"definitionHash":"dc6bacec8a3aa4f1ef9b45a6a59d88d0","runtimeExecute":true,"securityDefiner":true},{"acl":"{neondb_owner=X/neondb_owner}","owner":"neondb_owner","signature":"all_player_score_set_is_publication_ready(uuid,jsonb,uuid)","configuration":["search_path=pg_catalog, public, pg_temp"],"publicExecute":false,"definitionHash":"fb91efe412a7e97ea3ab77050718d24e","runtimeExecute":false,"securityDefiner":true},{"acl":"{neondb_owner=X/neondb_owner}","owner":"neondb_owner","signature":"connect_league_administration_season(uuid,smallint,text,text,text,jsonb,text)","configuration":["search_path=pg_catalog, public, pg_temp"],"publicExecute":false,"definitionHash":"b56a17b9bd029e4b575927d6846dfd5b","runtimeExecute":false,"securityDefiner":true},{"acl":"{neondb_owner=X/neondb_owner}","owner":"neondb_owner","signature":"guard_league_administration_entry()","configuration":["search_path=pg_catalog, public, pg_temp"],"publicExecute":false,"definitionHash":"b082b9ce57cc552d1cacb0c6264789ff","runtimeExecute":false,"securityDefiner":false},{"acl":"{neondb_owner=X/neondb_owner}","owner":"neondb_owner","signature":"guard_league_source_connection_history()","configuration":["search_path=pg_catalog, public, pg_temp"],"publicExecute":false,"definitionHash":"c45842dff089ae7238301d47d4fccc5a","runtimeExecute":false,"securityDefiner":true},{"acl":"{neondb_owner=X/neondb_owner}","owner":"neondb_owner","signature":"prevent_league_administration_history_change()","configuration":["search_path=pg_catalog, public, pg_temp"],"publicExecute":false,"definitionHash":"914f52697903d2aa19fc92894393e8d7","runtimeExecute":false,"securityDefiner":false},{"acl":"{neondb_owner=X/neondb_owner,league_one_runtime=X/neondb_owner}","owner":"neondb_owner","signature":"record_league_administration_observation(jsonb)","configuration":["search_path=pg_catalog, public, pg_temp"],"publicExecute":false,"definitionHash":"79783731c76cdc8041b669b4cd8b6f32","runtimeExecute":true,"securityDefiner":true},{"acl":"{neondb_owner=X/neondb_owner}","owner":"neondb_owner","signature":"remap_league_source_connection(uuid,text,text,text,text)","configuration":["search_path=pg_catalog, public, pg_temp"],"publicExecute":false,"definitionHash":"119bed01beb760ca66ac27bae9c5696a","runtimeExecute":false,"securityDefiner":true},{"acl":"{neondb_owner=X/neondb_owner}","owner":"neondb_owner","signature":"validate_official_administration_lineage()","configuration":["search_path=pg_catalog, public, pg_temp"],"publicExecute":false,"definitionHash":"659779fcf995ea2e0cddae76faae469d","runtimeExecute":false,"securityDefiner":true},{"acl":"{neondb_owner=X/neondb_owner}","owner":"neondb_owner","signature":"validate_published_administration_lineage()","configuration":["search_path=pg_catalog, public, pg_temp"],"publicExecute":false,"definitionHash":"ed76ce01e3c882269a416bacafab7281","runtimeExecute":false,"securityDefiner":true}],"constraintTypes":[["c",43],["f",26],["n",90],["p",15],["u",12]]}'::jsonb;

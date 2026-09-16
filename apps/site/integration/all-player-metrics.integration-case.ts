@@ -1,5 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createHash, randomUUID } from 'node:crypto';
+import { registerEnrolledIntegrationSeason } from './administration-enrollment-fixture';
 import type { DatabaseClient, DatabaseRow } from '../lib/database';
 import { createProjectionStore } from '../lib/projection-store';
 import { scoreSparseStatistics } from '../lib/projections/domain/scoring';
@@ -129,13 +130,10 @@ describe('actual all-player position ranks through the stored SQL reader', () =>
     transaction = await createPinnedIntegrationDatabase('owner');
     db = transaction.database;
     await db.query('BEGIN');
-    const store = createProjectionStore(db);
     for (const [index, scoringRules] of [production.profiles[0].rules,
       { ...production.profiles[0].rules, rec: 1 }].entries()) {
-      const registered = await store.registerLeagueSeason({ leagueKey: `league${index + 1}`,
-        leagueName: `Actual rank SQL ${index + 1}`, season: SEASON,
+      await registerEnrolledIntegrationSeason(db.query, { leagueKey: `league${index + 1}`, season: SEASON,
         sleeperLeagueId: `actual-rank-sql-${index + 1}`, scoringRules });
-      expect(registered.kind).toBe('stored');
     }
     // Preserve production's observed mapping presence. Any other test's aliases
     // are removed only inside this transaction and restored by the final rollback.

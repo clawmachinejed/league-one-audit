@@ -11,10 +11,11 @@ import { createNeonPeriodAuthorityReader } from '../adapters/neon/period-authori
 import { createSleeperLineupSource } from '../adapters/sleeper/lineup-source';
 import type { LineupObservationWorkerDependencies } from '../worker/lineup-contracts';
 import { createProductionSharedServices } from './shared-services';
+import type { LeagueRegistryPort } from '../ports/league-registry';
 
 /** The observation cron has no path to projection providers, scoring, or snapshot publication. */
-export function createProductionLineupObservationDependencies(): LineupObservationWorkerDependencies {
-  const shared = createProductionSharedServices('lineup-observation-sync');
+export function createProductionLineupObservationDependencies(registry?: LeagueRegistryPort): LineupObservationWorkerDependencies {
+  const shared = createProductionSharedServices('lineup-observation-sync', registry);
   const source = createSleeperLineupSource(getRawLineupMatchups, shared.clock.now);
   const options = {
     projectionSource: ACTIVE_PROJECTION_SOURCE.provider,

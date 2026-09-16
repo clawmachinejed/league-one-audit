@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import { AppShell } from '@/components/league-shell';
-import { LEAGUE_IDS } from '@/lib/config';
+import { getCurrentLeagueIds } from '@/lib/league-administration/registry';
 import { LEAGUE_SITES } from '@/lib/leagues';
 import './globals.css';
 export const metadata: Metadata = {
@@ -17,6 +17,7 @@ export const viewport: Viewport = {
     { media: '(prefers-color-scheme: dark)', color: '#0e1511' },
   ],
 };
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="en" data-scroll-behavior="smooth"><body><AppShell leagueIds={LEAGUE_IDS}>{children}</AppShell></body></html>;
+export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  const leagueIds = await getCurrentLeagueIds();
+  return <html lang="en" data-scroll-behavior="smooth"><body><AppShell leagueIds={leagueIds}>{children}</AppShell></body></html>;
 }

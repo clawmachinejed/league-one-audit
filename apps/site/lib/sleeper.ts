@@ -2,6 +2,7 @@ import 'server-only';
 
 import { cache } from 'react';
 import { unstable_cache } from 'next/cache';
+import { readPageAdministrationSource, type AdministrationFamily } from './page-source';
 import { recordProviderCache, sleeperEndpointFamily, startProviderHttp } from './provider-request-telemetry';
 import {
   loadFantasyPlayerCatalog,
@@ -12,6 +13,8 @@ import {
   assertMatchupCompleteness,
   assertProjectionMatchupReadiness,
   createRawSleeperMatchupLoader,
+  parseRawSleeperMatchupFeed,
+  parseRawSleeperMatchups,
   sleeperMatchupShape,
   type SleeperMatchupShape,
   type RawSleeperMatchupObservation,
@@ -28,6 +31,7 @@ import type { LeagueTransactionsData, ManagerData, MatchupsData, OverviewData, P
 import type { LeagueKey } from './leagues';
 import { normalizeLeagueTransactions } from './league-transactions';
 import { matchupTemporalState, type MatchupPeriodContext } from './matchup-period';
+import { LAST_MATCHUP_WEEK } from './matchup-week';
 import { calculateTeamPpg, compareRosterStandings, playerMetricBoundary, rosterHistoryBoundary } from './roster-metrics';
 import { canonicalNflTeam, NFL_TEAMS } from './nfl-teams';
 import { startingSlots } from './sleeper-lineup';
@@ -75,6 +79,7 @@ export type ProjectionSyncInput = Readonly<{
   matchupShape: SleeperMatchupShape;
   requestStartedAt: string;
   requestCompletedAt: string;
+  administrationObservations?: readonly CapturedAdministrationDocument[];
 }>;
 
 export type ProjectionTargetPeriod = Readonly<{
@@ -108,7 +113,23 @@ export type ProjectionCadenceInput = Readonly<{
   }>;
   /** Unmodified provider week retained separately from the site's operational week. */
   sourceNflWeek?: number | null;
+  administrationObservations?: readonly CapturedAdministrationDocument[];
 }>;
+
+/** Read-only source evidence, captured at the existing retrieval boundary. */
+export type CapturedAdministrationDocument = Readonly<{
+  family: AdministrationFamily;
+  week: number | null;
+  payload: unknown;
+  requestStartedAt: string;
+  requestCompletedAt: string;
+  origin: 'network' | 'cache' | 'bootstrap';
+  sourceObservedAt: string | null;
+  completeness?: 'complete' | 'partial';
+  fallbackReason?: 'missing' | 'disabled' | 'unavailable' | 'stale';
+}>;
+
+type AdministrationReadMode = 'page' | 'official';
 
 const API = 'https://api.sleeper.app/v1';
 const SEASON_SCHEDULE_API = 'https://api.sleeper.com/schedule/nfl/regular';
@@ -122,6 +143,35 @@ const PLAYER_CACHE_SECONDS = 86_400;
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
+
+function administrationPath(leagueId: string, family: AdministrationFamily, week: number | null): string {
+  return `/league/${leagueId}${family === 'league' ? '' : `/${family}${week === null ? '' : `/${week}`}`}`;
+}
+
+const readOfficialAdministration = cache(async (
+  leagueId: string, family: AdministrationFamily, week: number | null, revalidate = CORE_CACHE_SECONDS, signal?: AbortSignal,
+): Promise<CapturedAdministrationDocument> => {
+  signal?.throwIfAborted();
+  const requestStartedAt = new Date().toISOString();
+  const payload = await fetchJson(administrationPath(leagueId, family, week), revalidate, signal);
+  const requestCompletedAt = new Date().toISOString();
+  return { family, week, payload, requestStartedAt, requestCompletedAt,
+    origin: revalidate > 0 ? 'cache' : 'network', sourceObservedAt: revalidate > 0 ? null : requestCompletedAt };
+});
+
+const readAdministration = cache(async (
+  leagueId: string, family: AdministrationFamily, week: number | null,
+  mode: AdministrationReadMode = 'page', revalidate = CORE_CACHE_SECONDS, season?: number,
+): Promise<CapturedAdministrationDocument> => {
+  if (mode === 'page') {
+    const stored = await readPageAdministrationSource({ externalLeagueId: leagueId, family, week, season, maxAgeSeconds: revalidate });
+    if (stored.status === 'available') return { family, week, payload: stored.payload,
+      requestStartedAt: stored.requestStartedAt, requestCompletedAt: stored.requestCompletedAt,
+      origin: stored.origin, sourceObservedAt: stored.sourceObservedAt };
+    return { ...await readOfficialAdministration(leagueId, family, week, revalidate), fallbackReason: stored.reason };
+  }
+  return readOfficialAdministration(leagueId, family, week, revalidate);
+});
 
 async function fetchJson(path: string, revalidate = CORE_CACHE_SECONDS, signal?: AbortSignal): Promise<unknown> {
   const timeout = AbortSignal.timeout(path.startsWith('/players/nfl') ? 20_000 : 12_000);
@@ -306,13 +356,12 @@ function isSleeperState(value: unknown): value is SleeperState {
     });
 }
 
-async function fetchRows<T>(
+function parseRows<T>(
+  value: unknown,
   path: string,
   validate: (value: unknown) => value is T,
   key: (row: T) => string,
-  revalidate = CORE_CACHE_SECONDS,
-): Promise<T[]> {
-  const value = await fetchJson(path, revalidate);
+): T[] {
   if (!Array.isArray(value) || value.some((row) => !validate(row))) {
     throw new Error(`Sleeper returned an invalid response for ${path}.`);
   }
@@ -379,15 +428,17 @@ const getSeasonSchedule = cache((season: string) => (
 ));
 const calendarEvaluationTime = cache(() => new Date().toISOString());
 
-const getLeagueCalendar = cache(async (leagueId: string, revalidate: number, evaluatedAt?: string) => {
+const getLeagueCalendar = cache(async (leagueId: string, revalidate: number, evaluatedAt?: string,
+  mode: AdministrationReadMode = 'page') => {
   const requestStartedAt = new Date().toISOString();
-  const [rawLeague, stateResult] = await Promise.all([
-    fetchJson(`/league/${leagueId}`, revalidate),
+  const [leagueObservation, stateResult] = await Promise.all([
+    readAdministration(leagueId, 'league', null, mode, revalidate),
     fetchJson('/state/nfl', revalidate).then(
       (value) => ({ value }),
       () => ({ value: null }),
     ),
   ]);
+  const rawLeague = leagueObservation.payload;
   if (!isSleeperLeague(rawLeague) || rawLeague.league_id !== leagueId) {
     throw new Error('Sleeper did not return a valid league. Please check the league configuration.');
   }
@@ -425,6 +476,7 @@ const getLeagueCalendar = cache(async (leagueId: string, revalidate: number, eva
   const requestCompletedAt = new Date().toISOString();
   return {
     sourceLeague: rawLeague,
+    leagueObservation,
     state,
     league,
     lifecycle,
@@ -441,6 +493,7 @@ const getLeagueCalendar = cache(async (leagueId: string, revalidate: number, eva
 });
 
 type LeagueRosterFeed = Readonly<{
+  observation: CapturedAdministrationDocument;
   rosters: SleeperRoster[];
   malformedRosterIds: readonly number[];
   malformedRowCount: number;
@@ -448,9 +501,11 @@ type LeagueRosterFeed = Readonly<{
 }>;
 
 /** One canonical roster fetch supports both strict legacy consumers and tolerant Rosters UI. */
-const getLeagueRosterFeed = cache(async (leagueId: string): Promise<LeagueRosterFeed> => {
+const getLeagueRosterFeed = cache(async (leagueId: string, mode: AdministrationReadMode = 'page',
+  season?: number): Promise<LeagueRosterFeed> => {
   const path = `/league/${leagueId}/rosters`;
-  const value = await fetchJson(path, CORE_CACHE_SECONDS);
+  const observation = await readAdministration(leagueId, 'rosters', null, mode, CORE_CACHE_SECONDS, season);
+  const value = observation.payload;
   if (!Array.isArray(value)) throw new Error(`Sleeper returned an invalid response for ${path}.`);
   const rosters: SleeperRoster[] = [];
   const malformedRosterIds = new Set<number>();
@@ -483,27 +538,31 @@ const getLeagueRosterFeed = cache(async (leagueId: string): Promise<LeagueRoster
       metadata: isRecord(row.metadata) ? row.metadata : null,
     });
   }
-  return { rosters, malformedRosterIds: [...malformedRosterIds], malformedRowCount, rosterViewMalformedRowCount };
+  return { observation, rosters, malformedRosterIds: [...malformedRosterIds], malformedRowCount, rosterViewMalformedRowCount };
 });
 
-const getLeagueRosters = cache(async (leagueId: string) => {
-  const feed = await getLeagueRosterFeed(leagueId);
-  if (feed.malformedRowCount) {
-    throw new Error(`Sleeper returned an invalid response for /league/${leagueId}/rosters.`);
-  }
-  return feed.rosters;
+const getLeagueUsers = cache(async (leagueId: string, mode: AdministrationReadMode = 'page', season?: number) => {
+  const observation = await readAdministration(leagueId, 'users', null, mode, CORE_CACHE_SECONDS, season);
+  return { observation, users: parseRows<SleeperUser>(observation.payload,
+    `/league/${leagueId}/users`, isSleeperUser, (row) => row.user_id) };
 });
 
-const getLeagueUsers = cache(async (leagueId: string) => fetchRows<SleeperUser>(
-  `/league/${leagueId}/users`, isSleeperUser, (row) => row.user_id,
-));
-
-const getCore = cache(async (leagueId: string) => {
-  const [calendar, rosters, users] = await Promise.all([
-    getLeagueCalendar(leagueId, CORE_CACHE_SECONDS),
-    getLeagueRosters(leagueId),
-    getLeagueUsers(leagueId),
-  ]);
+const getCore = cache(async (leagueId: string, mode: AdministrationReadMode = 'page') => {
+  // Official collection retains its existing parallel fetches. Pages first pin
+  // the accepted configuration season before requesting exact scoped records.
+  const [calendar, rosterFeed, userFeed] = await (mode === 'official'
+    ? Promise.all([getLeagueCalendar(leagueId, CORE_CACHE_SECONDS, undefined, mode),
+      getLeagueRosterFeed(leagueId, mode), getLeagueUsers(leagueId, mode)])
+    : getLeagueCalendar(leagueId, CORE_CACHE_SECONDS).then(async calendar => {
+      const [rosters, users] = await Promise.all([
+        getLeagueRosterFeed(leagueId, mode, Number(calendar.sourceLeague.season)),
+        getLeagueUsers(leagueId, mode, Number(calendar.sourceLeague.season)),
+      ]);
+      return [calendar, rosters, users] as const;
+    }));
+  if (rosterFeed.malformedRowCount) throw new Error(`Sleeper returned an invalid response for /league/${leagueId}/rosters.`);
+  const rosters = rosterFeed.rosters;
+  const users = userFeed.users;
   const { sourceLeague, state, league } = calendar;
   assertCoreCompleteness(sourceLeague, rosters, users);
   const teams = normalizeTeams(rosters, users);
@@ -517,15 +576,17 @@ const getCore = cache(async (leagueId: string) => {
       teams.length ? undefined : 'Sleeper has not provided any league rosters yet.',
     ),
   };
-  return { overview, sourceLeague, state, rosters, calendar };
+  return { overview, sourceLeague, state, rosters, calendar,
+    administrationObservations: [calendar.leagueObservation, rosterFeed.observation, userFeed.observation] };
 });
 
 const getRosterCore = cache(async (leagueId: string) => {
-  const [calendar, rosterFeed, users] = await Promise.all([
-    getLeagueCalendar(leagueId, CORE_CACHE_SECONDS),
-    getLeagueRosterFeed(leagueId),
-    getLeagueUsers(leagueId),
+  const calendar = await getLeagueCalendar(leagueId, CORE_CACHE_SECONDS);
+  const [rosterFeed, userFeed] = await Promise.all([
+    getLeagueRosterFeed(leagueId, 'page', Number(calendar.sourceLeague.season)),
+    getLeagueUsers(leagueId, 'page', Number(calendar.sourceLeague.season)),
   ]);
+  const users = userFeed.users;
   const { sourceLeague, state, league } = calendar;
   const teams = normalizeTeams(rosterFeed.rosters, users);
   const missing = Math.max(0, sourceLeague.total_rosters - rosterFeed.rosters.length);
@@ -623,7 +684,7 @@ async function getStandingsProjectionBasis(
     || (playoffStart > 0 && week >= playoffStart)) {
     return { kind: 'unavailable', reason: 'Projected standings are unavailable for these league settings.' };
   }
-  const history = await loadRosterHistory(leagueId, week - 1);
+  const history = await loadRosterHistory(leagueId, week - 1, Number(league.season));
   if (history.failedWeeks.length || history.malformedWeeks.length) {
     return { kind: 'unavailable', reason: 'Completed matchup history is temporarily incomplete.' };
   }
@@ -632,7 +693,7 @@ async function getStandingsProjectionBasis(
   // Aggregates may already include this week. Prove that from the existing raw
   // reader rather than trusting last_scored_leg or subtracting projected points.
   try {
-    const current = await getCachedRosterWeek(leagueId, week);
+    const current = await getCachedRosterWeek(leagueId, week, Number(league.season));
     return reconcileStandingsBasis(basis, teams, current.invalidRowCount ? null : current.rows);
   } catch {
     return { kind: 'unavailable', reason: 'Official standings could not be reconciled with matchup history.' };
@@ -659,11 +720,11 @@ function standingsPointsForAvailable(roster: SleeperRoster | undefined): boolean
       || (typeof roster.settings.fpts_decimal === 'number' && Number.isFinite(roster.settings.fpts_decimal)));
 }
 
-const getCachedRosterWeek = cache(async (leagueId: string, week: number) => (
-  loadRawMatchups(leagueId, week, CORE_CACHE_SECONDS, undefined, true)
+const getCachedRosterWeek = cache(async (leagueId: string, week: number, season?: number) => (
+  loadAdministrationMatchups(leagueId, week, 'page', CORE_CACHE_SECONDS, true, season)
 ));
 
-async function loadRosterHistory(leagueId: string, throughWeek: number | null): Promise<{
+async function loadRosterHistory(leagueId: string, throughWeek: number | null, season?: number): Promise<{
   rows: Array<SleeperMatchup[] | null>;
   failedWeeks: number[];
   malformedWeeks: number[];
@@ -677,7 +738,7 @@ async function loadRosterHistory(leagueId: string, throughWeek: number | null): 
     while (next <= throughWeek) {
       const week = next++;
       try {
-        const observation = await getCachedRosterWeek(leagueId, week);
+        const observation = await getCachedRosterWeek(leagueId, week, season);
         const invalidIds = new Set(observation.invalidRosterIds ?? []);
         rows[week - 1] = observation.rows.filter((row) => !invalidIds.has(row.roster_id));
         if (observation.invalidRowCount) malformedWeeks.push(week);
@@ -697,7 +758,7 @@ async function loadRosterHistory(leagueId: string, throughWeek: number | null): 
 export async function getMyTeamSchedule(leagueId: string): Promise<MyTeamScheduleData> {
   const core = await getCore(leagueId);
   const [history, seasonSchedule] = await Promise.all([
-    loadRosterHistory(leagueId, MY_TEAM_SCHEDULE_WEEKS),
+    loadRosterHistory(leagueId, MY_TEAM_SCHEDULE_WEEKS, Number(core.sourceLeague.season)),
     core.calendar.siteWeek ? getSeasonSchedule(core.sourceLeague.season) : Promise.resolve(null),
   ]);
   // The existing calendar validates the complete season's identities and dates.
@@ -798,8 +859,8 @@ export async function getRostersWithMetricContext(
   const metricBoundary = playerMetricBoundary(boundaryInput);
   const canDecorate = canDecorateMatchupWeek(core.sourceLeague, core.state, selectedWeek, core.calendar);
   const [selectedObservation, history, players, nflSchedule] = await Promise.all([
-    getCachedRosterWeek(leagueId, selectedWeek),
-    loadRosterHistory(leagueId, historyThrough),
+    getCachedRosterWeek(leagueId, selectedWeek, Number(core.sourceLeague.season)),
+    loadRosterHistory(leagueId, historyThrough, Number(core.sourceLeague.season)),
     getPlayers(),
     canDecorate
       ? getWeekSchedule(core.overview.league.season, selectedWeek)
@@ -924,6 +985,156 @@ const loadRawMatchups = createRawSleeperMatchupLoader({
   now: () => new Date().toISOString(),
 });
 
+async function loadAdministrationMatchups(leagueId: string, week: number, mode: AdministrationReadMode,
+  revalidate: number, allowPartial = false, season?: number): Promise<RawSleeperMatchupObservation & {
+    administrationObservation: CapturedAdministrationDocument;
+  }> {
+  const observation = await readAdministration(leagueId, 'matchups', week, mode, revalidate, season);
+  const path = administrationPath(leagueId, 'matchups', week);
+  const parsed = allowPartial ? parseRawSleeperMatchupFeed(observation.payload, path)
+    : { rows: parseRawSleeperMatchups(observation.payload, path) };
+  return { ...parsed, requestStartedAt: observation.requestStartedAt, requestCompletedAt: observation.requestCompletedAt,
+    administrationObservation: observation };
+}
+
+/** Bounded collection entry points reuse the same raw administration retrieval. */
+/** A bounded fresh recheck of one changed cached document, with no ancillary feeds. */
+export async function getOfficialAdministrationObservation(
+  leagueId: string, family: AdministrationFamily, week: number | null, revalidate = 0, signal?: AbortSignal,
+) {
+  if (!leagueId.trim()) throw new Error('A league source ID is required.');
+  if (family === 'matchups' || family === 'transactions') {
+    if (!Number.isInteger(week) || week === null || week < (family === 'matchups' ? 1 : 0) || week > LAST_MATCHUP_WEEK) {
+      throw new Error('Administration week is outside the supported range.');
+    }
+  } else if (!['league', 'rosters', 'users', 'traded_picks', 'winners_bracket', 'losers_bracket'].includes(family) || week !== null) {
+    throw new Error('Administration family does not accept a week.');
+  }
+  return readOfficialAdministration(leagueId, family, week, revalidate, signal);
+}
+
+export type AdministrationMetadataCollection = Readonly<{
+  observations: readonly CapturedAdministrationDocument[];
+  providerRequests: number;
+  reason?: 'metadata-request-budget-exceeded' | 'draft-inventory-limit' | 'metadata-source-partial';
+}>;
+type AdministrationMetadataOptions = Readonly<{ signal?: AbortSignal; maxRequests: number; maxDrafts?: number }>;
+
+function validateMetadataRequest(leagueId: string, season: number, options: AdministrationMetadataOptions) {
+  if (!leagueId.trim() || !Number.isInteger(season) || season < 1920 || season > 2200
+    || !Number.isInteger(options.maxRequests) || options.maxRequests < 0 || options.maxRequests > 120
+    || !Number.isInteger(options.maxDrafts ?? 8) || (options.maxDrafts ?? 8) < 1 || (options.maxDrafts ?? 8) > 8) {
+    throw new Error('Invalid bounded administration metadata request.');
+  }
+  options.signal?.throwIfAborted();
+}
+
+function metadataDocument(family: AdministrationFamily, payload: unknown, started: string, complete: boolean): CapturedAdministrationDocument {
+  const completed = new Date().toISOString();
+  return { family, week: null, payload, requestStartedAt: started, requestCompletedAt: completed,
+    sourceObservedAt: complete ? completed : null, origin: 'network', completeness: complete ? 'complete' : 'partial' };
+}
+
+/** Each bundle retains all four provider bodies. The envelope span is a sequence
+ * of reads, not a claim that catalog/details/picks were an atomic snapshot. */
+export async function getOfficialDraftAdministration(
+  leagueId: string, season: number, options: AdministrationMetadataOptions,
+): Promise<AdministrationMetadataCollection> {
+  validateMetadataRequest(leagueId, season, options);
+  const started = new Date().toISOString();
+  if (options.maxRequests < 1) return { observations: [metadataDocument('drafts', null, started, false)],
+    providerRequests: 0, reason: 'metadata-request-budget-exceeded' };
+  let catalog: unknown;
+  try { catalog = await fetchJson(`/league/${leagueId}/drafts`, 0, options.signal); }
+  catch {
+    options.signal?.throwIfAborted();
+    return { observations: [metadataDocument('drafts', null, started, false)], providerRequests: 1, reason: 'metadata-source-partial' };
+  }
+  if (!Array.isArray(catalog)) return { observations: [metadataDocument('drafts', catalog, started, false)],
+    providerRequests: 1, reason: 'metadata-source-partial' };
+  const bundles = catalog.map(entry => ({ catalog: entry as unknown, draft: null as unknown,
+    picks: null as unknown, traded_picks: null as unknown }));
+  const partial = (reason: NonNullable<AdministrationMetadataCollection['reason']>): AdministrationMetadataCollection => ({
+    observations: [metadataDocument('drafts', bundles, started, false)], providerRequests: 1, reason,
+  });
+  if (catalog.length > (options.maxDrafts ?? 8)) return partial('draft-inventory-limit');
+  // Establish catalog ownership and unique resource IDs before constructing any
+  // draft endpoint. Never follow an arbitrary URL or an unowned source draft ID.
+  const ids = new Set<string>();
+  for (const entry of catalog) {
+    if (!isRecord(entry) || typeof entry.draft_id !== 'string' || !/^[A-Za-z0-9_-]+$/.test(entry.draft_id)
+      || entry.league_id !== leagueId || entry.season !== String(season)
+      || (entry.sport !== undefined && entry.sport !== 'nfl') || ids.has(entry.draft_id)) return partial('metadata-source-partial');
+    ids.add(entry.draft_id);
+  }
+  if (1 + catalog.length * 3 > options.maxRequests) return partial('metadata-request-budget-exceeded');
+  let providerRequests = 1;
+  let complete = true;
+  // At most three draft requests are in flight; the entire bundle has one deadline.
+  for (const [index, id] of [...ids].entries()) {
+    options.signal?.throwIfAborted();
+    providerRequests += 3;
+    const responses = await Promise.allSettled([
+      fetchJson(`/draft/${id}`, 0, options.signal),
+      fetchJson(`/draft/${id}/picks`, 0, options.signal),
+      fetchJson(`/draft/${id}/traded_picks`, 0, options.signal),
+    ]);
+    options.signal?.throwIfAborted();
+    const [draft, picks, traded] = responses.map(result => result.status === 'fulfilled' ? result.value : null);
+    bundles[index] = { ...bundles[index], draft, picks, traded_picks: traded };
+    if (responses.some(result => result.status === 'rejected') || !isRecord(draft)
+      || draft.draft_id !== id || draft.league_id !== leagueId || draft.season !== String(season)
+      || !Array.isArray(picks) || !Array.isArray(traded)) complete = false;
+  }
+  return { observations: [metadataDocument('drafts', bundles, started, complete)], providerRequests,
+    ...(!complete ? { reason: 'metadata-source-partial' as const } : {}) };
+}
+
+/** Four metadata families share one explicit global request allowance. */
+export async function getOfficialAdministrationMetadata(
+  leagueId: string, season: number, options: AdministrationMetadataOptions,
+): Promise<AdministrationMetadataCollection> {
+  validateMetadataRequest(leagueId, season, options);
+  const families = ['traded_picks', 'winners_bracket', 'losers_bracket'] as const;
+  const started = new Date().toISOString();
+  if (options.maxRequests < 4) return { observations: [...families, 'drafts' as const]
+    .map(family => metadataDocument(family, null, started, false)), providerRequests: 0, reason: 'metadata-request-budget-exceeded' };
+  const observations = await Promise.all(families.map(async family => {
+    const requestedAt = new Date().toISOString();
+    try { return await getOfficialAdministrationObservation(leagueId, family, null, 0, options.signal); }
+    catch {
+      options.signal?.throwIfAborted();
+      return metadataDocument(family, null, requestedAt, false);
+    }
+  }));
+  const drafts = await getOfficialDraftAdministration(leagueId, season, { ...options, maxRequests: options.maxRequests - 3 });
+  // Sleeper can successfully return JSON null before publishing either bracket.
+  // Keep that source state distinct from an empty array and from a failed read.
+  const partial = observations.some(document => document.completeness === 'partial'
+    || (!Array.isArray(document.payload) && !(document.payload === null
+      && (document.family === 'winners_bracket' || document.family === 'losers_bracket'))));
+  return { observations: [...observations, ...drafts.observations], providerRequests: 3 + drafts.providerRequests,
+    ...(drafts.reason || partial ? { reason: drafts.reason ?? 'metadata-source-partial' as const } : {}) };
+}
+
+export async function getOfficialLeagueAdministration(leagueId: string, options: { revalidate?: number; signal?: AbortSignal } = {}) {
+  if (!leagueId.trim()) throw new Error('Invalid league administration collection target.');
+  const revalidate = options.revalidate ?? CORE_CACHE_SECONDS;
+  const observations = await Promise.all((['league', 'rosters', 'users'] as const)
+    .map(family => readOfficialAdministration(leagueId, family, null, revalidate, options.signal)));
+  return observations;
+}
+
+export async function getOfficialMatchupObservation(leagueId: string, week: number, revalidate = CORE_CACHE_SECONDS, signal?: AbortSignal) {
+  if (!leagueId.trim() || !Number.isInteger(week) || week < 1 || week > 18) throw new Error('Invalid matchup collection target.');
+  return readOfficialAdministration(leagueId, 'matchups', week, revalidate, signal);
+}
+
+export async function getOfficialTransactionWeek(leagueId: string, week: number, revalidate = CORE_CACHE_SECONDS, signal?: AbortSignal) {
+  if (!leagueId.trim() || !Number.isInteger(week) || week < 0 || week > 18) throw new Error('Invalid transaction collection target.');
+  return readOfficialAdministration(leagueId, 'transactions', week, revalidate, signal);
+}
+
 /** Thin observers use this exact full-loader boundary, with no ancillary endpoint calls. */
 export async function getRawLineupMatchups(
   leagueId: string, week: number, signal?: AbortSignal,
@@ -947,6 +1158,7 @@ async function loadMatchupSource(
   matchupShape: SleeperMatchupShape;
   requestStartedAt: string;
   requestCompletedAt: string;
+  administrationObservations: readonly CapturedAdministrationDocument[];
 }> {
   const {
     requestedWeek,
@@ -958,7 +1170,8 @@ async function loadMatchupSource(
   if (projectionTarget && requestedWeek !== undefined) {
     throw new Error('A matchup load cannot combine website and projection week selection.');
   }
-  const core = await getCore(leagueId);
+  const mode: AdministrationReadMode = projectionTarget ? 'official' : 'page';
+  const core = await getCore(leagueId, mode);
   if (projectionTarget && core.calendar.calendarUnavailable) {
     throw new Error('NFL calendar authority is unavailable for projection or statistics ingestion.');
   }
@@ -971,10 +1184,13 @@ async function loadMatchupSource(
   const status = matchupStatus(core.sourceLeague, core.state, week, Date.parse(core.calendar.evaluatedAt), core.calendar);
   const canDecorate = canDecorateMatchupWeek(core.sourceLeague, core.state, week, core.calendar);
   const [matchupObservation, players, nflSchedule] = await Promise.all([
-    loadRawMatchups(
+    loadAdministrationMatchups(
       leagueId,
       week,
+      mode,
       freshMatchups ? 0 : CORE_CACHE_SECONDS,
+      false,
+      Number(core.sourceLeague.season),
     ),
     loadPlayerCatalog(),
     (projectionTarget || canDecorate)
@@ -1034,6 +1250,7 @@ async function loadMatchupSource(
     matchupShape: sleeperMatchupShape(core.rosters, core.overview.league.rosterPositions),
     requestStartedAt,
     requestCompletedAt,
+    administrationObservations: [...core.administrationObservations, matchupObservation.administrationObservation],
   };
 }
 
@@ -1070,6 +1287,7 @@ function projectionSyncInput(
     matchupShape: source.matchupShape,
     requestStartedAt: source.requestStartedAt,
     requestCompletedAt: source.requestCompletedAt,
+    administrationObservations: source.administrationObservations,
   };
 }
 
@@ -1096,9 +1314,11 @@ export async function getOperatorProjectionSyncInput(
  * remains unchanged; managers, player catalogs and matchup scores are omitted.
  */
 export async function getProjectionCadenceInput(leagueId: string, evaluatedAt?: string): Promise<ProjectionCadenceInput> {
-  const [calendar, rosters] = await Promise.all([
-    getLeagueCalendar(leagueId, CORE_CACHE_SECONDS, evaluatedAt), getLeagueRosters(leagueId),
+  const [calendar, rosterFeed] = await Promise.all([
+    getLeagueCalendar(leagueId, CORE_CACHE_SECONDS, evaluatedAt, 'official'), getLeagueRosterFeed(leagueId, 'official'),
   ]);
+  if (rosterFeed.malformedRowCount) throw new Error(`Sleeper returned an invalid response for /league/${leagueId}/rosters.`);
+  const rosters = rosterFeed.rosters;
   const {
     sourceLeague, state, league, requestStartedAt, requestCompletedAt,
   } = calendar;
@@ -1141,6 +1361,7 @@ export async function getProjectionCadenceInput(leagueId: string, evaluatedAt?: 
     requestStartedAt,
     requestCompletedAt,
     verifiedAt: new Date().toISOString(),
+    administrationObservations: [calendar.leagueObservation, rosterFeed.observation],
   };
 }
 
@@ -1216,7 +1437,7 @@ export async function getManager(leagueId: string, id: number): Promise<ManagerD
   };
 }
 
-export const getTransactionWeeks = cache(async (leagueId: string, lastWeek: number) => {
+export const getTransactionWeeks = cache(async (leagueId: string, lastWeek: number, season?: number) => {
   const weeks = Array.from({ length: lastWeek + 1 }, (_, week) => week);
   const rows: SleeperTransaction[] = [];
   const failedWeeks: number[] = [];
@@ -1227,7 +1448,8 @@ export const getTransactionWeeks = cache(async (leagueId: string, lastWeek: numb
     while (next < weeks.length) {
       const week = weeks[next++];
       try {
-        rows.push(...await fetchRows<SleeperTransaction>(
+        const observation = await readAdministration(leagueId, 'transactions', week, 'page', CORE_CACHE_SECONDS, season);
+        rows.push(...parseRows<SleeperTransaction>(observation.payload,
           `/league/${leagueId}/transactions/${week}`,
           isSleeperTransaction,
           (row) => row.transaction_id,
@@ -1245,7 +1467,7 @@ export const getTransactionWeeks = cache(async (leagueId: string, lastWeek: numb
 export async function getLeagueTransactions(leagueId: string, leagueKey: LeagueKey): Promise<LeagueTransactionsData> {
   const core = await getCore(leagueId);
   const [history, players] = await Promise.all([
-    getTransactionWeeks(leagueId, Math.max(core.overview.league.week, transactionEndWeek(core.sourceLeague, core.state))),
+    getTransactionWeeks(leagueId, Math.max(core.overview.league.week, transactionEndWeek(core.sourceLeague, core.state)), Number(core.sourceLeague.season)),
     getPlayers(),
   ]);
   const partial = history.failedWeeks.length > 0;
@@ -1271,7 +1493,7 @@ export async function getTransactions(leagueId: string, id: number): Promise<Tra
   const team = core.overview.teams.find((candidate) => candidate.id === id);
   if (!team) return null;
   const [history, players] = await Promise.all([
-    getTransactionWeeks(leagueId, Math.max(core.overview.league.week, transactionEndWeek(core.sourceLeague, core.state))),
+    getTransactionWeeks(leagueId, Math.max(core.overview.league.week, transactionEndWeek(core.sourceLeague, core.state)), Number(core.sourceLeague.season)),
     getPlayers(),
   ]);
   const partial = history.failedWeeks.length > 0;
