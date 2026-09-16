@@ -1,0 +1,24 @@
+{
+  "classification": "Prepared review artifact; no database execution or standalone wrapper integration claimed",
+  "sourceMigration011Checksum": "0eaa96bcc0b65053ac8dab48657eb7bfe22fadbfd41b4f4c78c3472ca8a512b6",
+  "sourceMigration015Checksum": "f7bf9b74cc14c0ede7a7534257ea956f99edc2615983b5b66ae546f2812fef8a",
+  "sourceWrapper015Checksum": "5a853f19d220dbabe9c15494035b713aa352ef87a1d7c3db481564471459f31c",
+  "beforeCatalogChecksum": "bb0885bdee02f0be9078ce953889c67f0a2de7fb26c670cdf37b977816c8b549",
+  "afterCatalogChecksum": "2cac03ac7f50acbad3c7e86436663d9157bb2b15390b6888968e13bff7800a04",
+  "forwardCompensationMigration": "016_all_player_dynasty_publication_compensation.sql",
+  "forwardCompensationChecksum": "6afa9ea6f4eaab7dca9b0088ad74cd9a1ccb1dc006f1f6a0414c541976d3ecf8",
+  "wrapperChecksum": "e7febcbf1caa603c434099ef16b6a575fb83995a400583342e11277bbb934ac2",
+  "sentinel": "ALL_PLAYER_DYNASTY_COMPENSATION_APPLIED:016_all_player_dynasty_publication_compensation.sql:6afa9ea6f4eaab7dca9b0088ad74cd9a1ccb1dc006f1f6a0414c541976d3ecf8",
+  "unchangedInstalledLedger": "001-015; append 016 only",
+  "expectedDatabase": "neondb",
+  "expectedOwner": "neondb_owner",
+  "postgresMajor": 18,
+  "runtimeRole": "league_one_runtime",
+  "pending": [
+    "Root and independent review",
+    "Separate rollback authorization",
+    "Guarded isolated execution of this exact wrapper and corrupt-assertion rollback proof",
+    "Fresh repository, production application, Neon project/branch/database/role, and ownership verification",
+    "Commit exact 016 forward migration and reviewed wrapper before production execution"
+  ]
+}

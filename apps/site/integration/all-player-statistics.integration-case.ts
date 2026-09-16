@@ -1808,7 +1808,9 @@ describe('all-player statistics foundation', () => {
   },480_000);
 
   it('enrolls Dynasty between complete batches, requires all canonical parity and preserves history through compensation', async () => {
-    const saved = { store, leagueSeasonIds, profileIds, profileWeights };
+    const saved = { store, fence, leagueSeasonIds, profileIds, profileWeights };
+    const priorJob = (await ownerQuery<{ job: Record<string, unknown> }>(
+      'SELECT to_jsonb(job) AS job FROM projection_jobs job WHERE job_key=$1', [fence.jobKey]))[0].job;
     const peer = createIndependentDatabase();
     const peerStore = createProjectionStore(peer.database);
     const publishing = await createPinnedIntegrationDatabase('runtime');
@@ -1821,7 +1823,7 @@ describe('all-player statistics foundation', () => {
       active_week,league_lifecycle,nfl_phase,source_provider,'dynasty-integration-authority',source_observed_at,
       verified_at,'all-player-integration-dynasty',expected_roster_count,expected_starter_slot_count,expected_roster_ids
       FROM league_period_authorities WHERE league_key='league1'`;
-    const snapshot = () => ownerQuery(`SELECT
+    const snapshotSql = `SELECT
       (SELECT count(*)::integer FROM all_player_stat_contents) AS contents,
       (SELECT count(*)::integer FROM all_player_stat_entries) AS entries,
       (SELECT count(*)::integer FROM all_player_stat_observations) AS observations,
@@ -1829,7 +1831,8 @@ describe('all-player statistics foundation', () => {
       (SELECT count(*)::integer FROM all_player_scores) AS scores,
       (SELECT count(*)::integer FROM all_player_score_verifications) AS verifications,
       (SELECT jsonb_agg(to_jsonb(pointer) ORDER BY pointer.scoring_profile_id)
-        FROM current_all_player_score_sets pointer WHERE season=$1) AS pointers`, [DATABASE_SEASON]);
+        FROM current_all_player_score_sets pointer WHERE season=$1) AS pointers`;
+    const snapshot = () => ownerQuery(snapshotSql, [DATABASE_SEASON]);
     const newest = await ownerQuery<{ observed_at: string }>(`SELECT
       (COALESCE(max(observed_at),clock_timestamp()) + interval '1 second')::text AS observed_at
       FROM all_player_stat_observations WHERE season=$1`, [DATABASE_SEASON]);
@@ -1843,6 +1846,20 @@ describe('all-player statistics foundation', () => {
       expect(await snapshot()).toEqual(before);
     };
     try {
+      // Earlier budget/recovery cases deliberately finish the original job.
+      // Claim fresh ownership so every assertion reaches the publication
+      // invariant it intends to test, both alone and in the complete suite.
+      await ownerQuery('DELETE FROM projection_jobs WHERE job_key=$1', [saved.fence.jobKey]);
+      const claim = await store.acquireAllPlayerJob({ mode: 'backfill',
+        period: { season: DATABASE_SEASON, seasonType: 'reg', week: 1 },
+        workerId: 'dynasty-publication-integration', leaseSeconds: 600,
+        deadlineAt: new Date(Date.now() + 550_000).toISOString(),
+      });
+      if (claim.kind !== 'acquired') throw new Error('The isolated Dynasty publication claim was not acquired.');
+      fence = claim.fence;
+      expect(await store.markAllPlayerRequest({ fence,
+        period: { season: DATABASE_SEASON, seasonType: 'reg', week: 1 },
+      })).toBe(true);
       // The shared-profile variant is a separate rolled-back configuration.
       // Never modify an existing season's immutable scoring-profile binding.
       const sharedTransaction = await createPinnedIntegrationDatabase('owner');
@@ -1947,13 +1964,67 @@ describe('all-player statistics foundation', () => {
       expect(stored(await store.recordAllPlayerBatch(fullInput)).scoreSets.every((set) => set.pointerOutcome === 'verified'))
         .toBe(true);
 
-      for (const original of ['league1', 'league2']) {
-        const missingOriginalInput = await batch(nextObservation(`missing-${original}`));
-        await ownerQuery('UPDATE leagues SET league_key=$2 WHERE league_key=$1', [original, `${original}-isolated-missing`]);
+      // Stable league keys cannot be mutated. Prove missing originals with
+      // legitimate new-season inventories, each containing Dynasty and just
+      // one original league, without weakening any immutable identity guard.
+      for (const [index, retainedOriginal] of ['league1', 'league2'].entries()) {
+        const transaction = await createPinnedIntegrationDatabase('owner');
+        const complete = { store, fence, leagueSeasonIds, profileIds, profileWeights, parityExternalGameId };
+        const period = { season: 2196 + index, seasonType: 'reg' as const, week: 1 };
         try {
-          await expectRejectedUnchanged(missingOriginalInput, /canonical league scoring profiles/iu);
+          await transaction.database.query('BEGIN');
+          store = createProjectionStore(transaction.database);
+          await transaction.database.query('DELETE FROM projection_jobs WHERE job_key=$1', [fence.jobKey]);
+          const missingClaim = await store.acquireAllPlayerJob({ mode: 'backfill', period,
+            workerId: `dynasty-missing-original-${index}`, leaseSeconds: 60,
+            deadlineAt: new Date(Date.now() + 55_000).toISOString(),
+          });
+          if (missingClaim.kind !== 'acquired') throw new Error('The isolated missing-original claim was not acquired.');
+          fence = missingClaim.fence;
+          expect(await store.markAllPlayerRequest({ fence, period })).toBe(true);
+          const keys = [retainedOriginal, 'dynasty'];
+          profileWeights = [index === 0 ? 4 : 6, 8];
+          const registered = await Promise.all(keys.map(async (leagueKey, keyIndex) => stored(
+            await store.registerLeagueSeason({ leagueKey, leagueName: `Missing Original ${leagueKey}`,
+              season: period.season, sleeperLeagueId: `dynasty-missing-original-${index}-${leagueKey}`,
+              scoringRules: { pass_td: profileWeights[keyIndex] },
+            }),
+          )));
+          leagueSeasonIds = registered.map((league) => league.leagueSeasonId);
+          profileIds = registered.map((league) => league.scoringProfileId);
+          for (const leagueKey of keys) {
+            await transaction.database.query(`UPDATE league_period_authorities SET
+              default_season=$1,active_season=$1,source_revision='dynasty-missing-original-authority',
+              source_external_league_id=$2 WHERE league_key=$3`,
+            [period.season, `dynasty-missing-original-${index}-${leagueKey}`, leagueKey]);
+          }
+          parityExternalGameId = `dynasty-missing-original-${index}-game`;
+          const games = stored(await store.upsertNflGames([{
+            key: parityExternalGameId, provider: 'tank01', externalGameId: parityExternalGameId,
+            ...period, homeTeam: 'NE', awayTeam: 'ATL', kickoffAt: '2026-09-13T17:00:00.000Z',
+          }]));
+          const source = nextObservation(`missing-original-${index}`);
+          const missingOriginalInput = await batch({
+            ...source, season: period.season,
+            coverage: { ...source.coverage, periodInventoryEvidence: {
+              ...(source.coverage.periodInventoryEvidence as Record<string, unknown>), effectivePeriod: period,
+            } },
+            entries: source.entries.map((entry) => ({
+              ...entry, nflGameId: entry.nflGameId ? games[0].gameId : null,
+              eligibilityEvidence: entry.eligibilityEvidence.kind === 'explicit-ineligible'
+                ? { ...entry.eligibilityEvidence, effectivePeriod: period } : entry.eligibilityEvidence,
+            })),
+          });
+          expect(missingOriginalInput.scoreSets).toHaveLength(2);
+          const before = await transaction.database.query(snapshotSql, [period.season]);
+          await expect(store.recordAllPlayerBatch(missingOriginalInput))
+            .rejects.toThrow(/canonical league scoring profiles/iu);
+          expect(await transaction.database.query(snapshotSql, [period.season])).toEqual(before);
         } finally {
-          await ownerQuery('UPDATE leagues SET league_key=$1 WHERE league_key=$2', [original, `${original}-isolated-missing`]);
+          store = complete.store; fence = complete.fence; leagueSeasonIds = complete.leagueSeasonIds;
+          profileIds = complete.profileIds; profileWeights = complete.profileWeights;
+          parityExternalGameId = complete.parityExternalGameId;
+          try { await transaction.database.query('ROLLBACK'); } finally { await transaction.close(); }
         }
       }
 
@@ -1993,8 +2064,11 @@ describe('all-player statistics foundation', () => {
       if (registration) await Promise.allSettled([registration]);
       await publishing.close();
       await peer.close();
-      store = saved.store; leagueSeasonIds = saved.leagueSeasonIds;
+      store = saved.store; fence = saved.fence; leagueSeasonIds = saved.leagueSeasonIds;
       profileIds = saved.profileIds; profileWeights = saved.profileWeights;
+      await ownerQuery('DELETE FROM projection_jobs WHERE job_key=$1', [fence.jobKey]);
+      await ownerQuery('INSERT INTO projection_jobs SELECT * FROM jsonb_populate_record(NULL::projection_jobs,$1::jsonb)',
+        [JSON.stringify(priorJob)]);
     }
   }, 120_000);
 });

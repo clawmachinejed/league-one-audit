@@ -1,0 +1,20 @@
+{
+  "checkedAt": "2026-09-16T04:37:50.201Z",
+  "outcome": "passed",
+  "database": "projection_refactor_test",
+  "branch": "projection-integration-test",
+  "productionWrites": 0,
+  "productionWrapperHash": "5a853f19d220dbabe9c15494035b713aa352ef87a1d7c3db481564471459f31c",
+  "compensationWrapperHash": "e7febcbf1caa603c434099ef16b6a575fb83995a400583342e11277bbb934ac2",
+  "adaptations": "Only database and owner identity literals were rebound to the guarded isolated branch.",
+  "checks": [
+    "final forward wrapper commit and sentinel",
+    "corrupt forward constraint manifest rollback",
+    "exact reviewed 015 catalog",
+    "compensation postcondition failure rolls catalog and all ledger rows back",
+    "compensation commit and sentinel",
+    "exact restored 014 catalog and ACL",
+    "unchanged 001–015 ledger plus forward 016"
+  ],
+  "dataScope": "Empty all-player tables in wrapper test; populated history preservation is tested separately in the integration suite."
+}
