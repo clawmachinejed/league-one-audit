@@ -7,10 +7,11 @@ import type { FutureProjectionWorkerDependencies } from '../worker/future-contra
 import { createProductionSharedServices } from './shared-services';
 import { createProjectionServices } from './projection-services';
 import { createProjectionPersistence } from './projection-persistence';
+import type { LeagueRegistryPort } from '../ports/league-registry';
 
 /** Future work receives persisted authority, never a calendar-fetch capability. */
-export function createProductionFutureProjectionDependencies(): FutureProjectionWorkerDependencies {
-  const shared = createProductionSharedServices('future-projection-sync');
+export function createProductionFutureProjectionDependencies(registry?: LeagueRegistryPort): FutureProjectionWorkerDependencies {
+  const shared = createProductionSharedServices('future-projection-sync', registry);
   return {
     ...shared,
     ...createProjectionPersistence(getProjectionStore(), shared),

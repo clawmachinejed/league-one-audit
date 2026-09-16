@@ -573,21 +573,28 @@ describe('projection architecture', () => {
       runtimeDependencyViolations([resolve(projectionRoot, 'worker', 'future-orchestrator.ts')], (path) => forbidden.has(path)));
   });
 
-  it('confines SQL and low-level Neon access to the store package and its two composition facades', () => {
+  it('confines SQL and low-level Neon access to domain store packages and their composition facades', () => {
     const violations: string[] = [];
     const rootStoreFacade = resolve(libRoot, 'projection-store.ts');
+    const administrationNeonRoot = resolve(libRoot, 'league-administration/neon');
+    const administrationFacade = resolve(libRoot, 'league-administration/store.ts');
 
     for (const sourceModule of modules.values()) {
       const inNeonStore = isInside(sourceModule.absolutePath, neonRoot);
       if (!inNeonStore && /\/\*\s*projection-store:[a-z0-9-]+\s*\*\//u.test(sourceModule.source)) {
         violations.push(`${sourceModule.relativePath}: contains a projection-store SQL marker`);
       }
-      if (!inNeonStore) {
+      const inAdministrationStore = isInside(sourceModule.absolutePath, administrationNeonRoot);
+      if (!inNeonStore && !inAdministrationStore) {
         for (const line of projectionSqlLiteralLines(sourceModule)) {
           violations.push(`${location(sourceModule, line)}: contains a projection-store SQL query string`);
         }
       }
       for (const dependency of sourceModule.imports) {
+        if (dependency.resolved && isInside(dependency.resolved, administrationNeonRoot)
+          && !inAdministrationStore && sourceModule.absolutePath !== administrationFacade) {
+          violations.push(`${location(sourceModule, dependency.line)}: bypasses the administration store facade`);
+        }
         if (dependency.resolved
           && isInside(dependency.resolved, neonRoot)
           && !inNeonStore

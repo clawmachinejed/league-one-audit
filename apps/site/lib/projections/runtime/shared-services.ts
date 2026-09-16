@@ -14,14 +14,14 @@ import { externalLeagueRef, providerKey } from '../shared/provider-identity';
 export const officialProvider = providerKey('sleeper');
 
 /** Shared configuration and infrastructure only; never loads projection calculation or feeds. */
-export function createProductionSharedServices(service: string): Readonly<{
+export function createProductionSharedServices(service: string, registry?: LeagueRegistryPort): Readonly<{
   leagueRegistry: LeagueRegistryPort;
   clock: ClockPort;
   idGenerator: IdGeneratorPort;
   logger: ProjectionLoggerPort;
 }> {
   return {
-    leagueRegistry: createLeagueRegistry((Object.keys(LEAGUE_IDS) as LeagueKey[]).map((key) => ({
+    leagueRegistry: registry ?? createLeagueRegistry((Object.keys(LEAGUE_IDS) as LeagueKey[]).map((key) => ({
       key,
       displayName: LEAGUE_SITES[key].name,
       leagueRef: externalLeagueRef(officialProvider, LEAGUE_IDS[key]),

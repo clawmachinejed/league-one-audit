@@ -1,7 +1,7 @@
 import 'server-only';
 
 import { cache } from 'react';
-import { LEAGUE_IDS } from './config';
+import { findCurrentLeagueKey } from './league-administration/registry';
 import { getProjectionStore, type StoredLeagueAuthorityRead } from './projection-store';
 
 type SiteCalendarProposal = Readonly<{
@@ -29,11 +29,10 @@ const readStoredCalendarFloor = cache(async (leagueKey: string): Promise<readonl
 });
 
 async function validatedStoredCalendar(leagueId: string) {
-  const registration = Object.entries(LEAGUE_IDS).find(([, registeredId]) => registeredId === leagueId);
-  if (!registration) {
+  const leagueKey = await findCurrentLeagueKey(leagueId);
+  if (!leagueKey) {
     throw new Error('Site calendar proposal has an invalid league or period.');
   }
-  const [leagueKey] = registration;
   const rows = await readStoredCalendarFloor(leagueKey);
   if (rows === null || (Array.isArray(rows) && rows.length === 0)) return null;
   if (!Array.isArray(rows) || rows.length !== 1 || !rows[0] || rows[0].leagueKey !== leagueKey

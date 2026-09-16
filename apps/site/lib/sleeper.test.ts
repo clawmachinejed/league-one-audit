@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StoredLeagueAuthorityRead } from './projection-store';
+import type { AdministrationFamily } from './league-administration/contracts';
+import type { LeagueAdministrationStoreRead, AdministrationReadInput } from './league-administration/store-contracts';
 
 const nextCacheEntries = vi.hoisted(() => [] as Array<{
   keys: string[];
@@ -8,8 +10,15 @@ const nextCacheEntries = vi.hoisted(() => [] as Array<{
 const reactCacheControl = vi.hoisted(() => ({ enabled: false, generation: 0 }));
 const calendarStore = vi.hoisted(() => ({ enabled: false,
   read: vi.fn<(keys: readonly string[]) => Promise<readonly StoredLeagueAuthorityRead[]>>() }));
+const administrationStore = vi.hoisted(() => ({
+  connection: vi.fn<() => Promise<LeagueAdministrationStoreRead>>(),
+  read: vi.fn<(input: AdministrationReadInput) => Promise<LeagueAdministrationStoreRead>>(),
+}));
 
 vi.mock('server-only', () => ({}));
+vi.mock('./league-administration/store', () => ({ getLeagueAdministrationStore: () => ({
+  readSourceByConnection: administrationStore.connection, readSource: administrationStore.read,
+}) }));
 vi.mock('react', () => ({
   cache: <Arguments extends unknown[], Result>(fn: (...args: Arguments) => Result) => {
     const values = new Map<string, Result>();
@@ -37,6 +46,7 @@ import { LEAGUE_IDS } from './config';
 import seasonEvidence from '../test-support/fixtures/sleeper-2026-season-schedule.json';
 import { addWaiverBalances, normalizeTeams, type SleeperRoster, type SleeperUser } from './transform';
 import {
+  getOfficialAdministrationObservation,
   getCurrentLeagueWeek,
   getCurrentMatchupPeriodContext,
   getSiteWeekRollover,
@@ -53,6 +63,9 @@ import {
   getRosters,
   getRostersWithMetricContext,
   getTransactions,
+  getOfficialLeagueAdministration,
+  getOfficialMatchupObservation,
+  getOfficialTransactionWeek,
 } from './sleeper';
 
 const leagueOneId = LEAGUE_IDS.league1;
@@ -214,6 +227,8 @@ function retainedCalendar(leagueKey: 'league1' | 'league2', week = 2,
 }
 
 beforeEach(() => {
+  administrationStore.connection.mockReset().mockResolvedValue({ status: 'disabled' });
+  administrationStore.read.mockReset().mockResolvedValue({ status: 'disabled' });
   calendarStore.enabled = false;
   calendarStore.read.mockReset().mockResolvedValue([]);
   vi.useFakeTimers({ toFake: ['Date'] });
@@ -316,6 +331,116 @@ function standingsSource(
   });
   return concurrency;
 }
+
+function storedAdministration(family: AdministrationFamily, week: number | null): LeagueAdministrationStoreRead {
+  const path = `${leaguePath}${family === 'league' ? '' : `/${family}${week === null ? '' : `/${week}`}`}`;
+  return { status: 'available', observationId: `fixture-${family}-${week}`, versionId: 'version', generation: 1,
+    checkedAt: new Date(Date.now()).toISOString(), verifiedAt: new Date(Date.now()).toISOString(), envelope: {
+      schemaVersion: 'league-administration-v1', normalizerVersion: 'sleeper-administration-v1', dialect: 'sleeper-nfl-v1',
+      scope: { leagueKey: 'league1', provider: 'sleeper', externalLeagueId: leagueOneId, season: 2026 },
+      family, week, completeness: 'complete', payload: valueFor(path) as never,
+      provenance: { origin: 'network', requestStartedAt: '2026-09-12T11:59:59.000Z',
+        requestCompletedAt: '2026-09-12T12:00:00.000Z', sourceObservedAt: '2026-09-12T12:00:00.000Z',
+        checkedAt: '2026-09-12T12:00:00.000Z' },
+    } };
+}
+
+describe('stored administration page reads and independent official collection', () => {
+  function useStoredAdministration() {
+    administrationStore.connection.mockImplementation(async () => storedAdministration('league', null));
+    administrationStore.read.mockImplementation(async ({ family, week }) => storedAdministration(family, week));
+  }
+
+  it('serves available page administration from storage while retaining the shared NFL/player sources', async () => {
+    useStoredAdministration();
+    rawMatchups = [{ roster_id: 1, matchup_id: null, points: 12, players: ['qb'], starters: ['qb'], players_points: { qb: 12 } }];
+    const [overview, manager, matchups, transactions, rosters] = await Promise.all([
+      getOverview(leagueOneId), getManager(leagueOneId, 1), getOfficialMatchups(leagueOneId, 2),
+      getLeagueTransactions(leagueOneId, 'league1'), getRosters(leagueOneId, 2),
+    ]);
+    expect(overview.teams[0].managerName).toBe('Alex');
+    expect(manager?.starters[0].id).toBe('qb');
+    expect(matchups.week).toBe(2);
+    expect(matchups.updatedAt).toBe('2026-09-12T12:00:00.000Z');
+    expect(transactions.activities).toHaveLength(1);
+    expect(rosters.week).toBe(2);
+    expect(vi.mocked(fetch).mock.calls.map(([input]) => requestPath(input)).filter(path => path.startsWith('/league/'))).toEqual([]);
+    expect(administrationStore.read).toHaveBeenCalledWith(expect.objectContaining({ family: 'matchups', season: 2026, week: 2 }));
+  });
+
+  it('fails a stored connection conflict without requesting replacement league administration', async () => {
+    administrationStore.connection.mockResolvedValue({ status: 'conflict', reason: 'identity' });
+    await expect(getOverview(leagueOneId)).rejects.toThrow('conflicting');
+    expect(vi.mocked(fetch).mock.calls.map(([input]) => requestPath(input)).filter(path => path.startsWith('/league/'))).toEqual([]);
+  });
+
+  it('uses the existing read-only official path when accepted administration exceeds the caller TTL', async () => {
+    useStoredAdministration();
+    administrationStore.read.mockImplementation(async ({ family, week }) => {
+      const result = storedAdministration(family, week);
+      return result.status === 'available' ? { ...result, verifiedAt: '2026-09-12T12:00:00.000Z' } : result;
+    });
+    const result = await getLeagueTransactions(leagueOneId, 'league1');
+    expect(result.activities).toHaveLength(1);
+    expect(vi.mocked(fetch).mock.calls.map(([url]) => requestPath(url))).toContain(`${leaguePath}/transactions/3`);
+  });
+
+  it('keeps cadence and full projection collection official even when stored page administration is available', async () => {
+    useStoredAdministration();
+    makeProjectionWeekReady();
+    const cadence = await getProjectionCadenceInput(leagueOneId, new Date().toISOString());
+    expect(cadence.administrationObservations?.map(document => document.family)).toEqual(['league', 'rosters']);
+    expect(vi.mocked(fetch).mock.calls.map(([input]) => requestPath(input))).not.toContain(`${leaguePath}/users`);
+    const input = await getProjectionSyncInput(leagueOneId, { season: 2026, seasonType: 'regular', week: 3 });
+    expect(input.administrationObservations?.map(document => document.family)).toEqual(['league', 'rosters', 'users', 'matchups']);
+    expect(input.administrationObservations?.find(document => document.family === 'matchups')).toMatchObject({
+      origin: 'network', sourceObservedAt: input.requestCompletedAt,
+    });
+    expect(input.administrationObservations?.find(document => document.family === 'league')).toMatchObject({ origin: 'cache', sourceObservedAt: null });
+    expect(administrationStore.connection).not.toHaveBeenCalled();
+    expect(administrationStore.read).not.toHaveBeenCalled();
+  });
+
+  it('exposes bounded official capture without loading unrelated families', async () => {
+    const administration = await getOfficialLeagueAdministration(leagueOneId, { revalidate: 0 });
+    expect(administration.map(document => document.family)).toEqual(['league', 'rosters', 'users']);
+    expect(administration.every(document => document.origin === 'network' && document.sourceObservedAt === document.requestCompletedAt)).toBe(true);
+    expect((await getOfficialTransactionWeek(leagueOneId, 0)).payload).toEqual(valueFor(`${leaguePath}/transactions/0`));
+    expect((await getOfficialMatchupObservation(leagueOneId, 2)).week).toBe(2);
+    const paths = vi.mocked(fetch).mock.calls.map(([input]) => requestPath(input));
+    expect(paths).toEqual([leaguePath, `${leaguePath}/rosters`, `${leaguePath}/users`, `${leaguePath}/transactions/0`, `${leaguePath}/matchups/2`]);
+    await expect(getOfficialTransactionWeek(leagueOneId, 19)).rejects.toThrow('target');
+    await expect(getOfficialMatchupObservation(leagueOneId, 0)).rejects.toThrow('target');
+    expect(fetch).toHaveBeenCalledTimes(5);
+  });
+
+  it('honors an expired collection deadline before any administration request', async () => {
+    const signal = AbortSignal.abort(new Error('Collection deadline'));
+    await expect(getOfficialLeagueAdministration(leagueOneId, { revalidate: 0, signal })).rejects.toThrow('deadline');
+    await expect(getOfficialMatchupObservation(leagueOneId, 2, 0, signal)).rejects.toThrow('deadline');
+    await expect(getOfficialTransactionWeek(leagueOneId, 0, 0, signal)).rejects.toThrow('deadline');
+    await expect(getOfficialAdministrationObservation(leagueOneId, 'league', null, 0, signal)).rejects.toThrow('deadline');
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('freshly verifies only the requested changed administration family', async () => {
+    const observed = await getOfficialAdministrationObservation(leagueOneId, 'rosters', null);
+    expect(observed).toMatchObject({ family: 'rosters', week: null, origin: 'network', sourceObservedAt: observed.requestCompletedAt });
+    expect(vi.mocked(fetch).mock.calls.map(([url]) => requestPath(url))).toEqual([`${leaguePath}/rosters`]);
+    await expect(getOfficialAdministrationObservation(leagueOneId, 'league', 1)).rejects.toThrow('family');
+    await expect(getOfficialAdministrationObservation(leagueOneId, 'matchups', null)).rejects.toThrow('week');
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('propagates the collection deadline signal to the existing HTTP transport', async () => {
+    const controller = new AbortController();
+    await getOfficialTransactionWeek(leagueOneId, 0, 0, controller.signal);
+    const signal = vi.mocked(fetch).mock.calls[0][1]?.signal;
+    expect(signal?.aborted).toBe(false);
+    controller.abort();
+    expect(signal?.aborted).toBe(true);
+  });
+});
 
 describe('shared schedule-based site calendar', () => {
   it.each([
@@ -653,7 +778,7 @@ describe('Sleeper service error handling', () => {
     await expect(getCurrentLeagueWeek(leagueOneId)).resolves.toBe(3);
 
     const calls = vi.mocked(fetch).mock.calls;
-    expect(calls.map(([input]) => requestPath(input))).toEqual([leaguePath, '/state/nfl', '/schedule/nfl/regular/2026']);
+    expect(calls.map(([input]) => requestPath(input)).sort()).toEqual([leaguePath, '/state/nfl', '/schedule/nfl/regular/2026'].sort());
     expect(calls.map(([, init]) => init)).toEqual([
       expect.objectContaining({ next: { revalidate: 60 } }),
       expect.objectContaining({ next: { revalidate: 60 } }),

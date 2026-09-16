@@ -1,4 +1,5 @@
 import 'server-only';
+import { resolveCurrentLeagueId } from '@/lib/league-administration/registry';
 
 import { notFound } from 'next/navigation';
 import { parseMatchupWeek } from '@/lib/matchup-week';
@@ -43,6 +44,7 @@ export async function LeagueMatchupsPage({
   searchParams: MatchupSearchParams;
   mode?: 'matchups' | 'my-team';
 }) {
+  leagueId = await resolveCurrentLeagueId(leagueId);
   const { week } = await searchParams;
   const requestedWeek = parseMatchupWeek(week) ?? undefined;
   const [rollover, initialStored] = await Promise.all([
@@ -102,6 +104,7 @@ export async function LeagueMatchupsPage({
 export async function LeagueMyTeamPage({ leagueId, leagueKey, searchParams }: {
   leagueId: string; leagueKey: LeagueKey; searchParams: Promise<{ week?: string; view?: string }>;
 }) {
+  leagueId = await resolveCurrentLeagueId(leagueId);
   const query = await searchParams;
   if (query.view === 'schedule') {
     const [data, rollover] = await Promise.all([getMyTeamSchedule(leagueId), loadRollover(leagueId)]);
@@ -111,6 +114,7 @@ export async function LeagueMyTeamPage({ leagueId, leagueKey, searchParams }: {
 }
 
 export async function LeagueStandingsPage({ leagueId, leagueKey }: { leagueId: string; leagueKey: LeagueKey }) {
+  leagueId = await resolveCurrentLeagueId(leagueId);
   const [data, rollover] = await Promise.all([getStandings(leagueId), loadRollover(leagueId)]);
   let projectionSource: StandingsProjectionSource | null = null;
   if (data.projectionBasis?.kind === 'ready') {
@@ -134,11 +138,13 @@ export async function LeagueStandingsPage({ leagueId, leagueKey }: { leagueId: s
 }
 
 export async function LeagueManagersPage({ leagueId }: { leagueId: string }) {
+  leagueId = await resolveCurrentLeagueId(leagueId);
   const [data, rollover] = await Promise.all([getOverview(leagueId), loadRollover(leagueId)]);
   return <ManagersView data={data} rollover={rollover} />;
 }
 
 export async function LeagueManagerPage({ leagueId, params }: { leagueId: string; params: ManagerParams }) {
+  leagueId = await resolveCurrentLeagueId(leagueId);
   const { id } = await params;
   if (!/^\d+$/u.test(id)) notFound();
   const [data, rollover] = await Promise.all([getManager(leagueId, Number(id)), loadRollover(leagueId)]);
@@ -147,6 +153,7 @@ export async function LeagueManagerPage({ leagueId, params }: { leagueId: string
 }
 
 export async function LeagueTransactionsPage({ leagueId, params }: { leagueId: string; params: ManagerParams }) {
+  leagueId = await resolveCurrentLeagueId(leagueId);
   const { id } = await params;
   if (!/^\d+$/u.test(id)) notFound();
   const [data, rollover] = await Promise.all([getTransactions(leagueId, Number(id)), loadRollover(leagueId)]);

@@ -1,0 +1,38 @@
+{
+  "recordedAt": "2026-09-16T18:47:59Z",
+  "status": "awaiting-explicit-isolated-reset-approval",
+  "migrations": [
+    {
+      "name": "016_portable_league_administration.sql",
+      "checksum": "0106ab529c3c978cfd2a72b8d3628e24660f325ff278d9428758d52367e123aa"
+    },
+    {
+      "name": "017_enrolled_all_player_publication.sql",
+      "checksum": "1247dbfbdfbc79f41a448cf3b2e95fb4f9387e951a26f340e9533754e5c9c361"
+    }
+  ],
+  "command": "node --env-file=.env.integration.local --import tsx scripts/run-league-administration-release-wrapper-integration.mjs",
+  "workingDirectory": "apps/site",
+  "sandboxAttempt": {
+    "outcome": "failed-before-database-import",
+    "reason": "tsx initialization called os.userInfo; Windows uv_os_get_passwd returned ENOMEM."
+  },
+  "escalatedAttempt": {
+    "outcome": "rejected-before-execution",
+    "reason": "Automatic approval review classified the isolated database reset and migration verification as destructive and could not establish explicit user authorization for that exact database mutation. Script authorization guards were not accepted as independent authority."
+  },
+  "databaseStatementsExecutedByThisValidation": false,
+  "localVerification": {
+    "targetedTests": { "passed": 74, "failed": 0, "files": 4 },
+    "typescript": "passed",
+    "targetedEslint": "passed"
+  },
+  "pending": [
+    "actual PostgreSQL 180006 before-and-after catalog capture",
+    "release wrapper rollback, commit and replay regressions",
+    "physical heap, index and TOAST measurements",
+    "independent manifest review",
+    "production release authorization"
+  ],
+  "note": "This status record is not a catalog manifest or database validation result. No database evidence or capacity figures have been fabricated. No retry or alternate execution path was attempted after rejection."
+}

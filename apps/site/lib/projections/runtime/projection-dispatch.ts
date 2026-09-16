@@ -1,4 +1,6 @@
 import 'server-only';
+import { loadAdministrationRegistry } from '../../league-administration/registry';
+import { runAdministrationMaintenance } from '../../league-administration/maintenance';
 
 import type { LiveProjectionSyncResult } from '../worker/contracts';
 import { refreshCurrentLineupContext } from '../worker/current-lineup-context';
@@ -14,8 +16,17 @@ import { createProductionFutureProjectionDependencies } from './future-projectio
 export async function runProductionProjectionSync(
   options: Readonly<{ force?: boolean }> = {},
 ): Promise<LiveProjectionSyncResult> {
-  const current = createProductionProjectionDependencies();
-  if (!options.force) return runWithDependencies(current, options);
+  const invocationStartedAt = Date.now();
+  const registry = await loadAdministrationRegistry();
+  const current = createProductionProjectionDependencies(registry);
+  if (!options.force) {
+    const result = await runWithDependencies(current, options);
+    // Administration outcomes are durable and separately visible; existing scoring remains isolated.
+    await runAdministrationMaintenance(registry, invocationStartedAt).catch(() => {
+      current.logger.write('warn', { stage: 'administration-maintenance', outcome: 'failed' });
+    });
+    return result;
+  }
   if (!current.repository.enabled || !current.lineupRepository.enabled) return { status: 'disabled' };
   const now = current.clock.now();
   if (!Number.isFinite(now.getTime())) return { status: 'failed' };
@@ -39,7 +50,7 @@ export async function runProductionProjectionSync(
       || state.period.seasonType !== period.seasonType || state.period.week !== period.week)) {
       return { status: 'failed' };
     }
-    const result = await runFutureWithDependencies(createProductionFutureProjectionDependencies(), {
+    const result = await runFutureWithDependencies(createProductionFutureProjectionDependencies(registry), {
       period, leagueKeys: futureDefaults.map((state) => state.configuration.key),
       execution: { now, runId, timing: { wallStartedAtMs: now.getTime(), monotonicStartedAt: runStartedAt } },
     });

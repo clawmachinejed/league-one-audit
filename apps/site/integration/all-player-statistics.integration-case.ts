@@ -15,6 +15,8 @@ import type { AllPlayerJobFence } from '../lib/projections/adapters/neon/contrac
 import { measuredAllPlayerStore, measureRetainedPartialHistory } from './all-player-capacity-measurement';
 import { verifyAllPlayerJobRecovery, verifyAllPlayerPreclaimDiagnostics } from './all-player-job-recovery-fixture';
 import { runSyntheticCompleteCapacity } from './all-player-synthetic-capacity';
+import { enrollIntegrationSeason, registerEnrolledIntegrationSeason } from './administration-enrollment-fixture';
+import { verifyEnrolledPublication } from './enrolled-publication-fixture';
 import { rulesHash } from '../lib/projections/adapters/neon/database-values';
 import {
   createIndependentDatabase,
@@ -118,6 +120,7 @@ describe('all-player statistics foundation', () => {
       leagueKey: 'league2', leagueName: 'All Player Two', season: DATABASE_SEASON,
       sleeperLeagueId: 'all-player-integration-two', scoringRules: { pass_td: 6 },
     }));
+    await enrollIntegrationSeason(ownerQuery, ['league1', 'league2'], DATABASE_SEASON);
     leagueSeasonIds = [leagueOne.leagueSeasonId, leagueTwo.leagueSeasonId];
     profileIds = [leagueOne.scoringProfileId, leagueTwo.scoringProfileId];
     await ownerQuery(`INSERT INTO league_period_authorities (
@@ -522,6 +525,29 @@ describe('all-player statistics foundation', () => {
     expect(shared[0]).toEqual({ distinct_contents: 1, distinct_profiles: 2 });
   });
 
+  it('uses complete owner-approved season membership without bootstrap names or later-season leakage', async () => {
+    const transaction = await createPinnedIntegrationDatabase('owner');
+    const saved = { store, leagueSeasonIds, profileIds, profileWeights };
+    try {
+      await transaction.database.query('BEGIN');
+      store = createProjectionStore(transaction.database);
+      const source = observation(2, 'portable-enrollment-source', '2026-09-15T00:00:02.000Z');
+      await verifyEnrolledPublication({ query: transaction.database.query, store, original: await batch(source),
+        async buildExpanded(league, weight) {
+          leagueSeasonIds = [...saved.leagueSeasonIds, league.leagueSeasonId];
+          profileIds = [...saved.profileIds, league.scoringProfileId];
+          profileWeights = [...saved.profileWeights, weight];
+          return batch({ ...source, sourceRevision: `portable-enrollment-${weight}`,
+            requestCompletedAt: '2026-09-15T00:00:03.000Z', observedAt: '2026-09-15T00:00:03.000Z' });
+        },
+      });
+    } finally {
+      store = saved.store; leagueSeasonIds = saved.leagueSeasonIds;
+      profileIds = saved.profileIds; profileWeights = saved.profileWeights;
+      try { await transaction.database.query('ROLLBACK'); } finally { await transaction.close(); }
+    }
+  });
+
   it('derives player total points and PPG from current pointers with profile isolation', async () => {
     const leagueOne = await store.readAllPlayerPlayerMetrics({
       leagueKey: 'league1', provider: 'sleeper', season: DATABASE_SEASON,
@@ -669,12 +695,11 @@ describe('all-player statistics foundation', () => {
       if (claim.kind !== 'acquired') throw new Error('The isolated PPG claim was not acquired.');
       fence = claim.fence;
       expect(await store.markAllPlayerRequest({ fence, period })).toBe(true);
-      const registered = await Promise.all(['one', 'two'].map(async (suffix, index) => stored(
-        await store.registerLeagueSeason({ leagueKey: `league${index + 1}`,
-          leagueName: `Zero Point PPG ${suffix}`, season: metricSeason,
-          sleeperLeagueId: `zero-point-ppg-${suffix}`, scoringRules: { pass_td: 10 },
-        }),
-      )));
+      const registered = await Promise.all(['one', 'two'].map((suffix, index) =>
+        registerEnrolledIntegrationSeason(transaction.database.query, { leagueKey: `league${index + 1}`,
+          season: metricSeason, sleeperLeagueId: `zero-point-ppg-${suffix}`, scoringRules: { pass_td: 10 },
+        })));
+
       leagueSeasonIds = registered.map((league) => league.leagueSeasonId);
       profileIds = registered.map((league) => league.scoringProfileId);
       profileWeights = [10, 10];
@@ -1764,10 +1789,16 @@ describe('all-player statistics foundation', () => {
             await restoreAuthorities();
             return;
           }
-          const leagues = await Promise.all(['one','two'].map(async (suffix,index) =>
-            stored(await store.registerLeagueSeason({leagueKey:`league${index+1}`,
-              leagueName:`Synthetic Capacity ${suffix}`,season:2198,
-              sleeperLeagueId:`synthetic-capacity-shared-${suffix}`,scoringRules:{pass_td:4}}))));
+          const setup = await createPinnedIntegrationDatabase('owner');
+          let leagues: Awaited<ReturnType<typeof registerEnrolledIntegrationSeason>>[];
+          try {
+            await setup.database.query('BEGIN');
+            leagues = await Promise.all(['one','two'].map((suffix,index) =>
+              registerEnrolledIntegrationSeason(setup.database.query, {leagueKey:`league${index+1}`,season:2198,
+                sleeperLeagueId:`synthetic-capacity-shared-${suffix}`,scoringRules:{pass_td:4}})));
+            await setup.database.query('COMMIT');
+          } catch (error) { await setup.database.query('ROLLBACK'); throw error; }
+          finally { await setup.close(); }
           leagueSeasonIds=leagues.map((league) => league.leagueSeasonId);
           profileIds=leagues.map((league) => league.scoringProfileId);
           profileWeights=[4,4];
@@ -1871,6 +1902,7 @@ describe('all-player statistics foundation', () => {
           leagueKey: 'dynasty', leagueName: 'Isolated Shared Dynasty', season: DATABASE_SEASON,
           sleeperLeagueId: 'all-player-integration-dynasty', scoringRules: { pass_td: 4 },
         }));
+        await enrollIntegrationSeason(sharedTransaction.database.query, ['dynasty'], DATABASE_SEASON);
         await sharedTransaction.database.query(dynastyAuthoritySql);
         leagueSeasonIds = [...saved.leagueSeasonIds, sharedDynasty.leagueSeasonId];
         profileIds = [...saved.profileIds, sharedDynasty.scoringProfileId];
@@ -1893,7 +1925,8 @@ describe('all-player statistics foundation', () => {
         profileIds = saved.profileIds; profileWeights = saved.profileWeights;
       }
       // The unchanged two-league writer remains valid before the new season is
-      // registered. Its transaction must hold enrollment until publication ends.
+      // registered and explicitly owner-enrolled. Publication holds season
+      // registration and membership stable until the transaction ends.
       const oldInput = await batch(nextObservation('old-application'));
       const registrationPid = (await peer.database.query<{ pid: number }>('SELECT pg_backend_pid() AS pid'))[0].pid;
       await publishing.database.query('BEGIN');
@@ -1918,6 +1951,7 @@ describe('all-player statistics foundation', () => {
       const result = (await registrationResult)[0];
       if (result.status !== 'fulfilled') throw result.reason;
       const dynasty = stored(result.value);
+      await enrollIntegrationSeason(ownerQuery, ['dynasty'], DATABASE_SEASON);
       expect(profileIds).not.toContain(dynasty.scoringProfileId);
       leagueSeasonIds = [...leagueSeasonIds, dynasty.leagueSeasonId];
       profileIds = [...profileIds, dynasty.scoringProfileId];
@@ -1965,8 +1999,8 @@ describe('all-player statistics foundation', () => {
         .toBe(true);
 
       // Stable league keys cannot be mutated. Prove missing originals with
-      // legitimate new-season inventories, each containing Dynasty and just
-      // one original league, without weakening any immutable identity guard.
+      // legitimate new-season inventories with three intended memberships but
+      // only Dynasty and one original registration. No subset may publish.
       for (const [index, retainedOriginal] of ['league1', 'league2'].entries()) {
         const transaction = await createPinnedIntegrationDatabase('owner');
         const complete = { store, fence, leagueSeasonIds, profileIds, profileWeights, parityExternalGameId };
@@ -1984,12 +2018,12 @@ describe('all-player statistics foundation', () => {
           expect(await store.markAllPlayerRequest({ fence, period })).toBe(true);
           const keys = [retainedOriginal, 'dynasty'];
           profileWeights = [index === 0 ? 4 : 6, 8];
-          const registered = await Promise.all(keys.map(async (leagueKey, keyIndex) => stored(
-            await store.registerLeagueSeason({ leagueKey, leagueName: `Missing Original ${leagueKey}`,
+          const registered = await Promise.all(keys.map((leagueKey, keyIndex) =>
+            registerEnrolledIntegrationSeason(transaction.database.query, { leagueKey,
               season: period.season, sleeperLeagueId: `dynasty-missing-original-${index}-${leagueKey}`,
               scoringRules: { pass_td: profileWeights[keyIndex] },
-            }),
-          )));
+            })));
+          await enrollIntegrationSeason(transaction.database.query, ['league1', 'league2', 'dynasty'], period.season);
           leagueSeasonIds = registered.map((league) => league.leagueSeasonId);
           profileIds = registered.map((league) => league.scoringProfileId);
           for (const leagueKey of keys) {
@@ -2031,7 +2065,7 @@ describe('all-player statistics foundation', () => {
       // A forward compensation restores the exact installed 011 bodies and
       // permits the old application to publish originals while retaining the
       // already verified Dynasty pointer/history. This transaction is rolled
-      // back so the rest of the suite retains migration 015.
+      // back so the rest of the suite retains the current additive migrations.
       const rollback = await createPinnedIntegrationDatabase('owner');
       const installed = (await readFile(new URL('../migrations/011_all_player_foundation_guards.sql', import.meta.url), 'utf8'))
         .replace(/\r\n?/gu, '\n');

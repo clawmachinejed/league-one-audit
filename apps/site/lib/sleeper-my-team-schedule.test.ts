@@ -6,6 +6,10 @@ import type { SleeperMatchup } from './transform';
 
 const cacheState = vi.hoisted(() => ({ generation: 0 }));
 vi.mock('server-only', () => ({}));
+vi.mock('./league-administration/store', () => ({ getLeagueAdministrationStore: () => ({
+  readSourceByConnection: async () => ({ status: 'disabled' }),
+  readSource: async () => ({ status: 'disabled' }),
+}) }));
 vi.mock('react', () => ({ cache: <A extends unknown[], R>(fn: (...args: A) => R) => {
   const values = new Map<string, R>();
   return (...args: A): R => {
