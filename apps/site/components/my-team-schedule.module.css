@@ -1,0 +1,15 @@
+.tabs:global(.standings-view-tabs) { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.schedule { display:grid; gap:6px; margin:0; padding:0; list-style:none; }
+.week { min-width:0; padding:9px 10px; border:1px solid var(--line); border-radius:10px; background:var(--surface); }
+.weekHeader { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:6px; font-size:10px; line-height:14px; color:var(--muted); }
+.weekHeader h2 { margin:0; font-size:inherit; font-weight:700; }
+.matchup { display:grid; grid-template-columns:minmax(0,1fr) auto minmax(0,1fr); align-items:center; gap:8px; }
+.team { min-width:0; font-size:12px; font-weight:700; line-height:15px; overflow-wrap:anywhere; }
+.opponent { text-align:right; }
+.manager { display:block; margin-top:3px; color:var(--muted); font-size:10px; font-weight:400; line-height:13px; }
+.score { font-size:13px; font-weight:750; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.pending { color:var(--muted); font-size:10px; font-weight:400; }
+.result { font-weight:750; }
+.result[data-result=W] { color:var(--green); }
+.result[data-result=L] { color:var(--danger, var(--ink)); }
+.result[data-result=T] { color:var(--muted); }

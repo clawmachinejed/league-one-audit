@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   getOfficialMatchups: vi.fn(),
   getOverview: vi.fn(),
   getStandings: vi.fn(),
+  getMyTeamSchedule: vi.fn(),
   readStoredMatchups: vi.fn(),
 }));
 
@@ -21,10 +22,12 @@ vi.mock('@/lib/sleeper', () => ({
   getOfficialMatchups: mocks.getOfficialMatchups,
   getOverview: mocks.getOverview,
   getStandings: mocks.getStandings,
+  getMyTeamSchedule: mocks.getMyTeamSchedule,
   getManager: vi.fn(),
   getTransactions: vi.fn(),
 }));
 vi.mock('./matchups-view', () => ({ MatchupsView: () => null }));
+vi.mock('./my-team-schedule-view', () => ({ MyTeamScheduleView: () => null }));
 vi.mock('./manager-view', () => ({ ManagerView: () => null }));
 vi.mock('./managers-view', () => ({ ManagersView: () => null }));
 vi.mock('./standings-view', () => ({ StandingsView: () => null }));
@@ -53,6 +56,17 @@ describe('LeagueMyTeamPage', () => {
     mocks.getSiteWeekRollover.mockResolvedValue({ week: 2, nextRolloverAt: null, evaluatedAt: '2026-09-15T20:00:00.000Z' });
   });
 
+  it.each(['league1', 'league2'] as const)('loads only the %s schedule when that tab is requested', async leagueKey => {
+    const data = { ...matchups(2), weeks: [] };
+    mocks.getMyTeamSchedule.mockResolvedValue(data);
+    const rendered = await LeagueMyTeamPage({ leagueId: `id-${leagueKey}`, leagueKey,
+      searchParams: Promise.resolve({ view: 'schedule', week: '3' }) }) as ReactElement<Record<string, unknown>>;
+    expect(mocks.getMyTeamSchedule).toHaveBeenCalledExactlyOnceWith(`id-${leagueKey}`);
+    expect(rendered.props).toMatchObject({ data, week: 3, rollover: { week: 2 } });
+    expect(mocks.readStoredMatchups).not.toHaveBeenCalled();
+    expect(mocks.getOfficialMatchups).not.toHaveBeenCalled();
+  });
+
   it.each(['league1', 'league2'] as const)('reuses the %s current stored snapshot, exact lineage and rollover', async leagueKey => {
     const payload = matchups(2);
     mocks.readStoredMatchups.mockResolvedValue({ kind: 'usable', payload, context,
@@ -63,6 +77,7 @@ describe('LeagueMyTeamPage', () => {
     expect(rendered.props).toMatchObject({ mode: 'my-team', data: payload, periodContext: context,
       snapshotRevision: 'a'.repeat(64), verifiedAt: '2026-09-15T20:00:00.000Z', followCurrent: true, rollover: { week: 2 } });
     expect(mocks.getOfficialMatchups).not.toHaveBeenCalled();
+    expect(mocks.getMyTeamSchedule).not.toHaveBeenCalled();
   });
 
   it.each([undefined, 'invalid', '19'])('uses the current official fallback for a missing or invalid query (%s)', async week => {

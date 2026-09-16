@@ -19,6 +19,7 @@ import { MatchupBoard } from './matchup-board';
 import matchupStyles from './matchups.module.css';
 import { PageIntro } from './page-intro';
 import { useTeamPreference } from './team-preference';
+import { MyTeamTabs } from './my-team-tabs';
 
 function SnapshotUpdated({ value, refreshing }: { value: string; refreshing: boolean }) {
   const date = new Date(value);
@@ -95,7 +96,11 @@ export function MatchupsView({
         maxWeek={data.league.maxWeek} onChange={week => router.push(week === currentWeek ? matchupsPath : `${matchupsPath}?week=${week}`)}
         hrefForWeek={week => `${matchupsPath}?week=${week}`} currentHref={matchupsPath} />
     </div>
-    <Warning message={data.warning} />
+    {myTeamView ? <MyTeamTabs view="my-team" week={followCurrent ? undefined : data.week}>{renderMatchup()}</MyTeamTabs> : renderMatchup()}
+  </div>;
+
+  function renderMatchup() {
+    return <><Warning message={data.warning} />
     {matchups.length ? <MatchupsWithBoxScores key={`${site.key}:${data.league.season}:${data.week}`}
       matchups={matchups} selected={myTeamView ? myTeam.team?.id ?? null : selected} leagueKey={site.key} season={data.league.season}
       showBench={myTeamView}
@@ -105,5 +110,6 @@ export function MatchupsView({
         : `Week ${data.week} matchups will appear when Sleeper publishes the schedule.`} You can still browse teams and standings.</EmptyState>}
     <SnapshotUpdated value={updatedAt} refreshing={refreshing} />
     {automaticallyUpdating && <p className="refresh-note">Checks for a newer matchup snapshot every minute while this page is open.</p>}
-  </div>;
+    </>;
+  }
 }
