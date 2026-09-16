@@ -116,6 +116,21 @@ describe('portable administration release bundle safety', () => {
     }
   });
 
+  it('clears the session marker before BEGIN and commits it only after the final postconditions', () => {
+    const wrapper = buildLeagueAdministrationReleaseWrapper(syntheticInput());
+    const reset = wrapper.indexOf("SELECT set_config('league_one.administration_release_committed','',false)");
+    const committed = wrapper.indexOf("PERFORM set_config('league_one.administration_release_committed'");
+    const finalSelect = wrapper.lastIndexOf('\nSELECT ');
+    expect(reset).toBeGreaterThan(0);
+    expect(reset).toBeLessThan(wrapper.indexOf('\nBEGIN;'));
+    expect(wrapper.indexOf('\nCOMMIT;', reset)).toBeLessThan(wrapper.indexOf('\nBEGIN;'));
+    expect(committed).toBeGreaterThan(wrapper.indexOf('altered historical row counts'));
+    expect(committed).toBeLessThan(wrapper.lastIndexOf('COMMIT;'));
+    expect(wrapper.slice(finalSelect)).toContain("current_setting('league_one.administration_release_committed',true)");
+    expect(wrapper.slice(finalSelect)).toContain("current_database()='projection_refactor_test'");
+    expect(wrapper.slice(finalSelect)).toContain("current_user='neondb_owner'");
+  });
+
   it('rejects missing isolated-test authority before loading a database client or touching the harness', () => {
     const result = spawnSync(process.execPath, [fileURLToPath(new URL('./run-league-administration-release-wrapper-integration.mjs', import.meta.url))],
       { env: { NODE_ENV: 'test' }, encoding: 'utf8' });
@@ -132,6 +147,18 @@ describe('portable administration release bundle safety', () => {
     expect(unaffected).toContain("c.contype='n'");
     expect(unaffected).toContain('a.attacl');
     expect(unaffected).toContain('p.polwithcheck');
+    expect(unaffected).toContain('p.polcmd::text');
     expect(unaffected).toContain('defaultPrivileges');
+  });
+
+  it('emits catalog SQL without trailing whitespace while preserving the exact migration bodies', () => {
+    for (const affected of [true, false]) {
+      expect(leagueAdministrationCatalogSql({ affected })).not.toMatch(/[\t ]+$/mu);
+    }
+    const wrapper = buildLeagueAdministrationReleaseWrapper(syntheticInput());
+    expect(wrapper).not.toMatch(/[\t ]+$/mu);
+    for (const migration of migrations) {
+      expect(wrapper).toContain(migration.sql.replace(/\r\n?/gu, '\n').trimEnd());
+    }
   });
 });

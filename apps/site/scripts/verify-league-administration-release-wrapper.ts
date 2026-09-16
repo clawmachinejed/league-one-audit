@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { Pool } from '@neondatabase/serverless';
 import { integrationEnvironment, prepareIntegrationDatabase, cleanIntegrationDatabase, ownerQuery } from '../integration/neon-integration-harness';
-import { ADMINISTRATION_POSTGRES_VERSION, leagueAdministrationCatalogSql } from './league-administration-catalog.mjs';
+import { ADMINISTRATION_POSTGRES_VERSION, leagueAdministrationCatalogSql, leagueAdministrationDefinitionsSql } from './league-administration-catalog.mjs';
 import { ADMINISTRATION_MIGRATIONS, ADMINISTRATION_INSTALLED_LEDGER, administrationMigrationChecksum,
   buildLeagueAdministrationReleaseWrapper, requireAdministrationReleaseSentinel,
   type AdministrationCatalog, type AdministrationReleaseManifest } from './league-administration-release-wrapper.mjs';
@@ -22,6 +22,28 @@ async function execute(statement: string): Promise<Record<string, unknown>[]> {
     const result = await pool.query(statement);
     return (Array.isArray(result) ? result : [result]).flatMap((part) => part.rows);
   } finally { await pool.end(); }
+}
+async function executeWithContinuingReplayChecks(statement: string, wrongIdentity: string): Promise<Record<string, unknown>[]> {
+  const pool = new Pool({ connectionString: env.ownerDatabaseUrl, max: 1 });
+  const client = await pool.connect();
+  try {
+    const committed = await client.query(statement);
+    for (const invalid of [statement, wrongIdentity]) {
+      let refused = false;
+      try { await client.query(invalid); } catch { refused = true; }
+      if (!refused) throw new Error('The continuing-client fixture did not encounter its required preflight failure.');
+      // SQL editors may continue after the failure. COMMIT on an aborted
+      // transaction rolls it back; the later success SELECT must still be empty.
+      // Reuse the successful connection to challenge any stale committed marker.
+      await client.query('COMMIT');
+      const finalSelect = invalid.slice(invalid.lastIndexOf('\nSELECT '));
+      const continued = (await client.query(finalSelect)).rows;
+      if (continued.some(row => row.success_sentinel)) {
+        throw new Error('UNSAFE SUCCESS: a continuing SQL client emitted the commit sentinel after an aborted replay or wrong-target invocation.');
+      }
+    }
+    return (Array.isArray(committed) ? committed : [committed]).flatMap(part => part.rows);
+  } finally { client.release(); await pool.end(); }
 }
 const catalog = async (affected = true): Promise<AdministrationCatalog> => (
   await ownerQuery<{ catalog: AdministrationCatalog }>(leagueAdministrationCatalogSql({ affected }))
@@ -48,6 +70,10 @@ try {
   };
   await mkdir(new URL('../release/league-administration/', import.meta.url), { recursive: true });
   await writeFile(new URL('../release/league-administration/catalog.integration.json', import.meta.url), `${JSON.stringify(manifest, null, 2)}\n`);
+  const definitions = (await ownerQuery<{ definitions: Record<string, unknown> }>(leagueAdministrationDefinitionsSql()))[0].definitions;
+  await writeFile(new URL('../release/league-administration/catalog-definitions.integration.json', import.meta.url),
+    `${JSON.stringify({ observedAt: manifest.observedAt, postgresVersion: ADMINISTRATION_POSTGRES_VERSION,
+      migrations: manifest.migrations, ...definitions }, null, 2)}\n`);
   // This transient true value permits exercising the exact SQL only in the guarded
   // isolated harness; the durable capture remains reviewed:false for independent review.
   const input = { migrations, expectedDatabase: env.expectedDatabase, expectedOwner, manifest: { ...manifest, reviewed: true } };
@@ -61,7 +87,8 @@ try {
     || JSON.stringify(await ledger()) !== JSON.stringify(beforeLedger)) {
     throw new Error('A corrupt administration constraint capture failed to roll back catalog and ledger atomically.');
   }
-  const rows = await execute(buildLeagueAdministrationReleaseWrapper(input));
+  const rows = await executeWithContinuingReplayChecks(buildLeagueAdministrationReleaseWrapper(input),
+    buildLeagueAdministrationReleaseWrapper({ ...input, expectedDatabase: `${env.expectedDatabase}_wrong` }));
   const sentinel = requireAdministrationReleaseSentinel(rows, migrations);
   if (JSON.stringify(await catalog()) !== JSON.stringify(after)
     || JSON.stringify(await catalog(false)) !== JSON.stringify(unaffectedBefore)) {
@@ -76,7 +103,8 @@ try {
     migrations: manifest.migrations, sentinel, catalogReview: 'pending-independent-review',
     checks: ['exact-001-through-015-ledger', 'postgres-180006-not-null-constraint-catalog',
       'unaffected-catalog-and-acls', 'corrupt-manifest-full-rollback', 'actual-wrapper-commit',
-      'exact-success-sentinel', 'installed-bundle-replay-refused'] };
+      'exact-success-sentinel', 'installed-bundle-replay-refused',
+      'same-session-continue-after-error-replay-no-success', 'same-session-wrong-target-no-success'] };
   await writeFile(new URL('../release/league-administration/wrapper-verification.integration.json', import.meta.url), `${JSON.stringify(evidence, null, 2)}\n`);
   process.stdout.write(`${JSON.stringify(evidence)}\n`);
 } finally {

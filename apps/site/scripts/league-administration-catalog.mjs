@@ -36,6 +36,36 @@ export function sqlLiteral(value) {
 const sqlArray = (values) => `ARRAY[${values.map(sqlLiteral).join(',')}]::text[]`;
 const signature = "p.proname||'('||replace(oidvectortypes(p.proargtypes),', ',',')||')'";
 
+/** Readable source definitions accompany the compact release fingerprints. */
+export function leagueAdministrationDefinitionsSql() {
+  const tables = sqlArray(ADMINISTRATION_TABLES);
+  const functions = sqlArray([...ADMINISTRATION_NEW_FUNCTIONS, ...ADMINISTRATION_REPLACED_FUNCTIONS]);
+  const triggers = sqlArray(ADMINISTRATION_EXISTING_TABLE_TRIGGERS);
+  return `SELECT jsonb_build_object(
+    'tables',COALESCE((SELECT jsonb_agg(jsonb_build_object('name',t.relname,
+      'columns',(SELECT jsonb_agg(jsonb_build_object('name',a.attname,'type',format_type(a.atttypid,a.atttypmod),
+        'notNull',a.attnotnull,'default',pg_get_expr(d.adbin,d.adrelid)) ORDER BY a.attnum)
+        FROM pg_attribute a LEFT JOIN pg_attrdef d ON d.adrelid=a.attrelid AND d.adnum=a.attnum
+        WHERE a.attrelid=t.oid AND a.attnum>0 AND NOT a.attisdropped),
+      'constraints',(SELECT jsonb_agg(jsonb_build_object('name',c.conname,'type',c.contype,
+        'validated',c.convalidated,'definition',pg_get_constraintdef(c.oid,true)) ORDER BY c.conname)
+        FROM pg_constraint c WHERE c.conrelid=t.oid),
+      'indexes',(SELECT jsonb_agg(jsonb_build_object('name',i.indexname,'definition',i.indexdef) ORDER BY i.indexname)
+        FROM pg_indexes i WHERE i.schemaname='public' AND i.tablename=t.relname)) ORDER BY t.relname)
+      FROM pg_class t WHERE t.relnamespace='public'::regnamespace AND t.relkind IN ('r','p')
+        AND t.relname=ANY(${tables})),'[]'::jsonb),
+    'functions',COALESCE((SELECT jsonb_agg(jsonb_build_object('signature',${signature},
+      'definition',pg_get_functiondef(p.oid)) ORDER BY ${signature})
+      FROM pg_proc p WHERE p.pronamespace='public'::regnamespace AND p.prokind='f'
+        AND ${signature}=ANY(${functions})),'[]'::jsonb),
+    'triggers',COALESCE((SELECT jsonb_agg(jsonb_build_object('key',t.relname||'.'||tr.tgname,
+      'definition',pg_get_triggerdef(tr.oid,true)) ORDER BY t.relname,tr.tgname)
+      FROM pg_trigger tr JOIN pg_class t ON t.oid=tr.tgrelid
+      WHERE t.relnamespace='public'::regnamespace AND NOT tr.tgisinternal
+        AND (t.relname=ANY(${tables}) OR (t.relname||'.'||tr.tgname)=ANY(${triggers}))),'[]'::jsonb)
+  ) AS definitions`;
+}
+
 /**
  * Affected capture is compared to independently reviewed before/after manifests.
  * Unaffected capture is compared within the release transaction, preserving all
@@ -74,7 +104,7 @@ export function leagueAdministrationCatalogSql({ affected = true, runtimeRole = 
       FROM pg_constraint c WHERE c.conrelid=t.oid) constraints
     CROSS JOIN LATERAL (SELECT count(*) AS n,md5(COALESCE(string_agg(i.indexname||chr(31)||i.indexdef,
       chr(30) ORDER BY i.indexname),'')) AS hash FROM pg_indexes i WHERE i.schemaname='public' AND i.tablename=t.relname) indexes
-    CROSS JOIN LATERAL (SELECT md5(COALESCE(string_agg(p.polname||chr(31)||p.polcmd||chr(31)||p.polpermissive::text
+    CROSS JOIN LATERAL (SELECT md5(COALESCE(string_agg(p.polname||chr(31)||p.polcmd::text||chr(31)||p.polpermissive::text
       ||chr(31)||p.polroles::text||chr(31)||COALESCE(pg_get_expr(p.polqual,p.polrelid),'')||chr(31)
       ||COALESCE(pg_get_expr(p.polwithcheck,p.polrelid),''),chr(30) ORDER BY p.polname),'')) AS hash
       FROM pg_policy p WHERE p.polrelid=t.oid) policies
@@ -94,7 +124,7 @@ export function leagueAdministrationCatalogSql({ affected = true, runtimeRole = 
       'function',p.proname,'enabled',tr.tgenabled,'definitionHash',md5(pg_get_triggerdef(tr.oid,true))) ORDER BY t.relname,tr.tgname)
       FROM pg_trigger tr JOIN pg_class t ON t.oid=tr.tgrelid JOIN pg_proc p ON p.oid=tr.tgfoid
       WHERE t.relnamespace='public'::regnamespace AND NOT tr.tgisinternal AND ${triggerFilter}),'[]'::jsonb)
-    ${affected ? '' : `,
+${affected ? '' : `    ,
     'schemas',(SELECT md5(COALESCE(string_agg(n.nspname||chr(31)||r.rolname||chr(31)||COALESCE(n.nspacl::text,''),chr(30) ORDER BY n.nspname),''))
       FROM pg_namespace n JOIN pg_roles r ON r.oid=n.nspowner WHERE n.nspname !~ '^pg_(toast_)?temp_'),
     'sequences',(SELECT md5(COALESCE(string_agg(t.relname||chr(31)||r.rolname||chr(31)||COALESCE(t.relacl::text,''),chr(30) ORDER BY t.relname),''))

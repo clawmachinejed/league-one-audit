@@ -1,0 +1,83 @@
+{
+  "recordedAt": "2026-09-16T19:12:23Z",
+  "kind": "read-only-pre-release-evidence",
+  "productionWritesPerformed": false,
+  "repository": {
+    "canonical": "clawmachinejed/league-one-audit",
+    "localMain": "9325a979e4883fb0ed10a83f2edf4d8eda618d48",
+    "githubMain": "9325a979e4883fb0ed10a83f2edf4d8eda618d48",
+    "primaryCheckoutClean": true,
+    "openPullRequests": [220],
+    "pullRequest220Draft": true
+  },
+  "productionDeployment": {
+    "project": "robert-finchums-projects/league_one_fantasy",
+    "id": "dpl_9j9NKRTrWPypMjfrBbAfzDRDiiH6",
+    "status": "Ready",
+    "branch": "main",
+    "connectedRepository": "clawmachinejed/league-one-audit",
+    "rootDirectory": "apps/site",
+    "gitSha": "9325a979e4883fb0ed10a83f2edf4d8eda618d48",
+    "url": "https://leagueonefantasy-1jymtgfb1-robert-finchums-projects.vercel.app",
+    "source": "Vercel deployment listing and detail in the built-in browser"
+  },
+  "database": {
+    "checkedAt": "2026-09-16T19:09:12.647068Z",
+    "project": "solitary-base-99261075",
+    "branch": "br-rapid-boat-avgeevye",
+    "branchName": "main",
+    "database": "neondb",
+    "role": "neondb_owner",
+    "sessionRole": "neondb_owner",
+    "postgresVersion": "180006",
+    "installedMigrationCount": 15,
+    "latestMigration": "015_all_player_dynasty_publication.sql",
+    "physicalDatabaseBytes": 429006848,
+    "source": "read-only SELECT in the verified Neon SQL editor"
+  },
+  "neonDashboard": {
+    "observedAtApproximate": "2026-09-16T19:11:00Z",
+    "usageSince": "2026-09-13",
+    "plan": "Launch",
+    "projectStorageGB": 0.5,
+    "historyGB": 0.11,
+    "snapshotsGB": 0.42,
+    "computeCUHours": 36.64,
+    "networkTransferGB": 2.79,
+    "branches": 5,
+    "historyRetentionHours": 6,
+    "metricDelay": "up to one hour; inactive projects are not updated",
+    "source": "https://console.neon.tech/app/projects/solitary-base-99261075"
+  },
+  "neonBilling": {
+    "periodStart": "2026-09-13",
+    "periodEnd": "2026-10-01",
+    "plan": "Launch",
+    "freePlanLimitsRemoved": true,
+    "includedPublicTransferGBPerProject": 500,
+    "includedBranchesPerProject": 10,
+    "storageUSDPerGBMonth": 0.35,
+    "instantRestoreUSDPerGBMonth": 0.2,
+    "source": "https://console.neon.tech/app/org-round-wildflower-31158557/billing"
+  },
+  "ownershipAndBaseline": {
+    "releaseOwnership": "no competing release owner observed in accessible worktrees, open PRs and deployments",
+    "ordinaryFutureWorker": "running at the 19:09:12 check; any later migration must pass fresh live-lease guards",
+    "currentHourlyMaterialization": "all three league markers completed at 19:00:26 UTC",
+    "existingAllPlayerIngestion": {
+      "checkedAt": "2026-09-16T19:12:23.630014Z",
+      "jobKey": "all-player-ingestion:sleeper",
+      "state": "failed",
+      "lastError": "provider-failed",
+      "updatedAt": "2026-09-16T19:01:17.571350Z",
+      "leaseUntil": null,
+      "note": "Pre-existing production state before PR220; no provider retry, repair or production write performed. This record is not evidence of complete production operational health."
+    }
+  },
+  "limitsOfEvidence": [
+    "Dashboard project usage and physical database size measure different scopes and are not interchangeable.",
+    "Approximately 497.21 GB of the displayed transfer allowance remains before delayed usage and ordinary-workload reserve; this is not a season-fit guarantee.",
+    "No network byte count, compute cost or future storage growth is inferred from serialized JSON or SQL request counts.",
+    "All identity, capacity and lease evidence must be refreshed before an authorized production release."
+  ]
+}

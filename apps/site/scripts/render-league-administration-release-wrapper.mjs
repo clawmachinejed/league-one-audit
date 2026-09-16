@@ -17,7 +17,7 @@ const wrapper = buildLeagueAdministrationReleaseWrapper({ migrations, expectedDa
   manifest: reviewOnly ? { ...manifest, reviewed: true } : manifest });
 // An unreviewed rendering is entirely comments; it is impossible to apply it accidentally.
 const artifact = reviewOnly ? '-- REVIEW ONLY: catalog review and production-release approval are pending.\n'
-  + wrapper.split('\n').map((line) => `-- ${line}`).join('\n') : wrapper;
+  + wrapper.split('\n').map((line) => line.trimEnd() ? `-- ${line.trimEnd()}` : '--').join('\n') : wrapper;
 const name = reviewOnly ? '016-017.production.review.sql' : '016-017.production.sql';
 await mkdir(new URL('../release/league-administration/', import.meta.url), { recursive: true });
 await writeFile(new URL(`../release/league-administration/${name}`, import.meta.url), artifact, 'utf8');

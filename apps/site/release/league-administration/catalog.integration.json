@@ -1,0 +1,630 @@
+{
+  "format": "league-administration-release-v1",
+  "postgresVersion": 180006,
+  "expectedOwner": "neondb_owner",
+  "observedAt": "2026-09-16T19:14:39.672Z",
+  "reviewed": true,
+  "migrations": [
+    {
+      "name": "016_portable_league_administration.sql",
+      "checksum": "0106ab529c3c978cfd2a72b8d3628e24660f325ff278d9428758d52367e123aa"
+    },
+    {
+      "name": "017_enrolled_all_player_publication.sql",
+      "checksum": "1247dbfbdfbc79f41a448cf3b2e95fb4f9387e951a26f340e9533754e5c9c361"
+    }
+  ],
+  "before": {
+    "tables": [],
+    "triggers": [],
+    "functions": [
+      {
+        "acl": "{neondb_owner=X/neondb_owner,league_one_runtime=X/neondb_owner}",
+        "owner": "neondb_owner",
+        "signature": "advance_current_all_player_score_set(text,smallint,text,smallint,uuid,text,uuid,uuid,timestamp with time zone)",
+        "configuration": [
+          "search_path=pg_catalog, public, pg_temp"
+        ],
+        "publicExecute": false,
+        "definitionHash": "199414e509b0b090ce96c0333a4fee35",
+        "runtimeExecute": true,
+        "securityDefiner": true
+      },
+      {
+        "acl": "{neondb_owner=X/neondb_owner}",
+        "owner": "neondb_owner",
+        "signature": "all_player_score_set_is_publication_ready(uuid,jsonb,uuid)",
+        "configuration": [
+          "search_path=pg_catalog, public, pg_temp"
+        ],
+        "publicExecute": false,
+        "definitionHash": "411726166ee442c675e1c6c40e3f0dc3",
+        "runtimeExecute": false,
+        "securityDefiner": true
+      }
+    ],
+    "constraintTypes": []
+  },
+  "after": {
+    "tables": [
+      {
+        "acl": "{neondb_owner=arwdDxtm/neondb_owner,league_one_runtime=r/neondb_owner}",
+        "rls": false,
+        "kind": "r",
+        "name": "league_administration_contents",
+        "owner": "neondb_owner",
+        "columns": 16,
+        "indexes": 3,
+        "forceRls": false,
+        "indexHash": "c5528bb76b6dc5760c85fe6f00b40f9c",
+        "columnHash": "178d4d2e7b616c8100d98da8aa078c76",
+        "policyHash": "d41d8cd98f00b204e9800998ecf8427e",
+        "constraints": 26,
+        "constraintHash": "e5cec2eb9a915e1915907e8811950221",
+        "publicPrivileges": [],
+        "runtimePrivileges": [
+          "SELECT"
+        ],
+        "notNullConstraints": 13
+      },
+      {
+        "acl": "{neondb_owner=arwdDxtm/neondb_owner,league_one_runtime=r/neondb_owner}",
+        "rls": false,
+        "kind": "r",
+        "name": "league_administration_enrollment_seasons",
+        "owner": "neondb_owner",
+        "columns": 5,
+        "indexes": 1,
+        "forceRls": false,
+        "indexHash": "aee8e5f71548d70e218ab888e3ab9992",
+        "columnHash": "969b7bfc6d04f790c856b52efefd824b",
+        "policyHash": "d41d8cd98f00b204e9800998ecf8427e",
+        "constraints": 10,
+        "constraintHash": "be3e2460e43810bfed006a05f6ac3118",
+        "publicPrivileges": [],
+        "runtimePrivileges": [
+          "SELECT"
+        ],
+        "notNullConstraints": 5
+      },
+      {
+        "acl": "{neondb_owner=arwdDxtm/neondb_owner,league_one_runtime=r/neondb_owner}",
+        "rls": false,
+        "kind": "r",
+        "name": "league_administration_enrollments",
+        "owner": "neondb_owner",
+        "columns": 5,
+        "indexes": 1,
+        "forceRls": false,
+        "indexHash": "f8f6a6072ec6fd73ea1a445b3191fbc0",
+        "columnHash": "f9e264af3edeaa9c1e5d30f603154f07",
+        "policyHash": "d41d8cd98f00b204e9800998ecf8427e",
+        "constraints": 9,
+        "constraintHash": "391b5673ee45c8aeb7a15b2ab84de693",
+        "publicPrivileges": [],
+        "runtimePrivileges": [
+          "SELECT"
+        ],
+        "notNullConstraints": 5
+      },
+      {
+        "acl": "{neondb_owner=arwdDxtm/neondb_owner,league_one_runtime=r/neondb_owner}",
+        "rls": false,
+        "kind": "r",
+        "name": "league_administration_heads",
+        "owner": "neondb_owner",
+        "columns": 11,
+        "indexes": 1,
+        "forceRls": false,
+        "indexHash": "85db6df32c46f7c9c6d7ec23b567e21a",
+        "columnHash": "514ca483268c0da2546fbf2329bc874e",
+        "policyHash": "d41d8cd98f00b204e9800998ecf8427e",
+        "constraints": 13,
+        "constraintHash": "ea6cd5b30e24de4386907c27e07ba33d",
+        "publicPrivileges": [],
+        "runtimePrivileges": [
+          "SELECT"
+        ],
+        "notNullConstraints": 4
+      },
+      {
+        "acl": "{neondb_owner=arwdDxtm/neondb_owner,league_one_runtime=r/neondb_owner}",
+        "rls": false,
+        "kind": "r",
+        "name": "league_administration_manager_entries",
+        "owner": "neondb_owner",
+        "columns": 3,
+        "indexes": 1,
+        "forceRls": false,
+        "indexHash": "74cb85d1b9141d23eda439af5fc0e61c",
+        "columnHash": "eee5ce4ecf56d1916a320b3f4373330b",
+        "policyHash": "d41d8cd98f00b204e9800998ecf8427e",
+        "constraints": 7,
+        "constraintHash": "d2f3d0cc1c125de561c2c2673453732a",
+        "publicPrivileges": [],
+        "runtimePrivileges": [
+          "SELECT"
+        ],
+        "notNullConstraints": 3
+      },
+      {
+        "acl": "{neondb_owner=arwdDxtm/neondb_owner,league_one_runtime=r/neondb_owner}",
+        "rls": false,
+        "kind": "r",
+        "name": "league_administration_memberships",
+        "owner": "neondb_owner",
+        "columns": 5,
+        "indexes": 1,
+        "forceRls": false,
+        "indexHash": "2db550093fa663b5d3df6f5749eee52c",
+        "columnHash": "3f696959057c1963da77464fd1aa8d78",
+        "policyHash": "d41d8cd98f00b204e9800998ecf8427e",
+        "constraints": 10,
+        "constraintHash": "2ba6ff9e7ff2e576a7b5953e96c9b12d",
+        "publicPrivileges": [],
+        "runtimePrivileges": [
+          "SELECT"
+        ],
+        "notNullConstraints": 5
+      },
+      {
+        "acl": "{neondb_owner=arwdDxtm/neondb_owner,league_one_runtime=r/neondb_owner}",
+        "rls": false,
+        "kind": "r",
+        "name": "league_administration_observations",
+        "owner": "neondb_owner",
+        "columns": 15,
+        "indexes": 4,
+        "forceRls": false,
+        "indexHash": "5385c9d4b3355f20421135561e79dc75",
+        "columnHash": "1ef8f8c7e256c15b6d2d41f60cdc83d1",
+        "policyHash": "d41d8cd98f00b204e9800998ecf8427e",
+        "constraints": 22,
+        "constraintHash": "6a9b1711c2f0beb14fafbbc1144e80cc",
+        "publicPrivileges": [],
+        "runtimePrivileges": [
+          "SELECT"
+        ],
+        "notNullConstraints": 12
+      },
+      {
+        "acl": "{neondb_owner=arwdDxtm/neondb_owner,league_one_runtime=r/neondb_owner}",
+        "rls": false,
+        "kind": "r",
+        "name": "league_administration_team_entries",
+        "owner": "neondb_owner",
+        "columns": 4,
+        "indexes": 1,
+        "forceRls": false,
+        "indexHash": "bfcd543ebdc1e37e218afb31e60df3bd",
+        "columnHash": "d186551d92d1940038dc7b8a50d36ed0",
+        "policyHash": "d41d8cd98f00b204e9800998ecf8427e",
+        "constraints": 8,
+        "constraintHash": "6222ff8390bea9de609640a6831553cf",
+        "publicPrivileges": [],
+        "runtimePrivileges": [
+          "SELECT"
+        ],
+        "notNullConstraints": 4
+      },
+      {
+        "acl": "{neondb_owner=arwdDxtm/neondb_owner,league_one_runtime=r/neondb_owner}",
+        "rls": false,
+        "kind": "r",
+        "name": "league_administration_transaction_entries",
+        "owner": "neondb_owner",
+        "columns": 3,
+        "indexes": 1,
+        "forceRls": false,
+        "indexHash": "535850118e2869afaac69639c9c4c0c1",
+        "columnHash": "9efcd4243b79e7c98aa50f7b3b85a6df",
+        "policyHash": "d41d8cd98f00b204e9800998ecf8427e",
+        "constraints": 7,
+        "constraintHash": "2867faf80d9f6d689bc8979cc242ad21",
+        "publicPrivileges": [],
+        "runtimePrivileges": [
+          "SELECT"
+        ],
+        "notNullConstraints": 3
+      },
+      {
+        "acl": "{neondb_owner=arwdDxtm/neondb_owner,league_one_runtime=r/neondb_owner}",
+        "rls": false,
+        "kind": "r",
+        "name": "league_configuration_activations",
+        "owner": "neondb_owner",
+        "columns": 13,
+        "indexes": 4,
+        "forceRls": false,
+        "indexHash": "cf4d45bfe7f218e0124d44024a660217",
+        "columnHash": "6e42368bab0ad006f7305f5b71774d59",
+        "policyHash": "d41d8cd98f00b204e9800998ecf8427e",
+        "constraints": 21,
+        "constraintHash": "1b69f94209d2127093d1b0d2ca5cfe6d",
+        "publicPrivileges": [],
+        "runtimePrivileges": [
+          "SELECT"
+        ],
+        "notNullConstraints": 9
+      },
+      {
+        "acl": "{neondb_owner=arwdDxtm/neondb_owner,league_one_runtime=r/neondb_owner}",
+        "rls": false,
+        "kind": "r",
+        "name": "league_configuration_heads",
+        "owner": "neondb_owner",
+        "columns": 3,
+        "indexes": 1,
+        "forceRls": false,
+        "indexHash": "436550368c5e93ff8da3e3aa8cfc1f00",
+        "columnHash": "a714328a220d16b5c2236df46dfe01f8",
+        "policyHash": "d41d8cd98f00b204e9800998ecf8427e",
+        "constraints": 6,
+        "constraintHash": "184a90f23695089933c4914c3639227a",
+        "publicPrivileges": [],
+        "runtimePrivileges": [
+          "SELECT"
+        ],
+        "notNullConstraints": 3
+      },
+      {
+        "acl": "{neondb_owner=arwdDxtm/neondb_owner,league_one_runtime=r/neondb_owner}",
+        "rls": false,
+        "kind": "r",
+        "name": "league_configuration_versions",
+        "owner": "neondb_owner",
+        "columns": 9,
+        "indexes": 3,
+        "forceRls": false,
+        "indexHash": "47226671281be8ca2f3a20382384d7ce",
+        "columnHash": "364055a485567072c04dd0c0faa50769",
+        "policyHash": "d41d8cd98f00b204e9800998ecf8427e",
+        "constraints": 16,
+        "constraintHash": "843866d6726eab4dba2a4dc28644cc43",
+        "publicPrivileges": [],
+        "runtimePrivileges": [
+          "SELECT"
+        ],
+        "notNullConstraints": 7
+      },
+      {
+        "acl": "{neondb_owner=arwdDxtm/neondb_owner,league_one_runtime=r/neondb_owner}",
+        "rls": false,
+        "kind": "r",
+        "name": "league_season_teams",
+        "owner": "neondb_owner",
+        "columns": 6,
+        "indexes": 3,
+        "forceRls": false,
+        "indexHash": "b73eb9d3bc925b2cbea9d9aeff5f28e2",
+        "columnHash": "0ad04202268e7fa77399343dce5d0bb9",
+        "policyHash": "d41d8cd98f00b204e9800998ecf8427e",
+        "constraints": 12,
+        "constraintHash": "516bd050fec82b9a5b2082832face9c8",
+        "publicPrivileges": [],
+        "runtimePrivileges": [
+          "SELECT"
+        ],
+        "notNullConstraints": 6
+      },
+      {
+        "acl": "{neondb_owner=arwdDxtm/neondb_owner,league_one_runtime=r/neondb_owner}",
+        "rls": false,
+        "kind": "r",
+        "name": "league_source_connection_history",
+        "owner": "neondb_owner",
+        "columns": 8,
+        "indexes": 1,
+        "forceRls": false,
+        "indexHash": "34ade3b2dc078ed50d59823b14d71ceb",
+        "columnHash": "cd45b8868935eb0b0f9c049d7fe0d9d1",
+        "policyHash": "d41d8cd98f00b204e9800998ecf8427e",
+        "constraints": 11,
+        "constraintHash": "d1b0509ae0c313856c5263b36aa76c90",
+        "publicPrivileges": [],
+        "runtimePrivileges": [
+          "SELECT"
+        ],
+        "notNullConstraints": 7
+      },
+      {
+        "acl": "{neondb_owner=arwdDxtm/neondb_owner,league_one_runtime=r/neondb_owner}",
+        "rls": false,
+        "kind": "r",
+        "name": "league_source_manager_accounts",
+        "owner": "neondb_owner",
+        "columns": 4,
+        "indexes": 2,
+        "forceRls": false,
+        "indexHash": "bc99c5893f0bdbb1e5ec14c97771b02a",
+        "columnHash": "90824386aa5712bde533bc3aeb70c9aa",
+        "policyHash": "d41d8cd98f00b204e9800998ecf8427e",
+        "constraints": 8,
+        "constraintHash": "bb7a305e042a0fe7f475266e0bf5536f",
+        "publicPrivileges": [],
+        "runtimePrivileges": [
+          "SELECT"
+        ],
+        "notNullConstraints": 4
+      }
+    ],
+    "triggers": [
+      {
+        "key": "current_projection_snapshots.published_administration_lineage",
+        "enabled": "O",
+        "function": "validate_published_administration_lineage",
+        "definitionHash": "3c0c19b32204ba60ca06c5543cdc6d94"
+      },
+      {
+        "key": "league_administration_contents.immutable_history",
+        "enabled": "O",
+        "function": "prevent_league_administration_history_change",
+        "definitionHash": "8912dbc388f9fd9b6b664b26fccae35b"
+      },
+      {
+        "key": "league_administration_enrollment_seasons.immutable_history",
+        "enabled": "O",
+        "function": "prevent_league_administration_history_change",
+        "definitionHash": "e48f2f1c5296d29dfbdb5b52ae005a8c"
+      },
+      {
+        "key": "league_administration_manager_entries.immutable_history",
+        "enabled": "O",
+        "function": "prevent_league_administration_history_change",
+        "definitionHash": "2ecebbd74c23c79a69c323185ef871f2"
+      },
+      {
+        "key": "league_administration_manager_entries.seal_entries",
+        "enabled": "O",
+        "function": "guard_league_administration_entry",
+        "definitionHash": "819c0514c77d2e85c8745dbb204e5519"
+      },
+      {
+        "key": "league_administration_memberships.immutable_history",
+        "enabled": "O",
+        "function": "prevent_league_administration_history_change",
+        "definitionHash": "23e8e49ab9587fb07010bf34a4cc2883"
+      },
+      {
+        "key": "league_administration_memberships.seal_entries",
+        "enabled": "O",
+        "function": "guard_league_administration_entry",
+        "definitionHash": "0b02c841f26d84d47c936f2d986d3399"
+      },
+      {
+        "key": "league_administration_observations.immutable_history",
+        "enabled": "O",
+        "function": "prevent_league_administration_history_change",
+        "definitionHash": "38039ddeee508c1d1541b5920d44b2f7"
+      },
+      {
+        "key": "league_administration_team_entries.immutable_history",
+        "enabled": "O",
+        "function": "prevent_league_administration_history_change",
+        "definitionHash": "035ad9f8e23bbb4a64076eb930a89df2"
+      },
+      {
+        "key": "league_administration_team_entries.seal_entries",
+        "enabled": "O",
+        "function": "guard_league_administration_entry",
+        "definitionHash": "2f8fffde0f295eb7b217878ccd282e46"
+      },
+      {
+        "key": "league_administration_transaction_entries.immutable_history",
+        "enabled": "O",
+        "function": "prevent_league_administration_history_change",
+        "definitionHash": "cfa00368e9708f5d4d6f9327b7c5ec71"
+      },
+      {
+        "key": "league_administration_transaction_entries.seal_entries",
+        "enabled": "O",
+        "function": "guard_league_administration_entry",
+        "definitionHash": "f325a1859df834fecbcf0b5287288af9"
+      },
+      {
+        "key": "league_configuration_activations.immutable_history",
+        "enabled": "O",
+        "function": "prevent_league_administration_history_change",
+        "definitionHash": "3b737bc1413c9456b7e5504c17b345ff"
+      },
+      {
+        "key": "league_configuration_versions.immutable_history",
+        "enabled": "O",
+        "function": "prevent_league_administration_history_change",
+        "definitionHash": "b1c49d436d67e47e33704d042c8aa4c4"
+      },
+      {
+        "key": "league_season_teams.immutable_history",
+        "enabled": "O",
+        "function": "prevent_league_administration_history_change",
+        "definitionHash": "851975971f53db5c476c1286c678a2cc"
+      },
+      {
+        "key": "league_source_connection_history.immutable_history",
+        "enabled": "O",
+        "function": "prevent_league_administration_history_change",
+        "definitionHash": "b6beac836cc91056536fca4825e55769"
+      },
+      {
+        "key": "league_source_connections.guard_administration_connection",
+        "enabled": "O",
+        "function": "guard_league_source_connection_history",
+        "definitionHash": "890d4bfd756639b969d8202a9cc34075"
+      },
+      {
+        "key": "league_source_connections.record_administration_connection",
+        "enabled": "O",
+        "function": "guard_league_source_connection_history",
+        "definitionHash": "bdafe06596b7fd2000fbe451be042e2d"
+      },
+      {
+        "key": "league_source_manager_accounts.immutable_history",
+        "enabled": "O",
+        "function": "prevent_league_administration_history_change",
+        "definitionHash": "16e8749c9205448144e87298cfa95b2b"
+      },
+      {
+        "key": "league_week_observations.official_administration_lineage",
+        "enabled": "O",
+        "function": "validate_official_administration_lineage",
+        "definitionHash": "29bfbebba0ec547544754b2be69dd666"
+      }
+    ],
+    "functions": [
+      {
+        "acl": "{neondb_owner=X/neondb_owner}",
+        "owner": "neondb_owner",
+        "signature": "activate_league_configuration_component(uuid,text,text,smallint,smallint,text,bigint)",
+        "configuration": [
+          "search_path=pg_catalog, public, pg_temp"
+        ],
+        "publicExecute": false,
+        "definitionHash": "bbf45cc0a921fd826c549fabdaf90773",
+        "runtimeExecute": false,
+        "securityDefiner": true
+      },
+      {
+        "acl": "{neondb_owner=X/neondb_owner,league_one_runtime=X/neondb_owner}",
+        "owner": "neondb_owner",
+        "signature": "advance_current_all_player_score_set(text,smallint,text,smallint,uuid,text,uuid,uuid,timestamp with time zone)",
+        "configuration": [
+          "search_path=pg_catalog, public, pg_temp"
+        ],
+        "publicExecute": false,
+        "definitionHash": "dc6bacec8a3aa4f1ef9b45a6a59d88d0",
+        "runtimeExecute": true,
+        "securityDefiner": true
+      },
+      {
+        "acl": "{neondb_owner=X/neondb_owner}",
+        "owner": "neondb_owner",
+        "signature": "all_player_score_set_is_publication_ready(uuid,jsonb,uuid)",
+        "configuration": [
+          "search_path=pg_catalog, public, pg_temp"
+        ],
+        "publicExecute": false,
+        "definitionHash": "fb91efe412a7e97ea3ab77050718d24e",
+        "runtimeExecute": false,
+        "securityDefiner": true
+      },
+      {
+        "acl": "{neondb_owner=X/neondb_owner}",
+        "owner": "neondb_owner",
+        "signature": "connect_league_administration_season(uuid,smallint,text,text,text,jsonb,text)",
+        "configuration": [
+          "search_path=pg_catalog, public, pg_temp"
+        ],
+        "publicExecute": false,
+        "definitionHash": "b56a17b9bd029e4b575927d6846dfd5b",
+        "runtimeExecute": false,
+        "securityDefiner": true
+      },
+      {
+        "acl": "{neondb_owner=X/neondb_owner}",
+        "owner": "neondb_owner",
+        "signature": "guard_league_administration_entry()",
+        "configuration": [
+          "search_path=pg_catalog, public, pg_temp"
+        ],
+        "publicExecute": false,
+        "definitionHash": "b082b9ce57cc552d1cacb0c6264789ff",
+        "runtimeExecute": false,
+        "securityDefiner": false
+      },
+      {
+        "acl": "{neondb_owner=X/neondb_owner}",
+        "owner": "neondb_owner",
+        "signature": "guard_league_source_connection_history()",
+        "configuration": [
+          "search_path=pg_catalog, public, pg_temp"
+        ],
+        "publicExecute": false,
+        "definitionHash": "c45842dff089ae7238301d47d4fccc5a",
+        "runtimeExecute": false,
+        "securityDefiner": true
+      },
+      {
+        "acl": "{neondb_owner=X/neondb_owner}",
+        "owner": "neondb_owner",
+        "signature": "prevent_league_administration_history_change()",
+        "configuration": [
+          "search_path=pg_catalog, public, pg_temp"
+        ],
+        "publicExecute": false,
+        "definitionHash": "914f52697903d2aa19fc92894393e8d7",
+        "runtimeExecute": false,
+        "securityDefiner": false
+      },
+      {
+        "acl": "{neondb_owner=X/neondb_owner,league_one_runtime=X/neondb_owner}",
+        "owner": "neondb_owner",
+        "signature": "record_league_administration_observation(jsonb)",
+        "configuration": [
+          "search_path=pg_catalog, public, pg_temp"
+        ],
+        "publicExecute": false,
+        "definitionHash": "f17f51eff1c43b30de58e9aa4b3fede5",
+        "runtimeExecute": true,
+        "securityDefiner": true
+      },
+      {
+        "acl": "{neondb_owner=X/neondb_owner}",
+        "owner": "neondb_owner",
+        "signature": "remap_league_source_connection(uuid,text,text,text,text)",
+        "configuration": [
+          "search_path=pg_catalog, public, pg_temp"
+        ],
+        "publicExecute": false,
+        "definitionHash": "119bed01beb760ca66ac27bae9c5696a",
+        "runtimeExecute": false,
+        "securityDefiner": true
+      },
+      {
+        "acl": "{neondb_owner=X/neondb_owner}",
+        "owner": "neondb_owner",
+        "signature": "validate_official_administration_lineage()",
+        "configuration": [
+          "search_path=pg_catalog, public, pg_temp"
+        ],
+        "publicExecute": false,
+        "definitionHash": "659779fcf995ea2e0cddae76faae469d",
+        "runtimeExecute": false,
+        "securityDefiner": true
+      },
+      {
+        "acl": "{neondb_owner=X/neondb_owner}",
+        "owner": "neondb_owner",
+        "signature": "validate_published_administration_lineage()",
+        "configuration": [
+          "search_path=pg_catalog, public, pg_temp"
+        ],
+        "publicExecute": false,
+        "definitionHash": "ed76ce01e3c882269a416bacafab7281",
+        "runtimeExecute": false,
+        "securityDefiner": true
+      }
+    ],
+    "constraintTypes": [
+      [
+        "c",
+        43
+      ],
+      [
+        "f",
+        26
+      ],
+      [
+        "n",
+        90
+      ],
+      [
+        "p",
+        15
+      ],
+      [
+        "u",
+        12
+      ]
+    ]
+  }
+}

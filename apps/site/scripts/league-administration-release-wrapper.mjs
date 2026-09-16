@@ -102,6 +102,12 @@ export function buildLeagueAdministrationReleaseWrapper({ migrations, expectedDa
   const sentinel = administrationReleaseSentinel(migrations);
   return `-- Reviewed portable league administration bundle. Installed migrations 001-015 remain untouched.
 -- Rendered for ${expectedDatabase}/${expectedOwner}. Obtain release authority and revalidate service identities before execution.
+-- Execute from an idle session, outside any existing transaction. The marker is
+-- cleared before BEGIN and can survive COMMIT only after every postcondition passes.
+SELECT set_config('league_one.administration_release_committed','',false) AS administration_release_marker_reset;
+-- End the reset's implicit transaction even when submitted as one simple-query
+-- batch. Otherwise a later error could restore this session's prior success marker.
+COMMIT;
 BEGIN;
 SET LOCAL lock_timeout='5s';
 SET LOCAL statement_timeout='120s';
@@ -151,12 +157,16 @@ BEGIN
     EXECUTE format('SELECT count(*)::bigint FROM public.%I',old_count.name) INTO new_count;
     IF new_count IS DISTINCT FROM old_count.rows THEN RAISE EXCEPTION 'administration release altered historical row counts for %',old_count.name; END IF;
   END LOOP;
+  PERFORM set_config('league_one.administration_release_committed',${sqlLiteral(sentinel)},false);
 END; $administration_after$;
 COMMIT;
 -- Even a SQL client configured to continue after errors cannot emit success
--- after an aborted transaction: the committed ledger and catalog must match.
+-- after an aborted invocation: its transactionally committed marker must match.
 SELECT ${sqlLiteral(sentinel)} AS success_sentinel
-WHERE (${ledgerQuery})=${sqlLiteral(JSON.stringify(completedLedger))}::jsonb
+WHERE current_setting('league_one.administration_release_committed',true)=${sqlLiteral(sentinel)}
+  AND current_database()=${sqlLiteral(expectedDatabase)} AND current_user=${sqlLiteral(expectedOwner)}
+  AND current_setting('server_version_num')::integer=${ADMINISTRATION_POSTGRES_VERSION}
+  AND (${ledgerQuery})=${sqlLiteral(JSON.stringify(completedLedger))}::jsonb
   AND (SELECT catalog FROM (${affected}) committed)=${sqlLiteral(JSON.stringify(manifest.after))}::jsonb;
 `;
 }
