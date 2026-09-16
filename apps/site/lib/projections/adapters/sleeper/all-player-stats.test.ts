@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { createHash } from 'node:crypto';
 
 vi.mock('server-only', () => ({}));
 import {
@@ -48,6 +49,64 @@ function completeInventory() {
 }
 
 describe('Sleeper all-player weekly-stat adapter', () => {
+  it.each([
+    ['{}', 'object', 0, 'empty'],
+    ['null', 'null', null, 'unavailable'],
+    ['[]', 'array', 0, 'unavailable'],
+    ['[{"private":"hidden"}]', 'array', 1, 'unavailable'],
+    ['"provider-private-text"', 'string', null, 'unavailable'],
+    ['false', 'boolean', null, 'unavailable'],
+    ['42', 'number', null, 'unavailable'],
+    ['{"private-id":{"pass_td":"hidden"}}', 'object', 1, 'unavailable'],
+    ['<html>provider-private-text</html>', 'invalid-json', null, 'unavailable'],
+  ] as const)('retains bounded response evidence for %s without accepting statistics', async (body, bodyShape, topLevelCount, status) => {
+    const fetcher = vi.fn<typeof fetch>(async () => new Response(body, { status: 200,
+      headers: { etag: 'secret-etag-not-for-diagnostics' } }));
+    const result = await createSleeperAllPlayerStatSource({ fetch: fetcher,
+      now: clock('2026-09-15T00:00:00.000Z', '2026-09-15T00:00:01.000Z'),
+    }).load({ season: 2026, week: 1, inventory: completeInventory(), gamesByTeam });
+    expect(result).toEqual({ status, reason: status === 'empty' ? 'empty-object' : 'malformed',
+      responseEvidence: { httpStatus: 200, bodyShape, topLevelCount,
+        bodyHash: `sha256:${createHash('sha256').update(body).digest('hex')}`,
+        requestStartedAt: '2026-09-15T00:00:00.000Z', requestCompletedAt: '2026-09-15T00:00:01.000Z' },
+    });
+    expect(result).not.toHaveProperty('observation');
+    expect(JSON.stringify(result)).not.toMatch(/private|hidden|secret-etag/);
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
+  it('keeps HTTP and transport failures distinct without reading an error body or leaking exceptions', async () => {
+    const response = new Response('secret body', { status: 503 });
+    const text = vi.spyOn(response, 'text');
+    const http = await createSleeperAllPlayerStatSource({ fetch: async () => response,
+      now: () => new Date(observedAt),
+    }).load({ season: 2026, week: 1, inventory: completeInventory(), gamesByTeam });
+    expect(http).toEqual({ status: 'unavailable', reason: 'http', statusCode: 503,
+      responseEvidence: { httpStatus: 503, bodyShape: 'not-read', topLevelCount: null, bodyHash: null,
+        requestStartedAt: observedAt, requestCompletedAt: observedAt } });
+    expect(text).not.toHaveBeenCalled();
+    const failed = await createSleeperAllPlayerStatSource({ fetch: async () => { throw new Error('secret connection'); },
+      now: () => new Date(observedAt),
+    }).load({ season: 2026, week: 1, inventory: completeInventory(), gamesByTeam });
+    expect(failed).toEqual({ status: 'unavailable', reason: 'http', responseEvidence: {
+      httpStatus: null, bodyShape: 'not-read', topLevelCount: null, bodyHash: null,
+      requestStartedAt: observedAt, requestCompletedAt: observedAt,
+    } });
+    expect(JSON.stringify([http, failed])).not.toContain('secret');
+  });
+
+  it('reports an unreadable successful HTTP body without guessing that it was empty', async () => {
+    const response = new Response('{}');
+    vi.spyOn(response, 'text').mockRejectedValueOnce(new Error('secret stream detail'));
+    const result = await createSleeperAllPlayerStatSource({ fetch: async () => response,
+      now: () => new Date(observedAt),
+    }).load({ season: 2026, week: 1, inventory: completeInventory(), gamesByTeam });
+    expect(result).toEqual({ status: 'unavailable', reason: 'malformed', responseEvidence: {
+      httpStatus: 200, bodyShape: 'unreadable', topLevelCount: null, bodyHash: null,
+      requestStartedAt: observedAt, requestCompletedAt: observedAt,
+    } });
+  });
+
   it.each(['off_snp', 'def_snp', 'st_snp'] as const)(
     'uses positive individual %s without manufacturing gp or copying team participation', async (key) => {
       const fetcher = vi.fn<typeof fetch>(async () => Response.json({
@@ -102,7 +161,8 @@ describe('Sleeper all-player weekly-stat adapter', () => {
   it('rejects individual snap evidence on a canonical defense without deriving appearance', async () => {
     const result = await createSleeperAllPlayerStatSource({ fetch: async () => Response.json({ NE: { st_snp: 1 } }),
       now: () => new Date(observedAt) }).load({ season: 2026, week: 1, inventory: completeInventory(), gamesByTeam });
-    expect(result).toEqual({ status: 'unavailable', reason: 'malformed' });
+    expect(result).toMatchObject({ status: 'unavailable', reason: 'malformed',
+      responseEvidence: { httpStatus: 200, bodyShape: 'object', topLevelCount: 1 } });
   });
 
   it('keeps future-game assumptions provisional and retains canonical defense and finality requirements', async () => {
@@ -359,7 +419,8 @@ describe('Sleeper all-player weekly-stat adapter', () => {
     });
     await expect(source.load({
       season: 2026, week: 1, inventory: completeInventory(), gamesByTeam,
-    })).resolves.toEqual({ status: 'unavailable', reason: 'malformed' });
+    })).resolves.toMatchObject({ status: 'unavailable', reason: 'malformed',
+      responseEvidence: { httpStatus: 200, bodyShape: 'object', topLevelCount: 2 } });
   });
 
   it('keeps unknown eligibility unavailable and marks incomplete coverage partial', async () => {

@@ -1,4 +1,4 @@
-import type { PlayerCatalog, SleeperPlayer } from '../../transform';
+import type { PlayerCatalog, SleeperPlayer } from '../../sleeper-catalog-types';
 import { canonicalNflTeam } from '../../nfl-teams';
 import type { ScoringEntity } from '../domain/contracts';
 import { externalPlayerRef, type ProviderKey } from './provider-identity';

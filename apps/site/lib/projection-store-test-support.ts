@@ -231,6 +231,7 @@ export const projectionStoreSqlMarkers = [
   'publish-snapshot',
   'read-all-player-box-scores',
   'read-all-player-game-context',
+  'read-all-player-historical-team-contexts',
   'read-all-player-identity-mappings',
   'read-all-player-job',
   'read-all-player-league-profiles',

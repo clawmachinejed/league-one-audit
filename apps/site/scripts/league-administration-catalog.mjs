@@ -37,10 +37,10 @@ const sqlArray = (values) => `ARRAY[${values.map(sqlLiteral).join(',')}]::text[]
 const signature = "p.proname||'('||replace(oidvectortypes(p.proargtypes),', ',',')||')'";
 
 /** Readable source definitions accompany the compact release fingerprints. */
-export function leagueAdministrationDefinitionsSql() {
-  const tables = sqlArray(ADMINISTRATION_TABLES);
-  const functions = sqlArray([...ADMINISTRATION_NEW_FUNCTIONS, ...ADMINISTRATION_REPLACED_FUNCTIONS]);
-  const triggers = sqlArray(ADMINISTRATION_EXISTING_TABLE_TRIGGERS);
+export function leagueAdministrationDefinitionsSql(scope = {}) {
+  const tables = sqlArray(scope.tables ?? ADMINISTRATION_TABLES);
+  const functions = sqlArray(scope.functions ?? [...ADMINISTRATION_NEW_FUNCTIONS, ...ADMINISTRATION_REPLACED_FUNCTIONS]);
+  const triggers = sqlArray(scope.triggers ?? ADMINISTRATION_EXISTING_TABLE_TRIGGERS);
   return `SELECT jsonb_build_object(
     'tables',COALESCE((SELECT jsonb_agg(jsonb_build_object('name',t.relname,
       'columns',(SELECT jsonb_agg(jsonb_build_object('name',a.attname,'type',format_type(a.atttypid,a.atttypmod),
@@ -71,10 +71,10 @@ export function leagueAdministrationDefinitionsSql() {
  * Unaffected capture is compared within the release transaction, preserving all
  * remaining public catalog objects, ACLs, roles and schema/default privileges.
  */
-export function leagueAdministrationCatalogSql({ affected = true, runtimeRole = 'league_one_runtime' } = {}) {
-  const tables = sqlArray(ADMINISTRATION_TABLES);
-  const functions = sqlArray([...ADMINISTRATION_NEW_FUNCTIONS, ...ADMINISTRATION_REPLACED_FUNCTIONS]);
-  const triggers = sqlArray(ADMINISTRATION_EXISTING_TABLE_TRIGGERS);
+export function leagueAdministrationCatalogSql({ affected = true, runtimeRole = 'league_one_runtime', scope = {} } = {}) {
+  const tables = sqlArray(scope.tables ?? ADMINISTRATION_TABLES);
+  const functions = sqlArray(scope.functions ?? [...ADMINISTRATION_NEW_FUNCTIONS, ...ADMINISTRATION_REPLACED_FUNCTIONS]);
+  const triggers = sqlArray(scope.triggers ?? ADMINISTRATION_EXISTING_TABLE_TRIGGERS);
   const tableFilter = `t.relname ${affected ? '=ANY' : '<>ALL'}(${tables})`;
   const functionFilter = `${signature} ${affected ? '=ANY' : '<>ALL'}(${functions})`;
   const triggerFilter = affected

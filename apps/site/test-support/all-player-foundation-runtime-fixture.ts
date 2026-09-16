@@ -177,6 +177,7 @@ const dependencies: AllPlayerIngestionDependencies = {
         validFrom: null, validTo: mapping?.validTo ?? null };
     }),
     readAllPlayerGameContext: async () => foundationFixture.games,
+    readAllPlayerHistoricalTeamContexts: async () => [],
     acquireAllPlayerJob: writeTrap('acquireAllPlayerJob'),
     markAllPlayerRequest: writeTrap('markAllPlayerRequest'),
     finishAllPlayerJob: writeTrap('finishAllPlayerJob'),

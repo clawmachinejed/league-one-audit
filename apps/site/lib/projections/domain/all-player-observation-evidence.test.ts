@@ -5,7 +5,10 @@ import {
 import type { AllPlayerAssumedNonParticipationEvidence } from './all-player-eligibility';
 
 const entry: AllPlayerStatEntry = {
-  entityKind: 'player', providerExternalId: 'player', nflGameId: null, nflTeam: 'NE', position: 'RB',
+  // These tests vary participation evidence within an already mapped final game.
+  // Missing game context has its own partial/unknown and strict rejection tests.
+  entityKind: 'player', providerExternalId: 'player',
+  nflGameId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', nflTeam: 'NE', position: 'RB',
   gamePhase: 'final', stats: { st_snp: 1 }, eligibleGameCount: 1, appearanceGameCount: 1,
   eligibilityEvidence: { kind: 'weekly-stat', source: 'weekly-stat-provider', individualSnaps: { st_snp: 1 } },
 };

@@ -176,6 +176,7 @@ export function createProjectionStore(database: Database = getDatabase()): Proje
     readAllPlayerLeagueProfiles: allPlayerContext.readAllPlayerLeagueProfiles,
     readAllPlayerIdentityMappings: allPlayerContext.readAllPlayerIdentityMappings,
     readAllPlayerGameContext: allPlayerContext.readAllPlayerGameContext,
+    readAllPlayerHistoricalTeamContexts: allPlayerContext.readAllPlayerHistoricalTeamContexts,
     readDatabaseIdentity: allPlayerContext.readDatabaseIdentity,
     readLatestCandidatesBySleeperIds: projections.readLatestCandidatesBySleeperIds,
     freezeLatestBaselines: projections.freezeLatestBaselines,

@@ -60,6 +60,11 @@ export function validateAllPlayerObservationEvidence(
       details.push(`invalid-entity-kind:${entry.providerExternalId}`);
     }
     if (!validateAllPlayerEligibility(entry)) details.push(`invalid-eligibility-evidence:${entry.providerExternalId}`);
+    if (entry.eligibleGameCount === 1 && !entry.nflGameId
+      && (observation.quality !== 'partial' || entry.entityKind !== 'player' || entry.gamePhase !== 'unknown')) {
+      details.push(`invalid-missing-game-context:${entry.providerExternalId}`);
+    }
+    if (entry.nflGameId && !entry.nflTeam) details.push(`missing-game-team:${entry.providerExternalId}`);
     const evidence = entry.eligibilityEvidence;
     const weekly = allPlayerWeeklyEligibilityEvidence(evidence);
     if (evidence.kind === 'assumed-nonparticipation') {

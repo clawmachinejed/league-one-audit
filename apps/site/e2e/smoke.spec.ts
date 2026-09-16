@@ -471,64 +471,64 @@ test('Standings and Waivers switch locally, support keyboard tabs, and retain in
   await expectNoPageOverflow(page);
 });
 
-test('Rosters stays in League, is exact-week cached, accessible, and responsive', async ({ page }) => {
-  const requests: string[] = [];
-  const currentWeeks = new Map<string, number>();
-  await page.route('**/api/transactions/*', route => route.fulfill({
-    status: 200,
-    contentType: 'application/json',
-    body: JSON.stringify({ league: { season: '2026', week: 3, maxWeek: 18, rosterPositions: [] }, activities: [], updatedAt: '2026-09-08T12:00:00.000Z' }),
-  }));
-  await page.route('**/api/rosters/*?week=*', async route => {
-    const url = new URL(route.request().url());
-    const leagueKey = url.pathname.split('/').at(-1)!;
-    const week = Number(url.searchParams.get('week'));
-    if (!currentWeeks.has(leagueKey)) currentWeeks.set(leagueKey, week);
-    const currentWeek = currentWeeks.get(leagueKey)!;
-    requests.push(`${leagueKey}:${week}`);
-    const available = week !== 18;
-    const current = week === currentWeek;
-    const playerName = leagueKey === 'league1'
-      ? 'An Exceptionally Long League One Quarterback Name'
-      : 'League Two Quarterback';
-    await route.fulfill({
+for (const viewport of standingsViewports) {
+  test(`Rosters stays in League, is exact-week cached, accessible, and responsive (${viewport.width}px)`, async ({ page }) => {
+    const requests: string[] = [];
+    const currentWeeks = new Map<string, number>();
+    await page.route('**/api/transactions/*', route => route.fulfill({
       status: 200,
       contentType: 'application/json',
-      headers: { 'X-Roster-League': leagueKey, 'X-Roster-Provisional-Week': week >= currentWeek ? String(currentWeek) : 'none' },
-      body: JSON.stringify({
-        league: { season: '2026', rosterPositions: ['QB', 'BN'], week: currentWeek, maxWeek: 18 },
-        week, currentWeek, rostersAvailable: available, updatedAt: '2026-09-08T12:00:00.000Z',
-        playerMetrics: available
-          ? { status: current ? 'provisional' : 'published', observedAt: '2026-09-08T12:00:00.000Z', throughWeek: week }
-          : { status: 'unavailable', observedAt: null, throughWeek: null },
-        warning: available ? undefined : 'Sleeper has not established complete lineups for this future week.',
-        teams: [{
-          id: 1, name: `${leagueKey} First Place`, managerName: `${leagueKey} Manager One`, avatar: null,
-          wins: 7, losses: 1, ties: 0, pointsFor: 900, pointsAgainst: 700,
-          waiverOrder: null, waiverBudgetRemaining: null, standingsRank: 1,
-          averagePpg: 115.2, averagePpgRank: 1, rosterAvailable: available,
-          sections: available ? [{ name: 'Starters', players: [{
-            id: '5859', name: playerName, position: 'WR', nflTeam: 'IND',
-            injuryStatus: current ? 'Questionable' : null, slot: 'QB', byeWeek: 12,
-            positionRank: 1, ppg: 4.1,
-            game: current ? { kind: 'scheduled', opponent: 'HOU', location: 'home', date: '2026-09-13', kickoffAt: '2026-09-13T17:00:00.000Z' } : null,
-          }] }, { name: 'Bench', players: [] }] : [],
-        }, {
-          id: 2, name: `${leagueKey} My Very Long Team Name`, managerName: 'A Very Long Manager Name', avatar: null,
-          wins: 6, losses: 2, ties: 0, pointsFor: 850, pointsAgainst: 710,
-          waiverOrder: null, waiverBudgetRemaining: null, standingsRank: 2,
-          averagePpg: 109.4, averagePpgRank: 2, rosterAvailable: available,
-          sections: available ? [{ name: 'Starters', players: [{
-            id: 'wide-rank', name: 'My Quarterback', position: 'WR', nflTeam: null,
-            injuryStatus: null, slot: 'SUPER_FLEX', byeWeek: null, game: null,
-            positionRank: 125, ppg: -12.4,
-          }] }, { name: 'Bench', players: [] }] : [],
-        }],
-      }),
+      body: JSON.stringify({ league: { season: '2026', week: 3, maxWeek: 18, rosterPositions: [] }, activities: [], updatedAt: '2026-09-08T12:00:00.000Z' }),
+    }));
+    await page.route('**/api/rosters/*?week=*', async route => {
+      const url = new URL(route.request().url());
+      const leagueKey = url.pathname.split('/').at(-1)!;
+      const week = Number(url.searchParams.get('week'));
+      if (!currentWeeks.has(leagueKey)) currentWeeks.set(leagueKey, week);
+      const currentWeek = currentWeeks.get(leagueKey)!;
+      requests.push(`${leagueKey}:${week}`);
+      const available = week !== 18;
+      const current = week === currentWeek;
+      const playerName = leagueKey === 'league1'
+        ? 'An Exceptionally Long League One Quarterback Name'
+        : 'League Two Quarterback';
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        headers: { 'X-Roster-League': leagueKey, 'X-Roster-Provisional-Week': week >= currentWeek ? String(currentWeek) : 'none' },
+        body: JSON.stringify({
+          league: { season: '2026', rosterPositions: ['QB', 'BN'], week: currentWeek, maxWeek: 18 },
+          week, currentWeek, rostersAvailable: available, updatedAt: '2026-09-08T12:00:00.000Z',
+          playerMetrics: available
+            ? { status: current ? 'provisional' : 'published', observedAt: '2026-09-08T12:00:00.000Z', throughWeek: week }
+            : { status: 'unavailable', observedAt: null, throughWeek: null },
+          warning: available ? undefined : 'Sleeper has not established complete lineups for this future week.',
+          teams: [{
+            id: 1, name: `${leagueKey} First Place`, managerName: `${leagueKey} Manager One`, avatar: null,
+            wins: 7, losses: 1, ties: 0, pointsFor: 900, pointsAgainst: 700,
+            waiverOrder: null, waiverBudgetRemaining: null, standingsRank: 1,
+            averagePpg: 115.2, averagePpgRank: 1, rosterAvailable: available,
+            sections: available ? [{ name: 'Starters', players: [{
+              id: '5859', name: playerName, position: 'WR', nflTeam: 'IND',
+              injuryStatus: current ? 'Questionable' : null, slot: 'QB', byeWeek: 12,
+              positionRank: 1, ppg: 4.1,
+              game: current ? { kind: 'scheduled', opponent: 'HOU', location: 'home', date: '2026-09-13', kickoffAt: '2026-09-13T17:00:00.000Z' } : null,
+            }] }, { name: 'Bench', players: [] }] : [],
+          }, {
+            id: 2, name: `${leagueKey} My Very Long Team Name`, managerName: 'A Very Long Manager Name', avatar: null,
+            wins: 6, losses: 2, ties: 0, pointsFor: 850, pointsAgainst: 710,
+            waiverOrder: null, waiverBudgetRemaining: null, standingsRank: 2,
+            averagePpg: 109.4, averagePpgRank: 2, rosterAvailable: available,
+            sections: available ? [{ name: 'Starters', players: [{
+              id: 'wide-rank', name: 'My Quarterback', position: 'WR', nflTeam: null,
+              injuryStatus: null, slot: 'SUPER_FLEX', byeWeek: null, game: null,
+              positionRank: 125, ppg: -12.4,
+            }] }, { name: 'Bench', players: [] }] : [],
+          }],
+        }),
+      });
     });
-  });
 
-  for (const viewport of standingsViewports) {
     await page.setViewportSize(viewport);
     for (const route of ['/standings', '/league2/standings']) {
       const leagueKey = route.startsWith('/league2') ? 'league2' : 'league1';
@@ -667,12 +667,12 @@ test('Rosters stays in League, is exact-week cached, accessible, and responsive'
       expect(requests.slice(before)).toEqual([`${leagueKey}:${currentWeek}`, `${leagueKey}:${secondaryWeek}`, `${leagueKey}:18`]);
       await expectNoPageOverflow(page);
     }
-  }
-  expect(await page.evaluate(({ one, two }) => [localStorage.getItem(one), localStorage.getItem(two)], {
-    one: `league-one:my-team:${LEAGUE_IDS.league1}`,
-    two: `league-one:my-team:${LEAGUE_IDS.league2}`,
-  })).toEqual(['2', '1']);
-});
+    expect(await page.evaluate(({ one, two }) => [localStorage.getItem(one), localStorage.getItem(two)], {
+      one: `league-one:my-team:${LEAGUE_IDS.league1}`,
+      two: `league-one:my-team:${LEAGUE_IDS.league2}`,
+    })).toEqual(['2', '1']);
+  });
+}
 
 test('league Transactions loads once, filters locally, groups bids compactly, and remains league-isolated', async ({ page }) => {
   const payload = (league: 'league1' | 'league2') => ({
