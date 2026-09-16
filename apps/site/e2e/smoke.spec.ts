@@ -621,6 +621,9 @@ test('Rosters stays in League, is exact-week cached, accessible, and responsive'
       const otherToggle = cards.nth(1).locator('[data-roster-toggle]');
       if (await otherToggle.getAttribute('aria-expanded') !== 'true') await otherToggle.click();
       await expect(cards.locator('[data-roster-toggle][aria-expanded="true"]')).toHaveCount(2);
+      const superFlex = cards.locator('[aria-label="Super flex"]');
+      await expect(superFlex).toHaveText('SF');
+      expect(await superFlex.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
       const wideMetricCard = page.locator('[data-roster-card][data-team-id="2"]');
       await expect(wideMetricCard.locator('[data-position-rank]').first()).toHaveText('WR125');
       await expect(wideMetricCard.locator('[data-player-ppg]').first()).toHaveText('-12.4');

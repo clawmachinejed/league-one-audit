@@ -56,7 +56,7 @@ describe('LeagueMyTeamPage', () => {
     mocks.getSiteWeekRollover.mockResolvedValue({ week: 2, nextRolloverAt: null, evaluatedAt: '2026-09-15T20:00:00.000Z' });
   });
 
-  it.each(['league1', 'league2'] as const)('loads only the %s schedule when that tab is requested', async leagueKey => {
+  it.each(['league1', 'league2', 'dynasty'] as const)('loads only the %s schedule when that tab is requested', async leagueKey => {
     const data = { ...matchups(2), weeks: [] };
     mocks.getMyTeamSchedule.mockResolvedValue(data);
     const rendered = await LeagueMyTeamPage({ leagueId: `id-${leagueKey}`, leagueKey,
@@ -67,7 +67,7 @@ describe('LeagueMyTeamPage', () => {
     expect(mocks.getOfficialMatchups).not.toHaveBeenCalled();
   });
 
-  it.each(['league1', 'league2'] as const)('reuses the %s current stored snapshot, exact lineage and rollover', async leagueKey => {
+  it.each(['league1', 'league2', 'dynasty'] as const)('reuses the %s current stored snapshot, exact lineage and rollover', async leagueKey => {
     const payload = matchups(2);
     mocks.readStoredMatchups.mockResolvedValue({ kind: 'usable', payload, context,
       snapshotRevision: 'a'.repeat(64), verifiedAt: '2026-09-15T20:00:00.000Z' });
@@ -166,7 +166,7 @@ describe('LeagueStandingsPage', () => {
     mocks.getCurrentMatchupPeriodContext.mockResolvedValue(context);
   });
 
-  it.each(['league1', 'league2'] as const)('uses the %s stored active-week team projections, even when display week is later', async leagueKey => {
+  it.each(['league1', 'league2', 'dynasty'] as const)('uses the %s stored active-week team projections, even when display week is later', async leagueKey => {
     const payload = matchups(2);
     mocks.readStoredMatchups.mockResolvedValue({ kind: 'usable', payload, context,
       snapshotRevision: 'a'.repeat(64), verifiedAt: '2026-09-10T12:00:00.000Z' });
@@ -225,7 +225,7 @@ describe('LeagueMatchupsPage', () => {
       lifecycle: 'active', nflPhase: 'regular', temporalState: 'active', refreshDue: false,
     });
   });
-  it.each(['league1', 'league2'] as const)('uses fresh site Week 2 for %s at noon while stored authority still says Week 1', async leagueKey => {
+  it.each(['league1', 'league2', 'dynasty'] as const)('uses fresh site Week 2 for %s at noon while stored authority still says Week 1', async leagueKey => {
     const rollover = { week: 2, nextRolloverAt: '2026-09-22T16:00:00.000Z', evaluatedAt: '2026-09-15T16:00:00.000Z' };
     mocks.getSiteWeekRollover.mockResolvedValue(rollover);
     const oldContext = { ...rolloverContext, defaultWeek: 1, activeWeek: 1, temporalState: 'active' };
@@ -276,7 +276,7 @@ describe('LeagueMatchupsPage', () => {
     expect(rendered.props.verifiedAt).toBeNull();
   });
 
-  it.each(['league1', 'league2'] as const)('opens the exact active week for %s when its saved display week lags', async leagueKey => {
+  it.each(['league1', 'league2', 'dynasty'] as const)('opens the exact active week for %s when its saved display week lags', async leagueKey => {
     const current = matchups(2);
     mocks.readStoredMatchups
       .mockResolvedValueOnce({ kind: 'usable', payload: matchups(1), context: rolloverContext,

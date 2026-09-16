@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { LEAGUE_IDS } from '../lib/config';
+import { LEAGUE_SITES, type LeagueKey } from '../lib/leagues';
 import type { MatchupPeriodContext } from '../lib/matchup-period';
 import type { MatchupBoxScores } from '../lib/matchup-box-score-types';
 import { isMatchupsData } from '../lib/matchups-response';
@@ -37,7 +38,7 @@ function myTeamFixture(week: number) {
   return data;
 }
 
-async function openMyTeamFixture(page: Page, league: 'league1' | 'league2') {
+async function openMyTeamFixture(page: Page, league: LeagueKey) {
   const state = { week: 0, documentCount: 0, fullCount: 0, boxRequests: [] as string[],
     boxWeeks: [] as number[], providerRequests: [] as string[] };
   await page.clock.install({ time: new Date('2026-09-13T16:00:00.000Z') });
@@ -48,7 +49,7 @@ async function openMyTeamFixture(page: Page, league: 'league1' | 'league2') {
   });
   // As in the existing snapshot protocol tests, retain the real server board and
   // control only its serialized lineage/context before the normal reader adopts a fixture.
-  await page.route(/\/(?:league2\/)?my-team(?:\?|$)/u, async route => {
+  await page.route(/\/(?:(?:league2|dynasty)\/)?my-team(?:\?|$)/u, async route => {
     if (route.request().resourceType() !== 'document') return route.continue();
     const response = await route.fetch();
     const html = await response.text();
@@ -97,7 +98,7 @@ async function openMyTeamFixture(page: Page, league: 'league1' | 'league2') {
       await route.fulfill({ headers, json: myTeamFixture(state.week) });
     }
   });
-  await page.goto(`${league === 'league2' ? '/league2' : ''}/my-team`, { waitUntil: 'networkidle' });
+  await page.goto(`${LEAGUE_SITES[league].prefix}/my-team`, { waitUntil: 'networkidle' });
   expect(state.documentCount).toBe(1);
   await page.clock.runFor(61_000);
   await expect(page.getByText('Fixture Beta', { exact: true })).toBeVisible();
@@ -106,7 +107,7 @@ async function openMyTeamFixture(page: Page, league: 'league1' | 'league2') {
   return state;
 }
 
-for (const league of ['league1', 'league2'] as const) {
+for (const league of ['league1', 'league2', 'dynasty'] as const) {
   test(`${league} My Team shows the selected side left and expands both exact-week benches`, async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     const state = await openMyTeamFixture(page, league);
@@ -172,7 +173,7 @@ for (const league of ['league1', 'league2'] as const) {
     // retaining the same saved team; it must not keep the prior week's panels.
     const originalWeek = state.week;
     const pinnedWeek = originalWeek < 18 ? originalWeek + 1 : originalWeek - 1;
-    const path = `${league === 'league2' ? '/league2' : ''}/my-team`;
+    const path = `${LEAGUE_SITES[league].prefix}/my-team`;
     state.week = pinnedWeek;
     const picker = page.getByRole('combobox', { name: 'Matchup week', exact: true });
     await picker.selectOption(String(pinnedWeek));
@@ -200,7 +201,7 @@ for (const league of ['league1', 'league2'] as const) {
 
   test(`${league} My Team shares the Matchups week dropdown, arrows, bounds and Current navigation`, async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
-    const path = `${league === 'league2' ? '/league2' : ''}/my-team`;
+    const path = `${LEAGUE_SITES[league].prefix}/my-team`;
     await page.goto(path, { waitUntil: 'networkidle' });
     const picker = page.getByRole('combobox', { name: 'Matchup week', exact: true });
     const currentWeek = Number(await picker.inputValue());

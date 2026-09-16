@@ -36,6 +36,22 @@ const player = (id: string, projectedPoints: number | null): Player => ({
 });
 
 describe('MatchupBoard player projection presentation', () => {
+  it.each([false, true])('uses a compact super flex chip with a full disclosure name (benches %s)', (showBench) => {
+    const starter = { ...player('super-flex', 20), slot: 'SUPER_FLEX', game: {
+      kind: 'scheduled' as const, opponent: 'TEN', location: 'away' as const, date: '2026-09-13',
+      kickoffAt: '2026-09-13T17:00:00Z', finalScore: { teamScore: 23, opponentScore: 10 },
+    } };
+    const html = renderToStaticMarkup(<LeagueSiteProvider site={LEAGUE_SITES.league1}>
+      <MatchupBoard matchups={[{ id: '1', status: 'final', sides: [
+        { team: team(1), points: 23.2, projectedPoints: 23.2, starters: [starter], bench: [] },
+      ] }]} selected={1} avatar={() => null} showBench={showBench} />
+    </LeagueSiteProvider>);
+    expect(html).toContain('aria-label="Super flex" title="Super flex">SF</span>');
+    expect(html).toContain('Super flex row 1 game statistics for both teams');
+    expect(html).not.toContain('>SUPER_FLEX<');
+    expect(starter.slot).toBe('SUPER_FLEX');
+  });
+
   it('uses the same player rows for unequal benches while preserving sourced zero, missing values and team totals', () => {
     const matchup: Matchup = { id: '1', status: 'upcoming', sides: [
       { team: team(1), points: 23.2, projectedPoints: 40, starters: [player('starter', 40)],

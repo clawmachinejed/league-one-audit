@@ -18,7 +18,7 @@ describe('league transaction HTTP boundary', () => {
   });
 
   it.each([
-    ['league1', LEAGUE_IDS.league1], ['league2', LEAGUE_IDS.league2],
+    ['league1', LEAGUE_IDS.league1], ['league2', LEAGUE_IDS.league2], ['dynasty', LEAGUE_IDS.dynasty],
   ])('maps %s through the canonical registry', async (key, leagueId) => {
     getLeagueTransactions.mockResolvedValue({ activities: [] });
     const response = await handleLeagueTransactionsRequest(key, getLeagueTransactions);

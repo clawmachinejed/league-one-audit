@@ -95,6 +95,8 @@ describe('all-player operator catalog runtime outside Next.js', () => {
       mode: 'shadow',
       persisted: false,
       parityMismatchCount: 0,
+      parityComparisonCount: 6,
+      scoringProfileCount: 2,
       activeZeroCount: 1,
       projectionCoverage: { identityComplete: true },
     });
@@ -122,6 +124,8 @@ describe('all-player operator catalog runtime outside Next.js', () => {
     expect(catalogRequests[0]?.searchParams.size).toBe(0);
     expect(weeklyRequests.map((url) => url.pathname)).toEqual(['/v1/stats/nfl/regular/2026/1']);
     expect(weeklyRequests[0]?.searchParams.size).toBe(0);
+    expect(urls.filter((url) => /^\/v1\/league\/[^/]+\/matchups\/1$/u.test(url.pathname)))
+      .toHaveLength(3);
     expect(urls.some((url) => /tank01|\/profile\/|\/player\//iu.test(url.href))).toBe(false);
   }, 30_000);
 

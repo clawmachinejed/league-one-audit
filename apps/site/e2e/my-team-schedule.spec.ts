@@ -3,9 +3,9 @@ import { LEAGUE_IDS } from '../lib/config';
 import type { MyTeamScheduleData, MyTeamScheduleWeek } from '../lib/my-team-schedule';
 import { contextFixture, snapshotFixture, SNAPSHOT_TIME } from '../test-support/matchup-snapshot-fixtures';
 
-type LeagueKey = 'league1' | 'league2';
+import { LEAGUE_SITES, leagueSiteForPathname, type LeagueKey } from '../lib/leagues';
 const preferenceKey = (league: LeagueKey) => `league-one:my-team:${LEAGUE_IDS[league]}`;
-const prefixFor = (league: LeagueKey) => league === 'league2' ? '/league2' : '';
+const prefixFor = (league: LeagueKey) => LEAGUE_SITES[league].prefix;
 const teamName = (league: LeagueKey, side: 'Alpha' | 'Beta') => `${league} Fixture ${side}`;
 
 function scheduleFixture(league: LeagueKey): MyTeamScheduleData {
@@ -26,9 +26,9 @@ function scheduleFixture(league: LeagueKey): MyTeamScheduleData {
 }
 
 async function installFixtures(page: Page, selected: Partial<Record<LeagueKey, number>> = {}) {
-  const state = { scheduleLoads: { league1: 0, league2: 0 }, providerRequests: [] as string[] };
+  const state = { scheduleLoads: { league1: 0, league2: 0, dynasty: 0 }, providerRequests: [] as string[] };
   await page.addInitScript(({ ids, choices }) => {
-    for (const league of ['league1', 'league2'] as const) {
+    for (const league of ['league1', 'league2', 'dynasty'] as const) {
       const key = `league-one:my-team:${ids[league]}`;
       const id = choices[league];
       if (id === undefined) localStorage.removeItem(key);
@@ -40,11 +40,11 @@ async function installFixtures(page: Page, selected: Partial<Record<LeagueKey, n
   });
   // Replace only client props in real RSC navigation, as in the projected
   // standings browser tests. No fixture route or alternate application is used.
-  await page.route(/\/(?:league2\/)?my-team(?:\?|$)/u, async route => {
+  await page.route(/\/(?:(?:league2|dynasty)\/)?my-team(?:\?|$)/u, async route => {
     if (route.request().headers().rsc !== '1') return route.continue();
     if (route.request().headers()['next-router-prefetch'] === '1') return route.abort();
     const url = new URL(route.request().url());
-    const league = url.pathname.startsWith('/league2/') ? 'league2' : 'league1';
+    const league = leagueSiteForPathname(url.pathname).key;
     const schedule = scheduleFixture(league);
     const isSchedule = url.searchParams.get('view') === 'schedule';
     const response = await route.fetch();
@@ -95,7 +95,7 @@ async function openMyTeam(page: Page, league: LeagueKey) {
   await expect(page.getByRole('tab', { name: 'My Team', exact: true })).toHaveAttribute('aria-selected', 'true');
 }
 
-for (const league of ['league1', 'league2'] as const) {
+for (const league of ['league1', 'league2', 'dynasty'] as const) {
   test(`${league} Schedule shows only Weeks 1–15, official results and selected team left, with keyboard return to the exact week`, async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     const state = await installFixtures(page, { [league]: 2 });

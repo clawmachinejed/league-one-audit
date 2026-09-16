@@ -19,8 +19,15 @@ export function selectAllPlayerRecurringPeriod(
   authorities: readonly StoredLeagueAuthorityRead[],
   job: AllPlayerJobState | null,
   now: Date,
+  expectedLeagueKeys: readonly string[],
 ): Selection {
-  if (authorities.length !== 2 || authorities.some((row) => row.kind !== 'available')) {
+  const expected = new Set(expectedLeagueKeys);
+  if (expected.size === 0 || expected.size !== expectedLeagueKeys.length
+    || expectedLeagueKeys.some((key) => !key.trim() || key !== key.trim())
+    || authorities.length !== expected.size
+    || new Set(authorities.map((row) => row.leagueKey)).size !== expected.size
+    || authorities.some((row) => row.kind !== 'available' || !expected.has(row.leagueKey)
+      || row.authority.leagueKey !== row.leagueKey)) {
     return { kind: 'unavailable', reason: 'authority-missing' };
   }
   const available = authorities.filter((row) => row.kind === 'available');

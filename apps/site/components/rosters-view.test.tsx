@@ -35,6 +35,19 @@ const data: RostersData = {
 };
 
 describe('rosters presentation', () => {
+  it('shows super flex as SF without changing the official roster slot', () => {
+    const source: RostersData = { ...data, teams: data.teams.map(team => ({ ...team,
+      sections: team.sections.map(section => ({ ...section,
+        players: section.players.map(player => ({ ...player, slot: player.slot === 'WR' ? 'SUPER_FLEX' : player.slot })),
+      })),
+    })) };
+    const html = renderToStaticMarkup(<RosterContent data={source} selected={2} />);
+    expect(html).toContain('aria-label="Super flex" title="Super flex">SF</span>');
+    expect(html).toContain('>BN</span>');
+    expect(html).not.toContain('>SUPER_FLEX<');
+    expect(source.teams[0].sections[0].players[0].slot).toBe('SUPER_FLEX');
+  });
+
   it('uses honest ordinal and missing-value formatting', () => {
     expect([ordinal(1), ordinal(2), ordinal(3), ordinal(4), ordinal(11), ordinal(null)])
       .toEqual(['1st', '2nd', '3rd', '4th', '11th', '—']);

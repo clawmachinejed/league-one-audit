@@ -182,6 +182,7 @@ async function checkRoute(area, path, marker) {
 
 await checkRoute('League One public route', '/matchups', 'League One');
 await checkRoute('League Two public route', '/league2/matchups', 'League Two');
+await checkRoute('Dynasty League public route', '/dynasty/matchups', 'Dynasty League');
 
 let leaseEvidence = 'Unverified';
 if (!process.env.DATABASE_URL) {

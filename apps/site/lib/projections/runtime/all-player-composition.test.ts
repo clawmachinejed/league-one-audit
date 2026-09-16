@@ -126,8 +126,8 @@ describe('production all-player recurring composition', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-09-12T16:00:00Z'));
     process.env.ALL_PLAYER_RECURRING_ENABLED = 'true';
-    store.readLeagueLineupAuthorities.mockResolvedValueOnce(['league1', 'league2'].map((leagueKey) => ({
-      kind: 'available', leagueKey, authority: {
+    store.readLeagueLineupAuthorities.mockResolvedValueOnce(['league1', 'league2', 'dynasty'].map((leagueKey) => ({
+      kind: 'available', leagueKey, authority: { leagueKey,
         leagueLifecycle: 'active', activeSeason: 2026, activeSeasonType: 'reg', activeWeek: 1,
         sourceProvider: 'sleeper', verifiedAt: '2026-09-12T16:00:00Z',
         defaultPeriodCadence: { games: [{ kickoffAt: '2026-09-10T00:00:00Z' }] },
@@ -136,12 +136,35 @@ describe('production all-player recurring composition', () => {
     canonicalOperation.mockResolvedValueOnce({ status: 'completed', mode: 'recurring' });
     await expect(runProductionAllPlayerRecurring()).resolves.toMatchObject({ status: 'completed' });
     expect(canonicalOperation).toHaveBeenCalledOnce();
+    expect(store.readLeagueLineupAuthorities).toHaveBeenCalledExactlyOnceWith(['league1', 'league2', 'dynasty']);
     expect(canonicalOperation.mock.calls[0][1]).toEqual({
       mode: 'recurring', period: { season: 2026, seasonType: 'regular', week: 1 },
       requireFinalCoverage: false,
     });
     expect(logger.write).not.toHaveBeenCalled();
     expect(store.recordAllPlayerPreclaimOutcome).not.toHaveBeenCalled();
+  });
+
+  it.each(['missing-dynasty', 'duplicate-league'] as const)
+  ('stops %s authority before invoking ingestion for a narrowed league set', async (variant) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-12T16:00:00Z'));
+    process.env.ALL_PLAYER_RECURRING_ENABLED = 'true';
+    const keys = variant === 'missing-dynasty' ? ['league1', 'league2'] : ['league1', 'league2', 'league2'];
+    store.readLeagueLineupAuthorities.mockResolvedValueOnce(keys.map((leagueKey) => ({
+      kind: 'available', leagueKey, authority: { leagueKey,
+        leagueLifecycle: 'active', activeSeason: 2026, activeSeasonType: 'reg', activeWeek: 1,
+        sourceProvider: 'sleeper', verifiedAt: '2026-09-12T16:00:00Z',
+      },
+    })));
+    await expect(runProductionAllPlayerRecurring()).resolves.toMatchObject({
+      status: 'unavailable', reason: 'authority-missing', stage: 'period-selection',
+    });
+    expect(canonicalOperation).not.toHaveBeenCalled();
+    expect(catalogLoaders.neutral).not.toHaveBeenCalled();
+    expect(store.recordAllPlayerPreclaimOutcome).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      outcome: 'validation-failed', reason: 'authority-missing', stage: 'period-selection',
+    }));
   });
 
   it('skips between polling opportunities before any all-player database reads', async () => {
@@ -185,8 +208,8 @@ describe('production all-player recurring composition', () => {
     await expect(runProductionAllPlayerRecurring()).resolves.toMatchObject({ status: 'skipped', reason: 'not-due' });
     expect(canonicalOperation).not.toHaveBeenCalled();
     vi.setSystemTime(new Date('2026-09-13T16:01:02Z'));
-    store.readLeagueLineupAuthorities.mockResolvedValueOnce(['league1', 'league2'].map((leagueKey) => ({
-      kind: 'available', leagueKey, authority: {
+    store.readLeagueLineupAuthorities.mockResolvedValueOnce(['league1', 'league2', 'dynasty'].map((leagueKey) => ({
+      kind: 'available', leagueKey, authority: { leagueKey,
         leagueLifecycle: 'active', activeSeason: 2026, activeSeasonType: 'reg', activeWeek: 1,
         sourceProvider: 'sleeper', verifiedAt: '2026-09-13T16:01:00Z',
         defaultPeriodCadence: { games: [{ kickoffAt: '2026-09-10T00:00:00Z' }] },
@@ -299,8 +322,8 @@ describe('production all-player recurring composition', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-09-25T16:00:00Z'));
     process.env.ALL_PLAYER_RECURRING_ENABLED = 'true';
-    store.readLeagueLineupAuthorities.mockResolvedValueOnce(['league1', 'league2'].map((leagueKey) => ({
-      kind: 'available', leagueKey, authority: {
+    store.readLeagueLineupAuthorities.mockResolvedValueOnce(['league1', 'league2', 'dynasty'].map((leagueKey) => ({
+      kind: 'available', leagueKey, authority: { leagueKey,
         leagueLifecycle: 'active', activeSeason: 2026, activeSeasonType: 'reg', activeWeek: 3,
         defaultSeason: 2026, defaultSeasonType: 'reg', defaultWeek: 3,
         sourceProvider: 'sleeper', verifiedAt: '2026-09-25T16:00:00Z',
@@ -320,8 +343,8 @@ describe('production all-player recurring composition', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-09-25T16:00:00Z'));
     process.env.ALL_PLAYER_RECURRING_ENABLED = 'true';
-    store.readLeagueLineupAuthorities.mockResolvedValueOnce(['league1', 'league2'].map((leagueKey) => ({
-      kind: 'available', leagueKey, authority: {
+    store.readLeagueLineupAuthorities.mockResolvedValueOnce(['league1', 'league2', 'dynasty'].map((leagueKey) => ({
+      kind: 'available', leagueKey, authority: { leagueKey,
         leagueLifecycle: 'complete', defaultSeason: 2026, defaultSeasonType: 'reg', defaultWeek: 3,
         sourceProvider: 'sleeper', verifiedAt: '2026-09-25T16:00:00Z',
         defaultPeriodCadence: { games: [{ kickoffAt: '2026-09-18T00:00:00Z' }] },

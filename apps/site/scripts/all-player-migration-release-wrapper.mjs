@@ -439,6 +439,8 @@ export const ALL_PLAYER_PARTICIPATION_CHECKSUM =
   'bea4bd568c05eee7da177811b25a1389180d37329b9061b3e79ee60d546aa4ed';
 export const ALL_PLAYER_PARTICIPATION_ASSUMPTION_CHECKSUM =
   '4e03581db2b9a33d0df77110fe32b81745bec7f1ab001a20bfd788c4b4283d80';
+export const ALL_PLAYER_HOURLY_CHECKSUM =
+  '3aa6e19555c1e38bf7805199d401b0c6acd3ada00716950e04e54573867b1fc3';
 
 export function buildAllPlayerParticipationReleaseWrapper(input) {
   const previous = input.previousManifest;
@@ -473,14 +475,26 @@ export function buildAllPlayerHourlyReleaseWrapper(input) {
   return buildAdditiveAllPlayerReleaseWrapper(input, previous.catalog, true, true);
 }
 
+export function buildAllPlayerDynastyReleaseWrapper(input) {
+  const previous = input.previousManifest;
+  if (!previous || previous.migrationName !== '014_all_player_hourly_collection.sql'
+    || previous.migrationChecksum !== ALL_PLAYER_HOURLY_CHECKSUM || previous.postgresMajor !== 18
+    || previous.reviewed !== true || !previous.catalog?.tables?.length
+    || !previous.catalog?.functions?.length || !previous.catalog?.triggers?.length) {
+    throw new Error('Migration 015 requires the exact independently reviewed installed 014 catalog.');
+  }
+  return buildAdditiveAllPlayerReleaseWrapper(input, previous.catalog, true, true, true)
+    .replace(/[ \t]+$/gmu, '');
+}
+
 function buildAdditiveAllPlayerReleaseWrapper({
   migrationSql, expectedDatabase, expectedOwner, runtimeRole = 'league_one_runtime', manifest,
-}, previousCatalog, assumption = false, hourly = false) {
+}, previousCatalog, assumption = false, hourly = false, dynasty = false) {
   const participation = previousCatalog !== undefined;
-  const number = hourly ? '014' : assumption ? '013' : participation ? '012' : '011';
-  const previousNumber = hourly ? '013' : assumption ? '012' : participation ? '011' : '010';
-  const previousCount = hourly ? 13 : assumption ? 12 : participation ? 11 : 10;
-  const migrationName = hourly ? '014_all_player_hourly_collection.sql' : assumption ? '013_all_player_participation_assumption.sql'
+  const number = dynasty ? '015' : hourly ? '014' : assumption ? '013' : participation ? '012' : '011';
+  const previousNumber = dynasty ? '014' : hourly ? '013' : assumption ? '012' : participation ? '011' : '010';
+  const previousCount = dynasty ? 14 : hourly ? 13 : assumption ? 12 : participation ? 11 : 10;
+  const migrationName = dynasty ? '015_all_player_dynasty_publication.sql' : hourly ? '014_all_player_hourly_collection.sql' : assumption ? '013_all_player_participation_assumption.sql'
     : participation ? '012_all_player_provider_participation.sql' : '011_all_player_foundation_guards.sql';
   const beforeCatalog = previousCatalog ?? REVIEWED_ALL_PLAYER_CATALOG;
   const normalizedMigration = normalizeMigrationText(migrationSql);
@@ -504,7 +518,8 @@ function buildAdditiveAllPlayerReleaseWrapper({
     [ALL_PLAYER_MIGRATION_NAME, ALL_PLAYER_MIGRATION_CHECKSUM],
     ...(participation ? [['011_all_player_foundation_guards.sql', ALL_PLAYER_REPAIR_CHECKSUM]] : []),
     ...(assumption ? [['012_all_player_provider_participation.sql', ALL_PLAYER_PARTICIPATION_CHECKSUM]] : []),
-    ...(hourly ? [['013_all_player_participation_assumption.sql', ALL_PLAYER_PARTICIPATION_ASSUMPTION_CHECKSUM]] : [])];
+    ...(hourly ? [['013_all_player_participation_assumption.sql', ALL_PLAYER_PARTICIPATION_ASSUMPTION_CHECKSUM]] : []),
+    ...(dynasty ? [['014_all_player_hourly_collection.sql', ALL_PLAYER_HOURLY_CHECKSUM]] : [])];
   const ledgerChecks = expectedMigrations.map(([name, hash]) => `
   IF (SELECT checksum FROM app_schema_migrations WHERE name = ${literal(name)}) IS DISTINCT FROM ${literal(hash)}
     THEN RAISE EXCEPTION 'release assertion failed: previous migration ${name}'; END IF;`).join('');
@@ -546,7 +561,7 @@ function buildAdditiveAllPlayerReleaseWrapper({
     'roles','memberships','default_privileges'].map((key) => `
   IF before_catalog->>${literal(key)} IS DISTINCT FROM after_catalog->>${literal(key)}
     THEN RAISE EXCEPTION 'release assertion failed: unrelated ${key} changed'; END IF;`).join('');
-  const sentinel = `ALL_PLAYER_${hourly ? 'HOURLY' : assumption ? 'PARTICIPATION_ASSUMPTION' : participation ? 'PARTICIPATION' : 'REPAIR'}_APPLIED:${migrationName}:${checksum}`;
+  const sentinel = `ALL_PLAYER_${dynasty ? 'DYNASTY' : hourly ? 'HOURLY' : assumption ? 'PARTICIPATION_ASSUMPTION' : participation ? 'PARTICIPATION' : 'REPAIR'}_APPLIED:${migrationName}:${checksum}`;
   return normalizeMigrationText(`-- Reviewed additive all-player repair; never apply migration 010 again.
 BEGIN;
 SET LOCAL lock_timeout = '5s';

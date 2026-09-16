@@ -204,7 +204,7 @@ export async function runProductionAllPlayerRecurring(
     preclaimStage = 'period-selection';
     const keys = dependencies.leagueRegistry.listActiveLeagues().map((league) => league.key);
     const authorities = await dependencies.store.readLeagueLineupAuthorities(keys);
-    const selection = selectAllPlayerRecurringPeriod(authorities, job, now);
+    const selection = selectAllPlayerRecurringPeriod(authorities, job, now, keys);
     if (selection.kind === 'unavailable') {
       const overdue = /^final-capture-overdue:(\d{4}):regular:(\d{1,2})$/u.exec(selection.reason);
       const period = selection.period ?? (overdue
