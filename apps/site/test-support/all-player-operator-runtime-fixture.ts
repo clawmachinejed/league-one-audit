@@ -259,6 +259,7 @@ const dependencies = {
         });
     },
     readAllPlayerGameContext: async () => gameContext,
+    readAllPlayerHistoricalTeamContexts: async () => [],
     acquireAllPlayerJob: writeTrap('acquireAllPlayerJob'),
     markAllPlayerRequest: writeTrap('markAllPlayerRequest'),
     upsertScoringEntities: writeTrap('upsertScoringEntities'),

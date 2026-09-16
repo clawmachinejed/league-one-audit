@@ -12,6 +12,7 @@ import type {
   AllPlayerScoreSet,
   AllPlayerStatObservation,
 } from '../../domain/all-player-statistics';
+import type { AllPlayerHistoricalTeamContext } from '../../domain/all-player-team-context';
 
 export type FutureRefreshFailureCode = CanonicalFutureRefreshFailureCode;
 
@@ -178,7 +179,7 @@ export type AllPlayerJobFence = Readonly<{
   deadlineAt: string;
 }>;
 export type AllPlayerJobOutcome = 'published' | 'partial' | 'validation-failed'
-  | 'provider-failed' | 'timeout' | 'lease-lost';
+  | 'provider-failed' | 'timeout' | 'lease-lost' | 'no-statistics-yet';
 export type AllPlayerPreclaimOutcome = Readonly<{
   outcome: 'not-due' | 'busy' | 'validation-failed' | 'timeout';
   stage: string;
@@ -738,6 +739,12 @@ export type ProjectionStore = LineupWatchMethods & LineupAcknowledgmentMethods &
     week: number;
     gameStateProvider: string;
   }>) => Promise<readonly StoredAllPlayerGameContext[]>;
+  readAllPlayerHistoricalTeamContexts: (input: Readonly<{
+    provider: string;
+    season: number;
+    seasonType: 'reg';
+    week: number;
+  }>) => Promise<readonly AllPlayerHistoricalTeamContext[]>;
   readDatabaseIdentity: () => Promise<StoredDatabaseIdentity>;
   readLatestCandidatesBySleeperIds: (input: Readonly<{
     leagueSeasonId: string;

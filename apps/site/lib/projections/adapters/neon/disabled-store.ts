@@ -84,6 +84,7 @@ export function createDisabledProjectionStore(): ProjectionStore {
     async readAllPlayerLeagueProfiles() { return []; },
     async readAllPlayerIdentityMappings() { return []; },
     async readAllPlayerGameContext() { return []; },
+    async readAllPlayerHistoricalTeamContexts() { return []; },
     async readDatabaseIdentity() {
       throw new Error('Database identity is unavailable while persistence is disabled.');
     },

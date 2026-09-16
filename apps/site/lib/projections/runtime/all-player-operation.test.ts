@@ -9,7 +9,7 @@ import { normalizeSleeperScoringProfile } from '../adapters/sleeper/scoring-prof
 import { deterministicUuid } from '../adapters/neon/database-values';
 import type { AllPlayerBatchInput, AllPlayerIdentityLookup, AllPlayerJobFence } from '../adapters/neon/contracts';
 import { externalPlayerRef } from '../shared/provider-identity';
-import { PERIOD, PROJECTION_PROVIDER, OFFICIAL_PROVIDER, configuration, schedule, source } from '../../live-projection-worker.fixtures';
+import { PERIOD, PROJECTION_PROVIDER, OFFICIAL_PROVIDER, configuration, schedule, source, fullWeekSchedule } from '../../live-projection-worker.fixtures';
 import { runAllPlayerIngestion, type AllPlayerIngestionDependencies } from './all-player-operation';
 
 const PROFILE_ONE = '11111111-1111-4111-8111-111111111111';
@@ -221,6 +221,7 @@ function harness(options: Readonly<{
         validFrom: null, validTo: null,
       }))),
       readAllPlayerGameContext: vi.fn(async () => gameContext()),
+      readAllPlayerHistoricalTeamContexts: vi.fn(async () => []),
       upsertScoringEntities,
       recordLeagueWeekObservation,
       recordAllPlayerBatch,
@@ -275,6 +276,229 @@ function harness(options: Readonly<{
 }
 
 describe('canonical all-player ingestion orchestration', () => {
+  function pregameHarness() {
+    const test = harness();
+    const kickoffAt = '2026-09-15T01:05:00.000Z';
+    const futureSchedule = fullWeekSchedule(kickoffAt);
+    const loadLeague = vi.mocked(test.dependencies.loadLeagueWeek).getMockImplementation()!;
+    vi.mocked(test.dependencies.loadLeagueWeek).mockImplementation(async (...args) => {
+      const value = await loadLeague(...args);
+      return { ...value, state: { ...value.state, schedule: futureSchedule },
+        rawMatchups: value.rawMatchups.map((row) => ({ ...row, points: 0,
+          players_points: Object.fromEntries(Object.keys(row.players_points ?? {}).map((id) => [id, 0])),
+        })) };
+    });
+    const games = gameContext().map((game) => ({ ...game, kickoffAt, phase: 'unknown' as const }));
+    const readGames = vi.fn<AllPlayerIngestionDependencies['store']['readAllPlayerGameContext']>(async () => games);
+    const authorities: Awaited<ReturnType<AllPlayerIngestionDependencies['store']['readLeagueLineupAuthorities']>> =
+      test.dependencies.leagueRegistry.listActiveLeagues().map(({ key }) => ({ kind: 'available', leagueKey: key,
+        authority: { leagueKey: key, defaultSeason: 2026, defaultSeasonType: 'reg', defaultWeek: 1,
+          leagueLifecycle: 'active', activeSeason: 2026, activeSeasonType: 'reg', activeWeek: 1,
+          nflPhase: 'regular', sourceProvider: 'sleeper', verifiedAt: test.dependencies.clock.now().toISOString(),
+          sourceRevision: 'fixture', sourceObservedAt: test.dependencies.clock.now().toISOString(), authorityGeneration: 1,
+          lineupShape: { sourceExternalLeagueId: key, expectedRosterCount: 1, expectedStarterSlotCount: 1,
+            expectedRosterIds: ['1'] }, defaultPeriodCadence: { isCurrentRegularPeriod: true, games: [] },
+        },
+      }));
+    const readAuthorities = vi.fn<AllPlayerIngestionDependencies['store']['readLeagueLineupAuthorities']>(async () => authorities);
+    test.dependencies = { ...test.dependencies, store: { ...test.dependencies.store,
+      readAllPlayerGameContext: readGames, readLeagueLineupAuthorities: readAuthorities } };
+    const weeklyFetch = vi.fn<typeof fetch>(async () => new Response('{}'));
+    const emptySource = createSleeperAllPlayerStatSource({ fetch: weeklyFetch, now: () => test.dependencies.clock.now() });
+    test.allPlayerSource.load.mockImplementation(emptySource.load);
+    return { test, kickoffAt, futureSchedule, games, readGames, authorities, readAuthorities, weeklyFetch };
+  }
+
+  function expectNoStatWrites(test: ReturnType<typeof harness>) {
+    expect(test.upsertScoringEntities).not.toHaveBeenCalled();
+    expect(test.recordLeagueWeekObservation).not.toHaveBeenCalled();
+    expect(test.recordAllPlayerBatch).not.toHaveBeenCalled();
+    expect(test.pointers).toEqual([]);
+  }
+
+  it('records a budgeted no-statistics-yet skip only after proving the exact current period remains pregame', async () => {
+    const { test, weeklyFetch, readGames, readAuthorities, kickoffAt } = pregameHarness();
+    const result = await runAllPlayerIngestion(test.dependencies, { mode: 'recurring', period: PERIOD });
+    expect(result).toMatchObject({ status: 'skipped', mode: 'recurring', reason: 'no-statistics-yet', period: PERIOD,
+      responseEvidence: { httpStatus: 200, bodyShape: 'object', topLevelCount: 0,
+        bodyHash: 'sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a' },
+      pregameEvidence: { policy: 'exact-period-pregame-v1', scheduledGameCount: 16, firstKickoffAt: kickoffAt },
+    });
+    expect(weeklyFetch).toHaveBeenCalledOnce();
+    expect(test.dependencies.store.markAllPlayerRequest).toHaveBeenCalledExactlyOnceWith({
+      fence: FENCE, period: { ...PERIOD, seasonType: 'reg' },
+    });
+    expect(readGames).toHaveBeenCalledTimes(2);
+    expect(readAuthorities).toHaveBeenCalledOnce();
+    expect(test.dependencies.store.finishAllPlayerJob).toHaveBeenCalledExactlyOnceWith({
+      fence: FENCE, outcome: 'no-statistics-yet', diagnostic: expect.objectContaining({
+        stage: 'no-statistics-yet', reason: 'no-statistics-yet', finalCoverage: false,
+        retryDisposition: 'global-budget', entryCount: 0, scoringProfileCount: 0,
+        responseEvidence: expect.objectContaining({ topLevelCount: 0, bodyShape: 'object' }),
+        pregameEvidence: expect.objectContaining({ firstKickoffAt: kickoffAt }),
+      }),
+    });
+    expectNoStatWrites(test);
+    expect(test.dependencies.logger.write).toHaveBeenLastCalledWith('info', expect.objectContaining({
+      outcome: 'skipped', allPlayerReason: 'no-statistics-yet', allPlayerPersistedObservation: false,
+      allPlayerConfirmedPublication: false,
+    }));
+  });
+
+  it.each(['backfill', 'shadow', 'correction'] as const)('does not accept an empty response as %s completion', async (mode) => {
+    const { test } = pregameHarness();
+    const result = await runAllPlayerIngestion(test.dependencies, {
+      mode: mode === 'correction' ? 'recurring' : mode, period: PERIOD, requireFinalCoverage: true,
+    });
+    expect(result).toMatchObject({ status: 'unavailable', reason: 'provider-empty-object',
+      responseEvidence: { bodyShape: 'object', topLevelCount: 0 } });
+    expectNoStatWrites(test);
+  });
+
+  it.each(['live', 'final', 'missing-game', 'duplicate-game', 'missing-kickoff', 'changed-kickoff',
+    'wrong-current-week', 'stale-authority', 'missing-authority', 'nonzero-player', 'nonzero-team',
+    'custom-team', 'missing-team-points'] as const)('keeps empty %s evidence unavailable without manufacturing statistics', async (variant) => {
+    const { test, games, readGames, authorities, readAuthorities } = pregameHarness();
+    if (variant === 'live' || variant === 'final') readGames.mockResolvedValueOnce(games)
+      .mockResolvedValueOnce([{ ...games[0], phase: variant }, ...games.slice(1)]);
+    if (variant === 'missing-game') readGames.mockResolvedValueOnce(games).mockResolvedValueOnce(games.slice(1));
+    if (variant === 'duplicate-game') readGames.mockResolvedValueOnce(games).mockResolvedValueOnce([games[1], ...games.slice(1)]);
+    if (variant === 'missing-kickoff' || variant === 'changed-kickoff') readGames.mockResolvedValueOnce(games)
+      .mockResolvedValueOnce([{ ...games[0], kickoffAt: variant === 'missing-kickoff' ? null : '2026-09-15T01:06:00.000Z' }, ...games.slice(1)]);
+    if (variant === 'missing-authority') readAuthorities.mockResolvedValueOnce(authorities.slice(1));
+    if (variant === 'wrong-current-week' || variant === 'stale-authority') {
+      readAuthorities.mockResolvedValueOnce(authorities.map((row) => row.kind !== 'available' ? row : ({ ...row,
+        authority: { ...row.authority, ...(variant === 'wrong-current-week'
+          ? { activeWeek: 2 } : { verifiedAt: '2026-09-15T00:00:00.000Z' }) },
+      })));
+    }
+    if (['nonzero-player', 'nonzero-team', 'custom-team', 'missing-team-points'].includes(variant)) {
+      const load = vi.mocked(test.dependencies.loadLeagueWeek).getMockImplementation()!;
+      vi.mocked(test.dependencies.loadLeagueWeek).mockImplementation(async (...args) => {
+        const value = await load(...args);
+        return { ...value, rawMatchups: value.rawMatchups.map((row) => ({ ...row,
+          ...(variant === 'nonzero-player' ? { players_points: { p1: 1 } }
+            : variant === 'nonzero-team' ? { points: 1 }
+              : variant === 'custom-team' ? { custom_points: 1 } : { points: undefined }),
+        })) };
+      });
+    }
+    expect(await runAllPlayerIngestion(test.dependencies, { mode: 'recurring', period: PERIOD }))
+      .toMatchObject({ status: 'unavailable', reason: 'provider-empty-object' });
+    expectNoStatWrites(test);
+    expect(test.dependencies.store.finishAllPlayerJob).not.toHaveBeenCalledWith(expect.objectContaining({ outcome: 'no-statistics-yet' }));
+  });
+
+  it('derives the pregame game count from the complete schedule with byes rather than requiring sixteen games', async () => {
+    const { test, futureSchedule, games, readGames } = pregameHarness();
+    const kept = games[0];
+    for (const team of NFL_TEAM_CODES) {
+      if (team !== kept.homeTeam && team !== kept.awayTeam) Object.assign(futureSchedule, { [team]: { kind: 'bye' } });
+    }
+    readGames.mockResolvedValue([kept]);
+    expect(await runAllPlayerIngestion(test.dependencies, { mode: 'recurring', period: PERIOD }))
+      .toMatchObject({ status: 'skipped', reason: 'no-statistics-yet', pregameEvidence: { scheduledGameCount: 1 } });
+    expectNoStatWrites(test);
+  });
+
+  it.each(['missing-team', 'missing-kickoff', 'reciprocity', 'all-byes'] as const)(
+    'rejects %s schedule evidence instead of treating absence of game rows as pregame proof', async (variant) => {
+      const { test, futureSchedule, readGames, games } = pregameHarness();
+      const first = Object.keys(futureSchedule)[0] as keyof typeof futureSchedule;
+      const entry = futureSchedule[first]!;
+      if (variant === 'missing-team') Reflect.deleteProperty(futureSchedule, first);
+      if (variant === 'missing-kickoff') Object.assign(entry, { kickoffAt: null });
+      if (variant === 'reciprocity' && entry.kind === 'scheduled') Object.assign(futureSchedule[entry.opponent]!, { location: entry.location });
+      if (variant === 'all-byes') {
+        for (const team of NFL_TEAM_CODES) Object.assign(futureSchedule, { [team]: { kind: 'bye' } });
+        readGames.mockResolvedValue([]);
+      } else readGames.mockResolvedValue(games);
+      const result = await runAllPlayerIngestion(test.dependencies, { mode: 'recurring', period: PERIOD });
+      expect(result).toMatchObject({ status: 'unavailable' });
+      expectNoStatWrites(test);
+      expect(test.dependencies.store.finishAllPlayerJob).not.toHaveBeenCalledWith(expect.objectContaining({ outcome: 'no-statistics-yet' }));
+    },
+  );
+
+  it.each(['request', 'ownership-check'] as const)('rejects an empty response when kickoff crosses during the %s', async (stage) => {
+    const { test, futureSchedule, games, weeklyFetch } = pregameHarness();
+    for (const team of NFL_TEAM_CODES) Object.assign(futureSchedule[team]!, { kickoffAt: '2026-09-15T01:00:01.000Z' });
+    for (const game of games) game.kickoffAt = '2026-09-15T01:00:01.000Z';
+    const crossKickoff = () => vi.spyOn(test.dependencies.clock, 'now').mockReturnValue(new Date('2026-09-15T01:00:02.000Z'));
+    if (stage === 'request') weeklyFetch.mockImplementationOnce(async () => { crossKickoff(); return new Response('{}'); });
+    else vi.mocked(test.dependencies.store.validateAllPlayerJobFence).mockImplementationOnce(async () => { crossKickoff(); return true; });
+    expect(await runAllPlayerIngestion(test.dependencies, { mode: 'recurring', period: PERIOD }))
+      .toMatchObject({ status: 'unavailable', reason: 'provider-empty-object' });
+    expectNoStatWrites(test);
+  });
+
+  it.each(['takeover', 'expired', 'deadline', 'completion-lost'] as const)(
+    'does not claim a successful no-statistics-yet outcome after %s', async (variant) => {
+      const { test, weeklyFetch } = pregameHarness();
+      if (variant === 'takeover') vi.mocked(test.dependencies.store.validateAllPlayerJobFence).mockResolvedValueOnce(false);
+      if (variant === 'completion-lost') vi.mocked(test.dependencies.store.finishAllPlayerJob).mockResolvedValueOnce(false);
+      if (variant === 'expired') {
+        test.acquireJob.mockResolvedValueOnce({ kind: 'acquired', fence: { ...FENCE, leaseUntil: '2026-09-15T01:00:01.000Z' } });
+      }
+      if (variant === 'expired' || variant === 'deadline') weeklyFetch.mockImplementationOnce(async () => {
+        vi.spyOn(test.dependencies.clock, 'now').mockReturnValue(new Date(variant === 'expired'
+          ? '2026-09-15T01:00:02.000Z' : '2026-09-15T01:00:51.000Z'));
+        return new Response('{}');
+      });
+      expect(await runAllPlayerIngestion(test.dependencies, { mode: 'recurring', period: PERIOD }))
+        .toMatchObject({ status: 'unavailable', reason: variant === 'deadline' ? 'timeout' : 'lease-lost' });
+      expectNoStatWrites(test);
+    },
+  );
+
+  it('forwards only sanitized malformed-response evidence to durable outcomes and logs', async () => {
+    const { test, weeklyFetch } = pregameHarness();
+    weeklyFetch.mockResolvedValueOnce(new Response('{"secret-player":{"pass_td":"secret-value"}}'));
+    const result = await runAllPlayerIngestion(test.dependencies, { mode: 'recurring', period: PERIOD });
+    expect(result).toMatchObject({ status: 'unavailable', reason: 'provider-malformed',
+      responseEvidence: { httpStatus: 200, bodyShape: 'object', topLevelCount: 1 } });
+    expect(test.dependencies.store.finishAllPlayerJob).toHaveBeenCalledWith(expect.objectContaining({
+      outcome: 'provider-failed', diagnostic: expect.objectContaining({
+        responseEvidence: expect.objectContaining({ bodyShape: 'object', topLevelCount: 1 }),
+      }),
+    }));
+    const serialized = JSON.stringify([result, vi.mocked(test.dependencies.store.finishAllPlayerJob).mock.calls,
+      vi.mocked(test.dependencies.logger.write).mock.calls]);
+    expect(serialized).not.toContain('secret-');
+    expectNoStatWrites(test);
+  });
+
+  it.each([
+    ['23503', 'persistence-reference-rejected'], ['23514', 'persistence-constraint-rejected'],
+    ['23505', 'persistence-conflict'], ['40001', 'persistence-transaction-conflict'],
+    ['40P01', 'persistence-transaction-conflict'], ['57014', 'persistence-cancelled'],
+    ['P0001', 'persistence-validation-rejected'],
+  ])('retains allowlisted SQLSTATE %s without retaining SQL or exception text', async (code, reason) => {
+    const test = harness();
+    test.recordAllPlayerBatch.mockRejectedValueOnce(Object.assign(new Error('secret SQL error payload'), {
+      code, detail: 'secret player details', query: 'secret query', connection: 'secret connection',
+    }));
+    const result = await runAllPlayerIngestion(test.dependencies, { mode: 'backfill', period: PERIOD });
+    expect(result).toMatchObject({ status: 'unavailable', reason, stage: 'publication',
+      diagnostics: [`database-sqlstate:${code}`] });
+    expect(test.dependencies.store.finishAllPlayerJob).toHaveBeenCalledWith(expect.objectContaining({
+      outcome: 'validation-failed', diagnostic: expect.objectContaining({ reason,
+        diagnostics: [`database-sqlstate:${code}`],
+      }),
+    }));
+    expect(JSON.stringify([result, vi.mocked(test.dependencies.store.finishAllPlayerJob).mock.calls,
+      vi.mocked(test.dependencies.logger.write).mock.calls])).not.toContain('secret');
+  });
+
+  it('does not forward an unrecognized error code or arbitrary error fields', async () => {
+    const test = harness();
+    test.recordAllPlayerBatch.mockRejectedValueOnce(Object.assign(new Error('secret-sql-error'), { code: 'secret code' }));
+    const result = await runAllPlayerIngestion(test.dependencies, { mode: 'backfill', period: PERIOD });
+    expect(result).toMatchObject({ status: 'unavailable', reason: 'stage-failed', stage: 'publication' });
+    expect(JSON.stringify([result, vi.mocked(test.dependencies.store.finishAllPlayerJob).mock.calls,
+      vi.mocked(test.dependencies.logger.write).mock.calls])).not.toContain('secret');
+  });
+
   it.each(['empty', 'duplicate-key', 'duplicate-source', 'wrong-provider', 'blank-key'] as const)
   ('rejects %s configured league inventory before catalog, weekly-stat or persistence work', async (variant) => {
     const test = harness({ dynasty: true });

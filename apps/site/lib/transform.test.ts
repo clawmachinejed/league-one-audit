@@ -254,6 +254,19 @@ describe('rosters and matchups', () => {
     expect(players[4]).toMatchObject({ name: 'PIT Defense', position: 'DEF', nflTeam: 'PIT' });
   });
 
+  it('uses the shared fantasy classification for dual-role players without changing their identity or slot', () => {
+    const hunter = { player_id: '12530', full_name: 'Travis Hunter', position: 'DB',
+      fantasy_positions: ['WR', 'DB'], team: 'JAX' };
+    expect(playerFromId('12530', 'BN', { '12530': hunter }, 1.6)).toMatchObject({
+      id: '12530', name: 'Travis Hunter', position: 'WR', nflTeam: 'JAX', slot: 'BN', points: 1.6,
+    });
+    expect(hunter).toMatchObject({ position: 'DB', fantasy_positions: ['WR', 'DB'] });
+    expect(playerFromId('12530', 'BN', { '12530': { ...hunter, fantasy_positions: ['DB'] } }).position).toBe('DB');
+    expect(playerFromId('12530', 'BN', { '12530': { ...hunter, player_id: 'different' } }).position).toBe('DB');
+    expect(playerFromId('fullback', 'FLEX', { fullback: { position: 'FB', fantasy_positions: ['RB'] } }).position).toBe('RB');
+    expect(playerFromId('PIT', 'DEF', { PIT: { position: 'DEF', fantasy_positions: ['DEF'] } }).position).toBe('DEF');
+  });
+
   it('fills missing starter slots and recovers partial starter scores from the player map', () => {
     const players = lineup(['qb', 'rb'], ['QB', 'RB', 'FLEX'], catalog, [null, 0], { qb: 8, rb: 2 });
     expect(players[0].points).toBe(8);

@@ -6,6 +6,7 @@ import { startProviderHttp } from '../../../provider-request-telemetry';
 import type { PlayerCatalog, SleeperMatchup } from '../../../transform';
 import { classifySleeperCatalogIdentity } from '../../../sleeper-player-catalog';
 import { NFL_TEAM_CODES } from '../../domain/contracts';
+import type { AllPlayerHistoricalTeamContext, AllPlayerTeamContextConflict } from '../../domain/all-player-team-context';
 import {
   allPlayerEligibilityCounts, allPlayerEvidenceMatchesPeriod,
   ALL_PLAYER_INDIVIDUAL_SNAP_KEYS, hasAllPlayerWeeklyParticipationConflict,
@@ -75,6 +76,8 @@ export type SleeperAllPlayerInventory = Readonly<{
       fantasyPositions: readonly string[];
       representativePosition: AllPlayerPosition;
     }>>>;
+    historicalTeamContextFingerprint?: string;
+    periodTeamContextConflicts?: Readonly<Record<string, AllPlayerTeamContextConflict>>;
   }>;
 }>;
 
@@ -92,12 +95,28 @@ export type SleeperAllPlayerStatRequest = Readonly<{
   signal?: AbortSignal;
 }>;
 
+/** Bounded response metadata only. Never retain response keys, values, headers,
+ * URLs or provider exception text in a durable failure diagnostic. */
+export type SleeperAllPlayerStatResponseEvidence = Readonly<{
+  httpStatus: number | null;
+  bodyShape: 'object' | 'array' | 'null' | 'string' | 'number' | 'boolean'
+    | 'invalid-json' | 'unreadable' | 'not-read';
+  topLevelCount: number | null;
+  /** SHA-256 of the UTF-8 decoded response text, not an ETag or source claim. */
+  bodyHash: string | null;
+  requestStartedAt: string;
+  requestCompletedAt: string;
+}>;
+
 export type SleeperAllPlayerStatResult =
   | Readonly<{ status: 'available'; observation: AllPlayerStatObservation }>
+  | Readonly<{ status: 'empty'; reason: 'empty-object';
+      responseEvidence: SleeperAllPlayerStatResponseEvidence }>
   | Readonly<{
       status: 'unavailable';
       reason: 'http' | 'malformed';
       statusCode?: number;
+      responseEvidence?: SleeperAllPlayerStatResponseEvidence;
     }>;
 
 export type SleeperOfficialRosteredPointsResult =
@@ -240,6 +259,8 @@ export function buildSleeperAllPlayerInventory(input: Readonly<{
    * Reusing its revision must reuse this time, not the inventory assembly time. */
   scheduleObservedAt?: string;
   periodInventoryEvidence?: SleeperPeriodInventoryEvidence;
+  /** Negative evidence only: disagreement prevents a current-team game guess. */
+  historicalTeamContexts?: readonly AllPlayerHistoricalTeamContext[];
 }>): SleeperAllPlayerInventoryResult {
   const catalogRevision = input.catalogRevision.trim();
   const scheduleRevision = input.scheduleRevision.trim();
@@ -268,6 +289,35 @@ export function buildSleeperAllPlayerInventory(input: Readonly<{
     )) || Object.entries(periodEvidence.teamsByPlayerId).some(([id, team]) => (
       !id.trim() || (team !== null && canonicalNflTeam(team) !== team)
     )))) return { status: 'unavailable', reason: 'identity' };
+  const historicalContexts = [...(input.historicalTeamContexts ?? [])].sort((left, right) => (
+    `${left.providerExternalId}\0${left.nflTeam}`.localeCompare(`${right.providerExternalId}\0${right.nflTeam}`)
+  ));
+  const historicalKeys = new Set<string>();
+  if (historicalContexts.length > 10_000 || historicalContexts.some((context) => {
+    const key = `${context.providerExternalId}\0${context.nflTeam}`;
+    const invalid = !input.period || !context.providerExternalId.trim()
+      || context.providerExternalId.trim() !== context.providerExternalId
+      || canonicalNflTeam(context.nflTeam) !== context.nflTeam
+      || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(context.sourceObservationId)
+      || typeof context.hasUnresolvedConflict !== 'boolean'
+      || !isAllPlayerEffectivePeriod(context.effectivePeriod)
+      || context.effectivePeriod.season !== input.period.season
+      || context.effectivePeriod.seasonType !== input.period.seasonType
+      || context.effectivePeriod.week !== input.period.week
+      || !Number.isFinite(Date.parse(context.observedAt))
+      || new Date(context.observedAt).toISOString() !== context.observedAt
+      || (input.observedAt !== undefined && Date.parse(context.observedAt) > Date.parse(input.observedAt))
+      || historicalKeys.has(key);
+    historicalKeys.add(key);
+    return invalid;
+  })) return { status: 'unavailable', reason: 'identity', diagnostics: ['invalid-historical-team-context'] };
+  const historicalByPlayer = new Map<string, AllPlayerHistoricalTeamContext[]>();
+  for (const context of historicalContexts) {
+    const contexts = historicalByPlayer.get(context.providerExternalId) ?? [];
+    contexts.push(context);
+    historicalByPlayer.set(context.providerExternalId, contexts);
+  }
+  const periodTeamContextConflicts: Record<string, AllPlayerTeamContextConflict> = {};
   const byeTeams = new Set(input.byeTeamIds.map(canonicalNflTeam));
   if (byeTeams.has(null)) return { status: 'unavailable', reason: 'schedule' };
   if (Object.entries(input.gamesByTeam).some(([team, game]) => (
@@ -320,8 +370,17 @@ export function buildSleeperAllPlayerInventory(input: Readonly<{
     if (periodEvidence && !Object.prototype.hasOwnProperty.call(periodEvidence.teamsByPlayerId, providerExternalId)) {
       return { status: 'unavailable', reason: 'identity' };
     }
+    const currentTeam = canonicalNflTeam(player.team);
+    const retainedContexts = historicalByPlayer.get(providerExternalId) ?? [];
+    const teamContextConflict = !periodEvidence && retainedContexts.some((context) => (
+      context.hasUnresolvedConflict || context.nflTeam !== currentTeam
+    ));
+    if (teamContextConflict) periodTeamContextConflicts[providerExternalId] = {
+      source: 'stored-all-player-observations', role: 'conflict-only', currentTeam, retainedContexts,
+    };
     const nflTeam = periodEvidence
-      ? canonicalNflTeam(periodEvidence.teamsByPlayerId[providerExternalId]) : canonicalNflTeam(player.team);
+      ? canonicalNflTeam(periodEvidence.teamsByPlayerId[providerExternalId])
+      : teamContextConflict ? null : currentTeam;
     const suppliedEvidence = input.ineligibilityEvidenceByPlayerId?.[providerExternalId];
     const participation = input.periodEligibilityEvidenceByPlayerId?.[providerExternalId];
     if ((suppliedEvidence && (!input.period || !allPlayerEvidenceMatchesPeriod(suppliedEvidence, input.period)
@@ -380,6 +439,9 @@ export function buildSleeperAllPlayerInventory(input: Readonly<{
     ...(periodEvidence ? { periodInventoryEvidence: periodEvidence } : {}),
     catalogResponseClassifications,
     catalogRoleDiagnostics,
+    ...(input.historicalTeamContexts !== undefined ? {
+      historicalTeamContextFingerprint: evidenceFingerprint(historicalContexts), periodTeamContextConflicts,
+    } : {}),
     unresolvedOptionalProjectionIds: [...optionalProjectionIds]
       .filter((id) => !canonicalTeamDefenseIds.has(id)).sort(),
   };
@@ -412,6 +474,9 @@ function validatedInventory(
   if (value.sourceEvidence.byeTeamIds.some((team) => (
     canonicalNflTeam(team) !== team || gamesByTeam[team]
   ))) return null;
+  if (value.sourceEvidence.historicalTeamContextFingerprint !== undefined
+    && (!/^sha256:[0-9a-f]{64}$/u.test(value.sourceEvidence.historicalTeamContextFingerprint)
+      || !isRecord(value.sourceEvidence.periodTeamContextConflicts))) return null;
   const keys = new Set<string>();
   const externalIds = new Set<string>();
   const defenses = new Set<string>();
@@ -430,6 +495,8 @@ function validatedInventory(
       if (!team || entity.position !== 'DEF' || entity.nflTeam !== team) return null;
       defenses.add(team);
     } else if (entity.position === 'DEF') return null;
+    if (value.sourceEvidence.periodTeamContextConflicts?.[entity.providerExternalId]
+      && (entity.entityKind !== 'player' || entity.nflTeam !== null)) return null;
     const key = `${entity.entityKind}\0${entity.providerExternalId}`;
     if (keys.has(key) || externalIds.has(entity.providerExternalId)) return null;
     keys.add(key);
@@ -512,6 +579,15 @@ export function createSleeperAllPlayerStatSource(dependencies: Readonly<{
       if (period && (period.season !== input.season || period.week !== input.week
         || period.seasonType !== 'reg')) return { status: 'unavailable', reason: 'malformed' };
       const requestStartedAt = now().toISOString();
+      const responseEvidence = (
+        httpStatus: number | null,
+        bodyShape: SleeperAllPlayerStatResponseEvidence['bodyShape'],
+        topLevelCount: number | null = null,
+        bodyHash: string | null = null,
+      ): SleeperAllPlayerStatResponseEvidence => ({
+        httpStatus, bodyShape, topLevelCount, bodyHash, requestStartedAt,
+        requestCompletedAt: now().toISOString(),
+      });
       const finished = startProviderHttp('sleeper', 'all-player-stats', 'bypass');
       let response: Response;
       try {
@@ -527,25 +603,48 @@ export function createSleeperAllPlayerStatSource(dependencies: Readonly<{
         );
       } catch {
         finished('unavailable');
-        return { status: 'unavailable', reason: 'http' };
+        return { status: 'unavailable', reason: 'http',
+          responseEvidence: responseEvidence(null, 'not-read') };
       }
       if (!response.ok) {
         finished('unavailable');
-        return { status: 'unavailable', reason: 'http', statusCode: response.status };
+        return { status: 'unavailable', reason: 'http', statusCode: response.status,
+          responseEvidence: responseEvidence(response.status, 'not-read') };
       }
-      let raw: unknown;
+      let body: string;
       try {
-        raw = await response.json();
+        body = await response.text();
       } catch {
         finished('invalid');
-        return { status: 'unavailable', reason: 'malformed' };
+        return { status: 'unavailable', reason: 'malformed',
+          responseEvidence: responseEvidence(response.status, 'unreadable') };
+      }
+      const bodyHash = `sha256:${createHash('sha256').update(body).digest('hex')}`;
+      let raw: unknown;
+      try {
+        raw = JSON.parse(body);
+      } catch {
+        finished('invalid');
+        return { status: 'unavailable', reason: 'malformed',
+          responseEvidence: responseEvidence(response.status, 'invalid-json', null, bodyHash) };
+      }
+      const bodyShape: SleeperAllPlayerStatResponseEvidence['bodyShape'] = raw === null ? 'null'
+        : Array.isArray(raw) ? 'array' : isRecord(raw) ? 'object'
+          : typeof raw as 'string' | 'number' | 'boolean';
+      const topLevelCount = Array.isArray(raw) ? raw.length : isRecord(raw) ? Object.keys(raw).length : null;
+      const loadedEvidence = responseEvidence(response.status, bodyShape, topLevelCount, bodyHash);
+      if (bodyShape === 'object' && topLevelCount === 0) {
+        // Shape evidence only. The runtime must independently prove that the
+        // exact period has not started before treating this as an expected skip.
+        finished('unavailable');
+        return { status: 'empty', reason: 'empty-object', responseEvidence: loadedEvidence };
       }
       const validated = validateStatsResponse(raw);
       if (!validated) {
         finished('invalid');
-        return { status: 'unavailable', reason: 'malformed' };
+        return { status: 'unavailable', reason: 'malformed', responseEvidence: loadedEvidence };
       }
-      const requestCompletedAt = now().toISOString();
+      const requestCompletedAt = loadedEvidence.requestCompletedAt;
       const warnings: string[] = [];
       const entries: AllPlayerStatEntry[] = [];
       const expectedIds = new Set(expectedEntities.map((entity) => entity.providerExternalId));
@@ -568,7 +667,7 @@ export function createSleeperAllPlayerStatSource(dependencies: Readonly<{
           || ALL_PLAYER_INDIVIDUAL_SNAP_KEYS.some((key) => row.weekly.rawFlags !== undefined
             && Object.prototype.hasOwnProperty.call(row.weekly.rawFlags, key)))) {
           finished('invalid');
-          return { status: 'unavailable', reason: 'malformed' };
+          return { status: 'unavailable', reason: 'malformed', responseEvidence: loadedEvidence };
         }
         if (row) providerPresentEntityCount += 1;
         const nflTeam = expected.nflTeam;
@@ -634,6 +733,10 @@ export function createSleeperAllPlayerStatSource(dependencies: Readonly<{
       }
       if (unknownEligibilityCount > 0) warnings.push(`unknown-eligibility:${unknownEligibilityCount}`);
       if (unmappedGameCount > 0) warnings.push(`unmapped-games:${unmappedGameCount}`);
+      for (const id of Object.keys(input.inventory.sourceEvidence.periodTeamContextConflicts ?? {}).sort()) {
+        const expected = expectedEntities.find((entity) => entity.providerExternalId === id);
+        warnings.push(`sleeper/${id}:${expected?.requirement ?? 'catalog-inventory'}:period-team-context-conflict`);
+      }
       if (nonFinalEligibleCount > 0) warnings.push(`non-final-games:${nonFinalEligibleCount}`);
       if (unexpectedResponseEntityCount > 0) {
         warnings.push(`unexpected-response-entities:${unexpectedResponseEntityCount}`);
@@ -667,6 +770,10 @@ export function createSleeperAllPlayerStatSource(dependencies: Readonly<{
             expectedInventoryFingerprint: input.inventory.fingerprint,
             catalogRevision: input.inventory.sourceEvidence.catalogRevision,
             catalogRoleDiagnostics: input.inventory.sourceEvidence.catalogRoleDiagnostics ?? {},
+            ...(input.inventory.sourceEvidence.historicalTeamContextFingerprint !== undefined ? {
+              historicalTeamContextFingerprint: input.inventory.sourceEvidence.historicalTeamContextFingerprint,
+              periodTeamContextConflicts: input.inventory.sourceEvidence.periodTeamContextConflicts ?? {},
+            } : {}),
             scheduleRevision: input.inventory.sourceEvidence.scheduleRevision,
             rosterInventoryFingerprint: evidenceFingerprint(
               input.inventory.sourceEvidence.rosteredPlayerIds,

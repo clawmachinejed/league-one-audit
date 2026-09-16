@@ -1,5 +1,7 @@
 # All-player statistics foundation
 
+The [Week 1 recovery runbook](week-one-statistics-recovery.md) covers unresolved historical game context, dual-position roster metrics, verified pregame empty responses, and the additive 018 release/rollback procedure.
+
 This foundation retains one shared Sleeper weekly response and scores its
 validated immutable content for each distinct registered league scoring profile.
 It derives per-player season total points and points per game from published

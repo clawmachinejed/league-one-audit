@@ -1,0 +1,25 @@
+{
+  "outcome": "passed",
+  "postgresVersion": 180006,
+  "migrations": [
+    {
+      "name": "018_all_player_partial_context.sql",
+      "checksum": "d8ceba13b99a862a13de74bfa51f27bd2c0afbc16f93e4e9b67b6f79997390cc"
+    }
+  ],
+  "sentinel": "ALL_PLAYER_PARTIAL_CONTEXT_APPLIED:018_all_player_partial_context.sql:d8ceba13b99a862a13de74bfa51f27bd2c0afbc16f93e4e9b67b6f79997390cc",
+  "catalogReview": "pending-independent-review",
+  "checks": [
+    "exact-001-through-017-ledger",
+    "postgres-180006-not-null-constraint-catalog",
+    "unaffected-catalog-and-acls",
+    "protected-physical-table-counts",
+    "corrupt-function-manifest-full-rollback",
+    "corrupt-constraint-manifest-full-rollback",
+    "actual-wrapper-commit",
+    "exact-success-sentinel",
+    "installed-bundle-replay-refused",
+    "same-session-continue-after-error-replay-no-success",
+    "same-session-wrong-target-no-success"
+  ]
+}

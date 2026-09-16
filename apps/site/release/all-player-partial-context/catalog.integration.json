@@ -1,0 +1,153 @@
+{
+  "format": "all-player-partial-context-release-v1",
+  "postgresVersion": 180006,
+  "expectedOwner": "neondb_owner",
+  "observedAt": "2026-09-16T23:20:29.441Z",
+  "reviewed": true,
+  "migrations": [
+    {
+      "name": "018_all_player_partial_context.sql",
+      "checksum": "d8ceba13b99a862a13de74bfa51f27bd2c0afbc16f93e4e9b67b6f79997390cc"
+    }
+  ],
+  "before": {
+    "tables": [],
+    "triggers": [],
+    "functions": [
+      {
+        "acl": "{neondb_owner=X/neondb_owner,league_one_runtime=X/neondb_owner}",
+        "owner": "neondb_owner",
+        "signature": "finish_all_player_job(jsonb,text,jsonb)",
+        "configuration": [
+          "search_path=pg_catalog, public, pg_temp"
+        ],
+        "publicExecute": false,
+        "definitionHash": "f3a85518ccfc0c501c9fe42114b85b04",
+        "runtimeExecute": true,
+        "securityDefiner": true
+      },
+      {
+        "acl": "{neondb_owner=X/neondb_owner}",
+        "owner": "neondb_owner",
+        "signature": "validate_all_player_stat_entry()",
+        "configuration": [
+          "search_path=pg_catalog, public, pg_temp"
+        ],
+        "publicExecute": false,
+        "definitionHash": "7ab2d14d2fd08fa8a0b8aa9a25b9693c",
+        "runtimeExecute": false,
+        "securityDefiner": true
+      }
+    ],
+    "constraintTypes": []
+  },
+  "after": {
+    "tables": [],
+    "triggers": [],
+    "functions": [
+      {
+        "acl": "{neondb_owner=X/neondb_owner,league_one_runtime=X/neondb_owner}",
+        "owner": "neondb_owner",
+        "signature": "finish_all_player_job(jsonb,text,jsonb)",
+        "configuration": [
+          "search_path=pg_catalog, public, pg_temp"
+        ],
+        "publicExecute": false,
+        "definitionHash": "09fdfd918445a73e8149fef0d3e7147e",
+        "runtimeExecute": true,
+        "securityDefiner": true
+      },
+      {
+        "acl": "{neondb_owner=X/neondb_owner}",
+        "owner": "neondb_owner",
+        "signature": "validate_all_player_stat_entry()",
+        "configuration": [
+          "search_path=pg_catalog, public, pg_temp"
+        ],
+        "publicExecute": false,
+        "definitionHash": "7398afc4f0cc55902df35d248f95bde5",
+        "runtimeExecute": false,
+        "securityDefiner": true
+      }
+    ],
+    "constraintTypes": []
+  },
+  "protectedTables": [
+    "all_player_score_sets",
+    "all_player_score_verifications",
+    "all_player_scores",
+    "all_player_stat_contents",
+    "all_player_stat_entries",
+    "all_player_stat_observations",
+    "current_all_player_score_sets",
+    "current_pregame_projection_candidates",
+    "current_projection_slates",
+    "current_projection_snapshots",
+    "external_game_ids",
+    "external_scoring_entity_ids",
+    "game_state_observations",
+    "league_administration_contents",
+    "league_administration_enrollment_seasons",
+    "league_administration_enrollments",
+    "league_administration_heads",
+    "league_administration_manager_entries",
+    "league_administration_memberships",
+    "league_administration_observations",
+    "league_administration_team_entries",
+    "league_administration_transaction_entries",
+    "league_configuration_activations",
+    "league_configuration_heads",
+    "league_configuration_versions",
+    "league_period_authorities",
+    "league_season_teams",
+    "league_seasons",
+    "league_source_connection_history",
+    "league_source_connections",
+    "league_source_manager_accounts",
+    "league_week_expected_games",
+    "league_week_lineup_watch_states",
+    "league_week_materialization_states",
+    "league_week_observations",
+    "leagues",
+    "nfl_games",
+    "official_player_point_observations",
+    "official_roster_point_observations",
+    "pregame_projection_baselines",
+    "pregame_projection_candidates",
+    "pregame_projection_runs",
+    "projection_jobs",
+    "projection_period_refresh_states",
+    "projection_slate_contents",
+    "projection_slate_entries",
+    "projection_slate_observations",
+    "projection_snapshots",
+    "scoring_entities",
+    "scoring_profiles"
+  ],
+  "unaffectedConstraintTypes": [
+    [
+      "c",
+      224
+    ],
+    [
+      "f",
+      77
+    ],
+    [
+      "n",
+      417
+    ],
+    [
+      "p",
+      51
+    ],
+    [
+      "t",
+      1
+    ],
+    [
+      "u",
+      39
+    ]
+  ]
+}

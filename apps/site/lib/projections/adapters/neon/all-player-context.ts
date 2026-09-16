@@ -2,6 +2,7 @@ import 'server-only';
 
 import type { DatabaseClient } from '../../../database';
 import type { ProjectionStore } from './contracts';
+import { canonicalNflTeam } from '../../../nfl-teams';
 import {
   json,
   provider,
@@ -15,6 +16,7 @@ type AllPlayerContextMethods = Pick<ProjectionStore,
   | 'readAllPlayerLeagueProfiles'
   | 'readAllPlayerIdentityMappings'
   | 'readAllPlayerGameContext'
+  | 'readAllPlayerHistoricalTeamContexts'
   | 'readDatabaseIdentity'
 >;
 
@@ -175,6 +177,57 @@ export function createAllPlayerContextMethods(
         kickoffAt: rowNullableText(row, 'kickoff_at'),
         phase: rowText(row, 'phase') as 'live' | 'final' | 'unknown',
       }));
+    },
+
+    async readAllPlayerHistoricalTeamContexts(input) {
+      const normalizedProvider = provider(input.provider);
+      const normalizedSeason = season(input.season);
+      const normalizedWeek = week(input.week);
+      if (input.seasonType !== 'reg') throw new Error('All-player history period is invalid.');
+      const rows = await client.query(`/* projection-store:read-all-player-historical-team-contexts */
+        WITH accepted AS MATERIALIZED (
+          SELECT observation.id, observation.all_player_stat_content_id,
+            observation.observed_at, content.coverage
+          FROM all_player_stat_observations observation
+          JOIN all_player_stat_contents content ON content.id=observation.all_player_stat_content_id
+          WHERE observation.provider=$1 AND observation.season=$2::smallint
+            AND observation.season_type=$3 AND observation.week=$4::smallint
+            AND observation.quality IN ('partial','complete')
+            AND content.quality IN ('partial','complete')
+        ), conflicts AS (
+          SELECT DISTINCT key AS provider_external_id
+          FROM accepted CROSS JOIN LATERAL jsonb_object_keys(CASE
+            WHEN jsonb_typeof(coverage->'periodTeamContextConflicts')='object'
+              THEN coverage->'periodTeamContextConflicts' ELSE '{}'::jsonb END) key
+        ), earliest AS (
+          SELECT DISTINCT ON (entry.provider_external_id,entry.nfl_team)
+            entry.provider_external_id,entry.nfl_team,accepted.id AS source_observation_id,
+            accepted.observed_at
+          FROM accepted JOIN all_player_stat_entries entry
+            ON entry.all_player_stat_content_id=accepted.all_player_stat_content_id
+          WHERE entry.entity_kind='player' AND entry.nfl_team IS NOT NULL
+          ORDER BY entry.provider_external_id,entry.nfl_team,accepted.observed_at,accepted.id
+        )
+        SELECT earliest.provider_external_id,earliest.nfl_team,earliest.source_observation_id,
+          earliest.observed_at::text AS observed_at,
+          conflicts.provider_external_id IS NOT NULL AS has_unresolved_conflict
+        FROM earliest LEFT JOIN conflicts USING (provider_external_id)
+        ORDER BY provider_external_id,nfl_team LIMIT 10001`,
+      [normalizedProvider, normalizedSeason, input.seasonType, normalizedWeek]);
+      if (rows.length > 10_000) throw new Error('All-player historical team context exceeds its bound.');
+      return rows.map((row) => {
+        const nflTeam = rowText(row, 'nfl_team');
+        const observedAt = new Date(rowText(row, 'observed_at')).toISOString();
+        const sourceObservationId = rowText(row, 'source_observation_id');
+        const externalId = rowText(row, 'provider_external_id');
+        if (canonicalNflTeam(nflTeam) !== nflTeam || typeof row.has_unresolved_conflict !== 'boolean'
+          || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(sourceObservationId)) {
+          throw new Error('All-player historical team context is invalid.');
+        }
+        return { providerExternalId: externalId, nflTeam, sourceObservationId, observedAt,
+          effectivePeriod: { season: normalizedSeason, seasonType: 'reg' as const, week: normalizedWeek },
+          hasUnresolvedConflict: row.has_unresolved_conflict };
+      });
     },
 
     async readDatabaseIdentity() {

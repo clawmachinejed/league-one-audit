@@ -1,0 +1,124 @@
+{
+  "format": "all-player-partial-context-independent-review-v1",
+  "reviewer": "week2_empty_diagnosis",
+  "reviewedAt": "2026-09-16T23:23:15.767Z",
+  "outcome": "no-blocking-findings",
+  "baseRevision": "24376ca5072f420aa3e2f4efaf87575c66d39eaf",
+  "captureSha256": "792bdf724bb364a66760f31c15ca97574e72160bd8ec85023ed7d9fd40e2070b",
+  "reviewedManifestSha256": "a27260459726bbe1a1b07f42f234bab53b41040aeaecc7a6f2f1d568f6296252",
+  "sourceManifestSha256": "5eee69c8caa94e32f7f3fb23f2846d699946e88c489b26c795e3d3f6dc5a7fdf",
+  "postgresVersion": 180006,
+  "protectedPhysicalTableCount": 50,
+  "constraintTypes": [
+    [
+      "c",
+      224
+    ],
+    [
+      "f",
+      77
+    ],
+    [
+      "n",
+      417
+    ],
+    [
+      "p",
+      51
+    ],
+    [
+      "t",
+      1
+    ],
+    [
+      "u",
+      39
+    ]
+  ],
+  "independentUnitTests": {
+    "passed": 19,
+    "files": 2
+  },
+  "rootExecutedSqlChecks": 11,
+  "checks": [
+    "installed-001-through-017-checksums-pinned",
+    "exact-postgresql-180006-catalog",
+    "captured-definition-hashes-match-readable-definitions",
+    "before-function-bodies-match-installed-011-and-013",
+    "after-function-bodies-match-reviewed-018",
+    "exact-two-functions-body-only-owner-acl-config-preserved",
+    "unaffected-catalog-role-and-default-privilege-guards",
+    "fifty-physical-table-counts-preserved",
+    "live-owner-barriers-before-migration",
+    "rollback-and-same-session-success-marker-guards",
+    "isolated-harness-identity-tls-role-sentinel-denylist-preserved",
+    "comment-only-unreviewed-renderer",
+    "historical-016-017-render-byte-equivalence"
+  ],
+  "limitations": [
+    "Reviewer performed no database/provider calls. Root executed the 11 SQL checks in the existing isolated harness.",
+    "This review does not establish production identity, production installation or successful live statistics ingestion."
+  ],
+  "files": [
+    {
+      "file": "apps/site/migrations/018_all_player_partial_context.sql",
+      "sha256": "d8ceba13b99a862a13de74bfa51f27bd2c0afbc16f93e4e9b67b6f79997390cc"
+    },
+    {
+      "file": "apps/site/release/all-player-partial-context/catalog-definitions.integration.json",
+      "sha256": "d5cf7185c2a134135e206db2c9abb4be65c2d56264a5de2b100a1f358a3c0179"
+    },
+    {
+      "file": "apps/site/release/all-player-partial-context/catalog.integration.json",
+      "sha256": "a27260459726bbe1a1b07f42f234bab53b41040aeaecc7a6f2f1d568f6296252"
+    },
+    {
+      "file": "apps/site/release/all-player-partial-context/wrapper-verification.integration.json",
+      "sha256": "652a64c3934085cca6986edbb7bfc5e3232e7a8597f9fb65e9b00ee1d9ba2c6a"
+    },
+    {
+      "file": "apps/site/scripts/all-player-partial-context-release-wrapper.d.mts",
+      "sha256": "54181b933061edc750e83187c2612423ec92cc025724ce8d06618c35672ff4d4"
+    },
+    {
+      "file": "apps/site/scripts/all-player-partial-context-release-wrapper.mjs",
+      "sha256": "da7c1f502b8c71add7e6415f733ca34c07855d8a0ba071c0aa5db0f4e21950a6"
+    },
+    {
+      "file": "apps/site/scripts/all-player-partial-context-release-wrapper.test.ts",
+      "sha256": "880fd4c317baf7695921b9956ca7008af50f09af21b3e0f34014d391fea1f42c"
+    },
+    {
+      "file": "apps/site/scripts/guarded-catalog-release-wrapper.d.mts",
+      "sha256": "c2b5dda5b8d33c8112db588dcb22f7db6e4a43049932a0fe38d5f386c28e1206"
+    },
+    {
+      "file": "apps/site/scripts/guarded-catalog-release-wrapper.mjs",
+      "sha256": "7d2934a644383f2bc0f1664d04d3d0b5e5fc45b4ea1ef04e0d719c3de288ba78"
+    },
+    {
+      "file": "apps/site/scripts/league-administration-catalog.d.mts",
+      "sha256": "2a01e02c100ecc71177fcb147701c8e4c7bf8ce3160a8b5b7c1a441c5f5196ff"
+    },
+    {
+      "file": "apps/site/scripts/league-administration-catalog.mjs",
+      "sha256": "227fc403556f10d2c9b31b74dfbf980f6c767d14850fb18ef7573d76b0642f6a"
+    },
+    {
+      "file": "apps/site/scripts/league-administration-release-wrapper.mjs",
+      "sha256": "bf4b4e4ee6673c439c789cae2e25157641514da016520f0e3836a5f7775ff99e"
+    },
+    {
+      "file": "apps/site/scripts/render-all-player-partial-context-release-wrapper.mjs",
+      "sha256": "47a1a5cdd2c3c797b950088fba570fd56235d525b1f0c8b36df8d87dfaed90af"
+    },
+    {
+      "file": "apps/site/scripts/run-all-player-partial-context-release-wrapper-integration.mjs",
+      "sha256": "8ae4cdee5e36a4bd50b3714c4d6f03e88a87d592fc2622ccd3774f495c062f74"
+    },
+    {
+      "file": "apps/site/scripts/verify-all-player-partial-context-release-wrapper.ts",
+      "sha256": "70233cbd552d9e29e1faf6a02e6c5ff994d18a92414eae1e914576d5442d4b33"
+    }
+  ]
+}

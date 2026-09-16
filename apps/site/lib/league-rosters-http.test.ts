@@ -9,6 +9,7 @@ import { handleLeagueRostersRequest } from './league-rosters-http';
 import type { StoredAllPlayerMetricRead } from './projection-store';
 import type { RostersLoad } from './sleeper';
 import type { RosterPlayer, RostersData } from './types';
+import { playerFromId } from './transform';
 
 function player(id: string, name: string): RosterPlayer {
   return {
@@ -98,6 +99,29 @@ describe('league rosters HTTP boundary', () => {
     expect(body.updatedAt).toBe('2026-09-13T18:02:00.000Z');
     expect(body.playerMetrics.observedAt).toBe('2026-09-12T03:30:00.000Z');
   });
+
+  it.each(['league1', 'league2', 'dynasty'] as const)(
+    'attaches the existing WR metric to Hunter through shared catalog classification for %s', async (leagueKey) => {
+      const loaded = load();
+      const hunter: RosterPlayer = { ...playerFromId('12530', 'BN', { '12530': {
+        player_id: '12530', full_name: 'Travis Hunter', position: 'DB', fantasy_positions: ['WR', 'DB'], team: 'JAX',
+      } }, 1.6), byeWeek: 8, positionRank: null, ppg: null };
+      loaded.data.teams[0].sections = [{ name: 'Bench', players: [hunter] }];
+      const saved = metrics();
+      const response = await handleLeagueRostersRequest(
+        new Request(`https://example.test/api/rosters/${leagueKey}?week=1`), leagueKey,
+        async () => loaded, async () => ({ ...saved, metrics: [{ ...saved.metrics[0],
+          providerExternalId: '12530', scoringEntityId: 'hunter', position: 'WR',
+          totalFantasyPoints: 1.6, pointsPerGame: 1.6, positionRank: 75,
+        }] }),
+      );
+      expect(response.status).toBe(200);
+      const body = await response.json() as RostersData;
+      expect(body.teams[0].sections[0].players[0]).toMatchObject({
+        id: '12530', position: 'WR', points: 1.6, ppg: 1.6, positionRank: 75,
+      });
+    },
+  );
 
   it('preserves active-week scope independently of an advanced display week and failed metric read', async () => {
     const advanced = load();

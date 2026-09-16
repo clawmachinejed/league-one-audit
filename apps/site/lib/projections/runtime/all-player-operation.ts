@@ -7,6 +7,7 @@ import {
   sleeperOfficialRosteredPoints,
   type SleeperAllPlayerStatRequest,
   type SleeperAllPlayerStatResult,
+  type SleeperAllPlayerStatResponseEvidence,
   type SleeperPeriodInventoryEvidence,
 } from '../adapters/sleeper/all-player-stats';
 import {
@@ -47,6 +48,7 @@ import type {
   ScoringEntity,
   SourceScoringSettings,
 } from '../domain/contracts';
+import { NFL_TEAM_CODES } from '../domain/contracts';
 import type { ClockPort } from '../ports/clock';
 import type { IdGeneratorPort } from '../ports/id-generator';
 import type { LeagueRegistryPort } from '../ports/league-registry';
@@ -75,8 +77,22 @@ export const ALL_PLAYER_CADENCE_MS = ALL_PLAYER_REFRESH_INTERVAL_MS;
 export const ALL_PLAYER_CADENCE_HOURS = ALL_PLAYER_CADENCE_MS / 3_600_000;
 const ALL_PLAYER_LEASE_SECONDS = 55;
 export const ALL_PLAYER_EXECUTION_MS = 50_000;
+const SQL_FAILURE_REASONS = {
+  '23503': 'persistence-reference-rejected', '23514': 'persistence-constraint-rejected',
+  '23505': 'persistence-conflict', '40001': 'persistence-transaction-conflict',
+  '40P01': 'persistence-transaction-conflict', '57014': 'persistence-cancelled',
+  P0001: 'persistence-validation-rejected',
+} as const;
 
 export type AllPlayerIngestionMode = 'shadow' | 'backfill' | 'recurring';
+
+type AllPlayerPregameEvidence = Readonly<{
+  policy: 'exact-period-pregame-v1';
+  verifiedAt: string;
+  firstKickoffAt: string;
+  scheduledGameCount: number;
+  scheduleRevision: string;
+}>;
 
 export type AllPlayerLeagueLoad = Readonly<{
   state: LeagueWeekState;
@@ -91,6 +107,7 @@ type AllPlayerStore = Pick<ProjectionStore,
   | 'readAllPlayerLeagueProfiles'
   | 'readAllPlayerIdentityMappings'
   | 'readAllPlayerGameContext'
+  | 'readAllPlayerHistoricalTeamContexts'
   | 'upsertScoringEntities'
   | 'recordLeagueWeekObservation'
   | 'recordAllPlayerBatch'
@@ -169,6 +186,12 @@ export type AllPlayerIngestionResult =
       period?: LeaguePeriod;
     }>
   | Readonly<{
+      status: 'skipped'; mode: 'recurring'; reason: 'no-statistics-yet';
+      period: LeaguePeriod;
+      responseEvidence: SleeperAllPlayerStatResponseEvidence;
+      pregameEvidence: AllPlayerPregameEvidence;
+    }>
+  | Readonly<{
       status: 'unavailable';
       mode: AllPlayerIngestionMode;
       reason: string;
@@ -180,6 +203,7 @@ export type AllPlayerIngestionResult =
       stage?: string;
       diagnostics?: readonly string[];
       diagnosticCount?: number;
+      responseEvidence?: SleeperAllPlayerStatResponseEvidence;
       confirmedPublication?: Readonly<{
         statObservationId: string | null;
         pointerOutcomes: readonly string[];
@@ -253,12 +277,100 @@ function unavailable(
     statObservationId?: string;
     stage?: string;
     diagnostics?: readonly string[];
+    responseEvidence?: SleeperAllPlayerStatResponseEvidence;
     confirmedPublication?: Extract<AllPlayerIngestionResult, { status: 'unavailable' }>['confirmedPublication'];
   }> = {},
 ): AllPlayerIngestionResult {
   return { status: 'unavailable', mode, period, reason, ...evidence,
     ...(evidence.diagnostics ? prepareAllPlayerDiagnostics(evidence.diagnostics) : {}),
   };
+}
+
+/** Copy only a bounded, typed envelope. Even injected/replayed adapters cannot
+ * forward arbitrary response payload, headers or exception text to diagnostics. */
+function safeResponseEvidence(value: SleeperAllPlayerStatResponseEvidence | undefined): SleeperAllPlayerStatResponseEvidence | undefined {
+  if (!value || (value.httpStatus !== null && (!Number.isInteger(value.httpStatus)
+    || value.httpStatus < 100 || value.httpStatus > 599))
+    || !['object', 'array', 'null', 'string', 'number', 'boolean', 'invalid-json', 'unreadable', 'not-read'].includes(value.bodyShape)
+    || (value.topLevelCount !== null && (!Number.isSafeInteger(value.topLevelCount) || value.topLevelCount < 0))
+    || (value.bodyHash !== null && !/^sha256:[a-f0-9]{64}$/u.test(value.bodyHash))
+    || !Number.isFinite(Date.parse(value.requestStartedAt))
+    || !Number.isFinite(Date.parse(value.requestCompletedAt))
+    || new Date(value.requestStartedAt).toISOString() !== value.requestStartedAt
+    || new Date(value.requestCompletedAt).toISOString() !== value.requestCompletedAt
+    || Date.parse(value.requestCompletedAt) < Date.parse(value.requestStartedAt)) return undefined;
+  return { httpStatus: value.httpStatus, bodyShape: value.bodyShape,
+    topLevelCount: value.topLevelCount, bodyHash: value.bodyHash,
+    requestStartedAt: value.requestStartedAt, requestCompletedAt: value.requestCompletedAt };
+}
+
+function responseDiagnostics(evidence: SleeperAllPlayerStatResponseEvidence | undefined): string[] {
+  return evidence ? [
+    `weekly-response:http-status:${evidence.httpStatus ?? 'unavailable'}`,
+    `weekly-response:body-shape:${evidence.bodyShape}`,
+    `weekly-response:top-level-count:${evidence.topLevelCount ?? 'unavailable'}`,
+    `weekly-response:body-hash:${evidence.bodyHash ?? 'unavailable'}`,
+    `weekly-response:started-at:${evidence.requestStartedAt}`,
+    `weekly-response:completed-at:${evidence.requestCompletedAt}`,
+  ] : [];
+}
+
+/** A complete canonical pregame schedule is independent of missing stat rows.
+ * Unknown game phase alone never proves that the requested week has not begun. */
+function pregameEvidence(
+  schedule: NflWeekSchedule,
+  games: Awaited<ReturnType<AllPlayerStore['readAllPlayerGameContext']>>,
+  authorities: Awaited<ReturnType<AllPlayerStore['readLeagueLineupAuthorities']>>,
+  leagues: readonly LoadedLeague[],
+  period: LeaguePeriod,
+  response: SleeperAllPlayerStatResponseEvidence,
+  now: Date,
+): AllPlayerPregameEvidence | null {
+  const checkedAt = now.getTime();
+  const keys = new Set(leagues.map((league) => league.configuration.key));
+  if (!Number.isFinite(checkedAt) || Date.parse(response.requestCompletedAt) > checkedAt
+    || authorities.length !== keys.size || new Set(authorities.map((row) => row.leagueKey)).size !== keys.size
+    || authorities.some((row) => row.kind !== 'available' || !keys.has(row.leagueKey)
+      || row.authority.leagueKey !== row.leagueKey || row.authority.sourceProvider !== 'sleeper'
+      || row.authority.leagueLifecycle !== 'active' || row.authority.activeSeason !== period.season
+      || row.authority.activeSeasonType !== 'reg' || row.authority.activeWeek !== period.week
+      || !Number.isFinite(Date.parse(row.authority.verifiedAt))
+      || checkedAt - Date.parse(row.authority.verifiedAt) > 600_000
+      || Date.parse(row.authority.verifiedAt) > checkedAt + 30_000)
+    || leagues.some((league) => league.official.points.some((point) => point.points !== 0)
+      || league.rawMatchups.some((row) => row.points !== 0
+        || row.custom_points != null && row.custom_points !== 0))
+    || Object.keys(schedule).length !== NFL_TEAM_CODES.length
+    || NFL_TEAM_CODES.some((team) => !schedule[team])) return null;
+  const expectedGames = new Map<string, { homeTeam: string; awayTeam: string; kickoff: number }>();
+  for (const team of NFL_TEAM_CODES) {
+    const game = schedule[team]!;
+    if (game.kind === 'bye') continue;
+    const opponent = schedule[game.opponent];
+    const kickoff = Date.parse(game.kickoffAt ?? '');
+    if (!NFL_TEAM_CODES.includes(game.opponent) || team === game.opponent
+      || !opponent || opponent.kind !== 'scheduled' || opponent.opponent !== team
+      || !['home', 'away'].includes(game.location)
+      || opponent.location === game.location
+      || !Number.isFinite(kickoff) || kickoff <= checkedAt
+      || Date.parse(opponent.kickoffAt ?? '') !== kickoff) return null;
+    const homeTeam = game.location === 'home' ? team : game.opponent;
+    const awayTeam = game.location === 'away' ? team : game.opponent;
+    expectedGames.set(`${homeTeam}:${awayTeam}`, { homeTeam, awayTeam, kickoff });
+  }
+  if (expectedGames.size === 0 || games.length !== expectedGames.size
+    || new Set(games.map((game) => game.nflGameId)).size !== games.length) return null;
+  const matched = new Set<string>();
+  for (const game of games) {
+    const key = `${game.homeTeam}:${game.awayTeam}`;
+    const expected = expectedGames.get(key);
+    if (!expected || matched.has(key) || !game.nflGameId.trim()
+      || game.phase !== 'unknown' || Date.parse(game.kickoffAt ?? '') !== expected.kickoff) return null;
+    matched.add(key);
+  }
+  return { policy: 'exact-period-pregame-v1', verifiedAt: now.toISOString(),
+    firstKickoffAt: new Date(Math.min(...[...expectedGames.values()].map((game) => game.kickoff))).toISOString(),
+    scheduledGameCount: expectedGames.size, scheduleRevision: fingerprint(schedule) };
 }
 
 function scheduleFor(leagues: readonly AllPlayerLeagueLoad[]): NflWeekSchedule {
@@ -726,7 +838,7 @@ async function execute(
     || new Set(configurations.map(({ leagueRef }) => externalReferenceKey(leagueRef))).size !== configurations.length) {
     return unavailable(mode, period, 'league-inventory');
   }
-  const [leagueLoads, catalog, projectionSlate, gameContext, reviewedEvidence] = await Promise.all([
+  const [leagueLoads, catalog, projectionSlate, gameContext, reviewedEvidence, historicalTeamContexts] = await Promise.all([
     Promise.all(configurations.map(async (configuration) => ({
       configuration,
       ...await dependencies.loadLeagueWeek(configuration, period),
@@ -743,6 +855,8 @@ async function execute(
       gameStateProvider: String(dependencies.gameStateProvider),
     }),
     dependencies.loadReviewedPeriodEvidence?.(period) ?? Promise.resolve(null),
+    dependencies.store.readAllPlayerHistoricalTeamContexts({ provider: String(dependencies.officialProvider),
+      season: period.season, seasonType: 'reg', week: period.week }),
   ]);
   if (!catalog.complete || !catalog.sourceRevision) {
     return unavailable(mode, period, 'catalog-incomplete');
@@ -777,6 +891,7 @@ async function execute(
     observedAt: dependencies.clock.now().toISOString(),
     periodInventoryEvidence: reviewedEvidence?.inventory,
     periodEligibilityEvidenceByPlayerId: reviewedEvidence?.eligibilityByPlayerId,
+    historicalTeamContexts,
     ...(reviewedEvidence?.scheduleRevision === scheduleRevision && reviewedEvidence.scheduleObservedAt
       ? { scheduleObservedAt: reviewedEvidence.scheduleObservedAt } : {}),
     catalog: catalog.catalog,
@@ -907,7 +1022,38 @@ async function execute(
     signal: dependencies.signal,
   });
   if (providerResult.status !== 'available') {
-    return unavailable(mode, period, `provider-${providerResult.reason}`, { projectionCoverage });
+    const responseEvidence = safeResponseEvidence(providerResult.responseEvidence);
+    const diagnostics = responseDiagnostics(responseEvidence);
+    if (providerResult.status === 'empty' && mode === 'recurring'
+      && !(input.requireFinalCoverage ?? false) && responseEvidence?.bodyShape === 'object'
+      && responseEvidence.topLevelCount === 0 && responseEvidence.bodyHash !== null
+      && responseEvidence.httpStatus !== null && responseEvidence.httpStatus >= 200
+      && responseEvidence.httpStatus < 300) {
+      await input.checkpoint('empty-period-preflight');
+      // Recheck canonical game state and current authority after the request.
+      // A fetch that crosses kickoff cannot turn absent rows into a pregame skip.
+      const [currentGames, authorities] = await Promise.all([
+        dependencies.store.readAllPlayerGameContext({ season: period.season,
+          seasonType: 'reg', week: period.week, gameStateProvider: String(dependencies.gameStateProvider) }),
+        dependencies.store.readLeagueLineupAuthorities(configurations.map((configuration) => configuration.key)),
+      ]);
+      await input.checkpoint('empty-period-preflight');
+      const proof = pregameEvidence(schedule, currentGames, authorities, loaded, period,
+        responseEvidence, dependencies.clock.now());
+      if (proof) {
+        await input.checkpoint('no-statistics-yet', true);
+        // The final ownership check can itself cross kickoff.
+        if (dependencies.clock.now().getTime() < Date.parse(proof.firstKickoffAt)) {
+          return { status: 'skipped', mode, reason: 'no-statistics-yet', period,
+            responseEvidence, pregameEvidence: proof };
+        }
+      }
+      diagnostics.push('empty-response:pregame-period-unproven');
+    }
+    return unavailable(mode, period, `provider-${providerResult.reason}`, {
+      projectionCoverage, ...(responseEvidence ? { responseEvidence } : {}),
+      ...(diagnostics.length ? { diagnostics } : {}),
+    });
   }
   const sourceObservation = providerResult.observation;
   let observation = addProjectionEvidence({
@@ -949,6 +1095,10 @@ async function execute(
     byeInventoryFingerprint: fingerprint(sourceEvidence.byeTeamIds),
     catalogRoleDiagnostics: sourceEvidence.catalogRoleDiagnostics ?? {},
     unresolvedOptionalProjectionIds: sourceEvidence.unresolvedOptionalProjectionIds ?? [],
+    ...(sourceEvidence.historicalTeamContextFingerprint !== undefined ? {
+      historicalTeamContextFingerprint: sourceEvidence.historicalTeamContextFingerprint,
+      periodTeamContextConflicts: sourceEvidence.periodTeamContextConflicts ?? {},
+    } : {}),
     mode: (input.requireFinalCoverage ?? mode !== 'recurring') ? 'completed-backfill' : 'recurring-current-week',
   };
   const provenanceConflicts = Object.entries(expectedProvenance).filter(([key, expected]) => (
@@ -1290,11 +1440,20 @@ export async function runAllPlayerIngestion(
     if (result.status === 'unavailable' && !result.stage) result = { ...result, stage };
   } catch (error) {
     const message = error instanceof Error ? error.message : '';
+    const code = error !== null && typeof error === 'object' && 'code' in error
+      && typeof error.code === 'string' && Object.prototype.hasOwnProperty.call(SQL_FAILURE_REASONS, error.code)
+      ? error.code as keyof typeof SQL_FAILURE_REASONS : null;
     const reason = message === 'deadline-exceeded' || signal.aborted ? 'timeout'
       : message === 'lease-lost' ? 'lease-lost'
+      : code ? SQL_FAILURE_REASONS[code]
+      : error !== null && typeof error === 'object' && 'code' in error ? 'stage-failed'
       : /^[a-z][a-z0-9-]{1,95}$/u.test(message) ? message : 'stage-failed';
+    const diagnostics = [
+      ...(error instanceof AllPlayerPreflightError ? error.diagnostics : []),
+      ...(code ? [`database-sqlstate:${code}`] : []),
+    ];
     result = unavailable(mode, period, reason, { stage,
-      ...(error instanceof AllPlayerPreflightError ? { diagnostics: error.diagnostics } : {}),
+      ...(diagnostics.length ? { diagnostics } : {}),
     });
   } finally {
     if (timeout) clearTimeout(timeout);
@@ -1313,7 +1472,9 @@ export async function runAllPlayerIngestion(
     } : (result.status === 'unavailable' || result.status === 'partial') && result.persistedObservation ? {
       persistedObservation: true, statObservationId: result.statObservationId,
     } : {};
+    const noStatisticsYet = result.status === 'skipped' && result.reason === 'no-statistics-yet' ? result : null;
     const outcome = result.status === 'completed' ? 'published'
+      : noStatisticsYet ? 'no-statistics-yet'
       : result.status === 'unavailable' && ['old-observation-rejected', 'profile-publication-inconsistent'].includes(result.reason)
         ? 'validation-failed'
       : result.status === 'partial' || result.status === 'unavailable' && result.persistedObservation ? 'partial'
@@ -1322,7 +1483,7 @@ export async function runAllPlayerIngestion(
       : stage === 'weekly-stat-request' ? 'provider-failed' : 'validation-failed';
     const cleanup = dependencies.cleanupStore ?? dependencies.store;
     const resultDiagnostics = result.status === 'unavailable' || result.status === 'partial'
-      ? result.diagnostics ?? [] : [];
+      ? result.diagnostics ?? [] : noStatisticsYet ? responseDiagnostics(noStatisticsYet.responseEvidence) : [];
     const extraDiagnostics = (input.cadenceDiagnostics ?? []).filter((value) => !resultDiagnostics.includes(value));
     const outcomeDiagnostics = prepareAllPlayerDiagnostics([...extraDiagnostics, ...resultDiagnostics]);
     const diagnosticCount = (result.status === 'unavailable' || result.status === 'partial'
@@ -1331,13 +1492,19 @@ export async function runAllPlayerIngestion(
     try {
       const finished = await Promise.race([
         cleanup.finishAllPlayerJob({ fence, outcome, diagnostic: {
-          stage, period, reason: result.status === 'unavailable' || result.status === 'partial' ? result.reason : result.status,
+          stage, period, reason: result.status === 'unavailable' || result.status === 'partial'
+            || result.status === 'skipped' ? result.reason : result.status,
           ...(diagnosticCount ? {
             diagnostics: outcomeDiagnostics.diagnostics, diagnosticCount,
           } : {}),
           retryDisposition: 'global-budget',
           finalCoverage: result.status === 'completed'
             && (input.requireFinalCoverage ?? mode !== 'recurring'),
+          ...(result.status === 'unavailable' && result.responseEvidence
+            ? { responseEvidence: result.responseEvidence } : {}),
+          ...(noStatisticsYet ? { responseEvidence: noStatisticsYet.responseEvidence,
+            pregameEvidence: noStatisticsYet.pregameEvidence,
+            entryCount: 0, scoringProfileCount: 0 } : {}),
           ...(result.status === 'completed' || result.status === 'partial' ? { entryCount: result.entryCount,
             scoringProfileCount: result.scoringProfileCount } : {}),
         } }),
@@ -1378,7 +1545,8 @@ export async function runAllPlayerIngestion(
       finally { if (cleanupTimeout) clearTimeout(cleanupTimeout); }
     }
   }
-  dependencies.logger.write(result.status === 'completed' || result.status === 'partial' ? 'info' : 'warn', {
+  dependencies.logger.write(result.status === 'completed' || result.status === 'partial'
+    || result.status === 'skipped' && result.reason === 'no-statistics-yet' ? 'info' : 'warn', {
     stage: 'all-player-ingestion', lane: 'all-player',
     outcome: result.status === 'completed' || result.status === 'partial' ? 'completed'
       : result.status === 'skipped' ? 'skipped' : 'failed',
@@ -1402,7 +1570,15 @@ export async function runAllPlayerIngestion(
       allPlayerRetryDisposition: 'global-budget' as const,
       fullSlateWarnings: result.warnings,
       allPlayerRankUnavailablePositions: result.projectionCoverage.rankUnavailablePositions,
-    } : result.status === 'skipped' ? { allPlayerReason: result.reason } : {}),
+    } : result.status === 'skipped' ? { allPlayerReason: result.reason,
+      ...(result.reason === 'no-statistics-yet' ? {
+        allPlayerDiagnostics: responseDiagnostics(result.responseEvidence),
+        allPlayerDiagnosticCount: responseDiagnostics(result.responseEvidence).length,
+        allPlayerPersistedObservation: false, allPlayerConfirmedPublication: false,
+        allPlayerEntryCount: 0, allPlayerScoringProfileCount: 0,
+        allPlayerRetryDisposition: 'global-budget' as const,
+      } : {}),
+    } : {}),
     ...(preclaimDurability ? {
       allPlayerFailureStage: stage,
       allPlayerDiagnostics: prepareAllPlayerDiagnostics([

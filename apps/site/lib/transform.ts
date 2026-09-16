@@ -1,5 +1,8 @@
 import { normalizeInjuryStatus } from './injury-status';
 import { sleeperLineupEntryId, startingSlots } from './sleeper-lineup';
+import { classifySleeperCatalogIdentity } from './projections/shared/official-catalog-identity';
+import type { PlayerCatalog } from './sleeper-catalog-types';
+export type { PlayerCatalog, SleeperPlayer } from './sleeper-catalog-types';
 export { startingSlots } from './sleeper-lineup';
 import type {
   League,
@@ -50,21 +53,6 @@ export interface SleeperUser {
   avatar?: string | null;
   metadata?: Record<string, unknown> | null;
 }
-
-export interface SleeperPlayer {
-  player_id?: string;
-  full_name?: string;
-  first_name?: string;
-  last_name?: string;
-  position?: string;
-  team?: string | null;
-  active?: boolean;
-  status?: string;
-  fantasy_positions?: string[];
-  injury_status?: unknown;
-}
-
-export type PlayerCatalog = Record<string, SleeperPlayer>;
 
 export interface SleeperMatchup {
   roster_id: number;
@@ -332,10 +320,12 @@ export function playerFromId(
   const fullName = text(player?.full_name)
     ?? text([player?.first_name, player?.last_name].filter(Boolean).join(' '));
   const isDefense = /^[A-Z]{2,3}$/.test(id);
+  const identity = classifySleeperCatalogIdentity(catalog, id);
   return {
     id,
     name: fullName ?? (isDefense ? `${id} Defense` : `Player ${id}`),
-    position: text(player?.position) ?? (isDefense ? 'DEF' : '—'),
+    position: identity.status === 'fantasy' ? identity.position
+      : text(player?.position) ?? (isDefense ? 'DEF' : '—'),
     nflTeam: text(player?.team) ?? (isDefense ? id : null),
     injuryStatus: normalizeInjuryStatus(player?.injury_status),
     game: null,

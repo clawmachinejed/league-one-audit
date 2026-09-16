@@ -1,10 +1,11 @@
 import { createHash } from 'node:crypto';
+import { buildGuardedCatalogReleaseWrapper } from './guarded-catalog-release-wrapper.mjs';
 import { ACCEPTED_PREVIOUS_MIGRATIONS, ALL_PLAYER_MIGRATION_CHECKSUM, ALL_PLAYER_REPAIR_CHECKSUM,
   ALL_PLAYER_PARTICIPATION_CHECKSUM, ALL_PLAYER_PARTICIPATION_ASSUMPTION_CHECKSUM, ALL_PLAYER_HOURLY_CHECKSUM,
 } from './all-player-migration-release-wrapper.mjs';
 import { ADMINISTRATION_POSTGRES_VERSION, ADMINISTRATION_TABLES, ADMINISTRATION_NEW_FUNCTIONS,
   ADMINISTRATION_REPLACED_FUNCTIONS, ADMINISTRATION_EXISTING_TABLE_TRIGGERS,
-  leagueAdministrationCatalogSql, sqlLiteral } from './league-administration-catalog.mjs';
+  leagueAdministrationCatalogSql } from './league-administration-catalog.mjs';
 
 export const ADMINISTRATION_MIGRATIONS = Object.freeze([
   '016_portable_league_administration.sql', '017_enrolled_all_player_publication.sql',
@@ -92,83 +93,11 @@ export function buildLeagueAdministrationReleaseWrapper({ migrations, expectedDa
     || typeof expectedOwner !== 'string' || !/^[a-zA-Z0-9_-]+$/u.test(expectedOwner)
     || runtimeRole !== 'league_one_runtime') throw new Error('Explicit database, owner and canonical runtime-role identities are required.');
   validateAdministrationReleaseManifest(manifest, migrations, expectedOwner);
-  const ledger = [...ADMINISTRATION_INSTALLED_LEDGER];
-  const completedLedger = [...ledger, ...migrations.map(({ name, sql }) => [name, administrationMigrationChecksum(sql)])];
-  const ledgerQuery = "SELECT jsonb_agg(jsonb_build_array(name,checksum) ORDER BY name) FROM public.app_schema_migrations";
-  const affected = leagueAdministrationCatalogSql({ runtimeRole });
-  const unaffected = leagueAdministrationCatalogSql({ affected: false, runtimeRole });
-  const counts = protectedHistoryTables.map((name) => `SELECT ${sqlLiteral(name)} AS name,count(*)::bigint AS rows FROM public.${name}`).join('\nUNION ALL\n');
-  const migrationsSql = migrations.map(({ name, sql }) => `${sql.replace(/\r\n?/gu, '\n').trimEnd()}\nINSERT INTO public.app_schema_migrations(name,checksum) VALUES (${sqlLiteral(name)},${sqlLiteral(administrationMigrationChecksum(sql))});`).join('\n\n');
-  const sentinel = administrationReleaseSentinel(migrations);
-  return `-- Reviewed portable league administration bundle. Installed migrations 001-015 remain untouched.
--- Rendered for ${expectedDatabase}/${expectedOwner}. Obtain release authority and revalidate service identities before execution.
--- Execute from an idle session, outside any existing transaction. The marker is
--- cleared before BEGIN and can survive COMMIT only after every postcondition passes.
-SELECT set_config('league_one.administration_release_committed','',false) AS administration_release_marker_reset;
--- End the reset's implicit transaction even when submitted as one simple-query
--- batch. Otherwise a later error could restore this session's prior success marker.
-COMMIT;
-BEGIN;
-SET LOCAL lock_timeout='5s';
-SET LOCAL statement_timeout='120s';
-SET LOCAL search_path=pg_catalog,public;
-SELECT pg_advisory_xact_lock(hashtext('league-one-schema-migrations'));
-LOCK TABLE public.app_schema_migrations IN EXCLUSIVE MODE;
-LOCK TABLE public.projection_jobs,public.league_week_lineup_watch_states,
-  public.projection_period_refresh_states,public.league_week_materialization_states IN SHARE ROW EXCLUSIVE MODE;
-DO $administration_before$
-DECLARE actual_catalog jsonb;
-BEGIN
-  IF current_database() IS DISTINCT FROM ${sqlLiteral(expectedDatabase)} OR current_user IS DISTINCT FROM ${sqlLiteral(expectedOwner)}
-    THEN RAISE EXCEPTION 'administration release database or owner identity mismatch'; END IF;
-  IF current_setting('server_version_num')::integer<>${ADMINISTRATION_POSTGRES_VERSION}
-    THEN RAISE EXCEPTION 'administration release requires reviewed PostgreSQL 180006 constraint catalog'; END IF;
-  IF (${ledgerQuery}) IS DISTINCT FROM ${sqlLiteral(JSON.stringify(ledger))}::jsonb
-    THEN RAISE EXCEPTION 'administration release expected exactly migrations 001-015 and their accepted checksums'; END IF;
-  IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname=${sqlLiteral(runtimeRole)} AND NOT rolsuper AND NOT rolcreaterole AND NOT rolcreatedb AND NOT rolbypassrls)
-    OR EXISTS(SELECT 1 FROM pg_roles WHERE rolname<>${sqlLiteral(runtimeRole)} AND pg_has_role(${sqlLiteral(runtimeRole)},oid,'SET'))
-    THEN RAISE EXCEPTION 'administration runtime role is privileged or can assume another role'; END IF;
-  IF EXISTS(SELECT 1 FROM public.projection_jobs WHERE state='running' AND lease_until>clock_timestamp())
-    OR EXISTS(SELECT 1 FROM public.league_week_lineup_watch_states WHERE active_attempt_id IS NOT NULL AND lease_expires_at>clock_timestamp())
-    OR EXISTS(SELECT 1 FROM public.projection_period_refresh_states WHERE active_attempt_id IS NOT NULL AND active_attempt_expires_at>clock_timestamp())
-    OR EXISTS(SELECT 1 FROM public.league_week_materialization_states WHERE active_attempt_id IS NOT NULL AND active_attempt_expires_at>clock_timestamp())
-    THEN RAISE EXCEPTION 'administration release found an active worker owner'; END IF;
-  SELECT catalog INTO actual_catalog FROM (${affected}) captured;
-  IF actual_catalog IS DISTINCT FROM ${sqlLiteral(JSON.stringify(manifest.before))}::jsonb
-    THEN RAISE EXCEPTION 'administration installed 015 catalog, ownership, or grants mismatch'; END IF;
-END; $administration_before$;
-CREATE TEMP TABLE administration_release_unaffected_before ON COMMIT DROP AS ${unaffected};
-CREATE TEMP TABLE administration_release_history_before ON COMMIT DROP AS ${counts};
-
-${migrationsSql}
-
-DO $administration_after$
-DECLARE actual_catalog jsonb; old_count record; new_count bigint;
-BEGIN
-  IF (${ledgerQuery}) IS DISTINCT FROM ${sqlLiteral(JSON.stringify(completedLedger))}::jsonb
-    THEN RAISE EXCEPTION 'administration release final migration ledger mismatch'; END IF;
-  SELECT catalog INTO actual_catalog FROM (${affected}) captured;
-  IF actual_catalog IS DISTINCT FROM ${sqlLiteral(JSON.stringify(manifest.after))}::jsonb
-    THEN RAISE EXCEPTION 'administration final catalog, NOT NULL constraints, ownership, or grants mismatch'; END IF;
-  SELECT catalog INTO actual_catalog FROM (${unaffected}) captured;
-  IF actual_catalog IS DISTINCT FROM (SELECT catalog FROM administration_release_unaffected_before)
-    THEN RAISE EXCEPTION 'administration release changed unaffected functions, triggers, tables, policies, ACLs, roles, or defaults'; END IF;
-  FOR old_count IN SELECT * FROM administration_release_history_before LOOP
-    EXECUTE format('SELECT count(*)::bigint FROM public.%I',old_count.name) INTO new_count;
-    IF new_count IS DISTINCT FROM old_count.rows THEN RAISE EXCEPTION 'administration release altered historical row counts for %',old_count.name; END IF;
-  END LOOP;
-  PERFORM set_config('league_one.administration_release_committed',${sqlLiteral(sentinel)},false);
-END; $administration_after$;
-COMMIT;
--- Even a SQL client configured to continue after errors cannot emit success
--- after an aborted invocation: its transactionally committed marker must match.
-SELECT ${sqlLiteral(sentinel)} AS success_sentinel
-WHERE current_setting('league_one.administration_release_committed',true)=${sqlLiteral(sentinel)}
-  AND current_database()=${sqlLiteral(expectedDatabase)} AND current_user=${sqlLiteral(expectedOwner)}
-  AND current_setting('server_version_num')::integer=${ADMINISTRATION_POSTGRES_VERSION}
-  AND (${ledgerQuery})=${sqlLiteral(JSON.stringify(completedLedger))}::jsonb
-  AND (SELECT catalog FROM (${affected}) committed)=${sqlLiteral(JSON.stringify(manifest.after))}::jsonb;
-`;
+  return buildGuardedCatalogReleaseWrapper({ migrations, expectedDatabase, expectedOwner, runtimeRole, manifest,
+    installedLedger: ADMINISTRATION_INSTALLED_LEDGER, catalogSql: leagueAdministrationCatalogSql,
+    historyTables: protectedHistoryTables, release: { key: 'administration', marker: 'league_one.administration_release_committed',
+      title: 'Reviewed portable league administration bundle', installedLabel: '001-015', catalogLabel: '015',
+      postgresVersion: ADMINISTRATION_POSTGRES_VERSION, sentinel: administrationReleaseSentinel(migrations) } });
 }
 
 export function requireAdministrationReleaseSentinel(rows, migrations) {

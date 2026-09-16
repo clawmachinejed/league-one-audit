@@ -69,6 +69,17 @@ describe('bounded all-player correction selection', () => {
       kind: 'selected', period: { week: 1 }, requireFinalCoverage: true,
     });
   });
+  it('returns to previous-week corrections after a budgeted current-week no-statistics-yet outcome', () => {
+    const emptyCurrent = job(2, true);
+    const priorProof = emptyCurrent.payload.periodHistory;
+    const completedEmpty: AllPlayerJobState = { ...emptyCurrent, payload: { ...emptyCurrent.payload,
+      lastOutcome: { outcome: 'no-statistics-yet', period: { season: 2026, seasonType: 'reg', week: 2 },
+        finalCoverage: false },
+    } };
+    expect(selectAllPlayerRecurringPeriod(authorities(), completedEmpty, now, expectedLeagueKeys))
+      .toEqual({ kind: 'selected', period: { season: 2026, seasonType: 'regular', week: 1 }, requireFinalCoverage: true });
+    expect(completedEmpty.payload.periodHistory).toEqual(priorProof);
+  });
   it('closes corrections after the finite schedule-derived window', () => {
     const later = new Date('2026-09-24T00:00:00Z');
     expect(selectAllPlayerRecurringPeriod(authorities(2, later.toISOString()), job(1, true), later, expectedLeagueKeys))
