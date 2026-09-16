@@ -1,0 +1,33 @@
+{
+  "observedAt": "2026-09-16T20:42:21Z",
+  "scope": "Sleeper league 1378850182409490432, season 2026",
+  "productionShadow": {
+    "revision": "073f6eb6f202a563317594dd45fced8d0a32f93b",
+    "startedAt": "2026-09-16T20:39:56.770Z",
+    "result": "failed: metadata-source-partial",
+    "documents": 19,
+    "accepted": 17,
+    "rejected": 2,
+    "providerRequests": 25,
+    "writes": false
+  },
+  "boundedSourceReproduction": [
+    {"family": "winners_bracket", "httpStatus": 200, "exactJsonBody": null},
+    {"family": "losers_bracket", "httpStatus": 200, "exactJsonBody": null},
+    {"family": "traded_picks", "httpStatus": 200, "exactJsonBody": []},
+    {"family": "drafts", "httpStatus": 200, "catalogEntries": 1, "validatedSeason": 2026}
+  ],
+  "correction": "Accept a successful complete JSON null only for the two bracket families. Preserve raw null distinctly from an empty array; normalize no returned matches without inferring why the bracket is absent. Transport failures, partial evidence, malformed bodies and other-family nulls remain rejected.",
+  "regressions": [
+    "Each bracket successful null and failure/malformed body at the actual source boundary",
+    "Distinct raw and semantic identities for null and empty array",
+    "Null rejection for every other family and partial bracket evidence",
+    "Operator shadow remains write-free; guarded writer receives exact null evidence; failed source null refuses shadow success"
+  ],
+  "independentReview": "league_settings_ui_audit reviewed collector, normalizer, serializer, reader revalidation, installed SQL JSONB storage, runtime and CLI guards. No blockers or schema changes required.",
+  "installedMigrationChecksumsUnchanged": {
+    "016": "d662d9e9709153a4e9a6cbc93522bdd4d14c5b0a0c74a7c7ea8648455896596c",
+    "017": "1247dbfbdfbc79f41a448cf3b2e95fb4f9387e951a26f340e9533754e5c9c361"
+  },
+  "evidenceLimits": "Public source observations prove the captured bodies, not future source behavior. Unit tests use local fixtures. The previous 292-pass isolated database run covered the unchanged SQL; no new database test run is attributed to this source-only correction. Production shadow/bootstrap must be repeated through the reviewed bounded operator before deployment."
+}

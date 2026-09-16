@@ -5,7 +5,8 @@ import type { AdministrationEnvelope } from './league-administration/contracts';
 vi.mock('server-only', () => ({}));
 vi.mock('react', () => ({ cache: <T,>(value: T) => value }));
 vi.mock('next/cache', () => ({ unstable_cache: <T,>(value: T) => value }));
-import { getOfficialAdministrationMetadata, getOfficialAdministrationObservation, getOfficialDraftAdministration } from './sleeper';
+import { getOfficialAdministrationMetadata, getOfficialAdministrationObservation, getOfficialDraftAdministration,
+  type CapturedAdministrationDocument } from './sleeper';
 
 const league = 'metadata-league';
 const draft = { draft_id: 'draft-1', league_id: league, season: '2026', sport: 'nfl', settings: { rounds: 3 }, vendor_extension: true };
@@ -13,6 +14,13 @@ const pick = { draft_id: 'draft-1', player_id: 'player-1', pick_no: 1, round: 1,
 let responses: Record<string, unknown>;
 let failures: Set<string>;
 const paths = () => vi.mocked(fetch).mock.calls.map(([url]) => new URL(String(url)).pathname.replace(/^\/v1/u, ''));
+function normalizeCaptured(observation: CapturedAdministrationDocument) {
+  return normalizeAdministrationObservation({ schemaVersion: 'league-administration-v1',
+    normalizerVersion: 'sleeper-administration-v1', dialect: 'sleeper-nfl-v1',
+    scope: { leagueKey: 'league1', provider: 'sleeper', externalLeagueId: league, season: 2026 },
+    family: observation.family, week: observation.week, payload: observation.payload as AdministrationEnvelope['payload'],
+    completeness: observation.completeness ?? 'complete', provenance: { ...observation, checkedAt: new Date().toISOString() } });
+}
 beforeEach(() => {
   responses = { [`/league/${league}/drafts`]: [draft], [`/draft/${draft.draft_id}`]: draft,
     [`/draft/${draft.draft_id}/picks`]: [pick], [`/draft/${draft.draft_id}/traded_picks`]: [],
@@ -53,6 +61,48 @@ describe('bounded official administration metadata source', () => {
     expect(result).toMatchObject({ providerRequests: 4 });
     expect(result.reason).toBeUndefined();
     expect(result.observations.every(document => Array.isArray(document.payload) && document.payload.length === 0)).toBe(true);
+  });
+
+  it.each(['winners_bracket', 'losers_bracket'] as const)('retains successful unpublished %s as complete raw null', async family => {
+    responses[`/league/${league}/${family}`] = null;
+    const result = await getOfficialAdministrationMetadata(league, 2026, { maxRequests: 7 });
+    expect(result.reason).toBeUndefined();
+    expect(result.providerRequests).toBe(7);
+    expect(paths()).toHaveLength(7);
+    const observation = result.observations.find(document => document.family === family)!;
+    expect(observation).toMatchObject({ family, payload: null, origin: 'network' });
+    expect(observation.completeness ?? 'complete').toBe('complete');
+    expect(observation.sourceObservedAt).toBe(observation.requestCompletedAt);
+    expect(normalizeCaptured(observation)).toMatchObject({ status: 'accepted', envelope: { payload: null, completeness: 'complete' } });
+  });
+
+  it.each(['winners_bracket', 'losers_bracket'] as const)('keeps an HTTP503 %s response partial and rejected', async family => {
+    failures.add(`/league/${league}/${family}`);
+    const result = await getOfficialAdministrationMetadata(league, 2026, { maxRequests: 7 });
+    expect(result).toMatchObject({ reason: 'metadata-source-partial', providerRequests: 7 });
+    expect(paths()).toHaveLength(7);
+    const observation = result.observations.find(document => document.family === family)!;
+    expect(observation).toMatchObject({ family, payload: null, origin: 'network', completeness: 'partial', sourceObservedAt: null });
+    expect(normalizeCaptured(observation).status).toBe('rejected');
+  });
+
+  it.each(['winners_bracket', 'losers_bracket'] as const)('preserves a malformed %s object without accepting it as an unpublished bracket', async family => {
+    const malformed = { matches: [] };
+    responses[`/league/${league}/${family}`] = malformed;
+    const result = await getOfficialAdministrationMetadata(league, 2026, { maxRequests: 7 });
+    expect(result).toMatchObject({ reason: 'metadata-source-partial', providerRequests: 7 });
+    const observation = result.observations.find(document => document.family === family)!;
+    expect(observation.payload).toEqual(malformed);
+    expect(normalizeCaptured(observation).status).toBe('rejected');
+  });
+
+  it.each(['traded_picks', 'drafts'] as const)('keeps successful null %s outside the bracket-only allowance', async family => {
+    responses[`/league/${league}/${family}`] = null;
+    const result = await getOfficialAdministrationMetadata(league, 2026, { maxRequests: 7 });
+    expect(result.reason).toBe('metadata-source-partial');
+    const observation = result.observations.find(document => document.family === family)!;
+    expect(observation.payload).toBeNull();
+    expect(normalizeCaptured(observation).status).toBe('rejected');
   });
 
   it('refuses an insufficient aggregate budget before any provider request', async () => {

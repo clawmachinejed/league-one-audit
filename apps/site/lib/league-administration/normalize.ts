@@ -469,7 +469,14 @@ function normalizeBracket(raw: readonly JsonValue[], family: 'winners_bracket' |
   return { family, matches };
 }
 
-function materialCollection(envelope: AdministrationEnvelope): readonly JsonValue[] {
+function isCompleteUnpublishedBracket(envelope: AdministrationEnvelope): boolean {
+  return (envelope.family === 'winners_bracket' || envelope.family === 'losers_bracket')
+    && envelope.completeness === 'complete' && envelope.payload === null;
+}
+
+function materialCollection(envelope: AdministrationEnvelope): readonly JsonValue[] | null {
+  // A successful null bracket is unpublished source state, distinct from an empty array.
+  if (isCompleteUnpublishedBracket(envelope)) return null;
   if (envelope.family === 'drafts') return [...rows(envelope.payload, 'payload')].sort((left, right) =>
     String(object(object(left, 'payload').catalog, 'payload.catalog').draft_id)
       .localeCompare(String(object(object(right, 'payload').catalog, 'payload.catalog').draft_id)));
@@ -511,7 +518,8 @@ export function normalizeAdministrationObservation(
       case 'transactions': value = normalizeTransactions(rows(envelope.payload, 'payload')); break;
       case 'drafts': value = normalizeDrafts(rows(envelope.payload, 'payload'), envelope); break;
       case 'traded_picks': value = { family: 'traded_picks', picks: metadataTradedPicks(envelope.payload, 'payload') }; break;
-      case 'winners_bracket': case 'losers_bracket': value = normalizeBracket(rows(envelope.payload, 'payload'), envelope.family); break;
+      case 'winners_bracket': case 'losers_bracket':
+        value = normalizeBracket(isCompleteUnpublishedBracket(envelope) ? [] : rows(envelope.payload, 'payload'), envelope.family); break;
     }
     // League operational state is retained raw but does not manufacture a settings version.
     // Other families retain all unknown fields as material rather than silently ignoring them.

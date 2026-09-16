@@ -144,4 +144,34 @@ describe('administration operator and scheduled boundary', () => {
       reason: 'metadata-request-budget-exceeded' });
     expect(mock.capture).not.toHaveBeenCalled();
   });
+
+  it('accepts unpublished brackets in shadow and forwards their exact null evidence in guarded writes', async () => {
+    const metadata = { observations: [doc('drafts', []), doc('traded_picks', []),
+      doc('winners_bracket', null), doc('losers_bracket', null)], providerRequests: 4 };
+    mock.metadata.mockResolvedValue(metadata);
+    expect(await runAdministrationOperator({ ...input, includeMetadata: true })).toMatchObject({
+      status: 'completed', documents: 9, accepted: 9, rejected: 0, providerRequests: 9, writes: false,
+    });
+    expect(mock.capture).not.toHaveBeenCalled();
+    expect(mock.jobs.acquireJob).not.toHaveBeenCalled();
+    expect(await runAdministrationOperator({ ...input, mode: 'write', includeMetadata: true })).toMatchObject({
+      status: 'completed', documents: 9, accepted: 9, rejected: 0, writes: true,
+    });
+    expect(mock.capture.mock.calls[1][1]).toEqual(metadata.observations);
+    expect(mock.capture.mock.calls[1][2]).toMatchObject({ fence: {
+      jobKey: 'league-administration-maintenance', generation: 1,
+    } });
+  });
+
+  it('still refuses source-failed null brackets in a read-only shadow', async () => {
+    mock.metadata.mockResolvedValue({ observations: [doc('drafts', []), doc('traded_picks', []),
+      { ...doc('winners_bracket', null), completeness: 'partial' },
+      { ...doc('losers_bracket', null), completeness: 'partial' }], providerRequests: 4,
+    reason: 'metadata-source-partial' });
+    expect(await runAdministrationOperator({ ...input, includeMetadata: true })).toMatchObject({
+      status: 'failed', documents: 7, accepted: 5, rejected: 2, reason: 'metadata-source-partial',
+    });
+    expect(mock.capture).not.toHaveBeenCalled();
+    expect(mock.jobs.acquireJob).not.toHaveBeenCalled();
+  });
 });

@@ -1108,7 +1108,11 @@ export async function getOfficialAdministrationMetadata(
     }
   }));
   const drafts = await getOfficialDraftAdministration(leagueId, season, { ...options, maxRequests: options.maxRequests - 3 });
-  const partial = observations.some(document => document.completeness === 'partial' || !Array.isArray(document.payload));
+  // Sleeper can successfully return JSON null before publishing either bracket.
+  // Keep that source state distinct from an empty array and from a failed read.
+  const partial = observations.some(document => document.completeness === 'partial'
+    || (!Array.isArray(document.payload) && !(document.payload === null
+      && (document.family === 'winners_bracket' || document.family === 'losers_bracket'))));
   return { observations: [...observations, ...drafts.observations], providerRequests: 3 + drafts.providerRequests,
     ...(drafts.reason || partial ? { reason: drafts.reason ?? 'metadata-source-partial' as const } : {}) };
 }

@@ -19,6 +19,31 @@ describe('observed draft, pick and playoff metadata', () => {
     expect(normalize(family, [], { week: 1 }).status).toBe('rejected');
   });
 
+  it.each(['winners_bracket', 'losers_bracket'] as const)('retains a complete unpublished %s distinctly from an empty bracket', family => {
+    const result = normalize(family, null);
+    const empty = normalize(family, []);
+    expect(result.status).toBe('accepted');
+    expect(result.envelope.payload).toBeNull();
+    expect(result.value).toEqual({ family, matches: [] });
+    expect(result.contentHash).not.toBe(empty.contentHash);
+    expect(result.semanticHash).not.toBe(empty.semanticHash);
+    expect(result.semanticHash).toBe(normalize(family, null).semanticHash);
+  });
+
+  it.each(['winners_bracket', 'losers_bracket'] as const)('rejects incomplete null and malformed %s evidence', family => {
+    const failed = normalize(family, null, { completeness: 'partial' });
+    expect(failed.status).toBe('rejected');
+    expect(failed.envelope.payload).toBeNull();
+    expect(failed.semanticHash).toBeNull();
+    for (const payload of [{}, 'null', false, 0] as JsonValue[]) {
+      expect(normalize(family, payload).status).toBe('rejected');
+    }
+  });
+
+  it.each(['league', 'rosters', 'users', 'matchups', 'transactions', 'drafts', 'traded_picks'] as const)('does not accept null for %s', family => {
+    expect(normalize(family, null, { week: family === 'matchups' ? 1 : family === 'transactions' ? 0 : null }).status).toBe('rejected');
+  });
+
   it('retains every draft body and unknown field while exposing only verified cross references', () => {
     const result = normalize('drafts', [bundle]);
     expect(result.status).toBe('accepted');
