@@ -57,24 +57,84 @@ describe('LeagueMyTeamPage', () => {
     const payload = matchups(2);
     mocks.readStoredMatchups.mockResolvedValue({ kind: 'usable', payload, context,
       snapshotRevision: 'a'.repeat(64), verifiedAt: '2026-09-15T20:00:00.000Z' });
-    const rendered = await LeagueMyTeamPage({ leagueId: `id-${leagueKey}`, leagueKey }) as ReactElement<Record<string, unknown>>;
+    const rendered = await LeagueMyTeamPage({ leagueId: `id-${leagueKey}`, leagueKey,
+      searchParams: Promise.resolve({}) }) as ReactElement<Record<string, unknown>>;
     expect(mocks.readStoredMatchups).toHaveBeenCalledExactlyOnceWith(leagueKey, undefined);
     expect(rendered.props).toMatchObject({ mode: 'my-team', data: payload, periodContext: context,
       snapshotRevision: 'a'.repeat(64), verifiedAt: '2026-09-15T20:00:00.000Z', followCurrent: true, rollover: { week: 2 } });
     expect(mocks.getOfficialMatchups).not.toHaveBeenCalled();
   });
 
-  it('keeps My Team current-only and uses the official current-week fallback without an old snapshot', async () => {
+  it.each([undefined, 'invalid', '19'])('uses the current official fallback for a missing or invalid query (%s)', async week => {
     const payload = matchups(2);
     mocks.readStoredMatchups.mockResolvedValue({ kind: 'missing' });
     mocks.getCurrentMatchupPeriodContext.mockResolvedValue(context);
     mocks.getOfficialMatchups.mockResolvedValue(payload);
-    const rendered = await LeagueMatchupsPage({ leagueId: 'id-league1', leagueKey: 'league1',
-      mode: 'my-team', searchParams: Promise.resolve({ week: '1' }) }) as ReactElement<Record<string, unknown>>;
+    const rendered = await LeagueMyTeamPage({ leagueId: 'id-league1', leagueKey: 'league1',
+      searchParams: Promise.resolve({ week }) }) as ReactElement<Record<string, unknown>>;
     expect(mocks.readStoredMatchups).toHaveBeenCalledExactlyOnceWith('league1', undefined);
     expect(mocks.getOfficialMatchups).toHaveBeenCalledExactlyOnceWith('id-league1', 2);
     expect(rendered.props).toMatchObject({ mode: 'my-team', data: payload, snapshotRevision: null,
       verifiedAt: null, followCurrent: true, periodContext: { activeWeek: 2 } });
+  });
+
+  it.each([
+    { leagueKey: 'league1' as const, week: 1, temporalState: 'past' as const },
+    { leagueKey: 'league2' as const, week: 3, temporalState: 'future' as const },
+  ])('preserves the exact $leagueKey Week $week stored lineage and period', async ({ leagueKey, week, temporalState }) => {
+    const payload = matchups(week);
+    const selectedContext = { ...context, temporalState };
+    mocks.readStoredMatchups.mockResolvedValue({ kind: 'usable', payload, context: selectedContext,
+      snapshotRevision: 'b'.repeat(64), verifiedAt: '2026-09-15T20:01:00.000Z' });
+    const rendered = await LeagueMyTeamPage({ leagueId: `id-${leagueKey}`, leagueKey,
+      searchParams: Promise.resolve({ week: String(week) }) }) as ReactElement<Record<string, unknown>>;
+    expect(mocks.readStoredMatchups).toHaveBeenCalledExactlyOnceWith(leagueKey, week);
+    expect(rendered.props).toMatchObject({ mode: 'my-team', data: payload, periodContext: selectedContext,
+      snapshotRevision: 'b'.repeat(64), verifiedAt: '2026-09-15T20:01:00.000Z', followCurrent: false });
+    expect(mocks.getOfficialMatchups).not.toHaveBeenCalled();
+    expect(mocks.getCurrentMatchupPeriodContext).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { week: 1, temporalState: 'past' }, { week: 3, temporalState: 'future' },
+  ])('keeps the selected Week $week when its stored snapshot is missing', async ({ week, temporalState }) => {
+    mocks.readStoredMatchups.mockResolvedValue({ kind: 'missing' });
+    mocks.getCurrentMatchupPeriodContext.mockResolvedValue(context);
+    const payload = matchups(week);
+    mocks.getOfficialMatchups.mockResolvedValue(payload);
+    const rendered = await LeagueMyTeamPage({ leagueId: 'id-league2', leagueKey: 'league2',
+      searchParams: Promise.resolve({ week: String(week) }) }) as ReactElement<Record<string, unknown>>;
+    expect(mocks.readStoredMatchups).toHaveBeenCalledExactlyOnceWith('league2', week);
+    expect(mocks.getCurrentMatchupPeriodContext).toHaveBeenCalledExactlyOnceWith('id-league2', week);
+    expect(mocks.getOfficialMatchups).toHaveBeenCalledExactlyOnceWith('id-league2', week);
+    expect(rendered.props).toMatchObject({ mode: 'my-team', data: payload, snapshotRevision: null,
+      verifiedAt: null, followCurrent: false, periodContext: { activeWeek: 2, temporalState } });
+  });
+
+  it('pins an explicit historical week when a newer site rollover invalidates stored authority', async () => {
+    mocks.getSiteWeekRollover.mockResolvedValue({ week: 3, nextRolloverAt: null, evaluatedAt: '2026-09-22T16:00:00.000Z' });
+    mocks.readStoredMatchups.mockResolvedValue({ kind: 'usable', payload: matchups(1),
+      context: { ...context, temporalState: 'past' }, snapshotRevision: 'a'.repeat(64),
+      verifiedAt: '2026-09-22T15:59:00.000Z' });
+    mocks.getCurrentMatchupPeriodContext.mockResolvedValue({ ...context, defaultWeek: 3, activeWeek: 3 });
+    const payload = matchups(1);
+    mocks.getOfficialMatchups.mockResolvedValue(payload);
+    const rendered = await LeagueMyTeamPage({ leagueId: 'id-league1', leagueKey: 'league1',
+      searchParams: Promise.resolve({ week: '1' }) }) as ReactElement<Record<string, unknown>>;
+    expect(mocks.readStoredMatchups).toHaveBeenCalledExactlyOnceWith('league1', 1);
+    expect(mocks.getCurrentMatchupPeriodContext).toHaveBeenCalledExactlyOnceWith('id-league1', 1);
+    expect(mocks.getOfficialMatchups).toHaveBeenCalledExactlyOnceWith('id-league1', 1);
+    expect(rendered.props).toMatchObject({ data: payload, followCurrent: false,
+      snapshotRevision: null, rollover: { week: 3 }, periodContext: { activeWeek: 3, temporalState: 'past' } });
+  });
+
+  it('treats an explicit current-week query as pinned instead of following the next week', async () => {
+    mocks.readStoredMatchups.mockResolvedValue({ kind: 'usable', payload: matchups(2), context,
+      snapshotRevision: 'a'.repeat(64), verifiedAt: '2026-09-15T20:00:00.000Z' });
+    const rendered = await LeagueMyTeamPage({ leagueId: 'id-league1', leagueKey: 'league1',
+      searchParams: Promise.resolve({ week: '2' }) }) as ReactElement<Record<string, unknown>>;
+    expect(mocks.readStoredMatchups).toHaveBeenCalledExactlyOnceWith('league1', 2);
+    expect(rendered.props.followCurrent).toBe(false);
   });
 });
 

@@ -65,7 +65,7 @@ export function MatchupsView({
 }) {
   useSiteWeekRollover(rollover);
   const site = useLeagueSite();
-  const matchupsPath = `${site.prefix}/matchups`;
+  const matchupsPath = `${site.prefix}/${mode}`;
   const { data, periodContext, updatedAt, refreshing } = useMatchupSnapshot({
     leagueKey: site.key, data: initialData, periodContext: initialPeriodContext, snapshotRevision, verifiedAt,
   });
@@ -91,10 +91,9 @@ export function MatchupsView({
   return <div className={matchupStyles.page}>
     <div className={matchupStyles.toolbar}>
       <PageIntro title={myTeamView ? 'My Team' : 'Matchups'} league={data.league} />
-      {myTeamView ? <p className={matchupStyles.season} aria-label={`Current matchup week ${data.week}`}>Week {data.week}</p>
-        : <WeekSelector label="Matchup week" week={data.week} currentWeek={currentWeek}
+      <WeekSelector label="Matchup week" week={data.week} currentWeek={currentWeek}
         maxWeek={data.league.maxWeek} onChange={week => router.push(week === currentWeek ? matchupsPath : `${matchupsPath}?week=${week}`)}
-        hrefForWeek={week => `${matchupsPath}?week=${week}`} currentHref={matchupsPath} />}
+        hrefForWeek={week => `${matchupsPath}?week=${week}`} currentHref={matchupsPath} />
     </div>
     <Warning message={data.warning} />
     {matchups.length ? <MatchupsWithBoxScores key={`${site.key}:${data.league.season}:${data.week}`}

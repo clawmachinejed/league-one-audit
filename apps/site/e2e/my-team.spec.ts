@@ -38,7 +38,8 @@ function myTeamFixture(week: number) {
 }
 
 async function openMyTeamFixture(page: Page, league: 'league1' | 'league2') {
-  const state = { week: 0, documentCount: 0, fullCount: 0, boxRequests: [] as string[], providerRequests: [] as string[] };
+  const state = { week: 0, documentCount: 0, fullCount: 0, boxRequests: [] as string[],
+    boxWeeks: [] as number[], providerRequests: [] as string[] };
   await page.clock.install({ time: new Date('2026-09-13T16:00:00.000Z') });
   await page.clock.pauseAt(new Date('2026-09-13T16:01:00.000Z'));
   await page.addInitScript(key => localStorage.setItem(key, '2'), `league-one:my-team:${LEAGUE_IDS[league]}`);
@@ -51,9 +52,10 @@ async function openMyTeamFixture(page: Page, league: 'league1' | 'league2') {
     if (route.request().resourceType() !== 'document') return route.continue();
     const response = await route.fetch();
     const html = await response.text();
-    const currentWeek = html.match(/aria-label="Current matchup week (\d+)"/u);
-    expect(currentWeek, 'My Team server markup identifies the current exact week').not.toBeNull();
-    state.week = Number(currentWeek![1]);
+    const picker = html.match(/<select\b[^>]*>[\s\S]*?<\/select>/u)?.[0];
+    const selectedWeek = picker?.match(/<option\b[^>]*value="(\d+)"[^>]*selected/u);
+    expect(selectedWeek, 'My Team server dropdown identifies the selected exact week').toBeTruthy();
+    state.week = Number(selectedWeek![1]);
     const dates = [...html.matchAll(/\\"updatedAt\\":\\"([^"\\]+)\\"/gu)];
     const lineage = /\\"snapshotRevision\\":(?:null|\\"[a-f0-9]{64}\\"),\\"verifiedAt\\":(?:null|\\"[^"\\]+\\")/gu;
     expect(dates.length).toBeGreaterThan(0);
@@ -76,6 +78,7 @@ async function openMyTeamFixture(page: Page, league: 'league1' | 'league2') {
     expect(Number(url.searchParams.get('week'))).toBe(state.week);
     if (url.pathname.endsWith('/box-scores')) {
       state.boxRequests.push(url.pathname);
+      state.boxWeeks.push(state.week);
       expect(url.searchParams.get('season')).toBe('2026');
       const data: MatchupBoxScores = { leagueKey: league, season: '2026', week: state.week, status: 'available',
         observedAt: '2026-09-13T16:00:00.000Z', revision: 'my-team-box', players: {
@@ -164,5 +167,89 @@ for (const league of ['league1', 'league2'] as const) {
     expect(state.boxRequests).toEqual([`/api/matchups/${league}/box-scores`]);
     expect(state.providerRequests).toEqual([]);
     expect(await page.evaluate(key => localStorage.getItem(key), `league-one:my-team:${LEAGUE_IDS[league]}`)).toBe('2');
+
+    // A pinned week must reload its own snapshot and bench statistics while
+    // retaining the same saved team; it must not keep the prior week's panels.
+    const originalWeek = state.week;
+    const pinnedWeek = originalWeek < 18 ? originalWeek + 1 : originalWeek - 1;
+    const path = `${league === 'league2' ? '/league2' : ''}/my-team`;
+    state.week = pinnedWeek;
+    const picker = page.getByRole('combobox', { name: 'Matchup week', exact: true });
+    await picker.selectOption(String(pinnedWeek));
+    await expect(page).toHaveURL(new RegExp(`${path}\\?week=${pinnedWeek}$`, 'u'));
+    await page.reload({ waitUntil: 'networkidle' });
+    // The paused clock also controls React's streamed suspense reveal on reload.
+    // Advance it before inspecting the page, as on the initial fixture load.
+    await page.clock.runFor(61_000);
+    await expect(picker).toHaveValue(String(pinnedWeek));
+    await expect.poll(() => state.fullCount).toBe(2);
+    await expect(card.locator('[data-team-name]')).toHaveText(['Fixture Beta', 'Fixture Alpha']);
+    await expect(header).toHaveAttribute('aria-expanded', 'false');
+    await header.click();
+    await expect(bench).toBeVisible();
+    await expect(first.locator('[data-player-score-side="left"] [data-player-score-number]')).toHaveText('0.00');
+    await expect(disclosure).toHaveAttribute('aria-expanded', 'false');
+    await disclosure.click();
+    await expect(ownPanel.locator('[data-box-score-summary]')).toHaveText('0 REC, 0 YD, 0 TD');
+    await expect(otherPanel.locator('[data-box-score-summary]')).toHaveText('17/27 CMP, 209 YD, 1 TD, 1 INT, 5 CAR, 29 YD');
+    expect(state.boxRequests).toHaveLength(2);
+    expect(state.boxWeeks).toEqual([originalWeek, pinnedWeek]);
+    expect(state.providerRequests).toEqual([]);
+    expect(await page.evaluate(key => localStorage.getItem(key), `league-one:my-team:${LEAGUE_IDS[league]}`)).toBe('2');
+  });
+
+  test(`${league} My Team shares the Matchups week dropdown, arrows, bounds and Current navigation`, async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    const path = `${league === 'league2' ? '/league2' : ''}/my-team`;
+    await page.goto(path, { waitUntil: 'networkidle' });
+    const picker = page.getByRole('combobox', { name: 'Matchup week', exact: true });
+    const currentWeek = Number(await picker.inputValue());
+    await expect(picker.locator('option:checked')).toHaveText(`Week ${currentWeek} · Current`);
+    await expect(page.getByRole('link', { name: 'Back to current' })).toHaveCount(0);
+    const weeks = await picker.locator('option').evaluateAll(options => options.map(option => Number((option as HTMLOptionElement).value)));
+    const firstWeek = Math.min(...weeks);
+    const lastWeek = Math.max(...weeks);
+    expect(firstWeek).toBe(1);
+    expect(lastWeek).toBeGreaterThan(firstWeek);
+
+    if (currentWeek > firstWeek) {
+      await picker.selectOption(String(firstWeek));
+      await expect(page).toHaveURL(new RegExp(`${path}\\?week=${firstWeek}$`, 'u'));
+      await page.reload({ waitUntil: 'networkidle' });
+      await expect(picker).toHaveValue(String(firstWeek));
+    } else {
+      test.info().annotations.push({ type: 'Season boundary', description: `${league} has no earlier regular-season week than its current week.` });
+    }
+    // Matchups intentionally shows the arrow controls only at desktop widths.
+    await page.setViewportSize({ width: 760, height: 900 });
+    await expect(page.getByRole('button', { name: `Previous week, week ${firstWeek}`, exact: true })).toBeDisabled();
+    const next = page.getByRole('link', { name: `Next week, week ${firstWeek + 1}`, exact: true });
+    await expect(next).toHaveAttribute('href', `${path}?week=${firstWeek + 1}`);
+    await next.click();
+    await expect(page).toHaveURL(new RegExp(`${path}\\?week=${firstWeek + 1}$`, 'u'));
+    await expect(picker).toHaveValue(String(firstWeek + 1));
+
+    await picker.selectOption(String(lastWeek));
+    await expect(page).toHaveURL(new RegExp(`${path}${lastWeek === currentWeek ? '' : `\\?week=${lastWeek}`}$`, 'u'));
+    await page.reload({ waitUntil: 'networkidle' });
+    await expect(picker).toHaveValue(String(lastWeek));
+    await expect(page.getByRole('button', { name: `Next week, week ${lastWeek}`, exact: true })).toBeDisabled();
+    if (currentWeek === lastWeek) {
+      test.info().annotations.push({ type: 'Season boundary', description: `${league} has no later regular-season week than its current week.` });
+    }
+    const previous = page.getByRole('link', { name: `Previous week, week ${lastWeek - 1}`, exact: true });
+    await expect(previous).toHaveAttribute('href', `${path}?week=${lastWeek - 1}`);
+    await previous.click();
+    await expect(page).toHaveURL(new RegExp(`${path}\\?week=${lastWeek - 1}$`, 'u'));
+    await expect(picker).toHaveValue(String(lastWeek - 1));
+    if (lastWeek - 1 === currentWeek) await picker.selectOption(String(firstWeek));
+    const current = page.getByRole('link', { name: 'Back to current', exact: true });
+    await expect(current).toHaveAttribute('href', path);
+    await current.click();
+    await expect(page).toHaveURL(new RegExp(`${path}$`, 'u'));
+    await expect(picker).toHaveValue(String(currentWeek));
+    await expect(current).toHaveCount(0);
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
   });
 }

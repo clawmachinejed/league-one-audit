@@ -43,7 +43,7 @@ export async function LeagueMatchupsPage({
   mode?: 'matchups' | 'my-team';
 }) {
   const { week } = await searchParams;
-  const requestedWeek = mode === 'my-team' ? undefined : parseMatchupWeek(week) ?? undefined;
+  const requestedWeek = parseMatchupWeek(week) ?? undefined;
   const [rollover, initialStored] = await Promise.all([
     loadRollover(leagueId), readStoredMatchups(leagueKey, requestedWeek),
   ]);
@@ -98,8 +98,10 @@ export async function LeagueMatchupsPage({
     rollover={rollover} followCurrent={requestedWeek === undefined} mode={mode} />;
 }
 
-export function LeagueMyTeamPage({ leagueId, leagueKey }: { leagueId: string; leagueKey: LeagueKey }) {
-  return LeagueMatchupsPage({ leagueId, leagueKey, searchParams: Promise.resolve({}), mode: 'my-team' });
+export function LeagueMyTeamPage({ leagueId, leagueKey, searchParams }: {
+  leagueId: string; leagueKey: LeagueKey; searchParams: MatchupSearchParams;
+}) {
+  return LeagueMatchupsPage({ leagueId, leagueKey, searchParams, mode: 'my-team' });
 }
 
 export async function LeagueStandingsPage({ leagueId, leagueKey }: { leagueId: string; leagueKey: LeagueKey }) {
