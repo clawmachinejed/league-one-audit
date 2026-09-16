@@ -5,13 +5,14 @@ import { createHash } from 'node:crypto';
 import { foundationFixture } from './all-player-foundation-fixture';
 import { loadFoundationWeeklyIdentityCatalog } from './all-player-weekly-identity-fixture';
 import type { AllPlayerIdentityLookup } from '../lib/projections/adapters/neon/contracts';
+import { createLeagueRegistry } from '../lib/projections/adapters/configuration/league-registry';
 import { createProductionAllPlayerDependencies } from '../lib/projections/runtime/all-player-composition';
 import { parseAllPlayerOperatorInput } from '../lib/projections/runtime/all-player-operator-guards';
 import { runAllPlayerIngestion, type AllPlayerIngestionDependencies } from '../lib/projections/runtime/all-player-operation';
 import type { AllPlayerStatObservation } from '../lib/projections/domain/all-player-statistics';
 import type { NflTeam, ProjectionSlate } from '../lib/projections/domain/contracts';
 import type { ProjectionSlateContentId, ProjectionSlateObservationId } from '../lib/projections/ports/projection-repository';
-import { externalPlayerRef, externalTeamDefenseRef, providerKey } from '../lib/projections/shared/provider-identity';
+import { externalLeagueRef, externalPlayerRef, externalTeamDefenseRef, providerKey } from '../lib/projections/shared/provider-identity';
 
 function fixture<T>(name: string): T {
   return JSON.parse(readFileSync(new URL(`./fixtures/all-player-foundation/${name}`, import.meta.url), 'utf8')) as T;
@@ -149,6 +150,13 @@ const writeTrap = (name: string) => async () => {
 };
 const dependencies: AllPlayerIngestionDependencies = {
   ...production,
+  // This immutable September 12 capture covers only its two recorded leagues.
+  // The separate synthetic operator fixture exercises today's complete registry.
+  leagueRegistry: createLeagueRegistry([...leaguesById.values()].map((league) => ({
+    key: league.key, displayName: league.settings.name,
+    leagueRef: externalLeagueRef('sleeper', league.settings.league_id),
+    matchupWeekRange: { firstWeek: 1, lastWeek: 18 },
+  }))),
   clock: { now: () => new Date(), monotonicNow: () => performance.now() },
   logger: { write: () => undefined },
   loadLeagueWeek: async (...arguments_) => {

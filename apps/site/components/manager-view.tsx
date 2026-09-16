@@ -1,13 +1,17 @@
 'use client';
 
 import type { ManagerData, Player } from '../lib/types';
+import { rosterSlotLabel, rosterSlotName } from '../lib/roster-slot';
 import { Updated } from './league-primitives';
 import { ManagerHeader } from './manager-profile';
 import { useTeamPreference } from './team-preference';
 import { useSiteWeekRollover, type SiteWeekRollover } from './use-site-week-rollover';
 
 function RosterSection({ title, players }: { title: string; players: Player[] }) {
-  return <section className="roster-section"><div className="section-label"><h2>{title}</h2><span>{players.length} {players.length === 1 ? 'player' : 'players'}</span></div><div className="roster-list">{players.length ? players.map((player, index) => <div className="roster-player" key={`${player.id}-${index}`}><span className="roster-slot">{player.slot || player.position || '—'}</span><div className="roster-player-name"><span>{player.name}</span><small>{player.position || 'Position unavailable'}</small></div><span className="roster-nfl-team">{player.nflTeam || '—'}</span></div>) : <p className="roster-empty">No players assigned.</p>}</div></section>;
+  return <section className="roster-section"><div className="section-label"><h2>{title}</h2><span>{players.length} {players.length === 1 ? 'player' : 'players'}</span></div><div className="roster-list">{players.length ? players.map((player, index) => {
+    const slot = player.slot || player.position || '—';
+    return <div className="roster-player" key={`${player.id}-${index}`}><span className="roster-slot" aria-label={rosterSlotName(slot)} title={rosterSlotName(slot)}>{rosterSlotLabel(slot)}</span><div className="roster-player-name"><span>{player.name}</span><small>{player.position || 'Position unavailable'}</small></div><span className="roster-nfl-team">{player.nflTeam || '—'}</span></div>;
+  }) : <p className="roster-empty">No players assigned.</p>}</div></section>;
 }
 
 export function ManagerView({ data, rollover }: { data: ManagerData; rollover?: SiteWeekRollover | null }) {

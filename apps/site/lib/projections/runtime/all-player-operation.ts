@@ -718,7 +718,14 @@ async function execute(
   const { mode, period } = input;
   await input.checkpoint('source-context');
   const configurations = dependencies.leagueRegistry.listActiveLeagues();
-  if (configurations.length !== 2) return unavailable(mode, period, 'league-inventory');
+  if (configurations.length === 0
+    || configurations.some(({ key, leagueRef }) => !key.trim() || key !== key.trim()
+      || leagueRef.resource !== 'league' || leagueRef.provider !== dependencies.officialProvider
+      || !leagueRef.externalId.trim() || leagueRef.externalId !== leagueRef.externalId.trim())
+    || new Set(configurations.map(({ key }) => key)).size !== configurations.length
+    || new Set(configurations.map(({ leagueRef }) => externalReferenceKey(leagueRef))).size !== configurations.length) {
+    return unavailable(mode, period, 'league-inventory');
+  }
   const [leagueLoads, catalog, projectionSlate, gameContext, reviewedEvidence] = await Promise.all([
     Promise.all(configurations.map(async (configuration) => ({
       configuration,
@@ -746,6 +753,10 @@ async function execute(
   }
   if (leagueLoads.some((league) => !samePeriod(league.state.period, period))) {
     return unavailable(mode, period, 'league-period-mismatch');
+  }
+  if (leagueLoads.some(({ configuration, state }) => configuration.key !== state.configuration.key
+    || externalReferenceKey(configuration.leagueRef) !== externalReferenceKey(state.configuration.leagueRef))) {
+    return unavailable(mode, period, 'league-identity-mismatch');
   }
   // Team-local projection recovery must not turn unknown assignments into official bench facts.
   if (leagueLoads.some((league) => league.rawMatchups.some((row) =>

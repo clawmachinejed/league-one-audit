@@ -74,7 +74,7 @@ describe('Matchups box-score HTTP boundary', () => {
     expect((await unknown.json()).players['player:7527']).toBeUndefined();
     expect(test.boxRead.mock.calls[0][0].identities).not.toContainEqual({ entityKind: 'player', providerExternalId: '7527' });
   });
-  it.each(['league1', 'league2'])('scopes one bulk read to %s displayed starter identities and preserves source freshness', async (league) => {
+  it.each(['league1', 'league2', 'dynasty'])('scopes one bulk read to %s displayed starter identities and preserves source freshness', async (league) => {
     const test = fixture(league);
     const original = JSON.stringify(test.stored.snapshot);
     const response = await handleMatchupBoxScoresRequest(request(), league, test.store, now);

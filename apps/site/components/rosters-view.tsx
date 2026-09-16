@@ -6,6 +6,7 @@ import { nextAllPlayerRefreshAt } from '../lib/all-player-refresh-schedule';
 import { injuryStatusLabel } from '../lib/injury-status';
 import { formatNflGame } from '../lib/nfl-schedule';
 import { orderRosterTeams } from '../lib/roster-metrics';
+import { rosterSlotLabel, rosterSlotName } from '../lib/roster-slot';
 import type { League, RosterPlayer, RosterSection, RosterTeam, RostersData } from '../lib/types';
 import { useLeagueSite } from './league-context';
 import { Avatar, EmptyState, Updated, Warning } from './league-primitives';
@@ -89,7 +90,7 @@ function PlayerRow({ player }: { player: RosterPlayer }) {
   const rank = positionRank(player);
   const ppg = playerPpg(player.ppg);
   return <div className={styles.playerRow} data-roster-player>
-    <span className={styles.slot}>{player.slot}</span>
+    <span className={styles.slot} aria-label={rosterSlotName(player.slot)} title={rosterSlotName(player.slot)}>{rosterSlotLabel(player.slot)}</span>
     <span className={styles.playerInfo}>
       <span className={styles.playerName}>{player.name}</span>
       <span className={styles.playerDetails}>{details || '—'}</span>

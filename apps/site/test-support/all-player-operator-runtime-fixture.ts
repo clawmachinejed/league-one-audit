@@ -26,10 +26,11 @@ const playerIds = Object.fromEntries(positions.map((position) => [
   `catalog-${position.toLowerCase()}`,
 ])) as Record<typeof positions[number], string>;
 const requestUrls: string[] = [];
-const rawRules = { pass_td: 4 };
+const rawRules = (leagueId: string) => ({ pass_td: leagueId === LEAGUE_IDS.dynasty ? 6 : 4 });
 const leagueNames = new Map<string, string>([
   [LEAGUE_IDS.league1, 'League One'],
   [LEAGUE_IDS.league2, 'League Two'],
+  [LEAGUE_IDS.dynasty, 'Dynasty League'],
 ]);
 const leagueDefenseIds = new Map<string, NflTeam>([
   [LEAGUE_IDS.league1, 'ARI'],
@@ -110,14 +111,15 @@ globalThis.fetch = async (input: string | URL | Request) => {
         total_rosters: 2,
         roster_positions: ['QB'],
         settings: { waiver_budget: 100, leg: 1 },
-        scoring_settings: rawRules,
+        scoring_settings: rawRules(leagueId),
       });
     }
     if (resource === 'rosters') {
       return Response.json([playerIds.QB, playerIds.RB].map((playerId, index) => ({
         roster_id: index + 1,
         owner_id: `manager-${index + 1}-${leagueId}`,
-        players: index === 0 ? [playerId, leagueDefenseIds.get(leagueId)] : [playerId],
+        players: index === 0 && leagueDefenseIds.has(leagueId)
+          ? [playerId, leagueDefenseIds.get(leagueId)] : [playerId],
         starters: [playerId],
         settings: {
           wins: 0, losses: 0, ties: 0, fpts: 0, fpts_against: 0,
@@ -224,13 +226,14 @@ const dependencies = {
   store: {
     enabled: true,
     readAllPlayerLeagueProfiles: async (input: Readonly<{
-      leagues: readonly Readonly<{ leagueKey: string; rulesHash: string }>[];
+      leagues: readonly Readonly<{ leagueKey: string; externalLeagueId: string; rulesHash: string }>[];
     }>) => input.leagues.map((league, index) => ({
       leagueKey: league.leagueKey,
       leagueSeasonId: deterministicUuid('runtime-season', String(index + 1)),
-      scoringProfileId: '11111111-1111-4111-8111-111111111111',
-      rulesHash: rulesHash(rawRules),
-      rules: rawRules,
+      scoringProfileId: league.leagueKey === 'dynasty'
+        ? '22222222-2222-4222-8222-222222222222' : '11111111-1111-4111-8111-111111111111',
+      rulesHash: rulesHash(rawRules(league.externalLeagueId)),
+      rules: rawRules(league.externalLeagueId),
     })),
     readAllPlayerIdentityMappings: async (inputs: readonly Readonly<{
       provider: string;

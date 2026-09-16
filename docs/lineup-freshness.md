@@ -164,10 +164,13 @@ At Week 1, two leagues have two current observations and 34 future targets. Nomi
 | Fleet at Week 1 | Approximate observation demand per minute | Capacity result |
 | --- | --- | --- |
 | 2 leagues | 13–14 | Supported target |
+| 3 leagues, including Dynasty | 20 | Supported at the existing limit |
 | 50 leagues | 333 | Requested cadence unsupported |
 | 300 leagues | 2,000 | Requested cadence and provider guidance unsupported |
 
 Capacity checks prevent an unbounded provider burst and emit `capacity-exceeded`; synthetic scale tests do not establish live production throughput. Future scale requires partitioned durable tasks, multiple bounded invocations, a database-backed registry, backlog/retry policy, provider-rate testing, and remote-load measurements.
+
+The current three-league configuration has 51 future targets in Week 1 and 48 in Week 2. Its nominal observation demand is respectively 20 and 19 requests per minute, within the unchanged 20-request envelope. This counts lineup observations only; full materialization and other endpoint traffic remain separate. Adding Dynasty does not increase any claim, concurrency, deadline or provider-period limit. See [Dynasty release checks](dynasty-league.md) for the separate scoring profile and onboarding sequence.
 
 Observation cadence is not end-to-end latency. Measure due bucket → accepted observation, accepted observation → verified snapshot, and verified snapshot → browser adoption. Current changes normally need the next eligible minute full run and the next visible browser poll. Future changes normally need their assigned three-minute phase, one or two future cycles, and the browser poll; missing projection prerequisites or backlog add delay. The contract's four-to-six-minute nominal and seven-to-eight-minute conservative future envelopes are operating objectives, not guarantees. Sleeper has no manager-mutation timestamp, so exact delay from the user's tap cannot be measured directly.
 

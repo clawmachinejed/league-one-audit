@@ -7,6 +7,7 @@ import type { MatchupBoxScores } from '../lib/matchup-box-score-types';
 import { boxScoreSummary, boxScoreObservedLabel, canExpandPlayerBoxScore, playerBoxScoreKey } from '../lib/matchup-box-scores';
 import { formatNflGame } from '../lib/nfl-schedule';
 import { compactPlayerName } from '../lib/player-name';
+import { rosterSlotLabel, rosterSlotName } from '../lib/roster-slot';
 import type { Matchup, Player, Team } from '../lib/types';
 import { useLeagueSite } from './league-context';
 import styles from './matchups.module.css';
@@ -186,13 +187,13 @@ function MatchupCard({ matchup, selected, avatar, boxScores, boxScoresLoading, o
       <div className={styles.playerRow} data-bench-row={bench || undefined}>
         <Starter player={a} bench={bench} unavailable={aUnavailable} blank={bench && !a && !aUnavailable}
           high={comparable && a!.points! > b!.points!} />
-        <span className={styles.slot}>{slot}</span>
+        <span className={styles.slot} aria-label={rosterSlotName(slot)} title={rosterSlotName(slot)}>{rosterSlotLabel(slot)}</span>
         <Starter player={b} opposite bench={bench} pending={!right} unavailable={bUnavailable}
           blank={bench && !b && !bUnavailable} high={comparable && b!.points! > a!.points!} />
         {expandable && <button type="button" className={styles.starterDisclosure}
           data-starter-box-score-toggle={!bench || undefined} data-starter-index={bench ? undefined : index}
           data-bench-box-score-toggle={bench || undefined} data-bench-index={bench ? index : undefined}
-          aria-label={`${bench ? 'Bench' : slot} row ${index + 1} game statistics for both teams`}
+          aria-label={`${bench ? 'Bench' : rosterSlotName(slot)} row ${index + 1} game statistics for both teams`}
           aria-expanded={rowExpanded} aria-controls={rowPanelId} onClick={() => toggleSlot(slotKey)} />}
       </div>
       {expandable && <div id={rowPanelId} className={styles.boxScoreRow}

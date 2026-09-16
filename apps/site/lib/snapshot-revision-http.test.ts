@@ -15,7 +15,7 @@ const revision = 'a'.repeat(64);
 const verifiedAt = '2026-09-13T18:00:00.000Z';
 const now = new Date('2026-09-13T18:02:00.000Z');
 
-function fixture(week = 1, activeWeek = 1) {
+function fixture(week = 1, activeWeek = 1, leagueKey = 'league1') {
   const payload = validationPayload();
   payload.week = week;
   payload.league.week = week;
@@ -26,7 +26,7 @@ function fixture(week = 1, activeWeek = 1) {
     isCurrent: true, activityWindows: [], payload,
   };
   const authority: StoredLeaguePeriodAuthority = {
-    leagueKey: 'league1', defaultSeason: 2026, defaultSeasonType: 'reg', defaultWeek: activeWeek,
+    leagueKey, defaultSeason: 2026, defaultSeasonType: 'reg', defaultWeek: activeWeek,
     activeSeason: 2026, activeSeasonType: 'reg', activeWeek, leagueLifecycle: 'active',
     nflPhase: 'regular', sourceProvider: 'sleeper', sourceRevision: 'period',
     sourceObservedAt: verifiedAt, verifiedAt,
@@ -54,6 +54,22 @@ async function expectError(response: Response, status: number, body: string): Pr
 }
 
 describe('compact revision HTTP protocol', () => {
+  it.each(['league1', 'league2', 'dynasty'])('keeps %s full and compact reads in its own league scope', async leagueKey => {
+    const data = fixture(2, 2, leagueKey);
+    const compact = await handleMatchupsRevisionRequest(
+      new Request(`https://example.test/api/matchups/${leagueKey}/revision?week=2`), leagueKey, data.store, now,
+    );
+    expect(compact.status).toBe(200);
+    expect(await compact.json()).toEqual({ status: 'ok', revision, verifiedAt });
+    expect(data.compact).toHaveBeenCalledExactlyOnceWith(leagueKey, 2, expect.any(Object));
+    const full = await handleMatchupsSnapshotRequest(
+      new Request(`https://example.test/api/matchups/${leagueKey}?week=2&rev=${revision}`), leagueKey, data.store, now,
+    );
+    expect(full.status).toBe(200);
+    expect(await full.json()).toEqual(data.stored.snapshot.payload);
+    expect(data.full).toHaveBeenCalledExactlyOnceWith(leagueKey, 2, expect.any(Object));
+  });
+
   it.each([
     { week: 1, activeWeek: 1, state: 'active' },
     { week: 5, activeWeek: 1, state: 'future' },

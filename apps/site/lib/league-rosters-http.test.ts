@@ -55,21 +55,21 @@ function metrics(): StoredAllPlayerMetricRead {
 describe('league rosters HTTP boundary', () => {
   beforeEach(() => getRostersWithMetricContext.mockReset());
 
-  it('maps one league/week request through the canonical registry and decorates players server-side', async () => {
+  it.each(['league1', 'league2', 'dynasty'] as const)('maps %s/week through the canonical registry and uses only that league scoring profile', async leagueKey => {
     getRostersWithMetricContext.mockResolvedValue(load());
     const readMetrics = vi.fn().mockResolvedValue(metrics());
     const response = await handleLeagueRostersRequest(
-      new Request('https://example.test/api/rosters/league2?week=1'),
-      'league2', getRostersWithMetricContext, readMetrics,
+      new Request(`https://example.test/api/rosters/${leagueKey}?week=1`),
+      leagueKey, getRostersWithMetricContext, readMetrics,
     );
     expect(response.status).toBe(200);
     expect(response.headers.get('cache-control')).toBe('private, no-store');
-    expect(response.headers.get('x-roster-league')).toBe('league2');
+    expect(response.headers.get('x-roster-league')).toBe(leagueKey);
     expect(response.headers.get('x-roster-provisional-week')).toBe('1');
-    expect(getRostersWithMetricContext).toHaveBeenCalledWith(LEAGUE_IDS.league2, 1);
+    expect(getRostersWithMetricContext).toHaveBeenCalledWith(LEAGUE_IDS[leagueKey], 1);
     expect(readMetrics).toHaveBeenCalledOnce();
     expect(readMetrics).toHaveBeenCalledWith({
-      leagueKey: 'league2', season: 2026, throughWeek: 1, provisionalWeek: 1,
+      leagueKey, season: 2026, throughWeek: 1, provisionalWeek: 1,
     });
     const body = await response.json() as RostersData;
     expect(body.playerMetrics).toEqual({

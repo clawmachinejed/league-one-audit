@@ -16,8 +16,10 @@ const PROFILE_ONE = '11111111-1111-4111-8111-111111111111';
 const PROFILE_TWO = '22222222-2222-4222-8222-222222222222';
 const OBS_ONE = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const OBS_TWO = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+const OBS_DYNASTY = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 const SEASON_ONE = deterministicUuid('season', 'one');
 const SEASON_TWO = deterministicUuid('season', 'two');
+const SEASON_DYNASTY = deterministicUuid('season', 'dynasty');
 const FENCE: AllPlayerJobFence = {
   jobKey: 'all-player-ingestion:sleeper', workerId: 'fixture-worker', generation: 1,
   leaseUntil: '2026-09-15T01:00:55.000Z', deadlineAt: '2026-09-15T01:00:50.000Z',
@@ -134,6 +136,7 @@ function leagueState(leagueId: 'l1' | 'l2', passTouchdown: number): LeagueWeekSt
 
 function harness(options: Readonly<{
   divergent?: boolean;
+  dynasty?: boolean;
   unresolvedProjection?: boolean;
   observation?: AllPlayerStatObservation;
 }> = {}) {
@@ -141,6 +144,17 @@ function harness(options: Readonly<{
   const leaguePoints = options.divergent ? [4, 6] : [4, 4];
   const states = [leagueState('l1', leaguePoints[0]), leagueState('l2', leaguePoints[1])];
   const profiles = options.divergent ? [PROFILE_ONE, PROFILE_TWO] : [PROFILE_ONE, PROFILE_ONE];
+  const configurations = [configuration('l1'), configuration('l2')];
+  const seasons = [SEASON_ONE, SEASON_TWO];
+  if (options.dynasty) {
+    const dynasty = { ...configuration('1312138224994385920'), key: 'dynasty', displayName: 'Dynasty League' };
+    configurations.push(dynasty);
+    states.push({ ...source('1312138224994385920'), configuration: dynasty,
+      scoringSettings: { provider: OFFICIAL_PROVIDER, rawRules: { pass_td: 6 } } });
+    leaguePoints.push(6);
+    profiles.push(PROFILE_TWO);
+    seasons.push(SEASON_DYNASTY);
+  }
   const batches: unknown[] = [];
   const pointers: string[] = [];
   const replay = createSleeperAllPlayerStatSource({
@@ -167,7 +181,8 @@ function harness(options: Readonly<{
   const recordLeagueWeekObservation = vi.fn(async (input: Readonly<{
     leagueSeasonId: string; playerPoints: readonly unknown[]; rosterPoints: readonly unknown[];
   }>) => ({ kind: 'stored' as const, value: {
-    observationId: input.leagueSeasonId === SEASON_ONE ? OBS_ONE : OBS_TWO,
+    observationId: input.leagueSeasonId === SEASON_ONE ? OBS_ONE
+      : input.leagueSeasonId === SEASON_TWO ? OBS_TWO : OBS_DYNASTY,
     playerPointsStored: input.playerPoints.length, rosterPointsStored: input.rosterPoints.length,
     unmappedSleeperPlayerIds: [], expectedGamesStored: 0, unmappedTank01GameIds: [],
   } }));
@@ -193,7 +208,7 @@ function harness(options: Readonly<{
         leagues: readonly Readonly<{ leagueKey: string; rulesHash: string }>[];
       }>) => input.leagues.map((league, index) => ({
         leagueKey: league.leagueKey,
-        leagueSeasonId: index === 0 ? SEASON_ONE : SEASON_TWO,
+        leagueSeasonId: seasons[index],
         scoringProfileId: profiles[index], rulesHash: league.rulesHash,
         rules: { pass_td: leaguePoints[index] },
       }))),
@@ -225,9 +240,9 @@ function harness(options: Readonly<{
       semanticHash: 'b'.repeat(64), slate: projectionSlate(options.unresolvedProjection),
       verifiedAt: now.toISOString(), materialChangedAt: now.toISOString(),
     })) },
-    leagueRegistry: { listActiveLeagues: () => [configuration('l1'), configuration('l2')], getLeague: () => null },
+    leagueRegistry: { listActiveLeagues: () => configurations, getLeague: () => null },
     loadLeagueWeek: vi.fn(async (configurationValue) => {
-      const index = configurationValue.key === 'league1' ? 0 : 1;
+      const index = configurations.findIndex(({ key }) => key === configurationValue.key);
       return {
         state: states[index],
         rawMatchups: [{
@@ -260,6 +275,96 @@ function harness(options: Readonly<{
 }
 
 describe('canonical all-player ingestion orchestration', () => {
+  it.each(['empty', 'duplicate-key', 'duplicate-source', 'wrong-provider', 'blank-key'] as const)
+  ('rejects %s configured league inventory before catalog, weekly-stat or persistence work', async (variant) => {
+    const test = harness({ dynasty: true });
+    const leagues = [...test.dependencies.leagueRegistry.listActiveLeagues()];
+    if (variant === 'empty') leagues.length = 0;
+    if (variant === 'duplicate-key') leagues[2] = { ...leagues[2], key: leagues[1].key };
+    if (variant === 'duplicate-source') leagues[2] = { ...leagues[2], leagueRef: leagues[1].leagueRef };
+    if (variant === 'wrong-provider') leagues[2] = { ...leagues[2], leagueRef: {
+      ...leagues[2].leagueRef, provider: PROJECTION_PROVIDER,
+    } };
+    if (variant === 'blank-key') leagues[2] = { ...leagues[2], key: ' ' };
+    const dependencies = { ...test.dependencies, leagueRegistry: { listActiveLeagues: () => leagues } };
+    await expect(runAllPlayerIngestion(dependencies, { mode: 'shadow', period: PERIOD }))
+      .resolves.toMatchObject({ status: 'unavailable', reason: 'league-inventory' });
+    expect(test.dependencies.loadLeagueWeek).not.toHaveBeenCalled();
+    expect(test.dependencies.loadCatalog).not.toHaveBeenCalled();
+    expect(test.allPlayerSource.load).not.toHaveBeenCalled();
+    expect(test.recordAllPlayerBatch).not.toHaveBeenCalled();
+  });
+
+  it('rejects a league load carrying another configured league identity before weekly retrieval', async () => {
+    const test = harness({ dynasty: true });
+    const load = test.dependencies.loadLeagueWeek;
+    const dependencies = { ...test.dependencies, loadLeagueWeek: async (...args: Parameters<typeof load>) => {
+      const value = await load(...args);
+      return args[0].key !== 'dynasty' ? value : { ...value, state: { ...value.state,
+        configuration: configuration('l1'),
+      } };
+    } };
+    await expect(runAllPlayerIngestion(dependencies, { mode: 'shadow', period: PERIOD }))
+      .resolves.toMatchObject({ status: 'unavailable', reason: 'league-identity-mismatch' });
+    expect(test.allPlayerSource.load).not.toHaveBeenCalled();
+    expect(test.recordAllPlayerBatch).not.toHaveBeenCalled();
+  });
+
+  it.each(['shadow', 'backfill'] as const)('uses one response for three leagues and two complete profiles in %s', async (mode) => {
+    const test = harness({ dynasty: true });
+    const result = await runAllPlayerIngestion(test.dependencies, { mode, period: PERIOD });
+    expect(result).toMatchObject({ status: 'completed', scoringProfileCount: 2,
+      parityComparisonCount: 2, parityMismatchCount: 0, persisted: mode === 'backfill' });
+    expect(test.dependencies.loadLeagueWeek).toHaveBeenCalledTimes(3);
+    expect(test.dependencies.loadCatalog).toHaveBeenCalledOnce();
+    expect(test.allPlayerSource.load).toHaveBeenCalledOnce();
+    if (mode === 'shadow') {
+      expect(test.upsertScoringEntities).not.toHaveBeenCalled();
+      expect(test.recordLeagueWeekObservation).not.toHaveBeenCalled();
+      expect(test.recordAllPlayerBatch).not.toHaveBeenCalled();
+    } else {
+      expect(test.recordLeagueWeekObservation.mock.calls.map(([input]) => input.leagueSeasonId))
+        .toEqual([SEASON_ONE, SEASON_TWO, SEASON_DYNASTY]);
+      expect(test.recordAllPlayerBatch).toHaveBeenCalledOnce();
+      const scoreSets = test.recordAllPlayerBatch.mock.calls[0][0].scoreSets;
+      expect(scoreSets).toHaveLength(2);
+      expect(scoreSets.map((set) => set.coverage.parity_observation_ids)).toEqual([[OBS_ONE, OBS_TWO], [OBS_DYNASTY]]);
+      expect(scoreSets.map((set) => set.scores.find((score) => score.providerExternalId === 'p1')?.fantasyPoints))
+        .toEqual([4, 6]);
+      expect(scoreSets.every((set) => set.coverage.complete === true)).toBe(true);
+    }
+  });
+
+  it('requires the third league scoring profile before the shared weekly request or writes', async () => {
+    const test = harness({ dynasty: true });
+    const read = test.dependencies.store.readAllPlayerLeagueProfiles;
+    const dependencies = { ...test.dependencies, store: { ...test.dependencies.store,
+      readAllPlayerLeagueProfiles: async (...args: Parameters<typeof read>) => (await read(...args)).slice(0, 2),
+    } };
+    await expect(runAllPlayerIngestion(dependencies, { mode: 'backfill', period: PERIOD }))
+      .resolves.toMatchObject({ status: 'unavailable', reason: 'scoring-profile-inventory' });
+    expect(test.allPlayerSource.load).not.toHaveBeenCalled();
+    expect(test.upsertScoringEntities).not.toHaveBeenCalled();
+    expect(test.recordLeagueWeekObservation).not.toHaveBeenCalled();
+    expect(test.recordAllPlayerBatch).not.toHaveBeenCalled();
+  });
+
+  it('does not publish either profile if Dynasty official points disagree with its scoring rules', async () => {
+    const test = harness({ dynasty: true });
+    const load = test.dependencies.loadLeagueWeek;
+    const dependencies = { ...test.dependencies, loadLeagueWeek: async (...args: Parameters<typeof load>) => {
+      const value = await load(...args);
+      return args[0].key !== 'dynasty' ? value : { ...value,
+        rawMatchups: value.rawMatchups.map((row) => ({ ...row, players_points: { p1: 7 }, points: 7 })),
+      };
+    } };
+    await expect(runAllPlayerIngestion(dependencies, { mode: 'backfill', period: PERIOD }))
+      .resolves.toMatchObject({ status: 'unavailable', reason: 'score-scoring-mismatch' });
+    expect(test.allPlayerSource.load).toHaveBeenCalledOnce();
+    expect(test.upsertScoringEntities).not.toHaveBeenCalled();
+    expect(test.recordLeagueWeekObservation).not.toHaveBeenCalled();
+    expect(test.recordAllPlayerBatch).not.toHaveBeenCalled();
+  });
   it.each([null, []])('rejects unknown official starter assignments before weekly retrieval or writes (%j)', async (starters) => {
     const test = harness();
     const load = test.dependencies.loadLeagueWeek;

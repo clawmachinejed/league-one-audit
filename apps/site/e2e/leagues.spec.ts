@@ -373,7 +373,9 @@ test('My Team choices remain independent between League One and League Two', asy
   await expect(page.locator('.manager-heading .my-team-button')).toHaveAttribute('aria-pressed', 'true');
 
   const storedKeys = await page.evaluate(() => Object.keys(localStorage).filter(key => key.startsWith('league-one:my-team:')).sort());
-  const expectedKeys = Object.values(LEAGUE_IDS).map(id => `league-one:my-team:${id}`).sort();
+  // Only the two explicitly chosen teams should create preferences; visiting a
+  // third registered league must not invent a saved selection.
+  const expectedKeys = [LEAGUE_IDS.league1, LEAGUE_IDS.league2].map(id => `league-one:my-team:${id}`).sort();
   expect(storedKeys).toEqual(expectedKeys);
   const stored = await page.evaluate((keys) => keys.map(key => localStorage.getItem(key)),
     [`league-one:my-team:${LEAGUE_IDS.league1}`, `league-one:my-team:${LEAGUE_IDS.league2}`]);
