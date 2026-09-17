@@ -241,7 +241,7 @@ h1{font-weight:800;font-size:38px;line-height:1.12;letter-spacing:-.055em;overfl
 .team-summary>div+div{border-left:1px solid var(--line)}
 .team-summary dt{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:600}
 .team-summary dd{font-size:23px;font-weight:700;line-height:1.3;font-variant-numeric:tabular-nums;letter-spacing:-.045em;margin:5px 0 0;color:var(--navy)}
-.profile-tabs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));padding:4px;background:var(--surface-quiet);border-radius:10px;gap:4px;margin-bottom:24px}
+.profile-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));padding:4px;background:var(--surface-quiet);border-radius:10px;gap:4px;margin-bottom:24px}
 .profile-tabs a{display:flex;align-items:center;justify-content:center;min-height:44px;font-size:12px;font-weight:700;color:var(--muted);border-radius:7px}
 .profile-tabs a[aria-current=page]{color:var(--ink);background:var(--surface);box-shadow:0 1px 4px var(--control-shadow)}
 .roster-section{min-width:0;margin-bottom:24px}

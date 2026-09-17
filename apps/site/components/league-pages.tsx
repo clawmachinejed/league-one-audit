@@ -3,12 +3,14 @@ import { resolveCurrentLeagueId } from '@/lib/league-administration/registry';
 
 import { notFound } from 'next/navigation';
 import { parseMatchupWeek } from '@/lib/matchup-week';
+import { MANAGER_SCHEDULE_WEEKS } from '@/lib/my-team-schedule';
 import { currentMatchupWeek, type MatchupPeriodContext } from '@/lib/matchup-period';
 import { readStoredMatchups } from '@/lib/projection-reader';
 import type { LeagueKey } from '@/lib/leagues';
 import { getCurrentMatchupPeriodContext, getOfficialMatchups, getOverview, getManager, getStandings, getTransactions, getSiteWeekRollover, getMyTeamSchedule } from '@/lib/sleeper';
 import { MatchupsView } from './matchups-view';
 import { ManagerView } from './manager-view';
+import { ManagerScheduleView } from './manager-schedule-view';
 import { ManagersView } from './managers-view';
 import { StandingsView } from './standings-view';
 import type { StandingsProjectionSource } from './projected-standings-live';
@@ -159,4 +161,18 @@ export async function LeagueTransactionsPage({ leagueId, params }: { leagueId: s
   const [data, rollover] = await Promise.all([getTransactions(leagueId, Number(id)), loadRollover(leagueId)]);
   if (!data) notFound();
   return <TransactionsView data={data} rollover={rollover} />;
+}
+
+export async function LeagueManagerSchedulePage({ leagueId, params }: { leagueId: string; params: ManagerParams }) {
+  leagueId = await resolveCurrentLeagueId(leagueId);
+  const { id } = await params;
+  const rosterId = Number(id);
+  if (!/^\d+$/u.test(id) || !Number.isSafeInteger(rosterId) || rosterId < 1) notFound();
+  const overview = await getOverview(leagueId);
+  const team = overview.teams.find(candidate => candidate.id === rosterId);
+  if (!team) notFound();
+  const [data, rollover] = await Promise.all([
+    getMyTeamSchedule(leagueId, MANAGER_SCHEDULE_WEEKS), loadRollover(leagueId),
+  ]);
+  return <ManagerScheduleView data={{ ...data, team }} rollover={rollover} />;
 }
