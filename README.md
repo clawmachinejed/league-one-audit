@@ -1,6 +1,6 @@
 # League One, League Two and Dynasty League
 
-A mobile-first home for League One, its League Two promotion and relegation league, and Dynasty League, powered by public Sleeper league data. All three share My Team, Matchups, Standings, and Managers, with rosters and transaction history inside each manager profile. Each league uses its own official Sleeper scoring settings.
+A mobile-first home for League One, its League Two promotion and relegation league, and Dynasty League, powered by public Sleeper league data. All three share My Team, Matchups, Standings, and Managers, with rosters, transaction history and schedules inside each manager profile. Each league uses its own official Sleeper scoring settings.
 
 ## What stays central
 
@@ -37,6 +37,8 @@ My Team has **My Team** and **Schedule** tabs styled like the League page tabs. 
 History, rivalries, awards, and a separate statistics section are outside this rebuild's scope.
 
 Managers uses compact team cards sized like the League roster summaries. Each card shows the team name, manager and record, and opens the manager profile. The directory omits the extra section heading, team count, selection banner and PF. My Team can still be selected or cleared on a manager profile; the saved choice remains highlighted across the league.
+
+Each manager profile has **Roster**, **Transactions** and **Schedule** tabs. Schedule lists Weeks 1–14 for that specific team, always on the left, regardless of the saved My Team preference. It shares My Team Schedule's cards, official results, finality checks and unavailable states; My Team Schedule continues to show Weeks 1–15. The fourteen-week history is loaded only when opening the owner's Schedule, without loading player catalogs or projections. Invalid or unknown team routes use the existing not-found page.
 
 ## Repository and hosting
 

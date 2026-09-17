@@ -3,6 +3,8 @@ import type { SleeperMatchup } from './transform';
 import type { OverviewData, Team } from './types';
 
 export const MY_TEAM_SCHEDULE_WEEKS = 15;
+export const MANAGER_SCHEDULE_WEEKS = 14;
+export type ScheduleWeekCount = typeof MY_TEAM_SCHEDULE_WEEKS | typeof MANAGER_SCHEDULE_WEEKS;
 export type MyTeamScheduleStatus = 'final' | 'upcoming' | 'unknown';
 type ScheduleSide = { team: Team; points: number | null };
 export type MyTeamScheduleMatchup = { id: string; sides: [ScheduleSide, ScheduleSide] };
@@ -33,9 +35,10 @@ export function buildMyTeamScheduleWeeks(
   teams: readonly Team[],
   history: readonly (readonly SleeperMatchup[] | null)[],
   context: { completedWeeks: readonly number[]; activeWeek: number | null; preseason: boolean },
+  throughWeek: ScheduleWeekCount = MY_TEAM_SCHEDULE_WEEKS,
 ): MyTeamScheduleWeek[] {
   const byTeam = new Map(teams.map(team => [team.id, team]));
-  return Array.from({ length: MY_TEAM_SCHEDULE_WEEKS }, (_, index) => {
+  return Array.from({ length: throughWeek }, (_, index) => {
     const week = index + 1;
     const rows = history[index] ?? [];
     const counts = new Map<number, number>();
@@ -59,12 +62,16 @@ export function buildMyTeamScheduleWeeks(
   });
 }
 
-/** The same league-scoped selection/default as My Team, without persisting a fallback. */
-export function selectMyTeamSchedule(data: MyTeamScheduleData, selected: number | null): {
+/** An owner profile always keeps the exact requested team, with no preference fallback. */
+export function selectTeamSchedule(
+  data: MyTeamScheduleData,
+  rosterId: number | null,
+  throughWeek: ScheduleWeekCount = MY_TEAM_SCHEDULE_WEEKS,
+): {
   team: Team | null; weeks: MyTeamScheduleEntry[];
 } {
-  const { team } = selectMyTeamMatchup(data.teams, [], selected);
-  const weeks = Array.from({ length: MY_TEAM_SCHEDULE_WEEKS }, (_, index): MyTeamScheduleEntry => {
+  const team = data.teams.find(candidate => candidate.id === rosterId) ?? null;
+  const weeks = Array.from({ length: throughWeek }, (_, index): MyTeamScheduleEntry => {
     const week = index + 1;
     const source = data.weeks.find(candidate => candidate.week === week);
     const matches = source?.matchups.filter(matchup => matchup.sides.some(side => side.team.id === team?.id)) ?? [];
@@ -80,4 +87,12 @@ export function selectMyTeamSchedule(data: MyTeamScheduleData, selected: number 
     return { week, status, opponent: other?.team ?? null, points, opponentPoints, result };
   });
   return { team, weeks };
+}
+
+/** The same league-scoped selection/default as My Team, without persisting a fallback. */
+export function selectMyTeamSchedule(data: MyTeamScheduleData, selected: number | null): {
+  team: Team | null; weeks: MyTeamScheduleEntry[];
+} {
+  const { team } = selectMyTeamMatchup(data.teams, [], selected);
+  return selectTeamSchedule(data, team?.id ?? null);
 }

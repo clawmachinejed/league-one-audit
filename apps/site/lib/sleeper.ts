@@ -38,7 +38,7 @@ import { startingSlots } from './sleeper-lineup';
 import { resolveSiteWeek, type SiteWeekResolution } from './site-week';
 import { assertSiteCalendarNotRegressed, getRetainedSiteCalendar } from './site-calendar-authority';
 import { buildCompletedStandingsBasis, reconcileStandingsBasis, standingsTotalsMatch } from './projected-standings';
-import { buildMyTeamScheduleWeeks, MY_TEAM_SCHEDULE_WEEKS, type MyTeamScheduleData } from './my-team-schedule';
+import { buildMyTeamScheduleWeeks, MY_TEAM_SCHEDULE_WEEKS, type MyTeamScheduleData, type ScheduleWeekCount } from './my-team-schedule';
 import {
   canDecorateMatchupWeek,
   addWaiverBalances,
@@ -755,17 +755,20 @@ async function loadRosterHistory(leagueId: string, throughWeek: number | null, s
 }
 
 /** Reuse the cached official history reader; schedule cards need no player or projection loads. */
-export async function getMyTeamSchedule(leagueId: string): Promise<MyTeamScheduleData> {
+export async function getMyTeamSchedule(
+  leagueId: string,
+  throughWeek: ScheduleWeekCount = MY_TEAM_SCHEDULE_WEEKS,
+): Promise<MyTeamScheduleData> {
   const core = await getCore(leagueId);
   const [history, seasonSchedule] = await Promise.all([
-    loadRosterHistory(leagueId, MY_TEAM_SCHEDULE_WEEKS, Number(core.sourceLeague.season)),
+    loadRosterHistory(leagueId, throughWeek, Number(core.sourceLeague.season)),
     core.calendar.siteWeek ? getSeasonSchedule(core.sourceLeague.season) : Promise.resolve(null),
   ]);
   // The existing calendar validates the complete season's identities and dates.
   // Exact-week complete-game evidence may finish before the display's noon rollover.
   // A retained display week or last_scored_leg alone never manufactures a result.
   const games = core.calendar.siteWeek ? validatedSleeperSeasonGames(seasonSchedule) : null;
-  const completedWeeks = games ? Array.from({ length: MY_TEAM_SCHEDULE_WEEKS }, (_, index) => index + 1)
+  const completedWeeks = games ? Array.from({ length: throughWeek }, (_, index) => index + 1)
     .filter(week => week <= core.calendar.siteWeek!.week
       && games.filter(game => game.week === week).every(game => game.status === 'complete')) : [];
   return {
@@ -776,7 +779,7 @@ export async function getMyTeamSchedule(leagueId: string): Promise<MyTeamSchedul
     weeks: buildMyTeamScheduleWeeks(core.overview.teams,
       history.rows.map((rows, index) => history.malformedWeeks.includes(index + 1) ? null : rows), {
       completedWeeks, activeWeek: core.calendar.activeWeek, preseason: core.calendar.lifecycle === 'preseason',
-    }),
+    }, throughWeek),
     warning: joinWarnings(core.overview.warning,
       history.failedWeeks.length || history.malformedWeeks.length
         ? 'Some weekly schedule or result data is temporarily unavailable.' : undefined),

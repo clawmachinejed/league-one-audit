@@ -20,6 +20,12 @@ Win/Loss/Tie requires exact-week canonical NFL completion evidence and valid off
 
 Schedule refreshes through normal page navigation/reload and the existing site-week rollover hook. It does not poll fifteen weeks or run projection collection. A browser-only test fixture proves UI behavior, while the actual preview verifies real Sleeper schedule rendering.
 
+## Manager schedules
+
+Individual manager profiles have Roster, Transactions and Schedule tabs, in that order. The Schedule routes are `/managers/[id]/schedule`, `/league2/managers/[id]/schedule` and `/dynasty/managers/[id]/schedule`. They show exactly Weeks 1–14 for the team identified by that league-scoped route. The viewed team always stays on the left; selecting or clearing My Team does not change the owner schedule. A missing or invalid owner uses the existing not-found route instead of another team's schedule.
+
+Manager and My Team schedules share the same card renderer, official matchup-history loader, result calculation and finality policy described above. The manager route validates the owner against the current overview, then requests only fourteen weeks. It needs no full roster/player catalog, transaction history, projection lookup or new API. The same refresh and unavailable-state behavior applies. My Team retains its fifteen-week range and selection fallback.
+
 ## Bench authority and scoring
 
 The existing bulk Sleeper matchup request supplies exact-week `players`, `starters` and `players_points`. A validated bench is the requested-week player list minus occupied starter IDs. Current reserve/taxi exclusions apply only when the loader has authoritative current-period roster context. Missing, malformed or conflicting membership produces an unavailable bench, not an assumption that all players are benched. An explicit empty starter slot remains different from an unavailable starter list.

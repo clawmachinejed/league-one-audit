@@ -82,6 +82,18 @@ beforeEach(() => {
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe('shared official My Team schedule loader', () => {
+  it('loads only Weeks 1–14 for a manager schedule without requesting Week 15', async () => {
+    const data = await getMyTeamSchedule(LEAGUE_IDS.league1, 14);
+    expect(data.weeks.map(week => week.week)).toEqual(Array.from({ length: 14 }, (_, index) => index + 1));
+    const calls = vi.mocked(fetch).mock.calls;
+    const weekly = calls.filter(([url]) => String(url).includes('/matchups/'));
+    expect(weekly).toHaveLength(14);
+    expect(weekly.map(([url]) => Number(String(url).split('/').at(-1))).sort((a, b) => a - b))
+      .toEqual(Array.from({ length: 14 }, (_, index) => index + 1));
+    expect(maxRequests).toBeLessThanOrEqual(4);
+    expect(calls.some(([url]) => /players|scores\/nfl|tank|rapidapi/iu.test(String(url)))).toBe(false);
+  });
+
   it('loads exactly15 shared cached weekly requests with bounded concurrency and no player/game/projection requests', async () => {
     const [data, overview] = await Promise.all([getMyTeamSchedule(LEAGUE_IDS.league1), getOverview(LEAGUE_IDS.league1)]);
     expect(data.teams).toEqual(overview.teams);

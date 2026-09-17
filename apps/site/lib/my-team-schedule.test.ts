@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildMyTeamScheduleWeeks, selectMyTeamSchedule, type MyTeamScheduleData } from './my-team-schedule';
+import { buildMyTeamScheduleWeeks, selectMyTeamSchedule, selectTeamSchedule, type MyTeamScheduleData } from './my-team-schedule';
 import type { SleeperMatchup } from './transform';
 import type { Team } from './types';
 
@@ -20,6 +20,16 @@ function data(history: (SleeperMatchup[] | null)[], completedWeeks = [1]): MyTea
 }
 
 describe('My Team schedule evidence and selection', () => {
+  it('selects only the exact manager and limits their schedule to fourteen weeks', () => {
+    const source = data([rows()]);
+    const selected = selectTeamSchedule(source, alpha.id, 14);
+    expect(selected.team).toBe(alpha);
+    expect(selected.weeks).toHaveLength(14);
+    expect(selected.weeks[0]).toMatchObject({ opponent: bravo, points: 100, opponentPoints: 80, result: 'W' });
+    expect(selectMyTeamSchedule(source, null).team).toBe(bravo);
+    expect(selectTeamSchedule(source, 999, 14).team).toBeNull();
+  });
+
   it('returns only weeks 1 through 15 and does not require starters to display official team results', () => {
     const schedule = selectMyTeamSchedule(data([rows()]), alpha.id);
     expect(schedule.weeks.map(week => week.week)).toEqual(Array.from({ length: 15 }, (_, index) => index + 1));
