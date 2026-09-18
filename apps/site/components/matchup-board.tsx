@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { Fragment, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { injuryStatusLabel } from '../lib/injury-status';
+import type { CurrentStandings } from '../lib/current-standings';
 import type { MatchupBoxScores } from '../lib/matchup-box-score-types';
 import { boxScoreSummary, boxScoreObservedLabel, canExpandPlayerBoxScore, playerBoxScoreKey } from '../lib/matchup-box-scores';
 import { formatNflGame } from '../lib/nfl-schedule';
@@ -45,9 +46,32 @@ function spokenProjection(value: number | null | undefined) {
     : 'projected score unavailable';
 }
 
-function TeamMeta({ team, opposite, avatar }: { team: Team; opposite?: boolean; avatar: AvatarRenderer }) {
-  return <span className={`${styles.teamMeta} ${opposite ? styles.oppositeMeta : ''}`}>
-    {avatar(team)}<span className={styles.manager}>{team.managerName}</span><span className={styles.record} aria-label={`${team.wins} wins, ${team.losses} losses${team.ties ? `, ${team.ties} ties` : ''}`}>{record(team)}</span>
+function placeLabel(place: number) {
+  const suffix = place % 100 >= 11 && place % 100 <= 13 ? 'th'
+    : ({ 1: 'st', 2: 'nd', 3: 'rd' } as Record<number, string>)[place % 10] ?? 'th';
+  return `${place}${suffix}`;
+}
+
+function teamPlace(team: Team, standings?: CurrentStandings | null) {
+  const place = standings?.places[team.id];
+  return typeof place === 'number' && Number.isInteger(place) && place > 0 ? place : null;
+}
+
+function TeamMeta({ team, opposite, avatar, standings }: {
+  team: Team; opposite?: boolean; avatar: AvatarRenderer; standings?: CurrentStandings | null;
+}) {
+  const site = useLeagueSite();
+  const place = teamPlace(team, standings);
+  const tone = place === null ? 'neutral' : site.key === 'league1'
+    ? place <= 6 ? 'playoff' : place <= 10 ? 'middle' : place <= 12 ? 'relegation' : 'neutral'
+    : site.key === 'league2' && standings?.playoffTeams != null && place <= standings.playoffTeams ? 'playoff' : 'neutral';
+  return <span className={`${styles.teamMeta} ${opposite ? styles.oppositeMeta : ''}`} data-team-meta={opposite ? 'right' : 'left'}>
+    {avatar(team)}<span className={styles.manager}>{team.managerName}</span>
+    <span className={styles.recordGroup}>
+      {place !== null && <strong className={styles.place} data-team-place={team.id} data-place-tone={tone}
+        title={`${placeLabel(place)} in actual standings`} aria-label={`${placeLabel(place)} in actual standings`}>{placeLabel(place)}</strong>}
+      <span className={styles.record} data-team-record aria-label={spokenRecord(team)}>{record(team)}</span>
+    </span>
   </span>;
 }
 
@@ -98,8 +122,8 @@ function PlayerBoxScore({ player, panelId, expanded, opposite, boxScores, boxSco
   </section>;
 }
 
-function MatchupCard({ matchup, selected, avatar, boxScores, boxScoresLoading, onBoxScoreOpen, showBench = false }: {
-  matchup: Matchup; selected: number | null; avatar: AvatarRenderer; showBench?: boolean;
+function MatchupCard({ matchup, selected, avatar, boxScores, boxScoresLoading, onBoxScoreOpen, showBench = false, standings }: {
+  matchup: Matchup; selected: number | null; avatar: AvatarRenderer; showBench?: boolean; standings?: CurrentStandings | null;
 } & BoxScoreProps) {
   const site = useLeagueSite();
   const [expanded, setExpanded] = useState(false);
@@ -161,9 +185,13 @@ function MatchupCard({ matchup, selected, avatar, boxScores, boxScoresLoading, o
 
   if (!left) return null;
   const label = right ? statusLabel(matchup.status) : 'Opponent pending';
-  const leftSummary = `${left.team.name}, managed by ${left.team.managerName}, record ${spokenRecord(left.team)}, official score ${spokenScore(left.points)}, ${spokenProjection(left.projectedPoints)}`;
+  const placeSummary = (team: Team) => {
+    const place = teamPlace(team, standings);
+    return place === null ? '' : `, ${placeLabel(place)} in actual standings`;
+  };
+  const leftSummary = `${left.team.name}, managed by ${left.team.managerName}, record ${spokenRecord(left.team)}${placeSummary(left.team)}, official score ${spokenScore(left.points)}, ${spokenProjection(left.projectedPoints)}`;
   const rightSummary = right
-    ? `${right.team.name}, managed by ${right.team.managerName}, record ${spokenRecord(right.team)}, official score ${spokenScore(right.points)}, ${spokenProjection(right.projectedPoints)}`
+    ? `${right.team.name}, managed by ${right.team.managerName}, record ${spokenRecord(right.team)}${placeSummary(right.team)}, official score ${spokenScore(right.points)}, ${spokenProjection(right.projectedPoints)}`
     : 'opponent not posted, official score unavailable, projected score unavailable';
   const accessibleLabel = `${leftSummary}; versus ${rightSummary}. ${label}${mine ? '. My matchup' : ''}. ${expanded ? 'Collapse' : 'Expand'} ${showBench ? 'starting lineups and benches' : 'starting lineups'}.`;
   const benchCount = Math.max(left.bench?.length ?? 0, right?.bench?.length ?? 0,
@@ -215,12 +243,12 @@ function MatchupCard({ matchup, selected, avatar, boxScores, boxScoresLoading, o
         <span className={styles.score} data-score-side="right"><span className={styles.teamOfficial} data-score-number>{points(right?.points)}</span><span className={styles.teamProjection} data-team-projection-number aria-hidden="true">{points(right?.projectedPoints)}</span></span>
       </span>
       <span className={`${styles.teamName} ${styles.rightName}`} data-team-name>{right?.team.name || 'Opponent pending'}</span>
-      <TeamMeta team={left.team} avatar={avatar} />
+      <TeamMeta team={left.team} avatar={avatar} standings={standings} />
       <span className={styles.expandControl}>
         <svg className={`${styles.chevron} ${expanded ? styles.rotated : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
         <span className="sr-only">{label}{mine ? ' · My matchup' : ''}</span>
       </span>
-      {right ? <TeamMeta team={right.team} opposite avatar={avatar} /> : <span className={`${styles.teamMeta} ${styles.oppositeMeta}`}>Not posted</span>}
+      {right ? <TeamMeta team={right.team} opposite avatar={avatar} standings={standings} /> : <span className={`${styles.teamMeta} ${styles.oppositeMeta}`}>Not posted</span>}
     </button>
     <div id={panelId} ref={panelRef} className={styles.lineup} hidden={!expanded}>
       {count ? <>
@@ -237,8 +265,8 @@ function MatchupCard({ matchup, selected, avatar, boxScores, boxScoresLoading, o
   </article>;
 }
 
-export function MatchupBoard({ matchups, selected, avatar, boxScores, boxScoresLoading, onBoxScoreOpen, showBench = false }: {
-  matchups: Matchup[]; selected: number | null; avatar: AvatarRenderer; showBench?: boolean;
+export function MatchupBoard({ matchups, selected, avatar, boxScores, boxScoresLoading, onBoxScoreOpen, showBench = false, standings }: {
+  matchups: Matchup[]; selected: number | null; avatar: AvatarRenderer; showBench?: boolean; standings?: CurrentStandings | null;
 } & BoxScoreProps) {
   const boardRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -263,10 +291,10 @@ export function MatchupBoard({ matchups, selected, avatar, boxScores, boxScoresL
     observer.observe(board);
     void document.fonts.ready.then(align);
     return () => { active = false; observer.disconnect(); };
-  }, [matchups]);
+  }, [matchups, standings]);
   const observed = boxScores?.status === 'available' ? boxScoreObservedLabel(boxScores.observedAt) : null;
   return <><div ref={boardRef} className={styles.board}>{matchups.map(matchup => <MatchupCard key={matchup.id}
-    matchup={matchup} selected={selected} avatar={avatar} boxScores={boxScores}
+    matchup={matchup} selected={selected} avatar={avatar} boxScores={boxScores} standings={standings}
     boxScoresLoading={boxScoresLoading} onBoxScoreOpen={onBoxScoreOpen} showBench={showBench} />)}</div>
     {observed && <p className={styles.boxScoreObserved} data-box-score-source>{observed}<span>Sleeper · hourly collection</span></p>}
   </>;

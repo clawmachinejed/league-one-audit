@@ -11,6 +11,7 @@ import {
   type MatchupPeriodContext,
 } from '../lib/matchup-period';
 import type { Matchup, MatchupsData } from '../lib/types';
+import type { CurrentStandings } from '../lib/current-standings';
 import { matchupWithTeamOnLeft, selectMyTeamMatchup } from '../lib/my-team-matchup';
 import { WeekSelector } from './week-selector';
 import { useLeagueSite } from './league-context';
@@ -33,17 +34,18 @@ function SnapshotUpdated({ value, refreshing }: { value: string; refreshing: boo
   </p>;
 }
 
-function MatchupsWithBoxScores({ matchups, selected, leagueKey, season, week, refreshAutomatically, showBench }: {
+function MatchupsWithBoxScores({ matchups, selected, leagueKey, season, week, refreshAutomatically, showBench, standings }: {
   matchups: Matchup[]; selected: number | null; leagueKey: string; season: string; week: number;
   refreshAutomatically: boolean;
   showBench: boolean;
+  standings: CurrentStandings | null;
 }) {
   const lineupKey = [...new Set(matchups.flatMap(matchup => matchup.sides.flatMap(side =>
     [...side.starters, ...(showBench ? side.bench ?? [] : [])]
       .filter(player => player.id).map(playerBoxScoreKey))))].sort().join(',');
   const boxScores = useMatchupBoxScores({ leagueKey, season, week, lineupKey, refreshAutomatically });
   return <MatchupBoard matchups={matchups} selected={selected} avatar={team => <Avatar team={team} />}
-    showBench={showBench}
+    showBench={showBench} standings={standings}
     boxScores={boxScores.data} boxScoresLoading={boxScores.loading} onBoxScoreOpen={boxScores.request} />;
 }
 
@@ -55,6 +57,7 @@ export function MatchupsView({
   rollover,
   followCurrent = false,
   mode = 'matchups',
+  standings = null,
 }: {
   data: MatchupsData;
   periodContext: MatchupPeriodContext;
@@ -63,6 +66,7 @@ export function MatchupsView({
   rollover?: SiteWeekRollover | null;
   followCurrent?: boolean;
   mode?: 'matchups' | 'my-team';
+  standings?: CurrentStandings | null;
 }) {
   useSiteWeekRollover(rollover);
   const site = useLeagueSite();
@@ -104,6 +108,7 @@ export function MatchupsView({
     {matchups.length ? <MatchupsWithBoxScores key={`${site.key}:${data.league.season}:${data.week}`}
       matchups={matchups} selected={myTeamView ? myTeam.team?.id ?? null : selected} leagueKey={site.key} season={data.league.season}
       showBench={myTeamView}
+      standings={standings?.season === data.league.season ? standings : null}
       week={data.week} refreshAutomatically={periodContext.temporalState === 'active'} />
       : <EmptyState title="No matchups posted yet">{myTeamView && myTeam.team
         ? `${myTeam.team.name} has no posted Week ${data.week} matchup yet.`

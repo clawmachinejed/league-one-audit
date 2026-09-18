@@ -7,7 +7,8 @@ import { MANAGER_SCHEDULE_WEEKS } from '@/lib/my-team-schedule';
 import { currentMatchupWeek, type MatchupPeriodContext } from '@/lib/matchup-period';
 import { readStoredMatchups } from '@/lib/projection-reader';
 import type { LeagueKey } from '@/lib/leagues';
-import { getCurrentMatchupPeriodContext, getOfficialMatchups, getOverview, getManager, getStandings, getTransactions, getSiteWeekRollover, getMyTeamSchedule } from '@/lib/sleeper';
+import { getCurrentMatchupPeriodContext, getCurrentStandings, getOfficialMatchups, getOverview, getManager, getStandings, getTransactions, getSiteWeekRollover, getMyTeamSchedule } from '@/lib/sleeper';
+import type { CurrentStandings } from '@/lib/current-standings';
 import { MatchupsView } from './matchups-view';
 import { ManagerView } from './manager-view';
 import { ManagerScheduleView } from './manager-schedule-view';
@@ -23,6 +24,10 @@ type ManagerParams = Promise<{ id: string }>;
 
 async function loadRollover(leagueId: string): Promise<SiteWeekRollover | null> {
   try { return await getSiteWeekRollover(leagueId); } catch { return null; }
+}
+
+async function loadCurrentStandings(leagueId: string): Promise<CurrentStandings | null> {
+  try { return await getCurrentStandings(leagueId); } catch { return null; }
 }
 
 function contextForSelectedWeek(context: MatchupPeriodContext, week: number): MatchupPeriodContext {
@@ -49,8 +54,8 @@ export async function LeagueMatchupsPage({
   leagueId = await resolveCurrentLeagueId(leagueId);
   const { week } = await searchParams;
   const requestedWeek = parseMatchupWeek(week) ?? undefined;
-  const [rollover, initialStored] = await Promise.all([
-    loadRollover(leagueId), readStoredMatchups(leagueKey, requestedWeek),
+  const [rollover, initialStored, standings] = await Promise.all([
+    loadRollover(leagueId), readStoredMatchups(leagueKey, requestedWeek), loadCurrentStandings(leagueId),
   ]);
   let persisted = initialStored;
   let periodContext: MatchupPeriodContext | undefined = 'context' in persisted
@@ -72,7 +77,7 @@ export async function LeagueMatchupsPage({
   const authorityAgrees = !rollover || !periodContext || currentMatchupWeek(periodContext) === rollover.week;
   if (persisted.kind === 'usable' && authorityAgrees
     && (selectedWeek === undefined || persisted.payload.week === selectedWeek)) {
-    return <MatchupsView data={persisted.payload} periodContext={persisted.context}
+    return <MatchupsView data={persisted.payload} periodContext={persisted.context} standings={standings}
       snapshotRevision={persisted.snapshotRevision} verifiedAt={persisted.verifiedAt}
       rollover={rollover} followCurrent={requestedWeek === undefined} mode={mode} />;
   }
@@ -99,7 +104,7 @@ export async function LeagueMatchupsPage({
     refreshDue: false,
   };
   periodContext = contextForSelectedWeek(periodContext, data.week);
-  return <MatchupsView data={data} periodContext={periodContext} snapshotRevision={null} verifiedAt={null}
+  return <MatchupsView data={data} periodContext={periodContext} standings={standings} snapshotRevision={null} verifiedAt={null}
     rollover={rollover} followCurrent={requestedWeek === undefined} mode={mode} />;
 }
 

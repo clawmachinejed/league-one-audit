@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MatchupPeriodContext } from '../lib/matchup-period';
+import type { CurrentStandings } from '../lib/current-standings';
 import type { MatchupsData, Player, Team } from '../lib/types';
 import { LEAGUE_SITES } from '../lib/leagues';
 import { LeagueSiteProvider } from './league-context';
@@ -37,15 +38,29 @@ const data: MatchupsData = { league: { season: '2026', rosterPositions: ['QB'], 
     ] },
   ] };
 
-function render(mode: 'matchups' | 'my-team', leagueKey: 'league1' | 'league2' = 'league1') {
+function render(mode: 'matchups' | 'my-team', leagueKey: 'league1' | 'league2' = 'league1', standings?: CurrentStandings) {
   return renderToStaticMarkup(<LeagueSiteProvider site={LEAGUE_SITES[leagueKey]}>
     <MatchupsView mode={mode} data={data} periodContext={context} snapshotRevision={'a'.repeat(64)}
-      verifiedAt={data.updatedAt} followCurrent />
+      verifiedAt={data.updatedAt} followCurrent standings={standings} />
   </LeagueSiteProvider>);
 }
 
 describe('My Team shared matchup view', () => {
   beforeEach(() => { vi.clearAllMocks(); mocks.selected = null; });
+
+  it.each(['matchups', 'my-team'] as const)('keeps current standings independent of snapshot order and selected-team reversal in %s', mode => {
+    const standings: CurrentStandings = { leagueId: 'official', season: '2026', playoffTeams: 6, places: { 1: 12, 2: 8, 3: 1, 4: 6 } };
+    mocks.selected = 4;
+    render(mode, 'league1', standings);
+    expect(mocks.board.mock.calls[0][0].standings).toBe(standings);
+    expect(mocks.board.mock.calls[0][0].matchups[0].sides[0].team.id).toBe(4);
+    expect(mocks.snapshot.mock.calls[0][0]).not.toHaveProperty('standings');
+  });
+
+  it('does not attach current standings from a different season', () => {
+    render('matchups', 'league1', { leagueId: 'official', season: '2027', playoffTeams: 6, places: { 1: 1 } });
+    expect(mocks.board.mock.calls[0][0].standings).toBeNull();
+  });
 
   it.each(['league1', 'league2'] as const)('uses the current snapshot and bench-enabled board in %s without saving the default', leagueKey => {
     const html = render('my-team', leagueKey);
