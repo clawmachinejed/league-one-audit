@@ -6,7 +6,7 @@ test.afterEach(async ({ page }) => {
   await page.unrouteAll({ behavior: 'wait' });
 });
 
-async function openProjectedStandings(page: Page, league: 'league1' | 'league2', unresolvedPair = false) {
+async function openProjectedStandings(page: Page, league: 'league1' | 'league2', unresolvedPair = false, unavailable = false) {
   const prefix = league === 'league2' ? '/league2' : '';
   const matchups = snapshotFixture(2);
   matchups.matchups[0].status = 'live';
@@ -30,7 +30,10 @@ async function openProjectedStandings(page: Page, league: 'league1' | 'league2',
     for (const side of matchup.sides) side.team = teams.find((team) => team.id === side.team.id)!;
   }
   const data: StandingsData = { league: matchups.league, teams, updatedAt: SNAPSHOT_TIME,
-    projectionBasis: { kind: 'ready', week: 2, teams } };
+    // Basis ordering need not match current actual ranks. Movement must use the
+    // official teams array, regardless of baseline order or a table-column sort.
+    projectionBasis: unavailable ? { kind: 'unavailable', reason: 'Completed matchup history is incomplete.' }
+      : { kind: 'ready', week: 2, teams: [...teams].reverse() } };
   const context = contextFixture('active', 2);
   const source = { data: matchups, periodContext: context, snapshotRevision: SNAPSHOT_A, verifiedAt: SNAPSHOT_TIME };
   const state = { injected: 0, compact: 0, full: 0, resolveMissingLineup: false };
@@ -104,10 +107,11 @@ test('projects healthy pairs, labels held records, and incorporates a recovered 
   const table = page.locator('.standings-table');
   const values = () => table.locator('tbody tr').evaluateAll((rows) => rows.map((row) => ({
     name: row.querySelector('.team-name')?.textContent,
-    cells: [...row.querySelectorAll('td')].map((cell) => cell.textContent),
+    cells: [...row.querySelectorAll('td')].map((cell) => cell.querySelector('[data-standings-rank]')?.textContent ?? cell.textContent),
   })));
   const official = await values();
   await expect(control).toHaveAttribute('aria-checked', 'false');
+  await expect(table.locator('.standings-rank-movement')).toHaveCount(0);
   await control.click();
   await expect.poll(() => [state.compact, state.full]).toEqual([1, 1]);
   await expect(table).toHaveAttribute('data-projected', 'true');
@@ -121,6 +125,25 @@ test('projects healthy pairs, labels held records, and incorporates a recovered 
     { name: 'league2 Alpha', cells: ['3', '1–1', '190.00', '210.00'] },
     { name: 'league2 Delta', cells: ['4', '0–1', '80.00', '100.00'] },
   ]);
+  const assertMovement = async () => {
+    for (const [name, direction, label] of [
+      ['Gamma', 'up', 'Up 2 places from actual rank 3'],
+      ['Beta', 'unchanged', 'No change from actual rank 2'],
+      ['Alpha', 'down', 'Down 2 places from actual rank 1'],
+      ['Delta', 'unchanged', 'No change from actual rank 4'],
+    ]) {
+      const movement = table.locator('tbody tr').filter({ has: page.getByText(`league2 ${name}`, { exact: true }) }).locator('.standings-rank-movement');
+      await expect(movement).toHaveAttribute('data-direction', direction);
+      await expect(movement).toHaveAttribute('aria-label', label);
+      await expect(movement).toHaveText(direction === 'unchanged' ? '—' : '2');
+    }
+  };
+  await assertMovement();
+  await test.info().attach('projected-rank-movement-phone', { body: await page.screenshot(), contentType: 'image/png' });
+  await page.getByRole('button', { name: 'Sort by PF', exact: true }).click();
+  await expect(table.locator('.team-name')).toHaveText(['league2 Beta', 'league2 Alpha', 'league2 Gamma', 'league2 Delta']);
+  await assertMovement();
+  await page.getByRole('button', { name: 'Sort by Rank', exact: true }).click();
   for (const width of [320, 390, 430]) {
     await page.setViewportSize({ width, height: 900 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
@@ -139,8 +162,10 @@ test('projects healthy pairs, labels held records, and incorporates a recovered 
     { name: 'league2 Alpha', cells: ['3', '1–1', '190.00', '210.00'] },
     { name: 'league2 Delta', cells: ['4', '0–2', '220.00', '250.00'] },
   ]);
+  await assertMovement();
   await control.click();
   await expect(table).toHaveAttribute('data-projected', 'false');
+  await expect(table.locator('.standings-rank-movement')).toHaveCount(0);
   expect(await values()).toEqual(official);
 });
 
@@ -152,7 +177,7 @@ for (const league of ['league1', 'league2'] as const) {
     const table = page.locator('.standings-table');
     const values = () => table.locator('tbody tr').evaluateAll((rows) => rows.map((row) => ({
       name: row.querySelector('.team-name')?.textContent,
-      cells: [...row.querySelectorAll('td')].map((cell) => cell.textContent),
+      cells: [...row.querySelectorAll('td')].map((cell) => cell.querySelector('[data-standings-rank]')?.textContent ?? cell.textContent),
     })));
     const official = [
       { name: `${league} Alpha`, cells: ['1', '1–0', '110.00', '90.00'] },
@@ -160,6 +185,7 @@ for (const league of ['league1', 'league2'] as const) {
     ];
     await expect(control).toHaveAttribute('aria-checked', 'false');
     await expect(table).toHaveAttribute('data-projected', 'false');
+    await expect(table.locator('.standings-rank-movement')).toHaveCount(0);
     expect(await values()).toEqual(official);
     await page.clock.runFor(120_000);
     expect([state.compact, state.full]).toEqual([0, 0]);
@@ -173,6 +199,8 @@ for (const league of ['league1', 'league2'] as const) {
       { name: `${league} Beta`, cells: ['1', '1–1', '210.00', '190.00'] },
       { name: `${league} Alpha`, cells: ['2', '1–1', '190.00', '210.00'] },
     ]);
+    await expect(table.getByRole('img', { name: 'Up 1 place from actual rank 2', exact: true })).toBeVisible();
+    await expect(table.getByRole('img', { name: 'Down 1 place from actual rank 1', exact: true })).toBeVisible();
     await expect(control).toContainText('Week 2 · Live');
     for (const width of [320, 360, 390, 430, 1280]) {
       await page.setViewportSize({ width, height: 900 });
@@ -184,6 +212,7 @@ for (const league of ['league1', 'league2'] as const) {
 
     await page.getByRole('tab', { name: 'Waivers', exact: true }).click();
     await expect(table).toHaveAttribute('data-projected', 'false');
+    await expect(table.locator('.standings-rank-movement')).toHaveCount(0);
     expect(await values()).toEqual([
       { name: `${league} Beta`, cells: ['2', '0–1', '1', '$100'] },
       { name: `${league} Alpha`, cells: ['1', '1–0', '2', '$100'] },
@@ -197,8 +226,64 @@ for (const league of ['league1', 'league2'] as const) {
     await page.keyboard.press('Enter');
     await expect(control).toHaveAttribute('aria-checked', 'false');
     await expect(table).toHaveAttribute('data-projected', 'false');
+    await expect(table.locator('.standings-rank-movement')).toHaveCount(0);
     expect(await values()).toEqual(official);
     await page.clock.runFor(120_000);
     expect([state.compact, state.full]).toEqual([2, 1]);
   });
 }
+
+test('puts colored movement below each projected rank without shifting the rank or row on phones and desktop', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openProjectedStandings(page, 'league1');
+  const control = page.getByRole('switch', { name: 'Projected standings', exact: true });
+  const table = page.locator('.standings-table');
+  const rankLayout = () => table.locator('tbody tr').evaluateAll((rows) => rows.map((row) => {
+    const rank = row.querySelector('[data-standings-rank]')!.getBoundingClientRect();
+    const rowBox = row.getBoundingClientRect();
+    return { left: rank.left - rowBox.left, top: rank.top - rowBox.top, height: rank.height, rowHeight: rowBox.height };
+  }));
+  for (const width of [320, 390, 1280]) {
+    await page.setViewportSize({ width, height: 900 });
+    const officialLayout = await rankLayout();
+    await control.click();
+    await expect(table).toHaveAttribute('data-projected', 'true');
+    expect(await rankLayout()).toEqual(officialLayout);
+    const movements = await table.locator('tbody tr').evaluateAll((rows) => rows.map((row) => {
+      const rank = row.querySelector('[data-standings-rank]')!.getBoundingClientRect();
+      const movement = row.querySelector('.standings-rank-movement')!;
+      const movementBox = movement.getBoundingClientRect();
+      const cellBox = row.querySelector('.rank-cell')!.getBoundingClientRect();
+      return {
+        direction: movement.getAttribute('data-direction'),
+        color: getComputedStyle(movement).color.match(/\d+/g)!.map(Number),
+        beneath: movementBox.top >= rank.bottom,
+        inside: movementBox.left >= cellBox.left && movementBox.right <= cellBox.right && movementBox.bottom <= cellBox.bottom,
+      };
+    }));
+    expect(movements.map(({ direction, beneath, inside }) => ({ direction, beneath, inside }))).toEqual([
+      { direction: 'up', beneath: true, inside: true },
+      { direction: 'down', beneath: true, inside: true },
+    ]);
+    expect(movements[0].color[1], 'An upward movement is green').toBeGreaterThan(movements[0].color[0]);
+    expect(movements[1].color[0], 'A downward movement is red').toBeGreaterThan(movements[1].color[1]);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
+    await control.click();
+    await expect(table).toHaveAttribute('data-projected', 'false');
+    await expect(table.locator('.standings-rank-movement')).toHaveCount(0);
+    expect(await rankLayout()).toEqual(officialLayout);
+  }
+});
+
+test('shows no rank movement when projected standings are unavailable', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openProjectedStandings(page, 'league1', false, true);
+  const control = page.getByRole('switch', { name: 'Projected standings', exact: true });
+  await control.click();
+  await expect(control).toHaveAttribute('aria-checked', 'true');
+  await expect(control).toContainText('Unavailable');
+  await expect(page.locator('.standings-table')).toHaveAttribute('data-projected', 'false');
+  await expect(page.locator('.standings-table .team-name')).toHaveText(['league1 Alpha', 'league1 Beta']);
+  await expect(page.locator('.standings-rank-movement')).toHaveCount(0);
+  await expect(page.getByText('Showing official standings. Completed matchup history is incomplete.', { exact: true })).toBeVisible();
+});
