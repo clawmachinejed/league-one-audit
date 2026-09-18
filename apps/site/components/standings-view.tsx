@@ -90,12 +90,11 @@ function StandingsRank({ rank, actualRank }: { rank: number; actualRank?: number
 
   return <span className="standings-rank"><span data-standings-rank>{rank}</span>
     {movement !== null && <span className="standings-rank-movement" data-direction={direction} role="img" aria-label={label}>
-      {movement === 0 ? <span aria-hidden="true">—</span> : <>
-        <svg aria-hidden="true" viewBox="0 0 10 12" fill="none">
-          <path d={movement > 0 ? 'M5 11V1M1 5l4-4 4 4' : 'M5 1v10M1 7l4 4 4-4'} />
+      {movement === 0 ? <span aria-hidden="true">—</span> : Array.from({ length: Math.abs(movement) }, (_, index) =>
+        <svg key={index} data-movement-triangle aria-hidden="true" viewBox="0 0 6 5">
+          <path d={movement > 0 ? 'M3 0L6 5H0Z' : 'M0 0H6L3 5Z'} />
         </svg>
-        <span aria-hidden="true">{Math.abs(movement)}</span>
-      </>}
+      )}
     </span>}
   </span>;
 }

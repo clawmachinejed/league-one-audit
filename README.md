@@ -40,7 +40,7 @@ Managers uses compact team cards sized like the League roster summaries. Each ca
 
 Each manager profile has **Roster**, **Transactions** and **Schedule** tabs. Schedule lists Weeks 1–14 for that specific team, always on the left, regardless of the saved My Team preference. It shares My Team Schedule's cards, official results, finality checks and unavailable states; My Team Schedule continues to show Weeks 1–15. The fourteen-week history is loaded only when opening the owner's Schedule, without loading player catalogs or projections. Invalid or unknown team routes use the existing not-found page.
 
-When projected standings are displayed, a small green up arrow or red down arrow below each rank shows the number of places gained or lost compared with that team's current actual rank. A muted dash means no movement. The rank keeps its original position; changing the table sort does not change the comparison. Indicators are absent when projections are off or unavailable and on the other League tabs.
+When projected standings are displayed, small filled triangles below each rank show movement compared with that team's current actual rank: one green upward triangle per place gained or one red downward triangle per place lost. A muted dash means no movement. Larger changes wrap into compact rows beneath the unchanged rank position; changing the table sort does not change the comparison. Indicators are absent when projections are off or unavailable and on the other League tabs.
 
 ## Repository and hosting
 
