@@ -24,10 +24,15 @@
 .teamMeta :global(.avatar) { width:14px; height:14px; font-size:8px; }
 .manager { min-width:0; overflow-wrap:anywhere; }
 .record { white-space:nowrap; font-variant-numeric:tabular-nums; color:var(--ink); }
+.recordGroup { display:flex; align-items:center; gap:5px; white-space:nowrap; }
+.place { color:var(--ink); font-size:11px; font-weight:800; line-height:13px; font-variant-numeric:tabular-nums; }
+.place[data-place-tone=playoff] { color:var(--green); }
+.place[data-place-tone=middle] { color:var(--questionable); }
+.place[data-place-tone=relegation] { color:var(--injury); }
 .oppositeMeta { justify-self:end; grid-template-columns:max-content minmax(0,1fr) 14px; text-align:right; }
 .oppositeMeta :global(.avatar) { grid-column:3; grid-row:1; }
 .oppositeMeta .manager { grid-column:2; grid-row:1; }
-.oppositeMeta .record { grid-column:1; grid-row:1; }
+.oppositeMeta .recordGroup { grid-column:1; grid-row:1; flex-direction:row-reverse; }
 .expandControl { grid-column:2; grid-row:2; display:flex; align-items:center; justify-content:center; gap:3px; min-width:0; }
 .chevron { width:16px; height:16px; color:var(--muted); transition:transform .14s ease; }
 .rotated { transform:rotate(180deg); }

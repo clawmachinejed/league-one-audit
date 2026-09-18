@@ -29,6 +29,7 @@ import {
 } from './nfl-schedule';
 import type { LeagueTransactionsData, ManagerData, MatchupsData, OverviewData, Player, ProjectedStandingsBasis, RosterPlayer, RosterSection, RostersData, StandingsData, StandingsTeam, TransactionsData } from './types';
 import type { LeagueKey } from './leagues';
+import type { CurrentStandings } from './current-standings';
 import { normalizeLeagueTransactions } from './league-transactions';
 import { matchupTemporalState, type MatchupPeriodContext } from './matchup-period';
 import { LAST_MATCHUP_WEEK } from './matchup-week';
@@ -653,6 +654,19 @@ async function getWeekSchedule(season: string, week: number): Promise<{
 
 export async function getOverview(leagueId: string): Promise<OverviewData> {
   return (await getCore(leagueId)).overview;
+}
+
+/** Reuse current official standings order without loading projected standings history. */
+export async function getCurrentStandings(leagueId: string): Promise<CurrentStandings> {
+  const { overview, sourceLeague } = await getCore(leagueId);
+  const playoffTeams = sourceLeague.settings?.playoff_teams;
+  return {
+    leagueId,
+    season: overview.league.season,
+    playoffTeams: typeof playoffTeams === 'number' && Number.isInteger(playoffTeams)
+      && playoffTeams >= 0 && playoffTeams <= overview.teams.length ? playoffTeams : null,
+    places: Object.fromEntries(overview.teams.map((team, index) => [team.id, index + 1])),
+  };
 }
 
 export async function getStandings(leagueId: string): Promise<StandingsData> {

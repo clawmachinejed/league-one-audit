@@ -7,6 +7,7 @@ vi.mock('server-only', () => ({}));
 const mocks = vi.hoisted(() => ({
   getCurrentMatchupPeriodContext: vi.fn(),
   getSiteWeekRollover: vi.fn(),
+  getCurrentStandings: vi.fn(),
   getOfficialMatchups: vi.fn(),
   getOverview: vi.fn(),
   getStandings: vi.fn(),
@@ -19,6 +20,7 @@ vi.mock('@/lib/projection-reader', () => ({ readStoredMatchups: mocks.readStored
 vi.mock('@/lib/sleeper', () => ({
   getCurrentMatchupPeriodContext: mocks.getCurrentMatchupPeriodContext,
   getSiteWeekRollover: mocks.getSiteWeekRollover,
+  getCurrentStandings: mocks.getCurrentStandings,
   getOfficialMatchups: mocks.getOfficialMatchups,
   getOverview: mocks.getOverview,
   getStandings: mocks.getStandings,
@@ -34,6 +36,7 @@ vi.mock('./standings-view', () => ({ StandingsView: () => null }));
 vi.mock('./transactions-view', () => ({ TransactionsView: () => null }));
 
 import type { MatchupsData, StandingsData } from '@/lib/types';
+import type { CurrentStandings } from '@/lib/current-standings';
 import type { MatchupPeriodContext } from '@/lib/matchup-period';
 import type { StandingsProjectionSource } from './projected-standings-live';
 import { LeagueMatchupsPage, LeagueMyTeamPage, LeagueStandingsPage } from './league-pages';
@@ -47,6 +50,60 @@ function matchups(week: number): MatchupsData {
     matchups: [],
   };
 }
+
+describe('Matchups current standings composition', () => {
+  const context: MatchupPeriodContext = { defaultSeason: 2026, defaultWeek: 2, activeSeason: 2026, activeWeek: 2,
+    lifecycle: 'active', nflPhase: 'regular', temporalState: 'past', refreshDue: false };
+  const standings: CurrentStandings = { leagueId: 'current-league', season: '2026', playoffTeams: 6,
+    places: { 1: 12, 2: 1 } };
+  type Props = { data: MatchupsData; standings: CurrentStandings | null; mode: string };
+
+  beforeEach(() => {
+    vi.resetAllMocks();
+    mocks.getSiteWeekRollover.mockResolvedValue(null);
+    mocks.getCurrentStandings.mockResolvedValue(standings);
+  });
+
+  it.each(['matchups', 'my-team'] as const)('supplies current official places independently of an older %s snapshot', async mode => {
+    const payload = matchups(1);
+    payload.teams = [1, 2].map(id => ({ id, name: `Team ${id}`, managerName: `Owner ${id}`, avatar: null,
+      wins: id === 1 ? 1 : 0, losses: id === 1 ? 0 : 1, ties: 0, pointsFor: 0, pointsAgainst: 0 }));
+    const original = JSON.stringify(payload);
+    mocks.readStoredMatchups.mockResolvedValue({ kind: 'usable', payload, context,
+      snapshotRevision: 'a'.repeat(64), verifiedAt: '2026-09-15T20:00:00.000Z' });
+    const rendered = await LeagueMatchupsPage({ leagueId: 'current-league', leagueKey: 'league1',
+      searchParams: Promise.resolve({ week: '1' }), mode }) as ReactElement<Props>;
+    expect(mocks.getCurrentStandings).toHaveBeenCalledExactlyOnceWith('current-league');
+    expect(rendered.props).toMatchObject({ data: payload, standings, mode });
+    expect(rendered.props.data).toBe(payload);
+    expect(JSON.stringify(payload)).toBe(original);
+    expect(mocks.getOfficialMatchups).not.toHaveBeenCalled();
+    expect(mocks.getStandings).not.toHaveBeenCalled();
+    expect(mocks.getMyTeamSchedule).not.toHaveBeenCalled();
+  });
+
+  it('passes the same current standings to the official matchup fallback', async () => {
+    const payload = matchups(1);
+    mocks.readStoredMatchups.mockResolvedValue({ kind: 'missing', context });
+    mocks.getOfficialMatchups.mockResolvedValue(payload);
+    const rendered = await LeagueMatchupsPage({ leagueId: 'current-league', leagueKey: 'league2',
+      searchParams: Promise.resolve({ week: '1' }) }) as ReactElement<Props>;
+    expect(rendered.props).toMatchObject({ data: payload, standings });
+    expect(mocks.getOfficialMatchups).toHaveBeenCalledExactlyOnceWith('current-league', 1);
+  });
+
+  it('keeps usable persisted matchups when current official standings are temporarily unavailable', async () => {
+    const payload = matchups(1);
+    mocks.getCurrentStandings.mockRejectedValue(new Error('Sleeper roster read unavailable'));
+    mocks.readStoredMatchups.mockResolvedValue({ kind: 'usable', payload, context,
+      snapshotRevision: 'a'.repeat(64), verifiedAt: '2026-09-15T20:00:00.000Z' });
+    const rendered = await LeagueMatchupsPage({ leagueId: 'current-league', leagueKey: 'league1',
+      searchParams: Promise.resolve({ week: '1' }) }) as ReactElement<Props>;
+    expect(rendered.props.data).toBe(payload);
+    expect(rendered.props.standings).toBeNull();
+    expect(mocks.getOfficialMatchups).not.toHaveBeenCalled();
+  });
+});
 
 describe('LeagueMyTeamPage', () => {
   const context: MatchupPeriodContext = { defaultSeason: 2026, defaultWeek: 2, activeSeason: 2026, activeWeek: 2,

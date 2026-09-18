@@ -42,6 +42,8 @@ Each manager profile has **Roster**, **Transactions** and **Schedule** tabs. Sch
 
 ## Repository and hosting
 
+Matchup cards show each team's current actual standings place in bold just outside its record, including on the shared My Team card. League One uses green for 1–6, gold for 7–10 and red for 11–12. League Two uses green through its Sleeper-configured playoff cutoff and the normal foreground color elsewhere; Dynasty uses the normal foreground throughout. Places follow the actual Standings page's existing order, independently of projected standings or the selected matchup week. Current standings are loaded through the existing cached official league read on page load/navigation; snapshot polling does not replace them with older snapshot records. An unavailable current standings read omits the place without blocking matchups.
+
 | Service | Location |
 | --- | --- |
 | GitHub repository | [clawmachinejed/league-one-audit](https://github.com/clawmachinejed/league-one-audit) |
