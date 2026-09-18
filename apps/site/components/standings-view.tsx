@@ -82,6 +82,23 @@ function metricValue(team: RankedStandingsTeam, key: StandingsSortKey, scoringHa
   }
 }
 
+function StandingsRank({ rank, actualRank }: { rank: number; actualRank?: number }) {
+  const movement = actualRank === undefined ? null : actualRank - rank;
+  const direction = movement === null || movement === 0 ? 'unchanged' : movement > 0 ? 'up' : 'down';
+  const label = movement === 0 ? `No change from actual rank ${actualRank}`
+    : `${direction === 'up' ? 'Up' : 'Down'} ${Math.abs(movement ?? 0)} ${Math.abs(movement ?? 0) === 1 ? 'place' : 'places'} from actual rank ${actualRank}`;
+
+  return <span className="standings-rank"><span data-standings-rank>{rank}</span>
+    {movement !== null && <span className="standings-rank-movement" data-direction={direction} role="img" aria-label={label}>
+      {movement === 0 ? <span aria-hidden="true">—</span> : Array.from({ length: Math.abs(movement) }, (_, index) =>
+        <svg key={index} data-movement-triangle aria-hidden="true" viewBox="0 0 6 5">
+          <path d={movement > 0 ? 'M3 0L6 5H0Z' : 'M0 0H6L3 5Z'} />
+        </svg>
+      )}
+    </span>}
+  </span>;
+}
+
 export function StandingsView({ data, projectionSource = null, rollover }: { data: StandingsData; projectionSource?: StandingsProjectionSource | null; rollover?: SiteWeekRollover | null }) {
   useSiteWeekRollover(rollover);
   const site = useLeagueSite();
@@ -147,6 +164,7 @@ export function StandingsView({ data, projectionSource = null, rollover }: { dat
     const displayedProjection = projected && view === 'standings' && projection?.kind === 'projected' ? projection : null;
     const displayedTeams = displayedProjection?.teams ?? data.teams;
     const rankedTeams = rankStandingsTeams(displayedTeams);
+    const actualRanks = new Map(rankStandingsTeams(data.teams).map(team => [team.id, team.rank]));
     const scoringHasBegun = standingsHaveScoringEvidence(displayedTeams);
     const teams = sortStandingsTeams(rankedTeams, sorts[tableView]);
     const unresolvedTeamIds = new Set(displayedProjection?.coverage.unresolvedTeamIds ?? []);
@@ -208,7 +226,7 @@ export function StandingsView({ data, projectionSource = null, rollover }: { dat
         </th>;
       })}</tr></thead>
       <tbody>{teams.map(team => <tr key={team.id} className={selected === team.id ? 'selected-row' : ''}>
-        <td className="rank-cell"><span>{team.rank}</span></td>
+        <td className="rank-cell"><StandingsRank rank={team.rank} actualRank={displayedProjection ? actualRanks.get(team.id) : undefined} /></td>
         <th scope="row" className="team-cell"><Link
           href={`${site.prefix}/managers/${team.id}`}
           className="standings-team"

@@ -182,6 +182,11 @@ h1{font-weight:800;font-size:38px;line-height:1.12;letter-spacing:-.055em;overfl
 .standings-table tbody th,.standings-table tbody td{height:46px;padding:0 3px;vertical-align:middle}
 .standings-table tbody tr+tr{border-top:1px solid var(--line-row)}
 .standings-table .rank-cell{text-align:center;color:var(--muted-light);font-size:10px}
+.standings-rank{position:relative;display:inline-block}
+.standings-rank-movement{position:absolute;top:100%;left:50%;transform:translateX(-50%);display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:1px;width:35px;font-size:9px;line-height:11px;font-weight:700;color:var(--muted)}
+.standings-rank-movement[data-direction="up"]{color:var(--green)}
+.standings-rank-movement[data-direction="down"]{color:var(--injury)}
+.standings-rank-movement svg{flex:0 0 5px;width:5px;height:4px;fill:currentColor}
 .standings-table .team-cell{text-align:left;min-width:0}
 .standings-table .metric-cell{text-align:center;white-space:nowrap;font-size:10px}
 .standings-table .budget-cell{color:var(--green)}

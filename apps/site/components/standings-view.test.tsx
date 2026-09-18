@@ -122,7 +122,8 @@ describe('Standings shared view presentation', () => {
   it('uses normal-weight ranks and places the existing avatar beside the manager', () => {
     const source = readFileSync(new URL('./standings-view.tsx', import.meta.url), 'utf8');
     const css = readFileSync(new URL('../app/globals.css', import.meta.url), 'utf8');
-    expect(source).toContain('<td className="rank-cell"><span>{team.rank}</span></td>');
+    expect(source).toContain('<td className="rank-cell"><StandingsRank rank={team.rank}');
+    expect(source).toContain('<span data-standings-rank>{rank}</span>');
     expect(source).not.toContain('rank-top');
     expect(css).not.toContain('.rank-top');
     expect(source).toMatch(/className="manager-meta"><Avatar team=\{team\} \/>/u);
