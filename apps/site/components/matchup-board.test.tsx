@@ -36,25 +36,82 @@ const player = (id: string, projectedPoints: number | null): Player => ({
   projectedPoints,
 });
 
+function chanceMatchup(probability: number): Matchup {
+  return { id: '1', status: 'live', sides: [
+    { team: team(1), points: 23.2, projectedPoints: 40, starters: [player('first', 40)], bench: [] },
+    { team: team(2), points: 7, projectedPoints: 50, starters: [player('second', 50)], bench: [] },
+  ], winProbability: { modelVersion: 'normal-v2', status: 'estimated', teams: [
+    { teamId: 1, probability }, { teamId: 2, probability: 1 - probability },
+  ] } };
+}
+
+function chanceBars(html: string) {
+  return {
+    halves: [...html.matchAll(/<[^>]*data-win-chance-half="([^"]+)"[^>]*>/gu)].map(match => ({
+      side: match[1], tone: /data-win-chance-tone="([^"]+)"/u.exec(match[0])?.[1],
+    })),
+    widths: [...html.matchAll(/<[^>]*data-win-chance-fill[^>]*>/gu)].map(match => (
+      Number(/width:([^%;"]+)%/u.exec(match[0])?.[1])
+    )),
+  };
+}
+
 describe('MatchupBoard player projection presentation', () => {
   it.each([false, true])('shows team-scoped win estimates in the expandable shared header (benches %s)', showBench => {
-    const matchup: Matchup = { id: '1', status: 'live', sides: [
-      { team: team(1), points: 23.2, projectedPoints: 40, starters: [player('first', 40)], bench: [] },
-      { team: team(2), points: 7, projectedPoints: 50, starters: [player('second', 50)], bench: [] },
-    ], winProbability: { modelVersion: 'normal-v1', status: 'estimated', teams: [
-      { teamId: 1, probability: 0.3 }, { teamId: 2, probability: 0.7 },
-    ] } };
+    const matchup = chanceMatchup(0.3);
     const html = renderToStaticMarkup(<LeagueSiteProvider site={LEAGUE_SITES.league1}>
       <MatchupBoard matchups={[matchupWithTeamOnLeft(matchup, 2)]} selected={2} avatar={() => null} showBench={showBench} />
     </LeagueSiteProvider>);
-    expect(html).toContain('Estimated win chance: Team 2 70%; Team 1 30%.');
+    expect(html).toContain('Win chance: Team 2 70%; Team 1 30%.');
+    expect(html).not.toContain('Estimated win chance');
     expect(html).toContain('data-win-chance-side="left" data-win-chance-team="2">70%</span>');
     expect(html).toContain('data-win-chance-side="right" data-win-chance-team="1">30%</span>');
     expect(html).toContain('data-win-chance="estimated" aria-hidden="true"');
+    expect(chanceBars(html)).toEqual({
+      halves: [{ side: 'left', tone: 'favored' }, { side: 'right', tone: 'underdog' }], widths: [70, 30],
+    });
+    expect([...html.matchAll(/data-win-chance-track/gu)]).toHaveLength(2);
     expect(html).toContain('data-matchup-toggle="true" aria-expanded="false"');
     expect(html).toContain(showBench ? 'Expand starting lineups and benches.' : 'Expand starting lineups.');
     expect([...html.matchAll(/data-score-number="true"[^>]*>([^<]+)</gu)].map(match => match[1])).toEqual(['7.00', '23.20']);
     expect([...html.matchAll(/data-team-projection-number="true"[^>]*>([^<]+)</gu)].map(match => match[1])).toEqual(['50.00', '40.00']);
+  });
+
+  it.each([0.49999, 0.5])('sizes and colors both half-card bars using raw probability %s instead of the rounded label', probability => {
+    const html = renderToStaticMarkup(<LeagueSiteProvider site={LEAGUE_SITES.league1}>
+      <MatchupBoard matchups={[chanceMatchup(probability)]} selected={null} avatar={() => null} />
+    </LeagueSiteProvider>);
+    const bars = chanceBars(html);
+    expect(bars.halves).toEqual([
+      { side: 'left', tone: probability >= 0.5 ? 'favored' : 'underdog' },
+      { side: 'right', tone: 'favored' },
+    ]);
+    expect(bars.widths).toHaveLength(2);
+    expect(bars.widths[0]).toBeCloseTo(probability * 100, 10);
+    expect(bars.widths[1]).toBeCloseTo((1 - probability) * 100, 10);
+    expect([...html.matchAll(/data-win-chance-side="(?:left|right)"[^>]*>([^<]+)</gu)].map(match => match[1]))
+      .toEqual(['50%', '50%']);
+  });
+
+  it.each(['final', 'tie', 'unavailable'] as const)('shows honest %s bar states without changing official totals', status => {
+    const matchup = chanceMatchup(0.3);
+    if (status === 'unavailable') delete matchup.winProbability;
+    else {
+      matchup.status = 'final';
+      if (status === 'tie') matchup.sides[1].points = matchup.sides[0].points;
+    }
+    const original = JSON.stringify(matchup);
+    const html = renderToStaticMarkup(<LeagueSiteProvider site={LEAGUE_SITES.league1}>
+      <MatchupBoard matchups={[matchup]} selected={null} avatar={() => null} />
+    </LeagueSiteProvider>);
+    const bars = chanceBars(html);
+    expect(bars.halves).toEqual(status === 'final'
+      ? [{ side: 'left', tone: 'favored' }, { side: 'right', tone: 'underdog' }]
+      : [{ side: 'left', tone: 'neutral' }, { side: 'right', tone: 'neutral' }]);
+    expect(bars.widths).toEqual(status === 'final' ? [100, 0] : [0, 0]);
+    expect([...html.matchAll(/data-win-chance-side="(?:left|right)"[^>]*>([^<]+)</gu)].map(match => match[1]))
+      .toEqual(status === 'final' ? ['100%', '0%'] : status === 'tie' ? ['Tie', 'Tie'] : ['—', '—']);
+    expect(JSON.stringify(matchup)).toBe(original);
   });
 
   it.each([false, true])('uses a compact super flex chip with a full disclosure name (benches %s)', (showBench) => {

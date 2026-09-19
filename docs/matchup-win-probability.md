@@ -26,6 +26,8 @@ Pregame uses full variance. Live offense and kickers use variance multiplied by 
 
 The normal CDF of expected margin divided by total standard deviation gives the win chance. Results are deterministic, complementary and stored to six decimal places. Nonfinal values stay strictly between zero and one. The UI shows whole percentages, with `<1%` and `>99%` for tails; team-ID-based rounding and lookup preserve each team's percentage when My Team moves it to the left.
 
+The existing percentage row contains two mirrored horizontal bars without a visible label. Each bar starts at its team's outer edge; the center of the card is 100% for either side. Widths use stored probabilities, with green at 50% or higher and red below 50%. Percentage text stays at the outer ends. A final winner fills their half, a loser has an empty red track; ties and unavailable estimates retain neutral text and empty tracks. Screen readers receive the team-specific win chances through the existing expandable card's accessible name. Neither page calculates new probabilities in the browser.
+
 ## Missing data and completed weeks
 
 - An occupied starting slot with Sleeper's current `Out` designation contributes zero expected remaining points and zero remaining variance in the active scoring week. Before kickoff its projection is zero; during a game its forecast retains all official points already scored. A missing provider baseline does not veto that explicit product assumption, and an old positive baseline does not override it. The actual starter stays in the lineup. Bench players remain excluded from odds.

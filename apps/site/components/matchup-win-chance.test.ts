@@ -14,8 +14,13 @@ function matchup(probability = 0.505, modelVersion: 'normal-v1' | 'normal-v2' = 
 describe('matchup win chance presentation', () => {
   it.each(['normal-v1', 'normal-v2'] as const)('shows stored %s estimates with the same orientation and rounding', modelVersion => {
     const source = matchup(0.654321, modelVersion);
-    expect(matchupWinChance(source)).toMatchObject({ status: 'estimated', values: ['65%', '35%'] });
-    expect(matchupWinChance(matchupWithTeamOnLeft(source, 2)).values).toEqual(['35%', '65%']);
+    expect(matchupWinChance(source)).toMatchObject({
+      status: 'estimated', values: ['65%', '35%'], probabilities: [0.654321, 1 - 0.654321],
+      description: 'Win chance: Fixture Alpha 65%; Fixture Beta 35%.',
+    });
+    expect(matchupWinChance(matchupWithTeamOnLeft(source, 2))).toMatchObject({
+      values: ['35%', '65%'], probabilities: [1 - 0.654321, 0.654321],
+    });
   });
 
   it.each(['normal-v3', 'other-v1', '', 'NORMAL-V2'])('withholds an estimate from an unsupported model %j', modelVersion => {
@@ -23,7 +28,7 @@ describe('matchup win chance presentation', () => {
       const source = matchup();
       source.status = status;
       Object.assign(source.winProbability!, { modelVersion });
-      expect(matchupWinChance(source)).toMatchObject({ status: 'unavailable', values: ['—', '—'] });
+      expect(matchupWinChance(source)).toMatchObject({ status: 'unavailable', values: ['—', '—'], probabilities: [null, null] });
     }
   });
 
@@ -41,9 +46,17 @@ describe('matchup win chance presentation', () => {
     expect(JSON.stringify(source)).toBe(original);
   });
 
+  it.each([0.49999, 0.5])('preserves unrounded probability %s for bar widths and the 50% color threshold', probability => {
+    const display = matchupWinChance(matchup(probability));
+    expect(display.values).toEqual(['50%', '50%']);
+    expect(display.probabilities).toEqual([probability, 1 - probability]);
+    expect(display).not.toHaveProperty('label');
+  });
+
   it.each([0, 0.00001, 0.0099])('shows nonfinal probability %s as small tails rather than a certain outcome', probability => {
     const display = matchupWinChance(matchup(probability));
     expect(display.values).toEqual(['<1%', '>99%']);
+    expect(display.probabilities).toEqual([probability, 1 - probability]);
     expect(display.description).toContain('Fixture Alpha less than 1%; Fixture Beta greater than 99%');
   });
 
@@ -59,7 +72,7 @@ describe('matchup win chance presentation', () => {
     source.sides[0].projectedPoints = 200;
     source.sides[1].points = 0;
     source.sides[1].projectedPoints = 1;
-    expect(matchupWinChance(source)).toMatchObject({ status: 'unavailable', values: ['—', '—'] });
+    expect(matchupWinChance(source)).toMatchObject({ status: 'unavailable', values: ['—', '—'], probabilities: [null, null] });
   });
 
   it('retains an explicit unavailable result even with apparently usable projections', () => {
@@ -74,14 +87,14 @@ describe('matchup win chance presentation', () => {
     source.status = 'final';
     source.sides[0].points = points;
     source.sides[1].points = points - 1;
-    expect(matchupWinChance(source)).toMatchObject({ status: 'final', values: ['100%', '0%'] });
-    expect(matchupWinChance(matchupWithTeamOnLeft(source, 2)).values).toEqual(['0%', '100%']);
+    expect(matchupWinChance(source)).toMatchObject({ status: 'final', values: ['100%', '0%'], probabilities: [1, 0] });
+    expect(matchupWinChance(matchupWithTeamOnLeft(source, 2))).toMatchObject({ values: ['0%', '100%'], probabilities: [0, 1] });
   });
 
   it('reports a final tie without inventing a 50% chance for either team', () => {
     const source = matchup();
     source.status = 'final';
-    expect(matchupWinChance(source)).toEqual({ status: 'tie', label: 'Final', values: ['Tie', 'Tie'], description: 'Final result: tied.' });
+    expect(matchupWinChance(source)).toEqual({ status: 'tie', values: ['Tie', 'Tie'], probabilities: [null, null], description: 'Final result: tied.' });
   });
 
   it.each([null, Number.NaN, Number.POSITIVE_INFINITY])('requires both final official scores; invalid score %s remains unavailable', points => {

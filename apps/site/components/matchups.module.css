@@ -36,10 +36,15 @@
 .expandControl { grid-column:2; grid-row:2; display:flex; align-items:center; justify-content:center; gap:3px; min-width:0; }
 .chevron { width:16px; height:16px; color:var(--muted); transition:transform .14s ease; }
 .rotated { transform:rotate(180deg); }
-.winChance { grid-column:1 / -1; grid-row:3; display:grid; grid-template-columns:minmax(0,1fr) auto minmax(0,1fr); gap:6px; align-items:center; min-width:0; margin-top:3px; color:var(--muted); font-size:9px; line-height:12px; }
-.winChanceValue { font-size:10px; font-weight:600; font-variant-numeric:tabular-nums; white-space:nowrap; }
-.winChanceValue:last-child { text-align:right; }
-.winChanceLabel { text-align:center; }
+.winChance { grid-column:1 / -1; grid-row:3; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); min-width:0; margin-top:3px; border-radius:3px; overflow:hidden; }
+.winChanceHalf { position:relative; min-width:0; height:12px; color:var(--muted); }
+.winChanceHalf[data-win-chance-tone=favored] { color:var(--green); }
+.winChanceHalf[data-win-chance-tone=underdog] { color:var(--injury); }
+.winChanceTrack { position:absolute; inset:0; background:color-mix(in srgb,currentColor 9%,transparent); }
+.winChanceFill { display:block; height:100%; background:currentColor; opacity:.28; }
+.winChanceHalf[data-win-chance-half=right] .winChanceFill { margin-left:auto; }
+.winChanceValue { position:relative; display:block; padding:0 3px; color:var(--ink); font-size:10px; line-height:12px; font-weight:700; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.winChanceHalf[data-win-chance-half=right] .winChanceValue { text-align:right; }
 .lineup { border-top:1px solid var(--line); padding:0 10px; }
 .lineup[hidden] { display:none; }
 .playerRow { position:relative; display:grid; grid-template-columns:minmax(0,1fr) 30px minmax(0,1fr); gap:6px; align-items:center; height:52px; padding:4px 0; border-top:1px solid var(--line); }
