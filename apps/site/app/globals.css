@@ -105,6 +105,8 @@
 *{box-sizing:border-box}
 html{scroll-behavior:smooth;scroll-padding-top:100px;scrollbar-gutter:stable}
 body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--font-sans);font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+/* Keep phone pages on the vertical axis without creating a sticky-header scroll container. */
+@media(width < 760px){html,body{overflow-x:clip}html{overscroll-behavior-x:none}}
 button,input,select,textarea{font:inherit}
 button,a,select{-webkit-tap-highlight-color:transparent}
 button{cursor:pointer}
