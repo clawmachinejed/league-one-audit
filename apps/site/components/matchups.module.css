@@ -75,7 +75,7 @@
 .rightPlayer .playerPoints { grid-column:1; grid-row:1; }
 .rightPlayer .playerMeta { justify-items:end; }
 .rightPlayer .playerDetails { flex-direction:row-reverse; }
-.slot { text-align:center; padding:4px 0; border-radius:4px; color:var(--muted); background:var(--paper); font-size:9px; line-height:13px; }
+.slot { text-align:center; padding:4px 0; border-radius:4px; color:var(--muted); background:var(--paper); font-size:9px; font-weight:400; line-height:13px; }
 .lineup[data-roomy-names=true] .player { position:relative; grid-template-columns:minmax(0,1fr); }
 .lineup[data-roomy-names=true] .playerInfo { grid-column:1; }
 .lineup[data-roomy-names=true] .playerName { max-width:calc(100% - 35px); }
