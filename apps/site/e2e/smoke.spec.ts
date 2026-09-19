@@ -623,6 +623,8 @@ for (const viewport of standingsViewports) {
       await expect(cards.locator('[data-roster-toggle][aria-expanded="true"]')).toHaveCount(2);
       const superFlex = cards.locator('[data-roster-slot="SUPER_FLEX"]');
       await expect(superFlex).toHaveText('WRTQ');
+      await expect(superFlex).toHaveRole('img');
+      await expect(superFlex).toHaveAccessibleName('Wide receiver, running back, tight end or quarterback');
       expect(await superFlex.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
       await expect(cards.locator('[data-roster-slot="FLEX"]')).toHaveText('WRT');
       for (const [slot, label] of [['WRRB_FLEX', 'WRRB'], ['REC_FLEX', 'WRTE']]) {
