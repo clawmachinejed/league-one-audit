@@ -28,7 +28,7 @@ import {
   type WeekSchedule,
 } from './nfl-schedule';
 import type { LeagueTransactionsData, ManagerData, ManagersData, MatchupsData, OverviewData, Player, ProjectedStandingsBasis, RosterPlayer, RosterSection, RostersData, StandingsData, StandingsTeam, TransactionsData } from './types';
-import { leagueOneChampionshipYears } from './manager-championships';
+import { leagueOneChampionshipYears, leagueTwoChampionshipYears } from './manager-championships';
 import type { ManagerHonors } from './manager-honors';
 import { displayedManagerOwnerId, displayedManagerTeams } from './manager-display';
 import type { LeagueKey } from './leagues';
@@ -676,6 +676,7 @@ export async function getManagerHonors(leagueId: string): Promise<ManagerHonors>
       && knownUsers.has(owners.get(team.id) ?? '')).map(team => [team.id, {
       managerName: team.managerName,
       championshipYears: leagueOneChampionshipYears(displayedManagerOwnerId(leagueId, team.id, owners.get(team.id))),
+      promotionChampionshipYears: leagueTwoChampionshipYears(displayedManagerOwnerId(leagueId, team.id, owners.get(team.id))),
     }])),
   };
 }
@@ -689,6 +690,7 @@ export async function getManagers(leagueId: string): Promise<ManagersData> {
     teams: overview.teams.map((team) => ({
       ...team,
       championshipYears: leagueOneChampionshipYears(displayedManagerOwnerId(leagueId, team.id, ownerByRoster.get(team.id))),
+      promotionChampionshipYears: leagueTwoChampionshipYears(displayedManagerOwnerId(leagueId, team.id, ownerByRoster.get(team.id))),
     })),
   };
 }

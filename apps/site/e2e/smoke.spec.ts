@@ -1099,7 +1099,7 @@ test('both Managers pages reuse the Matchups intro with compact profile rows', a
           expect(card.height - card.linkHeight).toBeLessThanOrEqual(2);
         }
         for (const trophies of await main.locator('.manager-championships').all()) {
-          await expect(trophies).toHaveAccessibleName(/^\d+ League One championships?: \d{4}(, \d{4})*$/u);
+          await expect(trophies).toHaveAccessibleName(/^\d+ League (One|Two) championships?: \d{4}(, \d{4})*$/u);
           const label = (await trophies.getAttribute('aria-label'))!;
           await expect(trophies.locator('img')).toHaveCount(Number.parseInt(label, 10));
           const fit = await trophies.evaluate(element => {
@@ -1116,9 +1116,11 @@ test('both Managers pages reuse the Matchups intro with compact profile rows', a
                 return rect.left >= heading.left - 1 && rect.right <= heading.right + 1
                   && rect.top >= heading.top - 1 && rect.bottom <= heading.bottom + 1;
               }),
-              originalSize: images.every(image => image.width === 17 && image.height === 20) };
+              expectedSize: images.every(image => element.getAttribute('data-championship-league') === 'league2'
+                ? image.height > 0 && image.height < Number.parseFloat(getComputedStyle(name).fontSize) * 0.75
+                : image.width === 17 && image.height === 20) };
           });
-          expect(fit).toEqual({ afterName: true, withinHeading: true, originalSize: true });
+          expect(fit).toEqual({ afterName: true, withinHeading: true, expectedSize: true });
           await expect.poll(() => trophies.locator('img').evaluateAll(images =>
             images.every(image => image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0))).toBe(true);
         }

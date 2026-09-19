@@ -102,7 +102,7 @@ export interface OverviewData {
 
 /** Directory-only honors; never part of official results or matchup snapshots. */
 export interface ManagersData extends Omit<OverviewData, 'teams'> {
-  teams: Array<Team & { championshipYears: readonly number[] }>;
+  teams: Array<Team & { championshipYears: readonly number[]; promotionChampionshipYears?: readonly number[] }>;
 }
 
 export interface StandingsData extends Omit<OverviewData, 'teams'> {

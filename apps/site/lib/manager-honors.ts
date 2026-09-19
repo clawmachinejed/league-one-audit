@@ -5,5 +5,6 @@ export interface ManagerHonors {
   managers: Readonly<Record<number, {
     managerName: string;
     championshipYears: readonly number[];
+    promotionChampionshipYears?: readonly number[];
   }>>;
 }

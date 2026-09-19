@@ -25,8 +25,10 @@ export function ManagerHonorsSeason({ season, children }: { season: string; chil
   return <ManagerHonorsContext.Provider value={data?.season === season ? data : null}>{children}</ManagerHonorsContext.Provider>;
 }
 
-export function useManagerChampionshipYears(team: Pick<Team, 'id' | 'managerName'>): readonly number[] {
+export function useManagerChampionshipYears(team: Pick<Team, 'id' | 'managerName'>,
+  league: 'league1' | 'league2' = 'league1'): readonly number[] {
   const data = useContext(ManagerHonorsContext);
   const manager = data?.managers[team.id];
-  return manager?.managerName === team.managerName ? manager.championshipYears : noChampionships;
+  if (manager?.managerName !== team.managerName) return noChampionships;
+  return (league === 'league1' ? manager.championshipYears : manager.promotionChampionshipYears) ?? noChampionships;
 }
