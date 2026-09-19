@@ -218,14 +218,13 @@ h1{font-weight:800;font-size:38px;line-height:1.12;letter-spacing:-.055em;overfl
 .managers-grid{display:grid;gap:5px;align-items:start}
 .manager-card{border:1px solid var(--line);border-radius:10px;background:var(--surface);overflow:hidden;min-width:0}
 .manager-card.selected-manager{border-color:var(--selected-border)}
-.manager-card-link{display:grid;grid-template-columns:minmax(0,1fr) 62px;gap:5px;align-items:center;min-height:60px;padding:4px 10px 4px 6px;border-radius:9px}
+.manager-card-link{display:grid;grid-template-columns:38px minmax(0,1fr) 52px;gap:8px;align-items:center;min-height:60px;padding:8px 10px 8px 8px;border-radius:9px}
 .manager-card-link:hover{background:var(--green-soft)}
 .manager-card-link:focus-visible{outline-offset:-4px}
-.manager-card-identity{display:grid;min-width:0;gap:2px;align-content:center}
-.manager-card-link h2{font-size:12.5px;line-height:14px;overflow-wrap:anywhere;text-wrap:balance;font-weight:700}
-.manager-card-meta{display:flex;min-width:0;align-items:center;gap:3px;color:var(--muted);font-size:9px;line-height:12px}
-.manager-card-meta .avatar{width:14px;height:14px;flex:0 0 14px;font-size:8px}
-.manager-card-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.manager-card-identity{display:grid;min-width:0;gap:4px;align-content:center}
+.manager-card-link h2{font-size:15px;line-height:20px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700}
+.manager-card-meta{display:flex;min-width:0;align-items:center;gap:3px;color:var(--muted);font-size:11px;line-height:14px}
+.manager-card-team{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .manager-card-selected{flex-shrink:0;margin-left:3px;color:var(--green);font-weight:700;white-space:nowrap}
 .manager-card-record{color:var(--navy);font-size:14px;font-weight:700;text-align:right;font-variant-numeric:tabular-nums;line-height:17px;white-space:nowrap}
 .manager-card-record small{display:block;color:var(--muted);font-size:9px;font-weight:600;line-height:11px;margin-top:2px}
