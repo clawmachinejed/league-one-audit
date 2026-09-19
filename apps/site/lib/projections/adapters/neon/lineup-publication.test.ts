@@ -136,7 +136,8 @@ describe('official lineup lineage and atomic publication boundaries', () => {
     expect(fake.calls[1].statement).toContain('materialization.active_attempt_expires_at > now()');
     expect(fake.calls[1].statement).toContain("WHEN target.newer_lineup THEN interval '0 seconds'");
     expect(fake.calls[1].statement).not.toContain('active_attempt_expires_at >= $9');
-    expect(fake.calls[0].parameters).toHaveLength(12);
+    expect(fake.calls[0].parameters).toHaveLength(13);
+    expect(fake.calls[0].parameters[12]).toBeNull();
     expect(JSON.parse(fake.calls[0].parameters[10] as string)).toEqual(target);
     expect(fake.calls[0].statement).not.toContain('$11::jsonb IS NULL');
     expect(fake.calls[1].statement).toContain('AND watch.id IS NOT NULL');
