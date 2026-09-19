@@ -211,6 +211,11 @@ export async function translateSleeperLeagueWeek(
     .filter((row) => row.starters === null).map((row) => String(row.rosterRef.externalId)));
   const officialIdentityInventory: ScoringEntity[] | undefined = source.officialPlayerCatalog?.complete
     ? officialPlayerIdentityInventory(source.officialPlayerCatalog.catalog, provider) : undefined;
+  // Current catalog designations never become authority for a different requested week.
+  const currentPlayerStatus = source.currentPlayerStatusPeriod === undefined ? {} : {
+    currentPlayerStatusPeriod: source.currentPlayerStatusPeriod
+      && samePeriod(source.currentPlayerStatusPeriod, period) ? period : null,
+  };
   return {
     lineupShape: rawLineup.observation.shape,
     configuration,
@@ -235,6 +240,7 @@ export async function translateSleeperLeagueWeek(
     })),
     rosteredEntities: rosteredEntities(source, provider),
     ...(officialIdentityInventory ? { officialIdentityInventory } : {}),
+    ...currentPlayerStatus,
     schedule: leagueWeekSchedule(source),
     scoringSettings: {
       provider,
@@ -247,6 +253,7 @@ export async function translateSleeperLeagueWeek(
       requestStartedAt: source.requestStartedAt,
       requestCompletedAt: source.requestCompletedAt,
       data: source.data,
+      ...currentPlayerStatus,
     }),
     lineup,
     warning: source.data.warning,

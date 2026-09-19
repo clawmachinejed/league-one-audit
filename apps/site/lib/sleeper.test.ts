@@ -841,6 +841,49 @@ describe('Sleeper service error handling', () => {
     expect(matchupPaths).toEqual([`${leaguePath}/matchups/18`]);
   });
 
+  it.each([2, 3, 4])('scopes current player status to the active period when loading Week %i', async (week) => {
+    makeProjectionWeekReady();
+    playerInjury = 'Out';
+    const source = await getProjectionSyncInput(leagueOneId, { season: 2026, seasonType: 'regular', week });
+    expect(source.currentPlayerStatusPeriod).toEqual(week === 3
+      ? { season: 2026, seasonType: 'regular', week: 3 } : null);
+    // Carrying period evidence neither changes official points nor rewrites the catalog.
+    expect(source.officialPlayerCatalog?.catalog.qb.injury_status).toBe('Out');
+    expect(source.rawMatchups).toEqual(rawMatchups);
+    const paths = vi.mocked(fetch).mock.calls.map(([request]) => requestPath(request));
+    expect(paths.filter(path => path === '/state/nfl')).toHaveLength(1);
+    expect(paths.filter(path => path === '/schedule/nfl/regular/2026')).toHaveLength(2);
+    expect(paths.filter(path => path === '/players/nfl')).toHaveLength(6);
+  });
+
+  it.each(['preseason', 'completed', 'different-season', 'unknown-state'] as const)(
+    'does not grant current player-status authority from %s context', async (context) => {
+      makeProjectionWeekReady();
+      playerInjury = 'Out';
+      if (context === 'preseason') seasonType = 'pre';
+      if (context === 'completed') leagueStatus = 'complete';
+      if (context === 'different-season') stateSeason = '2027';
+      if (context === 'unknown-state') failures.add('/state/nfl');
+      const source = await getProjectionSyncInput(leagueOneId, { season: 2026, seasonType: 'regular', week: 3 });
+      expect(source.currentPlayerStatusPeriod).toBeNull();
+      expect(source.officialPlayerCatalog?.catalog.qb.injury_status).toBe('Out');
+    },
+  );
+
+  it('uses the site rollover instead of Sleeper leg to scope current player status', async () => {
+    makeProjectionWeekReady();
+    playerInjury = 'Out';
+    siteScheduleWeek = 2;
+    const source = await getOperatorProjectionSyncInput(leagueOneId,
+      { season: 2026, seasonType: 'regular', week: 2 }, async () => ({
+        catalog: { qb: { full_name: 'Quarter Back', position: 'QB', team: 'IND', injury_status: 'Out' } },
+        complete: true, sourceRevision: 'fixture-status',
+      }));
+    expect(source.currentPlayerStatusPeriod).toEqual({ season: 2026, seasonType: 'regular', week: 2 });
+    expect(source.officialPlayerCatalog?.catalog.qb.injury_status).toBe('Out');
+    expect(vi.mocked(fetch).mock.calls.some(([request]) => requestPath(request) === '/players/nfl')).toBe(false);
+  });
+
   it.each([
     [{ season: 2025, seasonType: 'regular' as const, week: 3 }, 'does not match'],
     [{ season: 2026, seasonType: 'postseason' as const, week: 3 }, 'regular-season'],

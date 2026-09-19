@@ -320,7 +320,7 @@ describe('win chance through the canonical snapshot boundary', () => {
     const input = probabilityInput();
     const payload = buildSnapshot(input);
     const odds = payload.matchups[0].winProbability;
-    expect(odds).toMatchObject({ modelVersion: 'normal-v1', status: 'estimated', teams: [
+    expect(odds).toMatchObject({ modelVersion: 'normal-v2', status: 'estimated', teams: [
       { teamId: 1, probability: expect.any(Number) }, { teamId: 2, probability: expect.any(Number) },
     ] });
     if (!odds || odds.status !== 'estimated') throw new Error('Expected estimate');
@@ -374,7 +374,7 @@ describe('win chance through the canonical snapshot boundary', () => {
       sides: healthy.sides.map((side, index) => index === 0 ? { ...side, starters: [] } : side) };
     const result = buildSnapshot({ ...input, source: { ...input.source, matchups: [healthy, missing] } });
     expect(result.matchups[0].winProbability?.status).toBe('estimated');
-    expect(result.matchups[1].winProbability).toEqual({ modelVersion: 'normal-v1', status: 'unavailable', reason: 'missing-lineup' });
+    expect(result.matchups[1].winProbability).toEqual({ modelVersion: 'normal-v2', status: 'unavailable', reason: 'missing-lineup' });
     expect(result.matchups[0].sides[0].projectedPoints).toBe(20);
   });
 
@@ -382,7 +382,7 @@ describe('win chance through the canonical snapshot boundary', () => {
     const input = probabilityInput();
     const result = buildSnapshot({ ...input, frozen: [] });
     expect(result.matchups[0].sides[0].projectedPoints).toBe(10);
-    expect(result.matchups[0].winProbability).toEqual({ modelVersion: 'normal-v1', status: 'unavailable', reason: 'missing-projection' });
+    expect(result.matchups[0].winProbability).toEqual({ modelVersion: 'normal-v2', status: 'unavailable', reason: 'missing-projection' });
   });
 
   it('uses official final team totals even without frozen baselines', () => {
@@ -390,7 +390,7 @@ describe('win chance through the canonical snapshot boundary', () => {
     const result = buildSnapshot({ ...input, frozen: [], games: { ...input.games,
       games: input.games.games.map((game) => ({ ...game, phase: 'final', statusCode: 2, remainingFraction: 0 })),
     } });
-    expect(result.matchups[0].winProbability).toEqual({ modelVersion: 'normal-v1', status: 'final', teams: [
+    expect(result.matchups[0].winProbability).toEqual({ modelVersion: 'normal-v2', status: 'final', teams: [
       { teamId: 1, probability: 1 }, { teamId: 2, probability: 0 },
     ] });
   });
@@ -398,7 +398,79 @@ describe('win chance through the canonical snapshot boundary', () => {
   it('uses exact requested-period game context for estimates', () => {
     const input = probabilityInput();
     const result = buildSnapshot({ ...input, games: { ...input.games, period: { ...period, week: 2 } } });
-    expect(result.matchups[0].winProbability).toEqual({ modelVersion: 'normal-v1', status: 'unavailable', reason: 'unknown-game-state' });
+    expect(result.matchups[0].winProbability).toEqual({ modelVersion: 'normal-v2', status: 'unavailable', reason: 'unknown-game-state' });
+  });
+
+  function outInput() {
+    const input = probabilityInput();
+    return { ...input, source: { ...input.source, currentPlayerStatusPeriod: period,
+      matchups: input.source.matchups.map((matchup) => ({ ...matchup,
+        sides: matchup.sides.map((side) => ({ ...side, starters: side.starters.map((slot) => slot.kind === 'occupied'
+          ? { ...slot, entity: { ...slot.entity, injuryStatus: 'Out' } } : slot) })),
+      })),
+    } };
+  }
+
+  it('zeros active Out forecasts while retaining accumulated actuals and immutable baselines', () => {
+    const input = outInput();
+    const before = structuredClone(input);
+    const result = buildSnapshot(input);
+    expect(result.matchups[0].sides.map((side) => side.projectedPoints)).toEqual([10, 0]);
+    expect(result.matchups[0].sides.map((side) => side.points)).toEqual([10, 0]);
+    expect(result.matchups[0].sides[0].starters[0]).toMatchObject({ points: 10, projectedPoints: 10 });
+    // Every remaining starter here is Out, so no nonfinal certainty is invented.
+    expect(result.matchups[0].winProbability).toMatchObject({ status: 'unavailable', reason: 'unknown-game-state' });
+    expect(input).toEqual(before);
+  });
+
+  it.each([undefined, null, { ...period, week: 2 }, { ...period, season: 2025 }])(
+    'does not apply current Out metadata without matching active-period authority: %j', (scope) => {
+      const input = outInput();
+      const result = buildSnapshot({ ...input, source: { ...input.source, currentPlayerStatusPeriod: scope } });
+      expect(result.matchups[0].sides.map((side) => side.projectedPoints)).toEqual([20, 12]);
+      expect(result.matchups[0].winProbability?.status).toBe('estimated');
+    },
+  );
+
+  it.each(['Questionable', 'Doubtful', 'IR', null])('does not manufacture an Out zero for %s', (injuryStatus) => {
+    const input = outInput();
+    const changed = { ...input.source, matchups: input.source.matchups.map((matchup) => ({ ...matchup,
+      sides: matchup.sides.map((side) => ({ ...side, starters: side.starters.map((slot) => slot.kind === 'occupied'
+        ? { ...slot, entity: { ...slot.entity, injuryStatus } } : slot) })),
+    })) };
+    const result = buildSnapshot({ ...input, source: changed, frozen: [] });
+    expect(result.matchups[0].winProbability).toMatchObject({ status: 'unavailable', reason: 'missing-projection' });
+  });
+
+  it('preserves final actuals and frozen display values for a currently Out player', () => {
+    const input = outInput();
+    const result = buildSnapshot({ ...input, games: { ...input.games,
+      games: input.games.games.map((game) => ({ ...game, phase: 'final', statusCode: 2, remainingFraction: 0 })),
+    } });
+    expect(result.matchups[0].sides[0].starters[0]).toMatchObject({ points: 10, projectedPoints: 20 });
+    expect(result.matchups[0].sides[0].projectedPoints).toBe(10);
+    expect(result.matchups[0].winProbability).toMatchObject({ status: 'final' });
+  });
+
+  it('does not treat unknown or ambiguous game evidence as a usable Out zero', () => {
+    const input = outInput();
+    const mismatched = buildSnapshot({ ...input, games: { ...input.games, period: { ...period, week: 2 } } });
+    expect(mismatched.matchups[0].sides[1].projectedPoints).toBe(12);
+    expect(mismatched.matchups[0].winProbability).toMatchObject({ status: 'unavailable', reason: 'unknown-game-state' });
+    const duplicate = buildSnapshot({ ...input, games: { ...input.games, games: [...input.games.games, input.games.games[1]] } });
+    expect(duplicate.matchups[0].sides[1].projectedPoints).toBe(12);
+    expect(duplicate.matchups[0].winProbability).toMatchObject({ status: 'unavailable', reason: 'unknown-game-state' });
+  });
+
+  it.each(['suspended', 'postponed'] as const)('retains existing forecast behavior for an Out player in a %s game', (phase) => {
+    const input = outInput();
+    const pausedGames = { ...input.games, games: input.games.games.map((game) => game.homeTeam === 'KC'
+      ? { ...game, phase, statusCode: phase === 'postponed' ? 3 as const : 4 as const,
+          remainingFraction: phase === 'postponed' ? 1 : null } : game) };
+    const before = buildSnapshot({ ...input, games: pausedGames, source: { ...input.source, currentPlayerStatusPeriod: null } });
+    const after = buildSnapshot({ ...input, games: pausedGames });
+    expect(after.matchups[0].sides[0]).toEqual(before.matchups[0].sides[0]);
+    expect(after.matchups[0].winProbability).toMatchObject({ status: 'unavailable', reason: 'unknown-game-state' });
   });
 });
 
@@ -604,7 +676,7 @@ describe('canonical worker game context and snapshot builder', () => {
       matchups: [{
         id: '4',
         status: 'live',
-        winProbability: { modelVersion: 'normal-v1', status: 'unavailable', reason: 'missing-projection' },
+        winProbability: { modelVersion: 'normal-v2', status: 'unavailable', reason: 'missing-projection' },
         sides: [
           {
             team: expect.objectContaining({ id: 1, name: 'One Team' }),

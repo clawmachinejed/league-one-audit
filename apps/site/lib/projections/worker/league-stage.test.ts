@@ -887,7 +887,7 @@ describe('canonical league projection stage', () => {
 
     const expectedRevision = compatibleRevision({
       modelVersion: 'clock-v1',
-      winProbabilityModelVersion: 'normal-v1',
+      winProbabilityModelVersion: 'normal-v2',
       sourceRevision: 'official-revision',
       projectionSourceRevision: 'projection-revision',
       missingFrozenBaselineCount: 1,
@@ -949,7 +949,7 @@ describe('canonical league projection stage', () => {
       matchups: [{
         id: '1',
         status: 'live',
-        winProbability: { modelVersion: 'normal-v1', status: 'unavailable', reason: 'missing-projection' },
+        winProbability: { modelVersion: 'normal-v2', status: 'unavailable', reason: 'missing-projection' },
         sides: [
           {
             team: {

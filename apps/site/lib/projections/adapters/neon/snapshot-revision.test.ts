@@ -59,6 +59,8 @@ describe('compact snapshot database selection', () => {
     expect(sql).not.toMatch(/SELECT\s+snapshot\.\*/iu);
     expect(sql).not.toContain('ORDER BY');
     expect(sql).toContain('AS matchup_win_probability_inputs');
+    expect(sql).toContain("to_jsonb('normal-v1'::text)");
+    expect(sql).toContain("to_jsonb('normal-v2'::text)");
     await methods.readMatchupSnapshotRevisionByLeagueKey('league1', 5, identity);
     expect(fake.calls[1].parameters).toEqual(['league1', 5, 'tank01', 'canonical-projection-slate-v1', 'clock-v1']);
   });

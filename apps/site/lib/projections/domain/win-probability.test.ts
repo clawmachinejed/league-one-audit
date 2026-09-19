@@ -34,9 +34,9 @@ function expectUnavailable(estimate: WinProbabilityResult, reason: string) {
   expect(estimate).toEqual({ modelVersion: WIN_PROBABILITY_MODEL_VERSION, status: 'unavailable', reason });
 }
 
-describe('normal-v1 matchup win probability', () => {
+describe('normal-v2 matchup win probability', () => {
   it('gives equal canonical projected finishes equal chances', () => {
-    expect(result()).toEqual({ modelVersion: 'normal-v1', status: 'estimated', probabilities: [0.5, 0.5] });
+    expect(result()).toEqual({ modelVersion: 'normal-v2', status: 'estimated', probabilities: [0.5, 0.5] });
   });
 
   it('matches a known standard-normal probability independently of the implementation approximation', () => {
@@ -132,6 +132,63 @@ describe('normal-v1 matchup win probability', () => {
       .toBeGreaterThan(0.5);
   });
 
+  it('allows a scoped Out pregame starter without a projection and gives that slot zero variance', () => {
+    const out = player({ expectedRemainingPointsZero: true, baselinePoints: null, projectionQuality: 'missing-baseline' });
+    const estimate = result(side({ projectedPoints: 0, players: [out] }));
+    expect(estimate).toEqual(result(side({ projectedPoints: 0, players: [] })));
+    expect(probability(estimate)).toBeLessThan(0.5);
+    expect(result(side({ projectedPoints: 0, players: [{ ...out, officialPoints: null }] }))).toEqual(estimate);
+  });
+
+  it('does not infer an Out designation from an ordinary complete zero projection', () => {
+    const ordinary = side({ projectedPoints: 0, players: [player({ baselinePoints: 0 })] });
+    const out = side({ projectedPoints: 0, players: [player({ baselinePoints: 0, expectedRemainingPointsZero: true })] });
+    // The uncertain ordinary player still has some chance to exceed its zero projection.
+    expect(probability(result(ordinary))).toBeGreaterThan(probability(result(out)));
+    expect(result({ ...ordinary, players: [player({ baselinePoints: 0, expectedRemainingPointsZero: false })] })).toEqual(result(ordinary));
+    expectUnavailable(result(side({ players: [player({ baselinePoints: null, expectedRemainingPointsZero: false })] })), 'missing-projection');
+  });
+
+  it('uses zero remaining uncertainty for a scoped live Out player while retaining points already scored', () => {
+    const out = player({ phase: 'q3', remainingFraction: 0.25, officialPoints: 12,
+      baselinePoints: 20, projectionQuality: 'estimated', expectedRemainingPointsZero: true });
+    const left = side({ projectedPoints: 12, officialPoints: 12, players: [out] });
+    const estimate = result(left, side(), 'live');
+    expect(estimate).toEqual(result({ ...left, players: [] }, side(), 'live'));
+    expect(probability(estimate)).toBeGreaterThan(probability(result({ ...left, projectedPoints: 0 }, side(), 'live')));
+    // A historical baseline remains source evidence; the Out input, not that baseline's value, establishes zero remaining points.
+    expect(result({ ...left, players: [{ ...out, baselinePoints: null, projectionQuality: 'missing-baseline' }] }, side(), 'live')).toEqual(estimate);
+  });
+
+  it('does not let a scoped Out expectation override final official points or team totals', () => {
+    const out = player({ phase: 'final', officialPoints: 25, projectionQuality: 'official-final', expectedRemainingPointsZero: true });
+    const finished = player({ phase: 'final', officialPoints: 12, projectionQuality: 'official-final' });
+    expect(result(side({ projectedPoints: 0, officialPoints: 25, players: [out] }),
+      side({ officialPoints: 12, players: [finished] }), 'final'))
+      .toEqual({ modelVersion: 'normal-v2', status: 'final', probabilities: [1, 0] });
+    expect(result(side({ projectedPoints: 25, officialPoints: 25, players: [out] }), side(), 'live'))
+      .toEqual(result(side({ projectedPoints: 25, officialPoints: 25, players: [] }), side(), 'live'));
+  });
+
+  it('retains source-readiness checks for Out starters instead of creating observed zeros', () => {
+    const out = player({ expectedRemainingPointsZero: true, baselinePoints: null, projectionQuality: 'missing-baseline' });
+    expectUnavailable(result(side({ players: [{ ...out, officialPoints: 1 }] })), 'invalid-input');
+    expectUnavailable(result(side({ players: [{ ...out, phase: 'unknown' }] })), 'unknown-game-state');
+    const liveOut = { ...out, phase: 'q3' as const, remainingFraction: 0.25 };
+    expectUnavailable(result(side({ players: [{ ...liveOut, officialPoints: null }] }), side(), 'live'), 'missing-official-points');
+    expectUnavailable(result(side({ players: [{ ...liveOut, remainingFraction: null }] }), side(), 'live'), 'unknown-game-state');
+    expectUnavailable(result(side({ players: [{ ...out, baselinePoints: NaN }] })), 'invalid-input');
+    expectUnavailable(result(side({ players: [{ ...out, expectedRemainingPointsZero: 'true' as unknown as boolean }] })), 'invalid-input');
+  });
+
+  it('does not invent a final result when all unresolved starters on both sides are Out', () => {
+    const outSide = side({ projectedPoints: 0, players: [player({ expectedRemainingPointsZero: true })] });
+    expectUnavailable(result(outSide, outSide), 'unknown-game-state');
+    const liveOutSide = { ...outSide, officialPoints: 7, projectedPoints: 7,
+      players: [player({ phase: 'q4', remainingFraction: 0.1, officialPoints: 7, expectedRemainingPointsZero: true })] };
+    expectUnavailable(result(liveOutSide, { ...liveOutSide, officialPoints: 10, projectedPoints: 10 }, 'live'), 'unknown-game-state');
+  });
+
   it('does not claim certainty in a nonfinal matchup even at an overwhelming advantage', () => {
     const p = probability(result(side({ projectedPoints: 10_000 })));
     expect(p).toBeGreaterThan(0.999);
@@ -168,13 +225,13 @@ describe('normal-v1 matchup win probability', () => {
   it('uses official team totals for finals, including a commissioner adjustment reversing the player sum', () => {
     const left = side({ officialPoints: 3, projectedPoints: null, players: [player({ phase: 'final', officialPoints: 50, baselinePoints: null })] });
     const right = side({ officialPoints: 10, projectedPoints: null, players: [player({ phase: 'final', officialPoints: 2, baselinePoints: null })] });
-    expect(result(left, right, 'final')).toEqual({ modelVersion: 'normal-v1', status: 'final', probabilities: [0, 1] });
-    expect(result(right, left, 'final')).toEqual({ modelVersion: 'normal-v1', status: 'final', probabilities: [1, 0] });
+    expect(result(left, right, 'final')).toEqual({ modelVersion: 'normal-v2', status: 'final', probabilities: [0, 1] });
+    expect(result(right, left, 'final')).toEqual({ modelVersion: 'normal-v2', status: 'final', probabilities: [1, 0] });
   });
 
   it('labels an official final tie explicitly instead of a fabricated 50% chance', () => {
     const finished = side({ officialPoints: 24.6, players: [player({ phase: 'final' })] });
-    expect(result(finished, finished, 'final')).toEqual({ modelVersion: 'normal-v1', status: 'tie', probabilities: [0, 0] });
+    expect(result(finished, finished, 'final')).toEqual({ modelVersion: 'normal-v2', status: 'tie', probabilities: [0, 0] });
   });
 
   it('requires final game evidence, both official totals, and an available lineup before final results', () => {

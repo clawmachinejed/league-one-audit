@@ -31,7 +31,8 @@ export function matchupWinChance(matchup: Matchup): WinChanceDisplay {
   }
 
   const estimate = matchup.winProbability;
-  if (estimate?.modelVersion !== 'normal-v1' || estimate.status !== 'estimated') return unavailable;
+  if (!estimate || estimate.modelVersion !== 'normal-v1' && estimate.modelVersion !== 'normal-v2'
+    || estimate.status !== 'estimated') return unavailable;
   const ordered = [...estimate.teams].sort((a, b) => a.teamId - b.teamId);
   if (ordered.length !== 2 || ordered[0].teamId === ordered[1].teamId
     || ordered.some(team => !Number.isFinite(team.probability) || team.probability < 0 || team.probability > 1)

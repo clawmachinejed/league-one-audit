@@ -110,7 +110,23 @@ function projectedPlayerMap(input: BuildSnapshotInput): Map<string, Readonly<{
       && state.phase !== 'unknown'
       && (state.statusCode !== 1 || finite(state.remainingFraction)
         && state.remainingFraction >= 0 && state.remainingFraction <= 1);
-    if (!required && (!benchContextValid || scheduled?.kind !== 'bye' && (!baseline || baseline.quality !== 'complete')
+    // Current catalog status is advisory for this active period only. Apply it to
+    // the runtime forecast without changing immutable baselines or official points.
+    const expectedRemainingPointsZero = required && entity.kind === 'player'
+      && entity.injuryStatus?.trim().toLowerCase() === 'out'
+      && input.source.currentPlayerStatusPeriod != null
+      && samePeriod(input.source.currentPlayerStatusPeriod, input.source.period)
+      && samePeriod(input.games.period, input.source.period)
+      && benchContextValid && scheduled?.kind === 'scheduled'
+      && input.games.games.filter((game) => game.homeTeam === entity.nflTeam || game.awayTeam === entity.nflTeam).length === 1
+      && state !== null && (state.statusCode === 0 && state.phase === 'pregame'
+        || state.statusCode === 1
+          && ['q1', 'q2', 'halftime', 'q3', 'q4', 'overtime'].includes(state.phase)
+          && finite(state.remainingFraction) && state.remainingFraction >= 0 && state.remainingFraction <= 1)
+      && (state.phase === 'pregame' ? starter.officialPoints === null || starter.officialPoints === 0
+        : finite(starter.officialPoints));
+    const effectiveBaseline = expectedRemainingPointsZero ? { points: 0, quality: 'complete' as const } : baseline;
+    if (!required && (!benchContextValid || scheduled?.kind !== 'bye' && (!effectiveBaseline || effectiveBaseline.quality !== 'complete')
       || state && startedGame(state) && !finite(starter.officialPoints))) {
       result.set(key, { projectedPoints: null, presentationProjectedPoints: null, projectionQuality: 'unavailable' });
       continue;
@@ -121,7 +137,7 @@ function projectedPlayerMap(input: BuildSnapshotInput): Map<string, Readonly<{
     const calculated = calculateLiveProjection({
       kind: projectionKind(entity),
       gameState,
-      baseline,
+      baseline: effectiveBaseline,
       officialPoints: finite(starter.officialPoints) ? starter.officialPoints : null,
       priorProjectedPoints: prior.get(String(entity.externalRef.externalId)) ?? null,
     });
@@ -144,7 +160,8 @@ function projectedPlayerMap(input: BuildSnapshotInput): Map<string, Readonly<{
             && input.games.games.filter((game) => game.homeTeam === entity.nflTeam || game.awayTeam === entity.nflTeam).length === 1
             ? state!.phase : 'unknown',
         remainingFraction: state?.remainingFraction ?? null,
-        baselinePoints: baseline?.quality === 'complete' ? baseline.points : null,
+        baselinePoints: effectiveBaseline?.quality === 'complete' ? effectiveBaseline.points : null,
+        expectedRemainingPointsZero,
         projectionQuality: calculated.quality,
         officialPoints: starter.officialPoints,
       },
