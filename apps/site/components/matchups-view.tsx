@@ -12,6 +12,7 @@ import {
 } from '../lib/matchup-period';
 import type { Matchup, MatchupsData } from '../lib/types';
 import type { CurrentStandings } from '../lib/current-standings';
+import { displayedMatchupManagers } from '../lib/manager-display';
 import { matchupWithTeamOnLeft, selectMyTeamMatchup } from '../lib/my-team-matchup';
 import { WeekSelector } from './week-selector';
 import { useLeagueSite } from './league-context';
@@ -72,9 +73,10 @@ export function MatchupsView({
   useSiteWeekRollover(rollover);
   const site = useLeagueSite();
   const matchupsPath = `${site.prefix}/${mode}`;
-  const { data, periodContext, updatedAt, refreshing } = useMatchupSnapshot({
+  const { data: snapshotData, periodContext, updatedAt, refreshing } = useMatchupSnapshot({
     leagueKey: site.key, data: initialData, periodContext: initialPeriodContext, snapshotRevision, verifiedAt,
   });
+  const data = useMemo(() => displayedMatchupManagers(site.key, snapshotData), [site.key, snapshotData]);
   const { selected } = useTeamPreference(data.teams);
   const router = useRouter();
   const observedCurrentWeek = currentMatchupWeek(periodContext);

@@ -29,6 +29,7 @@ import {
 } from './nfl-schedule';
 import type { LeagueTransactionsData, ManagerData, ManagersData, MatchupsData, OverviewData, Player, ProjectedStandingsBasis, RosterPlayer, RosterSection, RostersData, StandingsData, StandingsTeam, TransactionsData } from './types';
 import { leagueOneChampionshipYears } from './manager-championships';
+import { displayedManagerOwnerId, displayedManagerTeams } from './manager-display';
 import type { LeagueKey } from './leagues';
 import type { CurrentStandings } from './current-standings';
 import { normalizeLeagueTransactions } from './league-transactions';
@@ -570,7 +571,8 @@ const getCore = cache(async (leagueId: string, mode: AdministrationReadMode = 'p
   const users = userFeed.users;
   const { sourceLeague, state, league } = calendar;
   assertCoreCompleteness(sourceLeague, rosters, users);
-  const teams = normalizeTeams(rosters, users);
+  const sourceTeams = normalizeTeams(rosters, users);
+  const teams = mode === 'page' ? displayedManagerTeams(leagueId, sourceTeams, rosters) : sourceTeams;
   const overview: OverviewData = {
     league,
     teams,
@@ -593,7 +595,7 @@ const getRosterCore = cache(async (leagueId: string) => {
   ]);
   const users = userFeed.users;
   const { sourceLeague, state, league } = calendar;
-  const teams = normalizeTeams(rosterFeed.rosters, users);
+  const teams = displayedManagerTeams(leagueId, normalizeTeams(rosterFeed.rosters, users), rosterFeed.rosters);
   const missing = Math.max(0, sourceLeague.total_rosters - rosterFeed.rosters.length);
   const affected = Math.max(rosterFeed.rosterViewMalformedRowCount, missing);
   const overview: OverviewData = {
@@ -668,7 +670,7 @@ export async function getManagers(leagueId: string): Promise<ManagersData> {
     ...overview,
     teams: overview.teams.map((team) => ({
       ...team,
-      championshipYears: leagueOneChampionshipYears(ownerByRoster.get(team.id)),
+      championshipYears: leagueOneChampionshipYears(displayedManagerOwnerId(leagueId, team.id, ownerByRoster.get(team.id))),
     })),
   };
 }

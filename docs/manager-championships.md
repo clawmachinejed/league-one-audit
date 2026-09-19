@@ -4,7 +4,7 @@ Only the Managers directory displays championship trophies. One small blue-flame
 
 The user supplied the historical results and identity mappings on September 19, 2026. This is curated league history, not newly inferred Sleeper scoring or playoff results. The server-only registry in `apps/site/lib/manager-championships.ts` stores championship years once per stable Sleeper user ID. Counts are derived from those years. Future winners or historical corrections require an explicit, reviewed registry update; this change does not introduce an automatic award collector.
 
-The existing cached league core supplies the roster owner IDs, validated users and overview. The Managers loader joins roster ID to owner ID within that league, then looks up championship years. It does not match mutable manager display names, team names or cross-league roster numbers, and makes no extra provider requests. Unknown/unassigned owners receive no badge. The generic Team model, public matchup responses and immutable snapshots do not acquire award fields.
+The existing cached league core supplies the roster owner IDs, validated users and overview. The Managers loader joins roster ID to owner ID within that league, applies any explicitly confirmed [manager display correction](manager-display-corrections.md), then looks up championship years. It does not match mutable manager display names, team names or cross-league roster numbers, and makes no extra provider requests. Unknown/unassigned owners receive no badge. The generic Team model, public matchup responses and immutable snapshots do not acquire award fields.
 
 | Supplied name | Verified Sleeper account | Championship years |
 | --- | --- | --- |

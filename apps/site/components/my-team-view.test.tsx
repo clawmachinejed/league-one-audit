@@ -8,6 +8,7 @@ import { LeagueSiteProvider } from './league-context';
 import { MatchupsView } from './matchups-view';
 
 const mocks = vi.hoisted(() => ({ selected: null as number | null,
+  currentSnapshot: null as MatchupsData | null,
   select: vi.fn(), board: vi.fn(), boxScores: vi.fn(), snapshot: vi.fn() }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }) }));
 vi.mock('./team-preference', () => ({ useTeamPreference: () => ({ selected: mocks.selected, select: mocks.select }) }));
@@ -16,7 +17,8 @@ vi.mock('./use-matchup-box-scores', () => ({ useMatchupBoxScores: (options: unkn
   mocks.boxScores(options); return { data: null, loading: false, request: vi.fn() };
 } }));
 vi.mock('./use-matchup-snapshot', () => ({ useMatchupSnapshot: (options: { data: MatchupsData; periodContext: MatchupPeriodContext }) => {
-  mocks.snapshot(options); return { ...options, updatedAt: options.data.updatedAt, refreshing: false };
+  mocks.snapshot(options); return { ...options, data: mocks.currentSnapshot ?? options.data,
+    updatedAt: (mocks.currentSnapshot ?? options.data).updatedAt, refreshing: false };
 } }));
 
 const context: MatchupPeriodContext = { defaultSeason: 2026, defaultWeek: 1, activeSeason: 2026, activeWeek: 2,
@@ -38,15 +40,54 @@ const data: MatchupsData = { league: { season: '2026', rosterPositions: ['QB'], 
     ] },
   ] };
 
-function render(mode: 'matchups' | 'my-team', leagueKey: 'league1' | 'league2' = 'league1', standings?: CurrentStandings) {
+function render(mode: 'matchups' | 'my-team', leagueKey: 'league1' | 'league2' | 'dynasty' = 'league1',
+  standings?: CurrentStandings, payload = data) {
   return renderToStaticMarkup(<LeagueSiteProvider site={LEAGUE_SITES[leagueKey]}>
-    <MatchupsView mode={mode} data={data} periodContext={context} snapshotRevision={'a'.repeat(64)}
-      verifiedAt={data.updatedAt} followCurrent standings={standings} />
+    <MatchupsView mode={mode} data={payload} periodContext={context} snapshotRevision={'a'.repeat(64)}
+      verifiedAt={payload.updatedAt} followCurrent standings={standings} />
   </LeagueSiteProvider>);
 }
 
 describe('My Team shared matchup view', () => {
-  beforeEach(() => { vi.clearAllMocks(); mocks.selected = null; });
+  beforeEach(() => { vi.clearAllMocks(); mocks.selected = null; mocks.currentSnapshot = null; });
+
+  it.each(['matchups', 'my-team'] as const)('keeps the corrected manager after snapshot updates in %s without changing source scores or identity', mode => {
+    const initial = structuredClone(data);
+    initial.teams[0].managerName = 'eneerg';
+    initial.matchups[0].sides[0].team.managerName = 'eneerg';
+    const sourceBefore = JSON.stringify(initial);
+    mocks.selected = 1;
+    render(mode, 'league2', undefined, initial);
+    expect(mocks.board.mock.lastCall?.[0].matchups[0].sides[0].team).toEqual({ ...initial.teams[0], managerName: 'tylerawildman' });
+    expect(mocks.snapshot.mock.lastCall?.[0].data).toBe(initial);
+
+    const update = structuredClone(initial);
+    update.matchups[0].sides[0].points = 37.5;
+    mocks.currentSnapshot = update;
+    render(mode, 'league2', undefined, initial);
+    const shown = mocks.board.mock.lastCall?.[0].matchups[0].sides[0];
+    expect(shown.team.managerName).toBe('tylerawildman');
+    expect(shown.points).toBe(37.5);
+    expect(shown.starters).toBe(update.matchups[0].sides[0].starters);
+    expect(shown.bench).toBe(update.matchups[0].sides[0].bench);
+    expect(update.matchups[0].sides[0].team.managerName).toBe('eneerg');
+    expect(JSON.stringify(initial)).toBe(sourceBefore);
+    expect(mocks.select).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['league1', '2026', 1, 'eneerg'], ['dynasty', '2026', 1, 'eneerg'],
+    ['league2', '2025', 1, 'eneerg'], ['league2', '2027', 1, 'eneerg'],
+    ['league2', '2026', 5, 'eneerg'], ['league2', '2026', 1, 'New manager'],
+  ] as const)('preserves an unrelated snapshot manager in %s, season %s, roster %i, name %s', (leagueKey, season, rosterId, managerName) => {
+    const payload = structuredClone(data);
+    payload.league.season = season;
+    const displayedTeam = payload.matchups[0].sides[0].team;
+    displayedTeam.id = rosterId;
+    displayedTeam.managerName = managerName;
+    render('matchups', leagueKey, undefined, payload);
+    expect(mocks.board.mock.lastCall?.[0].matchups[0].sides[0].team).toBe(displayedTeam);
+  });
 
   it.each(['matchups', 'my-team'] as const)('keeps current standings independent of snapshot order and selected-team reversal in %s', mode => {
     const standings: CurrentStandings = { leagueId: 'official', season: '2026', playoffTeams: 6, places: { 1: 12, 2: 8, 3: 1, 4: 6 } };
