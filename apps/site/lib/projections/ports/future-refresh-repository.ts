@@ -59,6 +59,8 @@ export type FutureMaterializationRefreshState = Readonly<{
   lastSourceRevision: string | null;
   lastSlate: FutureProjectionSlateLineage | null;
   lastSnapshotRevision: string | null;
+  /** Existing snapshot predates the requested probability model, regardless of cadence. */
+  probabilityRefreshNeeded?: boolean;
   consecutiveFailures: number;
   lastFailureCode: FutureRefreshFailureCode | null;
   activeAttemptExpiresAt: string | null;
@@ -113,6 +115,7 @@ export type FutureRefreshRepositoryPort = Readonly<{
     projectionSource: ProviderKey;
     normalizerVersion: string;
     modelVersion: string;
+    winProbabilityModelVersion?: string;
     targets: readonly FutureRefreshTarget[];
     leagueKeys: readonly string[];
     asOf: string;
@@ -148,6 +151,7 @@ export type FutureRefreshRepositoryPort = Readonly<{
     projectionSource: ProviderKey;
     normalizerVersion: string;
     modelVersion: string;
+    winProbabilityModelVersion?: string;
     period: LeaguePeriod;
     attemptId: FutureRefreshAttemptId;
     attemptedAt: string;

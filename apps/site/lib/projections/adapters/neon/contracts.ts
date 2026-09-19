@@ -519,6 +519,7 @@ export type StoreFutureMaterializationRefreshState = Readonly<{
   lastSourceRevision: string | null;
   lastSlate: StoreFutureProjectionSlateLineage | null;
   lastSnapshotRevision: string | null;
+  probabilityRefreshNeeded?: boolean;
   consecutiveFailures: number;
   lastFailureCode: FutureRefreshFailureCode | null;
   activeAttemptExpiresAt: string | null;
@@ -647,6 +648,7 @@ export type ProjectionStore = LineupWatchMethods & LineupAcknowledgmentMethods &
     projectionProvider: string;
     normalizerVersion: string;
     modelVersion: string;
+    winProbabilityModelVersion?: string;
     targets: readonly StoreFutureRefreshTarget[];
     leagueKeys: readonly string[];
     asOf: string;
@@ -682,6 +684,7 @@ export type ProjectionStore = LineupWatchMethods & LineupAcknowledgmentMethods &
     projectionProvider: string;
     normalizerVersion: string;
     modelVersion: string;
+    winProbabilityModelVersion?: string;
     period: StoreFutureRefreshPeriod;
     attemptId: string;
     attemptedAt: string;

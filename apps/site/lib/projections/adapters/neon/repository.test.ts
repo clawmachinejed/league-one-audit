@@ -13,6 +13,7 @@ import type {
   ProjectionSlateObservationId,
   ScoringProfileId,
 } from '../../ports/projection-repository';
+import type { FutureRefreshAttemptId } from '../../ports/future-refresh-repository';
 import type { NflGameId, ScoringEntityId } from '../../ports/identity-crosswalk';
 import {
   externalGameRef,
@@ -197,6 +198,26 @@ function createStore(overrides: Partial<RepositoryStore> = {}): RepositoryStore 
 }
 
 describe('Neon canonical projection repository', () => {
+  it('passes probability model invalidation to plan and claim without requesting force', async () => {
+    const store = createStore();
+    const repository = createNeonProjectionRepository(store, options);
+    const base = { projectionSource: projectionProvider, normalizerVersion: 'v1',
+      modelVersion: 'clock-v1', winProbabilityModelVersion: 'normal-v2' };
+    await repository.readFutureRefreshPlan({ ...base, targets: [{ period, weekDistance: 1 }],
+      leagueKeys: ['league'], asOf: '2026-09-13T18:00:00.000Z' });
+    await repository.beginFutureMaterializationRefresh({ ...base, period, leagueKey: 'league',
+      target: { watchId: 'watch', watchGeneration: 1, authorityGeneration: 1, observedVersion: 1, lineupRevision: null },
+      attemptId: 'attempt' as FutureRefreshAttemptId, attemptedAt: '2026-09-13T18:00:00.000Z', leaseSeconds: 55 });
+    expect(store.readFutureRefreshPlan).toHaveBeenCalledWith(expect.objectContaining({
+      projectionProvider: 'projection-source', winProbabilityModelVersion: 'normal-v2',
+      targets: [{ period: { season: 2026, seasonType: 'reg', week: 1 }, weekDistance: 1 }],
+    }));
+    expect(store.beginFutureMaterializationRefresh).toHaveBeenCalledWith(expect.objectContaining({
+      projectionProvider: 'projection-source', winProbabilityModelVersion: 'normal-v2', force: undefined,
+      period: { season: 2026, seasonType: 'reg', week: 1 },
+    }));
+  });
+
   it('owns every disabled outcome without invoking or validating the low-level store', async () => {
     const store = createStore({ enabled: false });
     const repository = createNeonProjectionRepository(store, undefined as never);

@@ -51,6 +51,7 @@ function planRow(leagueKey: string, overrides: Readonly<Record<string, unknown>>
     materialization_last_failure_code: null,
     materialization_attempt_expires_at: null,
     materialization_due: true,
+    probability_refresh_needed: false,
     ...overrides,
   };
 }
@@ -86,13 +87,74 @@ describe('durable future refresh persistence', () => {
     await store.beginFutureMaterializationRefresh({...base,leagueKey:'league1',modelVersion:'clock-v1',target:lineupTarget,force:true});
     expect(fake.calls[0].parameters.at(-1)).toBe(false);
     expect(fake.calls[1].parameters.at(-1)).toBe(true);
-    expect(fake.calls[2].parameters.at(-1)).toBe(true);
+    expect(fake.calls[2].parameters[11]).toBe(true);
+    expect(fake.calls[2].parameters[12]).toBeNull();
     for(const call of fake.calls){
       expect(call.statement).toContain("job_key = 'future-projection-sync'");
       expect(call.statement).toContain("state = 'running' AND lease_until > now()");
       expect(call.statement).toContain('AND active_attempt_id IS NULL');
       expect(call.statement).toContain('AND NOT EXISTS (SELECT 1 FROM expired)');
     }
+  });
+  it('carries probability invalidation separately from eligibility and failure cooldown', async () => {
+    const fake = createFakeProjectionDatabase(() => [
+      planRow('legacy', { probability_refresh_needed: true }),
+      planRow('backed-off', { probability_refresh_needed: true, materialization_due: false,
+        materialization_consecutive_failures: 1, materialization_last_failure_code: 'game-state-unavailable' }),
+      planRow('current', { materialization_due: false }),
+    ]);
+    const store = createFutureRefreshMethods(fake.database);
+    const result = await store.readFutureRefreshPlan({
+      projectionProvider: 'tank01', normalizerVersion: 'v1', modelVersion: 'clock-v1',
+      winProbabilityModelVersion: ' normal-v2 ', targets: [target],
+      leagueKeys: ['legacy', 'backed-off', 'current'], asOf: '2026-09-13T18:00:00.000Z',
+    });
+    expect(result[0].materializations).toMatchObject([
+      { leagueKey: 'legacy', probabilityRefreshNeeded: true, due: true },
+      { leagueKey: 'backed-off', probabilityRefreshNeeded: true, due: false, consecutiveFailures: 1 },
+      { leagueKey: 'current', probabilityRefreshNeeded: false, due: false },
+    ]);
+    expect(fake.calls[0].parameters.at(-1)).toBe('normal-v2');
+    expect(fake.calls[0].statement).toContain('probability.refresh_needed AND material.consecutive_failures = 0');
+    expect(fake.calls[0].statement).toContain('material.active_attempt_expires_at <= $6::timestamptz');
+  });
+
+  it('rechecks scoped snapshot model invalidation under the materialization claim guards', async () => {
+    const fake = createFakeProjectionDatabase(() => []);
+    const store = createFutureRefreshMethods(fake.database);
+    await store.beginFutureMaterializationRefresh({
+      projectionProvider: 'tank01', normalizerVersion: 'v1', modelVersion: 'clock-v1',
+      winProbabilityModelVersion: ' normal-v2 ', period, leagueKey: 'league1', target: lineupTarget,
+      attemptId: attemptOne, attemptedAt: '2026-09-13T18:00:00.000Z', leaseSeconds: 55,
+    });
+    const { statement, parameters } = fake.calls[0];
+    expect(parameters.slice(11)).toEqual([false, 'normal-v2']);
+    expect(statement).toContain('OR (consecutive_failures = 0 AND');
+    expect(statement).toContain("lease_owner = $8::text AND state = 'running' AND lease_until > now()");
+    expect(statement).toContain('AND EXISTS (SELECT 1 FROM valid_target)');
+    expect(statement).toContain('AND active_attempt_id IS NULL');
+    expect(statement).toContain('AND NOT EXISTS (SELECT 1 FROM expired)');
+    expect(statement).toContain('probability_league.league_key = materialization.league_key');
+    expect(statement).toContain('probability_season.season = materialization.season');
+    expect(statement).toContain('probability_authority.default_season_type = materialization.season_type');
+    expect(statement).toContain('probability_connection.external_league_id = probability_authority.source_external_league_id');
+    expect(statement).toContain('probability_current.week = materialization.week');
+    expect(statement).toContain('probability_snapshot.model_version = materialization.model_version');
+    expect(statement).toContain("probability_matchup.value #>> '{winProbability,modelVersion}' IS DISTINCT FROM $13::text");
+    expect(statement).not.toContain("'{winProbability,status}'");
+  });
+
+  it('rejects blank probability model versions before planning or claiming', async () => {
+    const fake = createFakeProjectionDatabase();
+    const store = createFutureRefreshMethods(fake.database);
+    const base = { projectionProvider: 'tank01', normalizerVersion: 'v1',
+      modelVersion: 'clock-v1', winProbabilityModelVersion: ' ' };
+    await expect(store.readFutureRefreshPlan({ ...base, targets: [target], leagueKeys: ['league1'],
+      asOf: '2026-09-13T18:00:00.000Z' })).rejects.toThrow('Win probability model version must not be blank');
+    await expect(store.beginFutureMaterializationRefresh({ ...base, period, leagueKey: 'league1',
+      target: lineupTarget, attemptId: attemptOne, attemptedAt: '2026-09-13T18:00:00.000Z',
+      leaseSeconds: 55 })).rejects.toThrow('Win probability model version must not be blank');
+    expect(fake.calls).toEqual([]);
   });
   it('seeds by week distance, preserves same-tier due dates, and expedites closer tiers', async () => {
     const fake = createFakeProjectionDatabase(() => [{

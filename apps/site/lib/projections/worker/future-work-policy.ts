@@ -60,13 +60,14 @@ export function eligibleStoredSlate(plan: FutureRefreshPlanPeriod): boolean {
 function materializationReady(state: FutureMaterializationRefreshState, now: number): boolean {
   return state.due && !leased(state.activeAttemptExpiresAt, now);
 }
-function selectPlan(plan: FutureRefreshPlan, now: Date, dirtyOnly: boolean): FutureWorkSelection | null {
+function selectPlan(plan: FutureRefreshPlan, now: Date, reason: 'lineup' | 'probability' | 'routine'): FutureWorkSelection | null {
   const nowMs = now.getTime();
   const states = new Map(plan.state.materializations.map((state) => [state.leagueKey, state]));
   const eligible = plan.leagues.filter((league) => {
     const state = states.get(league.watch.configuration.key);
     if (!state || league.watch.retiredAt !== null || league.watch.materializationLane !== 'future') return false;
-    if (dirtyOnly) return hasPendingLineup(league.watch);
+    if (reason === 'lineup') return hasPendingLineup(league.watch);
+    if (reason === 'probability' && state.probabilityRefreshNeeded !== true) return false;
     if (league.defaultPeriodCadence !== null) return periodTimingCadence(league.defaultPeriodCadence, now) !== 'idle';
     return league.weekDistance === 1 || league.canaryComplete;
   });
@@ -77,7 +78,10 @@ function selectPlan(plan: FutureRefreshPlan, now: Date, dirtyOnly: boolean): Fut
       && Date.parse(league.watch.nextCheckAt) > nowMs));
   const projectionReady = plan.state.projection.due && !leased(plan.state.projection.activeAttemptExpiresAt, nowMs);
   // Dirty lineups consume an already stored valid slate before routine provider work.
-  const kind = dirtyOnly
+  // Model upgrades reuse a valid stored slate. They never force projection ingestion.
+  const kind = reason === 'probability'
+    ? usable && ready.length > 0 ? 'materialize' : null
+    : reason === 'lineup'
     ? usable ? ready.length > 0 ? 'materialize' : null : projectionReady ? 'projection-ingest' : null
     : projectionReady ? 'projection-ingest' : usable && ready.length > 0 ? 'materialize' : null;
   if (kind === null) return null;
@@ -94,7 +98,7 @@ function selectPlan(plan: FutureRefreshPlan, now: Date, dirtyOnly: boolean): Fut
       defaultPeriod: league.defaultPeriodCadence !== null,
       cadence: league.defaultPeriodCadence ? periodTimingCadence(league.defaultPeriodCadence, now) : 'hourly',
     })),
-    dirty: dirtyOnly,
+    dirty: reason === 'lineup',
     defaultPeriod: defaultLeague !== undefined,
     cadence: defaultCadence && defaultCadence !== 'idle' ? defaultCadence : 'hourly',
   };
@@ -105,7 +109,7 @@ export function selectFutureWork(plans: readonly FutureRefreshPlan[], now: Date)
   const ordered = [...plans].sort((left, right) => left.state.period.season - right.state.period.season
     || left.state.period.week - right.state.period.week);
   const dirty = ordered.flatMap((plan) => {
-    const selection = selectPlan(plan, now, true);
+    const selection = selectPlan(plan, now, 'lineup');
     if (!selection) return [];
     const selected = plan.leagues.filter((league) => selection.leagueKeys.includes(league.watch.configuration.key));
     const oldest = Math.min(...selected.map((league) => Date.parse(league.watch.pendingSince
@@ -118,8 +122,14 @@ export function selectFutureWork(plans: readonly FutureRefreshPlan[], now: Date)
     || left.selection.period.week - right.selection.period.week
     || [...left.selection.leagueKeys].sort()[0].localeCompare([...right.selection.leagueKeys].sort()[0]));
   if (dirty[0]) return dirty[0].selection;
+  // An unchanged lineup still needs the current probability model after a release.
+  // Only the affected leagues are selected; SQL repeats eligibility at claim time.
   for (const plan of ordered) {
-    const selection = selectPlan(plan, now, false);
+    const selection = selectPlan(plan, now, 'probability');
+    if (selection) return selection;
+  }
+  for (const plan of ordered) {
+    const selection = selectPlan(plan, now, 'routine');
     if (selection) return selection;
   }
   return null;

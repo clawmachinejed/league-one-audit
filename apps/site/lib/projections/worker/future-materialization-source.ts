@@ -12,6 +12,7 @@ import type {
   FutureRefreshPlanPeriod,
 } from '../ports/future-refresh-repository';
 import type { StoredProjectionSlate } from '../ports/projection-repository';
+import { WIN_PROBABILITY_MODEL_VERSION } from '../domain/win-probability';
 import type { LineupWatchState } from '../ports/lineup-watch-repository';
 import type { LineupMaterializationTarget, LineupPublicationFence } from '../domain/lineup-publication';
 import { sameExternalReference } from '../shared/provider-identity';
@@ -153,6 +154,7 @@ export async function prepareFutureMaterializations(
         projectionSource: dependencies.projectionStorage.source,
         normalizerVersion: dependencies.projectionStorage.normalizerVersion,
         modelVersion: LIVE_PROJECTION_MODEL_VERSION,
+        winProbabilityModelVersion: WIN_PROBABILITY_MODEL_VERSION,
         period: selection.period,
         attemptId: runId as FutureRefreshAttemptId,
         attemptedAt: futureTimestamp(dependencies, timing),

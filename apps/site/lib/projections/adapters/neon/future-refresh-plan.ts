@@ -7,6 +7,7 @@ import type {
   StoreFutureRefreshPlanPeriod,
 } from './contracts';
 import { json, provider, requiredText, rowBoolean, rowNumber, rowText } from './database-values';
+import { futureProbabilityRefreshNeededSql } from './future-probability-refresh-sql';
 import {
   futureRefreshTargets,
   futureRefreshFailureCode,
@@ -179,10 +180,12 @@ export function createFutureRefreshPlanMethods(
           material.last_projection_slate_observation_id::text AS materialization_last_observation_id,
           material.last_projection_slate_content_id::text AS materialization_last_content_id,
           material.last_snapshot_revision,
+          probability.refresh_needed AS probability_refresh_needed,
           material.consecutive_failures AS materialization_consecutive_failures,
           material.last_failure_code AS materialization_last_failure_code,
           material.active_attempt_expires_at::text AS materialization_attempt_expires_at,
-          (material.next_refresh_at <= $6::timestamptz
+          ((material.next_refresh_at <= $6::timestamptz
+              OR (probability.refresh_needed AND material.consecutive_failures = 0))
             AND (material.active_attempt_id IS NULL
               OR material.active_attempt_expires_at <= $6::timestamptz)) AS materialization_due
         FROM requested_periods period
@@ -219,6 +222,9 @@ export function createFutureRefreshPlanMethods(
           AND current_observation.week = current_slate.week
           AND current_observation.normalizer_version = current_slate.normalizer_version
           AND current_observation.quality = 'complete'
+        CROSS JOIN LATERAL (
+          SELECT ${futureProbabilityRefreshNeededSql('plan')} AS refresh_needed
+        ) probability
         ORDER BY period.week_distance, period.season, period.season_type,
           period.week, material.league_key`, [
         json(targets.map((value) => ({
@@ -233,6 +239,8 @@ export function createFutureRefreshPlanMethods(
         requiredText(input.modelVersion, 'Projection model version'),
         leagueKeys,
         futureRefreshTimestamp(input.asOf, 'Future refresh plan time'),
+        input.winProbabilityModelVersion === undefined ? null
+          : requiredText(input.winProbabilityModelVersion, 'Win probability model version'),
       ]);
 
       const grouped = new Map<string, StoreFutureRefreshPlanPeriod>();
@@ -257,6 +265,7 @@ export function createFutureRefreshPlanMethods(
             'materialization_last_content_id',
           ),
           lastSnapshotRevision: nullableRowText(row, 'last_snapshot_revision'),
+          probabilityRefreshNeeded: rowBoolean(row, 'probability_refresh_needed'),
           consecutiveFailures: rowNumber(row, 'materialization_consecutive_failures'),
           lastFailureCode: failureCode(row, 'materialization_last_failure_code'),
           activeAttemptExpiresAt: nullableRowText(row, 'materialization_attempt_expires_at'),

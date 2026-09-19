@@ -1,5 +1,6 @@
 import type { LeagueConfiguration } from '../domain/contracts';
 import { LINEUP_AUTHORITY_MAX_AGE_MS } from '../domain/period-classification';
+import { WIN_PROBABILITY_MODEL_VERSION } from '../domain/win-probability';
 import type { FutureRefreshPlanPeriod, FutureRefreshTarget } from '../ports/future-refresh-repository';
 import type { LineupWatchState } from '../ports/lineup-watch-repository';
 import type { LineupPeriodAuthority } from '../ports/period-authority-reader';
@@ -59,7 +60,9 @@ async function readPlans(
       ...batch,
     };
     if (ensure) await dependencies.repository.ensureFutureRefreshStates({ ...input, seededAt: at });
-    for (const plan of await dependencies.repository.readFutureRefreshPlan({ ...input, asOf: at })) {
+    for (const plan of await dependencies.repository.readFutureRefreshPlan({
+      ...input, winProbabilityModelVersion: WIN_PROBABILITY_MODEL_VERSION, asOf: at,
+    })) {
       const key = futureProviderGroup(plan.period);
       const existing = plans.get(key);
       const allowed = plan.materializations.filter((state) => batch.leagueKeys.includes(state.leagueKey)
