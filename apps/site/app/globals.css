@@ -226,7 +226,9 @@ h1{font-weight:800;font-size:38px;line-height:1.12;letter-spacing:-.055em;overfl
 .manager-card-name{min-width:0;overflow-wrap:anywhere}
 .manager-name-with-honors{white-space:normal;overflow-wrap:anywhere}
 .manager-championships{display:inline;white-space:normal}
-.manager-championship-trophy{display:inline-block;width:calc(1ex * 1145 / 1373);height:1ex;object-fit:contain;vertical-align:baseline}
+.manager-championship-trophy{display:inline-block;width:calc(1cap * 1145 / 1373);height:1cap;object-fit:contain;vertical-align:baseline}
+.manager-card-name .manager-championships{display:inline-flex;align-items:center;gap:1px;vertical-align:middle}
+.manager-card-name .manager-championship-trophy{display:block;width:17px;height:20px}
 .manager-card-meta{display:flex;min-width:0;align-items:center;gap:3px;color:var(--muted);font-size:11px;line-height:14px}
 .manager-card-team{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .manager-card-selected{flex-shrink:0;margin-left:3px;color:var(--green);font-weight:700;white-space:nowrap}

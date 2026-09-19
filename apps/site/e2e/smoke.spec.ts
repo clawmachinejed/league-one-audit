@@ -1106,20 +1106,19 @@ test('both Managers pages reuse the Matchups intro with compact profile rows', a
             const heading = element.closest('h2')!.getBoundingClientRect();
             const name = element.closest('[data-manager-name]')!;
             const range = document.createRange();
-            range.selectNodeContents(name.firstChild!);
+            range.selectNodeContents(name.querySelector('[data-manager-name-text]')!);
             const text = range.getBoundingClientRect();
             const images = [...element.querySelectorAll('img')];
             const first = images[0].getBoundingClientRect();
-            const fontSize = Number.parseFloat(getComputedStyle(name).fontSize);
             return { afterName: first.left >= text.right || first.top >= text.bottom,
               withinHeading: images.every(image => {
                 const rect = image.getBoundingClientRect();
                 return rect.left >= heading.left - 1 && rect.right <= heading.right + 1
                   && rect.top >= heading.top - 1 && rect.bottom <= heading.bottom + 1;
               }),
-              lowercaseScale: images.every(image => image.height > 0 && image.height < fontSize * 0.75) };
+              originalSize: images.every(image => image.width === 17 && image.height === 20) };
           });
-          expect(fit).toEqual({ afterName: true, withinHeading: true, lowercaseScale: true });
+          expect(fit).toEqual({ afterName: true, withinHeading: true, originalSize: true });
           await expect.poll(() => trophies.locator('img').evaluateAll(images =>
             images.every(image => image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0))).toBe(true);
         }

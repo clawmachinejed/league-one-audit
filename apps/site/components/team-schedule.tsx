@@ -23,7 +23,7 @@ export function TeamSchedule({ team, weeks }: { team: Team; weeks: MyTeamSchedul
         </div>
         <div className={`${styles.team} ${styles.opponent}`} data-schedule-side="opponent">
           {entry.opponent?.name ?? 'Opponent unavailable'}
-          {entry.opponent && <ManagerName team={entry.opponent} className={styles.manager} />}
+          {entry.opponent && <ManagerName team={entry.opponent} className={styles.manager} trophiesBefore />}
         </div>
       </div>
     </li>)}

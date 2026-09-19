@@ -78,7 +78,7 @@ function TeamMeta({ team, opposite, avatar, standings }: {
     ? place <= 6 ? 'playoff' : place <= 10 ? 'middle' : place <= 12 ? 'relegation' : 'neutral'
     : site.key === 'league2' && standings?.playoffTeams != null && place <= standings.playoffTeams ? 'playoff' : 'neutral';
   return <span className={`${styles.teamMeta} ${opposite ? styles.oppositeMeta : ''}`} data-team-meta={opposite ? 'right' : 'left'}>
-    {avatar(team)}<ManagerName team={team} className={styles.manager} />
+    {avatar(team)}<ManagerName team={team} className={styles.manager} trophiesBefore={opposite} />
     <span className={styles.recordGroup}>
       {place !== null && <strong className={styles.place} data-team-place={team.id} data-place-tone={tone}
         title={`${placeLabel(place)} in actual standings`} aria-label={`${placeLabel(place)} in actual standings`}>{placeLabel(place)}</strong>}
