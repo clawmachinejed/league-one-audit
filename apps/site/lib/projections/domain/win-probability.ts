@@ -1,7 +1,7 @@
 import type { MatchupStatus, NflGamePhase, ProjectionPointQuality } from './contracts';
 import type { LiveProjectionKind } from './live-calculation';
 
-export const WIN_PROBABILITY_MODEL_VERSION = 'normal-v1' as const;
+export const WIN_PROBABILITY_MODEL_VERSION = 'normal-v2' as const;
 
 export type WinProbabilityPlayerInput = Readonly<{
   position: string;
@@ -11,6 +11,8 @@ export type WinProbabilityPlayerInput = Readonly<{
   baselinePoints: number | null;
   projectionQuality: ProjectionPointQuality;
   officialPoints: number | null;
+  /** Caller-proved requested-period Out designation. Never inferred from a zero baseline. */
+  expectedRemainingPointsZero?: boolean;
 }>;
 
 export type WinProbabilitySideInput = Readonly<{
@@ -43,7 +45,7 @@ export type WinProbabilityResult = ModelIdentity & (
   | Readonly<{ status: 'unavailable'; reason: WinProbabilityUnavailableReason }>
 );
 
-// Initial, uncalibrated normal-v1 assumptions in fantasy-point units. Errors
+// Uncalibrated position assumptions retained from normal-v1, in fantasy-point units. Errors
 // are treated as independent. Scoring-scaled baseline magnitudes affect SD;
 // floors are not a fitted model of every league's scoring rules or correlations.
 const OFFENSE_UNCERTAINTY: Readonly<Record<string, Readonly<{ floor: number; ratio: number }>>> = {
@@ -88,6 +90,19 @@ function playerVariance(player: WinProbabilityPlayerInput): number | WinProbabil
       : 'missing-official-points';
   }
   if (player.phase !== 'pregame' && !isLive(player.phase)) return 'unknown-game-state';
+  if (player.expectedRemainingPointsZero === true) {
+    if (player.phase === 'pregame') {
+      // A pregame expectation may be zero without an actual observation. It
+      // must not silently erase a contradictory nonzero observed score.
+      if (finite(player.officialPoints) && player.officialPoints !== 0) return 'invalid-input';
+    } else {
+      if (!finite(player.remainingFraction)) return 'unknown-game-state';
+      if (!finite(player.officialPoints)) return 'missing-official-points';
+    }
+    // Out means no further points are expected. Live actuals, including points
+    // scored before an injury, remain part of the caller's canonical mean.
+    return 0;
+  }
   if (!finite(player.baselinePoints)) return 'missing-projection';
   const expectedQuality = player.phase === 'pregame'
     ? 'pregame-baseline'
@@ -137,6 +152,7 @@ export function calculateWinProbability(input: WinProbabilityInput): WinProbabil
       || !finiteOrNull(player.baselinePoints) || !finiteOrNull(player.remainingFraction)
       || (finite(player.remainingFraction) && (player.remainingFraction < 0 || player.remainingFraction > 1))
       || typeof player.position !== 'string' || player.position.trim().length === 0
+      || (player.expectedRemainingPointsZero !== undefined && typeof player.expectedRemainingPointsZero !== 'boolean')
       || !['offense', 'kicker', 'defense'].includes(player.kind)))) {
     return unavailable('invalid-input');
   }
@@ -171,7 +187,7 @@ export function calculateWinProbability(input: WinProbabilityInput): WinProbabil
     variance += contribution;
   }
   if (!Number.isFinite(variance)) return unavailable('invalid-input');
-  // All byes/empty slots cannot establish matchup finality on their own.
+  // All Out/byes/empty slots cannot establish matchup finality on their own.
   if (variance <= 0) return unavailable('unknown-game-state');
   const meanDifference = left.projectedPoints - right.projectedPoints;
   if (!Number.isFinite(meanDifference)) return unavailable('invalid-input');

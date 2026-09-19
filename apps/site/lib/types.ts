@@ -125,7 +125,7 @@ export interface MatchupSide {
 }
 
 export type MatchupWinProbability = {
-  modelVersion: 'normal-v1';
+  modelVersion: 'normal-v1' | 'normal-v2';
   status: 'estimated' | 'final' | 'tie';
   /** Keyed by team identity so changing the displayed side preserves the estimate. */
   teams: readonly [
@@ -133,7 +133,7 @@ export type MatchupWinProbability = {
     { teamId: number; probability: number },
   ];
 } | {
-  modelVersion: 'normal-v1';
+  modelVersion: 'normal-v1' | 'normal-v2';
   status: 'unavailable';
   reason: string;
 };

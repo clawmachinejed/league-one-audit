@@ -133,6 +133,34 @@ function input(overrides: Partial<ProjectionSyncInput> = {}): ProjectionSyncInpu
 }
 
 describe('Sleeper league-source adapter', () => {
+  it('retains exact current player-status scope in the domain input and its source revision', async () => {
+    const source = input({ currentPlayerStatusPeriod: targetPeriod });
+    const load = vi.fn(async () => source);
+    const result = await createSleeperLeagueSource(load).getLeagueWeek(configuration, targetPeriod);
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(result.currentPlayerStatusPeriod).toEqual(targetPeriod);
+    expect(result.sourceRevision).toBe(compatibleRevision({
+      requestStartedAt: source.requestStartedAt, requestCompletedAt: source.requestCompletedAt,
+      data: source.data, currentPlayerStatusPeriod: targetPeriod,
+    }));
+    expect(result.matchups[0].sides[0].starters[0]).toMatchObject({ officialPoints: 12.3 });
+    const unscoped = await createSleeperLeagueSource(async () => input({ currentPlayerStatusPeriod: null }))
+      .getLeagueWeek(configuration, targetPeriod);
+    expect(unscoped.currentPlayerStatusPeriod).toBeNull();
+    expect(unscoped.sourceRevision).not.toBe(result.sourceRevision);
+  });
+
+  it.each([
+    { ...targetPeriod, week: 2 },
+    { ...targetPeriod, season: 2025 },
+    { ...targetPeriod, seasonType: 'preseason' as const },
+  ])('does not apply current player status from another period %j', async (currentPlayerStatusPeriod) => {
+    const result = await createSleeperLeagueSource(async () => input({ currentPlayerStatusPeriod }))
+      .getLeagueWeek(configuration, targetPeriod);
+    expect(result.currentPlayerStatusPeriod).toBeNull();
+    expect(result.matchups[0].sides[0].starters[0]).toMatchObject({ officialPoints: 12.3 });
+  });
+
   it('uses exact-week nonstarter membership and raw official points without another load', async () => {
     const source = input();
     source.rawMatchups[0].players = ['p1', 'p2', 'JAX'];

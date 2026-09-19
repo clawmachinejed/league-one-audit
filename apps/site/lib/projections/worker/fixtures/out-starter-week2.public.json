@@ -1,0 +1,825 @@
+{
+  "description": "Real sanitized public Week 2 matchup observations. Canonical worker inputs are constructed in the neighboring regression test, not captured private provider or database records.",
+  "capturedAt": "2026-09-19T02:40:01.147Z",
+  "sourceArtifactSha256": "77e90e661a536398185a4ba71f62582b4627593dc91efc77660304cb6c0f37a5",
+  "canonicalConstruction": {
+    "sourceIdentities": "Public player/defense IDs and scoped roster IDs are retained; league source IDs, canonical IDs, revisions and dummy participant labels are test-only.",
+    "baselines": "Non-target baseline quality is constructed as complete with captured display projection values. Target missing baseline is a constructed failure condition; public payload does not expose baseline quality.",
+    "gameState": "Final phases follow captured finalScore. Other games are constructed pregame only when captured kickoff is later than capture time. Canonical game IDs, status codes and timestamps are test-only.",
+    "periodScope": "Current player-status period is supplied by the test. Alternate requested weeks are synthetic scope regressions, not historical or future source captures."
+  },
+  "cases": [
+    {
+      "leagueKey": "league1",
+      "period": {
+        "season": "2026",
+        "week": 2
+      },
+      "targetPlayerId": "5849",
+      "matchup": {
+        "id": "1",
+        "status": "live",
+        "winProbability": {
+          "reason": "missing-projection",
+          "status": "unavailable",
+          "modelVersion": "normal-v1"
+        },
+        "sides": [
+          {
+            "teamId": 8,
+            "points": 68.22,
+            "projectedPoints": 135.67000000000002,
+            "starters": [
+              {
+                "id": "4984",
+                "name": "Josh Allen",
+                "position": "QB",
+                "nflTeam": "BUF",
+                "slot": "QB",
+                "injuryStatus": null,
+                "points": 47.82,
+                "projectedPoints": 27.48,
+                "game": {
+                  "date": "2026-09-17",
+                  "kind": "scheduled",
+                  "location": "home",
+                  "opponent": "DET",
+                  "kickoffAt": "2026-09-18T00:15:00.000Z",
+                  "finalScore": {
+                    "teamScore": 41,
+                    "opponentScore": 31
+                  }
+                }
+              },
+              {
+                "id": "8138",
+                "name": "James Cook",
+                "position": "RB",
+                "nflTeam": "BUF",
+                "slot": "RB",
+                "injuryStatus": null,
+                "points": 20.4,
+                "projectedPoints": 16.98,
+                "game": {
+                  "date": "2026-09-17",
+                  "kind": "scheduled",
+                  "location": "home",
+                  "opponent": "DET",
+                  "kickoffAt": "2026-09-18T00:15:00.000Z",
+                  "finalScore": {
+                    "teamScore": 41,
+                    "opponentScore": 31
+                  }
+                }
+              },
+              {
+                "id": "12512",
+                "name": "Quinshon Judkins",
+                "position": "RB",
+                "nflTeam": "CLE",
+                "slot": "RB",
+                "injuryStatus": null,
+                "points": 0,
+                "projectedPoints": 11.360000000000001,
+                "game": {
+                  "date": "2026-09-20",
+                  "kind": "scheduled",
+                  "location": "away",
+                  "opponent": "TB",
+                  "kickoffAt": "2026-09-20T17:00:00.000Z"
+                }
+              },
+              {
+                "id": "6786",
+                "name": "CeeDee Lamb",
+                "position": "WR",
+                "nflTeam": "DAL",
+                "slot": "WR",
+                "injuryStatus": null,
+                "points": 0,
+                "projectedPoints": 15.659999999999998,
+                "game": {
+                  "date": "2026-09-20",
+                  "kind": "scheduled",
+                  "location": "home",
+                  "opponent": "WAS",
+                  "kickoffAt": "2026-09-20T20:25:00.000Z"
+                }
+              },
+              {
+                "id": "11628",
+                "name": "Marvin Harrison",
+                "position": "WR",
+                "nflTeam": "ARI",
+                "slot": "WR",
+                "injuryStatus": null,
+                "points": 0,
+                "projectedPoints": 8.29,
+                "game": {
+                  "date": "2026-09-20",
+                  "kind": "scheduled",
+                  "location": "home",
+                  "opponent": "SEA",
+                  "kickoffAt": "2026-09-20T20:25:00.000Z"
+                }
+              },
+              {
+                "id": "1466",
+                "name": "Travis Kelce",
+                "position": "TE",
+                "nflTeam": "KC",
+                "slot": "TE",
+                "injuryStatus": null,
+                "points": 0,
+                "projectedPoints": 8.39,
+                "game": {
+                  "date": "2026-09-20",
+                  "kind": "scheduled",
+                  "location": "home",
+                  "opponent": "IND",
+                  "kickoffAt": "2026-09-21T00:20:00.000Z"
+                }
+              },
+              {
+                "id": "5045",
+                "name": "Courtland Sutton",
+                "position": "WR",
+                "nflTeam": "DEN",
+                "slot": "FLEX",
+                "injuryStatus": null,
+                "points": 0,
+                "projectedPoints": 9.32,
+                "game": {
+                  "date": "2026-09-20",
+                  "kind": "scheduled",
+                  "location": "home",
+                  "opponent": "JAX",
+                  "kickoffAt": "2026-09-20T20:05:00.000Z"
+                }
+              },
+              {
+                "id": "10222",
+                "name": "Jayden Reed",
+                "position": "WR",
+                "nflTeam": "GB",
+                "slot": "FLEX",
+                "injuryStatus": null,
+                "points": 0,
+                "projectedPoints": 8.129999999999999,
+                "game": {
+                  "date": "2026-09-20",
+                  "kind": "scheduled",
+                  "location": "away",
+                  "opponent": "NYJ",
+                  "kickoffAt": "2026-09-20T17:00:00.000Z"
+                }
+              },
+              {
+                "id": "LAR",
+                "name": "Los Angeles Rams",
+                "position": "DEF",
+                "nflTeam": "LAR",
+                "slot": "DEF",
+                "injuryStatus": null,
+                "points": 0,
+                "projectedPoints": 6.300000000000001,
+                "game": {
+                  "date": "2026-09-21",
+                  "kind": "scheduled",
+                  "location": "home",
+                  "opponent": "NYG",
+                  "kickoffAt": "2026-09-22T00:15:00.000Z"
+                }
+              }
+            ]
+          },
+          {
+            "teamId": 10,
+            "points": 0,
+            "projectedPoints": 89.41,
+            "starters": [
+              {
+                "id": "5849",
+                "name": "Kyler Murray",
+                "position": "QB",
+                "nflTeam": "MIN",
+                "slot": "QB",
+                "injuryStatus": "Out",
+                "points": 0,
+                "projectedPoints": 0,
+                "game": {
+                  "date": "2026-09-20",
+                  "kind": "scheduled",
+                  "location": "away",
+                  "opponent": "CHI",
+                  "kickoffAt": "2026-09-20T17:00:00.000Z"
+                }
+              },
+              {
+                "id": "8151",
+                "name": "Kenneth Walker",
+                "position": "RB",
+                "nflTeam": "KC",
+                "slot": "RB",
+                "injuryStatus": null,
+                "points": 0,
+                "projectedPoints": 15.56,
+                "game": {
+                  "date": "2026-09-20",
+                  "kind": "scheduled",
+                  "location": "home",
+                  "opponent": "IND",
+                  "kickoffAt": "2026-09-21T00:20:00.000Z"
+                }
+              },
+              {
+                "id": "6790",
+                "name": "D'Andre Swift",
+                "position": "RB",
+                "nflTeam": "CHI",
+                "slot": "RB",
+                "injuryStatus": null,
+                "points": 0,
+                "projectedPoints": 10.840000000000002,
+                "game": {
+                  "date": "2026-09-20",
+                  "kind": "scheduled",
+                  "location": "home",
+                  "opponent": "MIN",
+                  "kickoffAt": "2026-09-20T17:00:00.000Z"
+                }
+              },
+              {
+                "id": "6794",
+                "name": "Justin Jefferson",
+                "position": "WR",
+                "nflTeam": "MIN",
+                "slot": "WR",
+                "injuryStatus": null,
+                "points": 0,
+                "projectedPoints": 14.16,
+                "game": {
+                  "date": "2026-09-20",
+                  "kind": "scheduled",
+                  "location": "away",
+                  "opponent": "CHI",
+                  "kickoffAt": "2026-09-20T17:00:00.000Z"
+                }
+              },
+              {
+                "id": "8144",
+                "name": "Chris Olave",
+                "position": "WR",
+                "nflTeam": "NO",
+                "slot": "WR",
+                "injuryStatus": "Questionable",
+                "points": 0,
+                "projectedPoints": 12.870000000000001,
+                "game": {
+                  "date": "2026-09-20",
+                  "kind": "scheduled",
+                  "location": "away",
+                  "opponent": "BAL",
+                  "kickoffAt": "2026-09-20T17:00:00.000Z"
+                }
+              },
+              {
+                "id": "9484",
+                "name": "Tucker Kraft",
+                "position": "TE",
+                "nflTeam": "GB",
+                "slot": "TE",
+                "injuryStatus": null,
+                "points": 0,
+                "projectedPoints": 9.33,
+                "game": {
+                  "date": "2026-09-20",
+                  "kind": "scheduled",
+                  "location": "away",
+                  "opponent": "NYJ",
+                  "kickoffAt": "2026-09-20T17:00:00.000Z"
+                }
+              },
+              {
+                "id": "5846",
+                "name": "DK Metcalf",
+                "position": "WR",
+                "nflTeam": "PIT",
+                "slot": "FLEX",
+                "injuryStatus": null,
+                "points": 0,
+                "projectedPoints": 10.3,
+                "game": {
+                  "date": "2026-09-20",
+                  "kind": "scheduled",
+                  "location": "away",
+                  "opponent": "NE",
+                  "kickoffAt": "2026-09-20T17:00:00.000Z"
+                }
+              },
+              {
+                "id": "2449",
+                "name": "Stefon Diggs",
+                "position": "WR",
+                "nflTeam": "WAS",
+                "slot": "FLEX",
+                "injuryStatus": null,
+                "points": 0,
+                "projectedPoints": 10.850000000000001,
+                "game": {
+                  "date": "2026-09-20",
+                  "kind": "scheduled",
+                  "location": "away",
+                  "opponent": "DAL",
+                  "kickoffAt": "2026-09-20T20:25:00.000Z"
+                }
+              },
+              {
+                "id": "NE",
+                "name": "New England Patriots",
+                "position": "DEF",
+                "nflTeam": "NE",
+                "slot": "DEF",
+                "injuryStatus": null,
+                "points": 0,
+                "projectedPoints": 5.499999999999999,
+                "game": {
+                  "date": "2026-09-20",
+                  "kind": "scheduled",
+                  "location": "home",
+                  "opponent": "PIT",
+                  "kickoffAt": "2026-09-20T17:00:00.000Z"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "provenance": {
+        "full": {
+          "url": "https://www.league1fantasy.com/api/matchups/league1?week=2",
+          "startedAt": "2026-09-19T02:40:00.641Z",
+          "checkedAt": "2026-09-19T02:40:01.036Z",
+          "httpStatus": 200,
+          "headers": {
+            "cache-control": "public",
+            "x-projection-snapshot-revision": "efc7e9095effd7a2865cfd84146e77cbbe96cbbc162ca476733a36f79726286f",
+            "x-projection-verified-at": "2026-09-19T02:02:18.530Z",
+            "x-league-active-season": "2026",
+            "x-league-active-week": "2",
+            "x-league-default-week": "2"
+          }
+        },
+        "compact": {
+          "url": "https://www.league1fantasy.com/api/matchups/league1/revision?week=2",
+          "startedAt": "2026-09-19T02:40:00.668Z",
+          "checkedAt": "2026-09-19T02:40:00.834Z",
+          "httpStatus": 200,
+          "headers": {
+            "cache-control": "no-store",
+            "x-league-active-season": "2026",
+            "x-league-active-week": "2",
+            "x-league-default-week": "2"
+          },
+          "response": {
+            "status": "ok",
+            "revision": "efc7e9095effd7a2865cfd84146e77cbbe96cbbc162ca476733a36f79726286f",
+            "verifiedAt": "2026-09-19T02:02:18.530Z"
+          }
+        },
+        "sameRevision": true
+      }
+    },
+    {
+      "leagueKey": "league2",
+      "period": {
+        "season": "2026",
+        "week": 2
+      },
+      "targetPlayerId": "7569",
+      "matchup": {
+        "id": "3",
+        "status": "live",
+        "winProbability": {
+          "reason": "missing-projection",
+          "status": "unavailable",
+          "modelVersion": "normal-v1"
+        },
+        "sides": [
+          {
+            "teamId": 4,
+            "points": 34.5,
+            "projectedPoints": 113.65,
+            "starters": [
+              {
+                "id": "3294",
+                "name": "Dak Prescott",
+                "position": "QB",
+                "nflTeam": "DAL",
+                "slot": "QB",
+                "injuryStatus": null,
+                "points": 0,
+                "projectedPoints": 24.610000000000007,
+                "game": {
+                  "date": "2026-09-20",
+                  "kind": "scheduled",
+                  "location": "home",
+                  "opponent": "WAS",
+                  "kickoffAt": "2026-09-20T20:25:00.000Z"
+                }
+              },
+              {
+                "id": "9221",
+                "name": "Jahmyr Gibbs",
+                "position": "RB",
+                "nflTeam": "DET",
+                "slot": "RB",
+                "injuryStatus": null,
+                "points": 20.3,
+                "projectedPoints": 21.48,
+                "game": {
+                  "date": "2026-09-17",
+                  "kind": "scheduled",
+                  "location": "away",
+                  "opponent": "BUF",
+                  "kickoffAt": "2026-09-18T00:15:00.000Z",
+                  "finalScore": {
+                    "teamScore": 31,
+                    "opponentScore": 41
+                  }
+                }
+              },
+              {
+                "id": "8150",
+                "name": "Kyren Williams",
+                "position": "RB",
+                "nflTeam": "LAR",
+                "slot": "RB",
+                "injuryStatus": null,
+                "points": 0,
+                "projectedPoints": 14.31,
+                "game": {
+                  "date": "2026-09-21",
+                  "kind": "scheduled",
+                  "location": "home",
+                  "opponent": "NYG",
+                  "kickoffAt": "2026-09-22T00:15:00.000Z"
+                }
+              },
+              {
+                "id": "11635",
+                "name": "Ladd McConkey",
+                "position": "WR",
+                "nflTeam": "LAC",
+                "slot": "WR",
+                "injuryStatus": "Questionable",
+                "points": 0,
+                "projectedPoints": 9.66,
+                "game": {
+                  "date": "2026-09-20",
+                  "kind": "scheduled",
+                  "location": "home",
+                  "opponent": "LV",
+                  "kickoffAt": "2026-09-20T20:05:00.000Z"
+                }
+              },
+              {
+                "id": "2133",
+                "name": "Davante Adams",
+                "position": "WR",
+                "nflTeam": "LAR",
+                "slot": "WR",
+                "injuryStatus": null,
+                "points": 0,
+                "projectedPoints": 9.85,
+                "game": {
+                  "date": "2026-09-21",
+                  "kind": "scheduled",
+                  "location": "home",
+                  "opponent": "NYG",
+                  "kickoffAt": "2026-09-22T00:15:00.000Z"
+                }
+              },
+              {
+                "id": "10859",
+                "name": "Sam LaPorta",
+                "position": "TE",
+                "nflTeam": "DET",
+                "slot": "TE",
+                "injuryStatus": null,
+                "points": 14.2,
+                "projectedPoints": 8.64,
+                "game": {
+                  "date": "2026-09-17",
+                  "kind": "scheduled",
+                  "location": "away",
+                  "opponent": "BUF",
+                  "kickoffAt": "2026-09-18T00:15:00.000Z",
+                  "finalScore": {
+                    "teamScore": 31,
+                    "opponentScore": 41
+                  }
+                }
+              },
+              {
+                "id": "13414",
+                "name": "Kaelon Black",
+                "position": "RB",
+                "nflTeam": "SF",
+                "slot": "FLEX",
+                "injuryStatus": "Questionable",
+                "points": 0,
+                "projectedPoints": 6.03,
+                "game": {
+                  "date": "2026-09-20",
+                  "kind": "scheduled",
+                  "location": "home",
+                  "opponent": "MIA",
+                  "kickoffAt": "2026-09-20T20:25:00.000Z"
+                }
+              },
+              {
+                "id": "5022",
+                "name": "Dallas Goedert",
+                "position": "TE",
+                "nflTeam": "PHI",
+                "slot": "FLEX",
+                "injuryStatus": null,
+                "points": 0,
+                "projectedPoints": 8.19,
+                "game": {
+                  "date": "2026-09-20",
+                  "kind": "scheduled",
+                  "location": "away",
+                  "opponent": "TEN",
+                  "kickoffAt": "2026-09-20T17:00:00.000Z"
+                }
+              },
+              {
+                "id": "SEA",
+                "name": "Seattle Seahawks",
+                "position": "DEF",
+                "nflTeam": "SEA",
+                "slot": "DEF",
+                "injuryStatus": null,
+                "points": 0,
+                "projectedPoints": 6.5,
+                "game": {
+                  "date": "2026-09-20",
+                  "kind": "scheduled",
+                  "location": "away",
+                  "opponent": "ARI",
+                  "kickoffAt": "2026-09-20T20:25:00.000Z"
+                }
+              }
+            ]
+          },
+          {
+            "teamId": 6,
+            "points": 0,
+            "projectedPoints": 86.33,
+            "starters": [
+              {
+                "id": "11564",
+                "name": "Drake Maye",
+                "position": "QB",
+                "nflTeam": "NE",
+                "slot": "QB",
+                "injuryStatus": null,
+                "points": 0,
+                "projectedPoints": 22.030000000000005,
+                "game": {
+                  "date": "2026-09-20",
+                  "kind": "scheduled",
+                  "location": "home",
+                  "opponent": "PIT",
+                  "kickoffAt": "2026-09-20T17:00:00.000Z"
+                }
+              },
+              {
+                "id": "12490",
+                "name": "Bhayshul Tuten",
+                "position": "RB",
+                "nflTeam": "JAX",
+                "slot": "RB",
+                "injuryStatus": null,
+                "points": 0,
+                "projectedPoints": 8.45,
+                "game": {
+                  "date": "2026-09-20",
+                  "kind": "scheduled",
+                  "location": "away",
+                  "opponent": "DEN",
+                  "kickoffAt": "2026-09-20T20:05:00.000Z"
+                }
+              },
+              {
+                "id": "7594",
+                "name": "Chuba Hubbard",
+                "position": "RB",
+                "nflTeam": "CAR",
+                "slot": "RB",
+                "injuryStatus": null,
+                "points": 0,
+                "projectedPoints": 11.330000000000002,
+                "game": {
+                  "date": "2026-09-20",
+                  "kind": "scheduled",
+                  "location": "away",
+                  "opponent": "ATL",
+                  "kickoffAt": "2026-09-20T17:00:00.000Z"
+                }
+              },
+              {
+                "id": "10229",
+                "name": "Rashee Rice",
+                "position": "WR",
+                "nflTeam": "KC",
+                "slot": "WR",
+                "injuryStatus": null,
+                "points": 0,
+                "projectedPoints": 10.71,
+                "game": {
+                  "date": "2026-09-20",
+                  "kind": "scheduled",
+                  "location": "home",
+                  "opponent": "IND",
+                  "kickoffAt": "2026-09-21T00:20:00.000Z"
+                }
+              },
+              {
+                "id": "7569",
+                "name": "Nico Collins",
+                "position": "WR",
+                "nflTeam": "HOU",
+                "slot": "WR",
+                "injuryStatus": "Out",
+                "points": 0,
+                "projectedPoints": 0,
+                "game": {
+                  "date": "2026-09-20",
+                  "kind": "scheduled",
+                  "location": "home",
+                  "opponent": "CIN",
+                  "kickoffAt": "2026-09-20T17:00:00.000Z"
+                }
+              },
+              {
+                "id": "12517",
+                "name": "Colston Loveland",
+                "position": "TE",
+                "nflTeam": "CHI",
+                "slot": "TE",
+                "injuryStatus": null,
+                "points": 0,
+                "projectedPoints": 9.48,
+                "game": {
+                  "date": "2026-09-20",
+                  "kind": "scheduled",
+                  "location": "home",
+                  "opponent": "MIN",
+                  "kickoffAt": "2026-09-20T17:00:00.000Z"
+                }
+              },
+              {
+                "id": "8121",
+                "name": "Romeo Doubs",
+                "position": "WR",
+                "nflTeam": "NE",
+                "slot": "FLEX",
+                "injuryStatus": null,
+                "points": 0,
+                "projectedPoints": 8.739999999999998,
+                "game": {
+                  "date": "2026-09-20",
+                  "kind": "scheduled",
+                  "location": "home",
+                  "opponent": "PIT",
+                  "kickoffAt": "2026-09-20T17:00:00.000Z"
+                }
+              },
+              {
+                "id": "7021",
+                "name": "Rico Dowdle",
+                "position": "RB",
+                "nflTeam": "PIT",
+                "slot": "FLEX",
+                "injuryStatus": null,
+                "points": 0,
+                "projectedPoints": 9.290000000000001,
+                "game": {
+                  "date": "2026-09-20",
+                  "kind": "scheduled",
+                  "location": "away",
+                  "opponent": "NE",
+                  "kickoffAt": "2026-09-20T17:00:00.000Z"
+                }
+              },
+              {
+                "id": "LAR",
+                "name": "Los Angeles Rams",
+                "position": "DEF",
+                "nflTeam": "LAR",
+                "slot": "DEF",
+                "injuryStatus": null,
+                "points": 0,
+                "projectedPoints": 6.300000000000001,
+                "game": {
+                  "date": "2026-09-21",
+                  "kind": "scheduled",
+                  "location": "home",
+                  "opponent": "NYG",
+                  "kickoffAt": "2026-09-22T00:15:00.000Z"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "provenance": {
+        "full": {
+          "url": "https://www.league1fantasy.com/api/matchups/league2?week=2",
+          "startedAt": "2026-09-19T02:40:01.036Z",
+          "checkedAt": "2026-09-19T02:40:01.144Z",
+          "httpStatus": 200,
+          "headers": {
+            "cache-control": "public",
+            "x-projection-snapshot-revision": "3b5500d351af5675b7de1b1056d0ae1fb3f62abaa637bccd3c6405309fdcc7e1",
+            "x-projection-verified-at": "2026-09-19T02:17:18.341Z",
+            "x-league-active-season": "2026",
+            "x-league-active-week": "2",
+            "x-league-default-week": "2"
+          }
+        },
+        "compact": {
+          "url": "https://www.league1fantasy.com/api/matchups/league2/revision?week=2",
+          "startedAt": "2026-09-19T02:40:01.037Z",
+          "checkedAt": "2026-09-19T02:40:01.147Z",
+          "httpStatus": 200,
+          "headers": {
+            "cache-control": "no-store",
+            "x-league-active-season": "2026",
+            "x-league-active-week": "2",
+            "x-league-default-week": "2"
+          },
+          "response": {
+            "status": "ok",
+            "revision": "3b5500d351af5675b7de1b1056d0ae1fb3f62abaa637bccd3c6405309fdcc7e1",
+            "verifiedAt": "2026-09-19T02:17:18.341Z"
+          }
+        },
+        "sameRevision": true
+      }
+    }
+  ],
+  "completedOutControl": {
+    "leagueKey": "league1",
+    "matchupId": "3",
+    "teamId": 9,
+    "matchupStatus": "live",
+    "winProbability": {
+      "teams": [
+        {
+          "teamId": 4,
+          "probability": 0.651717
+        },
+        {
+          "teamId": 9,
+          "probability": 0.348283
+        }
+      ],
+      "status": "estimated",
+      "modelVersion": "normal-v1"
+    },
+    "player": {
+      "id": "4983",
+      "name": "DJ Moore",
+      "position": "WR",
+      "nflTeam": "BUF",
+      "slot": "WR",
+      "injuryStatus": "Out",
+      "points": -0.1,
+      "projectedPoints": 12.11,
+      "game": {
+        "date": "2026-09-17",
+        "kind": "scheduled",
+        "location": "home",
+        "opponent": "DET",
+        "kickoffAt": "2026-09-18T00:15:00.000Z",
+        "finalScore": {
+          "teamScore": 41,
+          "opponentScore": 31
+        }
+      }
+    },
+    "sourceRevision": "efc7e9095effd7a2865cfd84146e77cbbe96cbbc162ca476733a36f79726286f",
+    "checkedAt": "2026-09-19T02:40:01.036Z"
+  },
+  "limitations": [
+    "Public zero projection does not distinguish a complete zero baseline from the internal missing-baseline policy.",
+    "The matchup-level missing-projection reason does not identify the private failing input by player ID.",
+    "Public final player projections are frozen display values; they must not be substituted for official actual contributions.",
+    "These observations do not prove an Out designation is historical participation evidence or a permanent status.",
+    "This fixture preserves the observed unavailable result; expected repaired probabilities require the existing canonical worker calculation."
+  ]
+}

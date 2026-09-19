@@ -45,13 +45,14 @@ const player = object({
 });
 const side = object({ team, points: nullable(number), projectedPoints: nullable(number), starters: array(player),
   bench: { kind: 'optional', value: nullable(array(player)) } });
+const probabilityVersion: MatchupsShape = { kind: 'union', alternatives: [literal('normal-v1'), literal('normal-v2')] };
 const winProbability: MatchupsShape = { kind: 'optional', value: { kind: 'union', alternatives: [
   object({
-    modelVersion: literal('normal-v1'),
+    modelVersion: probabilityVersion,
     status: { kind: 'union', alternatives: [literal('estimated'), literal('final'), literal('tie')] },
     teams: { kind: 'array', minimum: 2, maximum: 2, item: object({ teamId: number, probability: number }) },
   }),
-  object({ modelVersion: literal('normal-v1'), status: literal('unavailable'), reason: string }),
+  object({ modelVersion: probabilityVersion, status: literal('unavailable'), reason: string }),
 ] } };
 
 export const MATCHUPS_SHAPE: MatchupsShape = object({

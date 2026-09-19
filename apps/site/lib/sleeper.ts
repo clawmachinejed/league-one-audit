@@ -73,6 +73,9 @@ export type ProjectionSyncInput = Readonly<{
   rosteredPlayers: readonly Player[];
   /** Reuses the catalog already loaded for this source; never a new request. */
   officialPlayerCatalog?: FantasyPlayerCatalog;
+  /** Current advisory catalog status applies only to this confirmed active period.
+   * This does not establish historical participation or change catalog freshness. */
+  currentPlayerStatusPeriod?: ProjectionTargetPeriod | null;
   /** Complete weekly NFL schedule, including games without a displayed starter. */
   schedule: WeekSchedule;
   /** Exact raw response used by the full loader; never reconstructed from presentation. */
@@ -1169,6 +1172,7 @@ async function loadMatchupSource(
   data: MatchupsData;
   rosteredPlayers: readonly Player[];
   officialPlayerCatalog: FantasyPlayerCatalog;
+  currentPlayerStatusPeriod: ProjectionTargetPeriod | null;
   sourceLeague: SleeperLeague;
   schedule: WeekSchedule;
   rawMatchups: readonly SleeperMatchup[];
@@ -1225,6 +1229,10 @@ async function loadMatchupSource(
   const currentGroupsAuthoritative = week === (core.calendar.activeWeek ?? core.overview.league.week)
     && !core.calendar.calendarUnavailable && core.calendar.lifecycle !== 'complete'
     && core.sourceLeague.season === core.state?.season;
+  const currentPlayerStatusPeriod: ProjectionTargetPeriod | null = currentGroupsAuthoritative
+    && core.calendar.lifecycle === 'active' && core.calendar.activeWeek === week
+    && core.state?.season_type === 'regular'
+    ? { season: Number(core.sourceLeague.season), seasonType: 'regular', week } : null;
   const excludedBenchIds = currentGroupsAuthoritative ? new Map(core.rosters.map((roster) => [
     roster.roster_id, new Set([...(roster.reserve ?? []), ...(roster.taxi ?? [])]),
   ])) : undefined;
@@ -1261,6 +1269,7 @@ async function loadMatchupSource(
     },
     rosteredPlayers,
     officialPlayerCatalog: players,
+    currentPlayerStatusPeriod,
     sourceLeague: core.sourceLeague,
     schedule: nflSchedule.schedule,
     rawMatchups: rows,
@@ -1299,6 +1308,7 @@ function projectionSyncInput(
     data: source.data,
     rosteredPlayers: source.rosteredPlayers,
     officialPlayerCatalog: source.officialPlayerCatalog,
+    currentPlayerStatusPeriod: source.currentPlayerStatusPeriod,
     schedule: source.schedule,
     rawMatchups: source.rawMatchups,
     matchupShape: source.matchupShape,

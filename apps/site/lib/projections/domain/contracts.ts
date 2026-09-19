@@ -149,6 +149,8 @@ export type LeagueWeekState = Readonly<{
   configuration: LeagueConfiguration;
   leagueName: string;
   period: LeaguePeriod;
+  /** Period to which current catalog injury designations may apply. Never historical evidence. */
+  currentPlayerStatusPeriod?: LeaguePeriod | null;
   maxWeek: number;
   rosterPositions: readonly string[];
   participants: readonly ProjectionParticipant[];

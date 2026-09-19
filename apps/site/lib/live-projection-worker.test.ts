@@ -308,14 +308,14 @@ describe('live projection worker', () => {
         week: 1,
         modelVersion: 'clock-v1',
         calculatedAt: NOW.toISOString(),
-        revisionKey: '74b508c5f4c96f26a628c072102b27df0a735162390a334d2c0920c12aa249de',
+        revisionKey: 'ba2ea5a9c60392aad58e96187d7d1cc8b130e011220db7f75846e7688314de2b',
       },
       {
         leagueSeasonId: 'season-league2',
         week: 1,
         modelVersion: 'clock-v1',
         calculatedAt: NOW.toISOString(),
-        revisionKey: '74b508c5f4c96f26a628c072102b27df0a735162390a334d2c0920c12aa249de',
+        revisionKey: 'ba2ea5a9c60392aad58e96187d7d1cc8b130e011220db7f75846e7688314de2b',
       },
     ]);
     expect(store.activityWindows).toEqual([
