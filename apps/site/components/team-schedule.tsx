@@ -1,5 +1,6 @@
 import type { MyTeamScheduleEntry } from '../lib/my-team-schedule';
 import type { Team } from '../lib/types';
+import { ManagerName } from './manager-name';
 import styles from './my-team-schedule.module.css';
 
 /** Shared schedule cards keep official result and unavailable-state presentation identical. */
@@ -15,14 +16,14 @@ export function TeamSchedule({ team, weeks }: { team: Team; weeks: MyTeamSchedul
       </div>
       <div className={styles.matchup}>
         <div className={styles.team} data-schedule-side="my-team">{team.name}
-          <span className={styles.manager}>{team.managerName}</span>
+          <ManagerName team={team} className={styles.manager} />
         </div>
         <div className={entry.result ? styles.score : styles.pending}>
           {entry.result ? `${entry.points!.toFixed(2)} – ${entry.opponentPoints!.toFixed(2)}` : 'vs'}
         </div>
         <div className={`${styles.team} ${styles.opponent}`} data-schedule-side="opponent">
           {entry.opponent?.name ?? 'Opponent unavailable'}
-          {entry.opponent && <span className={styles.manager}>{entry.opponent.managerName}</span>}
+          {entry.opponent && <ManagerName team={entry.opponent} className={styles.manager} trophiesBefore />}
         </div>
       </div>
     </li>)}

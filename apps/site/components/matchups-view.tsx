@@ -22,6 +22,7 @@ import matchupStyles from './matchups.module.css';
 import { PageIntro } from './page-intro';
 import { useTeamPreference } from './team-preference';
 import { MyTeamTabs } from './my-team-tabs';
+import { ManagerHonorsSeason } from './manager-honors';
 
 function SnapshotUpdated({ value, refreshing }: { value: string; refreshing: boolean }) {
   const date = new Date(value);
@@ -96,7 +97,7 @@ export function MatchupsView({
     : [...data.matchups]
       .sort((a, b) => Number(b.sides.some(side => side.team.id === selected)) - Number(a.sides.some(side => side.team.id === selected)))
       .map(matchup => matchupWithTeamOnLeft(matchup, selected)), [data.matchups, myTeamView, myTeam.matchup, selected]);
-  return <div className={matchupStyles.page}>
+  return <ManagerHonorsSeason season={data.league.season}><div className={matchupStyles.page}>
     <div className={matchupStyles.toolbar}>
       <PageIntro title={myTeamView ? 'My Team' : 'Matchups'} league={data.league} />
       <WeekSelector label="Matchup week" week={data.week} currentWeek={currentWeek}
@@ -104,7 +105,7 @@ export function MatchupsView({
         hrefForWeek={week => `${matchupsPath}?week=${week}`} currentHref={matchupsPath} />
     </div>
     {myTeamView ? <MyTeamTabs view="my-team" week={followCurrent ? undefined : data.week}>{renderMatchup()}</MyTeamTabs> : renderMatchup()}
-  </div>;
+  </div></ManagerHonorsSeason>;
 
   function renderMatchup() {
     return <><Warning message={data.warning} />

@@ -11,6 +11,8 @@ import { useLeagueSite } from './league-context';
 import { Avatar, EmptyState, Updated, Warning } from './league-primitives';
 import { WeekSelector } from './week-selector';
 import { RosterSlot } from './roster-slot';
+import { ManagerName, useManagerNameLabel } from './manager-name';
+import { ManagerHonorsSeason } from './manager-honors';
 import styles from './rosters.module.css';
 
 type LoadState = 'idle' | 'loading' | 'ready' | 'error';
@@ -119,6 +121,7 @@ function TeamCard({ team, selected, expanded, showStandingsPosition, onToggle }:
   onToggle: () => void;
 }) {
   const panelId = useId();
+  const managerLabel = useManagerNameLabel(team);
   const teamRecord = record(team);
   const standingsRank = showStandingsPosition ? team.standingsRank : null;
   return <article className={`${styles.card} ${selected ? styles.myTeam : ''}`} data-roster-card data-team-id={team.id} data-standings-rank={standingsRank ?? ''} data-average-rank={team.averagePpgRank ?? ''}>
@@ -128,12 +131,12 @@ function TeamCard({ team, selected, expanded, showStandingsPosition, onToggle }:
       data-roster-toggle
       aria-expanded={expanded}
       aria-controls={panelId}
-      aria-label={`${team.name}, managed by ${team.managerName}, record ${teamRecord}, standings ${ordinal(standingsRank)}, average ${number(team.averagePpg)} points per game, average position ${ordinal(team.averagePpgRank)}${selected ? ', My Team' : ''}. ${expanded ? 'Collapse' : 'Expand'} roster.`}
+      aria-label={`${team.name}, managed by ${managerLabel}, record ${teamRecord}, standings ${ordinal(standingsRank)}, average ${number(team.averagePpg)} points per game, average position ${ordinal(team.averagePpgRank)}${selected ? ', My Team' : ''}. ${expanded ? 'Collapse' : 'Expand'} roster.`}
       onClick={onToggle}
     >
       <span className={styles.identity}>
         <strong className={styles.teamName}>{team.name}</strong>
-        <span className={styles.managerMeta}><Avatar team={team} />{selected && <small>MY TEAM</small>}<span className={styles.managerName}>{team.managerName}</span></span>
+        <span className={styles.managerMeta}><Avatar team={team} />{selected && <small>MY TEAM</small>}<ManagerName team={team} className={styles.managerName} /></span>
       </span>
       <span className={styles.teamMetric} aria-hidden="true"><strong>{teamRecord}</strong><small>{ordinal(standingsRank)}</small></span>
       <span className={styles.teamMetric} aria-hidden="true"><strong>{number(team.averagePpg)}</strong><small>{ordinal(team.averagePpgRank)}</small></span>
@@ -315,7 +318,7 @@ export function RostersView({ active, league, selected, controlsTarget }: {
       controlsTarget,
     )}
     {data && error && <Warning message={`${error} Showing the last saved roster.`} />}
-    {data ? <RosterContent key={key} data={data} selected={selected} />
+    {data ? <ManagerHonorsSeason season={data.league.season}><RosterContent key={key} data={data} selected={selected} /></ManagerHonorsSeason>
       : state === 'error' ? <div className={styles.inlineState}><div><strong>League rosters unavailable</strong><p>{error}</p><button type="button" onClick={() => { cache.current.delete(key); setRetry((value) => value + 1); }}>Try again</button></div></div>
         : <div className={styles.inlineState} role="status">Loading rosters for Week {week}…</div>}
   </div>;

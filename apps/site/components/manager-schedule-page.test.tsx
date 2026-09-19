@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Team } from '../lib/types';
 
 const mocks = vi.hoisted(() => ({
-  getOverview: vi.fn(), getMyTeamSchedule: vi.fn(), getSiteWeekRollover: vi.fn(),
+  getManagerHonors: vi.fn(async () => null), getOverview: vi.fn(), getMyTeamSchedule: vi.fn(), getSiteWeekRollover: vi.fn(),
   resolveCurrentLeagueId: vi.fn(async (id: string) => id),
 }));
 vi.mock('server-only', () => ({}));
@@ -22,7 +22,8 @@ vi.mock('./transactions-view', () => ({ TransactionsView: () => null }));
 vi.mock('./my-team-schedule-view', () => ({ MyTeamScheduleView: () => null }));
 vi.mock('./manager-schedule-view', () => ({ ManagerScheduleView: () => null }));
 
-import { LeagueManagerSchedulePage } from './league-pages';
+import { LeagueManagerSchedulePage as loadManagerSchedulePage } from './league-pages';
+const LeagueManagerSchedulePage = async (props: Parameters<typeof loadManagerSchedulePage>[0]) => (await loadManagerSchedulePage(props)).props.children;
 const team: Team = { id: 2, name: 'Viewed owner', managerName: 'Owner', avatar: null,
   wins: 1, losses: 0, ties: 0, pointsFor: 100, pointsAgainst: 80 };
 const data = { league: { season: '2026', week: 2, maxWeek: 18, rosterPositions: [] },
@@ -48,4 +49,3 @@ describe('manager schedule page composition', () => {
     expect(mocks.getMyTeamSchedule).not.toHaveBeenCalled();
   });
 });
-

@@ -29,6 +29,7 @@ import {
 } from './nfl-schedule';
 import type { LeagueTransactionsData, ManagerData, ManagersData, MatchupsData, OverviewData, Player, ProjectedStandingsBasis, RosterPlayer, RosterSection, RostersData, StandingsData, StandingsTeam, TransactionsData } from './types';
 import { leagueOneChampionshipYears } from './manager-championships';
+import type { ManagerHonors } from './manager-honors';
 import { displayedManagerOwnerId, displayedManagerTeams } from './manager-display';
 import type { LeagueKey } from './leagues';
 import type { CurrentStandings } from './current-standings';
@@ -609,7 +610,7 @@ const getRosterCore = cache(async (leagueId: string) => {
       affected ? `Sleeper returned incomplete or malformed data for ${affected} roster${affected === 1 ? '' : 's'}; other teams remain available.` : undefined,
     ),
   };
-  return { overview, sourceLeague, state, rosterFeed, calendar };
+  return { overview, sourceLeague, state, rosterFeed, calendar, users };
 });
 
 // Cache only the small fields we display. Position-filtered responses avoid the
@@ -660,6 +661,23 @@ async function getWeekSchedule(season: string, week: number): Promise<{
 
 export async function getOverview(leagueId: string): Promise<OverviewData> {
   return (await getCore(leagueId)).overview;
+}
+
+/** Reuse accepted page ownership; honors stay separate from official snapshots. */
+export async function getManagerHonors(leagueId: string): Promise<ManagerHonors> {
+  const { overview, rosterFeed, users } = await getRosterCore(leagueId);
+  const owners = new Map(rosterFeed.rosters.map(roster => [roster.roster_id, roster.owner_id]));
+  const knownUsers = new Set(users.map(user => user.user_id));
+  const ambiguousRosters = new Set(rosterFeed.malformedRosterIds);
+  return {
+    leagueId,
+    season: overview.league.season,
+    managers: Object.fromEntries(overview.teams.filter(team => !ambiguousRosters.has(team.id)
+      && knownUsers.has(owners.get(team.id) ?? '')).map(team => [team.id, {
+      managerName: team.managerName,
+      championshipYears: leagueOneChampionshipYears(displayedManagerOwnerId(leagueId, team.id, owners.get(team.id))),
+    }])),
+  };
 }
 
 /** Attach owner-supplied honors using the same accepted roster ownership read. */

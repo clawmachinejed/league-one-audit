@@ -1104,12 +1104,21 @@ test('both Managers pages reuse the Matchups intro with compact profile rows', a
           await expect(trophies.locator('img')).toHaveCount(Number.parseInt(label, 10));
           const fit = await trophies.evaluate(element => {
             const heading = element.closest('h2')!.getBoundingClientRect();
-            const name = element.previousElementSibling!.getBoundingClientRect();
-            const icons = element.getBoundingClientRect();
-            return { afterName: icons.left >= name.right, withinHeading: icons.right <= heading.right + 1,
-              sameRow: Math.abs(icons.top - heading.top) <= 1 };
+            const name = element.closest('[data-manager-name]')!;
+            const range = document.createRange();
+            range.selectNodeContents(name.querySelector('[data-manager-name-text]')!);
+            const text = range.getBoundingClientRect();
+            const images = [...element.querySelectorAll('img')];
+            const first = images[0].getBoundingClientRect();
+            return { afterName: first.left >= text.right || first.top >= text.bottom,
+              withinHeading: images.every(image => {
+                const rect = image.getBoundingClientRect();
+                return rect.left >= heading.left - 1 && rect.right <= heading.right + 1
+                  && rect.top >= heading.top - 1 && rect.bottom <= heading.bottom + 1;
+              }),
+              originalSize: images.every(image => image.width === 17 && image.height === 20) };
           });
-          expect(fit).toEqual({ afterName: true, withinHeading: true, sameRow: true });
+          expect(fit).toEqual({ afterName: true, withinHeading: true, originalSize: true });
           await expect.poll(() => trophies.locator('img').evaluateAll(images =>
             images.every(image => image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0))).toBe(true);
         }

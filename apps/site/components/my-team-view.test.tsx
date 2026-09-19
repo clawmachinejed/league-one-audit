@@ -6,13 +6,19 @@ import type { MatchupsData, Player, Team } from '../lib/types';
 import { LEAGUE_SITES } from '../lib/leagues';
 import { LeagueSiteProvider } from './league-context';
 import { MatchupsView } from './matchups-view';
+import { ManagerHonorsProvider } from './manager-honors';
+import { ManagerName } from './manager-name';
 
 const mocks = vi.hoisted(() => ({ selected: null as number | null,
   currentSnapshot: null as MatchupsData | null,
   select: vi.fn(), board: vi.fn(), boxScores: vi.fn(), snapshot: vi.fn() }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }) }));
 vi.mock('./team-preference', () => ({ useTeamPreference: () => ({ selected: mocks.selected, select: mocks.select }) }));
-vi.mock('./matchup-board', () => ({ MatchupBoard: (props: unknown) => { mocks.board(props); return <div data-test-board />; } }));
+vi.mock('./matchup-board', () => ({ MatchupBoard: (props: { matchups: MatchupsData['matchups'] }) => {
+  mocks.board(props);
+  return <div data-test-board>{props.matchups.flatMap(matchup => matchup.sides.map(side =>
+    <ManagerName key={`${matchup.id}:${side.team.id}`} team={side.team} />))}</div>;
+} }));
 vi.mock('./use-matchup-box-scores', () => ({ useMatchupBoxScores: (options: unknown) => {
   mocks.boxScores(options); return { data: null, loading: false, request: vi.fn() };
 } }));
@@ -50,6 +56,26 @@ function render(mode: 'matchups' | 'my-team', leagueKey: 'league1' | 'league2' |
 
 describe('My Team shared matchup view', () => {
   beforeEach(() => { vi.clearAllMocks(); mocks.selected = null; mocks.currentSnapshot = null; });
+
+  it.each(['matchups', 'my-team'] as const)('retains honors across %s snapshot refreshes without changing source payloads', mode => {
+    mocks.selected = 1;
+    const source = JSON.stringify(data);
+    const show = () => renderToStaticMarkup(<LeagueSiteProvider site={LEAGUE_SITES.league1} leagueId="accepted">
+      <ManagerHonorsProvider data={{ leagueId: 'accepted', season: '2026', managers: {
+        1: { managerName: 'Manager 1', championshipYears: [2020] },
+      } }} season="2026">
+        <MatchupsView mode={mode} data={data} periodContext={context} snapshotRevision={'a'.repeat(64)} verifiedAt={data.updatedAt} />
+      </ManagerHonorsProvider>
+    </LeagueSiteProvider>);
+    expect(show()).toContain('1 League One championship: 2020');
+    mocks.currentSnapshot = structuredClone(data);
+    mocks.currentSnapshot.matchups[0].sides[0].points = 42;
+    expect(show()).toContain('1 League One championship: 2020');
+    expect(mocks.board.mock.lastCall?.[0].matchups[0].sides[0].points).toBe(42);
+    expect(JSON.stringify(data)).toBe(source);
+    mocks.currentSnapshot.league.season = '2027';
+    expect(show()).not.toContain('manager-championship-trophy');
+  });
 
   it.each(['matchups', 'my-team'] as const)('keeps the corrected manager after snapshot updates in %s without changing source scores or identity', mode => {
     const initial = structuredClone(data);

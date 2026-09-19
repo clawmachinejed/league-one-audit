@@ -13,6 +13,7 @@ import type { Matchup, Player, Team } from '../lib/types';
 import { useLeagueSite } from './league-context';
 import { matchupWinChance } from './matchup-win-chance';
 import { RosterSlot } from './roster-slot';
+import { ManagerName, useManagerNameLabel } from './manager-name';
 import styles from './matchups.module.css';
 
 type AvatarRenderer = (team: Team) => ReactNode;
@@ -77,7 +78,7 @@ function TeamMeta({ team, opposite, avatar, standings }: {
     ? place <= 6 ? 'playoff' : place <= 10 ? 'middle' : place <= 12 ? 'relegation' : 'neutral'
     : site.key === 'league2' && standings?.playoffTeams != null && place <= standings.playoffTeams ? 'playoff' : 'neutral';
   return <span className={`${styles.teamMeta} ${opposite ? styles.oppositeMeta : ''}`} data-team-meta={opposite ? 'right' : 'left'}>
-    {avatar(team)}<span className={styles.manager}>{team.managerName}</span>
+    {avatar(team)}<ManagerName team={team} className={styles.manager} trophiesBefore={opposite} />
     <span className={styles.recordGroup}>
       {place !== null && <strong className={styles.place} data-team-place={team.id} data-place-tone={tone}
         title={`${placeLabel(place)} in actual standings`} aria-label={`${placeLabel(place)} in actual standings`}>{placeLabel(place)}</strong>}
@@ -150,6 +151,8 @@ function MatchupCard({ matchup, selected, avatar, boxScores, boxScoresLoading, o
   const panelRef = useRef<HTMLDivElement>(null);
   const left = matchup.sides[0];
   const right = matchup.sides[1];
+  const leftManagerLabel = useManagerNameLabel(left?.team);
+  const rightManagerLabel = useManagerNameLabel(right?.team);
   const mine = matchup.sides.some(side => side.team.id === selected);
   const count = Math.max(left?.starters.length || 0, right?.starters.length || 0);
 
@@ -207,9 +210,9 @@ function MatchupCard({ matchup, selected, avatar, boxScores, boxScoresLoading, o
     const place = teamPlace(team, standings);
     return place === null ? '' : `, ${placeLabel(place)} in actual standings`;
   };
-  const leftSummary = `${left.team.name}, managed by ${left.team.managerName}, record ${spokenRecord(left.team)}${placeSummary(left.team)}, official score ${spokenScore(left.points)}, ${spokenProjection(left.projectedPoints)}`;
+  const leftSummary = `${left.team.name}, managed by ${leftManagerLabel}, record ${spokenRecord(left.team)}${placeSummary(left.team)}, official score ${spokenScore(left.points)}, ${spokenProjection(left.projectedPoints)}`;
   const rightSummary = right
-    ? `${right.team.name}, managed by ${right.team.managerName}, record ${spokenRecord(right.team)}${placeSummary(right.team)}, official score ${spokenScore(right.points)}, ${spokenProjection(right.projectedPoints)}`
+    ? `${right.team.name}, managed by ${rightManagerLabel}, record ${spokenRecord(right.team)}${placeSummary(right.team)}, official score ${spokenScore(right.points)}, ${spokenProjection(right.projectedPoints)}`
     : 'opponent not posted, official score unavailable, projected score unavailable';
   const winChance = matchupWinChance(matchup);
   const accessibleLabel = `${leftSummary}; versus ${rightSummary}. ${label}${mine ? '. My matchup' : ''}. ${winChance.description} ${expanded ? 'Collapse' : 'Expand'} ${showBench ? 'starting lineups and benches' : 'starting lineups'}.`;

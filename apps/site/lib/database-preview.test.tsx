@@ -23,6 +23,7 @@ vi.mock('./sleeper', () => ({
   getRawLineupMatchups: calls.lineup,
   getProjectionSyncInput: calls.projectionSource,
   getOverview: vi.fn(),
+  getManagerHonors: vi.fn(async () => null),
   getManager: vi.fn(),
   getTransactions: vi.fn(),
 }));
@@ -32,7 +33,8 @@ vi.mock('../components/managers-view', () => ({ ManagersView: () => null }));
 vi.mock('../components/standings-view', () => ({ StandingsView: () => null }));
 vi.mock('../components/transactions-view', () => ({ TransactionsView: () => null }));
 
-import { LeagueMatchupsPage } from '../components/league-pages';
+import { LeagueMatchupsPage as loadMatchupsPage } from '../components/league-pages';
+const LeagueMatchupsPage = async (props: Parameters<typeof loadMatchupsPage>[0]) => (await loadMatchupsPage(props)).props.children;
 import { LEAGUE_IDS } from './config';
 import { createDatabase, getDatabase } from './database';
 import { runFutureProjectionSync } from './future-projection-worker';
