@@ -53,6 +53,7 @@ import {
   getFantasyPlayerCatalog,
   getOfficialMatchups,
   getOverview,
+  getManagers,
   getManager,
   getProjectionCadenceInput,
   getProjectionSyncInput,
@@ -996,6 +997,80 @@ describe('Sleeper service error handling', () => {
       `${leagueTwoPath}/users`,
       `${leagueTwoPath}/matchups/3`,
     ]));
+  });
+
+  it('keeps championships with the verified owner after renaming and changing teams', async () => {
+    const championId = '1119176673112563712';
+    expectedRosterCount = 3;
+    rawUsers = [
+      { user_id: championId, display_name: 'Renamed champion', metadata: { team_name: 'New team name' } },
+      { user_id: 'different-owner', display_name: 'jwbaute', metadata: { team_name: '★ ★ ★ ★ ⋆ ⋆' } },
+    ];
+    rawRosters = [
+      { roster_id: 1, owner_id: championId, settings: { ...rosterSettings } },
+      { roster_id: 2, owner_id: 'different-owner', settings: { ...rosterSettings } },
+      { roster_id: 3, owner_id: null, metadata: { team_name: 'jwbaute' }, settings: { ...rosterSettings } },
+    ];
+    const before = await getManagers(leagueOneId);
+    expect(before.teams.find((team) => team.id === 1)).toMatchObject({
+      managerName: 'Renamed champion', name: 'New team name', championshipYears: [2008, 2009, 2014, 2025],
+    });
+    expect(before.teams.find((team) => team.id === 2)?.championshipYears).toEqual([]);
+    expect(before.teams.find((team) => team.id === 3)?.championshipYears).toEqual([]);
+
+    rawRosters = [
+      { roster_id: 1, owner_id: 'different-owner', settings: { ...rosterSettings } },
+      { roster_id: 2, owner_id: championId, settings: { ...rosterSettings } },
+      { roster_id: 3, owner_id: null, settings: { ...rosterSettings } },
+    ];
+    const after = await getManagers(leagueOneId);
+    expect(after.teams.find((team) => team.id === 1)?.championshipYears).toEqual([]);
+    expect(after.teams.find((team) => team.id === 2)?.championshipYears).toEqual([2008, 2009, 2014, 2025]);
+  });
+
+  it.each(Object.values(LEAGUE_IDS))('decorates only the managers directory for %s without another provider request', async (leagueId) => {
+    reactCacheControl.enabled = true;
+    const selectedPath = `/league/${leagueId}`;
+    vi.mocked(fetch).mockImplementation(async (input) => {
+      const path = requestPath(input);
+      if (path === selectedPath) return Response.json({
+        ...(valueFor(leaguePath) as Record<string, unknown>), league_id: leagueId,
+      });
+      if (path === `${selectedPath}/rosters`) return Response.json([
+        { roster_id: 1, owner_id: '862413379120263168', settings: { ...rosterSettings } },
+      ]);
+      if (path === `${selectedPath}/users`) return Response.json([
+        { user_id: '862413379120263168', display_name: 'Renamed league manager' },
+      ]);
+      return Response.json(valueFor(path));
+    });
+    const overview = await getOverview(leagueId);
+    const requestsBefore = vi.mocked(fetch).mock.calls.length;
+    const managers = await getManagers(leagueId);
+
+    expect(managers.teams[0]).toMatchObject({
+      id: 1, managerName: 'Renamed league manager', championshipYears: [2018],
+    });
+    expect(overview.teams[0]).not.toHaveProperty('championshipYears');
+    expect(managers.teams[0]).not.toHaveProperty('ownerId');
+    expect(vi.mocked(fetch).mock.calls).toHaveLength(requestsBefore);
+    expect(vi.mocked(fetch).mock.calls.map(([input]) => requestPath(input))).toEqual(expect.arrayContaining([
+      selectedPath, `${selectedPath}/rosters`, `${selectedPath}/users`,
+    ]));
+  });
+
+  it('does not transfer honors to another league through matching roster IDs or display names', async () => {
+    rawRosters = [{ roster_id: 1, owner_id: '1119176673112563712', settings: { ...rosterSettings } }];
+    rawUsers = [{ user_id: '1119176673112563712', display_name: 'Jordan' }];
+    const [leagueOne, leagueTwo] = await Promise.all([
+      getManagers(leagueOneId), getManagers(leagueTwoId),
+    ]);
+    expect(leagueOne.teams[0]).toMatchObject({
+      id: 1, managerName: 'Jordan', championshipYears: [2008, 2009, 2014, 2025],
+    });
+    expect(leagueTwo.teams[0]).toMatchObject({
+      id: 1, managerName: 'Jordan', championshipYears: [],
+    });
   });
 
   it('uses each league and roster response to calculate isolated waiver balances without another request', async () => {

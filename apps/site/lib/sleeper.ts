@@ -27,7 +27,8 @@ import {
   validatedSleeperSeasonGames,
   type WeekSchedule,
 } from './nfl-schedule';
-import type { LeagueTransactionsData, ManagerData, MatchupsData, OverviewData, Player, ProjectedStandingsBasis, RosterPlayer, RosterSection, RostersData, StandingsData, StandingsTeam, TransactionsData } from './types';
+import type { LeagueTransactionsData, ManagerData, ManagersData, MatchupsData, OverviewData, Player, ProjectedStandingsBasis, RosterPlayer, RosterSection, RostersData, StandingsData, StandingsTeam, TransactionsData } from './types';
+import { leagueOneChampionshipYears } from './manager-championships';
 import type { LeagueKey } from './leagues';
 import type { CurrentStandings } from './current-standings';
 import { normalizeLeagueTransactions } from './league-transactions';
@@ -657,6 +658,19 @@ async function getWeekSchedule(season: string, week: number): Promise<{
 
 export async function getOverview(leagueId: string): Promise<OverviewData> {
   return (await getCore(leagueId)).overview;
+}
+
+/** Attach owner-supplied honors using the same accepted roster ownership read. */
+export async function getManagers(leagueId: string): Promise<ManagersData> {
+  const { overview, rosters } = await getCore(leagueId);
+  const ownerByRoster = new Map(rosters.map((roster) => [roster.roster_id, roster.owner_id]));
+  return {
+    ...overview,
+    teams: overview.teams.map((team) => ({
+      ...team,
+      championshipYears: leagueOneChampionshipYears(ownerByRoster.get(team.id)),
+    })),
+  };
 }
 
 /** Reuse current official standings order without loading projected standings history. */

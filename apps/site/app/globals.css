@@ -222,7 +222,10 @@ h1{font-weight:800;font-size:38px;line-height:1.12;letter-spacing:-.055em;overfl
 .manager-card-link:hover{background:var(--green-soft)}
 .manager-card-link:focus-visible{outline-offset:-4px}
 .manager-card-identity{display:grid;min-width:0;gap:4px;align-content:center}
-.manager-card-link h2{font-size:15px;line-height:20px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700}
+.manager-card-link h2{display:flex;align-items:center;gap:4px;min-width:0;font-size:15px;line-height:20px;font-weight:700}
+.manager-card-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.manager-championships{display:inline-flex;align-items:center;flex-shrink:0;gap:1px}
+.manager-championship-trophy{display:block;width:17px;height:20px;object-fit:contain}
 .manager-card-meta{display:flex;min-width:0;align-items:center;gap:3px;color:var(--muted);font-size:11px;line-height:14px}
 .manager-card-team{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .manager-card-selected{flex-shrink:0;margin-left:3px;color:var(--green);font-weight:700;white-space:nowrap}
