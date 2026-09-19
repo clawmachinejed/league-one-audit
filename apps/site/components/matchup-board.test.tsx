@@ -56,6 +56,95 @@ function chanceBars(html: string) {
   };
 }
 
+describe.each([false, true])('player actual-score states (benches %s)', showBench => {
+  const observedAt = '2026-09-10T00:00:00.000Z';
+  const scheduled = {
+    kind: 'scheduled' as const, opponent: 'NE', location: 'home' as const,
+    date: '2026-09-10', kickoffAt: '2026-09-10T01:00:00.000Z',
+  };
+  const rows = (html: string) => [...html.matchAll(/<span\b[^>]*data-player-score-number="true"[^>]*>([^<]+)<\/span>/gu)]
+    .map(match => ({ text: match[1], final: match[0].includes('data-player-score-final="true"') }));
+  const render = (left: Player[], right: Player[], timestamp: string | undefined = observedAt) => {
+    const matchup: Matchup = { id: 'score-states', status: 'live', sides: [
+      { team: team(1), points: 0, projectedPoints: 40, starters: left,
+        bench: left.map(item => ({ ...item, id: `bench-${item.id}`, slot: 'BN' })) },
+      { team: team(2), points: -2.5, projectedPoints: 30, starters: right,
+        bench: right.map(item => ({ ...item, id: `bench-${item.id}`, slot: 'BN' })) },
+    ] };
+    const before = JSON.stringify(matchup);
+    const html = renderToStaticMarkup(<LeagueSiteProvider site={LEAGUE_SITES.league1}>
+      <MatchupBoard matchups={[matchup]} selected={null} avatar={() => null} showBench={showBench} observedAt={timestamp} />
+    </LeagueSiteProvider>);
+    expect(JSON.stringify(matchup)).toBe(before);
+    return html;
+  };
+
+  it('shows a dash only for the pregame zero while retaining nonzero actuals, projections and team totals', () => {
+    const html = render([
+      { ...player('pregame-zero', 0), points: 0, game: scheduled },
+    ], [
+      { ...player('pregame-nonzero', 11), points: -2.5, game: scheduled },
+    ]);
+    const expected = [{ text: '—', final: false }, { text: '-2.50', final: false }];
+    expect(rows(html)).toEqual(showBench ? [...expected, ...expected] : expected);
+    expect([...html.matchAll(/data-player-projection-number="true"[^>]*>([^<]+)</gu)].map(match => match[1]))
+      .toEqual(showBench ? ['0.00', '11.00', '0.00', '11.00'] : ['0.00', '11.00']);
+    expect([...html.matchAll(/data-score-number="true"[^>]*>([^<]+)</gu)].map(match => match[1])).toEqual(['0.00', '-2.50']);
+    expect([...html.matchAll(/data-team-projection-number="true"[^>]*>([^<]+)</gu)].map(match => match[1])).toEqual(['40.00', '30.00']);
+  });
+
+  it('preserves live, past-kickoff, unknown and bye zeroes instead of inferring that they have not started', () => {
+    const games: Player['game'][] = [
+      { ...scheduled, liveScore: { teamScore: 0, opponentScore: 0, phase: 'q1', clockSeconds: 900 } },
+      { ...scheduled, kickoffAt: '2026-09-09T23:59:59.999Z' },
+      { ...scheduled, kickoffAt: observedAt },
+      { ...scheduled, kickoffAt: null },
+      { ...scheduled, kickoffAt: 'invalid-kickoff' },
+      null,
+      { kind: 'bye' },
+    ];
+    const left = games.map((game, index) => ({ ...player(`zero-${index}`, 0), points: 0, game }));
+    const right = left.map(item => ({ ...item, id: `opponent-${item.id}` }));
+    const html = render(left, right);
+    expect(rows(html)).toEqual(Array.from({ length: games.length * (showBench ? 4 : 2) }, () => ({ text: '0.00', final: false })));
+  });
+
+  it('requires a valid observation timestamp before hiding a scheduled zero', () => {
+    for (const timestamp of ['', 'invalid-observation']) {
+      const zero = { ...player('zero', 0), points: 0, game: scheduled };
+      expect(rows(render([zero], [{ ...zero, id: 'opponent' }], timestamp)), timestamp || 'missing observation')
+        .toEqual(Array.from({ length: showBench ? 4 : 2 }, () => ({ text: '0.00', final: false })));
+    }
+    // Omitting the optional prop must preserve legacy callers' sourced zeroes.
+    const zero = { ...player('legacy-zero', 0), points: 0, game: scheduled };
+    const html = renderToStaticMarkup(<LeagueSiteProvider site={LEAGUE_SITES.league1}>
+      <MatchupBoard matchups={[{ id: 'legacy', status: 'upcoming', sides: [
+        { team: team(1), points: 0, projectedPoints: 0, starters: [zero], bench: [zero] },
+        { team: team(2), points: 0, projectedPoints: 0, starters: [zero], bench: [zero] },
+      ] }]} selected={null} avatar={() => null} showBench={showBench} />
+    </LeagueSiteProvider>);
+    expect(rows(html)).toEqual(Array.from({ length: showBench ? 4 : 2 }, () => ({ text: '0.00', final: false })));
+  });
+
+  it('marks only finite final-game actuals for bold display, including zero and negative points', () => {
+    const finalGame = { ...scheduled, finalScore: { teamScore: 23, opponentScore: 10 } };
+    const left = [0, -2.5, 23.2, null, Number.POSITIVE_INFINITY].map((points, index) => ({
+      ...player(`final-${index}`, index), points, game: finalGame,
+    }));
+    const right = left.map((item, index) => ({ ...item, id: `live-${index}`, points: 0,
+      game: { ...scheduled, liveScore: { teamScore: 0, opponentScore: 0, phase: 'halftime' as const, clockSeconds: null } },
+    }));
+    const html = render(left, right);
+    const expected = ['0.00', '-2.50', '23.20', '—', '—'].flatMap((text, index) => [
+      { text, final: index < 3 }, { text: '0.00', final: false },
+    ]);
+    expect(rows(html)).toEqual(showBench ? [...expected, ...expected] : expected);
+    expect([...html.matchAll(/<span\b[^>]*data-player-projection-number[^>]*>/gu)].every(match => !match[0].includes('data-player-score-final'))).toBe(true);
+    expect([...html.matchAll(/data-player-projection-number="true"[^>]*>([^<]+)</gu)].map(match => match[1]))
+      .toEqual(Array.from({ length: showBench ? 2 : 1 }, () => ['0.00', '0.00', '1.00', '1.00', '2.00', '2.00', '3.00', '3.00', '4.00', '4.00']).flat());
+  });
+});
+
 describe('MatchupBoard player projection presentation', () => {
   it.each([false, true])('shows team-scoped win estimates in the expandable shared header (benches %s)', showBench => {
     const matchup = chanceMatchup(0.3);

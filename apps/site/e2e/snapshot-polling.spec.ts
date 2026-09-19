@@ -25,7 +25,7 @@ async function openFixture(page: Page, { league = 'league1', temporal = 'future'
   await page.clock.install({ time: new Date('2026-09-03T12:00:00.000Z') });
   await page.addInitScript(({ key }) => { localStorage.setItem(key, '2'); }, { key: `league-one:my-team:${LEAGUE_IDS[league]}` });
   // Test transport only: real local SSR markup/data, controlled serialized lineage; no application test route.
-  await page.route(/\/(?:league2\/)?matchups(?:\?|$)/u, async (route) => {
+  await page.route(/\/(?:league2\/)?(?:matchups|my-team)(?:\?|$)/u, async (route) => {
     if (route.request().resourceType() !== 'document') return route.continue();
     const response = await route.fetch();
     const html = await response.text();
@@ -59,7 +59,8 @@ async function openFixture(page: Page, { league = 'league1', temporal = 'future'
   page.on('request', (request) => {
     const url = new URL(request.url());
     if (request.headers().rsc === '1' && request.headers()['next-router-prefetch'] !== '1'
-      && url.pathname === `${prefix}/matchups` && url.searchParams.get('week') === String(week)) state.refreshCount += 1;
+      && [`${prefix}/matchups`, `${prefix}/my-team`].includes(url.pathname)
+      && url.searchParams.get('week') === String(week)) state.refreshCount += 1;
   });
   await page.route('**/api/matchups/**', async (route: Route) => {
     const url = new URL(route.request().url());
@@ -181,13 +182,18 @@ test('same content advances freshness and changed content preserves expanded car
 });
 
 for (const league of ['league1', 'league2'] as const) {
-  test(`${league} refreshes scheduled NFL labels through live, Half, and final results at supported widths`, async ({ page }) => {
+  test(`${league} refreshes scheduled NFL labels and player actuals through live, Half, and final results at supported widths`, async ({ page }) => {
     await page.setViewportSize({ width: 360, height: 800 });
     const fixture = await openFixture(page, { league, temporal: 'active', adopt: false });
     const matchup = fixture.payload.matchups[0];
     matchup.status = 'live';
     fixture.payload.league.rosterPositions = ['QB', 'RB'];
+    // Source observation time controls pregame zero presentation. The separate
+    // 2099 verifiedAt value only makes fixture transport lineage newer than SSR.
+    fixture.payload.updatedAt = '2026-09-03T23:59:00.000Z';
     const [left, right] = matchup.sides;
+    left.bench = [];
+    right.bench = [];
     left.starters[0].game = { kind: 'scheduled', opponent: 'TEN', location: 'away',
       date: '2026-09-03', kickoffAt: '2026-09-04T00:20:00.000Z' };
     right.starters[0].game = { kind: 'scheduled', opponent: 'NYJ', location: 'home',
@@ -204,9 +210,21 @@ for (const league of ['league1', 'league2'] as const) {
     await toggle.click();
     await expect(toggle.locator('[data-team-name]')).toHaveText(['Fixture Beta', 'Fixture Alpha']);
     const labels = page.locator('[data-player-game]');
+    const actuals = page.locator('[data-player-score-number]');
+    const projections = page.locator('[data-player-projection-number]');
     // The fixture saves roster 2 as My Team. Keep source games unchanged and
     // assert each starter row in the rendered Beta-left, Alpha-right order.
     const displayedLabels = (sourceOrder: readonly string[]) => [sourceOrder[1], sourceOrder[0], sourceOrder[3], sourceOrder[2]];
+    const expectPoints = async (sourceOrder: readonly string[], finalCount = 0) => {
+      await expect(actuals).toHaveText(displayedLabels(sourceOrder));
+      await expect(projections).toHaveText(['21.00', '20.00', '21.00', '20.00']);
+      await expect(toggle.locator('[data-score-number]')).toHaveText(['0.00', '0.00']);
+      await expect(toggle.locator('[data-team-projection-number]')).toHaveText(['21.00', '20.00']);
+      const finalScores = page.locator('[data-player-score-number][data-player-score-final="true"]');
+      await expect(finalScores).toHaveCount(finalCount);
+      for (const score of await finalScores.all()) await expect(score).toHaveCSS('font-weight', '700');
+      for (const projection of await projections.all()) await expect(projection).toHaveCSS('font-weight', '400');
+    };
     const expectLabelFit = async () => {
       for (const width of [360, 390, 430, 1280]) {
         await page.setViewportSize({ width, height: 900 });
@@ -226,6 +244,7 @@ for (const league of ['league1', 'league2'] as const) {
     await expect(labels).toHaveText(displayedLabels([
       'Thu 8:20 PM @ TEN', 'Thu 8:20 PM vs NYJ', 'Thu 8:20 PM vs LAR', 'Mon 8:15 PM @ KC',
     ]));
+    await expectPoints(['—', '—', '—', '—']);
     await expectLabelFit();
 
     if (left.starters[0].game?.kind !== 'scheduled' || right.starters[0].game?.kind !== 'scheduled'
@@ -245,20 +264,26 @@ for (const league of ['league1', 'league2'] as const) {
     awayGame.liveScore = { teamScore: 0, opponentScore: 0, phase: 'q1', clockSeconds: 900 };
     homeGame.liveScore = { teamScore: 10, opponentScore: 24, phase: 'q2', clockSeconds: 0 };
     tieGame.liveScore = { teamScore: 17, opponentScore: 17, phase: 'overtime', clockSeconds: 165 };
+    fixture.payload.updatedAt = '2026-09-04T00:21:00.000Z';
     await adoptLabels([
       '15:00 1st 0-0 @ TEN', '00:00 2nd 10-24 vs NYJ', '02:45 OT 17-17 vs LAR', 'Mon 8:15 PM @ KC',
     ]);
+    await expectPoints(['0.00', '0.00', '0.00', '—']);
     awayGame.liveScore = { teamScore: 10, opponentScore: 7, phase: 'halftime', clockSeconds: null };
     homeGame.liveScore = { teamScore: 10, opponentScore: 24, phase: 'halftime', clockSeconds: null };
     tieGame.liveScore = { teamScore: 17, opponentScore: 17, phase: 'overtime', clockSeconds: null };
+    fixture.payload.updatedAt = '2026-09-04T01:30:00.000Z';
     await adoptLabels([
       'Half 10-7 @ TEN', 'Half 10-24 vs NYJ', 'OT 17-17 vs LAR', 'Mon 8:15 PM @ KC',
     ]);
+    await expectPoints(['0.00', '0.00', '0.00', '—']);
     awayGame.liveScore = { teamScore: 23, opponentScore: 10, phase: 'q3', clockSeconds: 165 };
     homeGame.liveScore = { teamScore: 10, opponentScore: 24, phase: 'q4', clockSeconds: 5 };
+    fixture.payload.updatedAt = '2026-09-04T02:45:00.000Z';
     await adoptLabels([
       '02:45 3rd 23-10 @ TEN', '00:05 4th 10-24 vs NYJ', 'OT 17-17 vs LAR', 'Mon 8:15 PM @ KC',
     ]);
+    await expectPoints(['0.00', '0.00', '0.00', '—']);
 
     // Individual NFL games finish while the fantasy matchup and week remain live.
     delete awayGame.liveScore;
@@ -267,9 +292,23 @@ for (const league of ['league1', 'league2'] as const) {
     awayGame.finalScore = { teamScore: 23, opponentScore: 10 };
     homeGame.finalScore = { teamScore: 10, opponentScore: 24 };
     tieGame.finalScore = { teamScore: 17, opponentScore: 17 };
+    fixture.payload.updatedAt = '2026-09-04T03:30:00.000Z';
     await adoptLabels([
       'Final W 23-10 @ TEN', 'Final L 10-24 vs NYJ', 'Final T 17-17 vs LAR', 'Mon 8:15 PM @ KC',
     ]);
+    await expectPoints(['0.00', '0.00', '0.00', '—'], 3);
+
+    // The same stored observation also reaches the My Team board. Reuse the
+    // real compact/full adoption boundary rather than creating another suite.
+    const fullBeforeMyTeam = fixture.fullCount;
+    await page.goto(`${league === 'league2' ? '/league2' : ''}/my-team?week=5`, { waitUntil: 'networkidle' });
+    await nextPoll(page, fixture);
+    await expect(page.getByText('Fixture Beta', { exact: true })).toBeVisible();
+    expect(fixture.fullCount).toBe(fullBeforeMyTeam + 1);
+    await expect(toggle.locator('[data-team-name]')).toHaveText(['Fixture Beta', 'Fixture Alpha']);
+    await toggle.click();
+    await expect(page.getByRole('region', { name: 'Bench players' })).toBeVisible();
+    await expectPoints(['0.00', '0.00', '0.00', '—'], 3);
     expect(fixture.refreshCount).toBe(0);
     expect(await page.evaluate((key) => localStorage.getItem(key), `league-one:my-team:${LEAGUE_IDS[league]}`)).toBe('2');
   });

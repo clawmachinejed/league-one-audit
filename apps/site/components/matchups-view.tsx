@@ -34,18 +34,19 @@ function SnapshotUpdated({ value, refreshing }: { value: string; refreshing: boo
   </p>;
 }
 
-function MatchupsWithBoxScores({ matchups, selected, leagueKey, season, week, refreshAutomatically, showBench, standings }: {
+function MatchupsWithBoxScores({ matchups, selected, leagueKey, season, week, refreshAutomatically, showBench, standings, observedAt }: {
   matchups: Matchup[]; selected: number | null; leagueKey: string; season: string; week: number;
   refreshAutomatically: boolean;
   showBench: boolean;
   standings: CurrentStandings | null;
+  observedAt: string;
 }) {
   const lineupKey = [...new Set(matchups.flatMap(matchup => matchup.sides.flatMap(side =>
     [...side.starters, ...(showBench ? side.bench ?? [] : [])]
       .filter(player => player.id).map(playerBoxScoreKey))))].sort().join(',');
   const boxScores = useMatchupBoxScores({ leagueKey, season, week, lineupKey, refreshAutomatically });
   return <MatchupBoard matchups={matchups} selected={selected} avatar={team => <Avatar team={team} />}
-    showBench={showBench} standings={standings}
+    showBench={showBench} standings={standings} observedAt={observedAt}
     boxScores={boxScores.data} boxScoresLoading={boxScores.loading} onBoxScoreOpen={boxScores.request} />;
 }
 
@@ -107,7 +108,7 @@ export function MatchupsView({
     return <><Warning message={data.warning} />
     {matchups.length ? <MatchupsWithBoxScores key={`${site.key}:${data.league.season}:${data.week}`}
       matchups={matchups} selected={myTeamView ? myTeam.team?.id ?? null : selected} leagueKey={site.key} season={data.league.season}
-      showBench={myTeamView}
+      showBench={myTeamView} observedAt={data.updatedAt}
       standings={standings?.season === data.league.season ? standings : null}
       week={data.week} refreshAutomatically={periodContext.temporalState === 'active'} />
       : <EmptyState title="No matchups posted yet">{myTeamView && myTeam.team
