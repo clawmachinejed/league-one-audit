@@ -29,6 +29,15 @@ function points(value: number | null | undefined) {
   return typeof value === 'number' && Number.isFinite(value) ? value.toFixed(2) : '—';
 }
 
+function playerActualPoints(player: Player | undefined, observedAt?: string) {
+  const game = player?.game;
+  // Classify a pregame zero from this snapshot, not the browser clock or injury label.
+  // Missing live/final context alone does not prove that a game has not started.
+  if (player?.points === 0 && game?.kind === 'scheduled' && !game.liveScore && !game.finalScore
+    && game.kickoffAt && observedAt && Date.parse(game.kickoffAt) > Date.parse(observedAt)) return null;
+  return player?.points;
+}
+
 function record(team: Team) {
   return `${team.wins}–${team.losses}${team.ties ? `–${team.ties}` : ''}`;
 }
@@ -76,14 +85,20 @@ function TeamMeta({ team, opposite, avatar, standings }: {
   </span>;
 }
 
-function Starter({ player, opposite, high, pending, unavailable, bench, blank }: {
+function Starter({ player, opposite, high, pending, unavailable, bench, blank, observedAt }: {
   player?: Player; opposite?: boolean; high?: boolean; pending?: boolean; unavailable?: boolean;
-  bench?: boolean; blank?: boolean;
+  bench?: boolean; blank?: boolean; observedAt?: string;
 }) {
   if (blank) return <div className={`${styles.player} ${opposite ? styles.rightPlayer : ''}`} aria-hidden="true" />;
   const name = player?.name || (unavailable ? bench ? 'Bench unavailable' : 'Lineup unavailable' : pending ? 'Not posted' : 'Empty slot');
   const injury = injuryStatusLabel(player?.injuryStatus);
   const game = player?.game ? formatNflGame(player.game) : null;
+  const actualPoints = playerActualPoints(player, observedAt);
+  const pendingKickoff = player?.points === 0 && actualPoints === null;
+  const finalScore = player?.game?.kind === 'scheduled' ? player.game.finalScore : null;
+  const final = Number.isFinite(actualPoints) && finalScore
+    && Number.isSafeInteger(finalScore.teamScore) && finalScore.teamScore >= 0
+    && Number.isSafeInteger(finalScore.opponentScore) && finalScore.opponentScore >= 0;
   return <div className={`${styles.player} ${opposite ? styles.rightPlayer : ''}`}>
     <div className={styles.playerInfo}>
       <span className={styles.playerName} data-player-name>
@@ -99,8 +114,8 @@ function Starter({ player, opposite, high, pending, unavailable, bench, blank }:
         {game && <span className={styles.game} data-player-game>{game}</span>}
       </small>
     </div>
-    <span className={`${styles.playerPoints} ${high ? styles.higherScore : ''}`} data-player-score-side={opposite ? 'right' : 'left'} role="group" aria-label={`Official score ${spokenScore(player?.points)}; ${spokenProjection(player?.projectedPoints)}`}>
-      <span className={styles.playerOfficial} data-player-score-number aria-hidden="true">{points(player?.points)}</span>
+    <span className={`${styles.playerPoints} ${high ? styles.higherScore : ''}`} data-player-score-side={opposite ? 'right' : 'left'} role="group" aria-label={`Official score ${pendingKickoff ? 'pending kickoff' : spokenScore(actualPoints)}; ${spokenProjection(player?.projectedPoints)}`}>
+      <span className={styles.playerOfficial} data-player-score-number data-player-score-final={final || undefined} aria-hidden="true">{points(actualPoints)}</span>
       <span className={styles.playerProjection} data-player-projection-number aria-hidden="true">{points(player?.projectedPoints)}</span>
     </span>
   </div>;
@@ -123,8 +138,9 @@ function PlayerBoxScore({ player, panelId, expanded, opposite, boxScores, boxSco
   </section>;
 }
 
-function MatchupCard({ matchup, selected, avatar, boxScores, boxScoresLoading, onBoxScoreOpen, showBench = false, standings }: {
+function MatchupCard({ matchup, selected, avatar, boxScores, boxScoresLoading, onBoxScoreOpen, showBench = false, standings, observedAt }: {
   matchup: Matchup; selected: number | null; avatar: AvatarRenderer; showBench?: boolean; standings?: CurrentStandings | null;
+  observedAt?: string;
 } & BoxScoreProps) {
   const site = useLeagueSite();
   const [expanded, setExpanded] = useState(false);
@@ -203,7 +219,9 @@ function MatchupCard({ matchup, selected, avatar, boxScores, boxScoresLoading, o
     const bench = section === 'bench';
     const a = (bench ? left.bench : left.starters)?.[index];
     const b = (bench ? right?.bench : right?.starters)?.[index];
-    const comparable = typeof a?.points === 'number' && typeof b?.points === 'number';
+    const aPoints = playerActualPoints(a, observedAt);
+    const bPoints = playerActualPoints(b, observedAt);
+    const comparable = typeof aPoints === 'number' && typeof bPoints === 'number';
     const slot = bench ? 'BN' : a?.slot || b?.slot || '—';
     const slotKey = `${section}-${index}-${slot}`;
     const aEligible = canExpandPlayerBoxScore(a);
@@ -216,10 +234,10 @@ function MatchupCard({ matchup, selected, avatar, boxScores, boxScoresLoading, o
     return <Fragment key={slotKey}>
       <div className={styles.playerRow} data-bench-row={bench || undefined}>
         <Starter player={a} bench={bench} unavailable={aUnavailable} blank={bench && !a && !aUnavailable}
-          high={comparable && a!.points! > b!.points!} />
+          observedAt={observedAt} high={comparable && aPoints > bPoints} />
         <span className={styles.slot} aria-label={rosterSlotName(slot)} title={rosterSlotName(slot)}>{rosterSlotLabel(slot)}</span>
         <Starter player={b} opposite bench={bench} pending={!right} unavailable={bUnavailable}
-          blank={bench && !b && !bUnavailable} high={comparable && b!.points! > a!.points!} />
+          blank={bench && !b && !bUnavailable} observedAt={observedAt} high={comparable && bPoints > aPoints} />
         {expandable && <button type="button" className={styles.starterDisclosure}
           data-starter-box-score-toggle={!bench || undefined} data-starter-index={bench ? undefined : index}
           data-bench-box-score-toggle={bench || undefined} data-bench-index={bench ? index : undefined}
@@ -280,8 +298,9 @@ function MatchupCard({ matchup, selected, avatar, boxScores, boxScoresLoading, o
   </article>;
 }
 
-export function MatchupBoard({ matchups, selected, avatar, boxScores, boxScoresLoading, onBoxScoreOpen, showBench = false, standings }: {
+export function MatchupBoard({ matchups, selected, avatar, boxScores, boxScoresLoading, onBoxScoreOpen, showBench = false, standings, observedAt }: {
   matchups: Matchup[]; selected: number | null; avatar: AvatarRenderer; showBench?: boolean; standings?: CurrentStandings | null;
+  observedAt?: string;
 } & BoxScoreProps) {
   const boardRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -309,7 +328,7 @@ export function MatchupBoard({ matchups, selected, avatar, boxScores, boxScoresL
   }, [matchups, standings]);
   const observed = boxScores?.status === 'available' ? boxScoreObservedLabel(boxScores.observedAt) : null;
   return <><div ref={boardRef} className={styles.board}>{matchups.map(matchup => <MatchupCard key={matchup.id}
-    matchup={matchup} selected={selected} avatar={avatar} boxScores={boxScores} standings={standings}
+    matchup={matchup} selected={selected} avatar={avatar} boxScores={boxScores} standings={standings} observedAt={observedAt}
     boxScoresLoading={boxScoresLoading} onBoxScoreOpen={onBoxScoreOpen} showBench={showBench} />)}</div>
     {observed && <p className={styles.boxScoreObserved} data-box-score-source>{observed}<span>Sleeper · hourly collection</span></p>}
   </>;
