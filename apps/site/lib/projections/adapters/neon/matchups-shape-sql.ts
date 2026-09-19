@@ -26,6 +26,7 @@ export function matchupsStructureSql(expression: string): string {
       case 'union': return `(${shape.alternatives.map((child) => `(${compile(child, value)})`).join(' OR ')})`;
       // Refinements execute in Node against the compact scalar/atom results.
       case 'refinement': return shape.name === 'date-string' ? `${type} = 'string'` : 'true';
+      // Object refinements also execute in Node against compact anonymous atoms.
       case 'object': return `CASE WHEN ${type} = 'object' THEN (
         ${Object.entries(shape.properties).map(([key, child]) => (
           `COALESCE((${compile(child, `${value} -> ${literal(key)}`)}), false)`

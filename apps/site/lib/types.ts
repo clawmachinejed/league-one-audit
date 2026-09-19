@@ -124,10 +124,26 @@ export interface MatchupSide {
   bench?: Player[] | null;
 }
 
+export type MatchupWinProbability = {
+  modelVersion: 'normal-v1';
+  status: 'estimated' | 'final' | 'tie';
+  /** Keyed by team identity so changing the displayed side preserves the estimate. */
+  teams: readonly [
+    { teamId: number; probability: number },
+    { teamId: number; probability: number },
+  ];
+} | {
+  modelVersion: 'normal-v1';
+  status: 'unavailable';
+  reason: string;
+};
+
 export interface Matchup {
   id: string;
   sides: MatchupSide[];
   status: 'upcoming' | 'live' | 'final' | 'unknown';
+  /** Absent in older immutable snapshots. Estimates are produced by the shared worker. */
+  winProbability?: MatchupWinProbability;
 }
 
 export interface MatchupsData extends OverviewData {

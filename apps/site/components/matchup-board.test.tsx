@@ -4,6 +4,7 @@ import { LEAGUE_SITES } from '../lib/leagues';
 import type { Matchup, Player, Team } from '../lib/types';
 import { LeagueSiteProvider } from './league-context';
 import { MatchupBoard } from './matchup-board';
+import { matchupWithTeamOnLeft } from '../lib/my-team-matchup';
 
 const team = (id: number): Team => ({
   id,
@@ -36,6 +37,26 @@ const player = (id: string, projectedPoints: number | null): Player => ({
 });
 
 describe('MatchupBoard player projection presentation', () => {
+  it.each([false, true])('shows team-scoped win estimates in the expandable shared header (benches %s)', showBench => {
+    const matchup: Matchup = { id: '1', status: 'live', sides: [
+      { team: team(1), points: 23.2, projectedPoints: 40, starters: [player('first', 40)], bench: [] },
+      { team: team(2), points: 7, projectedPoints: 50, starters: [player('second', 50)], bench: [] },
+    ], winProbability: { modelVersion: 'normal-v1', status: 'estimated', teams: [
+      { teamId: 1, probability: 0.3 }, { teamId: 2, probability: 0.7 },
+    ] } };
+    const html = renderToStaticMarkup(<LeagueSiteProvider site={LEAGUE_SITES.league1}>
+      <MatchupBoard matchups={[matchupWithTeamOnLeft(matchup, 2)]} selected={2} avatar={() => null} showBench={showBench} />
+    </LeagueSiteProvider>);
+    expect(html).toContain('Estimated win chance: Team 2 70%; Team 1 30%.');
+    expect(html).toContain('data-win-chance-side="left" data-win-chance-team="2">70%</span>');
+    expect(html).toContain('data-win-chance-side="right" data-win-chance-team="1">30%</span>');
+    expect(html).toContain('data-win-chance="estimated" aria-hidden="true"');
+    expect(html).toContain('data-matchup-toggle="true" aria-expanded="false"');
+    expect(html).toContain(showBench ? 'Expand starting lineups and benches.' : 'Expand starting lineups.');
+    expect([...html.matchAll(/data-score-number="true"[^>]*>([^<]+)</gu)].map(match => match[1])).toEqual(['7.00', '23.20']);
+    expect([...html.matchAll(/data-team-projection-number="true"[^>]*>([^<]+)</gu)].map(match => match[1])).toEqual(['50.00', '40.00']);
+  });
+
   it.each([false, true])('uses a compact super flex chip with a full disclosure name (benches %s)', (showBench) => {
     const starter = { ...player('super-flex', 20), slot: 'SUPER_FLEX', game: {
       kind: 'scheduled' as const, opponent: 'TEN', location: 'away' as const, date: '2026-09-13',

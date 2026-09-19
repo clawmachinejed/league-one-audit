@@ -306,6 +306,102 @@ function snapshotInput() {
   };
 }
 
+describe('win chance through the canonical snapshot boundary', () => {
+  function probabilityInput() {
+    const input = snapshotInput();
+    const match = input.source.matchups[0];
+    return { ...input, source: { ...input.source, matchups: [{ ...match, sides: [
+      { ...match.sides[0], officialPoints: 10, starters: [match.sides[0].starters[0]] },
+      { ...match.sides[1], officialPoints: 0, starters: [match.sides[0].starters[1]] },
+    ] }] } };
+  }
+
+  it('publishes deterministic paired estimates using only starting players', () => {
+    const input = probabilityInput();
+    const payload = buildSnapshot(input);
+    const odds = payload.matchups[0].winProbability;
+    expect(odds).toMatchObject({ modelVersion: 'normal-v1', status: 'estimated', teams: [
+      { teamId: 1, probability: expect.any(Number) }, { teamId: 2, probability: expect.any(Number) },
+    ] });
+    if (!odds || odds.status !== 'estimated') throw new Error('Expected estimate');
+    expect(odds.teams[0].probability).toBeGreaterThan(0.5);
+    expect(odds.teams[0].probability + odds.teams[1].probability).toBe(1);
+    expect(buildSnapshot({ ...input, calculatedAt: '2026-09-13T18:00:02.000Z' })
+      .matchups[0].winProbability).toEqual(odds);
+    const bench = { kind: 'occupied' as const, slot: 'BN', entity: final, officialPoints: 500 };
+    const withBench = { ...input.source, matchups: input.source.matchups.map((matchup) => ({ ...matchup,
+      sides: matchup.sides.map((side) => ({ ...side, bench: [bench] })),
+    })) };
+    expect(buildSnapshot({ ...input, source: withBench }).matchups[0].winProbability).toEqual(odds);
+  });
+
+  it('uses actual finished contributions rather than the displayed pregame player value', () => {
+    const input = probabilityInput();
+    const changed = { ...input, source: { ...input.source, matchups: input.source.matchups.map((matchup) => ({
+      ...matchup, sides: [
+        { ...matchup.sides[0], officialPoints: 18, starters: [input.source.matchups[0].sides[0].starters[0]] },
+        matchup.sides[1],
+      ],
+    })) }, games: { ...input.games, games: input.games.games.map((game) => game.homeTeam === 'KC'
+      ? { ...game, phase: 'final' as const, statusCode: 2 as const, remainingFraction: 0 } : game) } };
+    const before = buildSnapshot(changed);
+    const after = buildSnapshot({ ...changed, frozen: changed.frozen.map((record) => ({ ...record, projectionPoints: 900 })) });
+    expect(after.matchups[0].sides[0].starters[0].projectedPoints).toBe(900);
+    expect(after.matchups[0].winProbability).toEqual(before.matchups[0].winProbability);
+  });
+
+  it('honors official team adjustments in estimates without changing scores or clock-v1 totals', () => {
+    const input = probabilityInput();
+    const before = buildSnapshot(input);
+    const changed = { ...input.source, matchups: input.source.matchups.map((matchup) => ({ ...matchup,
+      sides: matchup.sides.map((side, index) => index === 0 ? { ...side, officialPoints: 40 } : side),
+    })) };
+    const after = buildSnapshot({ ...input, source: changed });
+    const beforeOdds = before.matchups[0].winProbability;
+    const afterOdds = after.matchups[0].winProbability;
+    if (!beforeOdds || beforeOdds.status !== 'estimated' || !afterOdds || afterOdds.status !== 'estimated') {
+      throw new Error('Expected estimates');
+    }
+    expect(afterOdds.teams[0].probability).toBeGreaterThan(beforeOdds.teams[0].probability);
+    expect(after.matchups[0].sides[0].projectedPoints).toBe(before.matchups[0].sides[0].projectedPoints);
+    expect(after.matchups[0].sides[0].points).toBe(40);
+  });
+
+  it('isolates a missing lineup while keeping another matchup estimated', () => {
+    const input = probabilityInput();
+    const healthy = input.source.matchups[0];
+    const missing = { ...healthy, matchupRef: externalMatchupRef(leagueRef, period, '5'),
+      sides: healthy.sides.map((side, index) => index === 0 ? { ...side, starters: [] } : side) };
+    const result = buildSnapshot({ ...input, source: { ...input.source, matchups: [healthy, missing] } });
+    expect(result.matchups[0].winProbability?.status).toBe('estimated');
+    expect(result.matchups[1].winProbability).toEqual({ modelVersion: 'normal-v1', status: 'unavailable', reason: 'missing-lineup' });
+    expect(result.matchups[0].sides[0].projectedPoints).toBe(20);
+  });
+
+  it('never converts the existing missing-baseline zero policy into confident odds', () => {
+    const input = probabilityInput();
+    const result = buildSnapshot({ ...input, frozen: [] });
+    expect(result.matchups[0].sides[0].projectedPoints).toBe(10);
+    expect(result.matchups[0].winProbability).toEqual({ modelVersion: 'normal-v1', status: 'unavailable', reason: 'missing-projection' });
+  });
+
+  it('uses official final team totals even without frozen baselines', () => {
+    const input = probabilityInput();
+    const result = buildSnapshot({ ...input, frozen: [], games: { ...input.games,
+      games: input.games.games.map((game) => ({ ...game, phase: 'final', statusCode: 2, remainingFraction: 0 })),
+    } });
+    expect(result.matchups[0].winProbability).toEqual({ modelVersion: 'normal-v1', status: 'final', teams: [
+      { teamId: 1, probability: 1 }, { teamId: 2, probability: 0 },
+    ] });
+  });
+
+  it('uses exact requested-period game context for estimates', () => {
+    const input = probabilityInput();
+    const result = buildSnapshot({ ...input, games: { ...input.games, period: { ...period, week: 2 } } });
+    expect(result.matchups[0].winProbability).toEqual({ modelVersion: 'normal-v1', status: 'unavailable', reason: 'unknown-game-state' });
+  });
+});
+
 describe('canonical worker game context and snapshot builder', () => {
   it('retains healthy projections and exact official totals while an unknown lineup stays empty and unprojected', () => {
     const input = snapshotInput();
@@ -508,6 +604,7 @@ describe('canonical worker game context and snapshot builder', () => {
       matchups: [{
         id: '4',
         status: 'live',
+        winProbability: { modelVersion: 'normal-v1', status: 'unavailable', reason: 'missing-projection' },
         sides: [
           {
             team: expect.objectContaining({ id: 1, name: 'One Team' }),
