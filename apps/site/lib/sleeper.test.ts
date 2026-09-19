@@ -55,6 +55,7 @@ import {
   getOverview,
   getManagers,
   getManager,
+  getMyTeamSchedule,
   getProjectionCadenceInput,
   getProjectionSyncInput,
   getOperatorProjectionSyncInput,
@@ -1389,6 +1390,132 @@ describe('Sleeper service error handling', () => {
     expect(data.matchups[0].sides[0].starters[0]).toMatchObject({
       name: 'Quarter Back',
       game: { kind: 'scheduled', opponent: 'HOU', location: 'home', kickoffAt: null },
+    });
+  });
+});
+
+describe('Sleeper League Two manager correction', () => {
+  const sourceOwnerId = '95628446075863040';
+
+  function useCorrectedOwnerSource(leagueId: string = leagueTwoId) {
+    rawRosters[0] = {
+      roster_id: 1, owner_id: sourceOwnerId, players: ['qb'], starters: ['qb'],
+      settings: { ...rosterSettings, wins: 1, fpts: 105, fpts_decimal: 25 },
+    };
+    rawUsers[0] = {
+      user_id: sourceOwnerId, username: 'eneerg', display_name: 'eneerg', avatar: 'source-avatar',
+      metadata: { team_name: 'Official team name' },
+    };
+    makeProjectionWeekReady();
+    rawMatchups = [
+      { roster_id: 1, matchup_id: 1, points: 12.34, players: ['qb'], starters: ['qb'], starters_points: [12.34] },
+      { roster_id: 2, matchup_id: 1, points: 0, players: [], starters: ['0'], starters_points: [0] },
+    ];
+    const originalFetch = vi.mocked(fetch).getMockImplementation()!;
+    const selectedPath = `/league/${leagueId}`;
+    vi.mocked(fetch).mockImplementation(async (input, init) => {
+      const path = requestPath(input);
+      if (path === selectedPath) return Response.json({
+        ...(valueFor(leaguePath) as Record<string, unknown>), league_id: leagueId,
+      });
+      if (path.startsWith(`${selectedPath}/`)) {
+        return Response.json(valueFor(`${leaguePath}${path.slice(selectedPath.length)}`));
+      }
+      return originalFetch(input, init);
+    });
+  }
+
+  it('shares the corrected owner across page loaders while preserving team data and cached core reads', async () => {
+    useCorrectedOwnerSource();
+    reactCacheControl.enabled = true;
+    const originalTeam = normalizeTeams(rawRosters as SleeperRoster[], rawUsers as SleeperUser[])
+      .find(team => team.id === 1)!;
+    const expectedTeam = { ...originalTeam, managerName: 'tylerawildman' };
+    const overview = await getOverview(leagueTwoId);
+    const coreRequests = vi.mocked(fetch).mock.calls.length;
+    const managers = await getManagers(leagueTwoId);
+    expect(vi.mocked(fetch).mock.calls).toHaveLength(coreRequests);
+    expect(overview.teams.find(team => team.id === 1)).toEqual(expectedTeam);
+    expect(managers.teams.find(team => team.id === 1)).toEqual({ ...expectedTeam, championshipYears: [] });
+
+    const [manager, transactions, standings, matchups, rosters, schedule] = await Promise.all([
+      getManager(leagueTwoId, 1), getTransactions(leagueTwoId, 1), getStandings(leagueTwoId),
+      getOfficialMatchups(leagueTwoId, 3), getRosters(leagueTwoId, 3), getMyTeamSchedule(leagueTwoId, 14),
+    ]);
+    expect(manager?.team).toEqual(expectedTeam);
+    expect(transactions?.team).toEqual(expectedTeam);
+    expect(standings.teams.find(team => team.id === 1)).toMatchObject(expectedTeam);
+    expect(rosters.teams.find(team => team.id === 1)).toMatchObject({
+      id: expectedTeam.id, managerName: expectedTeam.managerName, name: expectedTeam.name,
+      avatar: expectedTeam.avatar, pointsFor: expectedTeam.pointsFor,
+      wins: expectedTeam.wins, losses: expectedTeam.losses, ties: expectedTeam.ties,
+    });
+    expect(matchups.matchups[0].sides.find(side => side.team.id === 1)).toMatchObject({
+      team: expectedTeam, points: 12.34, projectedPoints: null,
+    });
+    expect(schedule.weeks).toHaveLength(14);
+    expect(schedule.weeks[0].matchups[0].sides.find(side => side.team.id === 1)?.team).toEqual(expectedTeam);
+    for (const suffix of ['/users', '/rosters']) {
+      expect(vi.mocked(fetch).mock.calls.filter(([input]) => requestPath(input) === `${leagueTwoPath}${suffix}`))
+        .toHaveLength(1);
+    }
+  });
+
+  it('follows the confirmed source owner after a display-name change, including a partial roster response', async () => {
+    useCorrectedOwnerSource();
+    (rawUsers[0] as SleeperUser).display_name = 'Renamed Sleeper account';
+    expectedRosterCount = 3;
+    const rosters = await getRosters(leagueTwoId, 3);
+    expect(rosters.teams.find(team => team.id === 1)).toMatchObject({
+      id: 1, managerName: 'tylerawildman', name: 'Official team name', pointsFor: 105.25,
+    });
+    expect(rosters.warning).toContain('incomplete or malformed data');
+  });
+
+  it('retains original owner evidence and team presentation in the official worker input', async () => {
+    useCorrectedOwnerSource();
+    reactCacheControl.enabled = true;
+    await getOverview(leagueTwoId);
+    const originalTeam = normalizeTeams(rawRosters as SleeperRoster[], rawUsers as SleeperUser[])
+      .find(team => team.id === 1)!;
+    const input = await getProjectionSyncInput(leagueTwoId, { season: 2026, seasonType: 'regular', week: 3 });
+    expect(input.data.teams.find(team => team.id === 1)).toEqual(originalTeam);
+    expect(input.data.matchups[0].sides.find(side => side.team.id === 1)?.team).toEqual(originalTeam);
+    expect(input.rawMatchups).toEqual(rawMatchups);
+    expect(input.administrationObservations?.find(observation => observation.family === 'rosters')?.payload)
+      .toEqual(rawRosters);
+    expect(input.administrationObservations?.find(observation => observation.family === 'users')?.payload)
+      .toEqual(rawUsers);
+    expect((rawRosters[0] as SleeperRoster).owner_id).toBe(sourceOwnerId);
+    expect((rawUsers[0] as SleeperUser).display_name).toBe('eneerg');
+  });
+
+  it.each([LEAGUE_IDS.league1, LEAGUE_IDS.dynasty])('preserves eneerg and his championships in %s', async leagueId => {
+    useCorrectedOwnerSource(leagueId);
+    const managers = await getManagers(leagueId);
+    expect(managers.teams.find(team => team.id === 1)).toMatchObject({
+      managerName: 'eneerg', championshipYears: [2010, 2012, 2017],
+    });
+  });
+
+  it.each(['different-owner', null])('does not transfer the correction to a matching display name with owner %s', async ownerId => {
+    useCorrectedOwnerSource();
+    (rawRosters[0] as SleeperRoster).owner_id = ownerId;
+    (rawUsers[0] as SleeperUser).user_id = ownerId ?? sourceOwnerId;
+    const managers = await getManagers(leagueTwoId);
+    expect(managers.teams.find(team => team.id === 1)).toMatchObject({
+      managerName: ownerId ? 'eneerg' : 'Unassigned manager', championshipYears: [],
+    });
+  });
+
+  it('does not apply the correction when the source owner moves to another League Two roster', async () => {
+    useCorrectedOwnerSource();
+    (rawRosters[0] as SleeperRoster).owner_id = 'member-2';
+    (rawRosters[1] as SleeperRoster).owner_id = sourceOwnerId;
+    const managers = await getManagers(leagueTwoId);
+    expect(managers.teams.find(team => team.id === 1)?.managerName).toBe('Sam');
+    expect(managers.teams.find(team => team.id === 2)).toMatchObject({
+      managerName: 'eneerg', championshipYears: [2010, 2012, 2017],
     });
   });
 });
