@@ -42,7 +42,7 @@ The second owner-supplied championship table covers 2015–2025. Both kinds of a
 
 Public Sleeper identities were checked on September 19, 2026 at 17:26 UTC. Seven confirmed owner IDs account for nine titles. The supplied `rshueh2` spelling resolves to no account; the existing League One account is `rhsueh2`. Hsueh and Jessup remain unassigned until the owner resolves those identities; their supplied championship history is retained here rather than awarded to a guessed account.
 
-Identity verification used the official public users and rosters for the current three league connections: League One 1378850182409490432, League Two 1378850360529014784 and Dynasty 1312138224994385920. These are provenance observations, not new routing constants. The 11 confirmed manager mappings cover all 18 championships from 2008 through 2025.
+League One identity verification used the official public users and rosters for the current three league connections: League One 1378850182409490432, League Two 1378850360529014784 and Dynasty 1312138224994385920. These are provenance observations, not new routing constants. Its 11 confirmed manager mappings cover all 18 League One championships from 2008 through 2025.
 
 ## Artwork
 
