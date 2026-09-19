@@ -252,9 +252,17 @@ function MatchupCard({ matchup, selected, avatar, boxScores, boxScoresLoading, o
       </span>
       {right ? <TeamMeta team={right.team} opposite avatar={avatar} standings={standings} /> : <span className={`${styles.teamMeta} ${styles.oppositeMeta}`}>Not posted</span>}
       <span className={styles.winChance} data-win-chance={winChance.status} aria-hidden="true">
-        <span className={styles.winChanceValue} data-win-chance-side="left" data-win-chance-team={left.team.id}>{winChance.values[0]}</span>
-        <span className={styles.winChanceLabel}>{winChance.label}</span>
-        <span className={styles.winChanceValue} data-win-chance-side="right" data-win-chance-team={right?.team.id}>{winChance.values[1]}</span>
+        {(['left', 'right'] as const).map((side, index) => {
+          const probability = winChance.probabilities[index];
+          const tone = probability === null ? 'neutral' : probability >= 0.5 ? 'favored' : 'underdog';
+          return <span key={side} className={styles.winChanceHalf} data-win-chance-half={side} data-win-chance-tone={tone}>
+            <span className={styles.winChanceTrack} data-win-chance-track>
+              <span className={styles.winChanceFill} data-win-chance-fill style={{ width: `${(probability ?? 0) * 100}%` }} />
+            </span>
+            <span className={styles.winChanceValue} data-win-chance-side={side}
+              data-win-chance-team={index === 0 ? left.team.id : right?.team.id}>{winChance.values[index]}</span>
+          </span>;
+        })}
       </span>
     </button>
     <div id={panelId} ref={panelRef} className={styles.lineup} hidden={!expanded}>

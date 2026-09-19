@@ -2,14 +2,14 @@ import type { Matchup } from '../lib/types';
 
 interface WinChanceDisplay {
   status: 'estimated' | 'final' | 'tie' | 'unavailable';
-  label: string;
   values: readonly [string, string];
+  probabilities: readonly [number | null, number | null];
   description: string;
 }
 
 const unavailable: WinChanceDisplay = {
-  status: 'unavailable', label: 'Estimated win chance', values: ['—', '—'],
-  description: 'Estimated win chance unavailable.',
+  status: 'unavailable', values: ['—', '—'], probabilities: [null, null],
+  description: 'Win chance unavailable.',
 };
 
 /** Present stored estimates only; player projections cannot reconstruct live odds. */
@@ -23,10 +23,11 @@ export function matchupWinChance(matchup: Matchup): WinChanceDisplay {
     if (typeof left.points !== 'number' || !Number.isFinite(left.points)
       || typeof right.points !== 'number' || !Number.isFinite(right.points)) return unavailable;
     if (left.points === right.points) {
-      return { status: 'tie', label: 'Final', values: ['Tie', 'Tie'], description: 'Final result: tied.' };
+      return { status: 'tie', values: ['Tie', 'Tie'], probabilities: [null, null], description: 'Final result: tied.' };
     }
     const leftWon = left.points > right.points;
-    return { status: 'final', label: 'Final win chance', values: leftWon ? ['100%', '0%'] : ['0%', '100%'],
+    return { status: 'final', values: leftWon ? ['100%', '0%'] : ['0%', '100%'],
+      probabilities: leftWon ? [1, 0] : [0, 1],
       description: `Final win chance: ${left.team.name} ${leftWon ? '100%' : '0%'}; ${right.team.name} ${leftWon ? '0%' : '100%'}.` };
   }
 
@@ -49,6 +50,8 @@ export function matchupWinChance(matchup: Matchup): WinChanceDisplay {
   const leftValue = values.get(left.team.id)!;
   const rightValue = values.get(right.team.id)!;
   const spoken = (value: string) => value.replace('<', 'less than ').replace('>', 'greater than ');
-  return { status: 'estimated', label: 'Estimated win chance', values: [leftValue, rightValue],
-    description: `Estimated win chance: ${left.team.name} ${spoken(leftValue)}; ${right.team.name} ${spoken(rightValue)}.` };
+  return { status: 'estimated', values: [leftValue, rightValue],
+    probabilities: [ordered.find(team => team.teamId === left.team.id)!.probability,
+      ordered.find(team => team.teamId === right.team.id)!.probability],
+    description: `Win chance: ${left.team.name} ${spoken(leftValue)}; ${right.team.name} ${spoken(rightValue)}.` };
 }
