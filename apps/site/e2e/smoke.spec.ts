@@ -1014,7 +1014,7 @@ test('both Managers pages reuse the Matchups intro with compact profile rows', a
         };
       });
 
-      for (const route of ['/managers', '/league2/managers']) {
+      for (const route of ['/managers', '/league2/managers', '/dynasty/managers']) {
         await page.goto(route, { waitUntil: 'networkidle' });
         const main = page.locator('main');
         const intro = main.locator('[data-page-intro]');
@@ -1070,7 +1070,7 @@ test('both Managers pages reuse the Matchups intro with compact profile rows', a
         }
         await expectNoPageOverflow(page);
 
-        const prefix = route.startsWith('/league2') ? '/league2' : '';
+        const prefix = route.replace('/managers', '');
         const managerLinks = main.locator(`a[href^="${prefix}/managers/"]`);
         const cards = main.locator('.manager-card');
         const teamCount = await cards.count();
@@ -1097,6 +1097,21 @@ test('both Managers pages reuse the Matchups intro with compact profile rows', a
           expect(card.linkHeight, 'the whole compact card remains a touch target').toBeGreaterThanOrEqual(44);
           expect(card.cardWidth - card.linkWidth).toBeLessThanOrEqual(2);
           expect(card.height - card.linkHeight).toBeLessThanOrEqual(2);
+        }
+        for (const trophies of await main.locator('.manager-championships').all()) {
+          await expect(trophies).toHaveAccessibleName(/^\d+ League One championships?: \d{4}(, \d{4})*$/u);
+          const label = (await trophies.getAttribute('aria-label'))!;
+          await expect(trophies.locator('img')).toHaveCount(Number.parseInt(label, 10));
+          const fit = await trophies.evaluate(element => {
+            const heading = element.closest('h2')!.getBoundingClientRect();
+            const name = element.previousElementSibling!.getBoundingClientRect();
+            const icons = element.getBoundingClientRect();
+            return { afterName: icons.left >= name.right, withinHeading: icons.right <= heading.right + 1,
+              sameRow: Math.abs(icons.top - heading.top) <= 1 };
+          });
+          expect(fit).toEqual({ afterName: true, withinHeading: true, sameRow: true });
+          await expect.poll(() => trophies.locator('img').evaluateAll(images =>
+            images.every(image => image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0))).toBe(true);
         }
       }
     });
