@@ -213,8 +213,9 @@ describe('MatchupBoard player projection presentation', () => {
         { team: team(1), points: 23.2, projectedPoints: 23.2, starters: [starter], bench: [] },
       ] }]} selected={1} avatar={() => null} showBench={showBench} />
     </LeagueSiteProvider>);
-    expect(html).toContain('aria-label="Super flex" title="Super flex">SF</span>');
-    expect(html).toContain('Super flex row 1 game statistics for both teams');
+    expect(html).toContain('aria-label="Wide receiver, running back, tight end or quarterback" title="Wide receiver, running back, tight end or quarterback" data-roster-slot="SUPER_FLEX"');
+    expect(html).toContain('Wide receiver, running back, tight end or quarterback row 1 game statistics for both teams');
+    expect(html).toContain('<span>W</span><span>R</span><span>T</span><span>Q</span>');
     expect(html).not.toContain('>SUPER_FLEX<');
     expect(starter.slot).toBe('SUPER_FLEX');
   });

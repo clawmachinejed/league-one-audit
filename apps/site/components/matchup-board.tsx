@@ -8,10 +8,11 @@ import type { MatchupBoxScores } from '../lib/matchup-box-score-types';
 import { boxScoreSummary, boxScoreObservedLabel, canExpandPlayerBoxScore, playerBoxScoreKey } from '../lib/matchup-box-scores';
 import { formatNflGame } from '../lib/nfl-schedule';
 import { compactPlayerName } from '../lib/player-name';
-import { rosterSlotLabel, rosterSlotName } from '../lib/roster-slot';
+import { rosterSlotName } from '../lib/roster-slot';
 import type { Matchup, Player, Team } from '../lib/types';
 import { useLeagueSite } from './league-context';
 import { matchupWinChance } from './matchup-win-chance';
+import { RosterSlot } from './roster-slot';
 import styles from './matchups.module.css';
 
 type AvatarRenderer = (team: Team) => ReactNode;
@@ -235,7 +236,7 @@ function MatchupCard({ matchup, selected, avatar, boxScores, boxScoresLoading, o
       <div className={styles.playerRow} data-bench-row={bench || undefined}>
         <Starter player={a} bench={bench} unavailable={aUnavailable} blank={bench && !a && !aUnavailable}
           observedAt={observedAt} high={comparable && aPoints > bPoints} />
-        <span className={styles.slot} aria-label={rosterSlotName(slot)} title={rosterSlotName(slot)}>{rosterSlotLabel(slot)}</span>
+        <RosterSlot slot={slot} className={styles.slot} />
         <Starter player={b} opposite bench={bench} pending={!right} unavailable={bUnavailable}
           blank={bench && !b && !bUnavailable} observedAt={observedAt} high={comparable && bPoints > aPoints} />
         {expandable && <button type="button" className={styles.starterDisclosure}

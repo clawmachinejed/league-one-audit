@@ -35,15 +35,16 @@ const data: RostersData = {
 };
 
 describe('rosters presentation', () => {
-  it('shows super flex as SF without changing the official roster slot', () => {
+  it('shows the super flex position grid without changing the official roster slot', () => {
     const source: RostersData = { ...data, teams: data.teams.map(team => ({ ...team,
       sections: team.sections.map(section => ({ ...section,
         players: section.players.map(player => ({ ...player, slot: player.slot === 'WR' ? 'SUPER_FLEX' : player.slot })),
       })),
     })) };
     const html = renderToStaticMarkup(<RosterContent data={source} selected={2} />);
-    expect(html).toContain('aria-label="Super flex" title="Super flex">SF</span>');
+    expect(html).toContain('aria-label="Wide receiver, running back, tight end or quarterback" title="Wide receiver, running back, tight end or quarterback" data-roster-slot="SUPER_FLEX"');
     expect(html).toContain('>BN</span>');
+    expect(html).toContain('<span>W</span><span>R</span><span>T</span><span>Q</span>');
     expect(html).not.toContain('>SUPER_FLEX<');
     expect(source.teams[0].sections[0].players[0].slot).toBe('SUPER_FLEX');
   });
