@@ -50,4 +50,30 @@ describe('shared manager name honors', () => {
     expect(html).toContain('tylerawildman');
     expect(html).not.toContain('manager-championships');
   });
+
+  it('keeps both leagues distinct for a manager with championships in each', () => {
+    const identity = { id: 1, managerName: 'jwbaute' };
+    const data = { ...honors, managers: { 1: { managerName: 'jwbaute',
+      championshipYears: [2008, 2009, 2014, 2025], promotionChampionshipYears: [2020, 2022] } } };
+    const html = render({ identity, data });
+    expect(html.match(/class="manager-championship-trophy"/gu)).toHaveLength(6);
+    expect(html).toContain('aria-label="jwbaute, 4 League One championships: 2008, 2009, 2014, 2025, 2 League Two championships: 2020, 2022"');
+    expect(html).toContain('data-championship-league="league1"');
+    expect(html).toContain('data-championship-league="league2"');
+    expect(html).toContain('League Two Promotion Bowl champion: 2020, 2022');
+    expect(html).toContain('league-two-champion-v1.png');
+    expect(render({ identity, data, payloadSeason: '2027' })).not.toContain('manager-championship-trophy');
+    expect(render({ identity: { id: 1, managerName: 'tylerawildman' }, data })).not.toContain('manager-championship-trophy');
+  });
+
+  it('shows League Two-only titles without a blue trophy or a League One label', () => {
+    const identity = { id: 1, managerName: 'tthomen' };
+    const data = { ...honors, managers: { 1: { managerName: 'tthomen',
+      championshipYears: [], promotionChampionshipYears: [2025] } } };
+    const html = render({ identity, data });
+    expect(html.match(/class="manager-championship-trophy"/gu)).toHaveLength(1);
+    expect(html).toContain('aria-label="tthomen, 1 League Two championship: 2025"');
+    expect(html).not.toContain('League One');
+    expect(html).not.toContain('league-one-champion-v1.png');
+  });
 });

@@ -24,7 +24,8 @@ export function ManagersView({ data, rollover }: { data: ManagersData; rollover?
         <Link href={`${site.prefix}/managers/${team.id}`} className="manager-card-link">
           <Avatar team={team} />
           <div className="manager-card-identity">
-            <h2><ManagerName team={team} className="manager-card-name" championshipYears={team.championshipYears} /></h2>
+            <h2><ManagerName team={team} className="manager-card-name" championshipYears={team.championshipYears}
+              promotionChampionshipYears={team.promotionChampionshipYears} /></h2>
             <p className="manager-card-meta"><span className="manager-card-team">{team.name}</span>{selected === team.id && <span className="manager-card-selected">My Team</span>}</p>
           </div>
           <span className="manager-card-record">{teamRecord(team)}<small>RECORD</small></span>
