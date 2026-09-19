@@ -177,10 +177,10 @@ for (const league of ['league1', 'league2'] as const) {
     await expect(panel(page, LEFT, 'right')).toBeVisible();
     await toggle(page, 1).click();
     await expect(panel(page, UNKNOWN, 'right')).toHaveText('Statistics not available yet.');
-    await expect(toggle(page, 1)).toHaveAccessibleName('FLEX row 2 game statistics for both teams');
+    await expect(toggle(page, 1)).toHaveAccessibleName('Wide receiver, running back or tight end row 2 game statistics for both teams');
     await expect(toggle(page, 2)).toHaveAttribute('aria-expanded', 'false');
     await toggle(page, 2).click();
-    await expect(toggle(page, 2)).toHaveAccessibleName('FLEX row 3 game statistics for both teams');
+    await expect(toggle(page, 2)).toHaveAccessibleName('Wide receiver, running back or tight end row 3 game statistics for both teams');
     await expect(toggle(page, 1)).toHaveAttribute('aria-expanded', 'true');
     await expect(panel(page, DEFENSE, 'left').locator('[data-box-score-summary]')).toHaveText('2 SACK, 1 INT, 17 PA');
     await expect(panel(page, 'player:fixture-upcoming', 'left')).toHaveCount(0);

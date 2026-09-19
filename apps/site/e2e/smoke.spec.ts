@@ -519,11 +519,11 @@ for (const viewport of standingsViewports) {
             wins: 6, losses: 2, ties: 0, pointsFor: 850, pointsAgainst: 710,
             waiverOrder: null, waiverBudgetRemaining: null, standingsRank: 2,
             averagePpg: 109.4, averagePpgRank: 2, rosterAvailable: available,
-            sections: available ? [{ name: 'Starters', players: [{
-              id: 'wide-rank', name: 'My Quarterback', position: 'WR', nflTeam: null,
-              injuryStatus: null, slot: 'SUPER_FLEX', byeWeek: null, game: null,
+            sections: available ? [{ name: 'Starters', players: ['SUPER_FLEX', 'WRRB_FLEX', 'REC_FLEX', 'FLEX'].map((slot, index) => ({
+              id: index === 0 ? 'wide-rank' : `slot-${slot}`, name: 'My Quarterback', position: 'WR', nflTeam: null,
+              injuryStatus: null, slot, byeWeek: null, game: null,
               positionRank: 125, ppg: -12.4,
-            }] }, { name: 'Bench', players: [] }] : [],
+            })) }, { name: 'Bench', players: [] }] : [],
           }],
         }),
       });
@@ -621,9 +621,25 @@ for (const viewport of standingsViewports) {
       const otherToggle = cards.nth(1).locator('[data-roster-toggle]');
       if (await otherToggle.getAttribute('aria-expanded') !== 'true') await otherToggle.click();
       await expect(cards.locator('[data-roster-toggle][aria-expanded="true"]')).toHaveCount(2);
-      const superFlex = cards.locator('[aria-label="Super flex"]');
-      await expect(superFlex).toHaveText('SF');
+      const superFlex = cards.locator('[data-roster-slot="SUPER_FLEX"]');
+      await expect(superFlex).toHaveText('WRTQ');
+      await expect(superFlex).toHaveRole('img');
+      await expect(superFlex).toHaveAccessibleName('Wide receiver, running back, tight end or quarterback');
       expect(await superFlex.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+      await expect(cards.locator('[data-roster-slot="FLEX"]')).toHaveText('WRT');
+      for (const [slot, label] of [['WRRB_FLEX', 'WRRB'], ['REC_FLEX', 'WRTE']]) {
+        const chip = cards.locator(`[data-roster-slot="${slot}"]`);
+        await expect(chip).toHaveText(label);
+        expect(await chip.evaluate(element => {
+          const box = element.getBoundingClientRect();
+          const cells = [...element.querySelectorAll('[aria-hidden] > span')].map(cell => cell.getBoundingClientRect());
+          return element.scrollWidth <= element.clientWidth && cells.length === 4
+            && cells.every(cell => cell.left >= box.left && cell.right <= box.right && cell.top >= box.top && cell.bottom <= box.bottom)
+            && cells[0].top === cells[1].top && cells[2].top === cells[3].top
+            && cells[0].left === cells[2].left && cells[1].left === cells[3].left
+            && cells[0].right <= cells[1].left && cells[0].bottom <= cells[2].top;
+        })).toBe(true);
+      }
       const wideMetricCard = page.locator('[data-roster-card][data-team-id="2"]');
       await expect(wideMetricCard.locator('[data-position-rank]').first()).toHaveText('WR125');
       await expect(wideMetricCard.locator('[data-player-ppg]').first()).toHaveText('-12.4');

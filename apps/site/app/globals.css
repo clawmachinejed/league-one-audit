@@ -255,7 +255,7 @@ h1{font-weight:800;font-size:38px;line-height:1.12;letter-spacing:-.055em;overfl
 .roster-list{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
 .roster-player{display:grid;grid-template-columns:38px minmax(0,1fr) 40px;gap:11px;align-items:center;padding:13px 14px;min-height:69px}
 .roster-player+.roster-player{border-top:1px solid var(--line-row)}
-.roster-slot{display:flex;align-items:center;justify-content:center;text-align:center;min-height:27px;padding:4px 2px;border-radius:5px;background:var(--surface-muted);font-size:9px;font-weight:700;color:var(--muted);overflow-wrap:anywhere}
+.roster-slot{display:flex;align-items:center;justify-content:center;text-align:center;min-height:27px;padding:4px 2px;border-radius:5px;background:var(--surface-muted);font-size:9px;font-weight:400;color:var(--muted);overflow-wrap:anywhere}
 .roster-player-name>span{font-size:13px;line-height:1.4;font-weight:700;display:block;overflow-wrap:anywhere}
 .roster-player-name>small{font-size:9px;line-height:1.5;color:var(--muted);display:block;margin-top:2px}
 .roster-nfl-team{font-size:10px;font-weight:700;color:var(--muted);text-align:right;overflow-wrap:anywhere}

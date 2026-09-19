@@ -23,13 +23,19 @@ async function savePreference(page: Page, league: LeagueKey, id: string) {
 }
 
 async function expectSuperFlexFit(page: Page, scope: Locator, surface: string) {
-  const slots = scope.locator('[aria-label="Super flex"]:visible');
+  const slots = scope.locator('[data-roster-slot="SUPER_FLEX"]:visible');
   await expect(slots.first(), `${surface} must expose its real super flex slot`).toBeVisible();
   for (const width of widths) {
     await page.setViewportSize({ width, height: 900 });
     await expect.poll(() => slots.evaluateAll(elements => elements.every(element => {
       const box = element.getBoundingClientRect();
-      return element.textContent === 'SF' && box.width > 0 && element.scrollWidth <= element.clientWidth;
+      const cells = [...element.querySelectorAll('[aria-hidden] > span')].map(cell => cell.getBoundingClientRect());
+      return element.textContent === 'WRTQ' && box.width > 0 && element.scrollWidth <= element.clientWidth
+        && cells.length === 4 && cells.every(cell => cell.left >= box.left && cell.right <= box.right
+          && cell.top >= box.top && cell.bottom <= box.bottom)
+        && cells[0].top === cells[1].top && cells[2].top === cells[3].top
+        && cells[0].left === cells[2].left && cells[1].left === cells[3].left
+        && cells[0].right <= cells[1].left && cells[0].bottom <= cells[2].top;
     })), `${surface} super flex chips fit ${width}px`).toBe(true);
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth
       <= document.documentElement.clientWidth + 1), `${surface} document fits ${width}px`).toBe(true);

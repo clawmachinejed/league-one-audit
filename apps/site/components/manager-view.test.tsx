@@ -22,8 +22,9 @@ describe('manager roster presentation', () => {
     const html = renderToStaticMarkup(<LeagueSiteProvider site={LEAGUE_SITES.league1}>
       <ManagerView data={data} />
     </LeagueSiteProvider>);
-    expect(html).toContain('class="roster-slot" aria-label="Super flex" title="Super flex">SF</span>');
+    expect(html).toContain('class="roster-slot" aria-label="Wide receiver, running back, tight end or quarterback" title="Wide receiver, running back, tight end or quarterback" data-roster-slot="SUPER_FLEX"');
     expect(html).toContain('>BN</span>');
+    expect(html).toContain('<span>W</span><span>R</span><span>T</span><span>Q</span>');
     expect(html).not.toContain('>SUPER_FLEX<');
     expect(data.starters[0].slot).toBe('SUPER_FLEX');
   });

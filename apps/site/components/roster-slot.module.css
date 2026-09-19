@@ -1,0 +1,11 @@
+.grid {
+  display:grid;
+  grid-template-columns:repeat(2,8px);
+  grid-auto-rows:10px;
+  justify-content:center;
+  font-size:8px;
+  font-weight:inherit;
+  line-height:10px;
+  letter-spacing:0;
+  text-align:center;
+}
