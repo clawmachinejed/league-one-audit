@@ -26,8 +26,22 @@ import rosterStyles from './rosters.module.css';
 import { ProjectedStandingsSwitch } from './projected-standings-switch';
 import { ProjectedStandingsLive, ProjectedStandingsRecovery, type StandingsProjectionSource } from './projected-standings-live';
 import { useSiteWeekRollover, type SiteWeekRollover } from './use-site-week-rollover';
+import { ManagerName, useManagerNameLabel } from './manager-name';
 
 type Column = Readonly<{ key: StandingsSortKey; label: string; className: string }>;
+
+function StandingsTeamLink({ team, selected, excludedWeek }: {
+  team: StandingsTeam; selected: boolean; excludedWeek?: number;
+}) {
+  const site = useLeagueSite();
+  const managerLabel = useManagerNameLabel(team);
+  return <Link href={`${site.prefix}/managers/${team.id}`} className="standings-team"
+    aria-label={`${team.name}, managed by ${managerLabel}${selected ? ', My Team' : ''}${excludedWeek !== undefined ? `, Week ${excludedWeek} not included` : ''}`}>
+    <span className="team-text"><span className="team-name">{team.name}</span><span className="manager-meta"><Avatar team={team} />
+      <span className="manager-name">{selected && <span className="my-team-label">MY TEAM<span aria-hidden="true"> · </span></span>}<ManagerName team={team} /></span>
+    </span>{excludedWeek !== undefined && <span className="manager-name" data-projection-excluded>Week {excludedWeek} not included</span>}</span>
+  </Link>;
+}
 
 const viewOptions: ReadonlyArray<Readonly<{ value: StandingsViewName; label: string }>> = [
   { value: 'standings', label: 'Standings' },
@@ -227,13 +241,8 @@ export function StandingsView({ data, projectionSource = null, rollover }: { dat
       })}</tr></thead>
       <tbody>{teams.map(team => <tr key={team.id} className={selected === team.id ? 'selected-row' : ''}>
         <td className="rank-cell"><StandingsRank rank={team.rank} actualRank={displayedProjection ? actualRanks.get(team.id) : undefined} /></td>
-        <th scope="row" className="team-cell"><Link
-          href={`${site.prefix}/managers/${team.id}`}
-          className="standings-team"
-          aria-label={`${team.name}, managed by ${team.managerName}${selected === team.id ? ', My Team' : ''}${unresolvedTeamIds.has(team.id) ? `, Week ${displayedProjection!.week} not included` : ''}`}
-        ><span className="team-text"><span className="team-name">{team.name}</span><span className="manager-meta"><Avatar team={team} />
-          <span className="manager-name">{selected === team.id && <span className="my-team-label">MY TEAM<span aria-hidden="true"> · </span></span>}{team.managerName}</span>
-        </span>{unresolvedTeamIds.has(team.id) && <span className="manager-name" data-projection-excluded>Week {displayedProjection!.week} not included</span>}</span></Link></th>
+        <th scope="row" className="team-cell"><StandingsTeamLink team={team} selected={selected === team.id}
+          excludedWeek={unresolvedTeamIds.has(team.id) ? displayedProjection!.week : undefined} /></th>
         {columns.slice(2).map(column => <td key={column.key} className={column.className}>{metricValue(team, column.key, scoringHasBegun)}</td>)}
       </tr>)}</tbody>
     </table></div> : <div className="standings-view-panel"><EmptyState title={emptyTitle}>Teams will appear when Sleeper has league rosters available.</EmptyState></div>}

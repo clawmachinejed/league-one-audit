@@ -100,7 +100,7 @@ export function AppShell({ children, leagueIds }: { children: ReactNode; leagueI
   ];
   const isCurrent = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
 
-  return <LeagueSiteProvider site={site}><TeamPreferenceProvider key={leagueIds[site.key]} leagueId={leagueIds[site.key]}>
+  return <LeagueSiteProvider site={site} leagueId={leagueIds[site.key]}><TeamPreferenceProvider key={leagueIds[site.key]} leagueId={leagueIds[site.key]}>
     <a className="skip-link" href="#main-content">Skip to content</a>
     <header className="site-header">
       <div className="header-inner">

@@ -1,4 +1,5 @@
 import 'server-only';
+import type { ReactNode } from 'react';
 import { resolveCurrentLeagueId } from '@/lib/league-administration/registry';
 
 import { notFound } from 'next/navigation';
@@ -7,7 +8,7 @@ import { MANAGER_SCHEDULE_WEEKS } from '@/lib/my-team-schedule';
 import { currentMatchupWeek, type MatchupPeriodContext } from '@/lib/matchup-period';
 import { readStoredMatchups } from '@/lib/projection-reader';
 import type { LeagueKey } from '@/lib/leagues';
-import { getCurrentMatchupPeriodContext, getCurrentStandings, getOfficialMatchups, getOverview, getManagers, getManager, getStandings, getTransactions, getSiteWeekRollover, getMyTeamSchedule } from '@/lib/sleeper';
+import { getCurrentMatchupPeriodContext, getCurrentStandings, getOfficialMatchups, getOverview, getManagers, getManager, getManagerHonors, getStandings, getTransactions, getSiteWeekRollover, getMyTeamSchedule } from '@/lib/sleeper';
 import type { CurrentStandings } from '@/lib/current-standings';
 import { MatchupsView } from './matchups-view';
 import { ManagerView } from './manager-view';
@@ -18,9 +19,17 @@ import type { StandingsProjectionSource } from './projected-standings-live';
 import { TransactionsView } from './transactions-view';
 import type { SiteWeekRollover } from './use-site-week-rollover';
 import { MyTeamScheduleView } from './my-team-schedule-view';
+import { ManagerHonorsProvider } from './manager-honors';
 
 type MatchupSearchParams = Promise<{ week?: string }>;
 type ManagerParams = Promise<{ id: string }>;
+
+async function withManagerHonors(leagueId: string, season: string, children: ReactNode) {
+  // Shares the page's cached ownership reads. Unavailable honors must never
+  // prevent an otherwise valid stored matchup or official page from rendering.
+  const data = await getManagerHonors(leagueId).catch(() => null);
+  return <ManagerHonorsProvider data={data} season={season}>{children}</ManagerHonorsProvider>;
+}
 
 async function loadRollover(leagueId: string): Promise<SiteWeekRollover | null> {
   try { return await getSiteWeekRollover(leagueId); } catch { return null; }
@@ -77,9 +86,9 @@ export async function LeagueMatchupsPage({
   const authorityAgrees = !rollover || !periodContext || currentMatchupWeek(periodContext) === rollover.week;
   if (persisted.kind === 'usable' && authorityAgrees
     && (selectedWeek === undefined || persisted.payload.week === selectedWeek)) {
-    return <MatchupsView data={persisted.payload} periodContext={persisted.context} standings={standings}
+    return withManagerHonors(leagueId, persisted.payload.league.season, <MatchupsView data={persisted.payload} periodContext={persisted.context} standings={standings}
       snapshotRevision={persisted.snapshotRevision} verifiedAt={persisted.verifiedAt}
-      rollover={rollover} followCurrent={requestedWeek === undefined} mode={mode} />;
+      rollover={rollover} followCurrent={requestedWeek === undefined} mode={mode} />);
   }
 
   if (!authorityAgrees) periodContext = undefined;
@@ -104,8 +113,8 @@ export async function LeagueMatchupsPage({
     refreshDue: false,
   };
   periodContext = contextForSelectedWeek(periodContext, data.week);
-  return <MatchupsView data={data} periodContext={periodContext} standings={standings} snapshotRevision={null} verifiedAt={null}
-    rollover={rollover} followCurrent={requestedWeek === undefined} mode={mode} />;
+  return withManagerHonors(leagueId, data.league.season, <MatchupsView data={data} periodContext={periodContext} standings={standings} snapshotRevision={null} verifiedAt={null}
+    rollover={rollover} followCurrent={requestedWeek === undefined} mode={mode} />);
 }
 
 export async function LeagueMyTeamPage({ leagueId, leagueKey, searchParams }: {
@@ -115,7 +124,7 @@ export async function LeagueMyTeamPage({ leagueId, leagueKey, searchParams }: {
   const query = await searchParams;
   if (query.view === 'schedule') {
     const [data, rollover] = await Promise.all([getMyTeamSchedule(leagueId), loadRollover(leagueId)]);
-    return <MyTeamScheduleView data={data} rollover={rollover} week={parseMatchupWeek(query.week) ?? undefined} />;
+    return withManagerHonors(leagueId, data.league.season, <MyTeamScheduleView data={data} rollover={rollover} week={parseMatchupWeek(query.week) ?? undefined} />);
   }
   return LeagueMatchupsPage({ leagueId, leagueKey, searchParams, mode: 'my-team' });
 }
@@ -141,13 +150,13 @@ export async function LeagueStandingsPage({ leagueId, leagueKey }: { leagueId: s
       }
     }
   }
-  return <StandingsView key={leagueKey} data={data} projectionSource={projectionSource} rollover={rollover} />;
+  return withManagerHonors(leagueId, data.league.season, <StandingsView key={leagueKey} data={data} projectionSource={projectionSource} rollover={rollover} />);
 }
 
 export async function LeagueManagersPage({ leagueId }: { leagueId: string }) {
   leagueId = await resolveCurrentLeagueId(leagueId);
   const [data, rollover] = await Promise.all([getManagers(leagueId), loadRollover(leagueId)]);
-  return <ManagersView data={data} rollover={rollover} />;
+  return withManagerHonors(leagueId, data.league.season, <ManagersView data={data} rollover={rollover} />);
 }
 
 export async function LeagueManagerPage({ leagueId, params }: { leagueId: string; params: ManagerParams }) {
@@ -156,7 +165,7 @@ export async function LeagueManagerPage({ leagueId, params }: { leagueId: string
   if (!/^\d+$/u.test(id)) notFound();
   const [data, rollover] = await Promise.all([getManager(leagueId, Number(id)), loadRollover(leagueId)]);
   if (!data) notFound();
-  return <ManagerView data={data} rollover={rollover} />;
+  return withManagerHonors(leagueId, data.league.season, <ManagerView data={data} rollover={rollover} />);
 }
 
 export async function LeagueTransactionsPage({ leagueId, params }: { leagueId: string; params: ManagerParams }) {
@@ -165,7 +174,7 @@ export async function LeagueTransactionsPage({ leagueId, params }: { leagueId: s
   if (!/^\d+$/u.test(id)) notFound();
   const [data, rollover] = await Promise.all([getTransactions(leagueId, Number(id)), loadRollover(leagueId)]);
   if (!data) notFound();
-  return <TransactionsView data={data} rollover={rollover} />;
+  return withManagerHonors(leagueId, data.league.season, <TransactionsView data={data} rollover={rollover} />);
 }
 
 export async function LeagueManagerSchedulePage({ leagueId, params }: { leagueId: string; params: ManagerParams }) {
@@ -179,5 +188,5 @@ export async function LeagueManagerSchedulePage({ leagueId, params }: { leagueId
   const [data, rollover] = await Promise.all([
     getMyTeamSchedule(leagueId, MANAGER_SCHEDULE_WEEKS), loadRollover(leagueId),
   ]);
-  return <ManagerScheduleView data={{ ...data, team }} rollover={rollover} />;
+  return withManagerHonors(leagueId, data.league.season, <ManagerScheduleView data={{ ...data, team }} rollover={rollover} />);
 }

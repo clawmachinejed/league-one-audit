@@ -54,6 +54,7 @@ import {
   getOfficialMatchups,
   getOverview,
   getManagers,
+  getManagerHonors,
   getManager,
   getMyTeamSchedule,
   getProjectionCadenceInput,
@@ -1391,6 +1392,159 @@ describe('Sleeper service error handling', () => {
       name: 'Quarter Back',
       game: { kind: 'scheduled', opponent: 'HOU', location: 'home', kickoffAt: null },
     });
+  });
+});
+
+describe('Sleeper manager honors presentation', () => {
+  const championId = '1119176673112563712';
+  const sourceOwnerId = '95628446075863040';
+
+  function serveLeague(leagueId: string) {
+    const selectedPath = `/league/${leagueId}`;
+    const originalFetch = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (input, init) => {
+      const path = requestPath(input);
+      if (path === selectedPath) return Response.json({
+        ...(valueFor(leaguePath) as Record<string, unknown>), league_id: leagueId,
+      });
+      if (path.startsWith(`${selectedPath}/`)) {
+        return Response.json(valueFor(`${leaguePath}${path.slice(selectedPath.length)}`));
+      }
+      return originalFetch(input, init);
+    });
+  }
+
+  it('builds separately scoped presentation metadata for every supplied championship owner', async () => {
+    const history: Array<[string, number[]]> = [
+      [championId, [2008, 2009, 2014, 2025]],
+      [sourceOwnerId, [2010, 2012, 2017]],
+      ['79628519873069056', [2013, 2016]],
+      ['862413572871917568', [2011, 2024]],
+      ['862823517857697792', [2020]],
+      ['1118641954104934400', [2022]],
+      ['862775527184920576', [2015]],
+      ['869668648841846784', [2023]],
+      ['862417088369782784', [2019]],
+      ['862413379120263168', [2018]],
+      ['862429971266834432', [2021]],
+    ];
+    rawRosters = history.map(([ownerId], index) => ({
+      roster_id: index + 1, owner_id: ownerId, settings: { ...rosterSettings },
+    }));
+    rawUsers = history.map(([ownerId], index) => ({ user_id: ownerId, display_name: `Renamed champion ${index + 1}` }));
+    expectedRosterCount = history.length;
+    const honors = await getManagerHonors(leagueOneId);
+    expect(honors).toEqual({
+      leagueId: leagueOneId, season: '2026',
+      managers: Object.fromEntries(history.map(([, championshipYears], index) => [index + 1, {
+        managerName: `Renamed champion ${index + 1}`, championshipYears,
+      }])),
+    });
+    expect(JSON.stringify(honors)).not.toContain(championId);
+  });
+
+  it('joins honors to stable ownership after names and roster assignments change', async () => {
+    rawUsers = [
+      { user_id: championId, display_name: 'Renamed champion' },
+      { user_id: 'different-owner', display_name: 'jwbaute' },
+    ];
+    rawRosters = [
+      { roster_id: 1, owner_id: championId, settings: { ...rosterSettings } },
+      { roster_id: 2, owner_id: 'different-owner', settings: { ...rosterSettings } },
+    ];
+    expectedRosterCount = 2;
+    const before = await getManagerHonors(leagueOneId);
+    expect(before.managers[1]).toEqual({ managerName: 'Renamed champion', championshipYears: [2008, 2009, 2014, 2025] });
+    expect(before.managers[2].championshipYears).toEqual([]);
+    (rawRosters[0] as SleeperRoster).owner_id = 'different-owner';
+    (rawRosters[1] as SleeperRoster).owner_id = championId;
+    const after = await getManagerHonors(leagueOneId);
+    expect(after.managers[1]).toEqual({ managerName: 'jwbaute', championshipYears: [] });
+    expect(after.managers[2]).toEqual({ managerName: 'Renamed champion', championshipYears: [2008, 2009, 2014, 2025] });
+  });
+
+  it('does not infer honors from a matching manager or team name or an unassigned owner', async () => {
+    rawUsers = [{ user_id: 'different-owner', display_name: 'jwbaute' }];
+    rawRosters = [
+      { roster_id: 1, owner_id: 'different-owner', settings: { ...rosterSettings } },
+      { roster_id: 2, owner_id: null, metadata: { team_name: 'jwbaute' }, settings: { ...rosterSettings } },
+    ];
+    expectedRosterCount = 2;
+    const honors = await getManagerHonors(leagueOneId);
+    expect(honors.managers[1].championshipYears).toEqual([]);
+    expect(honors.managers[2]?.championshipYears ?? []).toEqual([]);
+  });
+
+  it.each(Object.values(LEAGUE_IDS))('keeps the League Two correction isolated in honors for %s', async leagueId => {
+    rawRosters = [{ roster_id: 1, owner_id: sourceOwnerId, settings: { ...rosterSettings } }];
+    rawUsers = [{ user_id: sourceOwnerId, display_name: 'eneerg' }];
+    serveLeague(leagueId);
+    const honors = await getManagerHonors(leagueId);
+    expect(honors.leagueId).toBe(leagueId);
+    expect(honors.season).toBe('2026');
+    expect(honors.managers[1]).toEqual(leagueId === leagueTwoId
+      ? { managerName: 'tylerawildman', championshipYears: [] }
+      : { managerName: 'eneerg', championshipYears: [2010, 2012, 2017] });
+  });
+
+  it('shares accepted page administration reads and leaves original official worker evidence unchanged', async () => {
+    rawRosters[0] = {
+      roster_id: 1, owner_id: sourceOwnerId, players: ['qb'], starters: ['qb'], settings: { ...rosterSettings },
+    };
+    rawUsers[0] = { user_id: sourceOwnerId, display_name: 'eneerg' };
+    makeProjectionWeekReady();
+    serveLeague(leagueTwoId);
+    reactCacheControl.enabled = true;
+    const overview = await getOverview(leagueTwoId);
+    const requestsBefore = vi.mocked(fetch).mock.calls.length;
+    const honors = await getManagerHonors(leagueTwoId);
+    expect(honors.managers[1]).toEqual({ managerName: 'tylerawildman', championshipYears: [] });
+    expect(vi.mocked(fetch).mock.calls).toHaveLength(requestsBefore);
+    expect(overview.teams[0]).not.toHaveProperty('championshipYears');
+    const input = await getProjectionSyncInput(leagueTwoId, { season: 2026, seasonType: 'regular', week: 3 });
+    const originalTeam = normalizeTeams(rawRosters as SleeperRoster[], rawUsers as SleeperUser[])
+      .find(team => team.id === 1)!;
+    expect(input.data.teams.find(team => team.id === 1)).toEqual(originalTeam);
+    expect(input.data.matchups[0].sides.find(side => side.team.id === 1)?.team).toEqual(originalTeam);
+    expect(input.administrationObservations?.find(observation => observation.family === 'rosters')?.payload).toEqual(rawRosters);
+    expect(input.administrationObservations?.find(observation => observation.family === 'users')?.payload).toEqual(rawUsers);
+    expect((rawRosters[0] as SleeperRoster).owner_id).toBe(sourceOwnerId);
+    expect((rawUsers[0] as SleeperUser).display_name).toBe('eneerg');
+  });
+
+  it('retains valid honors when a different roster is missing or malformed', async () => {
+    expectedRosterCount = 3;
+    rawRosters = [
+      { roster_id: 1, owner_id: championId, settings: { ...rosterSettings } },
+      { roster_id: 'malformed', owner_id: sourceOwnerId },
+    ];
+    rawUsers = [{ user_id: championId, display_name: 'Champion' }, { user_id: sourceOwnerId, display_name: 'eneerg' }];
+    const honors = await getManagerHonors(leagueOneId);
+    expect(honors.managers).toEqual({ 1: { managerName: 'Champion', championshipYears: [2008, 2009, 2014, 2025] } });
+  });
+
+  it('withholds honors when the assigned champion has no validated user identity', async () => {
+    rawRosters = [{ roster_id: 1, owner_id: championId, settings: { ...rosterSettings } }];
+    rawUsers = [{ user_id: 'different-owner', display_name: 'jwbaute' }];
+    const honors = await getManagerHonors(leagueOneId);
+    expect(honors.managers).toEqual({});
+  });
+
+  it('withholds honors for conflicting duplicate roster ownership while retaining other valid owners', async () => {
+    expectedRosterCount = 2;
+    rawRosters = [
+      { roster_id: 1, owner_id: championId, settings: { ...rosterSettings } },
+      { roster_id: 1, owner_id: 'different-owner', settings: { ...rosterSettings } },
+      { roster_id: 2, owner_id: sourceOwnerId, settings: { ...rosterSettings } },
+    ];
+    rawUsers = [
+      { user_id: championId, display_name: 'Champion' },
+      { user_id: 'different-owner', display_name: 'Not champion' },
+      { user_id: sourceOwnerId, display_name: 'eneerg' },
+    ];
+    const honors = await getManagerHonors(leagueOneId);
+    expect(honors.managers[1]?.championshipYears ?? []).toEqual([]);
+    expect(honors.managers[2]).toEqual({ managerName: 'eneerg', championshipYears: [2010, 2012, 2017] });
   });
 });
 

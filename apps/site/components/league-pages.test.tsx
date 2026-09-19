@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   getCurrentMatchupPeriodContext: vi.fn(),
   getSiteWeekRollover: vi.fn(),
   getCurrentStandings: vi.fn(),
+  getManagerHonors: vi.fn<() => Promise<ManagerHonors | null>>(async () => null),
   getOfficialMatchups: vi.fn(),
   getOverview: vi.fn(),
   getStandings: vi.fn(),
@@ -21,6 +22,7 @@ vi.mock('@/lib/sleeper', () => ({
   getCurrentMatchupPeriodContext: mocks.getCurrentMatchupPeriodContext,
   getSiteWeekRollover: mocks.getSiteWeekRollover,
   getCurrentStandings: mocks.getCurrentStandings,
+  getManagerHonors: mocks.getManagerHonors,
   getOfficialMatchups: mocks.getOfficialMatchups,
   getOverview: mocks.getOverview,
   getStandings: mocks.getStandings,
@@ -39,7 +41,14 @@ import type { MatchupsData, StandingsData } from '@/lib/types';
 import type { CurrentStandings } from '@/lib/current-standings';
 import type { MatchupPeriodContext } from '@/lib/matchup-period';
 import type { StandingsProjectionSource } from './projected-standings-live';
-import { LeagueMatchupsPage, LeagueMyTeamPage, LeagueStandingsPage } from './league-pages';
+import { LeagueMatchupsPage as loadMatchupsPage, LeagueMyTeamPage as loadMyTeamPage, LeagueStandingsPage as loadStandingsPage } from './league-pages';
+import { ManagerHonorsProvider } from './manager-honors';
+import type { ManagerHonors } from '../lib/manager-honors';
+
+// Existing page assertions inspect the view inside the presentation-only provider.
+const LeagueMatchupsPage = async (props: Parameters<typeof loadMatchupsPage>[0]) => (await loadMatchupsPage(props)).props.children;
+const LeagueMyTeamPage = async (props: Parameters<typeof loadMyTeamPage>[0]) => (await loadMyTeamPage(props)).props.children;
+const LeagueStandingsPage = async (props: Parameters<typeof loadStandingsPage>[0]) => (await loadStandingsPage(props)).props.children;
 
 function matchups(week: number): MatchupsData {
   return {
@@ -50,6 +59,35 @@ function matchups(week: number): MatchupsData {
     matchups: [],
   };
 }
+
+describe('page honors remain independent of snapshot evidence', () => {
+  const payload = matchups(2);
+  const honors: ManagerHonors = { leagueId: 'current-league', season: '2026',
+    managers: { 1: { managerName: 'Owner', championshipYears: [2020] } } };
+  beforeEach(() => {
+    vi.resetAllMocks();
+    mocks.getManagerHonors.mockResolvedValue(honors);
+    mocks.readStoredMatchups.mockResolvedValue({ kind: 'usable', payload,
+      context: { defaultWeek: 2, activeWeek: 2, lifecycle: 'active' },
+      snapshotRevision: 'a'.repeat(64), verifiedAt: '2026-09-19T16:00:00.000Z' });
+  });
+  it('supplies scoped honors without modifying the stored payload or revision', async () => {
+    const result = await loadMatchupsPage({ leagueId: 'current-league', leagueKey: 'league1', searchParams: Promise.resolve({ week: '2' }) });
+    expect(result.type).toBe(ManagerHonorsProvider);
+    expect(result.props).toMatchObject({ data: honors, season: '2026' });
+    const view = result.props.children as ReactElement<{ data: MatchupsData; snapshotRevision: string }>;
+    expect(view.props.data).toBe(payload);
+    expect(view.props.snapshotRevision).toBe('a'.repeat(64));
+    expect(mocks.getManagerHonors).toHaveBeenCalledExactlyOnceWith('current-league');
+  });
+  it('retains valid matchups when ownership evidence is unavailable', async () => {
+    mocks.getManagerHonors.mockRejectedValue(new Error('ownership unavailable'));
+    const result = await loadMatchupsPage({ leagueId: 'current-league', leagueKey: 'league1', searchParams: Promise.resolve({ week: '2' }) });
+    expect(result.props.data).toBeNull();
+    expect((result.props.children as ReactElement<{ data: MatchupsData }>).props.data).toBe(payload);
+    expect(mocks.getOfficialMatchups).not.toHaveBeenCalled();
+  });
+});
 
 describe('Matchups current standings composition', () => {
   const context: MatchupPeriodContext = { defaultSeason: 2026, defaultWeek: 2, activeSeason: 2026, activeWeek: 2,
