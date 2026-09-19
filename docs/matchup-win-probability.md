@@ -37,7 +37,7 @@ The existing percentage row contains two mirrored horizontal bars without a visi
 - Missing starters, other incomplete baselines, untrusted game context, missing required actuals or retained-prior projections make only that matchup's estimate unavailable. They never turn missing evidence into a confident zero.
 - Explicit empty slots are valid and add no variance. An entirely absent lineup remains unavailable. If no unresolved variance exists but the matchup is not final, no estimate is invented.
 - A final matchup uses the official team totals: winner 100%, loser 0%, or an explicit Tie. No pregame baseline is required to display an official result. Later official corrections can change that result through the existing snapshot path.
-- Legacy final snapshots can display their official outcome without a rewrite. Legacy nonfinal snapshots show dashes until a normal worker publication supplies the new field. The browser does not reconstruct estimates from player-row values.
+- Legacy final snapshots can display their official outcome without a rewrite. Legacy nonfinal snapshots show dashes until the existing worker publishes the calculation. Future snapshots with missing or older model output are now automatically eligible for a bounded rebuild without waiting for a lineup change or their daily/weekly routine refresh. The browser does not reconstruct estimates from player-row values.
 
 ## Storage, refresh and cost
 
@@ -47,7 +47,7 @@ Both current and future materialization use the shared builder. `normal-v2` is i
 
 The full reader validates optional structure and semantics. The compact revision reader uses the same semantic predicate with small anonymous probability/team-ID/official-score atoms returned by its existing SQL query. This increases database response bytes even when the full snapshot is unchanged. Older payloads remain valid and return no probability atoms.
 
-The UI follows the existing visible 60-second revision polling and source cadence. Current/future estimates appear when their normal lane next successfully materializes that exact week. Deployment alone does not republish every stored future week, and historical periods are not automatically recalculated. Existing final results still display immediately. No extra provider refresh is triggered by opening a page.
+The UI follows the existing visible 60-second revision polling and source cadence. Current estimates appear through their normal lane. The future worker prioritizes older/missing probability-model output after pending lineup changes and before routine work, reusing a valid stored projection slate for one selected period per invocation. This work retains canary, source, cooldown, ownership and publication guards; a valid current-model unavailable result does not repeatedly retry. See the [future-week update policy](future-week-projections.md#probability-model-updates). Deployment starts this bounded catch-up through the existing scheduled worker; it does not rewrite every stored week in one operation. Historical periods are not automatically recalculated, and existing final results still display immediately. No extra provider refresh is triggered by opening a page.
 
 Arithmetic is linear in the starting-player count. Measurements must distinguish model CPU, extra serialized snapshot bytes, compact database response bytes, physical storage and provider traffic. Synthetic payload bytes are not physical Neon table/index/TOAST growth or a billing estimate. No added provider calls does not mean literally zero incremental cost.
 

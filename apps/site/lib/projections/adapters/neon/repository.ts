@@ -307,6 +307,7 @@ export function createNeonProjectionRepository(
         projectionProvider: String(input.projectionSource),
         normalizerVersion: input.normalizerVersion,
         modelVersion: input.modelVersion,
+        winProbabilityModelVersion: input.winProbabilityModelVersion,
         targets: input.targets.map((target) => ({
           period: {
             season: target.period.season,
@@ -405,6 +406,7 @@ export function createNeonProjectionRepository(
         projectionProvider: String(input.projectionSource),
         normalizerVersion: input.normalizerVersion,
         modelVersion: input.modelVersion,
+        winProbabilityModelVersion: input.winProbabilityModelVersion,
         period: {
           season: input.period.season,
           seasonType: storeSeasonType(input.period.seasonType),

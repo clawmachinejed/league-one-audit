@@ -9,7 +9,7 @@ import { periodTimingCadence } from './cadence';
 
 const NOW = new Date('2026-09-03T12:03:00.000Z');
 const HOUR = 3_600_000;
-function plan(week = 2, options: {dirty?: boolean; slate?: boolean; projectionDue?: boolean; materializationDue?: boolean;
+function plan(week = 2, options: {dirty?: boolean; probabilityRefreshNeeded?: boolean; slate?: boolean; projectionDue?: boolean; materializationDue?: boolean;
   canary?: boolean; defaultPeriod?: boolean; projectionLease?: boolean; materializationLease?: boolean} = {}): FutureRefreshPlan {
   const configuration = { key: 'league-a', displayName: 'A', leagueRef: externalLeagueRef('sleeper', 'fixture-a'),
     matchupWeekRange: {firstWeek: 1, lastWeek: 18} };
@@ -36,7 +36,7 @@ function plan(week = 2, options: {dirty?: boolean; slate?: boolean; projectionDu
       materializations: [{ leagueKey: configuration.key, nextRefreshAt: at, lastAttemptedAt: null,
         lastSucceededAt: at, lastSourceRevision: 'source', lastSlate: lineage, lastSnapshotRevision: 'snapshot',
         consecutiveFailures: 0, lastFailureCode: null, activeAttemptExpiresAt: options.materializationLease ? '2026-09-03T13:00:00Z' : null,
-        due: options.materializationDue ?? true }],
+        due: options.materializationDue ?? true, probabilityRefreshNeeded: options.probabilityRefreshNeeded ?? false }],
     },
     leagues: [{ watch, weekDistance: Math.max(1, week - 1), canaryComplete: options.canary ?? true,
       defaultPeriodCadence: options.defaultPeriod ? { isCurrentRegularPeriod: true, games: [] } : null }],
@@ -44,6 +44,44 @@ function plan(week = 2, options: {dirty?: boolean; slate?: boolean; projectionDu
 }
 
 describe('independent future action policy', () => {
+  it('upgrades an unchanged distant lineup before routine work, reusing the stored slate even when ingestion is due', () => {
+    const upgrade = plan(18, { probabilityRefreshNeeded: true });
+    expect(selectFutureWork([plan(2), upgrade], NOW))
+      .toMatchObject({ kind: 'materialize', period: { week: 18 }, dirty: false, cadence: 'hourly' });
+  });
+  it('keeps changed lineups ahead of probability upgrades', () => {
+    expect(selectFutureWork([plan(4, { probabilityRefreshNeeded: true }), plan(18, { dirty: true })], NOW))
+      .toMatchObject({ kind: 'materialize', period: { week: 18 }, dirty: true });
+  });
+  it('upgrades only outdated leagues and returns to ordinary idle once their model is current', () => {
+    const upgrade = plan(10, { probabilityRefreshNeeded: true, projectionDue: false });
+    const peer = { ...upgrade.leagues[0], watch: { ...upgrade.leagues[0].watch,
+      configuration: { ...upgrade.leagues[0].watch.configuration, key: 'current-peer' } } };
+    const mixed = { ...upgrade, leagues: [...upgrade.leagues, peer], state: { ...upgrade.state,
+      materializations: [...upgrade.state.materializations, { ...upgrade.state.materializations[0],
+        leagueKey: 'current-peer', probabilityRefreshNeeded: false, due: false }] } };
+    expect(selectFutureWork([mixed], NOW)?.leagueKeys).toEqual(['league-a']);
+    const current = { ...mixed, state: { ...mixed.state, materializations: mixed.state.materializations.map(
+      (state) => ({ ...state, probabilityRefreshNeeded: false, due: false }),
+    ) } };
+    expect(selectFutureWork([current], NOW)).toBeNull();
+  });
+  it('skips busy and failed upgrades so another eligible period can proceed', () => {
+    const busy = plan(4, { probabilityRefreshNeeded: true, materializationLease: true, projectionDue: false });
+    const retry = plan(5, { probabilityRefreshNeeded: true, materializationDue: false, projectionDue: false });
+    const healthy = plan(10, { probabilityRefreshNeeded: true, projectionDue: false });
+    expect(selectFutureWork([busy, retry, healthy], NOW)?.period.week).toBe(10);
+    expect(selectFutureWork([busy, retry], NOW)).toBeNull();
+  });
+  it('retains source backoff, canary and provider prerequisites for probability upgrades', () => {
+    const upgrade = plan(18, { probabilityRefreshNeeded: true, projectionDue: false });
+    const sourceBackoff = { ...upgrade, leagues: upgrade.leagues.map((league) => ({ ...league,
+      watch: { ...league.watch, consecutiveFailures: 1, nextCheckAt: '2026-09-03T13:00:00Z' } })) };
+    expect(selectFutureWork([sourceBackoff], NOW)).toBeNull();
+    expect(selectFutureWork([plan(18, { probabilityRefreshNeeded: true, canary: false })], NOW)).toBeNull();
+    expect(selectFutureWork([plan(18, { probabilityRefreshNeeded: true, slate: false, projectionDue: false })], NOW)).toBeNull();
+    expect(selectFutureWork([plan(18, { probabilityRefreshNeeded: true, slate: false })], NOW)?.kind).toBe('projection-ingest');
+  });
   it('shares the closest projection tier without changing each league materialization interval', () => {
     const far = plan(6, { dirty: true });
     const near = { ...far.leagues[0], weekDistance: 1,

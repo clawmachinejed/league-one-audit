@@ -3,6 +3,7 @@ import 'server-only';
 import type { DatabaseClient } from '../../../database';
 import type { ProjectionStore } from './contracts';
 import { json, provider, requiredText } from './database-values';
+import { futureProbabilityRefreshNeededSql } from './future-probability-refresh-sql';
 import { materializationTargetValue } from './lineup-publication-values';
 import {
   futureRefreshClaim,
@@ -84,7 +85,7 @@ export function createMaterializationFutureRefreshMethods(
             AND EXISTS (SELECT 1 FROM valid_target)
           RETURNING consecutive_failures, next_refresh_at
         ), claimed AS (
-          UPDATE league_week_materialization_states SET
+          UPDATE league_week_materialization_states AS materialization SET
             attempt_count = attempt_count + 1,
             active_attempt_id = $8::uuid,
             active_attempt_started_at = now(),
@@ -101,7 +102,8 @@ export function createMaterializationFutureRefreshMethods(
             AND normalizer_version = $6 AND model_version = $7
             AND NOT EXISTS (SELECT 1 FROM expired)
             AND EXISTS (SELECT 1 FROM valid_target)
-            AND (next_refresh_at <= now() OR ($12::boolean AND EXISTS (
+            AND (next_refresh_at <= now() OR (($12::boolean
+              OR (consecutive_failures = 0 AND ${futureProbabilityRefreshNeededSql('claim')})) AND EXISTS (
               SELECT 1 FROM projection_jobs WHERE job_key = 'future-projection-sync'
                 AND lease_owner = $8::text AND state = 'running' AND lease_until > now())))
             AND active_attempt_id IS NULL
@@ -132,6 +134,8 @@ export function createMaterializationFutureRefreshMethods(
         futureRefreshLeaseSeconds(input.leaseSeconds),
         json(materializationTargetValue(input.target)),
         input.force === true,
+        input.winProbabilityModelVersion === undefined ? null
+          : requiredText(input.winProbabilityModelVersion, 'Win probability model version'),
       ]);
       return futureRefreshClaim(rows);
     },

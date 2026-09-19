@@ -170,6 +170,46 @@ async function primeStoredProjection(store: FakeStore): Promise<void> {
 describe('future projection orchestration', () => {
   beforeEach(() => vi.restoreAllMocks());
 
+  it('publishes probabilities for an unchanged Week 18 from stored projections and then stops upgrading it', async () => {
+    const store = fakeStore();
+    const period = { ...FUTURE_PERIOD, week: 18 };
+    await store.repository.recordProjectionSlate(projectionResult(period));
+    store.operations.splice(0);
+    const plans = plansWithWeekTwo({ due: false }, { lastSucceededAt: FUTURE_NOW.toISOString() })
+      .map((plan) => plan.period.week === 18 ? { ...plan,
+        projection: { ...plan.projection, currentSlate: STORED_LINEAGE, due: true },
+        materializations: plan.materializations.map((state) => ({ ...state, due: true, probabilityRefreshNeeded: true })),
+      } : plan);
+    store.readFuturePlan.mockResolvedValue(plans);
+    const dependencies = configureFutureDependencies(store);
+    dependencies.sourceMock.mockImplementation(async (configuration: LeagueConfiguration) => futureSource(configuration, period));
+    dependencies.gamesMock.mockResolvedValue({ status: 'available', slate: gameStates({ ...futureGame(), period }) });
+    await expect(createFutureProjectionWorker(dependencies).run()).resolves.toMatchObject({
+      status: 'completed', action: 'materialize', period, publishedLeagues: 2,
+    });
+    expect(dependencies.projectionMock).not.toHaveBeenCalled();
+    expect(dependencies.gamesMock).toHaveBeenCalledOnce();
+    expect(dependencies.sourceMock).toHaveBeenCalledTimes(2);
+    expect(dependencies.lineupRepository.wakeFutureProjectionAndMaterialization).not.toHaveBeenCalled();
+    expect(store.readFuturePlan).toHaveBeenCalledWith(expect.objectContaining({ winProbabilityModelVersion: 'normal-v2' }));
+    expect(store.beginFutureMaterialization).toHaveBeenCalledWith(expect.objectContaining({
+      period, winProbabilityModelVersion: 'normal-v2',
+    }));
+    expect(store.beginFutureMaterialization.mock.calls.every(([input]) => input.force === undefined)).toBe(true);
+    expect(store.publishInputs).toHaveLength(2);
+    for (const input of store.publishInputs) {
+      expect(input.period).toEqual(period);
+      expect(input.payload.matchups.every((matchup) => matchup.winProbability?.status === 'estimated')).toBe(true);
+    }
+    store.readFuturePlan.mockResolvedValue(plans.map((plan) => ({ ...plan,
+      projection: { ...plan.projection, due: false },
+      materializations: plan.materializations.map((state) => ({ ...state, due: false, probabilityRefreshNeeded: false })),
+    })));
+    await expect(createFutureProjectionWorker(dependencies).run()).resolves.toEqual({ status: 'skipped', reason: 'idle' });
+    expect(dependencies.gamesMock).toHaveBeenCalledOnce();
+    expect(store.publishInputs).toHaveLength(2);
+  });
+
   it('reserves full-source ownership first and acknowledges actual C separately from claimed B', async () => {
     const store = fakeStore();
     await primeStoredProjection(store);

@@ -50,6 +50,33 @@ An eligible stored slate is reused for a pending lineup even when its routine re
 
 ## Routine reconciliation
 
+### Probability-model updates
+
+A future snapshot that predates the current win-probability model is eligible for
+rebuilding even when its lineup has not changed and its normal refresh date is
+still in the future. The existing plan query checks the current snapshot for the
+same league, season, week and projection model; a missing probability field or
+different probability model on any matchup marks that snapshot for rebuilding.
+A current-model `unavailable` result is already processed and does not trigger a
+retry loop. Missing or empty snapshots keep the existing initial preparation path.
+
+Real pending lineup changes retain first priority. Eligible probability upgrades
+come next, before routine work, using the existing stored projection slate and
+the existing one-period action per invocation. Canary, source readiness, cooldown,
+lease, deadline and publication checks still apply. No projection-feed refresh is
+forced just to add probabilities; the existing materialization still loads current
+Sleeper lineups and one shared game-state response for its selected period.
+
+The database repeats the model check when claiming work. Bypassing the routine
+due time requires no outstanding materialization failures and a live future-job
+lease owned by that attempt. A failed upgrade follows the existing retry schedule;
+a publication that becomes current between planning and claiming cancels the
+early claim. New snapshots go through the existing immutable publication path.
+There is no migration, new cron, fake lineup revision, or change to `clock-v1`.
+The version check adds server-side snapshot inspection to the existing plan/claim
+queries and returns only a boolean; it does not download full snapshot payloads
+into the worker. This is bounded catch-up work, not an instant all-weeks refresh.
+
 Routine preparation continues even when no lineup changed. For ordinary later weeks:
 
 | Distance from authoritative active/default period | Projection-slate interval | Broad materialization interval |
