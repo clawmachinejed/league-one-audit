@@ -1453,7 +1453,7 @@ describe('Sleeper manager honors presentation', () => {
       ['1126328056865566720', [], [2016]],
       ['1119064522163093504', [], [2025]],
       ['unrelated-owner', [], []],
-      ['490631449741881344', [], []], // Hsueh's supplied spelling remains unconfirmed.
+      ['490631449741881344', [], [2023]], // Hsueh / rhsueh2, confirmed by the owner.
     ];
     expectedRosterCount = history.length;
     rawRosters = history.map(([ownerId], index) => ({

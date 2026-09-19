@@ -33,14 +33,14 @@ The second owner-supplied championship table covers 2015–2025. Both kinds of a
 | Baute.J | jwbaute | 2020, 2022 |
 | Greene.D | dgreene4223 | 2017, 2018 |
 | Baute.T | tbaute69 | 2019 |
-| Hsueh | Pending confirmation of rhsueh2 spelling | 2023 |
-| Jessup | Pending owner-supplied account mapping | 2015 |
+| Hsueh | rhsueh2 (owner-confirmed) | 2023 |
+| Jessup | Badges intentionally omitted by the owner | 2015 |
 | Leath | evleath | 2024 |
 | Minnick | jmin28 | 2021 |
 | Swinney | tswinney2 | 2016 |
 | Thomen | tthomen | 2025 |
 
-Public Sleeper identities were checked on September 19, 2026 at 17:26 UTC. Seven confirmed owner IDs account for nine titles. The supplied `rshueh2` spelling resolves to no account; the existing League One account is `rhsueh2`. Hsueh and Jessup remain unassigned until the owner resolves those identities; their supplied championship history is retained here rather than awarded to a guessed account.
+Public Sleeper identities were checked on September 19, 2026 at 17:26 UTC. The owner subsequently confirmed that Hsueh's 2023 title belongs to the sole existing `rhsueh2` account, correcting the supplied `rshueh2` spelling. Eight confirmed owner IDs account for ten mapped titles. The owner explicitly chose not to add Jessup: the 2015 title remains in this source-history table for provenance, but no Jessup account or badge is assigned. No pending identity decision remains for this scope.
 
 League One identity verification used the official public users and rosters for the current three league connections: League One 1378850182409490432, League Two 1378850360529014784 and Dynasty 1312138224994385920. These are provenance observations, not new routing constants. Its 11 confirmed manager mappings cover all 18 League One championships from 2008 through 2025.
 

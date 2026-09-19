@@ -21,11 +21,12 @@ const championships = new Map<string, readonly number[]>([
 // Owner-supplied League Two Promotion Bowl history, September 19, 2026.
 // These honors also follow the manager across leagues. The public Sleeper
 // league user lists verified each mapped account ID on the same date.
-// Hsueh (2023) and Jessup (2015) await confirmed owner-to-account mappings.
+// The owner confirmed Hsueh / rhsueh2 and excluded Jessup (2015) from badges.
 const promotionChampionships = new Map<string, readonly number[]>([
   ['1119176673112563712', [2020, 2022]], // Baute.J / jwbaute
   ['1118641954104934400', [2017, 2018]], // Greene.D / dgreene4223
   ['869668648841846784', [2019]], // Baute.T / tbaute69
+  ['490631449741881344', [2023]], // Hsueh / rhsueh2 (owner-confirmed)
   ['1119007388759166976', [2024]], // Leath / evleath
   ['463049625700397056', [2021]], // Minnick / jmin28
   ['1126328056865566720', [2016]], // Swinney / tswinney2
