@@ -1,4 +1,5 @@
 import { calculateLiveProjection } from '../domain/live-calculation';
+import { calculateWinProbability, type WinProbabilityPlayerInput } from '../domain/win-probability';
 import type {
   GameStateSlate,
   LeaguePeriod,
@@ -65,6 +66,7 @@ function projectedPlayerMap(input: BuildSnapshotInput): Map<string, Readonly<{
   projectedPoints: number | null;
   presentationProjectedPoints: number | null;
   projectionQuality: ProjectionPointQuality;
+  probabilityInput?: WinProbabilityPlayerInput;
 }>> {
   const latest = baselineMap(input.latest);
   const frozen = baselineMap(input.frozen);
@@ -74,6 +76,7 @@ function projectedPlayerMap(input: BuildSnapshotInput): Map<string, Readonly<{
     projectedPoints: number | null;
     presentationProjectedPoints: number | null;
     projectionQuality: ProjectionPointQuality;
+    probabilityInput?: WinProbabilityPlayerInput;
   }>>();
 
   const entries = [
@@ -133,6 +136,18 @@ function projectedPlayerMap(input: BuildSnapshotInput): Map<string, Readonly<{
           : null
         : calculated.projectedPoints,
       projectionQuality: calculated.quality,
+      probabilityInput: {
+        position: entity.position,
+        kind: projectionKind(entity),
+        phase: scheduled?.kind === 'bye' ? 'bye'
+          : benchContextValid && samePeriod(input.games.period, input.source.period)
+            && input.games.games.filter((game) => game.homeTeam === entity.nflTeam || game.awayTeam === entity.nflTeam).length === 1
+            ? state!.phase : 'unknown',
+        remainingFraction: state?.remainingFraction ?? null,
+        baselinePoints: baseline?.quality === 'complete' ? baseline.points : null,
+        projectionQuality: calculated.quality,
+        officialPoints: starter.officialPoints,
+      },
     });
   }
   return result;
@@ -154,7 +169,9 @@ export function buildProjectedMatchupSnapshot(
         if (!projection || !finite(projection.projectedPoints) || projection.projectionQuality === 'unavailable') {
           throw new Error('A complete player projection could not be calculated.');
         }
-        return { ...slot, ...projection, projectedPoints: projection.projectedPoints, projectionQuality: projection.projectionQuality };
+        return { ...slot, projectedPoints: projection.projectedPoints,
+          presentationProjectedPoints: projection.presentationProjectedPoints,
+          projectionQuality: projection.projectionQuality };
       });
       const occupied = starters.filter((slot) => slot.kind === 'occupied');
       const projectedPoints = occupied.length > 0
@@ -187,7 +204,22 @@ export function buildProjectedMatchupSnapshot(
     rosterPositions: input.source.rosterPositions,
     participants: input.source.participants,
     calculatedAt: input.calculatedAt,
-    matchups,
+    matchups: matchups.map((matchup) => ({
+      ...matchup,
+      winProbability: calculateWinProbability({ status: matchup.status, sides: matchup.sides.map((side) => {
+        const occupied = side.starters.filter((slot) => slot.kind === 'occupied');
+        // Respect official team adjustments without changing clock-v1 projections.
+        const adjustment = finite(side.officialPoints) && occupied.every((slot) => finite(slot.officialPoints))
+          ? side.officialPoints - occupied.reduce((total, slot) => total + slot.officialPoints!, 0) : 0;
+        return {
+          officialPoints: side.officialPoints,
+          projectedPoints: side.projectedPoints === null && side.starters.length === 0
+            ? null : (side.projectedPoints ?? 0) + adjustment,
+          lineupAvailable: side.starters.length > 0,
+          players: occupied.map((slot) => projections.get(externalReferenceKey(slot.entity.externalRef))!.probabilityInput!),
+        };
+      }) }),
+    })),
     warning: input.source.warning,
   };
 }
@@ -310,6 +342,16 @@ export function toMatchupsData(
   const matchups = snapshot.matchups.map((matchup) => ({
     id: matchup.matchupRef.externalId,
     status: matchup.status,
+    ...(matchup.winProbability === undefined ? {} : { winProbability: matchup.winProbability.status === 'unavailable'
+      ? matchup.winProbability
+      : {
+          modelVersion: matchup.winProbability.modelVersion,
+          status: matchup.winProbability.status,
+          teams: [
+            { teamId: rosterNumber(matchup.sides[0].rosterRef), probability: matchup.winProbability.probabilities[0] },
+            { teamId: rosterNumber(matchup.sides[1].rosterRef), probability: matchup.winProbability.probabilities[1] },
+          ] as const,
+        } }),
     sides: matchup.sides.map((side) => {
       const team = teamByRoster.get(externalReferenceKey(side.rosterRef));
       if (!team) throw new Error('A matchup side has no league participant.');

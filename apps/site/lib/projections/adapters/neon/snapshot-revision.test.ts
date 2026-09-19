@@ -5,6 +5,7 @@ vi.mock('server-only', () => ({}));
 import { createFakeProjectionDatabase } from '../../../projection-store-test-support';
 import { createSnapshotRevisionMethods, snapshotRevisionFromRow } from './snapshot-revision';
 import { InvalidStoredProjectionSnapshotError } from './snapshot-codec';
+import { validationCases } from '../../../matchups-validation-test-support';
 
 const identity = {
   projectionProvider: 'tank01', normalizerVersion: 'canonical-projection-slate-v1', modelVersion: 'clock-v1',
@@ -24,6 +25,7 @@ function row() {
     payload_structure_valid: true, payload_updated_at: '2026-09-13T18:00:00Z',
     payload_season: '2026', payload_week: '5', payload_league_week: '5',
     matchup_statuses: ['upcoming'], scheduled_kickoffs: ['2026-10-11T17:00:00Z'],
+    matchup_win_probability_inputs: [],
     scheduled_dates_without_kickoff: [],
     future_next_refresh_at: '2026-09-14T00:00:00Z',
     future_last_succeeded_at: '2026-09-13T18:00:00Z', future_attempt_expires_at: null,
@@ -56,6 +58,7 @@ describe('compact snapshot database selection', () => {
     expect(sql).not.toMatch(/snapshot\.payload\s*(?:,|AS\s+payload)/iu);
     expect(sql).not.toMatch(/SELECT\s+snapshot\.\*/iu);
     expect(sql).not.toContain('ORDER BY');
+    expect(sql).toContain('AS matchup_win_probability_inputs');
     await methods.readMatchupSnapshotRevisionByLeagueKey('league1', 5, identity);
     expect(fake.calls[1].parameters).toEqual(['league1', 5, 'tank01', 'canonical-projection-slate-v1', 'clock-v1']);
   });
@@ -91,6 +94,7 @@ describe('compact snapshot metadata decoding', () => {
   it.each([
     { payload_structure_valid: false }, { payload_updated_at: 'not-a-date' },
     { payload_season: null }, { matchup_statuses: ['running'] },
+    { matchup_win_probability_inputs: null }, { matchup_win_probability_inputs: [null] },
     { matchup_statuses: [{ toString: null }] }, { matchup_statuses: null },
     { scheduled_kickoffs: [null] }, { scheduled_dates_without_kickoff: '[null]' },
     { activity_windows: [{ startsAt: 'bad', endsAt: 'bad' }] },
@@ -98,4 +102,21 @@ describe('compact snapshot metadata decoding', () => {
     expect(() => snapshotRevisionFromRow({ ...row(), ...override }))
       .toThrow(InvalidStoredProjectionSnapshotError);
   });
+
+  it.each(validationCases().filter(({ name }) => name.startsWith('win probability semantic:')))(
+    'uses the same full/compact probability refinement for $name', ({ json, valid }) => {
+      const payload = JSON.parse(json);
+      const atoms = payload.matchups.map((matchup: {
+        status: unknown; winProbability: unknown; sides: { team: { id: unknown }; points: unknown }[];
+      }) => ({
+        status: matchup.status, winProbability: matchup.winProbability,
+        sides: matchup.sides.map((side) => ({ team: { id: side.team.id }, points: side.points })),
+      }));
+      const read = () => snapshotRevisionFromRow({
+        ...row(), matchup_win_probability_inputs: JSON.stringify(atoms),
+      });
+      if (valid) expect(read).not.toThrow();
+      else expect(read).toThrow(InvalidStoredProjectionSnapshotError);
+    },
+  );
 });

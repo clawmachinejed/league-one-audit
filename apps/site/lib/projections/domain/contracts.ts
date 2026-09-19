@@ -373,6 +373,7 @@ export type ProjectedMatchup = Readonly<{
   matchupRef: ExternalMatchupRef;
   status: MatchupStatus;
   sides: readonly ProjectedMatchupSide[];
+  winProbability?: import('./win-probability').WinProbabilityResult;
 }>;
 
 /** Complete canonical snapshot before conversion to the stable public presentation payload. */

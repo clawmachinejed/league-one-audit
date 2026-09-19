@@ -11,6 +11,7 @@ import { compactPlayerName } from '../lib/player-name';
 import { rosterSlotLabel, rosterSlotName } from '../lib/roster-slot';
 import type { Matchup, Player, Team } from '../lib/types';
 import { useLeagueSite } from './league-context';
+import { matchupWinChance } from './matchup-win-chance';
 import styles from './matchups.module.css';
 
 type AvatarRenderer = (team: Team) => ReactNode;
@@ -193,7 +194,8 @@ function MatchupCard({ matchup, selected, avatar, boxScores, boxScoresLoading, o
   const rightSummary = right
     ? `${right.team.name}, managed by ${right.team.managerName}, record ${spokenRecord(right.team)}${placeSummary(right.team)}, official score ${spokenScore(right.points)}, ${spokenProjection(right.projectedPoints)}`
     : 'opponent not posted, official score unavailable, projected score unavailable';
-  const accessibleLabel = `${leftSummary}; versus ${rightSummary}. ${label}${mine ? '. My matchup' : ''}. ${expanded ? 'Collapse' : 'Expand'} ${showBench ? 'starting lineups and benches' : 'starting lineups'}.`;
+  const winChance = matchupWinChance(matchup);
+  const accessibleLabel = `${leftSummary}; versus ${rightSummary}. ${label}${mine ? '. My matchup' : ''}. ${winChance.description} ${expanded ? 'Collapse' : 'Expand'} ${showBench ? 'starting lineups and benches' : 'starting lineups'}.`;
   const benchCount = Math.max(left.bench?.length ?? 0, right?.bench?.length ?? 0,
     left.bench == null || (right && right.bench == null) ? 1 : 0);
 
@@ -249,6 +251,11 @@ function MatchupCard({ matchup, selected, avatar, boxScores, boxScoresLoading, o
         <span className="sr-only">{label}{mine ? ' · My matchup' : ''}</span>
       </span>
       {right ? <TeamMeta team={right.team} opposite avatar={avatar} standings={standings} /> : <span className={`${styles.teamMeta} ${styles.oppositeMeta}`}>Not posted</span>}
+      <span className={styles.winChance} data-win-chance={winChance.status} aria-hidden="true">
+        <span className={styles.winChanceValue} data-win-chance-side="left" data-win-chance-team={left.team.id}>{winChance.values[0]}</span>
+        <span className={styles.winChanceLabel}>{winChance.label}</span>
+        <span className={styles.winChanceValue} data-win-chance-side="right" data-win-chance-team={right?.team.id}>{winChance.values[1]}</span>
+      </span>
     </button>
     <div id={panelId} ref={panelRef} className={styles.lineup} hidden={!expanded}>
       {count ? <>

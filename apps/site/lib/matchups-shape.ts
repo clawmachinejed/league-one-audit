@@ -1,10 +1,13 @@
+import { matchesMatchupWinProbability } from './matchup-win-probability-validation';
+
 /** One description of the existing website JSON boundary, shared by JS and SQL. */
 export type MatchupsShape =
   | Readonly<{ kind: 'string' | 'number' }>
   | Readonly<{ kind: 'literal'; value: string }>
   | Readonly<{ kind: 'nullable' | 'optional'; value: MatchupsShape }>
   | Readonly<{ kind: 'array'; item: MatchupsShape; minimum?: number; maximum?: number }>
-  | Readonly<{ kind: 'object'; properties: Readonly<Record<string, MatchupsShape>> }>
+  | Readonly<{ kind: 'object'; properties: Readonly<Record<string, MatchupsShape>>;
+    refinement?: 'matchup-win-probability' }>
   | Readonly<{ kind: 'union'; alternatives: readonly MatchupsShape[] }>
   | Readonly<{ kind: 'refinement'; name: 'date-string' | 'matchup-status' }>;
 
@@ -42,15 +45,24 @@ const player = object({
 });
 const side = object({ team, points: nullable(number), projectedPoints: nullable(number), starters: array(player),
   bench: { kind: 'optional', value: nullable(array(player)) } });
+const winProbability: MatchupsShape = { kind: 'optional', value: { kind: 'union', alternatives: [
+  object({
+    modelVersion: literal('normal-v1'),
+    status: { kind: 'union', alternatives: [literal('estimated'), literal('final'), literal('tie')] },
+    teams: { kind: 'array', minimum: 2, maximum: 2, item: object({ teamId: number, probability: number }) },
+  }),
+  object({ modelVersion: literal('normal-v1'), status: literal('unavailable'), reason: string }),
+] } };
 
 export const MATCHUPS_SHAPE: MatchupsShape = object({
   league: object({ season: string, rosterPositions: array(string), week: number, maxWeek: number }),
   teams: array(team), updatedAt: { kind: 'refinement', name: 'date-string' },
   week: number, warning: { kind: 'optional', value: string },
-  matchups: array(object({
+  matchups: array({ kind: 'object', refinement: 'matchup-win-probability', properties: {
     id: string, status: { kind: 'refinement', name: 'matchup-status' },
     sides: { kind: 'array', item: side, minimum: 1, maximum: 2 },
-  })),
+    winProbability,
+  } }),
 });
 
 export function matchesRefinement(name: 'date-string' | 'matchup-status', value: unknown): boolean {
@@ -75,6 +87,6 @@ export function matchesShape(shape: MatchupsShape, value: unknown): boolean {
     case 'object': return value !== null && typeof value === 'object' && !Array.isArray(value)
       && Object.entries(shape.properties).every(([key, child]) => (
         matchesShape(child, (value as Record<string, unknown>)[key])
-      ));
+      )) && (shape.refinement !== 'matchup-win-probability' || matchesMatchupWinProbability(value));
   }
 }

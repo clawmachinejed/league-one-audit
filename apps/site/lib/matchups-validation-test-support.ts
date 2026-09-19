@@ -1,4 +1,4 @@
-import type { MatchupsData } from './types';
+import type { Matchup, MatchupsData } from './types';
 
 export function validationPayload(): MatchupsData {
   const team = {
@@ -26,6 +26,22 @@ function changed(name: string, valid: boolean, change: Change): ValidationCase {
   const payload = validationPayload();
   change(payload);
   return { name, json: JSON.stringify(payload), valid };
+}
+
+function probabilityCase(name: string, valid: boolean, change: (matchup: Matchup) => void): ValidationCase {
+  return changed(`win probability semantic: ${name}`, valid, (payload) => {
+    const matchup = payload.matchups[0];
+    matchup.sides.push({ ...matchup.sides[0], team: { ...matchup.sides[0].team, id: 2 }, points: 9 });
+    matchup.winProbability = {
+      modelVersion: 'normal-v1', status: 'estimated',
+      teams: [{ teamId: 1, probability: 0.6 }, { teamId: 2, probability: 0.4 }],
+    };
+    change(matchup);
+  });
+}
+function probabilityTeams(matchup: Matchup) {
+  if (!matchup.winProbability || matchup.winProbability.status === 'unavailable') throw new Error('Invalid fixture.');
+  return matchup.winProbability.teams;
 }
 
 export function validationCases(): ValidationCase[] {
@@ -167,7 +183,116 @@ export function validationCases(): ValidationCase[] {
     changed('date invalid', false, (p) => { p.updatedAt = 'not-a-date'; }),
     changed('date null', false, (p) => { Object.assign(p, { updatedAt: null }); }),
     changed('date non-ISO accepted by JS', true, (p) => { p.updatedAt = 'September 13, 2026 18:00 GMT'; }),
+    probabilityCase('live estimate', true, () => {}),
+    probabilityCase('upcoming estimate', true, (m) => { m.status = 'upcoming'; }),
+    probabilityCase('orientation independent', true, (m) => { m.sides.reverse(); }),
+    probabilityCase('probability order independent', true, (m) => {
+      const teams = probabilityTeams(m);
+      Object.assign(m.winProbability!, { teams: [teams[1], teams[0]] });
+    }),
+    probabilityCase('unavailable isolated lineup', true, (m) => {
+      m.sides = [m.sides[0]];
+      m.status = 'unknown';
+      m.winProbability = { modelVersion: 'normal-v1', status: 'unavailable', reason: 'missing-lineup' };
+    }),
+    probabilityCase('unavailable final', true, (m) => {
+      m.status = 'final';
+      m.winProbability = { modelVersion: 'normal-v1', status: 'unavailable', reason: 'missing-official-score' };
+    }),
+    probabilityCase('one side cannot have estimate', false, (m) => { m.sides.pop(); }),
+    probabilityCase('wrong opponent identity', false, (m) => { probabilityTeams(m)[1].teamId = 3; }),
+    probabilityCase('duplicate probability team', false, (m) => { probabilityTeams(m)[1].teamId = 1; }),
+    probabilityCase('duplicate side identity', false, (m) => { m.sides[1].team.id = 1; }),
+    probabilityCase('out of range', false, (m) => {
+      probabilityTeams(m)[0].probability = 1.2;
+      probabilityTeams(m)[1].probability = -0.2;
+    }),
+    probabilityCase('estimate cannot assert certainty', false, (m) => {
+      probabilityTeams(m)[0].probability = 1;
+      probabilityTeams(m)[1].probability = 0;
+    }),
+    probabilityCase('estimate complement', false, (m) => { probabilityTeams(m)[1].probability = 0.3; }),
+    probabilityCase('complement floating point tolerance', true, (m) => {
+      probabilityTeams(m)[1].probability = 0.4000000001;
+    }),
+    probabilityCase('complement beyond tolerance', false, (m) => {
+      probabilityTeams(m)[1].probability = 0.40000001;
+    }),
+    probabilityCase('final cannot carry an estimate', false, (m) => { m.status = 'final'; }),
+    probabilityCase('unknown cannot carry an estimate', false, (m) => { m.status = 'unknown'; }),
+    probabilityCase('strict state with estimates', false, (m) => { Object.assign(m, { status: ['live'] }); }),
+    probabilityCase('official final winner', true, (m) => {
+      m.status = 'final';
+      Object.assign(m.winProbability!, { status: 'final' });
+      probabilityTeams(m)[0].probability = 1;
+      probabilityTeams(m)[1].probability = 0;
+    }),
+    probabilityCase('official final winner with reversed sides', true, (m) => {
+      m.status = 'final';
+      Object.assign(m.winProbability!, { status: 'final' });
+      probabilityTeams(m)[0].probability = 1;
+      probabilityTeams(m)[1].probability = 0;
+      m.sides.reverse();
+    }),
+    probabilityCase('contradictory final winner', false, (m) => {
+      m.status = 'final';
+      Object.assign(m.winProbability!, { status: 'final' });
+      probabilityTeams(m)[0].probability = 0;
+      probabilityTeams(m)[1].probability = 1;
+    }),
+    probabilityCase('final result before final', false, (m) => {
+      Object.assign(m.winProbability!, { status: 'final' });
+      probabilityTeams(m)[0].probability = 1;
+      probabilityTeams(m)[1].probability = 0;
+    }),
+    probabilityCase('final needs official scores', false, (m) => {
+      m.status = 'final'; m.sides[0].points = null;
+      Object.assign(m.winProbability!, { status: 'final' });
+      probabilityTeams(m)[0].probability = 1;
+      probabilityTeams(m)[1].probability = 0;
+    }),
+    probabilityCase('official tied result', true, (m) => {
+      m.status = 'final'; m.sides[1].points = m.sides[0].points;
+      Object.assign(m.winProbability!, { status: 'tie' });
+      probabilityTeams(m)[0].probability = 0;
+      probabilityTeams(m)[1].probability = 0;
+    }),
+    probabilityCase('tie cannot assign a win', false, (m) => {
+      m.status = 'final'; m.sides[1].points = m.sides[0].points;
+      Object.assign(m.winProbability!, { status: 'tie' });
+    }),
+    probabilityCase('tie must have equal official scores', false, (m) => {
+      m.status = 'final';
+      Object.assign(m.winProbability!, { status: 'tie' });
+      probabilityTeams(m)[0].probability = 0;
+      probabilityTeams(m)[1].probability = 0;
+    }),
+    probabilityCase('winner cannot override tie', false, (m) => {
+      m.status = 'final'; m.sides[1].points = m.sides[0].points;
+      Object.assign(m.winProbability!, { status: 'final' });
+      probabilityTeams(m)[0].probability = 1;
+      probabilityTeams(m)[1].probability = 0;
+    }),
+    probabilityCase('unknown model', false, (m) => { Object.assign(m.winProbability!, { modelVersion: 'other-v1' }); }),
+    probabilityCase('missing unavailable reason', false, (m) => {
+      Object.assign(m, { winProbability: { modelVersion: 'normal-v1', status: 'unavailable' } });
+    }),
+    probabilityCase('null value', false, (m) => { Object.assign(m, { winProbability: null }); }),
+    probabilityCase('string probability', false, (m) => { Object.assign(probabilityTeams(m)[0], { probability: '0.6' }); }),
+    probabilityCase('missing team estimate', false, (m) => { Object.assign(m.winProbability!, { teams: [probabilityTeams(m)[0]] }); }),
+    probabilityCase('third team estimate', false, (m) => {
+      Object.assign(m.winProbability!, { teams: [...probabilityTeams(m), { teamId: 3, probability: 0 }] });
+    }),
   ];
+  const roundedIdentity = probabilityCase('JavaScript identity rounding', true, (m) => {
+    Object.assign(m.sides[0].team, { id: '__NUMBER__' });
+  });
+  cases.push({ ...roundedIdentity, json: roundedIdentity.json.replace('"__NUMBER__"', '1.00000000000000001') });
+  const underflow = probabilityCase('underflow is zero and not certainty', false, (m) => {
+    Object.assign(probabilityTeams(m)[0], { probability: '__NUMBER__' });
+    probabilityTeams(m)[1].probability = 1;
+  });
+  cases.push({ ...underflow, json: underflow.json.replace('"__NUMBER__"', '1e-400') });
   const cutoff = (1n << 1024n) - (1n << 970n);
   for (const [name, value, valid] of [
     ['below positive overflow', String(cutoff - 1n), true],

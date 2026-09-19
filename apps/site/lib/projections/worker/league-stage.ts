@@ -20,6 +20,7 @@ import type {
   PregameProjectionSet,
 } from './contracts';
 import { LIVE_PROJECTION_MODEL_VERSION } from './contracts';
+import { WIN_PROBABILITY_MODEL_VERSION } from '../domain/win-probability';
 import { activityWindowsForSchedule } from './cadence';
 import {
   applicableSourceSkewSeconds,
@@ -420,6 +421,7 @@ export async function processLeague(
   });
   const revisionKey = compatibleRevision({
     modelVersion: LIVE_PROJECTION_MODEL_VERSION,
+    winProbabilityModelVersion: WIN_PROBABILITY_MODEL_VERSION,
     sourceRevision: source.sourceRevision,
     projectionSourceRevision,
     missingFrozenBaselineCount,

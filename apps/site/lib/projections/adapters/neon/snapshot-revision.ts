@@ -4,6 +4,7 @@ import { matchupSnapshotSelectionSql } from './matchup-selection-sql';
 
 import type { DatabaseClient, DatabaseRow } from '../../../database';
 import { matchesRefinement } from '../../../matchups-shape';
+import { matchesMatchupWinProbability } from '../../../matchup-win-probability-validation';
 import type { ProjectionStore, StoredMatchupRevisionSnapshot } from './contracts';
 import { requiredText, rowBoolean, rowNullableText, rowNumber, rowText } from './database-values';
 import { matchupsStructureSql, safeJsonArray } from './matchups-shape-sql';
@@ -20,6 +21,20 @@ export const COMPACT_MATCHUP_PAYLOAD_COLUMNS = `
     SELECT jsonb_agg(matchup.value -> 'status')
     FROM jsonb_array_elements(${safeJsonArray("snapshot.payload -> 'matchups'")}) matchup(value)
   ), '[]'::jsonb) AS matchup_statuses,
+  COALESCE((
+    SELECT jsonb_agg(jsonb_build_object(
+      'status', matchup.value -> 'status',
+      'winProbability', matchup.value -> 'winProbability',
+      'sides', COALESCE((
+        SELECT jsonb_agg(jsonb_build_object(
+          'team', jsonb_build_object('id', side.value #> '{team,id}'),
+          'points', side.value -> 'points'
+        )) FROM jsonb_array_elements(${safeJsonArray("matchup.value -> 'sides'")}) side(value)
+      ), '[]'::jsonb)
+    ))
+    FROM jsonb_array_elements(${safeJsonArray("snapshot.payload -> 'matchups'")}) matchup(value)
+    WHERE matchup.value -> 'winProbability' IS NOT NULL
+  ), '[]'::jsonb) AS matchup_win_probability_inputs,
   COALESCE((
     SELECT jsonb_agg(DISTINCT starter.value #>> '{game,kickoffAt}')
     FROM jsonb_array_elements(${safeJsonArray("snapshot.payload -> 'matchups'")}) matchup(value)
@@ -59,7 +74,8 @@ export function snapshotRevisionFromRow(row: DatabaseRow): StoredMatchupRevision
     if (typeof payloadSeason !== 'string') throw new Error('Invalid matchup season.');
     const matchupStatuses = arrayValue(row, 'matchup_statuses');
     if (!matchesRefinement('date-string', payloadUpdatedAt)
-      || !matchupStatuses.every((status) => matchesRefinement('matchup-status', status))) {
+      || !matchupStatuses.every((status) => matchesRefinement('matchup-status', status))
+      || !arrayValue(row, 'matchup_win_probability_inputs').every(matchesMatchupWinProbability)) {
       throw new Error('Invalid matchup refinements.');
     }
     return {
