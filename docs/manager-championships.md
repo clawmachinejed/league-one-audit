@@ -12,6 +12,7 @@ The existing cached league core supplies the roster owner IDs, validated users a
 | Greene.R | eneerg | 2010, 2012, 2017 |
 | Harris / Danny Pack | DannyPak | 2013, 2016 |
 | Woodruff.S | SWoodruff | 2011, 2024 |
+| Finchum | clawmachinejedi | 2020 |
 | Greene.D / Old School | dgreene4223 | 2022 |
 | Hrebec | whrebec | 2015 |
 | Baute.T | tbaute69 | 2023 |
@@ -19,9 +20,9 @@ The existing cached league core supplies the roster owner IDs, validated users a
 | Metcalf | bmetcalf21 | 2018 |
 | Williams | swilliams24 | 2021 |
 
-Finchum's 2020 title appears in the supplied history. Its proposed clawmachinejedi account association awaits user confirmation and is not yet included in the registry.
+The user confirmed Finchum's 2020 championship belongs to clawmachinejedi.
 
-Identity verification used the official public users and rosters for the current three league connections: League One1378850182409490432, League Two1378850360529014784 and Dynasty1312138224994385920. These are provenance observations, not new routing constants. The initial verified mappings cover17 wins; including the pending2020 association would cover all18 seasons from2008 through2025.
+Identity verification used the official public users and rosters for the current three league connections: League One 1378850182409490432, League Two 1378850360529014784 and Dynasty 1312138224994385920. These are provenance observations, not new routing constants. The 11 confirmed manager mappings cover all 18 championships from 2008 through 2025.
 
 ## Artwork
 
