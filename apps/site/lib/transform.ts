@@ -39,6 +39,7 @@ export interface SleeperState {
 export interface SleeperRoster {
   roster_id: number;
   owner_id?: string | null;
+  co_owners?: string[] | null;
   players?: string[] | null;
   starters?: string[] | null;
   reserve?: string[] | null;

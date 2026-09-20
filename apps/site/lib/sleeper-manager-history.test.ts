@@ -32,6 +32,7 @@ let playoffStart: number;
 let median: number;
 let inflight: number;
 let maxInflight: number;
+let coOwned: boolean;
 const pastId = '1188632688331706368';
 
 beforeEach(() => {
@@ -41,6 +42,7 @@ beforeEach(() => {
   historicalStatus = 'complete'; historicalSeason = '2025'; previousId = pastId;
   failedWeek = null; malformedWeek = null; playoffStart = 15; median = 0;
   inflight = 0; maxInflight = 0;
+  coOwned = false;
   vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
     const url = new URL(input instanceof Request ? input.url : String(input));
     const path = url.pathname.replace(/^\/v1/u, '');
@@ -57,6 +59,7 @@ beforeEach(() => {
         league_average_match: median, playoff_week_start: playoffStart } });
     if (suffix === 'rosters') return Response.json([1, 2].map(roster_id => ({
       roster_id, owner_id: past ? (roster_id === 1 ? 'A' : 'B') : (roster_id === 1 ? 'C' : 'A'),
+      co_owners: coOwned && roster_id === 1 ? ['862177751849877504'] : null,
       settings: { wins: 18, losses: 0, ties: 0, fpts: 900, fpts_against: 800 }, players: [], starters: [],
     })));
     if (suffix === 'users') return Response.json((past ? ['A', 'B'] : ['C', 'A']).map(user_id => ({
@@ -79,6 +82,19 @@ beforeEach(() => {
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe('manager history source composition', () => {
+  it.each(['league1', 'league2', 'dynasty'] as const)('preserves co-owner evidence and applies approved ownership only in %s', async key => {
+    coOwned = true;
+    const data = await getManagersHistory(LEAGUE_IDS[key], key);
+    expect(data.history?.warning).toBeUndefined();
+    const tyler = data.history?.managers.find(manager => manager.ownerId === '862177751849877504');
+    if (key === 'league2') {
+      expect(tyler).toMatchObject({ managerName: 'tylerawildman', seasons: [2025, 2026], wins: 15, losses: 0, currentTeamId: 1 });
+      expect(data.teams.find(team => team.id === 1)?.managerName).toBe('tylerawildman');
+    } else {
+      expect(tyler).toBeUndefined();
+      expect(data.teams.find(team => team.id === 1)?.managerName).toBe('C current');
+    }
+  });
   it.each(['league1', 'league2', 'dynasty'] as const)('uses prior annual links and exact completed weeks in %s without player/projection loads', async key => {
     const data = await getManagersHistory(LEAGUE_IDS[key], key);
     expect(data.history?.warning).toBeUndefined();
@@ -117,4 +133,3 @@ describe('manager history source composition', () => {
     expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).endsWith('/matchups/14'))).toBe(false);
   });
 });
-

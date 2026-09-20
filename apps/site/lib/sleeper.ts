@@ -31,6 +31,7 @@ import type { LeagueTransactionsData, ManagerData, ManagersData, MatchupsData, O
 import { leagueOneChampionshipYears, leagueTwoChampionshipYears } from './manager-championships';
 import type { ManagerHonors } from './manager-honors';
 import { displayedManagerOwnerId, displayedManagerTeams } from './manager-display';
+import { findCurrentLeagueKey } from './league-administration/registry';
 import type { LeagueKey } from './leagues';
 import type { CurrentStandings } from './current-standings';
 import { normalizeLeagueTransactions } from './league-transactions';
@@ -539,6 +540,7 @@ const getLeagueRosterFeed = cache(async (leagueId: string, mode: AdministrationR
     rosters.push({
       roster_id: rosterId,
       owner_id: typeof row.owner_id === 'string' && row.owner_id.trim() ? row.owner_id : null,
+      co_owners: isStringArray(row.co_owners) && Array.isArray(row.co_owners) ? row.co_owners : null,
       players: isStringArray(row.players) && Array.isArray(row.players) ? row.players : null,
       starters: isStringArray(row.starters) && Array.isArray(row.starters) ? row.starters : null,
       reserve: isStringArray(row.reserve) && Array.isArray(row.reserve) ? row.reserve : null,
@@ -575,7 +577,8 @@ const getCore = cache(async (leagueId: string, mode: AdministrationReadMode = 'p
   const { sourceLeague, state, league } = calendar;
   assertCoreCompleteness(sourceLeague, rosters, users);
   const sourceTeams = normalizeTeams(rosters, users);
-  const teams = mode === 'page' ? displayedManagerTeams(leagueId, sourceTeams, rosters) : sourceTeams;
+  const leagueKey = mode === 'page' ? await findCurrentLeagueKey(leagueId) : null;
+  const teams = mode === 'page' ? displayedManagerTeams(leagueId, sourceTeams, rosters, leagueKey) : sourceTeams;
   const overview: OverviewData = {
     league,
     teams,
@@ -586,7 +589,7 @@ const getCore = cache(async (leagueId: string, mode: AdministrationReadMode = 'p
       teams.length ? undefined : 'Sleeper has not provided any league rosters yet.',
     ),
   };
-  return { overview, sourceLeague, state, rosters, calendar,
+  return { overview, sourceLeague, state, rosters, calendar, leagueKey,
     administrationObservations: [calendar.leagueObservation, rosterFeed.observation, userFeed.observation] };
 });
 
@@ -598,7 +601,8 @@ const getRosterCore = cache(async (leagueId: string) => {
   ]);
   const users = userFeed.users;
   const { sourceLeague, state, league } = calendar;
-  const teams = displayedManagerTeams(leagueId, normalizeTeams(rosterFeed.rosters, users), rosterFeed.rosters);
+  const leagueKey = await findCurrentLeagueKey(leagueId);
+  const teams = displayedManagerTeams(leagueId, normalizeTeams(rosterFeed.rosters, users), rosterFeed.rosters, leagueKey);
   const missing = Math.max(0, sourceLeague.total_rosters - rosterFeed.rosters.length);
   const affected = Math.max(rosterFeed.rosterViewMalformedRowCount, missing);
   const overview: OverviewData = {
@@ -612,7 +616,7 @@ const getRosterCore = cache(async (leagueId: string) => {
       affected ? `Sleeper returned incomplete or malformed data for ${affected} roster${affected === 1 ? '' : 's'}; other teams remain available.` : undefined,
     ),
   };
-  return { overview, sourceLeague, state, rosterFeed, calendar, users };
+  return { overview, sourceLeague, state, rosterFeed, calendar, users, leagueKey };
 });
 
 // Cache only the small fields we display. Position-filtered responses avoid the
@@ -667,32 +671,35 @@ export async function getOverview(leagueId: string): Promise<OverviewData> {
 
 /** Reuse accepted page ownership; honors stay separate from official snapshots. */
 export async function getManagerHonors(leagueId: string): Promise<ManagerHonors> {
-  const { overview, rosterFeed, users } = await getRosterCore(leagueId);
-  const owners = new Map(rosterFeed.rosters.map(roster => [roster.roster_id, roster.owner_id]));
+  const { overview, rosterFeed, users, leagueKey } = await getRosterCore(leagueId);
+  const owners = new Map(rosterFeed.rosters.map(roster => [roster.roster_id,
+    displayedManagerOwnerId(leagueId, roster.roster_id, roster.owner_id, roster.co_owners, leagueKey)]));
+  const sourceOwners = new Map(rosterFeed.rosters.map(roster => [roster.roster_id, roster.owner_id]));
   const knownUsers = new Set(users.map(user => user.user_id));
   const ambiguousRosters = new Set(rosterFeed.malformedRosterIds);
   return {
     leagueId,
     season: overview.league.season,
     managers: Object.fromEntries(overview.teams.filter(team => !ambiguousRosters.has(team.id)
-      && knownUsers.has(owners.get(team.id) ?? '')).map(team => [team.id, {
+      && (knownUsers.has(sourceOwners.get(team.id) ?? '') || knownUsers.has(owners.get(team.id) ?? ''))).map(team => [team.id, {
       managerName: team.managerName,
-      championshipYears: leagueOneChampionshipYears(displayedManagerOwnerId(leagueId, team.id, owners.get(team.id))),
-      promotionChampionshipYears: leagueTwoChampionshipYears(displayedManagerOwnerId(leagueId, team.id, owners.get(team.id))),
+      championshipYears: leagueOneChampionshipYears(owners.get(team.id)),
+      promotionChampionshipYears: leagueTwoChampionshipYears(owners.get(team.id)),
     }])),
   };
 }
 
 /** Attach owner-supplied honors using the same accepted roster ownership read. */
 export async function getManagers(leagueId: string): Promise<ManagersData> {
-  const { overview, rosters } = await getCore(leagueId);
-  const ownerByRoster = new Map(rosters.map((roster) => [roster.roster_id, roster.owner_id]));
+  const { overview, rosters, leagueKey } = await getCore(leagueId);
+  const ownerByRoster = new Map(rosters.map((roster) => [roster.roster_id,
+    displayedManagerOwnerId(leagueId, roster.roster_id, roster.owner_id, roster.co_owners, leagueKey)]));
   return {
     ...overview,
     teams: overview.teams.map((team) => ({
       ...team,
-      championshipYears: leagueOneChampionshipYears(displayedManagerOwnerId(leagueId, team.id, ownerByRoster.get(team.id))),
-      promotionChampionshipYears: leagueTwoChampionshipYears(displayedManagerOwnerId(leagueId, team.id, ownerByRoster.get(team.id))),
+      championshipYears: leagueOneChampionshipYears(ownerByRoster.get(team.id)),
+      promotionChampionshipYears: leagueTwoChampionshipYears(ownerByRoster.get(team.id)),
     })),
   };
 }
@@ -757,7 +764,7 @@ export async function getManagersHistory(leagueId: string, leagueKey: LeagueKey)
       break;
     }
   }
-  return { ...data, history: { ...buildManagerHistory(seasons, currentSeason),
+  return { ...data, history: { ...buildManagerHistory(seasons, currentSeason, leagueKey),
     label: `2025–${currentSeason} · Regular season · Weeks 1–14` } };
 }
 

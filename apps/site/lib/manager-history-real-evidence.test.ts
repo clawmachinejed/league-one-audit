@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import fixture from '../test-support/fixtures/manager-history-2025-2026.json';
 import { buildManagerHistory, type ManagerHistoryEntry, type ManagerHistorySeason } from './manager-history';
+import type { LeagueKey } from './leagues';
 
 vi.mock('server-only', () => ({}));
 
@@ -14,7 +15,7 @@ describe('manager history independently captured public evidence', () => {
     expect(fixture.provenance).toMatchObject({ publicProvider: 'Sleeper', sourceRequests: 60, maxConcurrency: 4,
       historicalSeason: 2025, historicalWeeks: [1, 14], currentSeason: 2026, completedCurrentWeeks: [1, 1] });
     expect(fixture.leagues.map(league => [league.leagueKey, league.expected.unionCount]))
-      .toEqual([['league1', 13], ['league2', 15], ['dynasty', 10]]);
+      .toEqual([['league1', 13], ['league2', 14], ['dynasty', 10]]);
   });
 
   for (const league of fixture.leagues) {
@@ -45,7 +46,7 @@ describe('manager history independently captured public evidence', () => {
           teams: season.teams.map(team => ({ ...team, name: '', avatar: null,
             wins: 0, losses: 0, ties: 0, pointsFor: 0, pointsAgainst: 0 })),
         }));
-        const result = buildManagerHistory(seasons, 2026);
+        const result = buildManagerHistory(seasons, 2026, league.leagueKey as LeagueKey);
         expect(result.warning).toBeUndefined();
         expect(result.managers).toHaveLength(league.expected.unionCount);
         const byOwner = (left: { ownerId: string }, right: { ownerId: string }) => left.ownerId.localeCompare(right.ownerId);
@@ -61,18 +62,18 @@ describe('manager history independently captured public evidence', () => {
     });
   }
 
-  it('preserves the evidenced League Two co-owner relationship without silently extending the 2026 correction', () => {
+  it('preserves raw League Two ownership while applying the approved co-owner attribution in both seasons', () => {
     const league = fixture.leagues.find(value => value.leagueKey === 'league2')!;
     for (const season of league.seasons) {
       expect(season.rosters.find(roster => roster.roster_id === 1)).toEqual({
         roster_id: 1, owner_id: '95628446075863040', co_owners: ['862177751849877504'],
       });
     }
-    expect(league.expected.managers.find(manager => manager.ownerId === '95628446075863040')).toMatchObject({
-      managerName: 'eneerg', currentTeamId: null, seasons: [2025], wins: 8, losses: 6, ties: 0,
-    });
+    expect(league.expected.managers.find(manager => manager.ownerId === '95628446075863040')).toBeUndefined();
     expect(league.expected.managers.find(manager => manager.ownerId === '862177751849877504')).toMatchObject({
-      managerName: 'tylerawildman', currentTeamId: 1, seasons: [2026], wins: 1, losses: 0, ties: 0,
+      managerName: 'tylerawildman', currentTeamId: 1, seasons: [2025, 2026], wins: 8 + 1, losses: 6 + 0, ties: 0,
     });
+    // The independent oracle produced 8–6 for the 2025 roster and 1–0 for 2026.
+    // The confirmed attribution changes their owner, not either game's outcome.
   });
 });

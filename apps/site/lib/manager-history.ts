@@ -48,7 +48,7 @@ function counts(values: readonly number[]): Map<number, number> {
 }
 
 /** One permanent league per call. Annual roster IDs and display names are never manager identities. */
-export function buildManagerHistory(seasons: readonly ManagerHistorySeason[], currentSeason: number): {
+export function buildManagerHistory(seasons: readonly ManagerHistorySeason[], currentSeason: number, leagueKey?: string): {
   managers: ManagerHistoryEntry[]; warning?: string;
 } {
   const participants = new Map<string, Participant>();
@@ -62,13 +62,13 @@ export function buildManagerHistory(seasons: readonly ManagerHistorySeason[], cu
     let identityComplete = source.teams.length >= 2 && source.rosters.length === source.teams.length;
     const rosterCounts = counts(source.rosters.map(roster => roster.roster_id));
     const teamCounts = counts(source.teams.map(team => team.id));
-    const teams = displayedManagerTeams(source.externalLeagueId, [...source.teams], source.rosters);
+    const teams = displayedManagerTeams(source.externalLeagueId, [...source.teams], source.rosters, leagueKey);
     const ownerByRoster = new Map<number, string>();
     const ownerCounts = new Map<string, number>();
     const owners = source.rosters.map(roster => {
       const rawOwner = roster.owner_id;
-      const ownerId = typeof rawOwner === 'string' && rawOwner.trim()
-        ? displayedManagerOwnerId(source.externalLeagueId, roster.roster_id, rawOwner) : null;
+      const effectiveOwner = displayedManagerOwnerId(source.externalLeagueId, roster.roster_id, rawOwner, roster.co_owners, leagueKey);
+      const ownerId = typeof effectiveOwner === 'string' && effectiveOwner.trim() ? effectiveOwner : null;
       if (ownerId) ownerCounts.set(ownerId, (ownerCounts.get(ownerId) ?? 0) + 1);
       else identityComplete = false;
       return { roster, ownerId };
