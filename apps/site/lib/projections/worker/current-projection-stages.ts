@@ -5,10 +5,19 @@ import { groupLeagues, loadProviderGroup, persistProviderGroup } from './provide
 import { createProviderGroupScoringCache } from './scoring-cache';
 import { mapWithConcurrency, safeProjectionLog as log, elapsed } from './worker-operations';
 import { LIVE_PROJECTION_MODEL_VERSION } from './contracts';
+import type { ProviderPersistenceStage } from '../ports/logger';
+import { gameStatePersistenceDiagnostics, providerPersistenceDiagnostics } from './persistence-diagnostics';
 
 const PROVIDER_GROUP_CONCURRENCY = 4;
 const LEAGUE_PROCESS_CONCURRENCY = 8;
 const providerGroupName = (group: ProviderGroup) => `${group.period.season}:${group.period.seasonType}:${group.period.week}`;
+
+export class CurrentProjectionStagesError extends Error {
+  constructor(readonly failedLeagues: number) {
+    super('No complete league snapshot could be published.');
+    this.name = 'CurrentProjectionStagesError';
+  }
+}
 
 export async function runCurrentProjectionStages(
   dependencies: LiveProjectionWorkerDependencies,
@@ -65,12 +74,15 @@ export async function runCurrentProjectionStages(
       continue;
     }
     const providerPersistStartedAt = dependencies.clock.monotonicNow();
+    const persistence = { stage: 'game-identities' as ProviderPersistenceStage };
     try {
       const persisted = await persistProviderGroup(
         dependencies,
         provider.group,
         provider.loaded.games,
         provider.loaded.projections,
+        undefined,
+        (stage) => { persistence.stage = stage; },
       );
       persistedGroups.push({
         group: provider.group,
@@ -91,7 +103,7 @@ export async function runCurrentProjectionStages(
           persisted.fullSlateProjectionCoverage.rankUnavailablePositions,
         fullSlateWarnings: persisted.fullSlateProjectionCoverage.warnings,
       });
-    } catch {
+    } catch (error) {
       failedLeagues += provider.group.leagues.length;
       log(dependencies, 'warn', {
         stage: 'provider-persist', outcome: 'failed', runId,
@@ -99,6 +111,10 @@ export async function runCurrentProjectionStages(
         providerGroup: providerGroupName(provider.group),
         stageDurationMs: elapsed(dependencies, providerPersistStartedAt),
         failureCode: 'provider-persistence-failed',
+        persistenceStage: persistence.stage,
+        ...providerPersistenceDiagnostics(error),
+        ...(persistence.stage === 'game-states' ? gameStatePersistenceDiagnostics(provider.loaded.games) : {}),
+        failedLeagues: provider.group.leagues.length,
       });
     }
   }
@@ -183,7 +199,7 @@ export async function runCurrentProjectionStages(
     failedLeagues += outcomes.filter((outcome) => !outcome.published).length;
   }
   if (publishedLeagues === 0) {
-    throw new Error('No complete league snapshot could be published.');
+    throw new CurrentProjectionStagesError(failedLeagues);
   }
 
 

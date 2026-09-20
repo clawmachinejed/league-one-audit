@@ -3,7 +3,7 @@ import { highestCadence, minuteBoundary } from './cadence';
 import { refreshCurrentLineupContext } from './current-lineup-context';
 import { planCurrentWork, settleCurrentHourlyMarkers, type CurrentWorkTarget } from './current-work-plan';
 import { loadCurrentLeagues } from './current-league-load';
-import { runCurrentProjectionStages } from './current-projection-stages';
+import { CurrentProjectionStagesError, runCurrentProjectionStages } from './current-projection-stages';
 import { observeCurrentLineups } from './current-lineup-observation';
 import { elapsed, safeProjectionLog as log } from './worker-operations';
 
@@ -29,6 +29,7 @@ export async function runWithDependencies(
   let markers: readonly CurrentWorkTarget[] = [];
   let markersSettled = false;
   let failedPreflightLeagues = 0;
+  let failedLoadLeagues = 0;
   let stage = 'preflight';
   try {
     const preflight = prepared?.value ?? await refreshCurrentLineupContext(dependencies, runId);
@@ -80,6 +81,7 @@ export async function runWithDependencies(
     }
     stage = 'league-load';
     const loaded = await loadCurrentLeagues(dependencies, plan.full, runId);
+    failedLoadLeagues = loaded.failedLeagues;
     if (!loaded.sources.length) throw new Error('No complete current league source loaded.');
     stage = 'league-publish';
     const result = await runCurrentProjectionStages(dependencies, loaded.sources, loaded.publicationFences, calculatedAt, runId);
@@ -99,11 +101,13 @@ export async function runWithDependencies(
       skippedLeagues: plan.skipped, failedLeagues });
     return { status: 'completed', cadence, publishedLeagues: result.publishedLeagues,
       failedLeagues, providerGroups: result.providerGroups };
-  } catch {
+  } catch (error) {
     if (!markersSettled) await settleCurrentHourlyMarkers(dependencies, markers, new Set(), runId).catch(() => undefined);
     if (acquired) await dependencies.repository.failJob(jobKey, runId, 'current-projection-failed').catch(() => false);
     log(dependencies, 'error', { stage, outcome: 'failed', runId,
-      totalDurationMs: elapsed(dependencies, runStartedAt), failedLeagues: failedPreflightLeagues,
+      totalDurationMs: elapsed(dependencies, runStartedAt),
+      failedLeagues: failedPreflightLeagues + failedLoadLeagues
+        + (error instanceof CurrentProjectionStagesError ? error.failedLeagues : 0),
       failureCode: 'current-projection-failed' });
     return { status: 'failed' };
   }

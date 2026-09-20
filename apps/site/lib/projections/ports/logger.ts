@@ -1,8 +1,20 @@
-import type { LeaguePeriod } from '../domain/contracts';
+import type { LeaguePeriod, NflGameStatusCode, NflTeam } from '../domain/contracts';
 import type { FutureRefreshFailureCode } from './future-refresh-repository';
 
 export type LogLevel = 'info' | 'warn' | 'error';
 export type ProjectionLogOutcome = 'started' | 'completed' | 'skipped' | 'failed';
+export type ProviderPersistenceStage = 'game-identities' | 'game-states' | 'scoring-identities'
+  | 'projection-coverage' | 'projection-slate';
+
+export type GameStateDiagnostic = Readonly<{
+  homeTeam: NflTeam | null;
+  awayTeam: NflTeam | null;
+  statusCode: NflGameStatusCode | null;
+  sourcePeriod: string | null;
+  gameClock: string | null;
+  observedAt: string | null;
+  requestCompletedAt: string | null;
+}>;
 
 export type ProjectionFailureCode =
   | FutureRefreshFailureCode
@@ -108,6 +120,12 @@ export type ProjectionLogEntry = Readonly<{
   publicationOutcome?: 'published' | 'unchanged' | 'rejected' | 'disabled';
   leaseOutcome?: 'acquired' | 'busy' | 'completed' | 'disabled' | 'lost';
   failureCode?: ProjectionFailureCode;
+  persistenceStage?: ProviderPersistenceStage;
+  persistenceFailureReason?: string;
+  databaseErrorCode?: string;
+  gameStateCount?: number;
+  gameStateSummaryTruncated?: boolean;
+  gameStateSummary?: readonly GameStateDiagnostic[];
 }>;
 
 export type ProjectionLoggerPort = Readonly<{
