@@ -90,7 +90,9 @@ export function buildManagerHistory(seasons: readonly ManagerHistorySeason[], cu
       participant.seasons.add(source.season);
       if (name && source.season <= currentSeason && source.season > participant.namedSeason) {
         participant.managerName = name;
-        participant.avatar = team?.avatar ?? null;
+        // Team artwork was normalized against the raw primary owner. If display
+        // ownership changes, that image is not verified for the effective manager.
+        participant.avatar = ownerId === roster.owner_id ? team?.avatar ?? null : null;
         participant.namedSeason = source.season;
       }
       if (source.season === currentSeason && seasonCounts.get(currentSeason) === 1

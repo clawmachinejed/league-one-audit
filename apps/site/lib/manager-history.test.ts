@@ -57,6 +57,23 @@ describe('manager history', () => {
       managerName: 'tylerawildman', currentTeamId: 1, wins: 1, seasons: [2026], championshipYears: [], promotionChampionshipYears: [] });
   });
 
+  it('does not assign primary-owner artwork to a corrected co-owner', () => {
+    const source = season(2026, {
+      teams: [{ ...team(1, 'eneerg'), avatar: 'eneerg-avatar' }, { ...team(2, 'Bob'), avatar: 'bob-avatar' }],
+      rosters: [{ roster_id: 1, owner_id: '95628446075863040', co_owners: ['862177751849877504'] },
+        { roster_id: 2, owner_id: 'bob' }],
+    });
+    const original = structuredClone(source);
+    const corrected = buildManagerHistory([source], 2026, 'league2');
+    expect(corrected.warning).toBeUndefined();
+    expect(corrected.managers.find(value => value.ownerId === '862177751849877504'))
+      .toMatchObject({ managerName: 'tylerawildman', avatar: null, wins: 1 });
+    expect(corrected.managers.find(value => value.ownerId === 'bob')).toMatchObject({ avatar: 'bob-avatar' });
+    expect(buildManagerHistory([source], 2026, 'league1').managers
+      .find(value => value.ownerId === '95628446075863040')).toMatchObject({ avatar: 'eneerg-avatar' });
+    expect(source).toEqual(original);
+  });
+
   it('preserves both explicit trophy lists for a historical-only owner', () => {
     const old = season(2025, { rosters: [{ roster_id: 1, owner_id: '1119176673112563712' }, { roster_id: 2, owner_id: 'bob' }] });
     const result = buildManagerHistory([old, season()], 2026);

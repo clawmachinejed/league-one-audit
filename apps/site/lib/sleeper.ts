@@ -255,6 +255,12 @@ function isStringArray(value: unknown): boolean {
     || (Array.isArray(value) && value.every((item) => typeof item === 'string'));
 }
 
+function isSleeperCoOwners(value: unknown): value is string[] | null | undefined {
+  return value === undefined || value === null
+    || (Array.isArray(value) && value.every(item => typeof item === 'string' && item.length > 0 && item === item.trim())
+      && new Set(value).size === value.length);
+}
+
 function isNumberArray(value: unknown): boolean {
   return value === undefined || value === null
     || (Array.isArray(value) && value.every((item) => typeof item === 'number' && Number.isInteger(item) && item > 0));
@@ -293,6 +299,7 @@ function validRosterViewSettings(value: unknown): boolean {
 function isSleeperRoster(value: unknown): value is SleeperRoster {
   return isRecord(value) && typeof value.roster_id === 'number' && Number.isInteger(value.roster_id)
     && value.roster_id > 0 && isOptionalString(value.owner_id)
+    && isSleeperCoOwners(value.co_owners)
     && isStringArray(value.players) && isStringArray(value.starters)
     && isStringArray(value.reserve) && isStringArray(value.taxi)
     && validRosterSettings(value.settings) && isOptionalRecord(value.metadata);
@@ -301,6 +308,7 @@ function isSleeperRoster(value: unknown): value is SleeperRoster {
 function isSleeperRosterForRosterView(value: unknown): value is SleeperRoster {
   return isRecord(value) && typeof value.roster_id === 'number' && Number.isInteger(value.roster_id)
     && value.roster_id > 0 && isOptionalString(value.owner_id)
+    && isSleeperCoOwners(value.co_owners)
     && isStringArray(value.players) && isStringArray(value.starters)
     && isStringArray(value.reserve) && isStringArray(value.taxi)
     && validRosterViewSettings(value.settings) && isOptionalRecord(value.metadata);
@@ -537,10 +545,13 @@ const getLeagueRosterFeed = cache(async (leagueId: string, mode: AdministrationR
       malformedRosterIds.add(rosterId);
     }
     if (!isSleeperRosterForRosterView(row)) rosterViewMalformedRowCount += 1;
+    // Invalid ownership evidence must not become a valid primary-owner-only row.
+    // Strict consumers reject it; tolerant views retain the other valid rosters.
+    if (!isSleeperCoOwners(row.co_owners)) continue;
     rosters.push({
       roster_id: rosterId,
       owner_id: typeof row.owner_id === 'string' && row.owner_id.trim() ? row.owner_id : null,
-      co_owners: isStringArray(row.co_owners) && Array.isArray(row.co_owners) ? row.co_owners : null,
+      co_owners: row.co_owners ?? null,
       players: isStringArray(row.players) && Array.isArray(row.players) ? row.players : null,
       starters: isStringArray(row.starters) && Array.isArray(row.starters) ? row.starters : null,
       reserve: isStringArray(row.reserve) && Array.isArray(row.reserve) ? row.reserve : null,
