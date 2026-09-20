@@ -24,6 +24,7 @@ export interface SleeperLeague {
   roster_positions?: string[];
   settings?: Record<string, unknown>;
   scoring_settings?: Record<string, unknown>;
+  previous_league_id?: string | null;
 }
 
 export interface SleeperState {

@@ -42,6 +42,7 @@ import { startingSlots } from './sleeper-lineup';
 import { resolveSiteWeek, type SiteWeekResolution } from './site-week';
 import { assertSiteCalendarNotRegressed, getRetainedSiteCalendar } from './site-calendar-authority';
 import { buildCompletedStandingsBasis, reconcileStandingsBasis, standingsTotalsMatch } from './projected-standings';
+import { buildManagerHistory, type ManagerHistorySeason } from './manager-history';
 import { buildMyTeamScheduleWeeks, MY_TEAM_SCHEDULE_WEEKS, type MyTeamScheduleData, type ScheduleWeekCount } from './my-team-schedule';
 import {
   canDecorateMatchupWeek,
@@ -136,7 +137,7 @@ export type CapturedAdministrationDocument = Readonly<{
   fallbackReason?: 'missing' | 'disabled' | 'unavailable' | 'stale';
 }>;
 
-type AdministrationReadMode = 'page' | 'official';
+type AdministrationReadMode = 'page' | 'official' | 'history';
 
 const API = 'https://api.sleeper.app/v1';
 const SEASON_SCHEDULE_API = 'https://api.sleeper.com/schedule/nfl/regular';
@@ -168,10 +169,11 @@ const readOfficialAdministration = cache(async (
 
 const readAdministration = cache(async (
   leagueId: string, family: AdministrationFamily, week: number | null,
-  mode: AdministrationReadMode = 'page', revalidate = CORE_CACHE_SECONDS, season?: number,
+  mode: AdministrationReadMode = 'page', revalidate = CORE_CACHE_SECONDS, season?: number, leagueKey?: LeagueKey,
 ): Promise<CapturedAdministrationDocument> => {
-  if (mode === 'page') {
-    const stored = await readPageAdministrationSource({ externalLeagueId: leagueId, family, week, season, maxAgeSeconds: revalidate });
+  if (mode !== 'official') {
+    const stored = await readPageAdministrationSource({ externalLeagueId: leagueId, family, week, season, leagueKey,
+      maxAgeSeconds: revalidate, ...(mode === 'history' ? { historicalSeason: true } : {}) });
     if (stored.status === 'available') return { family, week, payload: stored.payload,
       requestStartedAt: stored.requestStartedAt, requestCompletedAt: stored.requestCompletedAt,
       origin: stored.origin, sourceObservedAt: stored.sourceObservedAt };
@@ -695,6 +697,70 @@ export async function getManagers(leagueId: string): Promise<ManagersData> {
   };
 }
 
+/** History is requested only when its tab is opened. It uses official weekly
+ * results, never projections or season aggregates that may include playoffs. */
+export async function getManagersHistory(leagueId: string, leagueKey: LeagueKey): Promise<ManagersData> {
+  const [data, core] = await Promise.all([getManagers(leagueId), getCore(leagueId)]);
+  const currentSeason = Number(core.sourceLeague.season);
+  const regularEnd = (league: SleeperLeague) => {
+    const start = league.settings?.playoff_week_start;
+    return typeof start === 'number' && Number.isInteger(start) && start > 0
+      ? Math.max(0, Math.min(14, start - 1)) : 14;
+  };
+  const unsupported = (league: SleeperLeague) =>
+    Number(league.settings?.league_average_match ?? 0) !== 0
+    || Number(league.settings?.best_ball ?? 0) !== 0
+    || Number(league.settings?.start_week ?? 1) !== 1;
+  const throughWeek = core.calendar.lifecycle === 'preseason' ? 0
+    : core.calendar.lifecycle === 'complete' ? regularEnd(core.sourceLeague)
+      : core.calendar.activeWeek === null ? null : Math.min(regularEnd(core.sourceLeague), core.calendar.activeWeek - 1);
+  const current = await loadRosterHistory(leagueId, throughWeek, currentSeason);
+  const seasons: ManagerHistorySeason[] = [{
+    season: currentSeason, externalLeagueId: leagueId, teams: data.teams, rosters: core.rosters, throughWeek,
+    rows: current.rows.map((rows, index) => current.malformedWeeks.includes(index + 1) ? null : rows),
+    ...(unsupported(core.sourceLeague) ? { unavailableReason: `${currentSeason} uses unsupported extra-match or season settings.` } : {}),
+  }];
+  let source = core.sourceLeague;
+  // This feature starts with 2025; future renewals retain that starting point.
+  // A bounded chain prevents corrupt or circular provider links from fanout.
+  const seen = new Set([leagueId]);
+  for (let season = currentSeason - 1; season >= 2025; season -= 1) {
+    let historicalId = source.previous_league_id;
+    try {
+      if (seen.size >= 20 || typeof historicalId !== 'string' || !/^\d+$/u.test(historicalId)
+        || seen.has(historicalId)) throw new Error('The prior-season league connection is missing or invalid.');
+      seen.add(historicalId);
+      const observation = await readAdministration(historicalId, 'league', null, 'history', 86_400, season, leagueKey);
+      if (!isSleeperLeague(observation.payload) || observation.payload.league_id !== historicalId
+        || observation.payload.season !== String(season) || observation.payload.status !== 'complete') {
+        throw new Error('The prior-season league identity or completed status could not be verified.');
+      }
+      source = observation.payload;
+      const [rosterObservation, userObservation] = await Promise.all([
+        readAdministration(historicalId, 'rosters', null, 'history', 86_400, season, leagueKey),
+        readAdministration(historicalId, 'users', null, 'history', 86_400, season, leagueKey),
+      ]);
+      const rosters = parseRows<SleeperRoster>(rosterObservation.payload, 'historical rosters', isSleeperRoster, row => String(row.roster_id));
+      const users = parseRows<SleeperUser>(userObservation.payload, 'historical users', isSleeperUser, row => row.user_id);
+      assertCoreCompleteness(source, rosters, users);
+      const historicalThroughWeek = regularEnd(source);
+      const history = await loadRosterHistory(historicalId, historicalThroughWeek, season, 'history', leagueKey);
+      seasons.push({ season, externalLeagueId: historicalId, teams: normalizeTeams(rosters, users), rosters,
+        throughWeek: historicalThroughWeek,
+        rows: history.rows.map((rows, index) => history.malformedWeeks.includes(index + 1) ? null : rows),
+        ...(unsupported(source) ? { unavailableReason: `${season} uses unsupported extra-match or season settings.` } : {}),
+      });
+    } catch {
+      historicalId = typeof historicalId === 'string' ? historicalId : '';
+      seasons.push({ season, externalLeagueId: historicalId, teams: [], rosters: [], throughWeek: null, rows: [],
+        unavailableReason: `${season} manager history is unavailable; its league connection, owners, and weekly results must be verified.` });
+      break;
+    }
+  }
+  return { ...data, history: { ...buildManagerHistory(seasons, currentSeason),
+    label: `2025–${currentSeason} · Regular season · Weeks 1–14` } };
+}
+
 /** Reuse current official standings order without loading projected standings history. */
 export async function getCurrentStandings(leagueId: string): Promise<CurrentStandings> {
   const { overview, sourceLeague } = await getCore(leagueId);
@@ -773,11 +839,13 @@ function standingsPointsForAvailable(roster: SleeperRoster | undefined): boolean
       || (typeof roster.settings.fpts_decimal === 'number' && Number.isFinite(roster.settings.fpts_decimal)));
 }
 
-const getCachedRosterWeek = cache(async (leagueId: string, week: number, season?: number) => (
-  loadAdministrationMatchups(leagueId, week, 'page', CORE_CACHE_SECONDS, true, season)
+const getCachedRosterWeek = cache(async (leagueId: string, week: number, season?: number,
+  mode: AdministrationReadMode = 'page', leagueKey?: LeagueKey) => (
+  loadAdministrationMatchups(leagueId, week, mode, mode === 'history' ? 86_400 : CORE_CACHE_SECONDS, true, season, leagueKey)
 ));
 
-async function loadRosterHistory(leagueId: string, throughWeek: number | null, season?: number): Promise<{
+async function loadRosterHistory(leagueId: string, throughWeek: number | null, season?: number,
+  mode: AdministrationReadMode = 'page', leagueKey?: LeagueKey): Promise<{
   rows: Array<SleeperMatchup[] | null>;
   failedWeeks: number[];
   malformedWeeks: number[];
@@ -791,7 +859,8 @@ async function loadRosterHistory(leagueId: string, throughWeek: number | null, s
     while (next <= throughWeek) {
       const week = next++;
       try {
-        const observation = await getCachedRosterWeek(leagueId, week, season);
+        const observation = mode === 'page' ? await getCachedRosterWeek(leagueId, week, season)
+          : await getCachedRosterWeek(leagueId, week, season, mode, leagueKey);
         const invalidIds = new Set(observation.invalidRosterIds ?? []);
         rows[week - 1] = observation.rows.filter((row) => !invalidIds.has(row.roster_id));
         if (observation.invalidRowCount) malformedWeeks.push(week);
@@ -1042,10 +1111,10 @@ const loadRawMatchups = createRawSleeperMatchupLoader({
 });
 
 async function loadAdministrationMatchups(leagueId: string, week: number, mode: AdministrationReadMode,
-  revalidate: number, allowPartial = false, season?: number): Promise<RawSleeperMatchupObservation & {
+  revalidate: number, allowPartial = false, season?: number, leagueKey?: LeagueKey): Promise<RawSleeperMatchupObservation & {
     administrationObservation: CapturedAdministrationDocument;
   }> {
-  const observation = await readAdministration(leagueId, 'matchups', week, mode, revalidate, season);
+  const observation = await readAdministration(leagueId, 'matchups', week, mode, revalidate, season, leagueKey);
   const path = administrationPath(leagueId, 'matchups', week);
   const parsed = allowPartial ? parseRawSleeperMatchupFeed(observation.payload, path)
     : { rows: parseRawSleeperMatchups(observation.payload, path) };

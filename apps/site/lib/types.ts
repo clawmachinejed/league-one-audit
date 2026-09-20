@@ -103,6 +103,11 @@ export interface OverviewData {
 /** Directory-only honors; never part of official results or matchup snapshots. */
 export interface ManagersData extends Omit<OverviewData, 'teams'> {
   teams: Array<Team & { championshipYears: readonly number[]; promotionChampionshipYears?: readonly number[] }>;
+  history?: {
+    managers: import('./manager-history').ManagerHistoryEntry[];
+    warning?: string;
+    label: string;
+  };
 }
 
 export interface StandingsData extends Omit<OverviewData, 'teams'> {

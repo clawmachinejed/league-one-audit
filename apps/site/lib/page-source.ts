@@ -20,9 +20,11 @@ export type PageAdministrationRead = Readonly<{
   sourceObservedAt: string | null; origin: AdministrationEnvelope['provenance']['origin'];
 }> | Readonly<{ status: 'fallback'; reason: 'missing' | 'disabled' | 'unavailable' | 'stale' }>;
 
-type PageAdministrationRequest = Readonly<{
+export type PageAdministrationRequest = Readonly<{
   externalLeagueId: string; family: AdministrationFamily; week: number | null; season?: number; leagueKey?: string;
   maxAgeSeconds?: number;
+  /** Accepted completed prior-season evidence retains its original provenance without a current-source TTL. */
+  historicalSeason?: boolean;
 }>;
 
 function isFresh(read: Extract<SourceRead, { status: 'available' }>, maxAgeSeconds: number, now: number) {
@@ -34,6 +36,54 @@ function isFresh(read: Extract<SourceRead, { status: 'available' }>, maxAgeSecon
     const timestamp = Date.parse(value);
     return Number.isFinite(timestamp) && timestamp <= now && now - timestamp <= maxAgeSeconds * 1000;
   });
+}
+
+function assertHistoricalRequest(request: PageAdministrationRequest, now: number) {
+  if (!Number.isFinite(now) || typeof request.externalLeagueId !== 'string' || !request.externalLeagueId
+    || request.externalLeagueId.trim() !== request.externalLeagueId
+    || request.season === undefined || !Number.isInteger(request.season) || request.season < 1920
+    || request.season > 2200 || request.season >= new Date(now).getUTCFullYear()
+    || request.leagueKey === undefined || !Object.prototype.hasOwnProperty.call(LEAGUE_SITES, request.leagueKey)
+    || !['league', 'users', 'rosters', 'matchups'].includes(request.family)
+    || (request.family === 'matchups'
+      ? request.week === null || !Number.isInteger(request.week) || request.week < 1 || request.week > 14
+      : request.week !== null)) {
+    throw new AdministrationSourceConflictError('Historical league administration requires an explicit prior season, league identity and supported regular-season scope.');
+  }
+}
+
+function assertHistoricalConfiguration(configuration: Extract<SourceRead, { status: 'available' }>, request: PageAdministrationRequest) {
+  assertEnvelope(configuration.envelope, { ...request, family: 'league', week: null });
+  const payload = configuration.envelope.payload;
+  if (payload === null || typeof payload !== 'object' || Array.isArray(payload)
+    || !('league_id' in payload) || payload.league_id !== request.externalLeagueId
+    || !('season' in payload) || payload.season !== String(request.season)
+    || !('status' in payload) || payload.status !== 'complete') {
+    throw new AdministrationSourceConflictError('Stored historical league configuration does not prove the requested completed season.');
+  }
+}
+
+function hasRetainedObservationTimes(read: Extract<SourceRead, { status: 'available' }>, now: number) {
+  // Age is irrelevant for accepted completed seasons. Invalid or future-dated
+  // evidence is not made usable by that exception. A recorded network
+  // verification is still required; a recent cache check is not that proof.
+  const observedNoLaterThanNow = (value: string) => Number.isFinite(Date.parse(value)) && Date.parse(value) <= now;
+  return Number.isFinite(now) && typeof read.checkedAt === 'string' && observedNoLaterThanNow(read.checkedAt)
+    && typeof read.verifiedAt === 'string' && observedNoLaterThanNow(read.verifiedAt)
+    && [read.envelope.provenance.checkedAt, read.envelope.provenance.requestStartedAt,
+      read.envelope.provenance.requestCompletedAt, read.envelope.provenance.sourceObservedAt]
+      .every(value => value === null || observedNoLaterThanNow(value));
+}
+
+function hasCompletedSeasonVerification(configuration: Extract<SourceRead, { status: 'available' }>,
+  read: Extract<SourceRead, { status: 'available' }>, now: number) {
+  if (!hasRetainedObservationTimes(configuration, now) || !hasRetainedObservationTimes(read, now)) return false;
+  const completionObservedAt = configuration.envelope.provenance.requestCompletedAt
+    ?? configuration.envelope.provenance.checkedAt;
+  // A separately completed configuration cannot finalize an older pre-final
+  // document. Its accepted content must have been verified against the provider
+  // at or after that completed configuration was observed. Retain every clock.
+  return Date.parse(read.verifiedAt!) >= Date.parse(completionObservedAt);
 }
 
 function assertEnvelope(envelope: AdministrationEnvelope, request: PageAdministrationRequest, scope?: AdministrationScope) {
@@ -88,6 +138,7 @@ export function createPageAdministrationReader(getStore: () => PageAdministratio
     return read;
   });
   return async (request: PageAdministrationRequest): Promise<PageAdministrationRead> => {
+    if (request.historicalSeason === true) assertHistoricalRequest(request, Date.now());
     const configuration = await readConfiguration(request.externalLeagueId);
     if (configuration.status !== 'available') {
       if (configuration.status === 'conflict') throw new AdministrationSourceConflictError('Stored league administration identity is conflicting.');
@@ -96,6 +147,7 @@ export function createPageAdministrationReader(getStore: () => PageAdministratio
     if (request.season !== undefined && configuration.envelope.scope.season !== request.season) {
       throw new AdministrationSourceConflictError('Stored league administration season changed during the page read.');
     }
+    if (request.historicalSeason === true) assertHistoricalConfiguration(configuration, request);
     const read = request.family === 'league' ? configuration
       : await readSafely(() => getStore().readSource({ ...configuration.envelope.scope, family: request.family, week: request.week }));
     checkConflict(read);
@@ -106,7 +158,10 @@ export function createPageAdministrationReader(getStore: () => PageAdministratio
     assertEnvelope(read.envelope, request, configuration.envelope.scope);
     const now = Date.now();
     const maxAgeSeconds = request.maxAgeSeconds ?? 60;
-    if (!isFresh(configuration, maxAgeSeconds, now) || !isFresh(read, maxAgeSeconds, now)) {
+    const usableTimes = request.historicalSeason === true
+      ? hasCompletedSeasonVerification(configuration, read, now)
+      : isFresh(configuration, maxAgeSeconds, now) && isFresh(read, maxAgeSeconds, now);
+    if (!usableTimes) {
       return { status: 'fallback', reason: 'stale' };
     }
     const provenance = read.envelope.provenance;

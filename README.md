@@ -2,6 +2,8 @@
 
 A mobile-first home for League One, its League Two promotion and relegation league, and Dynasty League, powered by public Sleeper league data. All three share My Team, Matchups, Standings, and Managers, with rosters, transaction history and schedules inside each manager profile. Each league uses its own official Sleeper scoring settings.
 
+Managers has **History** and current-season tabs. History combines each league's managers across annual Sleeper IDs from 2025 onward, using only completed regular-season results within Weeks 1–14. It shows manager names and honors without team names. The current-season tab preserves the existing cards. See [manager history](docs/manager-history.md) for ownership, source, and completeness rules.
+
 ## What stays central
 
 - Expandable matchup cards: scan team scores, then open the player and lineup comparison.

@@ -216,6 +216,7 @@ h1{font-weight:800;font-size:38px;line-height:1.12;letter-spacing:-.055em;overfl
 .text-button{display:inline-flex;align-items:center;justify-content:center;background:transparent;min-height:44px;padding:10px 14px;font-size:12px;font-weight:700;color:var(--green);text-decoration:underline;text-underline-offset:3px}
 .not-found-link{margin-top:12px}
 .managers-grid{display:grid;gap:5px;align-items:start}
+.manager-history-scope{margin:0 0 12px;color:var(--muted);font-size:11px}
 .manager-card{border:1px solid var(--line);border-radius:10px;background:var(--surface);overflow:hidden;min-width:0}
 .manager-card.selected-manager{border-color:var(--selected-border)}
 .manager-card-link{display:grid;grid-template-columns:38px minmax(0,1fr) 52px;gap:8px;align-items:center;min-height:60px;padding:8px 10px 8px 8px;border-radius:9px}
