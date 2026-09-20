@@ -1,7 +1,7 @@
 import type { MatchupsData, Team } from './types';
 
-// Owner-confirmed September 19, 2026. This exception belongs to the evidenced
-// 2026 connection/roster, not every team with a matching name or a future renewal.
+// Owner-confirmed September 19, 2026. Retained for legacy snapshots that do not
+// carry co-owner evidence; never extend this fallback by name or roster number.
 const correction = {
   leagueId: '1378850360529014784',
   leagueKey: 'league2',
@@ -18,18 +18,28 @@ function correctsOwner(leagueId: string, rosterId: number, ownerId: string | nul
     && ownerId === correction.sourceOwnerId;
 }
 
-/** Effective identity for presentation/honors only. Never replace provider ownership evidence. */
-export function displayedManagerOwnerId(leagueId: string, rosterId: number, ownerId: string | null | undefined) {
+/** Owner-confirmed September 20: in League Two, a roster listing Tyler as
+ * co-owner belongs to Tyler for display and manager history, in every season.
+ * Keep the source owner/co-owner evidence and official team results unchanged. */
+export function displayedManagerOwnerId(leagueId: string, rosterId: number, ownerId: string | null | undefined,
+  coOwners?: readonly string[] | null, leagueKey?: string | null) {
+  const isLeagueTwo = leagueKey === 'league2' || (leagueKey == null && leagueId === correction.leagueId);
+  if (isLeagueTwo && Array.isArray(coOwners) && coOwners.includes(correction.managerId)) return correction.managerId;
+  if (leagueKey != null && leagueKey !== 'league2') return ownerId;
   return correctsOwner(leagueId, rosterId, ownerId) ? correction.managerId : ownerId;
 }
 
 /** Current official roster identity proves where the page-only name correction applies. */
 export function displayedManagerTeams(leagueId: string, teams: Team[],
-  rosters: readonly { roster_id: number; owner_id?: string | null }[]): Team[] {
-  if (leagueId !== correction.leagueId) return teams;
-  const ownerByRoster = new Map(rosters.map(roster => [roster.roster_id, roster.owner_id]));
-  return teams.map(team => correctsOwner(leagueId, team.id, ownerByRoster.get(team.id))
-    ? { ...team, managerName: correction.managerName } : team);
+  rosters: readonly { roster_id: number; owner_id?: string | null; co_owners?: readonly string[] | null }[],
+  leagueKey?: string | null): Team[] {
+  const rosterById = new Map(rosters.map(roster => [roster.roster_id, roster]));
+  return teams.map(team => {
+    const roster = rosterById.get(team.id);
+    const effectiveOwner = displayedManagerOwnerId(leagueId, team.id, roster?.owner_id, roster?.co_owners, leagueKey);
+    return effectiveOwner === correction.managerId && effectiveOwner !== roster?.owner_id
+      ? { ...team, managerName: correction.managerName } : team;
+  });
 }
 
 /**

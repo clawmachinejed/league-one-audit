@@ -8,7 +8,7 @@ import { MANAGER_SCHEDULE_WEEKS } from '@/lib/my-team-schedule';
 import { currentMatchupWeek, type MatchupPeriodContext } from '@/lib/matchup-period';
 import { readStoredMatchups } from '@/lib/projection-reader';
 import type { LeagueKey } from '@/lib/leagues';
-import { getCurrentMatchupPeriodContext, getCurrentStandings, getOfficialMatchups, getOverview, getManagers, getManager, getManagerHonors, getStandings, getTransactions, getSiteWeekRollover, getMyTeamSchedule } from '@/lib/sleeper';
+import { getCurrentMatchupPeriodContext, getCurrentStandings, getOfficialMatchups, getOverview, getManagers, getManagersHistory, getManager, getManagerHonors, getStandings, getTransactions, getSiteWeekRollover, getMyTeamSchedule } from '@/lib/sleeper';
 import type { CurrentStandings } from '@/lib/current-standings';
 import { MatchupsView } from './matchups-view';
 import { ManagerView } from './manager-view';
@@ -153,9 +153,14 @@ export async function LeagueStandingsPage({ leagueId, leagueKey }: { leagueId: s
   return withManagerHonors(leagueId, data.league.season, <StandingsView key={leagueKey} data={data} projectionSource={projectionSource} rollover={rollover} />);
 }
 
-export async function LeagueManagersPage({ leagueId }: { leagueId: string }) {
+export async function LeagueManagersPage({ leagueId, leagueKey, searchParams }: {
+  leagueId: string; leagueKey: LeagueKey; searchParams: Promise<{ view?: string }>;
+}) {
   leagueId = await resolveCurrentLeagueId(leagueId);
-  const [data, rollover] = await Promise.all([getManagers(leagueId), loadRollover(leagueId)]);
+  const { view } = await searchParams;
+  const [data, rollover] = await Promise.all([
+    view === 'history' ? getManagersHistory(leagueId, leagueKey) : getManagers(leagueId), loadRollover(leagueId),
+  ]);
   return withManagerHonors(leagueId, data.league.season, <ManagersView data={data} rollover={rollover} />);
 }
 

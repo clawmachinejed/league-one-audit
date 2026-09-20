@@ -1027,6 +1027,7 @@ test('both Managers pages reuse the Matchups intro with compact profile rows', a
         await expect(main.locator('select')).toHaveCount(0);
         await expect(main.locator('.preference-banner, .section-label, .manager-card-bottom, .manager-profile-cta, .manager-pf, .my-team-button')).toHaveCount(0);
         await expect(main.getByRole('heading', { name: 'The managers', exact: true })).toHaveCount(0);
+        await expect(main.getByRole('tablist', { name: 'Manager views' }).getByRole('tab')).toHaveText(['History', '2026']);
 
         const actual = await intro.evaluate(element => {
           const mainElement = element.closest('main')!;
@@ -1034,6 +1035,7 @@ test('both Managers pages reuse the Matchups intro with compact profile rows', a
           const season = element.querySelector('p')!;
           const toolbar = element.parentElement!;
           const content = mainElement.querySelector('.managers-grid');
+          const tabsRect = mainElement.querySelector('[role="tablist"]')?.getBoundingClientRect();
           const introRect = element.getBoundingClientRect();
           const toolbarRect = toolbar.getBoundingClientRect();
           const contentRect = content?.getBoundingClientRect();
@@ -1050,7 +1052,8 @@ test('both Managers pages reuse the Matchups intro with compact profile rows', a
           return {
             mainPadding: [mainStyle.paddingTop, mainStyle.paddingRight, mainStyle.paddingBottom, mainStyle.paddingLeft],
             introTop: introRect.top,
-            contentGap: mainElement.querySelector('.data-warning') || !contentRect ? null : contentRect.top - introRect.bottom,
+            // History/season controls now precede the cards; retain the same intro-to-first-content spacing.
+            contentGap: mainElement.querySelector('.data-warning') || !tabsRect ? null : tabsRect.top - introRect.bottom,
             contentAlignment: contentRect ? [contentRect.left - toolbarRect.left, toolbarRect.right - contentRect.right] : null,
             toolbarMarginBottom: getComputedStyle(toolbar).marginBottom,
             heading: read(heading),

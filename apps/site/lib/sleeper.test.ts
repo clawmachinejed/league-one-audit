@@ -1255,6 +1255,21 @@ describe('Sleeper service error handling', () => {
     await expect(getOverview(leagueOneId)).rejects.toThrow(`invalid response for ${leaguePath}/rosters`);
   });
 
+  it('retains other roster cards but withholds ambiguous ownership instead of coercing malformed co-owners to null', async () => {
+    expectedRosterCount = 2;
+    rawRosters = [
+      { roster_id: 1, owner_id: 'member-1', co_owners: '862177751849877504', players: ['qb'], starters: ['qb'], settings: { ...rosterSettings } },
+      { roster_id: 2, owner_id: 'member-2', co_owners: null, players: [], starters: [], settings: { ...rosterSettings } },
+    ];
+    rawUsers.push({ user_id: 'member-2', display_name: 'Valid manager' });
+    const rosters = await getRosters(leagueOneId);
+    expect(rosters.teams.map(team => team.id)).toEqual([2]);
+    expect(rosters.warning).toContain('incomplete or malformed data for 1 roster');
+    const honors = await getManagerHonors(leagueOneId);
+    expect(Object.keys(honors.managers)).toEqual(['2']);
+    await expect(getManagers(leagueOneId)).rejects.toThrow(`invalid response for ${leaguePath}/rosters`);
+  });
+
   it.each([
     { wins: -1 },
     { ties: 0.5 },

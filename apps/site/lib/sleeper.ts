@@ -31,6 +31,7 @@ import type { LeagueTransactionsData, ManagerData, ManagersData, MatchupsData, O
 import { leagueOneChampionshipYears, leagueTwoChampionshipYears } from './manager-championships';
 import type { ManagerHonors } from './manager-honors';
 import { displayedManagerOwnerId, displayedManagerTeams } from './manager-display';
+import { findCurrentLeagueKey } from './league-administration/registry';
 import type { LeagueKey } from './leagues';
 import type { CurrentStandings } from './current-standings';
 import { normalizeLeagueTransactions } from './league-transactions';
@@ -42,6 +43,7 @@ import { startingSlots } from './sleeper-lineup';
 import { resolveSiteWeek, type SiteWeekResolution } from './site-week';
 import { assertSiteCalendarNotRegressed, getRetainedSiteCalendar } from './site-calendar-authority';
 import { buildCompletedStandingsBasis, reconcileStandingsBasis, standingsTotalsMatch } from './projected-standings';
+import { buildManagerHistory, type ManagerHistorySeason } from './manager-history';
 import { buildMyTeamScheduleWeeks, MY_TEAM_SCHEDULE_WEEKS, type MyTeamScheduleData, type ScheduleWeekCount } from './my-team-schedule';
 import {
   canDecorateMatchupWeek,
@@ -136,7 +138,7 @@ export type CapturedAdministrationDocument = Readonly<{
   fallbackReason?: 'missing' | 'disabled' | 'unavailable' | 'stale';
 }>;
 
-type AdministrationReadMode = 'page' | 'official';
+type AdministrationReadMode = 'page' | 'official' | 'history';
 
 const API = 'https://api.sleeper.app/v1';
 const SEASON_SCHEDULE_API = 'https://api.sleeper.com/schedule/nfl/regular';
@@ -168,10 +170,11 @@ const readOfficialAdministration = cache(async (
 
 const readAdministration = cache(async (
   leagueId: string, family: AdministrationFamily, week: number | null,
-  mode: AdministrationReadMode = 'page', revalidate = CORE_CACHE_SECONDS, season?: number,
+  mode: AdministrationReadMode = 'page', revalidate = CORE_CACHE_SECONDS, season?: number, leagueKey?: LeagueKey,
 ): Promise<CapturedAdministrationDocument> => {
-  if (mode === 'page') {
-    const stored = await readPageAdministrationSource({ externalLeagueId: leagueId, family, week, season, maxAgeSeconds: revalidate });
+  if (mode !== 'official') {
+    const stored = await readPageAdministrationSource({ externalLeagueId: leagueId, family, week, season, leagueKey,
+      maxAgeSeconds: revalidate, ...(mode === 'history' ? { historicalSeason: true } : {}) });
     if (stored.status === 'available') return { family, week, payload: stored.payload,
       requestStartedAt: stored.requestStartedAt, requestCompletedAt: stored.requestCompletedAt,
       origin: stored.origin, sourceObservedAt: stored.sourceObservedAt };
@@ -252,6 +255,12 @@ function isStringArray(value: unknown): boolean {
     || (Array.isArray(value) && value.every((item) => typeof item === 'string'));
 }
 
+function isSleeperCoOwners(value: unknown): value is string[] | null | undefined {
+  return value === undefined || value === null
+    || (Array.isArray(value) && value.every(item => typeof item === 'string' && item.length > 0 && item === item.trim())
+      && new Set(value).size === value.length);
+}
+
 function isNumberArray(value: unknown): boolean {
   return value === undefined || value === null
     || (Array.isArray(value) && value.every((item) => typeof item === 'number' && Number.isInteger(item) && item > 0));
@@ -290,6 +299,7 @@ function validRosterViewSettings(value: unknown): boolean {
 function isSleeperRoster(value: unknown): value is SleeperRoster {
   return isRecord(value) && typeof value.roster_id === 'number' && Number.isInteger(value.roster_id)
     && value.roster_id > 0 && isOptionalString(value.owner_id)
+    && isSleeperCoOwners(value.co_owners)
     && isStringArray(value.players) && isStringArray(value.starters)
     && isStringArray(value.reserve) && isStringArray(value.taxi)
     && validRosterSettings(value.settings) && isOptionalRecord(value.metadata);
@@ -298,6 +308,7 @@ function isSleeperRoster(value: unknown): value is SleeperRoster {
 function isSleeperRosterForRosterView(value: unknown): value is SleeperRoster {
   return isRecord(value) && typeof value.roster_id === 'number' && Number.isInteger(value.roster_id)
     && value.roster_id > 0 && isOptionalString(value.owner_id)
+    && isSleeperCoOwners(value.co_owners)
     && isStringArray(value.players) && isStringArray(value.starters)
     && isStringArray(value.reserve) && isStringArray(value.taxi)
     && validRosterViewSettings(value.settings) && isOptionalRecord(value.metadata);
@@ -534,9 +545,13 @@ const getLeagueRosterFeed = cache(async (leagueId: string, mode: AdministrationR
       malformedRosterIds.add(rosterId);
     }
     if (!isSleeperRosterForRosterView(row)) rosterViewMalformedRowCount += 1;
+    // Invalid ownership evidence must not become a valid primary-owner-only row.
+    // Strict consumers reject it; tolerant views retain the other valid rosters.
+    if (!isSleeperCoOwners(row.co_owners)) continue;
     rosters.push({
       roster_id: rosterId,
       owner_id: typeof row.owner_id === 'string' && row.owner_id.trim() ? row.owner_id : null,
+      co_owners: row.co_owners ?? null,
       players: isStringArray(row.players) && Array.isArray(row.players) ? row.players : null,
       starters: isStringArray(row.starters) && Array.isArray(row.starters) ? row.starters : null,
       reserve: isStringArray(row.reserve) && Array.isArray(row.reserve) ? row.reserve : null,
@@ -573,7 +588,8 @@ const getCore = cache(async (leagueId: string, mode: AdministrationReadMode = 'p
   const { sourceLeague, state, league } = calendar;
   assertCoreCompleteness(sourceLeague, rosters, users);
   const sourceTeams = normalizeTeams(rosters, users);
-  const teams = mode === 'page' ? displayedManagerTeams(leagueId, sourceTeams, rosters) : sourceTeams;
+  const leagueKey = mode === 'page' ? await findCurrentLeagueKey(leagueId) : null;
+  const teams = mode === 'page' ? displayedManagerTeams(leagueId, sourceTeams, rosters, leagueKey) : sourceTeams;
   const overview: OverviewData = {
     league,
     teams,
@@ -584,7 +600,7 @@ const getCore = cache(async (leagueId: string, mode: AdministrationReadMode = 'p
       teams.length ? undefined : 'Sleeper has not provided any league rosters yet.',
     ),
   };
-  return { overview, sourceLeague, state, rosters, calendar,
+  return { overview, sourceLeague, state, rosters, calendar, leagueKey,
     administrationObservations: [calendar.leagueObservation, rosterFeed.observation, userFeed.observation] };
 });
 
@@ -596,7 +612,8 @@ const getRosterCore = cache(async (leagueId: string) => {
   ]);
   const users = userFeed.users;
   const { sourceLeague, state, league } = calendar;
-  const teams = displayedManagerTeams(leagueId, normalizeTeams(rosterFeed.rosters, users), rosterFeed.rosters);
+  const leagueKey = await findCurrentLeagueKey(leagueId);
+  const teams = displayedManagerTeams(leagueId, normalizeTeams(rosterFeed.rosters, users), rosterFeed.rosters, leagueKey);
   const missing = Math.max(0, sourceLeague.total_rosters - rosterFeed.rosters.length);
   const affected = Math.max(rosterFeed.rosterViewMalformedRowCount, missing);
   const overview: OverviewData = {
@@ -610,7 +627,7 @@ const getRosterCore = cache(async (leagueId: string) => {
       affected ? `Sleeper returned incomplete or malformed data for ${affected} roster${affected === 1 ? '' : 's'}; other teams remain available.` : undefined,
     ),
   };
-  return { overview, sourceLeague, state, rosterFeed, calendar, users };
+  return { overview, sourceLeague, state, rosterFeed, calendar, users, leagueKey };
 });
 
 // Cache only the small fields we display. Position-filtered responses avoid the
@@ -665,34 +682,101 @@ export async function getOverview(leagueId: string): Promise<OverviewData> {
 
 /** Reuse accepted page ownership; honors stay separate from official snapshots. */
 export async function getManagerHonors(leagueId: string): Promise<ManagerHonors> {
-  const { overview, rosterFeed, users } = await getRosterCore(leagueId);
-  const owners = new Map(rosterFeed.rosters.map(roster => [roster.roster_id, roster.owner_id]));
+  const { overview, rosterFeed, users, leagueKey } = await getRosterCore(leagueId);
+  const owners = new Map(rosterFeed.rosters.map(roster => [roster.roster_id,
+    displayedManagerOwnerId(leagueId, roster.roster_id, roster.owner_id, roster.co_owners, leagueKey)]));
+  const sourceOwners = new Map(rosterFeed.rosters.map(roster => [roster.roster_id, roster.owner_id]));
   const knownUsers = new Set(users.map(user => user.user_id));
   const ambiguousRosters = new Set(rosterFeed.malformedRosterIds);
   return {
     leagueId,
     season: overview.league.season,
     managers: Object.fromEntries(overview.teams.filter(team => !ambiguousRosters.has(team.id)
-      && knownUsers.has(owners.get(team.id) ?? '')).map(team => [team.id, {
+      && (knownUsers.has(sourceOwners.get(team.id) ?? '') || knownUsers.has(owners.get(team.id) ?? ''))).map(team => [team.id, {
       managerName: team.managerName,
-      championshipYears: leagueOneChampionshipYears(displayedManagerOwnerId(leagueId, team.id, owners.get(team.id))),
-      promotionChampionshipYears: leagueTwoChampionshipYears(displayedManagerOwnerId(leagueId, team.id, owners.get(team.id))),
+      championshipYears: leagueOneChampionshipYears(owners.get(team.id)),
+      promotionChampionshipYears: leagueTwoChampionshipYears(owners.get(team.id)),
     }])),
   };
 }
 
 /** Attach owner-supplied honors using the same accepted roster ownership read. */
 export async function getManagers(leagueId: string): Promise<ManagersData> {
-  const { overview, rosters } = await getCore(leagueId);
-  const ownerByRoster = new Map(rosters.map((roster) => [roster.roster_id, roster.owner_id]));
+  const { overview, rosters, leagueKey } = await getCore(leagueId);
+  const ownerByRoster = new Map(rosters.map((roster) => [roster.roster_id,
+    displayedManagerOwnerId(leagueId, roster.roster_id, roster.owner_id, roster.co_owners, leagueKey)]));
   return {
     ...overview,
     teams: overview.teams.map((team) => ({
       ...team,
-      championshipYears: leagueOneChampionshipYears(displayedManagerOwnerId(leagueId, team.id, ownerByRoster.get(team.id))),
-      promotionChampionshipYears: leagueTwoChampionshipYears(displayedManagerOwnerId(leagueId, team.id, ownerByRoster.get(team.id))),
+      championshipYears: leagueOneChampionshipYears(ownerByRoster.get(team.id)),
+      promotionChampionshipYears: leagueTwoChampionshipYears(ownerByRoster.get(team.id)),
     })),
   };
+}
+
+/** History is requested only when its tab is opened. It uses official weekly
+ * results, never projections or season aggregates that may include playoffs. */
+export async function getManagersHistory(leagueId: string, leagueKey: LeagueKey): Promise<ManagersData> {
+  const [data, core] = await Promise.all([getManagers(leagueId), getCore(leagueId)]);
+  const currentSeason = Number(core.sourceLeague.season);
+  const regularEnd = (league: SleeperLeague) => {
+    const start = league.settings?.playoff_week_start;
+    return typeof start === 'number' && Number.isInteger(start) && start > 0
+      ? Math.max(0, Math.min(14, start - 1)) : 14;
+  };
+  const unsupported = (league: SleeperLeague) =>
+    Number(league.settings?.league_average_match ?? 0) !== 0
+    || Number(league.settings?.best_ball ?? 0) !== 0
+    || Number(league.settings?.start_week ?? 1) !== 1;
+  const throughWeek = core.calendar.lifecycle === 'preseason' ? 0
+    : core.calendar.lifecycle === 'complete' ? regularEnd(core.sourceLeague)
+      : core.calendar.activeWeek === null ? null : Math.min(regularEnd(core.sourceLeague), core.calendar.activeWeek - 1);
+  const current = await loadRosterHistory(leagueId, throughWeek, currentSeason);
+  const seasons: ManagerHistorySeason[] = [{
+    season: currentSeason, externalLeagueId: leagueId, teams: data.teams, rosters: core.rosters, throughWeek,
+    rows: current.rows.map((rows, index) => current.malformedWeeks.includes(index + 1) ? null : rows),
+    ...(unsupported(core.sourceLeague) ? { unavailableReason: `${currentSeason} uses unsupported extra-match or season settings.` } : {}),
+  }];
+  let source = core.sourceLeague;
+  // This feature starts with 2025; future renewals retain that starting point.
+  // A bounded chain prevents corrupt or circular provider links from fanout.
+  const seen = new Set([leagueId]);
+  for (let season = currentSeason - 1; season >= 2025; season -= 1) {
+    let historicalId = source.previous_league_id;
+    try {
+      if (seen.size >= 20 || typeof historicalId !== 'string' || !/^\d+$/u.test(historicalId)
+        || seen.has(historicalId)) throw new Error('The prior-season league connection is missing or invalid.');
+      seen.add(historicalId);
+      const observation = await readAdministration(historicalId, 'league', null, 'history', 86_400, season, leagueKey);
+      if (!isSleeperLeague(observation.payload) || observation.payload.league_id !== historicalId
+        || observation.payload.season !== String(season) || observation.payload.status !== 'complete') {
+        throw new Error('The prior-season league identity or completed status could not be verified.');
+      }
+      source = observation.payload;
+      const [rosterObservation, userObservation] = await Promise.all([
+        readAdministration(historicalId, 'rosters', null, 'history', 86_400, season, leagueKey),
+        readAdministration(historicalId, 'users', null, 'history', 86_400, season, leagueKey),
+      ]);
+      const rosters = parseRows<SleeperRoster>(rosterObservation.payload, 'historical rosters', isSleeperRoster, row => String(row.roster_id));
+      const users = parseRows<SleeperUser>(userObservation.payload, 'historical users', isSleeperUser, row => row.user_id);
+      assertCoreCompleteness(source, rosters, users);
+      const historicalThroughWeek = regularEnd(source);
+      const history = await loadRosterHistory(historicalId, historicalThroughWeek, season, 'history', leagueKey);
+      seasons.push({ season, externalLeagueId: historicalId, teams: normalizeTeams(rosters, users), rosters,
+        throughWeek: historicalThroughWeek,
+        rows: history.rows.map((rows, index) => history.malformedWeeks.includes(index + 1) ? null : rows),
+        ...(unsupported(source) ? { unavailableReason: `${season} uses unsupported extra-match or season settings.` } : {}),
+      });
+    } catch {
+      historicalId = typeof historicalId === 'string' ? historicalId : '';
+      seasons.push({ season, externalLeagueId: historicalId, teams: [], rosters: [], throughWeek: null, rows: [],
+        unavailableReason: `${season} manager history is unavailable; its league connection, owners, and weekly results must be verified.` });
+      break;
+    }
+  }
+  return { ...data, history: { ...buildManagerHistory(seasons, currentSeason, leagueKey),
+    label: `2025–${currentSeason} · Regular season · Weeks 1–14` } };
 }
 
 /** Reuse current official standings order without loading projected standings history. */
@@ -773,11 +857,13 @@ function standingsPointsForAvailable(roster: SleeperRoster | undefined): boolean
       || (typeof roster.settings.fpts_decimal === 'number' && Number.isFinite(roster.settings.fpts_decimal)));
 }
 
-const getCachedRosterWeek = cache(async (leagueId: string, week: number, season?: number) => (
-  loadAdministrationMatchups(leagueId, week, 'page', CORE_CACHE_SECONDS, true, season)
+const getCachedRosterWeek = cache(async (leagueId: string, week: number, season?: number,
+  mode: AdministrationReadMode = 'page', leagueKey?: LeagueKey) => (
+  loadAdministrationMatchups(leagueId, week, mode, mode === 'history' ? 86_400 : CORE_CACHE_SECONDS, true, season, leagueKey)
 ));
 
-async function loadRosterHistory(leagueId: string, throughWeek: number | null, season?: number): Promise<{
+async function loadRosterHistory(leagueId: string, throughWeek: number | null, season?: number,
+  mode: AdministrationReadMode = 'page', leagueKey?: LeagueKey): Promise<{
   rows: Array<SleeperMatchup[] | null>;
   failedWeeks: number[];
   malformedWeeks: number[];
@@ -791,7 +877,8 @@ async function loadRosterHistory(leagueId: string, throughWeek: number | null, s
     while (next <= throughWeek) {
       const week = next++;
       try {
-        const observation = await getCachedRosterWeek(leagueId, week, season);
+        const observation = mode === 'page' ? await getCachedRosterWeek(leagueId, week, season)
+          : await getCachedRosterWeek(leagueId, week, season, mode, leagueKey);
         const invalidIds = new Set(observation.invalidRosterIds ?? []);
         rows[week - 1] = observation.rows.filter((row) => !invalidIds.has(row.roster_id));
         if (observation.invalidRowCount) malformedWeeks.push(week);
@@ -1042,10 +1129,10 @@ const loadRawMatchups = createRawSleeperMatchupLoader({
 });
 
 async function loadAdministrationMatchups(leagueId: string, week: number, mode: AdministrationReadMode,
-  revalidate: number, allowPartial = false, season?: number): Promise<RawSleeperMatchupObservation & {
+  revalidate: number, allowPartial = false, season?: number, leagueKey?: LeagueKey): Promise<RawSleeperMatchupObservation & {
     administrationObservation: CapturedAdministrationDocument;
   }> {
-  const observation = await readAdministration(leagueId, 'matchups', week, mode, revalidate, season);
+  const observation = await readAdministration(leagueId, 'matchups', week, mode, revalidate, season, leagueKey);
   const path = administrationPath(leagueId, 'matchups', week);
   const parsed = allowPartial ? parseRawSleeperMatchupFeed(observation.payload, path)
     : { rows: parseRawSleeperMatchups(observation.payload, path) };
