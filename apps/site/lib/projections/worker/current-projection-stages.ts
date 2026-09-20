@@ -74,7 +74,7 @@ export async function runCurrentProjectionStages(
       continue;
     }
     const providerPersistStartedAt = dependencies.clock.monotonicNow();
-    let persistenceStage: ProviderPersistenceStage = 'game-identities';
+    const persistence = { stage: 'game-identities' as ProviderPersistenceStage };
     try {
       const persisted = await persistProviderGroup(
         dependencies,
@@ -82,7 +82,7 @@ export async function runCurrentProjectionStages(
         provider.loaded.games,
         provider.loaded.projections,
         undefined,
-        (stage) => { persistenceStage = stage; },
+        (stage) => { persistence.stage = stage; },
       );
       persistedGroups.push({
         group: provider.group,
@@ -111,9 +111,9 @@ export async function runCurrentProjectionStages(
         providerGroup: providerGroupName(provider.group),
         stageDurationMs: elapsed(dependencies, providerPersistStartedAt),
         failureCode: 'provider-persistence-failed',
-        persistenceStage,
+        persistenceStage: persistence.stage,
         ...providerPersistenceDiagnostics(error),
-        ...(persistenceStage === 'game-states' ? gameStatePersistenceDiagnostics(provider.loaded.games) : {}),
+        ...(persistence.stage === 'game-states' ? gameStatePersistenceDiagnostics(provider.loaded.games) : {}),
         failedLeagues: provider.group.leagues.length,
       });
     }
