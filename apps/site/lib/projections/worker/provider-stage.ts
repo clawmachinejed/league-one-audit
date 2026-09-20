@@ -9,6 +9,7 @@ import {
   type AllPlayerPosition,
 } from '../domain/all-player-statistics';
 import type { IdentityCrosswalkPort } from '../ports/identity-crosswalk';
+import type { ProviderPersistenceStage } from '../ports/logger';
 import type {
   ProjectionRepositoryPort,
   ProjectionSlateContentId,
@@ -185,7 +186,12 @@ export async function persistProviderGroup(
   games: GameStateSlate,
   projections: ProjectionSlate,
   projectionPersistence: ProjectionSlatePersistence = { kind: 'incoming' },
+  onStage?: (stage: ProviderPersistenceStage) => void,
 ): Promise<PersistedGroup> {
+  const reportStage = (stage: ProviderPersistenceStage) => {
+    try { onStage?.(stage); } catch { /* Diagnostics cannot change persistence behavior. */ }
+  };
+  reportStage('game-identities');
   const gameInputs = games.games.map((game) => ({
     key: gameIdentityKey(game.gameRef),
     primaryRef: game.gameRef,
@@ -205,6 +211,7 @@ export async function persistProviderGroup(
     return [game.key, game.gameId] as const;
   }));
 
+  reportStage('game-states');
   const storedStates = await dependencies.repository.recordGameStates({
     source: games.source,
     states: games.games,
@@ -217,6 +224,7 @@ export async function persistProviderGroup(
     state.observationId,
   ]));
 
+  reportStage('scoring-identities');
   const identityInputs = scoringIdentityInputs(group, projections);
   const resolvedEntities = await dependencies.identityCrosswalk.resolveScoringEntities(identityInputs);
   if (resolvedEntities.kind !== 'resolved') {
@@ -233,6 +241,7 @@ export async function persistProviderGroup(
       )) ?? []),
     ];
   }));
+  reportStage('projection-coverage');
   const officialProvider = group.leagues[0]?.configuration.leagueRef.provider;
   if (!officialProvider) throw new Error('The official identity provider is unavailable.');
   const unusableReferenceKeys = new Set(resolvedEntities.value.flatMap((resolved) => (
@@ -250,6 +259,7 @@ export async function persistProviderGroup(
   const projectionLineage = projectionPersistence.kind === 'stored'
     ? projectionPersistence
     : await (async () => {
+        reportStage('projection-slate');
         const storedProjectionSlate = await dependencies.repository.recordProjectionSlate(projections);
         if (storedProjectionSlate.kind !== 'stored'
           || storedProjectionSlate.value.entryCount !== projections.projections.length) {
