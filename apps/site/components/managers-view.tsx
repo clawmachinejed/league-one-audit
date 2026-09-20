@@ -37,6 +37,9 @@ export function ManagersView({ data, rollover }: { data: ManagersData; rollover?
   }
   const { selected, storageWarning } = useTeamPreference(data.teams);
   const teams = [...data.teams].sort((a, b) => a.managerName.localeCompare(b.managerName));
+  const currentSeason = Number(data.league.season);
+  const historyManagers = [...(data.history?.managers ?? [])].sort((a, b) =>
+    Number(b.seasons.includes(currentSeason)) - Number(a.seasons.includes(currentSeason)));
   return <div className={matchupStyles.page}>
     <div className={matchupStyles.toolbar}><PageIntro title="Managers" league={data.league} /></div>
     <div className={`standings-view-tabs ${tabStyles.tabs}`} role="tablist" aria-label="Manager views">
@@ -53,7 +56,8 @@ export function ManagersView({ data, rollover }: { data: ManagersData; rollover?
     {data.history ? <>
       <p className="manager-history-scope">{data.history.label}</p>
       <Warning message={data.history.warning} />
-      <div className="managers-grid">{data.history.managers.map(manager => {
+      <div className="managers-grid">{historyManagers.map(manager => {
+        const former = !manager.seasons.includes(currentSeason);
         const content = <>
           <Avatar team={{ ...manager, name: manager.managerName }} />
           <div className="manager-card-identity">
@@ -66,7 +70,7 @@ export function ManagersView({ data, rollover }: { data: ManagersData; rollover?
             {manager.wins === null ? '—' : `${manager.wins}–${manager.losses}${manager.ties ? `–${manager.ties}` : ''}`}<small>RECORD</small>
           </span>
         </>;
-        return <article key={manager.ownerId} className={`manager-card ${manager.currentTeamId !== null && selected === manager.currentTeamId ? 'selected-manager' : ''}`}>
+        return <article key={manager.ownerId} className={`manager-card ${former ? 'former-manager' : ''} ${manager.currentTeamId !== null && selected === manager.currentTeamId ? 'selected-manager' : ''}`}>
           {manager.currentTeamId === null ? <div className="manager-card-link">{content}</div>
             : <Link href={`${site.prefix}/managers/${manager.currentTeamId}`} className="manager-card-link">{content}</Link>}
         </article>;

@@ -18,6 +18,7 @@ History displays the union of effective roster owners in the current season and 
 - Historical ownership otherwise reflects the source roster captured for that season. This feature does not reconstruct unrecorded midseason ownership transfers or generally award a primary owner's record to every co-owner.
 - Existing stored matchup snapshots lack owner/co-owner fields. Their narrow 2026 League Two roster-1/source-name compatibility correction remains at render time; this legacy fallback does not rewrite immutable snapshots or broaden its historical evidence.
 - Historical-only managers have no link to a current roster that might belong to somebody else. Returning managers link to their current profile.
+- History lists current-season members first and former members last, preserving alphabetical order within each group. Former members have a subtly darker card. Membership uses the selected league's season participation, independently of whether a safe current profile link is available.
 
 ## Results and limits
 
