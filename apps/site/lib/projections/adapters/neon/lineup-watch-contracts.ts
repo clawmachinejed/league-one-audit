@@ -111,4 +111,6 @@ export type LineupWatchMethods = {
 
 /** Planning-only identities. Fresh authority is still required by every claim/read/publication path. */
 export type StoredLineupWatchSchedule = Pick<StoredLineupWatchState,
-  'leagueKey' | 'sourceProvider' | 'externalLeagueId' | 'period' | 'phase'> & Readonly<{ watchClass: LineupWatchClass }>;
+  'leagueKey' | 'sourceProvider' | 'externalLeagueId' | 'period' | 'phase'> & Readonly<{
+    watchClass: LineupWatchClass; cadencePolicyVersion?: string;
+  }>;

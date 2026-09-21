@@ -24,14 +24,20 @@ export function createLineupWatchClaimMethods(client: DatabaseClient): Pick<Line
             AND w.authority_generation = a.authority_generation AND w.source_provider = a.source_provider
             AND w.external_league_id = a.source_external_league_id
             AND w.next_check_at <= now() AND (w.active_attempt_id IS NULL OR w.lease_expires_at <= now())
-            AND (w.watch_class = 'current' OR w.phase = mod(floor(extract(epoch FROM now()) / 60)::bigint, 3)
+            AND (w.watch_class = 'current' OR w.cadence_policy_version LIKE 'lineup-cadence-v2:%'
+              OR w.phase = mod(floor(extract(epoch FROM now()) / 60)::bigint, 3)
               OR ($7::boolean AND w.next_check_at < date_trunc('minute', now()) - interval '2 minutes'))
         ), selected AS MATERIALIZED (
           SELECT w.id FROM league_week_lineup_watch_states w JOIN ranked r ON r.id = w.id
-          WHERE (r.watch_class = 'current' OR r.class_rank <= $6::integer)
+          -- Keep one slot for a due future row when current/default work fills a batch.
+          -- This also covers preseason defaults owned by the future observer.
+          WHERE ((r.watch_class = 'current' AND r.class_rank <= $5::integer - CASE
+              WHEN $6::integer > 0 AND EXISTS (SELECT 1 FROM ranked WHERE watch_class = 'future') THEN 1 ELSE 0 END)
+            OR (r.watch_class = 'future' AND r.class_rank <= $6::integer))
             AND w.retired_at IS NULL AND w.materialization_lane = $2 AND w.next_check_at <= now()
             AND (w.active_attempt_id IS NULL OR w.lease_expires_at <= now())
-            AND (w.watch_class = 'current' OR w.phase = mod(floor(extract(epoch FROM now()) / 60)::bigint, 3)
+            AND (w.watch_class = 'current' OR w.cadence_policy_version LIKE 'lineup-cadence-v2:%'
+              OR w.phase = mod(floor(extract(epoch FROM now()) / 60)::bigint, 3)
               OR ($7::boolean AND w.next_check_at < date_trunc('minute', now()) - interval '2 minutes'))
           ORDER BY CASE WHEN r.watch_class = 'current' THEN 0 ELSE 1 END,
             r.next_check_at, r.league_key, r.season, r.season_type, r.week

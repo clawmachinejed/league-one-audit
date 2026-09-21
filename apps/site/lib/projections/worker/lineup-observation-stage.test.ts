@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { calculateLineupRevision } from '../domain/lineup-revision';
 import { observeLineupClaims } from './lineup-observation-stage';
 import { synchronizeLineupWatches } from './lineup-watch-context';
@@ -39,5 +39,18 @@ describe('shared fenced lineup observation stage', () => {
     const h = await harness();
     await expect(observeLineupClaims(h.dependencies, Array.from({ length: 9 }, () => h.claim), 'run-1', h.options)).rejects.toThrow('concurrency bound');
     expect(h.lineupSource.getLineup).not.toHaveBeenCalled();
+  });
+  it('refuses malformed persisted cadence before any provider call and retains retry backoff', async () => {
+    const h = await harness();
+    const result = await observeLineupClaims(h.dependencies, [{ ...h.claim, cadencePolicyVersion: 'lineup-cadence-v2:360:900' }], 'run-1', h.options);
+    expect(result).toMatchObject({ checked: 0, failed: 1 });
+    expect(h.lineupSource.getLineup).not.toHaveBeenCalled();
+    expect(h.lineupRepository.failLineupObservation).toHaveBeenCalledWith(expect.objectContaining({ retryDelaysSeconds: [180, 300, 900, 3600] }));
+    expect(vi.mocked(h.dependencies.logger.write)).toHaveBeenCalledWith('warn', expect.objectContaining({ providerAdapterInvocations: 0 }));
+  });
+  it('uses the persisted six-hour slot for a successful observation', async () => {
+    const h = await harness();
+    await observeLineupClaims(h.dependencies, [{ ...h.claim, cadencePolicyVersion: 'lineup-cadence-v2:360:0' }], 'run-1', h.options);
+    expect(h.lineupRepository.completeLineupObservation).toHaveBeenCalledWith(expect.objectContaining({ nextCheckAt: '2026-09-03T18:00:00.000Z' }));
   });
 });

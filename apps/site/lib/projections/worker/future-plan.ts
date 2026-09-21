@@ -102,7 +102,7 @@ export function futurePolicyPlans(
 
 export async function prepareFuturePlan(
   dependencies: FutureProjectionWorkerDependencies, now: Date,
-): Promise<FuturePreparedPlan | 'disabled' | 'capacity-exceeded'> {
+): Promise<FuturePreparedPlan | 'disabled'> {
   const configurations = await dependencies.leagueRegistry.listActiveLeagues();
   const results = await dependencies.periodAuthorityReader.readAuthorities(
     configurations.map((configuration) => configuration.key), now, LINEUP_AUTHORITY_MAX_AGE_MS,

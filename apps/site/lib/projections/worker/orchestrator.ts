@@ -34,10 +34,9 @@ export async function runWithDependencies(
   try {
     const preflight = prepared?.value ?? await refreshCurrentLineupContext(dependencies, runId);
     if (preflight.context.kind === 'disabled') return { status: 'disabled' };
-    if (preflight.context.kind === 'capacity-exceeded') {
-      log(dependencies, 'warn', { stage: 'lineup-watch-capacity', outcome: 'failed', runId,
+    if (preflight.context.capacity.status === 'capacity-exceeded') {
+      log(dependencies, 'warn', { stage: 'lineup-watch-capacity', outcome: 'skipped', runId,
         capacityStatus: 'capacity-exceeded' });
-      throw new Error('Lineup capacity exceeded.');
     }
     const context = preflight.context;
     const failedPreflightKeys = new Set([...preflight.failedCadenceLeagueKeys, ...context.skippedLeagueKeys]);
@@ -64,7 +63,8 @@ export async function runWithDependencies(
     }
     acquired = true;
     log(dependencies, 'info', { stage, outcome: 'started', runId, leaseOutcome: 'acquired' });
-    const plan = await planCurrentWork(dependencies, current, preflight.cadenceByKey, dependencies.clock.now(), runId, options.force === true);
+    const plan = await planCurrentWork(dependencies, current, preflight.cadenceByKey, dependencies.clock.now(), runId,
+      options.force === true, context.capacity.maximumCurrentChecks);
     markers = plan.full;
     if (plan.thin.length) {
       stage = 'current-lineup-observation';

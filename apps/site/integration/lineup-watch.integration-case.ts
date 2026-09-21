@@ -52,13 +52,145 @@ function times(base: string, offset: number) {
   return { requestStartedAt: new Date(instant).toISOString(), requestCompletedAt: new Date(instant + 1).toISOString(), nextCheckAt: new Date(instant + 60_000).toISOString() };
 }
 async function accept(state: StoredLineupWatchState, base: string, offset: number, revision: string) {
-  await ownerQuery('UPDATE league_week_lineup_watch_states SET next_check_at = now() WHERE id=$1', [state.id]);
+  await ownerQuery("UPDATE league_week_lineup_watch_states SET next_check_at = now() - interval '3 minutes' WHERE id=$1", [state.id]);
   const active = (await take(state))[0];
   if (!active) throw new Error('Fixture observation could not acquire its claim.');
   return createLineupWatchObservationMethods(first.database).completeLineupObservation({ claim: claim(active), lineupRevision: revision.repeat(64), ...times(base, offset) });
 }
 
+async function tierFixture(version = 'lineup-cadence-v2:360:0') {
+  const initial = await fixture();
+  const target: LineupWatchTarget = { ...initial.target, period: { ...initial.target.period, week: 2 },
+    watchClass: 'future', cadencePolicyVersion: version,
+    initialNextCheckAt: new Date(Date.parse(initial.clock) + 6 * 3_600_000).toISOString() };
+  const sync = async (next: LineupWatchTarget) => {
+    const result = await createLineupWatchSyncMethods(first.database).synchronizeLineupWatchStates({
+      registeredLeagueKeys: await registryKeys(), targets: [next],
+    });
+    if (result.kind !== 'stored' || result.states.length !== 1) throw new Error('Expected tiered watch.');
+    return result.states[0];
+  };
+  return { target, state: await sync(target), clock: initial.clock, sync };
+}
+
 describe.sequential('isolated durable lineup watch coordination', () => {
+  it('staggered v2 rollout preserves accepted lineage and unchanged synchronization never postpones a due time', async () => {
+    const { target, state, clock, sync } = await tierFixture('lineup-cadence-v1');
+    await accept(state, clock, -2000, 'a');
+    const updated = { ...target, cadencePolicyVersion: 'lineup-cadence-v2:360:17' };
+    const switched = await sync(updated);
+    expect(switched.cadencePolicyVersion).toBe(updated.cadencePolicyVersion);
+    expect(Date.parse(switched.nextCheckAt!)).toBe(Date.parse(updated.initialNextCheckAt!));
+    expect(switched.latestLineupRevision).toBe('a'.repeat(64));
+    expect(switched.pendingSince).not.toBeNull();
+    const repeated = await sync({ ...updated,
+      initialNextCheckAt: new Date(Date.parse(clock) + 12 * 3_600_000).toISOString() });
+    expect(repeated.nextCheckAt).toBe(switched.nextCheckAt);
+    expect(repeated.watchGeneration).toBe(switched.watchGeneration);
+    expect(repeated.observedVersion).toBe(switched.observedVersion);
+  });
+  it('promotes a future tier without waiting for six hours and rejects the previous observation fence', async () => {
+    const { target, state, clock, sync } = await tierFixture();
+    const hourly = { ...target, cadencePolicyVersion: 'lineup-cadence-v2:60:7',
+      initialNextCheckAt: new Date(Date.parse(clock) + 40 * 60_000).toISOString() };
+    const promoted = await sync(hourly);
+    expect(Date.parse(promoted.nextCheckAt!)).toBe(Date.parse(hourly.initialNextCheckAt));
+    expect(promoted.watchGeneration).toBe(state.watchGeneration + 1);
+    await ownerQuery('UPDATE league_week_lineup_watch_states SET next_check_at=now() WHERE id=$1', [state.id]);
+    const old = (await take(promoted))[0];
+    const next = await sync({ ...hourly, cadencePolicyVersion: 'lineup-cadence-v2:15:2',
+      initialNextCheckAt: new Date(Date.parse(clock) + 10 * 60_000).toISOString() });
+    expect(next.watchGeneration).toBe(promoted.watchGeneration + 1);
+    expect(next.activeAttemptId).toBeNull();
+    expect(Date.parse(next.nextCheckAt!)).toBeLessThan(Date.parse(hourly.initialNextCheckAt));
+    expect(await createLineupWatchObservationMethods(first.database).completeLineupObservation({
+      claim: claim(old), lineupRevision: 'a'.repeat(64), ...times(clock, 1),
+    })).toEqual({ kind: 'stale' });
+    expect(await createLineupWatchObservationMethods(first.database).failLineupObservation({
+      claim: claim(old), failureCode: 'provider-unavailable', retryDelaysSeconds: [180, 300, 900, 3600],
+    })).toEqual({ kind: 'stale' });
+  });
+  it('keeps failure cooldown and pending evidence through tier promotion', async () => {
+    const { target, state, clock, sync } = await tierFixture();
+    await accept(state, clock, -2000, 'a');
+    await ownerQuery('UPDATE league_week_lineup_watch_states SET next_check_at=now() WHERE id=$1', [state.id]);
+    const old = (await take(state))[0];
+    await createLineupWatchObservationMethods(first.database).failLineupObservation({
+      claim: claim(old), failureCode: 'provider-unavailable', retryDelaysSeconds: [3600, 3600, 3600, 3600],
+    });
+    const before = (await createLineupWatchReadMethods(first.database).readLineupWatchStates([state.leagueKey]))[0];
+    const after = await sync({ ...target, cadencePolicyVersion: 'lineup-cadence-v2:15:0',
+      initialNextCheckAt: new Date(Date.parse(clock) + 60_000).toISOString() });
+    expect(after.nextCheckAt).toBe(before.nextCheckAt);
+    expect(after.consecutiveFailures).toBe(1);
+    expect(after.lastFailureCode).toBe('provider-unavailable');
+    expect(after.pendingSince).toBe(before.pendingSince);
+    expect(after.latestLineupRevision).toBe(before.latestLineupRevision);
+    expect(await take(after)).toEqual([]);
+  });
+  it('invalidates an in-flight full materialization on a policy change without publishing through its old fence', async () => {
+    const f = await lineageFixture(first, 'future');
+    const before = (await createLineupWatchReadMethods(first.database).readLineupWatchStates([f.leagueKey]))[0];
+    const source = await f.observe();
+    const result = await createLineupWatchSyncMethods(first.database).synchronizeLineupWatchStates({
+      registeredLeagueKeys: await registryKeys(), targets: [{ ...before,
+        cadencePolicyVersion: 'lineup-cadence-v2:15:7',
+        initialNextCheckAt: new Date(Date.now() + 5 * 60_000).toISOString(),
+      }],
+    });
+    expect(result.kind === 'stored' && result.states[0].watchGeneration).toBe(before.watchGeneration + 1);
+    const rows = await ownerQuery(`SELECT active_attempt_id,active_watch_id,active_watch_generation
+      FROM league_week_materialization_states WHERE league_key=$1`, [f.leagueKey]);
+    expect(rows[0]).toMatchObject({ active_attempt_id: null, active_watch_id: null, active_watch_generation: null });
+    expect(await f.publish(source)).toMatchObject({ kind: 'rejected' });
+    expect((await createLineupWatchReadMethods(first.database).readLineupWatchStates([f.leagueKey]))[0].pendingSince)
+      .toBe(before.pendingSince);
+  });
+  it('claims v2 targets by due time across legacy phases and drains oldest backlog in bounded batches', async () => {
+    const { target, state } = await tierFixture();
+    const targets = Array.from({ length: 5 }, (_, index): LineupWatchTarget => ({ ...target,
+      period: { ...target.period, week: index + 2 } }));
+    await createLineupWatchSyncMethods(first.database).synchronizeLineupWatchStates({
+      registeredLeagueKeys: await registryKeys(), targets });
+    await first.database.query('BEGIN');
+    try {
+      const [{ at, phase }] = await first.database.query<{ at: string; phase: number }>(
+        "SELECT now()::text AS at, mod(floor(extract(epoch FROM now())/60)::bigint,3)::integer AS phase");
+      await ownerQuery(`UPDATE league_week_lineup_watch_states SET
+        phase=mod($3::integer+1,3),
+        next_check_at=CASE WHEN week=6 THEN $2::timestamptz+interval '1 hour'
+          ELSE $2::timestamptz-(week::integer * interval '1 minute') END WHERE league_key=$1 AND retired_at IS NULL`,
+        [state.leagueKey, at, phase]);
+      const methods = createLineupWatchClaimMethods(first.database);
+      const input = { leagueKeys: [state.leagueKey], materializationLane: 'future' as const,
+        workerId: randomUUID(), leaseSeconds: 120, limit: 2, futureLimit: 2, catchUp: false };
+      const firstBatch = await methods.claimDueLineupObservations(input);
+      expect(firstBatch.map(row => row.period.week).sort()).toEqual([4, 5]);
+      const secondBatch = await methods.claimDueLineupObservations(input);
+      expect(secondBatch.map(row => row.period.week).sort()).toEqual([2, 3]);
+      expect(await methods.claimDueLineupObservations(input)).toEqual([]);
+    } finally { await first.database.query('ROLLBACK'); }
+  });
+  it('reserves a due future slot while preseason current targets exceed the observer batch', async () => {
+    const fixtures = [];
+    for (let index = 0; index < 3; index += 1) fixtures.push(await fixture());
+    const currentTargets = fixtures.map(({ target }) => ({ ...target,
+      cadencePolicyVersion: 'lineup-cadence-v2:1:0' }));
+    const futureTarget: LineupWatchTarget = { ...currentTargets[0],
+      period: { ...currentTargets[0].period, week: 2 }, watchClass: 'future',
+      cadencePolicyVersion: 'lineup-cadence-v2:15:0' };
+    await createLineupWatchSyncMethods(first.database).synchronizeLineupWatchStates({
+      registeredLeagueKeys: await registryKeys(), targets: [...currentTargets, futureTarget] });
+    const leagueKeys = currentTargets.map(target => target.leagueKey);
+    const methods = createLineupWatchClaimMethods(first.database);
+    const input = { leagueKeys, materializationLane: 'future' as const,
+      workerId: randomUUID(), leaseSeconds: 120, limit: 2, futureLimit: 1, catchUp: false };
+    const firstBatch = await methods.claimDueLineupObservations(input);
+    expect(firstBatch.map(row => row.watchClass).sort()).toEqual(['current', 'future']);
+    const secondBatch = await methods.claimDueLineupObservations(input);
+    expect(secondBatch.map(row => row.watchClass)).toEqual(['current', 'current']);
+    expect(await methods.claimDueLineupObservations(input)).toEqual([]);
+  });
   it('retains scoped planning identities during stale authority without enabling claims or pending work', async () => {
     const { state } = await fixture();
     await ownerQuery(`UPDATE league_period_authorities SET source_observed_at = now() - interval '1 hour',
@@ -66,7 +198,7 @@ describe.sequential('isolated durable lineup watch coordination', () => {
     const reader = createLineupWatchReadMethods(first.database);
     expect(await reader.readLineupWatchSchedule([state.leagueKey])).toEqual([{
       leagueKey: state.leagueKey, sourceProvider: state.sourceProvider, externalLeagueId: state.externalLeagueId,
-      period: state.period, phase: state.phase, watchClass: state.watchClass,
+      period: state.period, phase: state.phase, watchClass: state.watchClass, cadencePolicyVersion: state.cadencePolicyVersion,
     }]);
     expect(await reader.readLineupWatchStates([state.leagueKey])).toEqual([]);
     expect(await reader.readPendingFutureLineups([state.leagueKey])).toEqual([]);

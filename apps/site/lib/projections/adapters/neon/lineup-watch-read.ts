@@ -27,7 +27,7 @@ export function createLineupWatchReadMethods(client: DatabaseClient): ReadMethod
       const keys = normalizeIds(leagueKeys);
       if (!keys.length) return [];
       const rows = await client.query(`/* projection-store:read-lineup-watch-schedule */
-        SELECT league_key, source_provider, external_league_id, season, season_type, week, watch_class, phase
+        SELECT league_key, source_provider, external_league_id, season, season_type, week, watch_class, phase, cadence_policy_version
         FROM league_week_lineup_watch_states
         WHERE league_key = ANY($1::text[]) AND retired_at IS NULL AND watch_class IN ('current', 'future')
         ORDER BY league_key, season, season_type, week`, [keys]);
@@ -38,6 +38,7 @@ export function createLineupWatchReadMethods(client: DatabaseClient): ReadMethod
         if (!['pre', 'reg', 'post'].includes(seasonType) || !['current', 'future'].includes(watchClass)) throw new Error('Invalid stored lineup schedule.');
         return { leagueKey: rowText(row, 'league_key'), sourceProvider: rowText(row, 'source_provider'),
           externalLeagueId: rowText(row, 'external_league_id'), phase, watchClass: watchClass as 'current' | 'future',
+          cadencePolicyVersion: rowText(row, 'cadence_policy_version'),
           period: { season: lineupInteger(rowNumber(row, 'season'), 1920, 2200, 'season'),
             seasonType: seasonType as 'pre' | 'reg' | 'post', week: lineupInteger(rowNumber(row, 'week'), 1, 18, 'week') } };
       });

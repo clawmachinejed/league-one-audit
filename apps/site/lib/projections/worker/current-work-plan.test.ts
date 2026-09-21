@@ -60,4 +60,39 @@ describe('current minute work and hourly completion markers', () => {
     expect(h.store.acquired).not.toHaveBeenCalled();
     expect((await planCurrentWork(h.dependencies, [blocked], h.cadenceMap, h.now, 'worker-1', true)).full).toHaveLength(1);
   });
+  it('defers excess full current work before hourly marker claims and admits oldest checks first', async () => {
+    const h = setup();
+    const states = Array.from({ length: 25 }, (_, index) => ({ ...h.state,
+      configuration: { ...h.state.configuration, key: `league-${index.toString().padStart(2, '0')}` },
+      lastCheckedAt: new Date(h.now.getTime() - index * 60_000).toISOString() }));
+    const cadenceMap = new Map(states.map((state) => [state.configuration.key, { ...h.cadence, configuration: state.configuration }]));
+    const result = await planCurrentWork(h.dependencies, states, cadenceMap, h.now, 'worker-1', false, 19);
+    expect(result.full.map((target) => target.state.configuration.key)).toEqual(states.slice(6).reverse().map((state) => state.configuration.key));
+    expect(result.skipped).toBe(6);
+    expect(h.store.acquired).toHaveBeenCalledTimes(19);
+    expect(h.dependencies.logger.write).toHaveBeenCalledWith('warn', expect.objectContaining({
+      stage: 'current-lineup-capacity', skipped: 6, batchSize: 19 }));
+    const selected = new Set(result.full.map((target) => target.state.configuration.key));
+    const updated = states.map((state) => selected.has(state.configuration.key) ? { ...state, lastCheckedAt: h.now.toISOString() } : state);
+    const next = await planCurrentWork(h.dependencies, updated, cadenceMap, new Date(h.now.getTime() + 60_000), 'worker-2', true, 19);
+    expect(next.full.slice(0, 6).map((target) => target.state.configuration.key)).toEqual(states.slice(0, 6).reverse().map((state) => state.configuration.key));
+    expect(new Set([...selected, ...next.full.map((target) => target.state.configuration.key)]).size).toBe(25);
+  });
+  it('keeps all four current leagues admitted and backoff does not consume another league’s slot', async () => {
+    const h = setup();
+    const states = Array.from({ length: 5 }, (_, index) => ({ ...h.state,
+      configuration: { ...h.state.configuration, key: `league-${index}` },
+      ...(index === 0 ? { consecutiveFailures: 2, nextCheckAt: new Date(h.now.getTime() + 300_000).toISOString() } : {}) }));
+    const cadenceMap = new Map(states.map((state) => [state.configuration.key, { ...h.cadence, configuration: state.configuration }]));
+    const result = await planCurrentWork(h.dependencies, states, cadenceMap, h.now, 'worker-1', false, 4);
+    expect(result.full).toHaveLength(4);
+    expect(result.skipped).toBe(1);
+    expect(h.store.acquired).toHaveBeenCalledTimes(4);
+  });
+  it('rejects an invalid current policy before acquiring its marker', async () => {
+    const h = setup();
+    await expect(planCurrentWork(h.dependencies, [{ ...h.state, cadencePolicyVersion: 'lineup-cadence-v2:15:0' }],
+      h.cadenceMap, h.now, 'worker-1', false)).rejects.toThrow('cadence');
+    expect(h.store.acquired).not.toHaveBeenCalled();
+  });
 });

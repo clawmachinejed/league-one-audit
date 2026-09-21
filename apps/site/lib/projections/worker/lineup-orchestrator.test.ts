@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { runLineupObservation } from './lineup-orchestrator';
-import { lineupAuthority, lineupAuthorityResult, lineupHarness, lineupNow } from './lineup-observation.fixtures';
+import { lineupAuthority, lineupAuthorityResult, lineupConfiguration, lineupHarness, lineupNow } from './lineup-observation.fixtures';
 
 describe('independent lineup observation worker', () => {
   it('stops before registry and provider work with disabled persistence', async () => {
@@ -43,6 +43,17 @@ describe('independent lineup observation worker', () => {
     expect(await runLineupObservation(h.dependencies)).toEqual({ status: 'skipped', reason: 'busy' });
     expect(h.lineupRepository.claimDueLineupObservations).not.toHaveBeenCalled();
     expect(h.lineupSource.getLineup).not.toHaveBeenCalled();
+  });
+  it('reserves the capped active-current budget before mixed preseason/current overflow checks', async () => {
+    const h = lineupHarness(Array.from({ length: 40 }, (_, index) => lineupConfiguration(`league-${index}`)));
+    h.periodAuthorityReader.readAuthorities.mockResolvedValue(h.configurations.map((configuration, index) =>
+      lineupAuthorityResult(lineupAuthority(configuration, index < 30 ? 'active' : 'preseason'))));
+    const result = await runLineupObservation(h.dependencies);
+    expect(result).toMatchObject({ status: 'completed', checked: 2 });
+    expect(h.lineupRepository.claimDueLineupObservations).toHaveBeenCalledTimes(1);
+    expect(h.lineupRepository.claimDueLineupObservations).toHaveBeenCalledWith(expect.objectContaining({ limit: 2, futureLimit: 1 }));
+    expect(h.lineupSource.getLineup).toHaveBeenCalledTimes(2);
+    expect(h.dependencies.logger.write).toHaveBeenCalledWith('warn', expect.objectContaining({ capacityStatus: 'capacity-exceeded' }));
   });
   it('reports unavailable rather than successful idle when every durable authority is unusable', async () => {
     const h = lineupHarness();

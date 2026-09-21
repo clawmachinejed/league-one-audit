@@ -56,10 +56,6 @@ async function executeFutureWork(
 ): Promise<FutureProjectionSyncResult> {
   const loaded = await prepareFuturePlan(dependencies, now);
   if (loaded === 'disabled') return { status: 'disabled' };
-  if (loaded === 'capacity-exceeded') {
-    logFuture(dependencies, 'warn', { stage: 'lineup-watch-capacity', outcome: 'failed', runId, capacityStatus: 'capacity-exceeded' });
-    return { status: 'failed' };
-  }
   const prepared = forced ? { ...loaded, unavailableAuthorityCount: forced.leagueKeys.filter((key) =>
     !loaded.authorities.some((authority) => authority.configuration.key === key)).length } : loaded;
   const selection = forced ? forcedSelection(prepared, forced) : selectFutureWork(prepared.policy, now);
