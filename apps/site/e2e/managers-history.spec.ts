@@ -19,15 +19,15 @@ function fixture(league: LeagueKey, history: boolean, unavailable: boolean): Man
         championshipYears: [], promotionChampionshipYears: [] },
     ],
   };
-  if (history) data.history = { label: '2025–2026 · Regular season · Weeks 1–14',
+  if (history) data.history = { label: `${league === 'league1' ? 2024 : 2025}–2026 · Regular season · Weeks 1–14`,
     ...(unavailable ? { warning: '2025 history is incomplete. Verify the missing official results.' } : {}),
     managers: [
       { ownerId: 'alpha', currentTeamId: 1, managerName: name(league, 'Current Alpha'), avatar: null,
-        wins: unavailable ? null : 11, losses: unavailable ? null : 3, ties: unavailable ? null : 1,
-        seasons: [2025, 2026], championshipYears: [2025], promotionChampionshipYears: [2023] },
+        wins: unavailable ? null : league === 'league1' ? 19 : 11, losses: unavailable ? null : league === 'league1' ? 9 : 3, ties: unavailable ? null : 1,
+        seasons: league === 'league1' ? [2024, 2025, 2026] : [2025, 2026], championshipYears: [2025], promotionChampionshipYears: [2023] },
       { ownerId: 'former', currentTeamId: null, managerName: name(league, 'Former Gamma'), avatar: null,
         wins: unavailable ? null : 8, losses: unavailable ? null : 6, ties: unavailable ? null : 0,
-        seasons: [2025], championshipYears: [2019], promotionChampionshipYears: [2020] },
+        seasons: [league === 'league1' ? 2024 : 2025], championshipYears: [2019], promotionChampionshipYears: [2020] },
     ] };
   return data;
 }
@@ -107,12 +107,13 @@ test('Managers History and current season preserve records, honors, profile iden
     await expect(historyTab).toHaveAttribute('aria-selected', 'true');
     const history = page.getByRole('tabpanel', { name: 'History', exact: true });
     await expect(history).toBeVisible();
+    await expect(history.getByText(`${league === 'league1' ? 2024 : 2025}–2026 · Regular season · Weeks 1–14`, { exact: true })).toBeVisible();
     await expect(history.locator('.manager-card-team')).toHaveCount(0);
     await expect(history.getByText(name(league, 'Team Alpha'), { exact: true })).toHaveCount(0);
     await expect(history.getByText(name(league, 'Team Beta'), { exact: true })).toHaveCount(0);
     const current = history.locator('.manager-card').filter({ has: page.getByText(name(league, 'Current Alpha'), { exact: true }) });
     const former = history.locator('.manager-card').filter({ has: page.getByText(name(league, 'Former Gamma'), { exact: true }) });
-    await expect(current.locator('.manager-card-record')).toContainText('11–3–1');
+    await expect(current.locator('.manager-card-record')).toContainText(league === 'league1' ? '19–9–1' : '11–3–1');
     await expect(former.locator('.manager-card-record')).toContainText('8–6');
     await expect(current.getByRole('link')).toHaveAttribute('href', `${path}/1`);
     await expect(current).toHaveClass(/selected-manager/u);

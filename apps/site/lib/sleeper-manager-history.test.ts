@@ -26,6 +26,9 @@ import { getManagers, getManagersHistory } from './sleeper';
 let historicalStatus: string;
 let historicalSeason: string;
 let previousId: string | null;
+let olderId: string | null;
+let olderSeason: string;
+let olderStatus: string;
 let failedWeek: number | null;
 let malformedWeek: number | null;
 let playoffStart: number;
@@ -35,12 +38,14 @@ let maxInflight: number;
 let coOwned: boolean;
 let coOwnerOverride: { historical: boolean; value: unknown } | null;
 const pastId = '1188632688331706368';
+const past2024Id = '1118614856996909056';
 
 beforeEach(() => {
   state.generation++;
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date('2026-09-20T14:00:00Z'));
   historicalStatus = 'complete'; historicalSeason = '2025'; previousId = pastId;
+  olderId = past2024Id; olderSeason = '2024'; olderStatus = 'complete';
   failedWeek = null; malformedWeek = null; playoffStart = 15; median = 0;
   inflight = 0; maxInflight = 0;
   coOwned = false;
@@ -52,11 +57,12 @@ beforeEach(() => {
     if (path === '/schedule/nfl/regular/2026') return Response.json(seasonEvidence.body);
     const match = /^\/league\/(\d+)(?:\/(.*))?$/u.exec(path);
     if (!match) throw new Error('Unexpected provider request');
-    const id = match[1]; const suffix = match[2]; const past = id === pastId;
+    const id = match[1]; const suffix = match[2]; const oldest = id === past2024Id;
+    const past = id === pastId || oldest;
     if (!past && !Object.values(LEAGUE_IDS).some(value => value === id)) throw new Error('Unknown league');
-    if (!suffix) return Response.json({ league_id: id, name: 'League', season: past ? historicalSeason : '2026',
-      status: past ? historicalStatus : 'in_season', total_rosters: 2, roster_positions: ['QB'],
-      previous_league_id: past ? null : previousId,
+    if (!suffix) return Response.json({ league_id: id, name: 'League', season: oldest ? olderSeason : past ? historicalSeason : '2026',
+      status: oldest ? olderStatus : past ? historicalStatus : 'in_season', total_rosters: 2, roster_positions: ['QB'],
+      previous_league_id: oldest ? null : past ? olderId : previousId,
       settings: { last_scored_leg: past ? 18 : 1, start_week: 1, best_ball: 0,
         league_average_match: median, playoff_week_start: playoffStart } });
     if (suffix === 'rosters') return Response.json([1, 2].map(roster_id => ({
@@ -133,12 +139,16 @@ describe('manager history source composition', () => {
     const data = await getManagersHistory(LEAGUE_IDS[key], key);
     expect(data.history?.warning).toBeUndefined();
     expect(data.history?.managers.map(manager => [manager.managerName, manager.wins, manager.losses, manager.currentTeamId]))
-      .toEqual([['A current', 14, 1, 2], ['B old', 0, 14, null], ['C current', 1, 0, 1]]);
+      .toEqual([['A current', key === 'league1' ? 28 : 14, 1, 2], ['B old', 0, key === 'league1' ? 28 : 14, null], ['C current', 1, 0, 1]]);
+    expect(data.history?.label).toBe(`${key === 'league1' ? 2024 : 2025}–2026 · Regular season · Weeks 1–14`);
     expect(data.teams.every(team => team.wins === 18)).toBe(true); // season tab remains unchanged
     const calls = vi.mocked(fetch).mock.calls.map(([url]) => String(url));
-    expect(calls.filter(url => url.includes('/matchups/'))).toHaveLength(15);
+    expect(calls.filter(url => url.includes('/matchups/'))).toHaveLength(key === 'league1' ? 29 : 15);
     expect(calls.filter(url => url.includes(pastId + '/matchups/')).map(url => Number(url.split('/').at(-1))).sort((a,b) => a-b))
       .toEqual(Array.from({ length: 14 }, (_, index) => index + 1));
+    expect(calls.filter(url => url.includes(past2024Id + '/matchups/')).map(url => Number(url.split('/').at(-1))).sort((a,b) => a-b))
+      .toEqual(key === 'league1' ? Array.from({ length: 14 }, (_, index) => index + 1) : []);
+    expect(calls.some(url => /\/matchups\/(15|16|17|18)$/u.test(url))).toBe(false);
     expect(calls.some(url => /players|scores\/nfl|tank|rapidapi/iu.test(url))).toBe(false);
     expect(maxInflight).toBeLessThanOrEqual(4);
   });
@@ -163,7 +173,19 @@ describe('manager history source composition', () => {
   it('also excludes a playoff week earlier than Week 15', async () => {
     playoffStart = 14;
     const data = await getManagersHistory(LEAGUE_IDS.league1, 'league1');
-    expect(data.history?.managers.find(manager => manager.ownerId === 'A')).toMatchObject({ wins: 13, losses: 1 });
+    expect(data.history?.managers.find(manager => manager.ownerId === 'A')).toMatchObject({ wins: 26, losses: 1 });
     expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).endsWith('/matchups/14'))).toBe(false);
   });
+  it.each(['missing-link', 'wrong-year', 'unfinished', 'circular-link'] as const)(
+    'does not present an incomplete combined record when 2024 has a %s', async reason => {
+      if (reason === 'missing-link') olderId = null;
+      if (reason === 'wrong-year') olderSeason = '2023';
+      if (reason === 'unfinished') olderStatus = 'in_season';
+      if (reason === 'circular-link') olderId = pastId;
+      const data = await getManagersHistory(LEAGUE_IDS.league1, 'league1');
+      expect(data.history?.warning).toContain('2024');
+      expect(data.history?.warning).toMatch(/unavailable|invalid/);
+      expect(data.history?.managers.every(manager => manager.wins === null && manager.losses === null)).toBe(true);
+      expect(data.teams).toHaveLength(2);
+    });
 });
