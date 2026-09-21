@@ -19,6 +19,7 @@ type LoadMetrics = (input: Readonly<{
   season: number;
   throughWeek: number;
   provisionalWeek: number | null;
+  asOf: string;
 }>) => Promise<StoredAllPlayerMetricRead>;
 
 async function loadPlayerMetrics(input: Parameters<LoadMetrics>[0]): Promise<StoredAllPlayerMetricRead> {
@@ -29,6 +30,7 @@ async function loadPlayerMetrics(input: Parameters<LoadMetrics>[0]): Promise<Sto
     seasonType: 'reg',
     throughWeek: input.throughWeek,
     provisionalWeek: input.provisionalWeek,
+    asOf: input.asOf,
     scorerVersion: 'sleeper-actual-v1',
   }, scoreSparseStatistics);
 }
@@ -85,12 +87,12 @@ export async function handleLeagueRostersRequest(
   try {
     const loaded = await loadRosters((await getCurrentLeagueIds())[league], week);
     const boundary = loaded.metricContext;
-    // The active metric week can differ from the public default display week.
-    // Retain this scope even when the database metric read is unavailable.
+    // Metric release is independent of the noon display-week transition.
     const metricHeaders = { ...scopedHeaders,
+      'X-Roster-Metrics-Refresh-At': !boundary.activeWeekKnown ? 'unknown' : boundary.nextRefreshAt ?? 'none',
       'X-Roster-Provisional-Week': !boundary.activeWeekKnown ? 'unknown'
         : boundary.provisionalWeek === null ? 'none' : String(boundary.provisionalWeek) };
-    if (boundary.season === null || boundary.throughWeek === null) {
+    if (boundary.season === null || boundary.throughWeek === null || !boundary.asOf) {
       return Response.json(loaded.data, { headers: metricHeaders });
     }
     try {
@@ -99,10 +101,12 @@ export async function handleLeagueRostersRequest(
         season: boundary.season,
         throughWeek: boundary.throughWeek,
         provisionalWeek: boundary.provisionalWeek,
+        asOf: boundary.asOf,
       });
-      return Response.json(applyPlayerMetrics(loaded.data, metrics), { headers: metricHeaders });
+      return Response.json(applyPlayerMetrics(loaded.data, metrics), { headers: metrics.status === 'unavailable'
+        ? { ...metricHeaders, 'X-Roster-Metrics-Refresh-At': 'unknown' } : metricHeaders });
     } catch {
-      return Response.json(loaded.data, { headers: metricHeaders });
+      return Response.json(loaded.data, { headers: { ...metricHeaders, 'X-Roster-Metrics-Refresh-At': 'unknown' } });
     }
   } catch {
     return Response.json(

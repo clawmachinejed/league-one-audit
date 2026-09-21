@@ -61,7 +61,7 @@ function partial(input: Readonly<{
 }
 
 function read(rows: readonly DatabaseRow[], options: {
-  leagueKey?: string; throughWeek?: number; provisionalWeek?: number | null; provider?: string;
+  leagueKey?: string; throughWeek?: number; provisionalWeek?: number | null; provider?: string; asOf?: string;
 } = {}) {
   const fake = createFakeProjectionDatabase(() => rows);
   const result = createAllPlayerMetricMethods(fake.database).readAllPlayerPlayerMetrics({
@@ -69,6 +69,7 @@ function read(rows: readonly DatabaseRow[], options: {
     seasonType: 'reg', throughWeek: options.throughWeek ?? 1,
     provisionalWeek: options.provisionalWeek === undefined ? 1 : options.provisionalWeek,
     scorerVersion: 'sleeper-actual-v1',
+    ...(options.asOf === undefined ? {} : { asOf: options.asOf }),
   }, scoreSparseStatistics);
   return { fake, result };
 }
@@ -353,7 +354,7 @@ describe('all-player roster metrics', () => {
     });
     expect(fake.calls).toHaveLength(1);
     expect(fake.calls[0].parameters).toEqual([
-      'league1', 'sleeper', 2026, 'reg', 1, 'sleeper-actual-v1', 1,
+      'league1', 'sleeper', 2026, 'reg', 1, 'sleeper-actual-v1', 1, null,
     ]);
     expect(fake.calls[0].statement).toContain("observation.quality = 'partial'");
     expect(fake.calls[0].statement).toContain('SELECT DISTINCT ON (observation.week)');
@@ -619,6 +620,26 @@ describe('all-player roster metrics', () => {
     await expect(read([]).result).resolves.toEqual({
       status: 'unavailable', observedAt: null, throughWeek: null, rowsRead: 0, metrics: [],
     });
+  });
+
+  it('uses a fixed cutoff for provisional display statistics without claiming complete publication', async () => {
+    const asOf = '2026-09-15T08:00:00.000Z';
+    const { result, fake } = read([metadata(),
+      partial({ id: '5859', position: 'WR', stats: { rec: 3, rec_yd: 11 } }),
+    ], { asOf, provisionalWeek: null });
+    expect(await result).toMatchObject({ status: 'provisional', throughWeek: 1,
+      metrics: [expect.objectContaining({ providerExternalId: '5859', pointsPerGame: 4.1, positionRank: 1 })] });
+    expect(fake.calls).toHaveLength(1);
+    expect(fake.calls[0].parameters).toEqual([
+      'league1', 'sleeper', 2026, 'reg', 1, 'sleeper-actual-v1', null, asOf,
+    ]);
+  });
+
+  it.each(['', '2026-09-15', '2026-09-15T04:00:00-04:00', '2026-02-30T08:00:00.000Z',
+    'not-a-time', '2026-09-15T08:00:00Z'])('rejects a noncanonical metric cutoff before SQL (%s)', async (asOf) => {
+    const { result, fake } = read([], { asOf });
+    await expect(result).rejects.toThrow('cutoff must be a canonical UTC timestamp');
+    expect(fake.calls).toHaveLength(0);
   });
 
   it('rejects invalid temporal bounds before database work', async () => {

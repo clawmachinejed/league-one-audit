@@ -40,7 +40,7 @@ import { LAST_MATCHUP_WEEK } from './matchup-week';
 import { calculateTeamPpg, compareRosterStandings, playerMetricBoundary, rosterHistoryBoundary } from './roster-metrics';
 import { canonicalNflTeam, NFL_TEAMS } from './nfl-teams';
 import { startingSlots } from './sleeper-lineup';
-import { resolveSiteWeek, type SiteWeekResolution } from './site-week';
+import { resolveSiteWeek, resolveWeeklyPlayerMetrics, type SiteWeekResolution, type WeeklyPlayerMetricWindow } from './site-week';
 import { assertSiteCalendarNotRegressed, getRetainedSiteCalendar } from './site-calendar-authority';
 import { buildCompletedStandingsBasis, reconcileStandingsBasis, standingsTotalsMatch } from './projected-standings';
 import { buildManagerHistory, type ManagerHistorySeason } from './manager-history';
@@ -467,11 +467,14 @@ const getLeagueCalendar = cache(async (leagueId: string, revalidate: number, eva
   // retain the site's calendar through completion so a later provider phase or
   // last_scored_leg cannot move a published display week backward.
   let siteWeek: SiteWeekResolution | null = null;
+  let weeklyMetrics: WeeklyPlayerMetricWindow | null = null;
   let calendarUnavailable = false;
   if (lifecycle !== 'preseason') {
     try {
-      siteWeek = resolveSiteWeek({ season: rawLeague.season,
-        seasonSchedule: await getSeasonSchedule(rawLeague.season), evaluatedAt: asOf });
+      const scheduleInput = { season: rawLeague.season,
+        seasonSchedule: await getSeasonSchedule(rawLeague.season), evaluatedAt: asOf };
+      siteWeek = resolveSiteWeek(scheduleInput);
+      weeklyMetrics = resolveWeeklyPlayerMetrics(scheduleInput);
     } catch {
       // A schedule outage must not hide official teams, scores or transactions.
       // A retained display choice is never fresh worker or scoring authority.
@@ -500,6 +503,7 @@ const getLeagueCalendar = cache(async (leagueId: string, revalidate: number, eva
     lifecycle,
     activeWeek,
     siteWeek,
+    weeklyMetrics,
     calendarUnavailable,
     warning: calendarUnavailable
       ? 'NFL calendar is temporarily unavailable. The displayed week is a fallback; automatic week advancement is paused.'
@@ -972,6 +976,8 @@ export type RosterMetricContext = Readonly<{
   seasonType: 'reg';
   throughWeek: number | null;
   provisionalWeek: number | null;
+  asOf: string | null;
+  nextRefreshAt: string | null;
   /** Distinguishes a proved nonactive selection from temporarily missing authority. */
   activeWeekKnown: boolean;
 }>;
@@ -999,7 +1005,7 @@ export async function getRostersWithMetricContext(
     lifecycle,
   } as const;
   const historyThrough = rosterHistoryBoundary(boundaryInput);
-  const metricBoundary = playerMetricBoundary(boundaryInput);
+  const metricBoundary = playerMetricBoundary({ selectedWeek, window: core.calendar.weeklyMetrics });
   const canDecorate = canDecorateMatchupWeek(core.sourceLeague, core.state, selectedWeek, core.calendar);
   const [selectedObservation, history, players, nflSchedule] = await Promise.all([
     getCachedRosterWeek(leagueId, selectedWeek, Number(core.sourceLeague.season)),
@@ -1106,7 +1112,7 @@ export async function getRostersWithMetricContext(
       season: Number.isSafeInteger(season) && season >= 1920 && season <= 2200 ? season : null,
       seasonType: 'reg',
       ...metricBoundary,
-      activeWeekKnown: lifecycle === 'complete' || boundaryInput.activeWeek !== null,
+      activeWeekKnown: !core.calendar.calendarUnavailable,
     },
   };
 }

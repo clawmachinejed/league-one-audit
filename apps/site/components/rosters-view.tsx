@@ -17,12 +17,34 @@ import styles from './rosters.module.css';
 
 type LoadState = 'idle' | 'loading' | 'ready' | 'error';
 type RosterRefreshWeek = number | null | 'unknown';
-type CachedRosters = Readonly<{ data: RostersData; refreshAt: number; provisionalWeek: RosterRefreshWeek }>;
+type RosterRefreshMode = 'weekly' | 'legacy' | 'retry';
+type CachedRosters = Readonly<{ data: RostersData; refreshAt: number;
+  provisionalWeek: RosterRefreshWeek; refreshMode: RosterRefreshMode }>;
 const REFRESH_SETTLE_MS = 3 * 60_000;
 const REQUEST_TIMEOUT_MS = 15_000;
+const RETRY_MS = 60 * 60_000;
 
 export function nextRosterRefreshAt(now: number): number {
   return nextAllPlayerRefreshAt(new Date(now - REFRESH_SETTLE_MS)).getTime() + REFRESH_SETTLE_MS;
+}
+
+/** Undefined means an older server without the weekly response contract. */
+export function rosterMetricsRefreshAt(value: string | null, now: number): number | undefined {
+  if (value === null) return undefined;
+  if (value === 'none') return Infinity;
+  if (value === 'unknown') return now + RETRY_MS;
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp) || new Date(timestamp).toISOString() !== value) return NaN;
+  // A held completion boundary must never turn into a tight request loop.
+  return timestamp > now ? timestamp : now + RETRY_MS;
+}
+
+export function rosterResponseRefreshAt(value: string | null, now: number, week: number, currentWeek: number): number | undefined {
+  const weeklyAt = rosterMetricsRefreshAt(value, now);
+  // Current/future roster membership can change during the week. Its normal
+  // refresh remains independent of the server's frozen weekly metric values.
+  return value !== null && Date.parse(value) > now && week >= currentWeek
+    ? Math.min(weeklyAt!, nextRosterRefreshAt(now)) : weeklyAt;
 }
 
 export function rosterResponseMatchesSelection(data: RostersData, responseLeague: string | null,
@@ -54,9 +76,13 @@ function PlayerStatsUpdated({ data }: { data: RostersData }) {
   const label = date && Number.isFinite(date.getTime()) ? date.toLocaleString('en-US', {
     month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York',
   }) : null;
-  return <p className="updated" data-player-stats-updated aria-live="polite">{label
-    ? <>Player stats saved {label} ET{data.playerMetrics.status === 'provisional' ? ' · Partial statistics' : ''}</>
-    : 'Player statistics unavailable'}</p>;
+  const throughWeek = data.playerMetrics.throughWeek;
+  return <p className="updated" data-player-stats-updated aria-live="polite"
+    title={label ? `Player stats saved ${label} ET` : undefined}>
+    {throughWeek !== null && throughWeek > 0
+      ? `PPG and Pos Rank through Week ${throughWeek}` : 'PPG and Pos Rank unavailable'}
+    {' · Updated weekly'}{data.playerMetrics.status === 'provisional' ? ' · Partial statistics' : ''}
+  </p>;
 }
 
 function number(value: number | null): string {
@@ -195,7 +221,8 @@ export function RostersView({ active, league, selected, controlsTarget }: {
   const authorityScope = `${site.key}:${league.season}`;
   const [selection, setSelection] = useState<{ scope: string; week: number | null }>({ scope: authorityScope, week: null });
   const [state, setState] = useState<LoadState>('idle');
-  const [loaded, setLoaded] = useState<Readonly<{ key: string; data: RostersData; provisionalWeek: RosterRefreshWeek }> | null>(null);
+  const [loaded, setLoaded] = useState<Readonly<{ key: string; data: RostersData;
+    provisionalWeek: RosterRefreshWeek; refreshMode: RosterRefreshMode }> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
   const [currentAuthority, setCurrentAuthority] = useState({ scope: authorityScope, week: league.week });
@@ -207,7 +234,9 @@ export function RostersView({ active, league, selected, controlsTarget }: {
   const key = rosterCacheKey(site.key, league.season, week);
   const data = loaded?.key === key ? loaded.data : null;
   const provisionalWeek = loaded?.key === key ? loaded.provisionalWeek : undefined;
-  const shouldRefresh = week === currentWeek && provisionalWeek !== null || provisionalWeek === week;
+  const refreshMode = loaded?.key === key ? loaded.refreshMode : undefined;
+  const shouldRefresh = refreshMode === 'weekly' || refreshMode === 'retry'
+    || week === currentWeek && provisionalWeek !== null || provisionalWeek === week;
 
   useEffect(() => {
     if (!active) return;
@@ -219,7 +248,7 @@ export function RostersView({ active, league, selected, controlsTarget }: {
     let nextAttemptAt = 0;
     const cached = cache.current.get(key);
     if (cached) {
-      setLoaded({ key, data: cached.data, provisionalWeek: cached.provisionalWeek });
+      setLoaded({ key, data: cached.data, provisionalWeek: cached.provisionalWeek, refreshMode: cached.refreshMode });
       setState('ready');
       setError(null);
     } else {
@@ -228,10 +257,12 @@ export function RostersView({ active, league, selected, controlsTarget }: {
     }
 
     function schedule() {
-      if (stopped || !current || document.visibilityState !== 'visible') return;
+      if (stopped || !current && nextAttemptAt === 0 || document.visibilityState !== 'visible') return;
       clearTimeout(timer);
       const dueAt = cache.current.get(key)?.refreshAt ?? nextAttemptAt;
-      if (dueAt > 0) timer = setTimeout(loadIfDue, Math.max(1, dueAt - Date.now()));
+      if (dueAt > 0 && Number.isFinite(dueAt)) {
+        timer = setTimeout(loadIfDue, Math.min(2_147_483_647, Math.max(1, dueAt - Date.now())));
+      }
     }
 
     function loadIfDue() {
@@ -257,6 +288,9 @@ export function RostersView({ active, league, selected, controlsTarget }: {
         }
         const provisionalWeek = rosterProvisionalWeek(response.headers.get('X-Roster-Provisional-Week'), payload);
         if (provisionalWeek === undefined) throw new Error('The roster response contained an invalid scoring week.');
+        const weeklyRefreshAt = rosterResponseRefreshAt(response.headers.get('X-Roster-Metrics-Refresh-At'),
+          Date.now(), week, payload.currentWeek);
+        if (Number.isNaN(weeklyRefreshAt)) throw new Error('The roster response contained an invalid statistics refresh time.');
         if (stopped || generation !== requestGeneration.current) return;
         if (request.signal.aborted) throw new Error('The roster refresh timed out.');
         if (payload.currentWeek < currentWeek) throw new Error('The roster response contained an older current week.');
@@ -269,16 +303,18 @@ export function RostersView({ active, league, selected, controlsTarget }: {
         if (retained && rosterMetricsRegressed(retained.data, payload)) {
           throw new Error('Updated player statistics are temporarily unavailable.');
         }
-        cache.current.set(key, { data: payload, refreshAt: nextRosterRefreshAt(startedAt), provisionalWeek: responseProvisionalWeek });
-        setLoaded({ key, data: payload, provisionalWeek: responseProvisionalWeek });
+        const refreshMode = weeklyRefreshAt === undefined ? 'legacy' : 'weekly';
+        cache.current.set(key, { data: payload, refreshAt: weeklyRefreshAt ?? nextRosterRefreshAt(startedAt),
+          provisionalWeek: responseProvisionalWeek, refreshMode });
+        setLoaded({ key, data: payload, provisionalWeek: responseProvisionalWeek, refreshMode });
         setState('ready');
       }).catch((fetchError: unknown) => {
         if (stopped || generation !== requestGeneration.current) return;
-        nextAttemptAt = nextRosterRefreshAt(Date.now());
+        nextAttemptAt = Date.now() + RETRY_MS;
         if (retained) {
           const provisionalWeek = responseProvisionalWeek === undefined ? retained.provisionalWeek : responseProvisionalWeek;
-          cache.current.set(key, { ...retained, refreshAt: nextAttemptAt, provisionalWeek });
-          setLoaded({ key, data: retained.data, provisionalWeek });
+          cache.current.set(key, { ...retained, refreshAt: nextAttemptAt, provisionalWeek, refreshMode: 'retry' });
+          setLoaded({ key, data: retained.data, provisionalWeek, refreshMode: 'retry' });
         }
         setError(request.signal.aborted ? 'The roster refresh timed out.'
           : fetchError instanceof Error ? fetchError.message : 'League rosters are temporarily unavailable.');

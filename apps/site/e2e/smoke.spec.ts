@@ -1027,7 +1027,7 @@ test('both Managers pages reuse the Matchups intro with compact profile rows', a
         await expect(main.locator('select')).toHaveCount(0);
         await expect(main.locator('.preference-banner, .section-label, .manager-card-bottom, .manager-profile-cta, .manager-pf, .my-team-button')).toHaveCount(0);
         await expect(main.getByRole('heading', { name: 'The managers', exact: true })).toHaveCount(0);
-        await expect(main.getByRole('tablist', { name: 'Manager views' }).getByRole('tab')).toHaveText(['History', '2026']);
+        await expect(main.getByRole('tablist', { name: 'Manager views' }).getByRole('tab')).toHaveText(['2026', 'History']);
 
         const actual = await intro.evaluate(element => {
           const mainElement = element.closest('main')!;

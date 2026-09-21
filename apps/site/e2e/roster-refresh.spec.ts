@@ -19,15 +19,16 @@ function rosterWeek(page: Page) {
   return page.getByRole('combobox', { name: 'Roster week', exact: true });
 }
 
-async function openRosters(page: Page, league: 'league1' | 'league2' = 'league1') {
+async function openRosters(page: Page, league: 'league1' | 'league2' = 'league1', weekly = false) {
   const state = {
-    requests: [] as number[], points: 4.1, status: 200,
+    requests: [] as number[], points: 4.1, status: 200, rosterSuffix: '',
     observedAt: '2026-09-12T16:00:00.000Z' as string | null,
     responseLeague: league as string, responseSeason: '2026', responseWeek: null as number | null,
     activeWeek: undefined as number | null | 'unknown' | undefined,
+    refreshAt: weekly ? '2026-09-15T08:00:00.000Z' : undefined as string | undefined,
     hold: null as Promise<void> | null, currentWeek: null as number | null,
   };
-  await page.clock.install({ time: new Date('2026-09-13T15:58:00.000Z') });
+  await page.clock.install({ time: new Date(weekly ? '2026-09-15T07:58:00.000Z' : '2026-09-13T15:58:00.000Z') });
   await page.addInitScript((key) => localStorage.setItem(key, '2'), `league-one:my-team:${LEAGUE_IDS[league]}`);
   await page.route('**/api/rosters/*?week=*', async (route) => {
     const week = Number(new URL(route.request().url()).searchParams.get('week'));
@@ -39,7 +40,7 @@ async function openRosters(page: Page, league: 'league1' | 'league2' = 'league1'
       updatedAt: '2026-09-13T17:02:00.000Z',
       playerMetrics: { status: state.observedAt === null ? 'unavailable' : 'provisional', observedAt: state.observedAt, throughWeek: week },
       teams: [1, 2].map((id) => ({
-        id, name: `${league} Team ${id}`, managerName: `Manager ${id}`, avatar: null,
+        id, name: `${league} Team ${id}${state.rosterSuffix}`, managerName: `Manager ${id}`, avatar: null,
         wins: 0, losses: 0, ties: 0, pointsFor: 0,
         waiverOrder: null, waiverBudgetRemaining: null, standingsRank: null,
         averagePpg: null, averagePpgRank: null, rosterAvailable: true,
@@ -55,15 +56,17 @@ async function openRosters(page: Page, league: 'league1' | 'league2' = 'league1'
     const status = state.status;
     const responseLeague = state.responseLeague;
     const activeWeek = state.activeWeek === undefined ? state.currentWeek : state.activeWeek;
-    const provisionalWeek = activeWeek === 'unknown' ? 'unknown'
+    const provisionalWeek = state.refreshAt !== undefined ? (state.refreshAt === 'unknown' ? 'unknown' : 'none')
+      : activeWeek === 'unknown' ? 'unknown'
       : activeWeek !== null && week >= activeWeek ? String(activeWeek) : 'none';
     if (state.hold) await state.hold;
-    await route.fulfill({ status, headers: { 'X-Roster-League': responseLeague, 'X-Roster-Provisional-Week': provisionalWeek },
+    await route.fulfill({ status, headers: { 'X-Roster-League': responseLeague, 'X-Roster-Provisional-Week': provisionalWeek,
+      ...(state.refreshAt === undefined ? {} : { 'X-Roster-Metrics-Refresh-At': state.refreshAt }) },
       json: status === 200 ? payload : { error: 'Roster service unavailable.' } });
   });
   await page.goto(`${league === 'league2' ? '/league2' : ''}/standings`, { waitUntil: 'networkidle' });
   await expect(page.getByRole('tab', { name: 'Rosters', exact: true })).toBeVisible({ timeout: 30_000 });
-  await page.clock.pauseAt(new Date('2026-09-13T15:59:00.000Z'));
+  await page.clock.pauseAt(new Date(weekly ? '2026-09-15T07:59:00.000Z' : '2026-09-13T15:59:00.000Z'));
   await page.getByRole('tab', { name: 'Rosters', exact: true }).click();
   await expect(page.locator('[data-roster-card]')).toHaveCount(2);
   await expect(rosterWeek(page)).toHaveCount(1);
@@ -71,16 +74,17 @@ async function openRosters(page: Page, league: 'league1' | 'league2' = 'league1'
 }
 
 for (const league of ['league1', 'league2'] as const) {
-  test(`${league} refreshes every displayed roster after hourly capture while retaining expansion and My Team`, async ({ page }) => {
-    const state = await openRosters(page, league);
+  test(`${league} refreshes weekly metrics at 4 AM Eastern and keeps roster metadata fresh between boundaries`, async ({ page }) => {
+    const state = await openRosters(page, league, true);
     const cards = page.locator('[data-roster-card]');
     await expect(cards.first()).toHaveAttribute('data-team-id', '2');
     await cards.first().locator('[data-roster-toggle]').click();
     await cards.nth(1).locator('[data-roster-toggle]').click();
     const selectedWeek = await rosterWeek(page).inputValue();
-    await expect(page.locator('[data-player-stats-updated]')).toContainText('Sep 12, 12:00 PM ET');
+    await expect(page.locator('[data-player-stats-updated]')).toContainText(`PPG and Pos Rank through Week ${selectedWeek} · Updated weekly`);
     state.points = 7.3;
-    await page.clock.runFor(239_999);
+    state.refreshAt = '2026-09-22T08:00:00.000Z';
+    await page.clock.runFor(59_999);
     expect(state.requests).toHaveLength(1);
     await page.clock.runFor(1);
     await expect.poll(() => state.requests.length).toBe(2);
@@ -88,25 +92,89 @@ for (const league of ['league1', 'league2'] as const) {
     await expect(cards.locator('[data-roster-toggle][aria-expanded="true"]')).toHaveCount(2);
     await expect(cards.first()).toHaveAttribute('data-team-id', '2');
     await expect(rosterWeek(page)).toHaveValue(selectedWeek);
-    await expect(page.locator('[data-player-stats-updated]')).toContainText('Sep 12, 12:00 PM ET');
-
-    state.status = 503;
-    await page.clock.runFor(3_600_000);
+    await page.clock.runFor(3 * 3_600_000);
+    expect(state.requests).toHaveLength(2);
+    await expect(cards.locator('[data-player-ppg]')).toHaveText(['7.3', '—', '7.3', '—']);
+    state.rosterSuffix = ' Updated';
+    await page.clock.runFor(5 * 3_600_000 + 180_000);
     await expect.poll(() => state.requests.length).toBe(3);
-    await expect(page.getByText(/Showing the last saved roster/u)).toBeVisible();
+    await expect(cards.first().getByText(`${league} Team 2 Updated`, { exact: true })).toBeVisible();
     await expect(cards.locator('[data-player-ppg]')).toHaveText(['7.3', '—', '7.3', '—']);
     await expect(cards.locator('[data-roster-toggle][aria-expanded="true"]')).toHaveCount(2);
-    await page.clock.runFor(60_000);
-    expect(state.requests).toHaveLength(3);
-    state.status = 200;
-    state.points = 8.5;
-    state.observedAt = '2026-09-13T18:01:00.000Z';
-    await page.clock.runFor(3_540_000);
-    await expect.poll(() => state.requests.length).toBe(4);
-    await expect(cards.locator('[data-player-ppg]')).toHaveText(['8.5', '—', '8.5', '—']);
-    await expect(page.locator('[data-player-stats-updated]')).toContainText('Sep 13, 2:01 PM ET');
   });
 }
+
+test('weekly refresh stays quiet while hidden or off-tab and refreshes selected past and future weeks at the next boundary', async ({ page }) => {
+  const state = await openRosters(page, 'league1', true);
+  await page.locator('[data-roster-toggle]').first().click();
+  await visibility(page, 'hidden');
+  await page.clock.runFor(60_000);
+  expect(state.requests).toHaveLength(1);
+  state.refreshAt = '2026-09-22T08:00:00.000Z';
+  state.points = 5.2;
+  await visibility(page, 'visible');
+  await expect.poll(() => state.requests.length).toBe(2);
+  await expect(page.locator('[data-player-ppg]')).toHaveText(['5.2', '—', '5.2', '—']);
+  await expect(page.locator('[data-roster-toggle][aria-expanded="true"]')).toHaveCount(1);
+  state.points = 5.8;
+  await rosterWeek(page).selectOption('18');
+  await expect.poll(() => state.requests.length).toBe(3);
+  await expect(page.locator('[data-player-ppg]')).toHaveText(['5.8', '—', '5.8', '—']);
+  await expect(rosterWeek(page)).toHaveValue('18');
+  await page.getByRole('tab', { name: 'Standings', exact: true }).click();
+  await page.clock.fastForward(7 * 24 * 3_600_000);
+  expect(state.requests).toHaveLength(3);
+  state.refreshAt = '2026-09-29T08:00:00.000Z';
+  state.points = 6.4;
+  await page.getByRole('tab', { name: 'Rosters', exact: true }).click();
+  await expect.poll(() => state.requests.length).toBe(4);
+  await expect(page.locator('[data-player-ppg]')).toHaveText(['6.4', '—', '6.4', '—']);
+  await expect(rosterWeek(page)).toHaveValue('18');
+  state.points = 7;
+  await rosterWeek(page).selectOption('1');
+  await expect.poll(() => state.requests.length).toBe(5);
+  await expect(page.locator('[data-player-ppg]')).toHaveText(['7.0', '—', '7.0', '—']);
+  await expect(rosterWeek(page)).toHaveValue('1');
+  state.points = 8.5;
+  state.refreshAt = '2026-10-06T08:00:00.000Z';
+  await page.clock.fastForward(7 * 24 * 3_600_000);
+  await expect.poll(() => state.requests.length).toBe(6);
+  await expect(page.locator('[data-player-ppg]')).toHaveText(['8.5', '—', '8.5', '—']);
+  expect(state.requests.at(-1)).toBe(1);
+});
+
+test('failed, unknown and expired weekly boundaries retain saved metrics and retry at most hourly, then stop at season end', async ({ page }) => {
+  const state = await openRosters(page, 'league1', true);
+  state.status = 503;
+  await page.clock.runFor(60_000);
+  await expect.poll(() => state.requests.length).toBe(2);
+  await expect(page.getByText(/Showing the last saved roster/u)).toBeVisible();
+  await expect(page.locator('[data-player-ppg]')).toHaveText(['4.1', '—', '4.1', '—']);
+  await page.clock.runFor(3_599_999);
+  expect(state.requests).toHaveLength(2);
+  state.status = 200;
+  state.points = 6.4;
+  state.refreshAt = 'unknown';
+  await page.clock.runFor(1);
+  await expect.poll(() => state.requests.length).toBe(3);
+  await expect(page.locator('[data-player-ppg]')).toHaveText(['6.4', '—', '6.4', '—']);
+  state.refreshAt = '2026-09-15T08:00:00.000Z';
+  state.points = 6.8;
+  await page.clock.runFor(3_600_000);
+  await expect.poll(() => state.requests.length).toBe(4);
+  await expect(page.locator('[data-player-ppg]')).toHaveText(['6.8', '—', '6.8', '—']);
+  await page.clock.runFor(3_599_999);
+  expect(state.requests).toHaveLength(4);
+  state.refreshAt = 'none';
+  state.points = 7.3;
+  await page.clock.runFor(1);
+  await expect.poll(() => state.requests.length).toBe(5);
+  await expect(page.locator('[data-player-ppg]')).toHaveText(['7.3', '—', '7.3', '—']);
+  await page.clock.runFor(24 * 3_600_000);
+  await visibility(page, 'hidden');
+  await visibility(page, 'visible');
+  expect(state.requests).toHaveLength(5);
+});
 
 test('roster polling pauses while hidden or on another tab and catches up once on return; other weeks do not poll', async ({ page }) => {
   const state = await openRosters(page);
@@ -189,7 +257,7 @@ test('an unavailable or older metric read preserves the saved statistics and the
   await expect.poll(() => state.requests.length).toBe(2);
   await expect(page.getByText(/Updated player statistics are temporarily unavailable/u)).toBeVisible();
   await expect(page.locator('[data-player-ppg]')).toHaveText(['4.1', '—', '4.1', '—']);
-  await expect(page.locator('[data-player-stats-updated]')).toContainText('Sep 12, 12:00 PM ET');
+  await expect(page.locator('[data-player-stats-updated]')).toHaveAttribute('title', 'Player stats saved Sep 12, 12:00 PM ET');
   state.observedAt = '2026-09-11T16:00:00.000Z';
   await page.clock.runFor(3_600_000);
   await expect.poll(() => state.requests.length).toBe(3);

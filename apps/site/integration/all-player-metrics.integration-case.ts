@@ -30,7 +30,9 @@ describe('actual all-player position ranks through the stored SQL reader', () =>
   let baselineContentId: string;
   let baselineRead: Awaited<ReturnType<ReturnType<typeof createProjectionStore>['readAllPlayerPlayerMetrics']>>;
 
-  async function seedPartial(sourceEntries: readonly FixtureEntry[], week = 1) {
+  async function seedPartial(sourceEntries: readonly FixtureEntry[], week = 1, options: {
+    quality?: 'partial' | 'complete'; observedAt?: string; completedAt?: string; createdAt?: string;
+  } = {}) {
     const contentId = randomUUID();
     const gameId = randomUUID();
     await db.query(`INSERT INTO nfl_games (id,season,season_type,week,home_team,away_team)
@@ -44,10 +46,10 @@ describe('actual all-player position ranks through the stored SQL reader', () =>
     await db.query(`INSERT INTO all_player_stat_contents (
       id,provider,season,season_type,week,normalizer_version,semantic_hash,quality,coverage,warnings,entry_count
     ) VALUES ($1::uuid,'sleeper',$2::smallint,'reg',$3::smallint,'sleeper-weekly-stats-v4',
-      $4,'partial',$5::jsonb,'[]'::jsonb,$6::integer)`, [contentId, SEASON, week,
+      $4,$7,$5::jsonb,'[]'::jsonb,$6::integer)`, [contentId, SEASON, week,
       createHash('sha256').update(JSON.stringify(rawEntries)).digest('hex'), JSON.stringify({
-        complete: false, rankUnavailablePositions: production.observation.projectionRankUnavailablePositions,
-      }), rawEntries.length]);
+        complete: options.quality === 'complete', rankUnavailablePositions: production.observation.projectionRankUnavailablePositions,
+      }), rawEntries.length, options.quality ?? 'partial']);
     await db.query(`INSERT INTO all_player_stat_entries (
       all_player_stat_content_id,entity_kind,provider_external_id,nfl_game_id,nfl_team,position,stats,
       eligibility_evidence,eligible_game_count,appearance_game_count,game_phase,ordinal
@@ -61,11 +63,15 @@ describe('actual all-player position ranks through the stored SQL reader', () =>
     [contentId, JSON.stringify(rawEntries), SEASON, week]);
     await db.query(`INSERT INTO all_player_stat_observations (
       id,all_player_stat_content_id,provider,season,season_type,week,normalizer_version,
-      source_revision,request_started_at,request_completed_at,observed_at,quality
+      source_revision,request_started_at,request_completed_at,observed_at,quality,created_at
     ) VALUES (gen_random_uuid(),$1::uuid,'sleeper',$2::smallint,'reg',$3::smallint,
-      'sleeper-weekly-stats-v4','retained-actual-rank-fixture',
-      CURRENT_TIMESTAMP-interval '2 days 1 second',CURRENT_TIMESTAMP-interval '2 days',
-      CURRENT_TIMESTAMP-interval '2 days','partial')`, [contentId, SEASON, week]);
+      'sleeper-weekly-stats-v4','retained-actual-rank-fixture-'||$1::text,
+      COALESCE($4::timestamptz,CURRENT_TIMESTAMP-interval '2 days')-interval '1 second',
+      COALESCE($5::timestamptz,$4::timestamptz,CURRENT_TIMESTAMP-interval '2 days'),
+      COALESCE($4::timestamptz,CURRENT_TIMESTAMP-interval '2 days'),$7,
+      COALESCE($6::timestamptz,CURRENT_TIMESTAMP))`, [contentId, SEASON, week,
+      options.observedAt ?? null, options.completedAt ?? null, options.createdAt ?? null,
+      options.quality ?? 'partial']);
     return contentId;
   }
 
@@ -86,7 +92,7 @@ describe('actual all-player position ranks through the stored SQL reader', () =>
         season,season_type,week,scorer_version),'')) FROM current_all_player_score_sets pointer) AS pointers`);
   }
 
-  async function read(leagueKey = 'league1', throughWeek = 1) {
+  async function read(leagueKey = 'league1', throughWeek = 1, asOf?: string) {
     const before = await historyFingerprint();
     const statements: string[] = [];
     const reader = createProjectionStore({
@@ -101,6 +107,7 @@ describe('actual all-player position ranks through the stored SQL reader', () =>
     try {
       return await reader.readAllPlayerPlayerMetrics({ leagueKey, provider: 'sleeper', season: SEASON,
         seasonType: 'reg', throughWeek, provisionalWeek: throughWeek, scorerVersion: 'sleeper-actual-v1',
+        ...(asOf === undefined ? {} : { asOf }),
       }, scoreSparseStatistics);
     } finally {
       expect(statements).toHaveLength(1);
@@ -225,6 +232,72 @@ describe('actual all-player position ranks through the stored SQL reader', () =>
       positionRank: 22 });
     expect(changed.scoringProfileId).not.toBe(original.scoringProfileId);
     expect((await read()).metrics).toEqual(baselineRead.metrics);
+  });
+
+  it.each(['observation', 'request completion', 'late persistence'] as const)(
+    'keeps the weekly cutoff stable when a correction has postcutoff %s', async (lateField) => {
+      // These explicitly timed owner fixtures are confined to the harness's
+      // disposable transaction. They prove SQL selection, not provider cadence.
+      const [{ cutoff }] = await db.query<{ cutoff: string }>(
+        `SELECT (CURRENT_TIMESTAMP + interval '2 minutes')::text AS cutoff`,
+      );
+      const cutoffTime = Date.parse(cutoff);
+      const asOf = new Date(cutoffTime).toISOString();
+      const before = new Date(cutoffTime - 1000).toISOString();
+      const after = new Date(cutoffTime + 1000).toISOString();
+      const source = entries.find((entry) => entry.provider_external_id === '5859')!;
+      await seedPartial([{ ...source, stats: { ...source.stats, rec: source.stats.rec + 10 } }], 1, {
+        observedAt: lateField === 'observation' ? after : before,
+        completedAt: lateField === 'observation' || lateField === 'request completion' ? after : before,
+        createdAt: lateField === 'late persistence' ? after : before,
+      });
+      const held = await read('league1', 1, asOf);
+      expect(held).toEqual(baselineRead);
+      const nextCutoff = await read('league1', 1, new Date(cutoffTime + 2000).toISOString());
+      expect(nextCutoff.status).toBe('provisional');
+      expect(nextCutoff.metrics.find((metric) => metric.providerExternalId === '5859')!.pointsPerGame)
+        .toBeGreaterThan(baselineRead.metrics.find((metric) => metric.providerExternalId === '5859')!.pointsPerGame!);
+      expect((await read()).metrics).toEqual(nextCutoff.metrics);
+    },
+  );
+
+  it('derives cutoff values from complete raw history without claiming it was published', async () => {
+    const [{ cutoff }] = await db.query<{ cutoff: string }>(
+      `SELECT (CURRENT_TIMESTAMP + interval '2 minutes')::text AS cutoff`,
+    );
+    const asOf = new Date(cutoff).toISOString();
+    const source = entries.find((entry) => entry.provider_external_id === '5859')!;
+    await seedPartial([{ ...source, stats: { ...source.stats, rec: source.stats.rec + 10 } }], 1, {
+      quality: 'complete', observedAt: new Date(Date.parse(asOf) - 1000).toISOString(),
+    });
+    const held = await read('league1', 1, asOf);
+    expect(held.status).toBe('provisional');
+    expect(held.metrics).toHaveLength(1);
+    expect(held.metrics[0]).toMatchObject({ providerExternalId: '5859', publishedWeekCount: 0 });
+    expect(held.metrics[0].pointsPerGame).toBeGreaterThan(4.1);
+    // Legacy callers still use current published pointers / partial observations.
+    expect(await read()).toEqual(baselineRead);
+  });
+
+  it('uses a later registered immutable league profile with statistics retained before the cutoff', async () => {
+    const [{ cutoff }] = await db.query<{ cutoff: string }>(
+      `SELECT (CURRENT_TIMESTAMP - interval '1 second')::text AS cutoff`,
+    );
+    const asOf = new Date(cutoff).toISOString();
+    const before = new Date(Date.parse(asOf) - 1000).toISOString();
+    const source = entries.find((entry) => entry.provider_external_id === '5859')!;
+    await seedPartial([source], 1, { observedAt: before, completedAt: before, createdAt: before });
+    const [registration] = await db.query<{ after_cutoff: boolean }>(`SELECT
+      season.created_at > $2::timestamptz AND profile.created_at > $2::timestamptz AS after_cutoff
+      FROM league_seasons season JOIN leagues league ON league.id=season.league_id
+      JOIN scoring_profiles profile ON profile.id=season.scoring_profile_id
+      WHERE league.league_key='league1' AND season.season=$1::smallint`, [SEASON, asOf]);
+    expect(registration.after_cutoff).toBe(true);
+    const held = await read('league1', 1, asOf);
+    expect(held.status).toBe('provisional');
+    expect(held.metrics).toHaveLength(1);
+    expect(held.metrics[0]).toMatchObject({ providerExternalId: '5859', pointsPerGame: 4.1,
+      totalFantasyPoints: 4.1, publishedWeekCount: 0 });
   });
 
   it('enriches a valid player registered after the raw observation using current validity without rewriting history', async () => {

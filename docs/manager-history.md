@@ -1,6 +1,6 @@
 # Manager regular-season history
 
-The Managers directory has History and current-season tabs in every league. The current-season view remains the default and retains team names, current official records, profile links, and My Team selection.
+The Managers directory has the current-season tab (currently 2026) on the left and History on the right in every league. The current-season view remains the default and retains team names, current official records, profile links, and My Team selection. The year comes from the selected league's season. Keyboard Home selects the current season and End selects History, matching their visual order.
 
 History displays the union of effective roster owners in the current season and connected completed seasons beginning with 2025. Effective ownership follows the source primary account plus the explicit League Two correction below. It removes team names, retains manager championship honors, and adds each owner's official head-to-head record within this league. A manager's results in another league do not transfer when promoted or relegated.
 

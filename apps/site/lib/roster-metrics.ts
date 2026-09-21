@@ -1,4 +1,5 @@
 import type { RosterTeam } from './types';
+import type { WeeklyPlayerMetricWindow } from './site-week';
 import { numberOrNull, type SleeperMatchup } from './transform';
 
 export type RosterHistoryBoundaryInput = Readonly<{
@@ -11,6 +12,8 @@ export type RosterHistoryBoundaryInput = Readonly<{
 export type PlayerMetricBoundary = Readonly<{
   throughWeek: number | null;
   provisionalWeek: number | null;
+  asOf: string | null;
+  nextRefreshAt: string | null;
 }>;
 
 type RosterStandingsCandidate = Readonly<{
@@ -36,28 +39,15 @@ export function rosterHistoryBoundary(input: RosterHistoryBoundaryInput): number
   return validWeek(input.lastScoredWeek) ? Math.min(input.selectedWeek, input.lastScoredWeek) : null;
 }
 
-/** Cumulative player metrics stop at the selected week and include only the active week provisionally. */
-export function playerMetricBoundary(input: RosterHistoryBoundaryInput): PlayerMetricBoundary {
-  if (input.lifecycle === 'preseason') return { throughWeek: null, provisionalWeek: null };
-  if (input.lifecycle === 'complete') {
-    return {
-      throughWeek: validWeek(input.lastScoredWeek)
-        ? Math.min(input.selectedWeek, input.lastScoredWeek) : null,
-      provisionalWeek: null,
-    };
-  }
-  if (validWeek(input.activeWeek)) {
-    const throughWeek = Math.min(input.selectedWeek, input.activeWeek);
-    return {
-      throughWeek,
-      provisionalWeek: input.selectedWeek >= input.activeWeek ? input.activeWeek : null,
-    };
-  }
-  return {
-    throughWeek: validWeek(input.lastScoredWeek)
-      ? Math.min(input.selectedWeek, input.lastScoredWeek) : null,
-    provisionalWeek: null,
-  };
+/** Every selection uses the same frozen weekly cutoff, bounded by its selected week. */
+export function playerMetricBoundary(input: Readonly<{
+  selectedWeek: number;
+  window: WeeklyPlayerMetricWindow | null;
+}>): PlayerMetricBoundary {
+  return { throughWeek: input.window && validWeek(input.window.throughWeek)
+    ? Math.min(input.selectedWeek, input.window.throughWeek) : null,
+  provisionalWeek: null, asOf: input.window?.asOf ?? null,
+  nextRefreshAt: input.window?.nextRefreshAt ?? null };
 }
 
 function sourcePointsHundredths(row: SleeperMatchup): number | null {

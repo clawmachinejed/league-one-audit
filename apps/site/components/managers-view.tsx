@@ -31,7 +31,7 @@ export function ManagersView({ data, rollover }: { data: ManagersData; rollover?
     router.push(`${site.prefix}/managers${next === 'history' ? '?view=history' : ''}`, { scroll: false });
   }
   function onKey(event: KeyboardEvent<HTMLButtonElement>) {
-    const next = event.key === 'Home' ? 'history' : event.key === 'End' ? 'season'
+    const next = event.key === 'Home' ? 'season' : event.key === 'End' ? 'history'
       : event.key === 'ArrowLeft' || event.key === 'ArrowRight' ? (view === 'history' ? 'season' : 'history') : null;
     if (next) { event.preventDefault(); select(next); }
   }
@@ -43,7 +43,7 @@ export function ManagersView({ data, rollover }: { data: ManagersData; rollover?
   return <div className={matchupStyles.page}>
     <div className={matchupStyles.toolbar}><PageIntro title="Managers" league={data.league} /></div>
     <div className={`standings-view-tabs ${tabStyles.tabs}`} role="tablist" aria-label="Manager views">
-      {(['history', 'season'] as const).map(option => <button key={option} type="button" role="tab"
+      {(['season', 'history'] as const).map(option => <button key={option} type="button" role="tab"
         ref={element => { refs.current[option] = element; }}
         id={`managers-${option}-tab`} aria-controls="managers-view-panel" aria-selected={view === option}
         tabIndex={view === option ? 0 : -1} onClick={() => select(option)} onKeyDown={onKey}>
