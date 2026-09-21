@@ -22,6 +22,7 @@ import type { ProjectionFeedPort } from '../ports/projection-feed';
 import type { LineupWatchRepositoryPort } from '../ports/lineup-watch-repository';
 import type { PeriodAuthorityReaderPort } from '../ports/period-authority-reader';
 import type { LineupSourcePort } from '../ports/lineup-source';
+import type { LiveDefenseStatResult, LiveDefenseStatSourcePort } from '../ports/live-defense-stat-source';
 import type {
   ObservationId,
   ProjectionRepositoryPort,
@@ -53,6 +54,7 @@ export type LiveProjectionWorkerDependencies = Readonly<{
   leagueSource: LeagueSourcePort;
   projectionFeed: ProjectionFeedPort;
   gameStateFeed: GameStateFeedPort;
+  liveDefenseStatSource?: LiveDefenseStatSourcePort;
   normalizeScoringProfile: (source: SourceScoringSettings) => ScoringProfileNormalization;
   clock: ClockPort;
   idGenerator: IdGeneratorPort;
@@ -100,6 +102,7 @@ export type PregameProjectionSet = Readonly<{
 }>;
 
 export type PersistedGroup = Readonly<{
+  liveDefenseStats?: LiveDefenseStatResult;
   games: GameStateSlate;
   projections: ProjectionSlate;
   gameIdsByReferenceKey: ReadonlyMap<string, NflGameId>;

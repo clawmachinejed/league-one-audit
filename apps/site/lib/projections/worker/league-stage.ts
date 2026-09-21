@@ -43,7 +43,8 @@ import {
   type ProviderGroupScoringCache,
   type ScoredProjectionSlate,
 } from './scoring-cache';
-import { baselineMap, buildSnapshot } from './snapshot-builder';
+import { baselineMap, buildSnapshotWithDefenseEvidence } from './snapshot-builder';
+import { DEFENSE_PROJECTION_MODEL_VERSION } from '../domain/live-defense';
 
 type LeagueStageDependencies = Readonly<{
   repository: Pick<ProjectionRepositoryPort,
@@ -356,17 +357,25 @@ export async function processLeague(
     })),
     ...benchPoints.filter((point) => persisted.entityIdsByReferenceKey.has(externalReferenceKey(point.entityRef))),
   ];
+  const { payload, liveDefense } = buildSnapshotWithDefenseEvidence({
+    source, games: persisted.games, scored, latest, frozen,
+    prior: prior?.payload ?? null, calculatedAt,
+    liveDefenseStats: persisted.liveDefenseStats, scoringProfile,
+  });
+  const sourceRevision = liveDefense
+    ? compatibleRevision({ officialSourceRevision: source.sourceRevision, liveDefense }) : source.sourceRevision;
   const observation = await dependencies.repository.recordLeagueWeekObservation({
     lineup: source.lineup,
     leagueSeasonId: leagueSeason.value.leagueSeasonId,
     period: source.period,
-    sourceRevision: source.sourceRevision,
+    sourceRevision,
     requestStartedAt: source.requestStartedAt,
     requestCompletedAt: source.requestCompletedAt,
     observedAt: source.observedAt,
     quality: 'complete',
     sourceData: {
       ...(source.administrationContext ? { administration: source.administrationContext } : {}),
+      ...(liveDefense ? { liveDefense } : {}),
       leagueKey: configuration.key,
       season: String(source.period.season),
       week: source.period.week,
@@ -403,15 +412,7 @@ export async function processLeague(
     throw new Error('Official source observations could not be persisted completely.');
   }
 
-  const payload = buildSnapshot({
-    source,
-    games: persisted.games,
-    scored,
-    latest,
-    frozen,
-    prior: prior?.payload ?? null,
-    calculatedAt,
-  });
+
   const gameStateObservationIds = relevantGameRefs.map((reference) => {
     const observationId = persisted.gameObservationIdsByReferenceKey.get(
       externalReferenceKey(reference),
@@ -422,7 +423,8 @@ export async function processLeague(
   const revisionKey = compatibleRevision({
     modelVersion: LIVE_PROJECTION_MODEL_VERSION,
     winProbabilityModelVersion: WIN_PROBABILITY_MODEL_VERSION,
-    sourceRevision: source.sourceRevision,
+    ...(liveDefense ? { defenseProjectionModelVersion: DEFENSE_PROJECTION_MODEL_VERSION } : {}),
+    sourceRevision,
     projectionSourceRevision,
     missingFrozenBaselineCount,
     games: relevantGameRefs.map((reference) => ({
@@ -449,7 +451,7 @@ export async function processLeague(
     throw new Error('The projection snapshot was not published.');
   }
   return {
-    sourceRevision: source.sourceRevision,
+    sourceRevision,
     publicationOutcome: published.kind,
     starterCount: starters.length,
     candidateCount: persistedCandidateCount,

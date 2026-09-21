@@ -321,6 +321,17 @@ receive a safe cooldown. These are bounded opportunities, not a guarantee that
 every request succeeds; late prior-day requests can delay admission under the
 rolling cap.
 
+Migration 019 shares the same job and bulk source with current live D/ST projections.
+The global network reservation is spaced at least 60 seconds apart (at most 1,440
+in a rolling day), while `requestStarts` retains the independent 13-slot hourly
+history budget. A successfully fenced same-period response can be reused without
+another network reservation. Live-only fences cannot write all-player history or
+change its outcomes. Minutes zero and one prioritize a due hourly capture, and
+period alternation follows the last all-player outcome rather than intervening
+live captures. Compact recent defensive evidence may be reused from existing
+official observations with its original times and full score-parity/freshness
+checks; it is not another history/cache subsystem. See
+[live defensive projections](live-defense-projections.md) for the complete policy.
 Previous-week final capture receives the first opportunity at rollover, then
 alternates with current-week work inside a finite schedule-derived correction
 window. A missed final capture remains an explicit overdue obligation across

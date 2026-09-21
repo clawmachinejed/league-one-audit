@@ -4,6 +4,26 @@ import { isAllPlayerRefreshOpportunity } from '../../all-player-refresh-schedule
 
 const DAY_MS = 86_400_000;
 
+function recordedPeriod(value: unknown): Readonly<{ season: number; seasonType: 'reg'; week: number }> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const period = value as Record<string, unknown>;
+  return typeof period.season === 'number' && Number.isInteger(period.season)
+    && period.season >= 2026 && period.season <= 2200 && period.seasonType === 'reg'
+    && typeof period.week === 'number' && Number.isInteger(period.week) && period.week >= 1 && period.week <= 18
+    ? { season: period.season, seasonType: 'reg', week: period.week } : null;
+}
+
+function lastAllPlayerPeriod(job: AllPlayerJobState | null) {
+  const outcome = job?.payload.lastOutcome;
+  const fromOutcome = outcome && typeof outcome === 'object' && !Array.isArray(outcome)
+    && 'outcome' in outcome && typeof outcome.outcome === 'string'
+    && ['published', 'partial', 'no-statistics-yet', 'validation-failed', 'provider-failed', 'timeout', 'lease-lost'].includes(outcome.outcome)
+    && 'period' in outcome ? recordedPeriod(outcome.period) : null;
+  // Minute-level live captures share the job, but do not advance hourly history.
+  // Older job payloads lack lastOutcome; retain their validated requested period.
+  return fromOutcome ?? (job?.payload.mode === 'live-defense' ? null : recordedPeriod(job?.payload.period));
+}
+
 /** A cheap opportunity gate; SQL remains the cross-invocation budget authority. */
 export function isAllPlayerPollingOpportunity(now: Date): boolean {
   return isAllPlayerRefreshOpportunity(now);
@@ -103,10 +123,8 @@ export function selectAllPlayerRecurringPeriod(
     if (!priorFinal) diagnostics.push(`final-capture-overdue:${season}:regular:${prior.week}`);
     return selected(period, false);
   }
-  const last = job?.payload.period;
-  const lastWasPrior = last && typeof last === 'object'
-    && 'season' in last && last.season === season
-    && 'week' in last && last.week === prior.week;
+  const last = lastAllPlayerPeriod(job);
+  const lastWasPrior = last?.season === season && last.week === prior.week;
   // Previous final capture gets the first opportunity at rollover. Alternation
   // then provides corrections without starving the current period.
   return lastWasPrior ? selected(period, false) : selected(prior, true);

@@ -11,6 +11,7 @@ import { NFL_TEAM_CODES } from '../../domain/contracts';
 import { validateAllPlayerEligibility } from '../../domain/all-player-eligibility';
 import { validateAllPlayerObservationEvidence } from '../../domain/all-player-observation-evidence';
 import { allPlayerStatSemanticHash } from '../neon/all-player-statistics';
+import { createSleeperWeeklyStatSource } from './weekly-stat-source';
 
 function clock(...values: string[]) {
   let index = 0;
@@ -49,6 +50,32 @@ function completeInventory() {
 }
 
 describe('Sleeper all-player weekly-stat adapter', () => {
+  it('uses one bulk capture for D/ST and the full all-player normalizer without another request', async () => {
+    const fetcher = vi.fn<typeof fetch>(async () => Response.json({
+      NE: { gp: 1, sack: 3, pts_allow: 10, def_3_and_out: 1 }, p1: { gp: 1, pass_yd: 200 },
+    }));
+    const result = await createSleeperWeeklyStatSource({ fetch: fetcher, now: () => new Date(observedAt) }).load(period);
+    if (result.status !== 'available') throw new Error('Expected a valid weekly capture.');
+    expect(result.capture.rows.NE.stats).toEqual({ gp: 1, sack: 3, pts_allow: 10, def_3_and_out: 1 });
+    const source = createSleeperAllPlayerStatSource({ fetch: fetcher, now: () => new Date(observedAt) });
+    const normalized = await source.load({ season: 2026, week: 1, inventory: completeInventory(), gamesByTeam,
+      capture: result.capture });
+    expect(fetcher).toHaveBeenCalledOnce();
+    if (normalized.status !== 'available') throw new Error('Expected retained all-player evidence.');
+    expect(normalized.observation).toMatchObject({ sourceRevision: result.capture.sourceRevision,
+      requestStartedAt: observedAt, requestCompletedAt: observedAt, observedAt });
+    expect(normalized.observation.entries.find((entry) => entry.providerExternalId === 'NE')?.stats)
+      .toEqual(result.capture.rows.NE.stats);
+    expect(await source.load({ season: 2026, week: 1, inventory: completeInventory(), gamesByTeam,
+      capture: { ...result.capture, period: { ...period, week: 2 } } }))
+      .toEqual({ status: 'unavailable', reason: 'malformed' });
+    // A retained parsed rows object never bypasses validation of the raw source.
+    expect(await source.load({ season: 2026, week: 1, inventory: completeInventory(), gamesByTeam,
+      capture: { ...result.capture, raw: { NE: { sack: 'invalid' } } } }))
+      .toMatchObject({ status: 'unavailable', reason: 'malformed' });
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
   it.each([
     ['{}', 'object', 0, 'empty'],
     ['null', 'null', null, 'unavailable'],

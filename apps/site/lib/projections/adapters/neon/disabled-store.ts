@@ -80,6 +80,8 @@ export function createDisabledProjectionStore(): ProjectionStore {
     async validateAllPlayerJobFence() { return false; },
     async markAllPlayerRequest() { return false; },
     async finishAllPlayerJob() { return false; },
+    async finishLiveDefenseStatRequest() { return false; },
+    async readLiveDefenseStatCapture() { return null; },
     async recordAllPlayerPreclaimOutcome() { return 'disabled'; },
     async readAllPlayerLeagueProfiles() { return []; },
     async readAllPlayerIdentityMappings() { return []; },

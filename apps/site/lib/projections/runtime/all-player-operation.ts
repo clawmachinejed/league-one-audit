@@ -21,6 +21,7 @@ import {
 import type {
   AllPlayerBatchInput,
   AllPlayerJobFence,
+  SleeperWeeklyStatReceipt,
   AllPlayerIdentityLookup,
   ProjectionStore,
   StoredAllPlayerIdentityMapping,
@@ -155,6 +156,7 @@ export type AllPlayerIngestionDependencies = Readonly<{
   idGenerator: IdGeneratorPort;
   logger: ProjectionLoggerPort;
   signal?: AbortSignal;
+  sharedCaptureReceipt?: (period: LeaguePeriod) => SleeperWeeklyStatReceipt | undefined;
   deadlineAt?: string;
   cleanupStore?: Pick<AllPlayerStore, 'finishAllPlayerJob' | 'recordAllPlayerPreclaimOutcome'>;
 }>;
@@ -1419,6 +1421,8 @@ export async function runAllPlayerIngestion(
         const claim = await dependencies.store.acquireAllPlayerJob({
           mode, period: { ...period, seasonType: 'reg' }, workerId: runId,
           leaseSeconds: ALL_PLAYER_LEASE_SECONDS, deadlineAt,
+          ...(mode === 'recurring' && dependencies.sharedCaptureReceipt?.(period)
+            ? { captureReceipt: dependencies.sharedCaptureReceipt(period) } : {}),
         });
         if (claim.kind === 'disabled') return { status: 'disabled', mode };
         if (claim.kind !== 'acquired') {

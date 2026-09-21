@@ -49,6 +49,44 @@ describe('production all-player recurring composition', () => {
     vi.useRealTimers();
   });
 
+  it.each([1, 2])('reuses a receipt only for the selected period after hourly week %s', async (lastWeek) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-20T16:00:10.000Z'));
+    process.env.ALL_PLAYER_RECURRING_ENABLED = 'true';
+    const period = { season: 2026, seasonType: 'reg' as const, week: 2 };
+    const receipt = { period, sourceRevision: 'shared-live', bodyHash: `sha256:${'a'.repeat(64)}`,
+      requestStartedAt: '2026-09-20T16:00:01.000Z', requestCompletedAt: '2026-09-20T16:00:02.000Z', requestGeneration: 7 };
+    const capture = { period, sourceRevision: receipt.sourceRevision, raw: {}, rows: {}, responseEvidence: {
+      httpStatus: 200, bodyShape: 'object' as const, topLevelCount: 32, bodyHash: receipt.bodyHash,
+      requestStartedAt: receipt.requestStartedAt, requestCompletedAt: receipt.requestCompletedAt,
+    } };
+    store.readAllPlayerJobState.mockResolvedValueOnce({ state: 'completed', payload: { period,
+      lastWeeklyCapture: receipt, lastOutcome: { outcome: 'partial', period: { ...period, week: lastWeek } } },
+      nextRequestAt: '2026-09-20T16:01:01.000Z' });
+    store.readLeagueLineupAuthorities.mockResolvedValueOnce(['league1', 'league2', 'dynasty'].map((leagueKey) => ({
+      kind: 'available', leagueKey, authority: { leagueKey,
+        leagueLifecycle: 'active', activeSeason: 2026, activeSeasonType: 'reg', activeWeek: 2,
+        defaultSeason: 2026, defaultSeasonType: 'reg', defaultWeek: 2,
+        sourceProvider: 'sleeper', verifiedAt: '2026-09-20T16:00:00.000Z',
+        defaultPeriodCadence: { games: [{ kickoffAt: '2026-09-18T00:00:00.000Z' }] },
+      },
+    })));
+    canonicalOperation.mockResolvedValueOnce({ status: 'partial', mode: 'recurring' });
+    const result = await runProductionAllPlayerRecurring(Date.now(), (requested) =>
+      requested.week === 2 ? { receipt, capture } : undefined);
+    if (lastWeek === 1) {
+      expect(result.status).toBe('partial');
+      expect(canonicalOperation).toHaveBeenCalledOnce();
+      const [dependencies, request] = canonicalOperation.mock.calls[0];
+      expect(request.period.week).toBe(2);
+      expect(dependencies.sharedCaptureReceipt(request.period)).toEqual(receipt);
+      expect(dependencies.allPlayerSource.access).toBe('live');
+    } else {
+      expect(result).toMatchObject({ status: 'skipped', reason: 'not-due' });
+      expect(canonicalOperation).not.toHaveBeenCalled();
+    }
+  });
+
   it('loads the requested season enrollment before an explicit historical operation', async () => {
     const registry = administrationRegistry.bootstrapLeagueRegistry();
     const loadRegistry = vi.spyOn(administrationRegistry, 'loadAdministrationRegistry').mockResolvedValue(registry);

@@ -1,10 +1,24 @@
 import 'server-only';
 
 import type { DatabaseClient } from '../../../database';
-import type { AllPlayerJobFence, ProjectionStore } from './contracts';
+import type { AllPlayerJobFence, ProjectionStore, SleeperWeeklyStatReceipt } from './contracts';
 import { json, requiredText, rowNullableText, rowNumber, rowObject, rowText } from './database-values';
 
 export const ALL_PLAYER_JOB_KEY = 'all-player-ingestion:sleeper';
+
+export function validateWeeklyStatReceipt(receipt: SleeperWeeklyStatReceipt): void {
+  if (!Number.isInteger(receipt.period.season) || receipt.period.season < 2026 || receipt.period.season > 2200
+    || receipt.period.seasonType !== 'reg' || !Number.isInteger(receipt.period.week)
+    || receipt.period.week < 1 || receipt.period.week > 18
+    || !receipt.sourceRevision.trim() || receipt.sourceRevision.length > 1024
+    || !/^sha256:[0-9a-f]{64}$/u.test(receipt.bodyHash)
+    || !Number.isInteger(receipt.requestGeneration) || receipt.requestGeneration < 1
+    || !Number.isFinite(Date.parse(receipt.requestStartedAt))
+    || !Number.isFinite(Date.parse(receipt.requestCompletedAt))
+    || Date.parse(receipt.requestStartedAt) > Date.parse(receipt.requestCompletedAt)) {
+    throw new Error('Weekly statistics capture receipt is invalid.');
+  }
+}
 
 export function validateAllPlayerFenceShape(fence: AllPlayerJobFence): void {
   if (fence.jobKey !== ALL_PLAYER_JOB_KEY || !fence.workerId.trim()
@@ -23,6 +37,7 @@ type JobMethods = Pick<ProjectionStore,
   | 'readAllPlayerJobState'
   | 'validateAllPlayerJobFence'
   | 'markAllPlayerRequest'
+  | 'finishLiveDefenseStatRequest'
   | 'finishAllPlayerJob'
   | 'recordAllPlayerPreclaimOutcome'
 >;
@@ -55,11 +70,26 @@ export function createJobMethods(client: DatabaseClient): JobMethods {
         || input.leaseSeconds > 3_600 || !Number.isFinite(Date.parse(input.deadlineAt))) {
         throw new Error('All-player lease and deadline are invalid.');
       }
-      const rows = await client.query(`/* projection-store:acquire-all-player-job */
-        SELECT * FROM public.claim_all_player_job($1, $2::jsonb, $3, $4, $5::timestamptz)`, [
-        input.mode, json(input.period), requiredText(input.workerId, 'Worker ID'),
-        input.leaseSeconds, input.deadlineAt,
-      ]);
+      if (input.captureReceipt) {
+        validateWeeklyStatReceipt(input.captureReceipt);
+        if (input.mode !== 'recurring') throw new Error('Only recurring capture may reuse weekly statistics.');
+      }
+      const rows = input.mode === 'live-defense'
+        ? await client.query(`/* projection-store:acquire-live-defense-stat-job */
+          SELECT * FROM public.claim_live_defense_stat_job($1::jsonb, $2, $3, $4::timestamptz)`, [
+          json(input.period), requiredText(input.workerId, 'Worker ID'), input.leaseSeconds, input.deadlineAt,
+        ])
+        : input.captureReceipt
+          ? await client.query(`/* projection-store:acquire-shared-all-player-job */
+            SELECT * FROM public.claim_shared_all_player_job($1::jsonb, $2, $3, $4::timestamptz, $5::jsonb)`, [
+            json(input.period), requiredText(input.workerId, 'Worker ID'), input.leaseSeconds, input.deadlineAt,
+            json(input.captureReceipt),
+          ])
+          : await client.query(`/* projection-store:acquire-all-player-job */
+            SELECT * FROM public.claim_all_player_job($1, $2::jsonb, $3, $4, $5::timestamptz)`, [
+            input.mode, json(input.period), requiredText(input.workerId, 'Worker ID'),
+            input.leaseSeconds, input.deadlineAt,
+          ]);
       const row = rows[0];
       if (!row || !['acquired', 'busy', 'not-due'].includes(String(row.kind))) {
         throw new Error('All-player claim result is invalid.');
@@ -109,6 +139,18 @@ export function createJobMethods(client: DatabaseClient): JobMethods {
       const rows = await client.query(`/* projection-store:finish-all-player-job */
         SELECT public.finish_all_player_job($1::jsonb, $2, $3::jsonb) AS finished`, [
         json(input.fence), input.outcome, json(input.diagnostic),
+      ]);
+      return rows[0]?.finished === true;
+    },
+    async finishLiveDefenseStatRequest(input) {
+      validateAllPlayerFenceShape(input.fence);
+      if (input.captureReceipt) validateWeeklyStatReceipt(input.captureReceipt);
+      if ((input.outcome === 'captured') !== Boolean(input.captureReceipt)) {
+        throw new Error('Weekly statistics capture outcome requires matching evidence.');
+      }
+      const rows = await client.query(`/* projection-store:finish-live-defense-stat-request */
+        SELECT public.finish_live_defense_stat_request($1::jsonb, $2, $3::jsonb) AS finished`, [
+        json(input.fence), input.outcome, input.captureReceipt ? json(input.captureReceipt) : null,
       ]);
       return rows[0]?.finished === true;
     },

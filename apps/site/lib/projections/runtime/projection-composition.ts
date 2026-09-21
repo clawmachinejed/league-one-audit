@@ -11,9 +11,13 @@ import { createProductionSharedServices } from './shared-services';
 import { createProjectionServices } from './projection-services';
 import { createProjectionPersistence } from './projection-persistence';
 import type { LeagueRegistryPort } from '../ports/league-registry';
+import type { LiveDefenseStatSourcePort } from '../ports/live-defense-stat-source';
 
 /** Current work alone receives the calendar source and owns authority refreshes. */
-export function createProductionProjectionDependencies(registry?: LeagueRegistryPort): LiveProjectionWorkerDependencies {
+export function createProductionProjectionDependencies(
+  registry?: LeagueRegistryPort,
+  liveDefenseStatSource?: LiveDefenseStatSourcePort,
+): LiveProjectionWorkerDependencies {
   const shared = createProductionSharedServices('live-projection-sync', registry);
   // This composition is created once per invocation. Both leagues must evaluate
   // the rollover at the same instant even when their source loads straddle noon.
@@ -38,6 +42,7 @@ export function createProductionProjectionDependencies(registry?: LeagueRegistry
     ...shared,
     ...createProjectionPersistence(getProjectionStore(), shared),
     ...createProjectionServices(shared),
+    ...(liveDefenseStatSource ? { liveDefenseStatSource } : {}),
     nflCalendar: { getCadenceState: (...args) => observeProviderAdapter(shared.logger, 'sleeper', 'league-calendar',
       () => calendar.getCadenceState(...args)) },
     lineupSource: { getLineup: (...args) => observeProviderAdapter(shared.logger, 'sleeper', 'lineup',

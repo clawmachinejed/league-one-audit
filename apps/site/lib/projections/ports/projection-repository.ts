@@ -15,6 +15,7 @@ import type {
   ProjectionStats,
   ProjectionSlate,
   CanonicalScoringProfile,
+  DefenseProjectionStats,
 } from '../domain/contracts';
 import type { MatchupsData } from '../../types';
 import type { LineupPublicationFence } from '../domain/lineup-publication';
@@ -104,6 +105,7 @@ export type ProjectionBaselineRecord = Readonly<{
   projectionGameRef: ExternalGameRef | null;
   projectionPoints: number;
   projectedStats: Readonly<Record<string, unknown>>;
+  scoringStats?: DefenseProjectionStats;
   quality: 'complete' | 'missing' | 'invalid';
   sourceProjectionRunId: ProjectionRunId;
   projectionSource: ProviderKey;

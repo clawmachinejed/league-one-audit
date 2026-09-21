@@ -11,14 +11,17 @@ import {
   createProductionProjectionDependencies,
 } from './projection-composition';
 import { createProductionFutureProjectionDependencies } from './future-projection-composition';
+import { createLiveDefenseStatCoordinator } from './live-defense-stats';
 
 /** Only the established authenticated force operation may hand a preseason default to its future owner. */
 export async function runProductionProjectionSync(
-  options: Readonly<{ force?: boolean }> = {},
+  options: Readonly<{ force?: boolean; invocationStartedAt?: number;
+    defenseStats?: ReturnType<typeof createLiveDefenseStatCoordinator> }> = {},
 ): Promise<LiveProjectionSyncResult> {
-  const invocationStartedAt = Date.now();
+  const invocationStartedAt = options.invocationStartedAt ?? Date.now();
   const registry = await loadAdministrationRegistry();
-  const current = createProductionProjectionDependencies(registry);
+  const defenseStats = options.defenseStats ?? createLiveDefenseStatCoordinator(invocationStartedAt);
+  const current = createProductionProjectionDependencies(registry, defenseStats.source);
   if (!options.force) {
     const result = await runWithDependencies(current, options);
     // Administration outcomes are durable and separately visible; existing scoring remains isolated.

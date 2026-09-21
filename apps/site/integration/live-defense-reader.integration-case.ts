@@ -1,0 +1,82 @@
+import { randomUUID } from 'node:crypto';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { createProjectionStore } from '../lib/projection-store';
+import { DEFENSE_PROJECTION_MODEL_VERSION } from '../lib/projections/domain/contracts';
+import { createIndependentDatabase, ownerQuery, type IndependentDatabase } from './neon-integration-harness';
+import { databaseTime, stored } from './lineup-lineage-fixture';
+import { enrollIntegrationSeason } from './administration-enrollment-fixture';
+
+describe.sequential('compact live defense reuse through the isolated runtime role', () => {
+  let database: IndependentDatabase;
+  beforeAll(() => { database = createIndependentDatabase(); });
+  afterAll(async () => { await database.close(); });
+
+  async function fixture() {
+    const store = createProjectionStore(database.database);
+    const leagueKey = `defense-reader-${randomUUID()}`;
+    const league = stored(await store.registerLeagueSeason({ leagueKey, leagueName: 'Isolated reader fixture',
+      season: 2199, sleeperLeagueId: `source-${leagueKey}`, scoringRules: { sack: 1, pts_allow_0: 10 } }));
+    return { store, leagueKey, league };
+  }
+  const period = { season: 2199, seasonType: 'regular', week: 18 } as const;
+  const offset = (at: string, seconds: number) => new Date(Date.parse(at) + seconds * 1000).toISOString();
+  const evidence = (at: string, team: string, sourceRevision: string) => ({
+    version: DEFENSE_PROJECTION_MODEL_VERSION, status: 'available', period,
+    requestStartedAt: at, requestCompletedAt: at, observedAt: at, sourceRevision,
+    entries: [{ team, stats: { pts_allow: 7, pts_allow_7_13: 1, sack: 2 } }],
+  });
+
+  it('uses runtime SELECT permissions, exact active enrollment and newest same-source union without exposing full history', async () => {
+    const [one, two, excluded] = await Promise.all([fixture(), fixture(), fixture()]);
+    await enrollIntegrationSeason(ownerQuery, [one.leagueKey, two.leagueKey], period.season);
+    const at = new Date(await databaseTime()).toISOString();
+    const originalAt = offset(at, -5);
+    const revision = `sha256:${randomUUID()}`;
+    const write = async (target: Awaited<ReturnType<typeof fixture>>, detail: ReturnType<typeof evidence>, observedAt: string) => {
+      return stored(await target.store.recordLeagueWeekObservation({ leagueSeasonId: target.league.leagueSeasonId,
+        week: period.week, sourceRevision: randomUUID(), requestStartedAt: observedAt,
+        requestCompletedAt: observedAt, observedAt, quality: 'partial',
+        sourceData: { season: String(period.season), liveDefense: detail },
+        expectedTank01GameIds: [], playerPoints: [], rosterPoints: [] }));
+    };
+    await write(one, evidence(offset(at, -65), 'CHI', 'sha256:older-capture'), offset(at, -10));
+    await write(one, evidence(originalAt, 'SEA', revision), at);
+    await write(two, evidence(originalAt, 'SF', revision), at);
+    // A newer record from a league without season enrollment is not reusable.
+    await write(excluded, evidence(at, 'ATL', 'sha256:not-enrolled'), at);
+    const capture = await one.store.readLiveDefenseStatCapture!(period);
+    expect(capture).toEqual({ period, requestStartedAt: originalAt, requestCompletedAt: originalAt,
+      observedAt: originalAt, sourceRevision: revision,
+      entries: [evidence(originalAt, 'SEA', revision).entries[0], evidence(originalAt, 'SF', revision).entries[0]],
+    });
+    // Disabling enrollment takes it out of subsequent reuse without deleting history.
+    await ownerQuery(`UPDATE league_administration_enrollments SET active=false
+      WHERE league_id=(SELECT id FROM leagues WHERE league_key=$1)`, [two.leagueKey]);
+    expect((await one.store.readLiveDefenseStatCapture!(period))?.entries.map((entry) => entry.team)).toEqual(['SEA']);
+  });
+
+  it('rejects stale original capture timestamps, malformed stats and mismatched periods from real stored rows', async () => {
+    const f = await fixture();
+    await enrollIntegrationSeason(ownerQuery, [f.leagueKey], period.season);
+    const requested = { ...period, week: 17 };
+    const at = new Date(await databaseTime()).toISOString();
+    const cases = [
+      { ...evidence(offset(at, -91), 'SEA', 'sha256:stale'), period: requested },
+      evidence(at, 'SEA', 'sha256:wrong-period'),
+      { ...evidence(at, 'SEA', 'sha256:malformed'), period: requested,
+        entries: [{ team: 'SEA', stats: { pts_allow: '7' } }] },
+    ];
+    for (const [index, detail] of cases.entries()) {
+      // Owner insertion deliberately bypasses the application serializer. The
+      // runtime reader must independently reject invalid persisted evidence.
+      const observedAt = offset(at, -2 + index);
+      await ownerQuery(`INSERT INTO league_week_observations
+        (league_season_id,provider,week,source_revision,request_started_at,request_completed_at,
+         observed_at,quality,expected_game_count,source_data)
+        VALUES($1,'sleeper',$2,$3,$4,$4,$4,'partial',0,$5::jsonb)`,
+      [f.league.leagueSeasonId, requested.week, randomUUID(), observedAt,
+        JSON.stringify({ season: String(period.season), liveDefense: detail })]);
+      expect(await f.store.readLiveDefenseStatCapture!(requested)).toBeNull();
+    }
+  });
+});

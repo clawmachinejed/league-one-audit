@@ -14,6 +14,7 @@ const expectedPorts = [
   'league-source.ts',
   'lineup-source.ts',
   'lineup-watch-repository.ts',
+  'live-defense-stat-source.ts',
   'logger.ts',
   'nfl-calendar.ts',
   'period-authority-reader.ts',

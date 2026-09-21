@@ -1,8 +1,11 @@
 import 'server-only';
 
+import { createSleeperWeeklyStatSource, validateSleeperWeeklyStatsResponse,
+  type SleeperWeeklyStatCapture, type SleeperAllPlayerStatResponseEvidence,
+  type ValidatedSleeperWeeklyRow } from './weekly-stat-source';
+
 import { createHash } from 'node:crypto';
 import { canonicalNflTeam } from '../../../nfl-teams';
-import { startProviderHttp } from '../../../provider-request-telemetry';
 import type { PlayerCatalog, SleeperMatchup } from '../../../transform';
 import { classifySleeperCatalogIdentity } from '../../../sleeper-player-catalog';
 import { NFL_TEAM_CODES } from '../../domain/contracts';
@@ -11,7 +14,6 @@ import {
   allPlayerEligibilityCounts, allPlayerEvidenceMatchesPeriod,
   ALL_PLAYER_INDIVIDUAL_SNAP_KEYS, hasAllPlayerWeeklyParticipationConflict,
   isAllPlayerAssumedNonParticipation,
-  isAllPlayerIndividualSnapCount,
   isAllPlayerEffectivePeriod, isAllPlayerPeriodParticipation,
   type AllPlayerEffectivePeriod, type AllPlayerPeriodParticipationEvidence,
 } from '../../domain/all-player-eligibility';
@@ -19,14 +21,12 @@ import {
   ALL_PLAYER_POSITIONS,
   type AllPlayerExplicitIneligibilityEvidence,
   type AllPlayerEligibilityEvidence,
-  type AllPlayerWeeklyEligibilityEvidence,
   type AllPlayerGamePhase,
   type AllPlayerPosition,
   type AllPlayerStatEntry,
   type AllPlayerStatObservation,
 } from '../../domain/all-player-statistics';
 
-const API = 'https://api.sleeper.app/v1';
 export const ALL_PLAYER_STAT_NORMALIZER_VERSION = 'sleeper-weekly-stats-v4';
 const positionSet = new Set<string>(ALL_PLAYER_POSITIONS);
 
@@ -92,21 +92,12 @@ export type SleeperAllPlayerStatRequest = Readonly<{
   inventory: SleeperAllPlayerInventory;
   gamesByTeam: Readonly<Record<string, TeamGame>>;
   requireFinalCoverage?: boolean;
+  /** Reuse the exact shared request; never issues a second network request. */
+  capture?: SleeperWeeklyStatCapture;
   signal?: AbortSignal;
 }>;
 
-/** Bounded response metadata only. Never retain response keys, values, headers,
- * URLs or provider exception text in a durable failure diagnostic. */
-export type SleeperAllPlayerStatResponseEvidence = Readonly<{
-  httpStatus: number | null;
-  bodyShape: 'object' | 'array' | 'null' | 'string' | 'number' | 'boolean'
-    | 'invalid-json' | 'unreadable' | 'not-read';
-  topLevelCount: number | null;
-  /** SHA-256 of the UTF-8 decoded response text, not an ETag or source claim. */
-  bodyHash: string | null;
-  requestStartedAt: string;
-  requestCompletedAt: string;
-}>;
+export type { SleeperAllPlayerStatResponseEvidence } from './weekly-stat-source';
 
 export type SleeperAllPlayerStatResult =
   | Readonly<{ status: 'available'; observation: AllPlayerStatObservation }>
@@ -139,45 +130,8 @@ function stableJson(value: unknown): string {
   return JSON.stringify(value);
 }
 
-type ValidatedWeeklyRow = Readonly<{
-  stats: Readonly<Record<string, number>>;
-  weekly: AllPlayerWeeklyEligibilityEvidence;
-}>;
-
-function validateStatsResponse(value: unknown): Readonly<Record<string, ValidatedWeeklyRow>> | null {
-  if (!isRecord(value) || Object.keys(value).length === 0) return null;
-  const result: Record<string, ValidatedWeeklyRow> = {};
-  for (const [externalId, rawStats] of Object.entries(value)) {
-    if (!externalId.trim() || !isRecord(rawStats)) return null;
-    const stats: Record<string, number> = {};
-    const rawFlags: Record<string, unknown> = {};
-    const individualSnaps: Partial<Record<typeof ALL_PLAYER_INDIVIDUAL_SNAP_KEYS[number], number>> = {};
-    for (const [key, rawValue] of Object.entries(rawStats)) {
-      const snapKey = ALL_PLAYER_INDIVIDUAL_SNAP_KEYS.find((candidate) => candidate === key);
-      if (['gms_active', 'gp'].includes(key) && rawValue !== 0 && rawValue !== 1
-        || snapKey && !isAllPlayerIndividualSnapCount(rawValue)) {
-        rawFlags[key] = rawValue;
-        if (typeof rawValue === 'number' && Number.isFinite(rawValue)) stats[key] = rawValue;
-        continue;
-      }
-      if (!key.trim() || typeof rawValue !== 'number' || !Number.isFinite(rawValue)) return null;
-      stats[key] = rawValue;
-      if (snapKey) individualSnaps[snapKey] = rawValue;
-    }
-    result[externalId] = { stats, weekly: {
-      kind: 'weekly-stat', source: 'weekly-stat-provider',
-      ...(rawStats.gms_active === 0 || rawStats.gms_active === 1
-        ? { gmsActive: rawStats.gms_active } : {}),
-      ...(rawStats.gp === 0 || rawStats.gp === 1 ? { appearances: rawStats.gp } : {}),
-      ...(Object.keys(individualSnaps).length ? { individualSnaps } : {}),
-      ...(Object.keys(rawFlags).length ? { rawFlags } : {}),
-    } };
-  }
-  return result;
-}
-
 function expectedEligibility(
-  row: ValidatedWeeklyRow | undefined,
+  row: ValidatedSleeperWeeklyRow | undefined,
   explicitIneligibility: SleeperExplicitIneligibilityEvidence | null,
   inventoryFingerprintValue: string,
   periodEvidence?: AllPlayerPeriodParticipationEvidence | null,
@@ -214,12 +168,6 @@ function expectedEligibility(
     return { eligibleGameCount: null, appearanceGameCount: null, eligibilityEvidence };
   }
   return { eligibleGameCount: 0, appearanceGameCount: 0, eligibilityEvidence };
-}
-
-function sourceRevision(response: Response, raw: unknown): string {
-  const etag = response.headers.get('etag')?.trim();
-  return etag ? `etag:${etag}`
-    : `sha256:${createHash('sha256').update(stableJson(raw)).digest('hex')}`;
 }
 
 function evidenceFingerprint(value: unknown): string {
@@ -565,8 +513,7 @@ export function createSleeperAllPlayerStatSource(dependencies: Readonly<{
   fetch: typeof fetch;
   now: () => Date;
 }>) {
-  const fetcher = dependencies.fetch;
-  const now = dependencies.now;
+  const bulkSource = createSleeperWeeklyStatSource(dependencies);
   return {
     async load(input: SleeperAllPlayerStatRequest): Promise<SleeperAllPlayerStatResult> {
       if (!Number.isInteger(input.season) || input.season < 2026 || input.season > 2200
@@ -578,72 +525,18 @@ export function createSleeperAllPlayerStatSource(dependencies: Readonly<{
       const period = input.inventory.sourceEvidence.period;
       if (period && (period.season !== input.season || period.week !== input.week
         || period.seasonType !== 'reg')) return { status: 'unavailable', reason: 'malformed' };
-      const requestStartedAt = now().toISOString();
-      const responseEvidence = (
-        httpStatus: number | null,
-        bodyShape: SleeperAllPlayerStatResponseEvidence['bodyShape'],
-        topLevelCount: number | null = null,
-        bodyHash: string | null = null,
-      ): SleeperAllPlayerStatResponseEvidence => ({
-        httpStatus, bodyShape, topLevelCount, bodyHash, requestStartedAt,
-        requestCompletedAt: now().toISOString(),
-      });
-      const finished = startProviderHttp('sleeper', 'all-player-stats', 'bypass');
-      let response: Response;
-      try {
-        response = await fetcher(
-          `${API}/stats/nfl/regular/${input.season}/${input.week}`,
-          {
-            cache: 'no-store',
-            headers: { Accept: 'application/json' },
-            signal: input.signal
-              ? AbortSignal.any([input.signal, AbortSignal.timeout(20_000)])
-              : AbortSignal.timeout(20_000),
-          },
-        );
-      } catch {
-        finished('unavailable');
-        return { status: 'unavailable', reason: 'http',
-          responseEvidence: responseEvidence(null, 'not-read') };
-      }
-      if (!response.ok) {
-        finished('unavailable');
-        return { status: 'unavailable', reason: 'http', statusCode: response.status,
-          responseEvidence: responseEvidence(response.status, 'not-read') };
-      }
-      let body: string;
-      try {
-        body = await response.text();
-      } catch {
-        finished('invalid');
-        return { status: 'unavailable', reason: 'malformed',
-          responseEvidence: responseEvidence(response.status, 'unreadable') };
-      }
-      const bodyHash = `sha256:${createHash('sha256').update(body).digest('hex')}`;
-      let raw: unknown;
-      try {
-        raw = JSON.parse(body);
-      } catch {
-        finished('invalid');
-        return { status: 'unavailable', reason: 'malformed',
-          responseEvidence: responseEvidence(response.status, 'invalid-json', null, bodyHash) };
-      }
-      const bodyShape: SleeperAllPlayerStatResponseEvidence['bodyShape'] = raw === null ? 'null'
-        : Array.isArray(raw) ? 'array' : isRecord(raw) ? 'object'
-          : typeof raw as 'string' | 'number' | 'boolean';
-      const topLevelCount = Array.isArray(raw) ? raw.length : isRecord(raw) ? Object.keys(raw).length : null;
-      const loadedEvidence = responseEvidence(response.status, bodyShape, topLevelCount, bodyHash);
-      if (bodyShape === 'object' && topLevelCount === 0) {
-        // Shape evidence only. The runtime must independently prove that the
-        // exact period has not started before treating this as an expected skip.
-        finished('unavailable');
-        return { status: 'empty', reason: 'empty-object', responseEvidence: loadedEvidence };
-      }
-      const validated = validateStatsResponse(raw);
-      if (!validated) {
-        finished('invalid');
-        return { status: 'unavailable', reason: 'malformed', responseEvidence: loadedEvidence };
-      }
+      const result = input.capture ? { status: 'available' as const, capture: input.capture }
+        : await bulkSource.load({ season: input.season, seasonType: 'reg', week: input.week, signal: input.signal });
+      if (result.status !== 'available') return result;
+      const capture = result.capture;
+      if (capture.period.season !== input.season || capture.period.seasonType !== 'reg'
+        || capture.period.week !== input.week) return { status: 'unavailable', reason: 'malformed' };
+      // Revalidate retained input at this boundary: replay never bypasses the
+      // full inventory, participation, classification, or numeric checks.
+      const validated = validateSleeperWeeklyStatsResponse(capture.raw);
+      const loadedEvidence = capture.responseEvidence;
+      if (!validated) return { status: 'unavailable', reason: 'malformed', responseEvidence: loadedEvidence };
+      const requestStartedAt = loadedEvidence.requestStartedAt;
       const requestCompletedAt = loadedEvidence.requestCompletedAt;
       const warnings: string[] = [];
       const entries: AllPlayerStatEntry[] = [];
@@ -666,7 +559,6 @@ export function createSleeperAllPlayerStatSource(dependencies: Readonly<{
         if (expected.entityKind !== 'player' && row && (row.weekly.individualSnaps !== undefined
           || ALL_PLAYER_INDIVIDUAL_SNAP_KEYS.some((key) => row.weekly.rawFlags !== undefined
             && Object.prototype.hasOwnProperty.call(row.weekly.rawFlags, key)))) {
-          finished('invalid');
           return { status: 'unavailable', reason: 'malformed', responseEvidence: loadedEvidence };
         }
         if (row) providerPresentEntityCount += 1;
@@ -745,7 +637,6 @@ export function createSleeperAllPlayerStatSource(dependencies: Readonly<{
         && unmappedGameCount === 0 && nonFinalEligibleCount === 0
         && unexpectedResponseEntityCount === 0
         && (!input.requireFinalCoverage || scheduleFinalityComplete);
-      finished('available');
       return {
         status: 'available',
         observation: {
@@ -754,7 +645,7 @@ export function createSleeperAllPlayerStatSource(dependencies: Readonly<{
           seasonType: 'reg',
           week: input.week,
           normalizerVersion: ALL_PLAYER_STAT_NORMALIZER_VERSION,
-          sourceRevision: sourceRevision(response, raw),
+          sourceRevision: capture.sourceRevision,
           requestStartedAt,
           requestCompletedAt,
           observedAt: requestCompletedAt,

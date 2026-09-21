@@ -13,6 +13,8 @@ import type {
   AllPlayerStatObservation,
 } from '../../domain/all-player-statistics';
 import type { AllPlayerHistoricalTeamContext } from '../../domain/all-player-team-context';
+import type { LeaguePeriod } from '../../domain/contracts';
+import type { LiveDefenseStatCapture } from '../../ports/live-defense-stat-source';
 
 export type FutureRefreshFailureCode = CanonicalFutureRefreshFailureCode;
 
@@ -171,6 +173,14 @@ export type AllPlayerBatchInput = Readonly<{
 }>;
 
 export type AllPlayerJobPeriod = Readonly<{ season: number; seasonType: 'reg'; week: number }>;
+export type SleeperWeeklyStatReceipt = Readonly<{
+  period: AllPlayerJobPeriod;
+  sourceRevision: string;
+  bodyHash: string;
+  requestStartedAt: string;
+  requestCompletedAt: string;
+  requestGeneration: number;
+}>;
 export type AllPlayerJobFence = Readonly<{
   jobKey: string;
   workerId: string;
@@ -710,17 +720,24 @@ export type ProjectionStore = LineupWatchMethods & LineupAcknowledgmentMethods &
   ) => Promise<PersistenceOutcome<StoredAllPlayerBatch>>;
   readAllPlayerPlayerMetrics: AllPlayerMetricReader['readAllPlayerPlayerMetrics'];
   readAllPlayerBoxScores?: (input: AllPlayerBoxScoreReadInput) => Promise<StoredAllPlayerBoxScores>;
+  readLiveDefenseStatCapture?: (period: LeaguePeriod) => Promise<LiveDefenseStatCapture | null>;
   acquireAllPlayerJob: (input: Readonly<{
-    mode: 'shadow' | 'backfill' | 'recurring';
+    mode: 'shadow' | 'backfill' | 'recurring' | 'live-defense';
     period: AllPlayerJobPeriod;
     workerId: string;
     leaseSeconds: number;
     deadlineAt: string;
+    captureReceipt?: SleeperWeeklyStatReceipt;
   }>) => Promise<AllPlayerJobClaim>;
   readAllPlayerJobState: () => Promise<AllPlayerJobState | null>;
   validateAllPlayerJobFence: (fence: AllPlayerJobFence) => Promise<boolean>;
   markAllPlayerRequest: (input: Readonly<{
     fence: AllPlayerJobFence; period: AllPlayerJobPeriod;
+  }>) => Promise<boolean>;
+  finishLiveDefenseStatRequest: (input: Readonly<{
+    fence: AllPlayerJobFence;
+    outcome: 'captured' | 'provider-failed' | 'validation-failed' | 'timeout';
+    captureReceipt?: SleeperWeeklyStatReceipt;
   }>) => Promise<boolean>;
   finishAllPlayerJob: (input: Readonly<{
     fence: AllPlayerJobFence; outcome: AllPlayerJobOutcome;
