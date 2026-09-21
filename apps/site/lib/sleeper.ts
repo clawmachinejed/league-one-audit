@@ -743,10 +743,12 @@ export async function getManagersHistory(leagueId: string, leagueKey: LeagueKey)
     ...(unsupported(core.sourceLeague) ? { unavailableReason: `${currentSeason} uses unsupported extra-match or season settings.` } : {}),
   }];
   let source = core.sourceLeague;
-  // This feature starts with 2025; future renewals retain that starting point.
+  // League One includes its approved 2024 history; the other leagues retain
+  // their existing 2025 boundary. Future renewals retain these starting years.
+  const firstSeason = leagueKey === 'league1' ? 2024 : 2025;
   // A bounded chain prevents corrupt or circular provider links from fanout.
   const seen = new Set([leagueId]);
-  for (let season = currentSeason - 1; season >= 2025; season -= 1) {
+  for (let season = currentSeason - 1; season >= firstSeason; season -= 1) {
     let historicalId = source.previous_league_id;
     try {
       if (seen.size >= 20 || typeof historicalId !== 'string' || !/^\d+$/u.test(historicalId)
@@ -780,7 +782,7 @@ export async function getManagersHistory(leagueId: string, leagueKey: LeagueKey)
     }
   }
   return { ...data, history: { ...buildManagerHistory(seasons, currentSeason, leagueKey),
-    label: `2025–${currentSeason} · Regular season · Weeks 1–14` } };
+    label: `${firstSeason}–${currentSeason} · Regular season · Weeks 1–14` } };
 }
 
 /** Reuse current official standings order without loading projected standings history. */

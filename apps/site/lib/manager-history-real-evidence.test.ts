@@ -1,5 +1,8 @@
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import fixture from '../test-support/fixtures/manager-history-2025-2026.json';
+import leagueOne2024 from '../test-support/fixtures/manager-history-league-one-2024.json';
 import { buildManagerHistory, type ManagerHistoryEntry, type ManagerHistorySeason } from './manager-history';
 import type { LeagueKey } from './leagues';
 
@@ -75,5 +78,99 @@ describe('manager history independently captured public evidence', () => {
     });
     // The independent oracle produced 8–6 for the 2025 roster and 1–0 for 2026.
     // The confirmed attribution changes their owner, not either game's outcome.
+  });
+});
+
+describe('League One 2024 manager history from saved official evidence', () => {
+  const leagueOne = fixture.leagues.find(league => league.leagueKey === 'league1')!;
+  const byOwner = (left: { ownerId: string }, right: { ownerId: string }) => left.ownerId.localeCompare(right.ownerId);
+  const seasons = (): ManagerHistorySeason[] => [leagueOne2024.season, ...leagueOne.seasons].map(season => ({ ...season,
+    teams: season.teams.map(team => ({ ...team, name: '', avatar: null,
+      wins: 0, losses: 0, ties: 0, pointsFor: 0, pointsAgainst: 0 })),
+  }));
+
+  it('retains exactly fourteen complete weeks, with source fingerprints and no playoff scores', () => {
+    expect(leagueOne2024.provenance).toMatchObject({ publicProvider: 'Sleeper', season: 2024,
+      sourceLeagueId: '1118614856996909056', sourceDocumentCount: 44, sourceRequestsInSavedCapture: 47,
+      fixtureGenerationRequests: 0, currentSeason: 2026, completedCurrentWeeks: [1, 1],
+      includedMatchupWeeks: Array.from({ length: 14 }, (_, index) => index + 1),
+      excludedMatchupWeeks: [15, 16, 17, 18],
+    });
+    expect(leagueOne2024.provenance.sourceDocumentsSha256).toMatch(/^[a-f0-9]{64}$/u);
+    const existingText = readFileSync(new URL('../test-support/fixtures/manager-history-2025-2026.json', import.meta.url), 'utf8');
+    expect(createHash('sha256').update(existingText.replace(/\r\n/g, '\n')).digest('hex'))
+      .toBe(leagueOne2024.provenance.existingCombinedFixtureLfSha256);
+    const source = leagueOne2024.season;
+    expect(source.throughWeek).toBe(14);
+    expect(source.rows).toHaveLength(14);
+    expect(source.rosters).toHaveLength(12);
+    expect(new Set(source.rosters.map(roster => roster.owner_id)).size).toBe(12);
+    const rosterIds = source.rosters.map(roster => roster.roster_id).sort((left, right) => left - right);
+    expect(source.teams.map(team => team.id)).toEqual(rosterIds);
+    for (const week of source.rows) {
+      expect(week.map(row => row.roster_id)).toEqual(rosterIds);
+      expect(week.every(row => Number.isFinite(row.points))).toBe(true);
+      const pairCounts = new Map<number, number>();
+      for (const row of week) pairCounts.set(row.matchup_id, (pairCounts.get(row.matchup_id) ?? 0) + 1);
+      expect([...pairCounts.values()]).toEqual([2, 2, 2, 2, 2, 2]);
+    }
+    expect(leagueOne2024.expected.season2024Managers.every(manager => manager.wins + manager.losses + manager.ties === 14)).toBe(true);
+    expect(leagueOne2024.expected.season2024Managers.reduce((sum, manager) => sum + manager.wins, 0)).toBe(84);
+  });
+
+  it('matches every independently calculated 2024–2026 owner record with no provider call', () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => { throw new Error('Saved-evidence regression must stay offline.'); });
+    try {
+      const result = buildManagerHistory(seasons(), 2026, 'league1');
+      expect(result.warning).toBeUndefined();
+      expect(result.managers).toHaveLength(14);
+      expect(result.managers.map(comparable).sort(byOwner))
+        .toEqual([...leagueOne2024.expected.combinedManagers].sort(byOwner));
+      expect(result.managers.reduce((sum, manager) => sum + manager.wins!, 0)).toBe(174);
+      expect(result.managers.reduce((sum, manager) => sum + manager.losses!, 0)).toBe(174);
+      expect(result.managers.every(manager => manager.ties === 0)).toBe(true);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally { fetchSpy.mockRestore(); }
+  });
+
+  it('adds the 2024-only owner without combining records for different owners of roster eleven', () => {
+    expect(leagueOne2024.expected.addedOwnerIds).toEqual(['1119002178124910592']);
+    expect(leagueOne2024.season.rosters.find(roster => roster.roster_id === 11)?.owner_id).toBe('1119002178124910592');
+    expect(leagueOne.seasons.find(season => season.season === 2025)?.rosters.find(roster => roster.roster_id === 11)?.owner_id)
+      .toBe('1119007388759166976');
+    const result = buildManagerHistory(seasons(), 2026, 'league1');
+    expect(result.managers.find(manager => manager.ownerId === '1119002178124910592')).toMatchObject({
+      managerName: 'mentalmenagerie', currentTeamId: null, seasons: [2024], wins: 2, losses: 12, ties: 0,
+    });
+    expect(result.managers.find(manager => manager.ownerId === '1119007388759166976')).toMatchObject({
+      managerName: 'evleath', currentTeamId: 11, seasons: [2025, 2026], wins: 10, losses: 5, ties: 0,
+    });
+    expect(result.managers.filter(manager => manager.currentTeamId === null).map(manager => manager.managerName).sort())
+      .toEqual(['mentalmenagerie', 'tbaute69']);
+  });
+
+  it('keeps the current name for the same owner when a historical display name differs', () => {
+    // Synthetic name perturbation layered on real roster/account evidence;
+    // the source fixture itself remains an unchanged sanitized capture.
+    const inputs = seasons().reverse().map(season => season.season === 2024 ? { ...season,
+      teams: season.teams.map(team => ({ ...team, managerName: `Older ${team.managerName}` })),
+    } : season);
+    const result = buildManagerHistory(inputs, 2026, 'league1');
+    expect(result.warning).toBeUndefined();
+    expect(result.managers.filter(manager => manager.currentTeamId !== null).map(comparable).sort(byOwner))
+      .toEqual(leagueOne2024.expected.combinedManagers.filter(manager => manager.currentTeamId !== null).sort(byOwner));
+  });
+
+  it('cannot count appended postseason rows when an upstream season advertises more than fourteen weeks', () => {
+    // Deliberately synthetic sentinel scores: these must never affect the
+    // independently computed official regular-season records above.
+    const inputs = seasons().map(season => season.season === 2024 ? { ...season, throughWeek: 18,
+      rows: [...season.rows, ...Array.from({ length: 4 }, () => leagueOne2024.season.rows[0]
+        .map(row => ({ ...row, points: row.roster_id * 1000 })))],
+    } : season);
+    const result = buildManagerHistory(inputs, 2026, 'league1');
+    expect(result.warning).toBeUndefined();
+    expect(result.managers.map(comparable).sort(byOwner))
+      .toEqual([...leagueOne2024.expected.combinedManagers].sort(byOwner));
   });
 });
