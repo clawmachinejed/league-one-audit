@@ -2,6 +2,7 @@ import type { LeagueWeekState } from '../domain/contracts';
 import { sameLineupShape } from '../domain/lineup-observation';
 import type { LineupMaterializationTarget, LineupPublicationFence } from '../domain/lineup-publication';
 import type { LineupObservationClaim, LineupWatchState } from '../ports/lineup-watch-repository';
+import { parseLineupCadencePolicy } from '../shared/lineup-cadence';
 import { LIVE_PROJECTION_MODEL_VERSION } from './contracts';
 import type { FutureProjectionWorkerDependencies } from './future-contracts';
 import { FutureWorkError, FUTURE_ATTEMPT_LEASE_SECONDS } from './future-work-runtime';
@@ -30,6 +31,7 @@ export async function reserveFutureFullObservation(
     fence, modelVersion: LIVE_PROJECTION_MODEL_VERSION, leaseSeconds: FUTURE_ATTEMPT_LEASE_SECONDS,
   });
   if (reserved.kind !== 'stored') throw new FutureWorkError('league-source-unavailable');
+  parseLineupCadencePolicy(reserved.state.cadencePolicyVersion, reserved.state.watchClass, reserved.state.phase);
   return { state: reserved.state, claim: lineupObservationClaim(reserved.state, fence.runId) };
 }
 export async function completeFutureFullObservation(
@@ -37,7 +39,7 @@ export async function completeFutureFullObservation(
   reserved: Readonly<{ state: LineupWatchState; claim: LineupObservationClaim }>, source: LeagueWeekState,
 ): Promise<void> {
   if (!sameLineupShape(source.lineupShape, reserved.state.shape)) throw new FutureWorkError('league-source-unavailable');
-  const nextCheckAt = nextLineupCheckAt(reserved.state.watchClass, reserved.state.phase, new Date(source.requestCompletedAt));
+  const nextCheckAt = nextLineupCheckAt(reserved.state.watchClass, reserved.state.phase, new Date(source.requestCompletedAt), reserved.state.cadencePolicyVersion);
   if (!nextCheckAt) throw new FutureWorkError('league-source-unavailable');
   const accepted = await dependencies.lineupRepository.completeLineupObservation({
     claim: reserved.claim, actualLineup: source.lineup, requestStartedAt: source.requestStartedAt,

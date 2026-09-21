@@ -1,6 +1,7 @@
 import type { LineupWatchPeriodClass } from '../domain/period-classification';
+import { LEGACY_LINEUP_CADENCE_POLICY_VERSION, parseLineupCadencePolicy } from '../shared/lineup-cadence';
+export { LINEUP_CADENCE_POLICY_VERSION } from '../shared/lineup-cadence';
 
-export const LINEUP_CADENCE_POLICY_VERSION = 'lineup-cadence-v1' as const;
 export const CURRENT_LINEUP_INTERVAL_MS = 60_000;
 export const FUTURE_LINEUP_INTERVAL_MS = 180_000;
 export const FUTURE_LINEUP_CATCHUP_LIMIT = 18;
@@ -48,13 +49,12 @@ export function nextLineupCheckAt(
   watchClass: LineupWatchPeriodClass,
   phase: LineupWatchPhase,
   completedAt: Date,
+  cadencePolicyVersion = LEGACY_LINEUP_CADENCE_POLICY_VERSION as string,
 ): string | null {
   if (watchClass === 'completed') return null;
-  checkedPhase(phase);
+  const { minutes, offset } = parseLineupCadencePolicy(cadencePolicyVersion, watchClass, checkedPhase(phase));
   let nextMinute = epochMinute(completedAt) + 1;
-  if (watchClass === 'future') {
-    nextMinute += (phase - (nextMinute % 3 + 3) % 3 + 3) % 3;
-  }
+  nextMinute += (offset - (nextMinute % minutes + minutes) % minutes + minutes) % minutes;
   return new Date(nextMinute * CURRENT_LINEUP_INTERVAL_MS).toISOString();
 }
 
@@ -62,11 +62,12 @@ export function initialLineupCheckAt(
   watchClass: LineupWatchPeriodClass,
   phase: LineupWatchPhase,
   synchronizedAt: Date,
+  cadencePolicyVersion = LEGACY_LINEUP_CADENCE_POLICY_VERSION as string,
 ): string | null {
   if (watchClass === 'completed') return null;
-  checkedPhase(phase);
+  const { minutes, offset } = parseLineupCadencePolicy(cadencePolicyVersion, watchClass, checkedPhase(phase));
   const minute = epochMinute(synchronizedAt);
-  const wait = watchClass === 'current' ? 0 : (phase - (minute % 3 + 3) % 3 + 3) % 3;
+  const wait = (offset - (minute % minutes + minutes) % minutes + minutes) % minutes;
   return new Date((minute + wait) * CURRENT_LINEUP_INTERVAL_MS).toISOString();
 }
 
@@ -81,30 +82,48 @@ export function lineupFailureRetryDelaysSeconds(
 export type LineupWatchCapacity = Readonly<{
   status: 'supported' | 'capacity-exceeded';
   currentTargets: number;
+  observerCurrentTargets: number;
   futureTargets: number;
   maximumFuturePhase: number;
   requiredMatchupRequestsPerMinute: number;
   maximumFutureChecks: number;
+  maximumCurrentChecks: number;
   maximumTotalChecks: number;
 }>;
 
 export function assessLineupWatchCapacity(
   currentTargets: number,
   futureTargets: number,
+  futureSchedules?: readonly Readonly<{ cadencePolicyVersion: string; phase: LineupWatchPhase }>[],
+  observerCurrentTargets = 0,
 ): LineupWatchCapacity {
-  if (![currentTargets, futureTargets].every((value) => Number.isSafeInteger(value) && value >= 0)) {
+  if (![currentTargets, futureTargets, observerCurrentTargets].every((value) => Number.isSafeInteger(value) && value >= 0)
+    || observerCurrentTargets > currentTargets) {
     throw new Error('Lineup target counts must be nonnegative whole numbers.');
   }
-  const maximumFuturePhase = Math.ceil(futureTargets / 3);
+  if (futureSchedules && futureSchedules.length !== futureTargets) throw new Error('Lineup schedule count mismatch.');
+  const buckets = new Array<number>(360).fill(0);
+  for (const schedule of futureSchedules ?? []) {
+    const { minutes, offset } = parseLineupCadencePolicy(schedule.cadencePolicyVersion, 'future', schedule.phase);
+    for (let minute = offset; minute < 360; minute += minutes) buckets[minute] += 1;
+  }
+  const maximumFuturePhase = futureSchedules ? Math.max(...buckets) : Math.ceil(futureTargets / 3);
   const demand = currentTargets + maximumFuturePhase;
+  // Share one allowance across both lanes: protect a preseason default and future work.
+  // Missing-authority current rows remain conservatively assigned to the active lane.
+  const totalCurrentAllowance = Math.min(currentTargets, LINEUP_MATCHUP_REQUEST_LIMIT - (futureTargets > 0 ? 1 : 0));
+  const maximumCurrentChecks = Math.min(currentTargets - observerCurrentTargets,
+    totalCurrentAllowance - (observerCurrentTargets > 0 ? 1 : 0));
   return {
     status: demand <= LINEUP_MATCHUP_REQUEST_LIMIT && maximumFuturePhase <= FUTURE_LINEUP_CATCHUP_LIMIT
       ? 'supported' : 'capacity-exceeded',
     currentTargets,
+    observerCurrentTargets,
     futureTargets,
     maximumFuturePhase,
     requiredMatchupRequestsPerMinute: demand,
-    maximumFutureChecks: Math.min(FUTURE_LINEUP_CATCHUP_LIMIT, Math.max(0, LINEUP_MATCHUP_REQUEST_LIMIT - currentTargets)),
+    maximumFutureChecks: Math.min(FUTURE_LINEUP_CATCHUP_LIMIT, LINEUP_MATCHUP_REQUEST_LIMIT - totalCurrentAllowance),
+    maximumCurrentChecks,
     maximumTotalChecks: LINEUP_MATCHUP_REQUEST_LIMIT,
   };
 }

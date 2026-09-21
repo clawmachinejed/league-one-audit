@@ -43,11 +43,13 @@ export async function runLineupObservation(
     );
     const context = await synchronizeLineupWatches(scoped.lineupRepository, configurations, results, scoped.clock.now());
     if (context.kind !== 'stored') {
-      try { scoped.logger.write('warn', { stage: 'lineup-watch-capacity', outcome: 'skipped', runId,
-        capacityStatus: context.kind === 'capacity-exceeded' ? 'capacity-exceeded' : undefined }); } catch { /* Logging is noncritical. */ }
       await scoped.repository.failJob(LINEUP_OBSERVATION_JOB_KEY, runId, 'lineup-authority-unavailable');
       ownsJob = false;
       return { status: 'unavailable' };
+    }
+    if (context.capacity.status === 'capacity-exceeded') {
+      try { scoped.logger.write('warn', { stage: 'lineup-watch-capacity', outcome: 'skipped', runId,
+        capacityStatus: 'capacity-exceeded' }); } catch { /* Logging is noncritical. */ }
     }
     const healthyKeys = context.authorities.map((authority) => authority.configuration.key);
     counts.failed += context.skippedLeagueKeys.length;
@@ -61,10 +63,9 @@ export async function runLineupObservation(
     const active = context.states.filter((state) => state.retiredAt === null && state.watchClass !== 'completed');
     const eligible = active.filter((state) => state.materializationLane === 'future');
     // Active current work runs in the separate current lane and reserves its share of the fixed request budget.
-    const reserved = Math.max(0, context.capacity.currentTargets
-      - active.filter((state) => state.watchClass === 'current' && state.materializationLane === 'future').length);
+    const reserved = context.capacity.maximumCurrentChecks;
     let requestsRemaining = Math.max(0, LINEUP_MATCHUP_REQUEST_LIMIT - reserved);
-    let futureRemaining = FUTURE_LINEUP_CATCHUP_LIMIT;
+    let futureRemaining = Math.min(FUTURE_LINEUP_CATCHUP_LIMIT, context.capacity.maximumFutureChecks);
     let claimedCount = 0;
     while (requestsRemaining > 0 && eligible.length > 0 && elapsed() < LINEUP_OBSERVATION_START_DEADLINE_MS) {
       if (controller.signal.aborted) break;

@@ -101,6 +101,7 @@ export function createNeonLineupRepository(
     async readLineupWatchSchedule(keys) {
       return (await store.readLineupWatchSchedule(keys)).map((row) => ({ leagueKey: row.leagueKey,
         leagueRef: externalLeagueRef(row.sourceProvider, row.externalLeagueId), phase: row.phase, watchClass: row.watchClass,
+        ...(row.cadencePolicyVersion === undefined ? {} : { cadencePolicyVersion: row.cadencePolicyVersion }),
         period: { ...row.period, seasonType: row.period.seasonType === 'pre' ? 'preseason' as const
           : row.period.seasonType === 'post' ? 'postseason' as const : 'regular' as const } }));
     },

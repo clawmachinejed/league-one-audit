@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { synchronizeLineupWatches } from './lineup-watch-context';
 import { lineupAuthority, lineupAuthorityResult, lineupConfiguration, lineupHarness, lineupNow } from './lineup-observation.fixtures';
+import { parseLineupCadencePolicy } from '../shared/lineup-cadence';
 
 describe('shared complete-horizon lineup watch context', () => {
-  it('balances 34 future rows in stable 12/11/11 buckets independent of registry order', async () => {
+  it('stably spreads tiered future rows independently of registry order', async () => {
     const harness = lineupHarness();
     const run = async (reverse: boolean) => synchronizeLineupWatches(harness.lineupRepository,
       reverse ? [...harness.configurations].reverse() : harness.configurations,
@@ -11,10 +12,8 @@ describe('shared complete-horizon lineup watch context', () => {
     const first = await run(false);
     const second = await run(true);
     if (first.kind !== 'stored' || second.kind !== 'stored') throw new Error('Expected stored watches.');
-    const phases = (rows: typeof first.states) => rows.filter((row) => row.watchClass === 'future');
-    expect([0, 1, 2].map((phase) => phases(first.states).filter((row) => row.phase === phase).length)).toEqual([12, 11, 11]);
-    expect(first.capacity.requiredMatchupRequestsPerMinute).toBe(14);
-    const keys = (rows: typeof first.states) => rows.map((row) => `${row.watchId}:${row.phase}`).sort();
+    expect(first.capacity.requiredMatchupRequestsPerMinute).toBeLessThan(14);
+    const keys = (rows: typeof first.states) => rows.map((row) => `${row.watchId}:${row.cadencePolicyVersion}`).sort();
     expect(keys(first.states)).toEqual(keys(second.states));
   });
   it('keeps missing-authority leagues registered and never retires them by omission', async () => {
@@ -56,7 +55,7 @@ describe('shared complete-horizon lineup watch context', () => {
       [results[0], { kind: 'stale', leagueKey: 'two' }], lineupNow);
     if (disrupted.kind !== 'stored') throw new Error('Expected healthy stored watches.');
     const phases = (states: typeof initial.states) => states.filter((row) => row.configuration.key === 'one')
-      .map((row) => `${row.period.week}:${row.phase}`);
+      .map((row) => `${row.period.week}:${row.cadencePolicyVersion}`);
     expect(phases(disrupted.states)).toEqual(phases(initial.states));
     const recovered = await synchronizeLineupWatches(h.lineupRepository, h.configurations, results, lineupNow);
     if (recovered.kind !== 'stored') throw new Error('Expected recovered watches.');
@@ -75,11 +74,45 @@ describe('shared complete-horizon lineup watch context', () => {
     expect(result.kind === 'stored' && result.states.every((state) => state.watchClass === 'completed'
       && state.materializationLane === null && state.nextCheckAt === null)).toBe(true);
   });
-  it('fails closed on unsupported request demand before synchronizing rows', async () => {
-    const harness = lineupHarness(Array.from({ length: 5 }, (_, index) => lineupConfiguration(`fleet-${index}`)));
+  it('synchronizes overloaded fleets while reserving bounded current and future progress', async () => {
+    const harness = lineupHarness(Array.from({ length: 25 }, (_, index) => lineupConfiguration(`fleet-${index}`)));
     const result = await synchronizeLineupWatches(harness.lineupRepository, harness.configurations,
       harness.configurations.map((configuration) => lineupAuthorityResult(lineupAuthority(configuration))), lineupNow);
-    expect(result.kind).toBe('capacity-exceeded');
-    expect(harness.lineupRepository.synchronizeLineupWatchStates).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ kind: 'stored', capacity: { status: 'capacity-exceeded',
+      maximumCurrentChecks: 19, maximumFutureChecks: 1 } });
+    expect(harness.lineupRepository.synchronizeLineupWatchStates).toHaveBeenCalledOnce();
+  });
+  it('promotes future tiers at authoritative rollover and stops completed watches', async () => {
+    const h = lineupHarness([lineupConfiguration()]);
+    const run = (week: number) => {
+      const value = lineupAuthority(h.configurations[0]);
+      return synchronizeLineupWatches(h.lineupRepository, h.configurations,
+        [lineupAuthorityResult({ ...value, authorityGeneration: week, authority: { ...value.authority,
+          activeScoringPeriod: { ...value.authority.activeScoringPeriod!, week } } })], lineupNow);
+    };
+    const before = await run(1); const after = await run(2);
+    if (before.kind !== 'stored' || after.kind !== 'stored') throw new Error('Expected stored context.');
+    const tier = (states: typeof before.states, week: number) => {
+      const state = states.find((row) => row.period.week === week)!;
+      return parseLineupCadencePolicy(state.cadencePolicyVersion, state.watchClass, state.phase).minutes;
+    };
+    expect([tier(before.states, 2), tier(after.states, 2)]).toEqual([15, 1]);
+    expect([tier(before.states, 3), tier(after.states, 3)]).toEqual([60, 15]);
+    expect([tier(before.states, 6), tier(after.states, 6)]).toEqual([360, 60]);
+    expect(after.states[0]).toMatchObject({ watchClass: 'completed', nextCheckAt: null });
+    const incoming = h.lineupRepository.synchronizeLineupWatchStates.mock.calls[1][0].targets;
+    expect(Date.parse(incoming[2].initialNextCheckAt!) - lineupNow.getTime()).toBeLessThan(15 * 60_000);
+  });
+  it('adding a fourth league does not reschedule existing scoped identities or stop their watches', async () => {
+    const h = lineupHarness(Array.from({ length: 3 }, (_, i) => lineupConfiguration(`league-${i}`)));
+    const initial = await synchronizeLineupWatches(h.lineupRepository, h.configurations,
+      h.configurations.map((c) => lineupAuthorityResult(lineupAuthority(c))), lineupNow);
+    const expanded = [...h.configurations, lineupConfiguration('fourth')];
+    const next = await synchronizeLineupWatches(h.lineupRepository, expanded,
+      expanded.map((c) => lineupAuthorityResult(lineupAuthority(c))), lineupNow);
+    if (initial.kind !== 'stored' || next.kind !== 'stored') throw new Error('Expected stored context.');
+    expect(next.capacity.maximumCurrentChecks).toBe(4);
+    for (const state of initial.states) expect(next.states.find((row) => row.watchId === state.watchId)?.cadencePolicyVersion)
+      .toBe(state.cadencePolicyVersion);
   });
 });

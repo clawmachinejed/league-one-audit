@@ -3,6 +3,8 @@ import type { LineupWatchState } from '../ports/lineup-watch-repository';
 import type { LiveProjectionWorkerDependencies } from './contracts';
 import { allowsHourlyFallback, hourBoundary, workerCadence } from './cadence';
 import { safeProjectionLog } from './worker-operations';
+import { parseLineupCadencePolicy } from '../shared/lineup-cadence';
+import { LINEUP_MATCHUP_REQUEST_LIMIT } from './lineup-watch-policy';
 
 export type CurrentWorkTarget = Readonly<{
   state: LineupWatchState;
@@ -18,18 +20,29 @@ export async function planCurrentWork(
   now: Date,
   runId: string,
   force: boolean,
+  maximumCurrentChecks = LINEUP_MATCHUP_REQUEST_LIMIT,
 ) {
+  if (!Number.isInteger(maximumCurrentChecks) || maximumCurrentChecks < 0
+    || maximumCurrentChecks > LINEUP_MATCHUP_REQUEST_LIMIT) throw new Error('Invalid current admission limit.');
   const full: CurrentWorkTarget[] = [];
   const thin: LineupWatchState[] = [];
   let skipped = 0;
+  let deferred = 0;
+  const oldest = (state: LineupWatchState) => state.lastCheckedAt === null ? -Infinity : Date.parse(state.lastCheckedAt);
+  const ordered = [...states].sort((left, right) => oldest(left) - oldest(right)
+    || Date.parse(left.nextCheckAt ?? '') - Date.parse(right.nextCheckAt ?? '')
+    || left.configuration.key.localeCompare(right.configuration.key));
   try {
-    for (const state of states) {
+    for (const state of ordered) {
       if (state.materializationLane !== 'current' || state.watchClass !== 'current' || state.retiredAt !== null) continue;
       if (!force && state.consecutiveFailures > 0 && state.nextCheckAt !== null
         && Date.parse(state.nextCheckAt) > now.getTime()) { skipped += 1; continue; }
       const input = cadenceByKey.get(state.configuration.key);
       if (!input || input.period.season !== state.period.season || input.period.week !== state.period.week
         || input.period.seasonType !== state.period.seasonType) { skipped += 1; continue; }
+      parseLineupCadencePolicy(state.cadencePolicyVersion, state.watchClass, state.phase);
+      // Admission precedes both marker claims and full-source retrieval. Deferred rows stay due.
+      if (full.length + thin.length >= maximumCurrentChecks) { skipped += 1; deferred += 1; continue; }
       const routine = workerCadence(input.schedule, now, false, allowsHourlyFallback(input, now));
       let hourlyMarker: string | null = null;
       let hourlyDue = false;
@@ -54,6 +67,8 @@ export async function planCurrentWork(
   }
   safeProjectionLog(dependencies, 'info', { stage: 'current-lineup-plan', outcome: 'completed', runId,
     loadedLeagues: states.length, eligibleLeagues: full.length, skippedLeagues: skipped });
+  if (deferred > 0) safeProjectionLog(dependencies, 'warn', { stage: 'current-lineup-capacity', outcome: 'skipped',
+    runId, capacityStatus: 'capacity-exceeded', skipped: deferred, batchSize: full.length + thin.length });
   return { full, thin, skipped };
 }
 

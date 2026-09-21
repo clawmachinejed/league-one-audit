@@ -2,6 +2,7 @@ import 'server-only';
 
 import type { DatabaseRow } from '../../../database';
 import type { LineupObservationClaim, LineupWatchFence, LineupWatchTarget, StoredLineupWatchState } from './lineup-watch-contracts';
+import { parseLineupCadencePolicy } from '../../shared/lineup-cadence';
 import { normalizeIds, provider, requiredText, rowNullableText, rowNumber, rowText } from './database-values';
 
 export function lineupInteger(value: number, min: number, max: number, label: string): number {
@@ -39,6 +40,7 @@ export function lineupTargetRow(target: LineupWatchTarget): Readonly<Record<stri
     || !['current', 'future', 'completed'].includes(target.watchClass)
     || (target.watchClass === 'completed') !== (target.materializationLane === null)
     || (target.watchClass !== 'completed' && !['current', 'future'].includes(target.materializationLane!))) throw new Error('Invalid lineup target classification.');
+  parseLineupCadencePolicy(target.cadencePolicyVersion, target.watchClass, target.phase);
   return {
     league_key: requiredText(target.leagueKey, 'League key'), source_provider: provider(target.sourceProvider),
     external_league_id: requiredText(target.externalLeagueId, 'External league ID'),

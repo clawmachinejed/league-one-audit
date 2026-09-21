@@ -3,6 +3,7 @@ import { calculateLineupRevision } from '../domain/lineup-revision';
 import type { LineupWatchState } from '../ports/lineup-watch-repository';
 import type { ProjectionFailureCode, ProjectionLogOutcome } from '../ports/logger';
 import { sameExternalReference } from '../shared/provider-identity';
+import { parseLineupCadencePolicy } from '../shared/lineup-cadence';
 import { lineupObservationClaim } from './lineup-watch-context';
 import { lineupFailureRetryDelaysSeconds, nextLineupCheckAt } from './lineup-watch-policy';
 import { emptyLineupObservationCounts, type LineupObservationCounts, type LineupObservationWorkerDependencies } from './lineup-contracts';
@@ -36,6 +37,7 @@ export async function observeLineupClaims(
     let outcome: ProjectionLogOutcome = 'completed';
     let failureCode: ProjectionFailureCode | undefined;
     let accepted = false;
+    let providerInvoked = false;
     const failure = async (code: ProjectionFailureCode) => {
       failureCode = code; outcome = 'failed';
       const result = await dependencies.lineupRepository.failLineupObservation({ claim, failureCode: code,
@@ -45,13 +47,15 @@ export async function observeLineupClaims(
     };
     const startedAt = dependencies.clock.monotonicNow();
     try {
+      parseLineupCadencePolicy(state.cadencePolicyVersion, state.watchClass, state.phase);
       counts.checked += 1;
+      providerInvoked = true;
       const source = await dependencies.lineupSource.getLineup({ configuration: state.configuration,
         period: state.period, shape: state.shape }, options.signal);
       if (options.signal?.aborted) { counts.skipped += 1; outcome = 'skipped'; failureCode = 'deadline-exceeded'; return; }
       if (!matchesClaim(source, state)) { await failure('lineup-response-invalid'); return; }
       const completedAt = new Date(source.requestCompletedAt);
-      const nextCheckAt = nextLineupCheckAt(state.watchClass, state.phase, completedAt);
+      const nextCheckAt = nextLineupCheckAt(state.watchClass, state.phase, completedAt, state.cadencePolicyVersion);
       if (!nextCheckAt) { counts.skipped += 1; outcome = 'skipped'; failureCode = 'claim-stale'; return; }
       if (source.status === 'not-ready') {
         const result = await dependencies.lineupRepository.recordLineupObservationNotReady({ claim,
@@ -90,7 +94,7 @@ export async function observeLineupClaims(
         leagueKey: state.configuration.key, period: state.period,
         lane: state.materializationLane ?? undefined, cadencePolicyVersion: state.cadencePolicyVersion,
         lineupRevisionVersion: state.lineupRevisionVersion, watchClass: state.watchClass,
-        phase: state.phase, attemptGeneration: state.claimGeneration, providerAdapterInvocations: 1, failureCode,
+        phase: state.phase, attemptGeneration: state.claimGeneration, providerAdapterInvocations: providerInvoked ? 1 : 0, failureCode,
         stageDurationMs: Math.max(0, dependencies.clock.monotonicNow() - startedAt) }); } catch { /* Logging is noncritical. */ }
     }
   }));

@@ -2,6 +2,7 @@ import type { LineupPublicationFence } from '../domain/lineup-publication';
 import { sameLineupShape } from '../domain/lineup-observation';
 import type { LineupObservationClaim } from '../ports/lineup-watch-repository';
 import { sameExternalReference } from '../shared/provider-identity';
+import { parseLineupCadencePolicy } from '../shared/lineup-cadence';
 import { LIVE_PROJECTION_MODEL_VERSION, type LiveProjectionWorkerDependencies, type LoadedLeague } from './contracts';
 import type { CurrentWorkTarget } from './current-work-plan';
 import { lineupObservationClaim } from './lineup-watch-context';
@@ -26,6 +27,7 @@ export async function loadCurrentLeagues(
       });
       if (reservation.kind !== 'stored') throw new Error('Full lineup observation reservation failed.');
       claim = lineupObservationClaim(reservation.state, runId);
+      parseLineupCadencePolicy(reservation.state.cadencePolicyVersion, reservation.state.watchClass, reservation.state.phase);
       const source = await dependencies.leagueSource.getLeagueWeek(state.configuration, state.period);
       if (source.configuration.key !== state.configuration.key
         || !sameExternalReference(source.configuration.leagueRef, state.configuration.leagueRef)
@@ -36,7 +38,7 @@ export async function loadCurrentLeagues(
       const accepted = await dependencies.lineupRepository.completeLineupObservation({
         claim, actualLineup: source.lineup, requestStartedAt: source.requestStartedAt,
         requestCompletedAt: source.requestCompletedAt,
-        nextCheckAt: nextLineupCheckAt('current', state.phase, new Date(source.requestCompletedAt))!,
+        nextCheckAt: nextLineupCheckAt('current', reservation.state.phase, new Date(source.requestCompletedAt), reservation.state.cadencePolicyVersion)!,
       });
       if (accepted.kind !== 'stored') throw new Error('Full lineup observation was superseded.');
       claim = null;

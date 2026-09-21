@@ -9,9 +9,9 @@ import type { LineupPeriodAuthority, PeriodAuthorityReadResult } from '../ports/
 import { externalReferenceKey, sameExternalReference } from '../shared/provider-identity';
 import { sha256 } from '../shared/sha256';
 import { stableJson } from '../shared/stable-json';
+import { LEGACY_LINEUP_CADENCE_POLICY_VERSION, lineupCadencePolicy, parseLineupCadencePolicy } from '../shared/lineup-cadence';
 import {
-  allocateLineupWatchPhases, assessLineupWatchCapacity, initialLineupCheckAt,
-  LINEUP_CADENCE_POLICY_VERSION, type LineupWatchCapacity,
+  assessLineupWatchCapacity, initialLineupCheckAt, type LineupWatchCapacity, type LineupWatchPhase,
 } from './lineup-watch-policy';
 
 export type LineupWatchContext = Readonly<{
@@ -20,7 +20,7 @@ export type LineupWatchContext = Readonly<{
   authorities: readonly LineupPeriodAuthority[];
   skippedLeagueKeys: readonly string[];
   capacity: LineupWatchCapacity;
-}> | Readonly<{ kind: 'disabled' }> | Readonly<{ kind: 'capacity-exceeded'; capacity: LineupWatchCapacity }>;
+}> | Readonly<{ kind: 'disabled' }>;
 
 /** Both lanes synchronize the same full horizon; missing authority never means registry removal. */
 export async function synchronizeLineupWatches(
@@ -57,10 +57,14 @@ export async function synchronizeLineupWatches(
         now, range, expectedLeagueRef: configuration.leagueRef,
       });
       if (classification.kind !== 'classified') break;
+      const targetKey = stableJson({ leagueKey: configuration.key, leagueRef: externalReferenceKey(configuration.leagueRef), period });
+      const anchor = authority.authority.activeScoringPeriod ?? authority.authority.defaultDisplayPeriod;
+      const cadencePolicyVersion = lineupCadencePolicy(classification.watchClass, week - anchor.week, await sha256(targetKey));
+      const phase = (parseLineupCadencePolicy(cadencePolicyVersion, classification.watchClass, 0).offset % 3) as LineupWatchPhase;
       planned.push({ configuration, period, shape: authority.shape, authorityGeneration: authority.authorityGeneration,
-        lineupRevisionVersion: LINEUP_REVISION_VERSION, cadencePolicyVersion: LINEUP_CADENCE_POLICY_VERSION,
+        lineupRevisionVersion: LINEUP_REVISION_VERSION, cadencePolicyVersion,
         watchClass: classification.watchClass, materializationLane: classification.materializationLane,
-        phase: 0, initialNextCheckAt: initialLineupCheckAt(classification.watchClass, 0, now) });
+        phase, initialNextCheckAt: initialLineupCheckAt(classification.watchClass, phase, now, cadencePolicyVersion) });
     }
     if (planned.length !== range.lastWeek - range.firstWeek + 1) {
       skippedLeagueKeys.push(configuration.key); continue;
@@ -72,27 +76,13 @@ export async function synchronizeLineupWatches(
   const capacity = assessLineupWatchCapacity(
     targets.filter((target) => target.watchClass === 'current').length + retained.filter((row) => row.watchClass === 'current').length,
     targets.filter((target) => target.watchClass === 'future').length + retained.filter((row) => row.watchClass === 'future').length,
+    [...targets.filter((target) => target.watchClass === 'future'),
+      ...retained.filter((row) => row.watchClass === 'future').map((row) => ({ ...row,
+        cadencePolicyVersion: 'cadencePolicyVersion' in row && typeof row.cadencePolicyVersion === 'string'
+          ? row.cadencePolicyVersion : LEGACY_LINEUP_CADENCE_POLICY_VERSION }))],
+    targets.filter((target) => target.watchClass === 'current' && target.materializationLane === 'future').length,
   );
-  if (capacity.status === 'capacity-exceeded') return { kind: 'capacity-exceeded', capacity };
-  const futureTargets = targets.filter((target) => target.watchClass === 'future');
-  const phaseInputs: { targetKey: string; stableHash: string }[] = [];
-  const key = (target: LineupWatchTarget) => stableJson({ leagueKey: target.configuration.key,
-    leagueRef: externalReferenceKey(target.configuration.leagueRef), period: target.period });
-  // Hash bounded targets sequentially; never create one outstanding promise per configured period.
-  for (const target of futureTargets) {
-    const targetKey = key(target);
-    phaseInputs.push({ targetKey, stableHash: await sha256(targetKey) });
-  }
-  for (const row of retained.filter((value) => value.watchClass === 'future')) {
-    const targetKey = stableJson({ leagueKey: row.leagueKey, leagueRef: externalReferenceKey(row.leagueRef), period: row.period });
-    phaseInputs.push({ targetKey, stableHash: await sha256(targetKey) });
-  }
-  const phases = new Map(allocateLineupWatchPhases(phaseInputs).map((value) => [value.targetKey, value.phase]));
-  const balanced = targets.map((target) => {
-    const phase = phases.get(key(target)) ?? 0;
-    return { ...target, phase, initialNextCheckAt: initialLineupCheckAt(target.watchClass, phase, now) };
-  });
-  const synchronized = await repository.synchronizeLineupWatchStates({ registeredLeagueKeys: registeredKeys, targets: balanced });
+  const synchronized = await repository.synchronizeLineupWatchStates({ registeredLeagueKeys: registeredKeys, targets });
   if (synchronized.kind === 'disabled') return synchronized;
   return { kind: 'stored', states: synchronized.states, authorities, skippedLeagueKeys, capacity };
 }

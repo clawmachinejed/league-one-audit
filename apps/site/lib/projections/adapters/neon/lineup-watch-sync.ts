@@ -70,14 +70,28 @@ export function createLineupWatchSyncMethods(client: DatabaseClient): Pick<Lineu
             watch_class = EXCLUDED.watch_class, materialization_lane = EXCLUDED.materialization_lane,
             phase = EXCLUDED.phase, expected_roster_count = EXCLUDED.expected_roster_count,
             expected_starter_slot_count = EXCLUDED.expected_starter_slot_count, expected_roster_ids = EXCLUDED.expected_roster_ids,
-            watch_generation = w.watch_generation + CASE WHEN (w.authority_generation, w.watch_class, w.materialization_lane)
-              IS DISTINCT FROM (EXCLUDED.authority_generation, EXCLUDED.watch_class, EXCLUDED.materialization_lane) THEN 1 ELSE 0 END,
-            next_check_at = CASE WHEN (w.watch_class, w.materialization_lane)
-              IS DISTINCT FROM (EXCLUDED.watch_class, EXCLUDED.materialization_lane) THEN LEAST(w.next_check_at, EXCLUDED.next_check_at) ELSE w.next_check_at END,
-            active_attempt_id = CASE WHEN w.authority_generation = EXCLUDED.authority_generation AND w.watch_class = EXCLUDED.watch_class AND w.materialization_lane = EXCLUDED.materialization_lane THEN w.active_attempt_id END,
-            lease_owner = CASE WHEN w.authority_generation = EXCLUDED.authority_generation AND w.watch_class = EXCLUDED.watch_class AND w.materialization_lane = EXCLUDED.materialization_lane THEN w.lease_owner END,
-            attempt_started_at = CASE WHEN w.authority_generation = EXCLUDED.authority_generation AND w.watch_class = EXCLUDED.watch_class AND w.materialization_lane = EXCLUDED.materialization_lane THEN w.attempt_started_at END,
-            lease_expires_at = CASE WHEN w.authority_generation = EXCLUDED.authority_generation AND w.watch_class = EXCLUDED.watch_class AND w.materialization_lane = EXCLUDED.materialization_lane THEN w.lease_expires_at END,
+            watch_generation = w.watch_generation + CASE WHEN
+              (w.authority_generation, w.watch_class, w.materialization_lane, w.cadence_policy_version)
+              IS DISTINCT FROM (EXCLUDED.authority_generation, EXCLUDED.watch_class, EXCLUDED.materialization_lane, EXCLUDED.cadence_policy_version)
+              THEN 1 ELSE 0 END,
+            next_check_at = CASE
+              WHEN w.consecutive_failures > 0 THEN w.next_check_at
+              WHEN (w.watch_class, w.materialization_lane)
+                IS DISTINCT FROM (EXCLUDED.watch_class, EXCLUDED.materialization_lane)
+                THEN LEAST(w.next_check_at, EXCLUDED.next_check_at)
+              WHEN w.cadence_policy_version LIKE 'lineup-cadence-v2:%'
+                AND w.cadence_policy_version IS DISTINCT FROM EXCLUDED.cadence_policy_version
+                THEN LEAST(w.next_check_at, EXCLUDED.next_check_at)
+              WHEN w.cadence_policy_version IS DISTINCT FROM EXCLUDED.cadence_policy_version THEN EXCLUDED.next_check_at
+              ELSE w.next_check_at END,
+            active_attempt_id = CASE WHEN (w.authority_generation, w.watch_class, w.materialization_lane, w.cadence_policy_version)
+              = (EXCLUDED.authority_generation, EXCLUDED.watch_class, EXCLUDED.materialization_lane, EXCLUDED.cadence_policy_version) THEN w.active_attempt_id END,
+            lease_owner = CASE WHEN (w.authority_generation, w.watch_class, w.materialization_lane, w.cadence_policy_version)
+              = (EXCLUDED.authority_generation, EXCLUDED.watch_class, EXCLUDED.materialization_lane, EXCLUDED.cadence_policy_version) THEN w.lease_owner END,
+            attempt_started_at = CASE WHEN (w.authority_generation, w.watch_class, w.materialization_lane, w.cadence_policy_version)
+              = (EXCLUDED.authority_generation, EXCLUDED.watch_class, EXCLUDED.materialization_lane, EXCLUDED.cadence_policy_version) THEN w.attempt_started_at END,
+            lease_expires_at = CASE WHEN (w.authority_generation, w.watch_class, w.materialization_lane, w.cadence_policy_version)
+              = (EXCLUDED.authority_generation, EXCLUDED.watch_class, EXCLUDED.materialization_lane, EXCLUDED.cadence_policy_version) THEN w.lease_expires_at END,
             updated_at = now()
           RETURNING ${LINEUP_WATCH_RETURNING_SQL}
         ), invalidated AS (

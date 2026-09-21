@@ -139,4 +139,5 @@ export type LineupWatchRepositoryPort = Readonly<{
 
 export type LineupWatchScheduleEntry = Readonly<{
   leagueKey: string; leagueRef: ExternalLeagueRef; period: LeaguePeriod; watchClass: 'current' | 'future'; phase: 0 | 1 | 2;
+  cadencePolicyVersion?: string;
 }>;
