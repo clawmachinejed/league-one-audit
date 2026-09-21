@@ -1,0 +1,25 @@
+{
+  "outcome": "passed",
+  "postgresVersion": 180006,
+  "migrations": [
+    {
+      "name": "019_live_defense_weekly_statistics.sql",
+      "checksum": "e4ab682773a2441000d9403a762b21f917abab59f840a979713418d2b865c77d"
+    }
+  ],
+  "sentinel": "LIVE_DEFENSE_WEEKLY_STATISTICS_APPLIED:019_live_defense_weekly_statistics.sql:e4ab682773a2441000d9403a762b21f917abab59f840a979713418d2b865c77d",
+  "catalogReview": "pending-independent-review",
+  "checks": [
+    "exact-001-through-018-ledger",
+    "postgres-180006-not-null-constraint-catalog",
+    "unaffected-catalog-and-acls",
+    "protected-physical-table-counts",
+    "corrupt-function-manifest-full-rollback",
+    "corrupt-constraint-manifest-full-rollback",
+    "actual-wrapper-commit",
+    "exact-success-sentinel",
+    "installed-bundle-replay-refused",
+    "same-session-continue-after-error-replay-no-success",
+    "same-session-wrong-target-no-success"
+  ]
+}

@@ -22,6 +22,12 @@ import {
 import { createProductionSharedServices, officialProvider } from './shared-services';
 import { isAllPlayerPollingOpportunity, selectAllPlayerRecurringPeriod } from './all-player-cadence';
 import { prepareAllPlayerDiagnostics } from './all-player-diagnostics';
+import type { SleeperWeeklyStatCapture } from '../adapters/sleeper/weekly-stat-source';
+import type { SleeperWeeklyStatReceipt } from '../adapters/neon/contracts';
+
+type SharedStatCaptureReader = (period: LeaguePeriod) => Readonly<{
+  capture: SleeperWeeklyStatCapture; receipt: SleeperWeeklyStatReceipt;
+}> | undefined;
 
 const projectionProvider = ACTIVE_PROJECTION_SOURCE.provider;
 
@@ -38,6 +44,7 @@ function diagnosticPeriod(value: unknown): LeaguePeriod | undefined {
 export function createProductionAllPlayerDependencies(
   execution?: Readonly<{ signal: AbortSignal; deadlineAt: string }>,
   registry?: LeagueRegistryPort,
+  getSharedCapture?: SharedStatCaptureReader,
 ): AllPlayerIngestionDependencies {
   const shared = createProductionSharedServices('all-player-ingestion', registry);
   const store = execution
@@ -58,6 +65,14 @@ export function createProductionAllPlayerDependencies(
   const loadProjectionInput = (leagueId: string, period: LeaguePeriod) => (
     getOperatorProjectionSyncInput(leagueId, period, loadCatalog)
   );
+  // Pin presence or absence once: a receipt-based claim must never become a
+  // network read if an invocation capture reader changes while preflight runs.
+  const sharedCaptures = new Map<string, ReturnType<SharedStatCaptureReader>>();
+  const sharedCaptureFor = (period: LeaguePeriod) => {
+    const key = `${period.season}:${period.seasonType}:${period.week}`;
+    if (!sharedCaptures.has(key)) sharedCaptures.set(key, getSharedCapture?.(period));
+    return sharedCaptures.get(key);
+  };
   return {
     ...shared,
     ...execution,
@@ -82,9 +97,10 @@ export function createProductionAllPlayerDependencies(
       };
     },
     loadCatalog,
-    allPlayerSource: { access: 'live', ...createSleeperAllPlayerStatSource({
+    sharedCaptureReceipt: (period) => sharedCaptureFor(period)?.receipt,
+    allPlayerSource: { access: 'live', load: (input) => createSleeperAllPlayerStatSource({
       fetch: globalThis.fetch, now: shared.clock.now,
-    }) },
+    }).load({ ...input, capture: sharedCaptureFor({ season: input.season, seasonType: 'regular', week: input.week })?.capture }) },
     normalizeScoringProfile: normalizeSleeperScoringProfile,
     officialProvider,
     projectionProvider,
@@ -112,6 +128,7 @@ export async function runProductionAllPlayerOperation(
  * off until a separately authorized activation; no additional cron exists. */
 export async function runProductionAllPlayerRecurring(
   invocationStartedAt = Date.now(),
+  getSharedCapture?: SharedStatCaptureReader,
 ): Promise<AllPlayerIngestionResult> {
   if (process.env[ALL_PLAYER_RECURRING_ENV] !== 'true') {
     return { status: 'disabled', mode: 'recurring' };
@@ -191,7 +208,7 @@ export async function runProductionAllPlayerRecurring(
   try {
     const dependencies = createProductionAllPlayerDependencies({
       signal: AbortSignal.timeout(remainingMs), deadlineAt: new Date(invocationStartedAt + 50_000).toISOString(),
-    }, await loadAdministrationRegistry());
+    }, await loadAdministrationRegistry(), getSharedCapture);
     preclaimStage = 'global-budget';
     const job = await dependencies.store.readAllPlayerJobState();
     const previousPeriod = diagnosticPeriod(job?.payload.period);
@@ -199,7 +216,11 @@ export async function runProductionAllPlayerRecurring(
       return preclaim({ status: 'skipped', mode: 'recurring', reason: 'not-due' }, 'failure-cooldown', previousPeriod,
         job.payload.nextAttemptAt);
     }
-    if (job?.nextRequestAt && Date.parse(job.nextRequestAt) > now.getTime()) {
+    const lastCapture = job?.payload.lastWeeklyCapture;
+    const capturedPeriod = diagnosticPeriod(lastCapture && typeof lastCapture === 'object'
+      ? (lastCapture as Record<string, unknown>).period : undefined);
+    const hasSharedCapture = capturedPeriod && getSharedCapture?.(capturedPeriod);
+    if (!hasSharedCapture && job?.nextRequestAt && Date.parse(job.nextRequestAt) > now.getTime()) {
       return preclaim({ status: 'skipped', mode: 'recurring', reason: 'not-due' }, 'global-budget', previousPeriod,
         job.nextRequestAt);
     }
@@ -220,6 +241,12 @@ export async function runProductionAllPlayerRecurring(
         ...(period ? { period } : {}),
         ...(selection.diagnostics ? prepareAllPlayerDiagnostics(selection.diagnostics) : {}),
       }, 'period-selection', period);
+    }
+    // A receipt has already consumed the shared network budget. SQL still verifies
+    // receipt ownership/age and reserves this hour's ingestion opportunity.
+    if (!getSharedCapture?.(selection.period) && job?.nextRequestAt && Date.parse(job.nextRequestAt) > now.getTime()) {
+      return preclaim({ status: 'skipped', mode: 'recurring', reason: 'not-due' }, 'global-budget', previousPeriod,
+        job.nextRequestAt);
     }
     return runAllPlayerIngestion(dependencies, {
       mode: 'recurring',

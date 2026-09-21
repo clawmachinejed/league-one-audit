@@ -6,6 +6,7 @@ import type { ProjectionStore } from './contracts';
 import { json, normalizeIds, requiredText, rowNumber, rowText } from './database-values';
 import { publicationFenceJson } from './lineup-publication-values';
 import { LINEUP_PUBLICATION_CTES } from './lineup-publication-sql';
+import { LIVE_DEFENSE_SOURCE_CTES } from './live-defense-evidence';
 import {
   canonicalActivityWindows,
   containsScheduledGame,
@@ -66,7 +67,7 @@ export function createSnapshotMethods(client: DatabaseClient): SnapshotMethods {
                 '$.** ? (@.kind == "scheduled")'::jsonpath
               )
             )
-        ), ${LINEUP_PUBLICATION_CTES}, expected_games AS (
+        ), ${LINEUP_PUBLICATION_CTES}, ${LIVE_DEFENSE_SOURCE_CTES}, expected_games AS (
           SELECT expected.nfl_game_id
           FROM league_week_expected_games expected
           JOIN league_source ON league_source.id = expected.league_week_observation_id
@@ -101,6 +102,19 @@ export function createSnapshotMethods(client: DatabaseClient): SnapshotMethods {
               SELECT nfl_game_id FROM game_sources
               EXCEPT SELECT nfl_game_id FROM expected_games
             ) AS exact_game_set,
+            COALESCE((SELECT valid FROM live_defense_validation), false)
+              AND ((SELECT completed_at FROM live_defense_validation) IS NULL OR EXTRACT(EPOCH FROM (
+                GREATEST((SELECT completed_at FROM live_defense_validation),
+                  (SELECT started_at FROM live_defense_validation),
+                  (SELECT observed_at FROM live_defense_validation),
+                  (SELECT request_completed_at FROM league_source),
+                  (SELECT max(request_completed_at) FROM game_sources), $7::timestamptz)
+                - LEAST((SELECT completed_at FROM live_defense_validation),
+                  (SELECT started_at FROM live_defense_validation),
+                  (SELECT observed_at FROM live_defense_validation),
+                  (SELECT request_completed_at FROM league_source),
+                  (SELECT min(request_completed_at) FROM game_sources), $7::timestamptz)
+              )) <= $10) AS defense_source_aligned,
             CASE
               WHEN (SELECT count(*) FROM expected_games) = 0 THEN true
               ELSE EXTRACT(EPOCH FROM (
@@ -123,6 +137,7 @@ export function createSnapshotMethods(client: DatabaseClient): SnapshotMethods {
                 ))) > $10
               ) AS calculation_time_aligned,
             GREATEST(
+              (SELECT completed_at FROM live_defense_validation),
               (SELECT request_completed_at FROM league_source),
               COALESCE(
                 (SELECT max(request_completed_at) FROM game_sources),
@@ -133,7 +148,7 @@ export function createSnapshotMethods(client: DatabaseClient): SnapshotMethods {
           SELECT source_verified_at FROM source_validation
           WHERE league_ok AND expected_set_registered AND every_source_valid
             AND complete_count AND one_source_per_game AND exact_game_set
-            AND source_times_aligned AND calculation_time_aligned
+            AND source_times_aligned AND calculation_time_aligned AND defense_source_aligned
             AND EXISTS (SELECT 1 FROM publication_lineup_guard)
         ), existing_revision AS (
           SELECT snapshot.* FROM projection_snapshots snapshot

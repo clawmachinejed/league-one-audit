@@ -333,11 +333,15 @@ export type GameStateSlate = Readonly<{
   games: readonly GameStateObservation[];
 }>;
 
+/** Component revision only; immutable baseline keys keep their existing model version. */
+export const DEFENSE_PROJECTION_MODEL_VERSION = 'defense-components-v1' as const;
+
 export type ProjectionPointQuality =
   | 'estimated'
   | 'official-final'
   | 'pregame-baseline'
   | 'defense-baseline-held'
+  | 'defense-estimated'
   | 'missing-baseline'
   | 'retained-prior'
   | 'unavailable';

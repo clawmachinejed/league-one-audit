@@ -3,9 +3,11 @@ import type {
   SourceScoringSettings,
 } from '../../domain/contracts';
 import type {
+  PointsAllowedScoringEvent,
   ProjectionScoringEvent,
   ProjectionScoringRules,
 } from '../../domain/scoring-events';
+import type { DefenseStatMapping } from '../../ports/live-defense-stat-source';
 
 const SOURCE_RULES = [
   ['pass_yd', 'passingYards'],
@@ -70,6 +72,20 @@ const POINTS_ALLOWED_SOURCE_KEYS = [
   'pts_allow_28_34',
   'pts_allow_35p',
 ] as const;
+
+/** Reuses the canonical scoring-key translation for live defense evidence. */
+export const SLEEPER_LIVE_DEFENSE_MAPPING: DefenseStatMapping = {
+  supportedActualRuleKeys: SLEEPER_ALL_PLAYER_SCORING_RULE_KEYS,
+  pointsAllowedStatKey: 'pts_allow',
+  pointsAllowedBuckets: Object.fromEntries(SOURCE_RULES
+    .filter(([key]) => (POINTS_ALLOWED_SOURCE_KEYS as readonly string[]).includes(key))
+    .map(([key, event]) => [event, key])) as Record<PointsAllowedScoringEvent, string>,
+};
+export const SLEEPER_LIVE_DEFENSE_STAT_KEYS: ReadonlySet<string> = new Set([
+  ...SLEEPER_ALL_PLAYER_SCORING_RULE_KEYS,
+  SLEEPER_LIVE_DEFENSE_MAPPING.pointsAllowedStatKey,
+  ...Object.values(SLEEPER_LIVE_DEFENSE_MAPPING.pointsAllowedBuckets),
+]);
 
 const eventBySourceKey = new Map<string, ProjectionScoringEvent>(SOURCE_RULES);
 

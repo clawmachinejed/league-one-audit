@@ -6,6 +6,7 @@ import type { ProjectionStore } from './contracts';
 import { json, normalizeIds, provider, requiredText, rowNumber, rowText } from './database-values';
 import { containsScheduledGame } from './snapshot-codec';
 import { observationLineupValues } from './lineup-publication-values';
+import { validateLiveDefenseEvidence } from './live-defense-evidence';
 
 type ObservationMethods = Pick<ProjectionStore,
   | 'recordGameStates'
@@ -76,6 +77,7 @@ export function prepareLeagueWeekObservation(input: Parameters<ProjectionStore['
   if (times.some((time) => !Number.isFinite(time)) || times[0] > times[1] || times[2] < times[0]) {
     throw new Error('official-observation-time-invalid');
   }
+  validateLiveDefenseEvidence(input.sourceData.liveDefense, input.week, input.sourceData.season);
   // Exercise the exact serializer used by the SQL boundary before ancillary writes.
   json(sourceData); json(playerPoints); json(rosterPoints);
   return { lineupVersion, lineupRevision, expectedGameIds, playerPoints, rosterPoints, sourceData };

@@ -276,6 +276,28 @@ function harness(options: Readonly<{
 }
 
 describe('canonical all-player ingestion orchestration', () => {
+  it('presents a shared live capture receipt to the existing recurring ownership claim', async () => {
+    const test = harness();
+    const receipt = { period: { season: 2026, seasonType: 'reg' as const, week: 1 },
+      sourceRevision: 'captured-live', bodyHash: `sha256:${'a'.repeat(64)}`,
+      requestStartedAt: '2026-09-15T00:59:50.000Z', requestCompletedAt: '2026-09-15T00:59:51.000Z', requestGeneration: 1 };
+    await runAllPlayerIngestion({ ...test.dependencies, sharedCaptureReceipt: () => receipt }, {
+      mode: 'recurring', period: PERIOD, requireFinalCoverage: false,
+    });
+    expect(test.acquireJob).toHaveBeenCalledWith(expect.objectContaining({ mode: 'recurring', captureReceipt: receipt }));
+    expect(test.dependencies.store.markAllPlayerRequest).toHaveBeenCalledOnce();
+  });
+
+  it('does not let an explicit backfill borrow a recurring live capture receipt', async () => {
+    const test = harness();
+    const getReceipt = vi.fn(() => undefined);
+    await runAllPlayerIngestion({ ...test.dependencies, sharedCaptureReceipt: getReceipt }, {
+      mode: 'backfill', period: PERIOD, requireFinalCoverage: true,
+    });
+    expect(getReceipt).not.toHaveBeenCalled();
+    expect(test.acquireJob.mock.calls[0][0]).not.toHaveProperty('captureReceipt');
+  });
+
   function pregameHarness() {
     const test = harness();
     const kickoffAt = '2026-09-15T01:05:00.000Z';

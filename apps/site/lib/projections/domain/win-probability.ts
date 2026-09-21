@@ -104,10 +104,10 @@ function playerVariance(player: WinProbabilityPlayerInput): number | WinProbabil
     return 0;
   }
   if (!finite(player.baselinePoints)) return 'missing-projection';
-  const expectedQuality = player.phase === 'pregame'
-    ? 'pregame-baseline'
-    : player.kind === 'defense' ? 'defense-baseline-held' : 'estimated';
-  if (player.projectionQuality !== expectedQuality) return 'missing-projection';
+  const expectedQualities: readonly ProjectionPointQuality[] = player.phase === 'pregame'
+    ? ['pregame-baseline']
+    : player.kind === 'defense' ? ['defense-estimated', 'defense-baseline-held'] : ['estimated'];
+  if (!expectedQualities.includes(player.projectionQuality)) return 'missing-projection';
   if (isLive(player.phase)) {
     if (!finite(player.remainingFraction)) return 'unknown-game-state';
     if (!finite(player.officialPoints)) return 'missing-official-points';
@@ -118,8 +118,9 @@ function playerVariance(player: WinProbabilityPlayerInput): number | WinProbabil
       ? KICKER_UNCERTAINTY
       : OFFENSE_UNCERTAINTY[player.position.trim().toUpperCase()] ?? OTHER_OFFENSE_UNCERTAINTY;
   const sigma = Math.max(assumption.floor, Math.abs(player.baselinePoints) * assumption.ratio);
-  // D/ST's clock-v1 mean holds the baseline until final; shrinking its variance
-  // around that mean late in a game would create unjustified confidence.
+  // Keep the conservative D/ST uncertainty assumption for both component-based
+  // estimates and evidence-missing baseline holds. Discrete points-allowed tier
+  // changes have not been calibrated into a narrower late-game distribution.
   const fraction = player.phase === 'pregame' || player.kind === 'defense'
     ? 1
     : Math.max(

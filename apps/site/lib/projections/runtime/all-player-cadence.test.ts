@@ -69,6 +69,44 @@ describe('bounded all-player correction selection', () => {
       kind: 'selected', period: { week: 1 }, requireFinalCoverage: true,
     });
   });
+  it('does not let minute-level current defense captures starve hourly current statistics after a prior correction', () => {
+    const mixed: AllPlayerJobState = { ...job(2, true), payload: { ...job(2, true).payload,
+      mode: 'live-defense',
+      lastOutcome: { outcome: 'published', period: { season: 2026, seasonType: 'reg', week: 1 } },
+      lastLiveDefenseOutcome: { outcome: 'captured', period: { season: 2026, seasonType: 'reg', week: 2 } },
+    } };
+    expect(selectAllPlayerRecurringPeriod(authorities(), mixed, now, expectedLeagueKeys)).toMatchObject({
+      kind: 'selected', period: { week: 2 }, requireFinalCoverage: false,
+    });
+    const afterCurrent: AllPlayerJobState = { ...mixed, payload: { ...mixed.payload,
+      lastOutcome: { outcome: 'partial', period: { season: 2026, seasonType: 'reg', week: 2 } },
+    } };
+    expect(selectAllPlayerRecurringPeriod(authorities(), afterCurrent, now, expectedLeagueKeys)).toMatchObject({
+      kind: 'selected', period: { week: 1 }, requireFinalCoverage: true,
+    });
+  });
+  it.each(['validation-failed', 'provider-failed', 'timeout', 'lease-lost'] as const)
+  ('retains hourly alternation after an all-player %s outcome followed by live captures', (outcome) => {
+    const priorFailed: AllPlayerJobState = { ...job(2), payload: { ...job(2).payload,
+      mode: 'live-defense', lastOutcome: { outcome, period: { season: 2026, seasonType: 'reg', week: 1 } },
+    } };
+    expect(selectAllPlayerRecurringPeriod(authorities(), priorFailed, now, expectedLeagueKeys)).toMatchObject({
+      kind: 'selected', period: { week: 2 }, requireFinalCoverage: false,
+    });
+  });
+  it('uses only valid legacy periods when an all-player completion is absent or malformed', () => {
+    const legacy = job(1);
+    for (const lastOutcome of [undefined, { outcome: 'captured', period: legacy.payload.period },
+      { outcome: 'partial', period: { season: 2026, seasonType: 'regular', week: 1 } }]) {
+      expect(selectAllPlayerRecurringPeriod(authorities(), { ...legacy, payload: { ...legacy.payload, lastOutcome } }, now, expectedLeagueKeys))
+        .toMatchObject({ kind: 'selected', period: { week: 2 } });
+    }
+    expect(selectAllPlayerRecurringPeriod(authorities(), { ...legacy, payload: { ...legacy.payload,
+      period: { season: 2026, seasonType: 'post', week: 1 },
+    } }, now, expectedLeagueKeys)).toMatchObject({ kind: 'selected', period: { week: 1 } });
+    expect(selectAllPlayerRecurringPeriod(authorities(), { ...legacy, payload: { ...legacy.payload, mode: 'live-defense' } }, now, expectedLeagueKeys))
+      .toMatchObject({ kind: 'selected', period: { week: 1 } });
+  });
   it('returns to previous-week corrections after a budgeted current-week no-statistics-yet outcome', () => {
     const emptyCurrent = job(2, true);
     const priorProof = emptyCurrent.payload.periodHistory;

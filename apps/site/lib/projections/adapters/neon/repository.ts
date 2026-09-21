@@ -5,6 +5,7 @@ import type { ProjectionStore, PlayerProjectionRecord, StoredProjectionSnapshot 
 import { NFL_TEAM_CODES, type NflTeam, type ProjectionSlate } from '../../domain/contracts';
 import { sameExternalReference } from '../../shared/provider-identity';
 import { storedLineupPublicationFence } from './lineup-repository-values';
+import { tank01DefenseScoringStats } from '../tank01/projection-normalization';
 import type {
   FutureProjectionSlateContentId,
   FutureProjectionSlateObservationId,
@@ -119,6 +120,8 @@ function canonicalBaseline(
       : null,
     projectionPoints: record.projectionPoints,
     projectedStats: record.projectedStats,
+    ...(record.entityKind === 'team_defense' && record.projectionProvider === 'tank01'
+      ? { scoringStats: tank01DefenseScoringStats(record.projectedStats) } : {}),
     quality: record.quality,
     sourceProjectionRunId: record.sourceProjectionRunId as ProjectionRunId,
     projectionSource: projectionProvider,

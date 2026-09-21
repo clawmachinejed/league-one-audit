@@ -1,4 +1,7 @@
 import { calculateLiveProjection } from '../domain/live-calculation';
+import { DEFENSE_PROJECTION_MODEL_VERSION } from '../domain/live-defense';
+import type { CanonicalScoringProfile, DefenseProjectionStats } from '../domain/contracts';
+import type { LiveDefenseStatResult } from '../ports/live-defense-stat-source';
 import { calculateWinProbability, type WinProbabilityPlayerInput } from '../domain/win-probability';
 import type {
   GameStateSlate,
@@ -14,7 +17,7 @@ import type {
 import type { ProjectionBaselineRecord } from '../ports/projection-repository';
 import { externalReferenceKey, sameExternalReference } from '../shared/provider-identity';
 import type { MatchupsData, NflGame, Player, Team } from '../../types';
-import { matchupStatus, startedGame, stateForEntity } from './game-context';
+import { MAX_SOURCE_SKEW_MS, matchupStatus, startedGame, stateForEntity } from './game-context';
 import type { PregameProjectionSet } from './contracts';
 import { activeStarters, availableBench, finite, projectionKind } from './roster-context';
 
@@ -26,7 +29,22 @@ export type BuildSnapshotInput = Readonly<{
   frozen: readonly ProjectionBaselineRecord[];
   prior: MatchupsData | null;
   calculatedAt: string;
+  liveDefenseStats?: LiveDefenseStatResult;
+  scoringProfile?: CanonicalScoringProfile;
 }>;
+
+type DefenseCalculation = Readonly<{ team: string; quality: ProjectionPointQuality; reason?: string }>;
+
+function currentDefenseStatistics(input: BuildSnapshotInput): boolean {
+  const source = input.liveDefenseStats;
+  if (source?.status !== 'available' || !samePeriod(source.capture.period, input.source.period)
+    || !samePeriod(input.games.period, input.source.period)) return false;
+  const times = [source.capture.requestStartedAt, source.capture.requestCompletedAt, source.capture.observedAt,
+    input.source.requestCompletedAt, input.calculatedAt,
+    ...input.games.games.filter((game) => game.statusCode === 1).map((game) => game.requestCompletedAt)].map(Date.parse);
+  return times.every(Number.isFinite) && times[0] <= times[2] && times[2] <= times[1]
+    && Math.max(...times) - Math.min(...times) <= MAX_SOURCE_SKEW_MS;
+}
 
 export function baselineMap(
   records: readonly ProjectionBaselineRecord[],
@@ -62,7 +80,7 @@ function pregameProjectionMap(input: PregameProjectionSet): Map<string, Readonly
   ]));
 }
 
-function projectedPlayerMap(input: BuildSnapshotInput): Map<string, Readonly<{
+function projectedPlayerMap(input: BuildSnapshotInput, defenseCalculations: DefenseCalculation[]): Map<string, Readonly<{
   projectedPoints: number | null;
   presentationProjectedPoints: number | null;
   projectionQuality: ProjectionPointQuality;
@@ -72,6 +90,7 @@ function projectedPlayerMap(input: BuildSnapshotInput): Map<string, Readonly<{
   const frozen = baselineMap(input.frozen);
   const fallback = pregameProjectionMap(input.scored);
   const prior = priorProjectionMap(input.prior);
+  const currentDefenseStats = currentDefenseStatistics(input);
   const result = new Map<string, Readonly<{
     projectedPoints: number | null;
     presentationProjectedPoints: number | null;
@@ -126,6 +145,19 @@ function projectedPlayerMap(input: BuildSnapshotInput): Map<string, Readonly<{
       && (state.phase === 'pregame' ? starter.officialPoints === null || starter.officialPoints === 0
         : finite(starter.officialPoints));
     const effectiveBaseline = expectedRemainingPointsZero ? { points: 0, quality: 'complete' as const } : baseline;
+    const frozenDefenseStats = record?.scoringStats
+      ?? (record?.projectedStats.kind === 'defense' ? record.projectedStats as DefenseProjectionStats : undefined);
+    const defense = entity.kind === 'team-defense' && state?.statusCode === 1
+      && benchContextValid && record?.quality === 'complete' && frozenDefenseStats
+      && entity.externalRef.externalId === entity.nflTeam
+      && input.liveDefenseStats && input.scoringProfile
+      ? {
+          ...input.liveDefenseStats.mapping,
+          profile: input.scoringProfile,
+          projection: frozenDefenseStats,
+          stats: currentDefenseStats && input.liveDefenseStats.status === 'available'
+            ? input.liveDefenseStats.capture.entries.find((entry) => entry.team === entity.nflTeam)?.stats ?? null : null,
+        } : undefined;
     if (!required && (!benchContextValid || scheduled?.kind !== 'bye' && (!effectiveBaseline || effectiveBaseline.quality !== 'complete')
       || state && startedGame(state) && !finite(starter.officialPoints))) {
       result.set(key, { projectedPoints: null, presentationProjectedPoints: null, projectionQuality: 'unavailable' });
@@ -140,7 +172,16 @@ function projectedPlayerMap(input: BuildSnapshotInput): Map<string, Readonly<{
       baseline: effectiveBaseline,
       officialPoints: finite(starter.officialPoints) ? starter.officialPoints : null,
       priorProjectedPoints: prior.get(String(entity.externalRef.externalId)) ?? null,
+      defense,
     });
+    if (entity.kind === 'team-defense' && state?.statusCode === 1) {
+      defenseCalculations.push({ team: entity.nflTeam, quality: calculated.quality,
+        ...(calculated.quality === 'defense-estimated' ? {} : {
+          reason: input.liveDefenseStats?.status === 'unavailable' ? input.liveDefenseStats.reason
+            : input.liveDefenseStats?.status === 'available' && !currentDefenseStats ? 'stale-or-wrong-period-statistics'
+              : calculated.defenseReason ?? 'missing-component-evidence',
+        }) });
+    }
     if (required && (!finite(calculated.projectedPoints) || calculated.quality === 'unavailable')) {
       throw new Error('A complete player projection could not be calculated.');
     }
@@ -172,9 +213,10 @@ function projectedPlayerMap(input: BuildSnapshotInput): Map<string, Readonly<{
 
 export function buildProjectedMatchupSnapshot(
   input: BuildSnapshotInput,
+  defenseCalculations: DefenseCalculation[] = [],
 ): ProjectedMatchupSnapshot {
   assertMatchupScopes(input.source);
-  const projections = projectedPlayerMap(input);
+  const projections = projectedPlayerMap(input, defenseCalculations);
   const benchKeys = new Set(availableBench(input.source).map(({ starter }) => externalReferenceKey(starter.entity.externalRef)));
   const matchups = input.source.matchups.map((matchup) => ({
     matchupRef: matchup.matchupRef,
@@ -416,4 +458,24 @@ function assertMatchupScopes(snapshot: Pick<ProjectedMatchupSnapshot, 'configura
 /** Builds canonical state first, then performs one presentation conversion. */
 export function buildSnapshot(input: BuildSnapshotInput): MatchupsData {
   return toMatchupsData(buildProjectedMatchupSnapshot(input), input.source.schedule, input.games);
+}
+
+/** Retain compact component lineage alongside the existing official observation. */
+export function buildSnapshotWithDefenseEvidence(input: BuildSnapshotInput) {
+  const calculations: DefenseCalculation[] = [];
+  const payload = toMatchupsData(buildProjectedMatchupSnapshot(input, calculations), input.source.schedule, input.games);
+  const uniqueCalculations = [...new Map(calculations.map((entry) => [entry.team, entry])).values()];
+  const capture = input.liveDefenseStats?.status === 'available' && currentDefenseStatistics(input)
+    ? input.liveDefenseStats.capture : null;
+  const appliedTeams = new Set(uniqueCalculations.filter((entry) => entry.quality === 'defense-estimated').map((entry) => entry.team));
+  const entries = capture?.entries.filter((entry) => appliedTeams.has(entry.team)) ?? [];
+  const liveDefense = uniqueCalculations.length === 0 ? undefined : entries.length > 0 && capture
+    ? { version: DEFENSE_PROJECTION_MODEL_VERSION, status: 'available' as const,
+        period: capture.period, requestStartedAt: capture.requestStartedAt,
+        requestCompletedAt: capture.requestCompletedAt, observedAt: capture.observedAt,
+        sourceRevision: capture.sourceRevision, entries, calculations: uniqueCalculations }
+    : { version: DEFENSE_PROJECTION_MODEL_VERSION, status: 'unavailable' as const,
+        reason: input.liveDefenseStats?.status === 'unavailable' ? input.liveDefenseStats.reason : 'no-applied-statistics',
+        calculations: uniqueCalculations };
+  return { payload, liveDefense };
 }

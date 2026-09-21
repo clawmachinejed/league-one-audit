@@ -27,6 +27,9 @@ import type {
   StoredProjectionSnapshot as LowLevelSnapshot,
 } from './contracts';
 import { createNeonProjectionRepository } from './repository';
+import { normalizeSleeperScoringProfile } from '../sleeper/scoring-profile';
+import { normalizeProjectionSlate } from '../tank01/projection-normalization';
+import { scoreProjection } from '../../domain/scoring';
 
 type RepositoryStore = Parameters<typeof createNeonProjectionRepository>[0];
 
@@ -440,6 +443,32 @@ describe('Neon canonical projection repository', () => {
       gameProvider: 'game-state-source', externalGameIds: ['game-opaque'],
       frozenAt: '2026-09-13T16:00:00.000Z',
     });
+  });
+
+  it('translates existing Tank01 frozen defense components without changing their immutable raw fields', async () => {
+    const normalized = normalizeProjectionSlate({ statusCode: 200, body: {
+      playerProjections: {}, teamDefenseProjections: { PHI: {
+        teamAbv: 'PHI', returnTD: 0.1, defTD: 0.2, safeties: 0.1,
+        fumbleRecoveries: 1, ptsAgainst: 20, interceptions: 1, sacks: 2, blockKick: 0.1,
+      } },
+    } }, 0).defensesByTeam.PHI;
+    const raw = Object.freeze({ ...normalized.stats });
+    const stored: PlayerProjectionRecord = { ...lowLevelBaseline, entityKind: 'team_defense',
+      sleeperPlayerId: 'PHI', projectionProvider: 'tank01', projectionPoints: 9.2,
+      projectedStats: raw, frozenAt: '2026-09-13T16:00:00.000Z' };
+    const store = createStore({ readFrozenBaselinesBySleeperIds: vi.fn(async () => [stored]) });
+    const repository = createNeonProjectionRepository(store, { ...options, projectionProvider: providerKey('tank01') });
+    const [baseline] = await repository.readFrozenBaselines({ leagueSeasonId, period,
+      source: providerKey('tank01'), modelVersion: 'clock-v1', officialEntityRefs: [] });
+    expect(baseline.projectedStats).toBe(raw);
+    expect(baseline.projectedStats).not.toHaveProperty('kind');
+    expect(baseline.scoringStats).toEqual(normalized.scoringProjection);
+    expect(baseline.scoringStats).toMatchObject({ kind: 'defense', specialTeamsTouchdowns: 0.1 });
+    const normalizedProfile = normalizeSleeperScoringProfile({ provider: providerKey('sleeper'), rawRules: {
+      sack: 1, int: 2, fum_rec: 2, def_st_fum_rec: 2, def_td: 6, def_st_td: 6, safe: 2, blk_kick: 2, pts_allow_14_20: 1,
+    } });
+    if (normalizedProfile.status !== 'available' || !baseline.scoringStats) throw new Error('Invalid fixture');
+    expect(scoreProjection(baseline.scoringStats, normalizedProfile.profile.rules).points).toBeCloseTo(9.2, 12);
   });
 
   it('uses the configured normalizer for both projection-slate writes and reads', async () => {

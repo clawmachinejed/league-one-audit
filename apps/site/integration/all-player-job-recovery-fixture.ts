@@ -82,7 +82,7 @@ export async function verifyAllPlayerJobRecovery(store: ProjectionStore, fence: 
     ]));
     await ownerQuery(`UPDATE projection_jobs SET state='running', lease_owner=$2,
       lease_until=clock_timestamp()-interval '1 second',
-      payload=payload || jsonb_build_object('requestStarts',
+      payload=(payload-'lastWeeklyRequestAt') || jsonb_build_object('requestStarts',
         jsonb_build_array(clock_timestamp()-interval '13 hours'),'nextAttemptAt',NULL)
       WHERE job_key=$1`, [JOB_KEY, fence.workerId]);
     const claim = await store.acquireAllPlayerJob({ mode: 'backfill',

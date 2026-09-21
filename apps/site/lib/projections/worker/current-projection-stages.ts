@@ -7,6 +7,8 @@ import { mapWithConcurrency, safeProjectionLog as log, elapsed } from './worker-
 import { LIVE_PROJECTION_MODEL_VERSION } from './contracts';
 import type { ProviderPersistenceStage } from '../ports/logger';
 import { gameStatePersistenceDiagnostics, providerPersistenceDiagnostics } from './persistence-diagnostics';
+import { activeStarters, availableBench } from './roster-context';
+import { stateForEntity } from './game-context';
 
 const PROVIDER_GROUP_CONCURRENCY = 4;
 const LEAGUE_PROCESS_CONCURRENCY = 8;
@@ -84,9 +86,26 @@ export async function runCurrentProjectionStages(
         undefined,
         (stage) => { persistence.stage = stage; },
       );
+      let liveDefenseStats;
+      const liveDefenseLeagues = provider.group.leagues.filter((league) =>
+        [...activeStarters(league.source), ...availableBench(league.source)].some(({ starter }) =>
+          starter.entity.kind === 'team-defense'
+          && stateForEntity(starter.entity, persisted.games, league.source.schedule)?.statusCode === 1));
+      if (liveDefenseLeagues.length && dependencies.liveDefenseStatSource) {
+        try {
+          // Persisted exact-period live games are also checked independently by the request-budget SQL.
+          liveDefenseStats = await dependencies.liveDefenseStatSource.load({ period: provider.group.period,
+            statisticsRequired: liveDefenseLeagues.some((league) => {
+              const normalized = dependencies.normalizeScoringProfile(league.source.scoringSettings);
+              return normalized.status === 'available' && normalized.profile.provenance.usesPointsAllowedBucketProxy;
+            }) });
+        } catch {
+          // Optional component evidence must not veto the existing full league snapshot.
+        }
+      }
       persistedGroups.push({
         group: provider.group,
-        persisted,
+        persisted: { ...persisted, ...(liveDefenseStats ? { liveDefenseStats } : {}) },
       });
       log(dependencies, 'info', {
         stage: 'provider-persist', outcome: 'completed', runId,
@@ -146,7 +165,7 @@ export async function runCurrentProjectionStages(
           const acknowledged = await dependencies.lineupRepository.acknowledgeCurrentLineup({
             leagueKey: league.configuration.key, period: league.source.period,
             fence: publicationFence, modelVersion: LIVE_PROJECTION_MODEL_VERSION,
-            sourceRevision: league.source.sourceRevision, actualLineup: league.source.lineup,
+            sourceRevision: result.sourceRevision, actualLineup: league.source.lineup,
             snapshotRevision: result.snapshotRevision,
           });
           if (acknowledged.kind !== 'updated') throw new Error('Current lineup acknowledgment was rejected.');

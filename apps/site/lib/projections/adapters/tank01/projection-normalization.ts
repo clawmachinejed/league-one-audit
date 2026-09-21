@@ -1,4 +1,4 @@
-import type { KickerProjectionStats, OffenseProjectionStats } from '../../domain/contracts';
+import type { DefenseProjectionStats, KickerProjectionStats, OffenseProjectionStats } from '../../domain/contracts';
 import { canonicalNflTeam as canonicalTeam } from '../../../nfl-teams';
 import {
   isRecord,
@@ -106,6 +106,24 @@ function defenseStats(row: Record<string, unknown>): { stats: Tank01DefenseStats
     blockedKicks: valueAt(row, 'blockKick', 'blockKick', missingFields),
   };
   return { stats, missingFields, valueCount: 8 - missingFields.length };
+}
+
+// Frozen candidates retain these normalized Tank01 fields verbatim. Reuse the
+// original scoring translation on reads without rewriting immutable history.
+export function tank01DefenseScoringStats(stats: Readonly<Record<string, unknown>>): DefenseProjectionStats {
+  const value = (key: string): number | null => typeof stats[key] === 'number'
+    && Number.isFinite(stats[key]) ? stats[key] : null;
+  return {
+    kind: 'defense',
+    sacks: value('sacks'),
+    interceptions: value('interceptions'),
+    fumbleRecoveries: value('fumbleRecoveries'),
+    defensiveTouchdowns: value('defensiveTouchdowns'),
+    specialTeamsTouchdowns: value('returnTouchdowns'),
+    safeties: value('safeties'),
+    blockedKicks: value('blockedKicks'),
+    pointsAllowed: value('pointsAllowed'),
+  };
 }
 
 function providerBody(envelope: unknown): unknown {
@@ -271,17 +289,7 @@ export function normalizeProjectionSlate(envelope: unknown, fetchedAtMs: number)
     defensesByTeam[team] = {
       team,
       stats: normalized.stats,
-      scoringProjection: {
-        kind: 'defense',
-        sacks: normalized.stats.sacks,
-        interceptions: normalized.stats.interceptions,
-        fumbleRecoveries: normalized.stats.fumbleRecoveries,
-        defensiveTouchdowns: normalized.stats.defensiveTouchdowns,
-        specialTeamsTouchdowns: normalized.stats.returnTouchdowns,
-        safeties: normalized.stats.safeties,
-        blockedKicks: normalized.stats.blockedKicks,
-        pointsAllowed: normalized.stats.pointsAllowed,
-      },
+      scoringProjection: tank01DefenseScoringStats(normalized.stats),
       missingFields: normalized.missingFields,
     };
   }
@@ -302,4 +310,3 @@ export function normalizeProjectionSlate(envelope: unknown, fetchedAtMs: number)
     incompleteDefenseProjections,
   };
 }
-

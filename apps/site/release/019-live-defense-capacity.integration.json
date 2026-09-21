@@ -1,0 +1,160 @@
+{
+  "kind": "synthetic-isolated-live-defense-parent-history-capacity",
+  "measuredAt": "2026-09-21T14:36:39.921Z",
+  "providerRequests": 0,
+  "totalObservations": 400,
+  "observationsPerVariant": 200,
+  "limitations": [
+    "Owner bulk inserts use runtime serializer into actual parent table; replay uses runtime writer.",
+    "Synthetic twelve-defense applied evidence; no live provider or production traffic measurement.",
+    "Parent-only incremental scope excludes unchanged official child rows, snapshots, identity tables and ordinary application growth.",
+    "Physical allocation includes page/index/TOAST granularity and preexisting free-space effects; stored column/row sizes are separately measured PostgreSQL values.",
+    "This measurement alone does not establish a retained-season capacity or transfer allowance."
+  ],
+  "batches": [
+    {
+      "withDefense": false,
+      "count": 100,
+      "appliedDefensesPerObservation": 0,
+      "before": {
+        "heap_bytes": 24576,
+        "indexes_bytes": 81920,
+        "toast_and_auxiliary_bytes": 32768,
+        "total_bytes": 139264
+      },
+      "after": {
+        "heap_bytes": 139264,
+        "indexes_bytes": 98304,
+        "toast_and_auxiliary_bytes": 32768,
+        "total_bytes": 270336
+      },
+      "afterReplay": {
+        "heap_bytes": 139264,
+        "indexes_bytes": 98304,
+        "toast_and_auxiliary_bytes": 32768,
+        "total_bytes": 270336
+      },
+      "retained": {
+        "observations": 100,
+        "stored_source_bytes": 84600,
+        "stored_row_bytes": 109100
+      },
+      "replayAdditionalObservations": 0,
+      "wallMs": 869.6116999999995,
+      "physicalGrowthBytes": {
+        "heap_bytes": 114688,
+        "indexes_bytes": 16384,
+        "toast_and_auxiliary_bytes": 0,
+        "total_bytes": 131072
+      }
+    },
+    {
+      "withDefense": true,
+      "count": 100,
+      "appliedDefensesPerObservation": 12,
+      "before": {
+        "heap_bytes": 139264,
+        "indexes_bytes": 98304,
+        "toast_and_auxiliary_bytes": 32768,
+        "total_bytes": 270336
+      },
+      "after": {
+        "heap_bytes": 344064,
+        "indexes_bytes": 155648,
+        "toast_and_auxiliary_bytes": 32768,
+        "total_bytes": 532480
+      },
+      "afterReplay": {
+        "heap_bytes": 344064,
+        "indexes_bytes": 155648,
+        "toast_and_auxiliary_bytes": 32768,
+        "total_bytes": 532480
+      },
+      "retained": {
+        "observations": 100,
+        "stored_source_bytes": 166586,
+        "stored_row_bytes": 191220
+      },
+      "replayAdditionalObservations": 0,
+      "wallMs": 917.4127000000008,
+      "physicalGrowthBytes": {
+        "heap_bytes": 204800,
+        "indexes_bytes": 57344,
+        "toast_and_auxiliary_bytes": 0,
+        "total_bytes": 262144
+      }
+    },
+    {
+      "withDefense": false,
+      "count": 100,
+      "appliedDefensesPerObservation": 0,
+      "before": {
+        "heap_bytes": 344064,
+        "indexes_bytes": 155648,
+        "toast_and_auxiliary_bytes": 32768,
+        "total_bytes": 532480
+      },
+      "after": {
+        "heap_bytes": 458752,
+        "indexes_bytes": 212992,
+        "toast_and_auxiliary_bytes": 32768,
+        "total_bytes": 704512
+      },
+      "afterReplay": {
+        "heap_bytes": 458752,
+        "indexes_bytes": 212992,
+        "toast_and_auxiliary_bytes": 32768,
+        "total_bytes": 704512
+      },
+      "retained": {
+        "observations": 100,
+        "stored_source_bytes": 84600,
+        "stored_row_bytes": 109100
+      },
+      "replayAdditionalObservations": 0,
+      "wallMs": 829.9058999999997,
+      "physicalGrowthBytes": {
+        "heap_bytes": 114688,
+        "indexes_bytes": 57344,
+        "toast_and_auxiliary_bytes": 0,
+        "total_bytes": 172032
+      }
+    },
+    {
+      "withDefense": true,
+      "count": 100,
+      "appliedDefensesPerObservation": 12,
+      "before": {
+        "heap_bytes": 458752,
+        "indexes_bytes": 212992,
+        "toast_and_auxiliary_bytes": 32768,
+        "total_bytes": 704512
+      },
+      "after": {
+        "heap_bytes": 663552,
+        "indexes_bytes": 253952,
+        "toast_and_auxiliary_bytes": 32768,
+        "total_bytes": 950272
+      },
+      "afterReplay": {
+        "heap_bytes": 663552,
+        "indexes_bytes": 253952,
+        "toast_and_auxiliary_bytes": 32768,
+        "total_bytes": 950272
+      },
+      "retained": {
+        "observations": 100,
+        "stored_source_bytes": 166603,
+        "stored_row_bytes": 191236
+      },
+      "replayAdditionalObservations": 0,
+      "wallMs": 911.9244999999992,
+      "physicalGrowthBytes": {
+        "heap_bytes": 204800,
+        "indexes_bytes": 40960,
+        "toast_and_auxiliary_bytes": 0,
+        "total_bytes": 245760
+      }
+    }
+  ]
+}

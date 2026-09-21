@@ -7,10 +7,15 @@ const runners = vi.hoisted(() => ({
   future: vi.fn(),
   allPlayer: vi.fn(),
   after: vi.fn(),
+  capture: vi.fn(),
 }));
 vi.mock('server-only', () => ({}));
 vi.mock('next/server', () => ({ after: runners.after }));
 vi.mock('./live-projection-worker', () => ({ runLiveProjectionSync: runners.current }));
+vi.mock('./projections/runtime/projection-dispatch', () => ({ runProductionProjectionSync: runners.current }));
+vi.mock('./projections/runtime/live-defense-stats', () => ({
+  createLiveDefenseStatCoordinator: () => ({ source: {}, getCapture: runners.capture }),
+}));
 vi.mock('./lineup-observation-worker', () => ({ runLineupObservationSync: runners.lineup }));
 vi.mock('./future-projection-worker', () => ({ runFutureProjectionSync: runners.future }));
 vi.mock('./projections/runtime/all-player-composition', () => ({
@@ -50,7 +55,8 @@ describe('production cron route wiring', () => {
       expect(response.status).toBe(200);
       expect(response.headers.get('Cache-Control')).toBe('no-store');
     }
-    expect(runners.current.mock.calls).toEqual([[{ force: true }]]);
+    expect(runners.current).toHaveBeenCalledExactlyOnceWith({ force: true,
+      invocationStartedAt: expect.any(Number), defenseStats: { source: {}, getCapture: runners.capture } });
     expect(runners.lineup.mock.calls).toEqual([[]]);
     expect(runners.future.mock.calls).toEqual([[]]);
     expect(runners.after).not.toHaveBeenCalled();
@@ -77,6 +83,7 @@ describe('production cron route wiring', () => {
     const callback = runners.after.mock.calls[0][0] as () => Promise<void>;
     await expect(callback()).resolves.toBeUndefined();
     expect(runners.allPlayer).toHaveBeenCalledOnce();
+    expect(runners.allPlayer).toHaveBeenCalledWith(expect.any(Number), runners.capture);
   });
 
   it('does not schedule the all-player lane for unauthorized requests', async () => {

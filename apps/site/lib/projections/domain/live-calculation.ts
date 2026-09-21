@@ -1,4 +1,9 @@
 import type { NflGamePhase, ProjectionPointQuality } from './contracts';
+import {
+  calculateLiveDefenseProjection,
+  type LiveDefenseProjectionEvidence,
+  type LiveDefenseUnavailableReason,
+} from './live-defense';
 
 export type LiveProjectionKind = 'offense' | 'kicker' | 'defense';
 
@@ -18,11 +23,14 @@ export type LiveProjectionInput = Readonly<{
   baseline: PregameProjectionBaseline | null;
   officialPoints: number | null;
   priorProjectedPoints?: number | null;
+  defense?: LiveDefenseProjectionEvidence;
 }>;
 
 export type LiveProjectionResult = Readonly<{
   projectedPoints: number | null;
   quality: ProjectionPointQuality;
+  /** Internal scoped diagnostic; never a fabricated actual or an entire-league failure. */
+  defenseReason?: LiveDefenseUnavailableReason;
 }>;
 
 function finite(value: number | null | undefined): value is number {
@@ -87,6 +95,18 @@ export function calculateLiveProjection(input: LiveProjectionInput): LiveProject
 
   if (input.kind === 'defense') {
     const baseline = baselineResult(input.baseline);
+    if (baseline.quality !== 'missing-baseline' && input.defense && finite(input.officialPoints)) {
+      const liveDefense = calculateLiveDefenseProjection({
+        evidence: input.defense,
+        baselinePoints: baseline.projectedPoints!,
+        officialPoints: input.officialPoints,
+        remainingFraction,
+      });
+      if (liveDefense.status === 'available') {
+        return { projectedPoints: liveDefense.projectedPoints, quality: 'defense-estimated' };
+      }
+      return { projectedPoints: baseline.projectedPoints, quality: 'defense-baseline-held', defenseReason: liveDefense.reason };
+    }
     return baseline.quality === 'missing-baseline'
       ? baseline
       : { projectedPoints: baseline.projectedPoints, quality: 'defense-baseline-held' };

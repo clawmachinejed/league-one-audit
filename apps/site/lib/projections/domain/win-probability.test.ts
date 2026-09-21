@@ -104,6 +104,20 @@ describe('normal-v2 matchup win probability', () => {
       .toEqual(result(defenseSide(10, 0), defenseSide(8, 0), 'live'));
   });
 
+  it('uses component-based D/ST means while preserving conservative defensive uncertainty', () => {
+    function defenseSide(projectedPoints: number, remainingFraction: number) {
+      return side({ projectedPoints, officialPoints: 13, players: [player({
+        position: 'DEF', kind: 'defense', phase: 'q4', baselinePoints: 8,
+        remainingFraction, projectionQuality: 'defense-estimated', officialPoints: 13,
+      })] });
+    }
+    const updated = probability(result(defenseSide(15, 0.5), defenseSide(8, 0.5), 'live'));
+    expect(updated).toBeGreaterThan(0.5);
+    expect(probability(result(defenseSide(5, 0.5), defenseSide(8, 0.5), 'live'))).toBeLessThan(0.5);
+    expect(result(defenseSide(15, 0.9), defenseSide(8, 0.9), 'live'))
+      .toEqual(result(defenseSide(15, 0), defenseSide(8, 0), 'live'));
+  });
+
   it('supports negative defensive means without negative variance', () => {
     const defense = player({ position: 'DEF', kind: 'defense', baselinePoints: -3 });
     const p = probability(result(side({ projectedPoints: -3, players: [defense] }), side({ projectedPoints: -5, players: [defense] })));
