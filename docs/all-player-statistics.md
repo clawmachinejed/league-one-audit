@@ -6,7 +6,9 @@ This foundation retains one shared Sleeper weekly response and scores its
 validated immutable content for each distinct registered league scoring profile.
 It derives per-player season total points and points per game from published
 weekly score pointers. The server-side Rosters read model also derives provisional
-position ranks and PPG from each permitted week's latest accepted partial observation.
+position ranks and PPG from accepted raw observations. League / Rosters now uses
+the [weekly 4 AM cutoff](weekly-roster-metrics.md) for those display values;
+ongoing collection and complete-score publication retain their own cadence.
 It adds no public all-player API, Tank01 feed, ingestion call, or cron schedule.
 
 The September 12 repair and partial production capture are not an operational

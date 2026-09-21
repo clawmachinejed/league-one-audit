@@ -1,5 +1,9 @@
 # Site week calendar
 
+Roster player PPG and position rank use the same validated schedule and date
+arithmetic with a separate [4 AM weekly display cutoff](weekly-roster-metrics.md).
+That cutoff does not change the noon active/display-week boundary below.
+
 The site's active scoring week and default display week use one rule: advance at
 noon Eastern local time on the day after the last NFL game date in that week.
 The time zone is `America/New_York`, including daylight saving time. For the

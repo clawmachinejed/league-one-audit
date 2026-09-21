@@ -268,6 +268,11 @@ export function createAllPlayerMetricMethods(client: DatabaseClient): AllPlayerM
         throw new Error('All-player provisional week exceeds the through-week boundary.');
       }
       const scorerVersion = requiredText(input.scorerVersion, 'All-player scorer version');
+      const asOf = input.asOf ?? null;
+      if (input.asOf !== undefined && (typeof asOf !== 'string'
+        || !Number.isFinite(Date.parse(asOf)) || new Date(asOf).toISOString() !== asOf)) {
+        throw new Error('All-player metric cutoff must be a canonical UTC timestamp.');
+      }
       const rows = await client.query(`/* projection-store:read-all-player-player-metrics */
         WITH target_profile AS (
           SELECT season.scoring_profile_id, profile.rules
@@ -283,6 +288,9 @@ export function createAllPlayerMetricMethods(client: DatabaseClient): AllPlayerM
             AND pointer.provider = $2 AND pointer.season = $3::smallint
             AND pointer.season_type = $4 AND pointer.week <= $5::smallint
             AND pointer.scorer_version = $6
+          -- Current pointers have no immutable publication history. A fixed
+          -- cutoff instead derives display-only metrics from retained raw rows.
+          WHERE $8::timestamptz IS NULL
         ), published_summary AS (
           SELECT count(*)::integer AS published_week_count,
             max(week)::integer AS published_through_week,
@@ -310,10 +318,16 @@ export function createAllPlayerMetricMethods(client: DatabaseClient): AllPlayerM
           FROM all_player_stat_observations observation
           JOIN all_player_stat_contents content
             ON content.id = observation.all_player_stat_content_id
-            AND content.quality = 'partial'
+            AND content.quality = observation.quality
           WHERE observation.provider = $2 AND observation.season = $3::smallint
             AND observation.season_type = $4 AND observation.week <= $5::smallint
-            AND observation.quality = 'partial'
+            AND (observation.quality = 'partial'
+              OR ($8::timestamptz IS NOT NULL AND observation.quality = 'complete'))
+            AND ($8::timestamptz IS NULL OR (
+              observation.observed_at <= $8::timestamptz
+              AND observation.request_completed_at <= $8::timestamptz
+              AND observation.created_at <= $8::timestamptz
+            ))
             AND NOT EXISTS (
               SELECT 1 FROM published_pointers pointer WHERE pointer.week = observation.week
             )
@@ -396,7 +410,7 @@ export function createAllPlayerMetricMethods(client: DatabaseClient): AllPlayerM
           metric.mapping_state, NULL::integer
         FROM partial_metrics metric
         ORDER BY row_kind, partial_week, provider_external_id`, [
-        leagueKey, normalizedProvider, season, input.seasonType, throughWeek, scorerVersion, provisionalWeek,
+        leagueKey, normalizedProvider, season, input.seasonType, throughWeek, scorerVersion, provisionalWeek, asOf,
       ]);
       const metadata = rows.filter((row) => row.row_kind === 'metadata');
       if (metadata.length === 0) return unavailable(rows.length);
@@ -516,7 +530,7 @@ export function createAllPlayerMetricMethods(client: DatabaseClient): AllPlayerM
         && publishedObservedAt !== null;
       const hasPartialEvidence = partialThroughWeek !== null && partialObservedAt !== null;
       const hasAvailable = hasPublished || (usablePartial && hasPartialEvidence);
-      const hasProvisional = hasAvailable && (hasPartialEvidence || missingPriorWeekCount > 0);
+      const hasProvisional = hasAvailable && (asOf !== null || hasPartialEvidence || missingPriorWeekCount > 0);
       return {
         status: hasProvisional ? 'provisional' : hasPublished ? 'published' : 'unavailable',
         observedAt: hasAvailable ? laterTimestamp(publishedObservedAt, partialObservedAt) : null,

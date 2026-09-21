@@ -37,22 +37,20 @@ describe('roster history boundary', () => {
 });
 
 describe('player metric boundary', () => {
-  it('uses a partial current week, respects history, and caps a future selection at now', () => {
-    expect(playerMetricBoundary({ selectedWeek: 1, activeWeek: 1, lastScoredWeek: null, lifecycle: 'active' }))
-      .toEqual({ throughWeek: 1, provisionalWeek: 1 });
-    expect(playerMetricBoundary({ selectedWeek: 2, activeWeek: 5, lastScoredWeek: 4, lifecycle: 'active' }))
-      .toEqual({ throughWeek: 2, provisionalWeek: null });
-    expect(playerMetricBoundary({ selectedWeek: 18, activeWeek: 5, lastScoredWeek: 4, lifecycle: 'active' }))
-      .toEqual({ throughWeek: 5, provisionalWeek: 5 });
+  const window = { throughWeek: 4, asOf: '2026-10-06T08:00:00.000Z',
+    nextRefreshAt: '2026-10-13T08:00:00.000Z', holdReason: 'rollover-time-pending' };
+  it('caps historical, current and future selections at the same weekly release', () => {
+    for (const [selectedWeek, throughWeek] of [[2, 2], [5, 4], [18, 4]]) {
+      expect(playerMetricBoundary({ selectedWeek, window })).toEqual({ throughWeek,
+        provisionalWeek: null, asOf: window.asOf, nextRefreshAt: window.nextRefreshAt });
+    }
   });
 
-  it('uses only published boundaries for completed and unknown active periods', () => {
-    expect(playerMetricBoundary({ selectedWeek: 18, activeWeek: null, lastScoredWeek: 17, lifecycle: 'complete' }))
-      .toEqual({ throughWeek: 17, provisionalWeek: null });
-    expect(playerMetricBoundary({ selectedWeek: 4, activeWeek: null, lastScoredWeek: 3, lifecycle: 'active' }))
-      .toEqual({ throughWeek: 3, provisionalWeek: null });
-    expect(playerMetricBoundary({ selectedWeek: 1, activeWeek: null, lastScoredWeek: null, lifecycle: 'preseason' }))
-      .toEqual({ throughWeek: null, provisionalWeek: null });
+  it('withholds unreleased Week 1 and unknown calendar evidence without inventing a cutoff', () => {
+    expect(playerMetricBoundary({ selectedWeek: 1, window: null }))
+      .toEqual({ throughWeek: null, provisionalWeek: null, asOf: null, nextRefreshAt: null });
+    expect(playerMetricBoundary({ selectedWeek: 1, window: { ...window, throughWeek: 0, asOf: null } }))
+      .toEqual({ throughWeek: null, provisionalWeek: null, asOf: null, nextRefreshAt: window.nextRefreshAt });
   });
 });
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import capture from '../test-support/fixtures/sleeper-2026-season-schedule.json';
-import { resolveSiteWeek, SITE_WEEK_POLICY_VERSION } from './site-week';
+import { resolveSiteWeek, resolveWeeklyPlayerMetrics, SITE_WEEK_POLICY_VERSION } from './site-week';
 
 const teamPairs = [
   ['CAR', 'KC'], ['LAC', 'ARI'], ['IND', 'HOU'], ['ATL', 'BAL'],
@@ -172,5 +172,56 @@ describe('site week from completed NFL schedule and Eastern noon', () => {
 
   it.each(['not-a-date', '2026-02-30T12:00:00Z', '2026-09-15', '2026-09-15T12:00:00'])('rejects an invalid or unzoned evaluation time %s', (at) => {
     expect(() => resolve(at)).toThrow('timestamp with a time zone');
+  });
+});
+
+describe('weekly roster statistics at 4 AM Eastern', () => {
+  function metrics(at: string, rows: unknown = schedule()) {
+    return resolveWeeklyPlayerMetrics({ season: '2026', seasonSchedule: rows, evaluatedAt: at });
+  }
+
+  it('releases completed Week 1 at 4 AM while display remains Week 1 until noon', () => {
+    expect(metrics('2026-09-15T07:59:59.999Z', capture.body)).toMatchObject({
+      throughWeek: 0, asOf: null, nextRefreshAt: '2026-09-15T08:00:00.000Z',
+    });
+    const atRelease = metrics('2026-09-15T08:00:00.000Z', capture.body);
+    expect(atRelease).toMatchObject({ throughWeek: 1, asOf: '2026-09-15T08:00:00.000Z',
+      nextRefreshAt: '2026-09-22T08:00:00.000Z' });
+    expect(resolve('2026-09-15T08:00:00.000Z', capture.body).week).toBe(1);
+    expect(metrics('2026-09-21T23:00:00.000Z', capture.body)).toEqual(atRelease);
+  });
+
+  it.each([
+    ['2026-09-13', '2026-09-14T08:00:00.000Z'],
+    ['2026-09-16', '2026-09-17T08:00:00.000Z'],
+    ['2026-10-31', '2026-11-01T09:00:00.000Z'],
+    ['2026-03-07', '2026-03-08T08:00:00.000Z'],
+  ])('uses authoritative last game day %s with daylight saving time', (date, cutoff) => {
+    const rows = schedule(1, date);
+    expect(metrics(new Date(Date.parse(cutoff) - 1).toISOString(), rows).throughWeek).toBe(0);
+    expect(metrics(cutoff, rows)).toMatchObject({ throughWeek: 1, asOf: cutoff });
+  });
+
+  it('keeps the previous release while a rescheduled or unfinished game holds the next one', () => {
+    const rows = schedule(2);
+    const index = rows.findIndex(row => row.week === 2);
+    rows[index] = { ...rows[index], date: '2026-09-23', status: 'postponed' };
+    expect(metrics('2026-09-22T08:00:00Z', rows)).toMatchObject({ throughWeek: 1,
+      asOf: '2026-09-15T08:00:00.000Z', nextRefreshAt: '2026-09-24T08:00:00.000Z' });
+    expect(metrics('2026-09-24T08:00:00Z', rows)).toMatchObject({ throughWeek: 1,
+      holdReason: 'week-2-game-completion-unconfirmed' });
+    rows[index].status = 'complete';
+    expect(metrics('2026-09-24T08:15:00Z', rows)).toMatchObject({ throughWeek: 2,
+      asOf: '2026-09-24T08:00:00.000Z' });
+  });
+
+  it('handles bye-week inventory and stops after Week 18 without another refresh', () => {
+    expect(metrics('2026-09-29T08:00:00Z', schedule(3))).toMatchObject({ throughWeek: 3 });
+    expect(metrics('2027-01-12T09:00:00Z', schedule(18))).toEqual({ throughWeek: 18,
+      asOf: '2027-01-12T09:00:00.000Z', nextRefreshAt: null, holdReason: null });
+  });
+
+  it('rejects an incomplete schedule instead of falling back to current player statistics', () => {
+    expect(() => metrics('2026-09-15T08:00:00Z', schedule().slice(1))).toThrow(/schedule/);
   });
 });

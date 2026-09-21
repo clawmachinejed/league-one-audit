@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { RostersData } from '../lib/types';
-import { nextRosterRefreshAt, ordinal, rosterCacheKey, rosterMetricsRegressed, rosterProvisionalWeek, rosterResponseMatchesSelection, RosterContent } from './rosters-view';
+import { nextRosterRefreshAt, ordinal, rosterCacheKey, rosterMetricsRefreshAt, rosterMetricsRegressed, rosterProvisionalWeek, rosterResponseMatchesSelection, rosterResponseRefreshAt, RosterContent } from './rosters-view';
 
 const data: RostersData = {
   league: { season: '2026', rosterPositions: ['QB', 'BN'], week: 3, maxWeek: 18 },
@@ -113,13 +113,36 @@ describe('rosters presentation', () => {
       'league1', 'league1', '2026', 3)).toBe(true);
   });
 
-  it('checks stored metrics after the hourly collection window, including midnight and winter Eastern time', () => {
+  it('preserves older-server hourly refresh timing during a rolling deployment', () => {
     const next = (value: string) => new Date(nextRosterRefreshAt(Date.parse(value))).toISOString();
     expect(next('2026-09-13T15:59:00.000Z')).toBe('2026-09-13T16:03:00.000Z');
     expect(next('2026-09-13T16:03:00.000Z')).toBe('2026-09-13T17:03:00.000Z');
     expect(next('2026-09-14T03:59:00.000Z')).toBe('2026-09-14T04:03:00.000Z');
     expect(next('2026-09-14T04:03:00.000Z')).toBe('2026-09-14T16:03:00.000Z');
     expect(next('2026-11-02T16:59:00.000Z')).toBe('2026-11-02T17:03:00.000Z');
+  });
+
+  it('uses the server weekly boundary, stops after season completion, and bounds uncertain or expired retries', () => {
+    const now = Date.parse('2026-09-21T18:00:00.000Z');
+    expect(rosterMetricsRefreshAt('2026-09-22T08:00:00.000Z', now)).toBe(Date.parse('2026-09-22T08:00:00.000Z'));
+    expect(rosterMetricsRefreshAt('none', now)).toBe(Infinity);
+    expect(rosterMetricsRefreshAt('unknown', now)).toBe(now + 3_600_000);
+    expect(rosterMetricsRefreshAt('2026-09-21T08:00:00.000Z', now)).toBe(now + 3_600_000);
+    expect(rosterMetricsRefreshAt('2026-09-21T18:00:00.000Z', now)).toBe(now + 3_600_000);
+    expect(rosterMetricsRefreshAt(null, now)).toBeUndefined();
+    expect(rosterMetricsRefreshAt('tomorrow', now)).toBeNaN();
+    expect(rosterMetricsRefreshAt('2026-02-30T08:00:00.000Z', now)).toBeNaN();
+  });
+
+  it('refreshes current and future roster metadata normally without delaying the 4 AM metric boundary', () => {
+    const now = Date.parse('2026-09-21T18:00:00.000Z');
+    const boundary = '2026-09-22T08:00:00.000Z';
+    expect(rosterResponseRefreshAt(boundary, now, 2, 2)).toBe(Date.parse('2026-09-21T18:03:00.000Z'));
+    expect(rosterResponseRefreshAt(boundary, now, 18, 2)).toBe(Date.parse('2026-09-21T18:03:00.000Z'));
+    expect(rosterResponseRefreshAt(boundary, now, 1, 2)).toBe(Date.parse(boundary));
+    expect(rosterResponseRefreshAt(boundary, Date.parse('2026-09-22T07:59:00.000Z'), 2, 2)).toBe(Date.parse(boundary));
+    expect(rosterResponseRefreshAt('none', now, 2, 2)).toBe(Infinity);
+    expect(rosterResponseRefreshAt('unknown', now, 2, 2)).toBe(now + 3_600_000);
   });
 
   it('distinguishes active scoring from display week, proven closure, and unknown authority', () => {
@@ -144,12 +167,14 @@ describe('rosters presentation', () => {
     expect(rosterMetricsRegressed(unavailable, data)).toBe(false);
   });
 
-  it('labels the saved-stat timestamp separately from newly refreshed roster metadata', () => {
+  it('labels the weekly metric coverage separately from newly refreshed roster metadata', () => {
     const html = renderToStaticMarkup(<RosterContent data={{ ...data,
       updatedAt: '2026-09-13T19:00:00.000Z',
       playerMetrics: { status: 'provisional', observedAt: '2026-09-12T16:00:00.000Z', throughWeek: 3 },
     }} selected={2} />);
-    expect(html).toContain('Player stats saved Sep 12, 12:00 PM ET');
+    expect(html).toContain('title="Player stats saved Sep 12, 12:00 PM ET"');
+    expect(html).toContain('PPG and Pos Rank through Week 3');
+    expect(html).toContain('Updated weekly');
     expect(html).toContain('Partial statistics');
     expect(html).toContain('Page refreshed 3:00 PM ET');
   });

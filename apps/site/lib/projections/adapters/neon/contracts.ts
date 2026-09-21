@@ -295,6 +295,8 @@ export type AllPlayerMetricReadInput = Readonly<{
   throughWeek: number;
   provisionalWeek: number | null;
   scorerVersion: string;
+  /** Display-only statistics retained by this fixed UTC cutoff, never proof of score publication. */
+  asOf?: string;
 }>;
 
 export type AllPlayerMetricSparseScorer = (

@@ -464,7 +464,8 @@ describe('shared schedule-based site calendar', () => {
         .toEqual(Array(12).fill(expectedWeek));
       expect(cadence.sourceNflWeek).toBe(3); // Raw Sleeper data was not rewritten.
       expect(cadence.siteWeekPolicy).toMatchObject({ evaluatedAt: at });
-      expect(rosterLoad.metricContext).toMatchObject({ throughWeek: expectedWeek, provisionalWeek: expectedWeek });
+      expect(rosterLoad.metricContext).toMatchObject({ throughWeek: 1, provisionalWeek: null,
+        asOf: '2026-09-15T08:00:00.000Z', nextRefreshAt: '2026-09-22T08:00:00.000Z' });
       expect((await getOfficialMatchups(id, 1)).week).toBe(1);
       expect((await getOfficialMatchups(id, 3)).week).toBe(3);
     }
@@ -1879,7 +1880,7 @@ describe('Sleeper league rosters view', () => {
 
     const { data, metricContext } = await getRostersWithMetricContext(leagueOneId);
     expect(data).toMatchObject({ week: 2, currentWeek: 2, rostersAvailable: true, league: { week: 2 } });
-    expect(metricContext).toMatchObject({ throughWeek: 2, provisionalWeek: 2, activeWeekKnown: true });
+    expect(metricContext).toMatchObject({ throughWeek: 1, provisionalWeek: null, activeWeekKnown: true });
     const ready = data.teams.find((team) => team.id === 1)!;
     expect(ready.rosterAvailable).toBe(true);
     expect(ready.sections.map((section) => section.name)).toEqual(['Starters', 'Bench', 'IR', 'Taxi']);

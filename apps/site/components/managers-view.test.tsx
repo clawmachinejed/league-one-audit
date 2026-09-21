@@ -40,7 +40,7 @@ describe('manager directory season and history tabs', () => {
   it.each(['league1', 'league2', 'dynasty'] as const)('preserves current names, profile links and selection in %s', league => {
     const html = render(league, fixture());
     expect(html).toContain('role="tablist" aria-label="Manager views"');
-    expect(html.indexOf('>History</button>')).toBeLessThan(html.indexOf('>2026</button>'));
+    expect(html.indexOf('>2026</button>')).toBeLessThan(html.indexOf('>History</button>'));
     expect(html).toContain('id="managers-season-tab" aria-controls="managers-view-panel" aria-selected="true" tabindex="0"');
     expect(html).toContain('aria-labelledby="managers-season-tab"');
     expect(html).toContain('Current Team Alpha');
