@@ -89,7 +89,7 @@ describe.sequential('compact live defense reuse through the isolated runtime rol
     const sourceRevision = `sha256:${createHash('sha256').update(randomUUID()).digest('hex')}`;
     const contentId = randomUUID();
     const semanticHash = createHash('sha256').update(contentId).digest('hex');
-    const stats = { pts_allow_0: 1, def_3_and_out: 1, gp: 1 };
+    const stats = { pts_allow_0: 1, def_3_and_out: 1 };
     // Structurally valid synthetic partial raw history, installed only by the
     // guarded disposable harness. No score set, pointer or provider request.
     await ownerQuery(`INSERT INTO all_player_stat_contents
@@ -100,9 +100,11 @@ describe.sequential('compact live defense reuse through the isolated runtime rol
       (all_player_stat_content_id,entity_kind,provider_external_id,nfl_team,position,stats,eligibility_evidence,game_phase,ordinal)
       VALUES($1,'team_defense','SEA','SEA','DEF',$2::jsonb,
         '{"kind":"weekly-stat","source":"weekly-stat-provider"}','live',0),
-      ($1,'team_defense','SF','SF','DEF','{}','{"kind":"missing-provider-row","inventoryFingerprint":"synthetic"}','live',1),
+      ($1,'team_defense','SF','SF','DEF','{}',
+        jsonb_build_object('kind','missing-provider-row','inventoryFingerprint',$3::text),'live',1),
       ($1,'player','11586','SEA','RB','{"rush_yd":19}',
-        '{"kind":"weekly-stat","source":"weekly-stat-provider"}','live',2)`, [contentId, JSON.stringify(stats)]);
+        '{"kind":"weekly-stat","source":"weekly-stat-provider"}','live',2)`,
+    [contentId, JSON.stringify(stats), `sha256:${semanticHash}`]);
     await ownerQuery(`INSERT INTO all_player_stat_observations
       (id,all_player_stat_content_id,provider,season,season_type,week,normalizer_version,source_revision,
        request_started_at,request_completed_at,observed_at,quality)
