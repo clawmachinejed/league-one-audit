@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 vi.mock('server-only', () => ({}));
 import { createFakeProjectionDatabase } from '../../../projection-store-test-support';
-import { DEFENSE_PROJECTION_MODEL_VERSION } from '../../domain/contracts';
+import { DEFENSE_PROJECTION_MODEL_VERSION, NFL_TEAM_CODES } from '../../domain/contracts';
 import { createLiveDefenseReadMethods } from './live-defense-reader';
 
 const at = '2026-09-20T19:00:00.000Z';
@@ -27,11 +27,40 @@ describe('compact persisted live defense evidence reader', () => {
       entries: [...original.entries, { team: 'SF', stats: { pts_allow: 0, pts_allow_0: 1 } }],
     });
     expect(fake.calls).toHaveLength(1);
-    expect(fake.calls[0].parameters).toEqual([2026, 2]);
+    expect(fake.calls[0].parameters).toEqual([2026, 2, NFL_TEAM_CODES, DEFENSE_PROJECTION_MODEL_VERSION]);
     expect(fake.calls[0].statement).toContain("observation.source_data -> 'liveDefense'");
     expect(fake.calls[0].statement).toContain("clock_timestamp() - interval '90 seconds'");
     expect(fake.calls[0].statement).toContain('JOIN LATERAL');
     expect(fake.calls[0].statement).toContain('LIMIT 1');
+  });
+
+  it('reuses the hourly observation original revision and age with exact period and observed-defense row guards', async () => {
+    const original = { ...evidence(), entries: [{ team: 'SEA', stats: { pts_allow_0: 1, def_3_and_out: 1, gp: 1 } }] };
+    const fake = createFakeProjectionDatabase(() => [{ ...row(original), source_kind: 'hourly' }]);
+    expect(await createLiveDefenseReadMethods(fake.database).readLiveDefenseStatCapture(period))
+      .toEqual({ period, sourceRevision: original.sourceRevision, requestStartedAt: at,
+        requestCompletedAt: at, observedAt: at, entries: original.entries });
+    const sql = fake.calls[0].statement;
+    expect(sql).toContain('FROM all_player_stat_observations observation');
+    expect(sql).toContain("observation.normalizer_version = 'sleeper-weekly-stats-v4'");
+    expect(sql).toContain('observation.request_started_at BETWEEN');
+    expect(sql).toContain('observation.request_completed_at BETWEEN');
+    expect(sql).toContain("entry.eligibility_evidence ->> 'kind' = 'weekly-stat'");
+    expect(sql).toContain("entry.eligibility_evidence ->> 'source' = 'weekly-stat-provider'");
+    expect(sql).toContain("entry.entity_kind = 'team_defense' AND entry.position = 'DEF'");
+    expect(sql).toContain('entry.provider_external_id = entry.nfl_team');
+    expect(sql).toContain('EXISTS (SELECT 1 FROM enrolled)');
+  });
+
+  it('prefers the intact hourly envelope for the same retrieval without splicing compact or older statistics', async () => {
+    const original = evidence();
+    const hourly = { ...original, entries: original.entries.map((entry) => ({ ...entry, stats: { ...entry.stats, gp: 1 } })) };
+    const older = { ...original, sourceRevision: 'sha256:older',
+      requestStartedAt: '2026-09-20T18:59:50.000Z', requestCompletedAt: '2026-09-20T18:59:50.000Z',
+      observedAt: '2026-09-20T18:59:50.000Z', entries: [{ team: 'SF', stats: { pts_allow_0: 1 } }] };
+    const fake = createFakeProjectionDatabase(() => [row(original), row(older), { ...row(hourly), source_kind: 'hourly' }]);
+    expect(await createLiveDefenseReadMethods(fake.database).readLiveDefenseStatCapture(period))
+      .toMatchObject({ entries: hourly.entries, observedAt: at, sourceRevision: original.sourceRevision });
   });
 
   it('never combines an older retrieval under the newest source revision or timestamp', async () => {

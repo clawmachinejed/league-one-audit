@@ -50,8 +50,9 @@ the existing payload. The conservative D/ST probability variance remains unchang
 ## Collection, ownership and freshness
 
 Only the current worker requests detail, after it persists canonical game states
-and identifies an in-progress rostered defense. One bulk Sleeper weekly-stat source
-is shared across leagues. Browsers, observers and future-week workers do not fetch
+and identifies an in-progress rostered player or defense, including available
+bench players. The same bulk Sleeper weekly-stat source supplies defensive
+components and compact live box scores across leagues. Browsers, observers and future-week workers do not fetch
 this detail. `ALL_PLAYER_RECURRING_ENABLED` must be exactly `true` before defensive
 collection accesses the database or provider.
 
@@ -85,16 +86,25 @@ the applied component evidence and `defense-components-v1`. Frozen baseline keys
 remain `clock-v1`. The official observation and its lineup acknowledgment use the
 same augmented revision.
 
-Only the relevant applied defense rows and compact diagnostics are retained in
-the existing official observation. The full bulk response stays in invocation
+Relevant applied defense rows, compact diagnostics and bounded descriptive
+box-score fields are retained in the existing official observation. The full bulk response stays in invocation
 memory, or enters the existing hourly all-player history path under its ordinary
 guards. Per-minute full all-player raw and score copies are prohibited.
 
 When a new request is not due or fails, the worker can reuse still-fresh compact
-evidence from enrolled leagues' existing observations for that exact period. It
+evidence from enrolled leagues' existing observations or an accepted hourly raw
+capture for that exact period. It
 retains the original source timestamps and revision, combines only the same
 retrieval, and rejects conflicts. This does not grant a new hourly receipt or
 extend freshness. The worker repeats freshness and official-score parity checks.
+
+For a not-due claim without fresh stored evidence, the worker may wait once for
+at most ten seconds, only when the ordinary claim, request and cleanup still fit
+the existing invocation deadline. It holds no lease while waiting and must claim
+and mark again through the same SQL budget. Busy claims and provider failures do
+not trigger retry loops. Hourly priority and the 90-second evidence limit remain.
+If the official score and detailed statistics disagree, the affected defense
+keeps the existing explicit fallback; neither source is altered to force parity.
 
 ## Release and recovery
 

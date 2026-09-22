@@ -86,7 +86,7 @@ describe('Matchups box-score HTTP boundary', () => {
     expect(test.snapshotRead).toHaveBeenCalledOnce();
     expect(test.snapshotRead).toHaveBeenCalledWith(league, 1, expect.any(Object));
     expect(test.boxRead).toHaveBeenCalledOnce();
-    expect(test.boxRead).toHaveBeenCalledWith({ season: 2026, week: 1, identities: [
+    expect(test.boxRead).toHaveBeenCalledWith({ leagueKey: league, season: 2026, week: 1, identities: [
       { entityKind: 'player', providerExternalId: '5859' },
       { entityKind: 'team_defense', providerExternalId: 'PHI' },
     ] });

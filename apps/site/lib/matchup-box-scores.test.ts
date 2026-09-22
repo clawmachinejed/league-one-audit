@@ -61,10 +61,10 @@ describe('position-specific actual box scores', () => {
     expect(boxScoreResponseMatchesScope({ ...response, status: 'unavailable' }, 'league1', '2026', 1)).toBe(false);
   });
 
-  it('checks after the existing hourly capture window, including midnight and DST', () => {
+  it('checks live stored statistics every minute, including midnight and DST', () => {
     expect(new Date(nextBoxScoreRefreshAt(Date.parse('2026-09-13T16:02:00Z'))).toISOString()).toBe('2026-09-13T16:03:00.000Z');
-    expect(new Date(nextBoxScoreRefreshAt(Date.parse('2026-09-13T16:04:00Z'))).toISOString()).toBe('2026-09-13T17:03:00.000Z');
-    expect(new Date(nextBoxScoreRefreshAt(Date.parse('2026-09-14T04:04:00Z'))).toISOString()).toBe('2026-09-14T16:03:00.000Z');
-    expect(new Date(nextBoxScoreRefreshAt(Date.parse('2026-11-01T05:04:00Z'))).toISOString()).toBe('2026-11-01T17:03:00.000Z');
+    expect(new Date(nextBoxScoreRefreshAt(Date.parse('2026-09-13T16:04:00Z'))).toISOString()).toBe('2026-09-13T16:05:00.000Z');
+    expect(new Date(nextBoxScoreRefreshAt(Date.parse('2026-09-14T04:04:00Z'))).toISOString()).toBe('2026-09-14T04:05:00.000Z');
+    expect(new Date(nextBoxScoreRefreshAt(Date.parse('2026-11-01T05:04:00Z'))).toISOString()).toBe('2026-11-01T05:05:00.000Z');
   });
 });

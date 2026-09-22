@@ -20,6 +20,7 @@ export type AllPlayerBoxScoreIdentity = Readonly<{
 }>;
 
 export type AllPlayerBoxScoreReadInput = Readonly<{
+  leagueKey: string;
   season: number;
   week: number;
   identities: readonly AllPlayerBoxScoreIdentity[];

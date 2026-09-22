@@ -42,10 +42,11 @@ function boardFixture(week = 1) {
   return data;
 }
 
-async function openFixture(page: Page, league: League = 'league1') {
+async function openFixture(page: Page, league: League = 'league1', phase: 'scheduled' | 'live' | 'final' = 'live') {
   const state = {
     passingYards: 209, boxStatus: 200, observedAt: '2026-09-13T16:00:00.000Z',
     leftPlayerId: 'fixture-player-0', snapshotRevision: SNAPSHOT_B,
+    gamePhase: phase, boxPhase: 'live' as 'live' | 'final', clockSeconds: 300,
     boxRequests: [] as Array<{ league: string; season: string | null; week: number; queryKeys: string[] }>,
     compactCount: 0, fullCount: 0, documentCount: 0,
     holdBox: null as Promise<void> | null, completedBoxes: 0, abortedBoxes: [] as string[], providerRequests: [] as string[],
@@ -94,9 +95,10 @@ async function openFixture(page: Page, league: League = 'league1') {
       const payload: MatchupBoxScores = { leagueKey: requestedLeague, season: '2026', week, status: 'available',
         observedAt: state.observedAt, revision: `box-${state.passingYards}`, players: {
           [`player:${state.leftPlayerId}`]: { stats: { pass_cmp: 17, pass_att: 27, pass_yd: state.passingYards, pass_td: 1,
-            pass_int: 1, rush_att: 5, rush_yd: 29 }, gamePhase: 'live' },
+            pass_int: 1, rush_att: 5, rush_yd: 29 }, gamePhase: state.boxPhase },
           [RIGHT]: { stats: { rec: 5, rec_yd: 61, rec_td: 1 }, gamePhase: 'final' },
           [DEFENSE]: { stats: { sack: 2, int: 1, pts_allow: 17 }, gamePhase: 'final' },
+          ...(state.boxPhase === 'final' ? { [UNKNOWN]: { stats: { pass_att: 0 }, gamePhase: 'final' } } : {}),
         } };
       const status = state.boxStatus;
       if (state.holdBox) await state.holdBox;
@@ -112,6 +114,14 @@ async function openFixture(page: Page, league: League = 'league1') {
       state.fullCount += 1;
       const payload = boardFixture(week);
       payload.matchups[0].sides[0].starters[0].id = state.leftPlayerId;
+      for (const player of payload.matchups[0].sides[0].starters) {
+        if (player.game?.kind !== 'scheduled') continue;
+        if (state.gamePhase === 'scheduled') delete player.game.liveScore;
+        else if (state.gamePhase === 'final') {
+          delete player.game.liveScore;
+          player.game.finalScore = { teamScore: 7, opponentScore: 3 };
+        } else if (player.game.liveScore) player.game.liveScore.clockSeconds = state.clockSeconds;
+      }
       await route.fulfill({ headers, json: payload });
     }
   });
@@ -186,6 +196,8 @@ for (const league of ['league1', 'league2'] as const) {
     await expect(panel(page, 'player:fixture-upcoming', 'left')).toHaveCount(0);
     await expect(panel(page, 'player:fixture-bye', 'right')).toHaveCount(0);
     await expect(page.locator('[data-box-score-source]')).toHaveCount(1);
+    await expect(page.locator('[data-box-score-source]')).toContainText('Sleeper');
+    await expect(page.locator('[data-box-score-source]')).not.toContainText('hourly');
     expect(state.boxRequests).toEqual([{ league, season: '2026', week: 1, queryKeys: ['season', 'week'] }]);
 
     for (const width of [360, 390, 430, 1280]) {
@@ -248,6 +260,56 @@ for (const league of ['league1', 'league2'] as const) {
     expect(state.boxRequests).toHaveLength(4);
   });
 }
+
+test('an accepted kickoff starts minute reads without waiting for another player tap', async ({ page }) => {
+  const state = await openFixture(page, 'league1', 'scheduled');
+  await page.clock.setSystemTime(new Date('2026-09-13T16:04:00.000Z'));
+  await toggle(page).click();
+  await expect(panel(page, RIGHT, 'left').locator('[data-box-score-summary]')).toHaveText('5 REC, 61 YD, 1 TD');
+  await page.clock.runFor(180_000);
+  expect(state.boxRequests).toHaveLength(1);
+  state.gamePhase = 'live'; state.snapshotRevision = SNAPSHOT_C;
+  await page.clock.runFor(60_000);
+  await expect(panel(page, LEFT, 'right').locator('[data-box-score-summary]')).toHaveText(quarterbackSummary());
+  expect(state.boxRequests).toHaveLength(2);
+  state.passingYards = 250;
+  await page.clock.runFor(60_000);
+  await expect(panel(page, LEFT, 'right').locator('[data-box-score-summary]')).toHaveText(quarterbackSummary(250));
+  expect(state.boxRequests).toHaveLength(3);
+  expect(state.providerRequests).toEqual([]);
+});
+
+test('a changing live clock does not trigger an extra box-score read', async ({ page }) => {
+  const state = await openFixture(page);
+  await toggle(page).click();
+  await expect(panel(page, LEFT, 'right').locator('[data-box-score-summary]')).toHaveText(quarterbackSummary());
+  state.clockSeconds = 245; state.snapshotRevision = SNAPSHOT_C;
+  await page.clock.runFor(60_000);
+  await expect.poll(() => state.fullCount).toBe(2);
+  await expect.poll(() => state.completedBoxes).toBe(2);
+  expect(state.boxRequests).toHaveLength(2);
+});
+
+test('a final transition allows a settling capture then stops minute reads once final statistics arrive', async ({ page }) => {
+  const state = await openFixture(page);
+  await toggle(page).click();
+  await expect(panel(page, LEFT, 'right').locator('[data-box-score-summary]')).toHaveText(quarterbackSummary());
+  state.gamePhase = 'final'; state.snapshotRevision = SNAPSHOT_C;
+  await page.clock.runFor(60_000);
+  await expect.poll(() => state.fullCount).toBe(2);
+  await expect(page.locator('[data-player-game]').filter({ hasText: 'Final W 7-3 @ TEN' }).first()).toBeVisible();
+  state.boxPhase = 'final'; state.passingYards = 260;
+  await page.clock.runFor(60_000);
+  await expect(panel(page, LEFT, 'right').locator('[data-box-score-summary]')).toHaveText(quarterbackSummary(260));
+  const finalRequests = state.boxRequests.length;
+  await page.clock.runFor(300_000);
+  expect(state.boxRequests).toHaveLength(finalRequests);
+  state.passingYards = 265; state.observedAt = '2026-09-13T17:00:00.000Z';
+  await page.clock.runFor(54 * 60_000);
+  await expect(panel(page, LEFT, 'right').locator('[data-box-score-summary]')).toHaveText(quarterbackSummary(265));
+  expect(state.boxRequests).toHaveLength(finalRequests + 1);
+  expect(state.providerRequests).toEqual([]);
+});
 
 test('hidden boards abort an outstanding box-score refresh and catch up once when visible', async ({ page }) => {
   const state = await openFixture(page);

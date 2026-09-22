@@ -95,7 +95,7 @@ export async function handleMatchupBoxScoresRequest(
     const identities = identitiesFor(selected.payload);
     if (identities.length === 0) return unavailable();
     const read = publicRead(await store.readAllPlayerBoxScores({
-      season: Number(season), week, identities,
+      leagueKey: league, season: Number(season), week, identities,
     }), identities);
     return Response.json({ leagueKey: league, season, week, ...read } satisfies MatchupBoxScores, {
       // Identity selection follows the accepted lineup, which can change between
