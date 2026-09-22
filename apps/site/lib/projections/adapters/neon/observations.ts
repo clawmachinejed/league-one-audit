@@ -7,6 +7,7 @@ import { json, normalizeIds, provider, requiredText, rowNumber, rowText } from '
 import { containsScheduledGame } from './snapshot-codec';
 import { observationLineupValues } from './lineup-publication-values';
 import { validateLiveDefenseEvidence } from './live-defense-evidence';
+import { parseLiveBoxScoreEvidence } from '../../shared/live-box-score-evidence';
 
 type ObservationMethods = Pick<ProjectionStore,
   | 'recordGameStates'
@@ -78,6 +79,10 @@ export function prepareLeagueWeekObservation(input: Parameters<ProjectionStore['
     throw new Error('official-observation-time-invalid');
   }
   validateLiveDefenseEvidence(input.sourceData.liveDefense, input.week, input.sourceData.season);
+  if (input.sourceData.liveBoxScores !== undefined && !parseLiveBoxScoreEvidence(input.sourceData.liveBoxScores,
+    { season: Number(input.sourceData.season), seasonType: 'regular', week: input.week })) {
+    throw new Error('official-observation-live-box-scores-invalid');
+  }
   // Exercise the exact serializer used by the SQL boundary before ancillary writes.
   json(sourceData); json(playerPoints); json(rosterPoints);
   return { lineupVersion, lineupRevision, expectedGameIds, playerPoints, rosterPoints, sourceData };

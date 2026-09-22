@@ -334,6 +334,6 @@ export function MatchupBoard({ matchups, selected, avatar, boxScores, boxScoresL
   return <><div ref={boardRef} className={styles.board}>{matchups.map(matchup => <MatchupCard key={matchup.id}
     matchup={matchup} selected={selected} avatar={avatar} boxScores={boxScores} standings={standings} observedAt={observedAt}
     boxScoresLoading={boxScoresLoading} onBoxScoreOpen={onBoxScoreOpen} showBench={showBench} />)}</div>
-    {observed && <p className={styles.boxScoreObserved} data-box-score-source>{observed}<span>Sleeper · hourly collection</span></p>}
+    {observed && <p className={styles.boxScoreObserved} data-box-score-source>{observed}<span>Sleeper</span></p>}
   </>;
 }

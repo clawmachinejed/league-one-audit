@@ -3,6 +3,7 @@ import 'server-only';
 import { randomUUID } from 'node:crypto';
 import { getDatabase, withDatabaseAbortSignal } from '../../database';
 import { createProjectionStore } from '../../projection-store';
+import { MATCHUP_BOX_SCORE_STAT_KEYS, type AllPlayerBoxScoreIdentity } from '../../matchup-box-score-types';
 import type { AllPlayerJobFence, ProjectionStore, SleeperWeeklyStatReceipt } from '../adapters/neon/contracts';
 import { SLEEPER_LIVE_DEFENSE_MAPPING, SLEEPER_LIVE_DEFENSE_STAT_KEYS } from '../adapters/sleeper/scoring-profile';
 import {
@@ -21,6 +22,7 @@ export type LiveDefenseStatCoordinatorDependencies = Readonly<{
   workerId: () => string;
   store: (signal: AbortSignal) => BudgetStore;
   loadWeeklyStats: WeeklySource['load'];
+  signal?: AbortSignal;
 }>;
 export type SharedSleeperWeeklyCapture = Readonly<{
   capture: SleeperWeeklyStatCapture;
@@ -29,6 +31,18 @@ export type SharedSleeperWeeklyCapture = Readonly<{
 
 const mapping = SLEEPER_LIVE_DEFENSE_MAPPING;
 const retainedKeys = SLEEPER_LIVE_DEFENSE_STAT_KEYS;
+const boxScoreKeys = new Set<string>(MATCHUP_BOX_SCORE_STAT_KEYS);
+
+function identityKey(identity: AllPlayerBoxScoreIdentity): string | null {
+  if (!identity || typeof identity.providerExternalId !== 'string') return null;
+  if (identity.entityKind === 'player' && /^[1-9]\d{0,19}$/u.test(identity.providerExternalId)) {
+    return `player:${identity.providerExternalId}`;
+  }
+  if (identity.entityKind === 'team_defense' && (NFL_TEAM_CODES as readonly string[]).includes(identity.providerExternalId)) {
+    return `defense:${identity.providerExternalId}`;
+  }
+  return null;
+}
 
 class DefenseStatDeadline extends Error {
   constructor() { super('Live defense statistics deadline reached.'); }
@@ -74,12 +88,14 @@ export function createLiveDefenseStatCoordinator(
   const captures = new Map<string, SharedSleeperWeeklyCapture>();
   let selectedPeriod: string | undefined;
 
-  async function bounded<T>(deadline: number, operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  async function bounded<T>(deadline: number, operation: (signal: AbortSignal) => Promise<T>, cleanup = false): Promise<T> {
     const remaining = Math.floor(deadline - dependencies.now());
     if (remaining <= 0) throw new DefenseStatDeadline();
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let cancel: (() => void) | undefined;
     try {
+      if (!cleanup && dependencies.signal?.aborted) throw new DefenseStatDeadline();
       return await Promise.race([
         new Promise<never>((_, reject) => {
           timer = setTimeout(() => {
@@ -87,24 +103,29 @@ export function createLiveDefenseStatCoordinator(
             reject(new DefenseStatDeadline());
           }, remaining);
         }),
+        ...(!cleanup && dependencies.signal ? [new Promise<never>((_, reject) => {
+          cancel = () => { controller.abort(); reject(new DefenseStatDeadline()); };
+          dependencies.signal!.addEventListener('abort', cancel, { once: true });
+        })] : []),
         operation(controller.signal),
       ]);
     } finally {
       if (timer) clearTimeout(timer);
+      if (cancel) dependencies.signal?.removeEventListener('abort', cancel);
     }
   }
 
-  async function loadSelected(period: LeaguePeriod): Promise<LiveDefenseStatResult> {
+  async function loadSelected(period: LeaguePeriod, identities: readonly AllPlayerBoxScoreIdentity[]): Promise<LiveDefenseStatResult> {
     let fence: AllPlayerJobFence | undefined;
     let stage: 'claim' | 'mark' | 'provider' | 'finish' = 'claim';
     const dbPeriod = { season: period.season, seasonType: 'reg', week: period.week } as const;
     async function finish(outcome: 'captured' | 'provider-failed' | 'validation-failed' | 'timeout', captureReceipt?: SleeperWeeklyStatReceipt) {
       stage = 'finish';
       return bounded(Math.min(cleanupDeadline, dependencies.now() + 5_000), (signal) => dependencies.store(signal)
-        .finishLiveDefenseStatRequest({ fence: fence!, outcome, ...(captureReceipt ? { captureReceipt } : {}) }));
+        .finishLiveDefenseStatRequest({ fence: fence!, outcome, ...(captureReceipt ? { captureReceipt } : {}) }), true);
     }
     try {
-      const claim = await bounded(Math.min(workDeadline, dependencies.now() + 5_000), async (signal) => {
+      const acquire = () => bounded(Math.min(workDeadline, dependencies.now() + 5_000), async (signal) => {
         const store = dependencies.store(signal);
         if (!store.enabled) return { kind: 'disabled' } as const;
         return store.acquireAllPlayerJob({
@@ -112,6 +133,24 @@ export function createLiveDefenseStatCoordinator(
           leaseSeconds: 60, deadlineAt: new Date(fenceDeadline).toISOString(),
         });
       });
+      let claim = await acquire();
+      if (claim.kind === 'not-due') {
+        const reused = await reuseStored(period, unavailable('not-due'));
+        if (reused.status === 'available') return reused;
+        const nextRequestAt = claim.nextRequestAt === null ? NaN : Date.parse(claim.nextRequestAt);
+        const waitMs = Math.ceil(nextRequestAt - dependencies.now());
+        // A small cron timing skew can arrive just before the global 60s budget.
+        // Wait once without a lease, then let SQL recheck every ownership and
+        // hourly-priority guard. Never trade away the publication reserve.
+        if (!Number.isFinite(nextRequestAt) || waitMs <= 0 || waitMs > 10_000
+          || nextRequestAt + 20_000 > workDeadline) return reused;
+        await bounded(Math.min(workDeadline - 20_000, nextRequestAt + 1_000), (signal) => new Promise<void>((resolve, reject) => {
+          const abort = () => { clearTimeout(timer); reject(new DefenseStatDeadline()); };
+          const timer = setTimeout(() => { signal.removeEventListener('abort', abort); resolve(); }, waitMs);
+          signal.addEventListener('abort', abort, { once: true });
+        }));
+        claim = await acquire();
+      }
       if (claim.kind !== 'acquired') return unavailable(claim.kind);
       fence = claim.fence;
       stage = 'mark';
@@ -149,6 +188,14 @@ export function createLiveDefenseStatCoordinator(
         const stats = Object.fromEntries(Object.entries(row.stats).filter(([stat]) => retainedKeys.has(stat)));
         return [{ team, stats }];
       });
+      const boxScoreRows = Object.fromEntries(identities.flatMap((identity) => {
+        const row = capture.rows[identity.providerExternalId];
+        if (!row) return [];
+        const stats = Object.fromEntries(Object.entries(row.stats).filter(([stat, value]) => (
+          boxScoreKeys.has(stat) && typeof value === 'number' && Number.isFinite(value)
+        )));
+        return Object.keys(stats).length ? [[identityKey(identity)!, stats]] : [];
+      }));
       const receipt: SleeperWeeklyStatReceipt = {
         period: dbPeriod, sourceRevision: capture.sourceRevision, bodyHash: response.bodyHash,
         requestStartedAt: response.requestStartedAt, requestCompletedAt: response.requestCompletedAt,
@@ -160,7 +207,8 @@ export function createLiveDefenseStatCoordinator(
       captures.set(key(period), { capture, receipt });
       return { status: 'available', mapping, capture: {
         period, requestStartedAt: receipt.requestStartedAt, requestCompletedAt: receipt.requestCompletedAt,
-        observedAt: receipt.requestCompletedAt, sourceRevision: capture.sourceRevision, entries,
+        observedAt: receipt.requestCompletedAt, sourceRevision: capture.sourceRevision,
+        bodyHash: response.bodyHash, boxScoreRows, entries,
       } };
     } catch (error) {
       const outcome = error instanceof DefenseStatDeadline ? 'timeout'
@@ -174,7 +222,7 @@ export function createLiveDefenseStatCoordinator(
 
   async function reuseStored(period: LeaguePeriod, result: LiveDefenseStatResult): Promise<LiveDefenseStatResult> {
     if (result.status === 'available' || result.reason === 'disabled'
-      || dependencies.now() >= cleanupDeadline) return result;
+      || dependencies.signal?.aborted || dependencies.now() >= cleanupDeadline) return result;
     try {
       const capture = await bounded(Math.min(cleanupDeadline, dependencies.now() + 2_000), (signal) => {
         const store = dependencies.store(signal);
@@ -183,23 +231,34 @@ export function createLiveDefenseStatCoordinator(
       });
       // The database reader checks the original timestamps against database time.
       // This reuse cannot create a full raw capture or a new request receipt.
-      if (capture) return { status: 'available', mapping, capture };
+      if (capture) return { status: 'available', mapping, capture: {
+        period: capture.period, requestStartedAt: capture.requestStartedAt,
+        requestCompletedAt: capture.requestCompletedAt, observedAt: capture.observedAt,
+        sourceRevision: capture.sourceRevision,
+        entries: capture.entries.map((entry) => ({ team: entry.team,
+          stats: Object.fromEntries(Object.entries(entry.stats).filter(([stat]) => retainedKeys.has(stat))) })),
+      } };
     } catch { /* Keep the original bounded failure; stale evidence cannot become fresh. */ }
     return result;
   }
 
   const source: LiveDefenseStatSourcePort = {
-    async load({ period, statisticsRequired }) {
+    async load({ period, statisticsRequired, identities = [] }) {
       if (!statisticsRequired) return unavailable('not-required');
       if (!dependencies.enabled()) return unavailable('disabled');
       if (!validPeriod(period)) return unavailable('invalid-period');
+      if (!Array.isArray(identities) || identities.length > 1536 || identities.some((identity) => !identityKey(identity))) {
+        return unavailable('invalid-identities');
+      }
       const periodKey = key(period);
       const existing = loads.get(periodKey);
       if (existing) return existing;
-      if (!Number.isFinite(invocationStartedAt) || dependencies.now() >= workDeadline) return unavailable('timeout');
+      if (!Number.isFinite(invocationStartedAt) || dependencies.signal?.aborted || dependencies.now() >= workDeadline) return unavailable('timeout');
       if (selectedPeriod && selectedPeriod !== periodKey) return unavailable('period-not-selected');
       selectedPeriod = periodKey;
-      const pending = loadSelected(period).then((result) => reuseStored(period, result));
+      const pending = loadSelected(period, identities).then((result) => (
+        result.status === 'unavailable' && result.reason === 'not-due' ? result : reuseStored(period, result)
+      ));
       loads.set(periodKey, pending);
       return pending;
     },

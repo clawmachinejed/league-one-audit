@@ -7,11 +7,12 @@ import type { AllPlayerBoxScoreReadInput } from '../../../matchup-box-score-type
 import { createProjectionStore } from '../../../projection-store';
 import { createFakeProjectionDatabase } from '../../../projection-store-test-support';
 import { createAllPlayerBoxScoreMethods } from './all-player-box-scores';
+import { buildLiveBoxScoreEvidence } from '../../shared/live-box-score-evidence';
 
 const observedAt = '2026-09-13T19:00:31.378Z';
 const revision = 'b'.repeat(64);
 const input: AllPlayerBoxScoreReadInput = {
-  season: 2026, week: 1,
+  leagueKey: 'league1', season: 2026, week: 1,
   identities: [
     { entityKind: 'player', providerExternalId: '5859' },
     { entityKind: 'team_defense', providerExternalId: 'PHI' },
@@ -28,6 +29,18 @@ function reader(rows: readonly DatabaseRow[]) {
   const fake = createFakeProjectionDatabase(() => rows);
   const read = createAllPlayerBoxScoreMethods(fake.database).readAllPlayerBoxScores;
   return { fake, read };
+}
+
+function compactRow(at = '2026-09-13T19:01:31.378Z', overrides: DatabaseRow = {}): DatabaseRow {
+  return { source_kind: 'compact', database_now_ms: Date.parse(at) + 1_000,
+    evidence: buildLiveBoxScoreEvidence({
+      period: { season: 2026, seasonType: 'regular', week: 1 }, sourceRevision: 'minute-capture',
+      bodyHash: `sha256:${'d'.repeat(64)}`, observedAt: at, requestStartedAt: at, requestCompletedAt: at,
+      entries: [
+        { entityKind: 'player', providerExternalId: '5859', gamePhase: 'live', stats: { rec: 2, rec_yd: 15 } },
+        { entityKind: 'player', providerExternalId: '11586', gamePhase: 'final', stats: { rush_att: 3, rush_yd: 19 } },
+      ],
+    }), ...overrides };
 }
 
 describe('stored weekly box-score reader', () => {
@@ -67,6 +80,47 @@ describe('stored weekly box-score reader', () => {
     expect(await read(input)).toMatchObject({
       status: 'available', observedAt, players: { 'player:5859': { stats: { rec: 1, rec_yd: 6 } } },
     });
+  });
+
+  it('selects a newer compact league capture as a whole and filters to accepted roster identities', async () => {
+    const compact = compactRow();
+    const { read, fake } = reader([compact, row(), row({ entity_kind: 'team_defense', provider_external_id: 'PHI',
+      game_phase: 'final', stats: { sack: 3 } })]);
+    expect(await read(input)).toEqual({ status: 'available',
+      observedAt: '2026-09-13T19:01:31.378Z', revision: (compact.evidence as { revision: string }).revision,
+      players: { 'player:5859': { stats: { rec: 2, rec_yd: 15 }, gamePhase: 'live' } } });
+    expect(fake.calls).toHaveLength(1);
+    expect(fake.calls[0].parameters[4]).toBe('league1');
+    expect(fake.calls[0].statement).toContain('league.league_key = $5::text');
+    expect(fake.calls[0].statement).toContain("observation.source_data ->> 'leagueKey' = $5::text");
+    expect(fake.calls[0].statement).toContain('observation.league_season_id = season.id');
+  });
+
+  it('supports Dynasty without defenses and keeps reported final bench stats from the same capture', async () => {
+    const compact = compactRow();
+    const result = await reader([compact]).read({ ...input, leagueKey: 'dynasty', identities: [
+      { entityKind: 'player', providerExternalId: '11586' },
+    ] });
+    expect(result.players).toEqual({ 'player:11586': { stats: { rush_att: 3, rush_yd: 19 }, gamePhase: 'final' } });
+  });
+
+  it('prefers newer or equal-time hourly history and does not relabel an old compact source as fresh', async () => {
+    for (const time of [observedAt, '2026-09-13T18:59:00.000Z']) {
+      expect(await reader([compactRow(time), row()]).read(input)).toMatchObject({ observedAt, revision,
+        players: { 'player:5859': { stats: { rec: 1, rec_yd: 8, rec_td: 0 } } } });
+    }
+    expect(await reader([compactRow()]).read(input)).toMatchObject({ observedAt: '2026-09-13T19:01:31.378Z' });
+  });
+
+  it.each(['hash', 'period', 'future', 'oversize'])('falls back to hourly data for invalid compact %s evidence', async (mode) => {
+    let compact = compactRow();
+    const evidence = compact.evidence as Record<string, unknown>;
+    if (mode === 'hash') evidence.revision = 'f'.repeat(64);
+    if (mode === 'period') evidence.period = { season: 2026, seasonType: 'regular', week: 2 };
+    if (mode === 'future') compact = { ...compact, database_now_ms: Date.parse('2026-09-13T19:00:00.000Z') };
+    if (mode === 'oversize') evidence.sourceRevision = 'a'.repeat(300_000);
+    expect(await reader([compact, row()]).read(input)).toMatchObject({ observedAt, revision });
+    expect(await reader([compact]).read(input)).toEqual({ status: 'unavailable', observedAt: null, revision: null, players: {} });
   });
 
   it.each([{}, { pos_rank_ppr: 1, gp: 0 }])('does not invent a box score from an empty/rank-only row (%j)', async (stats) => {
@@ -118,6 +172,7 @@ describe('stored weekly box-score reader', () => {
   });
 
   it.each([
+    { leagueKey: '' }, { leagueKey: '__proto__' },
     { season: 1919 }, { week: 0 }, { week: 19 },
     { identities: [{ entityKind: 'player', providerExternalId: 'bad-id' }] },
     { identities: [{ entityKind: 'player', providerExternalId: '0' }] },

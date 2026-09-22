@@ -45,6 +45,7 @@ import {
 } from './scoring-cache';
 import { baselineMap, buildSnapshotWithDefenseEvidence } from './snapshot-builder';
 import { DEFENSE_PROJECTION_MODEL_VERSION } from '../domain/live-defense';
+import { liveBoxScoresForLeague } from './live-box-scores';
 
 type LeagueStageDependencies = Readonly<{
   repository: Pick<ProjectionRepositoryPort,
@@ -362,8 +363,10 @@ export async function processLeague(
     prior: prior?.payload ?? null, calculatedAt,
     liveDefenseStats: persisted.liveDefenseStats, scoringProfile,
   });
-  const sourceRevision = liveDefense
-    ? compatibleRevision({ officialSourceRevision: source.sourceRevision, liveDefense }) : source.sourceRevision;
+  const liveBoxScores = liveBoxScoresForLeague(source, persisted.games, persisted.liveDefenseStats);
+  const sourceRevision = liveDefense || liveBoxScores
+    ? compatibleRevision({ officialSourceRevision: source.sourceRevision,
+      ...(liveDefense ? { liveDefense } : {}), ...(liveBoxScores ? { liveBoxScores } : {}) }) : source.sourceRevision;
   const observation = await dependencies.repository.recordLeagueWeekObservation({
     lineup: source.lineup,
     leagueSeasonId: leagueSeason.value.leagueSeasonId,
@@ -376,6 +379,7 @@ export async function processLeague(
     sourceData: {
       ...(source.administrationContext ? { administration: source.administrationContext } : {}),
       ...(liveDefense ? { liveDefense } : {}),
+      ...(liveBoxScores ? { liveBoxScores } : {}),
       leagueKey: configuration.key,
       season: String(source.period.season),
       week: source.period.week,

@@ -9,6 +9,7 @@ import type { ProviderPersistenceStage } from '../ports/logger';
 import { gameStatePersistenceDiagnostics, providerPersistenceDiagnostics } from './persistence-diagnostics';
 import { activeStarters, availableBench } from './roster-context';
 import { stateForEntity } from './game-context';
+import type { LiveBoxScoreIdentity } from '../ports/live-defense-stat-source';
 
 const PROVIDER_GROUP_CONCURRENCY = 4;
 const LEAGUE_PROCESS_CONCURRENCY = 8;
@@ -87,18 +88,25 @@ export async function runCurrentProjectionStages(
         (stage) => { persistence.stage = stage; },
       );
       let liveDefenseStats;
-      const liveDefenseLeagues = provider.group.leagues.filter((league) =>
+      const liveStatLeagues = provider.group.leagues.filter((league) =>
         [...activeStarters(league.source), ...availableBench(league.source)].some(({ starter }) =>
-          starter.entity.kind === 'team-defense'
-          && stateForEntity(starter.entity, persisted.games, league.source.schedule)?.statusCode === 1));
-      if (liveDefenseLeagues.length && dependencies.liveDefenseStatSource) {
+          stateForEntity(starter.entity, persisted.games, league.source.schedule)?.statusCode === 1));
+      if (liveStatLeagues.length && dependencies.liveDefenseStatSource) {
         try {
+          const identities = new Map<string, LiveBoxScoreIdentity>();
+          // The one shared bulk retrieval also supplies descriptive live box scores,
+          // including benches and leagues whose lineups have no defense slot.
+          for (const league of provider.group.leagues) {
+            for (const { starter } of [...activeStarters(league.source), ...availableBench(league.source)]) {
+              if (starter.entity.externalRef.provider !== league.source.configuration.leagueRef.provider) continue;
+              const entityKind = starter.entity.kind === 'team-defense' ? 'team_defense' : 'player';
+              const providerExternalId = String(starter.entity.externalRef.externalId);
+              identities.set(`${entityKind}:${providerExternalId}`, { entityKind, providerExternalId });
+            }
+          }
           // Persisted exact-period live games are also checked independently by the request-budget SQL.
           liveDefenseStats = await dependencies.liveDefenseStatSource.load({ period: provider.group.period,
-            statisticsRequired: liveDefenseLeagues.some((league) => {
-              const normalized = dependencies.normalizeScoringProfile(league.source.scoringSettings);
-              return normalized.status === 'available' && normalized.profile.provenance.usesPointsAllowedBucketProxy;
-            }) });
+            statisticsRequired: true, identities: [...identities.values()] });
         } catch {
           // Optional component evidence must not veto the existing full league snapshot.
         }

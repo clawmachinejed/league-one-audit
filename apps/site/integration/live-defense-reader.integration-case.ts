@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createProjectionStore } from '../lib/projection-store';
 import { DEFENSE_PROJECTION_MODEL_VERSION } from '../lib/projections/domain/contracts';
@@ -11,11 +11,11 @@ describe.sequential('compact live defense reuse through the isolated runtime rol
   beforeAll(() => { database = createIndependentDatabase(); });
   afterAll(async () => { await database.close(); });
 
-  async function fixture() {
+  async function fixture(season = 2199) {
     const store = createProjectionStore(database.database);
     const leagueKey = `defense-reader-${randomUUID()}`;
     const league = stored(await store.registerLeagueSeason({ leagueKey, leagueName: 'Isolated reader fixture',
-      season: 2199, sleeperLeagueId: `source-${leagueKey}`, scoringRules: { sack: 1, pts_allow_0: 10 } }));
+      season, sleeperLeagueId: `source-${leagueKey}`, scoringRules: { sack: 1, pts_allow_0: 10 } }));
     return { store, leagueKey, league };
   }
   const period = { season: 2199, seasonType: 'regular', week: 18 } as const;
@@ -78,5 +78,44 @@ describe.sequential('compact live defense reuse through the isolated runtime rol
         JSON.stringify({ season: String(period.season), liveDefense: detail })]);
       expect(await f.store.readLiveDefenseStatCapture!(requested)).toBeNull();
     }
+  });
+
+  it('reuses fresh v4 hourly partial defense history through runtime SELECT, retaining source identity and excluding missing rows', async () => {
+    const requested = { season: 2187, seasonType: 'regular', week: 18 } as const;
+    const f = await fixture(requested.season);
+    await enrollIntegrationSeason(ownerQuery, [f.leagueKey], requested.season);
+    const at = new Date(await databaseTime()).toISOString();
+    const originalAt = offset(at, -4);
+    const sourceRevision = `sha256:${createHash('sha256').update(randomUUID()).digest('hex')}`;
+    const contentId = randomUUID();
+    const semanticHash = createHash('sha256').update(contentId).digest('hex');
+    const stats = { pts_allow_0: 1, def_3_and_out: 1 };
+    // Structurally valid synthetic partial raw history, installed only by the
+    // guarded disposable harness. No score set, pointer or provider request.
+    await ownerQuery(`INSERT INTO all_player_stat_contents
+      (id,provider,season,season_type,week,normalizer_version,semantic_hash,quality,coverage,entry_count)
+      VALUES($1,'sleeper',$2,'reg',$3,'sleeper-weekly-stats-v4',$4,'partial','{"complete":false}',3)`,
+    [contentId, requested.season, requested.week, semanticHash]);
+    await ownerQuery(`INSERT INTO all_player_stat_entries
+      (all_player_stat_content_id,entity_kind,provider_external_id,nfl_team,position,stats,eligibility_evidence,game_phase,ordinal)
+      VALUES($1,'team_defense','SEA','SEA','DEF',$2::jsonb,
+        '{"kind":"weekly-stat","source":"weekly-stat-provider"}','live',0),
+      ($1,'team_defense','SF','SF','DEF','{}',
+        jsonb_build_object('kind','missing-provider-row','inventoryFingerprint',$3::text),'live',1),
+      ($1,'player','11586','SEA','RB','{"rush_yd":19}',
+        '{"kind":"weekly-stat","source":"weekly-stat-provider"}','live',2)`,
+    [contentId, JSON.stringify(stats), `sha256:${semanticHash}`]);
+    await ownerQuery(`INSERT INTO all_player_stat_observations
+      (id,all_player_stat_content_id,provider,season,season_type,week,normalizer_version,source_revision,
+       request_started_at,request_completed_at,observed_at,quality)
+      VALUES($1,$2,'sleeper',$3,'reg',$4,'sleeper-weekly-stats-v4',$5,$6,$7,$7,'partial')`,
+    [randomUUID(), contentId, requested.season, requested.week, sourceRevision, offset(at, -5), originalAt]);
+    expect(await f.store.readLiveDefenseStatCapture!(requested)).toEqual({ period: requested,
+      sourceRevision, requestStartedAt: offset(at, -5), requestCompletedAt: originalAt,
+      observedAt: originalAt, entries: [{ team: 'SEA', stats }] });
+    expect(await f.store.readLiveDefenseStatCapture!({ ...requested, week: 17 })).toBeNull();
+    await ownerQuery('UPDATE league_administration_enrollments SET active=false WHERE league_id=$1',
+      [f.league.leagueId]);
+    expect(await f.store.readLiveDefenseStatCapture!(requested)).toBeNull();
   });
 });

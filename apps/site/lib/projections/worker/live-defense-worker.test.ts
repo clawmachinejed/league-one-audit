@@ -70,7 +70,8 @@ describe('shared current-worker defense statistics', () => {
   it('loads once for three leagues and persists the exact applied evidence with publication and acknowledgment lineage', async () => {
     const test = harness();
     await expect(test.run()).resolves.toMatchObject({ publishedLeagues: 3, failedLeagues: 0, providerGroups: 1 });
-    expect(test.load).toHaveBeenCalledExactlyOnceWith({ period: PERIOD, statisticsRequired: true });
+    expect(test.load).toHaveBeenCalledExactlyOnceWith({ period: PERIOD, statisticsRequired: true,
+      identities: expect.arrayContaining([{ entityKind: 'team_defense', providerExternalId: 'KC' }]) });
     expect(test.dependencies.projectionMock).toHaveBeenCalledTimes(1);
     expect(test.dependencies.gamesMock).toHaveBeenCalledTimes(1);
     expect(test.observations).toHaveBeenCalledTimes(3);
@@ -105,6 +106,46 @@ describe('shared current-worker defense statistics', () => {
       expect(payload.matchups[0].sides[0].starters[0].projectedPoints).toBe(13);
       expect(payload.matchups[0].sides[0].points).toBe(21);
     }
+  });
+
+  it('retains compact details with official observation lineage without adding raw data to the matchup payload', async () => {
+    const test = harness();
+    const stats = available();
+    test.load.mockResolvedValue({ ...stats, capture: { ...stats.capture,
+      bodyHash: 'sha256:' + 'c'.repeat(64),
+      boxScoreRows: { 'defense:KC': { sack: 1, pts_allow: 0 }, 'player:99999': { rush_yd: 99 } },
+    } });
+    await expect(test.run()).resolves.toMatchObject({ publishedLeagues: 3, failedLeagues: 0 });
+    for (const [observation] of test.observations.mock.calls) {
+      expect(observation.sourceData.liveBoxScores).toMatchObject({ version: 'live-box-scores-v1',
+        observedAt: stats.capture.observedAt,
+        entries: [{ entityKind: 'team_defense', providerExternalId: 'KC', gamePhase: 'live',
+          stats: { sack: 1, pts_allow: 0 } }],
+      });
+      expect(JSON.stringify(observation.sourceData.liveBoxScores)).not.toContain('99999');
+      expect(test.dependencies.lineupRepository.acknowledgeCurrentLineup).toHaveBeenCalledWith(expect.objectContaining({
+        leagueKey: observation.sourceData.leagueKey, sourceRevision: observation.sourceRevision,
+      }));
+    }
+    expect(test.fake.published.every(payload => !JSON.stringify(payload).includes('live-box-scores-v1'))).toBe(true);
+    expect(test.fake.published[0].matchups[0].sides[0].points).toBe(21);
+  });
+
+  it('collects live offensive details even when no league has a defense slot or PA scoring rule', async () => {
+    const test = harness();
+    for (const league of test.loaded) {
+      Object.assign(league.source, { scoringSettings: { ...league.source.scoringSettings,
+        rawRules: { pass_yd: 0.04, rush_yd: 0.1 } } });
+      for (const matchup of league.source.matchups) {
+        for (const side of matchup.sides) Object.assign(side, {
+          starters: side.starters.filter(slot => slot.kind !== 'occupied' || slot.entity.kind !== 'team-defense'),
+        });
+      }
+    }
+    await expect(test.run()).resolves.toMatchObject({ publishedLeagues: 3, failedLeagues: 0 });
+    expect(test.load).toHaveBeenCalledExactlyOnceWith({ period: PERIOD, statisticsRequired: true,
+      identities: expect.arrayContaining([{ entityKind: 'player', providerExternalId: 'p1' }]) });
+    expect(test.load.mock.calls[0]).toBeDefined();
   });
 
   it.each([

@@ -146,6 +146,19 @@ describe('My Team shared matchup view', () => {
     expect(mocks.select).not.toHaveBeenCalled();
   });
 
+  it('keeps My Team statistics refreshing for a live bench game even when no displayed starter is live', () => {
+    const payload = structuredClone(data);
+    payload.matchups[0].sides[0].bench![0].game = { kind: 'scheduled', opponent: 'TEN', location: 'away',
+      date: '2026-09-20', kickoffAt: '2026-09-20T17:00:00Z',
+      liveScore: { teamScore: 7, opponentScore: 0, phase: 'q2', clockSeconds: 800 } };
+    render('my-team', 'league1', undefined, payload);
+    expect(mocks.boxScores.mock.lastCall?.[0].activity.live).toBe(true);
+    expect(mocks.boxScores.mock.lastCall?.[0].activity.key).toContain('player:bench1');
+    render('matchups', 'league1', undefined, payload);
+    expect(mocks.boxScores.mock.lastCall?.[0].activity.live).toBe(false);
+    expect(mocks.boxScores.mock.lastCall?.[0].activity.key).not.toContain('player:bench1');
+  });
+
   it('honors an existing selection rather than the automatic first-place display', () => {
     mocks.selected = 4;
     render('my-team');

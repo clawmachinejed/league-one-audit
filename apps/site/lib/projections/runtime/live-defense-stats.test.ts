@@ -22,7 +22,7 @@ const raw = {
   SF: { pts_allow: 0, pts_allow_0: 1, int: 1 },
   TEAM_SEA: { pts_allow: 7, sack: 2 },
   LA: { pts_allow: 10 },
-  '1': { sack: 1 },
+  '1': { sack: 1, pass_cmp: 17, pass_att: 27, pass_yd: 209, pass_td: 1, gp: 1 },
 };
 
 function setup(overrides: Partial<LiveDefenseStatCoordinatorDependencies> = {}) {
@@ -78,6 +78,36 @@ describe('shared live defense statistics coordinator', () => {
     ]);
     expect(result.mapping.pointsAllowedBuckets.pointsAllowedZero).toBe('pts_allow_0');
     expect(JSON.stringify(result.capture)).not.toMatch(/TEAM_SEA|yds_allow|pos_rank_ppr|"gp"/u);
+  });
+
+  it('exposes finite compact box scores only for requested official identities from the same response', async () => {
+    const test = setup();
+    const result = await test.coordinator.source.load({ period, statisticsRequired: true, identities: [
+      { entityKind: 'player', providerExternalId: '1' },
+      { entityKind: 'team_defense', providerExternalId: 'SEA' },
+      { entityKind: 'player', providerExternalId: '999' },
+    ] });
+    if (result.status !== 'available') throw new Error('Expected capture');
+    expect(result.capture.bodyHash).toBe(test.coordinator.getCapture(period)?.receipt.bodyHash);
+    expect(result.capture.boxScoreRows).toEqual({
+      'player:1': { sack: 1, pass_cmp: 17, pass_att: 27, pass_yd: 209, pass_td: 1 },
+      'defense:SEA': { pts_allow: 7, sack: 2, yds_allow: 170 },
+    });
+    expect(JSON.stringify(result.capture.boxScoreRows)).not.toMatch(/TEAM_SEA|pos_rank_ppr|"gp"|999|defense:SF/u);
+    expect(test.fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    [{ entityKind: 'player', providerExternalId: 'SEA' }],
+    [{ entityKind: 'team_defense', providerExternalId: 'TEAM_SEA' }],
+    Array.from({ length: 1537 }, () => ({ entityKind: 'player', providerExternalId: '1' })),
+  ])('rejects malformed or oversized identities before any work %#', async (identities) => {
+    const test = setup();
+    expect(await test.coordinator.source.load({ period, statisticsRequired: true,
+      identities: identities as unknown as Parameters<typeof test.coordinator.source.load>[0]['identities'] }))
+      .toMatchObject({ status: 'unavailable', reason: 'invalid-identities' });
+    expect(test.storeFactory).not.toHaveBeenCalled();
+    expect(test.fetcher).not.toHaveBeenCalled();
   });
 
   it('never starts another period in the same invocation, including after a successful shared capture', async () => {
@@ -141,6 +171,101 @@ describe('shared live defense statistics coordinator', () => {
     expect(test.store.markAllPlayerRequest).not.toHaveBeenCalled();
     expect(test.fetcher).not.toHaveBeenCalled();
     expect(test.coordinator.getCapture(period)).toBeUndefined();
+  });
+
+  it('waits once for a small global-budget skew after no fresh reuse, then claims and requests once for all leagues', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(startedAt);
+    const test = setup({ now: Date.now });
+    test.store.acquireAllPlayerJob.mockResolvedValueOnce({ kind: 'not-due', nextRequestAt: new Date(startedAt + 4_000).toISOString() });
+    const pending = Promise.all([test.load(), test.load(), test.load()]);
+    await vi.advanceTimersByTimeAsync(3_999);
+    expect(test.store.acquireAllPlayerJob).toHaveBeenCalledTimes(1);
+    expect(test.fetcher).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect((await pending).map((value) => value.status)).toEqual(['available', 'available', 'available']);
+    expect(test.store.readLiveDefenseStatCapture).toHaveBeenCalledTimes(1);
+    expect(test.store.acquireAllPlayerJob).toHaveBeenCalledTimes(2);
+    expect(test.store.markAllPlayerRequest).toHaveBeenCalledTimes(1);
+    expect(test.fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not loop when the single later claim is still not due', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(startedAt);
+    const test = setup({ now: Date.now });
+    test.store.acquireAllPlayerJob
+      .mockResolvedValueOnce({ kind: 'not-due', nextRequestAt: new Date(startedAt + 4_000).toISOString() })
+      .mockResolvedValueOnce({ kind: 'not-due', nextRequestAt: new Date(startedAt + 8_000).toISOString() });
+    const pending = test.load();
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(await pending).toMatchObject({ status: 'unavailable', reason: 'not-due' });
+    expect(test.store.acquireAllPlayerJob).toHaveBeenCalledTimes(2);
+    expect(test.fetcher).not.toHaveBeenCalled();
+  });
+
+  it.each([['far away', 10_001, 0], ['already passed', -1, 0], ['invalid', NaN, 0], ['too late in invocation', 5_000, 16_000]])(
+    'does not wait for a budget time %s or spend the publication reserve', async (_, nextDelay, elapsed) => {
+      const now = startedAt + Number(elapsed);
+      const test = setup({ now: () => now });
+      test.store.acquireAllPlayerJob.mockResolvedValue({ kind: 'not-due',
+        nextRequestAt: Number.isFinite(nextDelay) ? new Date(now + Number(nextDelay)).toISOString() : 'invalid' });
+      expect(await test.load()).toMatchObject({ status: 'unavailable', reason: 'not-due' });
+      expect(test.store.acquireAllPlayerJob).toHaveBeenCalledTimes(1);
+      expect(test.fetcher).not.toHaveBeenCalled();
+    },
+  );
+
+  it('cancels the budget wait without acquiring a lease or starting a request', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(startedAt);
+    const controller = new AbortController();
+    const test = setup({ now: Date.now, signal: controller.signal });
+    test.store.acquireAllPlayerJob.mockResolvedValue({ kind: 'not-due', nextRequestAt: new Date(startedAt + 4_000).toISOString() });
+    const pending = test.load();
+    await vi.advanceTimersByTimeAsync(1_000);
+    controller.abort();
+    expect(await pending).toMatchObject({ status: 'unavailable', reason: 'timeout' });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(test.store.acquireAllPlayerJob).toHaveBeenCalledTimes(1);
+    expect(test.store.finishLiveDefenseStatRequest).not.toHaveBeenCalled();
+    expect(test.fetcher).not.toHaveBeenCalled();
+  });
+
+  it('cancels provider work while preserving an independent signal for durable timeout completion', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(startedAt);
+    const controller = new AbortController();
+    let providerSignal: AbortSignal | undefined;
+    const test = setup({ now: Date.now, signal: controller.signal, loadWeeklyStats: async ({ signal }) => {
+      providerSignal = signal;
+      return new Promise(() => {});
+    } });
+    const pending = test.load();
+    await vi.advanceTimersByTimeAsync(100);
+    controller.abort();
+    expect(await pending).toMatchObject({ status: 'unavailable', reason: 'timeout' });
+    expect(providerSignal?.aborted).toBe(true);
+    expect(test.store.finishLiveDefenseStatRequest).toHaveBeenCalledExactlyOnceWith({ fence, outcome: 'timeout' });
+    expect(test.storeFactory.mock.calls.at(-1)?.[0]?.aborted).toBe(false);
+    expect(test.store.readLiveDefenseStatCapture).not.toHaveBeenCalled();
+    expect(test.coordinator.getCapture(period)).toBeUndefined();
+  });
+
+  it('does not re-age or expose offensive rows and receipts when reusing an hourly defense capture', async () => {
+    const test = setup();
+    test.store.acquireAllPlayerJob.mockResolvedValue({ kind: 'not-due', nextRequestAt: new Date(startedAt + 4_000).toISOString() });
+    const at = new Date(startedAt - 30_000).toISOString();
+    test.store.readLiveDefenseStatCapture.mockResolvedValue({ period,
+      requestStartedAt: at, requestCompletedAt: at, observedAt: at, sourceRevision: 'sha256:hourly',
+      bodyHash: `sha256:${'a'.repeat(64)}`, boxScoreRows: { 'player:1': { pass_yd: 209 } },
+      entries: [{ team: 'SEA', stats: { pts_allow_0: 1, def_3_and_out: 1, gp: 1 } }],
+    });
+    const result = await test.load();
+    expect(result).toMatchObject({ status: 'available', capture: { observedAt: at,
+      sourceRevision: 'sha256:hourly', entries: [{ team: 'SEA', stats: { pts_allow_0: 1, def_3_and_out: 1 } }] } });
+    if (result.status !== 'available') throw new Error('Expected reused capture');
+    expect(result.capture.bodyHash).toBeUndefined();
+    expect(result.capture.boxScoreRows).toBeUndefined();
+    expect(test.coordinator.getCapture(period)).toBeUndefined();
+    expect(test.store.acquireAllPlayerJob).toHaveBeenCalledTimes(1);
+    expect(test.fetcher).not.toHaveBeenCalled();
   });
 
   it('can reuse prior fresh evidence after durably recording a failed provider request', async () => {

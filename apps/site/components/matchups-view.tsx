@@ -6,6 +6,7 @@ import { useSiteWeekRollover, type SiteWeekRollover } from './use-site-week-roll
 import { useMatchupSnapshot } from './use-matchup-snapshot';
 import { useMatchupBoxScores } from './use-matchup-box-scores';
 import { playerBoxScoreKey } from '../lib/matchup-box-scores';
+import { matchupBoxScoreActivity } from '../lib/matchup-box-score-refresh';
 import {
   currentMatchupWeek,
   type MatchupPeriodContext,
@@ -43,10 +44,11 @@ function MatchupsWithBoxScores({ matchups, selected, leagueKey, season, week, re
   standings: CurrentStandings | null;
   observedAt: string;
 }) {
-  const lineupKey = [...new Set(matchups.flatMap(matchup => matchup.sides.flatMap(side =>
-    [...side.starters, ...(showBench ? side.bench ?? [] : [])]
-      .filter(player => player.id).map(playerBoxScoreKey))))].sort().join(',');
-  const boxScores = useMatchupBoxScores({ leagueKey, season, week, lineupKey, refreshAutomatically });
+  const players = matchups.flatMap(matchup => matchup.sides.flatMap(side =>
+    [...side.starters, ...(showBench ? side.bench ?? [] : [])]));
+  const lineupKey = [...new Set(players.filter(player => player.id).map(playerBoxScoreKey))].sort().join(',');
+  const boxScores = useMatchupBoxScores({ leagueKey, season, week, lineupKey, refreshAutomatically,
+    activity: matchupBoxScoreActivity(players) });
   return <MatchupBoard matchups={matchups} selected={selected} avatar={team => <Avatar team={team} />}
     showBench={showBench} standings={standings} observedAt={observedAt}
     boxScores={boxScores.data} boxScoresLoading={boxScores.loading} onBoxScoreOpen={boxScores.request} />;
