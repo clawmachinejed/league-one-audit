@@ -1,9 +1,20 @@
 'use client';
 
-import Link from 'next/link';
-import { useLeagueSite } from '@/components/league-context';
+import { usePathname } from 'next/navigation';
+import { LeagueSiteProvider } from '@/components/league-context';
+import { LeagueNotFound } from '@/components/league-not-found';
+import { LeagueShellFrame } from '@/components/league-shell';
+import { leagueSiteForPathname } from '@/lib/leagues';
+import { AccountShell } from '@/components/account-shell';
+import { AccountNotFound } from '@/components/account-not-found';
 
 export default function NotFound() {
-  const site = useLeagueSite();
-  return <section className="empty-state"><p className="eyebrow">OFF THE FIELD</p><h1>Page not found</h1><p>This manager or page isn’t part of {site.name}.</p><Link href={`${site.prefix}/managers`} className="text-button not-found-link">Back to managers</Link></section>;
+  const pathname = usePathname();
+  if (['/account', '/my-leagues', '/sign-in'].some(path => pathname === path || pathname.startsWith(`${path}/`))) {
+    return <AccountShell><AccountNotFound /></AccountShell>;
+  }
+  const site = leagueSiteForPathname(pathname);
+  return <LeagueSiteProvider site={site}>
+    <LeagueShellFrame site={site} pathname={pathname}><LeagueNotFound /></LeagueShellFrame>
+  </LeagueSiteProvider>;
 }

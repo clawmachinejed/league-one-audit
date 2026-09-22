@@ -578,6 +578,8 @@ describe('projection architecture', () => {
     const rootStoreFacade = resolve(libRoot, 'projection-store.ts');
     const administrationNeonRoot = resolve(libRoot, 'league-administration/neon');
     const administrationFacade = resolve(libRoot, 'league-administration/store.ts');
+    const accountNeonRoot = resolve(libRoot, 'accounts/neon');
+    const accountFacades = new Set([resolve(libRoot, 'accounts/store.ts'), resolve(libRoot, 'accounts/database.ts')]);
 
     for (const sourceModule of modules.values()) {
       const inNeonStore = isInside(sourceModule.absolutePath, neonRoot);
@@ -585,12 +587,17 @@ describe('projection architecture', () => {
         violations.push(`${sourceModule.relativePath}: contains a projection-store SQL marker`);
       }
       const inAdministrationStore = isInside(sourceModule.absolutePath, administrationNeonRoot);
-      if (!inNeonStore && !inAdministrationStore) {
+      const inAccountStore = isInside(sourceModule.absolutePath, accountNeonRoot);
+      if (!inNeonStore && !inAdministrationStore && !inAccountStore) {
         for (const line of projectionSqlLiteralLines(sourceModule)) {
           violations.push(`${location(sourceModule, line)}: contains a projection-store SQL query string`);
         }
       }
       for (const dependency of sourceModule.imports) {
+        if (dependency.resolved && isInside(dependency.resolved, accountNeonRoot)
+          && !inAccountStore && !accountFacades.has(sourceModule.absolutePath)) {
+          violations.push(`${location(sourceModule, dependency.line)}: bypasses the account store facade`);
+        }
         if (dependency.resolved && isInside(dependency.resolved, administrationNeonRoot)
           && !inAdministrationStore && sourceModule.absolutePath !== administrationFacade) {
           violations.push(`${location(sourceModule, dependency.line)}: bypasses the administration store facade`);

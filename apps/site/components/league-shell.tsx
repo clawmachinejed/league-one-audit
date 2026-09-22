@@ -85,9 +85,8 @@ function LeagueSwitcher({ activeSite, pathname, placement }: {
   </div>;
 }
 
-export function AppShell({ children, leagueIds }: { children: ReactNode; leagueIds: Readonly<Record<LeagueKey, string>> }) {
-  const pathname = usePathname();
-  const site = leagueSiteForPathname(pathname);
+/** Public navigation also serves unknown URLs without requiring a source connection. */
+export function LeagueShellFrame({ children, site, pathname }: { children: ReactNode; site: LeagueSite; pathname: string }) {
   const compactMain = pathname === leagueHref(site, '/matchups')
     || pathname === leagueHref(site, '/my-team')
     || pathname === leagueHref(site, '/standings')
@@ -100,7 +99,7 @@ export function AppShell({ children, leagueIds }: { children: ReactNode; leagueI
   ];
   const isCurrent = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
 
-  return <LeagueSiteProvider site={site} leagueId={leagueIds[site.key]}><TeamPreferenceProvider key={leagueIds[site.key]} leagueId={leagueIds[site.key]}>
+  return <>
     <a className="skip-link" href="#main-content">Skip to content</a>
     <header className="site-header">
       <div className="header-inner">
@@ -121,5 +120,13 @@ export function AppShell({ children, leagueIds }: { children: ReactNode; leagueI
       <LeagueSwitcher activeSite={site} pathname={pathname} placement="mobile" />
       {nav.map(item => <Link key={item.href} href={item.href} aria-current={isCurrent(item.href) ? 'page' : undefined}><Icon name={item.icon} /><span>{item.label}</span></Link>)}
     </nav>
+  </>;
+}
+
+export function AppShell({ children, leagueIds }: { children: ReactNode; leagueIds: Readonly<Record<LeagueKey, string>> }) {
+  const pathname = usePathname();
+  const site = leagueSiteForPathname(pathname);
+  return <LeagueSiteProvider site={site} leagueId={leagueIds[site.key]}><TeamPreferenceProvider key={leagueIds[site.key]} leagueId={leagueIds[site.key]}>
+    <LeagueShellFrame site={site} pathname={pathname}>{children}</LeagueShellFrame>
   </TeamPreferenceProvider></LeagueSiteProvider>;
 }

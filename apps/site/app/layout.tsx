@@ -1,12 +1,8 @@
 import type { Metadata, Viewport } from 'next';
-import { AppShell } from '@/components/league-shell';
-import { getCurrentLeagueIds } from '@/lib/league-administration/registry';
-import { LEAGUE_SITES } from '@/lib/leagues';
 import './globals.css';
 export const metadata: Metadata = {
   title: { default: 'League One · Fantasy Football', template: '%s · League One' },
-  description: 'The home of League One fantasy football. Matchups, standings, managers, and team activity.',
-  icons: { icon: LEAGUE_SITES.league1.logo, apple: LEAGUE_SITES.league1.logo },
+  description: 'Your home for fantasy football.',
   robots: process.env.VERCEL_ENV && process.env.VERCEL_ENV !== 'production' ? { index: false, follow: false } : { index: true, follow: true },
 };
 export const viewport: Viewport = {
@@ -17,7 +13,6 @@ export const viewport: Viewport = {
     { media: '(prefers-color-scheme: dark)', color: '#0e1511' },
   ],
 };
-export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  const leagueIds = await getCurrentLeagueIds();
-  return <html lang="en" data-scroll-behavior="smooth"><body><AppShell leagueIds={leagueIds}>{children}</AppShell></body></html>;
+export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  return <html lang="en" data-scroll-behavior="smooth"><body>{children}</body></html>;
 }

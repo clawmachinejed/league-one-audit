@@ -6,6 +6,7 @@ export default defineConfig({
     alias: { '@': fileURLToPath(new URL('.', import.meta.url)) },
   },
   test: {
+    server: { deps: { inline: ['@neondatabase/auth'] } },
     exclude: [...configDefaults.exclude, 'e2e/**'],
   },
 });

@@ -1,7 +1,13 @@
 packages:
   - apps/site
 
+# This version satisfies the UI's declared ^1.5.6 dependency. Its compatible
+# package-local peer providers are guarded in .pnpmfile.mjs.
+overrides:
+  '@daveyplate/better-auth-ui@3.4.0>@better-auth/api-key': 1.6.23
+
 allowBuilds:
+  core-js: false
   esbuild: true
   sharp: true
   unrs-resolver: true

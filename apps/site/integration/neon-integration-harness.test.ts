@@ -1,15 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocked = vi.hoisted(() => ({ pool: vi.fn(), query: vi.fn(), end: vi.fn(),
-  connect: vi.fn(), sessionQuery: vi.fn(), release: vi.fn() }));
+  connect: vi.fn(), sessionQuery: vi.fn(), release: vi.fn(), readdir: vi.fn(), readFile: vi.fn() }));
 vi.mock('@neondatabase/serverless', () => ({ Pool: mocked.pool }));
+vi.mock('node:fs/promises', () => ({ readdir: mocked.readdir, readFile: mocked.readFile }));
 
 import {
+  accountQuery,
   assertSafeIntegrationDatabase,
   createIndependentDatabase,
   createPinnedIntegrationDatabase,
   integrationEnvironment,
   prepareIntegrationDatabase,
+  withAccountActor,
   type IntegrationEnvironment,
 } from './neon-integration-harness';
 
@@ -42,6 +45,7 @@ function configureEnvironment() {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  vi.stubEnv('PROJECTION_INTEGRATION_SETUP_PROOF', undefined);
   for (const name of ['DATABASE_URL', 'MIGRATION_DATABASE_URL', 'PRODUCTION_DATABASE_URL']) {
     vi.stubEnv(name, undefined);
   }
@@ -72,6 +76,180 @@ beforeEach(() => {
 });
 
 afterEach(() => vi.unstubAllEnvs());
+
+function mockAccountProvisioning(options: { ownerRole?: string; canSetRole?: boolean } = {}) {
+  mocked.readdir.mockResolvedValue(['001_fixture.sql', '020_account_foundation.sql']);
+  mocked.readFile.mockImplementation(async (filename: string) => {
+    if (filename.endsWith('provision-runtime-role.sql')) return 'fixture-runtime-provision';
+    if (filename.endsWith('provision-account-role.sql')) return 'fixture-account-provision';
+    return 'fixture-migration';
+  });
+  const identityQuery = mocked.query.getMockImplementation()!;
+  mocked.query.mockImplementation(async (statement: string, user: string) => {
+    if (statement.includes('AS relation_count')) return { rows: [{ relation_count: 0 }] };
+    if (statement.includes('AS owner_role')) return { rows: [{ owner_role: options.ownerRole ?? decodeURIComponent(user) }] };
+    if (statement.includes('AS can_set_account_role')) return { rows: [{ can_set_account_role: options.canSetRole ?? true }] };
+    return identityQuery(statement, user);
+  });
+}
+
+describe('isolated account-role transactions', () => {
+  it.each([
+    { options: {}, expectedAccountProvision: true },
+    { options: { throughMigration: '001_fixture.sql' }, expectedAccountProvision: false },
+    { options: { provisionAccountRole: false }, expectedAccountProvision: false },
+  ])('provisions account permissions only for an included account schema (%j)', async ({ options, expectedAccountProvision }) => {
+    mockAccountProvisioning();
+    await prepareIntegrationDatabase(options);
+    const statements = mocked.query.mock.calls.map(([statement]) => statement);
+    const runtimeIndex = statements.indexOf('fixture-runtime-provision');
+    expect(runtimeIndex).toBeGreaterThan(-1);
+    expect(statements.includes('fixture-account-provision')).toBe(expectedAccountProvision);
+    if (expectedAccountProvision) {
+      expect(statements.indexOf('fixture-account-provision')).toBeGreaterThan(runtimeIndex);
+      const grantIndex = statements.indexOf('GRANT league_one_account TO "fixture_owner" WITH SET TRUE');
+      expect(grantIndex).toBeGreaterThan(statements.indexOf('fixture-account-provision'));
+      expect(statements.findIndex(statement => statement.includes('AS can_set_account_role'))).toBeGreaterThan(grantIndex);
+    } else {
+      expect(statements.some(statement => statement.startsWith('GRANT league_one_account'))).toBe(false);
+    }
+  });
+
+  it('quotes the catalog-verified owner identifier without changing grant direction', async () => {
+    vi.stubEnv('PROJECTION_INTEGRATION_OWNER_DATABASE_URL', ownerUrl.replace('fixture_owner', 'fixture%22owner'));
+    mockAccountProvisioning();
+    await prepareIntegrationDatabase();
+    const grants = mocked.query.mock.calls.map(([statement]) => statement)
+      .filter(statement => statement.startsWith('GRANT '));
+    expect(grants).toEqual(['GRANT league_one_account TO "fixture""owner" WITH SET TRUE']);
+  });
+
+  it('rejects an unexpected catalog owner before granting account role access', async () => {
+    mockAccountProvisioning({ ownerRole: 'unexpected_owner' });
+    await expect(prepareIntegrationDatabase()).rejects.toThrow('does not match the verified owner identity');
+    expect(mocked.query.mock.calls.some(([statement]) => statement.startsWith('GRANT '))).toBe(false);
+    expect(process.env.PROJECTION_INTEGRATION_SETUP_PROOF).toBeUndefined();
+  });
+
+  it('requires positive server verification of account SET permission before claiming setup success', async () => {
+    mockAccountProvisioning({ canSetRole: false });
+    await expect(prepareIntegrationDatabase()).rejects.toThrow('could not verify permission');
+    expect(process.env.PROJECTION_INTEGRATION_SETUP_PROOF).toBeUndefined();
+    expect(mocked.end).toHaveBeenCalledTimes(3);
+  });
+
+  it.each([{}, { actorUserId: 'fixture-actor', requestId: 'fixture-request' }])(
+    'pins role, local context, and query until commit (%j)', async (context) => {
+      mocked.sessionQuery.mockImplementation(async (statement: string) => ({
+        rows: statement === 'SELECT fixture_value WHERE id = $1' ? [{ fixture_value: 7 }] : [],
+      }));
+      await expect(accountQuery('SELECT fixture_value WHERE id = $1', [5], context))
+        .resolves.toEqual([{ fixture_value: 7 }]);
+      expect(mocked.sessionQuery.mock.calls).toEqual([
+        ['BEGIN ISOLATION LEVEL READ COMMITTED'],
+        ['SET LOCAL ROLE league_one_account'],
+        ["SELECT set_config('app.actor_user_id', $1, true), set_config('app.request_id', $2, true)",
+          [context.actorUserId ?? '', context.requestId ?? '']],
+        ['SELECT fixture_value WHERE id = $1', [5]],
+        ['COMMIT'],
+      ]);
+      expect(mocked.query).toHaveBeenCalledTimes(2);
+      expect(mocked.pool).toHaveBeenLastCalledWith({ connectionString: ownerUrl, max: 1 });
+      expect(mocked.connect).toHaveBeenCalledOnce();
+      expect(mocked.release).toHaveBeenCalledOnce();
+      expect(mocked.end).toHaveBeenCalledTimes(3);
+    },
+  );
+
+  it.each(['SET LOCAL ROLE league_one_account', 'SELECT set_config', 'account-write'])(
+    'rolls back and closes the pinned connection after a failure in %s', async (failure) => {
+      mocked.sessionQuery.mockImplementation(async (statement: string) => {
+        if (statement.startsWith(failure)) throw new Error('synthetic account rejection');
+        return { rows: [] };
+      });
+      await expect(accountQuery('account-write')).rejects.toThrow('synthetic account rejection');
+      const statements = mocked.sessionQuery.mock.calls.map(([statement]) => statement);
+      expect(statements.at(-1)).toBe('ROLLBACK');
+      expect(statements).not.toContain('COMMIT');
+      expect(mocked.release).toHaveBeenCalledOnce();
+      expect(mocked.end).toHaveBeenCalledTimes(3);
+    },
+  );
+
+  it('rolls back callback failures even when prior SQL succeeded', async () => {
+    await expect(withAccountActor({}, async (query) => {
+      await query('account-write');
+      throw new Error('synthetic application rejection');
+    })).rejects.toThrow('synthetic application rejection');
+    expect(mocked.sessionQuery).toHaveBeenLastCalledWith('ROLLBACK');
+    expect(mocked.release).toHaveBeenCalledOnce();
+  });
+
+  it('requires the existing explicit authorization before opening connections', async () => {
+    vi.stubEnv('PROJECTION_INTEGRATION_AUTHORIZATION', undefined);
+    const run = vi.fn();
+    await expect(withAccountActor({}, run)).rejects.toThrow('authorization');
+    expect(mocked.pool).not.toHaveBeenCalled();
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it('requires both server identity guards before starting an account transaction', async () => {
+    mocked.query.mockResolvedValue({ rows: [{
+      database_name: fixture.expectedDatabase,
+      database_user: 'fixture_owner',
+      database_comment: JSON.stringify({
+        purpose: 'league-one-projection-store-integration', sentinel: 'wrong-sentinel',
+        branchId: fixture.expectedBranchId, branchName: fixture.expectedBranchName,
+      }),
+    }] });
+    const run = vi.fn();
+    await expect(withAccountActor({}, run)).rejects.toThrow('database-reported integration identity');
+    expect(mocked.query).toHaveBeenCalledTimes(2);
+    expect(mocked.connect).not.toHaveBeenCalled();
+    expect(mocked.end).toHaveBeenCalledTimes(2);
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it('closes the owner pool when checking out an account connection fails', async () => {
+    mocked.connect.mockRejectedValueOnce(new Error('synthetic connection failure'));
+    await expect(accountQuery('account-write')).rejects.toThrow('synthetic connection failure');
+    expect(mocked.end).toHaveBeenCalledTimes(3);
+    expect(mocked.release).not.toHaveBeenCalled();
+  });
+
+  it('keeps concurrent actor contexts on separate pinned sessions', async () => {
+    const sessions: { query: ReturnType<typeof vi.fn>; release: ReturnType<typeof vi.fn> }[] = [];
+    mocked.connect.mockImplementation(async () => {
+      let actorUserId: unknown;
+      const session = {
+        query: vi.fn(async (statement: string, parameters: unknown[] = []) => {
+          if (statement.startsWith('SELECT set_config')) actorUserId = parameters[0];
+          return { rows: statement === 'read-actor' ? [{ actorUserId }] : [] };
+        }),
+        release: vi.fn(),
+      };
+      sessions.push(session);
+      return session;
+    });
+    const ready = Promise.withResolvers<void>();
+    let arrived = 0;
+    const results = await Promise.all(['fixture-alice', 'fixture-bob'].map((actorUserId) => (
+      withAccountActor({ actorUserId }, async (query) => {
+        arrived += 1;
+        if (arrived === 2) ready.resolve();
+        await ready.promise;
+        return query('read-actor');
+      })
+    )));
+    expect(results).toEqual([[{ actorUserId: 'fixture-alice' }], [{ actorUserId: 'fixture-bob' }]]);
+    expect(sessions).toHaveLength(2);
+    for (const session of sessions) {
+      expect(session.query).toHaveBeenLastCalledWith('COMMIT');
+      expect(session.release).toHaveBeenCalledOnce();
+    }
+    expect(mocked.end).toHaveBeenCalledTimes(6);
+  });
+});
 
 describe('existing isolated integration harness safety', () => {
   it.each([false, true])('pins an independent locked transaction through completion (failure=%s)', async (failure) => {
