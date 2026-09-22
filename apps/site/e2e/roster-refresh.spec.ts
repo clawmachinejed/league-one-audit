@@ -306,6 +306,10 @@ test('fresh current-week authority preserves an explicit other-week selection an
   await page.getByRole('button', { name: 'Back to current', exact: true }).click();
   await expect.poll(() => state.requests.length).toBe(3);
   await expect(rosterWeek(page)).toHaveValue(String(newWeek));
+  // The selector and request count advance before the response is adopted.
+  // Wait for this week's rendered data before jumping across request deadlines.
+  await expect(page.locator('[data-player-stats-updated]')).toContainText(`PPG and Pos Rank through Week ${newWeek}`);
+  await expect(page.locator('[data-player-ppg]')).toHaveText(['4.1', '—', '4.1', '—']);
   state.points = 7.3;
   await page.clock.runFor(3_600_000);
   await expect.poll(() => state.requests.length).toBe(4);
