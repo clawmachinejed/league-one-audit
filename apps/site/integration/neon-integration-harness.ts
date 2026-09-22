@@ -50,6 +50,16 @@ export type IndependentDatabase = Readonly<{
   close: () => Promise<void>;
 }>;
 
+export type AccountIntegrationContext = Readonly<{
+  actorUserId?: string | null;
+  requestId?: string | null;
+}>;
+
+export type AccountIntegrationQuery = <Row extends QueryRow = QueryRow>(
+  statement: string,
+  parameters?: readonly unknown[],
+) => Promise<readonly Row[]>;
+
 function requiredEnvironment(name: string): string {
   const value = process.env[name]?.trim();
   if (!value) throw new Error(`Isolated integration tests require ${name}.`);
@@ -321,9 +331,29 @@ async function applyMigrations(
   return selectedNames;
 }
 
+async function grantIsolatedAccountRole(pool: Pool, env: IntegrationEnvironment): Promise<void> {
+  const identity = await pool.query('SELECT rolname AS owner_role FROM pg_roles WHERE rolname = current_user');
+  const ownerRole: unknown = identity.rows[0]?.owner_role;
+  if (typeof ownerRole !== 'string'
+    || ownerRole !== parseDatabaseUrl(env.ownerDatabaseUrl, 'Integration owner URL').user
+    || ['league_one_account', 'league_one_runtime'].includes(ownerRole)) {
+    throw new Error('The catalog-reported account test owner role does not match the verified owner identity.');
+  }
+  // PostgreSQL 16+ grants role creators ADMIN but not SET by default. Grant only
+  // the verified isolated owner permission to assume the restricted account role;
+  // the account role itself gains no membership or owner privileges.
+  const quotedOwner = `"${ownerRole.replaceAll('"', '""')}"`;
+  await pool.query(`GRANT league_one_account TO ${quotedOwner} WITH SET TRUE`);
+  const verification = await pool.query("SELECT pg_has_role(current_user, 'league_one_account', 'SET') AS can_set_account_role");
+  if (verification.rows[0]?.can_set_account_role !== true) {
+    throw new Error('The isolated owner could not verify permission to assume the account role.');
+  }
+}
+
 export async function prepareIntegrationDatabase(options: Readonly<{
   throughMigration?: string;
   provisionRuntimeRole?: boolean;
+  provisionAccountRole?: boolean;
 }> = {}): Promise<void> {
   const env = integrationEnvironment();
   await assertSafeIntegrationDatabase(env);
@@ -347,6 +377,15 @@ export async function prepareIntegrationDatabase(options: Readonly<{
         'utf8',
       );
       await ownerPool.query(provisionSql);
+    }
+    if (options.provisionAccountRole !== false
+      && migrationNames.includes('020_account_foundation.sql')) {
+      const provisionSql = await readFile(
+        fileURLToPath(new URL('../scripts/provision-account-role.sql', import.meta.url)),
+        'utf8',
+      );
+      await ownerPool.query(provisionSql);
+      await grantIsolatedAccountRole(ownerPool, env);
     }
     process.env.PROJECTION_INTEGRATION_SETUP_PROOF = JSON.stringify({
       emptyBeforeMigration: true,
@@ -504,4 +543,54 @@ export async function runtimeQuery<Row extends QueryRow = QueryRow>(
   } finally {
     await pool.end();
   }
+}
+
+/** Runs one account request on its own guarded, pinned owner connection.
+ * The role and both context values are transaction-local. Each invocation has
+ * an independent session, including concurrent requests. The callback may use
+ * savepoints for expected SQL errors; this helper owns BEGIN/COMMIT/ROLLBACK. */
+export async function withAccountActor<Result>(
+  context: AccountIntegrationContext,
+  run: (query: AccountIntegrationQuery) => Promise<Result>,
+): Promise<Result> {
+  const env = integrationEnvironment();
+  await assertSafeIntegrationDatabase(env);
+  const pool = new Pool({ connectionString: env.ownerDatabaseUrl, max: 1 });
+  const client = await pool.connect().catch(async (error: unknown) => {
+    await pool.end();
+    throw error;
+  });
+  try {
+    await client.query('BEGIN ISOLATION LEVEL READ COMMITTED');
+    await client.query('SET LOCAL ROLE league_one_account');
+    await client.query(
+      "SELECT set_config('app.actor_user_id', $1, true), set_config('app.request_id', $2, true)",
+      [context.actorUserId ?? '', context.requestId ?? ''],
+    );
+    const query: AccountIntegrationQuery = async <Row extends QueryRow = QueryRow>(
+      statement: string,
+      parameters: readonly unknown[] = [],
+    ) => {
+      const result = await client.query(statement, [...parameters]);
+      const last = Array.isArray(result) ? result.at(-1) : result;
+      return (last?.rows ?? []) as readonly Row[];
+    };
+    const result = await run(query);
+    await client.query('COMMIT');
+    return result;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+    await pool.end();
+  }
+}
+
+export async function accountQuery<Row extends QueryRow = QueryRow>(
+  statement: string,
+  parameters: readonly unknown[] = [],
+  context: AccountIntegrationContext = {},
+): Promise<readonly Row[]> {
+  return withAccountActor(context, (query) => query<Row>(statement, parameters));
 }

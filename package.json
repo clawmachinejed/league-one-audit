@@ -17,10 +17,12 @@
     "test:integration": "pnpm --filter @l1/site test:integration",
     "test:migration-wrapper:integration": "pnpm --filter @l1/site test:migration-wrapper:integration",
     "test:browser": "pnpm --filter @l1/site test:browser",
+    "test:browser:accounts": "node apps/site/scripts/run-account-browser.mjs",
     "db:migrate": "pnpm --filter @l1/site db:migrate",
     "all-player:operate": "pnpm --filter @l1/site all-player:operate",
     "league-administration:operate": "pnpm --filter @l1/site league-administration:operate",
-    "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
+    "verify:dependencies": "pnpm peers check && node apps/site/scripts/verify-account-auth-dependencies.mjs",
+    "verify": "pnpm verify:dependencies && pnpm lint && pnpm typecheck && pnpm test && pnpm build",
     "doctor": "node apps/site/scripts/doctor.mjs",
     "verify:full": "node apps/site/scripts/full-verify.mjs"
   }

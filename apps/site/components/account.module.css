@@ -1,0 +1,40 @@
+.shell{max-width:1000px;margin:0 auto;padding:0 20px 64px;min-width:0}
+.header{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:24px 0;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.brand{font-size:15px;font-weight:800;letter-spacing:.06em;color:var(--ink);text-decoration:none}
+.nav{display:flex;gap:8px;flex-wrap:wrap}
+.nav a{padding:10px 12px;min-height:44px;display:flex;align-items:center;color:var(--muted);border-radius:8px;font-size:13px;font-weight:700;text-decoration:none}
+.nav a[aria-current=page]{color:var(--green);background:var(--green-soft)}
+.main{padding-top:34px;outline:0;min-width:0}
+.intro{margin-bottom:24px}
+.intro h1{font-size:clamp(28px,5vw,42px);letter-spacing:-.045em}
+.intro p,.hint{color:var(--muted);font-size:14px;line-height:1.7;margin-top:10px;max-width:640px}
+.section{margin-top:28px}
+.section h2{font-size:20px;letter-spacing:-.03em;margin-bottom:14px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:14px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:20px;min-width:0}
+.card h3{font-size:18px;letter-spacing:-.025em;overflow-wrap:anywhere}
+.card p{font-size:13px;line-height:1.65;color:var(--muted);margin-top:8px;overflow-wrap:anywhere}
+.cardHeader{display:flex;align-items:center;gap:12px;margin-bottom:12px}
+.cardHeader img{width:42px;height:42px;object-fit:contain;flex-shrink:0;border-radius:8px}
+.badge{display:inline-flex;padding:4px 8px;border-radius:5px;font-size:11px;font-weight:700;background:var(--surface-muted);color:var(--muted);margin-bottom:8px}
+.participating{background:var(--green-soft);color:var(--green)}
+.actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:18px}
+.button,.secondary{min-height:44px;border-radius:8px;padding:11px 15px;font-size:13px;font-weight:700;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;line-height:1.4}
+.button{background:var(--green);color:var(--on-accent);border:1px solid var(--green)}
+.secondary{background:var(--surface);color:var(--ink);border:1px solid var(--line)}
+.button:disabled,.secondary:disabled{opacity:.6;cursor:wait}
+.button:focus-visible,.secondary:focus-visible,.nav a:focus-visible,.form input:focus-visible,.form select:focus-visible{outline:2px solid var(--focus);outline-offset:3px}
+.form{display:grid;gap:16px;max-width:500px}
+.field{display:grid;gap:7px;font-size:13px;font-weight:700;color:var(--ink)}
+.field input,.field select{width:100%;min-width:0;min-height:44px;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:10px 12px;font:inherit}
+.form .actions{margin-top:0}
+.message{padding:12px 14px;border-radius:8px;background:var(--green-soft);color:var(--green);font-size:13px;line-height:1.6;margin:16px 0;overflow-wrap:anywhere}
+.error{background:var(--warning-bg);color:var(--warning-ink);border:1px solid var(--warning-border)}
+.links{display:grid;gap:12px;list-style:none;padding:0;margin:0}
+.linkRow{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;border-bottom:1px solid var(--line-soft);padding:0 0 14px}
+.linkRow strong{font-size:14px;overflow-wrap:anywhere}
+.linkRow p{margin-top:4px}
+.narrow{max-width:620px}
+.sectionHeader{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:14px}
+.sectionHeader h2{margin-bottom:0}
+@media(max-width:480px){.shell{padding:0 16px 40px}.header{gap:12px;padding:20px 0}.nav{gap:2px}.nav a{padding:10px}.main{padding-top:26px}.card{padding:17px}.actions>*{flex-grow:1}}

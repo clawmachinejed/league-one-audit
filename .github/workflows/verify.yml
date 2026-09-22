@@ -46,6 +46,10 @@ jobs:
         env:
           CI: '1'
           NEXT_TELEMETRY_DISABLED: '1'
+      - run: pnpm test:browser:accounts
+        env:
+          CI: '1'
+          NEXT_TELEMETRY_DISABLED: '1'
       - name: Upload browser failure artifacts
         if: failure()
         uses: actions/upload-artifact@v4
@@ -54,5 +58,6 @@ jobs:
           path: |
             .playwright/report
             test-results/playwright
+            test-results/account-playwright
           if-no-files-found: ignore
           retention-days: 7

@@ -22,6 +22,7 @@
     "league-administration:operate": "node --conditions=react-server --import tsx scripts/run-league-administration.ts"
   },
   "dependencies": {
+    "@neondatabase/auth": "0.5.0-beta",
     "@neondatabase/serverless": "^1.1.0",
     "next": "16.3.3",
     "react": "19.2.8",

@@ -32,6 +32,7 @@ function run(label, args) {
 
 run('Fast Check', ['verify']);
 run('Chromium browser tests', ['test:browser']);
+run('Synthetic account browser tests', ['test:browser:accounts']);
 
 const integrationEnvironment = resolve(root, 'apps/site/.env.integration.local');
 if (existsSync(integrationEnvironment)) {

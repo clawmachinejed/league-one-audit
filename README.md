@@ -21,6 +21,8 @@ With database persistence enabled, the accepted Neon enrollment and season-speci
 
 The [league administration foundation](docs/league-administration.md) stores Sleeper settings, scoring dictionaries, roster and manager evidence, matchups, transactions, drafts, traded picks and playoff brackets in Neon. Settings content is versioned on change, with separate observations and evidenced applicability. Existing scoring profiles and frozen results remain immutable. Page readers use accepted documents within their source freshness limit and retain the official read-only fallback. See the [016/017 release bundle](apps/site/release/league-administration/README.md) for migration, verification and rollback requirements; implementation files alone do not establish deployment.
 
+The [account foundation](docs/account-foundation.md) adds dormant, private website accounts and `/my-leagues`, `/account`, and `/sign-in` routes. Accounts are independent of Sleeper identities; saved follows, observed team participation and direct league affiliations remain distinct. The optional League One/Two group leaves Dynasty independent. Authentication and private persistence default off and are disabled in Vercel Preview. The existing My Team pages and public collection behavior are unchanged; an account-wide teams contract is available for their later redesign. See the [authentication qualification gates](docs/account-auth-foundation.md) and [database boundary](docs/account-foundation-database.md) before activation.
+
 League One keeps its existing routes, such as `/matchups`. League Two mirrors the same experience under `/league2`, and Dynasty League under `/dynasty`. The league selector changes the active league across My Team, Matchups, Standings, and Managers. Switching from a manager profile returns to the selected league's Managers page because Sleeper roster numbers are only unique within one league. Dynasty uses its Sleeper league icon. Position labels follow each league's official Sleeper roster slots throughout Matchups, My Team and roster views: **WRT** for FLEX, a two-by-two **WR / TQ** for SUPER_FLEX, **WR / RB** for WRRB_FLEX, and **WR / TE** for REC_FLEX. Accessible names spell out the eligible positions; source slot identities are unchanged. See [Dynasty League integration](docs/dynasty-league.md) for scoring, capacity and release checks.
 
 My Team appears immediately before Matchups in the navigation. `/my-team`, `/league2/my-team` and `/dynasty/my-team` show the selected team's matchup with that team always on the left, defaulting to the current week. The same week selector as Matchups supports earlier/later weeks, exact-week links and returning to Current. Without a valid saved selection, the page uses the first team in official standings order, including the existing alphabetical tiebreaker, without changing the saved preference. Expanding the shared matchup card shows both starting lineups and benches with available official scores and projections. Bench points never enter team totals. The page follows the same site week rollover and stored-snapshot refresh as Matchups; see [My Team behavior and release checks](docs/my-team.md).
@@ -137,7 +139,8 @@ The two-league Week 1 target is approximately 13–14 lineup matchup observation
 | `pnpm all-player:operate -- --mode shadow\|backfill --season 2026 --season-type regular --week 1` | Run the guarded server-only all-player shadow or exact-period backfill operation. Target identity and write authorization are supplied only through secured environment state. |
 | `pnpm build` | Create the production build. |
 | `pnpm start` | Run an existing production build locally. |
-| `pnpm verify` | Run lint, type checks, unit tests, and the production build, stopping on failure. |
+| `pnpm verify:dependencies` | Check dependency peers and the pinned auth packages' actual resolution against their original peer declarations. |
+| `pnpm verify` | Run dependency verification, lint, type checks, unit tests, and the production build, stopping on failure. |
 
 Install Playwright's Chromium browser once with `pnpm --filter @l1/site exec playwright install chromium`. With no `BASE_URL`, `pnpm test:browser` builds the site and starts the local production server automatically. Set `BASE_URL` to test an existing Vercel preview or production deployment instead.
 
@@ -149,6 +152,9 @@ Install Playwright's Chromium browser once with `pnpm --filter @l1/site exec pla
 | --- | --- |
 | `apps/site/app` | Routes, metadata, loading, error, and not-found pages. |
 | `apps/site/components` | Shared website views and browser interactions. |
+| `apps/site/app/(leagues)` | Existing public league URLs and league-dependent shell. |
+| `apps/site/app/(platform)` | Neutral account pages without public league-source dependencies. |
+| `apps/site/lib/accounts` | Verified website sessions, private account library, source participation, RLS transaction adapter and account APIs. |
 | `apps/site/lib/config.ts` | Single source of truth for both public Sleeper league IDs. |
 | `apps/site/lib/leagues.ts` | Public league identity, artwork, and route prefixes. |
 | `apps/site/lib/sleeper.ts` | Server-side Sleeper requests, caching, and data availability handling. |
