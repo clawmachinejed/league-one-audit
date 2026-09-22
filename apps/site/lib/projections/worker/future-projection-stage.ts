@@ -4,6 +4,7 @@ import type {
 } from '../ports/future-refresh-repository';
 import type { FutureProjectionWorkerDependencies } from './future-contracts';
 import type { FutureWorkSelection } from './future-work-policy';
+import { providerPersistenceDiagnostics } from './persistence-diagnostics';
 import {
   FUTURE_ATTEMPT_LEASE_SECONDS,
   FutureWorkError,
@@ -56,6 +57,7 @@ export async function runFutureProjectionStage(
   let failureCode: FutureRefreshFailureCode = 'unexpected';
   let activeStage = 'future-projection-feed';
   let activeStageStartedAt = dependencies.clock.monotonicNow();
+  let persistenceDiagnostics: ReturnType<typeof providerPersistenceDiagnostics> | undefined;
   try {
     assertFutureMayStart(dependencies, timing);
     activeStageStartedAt = dependencies.clock.monotonicNow();
@@ -96,7 +98,8 @@ export async function runFutureProjectionStage(
     activeStage = 'future-projection-persist';
     activeStageStartedAt = dependencies.clock.monotonicNow();
     const stored = await dependencies.repository.recordProjectionSlate(result.slate)
-      .catch(() => {
+      .catch((error: unknown) => {
+        persistenceDiagnostics = providerPersistenceDiagnostics(error);
         throw new FutureWorkError('projection-slate-persistence-failed');
       });
     assertFutureWithinDeadline(dependencies, timing);
@@ -166,6 +169,8 @@ export async function runFutureProjectionStage(
           }),
       totalDurationMs: futureElapsedMs(dependencies, timing),
       failureCode,
+      ...(persistenceDiagnostics ? { persistenceStage: 'projection-slate' as const,
+        ...persistenceDiagnostics } : {}),
     });
   }
 

@@ -21,6 +21,7 @@ const reasons = new Map<string, string>([
   ['Scoring identities could not be resolved.', 'scoring-identities-unavailable'],
   ['The official identity provider is unavailable.', 'official-identity-provider-unavailable'],
   ['The provider projection slate could not be persisted completely.', 'projection-slate-incomplete'],
+  ['projection slate conflict: equal observation time has different semantic content', 'projection-slate-observation-conflict'],
 ]);
 
 // Only recognized SQLSTATE values are emitted, not merely any five-character string.

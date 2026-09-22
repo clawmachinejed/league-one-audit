@@ -5,10 +5,29 @@ vi.mock('next/cache', () => ({ unstable_cache: <Value,>(value: Value) => value }
 
 import { createLiveProjectionWorker } from '../../live-projection-worker';
 import { fakeStore, gameState, gameStates, workerDependencies } from '../../live-projection-worker.fixtures';
-import { gameStatePersistenceDiagnostics } from './persistence-diagnostics';
+import { gameStatePersistenceDiagnostics, providerPersistenceDiagnostics } from './persistence-diagnostics';
 
 describe('current provider persistence diagnostics', () => {
   afterEach(() => vi.restoreAllMocks());
+
+  it('identifies immutable projection capture conflicts without exposing database detail', async () => {
+    const dependencies = workerDependencies(fakeStore());
+    dependencies.loggerMock.mockImplementation(() => undefined);
+    const message = 'projection slate conflict: equal observation time has different semantic content';
+    const error = Object.assign(new Error(message), { code: 'P0001', detail: 'private-sql-payload' });
+    vi.spyOn(dependencies.repository, 'recordProjectionSlate').mockRejectedValueOnce(error);
+    const publish = vi.spyOn(dependencies.repository, 'publishSnapshot');
+    await expect(createLiveProjectionWorker(dependencies).run()).resolves.toEqual({ status: 'failed' });
+    const entries = dependencies.loggerMock.mock.calls.map(([, entry]) => entry);
+    expect(entries).toContainEqual(expect.objectContaining({ stage: 'provider-persist', outcome: 'failed',
+      persistenceStage: 'projection-slate', persistenceFailureReason: 'projection-slate-observation-conflict',
+      databaseErrorCode: 'P0001', failedLeagues: 2 }));
+    expect(JSON.stringify(entries)).not.toContain('private-sql-payload');
+    expect(JSON.stringify(entries)).not.toContain(message);
+    expect(publish).not.toHaveBeenCalled();
+    expect(providerPersistenceDiagnostics(new Error(`${message}: private-sql-payload`)))
+      .toEqual({ persistenceFailureReason: 'unclassified' });
+  });
 
   it.each(['game-identities', 'game-states', 'scoring-identities', 'projection-slate'] as const)(
     'identifies the failed %s boundary and preserves the failed league count', async stage => {
