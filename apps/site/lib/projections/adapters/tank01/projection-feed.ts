@@ -239,31 +239,6 @@ export function createCachedTank01ProjectionFeed(
   const failureCache = new Map<string, CacheEntry<ProjectionUnavailableResult>>();
   const configuredKey = (): string | null => nonEmptyText(options.apiKey());
 
-  const sharedProjectionSlate = unstable_cache(
-    async (season: string, week: number): Promise<NormalizedProjectionSlate> => {
-      recordProviderCache('tank01', 'projection-slate', 'miss');
-      const apiKey = configuredKey();
-      if (!apiKey) throw new Tank01ProviderFailure('provider-error');
-      const envelope = await fetchTank01Envelope(request, projectionPath(season, week, now()), apiKey);
-      const slate = normalizeProjectionSlate(envelope, now());
-      if (!hasPlausibleTank01ProjectionEnvelope(
-        Object.values(slate.playersByTank01Id).map((projection) => ({
-          nflTeam: projection.team,
-          position: projection.position,
-          scoringStats: projection.scoringProjection,
-        })),
-        Object.values(slate.defensesByTeam).map((projection) => ({
-          nflTeam: projection.team,
-          scoringStats: projection.scoringProjection,
-        })),
-      )) throw new Tank01ProviderFailure('invalid-response');
-      return slate;
-    },
-    // This exact key preserves the already-populated production cache namespace.
-    ['tank01-normalized-projection-slate-v3'],
-    { revalidate: SUCCESS_CACHE_SECONDS },
-  );
-
   const sharedPlayerCrosswalk = unstable_cache(
     async (): Promise<NormalizedCrosswalk> => {
       recordProviderCache('tank01', 'player-crosswalk', 'miss');
@@ -295,10 +270,48 @@ export function createCachedTank01ProjectionFeed(
     try {
       recordProviderCache('tank01', 'projection-slate', 'framework-managed');
       recordProviderCache('tank01', 'player-crosswalk', 'framework-managed');
-      const [slate, crosswalk] = await waitForBoth(
-        sharedProjectionSlate(season, period.week),
-        sharedPlayerCrosswalk(),
+      // Next bypasses nested unstable_cache reads. Start the globally shared
+      // crosswalk outside the projection loader, and immediately handle rejection
+      // even when a warm projection hit never needs this invocation's crosswalk.
+      const crosswalkRead = sharedPlayerCrosswalk().then(
+        value => ({ status: 'fulfilled' as const, value }),
+        reason => ({ status: 'rejected' as const, reason }),
       );
+      const sharedProjectionCapture = unstable_cache(
+        async (season: string, week: number): Promise<Readonly<{
+          slate: NormalizedProjectionSlate; crosswalk: NormalizedCrosswalk;
+        }>> => {
+          recordProviderCache('tank01', 'projection-slate', 'miss');
+          // A missing crosswalk cannot produce a valid pair. In particular, do
+          // not spend a fresh stats request on every SWR retry after its failure.
+          const crosswalk = await crosswalkRead;
+          if (crosswalk.status === 'rejected') throw crosswalk.reason;
+          const loadSlate = async () => {
+            const apiKey = configuredKey();
+            if (!apiKey) throw new Tank01ProviderFailure('provider-error');
+            const envelope = await fetchTank01Envelope(request, projectionPath(season, week, now()), apiKey);
+            const slate = normalizeProjectionSlate(envelope, now());
+            if (!hasPlausibleTank01ProjectionEnvelope(
+              Object.values(slate.playersByTank01Id).map((projection) => ({
+                nflTeam: projection.team, position: projection.position, scoringStats: projection.scoringProjection,
+              })),
+              Object.values(slate.defensesByTeam).map((projection) => ({
+                nflTeam: projection.team, scoringStats: projection.scoringProjection,
+              })),
+            )) throw new Tank01ProviderFailure('invalid-response');
+            return slate;
+          };
+          const slate = await loadSlate();
+          return { slate, crosswalk: crosswalk.value };
+        },
+        // Versioned paired content cannot consume a legacy independently cached slate.
+        // Callback source plus season/week stay stable across invocation-local closures.
+        ['tank01-normalized-projection-capture-v4'],
+        { revalidate: SUCCESS_CACHE_SECONDS },
+      );
+      // Settle the already-started crosswalk even on a warm pair hit. A cold
+      // crosswalk loader is not yet registered as Next background revalidation.
+      const [{ slate, crosswalk }] = await waitForBoth(sharedProjectionCapture(season, period.week), crosswalkRead);
       return joinNormalizedProjectionSlate(
         period,
         rehydrateProjectionSlate(slate),
@@ -307,7 +320,8 @@ export function createCachedTank01ProjectionFeed(
         options.officialProvider,
       );
     } catch (error) {
-      // Rejected cache loaders are not retained by Next. Keep only the short process-local backoff.
+      // Foreground failures use the existing short process-local backoff.
+      // Next retains stale captures and handles their background revalidation failures.
       const reason = error instanceof Tank01ProviderFailure ? error.reason : 'provider-error';
       const retryAtMs = now() + failureBackoffMs;
       const result = unavailable(period, reason, retryAtMs) as ProjectionUnavailableResult;

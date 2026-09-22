@@ -53,12 +53,14 @@ describe('production worker capability composition', () => {
 
   it('shares one cached projection feed while isolating current-only and future-only capabilities', () => {
     const current = createProductionProjectionDependencies();
+    const cacheRegistrationsAfterCurrent = [...calls.cacheFactory.mock.calls];
     const future = createProductionFutureProjectionDependencies();
     // Per-lane telemetry wrappers delegate to the same cached feed and assessment implementation.
     expect(current.projectionFeed.assessProjectionSlate).toBe(future.projectionFeed.assessProjectionSlate);
     expect(current.projectionFeed.assessProjectionSlate).toBe(createProductionProjectionDependencies().projectionFeed.assessProjectionSlate);
-    expect(calls.cacheFactory.mock.calls.filter(([, keyParts]) => Array.isArray(keyParts)
-      && String(keyParts[0]).startsWith('tank01-normalized-'))).toHaveLength(2);
+    // Constructing additional lane wrappers must not construct another feed.
+    // Projection captures themselves are registered lazily for a requested period.
+    expect(calls.cacheFactory.mock.calls).toEqual(cacheRegistrationsAfterCurrent);
     expect(current).toHaveProperty('nflCalendar');
     expect(current).toHaveProperty('lineupSource');
     expect(current).not.toHaveProperty('persistence');

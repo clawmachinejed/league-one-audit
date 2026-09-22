@@ -6,6 +6,9 @@ const nextCacheRegistrations = vi.hoisted(() => [] as Array<{
   invocations: unknown[][];
   loads: number;
   values: unknown[];
+  loaderSource: string;
+  cache: Map<string, unknown>;
+  pending: Map<string, Promise<unknown>>;
 }>);
 
 vi.mock('server-only', () => ({}));
@@ -15,19 +18,22 @@ vi.mock('next/cache', () => ({
     keyParts: string[],
     options: { revalidate?: number },
   ) => {
-    const cache = new Map<string, Result>();
-    const pending = new Map<string, Promise<Result>>();
-    const registration = {
+    // Next keys by callback source, key parts and arguments, not factory identity.
+    const prior = nextCacheRegistrations.find(entry => entry.loaderSource === loader.toString()
+      && JSON.stringify(entry.keyParts) === JSON.stringify(keyParts));
+    const registration = prior ?? {
       keyParts: [...keyParts], options, invocations: [] as unknown[][], loads: 0, values: [] as unknown[],
+      loaderSource: loader.toString(), cache: new Map<string, unknown>(), pending: new Map<string, Promise<unknown>>(),
     };
-    nextCacheRegistrations.push(registration);
+    if (!prior) nextCacheRegistrations.push(registration);
+    const { cache, pending } = registration;
     return async (...args: Arguments): Promise<Result> => {
       registration.invocations.push(args);
       const key = JSON.stringify(args);
       const cached = cache.get(key);
-      if (cached !== undefined) return cached;
+      if (cached !== undefined) return JSON.parse(JSON.stringify(cached)) as Result;
       const inFlight = pending.get(key);
-      if (inFlight) return inFlight;
+      if (inFlight) return inFlight as Promise<Result>;
       const loading = (async () => {
         registration.loads += 1;
         const loaded = await loader(...args);
@@ -195,10 +201,10 @@ describe('Tank01 canonical projection feed', () => {
       officialProvider, fetch: request, now: () => Date.parse('2026-09-01T12:00:00Z') });
     const read = () => observeProviderAdapter(logger, 'tank01', 'projection-slate', () => feed.getProjectionSlate(period));
     await read();
-    expect(request).toHaveBeenCalledTimes(2);
+    expect(request).toHaveBeenCalledTimes(1);
     events.length = 0;
     await read();
-    expect(request).toHaveBeenCalledTimes(2);
+    expect(request).toHaveBeenCalledTimes(1);
     expect(events.filter((entry) => entry.cacheHits === 1)).toHaveLength(1);
     expect(events.filter((entry) => entry.upstreamRequests === 1)).toHaveLength(0);
   });
@@ -633,7 +639,71 @@ describe('Tank01 canonical projection feed', () => {
     })))).not.toMatch(/first-secret|rotated-secret/u);
   });
 
-  it('uses the exact production cache namespaces and rejects truncated slates before caching', async () => {
+  it('keeps a warm projection paired with its original crosswalk and adopts refreshed aliases only with a new stats capture', async () => {
+    let clock = Date.parse('2026-09-01T12:00:00Z');
+    let mappingVersion = 'original';
+    const request = vi.fn(async (input: string | URL | Request) => new URL(String(input)).pathname === '/getNFLProjections'
+      ? Response.json(completeProjectionEnvelope())
+      : Response.json(playerEnvelope(completePlayerListRows().map((row, index) => ({
+        ...(row as Record<string, unknown>), sleeperBotID: `${mappingVersion}-${index}`,
+      })))));
+    const options = { apiKey: () => 'fixture-secret', provider: tankProvider, officialProvider,
+      fetch: request as typeof globalThis.fetch, now: () => clock };
+    const feed = createCachedTank01ProjectionFeed(options);
+    const original = await feed.getProjectionSlate(period);
+    const crosswalk = nextCacheRegistrations.find(entry => entry.keyParts.includes('tank01-normalized-player-crosswalk-v1'))!;
+    const captures = nextCacheRegistrations.find(entry => entry.keyParts.includes('tank01-normalized-projection-capture-v4'))!;
+    crosswalk.cache.clear(); mappingVersion = 'updated'; clock += 120_000;
+    await expect(feed.getProjectionSlate(period)).resolves.toEqual(original);
+    await Promise.all([...crosswalk.pending.values()]);
+    // A different callback instance/factory still uses the same persistent key.
+    await expect(createCachedTank01ProjectionFeed(options).getProjectionSlate(period)).resolves.toEqual(original);
+    expect(request).toHaveBeenCalledTimes(3);
+    expect(captures.loads).toBe(1);
+    const nextPeriod = await feed.getProjectionSlate({ ...period, week: 2 });
+    expect(request).toHaveBeenCalledTimes(4);
+    expect(nextPeriod.status).toBe('available');
+    if (nextPeriod.status !== 'available' || original.status !== 'available') throw new Error('Fixture must be available');
+    expect(nextPeriod.slate.projections.find(row => row.identity.primary.entityKind === 'player')?.identity.aliases[0].externalId)
+      .toMatch(/^updated-/u);
+    expect(original.slate.observedAt).toBe('2026-09-01T12:00:00.000Z');
+    captures.cache.delete(JSON.stringify(['2026', 1])); clock += 120_000;
+    const refreshed = await feed.getProjectionSlate(period);
+    expect(request).toHaveBeenCalledTimes(5);
+    expect(refreshed.status).toBe('available');
+    if (refreshed.status !== 'available') throw new Error('Fixture must be available');
+    expect(refreshed.slate.observedAt).toBe('2026-09-01T12:04:00.000Z');
+    expect(refreshed.slate.sourceRevision).not.toBe(original.slate.sourceRevision);
+    expect(refreshed.slate.projections.find(row => row.identity.primary.entityKind === 'player')?.identity.aliases[0].externalId)
+      .toMatch(/^updated-/u);
+  });
+
+  it('does not let a failed independent crosswalk read poison a warm pair, but refuses to cache a new incomplete pair', async () => {
+    let clock = Date.parse('2026-09-01T12:00:00Z');
+    let failCrosswalk = false;
+    const request = vi.fn(async (input: string | URL | Request) => new URL(String(input)).pathname === '/getNFLProjections'
+      ? Response.json(completeProjectionEnvelope())
+      : failCrosswalk ? new Response(null, { status: 503 }) : Response.json(playerEnvelope(completePlayerListRows())));
+    const feed = createCachedTank01ProjectionFeed({ apiKey: () => 'fixture-secret', provider: tankProvider,
+      officialProvider, fetch: request as typeof globalThis.fetch, now: () => clock });
+    const original = await feed.getProjectionSlate(period);
+    const crosswalk = nextCacheRegistrations.find(entry => entry.keyParts.includes('tank01-normalized-player-crosswalk-v1'))!;
+    const captures = nextCacheRegistrations.find(entry => entry.keyParts.includes('tank01-normalized-projection-capture-v4'))!;
+    crosswalk.cache.clear(); failCrosswalk = true; clock += 120_000;
+    await expect(feed.getProjectionSlate(period)).resolves.toEqual(original);
+    await Promise.allSettled([...crosswalk.pending.values()]);
+    const failed = await feed.getProjectionSlate({ ...period, week: 2 });
+    expect(failed).toMatchObject({ status: 'unavailable', reason: 'provider-error' });
+    expect(captures.values).toHaveLength(1);
+    const calls = request.mock.calls.length;
+    await expect(feed.getProjectionSlate({ ...period, week: 2 })).resolves.toEqual(failed);
+    expect(request).toHaveBeenCalledTimes(calls);
+    failCrosswalk = false; clock += 60_001;
+    await expect(feed.getProjectionSlate({ ...period, week: 2 })).resolves.toMatchObject({ status: 'available' });
+    expect(captures.values).toHaveLength(2);
+  });
+
+  it('uses the versioned paired cache and shared crosswalk namespace, rejecting truncated slates before caching', async () => {
     let clock = Date.parse('2026-09-01T12:00:00Z');
     let complete = false;
     const fetch = vi.fn(async (input: string | URL | Request) => {
@@ -648,8 +718,9 @@ describe('Tank01 canonical projection feed', () => {
       apiKey: () => secret, provider: tankProvider, officialProvider,
       fetch: fetch as typeof globalThis.fetch, now: () => clock,
     });
+    const failed = await feed.getProjectionSlate(period);
     const projectionRegistration = nextCacheRegistrations.find(({ keyParts }) => (
-      keyParts.includes('tank01-normalized-projection-slate-v3')
+      keyParts.includes('tank01-normalized-projection-capture-v4')
     ));
     const crosswalkRegistration = nextCacheRegistrations.find(({ keyParts }) => (
       keyParts.includes('tank01-normalized-player-crosswalk-v1')
@@ -657,7 +728,6 @@ describe('Tank01 canonical projection feed', () => {
     expect(projectionRegistration?.options.revalidate).toBe(3_600);
     expect(crosswalkRegistration?.options.revalidate).toBe(3_600);
 
-    const failed = await feed.getProjectionSlate(period);
     expect(failed).toMatchObject({
       status: 'unavailable', reason: 'invalid-response', retryAt: '2026-09-01T12:01:00.000Z',
     });
@@ -710,7 +780,7 @@ describe('Tank01 canonical projection feed', () => {
     expect(result).toMatchObject({ status: 'unavailable', reason });
   });
 
-  it('settles both upstream requests and applies a short failure backoff without logging secrets', async () => {
+  it('settles a timed-out crosswalk before returning, avoids an unusable stats fetch and applies failure backoff', async () => {
     vi.useFakeTimers();
     const clock = Date.parse('2026-09-01T12:00:00Z');
     let activeRequests = 0;
@@ -744,11 +814,11 @@ describe('Tank01 canonical projection feed', () => {
       expect(failed).toMatchObject({
         status: 'unavailable', reason: 'provider-error', retryAt: '2026-09-01T12:01:00.000Z',
       });
-      expect(fetch).toHaveBeenCalledTimes(2);
-      expect(timeout).toHaveBeenCalledTimes(2);
+      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(timeout).toHaveBeenCalledTimes(1);
       expect(activeRequests).toBe(0);
       await expect(feed.getProjectionSlate(period)).resolves.toEqual(failed);
-      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(fetch).toHaveBeenCalledTimes(1);
       consoleSpies.forEach((spy) => expect(spy).not.toHaveBeenCalled());
     } finally {
       await vi.runOnlyPendingTimersAsync();

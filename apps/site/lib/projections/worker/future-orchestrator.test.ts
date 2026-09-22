@@ -447,6 +447,33 @@ describe('future projection orchestration', () => {
     expect(store.acquired).toHaveBeenCalledOnce();
   });
 
+  it('records a safe immutable-slate conflict reason and retains future failure handling', async () => {
+    const store = fakeStore();
+    store.readFuturePlan.mockResolvedValue(plansWithWeekTwo({ due: true }));
+    const dependencies = configureFutureDependencies(store);
+    const failure = Object.assign(new Error(
+      'projection slate conflict: equal observation time has different semantic content',
+    ), { code: 'P0001', detail: 'private database detail' });
+    vi.spyOn(store.repository, 'recordProjectionSlate').mockRejectedValueOnce(failure);
+
+    await expect(createFutureProjectionWorker(dependencies).run()).resolves.toMatchObject({
+      status: 'failed',
+    });
+    expect(store.completeFutureProjection).not.toHaveBeenCalled();
+    expect(store.failFutureProjection).toHaveBeenCalledWith(expect.objectContaining({
+      failureCode: 'projection-slate-persistence-failed',
+    }));
+    expect(dependencies.loggerMock).toHaveBeenCalledWith('warn', expect.objectContaining({
+      stage: 'future-projection-persist', outcome: 'failed',
+      persistenceStage: 'projection-slate',
+      persistenceFailureReason: 'projection-slate-observation-conflict',
+      databaseErrorCode: 'P0001',
+    }));
+    const logs = JSON.stringify(dependencies.loggerMock.mock.calls);
+    expect(logs).not.toContain(failure.message);
+    expect(logs).not.toContain(failure.detail);
+  });
+
   it('completes a future projection refresh when unchanged content verifies the current slate', async () => {
     const store = fakeStore();
     store.readFuturePlan.mockResolvedValue(plansWithWeekTwo({ due: true }));
