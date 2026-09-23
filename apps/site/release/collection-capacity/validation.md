@@ -12,6 +12,6 @@ Application baseline: `864580c67bae2380049c978346e3da076d5cdee5`. Local `main` w
 
 The first local full-verification invocation stopped before checks because an installed pnpm launcher selected Node 20. A temporary task-local launcher pinned Node 24 for nested commands, and the complete workflow then passed. Global Node configuration was not changed.
 
-Evidence: [full verification log](evidence/full-verify.log), [final probe](evidence/collection-capacity-final-probe-d76d7839-efb1-4088-8ed9-1fbb6f6efe71.json), [final cleanup receipt](evidence/collection-capacity-supervision-530017ce-1c54-4eff-b1ad-4b103fd44ade.json). The verification log SHA-256 is `d420375f3d2e768b08139abeb7d79f657b1c9c1fea480a5cf8e9976f8241ac11`.
+Evidence: [full verification log](evidence/full-verify.log), [final probe](evidence/collection-capacity-final-probe-d76d7839-efb1-4088-8ed9-1fbb6f6efe71.json), [final cleanup receipt](evidence/collection-capacity-supervision-530017ce-1c54-4eff-b1ad-4b103fd44ade.json). Only trailing whitespace was normalized in the saved log. Its SHA-256 is `e5e732f41105842fb3df8b9c9481e29f1e54fe644793a079db74113fe7a0187c`.
 
 Branch publication, preview checks and CI are recorded on the pull request. This validation does not authorize merging, enrolling additional leagues or changing production configuration. The runtime, migrations, cron schedules and provider configuration are unchanged.
