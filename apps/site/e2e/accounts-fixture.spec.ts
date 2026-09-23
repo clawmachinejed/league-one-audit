@@ -35,6 +35,7 @@ async function installFixture(page: Page, baseURL: string) {
     current: accountFixture() as AccountView | null,
     reads: 0, writes: [] as { path: string; expectedAccount: string | undefined; body: Record<string, unknown> }[],
     authPaths: [] as string[], unexpected: [] as string[], nextStatus: 0, readStatus: 0, resetError: false, resetStatus: 0,
+    signInError: null as { status: number; code: string } | null,
     holdNextRead: null as Promise<void> | null,
   };
   await page.route('**/*', async route => {
@@ -83,6 +84,9 @@ async function installFixture(page: Page, baseURL: string) {
         await route.fulfill({ status: 400, json: { code: 'INVALID_TOKEN', message: 'Synthetic expired or used token' } }); return;
       }
       if (path.endsWith('/get-session')) { await route.fulfill({ json: null }); return; }
+      if (path.endsWith('/sign-in/email') && fixture.signInError) {
+        await route.fulfill({ status: fixture.signInError.status, json: { code: fixture.signInError.code, message: 'Synthetic sign-in failure' } }); return;
+      }
       if (path.endsWith('/sign-out')) fixture.current = null;
       if (path.endsWith('/sign-in/email')) fixture.current = accountFixture();
       await route.fulfill({ json: { success: true, user: { id: userId, email: 'invited@example.test', emailVerified: true, name: 'Fixture Member' }, token: null } }); return;
@@ -169,6 +173,37 @@ test('sign-up and email verification use the SDK without contacting an external 
   expect(fixture.unexpected).toEqual([]);
 });
 
+test('unverified sign-in opens the code step without resending and other failures stay on sign-in', async ({ page, baseURL }) => {
+  const fixture = await installFixture(page, baseURL!);
+  fixture.current = null;
+  fixture.signInError = { status: 403, code: 'EMAIL_NOT_VERIFIED' };
+  await page.goto('/sign-in');
+  await page.getByLabel('Email', { exact: true }).fill('invited@example.test');
+  await page.getByLabel('Website password').fill('synthetic-browser-password');
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Verify your email' })).toBeVisible();
+  await expect(page.getByLabel('Verification code')).toBeVisible();
+  await expect(page.getByLabel('Email', { exact: true })).toHaveValue('invited@example.test');
+  expect(fixture.authPaths.filter(path => path !== '/api/auth/get-session')).toEqual(['/api/auth/sign-in/email']);
+
+  await page.getByRole('button', { name: 'Return to sign in' }).click();
+  await expect(page.getByLabel('Website password')).toHaveValue('');
+  fixture.signInError = { status: 401, code: 'INVALID_EMAIL_OR_PASSWORD' };
+  await page.getByLabel('Website password').fill('synthetic-incorrect-password');
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Sign in', exact: true })).toBeVisible();
+  await expect(page.getByRole('alert').filter({ hasText: 'We could not sign you in.' })).toBeVisible();
+  await expect(page.getByLabel('Verification code')).toHaveCount(0);
+  await expect(page.getByLabel('Website password')).toHaveValue('');
+
+  const beforeCodeAction = [...fixture.authPaths];
+  await page.getByRole('button', { name: 'I have a verification code' }).click();
+  await expect(page.getByRole('heading', { name: 'Verify your email' })).toBeVisible();
+  await expect(page.getByLabel('Verification code')).toBeVisible();
+  await expect(page.getByLabel('Email', { exact: true })).toHaveValue('invited@example.test');
+  expect(fixture.authPaths).toEqual(beforeCodeAction);
+  expect(fixture.unexpected).toEqual([]);
+});
 test('late private responses cannot restore a session that became unauthenticated', async ({ page, baseURL }) => {
   const fixture = await installFixture(page, baseURL!);
   await page.goto('/account');

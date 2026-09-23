@@ -12,6 +12,8 @@
 -- control-plane action. Then put the role's pooled connection string in DATABASE_URL.
 -- Keep the schema-owner direct connection only in MIGRATION_DATABASE_URL.
 
+-- Maintained auth grants are checked again below when its schema is installed.
+
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'league_one_runtime') THEN
@@ -34,6 +36,27 @@ BEGIN
   EXECUTE format('GRANT CONNECT ON DATABASE %I TO league_one_runtime', current_database());
 END;
 $$;
+
+DO $$ DECLARE object record; denied_table_privileges text := 'DELETE,TRUNCATE,TRIGGER'; BEGIN
+  IF current_setting('server_version_num')::integer >= 170000 THEN
+    denied_table_privileges := denied_table_privileges||',MAINTAIN';
+  END IF;
+  IF to_regnamespace('website_auth') IS NOT NULL THEN
+    IF has_schema_privilege('league_one_runtime','website_auth','USAGE,CREATE') THEN
+      RAISE EXCEPTION 'worker role can access the auth schema'; END IF;
+    FOR object IN SELECT c.oid,c.relkind FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+      WHERE n.nspname='website_auth' AND c.relkind IN ('r','p','v','m','f','S') LOOP
+      IF (CASE WHEN object.relkind='S' THEN has_sequence_privilege('league_one_runtime',object.oid,'SELECT,UPDATE,USAGE')
+        ELSE has_any_column_privilege('league_one_runtime',object.oid,'SELECT,INSERT,UPDATE,REFERENCES')
+          OR has_table_privilege('league_one_runtime',object.oid,denied_table_privileges) END) THEN
+        RAISE EXCEPTION 'worker role has auth object privileges'; END IF;
+    END LOOP;
+  END IF;
+  IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='league_one_auth') THEN
+    IF pg_has_role('league_one_runtime','league_one_auth','MEMBER') THEN
+      RAISE EXCEPTION 'worker role can assume the auth role'; END IF;
+  END IF;
+END; $$;
 
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 REVOKE CREATE ON SCHEMA public FROM league_one_runtime;

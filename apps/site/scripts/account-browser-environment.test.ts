@@ -5,6 +5,9 @@ describe('isolated account UI browser environment', () => {
   it('uses only synthetic auth settings and disables all database/provider credentials', () => {
     const env = accountBrowserEnvironment({ L1_ACCOUNT_BROWSER_FIXTURE: 'true' }, 'http://localhost:3217');
     expect(env.ACCOUNTS_ENABLED).toBe('true');
+    expect(env.ACCOUNTS_AUTH_DATABASE_URL).toContain('synthetic@ep-account-ui-fixture.');
+    expect(env.ACCOUNTS_EMAIL_API_KEY).toBe('synthetic-no-delivery-key');
+    expect(env.ACCOUNTS_AUTH_ISSUER).toBe('https://account-ui-fixture.example.test/api/auth');
     expect(env.ACCOUNT_DATABASE_URL).toBe('');
     expect(env.DATABASE_URL).toBe('');
     expect(env.MIGRATION_DATABASE_URL).toBe('');

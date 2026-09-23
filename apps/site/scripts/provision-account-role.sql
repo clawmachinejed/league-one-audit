@@ -108,4 +108,27 @@ DO $$ DECLARE object record; BEGIN
       RAISE EXCEPTION 'worker can assume the account role or execute private identity functions'; END IF;
   END IF;
 END; $$;
+
+-- Auth credentials remain a separate runtime boundary even when this script is
+-- rerun after the maintained auth role/schema has been installed.
+DO $$ DECLARE object record; denied_table_privileges text := 'DELETE,TRUNCATE,TRIGGER'; BEGIN
+  IF current_setting('server_version_num')::integer >= 170000 THEN
+    denied_table_privileges := denied_table_privileges||',MAINTAIN';
+  END IF;
+  IF to_regnamespace('website_auth') IS NOT NULL THEN
+    IF has_schema_privilege('league_one_account','website_auth','USAGE,CREATE') THEN
+      RAISE EXCEPTION 'account role can access the auth schema'; END IF;
+    FOR object IN SELECT c.oid,c.relkind FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+      WHERE n.nspname='website_auth' AND c.relkind IN ('r','p','v','m','f','S') LOOP
+      IF (CASE WHEN object.relkind='S' THEN has_sequence_privilege('league_one_account',object.oid,'SELECT,UPDATE,USAGE')
+        ELSE has_any_column_privilege('league_one_account',object.oid,'SELECT,INSERT,UPDATE,REFERENCES')
+          OR has_table_privilege('league_one_account',object.oid,denied_table_privileges) END) THEN
+        RAISE EXCEPTION 'account role has auth object privileges'; END IF;
+    END LOOP;
+  END IF;
+  IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='league_one_auth') THEN
+    IF pg_has_role('league_one_account','league_one_auth','MEMBER') THEN
+      RAISE EXCEPTION 'account role can assume the auth role'; END IF;
+  END IF;
+END; $$;
 COMMIT;

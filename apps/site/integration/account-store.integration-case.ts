@@ -8,8 +8,8 @@ import type { AccountDatabase } from '../lib/accounts/database';
 import { accountTeams } from '../lib/accounts/library';
 import { ACCOUNT_VIEW_SQL } from '../lib/accounts/neon/source-sql';
 import { AccountConflictError, createAccountStore } from '../lib/accounts/store';
-import { registerEnrolledIntegrationSeason } from './administration-enrollment-fixture';
-import { withAccountActor, type AccountIntegrationQuery } from './neon-integration-harness';
+import { enrollIntegrationSeason, registerEnrolledIntegrationSeason } from './administration-enrollment-fixture';
+import { ownerQuery, withAccountActor, type AccountIntegrationQuery } from './neon-integration-harness';
 
 type LeagueFixture = { leagueKey: string; leagueId: string; leagueSeasonId: string; season: number; externalLeagueId: string };
 type Fixture = Awaited<ReturnType<typeof createFixture>>;
@@ -56,10 +56,25 @@ async function createFixture(query: AccountIntegrationQuery) {
     FROM public.league_administration_enrollment_seasons enrollment
     JOIN public.leagues league ON league.id=enrollment.league_id
     WHERE league.league_key IN ('league1','league2','dynasty')`);
-  const firstSeason = Math.max(2150, latest[0].season + 1);
+  // The full statistics suite retains canonical year 2199. Reuse that base
+  // season inside this rollback-only transaction, leaving 2200 for rollover.
+  const firstSeason = Math.max(2150, latest[0].season);
   if (firstSeason + 1 > 2200) throw new Error('Isolated fixture has no remaining synthetic annual season.');
   async function league(leagueKey: string, season = firstSeason): Promise<LeagueFixture> {
     const externalLeagueId = `account-adapter-${randomUUID()}`;
+    const existing = await query<{ league_id: string; season_id: string; external_league_id: string }>(`SELECT
+      league.id AS league_id,season.id AS season_id,connection.external_league_id
+      FROM public.leagues league JOIN public.league_seasons season ON season.league_id=league.id
+      JOIN public.league_source_connections connection ON connection.league_season_id=season.id AND connection.provider='sleeper'
+      WHERE league.league_key=$1 AND season.season=$2`, [leagueKey, season]);
+    if (existing.length === 1) {
+      // Preserve the existing scoring profile and immutable history. The
+      // supported owner remap isolates accepted-source IDs until outer rollback.
+      await query(`SELECT public.remap_league_source_connection($1,'sleeper',$2,$3,
+        'rollback-only account adapter source')`, [existing[0].season_id, existing[0].external_league_id, externalLeagueId]);
+      await enrollIntegrationSeason(query, [leagueKey], season);
+      return { leagueKey, leagueId: existing[0].league_id, leagueSeasonId: existing[0].season_id, season, externalLeagueId };
+    }
     const registered = await registerEnrolledIntegrationSeason(query, {
       leagueKey, season, sleeperLeagueId: externalLeagueId, scoringRules: { pass_td: 4, rec: 0.5 },
     });
@@ -93,16 +108,48 @@ async function createFixture(query: AccountIntegrationQuery) {
 }
 
 describe.sequential('account store adapter against actual accepted-source SQL and restricted grants', () => {
-  it('ignores an unrelated league at the maximum supported year when selecting canonical fixture years', async () => rollbackFixture(async f => {
-    expect(f.firstSeason).toBeLessThan(2200);
-    const league = await f.league('league1');
-    const view = await f.store.read(await f.login());
-    expect(view.library.leagues.find(value => value.key === 'league1')?.season).toBe(league.season);
-  }, async query => {
-    await registerEnrolledIntegrationSeason(query, { leagueKey: `unrelated-maximum-${randomUUID()}`, season: 2200,
-      sleeperLeagueId: `unrelated-maximum-source-${randomUUID()}`, scoringRules: { pass_td: 4, rec: 0.5 } });
-  }));
+  it('isolates canonical year 2199 and unrelated year 2200 without retaining source remaps', async () => {
+    const sources = () => ownerQuery(`SELECT league.league_key,season.season,season.scoring_profile_id,
+      connection.external_league_id,connection.connected_at,
+      (SELECT count(*)::integer FROM public.league_source_connection_history history
+        WHERE history.league_season_id=season.id) AS history_count
+      FROM public.leagues league JOIN public.league_seasons season ON season.league_id=league.id
+      JOIN public.league_source_connections connection ON connection.league_season_id=season.id
+      WHERE league.league_key IN ('league1','league2','dynasty') ORDER BY league.league_key,season.season,connection.provider`);
+    const before = await sources();
+    await rollbackFixture(async f => {
+      expect(f.firstSeason).toBe(2199);
+      const league = await f.league('league1');
+      const view = await f.store.read(await f.login());
+      expect(view.library.leagues.find(value => value.key === 'league1')?.season).toBe(league.season);
+    }, async query => {
+      if (!(await query(`SELECT season.id FROM public.league_seasons season JOIN public.leagues league ON league.id=season.league_id
+        WHERE league.league_key='league1' AND season.season=2199`)).length) {
+        await registerEnrolledIntegrationSeason(query, { leagueKey: 'league1', season: 2199,
+          sleeperLeagueId: `retained-canonical-${randomUUID()}`, scoringRules: { pass_td: 4 } });
+      }
+      await enrollIntegrationSeason(query, ['league1'], 2199);
+      await registerEnrolledIntegrationSeason(query, { leagueKey: `unrelated-maximum-${randomUUID()}`, season: 2200,
+        sleeperLeagueId: `unrelated-maximum-source-${randomUUID()}`, scoringRules: { pass_td: 4, rec: 0.5 } });
+    });
+    expect(await sources()).toEqual(before);
+  });
 
+  it('uses the normalized source display name when a Sleeper user has no username', async () => rollbackFixture(async f => {
+    const league = await f.league('league1');
+    const manager = `display-only-${randomUUID()}`;
+    await f.record(league, 'users', [{ user_id: manager, display_name: 'Source display name' }]);
+    const sourceManagerAccountId = await f.accountId(manager);
+    const actor = await f.login();
+    const view = await f.store.read(actor);
+    expect(view.library.availableProviderAccounts.find(account => account.id === sourceManagerAccountId)).toMatchObject({
+      provider: 'sleeper', externalId: manager, displayName: 'Source display name', username: null,
+    });
+    await f.link(actor, manager);
+    expect((await f.store.read(actor)).links.find(link => link.sourceManagerAccountId === sourceManagerAccountId)).toMatchObject({
+      displayName: 'Source display name', assurance: 'user_asserted',
+    });
+  }));
   it('executes the full view with owner/co-owner teams across independent leagues and exact source IDs', async () => rollbackFixture(async f => {
     const one = await f.league('league1'); const two = await f.league('league2'); const dynasty = await f.league('dynasty');
     const manager = `manager-${randomUUID()}`; const coOwner = `co-${randomUUID()}`;
