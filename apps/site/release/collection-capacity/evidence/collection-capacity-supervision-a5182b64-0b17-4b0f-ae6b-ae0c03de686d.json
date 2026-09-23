@@ -1,0 +1,191 @@
+{
+  "startedAt": "2026-09-23T22:12:51.253Z",
+  "childClosed": true,
+  "cleanupVerified": true,
+  "productionWrites": false,
+  "credentialsCreated": false,
+  "database": "account_reset_integration_test",
+  "before": {
+    "database": "account_reset_integration_test",
+    "branch": "br-still-breeze-avaibago",
+    "relations": 0,
+    "other_sessions": 14,
+    "backends": [
+      {
+        "role": "league_one_runtime",
+        "state": "idle",
+        "backendStart": "2026-09-23T22:07:53.653228+00:00",
+        "transactionStart": null
+      },
+      {
+        "role": "league_one_runtime",
+        "state": "idle",
+        "backendStart": "2026-09-23T22:06:45.853716+00:00",
+        "transactionStart": null
+      },
+      {
+        "role": "league_one_runtime",
+        "state": "idle",
+        "backendStart": "2026-09-23T22:06:23.605996+00:00",
+        "transactionStart": null
+      },
+      {
+        "role": "league_one_runtime",
+        "state": "idle",
+        "backendStart": "2026-09-23T22:05:41.570288+00:00",
+        "transactionStart": null
+      },
+      {
+        "role": "league_one_runtime",
+        "state": "idle",
+        "backendStart": "2026-09-23T22:05:21.230017+00:00",
+        "transactionStart": null
+      },
+      {
+        "role": "league_one_runtime",
+        "state": "idle",
+        "backendStart": "2026-09-23T22:05:20.900731+00:00",
+        "transactionStart": null
+      },
+      {
+        "role": "league_one_runtime",
+        "state": "idle",
+        "backendStart": "2026-09-23T22:05:20.903421+00:00",
+        "transactionStart": null
+      },
+      {
+        "role": "league_one_runtime",
+        "state": "idle",
+        "backendStart": "2026-09-23T22:05:18.693392+00:00",
+        "transactionStart": null
+      },
+      {
+        "role": "league_one_runtime",
+        "state": "idle",
+        "backendStart": "2026-09-23T22:04:22.476043+00:00",
+        "transactionStart": null
+      },
+      {
+        "role": "league_one_runtime",
+        "state": "idle",
+        "backendStart": "2026-09-23T22:04:20.71075+00:00",
+        "transactionStart": null
+      },
+      {
+        "role": "league_one_runtime",
+        "state": "idle",
+        "backendStart": "2026-09-23T22:03:35.757802+00:00",
+        "transactionStart": null
+      },
+      {
+        "role": "league_one_runtime",
+        "state": "idle",
+        "backendStart": "2026-09-23T21:59:54.624921+00:00",
+        "transactionStart": null
+      },
+      {
+        "role": "league_one_runtime",
+        "state": "idle",
+        "backendStart": "2026-09-23T21:59:33.673165+00:00",
+        "transactionStart": null
+      },
+      {
+        "role": "league_one_runtime",
+        "state": "idle",
+        "backendStart": "2026-09-23T21:59:29.288831+00:00",
+        "transactionStart": null
+      }
+    ]
+  },
+  "measurementFile": "collection-capacity-measurement-b7e252ff-a4a6-4cbd-bbb3-145a12e67ef7.json",
+  "childPid": 62052,
+  "childExit": 0,
+  "after": {
+    "database": "account_reset_integration_test",
+    "branch": "br-still-breeze-avaibago",
+    "relations": 0,
+    "other_sessions": 13,
+    "backends": [
+      {
+        "role": "league_one_runtime",
+        "state": "idle",
+        "backendStart": "2026-09-23T22:15:56.8474+00:00",
+        "transactionStart": null
+      },
+      {
+        "role": "league_one_runtime",
+        "state": "idle",
+        "backendStart": "2026-09-23T22:15:17.202841+00:00",
+        "transactionStart": null
+      },
+      {
+        "role": "league_one_runtime",
+        "state": "idle",
+        "backendStart": "2026-09-23T22:15:17.183391+00:00",
+        "transactionStart": null
+      },
+      {
+        "role": "league_one_runtime",
+        "state": "idle",
+        "backendStart": "2026-09-23T22:15:10.22471+00:00",
+        "transactionStart": null
+      },
+      {
+        "role": "league_one_runtime",
+        "state": "idle",
+        "backendStart": "2026-09-23T22:15:10.216571+00:00",
+        "transactionStart": null
+      },
+      {
+        "role": "league_one_runtime",
+        "state": "idle",
+        "backendStart": "2026-09-23T22:15:10.196082+00:00",
+        "transactionStart": null
+      },
+      {
+        "role": "league_one_runtime",
+        "state": "idle",
+        "backendStart": "2026-09-23T22:15:10.185291+00:00",
+        "transactionStart": null
+      },
+      {
+        "role": "league_one_runtime",
+        "state": "idle",
+        "backendStart": "2026-09-23T22:06:23.605996+00:00",
+        "transactionStart": null
+      },
+      {
+        "role": "league_one_runtime",
+        "state": "idle",
+        "backendStart": "2026-09-23T22:05:20.900731+00:00",
+        "transactionStart": null
+      },
+      {
+        "role": "league_one_runtime",
+        "state": "idle",
+        "backendStart": "2026-09-23T22:04:22.476043+00:00",
+        "transactionStart": null
+      },
+      {
+        "role": "league_one_runtime",
+        "state": "idle",
+        "backendStart": "2026-09-23T22:04:20.71075+00:00",
+        "transactionStart": null
+      },
+      {
+        "role": "league_one_runtime",
+        "state": "idle",
+        "backendStart": "2026-09-23T21:59:54.624921+00:00",
+        "transactionStart": null
+      },
+      {
+        "role": "league_one_runtime",
+        "state": "idle",
+        "backendStart": "2026-09-23T21:59:29.288831+00:00",
+        "transactionStart": null
+      }
+    ]
+  },
+  "httpPoolCleanupScope": "Child closed, schemas empty, no active or open-transaction backends; only idle runtime HTTP pool backends created inside recorded owned run windows are allowed. No connections terminated.",
+  "finishedAt": "2026-09-23T22:16:49.650Z"
+}

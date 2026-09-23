@@ -30,7 +30,7 @@ Shared provider, canonical inventory, or shared persistence failure can still af
 
 Existing global provider ownership, request budgets, exact-week behavior, immutable history, frozen projection baselines and the single projection pipeline remain. Acceptance rechecks ownership and deadline at the database boundary; old workers cannot publish after takeover. Accepted official evidence and score children remain sealed and retained.
 
-This change does not establish a maximum league capacity or fixed refresh promise. The existing request envelope, invocation duration and maintenance cadence still apply. Durable per-league retry scheduling, continuation across bounded invocations, maintenance fairness and realistic fleet capacity measurements remain follow-up work. New league enrollment remains a separate decision.
+This change does not establish a maximum league capacity or fixed refresh promise. The existing request envelope, invocation duration and maintenance cadence still apply. The [measured capacity report](collection-capacity-validation.md) records scheduler limits and isolated database results. Durable per-league retry scheduling, continuation across bounded invocations, maintenance fairness and live-provider/Vercel capacity remain follow-up work. New league enrollment remains a separate decision.
 
 ## Qualification and rollout
 

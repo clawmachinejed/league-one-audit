@@ -6,6 +6,7 @@ import { installAllPlayerScheduleTestClock } from './all-player-schedule-test-cl
 
 export default async function globalSetup(): Promise<() => Promise<void>> {
   await prepareIntegrationDatabase();
-  await installAllPlayerScheduleTestClock();
+  try { await installAllPlayerScheduleTestClock(); }
+  catch (error) { await cleanIntegrationDatabase(); throw error; }
   return async () => cleanIntegrationDatabase();
 }

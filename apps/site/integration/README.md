@@ -25,7 +25,7 @@ COMMENT ON DATABASE projection_refactor_test IS
 '{"purpose":"league-one-projection-store-integration","sentinel":"replace-with-the-same-long-random-value","branchId":"br-replace","branchName":"projection-integration-test"}';
 ```
 
-The owner URL must use the schema-owner role. The runtime URL must use the existing `league_one_runtime` role and point to the same database. The reset lifecycle URL must use the separately provisioned `league_one_auth` role on that same isolated database; never substitute an owner URL. Supply it through an ignored environment file or a supervised test process, and revoke temporary credentials after the child processes close. The standard runner refuses a missing lifecycle credential before any schema reset. Direct and pooled forms of the same Neon endpoint are accepted.
+The owner URL must use the schema-owner role and the direct Neon endpoint, because session ownership cannot use a transaction pooler. The runtime URL must use the existing `league_one_runtime` role and point to the same database; its pooled endpoint is allowed. The reset lifecycle URL must use the separately provisioned `league_one_auth` role on that same isolated database; never substitute an owner URL. Supply it through an ignored environment file or a supervised test process, and revoke temporary credentials after the child processes close. The standard runner refuses a missing lifecycle credential before any schema reset.
 
 From the repository root, run:
 
@@ -34,6 +34,10 @@ pnpm test:integration
 ```
 
 The runner and global setup independently refuse to continue unless authorization, URL identity, server-reported database identity, the durable JSON database comment, safe test naming, distinct roles, TLS, and the production denylist all pass. Configured production database URLs are compared by normalized endpoint and database identity rather than raw connection-string text.
+
+Every caller of `prepareIntegrationDatabase` and `cleanIntegrationDatabase` shares the `league-one-auth-integration-credential` advisory mutex. Ordinary preparation pins an exclusive lock on its actual schema/migration connection, retains it through the test body and repeated preparations, and releases it after cleanup. A conflicting run fails before schema reset. Lost ownership is terminal for that harness process; it never reconnects and resumes destructive work automatically.
+
+An external supervisor already holding the mutex must explicitly delegate ownership. It first acquires exclusive admission, then acquires a shared lock on the same key/session before releasing its exclusive lock. It retains shared ownership until its child has closed and cleanup is verified. Pass `PROJECTION_INTEGRATION_OWNER_PROOF` containing the exact database, branch, backend PID, backend-start time, unique `integration-owner-<UUID>` or `capacity-owner-<UUID>` application name, and `lockMode: "ShareLock"`. The child pins its own shared lock and validates that exact live parent session before destructive queries. Either session therefore blocks a new exclusive run if the other is lost. Old exclusive-only wrappers or absent/stale proofs fail closed; finding another session's lock alone never authorizes reset. The capacity supervisor implements this protocol and passes its existing proof automatically.
 
 ## PR2 coverage
 
@@ -66,3 +70,17 @@ and cancellation. These transport tests use mocked HTTP, not production access.
 Migration 021 adds the fixed `website_auth` schema and the separately restricted `league_one_auth` role. The harness resets only `public` and `website_auth`; managed `neon_auth` storage is never a reset target. Historical `throughMigration` runs before 021 skip auth-role provisioning. Configured account-domain and app-auth database URLs are also checked as protected identities before destructive preparation.
 
 Do not run this suite against retained pilot users, even when their database name contains `test`. Use a fresh empty disposable database and include the retained pilot database names in its denylist. The auth catalog/role cases qualify the maintained table layout and reciprocal role boundaries. Lifecycle and concurrent password-reset proofs require their separate explicitly supplied restricted auth connection; report missing credentials as unverified.
+
+## Measured collection capacity
+
+The separate [capacity harness and report](../../../docs/collection-capacity-validation.md) exercise the current shared-statistics and per-league acceptance path through the real restricted Neon HTTP adapter. Providers are synthetic and all other network fetches are refused. Run the Windows-specific supervised command from `apps/site` using Node 24:
+
+```text
+node --env-file=.env.integration.local --conditions=react-server --import tsx scripts/run-collection-capacity.mjs
+```
+
+Set `COLLECTION_CAPACITY_OUTPUT` to a new absolute JSON path. `COLLECTION_CAPACITY_SCOPE` is `ladder` by default; `probe` qualifies one three-league capture and `distinct` measures a separate scoring-profile ladder. The standard owner/runtime authorization, identity, sentinel, TLS and denylist guards remain mandatory. This dedicated configuration does not run account lifecycle tests and does not require an auth-role credential.
+
+The supervisor requires empty application schemas, acquires exclusive integration admission, and then retains shared ownership with its pinned child until child closure and cleanup verification. Unknown or active database sessions fail closed. Previously recorded idle Neon HTTP pool backends are accepted only by exact process/start identity from a closed, clean run; active transactions are never accepted and database sessions are never terminated. Allow unexplained pooled sessions to expire naturally and investigate other test activity before retrying. A mutex coordinates cooperating runners; the checks support “no competing owner observed,” not proof that no other task exists.
+
+Direct Vitest invocation is refused without the live supervisor's database ownership proof. A successful measurement also needs its successful cleanup receipt. This harness resets the same disposable schemas as the standard integration suite; it must never target production or retained pilot users.

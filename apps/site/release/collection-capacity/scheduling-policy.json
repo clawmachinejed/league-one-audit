@@ -1,0 +1,3053 @@
+{
+  "kind": "offline-collection-scheduling-policy-measurement",
+  "measuredAt": "2026-09-23T21:38:00.746Z",
+  "sourceCommit": "864580c67bae2380049c978346e3da076d5cdee5",
+  "nodeVersion": "v24.19.0",
+  "policyVersion": "lineup-cadence-v2",
+  "deterministicPolicySha256": "cf624c70203c7fab32d9a88ae104cf60244f5c818103f7354c49f8396f1e0dad",
+  "policySourceHashes": {
+    "domain/period-classification.ts": "0cc0723aa06246072d49078386286d12e017daa07f3319b3a63257ee07fe5740",
+    "shared/lineup-cadence.ts": "24b1ad34f16d05861abbd5e74bff2739341d259cd226ab28ad251fa888bd6c88",
+    "worker/lineup-watch-context.ts": "b55688e3da8382eceda2a446b66ce6f812271d8b5e1241ea990fc3aa20e2282b",
+    "worker/lineup-watch-policy.ts": "d3dd14ca37e7ed3c552d4a06c01ad4d6616f07607f40a2f51d0a7bf3bca49c6d",
+    "worker/current-work-plan.ts": "87349aaf555afcfc20fa8aeac9e471afa6687d1bce5bc0331a9d1f1518d1123f",
+    "worker/cadence.ts": "cb4f484a8022bb287d87a6d337b49c4aca09b7b388125e0e14164c36216b153b",
+    "worker/lineup-observation-stage.ts": "fd84ac3d4d166b441caf01d4f1fd2f22ed28eb88d278624f97429a304a786756",
+    "worker/lineup-orchestrator.ts": "7b562c8c0d17711acf95947574f6b60444868ae6433a7bf0661f95ff98ccbd84"
+  },
+  "externalRequests": {
+    "provider": 0,
+    "database": 0,
+    "production": 0
+  },
+  "scope": "Actual exported watch synchronization, cadence, due-time and current admission functions with synthetic identities and in-memory ports.",
+  "constants": {
+    "sharedLineupChecksPerMinute": 20,
+    "observerFutureCatchupLimit": 18,
+    "observerSourceConcurrency": 8
+  },
+  "assumptions": [
+    "The six-hour observation cycle covers every offset for 1-, 15-, 60- and 360-minute policies.",
+    "League keys and source references are synthetic and stable as fleet size grows; other identities can produce different offset collisions.",
+    "The planner simulation acknowledges selected current work immediately and assumes every invocation runs, with no failure, lease, latency or authority-refresh cost.",
+    "Nominal future demand is measured without executing or duplicating PostgreSQL observer claiming. Excess same-minute demand can be delayed; it is not a count of permanently lost checks.",
+    "Observer-default sensitivity includes one preseason-default league or every league in preseason. It exercises real target ownership and admission accounting, not observer queue fairness."
+  ],
+  "exclusions": [
+    "No remote throughput, provider quota, Vercel duration or maximum supported fleet claim.",
+    "Lineup check counts omit league/calendar/users/rosters endpoints, metadata maintenance, shared statistics/projections and browser traffic; they are not total HTTP requests.",
+    "No observer claim SQL, future action queue, real execution delay, retries, failure backoff or maintenance fairness simulation.",
+    "Local algorithm timings are single process measurements, not p95/p99 or production service-level evidence."
+  ],
+  "scenarios": [
+    {
+      "policy": {
+        "leagueCount": 3,
+        "activeWeek": 1,
+        "observerDefaultLeagues": 0,
+        "horizonWeeks": 18,
+        "simulatedMinutes": 360,
+        "currentTargets": 3,
+        "futureTargets": 51,
+        "completedTargets": 0,
+        "futureTargetsByCadenceMinutes": {
+          "15": 3,
+          "60": 9,
+          "360": 39
+        },
+        "capacity": {
+          "status": "supported",
+          "currentTargets": 3,
+          "observerCurrentTargets": 0,
+          "futureTargets": 51,
+          "maximumFuturePhase": 3,
+          "requiredMatchupRequestsPerMinute": 6,
+          "maximumFutureChecks": 17,
+          "maximumCurrentChecks": 3,
+          "maximumTotalChecks": 20
+        },
+        "nominalFutureChecksPerMinute": {
+          "minimum": 0,
+          "maximum": 3,
+          "total": 165,
+          "average": 0.4583333333333333
+        },
+        "nominalAllLineupChecksPerMinute": {
+          "minimum": 3,
+          "maximum": 6,
+          "total": 1245,
+          "average": 3.4583333333333335
+        },
+        "worstNominalBucketMinuteOffsets": [
+          331
+        ],
+        "bucketsAboveSharedAllowance": 0,
+        "futureBucketsAboveObserverFutureCap": 0,
+        "nominalFutureChecksAboveSameMinuteCap": 0,
+        "observerTotalRemainingAllocation": 17,
+        "currentPlanner": {
+          "mode": "healthy active live-window; instantaneous successful completion; no provider or database work",
+          "admittedPerMinute": {
+            "minimum": 3,
+            "maximum": 3,
+            "total": 1080,
+            "average": 3
+          },
+          "deferredPerMinute": {
+            "minimum": 0,
+            "maximum": 0,
+            "total": 0,
+            "average": 0
+          },
+          "firstSweepMinuteOffset": 0,
+          "observedReselectionIntervalMinutes": {
+            "minimum": 1,
+            "maximum": 1,
+            "total": 1077,
+            "average": 1
+          },
+          "minimumChecksPerActiveLeague": 360,
+          "maximumChecksPerActiveLeague": 360,
+          "neverAdmitted": 0
+        }
+      },
+      "localAlgorithmTiming": {
+        "synchronizationAndMeasurementWallTimeMs": 14.751499999999993,
+        "plannerWallTimeMs": 5.304699999999997
+      }
+    },
+    {
+      "policy": {
+        "leagueCount": 3,
+        "activeWeek": 3,
+        "observerDefaultLeagues": 0,
+        "horizonWeeks": 18,
+        "simulatedMinutes": 360,
+        "currentTargets": 3,
+        "futureTargets": 45,
+        "completedTargets": 6,
+        "futureTargetsByCadenceMinutes": {
+          "15": 3,
+          "60": 9,
+          "360": 33
+        },
+        "capacity": {
+          "status": "supported",
+          "currentTargets": 3,
+          "observerCurrentTargets": 0,
+          "futureTargets": 45,
+          "maximumFuturePhase": 3,
+          "requiredMatchupRequestsPerMinute": 6,
+          "maximumFutureChecks": 17,
+          "maximumCurrentChecks": 3,
+          "maximumTotalChecks": 20
+        },
+        "nominalFutureChecksPerMinute": {
+          "minimum": 0,
+          "maximum": 3,
+          "total": 159,
+          "average": 0.44166666666666665
+        },
+        "nominalAllLineupChecksPerMinute": {
+          "minimum": 3,
+          "maximum": 6,
+          "total": 1239,
+          "average": 3.441666666666667
+        },
+        "worstNominalBucketMinuteOffsets": [
+          229,
+          331
+        ],
+        "bucketsAboveSharedAllowance": 0,
+        "futureBucketsAboveObserverFutureCap": 0,
+        "nominalFutureChecksAboveSameMinuteCap": 0,
+        "observerTotalRemainingAllocation": 17,
+        "currentPlanner": {
+          "mode": "healthy active live-window; instantaneous successful completion; no provider or database work",
+          "admittedPerMinute": {
+            "minimum": 3,
+            "maximum": 3,
+            "total": 1080,
+            "average": 3
+          },
+          "deferredPerMinute": {
+            "minimum": 0,
+            "maximum": 0,
+            "total": 0,
+            "average": 0
+          },
+          "firstSweepMinuteOffset": 0,
+          "observedReselectionIntervalMinutes": {
+            "minimum": 1,
+            "maximum": 1,
+            "total": 1077,
+            "average": 1
+          },
+          "minimumChecksPerActiveLeague": 360,
+          "maximumChecksPerActiveLeague": 360,
+          "neverAdmitted": 0
+        }
+      },
+      "localAlgorithmTiming": {
+        "synchronizationAndMeasurementWallTimeMs": 6.675200000000018,
+        "plannerWallTimeMs": 3.4040999999999997
+      }
+    },
+    {
+      "policy": {
+        "leagueCount": 3,
+        "activeWeek": 10,
+        "observerDefaultLeagues": 0,
+        "horizonWeeks": 18,
+        "simulatedMinutes": 360,
+        "currentTargets": 3,
+        "futureTargets": 24,
+        "completedTargets": 27,
+        "futureTargetsByCadenceMinutes": {
+          "15": 3,
+          "60": 9,
+          "360": 12
+        },
+        "capacity": {
+          "status": "supported",
+          "currentTargets": 3,
+          "observerCurrentTargets": 0,
+          "futureTargets": 24,
+          "maximumFuturePhase": 2,
+          "requiredMatchupRequestsPerMinute": 5,
+          "maximumFutureChecks": 17,
+          "maximumCurrentChecks": 3,
+          "maximumTotalChecks": 20
+        },
+        "nominalFutureChecksPerMinute": {
+          "minimum": 0,
+          "maximum": 2,
+          "total": 138,
+          "average": 0.38333333333333336
+        },
+        "nominalAllLineupChecksPerMinute": {
+          "minimum": 3,
+          "maximum": 5,
+          "total": 1218,
+          "average": 3.3833333333333333
+        },
+        "worstNominalBucketMinuteOffsets": [
+          38,
+          40,
+          59,
+          98,
+          100,
+          119,
+          158,
+          160,
+          179,
+          196,
+          218,
+          220,
+          239,
+          266,
+          278,
+          280,
+          299,
+          338,
+          340,
+          359
+        ],
+        "bucketsAboveSharedAllowance": 0,
+        "futureBucketsAboveObserverFutureCap": 0,
+        "nominalFutureChecksAboveSameMinuteCap": 0,
+        "observerTotalRemainingAllocation": 17,
+        "currentPlanner": {
+          "mode": "healthy active live-window; instantaneous successful completion; no provider or database work",
+          "admittedPerMinute": {
+            "minimum": 3,
+            "maximum": 3,
+            "total": 1080,
+            "average": 3
+          },
+          "deferredPerMinute": {
+            "minimum": 0,
+            "maximum": 0,
+            "total": 0,
+            "average": 0
+          },
+          "firstSweepMinuteOffset": 0,
+          "observedReselectionIntervalMinutes": {
+            "minimum": 1,
+            "maximum": 1,
+            "total": 1077,
+            "average": 1
+          },
+          "minimumChecksPerActiveLeague": 360,
+          "maximumChecksPerActiveLeague": 360,
+          "neverAdmitted": 0
+        }
+      },
+      "localAlgorithmTiming": {
+        "synchronizationAndMeasurementWallTimeMs": 5.921699999999987,
+        "plannerWallTimeMs": 3.0123999999999853
+      }
+    },
+    {
+      "policy": {
+        "leagueCount": 3,
+        "activeWeek": 17,
+        "observerDefaultLeagues": 0,
+        "horizonWeeks": 18,
+        "simulatedMinutes": 360,
+        "currentTargets": 3,
+        "futureTargets": 3,
+        "completedTargets": 48,
+        "futureTargetsByCadenceMinutes": {
+          "15": 3
+        },
+        "capacity": {
+          "status": "supported",
+          "currentTargets": 3,
+          "observerCurrentTargets": 0,
+          "futureTargets": 3,
+          "maximumFuturePhase": 1,
+          "requiredMatchupRequestsPerMinute": 4,
+          "maximumFutureChecks": 17,
+          "maximumCurrentChecks": 3,
+          "maximumTotalChecks": 20
+        },
+        "nominalFutureChecksPerMinute": {
+          "minimum": 0,
+          "maximum": 1,
+          "total": 72,
+          "average": 0.2
+        },
+        "nominalAllLineupChecksPerMinute": {
+          "minimum": 3,
+          "maximum": 4,
+          "total": 1152,
+          "average": 3.2
+        },
+        "worstNominalBucketMinuteOffsets": [
+          0,
+          2,
+          3,
+          15,
+          17,
+          18,
+          30,
+          32,
+          33,
+          45,
+          47,
+          48,
+          60,
+          62,
+          63,
+          75,
+          77,
+          78,
+          90,
+          92,
+          93,
+          105,
+          107,
+          108,
+          120,
+          122,
+          123,
+          135,
+          137,
+          138,
+          150,
+          152,
+          153,
+          165,
+          167,
+          168,
+          180,
+          182,
+          183,
+          195,
+          197,
+          198,
+          210,
+          212,
+          213,
+          225,
+          227,
+          228,
+          240,
+          242,
+          243,
+          255,
+          257,
+          258,
+          270,
+          272,
+          273,
+          285,
+          287,
+          288,
+          300,
+          302,
+          303,
+          315,
+          317,
+          318,
+          330,
+          332,
+          333,
+          345,
+          347,
+          348
+        ],
+        "bucketsAboveSharedAllowance": 0,
+        "futureBucketsAboveObserverFutureCap": 0,
+        "nominalFutureChecksAboveSameMinuteCap": 0,
+        "observerTotalRemainingAllocation": 17,
+        "currentPlanner": {
+          "mode": "healthy active live-window; instantaneous successful completion; no provider or database work",
+          "admittedPerMinute": {
+            "minimum": 3,
+            "maximum": 3,
+            "total": 1080,
+            "average": 3
+          },
+          "deferredPerMinute": {
+            "minimum": 0,
+            "maximum": 0,
+            "total": 0,
+            "average": 0
+          },
+          "firstSweepMinuteOffset": 0,
+          "observedReselectionIntervalMinutes": {
+            "minimum": 1,
+            "maximum": 1,
+            "total": 1077,
+            "average": 1
+          },
+          "minimumChecksPerActiveLeague": 360,
+          "maximumChecksPerActiveLeague": 360,
+          "neverAdmitted": 0
+        }
+      },
+      "localAlgorithmTiming": {
+        "synchronizationAndMeasurementWallTimeMs": 5.38760000000002,
+        "plannerWallTimeMs": 3.1859000000000037
+      }
+    },
+    {
+      "policy": {
+        "leagueCount": 10,
+        "activeWeek": 1,
+        "observerDefaultLeagues": 0,
+        "horizonWeeks": 18,
+        "simulatedMinutes": 360,
+        "currentTargets": 10,
+        "futureTargets": 170,
+        "completedTargets": 0,
+        "futureTargetsByCadenceMinutes": {
+          "15": 10,
+          "60": 30,
+          "360": 130
+        },
+        "capacity": {
+          "status": "supported",
+          "currentTargets": 10,
+          "observerCurrentTargets": 0,
+          "futureTargets": 170,
+          "maximumFuturePhase": 6,
+          "requiredMatchupRequestsPerMinute": 16,
+          "maximumFutureChecks": 10,
+          "maximumCurrentChecks": 10,
+          "maximumTotalChecks": 20
+        },
+        "nominalFutureChecksPerMinute": {
+          "minimum": 0,
+          "maximum": 6,
+          "total": 550,
+          "average": 1.5277777777777777
+        },
+        "nominalAllLineupChecksPerMinute": {
+          "minimum": 10,
+          "maximum": 16,
+          "total": 4150,
+          "average": 11.527777777777779
+        },
+        "worstNominalBucketMinuteOffsets": [
+          29,
+          89,
+          149,
+          331
+        ],
+        "bucketsAboveSharedAllowance": 0,
+        "futureBucketsAboveObserverFutureCap": 0,
+        "nominalFutureChecksAboveSameMinuteCap": 0,
+        "observerTotalRemainingAllocation": 10,
+        "currentPlanner": {
+          "mode": "healthy active live-window; instantaneous successful completion; no provider or database work",
+          "admittedPerMinute": {
+            "minimum": 10,
+            "maximum": 10,
+            "total": 3600,
+            "average": 10
+          },
+          "deferredPerMinute": {
+            "minimum": 0,
+            "maximum": 0,
+            "total": 0,
+            "average": 0
+          },
+          "firstSweepMinuteOffset": 0,
+          "observedReselectionIntervalMinutes": {
+            "minimum": 1,
+            "maximum": 1,
+            "total": 3590,
+            "average": 1
+          },
+          "minimumChecksPerActiveLeague": 360,
+          "maximumChecksPerActiveLeague": 360,
+          "neverAdmitted": 0
+        }
+      },
+      "localAlgorithmTiming": {
+        "synchronizationAndMeasurementWallTimeMs": 16.631200000000007,
+        "plannerWallTimeMs": 10.235399999999998
+      }
+    },
+    {
+      "policy": {
+        "leagueCount": 10,
+        "activeWeek": 3,
+        "observerDefaultLeagues": 0,
+        "horizonWeeks": 18,
+        "simulatedMinutes": 360,
+        "currentTargets": 10,
+        "futureTargets": 150,
+        "completedTargets": 20,
+        "futureTargetsByCadenceMinutes": {
+          "15": 10,
+          "60": 30,
+          "360": 110
+        },
+        "capacity": {
+          "status": "supported",
+          "currentTargets": 10,
+          "observerCurrentTargets": 0,
+          "futureTargets": 150,
+          "maximumFuturePhase": 5,
+          "requiredMatchupRequestsPerMinute": 15,
+          "maximumFutureChecks": 10,
+          "maximumCurrentChecks": 10,
+          "maximumTotalChecks": 20
+        },
+        "nominalFutureChecksPerMinute": {
+          "minimum": 0,
+          "maximum": 5,
+          "total": 530,
+          "average": 1.4722222222222223
+        },
+        "nominalAllLineupChecksPerMinute": {
+          "minimum": 10,
+          "maximum": 15,
+          "total": 4130,
+          "average": 11.472222222222221
+        },
+        "worstNominalBucketMinuteOffsets": [
+          188,
+          229,
+          331
+        ],
+        "bucketsAboveSharedAllowance": 0,
+        "futureBucketsAboveObserverFutureCap": 0,
+        "nominalFutureChecksAboveSameMinuteCap": 0,
+        "observerTotalRemainingAllocation": 10,
+        "currentPlanner": {
+          "mode": "healthy active live-window; instantaneous successful completion; no provider or database work",
+          "admittedPerMinute": {
+            "minimum": 10,
+            "maximum": 10,
+            "total": 3600,
+            "average": 10
+          },
+          "deferredPerMinute": {
+            "minimum": 0,
+            "maximum": 0,
+            "total": 0,
+            "average": 0
+          },
+          "firstSweepMinuteOffset": 0,
+          "observedReselectionIntervalMinutes": {
+            "minimum": 1,
+            "maximum": 1,
+            "total": 3590,
+            "average": 1
+          },
+          "minimumChecksPerActiveLeague": 360,
+          "maximumChecksPerActiveLeague": 360,
+          "neverAdmitted": 0
+        }
+      },
+      "localAlgorithmTiming": {
+        "synchronizationAndMeasurementWallTimeMs": 17.0248,
+        "plannerWallTimeMs": 10.143900000000002
+      }
+    },
+    {
+      "policy": {
+        "leagueCount": 10,
+        "activeWeek": 10,
+        "observerDefaultLeagues": 0,
+        "horizonWeeks": 18,
+        "simulatedMinutes": 360,
+        "currentTargets": 10,
+        "futureTargets": 80,
+        "completedTargets": 90,
+        "futureTargetsByCadenceMinutes": {
+          "15": 10,
+          "60": 30,
+          "360": 40
+        },
+        "capacity": {
+          "status": "supported",
+          "currentTargets": 10,
+          "observerCurrentTargets": 0,
+          "futureTargets": 80,
+          "maximumFuturePhase": 5,
+          "requiredMatchupRequestsPerMinute": 15,
+          "maximumFutureChecks": 10,
+          "maximumCurrentChecks": 10,
+          "maximumTotalChecks": 20
+        },
+        "nominalFutureChecksPerMinute": {
+          "minimum": 0,
+          "maximum": 5,
+          "total": 460,
+          "average": 1.2777777777777777
+        },
+        "nominalAllLineupChecksPerMinute": {
+          "minimum": 10,
+          "maximum": 15,
+          "total": 4060,
+          "average": 11.277777777777779
+        },
+        "worstNominalBucketMinuteOffsets": [
+          280
+        ],
+        "bucketsAboveSharedAllowance": 0,
+        "futureBucketsAboveObserverFutureCap": 0,
+        "nominalFutureChecksAboveSameMinuteCap": 0,
+        "observerTotalRemainingAllocation": 10,
+        "currentPlanner": {
+          "mode": "healthy active live-window; instantaneous successful completion; no provider or database work",
+          "admittedPerMinute": {
+            "minimum": 10,
+            "maximum": 10,
+            "total": 3600,
+            "average": 10
+          },
+          "deferredPerMinute": {
+            "minimum": 0,
+            "maximum": 0,
+            "total": 0,
+            "average": 0
+          },
+          "firstSweepMinuteOffset": 0,
+          "observedReselectionIntervalMinutes": {
+            "minimum": 1,
+            "maximum": 1,
+            "total": 3590,
+            "average": 1
+          },
+          "minimumChecksPerActiveLeague": 360,
+          "maximumChecksPerActiveLeague": 360,
+          "neverAdmitted": 0
+        }
+      },
+      "localAlgorithmTiming": {
+        "synchronizationAndMeasurementWallTimeMs": 14.576699999999988,
+        "plannerWallTimeMs": 9.54570000000001
+      }
+    },
+    {
+      "policy": {
+        "leagueCount": 10,
+        "activeWeek": 17,
+        "observerDefaultLeagues": 0,
+        "horizonWeeks": 18,
+        "simulatedMinutes": 360,
+        "currentTargets": 10,
+        "futureTargets": 10,
+        "completedTargets": 160,
+        "futureTargetsByCadenceMinutes": {
+          "15": 10
+        },
+        "capacity": {
+          "status": "supported",
+          "currentTargets": 10,
+          "observerCurrentTargets": 0,
+          "futureTargets": 10,
+          "maximumFuturePhase": 2,
+          "requiredMatchupRequestsPerMinute": 12,
+          "maximumFutureChecks": 10,
+          "maximumCurrentChecks": 10,
+          "maximumTotalChecks": 20
+        },
+        "nominalFutureChecksPerMinute": {
+          "minimum": 0,
+          "maximum": 2,
+          "total": 240,
+          "average": 0.6666666666666666
+        },
+        "nominalAllLineupChecksPerMinute": {
+          "minimum": 10,
+          "maximum": 12,
+          "total": 3840,
+          "average": 10.666666666666666
+        },
+        "worstNominalBucketMinuteOffsets": [
+          0,
+          9,
+          15,
+          24,
+          30,
+          39,
+          45,
+          54,
+          60,
+          69,
+          75,
+          84,
+          90,
+          99,
+          105,
+          114,
+          120,
+          129,
+          135,
+          144,
+          150,
+          159,
+          165,
+          174,
+          180,
+          189,
+          195,
+          204,
+          210,
+          219,
+          225,
+          234,
+          240,
+          249,
+          255,
+          264,
+          270,
+          279,
+          285,
+          294,
+          300,
+          309,
+          315,
+          324,
+          330,
+          339,
+          345,
+          354
+        ],
+        "bucketsAboveSharedAllowance": 0,
+        "futureBucketsAboveObserverFutureCap": 0,
+        "nominalFutureChecksAboveSameMinuteCap": 0,
+        "observerTotalRemainingAllocation": 10,
+        "currentPlanner": {
+          "mode": "healthy active live-window; instantaneous successful completion; no provider or database work",
+          "admittedPerMinute": {
+            "minimum": 10,
+            "maximum": 10,
+            "total": 3600,
+            "average": 10
+          },
+          "deferredPerMinute": {
+            "minimum": 0,
+            "maximum": 0,
+            "total": 0,
+            "average": 0
+          },
+          "firstSweepMinuteOffset": 0,
+          "observedReselectionIntervalMinutes": {
+            "minimum": 1,
+            "maximum": 1,
+            "total": 3590,
+            "average": 1
+          },
+          "minimumChecksPerActiveLeague": 360,
+          "maximumChecksPerActiveLeague": 360,
+          "neverAdmitted": 0
+        }
+      },
+      "localAlgorithmTiming": {
+        "synchronizationAndMeasurementWallTimeMs": 17.507299999999987,
+        "plannerWallTimeMs": 10.08420000000001
+      }
+    },
+    {
+      "policy": {
+        "leagueCount": 20,
+        "activeWeek": 1,
+        "observerDefaultLeagues": 0,
+        "horizonWeeks": 18,
+        "simulatedMinutes": 360,
+        "currentTargets": 20,
+        "futureTargets": 340,
+        "completedTargets": 0,
+        "futureTargetsByCadenceMinutes": {
+          "15": 20,
+          "60": 60,
+          "360": 260
+        },
+        "capacity": {
+          "status": "capacity-exceeded",
+          "currentTargets": 20,
+          "observerCurrentTargets": 0,
+          "futureTargets": 340,
+          "maximumFuturePhase": 8,
+          "requiredMatchupRequestsPerMinute": 28,
+          "maximumFutureChecks": 1,
+          "maximumCurrentChecks": 19,
+          "maximumTotalChecks": 20
+        },
+        "nominalFutureChecksPerMinute": {
+          "minimum": 0,
+          "maximum": 8,
+          "total": 1100,
+          "average": 3.0555555555555554
+        },
+        "nominalAllLineupChecksPerMinute": {
+          "minimum": 20,
+          "maximum": 28,
+          "total": 8300,
+          "average": 23.055555555555557
+        },
+        "worstNominalBucketMinuteOffsets": [
+          16,
+          329,
+          331
+        ],
+        "bucketsAboveSharedAllowance": 341,
+        "futureBucketsAboveObserverFutureCap": 294,
+        "nominalFutureChecksAboveSameMinuteCap": 759,
+        "observerTotalRemainingAllocation": 1,
+        "currentPlanner": {
+          "mode": "healthy active live-window; instantaneous successful completion; no provider or database work",
+          "admittedPerMinute": {
+            "minimum": 19,
+            "maximum": 19,
+            "total": 6840,
+            "average": 19
+          },
+          "deferredPerMinute": {
+            "minimum": 1,
+            "maximum": 1,
+            "total": 360,
+            "average": 1
+          },
+          "firstSweepMinuteOffset": 1,
+          "observedReselectionIntervalMinutes": {
+            "minimum": 1,
+            "maximum": 2,
+            "total": 7178,
+            "average": 1.0524926686217009
+          },
+          "minimumChecksPerActiveLeague": 180,
+          "maximumChecksPerActiveLeague": 360,
+          "neverAdmitted": 0
+        }
+      },
+      "localAlgorithmTiming": {
+        "synchronizationAndMeasurementWallTimeMs": 33.009299999999996,
+        "plannerWallTimeMs": 20.310899999999947
+      }
+    },
+    {
+      "policy": {
+        "leagueCount": 20,
+        "activeWeek": 3,
+        "observerDefaultLeagues": 0,
+        "horizonWeeks": 18,
+        "simulatedMinutes": 360,
+        "currentTargets": 20,
+        "futureTargets": 300,
+        "completedTargets": 40,
+        "futureTargetsByCadenceMinutes": {
+          "15": 20,
+          "60": 60,
+          "360": 220
+        },
+        "capacity": {
+          "status": "capacity-exceeded",
+          "currentTargets": 20,
+          "observerCurrentTargets": 0,
+          "futureTargets": 300,
+          "maximumFuturePhase": 9,
+          "requiredMatchupRequestsPerMinute": 29,
+          "maximumFutureChecks": 1,
+          "maximumCurrentChecks": 19,
+          "maximumTotalChecks": 20
+        },
+        "nominalFutureChecksPerMinute": {
+          "minimum": 0,
+          "maximum": 9,
+          "total": 1060,
+          "average": 2.9444444444444446
+        },
+        "nominalAllLineupChecksPerMinute": {
+          "minimum": 20,
+          "maximum": 29,
+          "total": 8260,
+          "average": 22.944444444444443
+        },
+        "worstNominalBucketMinuteOffsets": [
+          8,
+          188,
+          229
+        ],
+        "bucketsAboveSharedAllowance": 325,
+        "futureBucketsAboveObserverFutureCap": 284,
+        "nominalFutureChecksAboveSameMinuteCap": 735,
+        "observerTotalRemainingAllocation": 1,
+        "currentPlanner": {
+          "mode": "healthy active live-window; instantaneous successful completion; no provider or database work",
+          "admittedPerMinute": {
+            "minimum": 19,
+            "maximum": 19,
+            "total": 6840,
+            "average": 19
+          },
+          "deferredPerMinute": {
+            "minimum": 1,
+            "maximum": 1,
+            "total": 360,
+            "average": 1
+          },
+          "firstSweepMinuteOffset": 1,
+          "observedReselectionIntervalMinutes": {
+            "minimum": 1,
+            "maximum": 2,
+            "total": 7178,
+            "average": 1.0524926686217009
+          },
+          "minimumChecksPerActiveLeague": 180,
+          "maximumChecksPerActiveLeague": 360,
+          "neverAdmitted": 0
+        }
+      },
+      "localAlgorithmTiming": {
+        "synchronizationAndMeasurementWallTimeMs": 30.970799999999997,
+        "plannerWallTimeMs": 18.490700000000004
+      }
+    },
+    {
+      "policy": {
+        "leagueCount": 20,
+        "activeWeek": 10,
+        "observerDefaultLeagues": 0,
+        "horizonWeeks": 18,
+        "simulatedMinutes": 360,
+        "currentTargets": 20,
+        "futureTargets": 160,
+        "completedTargets": 180,
+        "futureTargetsByCadenceMinutes": {
+          "15": 20,
+          "60": 60,
+          "360": 80
+        },
+        "capacity": {
+          "status": "capacity-exceeded",
+          "currentTargets": 20,
+          "observerCurrentTargets": 0,
+          "futureTargets": 160,
+          "maximumFuturePhase": 7,
+          "requiredMatchupRequestsPerMinute": 27,
+          "maximumFutureChecks": 1,
+          "maximumCurrentChecks": 19,
+          "maximumTotalChecks": 20
+        },
+        "nominalFutureChecksPerMinute": {
+          "minimum": 0,
+          "maximum": 7,
+          "total": 920,
+          "average": 2.5555555555555554
+        },
+        "nominalAllLineupChecksPerMinute": {
+          "minimum": 20,
+          "maximum": 27,
+          "total": 8120,
+          "average": 22.555555555555557
+        },
+        "worstNominalBucketMinuteOffsets": [
+          38,
+          98,
+          158,
+          218,
+          278,
+          338
+        ],
+        "bucketsAboveSharedAllowance": 297,
+        "futureBucketsAboveObserverFutureCap": 241,
+        "nominalFutureChecksAboveSameMinuteCap": 623,
+        "observerTotalRemainingAllocation": 1,
+        "currentPlanner": {
+          "mode": "healthy active live-window; instantaneous successful completion; no provider or database work",
+          "admittedPerMinute": {
+            "minimum": 19,
+            "maximum": 19,
+            "total": 6840,
+            "average": 19
+          },
+          "deferredPerMinute": {
+            "minimum": 1,
+            "maximum": 1,
+            "total": 360,
+            "average": 1
+          },
+          "firstSweepMinuteOffset": 1,
+          "observedReselectionIntervalMinutes": {
+            "minimum": 1,
+            "maximum": 2,
+            "total": 7178,
+            "average": 1.0524926686217009
+          },
+          "minimumChecksPerActiveLeague": 180,
+          "maximumChecksPerActiveLeague": 360,
+          "neverAdmitted": 0
+        }
+      },
+      "localAlgorithmTiming": {
+        "synchronizationAndMeasurementWallTimeMs": 27.8082,
+        "plannerWallTimeMs": 17.352599999999995
+      }
+    },
+    {
+      "policy": {
+        "leagueCount": 20,
+        "activeWeek": 17,
+        "observerDefaultLeagues": 0,
+        "horizonWeeks": 18,
+        "simulatedMinutes": 360,
+        "currentTargets": 20,
+        "futureTargets": 20,
+        "completedTargets": 320,
+        "futureTargetsByCadenceMinutes": {
+          "15": 20
+        },
+        "capacity": {
+          "status": "capacity-exceeded",
+          "currentTargets": 20,
+          "observerCurrentTargets": 0,
+          "futureTargets": 20,
+          "maximumFuturePhase": 3,
+          "requiredMatchupRequestsPerMinute": 23,
+          "maximumFutureChecks": 1,
+          "maximumCurrentChecks": 19,
+          "maximumTotalChecks": 20
+        },
+        "nominalFutureChecksPerMinute": {
+          "minimum": 0,
+          "maximum": 3,
+          "total": 480,
+          "average": 1.3333333333333333
+        },
+        "nominalAllLineupChecksPerMinute": {
+          "minimum": 20,
+          "maximum": 23,
+          "total": 7680,
+          "average": 21.333333333333332
+        },
+        "worstNominalBucketMinuteOffsets": [
+          0,
+          9,
+          15,
+          24,
+          30,
+          39,
+          45,
+          54,
+          60,
+          69,
+          75,
+          84,
+          90,
+          99,
+          105,
+          114,
+          120,
+          129,
+          135,
+          144,
+          150,
+          159,
+          165,
+          174,
+          180,
+          189,
+          195,
+          204,
+          210,
+          219,
+          225,
+          234,
+          240,
+          249,
+          255,
+          264,
+          270,
+          279,
+          285,
+          294,
+          300,
+          309,
+          315,
+          324,
+          330,
+          339,
+          345,
+          354
+        ],
+        "bucketsAboveSharedAllowance": 288,
+        "futureBucketsAboveObserverFutureCap": 144,
+        "nominalFutureChecksAboveSameMinuteCap": 192,
+        "observerTotalRemainingAllocation": 1,
+        "currentPlanner": {
+          "mode": "healthy active live-window; instantaneous successful completion; no provider or database work",
+          "admittedPerMinute": {
+            "minimum": 19,
+            "maximum": 19,
+            "total": 6840,
+            "average": 19
+          },
+          "deferredPerMinute": {
+            "minimum": 1,
+            "maximum": 1,
+            "total": 360,
+            "average": 1
+          },
+          "firstSweepMinuteOffset": 1,
+          "observedReselectionIntervalMinutes": {
+            "minimum": 1,
+            "maximum": 2,
+            "total": 7178,
+            "average": 1.0524926686217009
+          },
+          "minimumChecksPerActiveLeague": 180,
+          "maximumChecksPerActiveLeague": 360,
+          "neverAdmitted": 0
+        }
+      },
+      "localAlgorithmTiming": {
+        "synchronizationAndMeasurementWallTimeMs": 28.03910000000002,
+        "plannerWallTimeMs": 17.86450000000002
+      }
+    },
+    {
+      "policy": {
+        "leagueCount": 50,
+        "activeWeek": 1,
+        "observerDefaultLeagues": 0,
+        "horizonWeeks": 18,
+        "simulatedMinutes": 360,
+        "currentTargets": 50,
+        "futureTargets": 850,
+        "completedTargets": 0,
+        "futureTargetsByCadenceMinutes": {
+          "15": 50,
+          "60": 150,
+          "360": 650
+        },
+        "capacity": {
+          "status": "capacity-exceeded",
+          "currentTargets": 50,
+          "observerCurrentTargets": 0,
+          "futureTargets": 850,
+          "maximumFuturePhase": 15,
+          "requiredMatchupRequestsPerMinute": 65,
+          "maximumFutureChecks": 1,
+          "maximumCurrentChecks": 19,
+          "maximumTotalChecks": 20
+        },
+        "nominalFutureChecksPerMinute": {
+          "minimum": 2,
+          "maximum": 15,
+          "total": 2750,
+          "average": 7.638888888888889
+        },
+        "nominalAllLineupChecksPerMinute": {
+          "minimum": 52,
+          "maximum": 65,
+          "total": 20750,
+          "average": 57.638888888888886
+        },
+        "worstNominalBucketMinuteOffsets": [
+          108
+        ],
+        "bucketsAboveSharedAllowance": 360,
+        "futureBucketsAboveObserverFutureCap": 360,
+        "nominalFutureChecksAboveSameMinuteCap": 2390,
+        "observerTotalRemainingAllocation": 1,
+        "currentPlanner": {
+          "mode": "healthy active live-window; instantaneous successful completion; no provider or database work",
+          "admittedPerMinute": {
+            "minimum": 19,
+            "maximum": 19,
+            "total": 6840,
+            "average": 19
+          },
+          "deferredPerMinute": {
+            "minimum": 31,
+            "maximum": 31,
+            "total": 11160,
+            "average": 31
+          },
+          "firstSweepMinuteOffset": 2,
+          "observedReselectionIntervalMinutes": {
+            "minimum": 2,
+            "maximum": 3,
+            "total": 17864,
+            "average": 2.6309278350515464
+          },
+          "minimumChecksPerActiveLeague": 120,
+          "maximumChecksPerActiveLeague": 180,
+          "neverAdmitted": 0
+        }
+      },
+      "localAlgorithmTiming": {
+        "synchronizationAndMeasurementWallTimeMs": 74.73129999999998,
+        "plannerWallTimeMs": 45.01429999999999
+      }
+    },
+    {
+      "policy": {
+        "leagueCount": 50,
+        "activeWeek": 3,
+        "observerDefaultLeagues": 0,
+        "horizonWeeks": 18,
+        "simulatedMinutes": 360,
+        "currentTargets": 50,
+        "futureTargets": 750,
+        "completedTargets": 100,
+        "futureTargetsByCadenceMinutes": {
+          "15": 50,
+          "60": 150,
+          "360": 550
+        },
+        "capacity": {
+          "status": "capacity-exceeded",
+          "currentTargets": 50,
+          "observerCurrentTargets": 0,
+          "futureTargets": 750,
+          "maximumFuturePhase": 18,
+          "requiredMatchupRequestsPerMinute": 68,
+          "maximumFutureChecks": 1,
+          "maximumCurrentChecks": 19,
+          "maximumTotalChecks": 20
+        },
+        "nominalFutureChecksPerMinute": {
+          "minimum": 0,
+          "maximum": 18,
+          "total": 2650,
+          "average": 7.361111111111111
+        },
+        "nominalAllLineupChecksPerMinute": {
+          "minimum": 50,
+          "maximum": 68,
+          "total": 20650,
+          "average": 57.361111111111114
+        },
+        "worstNominalBucketMinuteOffsets": [
+          229
+        ],
+        "bucketsAboveSharedAllowance": 360,
+        "futureBucketsAboveObserverFutureCap": 355,
+        "nominalFutureChecksAboveSameMinuteCap": 2292,
+        "observerTotalRemainingAllocation": 1,
+        "currentPlanner": {
+          "mode": "healthy active live-window; instantaneous successful completion; no provider or database work",
+          "admittedPerMinute": {
+            "minimum": 19,
+            "maximum": 19,
+            "total": 6840,
+            "average": 19
+          },
+          "deferredPerMinute": {
+            "minimum": 31,
+            "maximum": 31,
+            "total": 11160,
+            "average": 31
+          },
+          "firstSweepMinuteOffset": 2,
+          "observedReselectionIntervalMinutes": {
+            "minimum": 2,
+            "maximum": 3,
+            "total": 17864,
+            "average": 2.6309278350515464
+          },
+          "minimumChecksPerActiveLeague": 120,
+          "maximumChecksPerActiveLeague": 180,
+          "neverAdmitted": 0
+        }
+      },
+      "localAlgorithmTiming": {
+        "synchronizationAndMeasurementWallTimeMs": 69.78550000000001,
+        "plannerWallTimeMs": 41.68700000000001
+      }
+    },
+    {
+      "policy": {
+        "leagueCount": 50,
+        "activeWeek": 10,
+        "observerDefaultLeagues": 0,
+        "horizonWeeks": 18,
+        "simulatedMinutes": 360,
+        "currentTargets": 50,
+        "futureTargets": 400,
+        "completedTargets": 450,
+        "futureTargetsByCadenceMinutes": {
+          "15": 50,
+          "60": 150,
+          "360": 200
+        },
+        "capacity": {
+          "status": "capacity-exceeded",
+          "currentTargets": 50,
+          "observerCurrentTargets": 0,
+          "futureTargets": 400,
+          "maximumFuturePhase": 17,
+          "requiredMatchupRequestsPerMinute": 67,
+          "maximumFutureChecks": 1,
+          "maximumCurrentChecks": 19,
+          "maximumTotalChecks": 20
+        },
+        "nominalFutureChecksPerMinute": {
+          "minimum": 0,
+          "maximum": 17,
+          "total": 2300,
+          "average": 6.388888888888889
+        },
+        "nominalAllLineupChecksPerMinute": {
+          "minimum": 50,
+          "maximum": 67,
+          "total": 20300,
+          "average": 56.388888888888886
+        },
+        "worstNominalBucketMinuteOffsets": [
+          145
+        ],
+        "bucketsAboveSharedAllowance": 360,
+        "futureBucketsAboveObserverFutureCap": 336,
+        "nominalFutureChecksAboveSameMinuteCap": 1945,
+        "observerTotalRemainingAllocation": 1,
+        "currentPlanner": {
+          "mode": "healthy active live-window; instantaneous successful completion; no provider or database work",
+          "admittedPerMinute": {
+            "minimum": 19,
+            "maximum": 19,
+            "total": 6840,
+            "average": 19
+          },
+          "deferredPerMinute": {
+            "minimum": 31,
+            "maximum": 31,
+            "total": 11160,
+            "average": 31
+          },
+          "firstSweepMinuteOffset": 2,
+          "observedReselectionIntervalMinutes": {
+            "minimum": 2,
+            "maximum": 3,
+            "total": 17864,
+            "average": 2.6309278350515464
+          },
+          "minimumChecksPerActiveLeague": 120,
+          "maximumChecksPerActiveLeague": 180,
+          "neverAdmitted": 0
+        }
+      },
+      "localAlgorithmTiming": {
+        "synchronizationAndMeasurementWallTimeMs": 65.13329999999996,
+        "plannerWallTimeMs": 42.43500000000006
+      }
+    },
+    {
+      "policy": {
+        "leagueCount": 50,
+        "activeWeek": 17,
+        "observerDefaultLeagues": 0,
+        "horizonWeeks": 18,
+        "simulatedMinutes": 360,
+        "currentTargets": 50,
+        "futureTargets": 50,
+        "completedTargets": 800,
+        "futureTargetsByCadenceMinutes": {
+          "15": 50
+        },
+        "capacity": {
+          "status": "capacity-exceeded",
+          "currentTargets": 50,
+          "observerCurrentTargets": 0,
+          "futureTargets": 50,
+          "maximumFuturePhase": 7,
+          "requiredMatchupRequestsPerMinute": 57,
+          "maximumFutureChecks": 1,
+          "maximumCurrentChecks": 19,
+          "maximumTotalChecks": 20
+        },
+        "nominalFutureChecksPerMinute": {
+          "minimum": 0,
+          "maximum": 7,
+          "total": 1200,
+          "average": 3.3333333333333335
+        },
+        "nominalAllLineupChecksPerMinute": {
+          "minimum": 50,
+          "maximum": 57,
+          "total": 19200,
+          "average": 53.333333333333336
+        },
+        "worstNominalBucketMinuteOffsets": [
+          12,
+          27,
+          42,
+          57,
+          72,
+          87,
+          102,
+          117,
+          132,
+          147,
+          162,
+          177,
+          192,
+          207,
+          222,
+          237,
+          252,
+          267,
+          282,
+          297,
+          312,
+          327,
+          342,
+          357
+        ],
+        "bucketsAboveSharedAllowance": 360,
+        "futureBucketsAboveObserverFutureCap": 312,
+        "nominalFutureChecksAboveSameMinuteCap": 864,
+        "observerTotalRemainingAllocation": 1,
+        "currentPlanner": {
+          "mode": "healthy active live-window; instantaneous successful completion; no provider or database work",
+          "admittedPerMinute": {
+            "minimum": 19,
+            "maximum": 19,
+            "total": 6840,
+            "average": 19
+          },
+          "deferredPerMinute": {
+            "minimum": 31,
+            "maximum": 31,
+            "total": 11160,
+            "average": 31
+          },
+          "firstSweepMinuteOffset": 2,
+          "observedReselectionIntervalMinutes": {
+            "minimum": 2,
+            "maximum": 3,
+            "total": 17864,
+            "average": 2.6309278350515464
+          },
+          "minimumChecksPerActiveLeague": 120,
+          "maximumChecksPerActiveLeague": 180,
+          "neverAdmitted": 0
+        }
+      },
+      "localAlgorithmTiming": {
+        "synchronizationAndMeasurementWallTimeMs": 67.19839999999999,
+        "plannerWallTimeMs": 43.67269999999996
+      }
+    },
+    {
+      "policy": {
+        "leagueCount": 100,
+        "activeWeek": 1,
+        "observerDefaultLeagues": 0,
+        "horizonWeeks": 18,
+        "simulatedMinutes": 360,
+        "currentTargets": 100,
+        "futureTargets": 1700,
+        "completedTargets": 0,
+        "futureTargetsByCadenceMinutes": {
+          "15": 100,
+          "60": 300,
+          "360": 1300
+        },
+        "capacity": {
+          "status": "capacity-exceeded",
+          "currentTargets": 100,
+          "observerCurrentTargets": 0,
+          "futureTargets": 1700,
+          "maximumFuturePhase": 26,
+          "requiredMatchupRequestsPerMinute": 126,
+          "maximumFutureChecks": 1,
+          "maximumCurrentChecks": 19,
+          "maximumTotalChecks": 20
+        },
+        "nominalFutureChecksPerMinute": {
+          "minimum": 5,
+          "maximum": 26,
+          "total": 5500,
+          "average": 15.277777777777779
+        },
+        "nominalAllLineupChecksPerMinute": {
+          "minimum": 105,
+          "maximum": 126,
+          "total": 41500,
+          "average": 115.27777777777777
+        },
+        "worstNominalBucketMinuteOffsets": [
+          49,
+          109
+        ],
+        "bucketsAboveSharedAllowance": 360,
+        "futureBucketsAboveObserverFutureCap": 360,
+        "nominalFutureChecksAboveSameMinuteCap": 5140,
+        "observerTotalRemainingAllocation": 1,
+        "currentPlanner": {
+          "mode": "healthy active live-window; instantaneous successful completion; no provider or database work",
+          "admittedPerMinute": {
+            "minimum": 19,
+            "maximum": 19,
+            "total": 6840,
+            "average": 19
+          },
+          "deferredPerMinute": {
+            "minimum": 81,
+            "maximum": 81,
+            "total": 29160,
+            "average": 81
+          },
+          "firstSweepMinuteOffset": 5,
+          "observedReselectionIntervalMinutes": {
+            "minimum": 5,
+            "maximum": 6,
+            "total": 35470,
+            "average": 5.2626112759643915
+          },
+          "minimumChecksPerActiveLeague": 60,
+          "maximumChecksPerActiveLeague": 72,
+          "neverAdmitted": 0
+        }
+      },
+      "localAlgorithmTiming": {
+        "synchronizationAndMeasurementWallTimeMs": 109.00969999999995,
+        "plannerWallTimeMs": 56.363899999999944
+      }
+    },
+    {
+      "policy": {
+        "leagueCount": 100,
+        "activeWeek": 3,
+        "observerDefaultLeagues": 0,
+        "horizonWeeks": 18,
+        "simulatedMinutes": 360,
+        "currentTargets": 100,
+        "futureTargets": 1500,
+        "completedTargets": 200,
+        "futureTargetsByCadenceMinutes": {
+          "15": 100,
+          "60": 300,
+          "360": 1100
+        },
+        "capacity": {
+          "status": "capacity-exceeded",
+          "currentTargets": 100,
+          "observerCurrentTargets": 0,
+          "futureTargets": 1500,
+          "maximumFuturePhase": 25,
+          "requiredMatchupRequestsPerMinute": 125,
+          "maximumFutureChecks": 1,
+          "maximumCurrentChecks": 19,
+          "maximumTotalChecks": 20
+        },
+        "nominalFutureChecksPerMinute": {
+          "minimum": 3,
+          "maximum": 25,
+          "total": 5300,
+          "average": 14.722222222222221
+        },
+        "nominalAllLineupChecksPerMinute": {
+          "minimum": 103,
+          "maximum": 125,
+          "total": 41300,
+          "average": 114.72222222222223
+        },
+        "worstNominalBucketMinuteOffsets": [
+          188
+        ],
+        "bucketsAboveSharedAllowance": 360,
+        "futureBucketsAboveObserverFutureCap": 360,
+        "nominalFutureChecksAboveSameMinuteCap": 4940,
+        "observerTotalRemainingAllocation": 1,
+        "currentPlanner": {
+          "mode": "healthy active live-window; instantaneous successful completion; no provider or database work",
+          "admittedPerMinute": {
+            "minimum": 19,
+            "maximum": 19,
+            "total": 6840,
+            "average": 19
+          },
+          "deferredPerMinute": {
+            "minimum": 81,
+            "maximum": 81,
+            "total": 29160,
+            "average": 81
+          },
+          "firstSweepMinuteOffset": 5,
+          "observedReselectionIntervalMinutes": {
+            "minimum": 5,
+            "maximum": 6,
+            "total": 35470,
+            "average": 5.2626112759643915
+          },
+          "minimumChecksPerActiveLeague": 60,
+          "maximumChecksPerActiveLeague": 72,
+          "neverAdmitted": 0
+        }
+      },
+      "localAlgorithmTiming": {
+        "synchronizationAndMeasurementWallTimeMs": 122.03930000000003,
+        "plannerWallTimeMs": 64.3161
+      }
+    },
+    {
+      "policy": {
+        "leagueCount": 100,
+        "activeWeek": 10,
+        "observerDefaultLeagues": 0,
+        "horizonWeeks": 18,
+        "simulatedMinutes": 360,
+        "currentTargets": 100,
+        "futureTargets": 800,
+        "completedTargets": 900,
+        "futureTargetsByCadenceMinutes": {
+          "15": 100,
+          "60": 300,
+          "360": 400
+        },
+        "capacity": {
+          "status": "capacity-exceeded",
+          "currentTargets": 100,
+          "observerCurrentTargets": 0,
+          "futureTargets": 800,
+          "maximumFuturePhase": 28,
+          "requiredMatchupRequestsPerMinute": 128,
+          "maximumFutureChecks": 1,
+          "maximumCurrentChecks": 19,
+          "maximumTotalChecks": 20
+        },
+        "nominalFutureChecksPerMinute": {
+          "minimum": 5,
+          "maximum": 28,
+          "total": 4600,
+          "average": 12.777777777777779
+        },
+        "nominalAllLineupChecksPerMinute": {
+          "minimum": 105,
+          "maximum": 128,
+          "total": 40600,
+          "average": 112.77777777777777
+        },
+        "worstNominalBucketMinuteOffsets": [
+          145
+        ],
+        "bucketsAboveSharedAllowance": 360,
+        "futureBucketsAboveObserverFutureCap": 360,
+        "nominalFutureChecksAboveSameMinuteCap": 4240,
+        "observerTotalRemainingAllocation": 1,
+        "currentPlanner": {
+          "mode": "healthy active live-window; instantaneous successful completion; no provider or database work",
+          "admittedPerMinute": {
+            "minimum": 19,
+            "maximum": 19,
+            "total": 6840,
+            "average": 19
+          },
+          "deferredPerMinute": {
+            "minimum": 81,
+            "maximum": 81,
+            "total": 29160,
+            "average": 81
+          },
+          "firstSweepMinuteOffset": 5,
+          "observedReselectionIntervalMinutes": {
+            "minimum": 5,
+            "maximum": 6,
+            "total": 35470,
+            "average": 5.2626112759643915
+          },
+          "minimumChecksPerActiveLeague": 60,
+          "maximumChecksPerActiveLeague": 72,
+          "neverAdmitted": 0
+        }
+      },
+      "localAlgorithmTiming": {
+        "synchronizationAndMeasurementWallTimeMs": 120.7555000000001,
+        "plannerWallTimeMs": 66.96550000000013
+      }
+    },
+    {
+      "policy": {
+        "leagueCount": 100,
+        "activeWeek": 17,
+        "observerDefaultLeagues": 0,
+        "horizonWeeks": 18,
+        "simulatedMinutes": 360,
+        "currentTargets": 100,
+        "futureTargets": 100,
+        "completedTargets": 1600,
+        "futureTargetsByCadenceMinutes": {
+          "15": 100
+        },
+        "capacity": {
+          "status": "capacity-exceeded",
+          "currentTargets": 100,
+          "observerCurrentTargets": 0,
+          "futureTargets": 100,
+          "maximumFuturePhase": 11,
+          "requiredMatchupRequestsPerMinute": 111,
+          "maximumFutureChecks": 1,
+          "maximumCurrentChecks": 19,
+          "maximumTotalChecks": 20
+        },
+        "nominalFutureChecksPerMinute": {
+          "minimum": 3,
+          "maximum": 11,
+          "total": 2400,
+          "average": 6.666666666666667
+        },
+        "nominalAllLineupChecksPerMinute": {
+          "minimum": 103,
+          "maximum": 111,
+          "total": 38400,
+          "average": 106.66666666666667
+        },
+        "worstNominalBucketMinuteOffsets": [
+          12,
+          27,
+          42,
+          57,
+          72,
+          87,
+          102,
+          117,
+          132,
+          147,
+          162,
+          177,
+          192,
+          207,
+          222,
+          237,
+          252,
+          267,
+          282,
+          297,
+          312,
+          327,
+          342,
+          357
+        ],
+        "bucketsAboveSharedAllowance": 360,
+        "futureBucketsAboveObserverFutureCap": 360,
+        "nominalFutureChecksAboveSameMinuteCap": 2040,
+        "observerTotalRemainingAllocation": 1,
+        "currentPlanner": {
+          "mode": "healthy active live-window; instantaneous successful completion; no provider or database work",
+          "admittedPerMinute": {
+            "minimum": 19,
+            "maximum": 19,
+            "total": 6840,
+            "average": 19
+          },
+          "deferredPerMinute": {
+            "minimum": 81,
+            "maximum": 81,
+            "total": 29160,
+            "average": 81
+          },
+          "firstSweepMinuteOffset": 5,
+          "observedReselectionIntervalMinutes": {
+            "minimum": 5,
+            "maximum": 6,
+            "total": 35470,
+            "average": 5.2626112759643915
+          },
+          "minimumChecksPerActiveLeague": 60,
+          "maximumChecksPerActiveLeague": 72,
+          "neverAdmitted": 0
+        }
+      },
+      "localAlgorithmTiming": {
+        "synchronizationAndMeasurementWallTimeMs": 105.47239999999988,
+        "plannerWallTimeMs": 62.327200000000175
+      }
+    },
+    {
+      "policy": {
+        "leagueCount": 300,
+        "activeWeek": 1,
+        "observerDefaultLeagues": 0,
+        "horizonWeeks": 18,
+        "simulatedMinutes": 360,
+        "currentTargets": 300,
+        "futureTargets": 5100,
+        "completedTargets": 0,
+        "futureTargetsByCadenceMinutes": {
+          "15": 300,
+          "60": 900,
+          "360": 3900
+        },
+        "capacity": {
+          "status": "capacity-exceeded",
+          "currentTargets": 300,
+          "observerCurrentTargets": 0,
+          "futureTargets": 5100,
+          "maximumFuturePhase": 63,
+          "requiredMatchupRequestsPerMinute": 363,
+          "maximumFutureChecks": 1,
+          "maximumCurrentChecks": 19,
+          "maximumTotalChecks": 20
+        },
+        "nominalFutureChecksPerMinute": {
+          "minimum": 34,
+          "maximum": 63,
+          "total": 16500,
+          "average": 45.833333333333336
+        },
+        "nominalAllLineupChecksPerMinute": {
+          "minimum": 334,
+          "maximum": 363,
+          "total": 124500,
+          "average": 345.8333333333333
+        },
+        "worstNominalBucketMinuteOffsets": [
+          36,
+          216,
+          259
+        ],
+        "bucketsAboveSharedAllowance": 360,
+        "futureBucketsAboveObserverFutureCap": 360,
+        "nominalFutureChecksAboveSameMinuteCap": 16140,
+        "observerTotalRemainingAllocation": 1,
+        "currentPlanner": {
+          "mode": "healthy active live-window; instantaneous successful completion; no provider or database work",
+          "admittedPerMinute": {
+            "minimum": 19,
+            "maximum": 19,
+            "total": 6840,
+            "average": 19
+          },
+          "deferredPerMinute": {
+            "minimum": 281,
+            "maximum": 281,
+            "total": 101160,
+            "average": 281
+          },
+          "firstSweepMinuteOffset": 15,
+          "observedReselectionIntervalMinutes": {
+            "minimum": 15,
+            "maximum": 16,
+            "total": 103260,
+            "average": 15.788990825688073
+          },
+          "minimumChecksPerActiveLeague": 22,
+          "maximumChecksPerActiveLeague": 24,
+          "neverAdmitted": 0
+        }
+      },
+      "localAlgorithmTiming": {
+        "synchronizationAndMeasurementWallTimeMs": 253.24590000000012,
+        "plannerWallTimeMs": 104.82979999999998
+      }
+    },
+    {
+      "policy": {
+        "leagueCount": 300,
+        "activeWeek": 3,
+        "observerDefaultLeagues": 0,
+        "horizonWeeks": 18,
+        "simulatedMinutes": 360,
+        "currentTargets": 300,
+        "futureTargets": 4500,
+        "completedTargets": 600,
+        "futureTargetsByCadenceMinutes": {
+          "15": 300,
+          "60": 900,
+          "360": 3300
+        },
+        "capacity": {
+          "status": "capacity-exceeded",
+          "currentTargets": 300,
+          "observerCurrentTargets": 0,
+          "futureTargets": 4500,
+          "maximumFuturePhase": 65,
+          "requiredMatchupRequestsPerMinute": 365,
+          "maximumFutureChecks": 1,
+          "maximumCurrentChecks": 19,
+          "maximumTotalChecks": 20
+        },
+        "nominalFutureChecksPerMinute": {
+          "minimum": 23,
+          "maximum": 65,
+          "total": 15900,
+          "average": 44.166666666666664
+        },
+        "nominalAllLineupChecksPerMinute": {
+          "minimum": 323,
+          "maximum": 365,
+          "total": 123900,
+          "average": 344.1666666666667
+        },
+        "worstNominalBucketMinuteOffsets": [
+          217
+        ],
+        "bucketsAboveSharedAllowance": 360,
+        "futureBucketsAboveObserverFutureCap": 360,
+        "nominalFutureChecksAboveSameMinuteCap": 15540,
+        "observerTotalRemainingAllocation": 1,
+        "currentPlanner": {
+          "mode": "healthy active live-window; instantaneous successful completion; no provider or database work",
+          "admittedPerMinute": {
+            "minimum": 19,
+            "maximum": 19,
+            "total": 6840,
+            "average": 19
+          },
+          "deferredPerMinute": {
+            "minimum": 281,
+            "maximum": 281,
+            "total": 101160,
+            "average": 281
+          },
+          "firstSweepMinuteOffset": 15,
+          "observedReselectionIntervalMinutes": {
+            "minimum": 15,
+            "maximum": 16,
+            "total": 103260,
+            "average": 15.788990825688073
+          },
+          "minimumChecksPerActiveLeague": 22,
+          "maximumChecksPerActiveLeague": 24,
+          "neverAdmitted": 0
+        }
+      },
+      "localAlgorithmTiming": {
+        "synchronizationAndMeasurementWallTimeMs": 255.4447,
+        "plannerWallTimeMs": 103.42669999999998
+      }
+    },
+    {
+      "policy": {
+        "leagueCount": 300,
+        "activeWeek": 10,
+        "observerDefaultLeagues": 0,
+        "horizonWeeks": 18,
+        "simulatedMinutes": 360,
+        "currentTargets": 300,
+        "futureTargets": 2400,
+        "completedTargets": 2700,
+        "futureTargetsByCadenceMinutes": {
+          "15": 300,
+          "60": 900,
+          "360": 1200
+        },
+        "capacity": {
+          "status": "capacity-exceeded",
+          "currentTargets": 300,
+          "observerCurrentTargets": 0,
+          "futureTargets": 2400,
+          "maximumFuturePhase": 55,
+          "requiredMatchupRequestsPerMinute": 355,
+          "maximumFutureChecks": 1,
+          "maximumCurrentChecks": 19,
+          "maximumTotalChecks": 20
+        },
+        "nominalFutureChecksPerMinute": {
+          "minimum": 25,
+          "maximum": 55,
+          "total": 13800,
+          "average": 38.333333333333336
+        },
+        "nominalAllLineupChecksPerMinute": {
+          "minimum": 325,
+          "maximum": 355,
+          "total": 121800,
+          "average": 338.3333333333333
+        },
+        "worstNominalBucketMinuteOffsets": [
+          76,
+          196,
+          280
+        ],
+        "bucketsAboveSharedAllowance": 360,
+        "futureBucketsAboveObserverFutureCap": 360,
+        "nominalFutureChecksAboveSameMinuteCap": 13440,
+        "observerTotalRemainingAllocation": 1,
+        "currentPlanner": {
+          "mode": "healthy active live-window; instantaneous successful completion; no provider or database work",
+          "admittedPerMinute": {
+            "minimum": 19,
+            "maximum": 19,
+            "total": 6840,
+            "average": 19
+          },
+          "deferredPerMinute": {
+            "minimum": 281,
+            "maximum": 281,
+            "total": 101160,
+            "average": 281
+          },
+          "firstSweepMinuteOffset": 15,
+          "observedReselectionIntervalMinutes": {
+            "minimum": 15,
+            "maximum": 16,
+            "total": 103260,
+            "average": 15.788990825688073
+          },
+          "minimumChecksPerActiveLeague": 22,
+          "maximumChecksPerActiveLeague": 24,
+          "neverAdmitted": 0
+        }
+      },
+      "localAlgorithmTiming": {
+        "synchronizationAndMeasurementWallTimeMs": 235.2428,
+        "plannerWallTimeMs": 99.84310000000005
+      }
+    },
+    {
+      "policy": {
+        "leagueCount": 300,
+        "activeWeek": 17,
+        "observerDefaultLeagues": 0,
+        "horizonWeeks": 18,
+        "simulatedMinutes": 360,
+        "currentTargets": 300,
+        "futureTargets": 300,
+        "completedTargets": 4800,
+        "futureTargetsByCadenceMinutes": {
+          "15": 300
+        },
+        "capacity": {
+          "status": "capacity-exceeded",
+          "currentTargets": 300,
+          "observerCurrentTargets": 0,
+          "futureTargets": 300,
+          "maximumFuturePhase": 24,
+          "requiredMatchupRequestsPerMinute": 324,
+          "maximumFutureChecks": 1,
+          "maximumCurrentChecks": 19,
+          "maximumTotalChecks": 20
+        },
+        "nominalFutureChecksPerMinute": {
+          "minimum": 15,
+          "maximum": 24,
+          "total": 7200,
+          "average": 20
+        },
+        "nominalAllLineupChecksPerMinute": {
+          "minimum": 315,
+          "maximum": 324,
+          "total": 115200,
+          "average": 320
+        },
+        "worstNominalBucketMinuteOffsets": [
+          5,
+          14,
+          20,
+          29,
+          35,
+          44,
+          50,
+          59,
+          65,
+          74,
+          80,
+          89,
+          95,
+          104,
+          110,
+          119,
+          125,
+          134,
+          140,
+          149,
+          155,
+          164,
+          170,
+          179,
+          185,
+          194,
+          200,
+          209,
+          215,
+          224,
+          230,
+          239,
+          245,
+          254,
+          260,
+          269,
+          275,
+          284,
+          290,
+          299,
+          305,
+          314,
+          320,
+          329,
+          335,
+          344,
+          350,
+          359
+        ],
+        "bucketsAboveSharedAllowance": 360,
+        "futureBucketsAboveObserverFutureCap": 360,
+        "nominalFutureChecksAboveSameMinuteCap": 6840,
+        "observerTotalRemainingAllocation": 1,
+        "currentPlanner": {
+          "mode": "healthy active live-window; instantaneous successful completion; no provider or database work",
+          "admittedPerMinute": {
+            "minimum": 19,
+            "maximum": 19,
+            "total": 6840,
+            "average": 19
+          },
+          "deferredPerMinute": {
+            "minimum": 281,
+            "maximum": 281,
+            "total": 101160,
+            "average": 281
+          },
+          "firstSweepMinuteOffset": 15,
+          "observedReselectionIntervalMinutes": {
+            "minimum": 15,
+            "maximum": 16,
+            "total": 103260,
+            "average": 15.788990825688073
+          },
+          "minimumChecksPerActiveLeague": 22,
+          "maximumChecksPerActiveLeague": 24,
+          "neverAdmitted": 0
+        }
+      },
+      "localAlgorithmTiming": {
+        "synchronizationAndMeasurementWallTimeMs": 224.9094,
+        "plannerWallTimeMs": 104.38279999999986
+      }
+    }
+  ],
+  "observerDefaultSensitivity": [
+    {
+      "policy": {
+        "leagueCount": 3,
+        "activeWeek": 1,
+        "observerDefaultLeagues": 1,
+        "horizonWeeks": 18,
+        "simulatedMinutes": 360,
+        "currentTargets": 3,
+        "futureTargets": 51,
+        "completedTargets": 0,
+        "futureTargetsByCadenceMinutes": {
+          "15": 3,
+          "60": 9,
+          "360": 39
+        },
+        "capacity": {
+          "status": "supported",
+          "currentTargets": 3,
+          "observerCurrentTargets": 1,
+          "futureTargets": 51,
+          "maximumFuturePhase": 3,
+          "requiredMatchupRequestsPerMinute": 6,
+          "maximumFutureChecks": 17,
+          "maximumCurrentChecks": 2,
+          "maximumTotalChecks": 20
+        },
+        "nominalFutureChecksPerMinute": {
+          "minimum": 0,
+          "maximum": 3,
+          "total": 165,
+          "average": 0.4583333333333333
+        },
+        "nominalAllLineupChecksPerMinute": {
+          "minimum": 3,
+          "maximum": 6,
+          "total": 1245,
+          "average": 3.4583333333333335
+        },
+        "worstNominalBucketMinuteOffsets": [
+          331
+        ],
+        "bucketsAboveSharedAllowance": 0,
+        "futureBucketsAboveObserverFutureCap": 0,
+        "nominalFutureChecksAboveSameMinuteCap": 0,
+        "observerTotalRemainingAllocation": 18,
+        "currentPlanner": {
+          "mode": "healthy active live-window; instantaneous successful completion; no provider or database work",
+          "admittedPerMinute": {
+            "minimum": 2,
+            "maximum": 2,
+            "total": 720,
+            "average": 2
+          },
+          "deferredPerMinute": {
+            "minimum": 0,
+            "maximum": 0,
+            "total": 0,
+            "average": 0
+          },
+          "firstSweepMinuteOffset": 0,
+          "observedReselectionIntervalMinutes": {
+            "minimum": 1,
+            "maximum": 1,
+            "total": 718,
+            "average": 1
+          },
+          "minimumChecksPerActiveLeague": 360,
+          "maximumChecksPerActiveLeague": 360,
+          "neverAdmitted": 0
+        }
+      },
+      "localAlgorithmTiming": {
+        "synchronizationAndMeasurementWallTimeMs": 6.213400000000092,
+        "plannerWallTimeMs": 2.0819000000001324
+      }
+    },
+    {
+      "policy": {
+        "leagueCount": 3,
+        "activeWeek": 1,
+        "observerDefaultLeagues": 3,
+        "horizonWeeks": 18,
+        "simulatedMinutes": 360,
+        "currentTargets": 3,
+        "futureTargets": 51,
+        "completedTargets": 0,
+        "futureTargetsByCadenceMinutes": {
+          "15": 3,
+          "60": 9,
+          "360": 39
+        },
+        "capacity": {
+          "status": "supported",
+          "currentTargets": 3,
+          "observerCurrentTargets": 3,
+          "futureTargets": 51,
+          "maximumFuturePhase": 3,
+          "requiredMatchupRequestsPerMinute": 6,
+          "maximumFutureChecks": 17,
+          "maximumCurrentChecks": 0,
+          "maximumTotalChecks": 20
+        },
+        "nominalFutureChecksPerMinute": {
+          "minimum": 0,
+          "maximum": 3,
+          "total": 165,
+          "average": 0.4583333333333333
+        },
+        "nominalAllLineupChecksPerMinute": {
+          "minimum": 3,
+          "maximum": 6,
+          "total": 1245,
+          "average": 3.4583333333333335
+        },
+        "worstNominalBucketMinuteOffsets": [
+          331
+        ],
+        "bucketsAboveSharedAllowance": 0,
+        "futureBucketsAboveObserverFutureCap": 0,
+        "nominalFutureChecksAboveSameMinuteCap": 0,
+        "observerTotalRemainingAllocation": 20,
+        "currentPlanner": {
+          "mode": "healthy active live-window; instantaneous successful completion; no provider or database work",
+          "admittedPerMinute": {
+            "minimum": 0,
+            "maximum": 0,
+            "total": 0,
+            "average": 0
+          },
+          "deferredPerMinute": {
+            "minimum": 0,
+            "maximum": 0,
+            "total": 0,
+            "average": 0
+          },
+          "firstSweepMinuteOffset": null,
+          "observedReselectionIntervalMinutes": null,
+          "minimumChecksPerActiveLeague": 0,
+          "maximumChecksPerActiveLeague": 0,
+          "neverAdmitted": 0
+        }
+      },
+      "localAlgorithmTiming": {
+        "synchronizationAndMeasurementWallTimeMs": 2.6001000000001113,
+        "plannerWallTimeMs": 0.40289999999959036
+      }
+    },
+    {
+      "policy": {
+        "leagueCount": 10,
+        "activeWeek": 1,
+        "observerDefaultLeagues": 1,
+        "horizonWeeks": 18,
+        "simulatedMinutes": 360,
+        "currentTargets": 10,
+        "futureTargets": 170,
+        "completedTargets": 0,
+        "futureTargetsByCadenceMinutes": {
+          "15": 10,
+          "60": 30,
+          "360": 130
+        },
+        "capacity": {
+          "status": "supported",
+          "currentTargets": 10,
+          "observerCurrentTargets": 1,
+          "futureTargets": 170,
+          "maximumFuturePhase": 6,
+          "requiredMatchupRequestsPerMinute": 16,
+          "maximumFutureChecks": 10,
+          "maximumCurrentChecks": 9,
+          "maximumTotalChecks": 20
+        },
+        "nominalFutureChecksPerMinute": {
+          "minimum": 0,
+          "maximum": 6,
+          "total": 550,
+          "average": 1.5277777777777777
+        },
+        "nominalAllLineupChecksPerMinute": {
+          "minimum": 10,
+          "maximum": 16,
+          "total": 4150,
+          "average": 11.527777777777779
+        },
+        "worstNominalBucketMinuteOffsets": [
+          29,
+          89,
+          149,
+          331
+        ],
+        "bucketsAboveSharedAllowance": 0,
+        "futureBucketsAboveObserverFutureCap": 0,
+        "nominalFutureChecksAboveSameMinuteCap": 0,
+        "observerTotalRemainingAllocation": 11,
+        "currentPlanner": {
+          "mode": "healthy active live-window; instantaneous successful completion; no provider or database work",
+          "admittedPerMinute": {
+            "minimum": 9,
+            "maximum": 9,
+            "total": 3240,
+            "average": 9
+          },
+          "deferredPerMinute": {
+            "minimum": 0,
+            "maximum": 0,
+            "total": 0,
+            "average": 0
+          },
+          "firstSweepMinuteOffset": 0,
+          "observedReselectionIntervalMinutes": {
+            "minimum": 1,
+            "maximum": 1,
+            "total": 3231,
+            "average": 1
+          },
+          "minimumChecksPerActiveLeague": 360,
+          "maximumChecksPerActiveLeague": 360,
+          "neverAdmitted": 0
+        }
+      },
+      "localAlgorithmTiming": {
+        "synchronizationAndMeasurementWallTimeMs": 13.637099999999919,
+        "plannerWallTimeMs": 8.446600000000217
+      }
+    },
+    {
+      "policy": {
+        "leagueCount": 10,
+        "activeWeek": 1,
+        "observerDefaultLeagues": 10,
+        "horizonWeeks": 18,
+        "simulatedMinutes": 360,
+        "currentTargets": 10,
+        "futureTargets": 170,
+        "completedTargets": 0,
+        "futureTargetsByCadenceMinutes": {
+          "15": 10,
+          "60": 30,
+          "360": 130
+        },
+        "capacity": {
+          "status": "supported",
+          "currentTargets": 10,
+          "observerCurrentTargets": 10,
+          "futureTargets": 170,
+          "maximumFuturePhase": 6,
+          "requiredMatchupRequestsPerMinute": 16,
+          "maximumFutureChecks": 10,
+          "maximumCurrentChecks": 0,
+          "maximumTotalChecks": 20
+        },
+        "nominalFutureChecksPerMinute": {
+          "minimum": 0,
+          "maximum": 6,
+          "total": 550,
+          "average": 1.5277777777777777
+        },
+        "nominalAllLineupChecksPerMinute": {
+          "minimum": 10,
+          "maximum": 16,
+          "total": 4150,
+          "average": 11.527777777777779
+        },
+        "worstNominalBucketMinuteOffsets": [
+          29,
+          89,
+          149,
+          331
+        ],
+        "bucketsAboveSharedAllowance": 0,
+        "futureBucketsAboveObserverFutureCap": 0,
+        "nominalFutureChecksAboveSameMinuteCap": 0,
+        "observerTotalRemainingAllocation": 20,
+        "currentPlanner": {
+          "mode": "healthy active live-window; instantaneous successful completion; no provider or database work",
+          "admittedPerMinute": {
+            "minimum": 0,
+            "maximum": 0,
+            "total": 0,
+            "average": 0
+          },
+          "deferredPerMinute": {
+            "minimum": 0,
+            "maximum": 0,
+            "total": 0,
+            "average": 0
+          },
+          "firstSweepMinuteOffset": null,
+          "observedReselectionIntervalMinutes": null,
+          "minimumChecksPerActiveLeague": 0,
+          "maximumChecksPerActiveLeague": 0,
+          "neverAdmitted": 0
+        }
+      },
+      "localAlgorithmTiming": {
+        "synchronizationAndMeasurementWallTimeMs": 5.911399999999958,
+        "plannerWallTimeMs": 0.3067000000000917
+      }
+    },
+    {
+      "policy": {
+        "leagueCount": 20,
+        "activeWeek": 1,
+        "observerDefaultLeagues": 1,
+        "horizonWeeks": 18,
+        "simulatedMinutes": 360,
+        "currentTargets": 20,
+        "futureTargets": 340,
+        "completedTargets": 0,
+        "futureTargetsByCadenceMinutes": {
+          "15": 20,
+          "60": 60,
+          "360": 260
+        },
+        "capacity": {
+          "status": "capacity-exceeded",
+          "currentTargets": 20,
+          "observerCurrentTargets": 1,
+          "futureTargets": 340,
+          "maximumFuturePhase": 8,
+          "requiredMatchupRequestsPerMinute": 28,
+          "maximumFutureChecks": 1,
+          "maximumCurrentChecks": 18,
+          "maximumTotalChecks": 20
+        },
+        "nominalFutureChecksPerMinute": {
+          "minimum": 0,
+          "maximum": 8,
+          "total": 1100,
+          "average": 3.0555555555555554
+        },
+        "nominalAllLineupChecksPerMinute": {
+          "minimum": 20,
+          "maximum": 28,
+          "total": 8300,
+          "average": 23.055555555555557
+        },
+        "worstNominalBucketMinuteOffsets": [
+          16,
+          329,
+          331
+        ],
+        "bucketsAboveSharedAllowance": 341,
+        "futureBucketsAboveObserverFutureCap": 294,
+        "nominalFutureChecksAboveSameMinuteCap": 759,
+        "observerTotalRemainingAllocation": 2,
+        "currentPlanner": {
+          "mode": "healthy active live-window; instantaneous successful completion; no provider or database work",
+          "admittedPerMinute": {
+            "minimum": 18,
+            "maximum": 18,
+            "total": 6480,
+            "average": 18
+          },
+          "deferredPerMinute": {
+            "minimum": 1,
+            "maximum": 1,
+            "total": 360,
+            "average": 1
+          },
+          "firstSweepMinuteOffset": 1,
+          "observedReselectionIntervalMinutes": {
+            "minimum": 1,
+            "maximum": 2,
+            "total": 6819,
+            "average": 1.0554093793530412
+          },
+          "minimumChecksPerActiveLeague": 180,
+          "maximumChecksPerActiveLeague": 360,
+          "neverAdmitted": 0
+        }
+      },
+      "localAlgorithmTiming": {
+        "synchronizationAndMeasurementWallTimeMs": 26.210399999999936,
+        "plannerWallTimeMs": 16.72490000000016
+      }
+    },
+    {
+      "policy": {
+        "leagueCount": 20,
+        "activeWeek": 1,
+        "observerDefaultLeagues": 20,
+        "horizonWeeks": 18,
+        "simulatedMinutes": 360,
+        "currentTargets": 20,
+        "futureTargets": 340,
+        "completedTargets": 0,
+        "futureTargetsByCadenceMinutes": {
+          "15": 20,
+          "60": 60,
+          "360": 260
+        },
+        "capacity": {
+          "status": "capacity-exceeded",
+          "currentTargets": 20,
+          "observerCurrentTargets": 20,
+          "futureTargets": 340,
+          "maximumFuturePhase": 8,
+          "requiredMatchupRequestsPerMinute": 28,
+          "maximumFutureChecks": 1,
+          "maximumCurrentChecks": 0,
+          "maximumTotalChecks": 20
+        },
+        "nominalFutureChecksPerMinute": {
+          "minimum": 0,
+          "maximum": 8,
+          "total": 1100,
+          "average": 3.0555555555555554
+        },
+        "nominalAllLineupChecksPerMinute": {
+          "minimum": 20,
+          "maximum": 28,
+          "total": 8300,
+          "average": 23.055555555555557
+        },
+        "worstNominalBucketMinuteOffsets": [
+          16,
+          329,
+          331
+        ],
+        "bucketsAboveSharedAllowance": 341,
+        "futureBucketsAboveObserverFutureCap": 294,
+        "nominalFutureChecksAboveSameMinuteCap": 759,
+        "observerTotalRemainingAllocation": 20,
+        "currentPlanner": {
+          "mode": "healthy active live-window; instantaneous successful completion; no provider or database work",
+          "admittedPerMinute": {
+            "minimum": 0,
+            "maximum": 0,
+            "total": 0,
+            "average": 0
+          },
+          "deferredPerMinute": {
+            "minimum": 0,
+            "maximum": 0,
+            "total": 0,
+            "average": 0
+          },
+          "firstSweepMinuteOffset": null,
+          "observedReselectionIntervalMinutes": null,
+          "minimumChecksPerActiveLeague": 0,
+          "maximumChecksPerActiveLeague": 0,
+          "neverAdmitted": 0
+        }
+      },
+      "localAlgorithmTiming": {
+        "synchronizationAndMeasurementWallTimeMs": 9.683899999999994,
+        "plannerWallTimeMs": 0.3108999999999469
+      }
+    },
+    {
+      "policy": {
+        "leagueCount": 50,
+        "activeWeek": 1,
+        "observerDefaultLeagues": 1,
+        "horizonWeeks": 18,
+        "simulatedMinutes": 360,
+        "currentTargets": 50,
+        "futureTargets": 850,
+        "completedTargets": 0,
+        "futureTargetsByCadenceMinutes": {
+          "15": 50,
+          "60": 150,
+          "360": 650
+        },
+        "capacity": {
+          "status": "capacity-exceeded",
+          "currentTargets": 50,
+          "observerCurrentTargets": 1,
+          "futureTargets": 850,
+          "maximumFuturePhase": 15,
+          "requiredMatchupRequestsPerMinute": 65,
+          "maximumFutureChecks": 1,
+          "maximumCurrentChecks": 18,
+          "maximumTotalChecks": 20
+        },
+        "nominalFutureChecksPerMinute": {
+          "minimum": 2,
+          "maximum": 15,
+          "total": 2750,
+          "average": 7.638888888888889
+        },
+        "nominalAllLineupChecksPerMinute": {
+          "minimum": 52,
+          "maximum": 65,
+          "total": 20750,
+          "average": 57.638888888888886
+        },
+        "worstNominalBucketMinuteOffsets": [
+          108
+        ],
+        "bucketsAboveSharedAllowance": 360,
+        "futureBucketsAboveObserverFutureCap": 360,
+        "nominalFutureChecksAboveSameMinuteCap": 2390,
+        "observerTotalRemainingAllocation": 2,
+        "currentPlanner": {
+          "mode": "healthy active live-window; instantaneous successful completion; no provider or database work",
+          "admittedPerMinute": {
+            "minimum": 18,
+            "maximum": 18,
+            "total": 6480,
+            "average": 18
+          },
+          "deferredPerMinute": {
+            "minimum": 31,
+            "maximum": 31,
+            "total": 11160,
+            "average": 31
+          },
+          "firstSweepMinuteOffset": 2,
+          "observedReselectionIntervalMinutes": {
+            "minimum": 2,
+            "maximum": 3,
+            "total": 17503,
+            "average": 2.721660705955528
+          },
+          "minimumChecksPerActiveLeague": 120,
+          "maximumChecksPerActiveLeague": 180,
+          "neverAdmitted": 0
+        }
+      },
+      "localAlgorithmTiming": {
+        "synchronizationAndMeasurementWallTimeMs": 63.11349999999993,
+        "plannerWallTimeMs": 40.4358000000002
+      }
+    },
+    {
+      "policy": {
+        "leagueCount": 50,
+        "activeWeek": 1,
+        "observerDefaultLeagues": 50,
+        "horizonWeeks": 18,
+        "simulatedMinutes": 360,
+        "currentTargets": 50,
+        "futureTargets": 850,
+        "completedTargets": 0,
+        "futureTargetsByCadenceMinutes": {
+          "15": 50,
+          "60": 150,
+          "360": 650
+        },
+        "capacity": {
+          "status": "capacity-exceeded",
+          "currentTargets": 50,
+          "observerCurrentTargets": 50,
+          "futureTargets": 850,
+          "maximumFuturePhase": 15,
+          "requiredMatchupRequestsPerMinute": 65,
+          "maximumFutureChecks": 1,
+          "maximumCurrentChecks": 0,
+          "maximumTotalChecks": 20
+        },
+        "nominalFutureChecksPerMinute": {
+          "minimum": 2,
+          "maximum": 15,
+          "total": 2750,
+          "average": 7.638888888888889
+        },
+        "nominalAllLineupChecksPerMinute": {
+          "minimum": 52,
+          "maximum": 65,
+          "total": 20750,
+          "average": 57.638888888888886
+        },
+        "worstNominalBucketMinuteOffsets": [
+          108
+        ],
+        "bucketsAboveSharedAllowance": 360,
+        "futureBucketsAboveObserverFutureCap": 360,
+        "nominalFutureChecksAboveSameMinuteCap": 2390,
+        "observerTotalRemainingAllocation": 20,
+        "currentPlanner": {
+          "mode": "healthy active live-window; instantaneous successful completion; no provider or database work",
+          "admittedPerMinute": {
+            "minimum": 0,
+            "maximum": 0,
+            "total": 0,
+            "average": 0
+          },
+          "deferredPerMinute": {
+            "minimum": 0,
+            "maximum": 0,
+            "total": 0,
+            "average": 0
+          },
+          "firstSweepMinuteOffset": null,
+          "observedReselectionIntervalMinutes": null,
+          "minimumChecksPerActiveLeague": 0,
+          "maximumChecksPerActiveLeague": 0,
+          "neverAdmitted": 0
+        }
+      },
+      "localAlgorithmTiming": {
+        "synchronizationAndMeasurementWallTimeMs": 26.419800000000123,
+        "plannerWallTimeMs": 0.2112000000001899
+      }
+    },
+    {
+      "policy": {
+        "leagueCount": 100,
+        "activeWeek": 1,
+        "observerDefaultLeagues": 1,
+        "horizonWeeks": 18,
+        "simulatedMinutes": 360,
+        "currentTargets": 100,
+        "futureTargets": 1700,
+        "completedTargets": 0,
+        "futureTargetsByCadenceMinutes": {
+          "15": 100,
+          "60": 300,
+          "360": 1300
+        },
+        "capacity": {
+          "status": "capacity-exceeded",
+          "currentTargets": 100,
+          "observerCurrentTargets": 1,
+          "futureTargets": 1700,
+          "maximumFuturePhase": 26,
+          "requiredMatchupRequestsPerMinute": 126,
+          "maximumFutureChecks": 1,
+          "maximumCurrentChecks": 18,
+          "maximumTotalChecks": 20
+        },
+        "nominalFutureChecksPerMinute": {
+          "minimum": 5,
+          "maximum": 26,
+          "total": 5500,
+          "average": 15.277777777777779
+        },
+        "nominalAllLineupChecksPerMinute": {
+          "minimum": 105,
+          "maximum": 126,
+          "total": 41500,
+          "average": 115.27777777777777
+        },
+        "worstNominalBucketMinuteOffsets": [
+          49,
+          109
+        ],
+        "bucketsAboveSharedAllowance": 360,
+        "futureBucketsAboveObserverFutureCap": 360,
+        "nominalFutureChecksAboveSameMinuteCap": 5140,
+        "observerTotalRemainingAllocation": 2,
+        "currentPlanner": {
+          "mode": "healthy active live-window; instantaneous successful completion; no provider or database work",
+          "admittedPerMinute": {
+            "minimum": 18,
+            "maximum": 18,
+            "total": 6480,
+            "average": 18
+          },
+          "deferredPerMinute": {
+            "minimum": 81,
+            "maximum": 81,
+            "total": 29160,
+            "average": 81
+          },
+          "firstSweepMinuteOffset": 5,
+          "observedReselectionIntervalMinutes": {
+            "minimum": 5,
+            "maximum": 6,
+            "total": 35091,
+            "average": 5.499294781382228
+          },
+          "minimumChecksPerActiveLeague": 60,
+          "maximumChecksPerActiveLeague": 72,
+          "neverAdmitted": 0
+        }
+      },
+      "localAlgorithmTiming": {
+        "synchronizationAndMeasurementWallTimeMs": 105.71579999999994,
+        "plannerWallTimeMs": 60.171299999999974
+      }
+    },
+    {
+      "policy": {
+        "leagueCount": 100,
+        "activeWeek": 1,
+        "observerDefaultLeagues": 100,
+        "horizonWeeks": 18,
+        "simulatedMinutes": 360,
+        "currentTargets": 100,
+        "futureTargets": 1700,
+        "completedTargets": 0,
+        "futureTargetsByCadenceMinutes": {
+          "15": 100,
+          "60": 300,
+          "360": 1300
+        },
+        "capacity": {
+          "status": "capacity-exceeded",
+          "currentTargets": 100,
+          "observerCurrentTargets": 100,
+          "futureTargets": 1700,
+          "maximumFuturePhase": 26,
+          "requiredMatchupRequestsPerMinute": 126,
+          "maximumFutureChecks": 1,
+          "maximumCurrentChecks": 0,
+          "maximumTotalChecks": 20
+        },
+        "nominalFutureChecksPerMinute": {
+          "minimum": 5,
+          "maximum": 26,
+          "total": 5500,
+          "average": 15.277777777777779
+        },
+        "nominalAllLineupChecksPerMinute": {
+          "minimum": 105,
+          "maximum": 126,
+          "total": 41500,
+          "average": 115.27777777777777
+        },
+        "worstNominalBucketMinuteOffsets": [
+          49,
+          109
+        ],
+        "bucketsAboveSharedAllowance": 360,
+        "futureBucketsAboveObserverFutureCap": 360,
+        "nominalFutureChecksAboveSameMinuteCap": 5140,
+        "observerTotalRemainingAllocation": 20,
+        "currentPlanner": {
+          "mode": "healthy active live-window; instantaneous successful completion; no provider or database work",
+          "admittedPerMinute": {
+            "minimum": 0,
+            "maximum": 0,
+            "total": 0,
+            "average": 0
+          },
+          "deferredPerMinute": {
+            "minimum": 0,
+            "maximum": 0,
+            "total": 0,
+            "average": 0
+          },
+          "firstSweepMinuteOffset": null,
+          "observedReselectionIntervalMinutes": null,
+          "minimumChecksPerActiveLeague": 0,
+          "maximumChecksPerActiveLeague": 0,
+          "neverAdmitted": 0
+        }
+      },
+      "localAlgorithmTiming": {
+        "synchronizationAndMeasurementWallTimeMs": 47.879999999999654,
+        "plannerWallTimeMs": 0.2130000000001928
+      }
+    },
+    {
+      "policy": {
+        "leagueCount": 300,
+        "activeWeek": 1,
+        "observerDefaultLeagues": 1,
+        "horizonWeeks": 18,
+        "simulatedMinutes": 360,
+        "currentTargets": 300,
+        "futureTargets": 5100,
+        "completedTargets": 0,
+        "futureTargetsByCadenceMinutes": {
+          "15": 300,
+          "60": 900,
+          "360": 3900
+        },
+        "capacity": {
+          "status": "capacity-exceeded",
+          "currentTargets": 300,
+          "observerCurrentTargets": 1,
+          "futureTargets": 5100,
+          "maximumFuturePhase": 63,
+          "requiredMatchupRequestsPerMinute": 363,
+          "maximumFutureChecks": 1,
+          "maximumCurrentChecks": 18,
+          "maximumTotalChecks": 20
+        },
+        "nominalFutureChecksPerMinute": {
+          "minimum": 34,
+          "maximum": 63,
+          "total": 16500,
+          "average": 45.833333333333336
+        },
+        "nominalAllLineupChecksPerMinute": {
+          "minimum": 334,
+          "maximum": 363,
+          "total": 124500,
+          "average": 345.8333333333333
+        },
+        "worstNominalBucketMinuteOffsets": [
+          36,
+          216,
+          259
+        ],
+        "bucketsAboveSharedAllowance": 360,
+        "futureBucketsAboveObserverFutureCap": 360,
+        "nominalFutureChecksAboveSameMinuteCap": 16140,
+        "observerTotalRemainingAllocation": 2,
+        "currentPlanner": {
+          "mode": "healthy active live-window; instantaneous successful completion; no provider or database work",
+          "admittedPerMinute": {
+            "minimum": 18,
+            "maximum": 18,
+            "total": 6480,
+            "average": 18
+          },
+          "deferredPerMinute": {
+            "minimum": 281,
+            "maximum": 281,
+            "total": 101160,
+            "average": 281
+          },
+          "firstSweepMinuteOffset": 16,
+          "observedReselectionIntervalMinutes": {
+            "minimum": 16,
+            "maximum": 17,
+            "total": 102669,
+            "average": 16.610419026047566
+          },
+          "minimumChecksPerActiveLeague": 21,
+          "maximumChecksPerActiveLeague": 23,
+          "neverAdmitted": 0
+        }
+      },
+      "localAlgorithmTiming": {
+        "synchronizationAndMeasurementWallTimeMs": 255.86140000000023,
+        "plannerWallTimeMs": 98.73580000000038
+      }
+    },
+    {
+      "policy": {
+        "leagueCount": 300,
+        "activeWeek": 1,
+        "observerDefaultLeagues": 300,
+        "horizonWeeks": 18,
+        "simulatedMinutes": 360,
+        "currentTargets": 300,
+        "futureTargets": 5100,
+        "completedTargets": 0,
+        "futureTargetsByCadenceMinutes": {
+          "15": 300,
+          "60": 900,
+          "360": 3900
+        },
+        "capacity": {
+          "status": "capacity-exceeded",
+          "currentTargets": 300,
+          "observerCurrentTargets": 300,
+          "futureTargets": 5100,
+          "maximumFuturePhase": 63,
+          "requiredMatchupRequestsPerMinute": 363,
+          "maximumFutureChecks": 1,
+          "maximumCurrentChecks": 0,
+          "maximumTotalChecks": 20
+        },
+        "nominalFutureChecksPerMinute": {
+          "minimum": 34,
+          "maximum": 63,
+          "total": 16500,
+          "average": 45.833333333333336
+        },
+        "nominalAllLineupChecksPerMinute": {
+          "minimum": 334,
+          "maximum": 363,
+          "total": 124500,
+          "average": 345.8333333333333
+        },
+        "worstNominalBucketMinuteOffsets": [
+          36,
+          216,
+          259
+        ],
+        "bucketsAboveSharedAllowance": 360,
+        "futureBucketsAboveObserverFutureCap": 360,
+        "nominalFutureChecksAboveSameMinuteCap": 16140,
+        "observerTotalRemainingAllocation": 20,
+        "currentPlanner": {
+          "mode": "healthy active live-window; instantaneous successful completion; no provider or database work",
+          "admittedPerMinute": {
+            "minimum": 0,
+            "maximum": 0,
+            "total": 0,
+            "average": 0
+          },
+          "deferredPerMinute": {
+            "minimum": 0,
+            "maximum": 0,
+            "total": 0,
+            "average": 0
+          },
+          "firstSweepMinuteOffset": null,
+          "observedReselectionIntervalMinutes": null,
+          "minimumChecksPerActiveLeague": 0,
+          "maximumChecksPerActiveLeague": 0,
+          "neverAdmitted": 0
+        }
+      },
+      "localAlgorithmTiming": {
+        "synchronizationAndMeasurementWallTimeMs": 153.5888,
+        "plannerWallTimeMs": 0.2659000000003289
+      }
+    }
+  ]
+}

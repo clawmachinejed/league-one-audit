@@ -1,0 +1,59 @@
+{
+  "kind": "collection-capacity-supervision-v1",
+  "database": "account_reset_integration_test",
+  "branch": "br-still-breeze-avaibago",
+  "startedAt": "2026-09-23T23:09:04.095Z",
+  "childClosed": true,
+  "cleanupVerified": true,
+  "productionWrites": false,
+  "credentialsCreated": false,
+  "measurementFile": "C:\\Users\\Robert Finchum\\.codex\\visualizations\\2026\\09\\22\\01a0cb46-e7f6-72f0-9460-606b10237ab0\\collection-capacity-final-probe-aed81c4f-b617-41a5-8a13-b09a7090d0a7.json",
+  "stage": "complete",
+  "before": {
+    "database": "account_reset_integration_test",
+    "branch": "br-still-breeze-avaibago",
+    "relations": 0,
+    "otherSessions": 0,
+    "backends": []
+  },
+  "childPid": 62396,
+  "childExit": 0,
+  "after": {
+    "database": "account_reset_integration_test",
+    "branch": "br-still-breeze-avaibago",
+    "relations": 0,
+    "otherSessions": 4,
+    "backends": [
+      {
+        "pid": 801,
+        "role": "league_one_runtime",
+        "state": "idle",
+        "backendStart": "2026-09-23T23:09:22.897836+00:00",
+        "transactionStart": null
+      },
+      {
+        "pid": 782,
+        "role": "league_one_runtime",
+        "state": "idle",
+        "backendStart": "2026-09-23T23:09:21.324927+00:00",
+        "transactionStart": null
+      },
+      {
+        "pid": 779,
+        "role": "league_one_runtime",
+        "state": "idle",
+        "backendStart": "2026-09-23T23:09:20.39444+00:00",
+        "transactionStart": null
+      },
+      {
+        "pid": 776,
+        "role": "league_one_runtime",
+        "state": "idle",
+        "backendStart": "2026-09-23T23:09:19.61053+00:00",
+        "transactionStart": null
+      }
+    ]
+  },
+  "idleBackendScope": "Only exact previously recorded idle runtime backends or idle/no-transaction runtime backends created during this owned child are allowed. No database sessions terminated.",
+  "finishedAt": "2026-09-23T23:09:46.010Z"
+}

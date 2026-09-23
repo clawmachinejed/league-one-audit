@@ -1,0 +1,388 @@
+$ node apps/site/scripts/full-verify.mjs
+
+== Fast Check ==
+$ pnpm verify:dependencies && pnpm lint && pnpm typecheck && pnpm test && pnpm build
+$ pnpm peers check && node apps/site/scripts/verify-account-auth-dependencies.mjs
+No peer dependency issues found
+Better Auth 1.6.23 and Kysely 0.29.6 resolve consistently; managed Neon Auth SDK removed.
+$ pnpm --filter @l1/site lint
+$ eslint .
+$ pnpm --filter @l1/site typecheck
+$ next typegen && tsc --noEmit
+Generating route types...
+✓ Types generated successfully
+$ pnpm --filter @l1/site test
+$ vitest run
+
+ RUN  v4.1.11 C:/Users/Robert Finchum/.codex/worktrees/measured-collection-capacity/LeagueOneEngineering/apps/site
+
+
+ Test Files  205 passed (205)
+      Tests  3946 passed | 1 skipped (3947)
+   Start at  18:23:38
+   Duration  28.57s (transform 37.50s, setup 0ms, import 88.53s, tests 103.35s, environment 29ms)
+
+$ pnpm --filter @l1/site build
+$ next build
+▲ Next.js 16.3.3 (Turbopack)
+✓ Running next.config.mjs took 14ms
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 4.2s
+  Running TypeScript ...
+  Finished TypeScript in 9.4s ...
+  Collecting page data using 19 workers ...
+  Generating static pages using 19 workers (0/11) ...
+  Generating static pages using 19 workers (2/11)
+  Generating static pages using 19 workers (5/11)
+  Generating static pages using 19 workers (8/11)
+✓ Generating static pages using 19 workers (11/11) in 295ms
+  Finalizing page optimization ...
+
+Route (app)
+┌ ○ /
+├ ○ /_not-found
+├ ƒ /account
+├ ƒ /api/auth/[...path]
+├ ƒ /api/cron/future-projections
+├ ƒ /api/cron/lineup-observations
+├ ƒ /api/cron/live-projections
+├ ƒ /api/matchups/[league]
+├ ƒ /api/matchups/[league]/box-scores
+├ ƒ /api/matchups/[league]/revision
+├ ƒ /api/me
+├ ƒ /api/me/leagues/[id]
+├ ƒ /api/me/profile
+├ ƒ /api/me/provider-links
+├ ƒ /api/me/provider-links/[id]
+├ ƒ /api/me/sleeper-leagues
+├ ƒ /api/me/teams
+├ ƒ /api/rosters/[league]
+├ ƒ /api/transactions/[league]
+├ ○ /dynasty
+├ ƒ /dynasty/managers
+├ ƒ /dynasty/managers/[id]
+├ ƒ /dynasty/managers/[id]/schedule
+├ ƒ /dynasty/managers/[id]/transactions
+├ ƒ /dynasty/matchups
+├ ƒ /dynasty/my-team
+├ ƒ /dynasty/standings
+├ ○ /league2
+├ ƒ /league2/managers
+├ ƒ /league2/managers/[id]
+├ ƒ /league2/managers/[id]/schedule
+├ ƒ /league2/managers/[id]/transactions
+├ ƒ /league2/matchups
+├ ƒ /league2/my-team
+├ ƒ /league2/standings
+├ ƒ /managers
+├ ƒ /managers/[id]
+├ ƒ /managers/[id]/schedule
+├ ƒ /managers/[id]/transactions
+├ ƒ /matchups
+├ ƒ /my-leagues
+├ ƒ /my-team
+├ ○ /robots.txt
+├ ƒ /sign-in
+└ ƒ /standings
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
+Fast Check: PASSED
+
+== Chromium browser tests ==
+$ pnpm --filter @l1/site test:browser
+$ playwright test
+[WebServer] (node:58912) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] $ next build
+[WebServer] (node:51976) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:51976) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:58748) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:57260) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:50568) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:50268) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:60724) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:54696) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:60424) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:49376) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:39076) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:26500) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:58668) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:11788) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:16580) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:55512) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:51556) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:49308) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:43804) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:34644) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:59744) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:7056) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] $ next start --hostname 0.0.0.0
+[WebServer] (node:30152) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+Browser target: http://localhost:3196/ | fresh local production build
+Local browser provenance verified: checkout=C:\Users\Robert Finchum\.codex\worktrees\measured-collection-capacity\LeagueOneEngineering\apps\site | Git SHA=864580c67bae2380049c978346e3da076d5cdee5 | working tree has changes | build=QSr4SfT4GNfBZzKtZXnTc | run=901331fe-7466-4b73-85a9-2153bcc63202
+
+Running 126 tests using 10 workers
+
+  -    1 [chromium] › e2e\accounts-fixture.spec.ts:116:1 › library cards distinguish participation and affiliation and fit phone and desktop
+  -    2 [chromium] › e2e\accounts-fixture.spec.ts:134:1 › profile and favorite writes include an account precondition and preserve team preference
+  -    3 [chromium] › e2e\accounts-fixture.spec.ts:151:1 › a public Sleeper association requires an explicit choice and confirmation
+  -    4 [chromium] › e2e\accounts-fixture.spec.ts:168:1 › sign-up and email verification use the SDK without contacting an external provider
+  -    5 [chromium] › e2e\accounts-fixture.spec.ts:192:1 › unverified sign-in opens the code step without resending and other failures stay on sign-in
+  -    6 [chromium] › e2e\accounts-fixture.spec.ts:223:1 › late private responses cannot restore a session that became unauthenticated
+  -    7 [chromium] › e2e\accounts-fixture.spec.ts:242:1 › password recovery requests the fixed callback without exposing email eligibility
+  -    8 [chromium] › e2e\accounts-fixture.spec.ts:257:1 › password reset strips the one-time token from history and submits through the SDK
+  -    9 [chromium] › e2e\accounts-fixture.spec.ts:280:1 › invalid or expired recovery callbacks offer a fresh link without displaying provider details
+  -   10 [chromium] › e2e\accounts-fixture.spec.ts:298:1 › a temporary reset outage retains the one-time token for an explicit successful retry
+  -   11 [chromium] › e2e\accounts-fixture.spec.ts:323:1 › sign out removes private content and uses a full navigation to sign in
+  -   12 [chromium] › e2e\accounts-fixture.spec.ts:335:1 › a private account-store outage does not prevent signing out
+  -   13 [chromium] › e2e\accounts-fixture.spec.ts:346:1 › rate limits do not retry mutations and an account switch rejects the old form
+  -   14 [chromium] › e2e\accounts-fixture.spec.ts:386:1 › associated Sleeper leagues show season and safe links alongside supported site cards on phone and desktop
+  -   15 [chromium] › e2e\accounts-fixture.spec.ts:422:1 › a malformed compatibility report stays unverified without hiding the Sleeper league
+  -   16 [chromium] › e2e\accounts-fixture.spec.ts:438:1 › a Sleeper discovery failure leaves site cards usable and supports an explicit retry
+  -   17 [chromium] › e2e\accounts-fixture.spec.ts:451:1 › a delayed discovery response cannot restore the previous account league list
+  -   18 [chromium] › e2e\accounts-fixture.spec.ts:470:1 › removing a Sleeper association clears its league list without another provider request
+(node:33872) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:1508) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:43300) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:60856) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:48240) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:41344) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:61260) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:51312) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:40760) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:50476) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ok  19 [chromium] › e2e\account-public.spec.ts:3:1 › dormant account pages keep public browsing usable at phone and desktop widths (3.7s)
+  ok  24 [chromium] › e2e\matchup-standings-place.spec.ts:108:3 › league1 displays bold actual places outside each record with scoped colors and preserved matchup behavior (5.6s)
+  ok  25 [chromium] › e2e\matchup-win-chance.spec.ts:182:3 › league1 keeps compact win chances with each team on Matchups and My Team through expansion and snapshot refresh (6.1s)
+  ok  31 [chromium] › e2e\matchup-win-chance.spec.ts:258:3 › league1 leaves future win chances unavailable on both pages when the stored snapshot has no estimate (3.1s)
+  ok  23 [chromium] › e2e\matchup-box-scores.spec.ts:155:3 › league1 expands both teams from the whole starter row and fits supported widths (10.6s)
+  ok  30 [chromium] › e2e\matchup-standings-place.spec.ts:108:3 › league2 displays bold actual places outside each record with scoped colors and preserved matchup behavior (5.8s)
+  ok  27 [chromium] › e2e\leagues.spec.ts:100:1 › the mobile league selector is first, accessible, and fits every supported phone width (11.9s)
+  ok  28 [chromium] › e2e\my-team.spec.ts:111:3 › league1 My Team shows the selected side left and expands both exact-week benches (12.0s)
+  ok  26 [chromium] › e2e\my-team-schedule.spec.ts:99:3 › league1 Schedule shows only Weeks 1–15, official results and selected team left, with keyboard return to the exact week (12.7s)
+  ok  29 [chromium] › e2e\projected-standings.spec.ts:117:1 › projects healthy pairs, labels held records, and incorporates a recovered lineup exactly once (9.3s)
+  ok  32 [chromium] › e2e\matchup-win-chance.spec.ts:182:3 › league2 keeps compact win chances with each team on Matchups and My Team through expansion and snapshot refresh (6.3s)
+  ok  34 [chromium] › e2e\matchup-standings-place.spec.ts:108:3 › dynasty displays bold actual places outside each record with scoped colors and preserved matchup behavior (7.0s)
+  ok  39 [chromium] › e2e\matchup-win-chance.spec.ts:258:3 › league2 leaves future win chances unavailable on both pages when the stored snapshot has no estimate (2.8s)
+  ok  33 [chromium] › e2e\matchup-box-scores.spec.ts:155:3 › league2 expands both teams from the whole starter row and fits supported widths (7.8s)
+  ok  22 [chromium] › e2e\managers-history.spec.ts:93:1 › Managers History and current season preserve records, honors, profile identity and preferences in all three leagues (18.4s)
+  ok  21 [chromium] › e2e\dynasty.spec.ts:51:1 › Dynasty uses its Sleeper icon, all shared routes and an independent My Team preference (18.4s)
+  ok  38 [chromium] › e2e\projected-standings.spec.ts:188:3 › league1 keeps official standings by default and switches projected results on and off with the keyboard (5.4s)
+  ok  20 [chromium] › e2e\manager-schedule.spec.ts:87:3 › league1 manager Schedule keeps the viewed owner left for Weeks 1–14 and returns through the scoped profile tabs (18.4s)
+  ok  37 [chromium] › e2e\my-team-schedule.spec.ts:99:3 › league2 Schedule shows only Weeks 1–15, official results and selected team left, with keyboard return to the exact week (5.4s)
+  ok  36 [chromium] › e2e\my-team.spec.ts:202:3 › league1 My Team shares the Matchups week dropdown, arrows, bounds and Current navigation (6.2s)
+  ok  41 [chromium] › e2e\matchup-box-scores.spec.ts:264:1 › an accepted kickoff starts minute reads without waiting for another player tap (3.9s)
+  ok  47 [chromium] › e2e\roster-refresh.spec.ts:77:3 › league1 refreshes weekly metrics at 4 AM Eastern and keeps roster metadata fresh between boundaries (4.1s)
+  ok  40 [chromium] › e2e\matchup-win-chance.spec.ts:182:3 › dynasty keeps compact win chances with each team on Matchups and My Team through expansion and snapshot refresh (5.4s)
+  ok  46 [chromium] › e2e\my-team-schedule.spec.ts:99:3 › dynasty Schedule shows only Weeks 1–15, official results and selected team left, with keyboard return to the exact week (5.9s)
+  ok  48 [chromium] › e2e\my-team.spec.ts:111:3 › league2 My Team shows the selected side left and expands both exact-week benches (6.1s)
+  ok  49 [chromium] › e2e\matchup-box-scores.spec.ts:282:1 › a changing live clock does not trigger an extra box-score read (3.5s)
+  ok  50 [chromium] › e2e\roster-refresh.spec.ts:77:3 › league2 refreshes weekly metrics at 4 AM Eastern and keeps roster metadata fresh between boundaries (3.7s)
+  ok  42 [chromium] › e2e\managers-history.spec.ts:141:1 › Managers tabs preserve keyboard focus and show incomplete historical records honestly in all three leagues (7.8s)
+  ok  51 [chromium] › e2e\matchup-win-chance.spec.ts:258:3 › dynasty leaves future win chances unavailable on both pages when the stored snapshot has no estimate (2.5s)
+  ok  35 [chromium] › e2e\leagues.spec.ts:129:1 › the shared navigation uses Matchups geometry at every required width in both leagues (15.3s)
+  ok  44 [chromium] › e2e\projected-standings.spec.ts:188:3 › league2 keeps official standings by default and switches projected results on and off with the keyboard (9.2s)
+  ok  52 [chromium] › e2e\my-team-schedule.spec.ts:161:1 › Schedule uses the same alphabetical standings default as My Team without saving a preference (3.7s)
+  ok  57 [chromium] › e2e\smoke.spec.ts:50:1 › the site follows the system color scheme while it is open (3.3s)
+  ok  55 [chromium] › e2e\roster-refresh.spec.ts:107:1 › weekly refresh stays quiet while hidden or off-tab and refreshes selected past and future weeks at the next boundary (4.0s)
+  ok  56 [chromium] › e2e\site-week-rollover.spec.ts:111:3 › league1 follows Current at noon without pinning a numeric week (4.1s)
+  ok  54 [chromium] › e2e\matchup-box-scores.spec.ts:293:1 › a final transition allows a settling capture then stops minute reads once final statistics arrive (4.6s)
+  ok  45 [chromium] › e2e\manager-schedule.spec.ts:87:3 › league2 manager Schedule keeps the viewed owner left for Weeks 1–14 and returns through the scoped profile tabs (12.1s)
+  ok  53 [chromium] › e2e\my-team.spec.ts:202:3 › league2 My Team shares the Matchups week dropdown, arrows, bounds and Current navigation (7.5s)
+  ok  63 [chromium] › e2e\site-week-rollover.spec.ts:111:3 › league2 follows Current at noon without pinning a numeric week (2.7s)
+  ok  62 [chromium] › e2e\roster-refresh.spec.ts:146:1 › failed, unknown and expired weekly boundaries retain saved metrics and retry at most hourly, then stop at season end (3.4s)
+  ok  60 [chromium] › e2e\my-team-schedule.spec.ts:181:1 › Schedule keeps saved teams isolated when switching leagues (5.6s)
+  ok  64 [chromium] › e2e\matchup-box-scores.spec.ts:314:1 › hidden boards abort an outstanding box-score refresh and catch up once when visible (3.3s)
+  ok  59 [chromium] › e2e\projected-standings.spec.ts:253:1 › puts colored movement below each projected rank without shifting the rank or row on phones and desktop (9.1s)
+  ok  68 [chromium] › e2e\roster-refresh.spec.ts:179:1 › roster polling pauses while hidden or on another tab and catches up once on return; other weeks do not poll (3.4s)
+  ok  67 [chromium] › e2e\site-week-rollover.spec.ts:125:1 › an explicit future matchup stays selected through rollover and Current returns to the unpinned route (4.2s)
+  ok  70 [chromium] › e2e\matchup-box-scores.spec.ts:338:3 › a delayed old box-score response is aborted during league navigation (3.5s)
+  ok  58 [chromium] › e2e\leagues.spec.ts:189:1 › League navigation stays distinct from Standings content and does not resize between sections (9.8s)
+  ok  43 [chromium] › e2e\dynasty.spec.ts:105:1 › Dynasty Week 1 official scores and real super flex slots fit every shared player surface (19.3s)
+  ok  69 [chromium] › e2e\snapshot-polling.spec.ts:115:3 › league1 starts with SSR lineage and skips the full body when its first revision is unchanged (4.6s)
+  ok  61 [chromium] › e2e\smoke.spec.ts:123:1 › matchups fit supported widths and expanded lineup rows remain 52px (8.9s)
+  ok  66 [chromium] › e2e\my-team.spec.ts:111:3 › dynasty My Team shows the selected side left and expands both exact-week benches (6.7s)
+  ok  72 [chromium] › e2e\roster-refresh.spec.ts:204:1 › a delayed current-week refresh cannot overwrite a newly selected week (3.2s)
+  ok  73 [chromium] › e2e\site-week-rollover.spec.ts:139:1 › hidden Rosters catches up on return without waiting for hourly statistics capture (3.2s)
+  ok  65 [chromium] › e2e\manager-schedule.spec.ts:87:3 › dynasty manager Schedule keeps the viewed owner left for Weeks 1–14 and returns through the scoped profile tabs (10.1s)
+  ok  74 [chromium] › e2e\matchup-box-scores.spec.ts:338:3 › a delayed old box-score response is aborted during week navigation (3.5s)
+  ok  76 [chromium] › e2e\snapshot-polling.spec.ts:115:3 › league2 starts with SSR lineage and skips the full body when its first revision is unchanged (2.6s)
+  ok  75 [chromium] › e2e\leagues.spec.ts:236:1 › switching leagues changes identity, data routes, and every primary tab (4.5s)
+  ok  79 [chromium] › e2e\roster-refresh.spec.ts:223:3 › a refreshed roster with the wrong league is rejected without replacing saved metrics (3.0s)
+  ok  71 [chromium] › e2e\projected-standings.spec.ts:295:1 › eleven-place movement fits within a twelve-team rank cell using one solid triangle per place (6.6s)
+  ok  80 [chromium] › e2e\site-week-rollover.spec.ts:153:1 › an explicitly selected roster week stays pinned when it becomes current and later becomes historical (3.0s)
+  ok  82 [chromium] › e2e\leagues.spec.ts:294:1 › selecting the active league preserves the viewed matchup week (3.6s)
+  ok  78 [chromium] › e2e\my-team.spec.ts:202:3 › dynasty My Team shares the Matchups week dropdown, arrows, bounds and Current navigation (6.6s)
+  ok  83 [chromium] › e2e\roster-refresh.spec.ts:223:3 › a refreshed roster with the wrong season is rejected without replacing saved metrics (2.3s)
+  ok  81 [chromium] › e2e\snapshot-polling.spec.ts:127:3 › active snapshots poll compact metadata every minute without redownloading unchanged content (4.5s)
+  ok  84 [chromium] › e2e\projected-standings.spec.ts:336:1 › shows no rank movement when projected standings are unavailable (2.1s)
+  ok  77 [chromium] › e2e\smoke.spec.ts:178:1 › both standings pages reuse the Matchups title and season layout (7.6s)
+  ok  86 [chromium] › e2e\roster-refresh.spec.ts:223:3 › a refreshed roster with the wrong week is rejected without replacing saved metrics (1.9s)
+  ok  87 [chromium] › e2e\snapshot-polling.spec.ts:127:3 › future snapshots poll compact metadata every minute without redownloading unchanged content (2.0s)
+  ok  85 [chromium] › e2e\leagues.spec.ts:307:1 › My Team preserves an explicit week in its league and switches leagues to the destination current week (2.2s)
+  ok  89 [chromium] › e2e\roster-refresh.spec.ts:236:1 › an overdue roster request times out without erasing saved data or causing an immediate retry (1.8s)
+  ok  90 [chromium] › e2e\snapshot-polling.spec.ts:142:1 › hidden pages make no checks, then check immediately when visible; completed pages stop polling (1.8s)
+  ok  92 [chromium] › e2e\roster-refresh.spec.ts:252:1 › an unavailable or older metric read preserves the saved statistics and their source time (1.8s)
+  ok  93 [chromium] › e2e\snapshot-polling.spec.ts:159:1 › same content advances freshness and changed content preserves expanded cards, team choice, and mobile formatting (2.1s)
+  ok  94 [chromium] › e2e\roster-refresh.spec.ts:268:1 › an open current roster follows validated week rollover and keeps refreshing even when prior-week scoring is unavailable (2.0s)
+  ok  96 [chromium] › e2e\roster-refresh.spec.ts:296:1 › fresh current-week authority preserves an explicit other-week selection and Back to current starts its polling (1.8s)
+  ok  95 [chromium] › e2e\snapshot-polling.spec.ts:185:3 › league1 refreshes scheduled NFL labels and player actuals through live, Half, and final results at supported widths (4.7s)
+  ok  88 [chromium] › e2e\smoke.spec.ts:288:1 › both standings views share a compact five-column grid at every supported width (9.9s)
+  ok  91 [chromium] › e2e\leagues.spec.ts:329:1 › My Team choices remain independent between League One and League Two (9.2s)
+  ok  97 [chromium] › e2e\roster-refresh.spec.ts:320:1 › a selected active week keeps refreshing behind the display week, survives unknown authority, and stops when proved historical (2.1s)
+  ok  99 [chromium] › e2e\smoke.spec.ts:412:1 › Standings and Waivers switch locally, support keyboard tabs, and retain independent sorts (1.9s)
+  ok 100 [chromium] › e2e\roster-refresh.spec.ts:357:1 › a proved completed display week stops automatic roster requests (1.5s)
+  ok  98 [chromium] › e2e\snapshot-polling.spec.ts:185:3 › league2 refreshes scheduled NFL labels and player actuals through live, Half, and final results at supported widths (3.9s)
+  ok 102 [chromium] › e2e\snapshot-polling.spec.ts:317:1 › publication races retry compact metadata once and never adopt a mismatched requested revision (1.6s)
+  ok 103 [chromium] › e2e\snapshot-polling.spec.ts:338:1 › repeated automatic future failures retain last good data and the next good poll recovers (1.8s)
+  ok 101 [chromium] › e2e\smoke.spec.ts:475:3 › Rosters stays in League, is exact-week cached, accessible, and responsive (320px) (6.5s)
+  ok 104 [chromium] › e2e\snapshot-polling.spec.ts:357:1 › automatic current failures refresh official data (1.5s)
+  ok 106 [chromium] › e2e\snapshot-polling.spec.ts:366:1 › malformed full data cannot replace the future page and does not trigger a route refresh (1.5s)
+  ok 107 [chromium] › e2e\snapshot-polling.spec.ts:375:1 › a timed-out automatic current check falls back and clears the checking status (1.7s)
+  ok 108 [chromium] › e2e\snapshot-polling.spec.ts:388:1 › a timed-out automatic future check retains good data and permits the next scheduled check (1.7s)
+  ok 105 [chromium] › e2e\smoke.spec.ts:475:3 › Rosters stays in League, is exact-week cached, accessible, and responsive (390px) (6.7s)
+  ok 109 [chromium] › e2e\snapshot-polling.spec.ts:416:1 › hiding during an outstanding request cancels it without triggering fallback (1.5s)
+  ok 111 [chromium] › e2e\snapshot-polling.spec.ts:430:1 › a previous league response cannot overwrite the newly selected league at the same week (2.1s)
+  ok 112 [chromium] › e2e\snapshot-polling.spec.ts:456:1 › a previous week response cannot overwrite a newly selected week in the same league (1.9s)
+  ok 113 [chromium] › e2e\snapshot-polling.spec.ts:472:1 › both real league APIs reject invalid revision tokens with no-store responses (16ms)
+  ok 110 [chromium] › e2e\smoke.spec.ts:475:3 › Rosters stays in League, is exact-week cached, accessible, and responsive (504px) (6.5s)
+  ok 114 [chromium] › e2e\smoke.spec.ts:475:3 › Rosters stays in League, is exact-week cached, accessible, and responsive (1280px) (6.3s)
+  ok 115 [chromium] › e2e\smoke.spec.ts:693:1 › league Transactions loads once, filters locally, groups bids compactly, and remains league-isolated (2.8s)
+  ok 116 [chromium] › e2e\smoke.spec.ts:807:1 › league Transactions remains usable without overflow at every supported width (7.4s)
+  ok 117 [chromium] › e2e\smoke.spec.ts:936:1 › league Transactions total failure stays inline while Standings remains usable (1.4s)
+  ok 118 [chromium] › e2e\smoke.spec.ts:949:1 › My Team standings highlighting remains isolated by league and survives reloads (3.8s)
+  ok 119 [chromium] › e2e\smoke.spec.ts:982:1 › both Managers pages reuse the Matchups intro with compact profile rows (14.5s)
+  ok 120 [chromium] › e2e\smoke.spec.ts:1135:1 › a matchup exposes scores to assistive technology and expands from the keyboard (3.2s)
+  ok 121 [chromium] › e2e\smoke.spec.ts:1209:1 › week navigation reaches the final week and returns to the prior week (1.4s)
+  ok 122 [chromium] › e2e\smoke.spec.ts:1223:1 › My Team remains selected after a reload (3.9s)
+  ok 123 [chromium] › e2e\smoke.spec.ts:1253:1 › manager transactions remain readable and filtering works when available (1.4s)
+  ok 124 [chromium] › e2e\smoke.spec.ts:1286:1 › the not-found page offers a usable route back to Managers (1.2s)
+  ok 125 [chromium] › e2e\smoke.spec.ts:1297:1 › League Two not-found pages return to League Two Managers (1.5s)
+  ok 126 [chromium] › e2e\smoke.spec.ts:1309:1 › former participant routes return 404 and are never redirected (339ms)
+
+  18 skipped
+  108 passed (2.3m)
+Chromium browser tests: PASSED
+
+== Synthetic account browser tests ==
+$ node apps/site/scripts/run-account-browser.mjs
+[WebServer] (node:34108) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] $ next build
+[WebServer] (node:3044) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:3044) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:45892) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:43920) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:52028) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:58424) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:24640) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:57348) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:40868) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:57032) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:45644) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:61736) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:47324) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:55164) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:11620) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:12020) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:44420) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:59564) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:59700) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:14352) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:60232) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:22744) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] $ next start --hostname 0.0.0.0
+[WebServer] (node:42552) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+Browser target: http://localhost:3196/ | fresh local production build
+Local browser provenance verified: checkout=C:\Users\Robert Finchum\.codex\worktrees\measured-collection-capacity\LeagueOneEngineering\apps\site | Git SHA=864580c67bae2380049c978346e3da076d5cdee5 | working tree has changes | build=_K7pVZNLxZ-p34U1fer5i | run=e7ad514e-96f4-45f6-b93b-49ce2719569c
+
+Running 18 tests using 1 worker
+
+(node:728) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ok  1 [chromium] › e2e\accounts-fixture.spec.ts:116:1 › library cards distinguish participation and affiliation and fit phone and desktop (996ms)
+  ok  2 [chromium] › e2e\accounts-fixture.spec.ts:134:1 › profile and favorite writes include an account precondition and preserve team preference (768ms)
+  ok  3 [chromium] › e2e\accounts-fixture.spec.ts:151:1 › a public Sleeper association requires an explicit choice and confirmation (744ms)
+  ok  4 [chromium] › e2e\accounts-fixture.spec.ts:168:1 › sign-up and email verification use the SDK without contacting an external provider (973ms)
+  ok  5 [chromium] › e2e\accounts-fixture.spec.ts:192:1 › unverified sign-in opens the code step without resending and other failures stay on sign-in (817ms)
+  ok  6 [chromium] › e2e\accounts-fixture.spec.ts:223:1 › late private responses cannot restore a session that became unauthenticated (772ms)
+  ok  7 [chromium] › e2e\accounts-fixture.spec.ts:242:1 › password recovery requests the fixed callback without exposing email eligibility (654ms)
+  ok  8 [chromium] › e2e\accounts-fixture.spec.ts:257:1 › password reset strips the one-time token from history and submits through the SDK (740ms)
+  ok  9 [chromium] › e2e\accounts-fixture.spec.ts:280:1 › invalid or expired recovery callbacks offer a fresh link without displaying provider details (797ms)
+  ok 10 [chromium] › e2e\accounts-fixture.spec.ts:298:1 › a temporary reset outage retains the one-time token for an explicit successful retry (771ms)
+  ok 11 [chromium] › e2e\accounts-fixture.spec.ts:323:1 › sign out removes private content and uses a full navigation to sign in (754ms)
+  ok 12 [chromium] › e2e\accounts-fixture.spec.ts:335:1 › a private account-store outage does not prevent signing out (670ms)
+  ok 13 [chromium] › e2e\accounts-fixture.spec.ts:346:1 › rate limits do not retry mutations and an account switch rejects the old form (697ms)
+  ok 14 [chromium] › e2e\accounts-fixture.spec.ts:386:1 › associated Sleeper leagues show season and safe links alongside supported site cards on phone and desktop (992ms)
+  ok 15 [chromium] › e2e\accounts-fixture.spec.ts:422:1 › a malformed compatibility report stays unverified without hiding the Sleeper league (639ms)
+  ok 16 [chromium] › e2e\accounts-fixture.spec.ts:438:1 › a Sleeper discovery failure leaves site cards usable and supports an explicit retry (628ms)
+  ok 17 [chromium] › e2e\accounts-fixture.spec.ts:451:1 › a delayed discovery response cannot restore the previous account league list (680ms)
+  ok 18 [chromium] › e2e\accounts-fixture.spec.ts:470:1 › removing a Sleeper association clears its league list without another provider request (611ms)
+
+  18 passed (23.5s)
+Synthetic account browser tests: PASSED
+
+Isolated Neon integration tests: SKIPPED / UNVERIFIED
+apps/site/.env.integration.local is not configured. No database command was run.
+
+Full Verify completed.

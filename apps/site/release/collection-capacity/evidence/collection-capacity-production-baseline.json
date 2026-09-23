@@ -1,0 +1,51 @@
+{
+  "kind": "read-only-production-corroboration",
+  "source": "Authenticated Vercel and Neon console visible results",
+  "sourceSha": "864580c67bae2380049c978346e3da076d5cdee5",
+  "repository": "clawmachinejed/league-one-audit",
+  "productionBranch": "main",
+  "vercelDeployment": "5skvRnb8g3qaSmXHvw4mGSHTLrES",
+  "deploymentStatus": "Ready / Current Production",
+  "productionDatabase": {
+    "checkedAt": "2026-09-23T21:35:29.119642Z",
+    "branch": "br-rapid-boat-avgeevye",
+    "database": "neondb",
+    "physicalDatabaseBytes": 916037632,
+    "largestRelations": {
+      "pregame_projection_candidates": 252207104,
+      "all_player_stat_entries": 215392256,
+      "projection_slate_entries": 147349504,
+      "official_player_point_observations": 139223040,
+      "projection_snapshots": 41279488,
+      "game_state_observations": 23388160,
+      "league_week_observations": 16916480,
+      "league_administration_team_entries": 15335424,
+      "league_administration_contents": 13811712,
+      "league_week_expected_games": 9740288,
+      "current_pregame_projection_candidates": 6602752,
+      "official_roster_point_observations": 6119424,
+      "all_player_stat_observations": 5586944,
+      "all_player_stat_contents": 1875968,
+      "league_administration_observations": 1785856
+    },
+    "watches": {"leagues": 3,"activeEach": 16,"failing": 0,"pending": 0},
+    "jobs": {"completed": 11,"activeLeases": 0},
+    "querySafety": "BEGIN READ ONLY; statement_timeout 10s; aggregate metadata only; ROLLBACK"
+  },
+  "computeConfiguration": {
+    "production": {"endpoint": "ep-odd-poetry-avo79eyk","minimumCU": 0.25,"maximumCU": 8},
+    "test": {"endpoint": "ep-odd-grass-av2icqkc","minimumCU": 0.25,"maximumCU": 8},
+    "scope": "Configured autoscaling bounds, not measured instantaneous compute allocation; unchanged"
+  },
+  "naturalWorkerSample": {
+    "visibleWindowUTC": "2026-09-23 21:21 through 21:37; bounded visible log sample, not complete telemetry export",
+    "observer": {"responses":17,"http200":17,"activeDurationsMs":[190.95454799989238,178.84780099999625,213.29046899999958,199.4888440000359,181.96654300001683,175.43666800000938],"idleTimedSamples":11,"failedInVisibleSummaries":0},
+    "future": {"responses":16,"http200":16,"activeDurationsMs":[5816.920597999939,6728.971050000051,6658.892081000027,6774.465719999978],"publishedPerTimedRun":1,"failedInVisibleSummaries":0},
+    "current": {"responses":17,"http200":17,"allPlayerOutcome":"not-due","upstreamAllPlayerRequests":0,"wholeRunTimingsNotRead":true},
+    "limitations":"Pregame weekday sample with three enrolled leagues. No forced cron, no live game workload, no visitor load test, no p95/p99, no larger-fleet production throughput claim. Missing timing summaries are not zero durations."
+  },
+  "isolatedPreflight": {"database":"account_reset_integration_test","branch":"br-still-breeze-avaibago","branchName":"projection-integration-test","postgresVersion":180006,"physicalDatabaseBytes":13434880,"applicationRelations":0,"otherSessions":0,"standardSafetyGuards":"passed"},
+  "productionWrites":false,
+  "providerRequestsInitiated":0,
+  "billingOrSeasonCapacityEstablished":false
+}
