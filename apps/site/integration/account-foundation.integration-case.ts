@@ -162,19 +162,25 @@ describe.sequential('private account foundation against the guarded isolated dat
 
   it('validates preferred team against exact league, accepted roster and intended year without erasing follows', async () => {
     const a = await user(); const f = await leagueFixture(); const other = await leagueFixture();
-    await expect(accountQuery(`INSERT INTO public.app_user_leagues(app_user_id,league_id,preferred_season_team_id)
-      VALUES($1,$2,$3)`, [a.id, f.league_id, other.team_id], actor(a.id))).rejects.toThrow(/approved current league roster/u);
-    await accountQuery(`INSERT INTO public.app_user_leagues(app_user_id,league_id,preferred_season_team_id)
-      VALUES($1,$2,$3)`, [a.id, f.league_id, f.team_id], actor(a.id));
-    await ownerQuery(`INSERT INTO public.league_administration_enrollment_seasons(league_id,season,provider,evidence)
-      VALUES($1,2151,'sleeper','isolated next-season fixture intentionally incomplete')`, [f.league_id]);
-    await accountQuery('UPDATE public.app_user_leagues SET favorite=true WHERE league_id=$1', [f.league_id], actor(a.id));
-    expect(await accountQuery('SELECT preferred_season_team_id,favorite FROM public.app_user_leagues WHERE league_id=$1',
-      [f.league_id], actor(a.id))).toEqual([{ preferred_season_team_id: f.team_id, favorite: true }]);
-    await accountQuery('UPDATE public.app_user_leagues SET preferred_season_team_id=NULL WHERE league_id=$1', [f.league_id], actor(a.id));
-    await expect(accountQuery('UPDATE public.app_user_leagues SET preferred_season_team_id=$2 WHERE league_id=$1',
-      [f.league_id, f.team_id], actor(a.id))).rejects.toThrow(/approved current league roster/u);
-    expect(await accountQuery('SELECT league_id FROM public.app_user_leagues', [], actor(a.id))).toEqual([{ league_id: f.league_id }]);
+    try {
+      await expect(accountQuery(`INSERT INTO public.app_user_leagues(app_user_id,league_id,preferred_season_team_id)
+        VALUES($1,$2,$3)`, [a.id, f.league_id, other.team_id], actor(a.id))).rejects.toThrow(/approved current league roster/u);
+      await accountQuery(`INSERT INTO public.app_user_leagues(app_user_id,league_id,preferred_season_team_id)
+        VALUES($1,$2,$3)`, [a.id, f.league_id, f.team_id], actor(a.id));
+      await ownerQuery(`INSERT INTO public.league_administration_enrollment_seasons(league_id,season,provider,evidence)
+        VALUES($1,2151,'sleeper','isolated next-season fixture intentionally incomplete')`, [f.league_id]);
+      await accountQuery('UPDATE public.app_user_leagues SET favorite=true WHERE league_id=$1', [f.league_id], actor(a.id));
+      expect(await accountQuery('SELECT preferred_season_team_id,favorite FROM public.app_user_leagues WHERE league_id=$1',
+        [f.league_id], actor(a.id))).toEqual([{ preferred_season_team_id: f.team_id, favorite: true }]);
+      await accountQuery('UPDATE public.app_user_leagues SET preferred_season_team_id=NULL WHERE league_id=$1', [f.league_id], actor(a.id));
+      await expect(accountQuery('UPDATE public.app_user_leagues SET preferred_season_team_id=$2 WHERE league_id=$1',
+        [f.league_id, f.team_id], actor(a.id))).rejects.toThrow(/approved current league roster/u);
+      expect(await accountQuery('SELECT league_id FROM public.app_user_leagues', [], actor(a.id))).toEqual([{ league_id: f.league_id }]);
+    } finally {
+      // This test deliberately leaves the next intended year incomplete. Retire
+      // only its own enrollment so global administration reads remain usable.
+      await ownerQuery('UPDATE public.league_administration_enrollments SET active=false WHERE league_id=$1', [f.league_id]);
+    }
   });
 
   it('rejects an old source team after owner remapping even within the same annual league', async () => {
