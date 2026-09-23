@@ -213,6 +213,35 @@ async function fetchJson(path: string, revalidate = CORE_CACHE_SECONDS, signal?:
   }
 }
 
+/** The NFL league season can advance before Sleeper's current scoring season. */
+export async function getSleeperDiscoverySeason(signal?: AbortSignal): Promise<string> {
+  signal?.throwIfAborted();
+  const state = await fetchJson('/state/nfl', CORE_CACHE_SECONDS, signal);
+  if (!isSleeperState(state) || !isRecord(state) || typeof state.league_season !== 'string'
+    || !/^\d{4}$/u.test(state.league_season)) throw new Error('Sleeper discovery season is unavailable.');
+  return state.league_season;
+}
+
+export async function getSleeperUserLeagues(
+  userId: string, season: string, signal?: AbortSignal,
+): Promise<{ id: string; name: string; season: string }[]> {
+  if (!/^[1-9]\d{0,31}$/u.test(userId) || !/^\d{4}$/u.test(season)) throw new Error('Invalid discovery source.');
+  signal?.throwIfAborted();
+  const rows = await fetchJson(`/user/${userId}/leagues/nfl/${season}`, CORE_CACHE_SECONDS, signal);
+  if (!Array.isArray(rows) || rows.length > 1_000) throw new Error('Sleeper league discovery is unavailable.');
+  const leagues = new Map<string, { id: string; name: string; season: string }>();
+  for (const row of rows) {
+    if (!isRecord(row) || typeof row.league_id !== 'string' || !/^[1-9]\d{0,31}$/u.test(row.league_id)
+      || typeof row.name !== 'string' || !row.name.trim() || row.name.length > 200
+      || row.sport !== 'nfl' || row.season !== season) throw new Error('Sleeper returned invalid discovery metadata.');
+    const league = { id: row.league_id, name: row.name.trim(), season };
+    const previous = leagues.get(league.id);
+    if (previous && previous.name !== league.name) throw new Error('Sleeper returned contradictory discovery metadata.');
+    leagues.set(league.id, league);
+  }
+  return [...leagues.values()];
+}
+
 async function fetchExternalJson(url: string, revalidate = SCHEDULE_CACHE_SECONDS): Promise<unknown> {
   const family = url.startsWith(SEASON_SCHEDULE_API) ? 'season-schedule' : url.startsWith(SCORES_API) ? 'weekly-scores' : 'other';
   recordProviderCache('sleeper', family, 'framework-managed');

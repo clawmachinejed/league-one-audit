@@ -1,5 +1,22 @@
 import type { LeagueKey } from '../leagues';
 
+export type SleeperLeagueDiscovery = {
+  accountId: string;
+  season: string | null;
+  status: 'complete' | 'partial' | 'unavailable';
+  profiles: { sourceManagerAccountId: string; displayName: string; status: 'complete' | 'unavailable' }[];
+  leagues: { id: string; name: string; season: string; url: string; sourceManagerAccountIds: string[] }[];
+};
+
+/** Server-side association evidence. Provider IDs never select a website actor. */
+export type LinkedSleeperProfile = {
+  linkId: string;
+  revision: number;
+  sourceManagerAccountId: string;
+  externalId: string;
+  displayName: string;
+};
+
 export type AccountProfile = { id: string; displayName: string; revision: number };
 export type ProviderAccount = { id: string; provider: 'sleeper'; externalId: string; displayName: string; username: string | null };
 export type AccountLink = { id: string; sourceManagerAccountId: string; displayName: string; provider: 'sleeper'; assurance: 'user_asserted'; revision: number };

@@ -39,13 +39,21 @@ The database enforces row isolation and restricted columns through a separate `l
 
 ## Source freshness and failure behavior
 
-Account pages read existing accepted Neon administration evidence; they do not call Sleeper or Tank01, create a collector, enroll a league, or control worker demand. The accepted roster source, annual connection, completeness, normalizer, observation lineage and conflicts are checked together. Provider display names come from accepted users evidence separately; the documents are not claimed atomic.
+Supported website league cards read existing accepted Neon administration evidence. The separate Sleeper discovery list makes narrow, read-only Sleeper requests for the associated profiles; neither path calls Tank01, creates a collector, enrolls a league, or controls worker demand. The accepted roster source, annual connection, completeness, normalizer, observation lineage and conflicts are checked together. Provider display names come from accepted users evidence separately; the documents are not claimed atomic.
 
 The 60-second current-evidence threshold matches the existing core reader. Older valid data is labeled last known. An identical network verification may update a head while retaining a cached original observation, so the head's verified time supplies evidence when that original source time was null. Missing, contradictory or wrong-period evidence is unavailable. A missing co-owner in normalized data is not proof that no co-owner exists. Saved follows remain even when a source is unavailable or deactivated; new follows and associations require approved active source scope.
 
 No timer repeatedly polls the private account API. Reads happen on navigation, relevant focus/session changes and after explicit writes. Each request verifies the authoritative persisted Better Auth session, resolves the internal identity idempotently and reads/mutates the private store. Current three-league reads are bounded to existing supported public routes. Paginated libraries, larger source inventories and fleet-scale measurements are separate onboarding gates.
 
 The root layout is neutral. The existing league shell lives in `(leagues)`, which adds no URL segment. All existing public page contents and URLs are preserved. A failure in authentication or account storage cannot make the public layout require a login. Existing cross-league registry/collector behavior is not represented as solved; isolating those failures remains item four before unrelated leagues.
+
+## Sleeper league discovery
+
+My Leagues includes a separate list of the current NFL leagues returned by Sleeper for the signed-in account's active profile associations. It resolves the active league season from Sleeper's NFL state and labels that season explicitly; it does not claim to include historical seasons. League IDs and stable user IDs remain strings. Results are deduplicated across associations, and each league opens a fixed-origin Sleeper link.
+
+The private `GET /api/me/sleeper-leagues` endpoint derives the actor from the verified session and requires an `X-Expected-Account-ID` precondition. The restricted account store supplies active associated manager IDs, including links whose accepted display-name evidence is temporarily missing. Client request parameters cannot select an arbitrary website or Sleeper user. Discovery uses the existing Sleeper retrieval boundary; public provider caching never includes the private account mapping. Slow responses are checked against current associations, and the browser aborts and discards old requests after an account or association change.
+
+Discovery loading and failures stay within its section. An unavailable profile is reported explicitly, never silently treated as having zero leagues. External discoveries do not become permanent leagues, saved preferences, team ownership claims, or collection work. Full website support for additional leagues still requires **collection failure isolation** and **supported league-settings checks**. Those remain open, along with measured capacity before broader onboarding; combining My Team pages remains deferred.
 
 ## Configuration and deployment sequence
 

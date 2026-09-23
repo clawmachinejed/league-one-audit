@@ -4,6 +4,8 @@ import { AccountStoreUnavailableError, AccountWriteRateLimitError, createAccount
 import { accountTeams } from './library';
 import { AccountConflictError, createAccountStore, type AccountMutation } from './store';
 import { AccountInputError, accountUuid } from './validation';
+import type { LinkedSleeperProfile } from './contracts';
+import { discoverSleeperLeagues } from './sleeper-discovery';
 
 const PRIVATE_HEADERS = { 'Cache-Control': 'private, no-store, max-age=0', Vary: 'Cookie', 'X-Content-Type-Options': 'nosniff' };
 class AccountRequestError extends Error {
@@ -45,7 +47,66 @@ export async function readAccountJson(request: Request): Promise<unknown> {
 }
 
 type Operation = { kind: 'read' | 'teams' } | { kind: AccountMutation['kind']; id?: string };
-const defaultDependencies = { principal: getAccountPrincipal, store: () => createAccountStore(createAccountDatabase()) };
+type AccountHttpStore = Pick<ReturnType<typeof createAccountStore>, 'resolve' | 'read' | 'mutate'>;
+const defaultDependencies: { principal: typeof getAccountPrincipal; store: () => AccountHttpStore } = {
+  principal: getAccountPrincipal, store: () => createAccountStore(createAccountDatabase()),
+};
+const discoveryDependencies = { principal: getAccountPrincipal,
+  store: () => createAccountStore(createAccountDatabase()), discover: discoverSleeperLeagues };
+type DiscoveryDependencies = Omit<typeof discoveryDependencies, 'store'> & {
+  store: () => Pick<ReturnType<typeof createAccountStore>, 'resolve' | 'readDiscoveryProfiles'>;
+};
+
+function associationFingerprint(profiles: readonly LinkedSleeperProfile[]): string {
+  return JSON.stringify(profiles.map(({ linkId, revision, sourceManagerAccountId, externalId }) =>
+    [linkId, revision, sourceManagerAccountId, externalId]).sort((a, b) => String(a[0]).localeCompare(String(b[0]))));
+}
+
+/** Only active associations belonging to the verified session can trigger discovery. */
+export async function sleeperLeagueDiscoveryResponse(
+  request: Request, dependencies: DiscoveryDependencies = discoveryDependencies,
+): Promise<Response> {
+  try {
+    request.signal.throwIfAborted();
+    const expectedActor = accountUuid(request.headers.get('x-expected-account-id'));
+    if (new URL(request.url).search) throw new AccountInputError();
+    if (request.headers.get('origin') || request.headers.get('sec-fetch-site') === 'cross-site') requireAccountOrigin(request);
+    const principal = await dependencies.principal();
+    if (!principal) return Response.json({ error: 'unauthenticated' }, { status: 401, headers: PRIVATE_HEADERS });
+    const store = dependencies.store();
+    const actor = await store.resolve(principal);
+    if (expectedActor !== actor) throw new AccountRequestError(409, 'account_changed');
+    const profiles = await store.readDiscoveryProfiles(actor);
+    const discovery = await dependencies.discover(profiles, request.signal);
+    request.signal.throwIfAborted();
+    // Public provider requests may be slow. Recheck revocation and associations
+    // before returning any private association-to-league mapping.
+    const latestPrincipal = await dependencies.principal();
+    if (!latestPrincipal) return Response.json({ error: 'unauthenticated' }, { status: 401, headers: PRIVATE_HEADERS });
+    if (latestPrincipal.issuer !== principal.issuer || latestPrincipal.subject !== principal.subject
+      || await store.resolve(latestPrincipal) !== actor) throw new AccountRequestError(409, 'account_changed');
+    if (associationFingerprint(await store.readDiscoveryProfiles(actor)) !== associationFingerprint(profiles)) {
+      throw new AccountRequestError(409, 'associations_changed');
+    }
+    return Response.json({ ...discovery, accountId: actor }, { headers: PRIVATE_HEADERS });
+  } catch (error) { return accountErrorResponse(error); }
+}
+
+function accountErrorResponse(error: unknown): Response {
+  let status = 503;
+  let code = 'account_unavailable';
+  if (error instanceof AccountAuthUnavailableError && error.reason === 'disabled') code = 'accounts_disabled';
+  else if (error instanceof AccountAdmissionDeniedError) { status = 403; code = 'admission_denied'; }
+  else if (error instanceof AccountInputError) { status = 400; code = 'invalid_request'; }
+  else if (error instanceof AccountConflictError) { status = 409; code = 'revision_conflict'; }
+  else if (error instanceof AccountWriteRateLimitError) { status = 429; code = 'too_many_changes'; }
+  else if (error instanceof AccountRequestError) { status = error.status; code = error.code; }
+  else if (!(error instanceof AccountAuthUnavailableError || error instanceof AccountStoreUnavailableError)
+    && !(error instanceof Error && error.name === 'AbortError')) {
+    console.error('[accounts] unexpected_request_failure');
+  }
+  return Response.json({ error: code }, { status, headers: { ...PRIVATE_HEADERS, ...(status === 429 ? { 'Retry-After': '60' } : {}) } });
+}
 
 /** Actor identity only comes from the verified session, never from the request body/path. */
 export async function accountResponse(request: Request, operation: Operation, dependencies = defaultDependencies): Promise<Response> {
@@ -74,20 +135,5 @@ export async function accountResponse(request: Request, operation: Operation, de
     else mutation = { kind: operation.kind, id: ('id' in operation ? operation.id : '') ?? '', body };
     await store.mutate(actor, mutation);
     return Response.json({ ok: true }, { headers: PRIVATE_HEADERS });
-  } catch (error) {
-    let status = 503;
-    let code = 'account_unavailable';
-    if (error instanceof AccountAuthUnavailableError && error.reason === 'disabled') code = 'accounts_disabled';
-    else if (error instanceof AccountAdmissionDeniedError) { status = 403; code = 'admission_denied'; }
-    else if (error instanceof AccountInputError) { status = 400; code = 'invalid_request'; }
-    else if (error instanceof AccountConflictError) { status = 409; code = 'revision_conflict'; }
-    else if (error instanceof AccountWriteRateLimitError) { status = 429; code = 'too_many_changes'; }
-    else if (error instanceof AccountRequestError) { status = error.status; code = error.code; }
-    else if (!(error instanceof AccountAuthUnavailableError || error instanceof AccountStoreUnavailableError)) {
-      // No raw exception, SQL or provider data is logged. Operators can identify
-      // this route's failure class without leaking personal account information.
-      console.error('[accounts] unexpected_request_failure');
-    }
-    return Response.json({ error: code }, { status, headers: { ...PRIVATE_HEADERS, ...(status === 429 ? { 'Retry-After': '60' } : {}) } });
-  }
+  } catch (error) { return accountErrorResponse(error); }
 }

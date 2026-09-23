@@ -1,6 +1,6 @@
 import 'server-only';
 import { randomUUID } from 'node:crypto';
-import type { AccountLibraryInput, AccountView } from '../contracts';
+import type { AccountLibraryInput, AccountView, LinkedSleeperProfile } from '../contracts';
 import { type AccountDatabase, AccountStoreUnavailableError } from './database';
 import { buildAccountView } from '../library';
 import { ACCOUNT_SOURCE_CTES, ACCOUNT_VIEW_SQL } from './source-sql';
@@ -38,6 +38,30 @@ export function createAccountStore(database: AccountDatabase) {
       const results = await database.transaction([{ statement: ACCOUNT_VIEW_SQL, parameters: [] }], { actorUserId, requestId: randomUUID() });
       if (results[0]?.length !== 1) throw new AccountStoreUnavailableError();
       return buildAccountView(readInput(results[0][0].view));
+    },
+    async readDiscoveryProfiles(actorUserId: string): Promise<LinkedSleeperProfile[]> {
+      const results = await database.transaction([{ statement: `${ACCOUNT_SOURCE_CTES}
+        SELECT link.id AS "linkId",link.revision,manager.id AS "sourceManagerAccountId",
+          manager.external_manager_id AS "externalId",
+          coalesce(account.display_name,manager.external_manager_id) AS "displayName"
+        FROM public.app_provider_account_links link
+        JOIN public.league_source_manager_accounts manager ON manager.id=link.source_manager_account_id
+        LEFT JOIN provider_accounts account ON account.id=manager.id
+        WHERE link.app_user_id=public.current_app_actor() AND link.revoked_at IS NULL AND manager.provider='sleeper'
+        ORDER BY link.id LIMIT 21`, parameters: [] }], { actorUserId, requestId: randomUUID() });
+      const rows = results[0];
+      if (results.length !== 1 || !rows || rows.length > 20) throw new AccountStoreUnavailableError();
+      try {
+        return rows.map(row => {
+          // PostgreSQL bigint revisions can arrive as strings with the Neon driver.
+          const revision = Number(row.revision);
+          if (!Number.isSafeInteger(revision) || revision < 1 || typeof row.externalId !== 'string'
+            || typeof row.displayName !== 'string' || !row.displayName.trim()) throw new AccountStoreUnavailableError();
+          return { linkId: accountUuid(row.linkId), revision,
+            sourceManagerAccountId: accountUuid(row.sourceManagerAccountId),
+            externalId: row.externalId, displayName: row.displayName };
+        });
+      } catch { throw new AccountStoreUnavailableError(); }
     },
     async mutate(actorUserId: string, mutation: AccountMutation): Promise<void> {
       const actor = accountUuid(actorUserId);

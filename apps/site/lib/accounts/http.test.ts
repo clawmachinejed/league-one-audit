@@ -2,9 +2,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 vi.mock('server-only', () => ({}));
 import { AccountAdmissionDeniedError, AccountAuthUnavailableError } from './auth';
 import { AccountStoreUnavailableError, AccountWriteRateLimitError } from './database';
-import { accountResponse, readAccountJson, requireAccountOrigin } from './http';
+import { accountResponse, readAccountJson, requireAccountOrigin, sleeperLeagueDiscoveryResponse } from './http';
 import { AccountConflictError } from './store';
-import type { AccountView } from './contracts';
+import type { AccountView, LinkedSleeperProfile, SleeperLeagueDiscovery } from './contracts';
 
 const actor = '10000000-0000-4000-8000-000000000001';
 const principal = { issuer: 'https://test.neon.tech/auth', subject: 'provider-subject', displayName: 'Member' };
@@ -107,5 +107,89 @@ describe('private account HTTP boundary', () => {
   it('rejects malformed JSON and form posts', async () => {
     await expect(readAccountJson(new Request('https://example.test', { method: 'POST', body: '{', headers: { 'content-type': 'application/json' } }))).rejects.toThrow('Invalid JSON');
     await expect(readAccountJson(new Request('https://example.test', { method: 'POST', body: 'name=bad', headers: { 'content-type': 'application/x-www-form-urlencoded' } }))).rejects.toThrow();
+  });
+});
+
+describe('authenticated Sleeper league discovery HTTP boundary', () => {
+  const linked: LinkedSleeperProfile = { linkId: '30000000-0000-4000-8000-000000000003', revision: 1,
+    sourceManagerAccountId: '40000000-0000-4000-8000-000000000004', externalId: '123456789012345678',
+    displayName: 'Associated Sleeper profile' };
+  function discoveryRequest(expected: string | null = actor, suffix = '') {
+    return new Request(`https://www.league1fantasy.com/api/me/sleeper-leagues${suffix}`,
+      { headers: expected === null ? {} : { 'x-expected-account-id': expected } });
+  }
+  function discoveryDependencies() {
+    const store = { resolve: vi.fn(async () => actor), readDiscoveryProfiles: vi.fn(async () => [linked]) };
+    const result: Omit<SleeperLeagueDiscovery, 'accountId'> = { season: '2026', status: 'complete',
+      profiles: [{ sourceManagerAccountId: linked.sourceManagerAccountId, displayName: linked.displayName, status: 'complete' }],
+      leagues: [{ id: '123', name: 'Discovered', season: '2026', url: 'https://sleeper.com/leagues/123',
+        sourceManagerAccountIds: [linked.sourceManagerAccountId] }] };
+    return { principal: vi.fn(async () => principal as typeof principal | null),
+      store: vi.fn(() => store), discover: vi.fn(async () => result) };
+  }
+  it('uses only the authenticated actor and active stable associations with private uncached responses', async () => {
+    const deps = discoveryDependencies(); const input = discoveryRequest();
+    const response = await sleeperLeagueDiscoveryResponse(input, deps);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toContain('private, no-store');
+    expect(response.headers.get('vary')).toBe('Cookie');
+    expect(await response.json()).toMatchObject({ accountId: actor, season: '2026', status: 'complete' });
+    expect(deps.discover).toHaveBeenCalledWith([linked], input.signal);
+    expect(deps.store().readDiscoveryProfiles).toHaveBeenCalledTimes(2);
+    expect(deps.principal).toHaveBeenCalledTimes(2);
+  });
+  it('performs no provider or storage work for logged-out, denied or disabled callers', async () => {
+    for (const failure of [null, new AccountAdmissionDeniedError('not_invited'), new AccountAuthUnavailableError('disabled')]) {
+      const deps = discoveryDependencies();
+      if (failure === null) deps.principal.mockResolvedValue(null); else deps.principal.mockRejectedValue(failure);
+      const response = await sleeperLeagueDiscoveryResponse(discoveryRequest(), deps);
+      expect([401, 403, 503]).toContain(response.status);
+      expect(deps.store).not.toHaveBeenCalled();
+      expect(deps.discover).not.toHaveBeenCalled();
+    }
+  });
+  it('requires the expected-account precondition and rejects alternate user targeting', async () => {
+    for (const input of [discoveryRequest(null), discoveryRequest('not-a-uuid'), discoveryRequest(actor, '?userId=someone')]) {
+      const deps = discoveryDependencies();
+      expect((await sleeperLeagueDiscoveryResponse(input, deps)).status).toBe(400);
+      expect(deps.store).not.toHaveBeenCalled();
+      expect(deps.discover).not.toHaveBeenCalled();
+    }
+    const deps = discoveryDependencies();
+    expect((await sleeperLeagueDiscoveryResponse(discoveryRequest('90000000-0000-4000-8000-000000000009'), deps)).status).toBe(409);
+    expect(deps.store().readDiscoveryProfiles).not.toHaveBeenCalled();
+    expect(deps.discover).not.toHaveBeenCalled();
+  });
+  it('rejects cross-site discovery before contacting the provider', async () => {
+    vi.stubEnv('ACCOUNTS_APP_ORIGIN', 'https://www.league1fantasy.com');
+    const deps = discoveryDependencies();
+    const input = new Request(discoveryRequest(), { headers: { 'x-expected-account-id': actor,
+      origin: 'https://untrusted.example', 'sec-fetch-site': 'cross-site' } });
+    expect((await sleeperLeagueDiscoveryResponse(input, deps)).status).toBe(403);
+    expect(deps.discover).not.toHaveBeenCalled();
+  });
+  it('withholds results when a session is revoked or changes during discovery', async () => {
+    const revoked = discoveryDependencies();
+    revoked.principal.mockResolvedValueOnce(principal).mockResolvedValueOnce(null);
+    const loggedOut = await sleeperLeagueDiscoveryResponse(discoveryRequest(), revoked);
+    expect(loggedOut.status).toBe(401); expect(await loggedOut.json()).toEqual({ error: 'unauthenticated' });
+    const changed = discoveryDependencies();
+    changed.principal.mockResolvedValueOnce(principal).mockResolvedValueOnce({ ...principal, subject: 'different' });
+    const conflict = await sleeperLeagueDiscoveryResponse(discoveryRequest(), changed);
+    expect(conflict.status).toBe(409); expect(await conflict.json()).toEqual({ error: 'account_changed' });
+  });
+  it('withholds discoveries if an association was removed or replaced while the provider was loading', async () => {
+    const deps = discoveryDependencies();
+    deps.store().readDiscoveryProfiles.mockResolvedValueOnce([linked]).mockResolvedValueOnce([]);
+    const response = await sleeperLeagueDiscoveryResponse(discoveryRequest(), deps);
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: 'associations_changed' });
+  });
+  it('sanitizes storage failure and never invokes discovery', async () => {
+    const deps = discoveryDependencies();
+    deps.store().readDiscoveryProfiles.mockRejectedValue(new AccountStoreUnavailableError());
+    const response = await sleeperLeagueDiscoveryResponse(discoveryRequest(), deps);
+    expect(response.status).toBe(503); expect(await response.json()).toEqual({ error: 'account_unavailable' });
+    expect(deps.discover).not.toHaveBeenCalled();
   });
 });
