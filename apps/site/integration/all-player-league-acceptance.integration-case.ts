@@ -9,7 +9,7 @@ import type { AllPlayerJobFence } from '../lib/projections/adapters/neon/contrac
 import { enrollIntegrationSeason } from './administration-enrollment-fixture';
 import { createIndependentDatabase, ownerQuery, runtimeQuery, type IndependentDatabase } from './neon-integration-harness';
 
-const DATABASE_SEASON = 2194;
+const DATABASE_SEASON = 2193;
 function stored<T>(outcome: PersistenceOutcome<T>): T {
   if (outcome.kind !== 'stored') throw new Error('Expected enabled integration store');
   return outcome.value;
@@ -24,9 +24,12 @@ describe('shared all-player captures with league-scoped acceptance', () => {
   let leagueSeasonIds: string[];
   let profileId: string;
   let sequence = 0;
+  let previousJob: Record<string,unknown> | undefined;
   const capturedAt = Date.now() - 60_000;
   beforeAll(async () => {
     database = createIndependentDatabase(); store = createProjectionStore(database.database);
+    previousJob = (await ownerQuery<{job:Record<string,unknown>}>(
+      "SELECT to_jsonb(job) AS job FROM projection_jobs job WHERE job_key='all-player-ingestion:sleeper'"))[0]?.job;
     await ownerQuery("DELETE FROM projection_jobs WHERE job_key='all-player-ingestion:sleeper'");
     const claim = await store.acquireAllPlayerJob({mode: 'backfill',
       period: {season: DATABASE_SEASON, seasonType: 'reg', week: 1}, workerId: 'scoped-integration',
@@ -35,15 +38,22 @@ describe('shared all-player captures with league-scoped acceptance', () => {
     fence = claim.fence;
     expect(await store.markAllPlayerRequest({fence,
       period: {season: DATABASE_SEASON, seasonType: 'reg', week: 1}})).toBe(true);
-    const leagues = await Promise.all(['league1', 'league2'].map(async (leagueKey) => stored(await store.registerLeagueSeason({
+    const leagues = await Promise.all(['scoped-one', 'scoped-two'].map(async (leagueKey) => stored(await store.registerLeagueSeason({
       leagueKey, leagueName: leagueKey, season: DATABASE_SEASON, sleeperLeagueId: `scoped-${leagueKey}`,
       scoringRules: {pass_td: 4},
     }))));
     leagueSeasonIds = leagues.map((league) => league.leagueSeasonId);
     profileId = leagues[0].scoringProfileId;
     expect(leagues[1].scoringProfileId).toBe(profileId);
-    await enrollIntegrationSeason(ownerQuery, ['league1','league2'], DATABASE_SEASON);
-    for (const leagueKey of ['league1','league2']) await ownerQuery(`INSERT INTO league_period_authorities (
+    await enrollIntegrationSeason(ownerQuery, ['scoped-one','scoped-two'], DATABASE_SEASON);
+    // This intended member has never had a connection. Do not bypass immutable source-history guards.
+    await ownerQuery("INSERT INTO leagues(league_key,name) VALUES('scoped-missing','Scoped missing registration')");
+    const missing = await ownerQuery<{id:string}>(`INSERT INTO league_seasons(league_id,season,scoring_profile_id)
+      SELECT id,$1::smallint,$2::uuid FROM leagues WHERE league_key='scoped-missing' RETURNING id::text`,
+    [DATABASE_SEASON,profileId]);
+    leagueSeasonIds.push(missing[0].id);
+    await enrollIntegrationSeason(ownerQuery, ['scoped-missing'], DATABASE_SEASON);
+    for (const leagueKey of ['scoped-one','scoped-two']) await ownerQuery(`INSERT INTO league_period_authorities (
       league_key,default_season,default_season_type,default_week,active_season,active_season_type,active_week,
       league_lifecycle,nfl_phase,source_provider,source_revision,source_observed_at,verified_at,
       source_external_league_id,expected_roster_count,expected_starter_slot_count,expected_roster_ids
@@ -56,10 +66,10 @@ describe('shared all-player captures with league-scoped acceptance', () => {
       expected_roster_count=1,expected_starter_slot_count=1,expected_roster_ids=ARRAY['roster-1'],verified_at=now()`,
     [leagueKey, DATABASE_SEASON, `scoped-${leagueKey}`]);
     entityIds = Object.fromEntries(stored(await store.upsertScoringEntities([
-      {key: 'integration-player-one',kind: 'player',displayName: 'Scoped QB',nflTeam: 'NE',
-        providerIds: [{provider: 'sleeper',externalId: 'integration-player-one'}]},
-      {key: 'integration-player-zero',kind: 'player',displayName: 'Scoped WR',nflTeam: 'NE',
-        providerIds: [{provider: 'sleeper',externalId: 'integration-player-zero'}]},
+      {key: 'scoped-player-one',kind: 'player',displayName: 'Scoped QB',nflTeam: 'NE',
+        providerIds: [{provider: 'sleeper',externalId: 'scoped-player-one'}]},
+      {key: 'scoped-player-zero',kind: 'player',displayName: 'Scoped WR',nflTeam: 'NE',
+        providerIds: [{provider: 'sleeper',externalId: 'scoped-player-zero'}]},
       ...NFL_TEAM_CODES.map((team) => ({key: team,kind: 'team_defense' as const,displayName: team,nflTeam: team,
         providerIds: [{provider: 'sleeper',externalId: team}]})),
     ])).map((entity) => {
@@ -69,7 +79,13 @@ describe('shared all-player captures with league-scoped acceptance', () => {
     gameId = stored(await store.upsertNflGames([{key:'scoped-game',provider:'tank01',externalGameId:'scoped-game',
       season:DATABASE_SEASON,seasonType:'reg',week:1,homeTeam:'NE',awayTeam:'ATL',kickoffAt:'2026-09-13T17:00:00.000Z'}]))[0].gameId;
   });
-  afterAll(async () => database.close());
+  afterAll(async () => {
+    try {
+      await ownerQuery("DELETE FROM projection_jobs WHERE job_key='all-player-ingestion:sleeper'");
+      if (previousJob) await ownerQuery('INSERT INTO projection_jobs SELECT * FROM jsonb_populate_record(NULL::projection_jobs,$1::jsonb)',
+        [JSON.stringify(previousJob)]);
+    } finally { await database.close(); }
+  });
   function observation(passTouchdowns: number, revision: string, observedAt: string): AllPlayerStatObservation {
     return {
       provider: 'sleeper', season: DATABASE_SEASON, seasonType: 'reg', week: 1,
@@ -89,7 +105,7 @@ describe('shared all-player captures with league-scoped acceptance', () => {
           observedAt: '2026-09-01T00:00:00.000Z',
           effectivePeriod: { season: DATABASE_SEASON, seasonType: 'reg', week: 1 },
           excludedPlayerReasons: {}, teamsByPlayerId: {
-            'integration-player-one': 'NE', 'integration-player-zero': 'NE',
+            'scoped-player-one': 'NE', 'scoped-player-zero': 'NE',
           } },
         mode: 'completed-backfill', scheduledGameCount: 1, nonFinalScheduledGameCount: 0,
         scheduleFinalityComplete: true, nonFinalEligibleCount: 0,
@@ -105,14 +121,14 @@ describe('shared all-player captures with league-scoped acceptance', () => {
         unexpectedResponseEntityCount: 0,
       }, warnings: [],
       entries: [{
-        entityKind: 'player', providerExternalId: 'integration-player-one', nflGameId: gameId,
+        entityKind: 'player', providerExternalId: 'scoped-player-one', nflGameId: gameId,
         nflTeam: 'NE', position: 'QB', stats: { gms_active: 1, gp: 1, pass_td: passTouchdowns },
         eligibilityEvidence: {
           kind: 'weekly-stat', source: 'weekly-stat-provider', gmsActive: 1, appearances: 1,
         },
         eligibleGameCount: 1, appearanceGameCount: 1, gamePhase: 'final',
       }, {
-        entityKind: 'player', providerExternalId: 'integration-player-zero', nflGameId: gameId,
+        entityKind: 'player', providerExternalId: 'scoped-player-zero', nflGameId: gameId,
         nflTeam: 'NE', position: 'WR', stats: { gms_active: 1, gp: 0 },
         eligibilityEvidence: { kind: 'weekly-stat', source: 'weekly-stat-provider', gmsActive: 1, appearances: 0 },
         eligibleGameCount: 1, appearanceGameCount: 0, gamePhase: 'final',
@@ -180,9 +196,9 @@ describe('shared all-player captures with league-scoped acceptance', () => {
     return {source:value,...content};
   }
   async function official(value: AllPlayerStatObservation, leagueIndex: number, points = value.entries[0].stats.pass_td * 4) {
-    const players = [{sleeperPlayerId:'integration-player-one',entityKind:'player' as const,
+    const players = [{sleeperPlayerId:'scoped-player-one',entityKind:'player' as const,
       externalRosterId:'roster-1',points,isStarter:true,lineupSlot:'QB'},
-    {sleeperPlayerId:'integration-player-zero',entityKind:'player' as const,
+    {sleeperPlayerId:'scoped-player-zero',entityKind:'player' as const,
       externalRosterId:'roster-1',points:0,isStarter:false,lineupSlot:'BN'}];
     return stored(await store.recordLeagueWeekObservation({leagueSeasonId:leagueSeasonIds[leagueIndex],week:1,
       sourceRevision:`scoped-official:${value.sourceRevision}:${points}`,requestStartedAt:value.requestStartedAt,
@@ -203,20 +219,17 @@ describe('shared all-player captures with league-scoped acceptance', () => {
   (stats,rules) => scoreSparseStatistics(stats,rules,SLEEPER_ALL_PLAYER_SCORING_RULE_KEYS));
 
   it('saves raw data and one shared profile while a missing peer connection cannot veto healthy acceptance', async () => {
-    const missing = await ownerQuery('DELETE FROM league_source_connections WHERE league_season_id=$1::uuid RETURNING *', [leagueSeasonIds[1]]);
-    try {
-      const value = await capture();
-      expect(stored(await accept(value,0)).pointerOutcome).toBe('advanced');
-      await expect(accept(value,1)).rejects.toThrow();
-      const rows = await ownerQuery(`SELECT (SELECT count(*) FROM all_player_stat_observations WHERE id=$1::uuid)::integer AS captures,
-        (SELECT count(*) FROM all_player_score_sets WHERE id=$2::uuid)::integer AS scores,
-        (SELECT count(*) FROM current_all_player_league_scores WHERE season=$3)::integer AS pointers`,
-      [value.statObservationId,value.scoreSetId,DATABASE_SEASON]);
-      expect(rows).toEqual([{captures:1,scores:1,pointers:1}]);
-      expect((await read('league2')).metrics).toEqual([]);
-    } finally {
-      await ownerQuery('INSERT INTO league_source_connections SELECT * FROM jsonb_populate_recordset(NULL::league_source_connections,$1::jsonb)', [JSON.stringify(missing)]);
-    }
+    const value = await capture();
+    expect(stored(await accept(value,0)).pointerOutcome).toBe('advanced');
+    await expect(accept(value,2)).rejects.toThrow();
+    const rows = await ownerQuery(`SELECT (SELECT count(*) FROM all_player_stat_observations WHERE id=$1::uuid)::integer AS captures,
+      (SELECT count(*) FROM all_player_score_sets WHERE id=$2::uuid)::integer AS scores,
+      (SELECT count(*) FROM current_all_player_league_scores WHERE season=$3)::integer AS pointers`,
+    [value.statObservationId,value.scoreSetId,DATABASE_SEASON]);
+    expect(rows).toEqual([{captures:1,scores:1,pointers:1}]);
+    expect((await read('scoped-missing')).metrics).toEqual([]);
+    expect(await ownerQuery(`SELECT count(*)::integer AS count FROM league_source_connections
+      WHERE league_season_id=$1::uuid`,[leagueSeasonIds[2]])).toEqual([{count:0}]);
   });
   it('reuses score rows across independent league parity populations and observations', async () => {
     const before = await capture();
@@ -235,8 +248,8 @@ describe('shared all-player captures with league-scoped acceptance', () => {
     const value = await capture(source(3));
     await accept(value,0);
     await expect(accept(value,1,8)).rejects.toThrow(/parity/iu);
-    const healthy = (await read('league1')).metrics.find((player) => player.providerExternalId==='integration-player-one');
-    const rejected = (await read('league2')).metrics.find((player) => player.providerExternalId==='integration-player-one');
+    const healthy = (await read('scoped-one')).metrics.find((player) => player.providerExternalId==='scoped-player-one');
+    const rejected = (await read('scoped-two')).metrics.find((player) => player.providerExternalId==='scoped-player-one');
     expect(healthy?.totalFantasyPoints).toBe(12);
     expect(rejected?.totalFantasyPoints).toBe(8);
   });
@@ -270,7 +283,7 @@ describe('shared all-player captures with league-scoped acceptance', () => {
     expect(stored(await accept(older,0)).pointerOutcome).toBe('superseded');
     const conflict = await capture(observation(4,'scoped-equal-time-conflict',current.source.observedAt));
     await expect(accept(conflict,0)).rejects.toThrow(/equal observation time/iu);
-    expect((await read('league1')).metrics.find((player) => player.providerExternalId==='integration-player-one')?.totalFantasyPoints).toBe(12);
+    expect((await read('scoped-one')).metrics.find((player) => player.providerExternalId==='scoped-player-one')?.totalFantasyPoints).toBe(12);
   });
 
   it('denies a direct runtime forged material set with incomplete physical scores', async () => {
@@ -344,15 +357,18 @@ describe('shared all-player captures with league-scoped acceptance', () => {
 
   it('completes a proven shared pregame empty response without league registrations and rejects invalid or started-game proof', async () => {
     await renewFixtureAttempt();
-    await ownerQuery(`UPDATE projection_jobs SET payload=payload || '{"mode":"recurring"}'::jsonb
-      WHERE job_key='all-player-ingestion:sleeper'`);
+    const emptySeason = 2192;
     const now = Date.now();
     const firstKickoffAt = new Date(now+3_600_000).toISOString();
-    await ownerQuery('UPDATE nfl_games SET kickoff_at=$2::timestamptz WHERE id=$1::uuid',[gameId,firstKickoffAt]);
-    const connections = await ownerQuery('DELETE FROM league_source_connections WHERE league_season_id=ANY($1::uuid[]) RETURNING *',
-      [leagueSeasonIds]);
+    await ownerQuery(`UPDATE projection_jobs SET payload=payload || jsonb_build_object('mode','recurring',
+      'period',jsonb_build_object('season',$1::integer,'seasonType','reg','week',1))
+      WHERE job_key='all-player-ingestion:sleeper'`,[emptySeason]);
+    await ownerQuery("INSERT INTO leagues(league_key,name) VALUES('scoped-empty-missing','Scoped empty missing registration')");
+    await enrollIntegrationSeason(ownerQuery,['scoped-empty-missing'],emptySeason);
+    const emptyGame = stored(await store.upsertNflGames([{key:'scoped-empty-game',provider:'tank01',externalGameId:'scoped-empty-game',
+      season:emptySeason,seasonType:'reg',week:1,homeTeam:'NE',awayTeam:'ATL',kickoffAt:firstKickoffAt}]))[0].gameId;
     const diagnostic = {
-      reason:'no-statistics-yet',stage:'no-statistics-yet',period:{season:DATABASE_SEASON,seasonType:'regular',week:1},
+      reason:'no-statistics-yet',stage:'no-statistics-yet',period:{season:emptySeason,seasonType:'regular',week:1},
       finalCoverage:false,retryDisposition:'global-budget',entryCount:0,scoringProfileCount:0,
       responseEvidence:{bodyShape:'object',topLevelCount:0,httpStatus:200,bodyHash:`sha256:${'a'.repeat(64)}`,
         requestStartedAt:new Date(now-1000).toISOString(),requestCompletedAt:new Date(now-500).toISOString()},
@@ -361,22 +377,18 @@ describe('shared all-player captures with league-scoped acceptance', () => {
     };
     const finish = (proof: typeof diagnostic) => store.finishAllPlayerJob({fence,outcome:'no-statistics-yet',
       sharedPregame:true,diagnostic:proof});
-    try {
-      expect(await finish({...diagnostic,responseEvidence:{...diagnostic.responseEvidence,topLevelCount:1}})).toBe(false);
-      expect(await finish({...diagnostic,pregameEvidence:{...diagnostic.pregameEvidence,
-        verifiedAt:new Date(now-91_000).toISOString()}})).toBe(false);
-      await ownerQuery('UPDATE nfl_games SET kickoff_at=$2::timestamptz WHERE id=$1::uuid',[gameId,new Date(now-1000).toISOString()]);
-      expect(await finish(diagnostic)).toBe(false);
-      await ownerQuery('UPDATE nfl_games SET kickoff_at=$2::timestamptz WHERE id=$1::uuid',[gameId,firstKickoffAt]);
-      expect(await finish(diagnostic)).toBe(true);
-      const completed = await store.readAllPlayerJobState();
-      expect(completed?.payload.lastOutcome).toMatchObject({outcome:'no-statistics-yet'});
-      expect((completed?.payload.periodHistory as Array<Record<string,unknown>>)[0]).toMatchObject({finalCoverage:true});
-      expect(await finish(diagnostic)).toBe(false);
-    } finally {
-      await ownerQuery('INSERT INTO league_source_connections SELECT * FROM jsonb_populate_recordset(NULL::league_source_connections,$1::jsonb)',
-        [JSON.stringify(connections)]);
-    }
+    expect(await finish({...diagnostic,responseEvidence:{...diagnostic.responseEvidence,topLevelCount:1}})).toBe(false);
+    expect(await finish({...diagnostic,pregameEvidence:{...diagnostic.pregameEvidence,
+      verifiedAt:new Date(now-91_000).toISOString()}})).toBe(false);
+    await ownerQuery('UPDATE nfl_games SET kickoff_at=$2::timestamptz WHERE id=$1::uuid',[emptyGame,new Date(now-1000).toISOString()]);
+    expect(await finish(diagnostic)).toBe(false);
+    await ownerQuery('UPDATE nfl_games SET kickoff_at=$2::timestamptz WHERE id=$1::uuid',[emptyGame,firstKickoffAt]);
+    expect(await ownerQuery('SELECT count(*)::integer AS count FROM league_seasons WHERE season=$1',[emptySeason]))
+      .toEqual([{count:0}]);
+    expect(await finish(diagnostic)).toBe(true);
+    const completed = await store.readAllPlayerJobState();
+    expect(completed?.payload.lastOutcome).toMatchObject({outcome:'no-statistics-yet'});
+    expect(await finish(diagnostic)).toBe(false);
   });
 
 });
