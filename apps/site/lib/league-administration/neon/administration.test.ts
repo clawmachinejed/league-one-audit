@@ -53,6 +53,47 @@ describe('administration Neon adapter boundaries', () => {
     await expect(createLeagueAdministrationMethods(database(() => [incomplete])).listEnrollments(2026)).rejects.toThrow(/Missing administration/u);
   });
 
+  it('reproduces the strict fleet failure when one unrelated intended member is not registered', async () => {
+    const healthy = { league_id: 'healthy', league_key: 'league1', name: 'Healthy', league_season_id: 'season',
+      season: 2026, intended_season: 2026, provider: 'sleeper', external_league_id: 'source', scoring_profile_id: 'profile' };
+    const broken = { ...healthy, league_id: 'broken', league_key: 'another', league_season_id: null };
+    await expect(createLeagueAdministrationMethods(database(() => [healthy, broken])).listEnrollments())
+      .rejects.toThrow();
+    const inventory = await createLeagueAdministrationMethods(database(() => [healthy, broken])).listEnrollmentInventory();
+    expect(inventory.entries).toMatchObject([
+      { status: 'ready', enrollment: { leagueKey: 'league1', externalLeagueId: 'source' } },
+      { status: 'unavailable', intended: { leagueId: 'broken', leagueKey: 'another', season: 2026 }, reason: 'unregistered-season' },
+    ]);
+  });
+
+  it('scopes current and historical lookup before validating unrelated enrollment rows', async () => {
+    const healthy = { league_id: 'healthy', league_key: 'league1', name: 'Healthy', league_season_id: 'season',
+      season: 2026, intended_season: 2026, provider: 'sleeper', external_league_id: 'source', scoring_profile_id: 'profile' };
+    const queries: { sql: string; parameters: readonly unknown[] }[] = [];
+    const methods = createLeagueAdministrationMethods(database((sql, parameters) => {
+      queries.push({ sql, parameters });
+      return [healthy];
+    }));
+    expect(await methods.readEnrollment({ leagueKey: 'league1' })).toMatchObject({ status: 'ready' });
+    expect(queries[0]).toMatchObject({ parameters: ['league1'] });
+    expect(queries[0].sql).toContain('AND league.league_key=$1');
+    await methods.readEnrollment({ leagueKey: 'league1' }, 2026);
+    expect(queries[1]).toMatchObject({ parameters: [2026, 'league1'] });
+    expect(queries[1].sql).toContain('AND league.league_key=$2');
+    await methods.readEnrollment({ provider: 'sleeper', externalLeagueId: 'source' });
+    expect(queries[2].sql).toContain("AND connection.external_league_id=$1 AND connection.provider='sleeper'");
+  });
+
+  it('reports every implicated duplicate as unavailable without rejecting unrelated valid entries', async () => {
+    const row = { league_id: 'one', league_key: 'one', name: 'One', league_season_id: 'season',
+      season: 2026, intended_season: 2026, provider: 'sleeper', external_league_id: 'shared', scoring_profile_id: 'profile' };
+    const result = await createLeagueAdministrationMethods(database(() => [row,
+      { ...row, league_id: 'two', league_key: 'two' },
+      { ...row, league_id: 'three', league_key: 'three', external_league_id: 'other' }])).listEnrollmentInventory();
+    expect(result.entries.map(entry => entry.status)).toEqual(['unavailable', 'unavailable', 'ready']);
+    expect(result.entries.slice(0, 2)).toMatchObject([{ reason: 'ambiguous-registration' }, { reason: 'ambiguous-registration' }]);
+  });
+
   it('passes an explicit write fence intact into the sole SQL entry point', async () => {
     let captured: Record<string, unknown> | undefined;
     const store = createLeagueAdministrationMethods(database((sql, parameters) => {

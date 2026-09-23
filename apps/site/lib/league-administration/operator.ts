@@ -65,7 +65,11 @@ export async function runAdministrationOperator(input: AdministrationOperatorInp
   if (!store.enabled || !jobs.enabled) throw new Error('Administration database is disabled.');
   const identity = await jobs.readDatabaseIdentity();
   if (identity.databaseName !== input.expectedDatabase || identity.roleName !== input.expectedRole) throw new Error('Administration session identity mismatch.');
-  const enrolled = (await store.listEnrollments(input.season)).filter(league => input.league === 'all' || league.leagueKey === input.league);
+  const entries = input.league === 'all' ? (await store.listEnrollmentInventory(input.season)).entries
+    : [await store.readEnrollment({ leagueKey: input.league }, input.season)];
+  const unavailableLeagues = entries.flatMap(entry => entry.status === 'unavailable'
+    ? [{ leagueKey: entry.intended.leagueKey, reason: entry.reason }] : []);
+  const enrolled = entries.flatMap(entry => entry.status === 'ready' ? [entry.enrollment] : []);
   if (!enrolled.length || enrolled.some(league => league.season !== input.season)) throw new Error('Administration enrollment is unavailable for the requested season.');
   const plannedRequests = enrolled.length * (3 + input.weeks.reduce((sum, week) => sum + (week > 0 ? 2 : 1), 0)
     + (input.includeMetadata ? 4 : 0));
@@ -136,8 +140,9 @@ export async function runAdministrationOperator(input: AdministrationOperatorInp
       }
     }
     if (fence && !await jobs.completeJob(jobKey, workerId)) throw new Error('Administration operation lost ownership.');
-    return { status: rejected ? 'partial' : 'completed', mode: input.mode, season: input.season,
-      leagues: enrolled.length, documents, accepted, rejected, providerRequests, writes: input.mode === 'write' };
+    return { status: rejected || unavailableLeagues.length ? 'partial' : 'completed', mode: input.mode, season: input.season,
+      leagues: enrolled.length, documents, accepted, rejected, providerRequests, writes: input.mode === 'write',
+      ...(unavailableLeagues.length ? { unavailableLeagues } : {}) };
   } catch {
     if (fence) {
       const cleanup = createProjectionStore(withDatabaseAbortSignal(getDatabase(), AbortSignal.timeout(2_000)));

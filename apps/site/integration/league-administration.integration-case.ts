@@ -366,6 +366,10 @@ describe.sequential('portable league administration against the isolated Neon da
       await ownerQuery(`INSERT INTO league_administration_enrollment_seasons(league_id,season,provider,evidence)
         VALUES($1,2151,'sleeper','intended season; connection not yet registered')`, [f.leagueId]);
       await expect(administration.listEnrollments()).rejects.toThrow(/Missing administration/u);
+      expect((await administration.listEnrollmentInventory()).entries.find(row => row.intended.leagueId === f.leagueId))
+        .toMatchObject({ status: 'unavailable', intended: { season: 2151 }, reason: 'missing-source-connection' });
+      expect(await administration.readEnrollment({ leagueKey: f.leagueKey }, 2150))
+        .toMatchObject({ status: 'ready', enrollment: { season: 2150, externalLeagueId: f.externalLeagueId } });
     } finally {
       await ownerQuery('UPDATE league_administration_enrollments SET active=false WHERE league_id=$1', [f.leagueId]);
     }

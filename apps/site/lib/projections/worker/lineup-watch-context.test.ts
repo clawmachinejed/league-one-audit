@@ -24,6 +24,18 @@ describe('shared complete-horizon lineup watch context', () => {
     expect(harness.lineupRepository.synchronizeLineupWatchStates.mock.calls[0][0]).toMatchObject({ registeredLeagueKeys: ['one', 'two'] });
     expect(result.kind === 'stored' && result.states.every((state) => state.configuration.key === 'one')).toBe(true);
   });
+
+  it('retains intended leagues with missing registrations and does not plan provider work for them', async () => {
+    const h = lineupHarness();
+    const healthy = h.configurations[0];
+    const result = await synchronizeLineupWatches(h.lineupRepository, [healthy],
+      [lineupAuthorityResult(lineupAuthority(healthy))], lineupNow,
+      { intendedLeagueKeys: ['one', 'two'], failures: [{ leagueKey: 'two', reason: 'unregistered-season' }] });
+    expect(result).toMatchObject({ kind: 'stored', skippedLeagueKeys: ['two'] });
+    expect(h.lineupRepository.synchronizeLineupWatchStates.mock.calls[0][0]).toMatchObject({ registeredLeagueKeys: ['one', 'two'] });
+    expect(h.lineupRepository.synchronizeLineupWatchStates.mock.calls[0][0].targets.every(target => target.configuration.key === 'one')).toBe(true);
+    expect(h.lineupRepository.readLineupWatchSchedule).toHaveBeenCalledWith(['one', 'two']);
+  });
   it('plans both complete horizons from active Week 2 despite a Week 1 display marker', async () => {
     const harness = lineupHarness();
     const authorities = harness.configurations.map((configuration) => {

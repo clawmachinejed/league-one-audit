@@ -66,6 +66,8 @@ export function createDisabledProjectionStore(): ProjectionStore {
     async recordProjectionCandidates() {
       return { kind: 'disabled' };
     },
+    async recordAllPlayerScoreContent() { return { kind: 'disabled' }; },
+    async acceptAllPlayerLeagueScore() { return { kind: 'disabled' }; },
     async recordAllPlayerBatch() {
       return { kind: 'disabled' };
     },

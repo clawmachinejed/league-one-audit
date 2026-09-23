@@ -15,6 +15,7 @@ function requiredText(value: string, label: string): string {
  */
 export function createLeagueRegistry(
   configurations: readonly LeagueConfiguration[],
+  registration?: LeagueRegistryPort['registration'],
 ): LeagueRegistryPort {
   const active = configurations.map((configuration) => ({
     ...configuration,
@@ -42,5 +43,15 @@ export function createLeagueRegistry(
     references.add(reference);
   }
 
-  return { listActiveLeagues: () => active };
+  if (registration) {
+    const intended = new Set(registration.intendedLeagueKeys);
+    const failed = new Set(registration.failures.map(entry => entry.leagueKey));
+    if (intended.size !== registration.intendedLeagueKeys.length || failed.size !== registration.failures.length
+      || [...keys].some(key => !intended.has(key) || failed.has(key))
+      || [...failed].some(key => !intended.has(key))
+      || [...intended].some(key => !keys.has(key) && !failed.has(key))) {
+      throw new Error('League registration inventory is inconsistent.');
+    }
+  }
+  return { listActiveLeagues: () => active, ...(registration ? { registration } : {}) };
 }

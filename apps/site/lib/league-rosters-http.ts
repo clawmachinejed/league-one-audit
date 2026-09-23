@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { getCurrentLeagueIds } from './league-administration/registry';
+import { getCurrentLeagueId } from './league-administration/registry';
 import { LEAGUE_SITES, type LeagueKey } from './leagues';
 import { getProjectionStore, type StoredAllPlayerMetricRead } from './projection-store';
 import { scoreSparseStatistics } from './projections/domain/scoring';
@@ -85,7 +85,7 @@ export async function handleLeagueRostersRequest(
     return Response.json({ error: 'A valid roster week is required.' }, { status: 400, headers: responseHeaders });
   }
   try {
-    const loaded = await loadRosters((await getCurrentLeagueIds())[league], week);
+    const loaded = await loadRosters(await getCurrentLeagueId(league), week);
     const boundary = loaded.metricContext;
     // Metric release is independent of the noon display-week transition.
     const metricHeaders = { ...scopedHeaders,

@@ -123,10 +123,12 @@ export function LeagueShellFrame({ children, site, pathname }: { children: React
   </>;
 }
 
-export function AppShell({ children, leagueIds }: { children: ReactNode; leagueIds: Readonly<Record<LeagueKey, string>> }) {
+export function AppShell({ children, leagueIds }: { children: ReactNode; leagueIds: Readonly<Partial<Record<LeagueKey, string>>> }) {
   const pathname = usePathname();
   const site = leagueSiteForPathname(pathname);
-  return <LeagueSiteProvider site={site} leagueId={leagueIds[site.key]}><TeamPreferenceProvider key={leagueIds[site.key]} leagueId={leagueIds[site.key]}>
-    <LeagueShellFrame site={site} pathname={pathname}>{children}</LeagueShellFrame>
-  </TeamPreferenceProvider></LeagueSiteProvider>;
+  const leagueId = leagueIds[site.key];
+  const frame = <LeagueShellFrame site={site} pathname={pathname}>{children}</LeagueShellFrame>;
+  return <LeagueSiteProvider site={site} leagueId={leagueId ?? null}>{leagueId
+    ? <TeamPreferenceProvider key={leagueId} leagueId={leagueId}>{frame}</TeamPreferenceProvider>
+    : frame}</LeagueSiteProvider>;
 }

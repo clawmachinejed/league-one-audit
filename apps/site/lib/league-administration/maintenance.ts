@@ -46,8 +46,15 @@ export async function runAdministrationMaintenance(registry: LeagueRegistryPort,
   const jobs = createProjectionStore(database);
   const store = createLeagueAdministrationStore(database);
   const configurations = registry.listActiveLeagues();
-  const initial = administrationMaintenanceSelection(now, configurations.length, 1);
-  const configuration = configurations[initial.leagueIndex];
+  const intendedKeys = registry.registration?.intendedLeagueKeys ?? configurations.map(value => value.key);
+  const initial = administrationMaintenanceSelection(now, intendedKeys.length, 1);
+  const selectedKey = intendedKeys[initial.leagueIndex];
+  const configuration = configurations.find(value => value.key === selectedKey);
+  if (!configuration) {
+    console.warn(JSON.stringify({ service: 'league-administration', stage: 'maintenance', outcome: 'failed',
+      leagueKey: selectedKey, reason: 'registration-unavailable' }));
+    return { status: 'failed' } as const;
+  }
   const workerId = randomUUID();
   const jobKey = ADMINISTRATION_MAINTENANCE_JOB;
   const claim = await jobs.acquireJob({ jobKey, jobType: jobKey, workerId,
@@ -66,7 +73,7 @@ export async function runAdministrationMaintenance(registry: LeagueRegistryPort,
     const period = authority.authority;
     const season = period.activeSeason ?? period.defaultSeason;
     const currentWeek = period.activeWeek ?? period.defaultWeek;
-    const { week, metadata } = administrationMaintenanceSelection(now, configurations.length, currentWeek);
+    const { week, metadata } = administrationMaintenanceSelection(now, intendedKeys.length, currentWeek);
     const externalLeagueId = String(configuration.leagueRef.externalId);
     const core = await getOfficialLeagueAdministration(externalLeagueId, { revalidate: 0, signal });
     const extra = metadata ? await getOfficialAdministrationMetadata(externalLeagueId, season, { signal, maxRequests: 28 })

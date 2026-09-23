@@ -1,4 +1,5 @@
 import type { LeagueConfiguration } from '../domain/contracts';
+import type { LeagueRegistryPort } from '../ports/league-registry';
 import { validLineupShape } from '../domain/lineup-observation';
 import { LINEUP_REVISION_VERSION } from '../domain/lineup-revision';
 import { classifyLineupWatchPeriod } from '../domain/period-classification';
@@ -28,16 +29,24 @@ export async function synchronizeLineupWatches(
   configurations: readonly LeagueConfiguration[],
   results: readonly PeriodAuthorityReadResult[],
   now: Date,
+  registration?: LeagueRegistryPort['registration'],
 ): Promise<LineupWatchContext> {
   const byKey = new Map(results.map((result) => [result.leagueKey, result]));
-  const registeredKeys = configurations.map((configuration) => configuration.key);
+  const configurationKeys = configurations.map(configuration => configuration.key);
+  const registeredKeys = registration?.intendedLeagueKeys ?? configurationKeys;
+  const registrationFailures = registration?.failures.map(failure => failure.leagueKey) ?? [];
   if (!Number.isFinite(now.getTime()) || new Set(registeredKeys).size !== registeredKeys.length
-    || byKey.size !== results.length || results.some((result) => !registeredKeys.includes(result.leagueKey))) {
+    || new Set(configurationKeys).size !== configurationKeys.length
+    || new Set(registrationFailures).size !== registrationFailures.length
+    || configurationKeys.some(key => !registeredKeys.includes(key) || registrationFailures.includes(key))
+    || registrationFailures.some(key => !registeredKeys.includes(key))
+    || registeredKeys.some(key => !configurationKeys.includes(key) && !registrationFailures.includes(key))
+    || byKey.size !== results.length || results.some((result) => !configurationKeys.includes(result.leagueKey))) {
     throw new Error('Invalid lineup authority synchronization input.');
   }
   const targets: LineupWatchTarget[] = [];
   const authorities: LineupPeriodAuthority[] = [];
-  const skippedLeagueKeys: string[] = [];
+  const skippedLeagueKeys: string[] = [...registrationFailures];
   for (const configuration of configurations) {
     const result = byKey.get(configuration.key);
     if (!result || result.kind !== 'present' || result.value.configuration.key !== configuration.key

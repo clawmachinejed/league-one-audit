@@ -44,7 +44,7 @@ export async function runWithDependencies(
     if (!context.authorities.length && context.skippedLeagueKeys.length) throw new Error('No usable league authority.');
     if (!preflight.cadenceByKey.size && failedPreflightLeagues > 0) throw new Error('No operational cadence could be refreshed.');
     const current = context.states.filter((state) => state.materializationLane === 'current'
-      && state.watchClass === 'current' && state.retiredAt === null);
+      && state.watchClass === 'current' && state.retiredAt === null && !failedPreflightKeys.has(state.configuration.key));
     if (!current.length) {
       if (failedPreflightLeagues > 0) throw new Error('Operational cadence refresh was incomplete.');
       if (options.force) throw new Error('No owned current period is eligible.');

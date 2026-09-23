@@ -39,6 +39,15 @@ function harness() {
 }
 
 describe('current cadence agrees with durable authority', () => {
+  it('keeps incomplete registrations in watch scope while progressing a healthy current league', async () => {
+    const h = harness();
+    const dependencies = { ...h.dependencies, leagueRegistry: { listActiveLeagues: () => [h.configurations[0]],
+      registration: { intendedLeagueKeys: ['league1', 'league2'], failures: [{ leagueKey: 'league2', reason: 'unregistered-season' }] } } };
+    h.read.mockResolvedValue([durable(h.proposed[0])]);
+    const result = await runWithDependencies(dependencies);
+    expect(result).toMatchObject({ status: 'completed', publishedLeagues: 1, failedLeagues: 1 });
+    expect(h.dependencies.sourceMock.mock.calls.every(([configuration]) => configuration.key === 'league1')).toBe(true);
+  });
   it.each(['ignored', 'stored'] as const)(
     'reports a regressing proposal after %s instead of treating mismatched cadence as idle', async (kind) => {
       const h = harness();

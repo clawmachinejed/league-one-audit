@@ -281,3 +281,20 @@ DO $$ DECLARE object_name text; BEGIN
     GRANT EXECUTE ON FUNCTION public.record_league_administration_observation(jsonb) TO league_one_runtime;
   END IF;
 END; $$;
+
+-- Shared score content uses existing immutable INSERT rights; only guarded
+-- functions may create league acceptances, capture receipts or current pointers.
+DO $$ BEGIN
+  IF to_regclass('public.all_player_league_acceptances') IS NOT NULL THEN
+    REVOKE ALL ON public.all_player_league_acceptances, public.current_all_player_league_scores FROM league_one_runtime;
+    GRANT SELECT ON public.all_player_league_acceptances, public.current_all_player_league_scores TO league_one_runtime;
+    GRANT EXECUTE ON FUNCTION public.record_all_player_capture(jsonb,uuid),
+      public.accept_all_player_league_score(jsonb,uuid,uuid,uuid,uuid,timestamptz) TO league_one_runtime;
+  END IF;
+  IF to_regprocedure('public.finish_all_player_scoped_job(jsonb,text,jsonb,uuid)') IS NOT NULL THEN
+    GRANT EXECUTE ON FUNCTION public.finish_all_player_scoped_job(jsonb,text,jsonb,uuid) TO league_one_runtime;
+  END IF;
+  IF to_regprocedure('public.finish_all_player_shared_pregame_job(jsonb,jsonb)') IS NOT NULL THEN
+    GRANT EXECUTE ON FUNCTION public.finish_all_player_shared_pregame_job(jsonb,jsonb) TO league_one_runtime;
+  END IF;
+END; $$;

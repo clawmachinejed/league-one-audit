@@ -6,6 +6,8 @@ import { SLEEPER_ALL_PLAYER_SCORING_RULE_KEYS } from '../adapters/sleeper/scorin
 import { allPlayerScoreSemanticHash } from '../adapters/neon/all-player-statistics';
 import {
   buildAllPlayerScoreSets,
+  buildAllPlayerScoreContent,
+  validateLeagueAllPlayerParity,
   validateAllPlayerObservationEvidence,
   type AllPlayerStatObservation,
 } from './all-player-statistics';
@@ -406,5 +408,55 @@ describe('all-player score-set construction', () => {
     expect(Object.entries(leagueOneTwo2024To2026Rules)
       .filter(([, weight]) => weight !== 0)
       .every(([key]) => SLEEPER_ALL_PLAYER_SCORING_RULE_KEYS.has(key))).toBe(true);
+  });
+});
+
+describe('shared scoring material with independent league parity', () => {
+  const profile = {scoringProfileId: '11111111-1111-4111-8111-111111111111', rawRules: {pass_td: 6}};
+  const build = (source = observation()) => buildAllPlayerScoreContent({observation: source, profile,
+    scorerVersion: 'sleeper-actual-v1', supportedRuleKeys: SLEEPER_ALL_PLAYER_SCORING_RULE_KEYS,
+    resolveIdentity: identity});
+  it('calculates reusable material before league official points exist', async () => {
+    const result = await build();
+    if (result.status !== 'available') throw new Error('Expected shared material');
+    expect(result.scoreSet.parityComparisonCount).toBe(0);
+    expect(result.scoreSet.coverage.material_contract).toBe('all-player-score-content-v2');
+    expect(result.scoreSet.coverage).not.toHaveProperty('parity_observation_ids');
+    expect(result.scoreSet.coverage).not.toHaveProperty('expected_scoring_profile_ids');
+    expect(result.scoreSet.semanticHash).toBe(allPlayerScoreSemanticHash(result.scoreSet, result.scoreSet.scores));
+    const replay = await build(observation({sourceRevision: 'newer-revision'}));
+    expect(replay.status === 'available' && replay.scoreSet.semanticHash).toBe(result.scoreSet.semanticHash);
+  });
+  it('accepts healthy parity and rejects a mismatched peer with the unchanged strict tolerance', async () => {
+    const result = await build();
+    if (result.status !== 'available') throw new Error('Expected shared material');
+    const saved = JSON.stringify(result.scoreSet);
+    expect(await validateLeagueAllPlayerParity({scoreSet: result.scoreSet, profile: {...profile,
+      officialBatches: [officialBatch([{providerExternalId: 'p1', points: 12}])]}})).toEqual({status: 'available'});
+    expect(await validateLeagueAllPlayerParity({scoreSet: result.scoreSet, profile: {...profile,
+      officialBatches: [officialBatch([{providerExternalId: 'p1', points: 12.000002}])]}}))
+      .toMatchObject({status: 'unavailable', reason: 'scoring-mismatch'});
+    expect(JSON.stringify(result.scoreSet)).toBe(saved);
+  });
+  it('rejects cross-profile and incomplete official evidence without rescoring', async () => {
+    const result = await build();
+    if (result.status !== 'available') throw new Error('Expected shared material');
+    for (const bad of [
+      {...profile, officialBatches: []},
+      {...profile, rawRules: {pass_td: 4}, officialBatches: [officialBatch([{providerExternalId: 'p1', points: 8}])]},
+      {...profile, officialBatches: [officialBatch([{providerExternalId: 'p1', points: 12}]), officialBatch([{providerExternalId: 'p1', points: 12}])]},
+      {...profile, officialBatches: [{...officialBatch([{providerExternalId: 'p1', points: 12}]), rosterCount: 2}]},
+    ]) expect(await validateLeagueAllPlayerParity({scoreSet: result.scoreSet, profile: bad}))
+      .toMatchObject({status: 'unavailable', reason: 'invalid-input'});
+  });
+  it('retains unsupported-rule and identity failures in the shared calculation', async () => {
+    expect(await buildAllPlayerScoreContent({observation: observation(),
+      profile: {...profile, rawRules: {custom: 1}}, scorerVersion: 'sleeper-actual-v1',
+      supportedRuleKeys: SLEEPER_ALL_PLAYER_SCORING_RULE_KEYS, resolveIdentity: identity}))
+      .toMatchObject({status: 'unavailable', reason: 'unsupported-scoring'});
+    expect(await buildAllPlayerScoreContent({observation: observation(), profile,
+      scorerVersion: 'sleeper-actual-v1', supportedRuleKeys: SLEEPER_ALL_PLAYER_SCORING_RULE_KEYS,
+      resolveIdentity: () => ({scoringEntityId: null, conflict: false})}))
+      .toMatchObject({status: 'unavailable', reason: 'identity-unavailable'});
   });
 });

@@ -1,5 +1,12 @@
 # All-player statistics foundation
 
+The [collection isolation contract](collection-isolation.md) describes the additive
+023/024 implementation: shared capture and score material are followed by separate
+league validation and acceptance. It supersedes the coordinated peer-profile
+publication descriptions below for the new callers. Those legacy functions and
+pointers remain for compatibility and rollback; migration and release still need
+their own qualification and authorization.
+
 The [Week 1 recovery runbook](week-one-statistics-recovery.md) covers unresolved historical game context, dual-position roster metrics, verified pregame empty responses, and the additive 018 release/rollback procedure.
 
 This foundation retains one shared Sleeper weekly response and scores its

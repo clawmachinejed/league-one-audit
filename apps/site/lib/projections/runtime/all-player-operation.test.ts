@@ -4,10 +4,12 @@ vi.mock('server-only', () => ({}));
 
 import { NFL_TEAM_CODES, type LeagueWeekState, type ProjectionSlate } from '../domain/contracts';
 import type { AllPlayerStatObservation } from '../domain/all-player-statistics';
+import * as allPlayerScoring from '../domain/all-player-statistics';
 import { createSleeperAllPlayerStatSource, type SleeperAllPlayerStatRequest, type SleeperAllPlayerStatResult } from '../adapters/sleeper/all-player-stats';
 import { normalizeSleeperScoringProfile } from '../adapters/sleeper/scoring-profile';
 import { deterministicUuid } from '../adapters/neon/database-values';
 import type { AllPlayerBatchInput, AllPlayerIdentityLookup, AllPlayerJobFence } from '../adapters/neon/contracts';
+import { allPlayerStatSemanticHash } from '../adapters/neon/all-player-statistics';
 import { externalPlayerRef } from '../shared/provider-identity';
 import { PERIOD, PROJECTION_PROVIDER, OFFICIAL_PROVIDER, configuration, schedule, source, fullWeekSchedule } from '../../live-projection-worker.fixtures';
 import { runAllPlayerIngestion, type AllPlayerIngestionDependencies } from './all-player-operation';
@@ -157,6 +159,7 @@ function harness(options: Readonly<{
   }
   const batches: unknown[] = [];
   const pointers: string[] = [];
+  const leaguePointers = new Map<string, string>();
   const replay = createSleeperAllPlayerStatSource({
     now: () => now,
     fetch: async () => new Response(JSON.stringify(Object.fromEntries(
@@ -195,23 +198,41 @@ function harness(options: Readonly<{
     }));
     pointers.push(...scoreSets.map((value) => value.scoreSetId));
     return { kind: 'stored' as const, value: {
-      statContentId: deterministicUuid('content', input.observation.sourceRevision),
+      statContentId: deterministicUuid('content', allPlayerStatSemanticHash(input.observation)),
       statObservationId: deterministicUuid('observation', input.observation.sourceRevision),
       semanticHash: 'a'.repeat(64), entriesStored: input.observation.entries.length,
       entryCount: input.observation.entries.length, scoreSets,
     } };
+  });
+  const recordAllPlayerScoreContent = vi.fn<AllPlayerIngestionDependencies['store']['recordAllPlayerScoreContent']>(async (input) => ({
+    kind: 'stored', value: {
+      statContentId: deterministicUuid('content', allPlayerStatSemanticHash(input.observation)),
+      statObservationId: deterministicUuid('observation', input.observation.sourceRevision),
+      scoreSetId: deterministicUuid('score-content', `${allPlayerStatSemanticHash(input.observation)}:${input.scoreSet.semanticHash}`),
+      scoringProfileId: input.scoreSet.scoringProfileId,
+    },
+  }));
+  const acceptAllPlayerLeagueScore = vi.fn<AllPlayerIngestionDependencies['store']['acceptAllPlayerLeagueScore']>(async (input) => {
+    const pointerOutcome = leaguePointers.get(input.leagueSeasonId) === input.scoreSetId ? 'verified' as const : 'advanced' as const;
+    leaguePointers.set(input.leagueSeasonId, input.scoreSetId);
+    pointers.push(input.scoreSetId);
+    return { kind: 'stored', value: { pointerOutcome,
+      acceptanceId: deterministicUuid('acceptance', `${input.leagueSeasonId}:${input.statObservationId}:${input.officialObservationId}`) } };
   });
   const dependencies = {
     store: {
       enabled: true,
       readAllPlayerLeagueProfiles: vi.fn(async (input: Readonly<{
         leagues: readonly Readonly<{ leagueKey: string; rulesHash: string }>[];
-      }>) => input.leagues.map((league, index) => ({
+      }>) => input.leagues.map((league) => {
+        const index = configurations.findIndex(({ key }) => key === league.leagueKey);
+        return {
         leagueKey: league.leagueKey,
         leagueSeasonId: seasons[index],
         scoringProfileId: profiles[index], rulesHash: league.rulesHash,
         rules: { pass_td: leaguePoints[index] },
-      }))),
+        };
+      })),
       readAllPlayerIdentityMappings: vi.fn(async (inputs: readonly AllPlayerIdentityLookup[]) => inputs.map((input) => ({
         ...input,
         scoringEntityId: input.provider === 'tank01' && input.externalId.startsWith('tank-')
@@ -225,6 +246,8 @@ function harness(options: Readonly<{
       upsertScoringEntities,
       recordLeagueWeekObservation,
       recordAllPlayerBatch,
+      recordAllPlayerScoreContent,
+      acceptAllPlayerLeagueScore,
       acquireAllPlayerJob: acquireJob,
       markAllPlayerRequest: vi.fn(async () => true),
       finishAllPlayerJob: vi.fn(async () => true),
@@ -242,6 +265,7 @@ function harness(options: Readonly<{
       verifiedAt: now.toISOString(), materialChangedAt: now.toISOString(),
     })) },
     leagueRegistry: { listActiveLeagues: () => configurations, getLeague: () => null },
+    loadSchedule: vi.fn(async () => schedule),
     loadLeagueWeek: vi.fn(async (configurationValue) => {
       const index = configurations.findIndex(({ key }) => key === configurationValue.key);
       return {
@@ -271,11 +295,142 @@ function harness(options: Readonly<{
   return {
     dependencies, allPlayerSource, acquireJob, upsertScoringEntities,
     readAllPlayerIdentityMappings: dependencies.store.readAllPlayerIdentityMappings,
-    recordLeagueWeekObservation, recordAllPlayerBatch, batches, pointers,
+    recordLeagueWeekObservation, recordAllPlayerBatch, recordAllPlayerScoreContent,
+    acceptAllPlayerLeagueScore, batches, pointers, leaguePointers,
   };
 }
 
 describe('canonical all-player ingestion orchestration', () => {
+  it('stores shared evidence before any league load and calculates a shared profile once', async () => {
+    const test = harness();
+    const calculate = vi.spyOn(allPlayerScoring, 'buildAllPlayerScoreContent');
+    const load = vi.mocked(test.dependencies.loadLeagueWeek).getMockImplementation()!;
+    vi.mocked(test.dependencies.loadLeagueWeek).mockImplementation(async (...args) => {
+      expect(test.recordAllPlayerBatch).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ scoreSets: [] }));
+      return load(...args);
+    });
+    try {
+      expect(await runAllPlayerIngestion(test.dependencies, { mode: 'backfill', period: PERIOD }))
+        .toMatchObject({ status: 'completed', acceptedLeagues: 2, failedLeagues: 0, scoringProfileCount: 1 });
+      expect(calculate).toHaveBeenCalledOnce();
+    } finally { calculate.mockRestore(); }
+    expect(test.allPlayerSource.load).toHaveBeenCalledOnce();
+    expect(test.dependencies.loadCatalog).toHaveBeenCalledOnce();
+    expect(test.dependencies.loadSchedule).toHaveBeenCalledOnce();
+    expect(test.recordAllPlayerScoreContent).toHaveBeenCalledOnce();
+    expect(test.acceptAllPlayerLeagueScore).toHaveBeenCalledTimes(2);
+    expect(new Set(test.acceptAllPlayerLeagueScore.mock.calls.map(([input]) => input.scoreSetId)).size).toBe(1);
+  });
+
+  it('rejects unserializable score content in shadow before claiming successful league validation', async () => {
+    const test = harness();
+    const build = allPlayerScoring.buildAllPlayerScoreContent;
+    const calculate = vi.spyOn(allPlayerScoring, 'buildAllPlayerScoreContent').mockImplementation(async (input) => {
+      const built = await build(input);
+      return built.status === 'available' ? { ...built, scoreSet: { ...built.scoreSet, semanticHash: 'invalid' } } : built;
+    });
+    try {
+      expect(await runAllPlayerIngestion(test.dependencies, { mode: 'shadow', period: PERIOD }))
+        .toMatchObject({ status: 'completed', acceptedLeagues: 0, failedLeagues: 2, scoringProfileCount: 0 });
+      expect(calculate).toHaveBeenCalledOnce();
+      expect(test.recordAllPlayerBatch).not.toHaveBeenCalled();
+      expect(test.recordAllPlayerScoreContent).not.toHaveBeenCalled();
+      expect(test.acceptAllPlayerLeagueScore).not.toHaveBeenCalled();
+    } finally { calculate.mockRestore(); }
+  });
+
+  it.each(['unregistered-season', 'missing-source-connection', 'missing-scoring-profile'] as const)
+  ('retains intended %s failures while collecting healthy registrations', async (reason) => {
+    const test = harness();
+    const dependencies = { ...test.dependencies, leagueRegistry: { ...test.dependencies.leagueRegistry,
+      registration: { intendedLeagueKeys: ['league1', 'league2', 'dynasty'], failures: [{ leagueKey: 'dynasty', reason }] },
+    } };
+    expect(await runAllPlayerIngestion(dependencies, { mode: 'backfill', period: PERIOD }))
+      .toMatchObject({ status: 'completed', acceptedLeagues: 2, failedLeagues: 1,
+        leagueOutcomes: expect.arrayContaining([{ leagueKey: 'dynasty', status: 'failed', reason: `registration-${reason}` }]) });
+    expect(test.allPlayerSource.load).toHaveBeenCalledOnce();
+    expect(test.acceptAllPlayerLeagueScore).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps a failing same-profile league on its prior acceptance while its peer advances', async () => {
+    const test = harness();
+    test.leaguePointers.set(SEASON_TWO, 'prior-accepted-score-set');
+    const load = vi.mocked(test.dependencies.loadLeagueWeek).getMockImplementation()!;
+    vi.mocked(test.dependencies.loadLeagueWeek).mockImplementation(async (...args) => {
+      const league = await load(...args);
+      return args[0].key === 'league2' ? { ...league,
+        rawMatchups: league.rawMatchups.map((row) => ({ ...row, players_points: { p1: 9 }, points: 9 })),
+      } : league;
+    });
+    expect(await runAllPlayerIngestion(test.dependencies, { mode: 'backfill', period: PERIOD }))
+      .toMatchObject({ status: 'completed', acceptedLeagues: 1, failedLeagues: 1,
+        leagueOutcomes: expect.arrayContaining([{ leagueKey: 'league2', status: 'failed', reason: 'score-scoring-mismatch' }]) });
+    expect(test.leaguePointers.get(SEASON_TWO)).toBe('prior-accepted-score-set');
+    expect(test.leaguePointers.get(SEASON_ONE)).toBeTruthy();
+    expect(test.acceptAllPlayerLeagueScore.mock.calls.map(([input]) => input.leagueSeasonId)).toEqual([SEASON_ONE]);
+    expect(test.recordAllPlayerScoreContent).toHaveBeenCalledOnce();
+    expect(test.allPlayerSource.load).toHaveBeenCalledOnce();
+  });
+
+  it('bounds a slow league read while publishing its healthy peer and rejects late league publication', async () => {
+    vi.useFakeTimers();
+    try {
+      const test = harness();
+      const load = vi.mocked(test.dependencies.loadLeagueWeek).getMockImplementation()!;
+      let release!: () => void;
+      const blocked = new Promise<void>((resolve) => { release = resolve; });
+      vi.mocked(test.dependencies.loadLeagueWeek).mockImplementation(async (...args) => {
+        if (args[0].key === 'league1') await blocked;
+        return load(...args);
+      });
+      const pending = runAllPlayerIngestion(test.dependencies, { mode: 'backfill', period: PERIOD });
+      await vi.waitFor(() => expect([...test.leaguePointers.keys()]).toEqual([SEASON_TWO]), { timeout: 1_000 });
+      await vi.advanceTimersByTimeAsync(8_001);
+      expect(await pending).toMatchObject({ status: 'completed', acceptedLeagues: 1, failedLeagues: 1,
+        leagueOutcomes: expect.arrayContaining([{ leagueKey: 'league1', status: 'failed', reason: 'league-source-timeout' }]) });
+      release();
+      await vi.advanceTimersByTimeAsync(0);
+      expect([...test.leaguePointers.keys()]).toEqual([SEASON_TWO]);
+      expect(test.acceptAllPlayerLeagueScore).toHaveBeenCalledOnce();
+      expect(test.allPlayerSource.load).toHaveBeenCalledOnce();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it.each(['lost', 'failed'] as const)('reports retained raw evidence without claiming publication after zero acceptances and %s completion', async (variant) => {
+    const test = harness();
+    vi.mocked(test.dependencies.loadLeagueWeek).mockRejectedValue(new Error('league-source-failed'));
+    if (variant === 'lost') vi.mocked(test.dependencies.store.finishAllPlayerJob).mockResolvedValueOnce(false);
+    else vi.mocked(test.dependencies.store.finishAllPlayerJob).mockRejectedValueOnce(new Error('private-database-error'));
+    const result = await runAllPlayerIngestion(test.dependencies, { mode: 'backfill', period: PERIOD });
+    expect(result).toMatchObject({ status: 'unavailable', stage: 'durable-outcome', persistedObservation: true,
+      statObservationId: expect.any(String), reason: variant === 'lost' ? 'lease-lost' : 'outcome-persistence-failed' });
+    expect(result).not.toHaveProperty('confirmedPublication');
+    expect(test.acceptAllPlayerLeagueScore).not.toHaveBeenCalled();
+    expect(test.recordAllPlayerBatch).toHaveBeenCalledOnce();
+    expect(test.dependencies.logger.write).toHaveBeenLastCalledWith('warn', expect.objectContaining({
+      allPlayerPersistedObservation: true, allPlayerConfirmedPublication: false, allPlayerRetryDisposition: 'global-budget',
+    }));
+  });
+
+  it('retains a committed healthy acceptance when the next league publication fails', async () => {
+    const test = harness({ divergent: true });
+    const accept = test.acceptAllPlayerLeagueScore.getMockImplementation()!;
+    test.acceptAllPlayerLeagueScore.mockImplementation(async (input) => {
+      if (input.leagueSeasonId === SEASON_TWO) {
+        expect(test.leaguePointers.has(SEASON_ONE)).toBe(true);
+        throw new Error('private database error');
+      }
+      return accept(input);
+    });
+    const result = await runAllPlayerIngestion(test.dependencies, { mode: 'backfill', period: PERIOD });
+    expect(result).toMatchObject({ status: 'completed', acceptedLeagues: 1, failedLeagues: 1,
+      pointerOutcomes: ['advanced'], leagueOutcomes: expect.arrayContaining([
+        { leagueKey: 'league2', status: 'failed', reason: 'league-processing-failed' },
+      ]) });
+    expect([...test.leaguePointers.keys()]).toEqual([SEASON_ONE]);
+    expect(JSON.stringify(result)).not.toContain('private');
+  });
+
   it('presents a shared live capture receipt to the existing recurring ownership claim', async () => {
     const test = harness();
     const receipt = { period: { season: 2026, seasonType: 'reg' as const, week: 1 },
@@ -323,7 +478,7 @@ describe('canonical all-player ingestion orchestration', () => {
         },
       }));
     const readAuthorities = vi.fn<AllPlayerIngestionDependencies['store']['readLeagueLineupAuthorities']>(async () => authorities);
-    test.dependencies = { ...test.dependencies, store: { ...test.dependencies.store,
+    test.dependencies = { ...test.dependencies, loadSchedule: vi.fn(async () => futureSchedule), store: { ...test.dependencies.store,
       readAllPlayerGameContext: readGames, readLeagueLineupAuthorities: readAuthorities } };
     const weeklyFetch = vi.fn<typeof fetch>(async () => new Response('{}'));
     const emptySource = createSleeperAllPlayerStatSource({ fetch: weeklyFetch, now: () => test.dependencies.clock.now() });
@@ -335,6 +490,8 @@ describe('canonical all-player ingestion orchestration', () => {
     expect(test.upsertScoringEntities).not.toHaveBeenCalled();
     expect(test.recordLeagueWeekObservation).not.toHaveBeenCalled();
     expect(test.recordAllPlayerBatch).not.toHaveBeenCalled();
+    expect(test.recordAllPlayerScoreContent).not.toHaveBeenCalled();
+    expect(test.acceptAllPlayerLeagueScore).not.toHaveBeenCalled();
     expect(test.pointers).toEqual([]);
   }
 
@@ -344,16 +501,17 @@ describe('canonical all-player ingestion orchestration', () => {
     expect(result).toMatchObject({ status: 'skipped', mode: 'recurring', reason: 'no-statistics-yet', period: PERIOD,
       responseEvidence: { httpStatus: 200, bodyShape: 'object', topLevelCount: 0,
         bodyHash: 'sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a' },
-      pregameEvidence: { policy: 'exact-period-pregame-v1', scheduledGameCount: 16, firstKickoffAt: kickoffAt },
+      pregameEvidence: { policy: 'exact-period-shared-pregame-v1', scheduledGameCount: 16, firstKickoffAt: kickoffAt },
     });
     expect(weeklyFetch).toHaveBeenCalledOnce();
     expect(test.dependencies.store.markAllPlayerRequest).toHaveBeenCalledExactlyOnceWith({
       fence: FENCE, period: { ...PERIOD, seasonType: 'reg' },
     });
     expect(readGames).toHaveBeenCalledTimes(2);
-    expect(readAuthorities).toHaveBeenCalledOnce();
+    expect(readAuthorities).not.toHaveBeenCalled();
+    expect(test.dependencies.loadLeagueWeek).not.toHaveBeenCalled();
     expect(test.dependencies.store.finishAllPlayerJob).toHaveBeenCalledExactlyOnceWith({
-      fence: FENCE, outcome: 'no-statistics-yet', diagnostic: expect.objectContaining({
+      fence: FENCE, outcome: 'no-statistics-yet', sharedPregame: true, diagnostic: expect.objectContaining({
         stage: 'no-statistics-yet', reason: 'no-statistics-yet', finalCoverage: false,
         retryDisposition: 'global-budget', entryCount: 0, scoringProfileCount: 0,
         responseEvidence: expect.objectContaining({ topLevelCount: 0, bodyShape: 'object' }),
@@ -378,37 +536,41 @@ describe('canonical all-player ingestion orchestration', () => {
   });
 
   it.each(['live', 'final', 'missing-game', 'duplicate-game', 'missing-kickoff', 'changed-kickoff',
-    'wrong-current-week', 'stale-authority', 'missing-authority', 'nonzero-player', 'nonzero-team',
-    'custom-team', 'missing-team-points'] as const)('keeps empty %s evidence unavailable without manufacturing statistics', async (variant) => {
-    const { test, games, readGames, authorities, readAuthorities } = pregameHarness();
+    ] as const)('keeps empty %s evidence unavailable without manufacturing statistics', async (variant) => {
+    const { test, games, readGames } = pregameHarness();
     if (variant === 'live' || variant === 'final') readGames.mockResolvedValueOnce(games)
       .mockResolvedValueOnce([{ ...games[0], phase: variant }, ...games.slice(1)]);
     if (variant === 'missing-game') readGames.mockResolvedValueOnce(games).mockResolvedValueOnce(games.slice(1));
     if (variant === 'duplicate-game') readGames.mockResolvedValueOnce(games).mockResolvedValueOnce([games[1], ...games.slice(1)]);
     if (variant === 'missing-kickoff' || variant === 'changed-kickoff') readGames.mockResolvedValueOnce(games)
       .mockResolvedValueOnce([{ ...games[0], kickoffAt: variant === 'missing-kickoff' ? null : '2026-09-15T01:06:00.000Z' }, ...games.slice(1)]);
-    if (variant === 'missing-authority') readAuthorities.mockResolvedValueOnce(authorities.slice(1));
-    if (variant === 'wrong-current-week' || variant === 'stale-authority') {
-      readAuthorities.mockResolvedValueOnce(authorities.map((row) => row.kind !== 'available' ? row : ({ ...row,
-        authority: { ...row.authority, ...(variant === 'wrong-current-week'
-          ? { activeWeek: 2 } : { verifiedAt: '2026-09-15T00:00:00.000Z' }) },
-      })));
-    }
-    if (['nonzero-player', 'nonzero-team', 'custom-team', 'missing-team-points'].includes(variant)) {
-      const load = vi.mocked(test.dependencies.loadLeagueWeek).getMockImplementation()!;
-      vi.mocked(test.dependencies.loadLeagueWeek).mockImplementation(async (...args) => {
-        const value = await load(...args);
-        return { ...value, rawMatchups: value.rawMatchups.map((row) => ({ ...row,
-          ...(variant === 'nonzero-player' ? { players_points: { p1: 1 } }
-            : variant === 'nonzero-team' ? { points: 1 }
-              : variant === 'custom-team' ? { custom_points: 1 } : { points: undefined }),
-        })) };
-      });
-    }
     expect(await runAllPlayerIngestion(test.dependencies, { mode: 'recurring', period: PERIOD }))
       .toMatchObject({ status: 'unavailable', reason: 'provider-empty-object' });
     expectNoStatWrites(test);
     expect(test.dependencies.store.finishAllPlayerJob).not.toHaveBeenCalledWith(expect.objectContaining({ outcome: 'no-statistics-yet' }));
+  });
+
+  it.each(['missing-authority', 'failed-league-source', 'different-league-period'] as const)
+  ('accepts an independently proven shared pregame response despite %s', async (variant) => {
+    const { test, readAuthorities } = pregameHarness();
+    readAuthorities.mockResolvedValue([]);
+    if (variant === 'failed-league-source') vi.mocked(test.dependencies.loadLeagueWeek)
+      .mockRejectedValue(new Error('private league source failure'));
+    if (variant === 'different-league-period') {
+      const load = vi.mocked(test.dependencies.loadLeagueWeek).getMockImplementation()!;
+      vi.mocked(test.dependencies.loadLeagueWeek).mockImplementation(async (...args) => {
+        const value = await load(...args);
+        return { ...value, state: { ...value.state, period: { ...PERIOD, week: 2 } } };
+      });
+    }
+    expect(await runAllPlayerIngestion(test.dependencies, { mode: 'recurring', period: PERIOD }))
+      .toMatchObject({ status: 'skipped', reason: 'no-statistics-yet', pregameEvidence: {
+        policy: 'exact-period-shared-pregame-v1', scheduledGameCount: 16,
+      } });
+    expect(readAuthorities).not.toHaveBeenCalled();
+    expect(test.dependencies.loadLeagueWeek).not.toHaveBeenCalled();
+    expect(test.allPlayerSource.load).toHaveBeenCalledOnce();
+    expectNoStatWrites(test);
   });
 
   it('derives the pregame game count from the complete schedule with byes rather than requiring sixteen games', async () => {
@@ -501,7 +663,7 @@ describe('canonical all-player ingestion orchestration', () => {
       code, detail: 'secret player details', query: 'secret query', connection: 'secret connection',
     }));
     const result = await runAllPlayerIngestion(test.dependencies, { mode: 'backfill', period: PERIOD });
-    expect(result).toMatchObject({ status: 'unavailable', reason, stage: 'publication',
+    expect(result).toMatchObject({ status: 'unavailable', reason, stage: 'shared-capture-persistence',
       diagnostics: [`database-sqlstate:${code}`] });
     expect(test.dependencies.store.finishAllPlayerJob).toHaveBeenCalledWith(expect.objectContaining({
       outcome: 'validation-failed', diagnostic: expect.objectContaining({ reason,
@@ -516,7 +678,7 @@ describe('canonical all-player ingestion orchestration', () => {
     const test = harness();
     test.recordAllPlayerBatch.mockRejectedValueOnce(Object.assign(new Error('secret-sql-error'), { code: 'secret code' }));
     const result = await runAllPlayerIngestion(test.dependencies, { mode: 'backfill', period: PERIOD });
-    expect(result).toMatchObject({ status: 'unavailable', reason: 'stage-failed', stage: 'publication' });
+    expect(result).toMatchObject({ status: 'unavailable', reason: 'stage-failed', stage: 'shared-capture-persistence' });
     expect(JSON.stringify([result, vi.mocked(test.dependencies.store.finishAllPlayerJob).mock.calls,
       vi.mocked(test.dependencies.logger.write).mock.calls])).not.toContain('secret');
   });
@@ -541,7 +703,7 @@ describe('canonical all-player ingestion orchestration', () => {
     expect(test.recordAllPlayerBatch).not.toHaveBeenCalled();
   });
 
-  it('rejects a league load carrying another configured league identity before weekly retrieval', async () => {
+  it('isolates a league load carrying another configured league identity', async () => {
     const test = harness({ dynasty: true });
     const load = test.dependencies.loadLeagueWeek;
     const dependencies = { ...test.dependencies, loadLeagueWeek: async (...args: Parameters<typeof load>) => {
@@ -551,8 +713,9 @@ describe('canonical all-player ingestion orchestration', () => {
       } };
     } };
     await expect(runAllPlayerIngestion(dependencies, { mode: 'shadow', period: PERIOD }))
-      .resolves.toMatchObject({ status: 'unavailable', reason: 'league-identity-mismatch' });
-    expect(test.allPlayerSource.load).not.toHaveBeenCalled();
+      .resolves.toMatchObject({ status: 'completed', acceptedLeagues: 2, failedLeagues: 1,
+        leagueOutcomes: expect.arrayContaining([{ leagueKey: 'dynasty', status: 'failed', reason: 'league-identity-mismatch' }]) });
+    expect(test.allPlayerSource.load).toHaveBeenCalledOnce();
     expect(test.recordAllPlayerBatch).not.toHaveBeenCalled();
   });
 
@@ -560,7 +723,7 @@ describe('canonical all-player ingestion orchestration', () => {
     const test = harness({ dynasty: true });
     const result = await runAllPlayerIngestion(test.dependencies, { mode, period: PERIOD });
     expect(result).toMatchObject({ status: 'completed', scoringProfileCount: 2,
-      parityComparisonCount: 2, parityMismatchCount: 0, persisted: mode === 'backfill' });
+      parityComparisonCount: 3, parityMismatchCount: 0, persisted: mode === 'backfill' });
     expect(test.dependencies.loadLeagueWeek).toHaveBeenCalledTimes(3);
     expect(test.dependencies.loadCatalog).toHaveBeenCalledOnce();
     expect(test.allPlayerSource.load).toHaveBeenCalledOnce();
@@ -572,30 +735,32 @@ describe('canonical all-player ingestion orchestration', () => {
       expect(test.recordLeagueWeekObservation.mock.calls.map(([input]) => input.leagueSeasonId))
         .toEqual([SEASON_ONE, SEASON_TWO, SEASON_DYNASTY]);
       expect(test.recordAllPlayerBatch).toHaveBeenCalledOnce();
-      const scoreSets = test.recordAllPlayerBatch.mock.calls[0][0].scoreSets;
+      expect(test.recordAllPlayerBatch.mock.calls[0][0].scoreSets).toEqual([]);
+      const scoreSets = test.recordAllPlayerScoreContent.mock.calls.map(([input]) => input.scoreSet);
       expect(scoreSets).toHaveLength(2);
-      expect(scoreSets.map((set) => set.coverage.parity_observation_ids)).toEqual([[OBS_ONE, OBS_TWO], [OBS_DYNASTY]]);
+      expect(test.acceptAllPlayerLeagueScore.mock.calls.map(([input]) => input.officialObservationId).sort())
+        .toEqual([OBS_ONE, OBS_TWO, OBS_DYNASTY]);
       expect(scoreSets.map((set) => set.scores.find((score) => score.providerExternalId === 'p1')?.fantasyPoints))
         .toEqual([4, 6]);
       expect(scoreSets.every((set) => set.coverage.complete === true)).toBe(true);
     }
   });
 
-  it('requires the third league scoring profile before the shared weekly request or writes', async () => {
+  it('retains shared capture and accepts healthy peers when the third league profile is missing', async () => {
     const test = harness({ dynasty: true });
     const read = test.dependencies.store.readAllPlayerLeagueProfiles;
     const dependencies = { ...test.dependencies, store: { ...test.dependencies.store,
-      readAllPlayerLeagueProfiles: async (...args: Parameters<typeof read>) => (await read(...args)).slice(0, 2),
+      readAllPlayerLeagueProfiles: async (...args: Parameters<typeof read>) => (await read(...args)).filter((row) => row.leagueKey !== 'dynasty'),
     } };
     await expect(runAllPlayerIngestion(dependencies, { mode: 'backfill', period: PERIOD }))
-      .resolves.toMatchObject({ status: 'unavailable', reason: 'scoring-profile-inventory' });
-    expect(test.allPlayerSource.load).not.toHaveBeenCalled();
-    expect(test.upsertScoringEntities).not.toHaveBeenCalled();
-    expect(test.recordLeagueWeekObservation).not.toHaveBeenCalled();
-    expect(test.recordAllPlayerBatch).not.toHaveBeenCalled();
+      .resolves.toMatchObject({ status: 'completed', acceptedLeagues: 2, failedLeagues: 1,
+        leagueOutcomes: expect.arrayContaining([{ leagueKey: 'dynasty', status: 'failed', reason: 'scoring-profile-inventory' }]) });
+    expect(test.allPlayerSource.load).toHaveBeenCalledOnce();
+    expect(test.recordAllPlayerBatch).toHaveBeenCalledOnce();
+    expect([...test.leaguePointers.keys()].sort()).toEqual([SEASON_ONE, SEASON_TWO].sort());
   });
 
-  it('does not publish either profile if Dynasty official points disagree with its scoring rules', async () => {
+  it('accepts healthy leagues when Dynasty official points disagree with its rules', async () => {
     const test = harness({ dynasty: true });
     const load = test.dependencies.loadLeagueWeek;
     const dependencies = { ...test.dependencies, loadLeagueWeek: async (...args: Parameters<typeof load>) => {
@@ -605,13 +770,14 @@ describe('canonical all-player ingestion orchestration', () => {
       };
     } };
     await expect(runAllPlayerIngestion(dependencies, { mode: 'backfill', period: PERIOD }))
-      .resolves.toMatchObject({ status: 'unavailable', reason: 'score-scoring-mismatch' });
+      .resolves.toMatchObject({ status: 'completed', acceptedLeagues: 2, failedLeagues: 1,
+        leagueOutcomes: expect.arrayContaining([{ leagueKey: 'dynasty', status: 'failed', reason: 'score-scoring-mismatch' }]) });
     expect(test.allPlayerSource.load).toHaveBeenCalledOnce();
-    expect(test.upsertScoringEntities).not.toHaveBeenCalled();
-    expect(test.recordLeagueWeekObservation).not.toHaveBeenCalled();
-    expect(test.recordAllPlayerBatch).not.toHaveBeenCalled();
+    expect(test.recordAllPlayerBatch).toHaveBeenCalledOnce();
+    expect(test.recordAllPlayerScoreContent).toHaveBeenCalledOnce();
+    expect([...test.leaguePointers.keys()].sort()).toEqual([SEASON_ONE, SEASON_TWO].sort());
   });
-  it.each([null, []])('rejects unknown official starter assignments before weekly retrieval or writes (%j)', async (starters) => {
+  it.each([null, []])('rejects unknown official starter assignments before league acceptance (%j)', async (starters) => {
     const test = harness();
     const load = test.dependencies.loadLeagueWeek;
     test.dependencies = { ...test.dependencies, loadLeagueWeek: async (...args) => {
@@ -619,11 +785,12 @@ describe('canonical all-player ingestion orchestration', () => {
       return { ...league, rawMatchups: league.rawMatchups.map((row) => ({ ...row, starters })) };
     } };
     const result = await runAllPlayerIngestion(test.dependencies, { mode: 'shadow', period: PERIOD });
-    expect(result).toMatchObject({ status: 'unavailable', reason: 'official-starters-unavailable' });
-    expect(test.allPlayerSource.load).not.toHaveBeenCalled();
-    expect(test.upsertScoringEntities).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ status: 'completed', acceptedLeagues: 0, failedLeagues: 2,
+      leagueOutcomes: expect.arrayContaining([expect.objectContaining({ reason: 'official-starters-unavailable' })]) });
+    expect(test.allPlayerSource.load).toHaveBeenCalledOnce();
     expect(test.recordLeagueWeekObservation).not.toHaveBeenCalled();
     expect(test.recordAllPlayerBatch).not.toHaveBeenCalled();
+    expect(test.acceptAllPlayerLeagueScore).not.toHaveBeenCalled();
   });
 
   it('rejects a missing-row assumption detached from the loaded inventory before any writes', async () => {
@@ -747,30 +914,21 @@ describe('canonical all-player ingestion orchestration', () => {
   );
 
   it.each(['all-superseded', 'mixed-group'] as const)(
-    'records %s as a validation rejection rather than successful publication', async (variant) => {
+    'retains shared capture and reports independent %s acceptance outcomes', async (variant) => {
       const test = harness({ divergent: true });
-      vi.mocked(test.dependencies.store.recordAllPlayerBatch).mockImplementationOnce(async (input) => ({
-        kind: 'stored', value: {
-          statContentId: deterministicUuid('content', 'superseded'),
-          statObservationId: deterministicUuid('observation', 'superseded'), semanticHash: 'a'.repeat(64),
-          entriesStored: input.observation.entries.length, entryCount: input.observation.entries.length,
-          scoreSets: input.scoreSets.map((set, index) => ({
-            scoringProfileId: set.scoringProfileId, scoreSetId: deterministicUuid('set', String(index)),
-            pointerOutcome: variant === 'mixed-group' && index === 1 ? 'advanced' : 'superseded',
-          })),
-        },
-      }));
+      const accept = test.acceptAllPlayerLeagueScore.getMockImplementation()!;
+      test.acceptAllPlayerLeagueScore.mockImplementation(async (input) => (
+        variant === 'mixed-group' && input.leagueSeasonId === SEASON_TWO ? accept(input)
+          : { kind: 'stored', value: { acceptanceId: deterministicUuid('superseded', input.leagueSeasonId), pointerOutcome: 'superseded' } }
+      ));
       const result = await runAllPlayerIngestion(test.dependencies, { mode: 'backfill', period: PERIOD });
-      expect(result).toMatchObject({ status: 'unavailable', persistedObservation: true,
-        reason: variant === 'all-superseded' ? 'old-observation-rejected' : 'profile-publication-inconsistent',
+      expect(result).toMatchObject({ status: 'completed', persisted: true,
+        acceptedLeagues: variant === 'mixed-group' ? 1 : 0, failedLeagues: variant === 'mixed-group' ? 1 : 2,
+        leagueOutcomes: expect.arrayContaining([expect.objectContaining({ reason: 'old-observation-rejected' })]),
+        pointerOutcomes: variant === 'mixed-group' ? ['advanced'] : [],
       });
-      expect(test.dependencies.store.finishAllPlayerJob).toHaveBeenCalledWith(expect.objectContaining({
-        outcome: 'validation-failed',
-      }));
-      if (variant === 'mixed-group') expect(result).toMatchObject({
-        confirmedPublication: { pointerOutcomes: ['superseded', 'advanced'] },
-      });
-      else expect(result).not.toHaveProperty('confirmedPublication');
+      expect(test.recordAllPlayerBatch).toHaveBeenCalledOnce();
+      expect([...test.leaguePointers.keys()]).toEqual(variant === 'mixed-group' ? [SEASON_TWO] : []);
     },
   );
 
@@ -783,9 +941,11 @@ describe('canonical all-player ingestion orchestration', () => {
     expect(test.upsertScoringEntities).not.toHaveBeenCalled();
     expect(test.recordLeagueWeekObservation).not.toHaveBeenCalled();
     expect(test.recordAllPlayerBatch).not.toHaveBeenCalled();
+    expect(test.recordAllPlayerScoreContent).not.toHaveBeenCalled();
+    expect(test.acceptAllPlayerLeagueScore).not.toHaveBeenCalled();
   });
 
-  it('backfills exactly one complete divergent cross-profile batch and preserves active zero', async () => {
+  it('captures once, calculates each divergent profile once, and preserves active zero', async () => {
     const test = harness({ divergent: true });
     const result = await runAllPlayerIngestion(test.dependencies, { mode: 'backfill', period: PERIOD });
     expect(result).toMatchObject({
@@ -794,13 +954,14 @@ describe('canonical all-player ingestion orchestration', () => {
     });
     expect(test.allPlayerSource.load).toHaveBeenCalledOnce();
     expect(test.recordAllPlayerBatch).toHaveBeenCalledOnce();
-    const batch = test.recordAllPlayerBatch.mock.calls[0][0];
-    expect(batch.scoreSets).toHaveLength(2);
-    expect(batch.scoreSets.every((set) => set.coverage.complete === true)).toBe(true);
-    expect(batch.scoreSets.flatMap((set) => set.scores).filter((score) => (
+    expect(test.recordAllPlayerBatch.mock.calls[0][0].scoreSets).toEqual([]);
+    const sets = test.recordAllPlayerScoreContent.mock.calls.map(([input]) => input.scoreSet);
+    expect(sets).toHaveLength(2);
+    expect(sets.every((set) => set.coverage.complete === true)).toBe(true);
+    expect(sets.flatMap((set) => set.scores).filter((score) => (
       score.providerExternalId === 'free'
     ))).toHaveLength(2);
-    expect(batch.scoreSets.flatMap((set) => set.scores)
+    expect(sets.flatMap((set) => set.scores)
       .filter((score) => score.providerExternalId === 'pzero'))
       .toEqual([
         expect.objectContaining({ fantasyPoints: 0, eligibleGameCount: 1, appearanceGameCount: 0 }),
@@ -980,60 +1141,75 @@ describe('canonical all-player ingestion orchestration', () => {
     }));
   });
 
-  it.each(['shadow', 'backfill'] as const)('restores unknown evidence for nonzero assumed participation in %s mode', async (mode) => {
+  it.each(['shadow', 'backfill'] as const)('rejects league participation conflicts without rewriting shared raw evidence in %s', async (mode) => {
     const input = observation();
     const test = harness({ observation: { ...input, entries: input.entries.map((value) => (
       value.providerExternalId === 'p1' ? { ...value, stats: { gms_active: 1, pass_td: 1 } } : value
     )) } });
     const result = await runAllPlayerIngestion(test.dependencies, { mode, period: PERIOD });
-    const conflicts = [`nonzero-assumption-conflict:p1:${PROFILE_ONE}`,
-      `official-nonzero-assumption-conflict:p1:league1:${PROFILE_ONE}`,
-      `official-nonzero-assumption-conflict:p1:league2:${PROFILE_ONE}`];
-    expect(result).toMatchObject({ status: 'unavailable', reason: 'provider-coverage-incomplete',
-      diagnostics: conflicts });
-    expect(test.upsertScoringEntities).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ status: 'completed', acceptedLeagues: 0, failedLeagues: 2,
+      leagueOutcomes: expect.arrayContaining([expect.objectContaining({ reason: 'league-participation-conflict' })]) });
     expect(test.recordLeagueWeekObservation).not.toHaveBeenCalled();
+    expect(test.acceptAllPlayerLeagueScore).not.toHaveBeenCalled();
     expect(test.pointers).toEqual([]);
-    if (mode === 'shadow') {
-      expect(test.recordAllPlayerBatch).not.toHaveBeenCalled();
-    } else {
-      expect(result).toMatchObject({ persistedObservation: true });
-      const batch = test.recordAllPlayerBatch.mock.calls[0][0];
-      expect(batch.scoreSets).toEqual([]);
-      expect(batch.observation).toMatchObject({ quality: 'partial', coverage: {
-        complete: false, unknownEligibilityCount: 1, unknownAppearanceCount: 1,
-        assumedNonParticipationCount: 0, unknownEligibilityIds: ['p1'],
-        nonParticipationAssumptionConflicts: conflicts,
-      } });
-      expect(batch.observation.entries.find((value) => value.providerExternalId === 'p1')).toMatchObject({
-        stats: { gms_active: 1, pass_td: 1 }, eligibleGameCount: null, appearanceGameCount: null,
-        eligibilityEvidence: { kind: 'weekly-stat', source: 'weekly-stat-provider', gmsActive: 1 },
+    if (mode === 'shadow') expect(test.recordAllPlayerBatch).not.toHaveBeenCalled();
+    else {
+      expect(test.recordAllPlayerBatch).toHaveBeenCalledOnce();
+      expect(test.recordAllPlayerBatch.mock.calls[0][0].observation.entries
+        .find((value) => value.providerExternalId === 'p1')).toMatchObject({
+        stats: { gms_active: 1, pass_td: 1 }, appearanceGameCount: 0,
+        eligibilityEvidence: { kind: 'assumed-nonparticipation' },
       });
-      expect(batch.observation.warnings).toContain('unknown-eligibility:1');
     }
   });
 
-  it('checks each distinct profile and preserves the existing nonzero tolerance', async () => {
+  it('preserves parity tolerance for an actually appearing player', async () => {
+    const input = observation();
+    const test = harness({ divergent: true, observation: { ...input, entries: input.entries.map((value) => (
+      value.providerExternalId === 'p1'
+        ? { ...value, stats: { gms_active: 1, gp: 1, pass_td: 1.000_000_2 } } : value
+    )) } });
+    const result = await runAllPlayerIngestion(test.dependencies, { mode: 'backfill', period: PERIOD });
+    expect(result).toMatchObject({ status: 'completed', acceptedLeagues: 1, failedLeagues: 1,
+      leagueOutcomes: expect.arrayContaining([
+        expect.objectContaining({ leagueKey: 'league1', status: 'accepted' }),
+        expect.objectContaining({ leagueKey: 'league2', status: 'failed', reason: 'score-scoring-mismatch' }),
+      ]) });
+    expect(test.acceptAllPlayerLeagueScore).toHaveBeenCalledOnce();
+    expect([...test.leaguePointers.keys()]).toEqual([SEASON_ONE]);
+  });
+
+  it.each(['shadow', 'backfill'] as const)('rejects nonzero nonparticipating content even below participation tolerance in %s', async (mode) => {
     const input = observation();
     const test = harness({ divergent: true, observation: { ...input, entries: input.entries.map((value) => (
       value.providerExternalId === 'free'
         // Synthetic threshold case: 4 * this value is below tolerance, 6 * it exceeds tolerance.
         ? { ...value, stats: { gms_active: 1, pass_td: 0.000_000_2 } } : value
     )) } });
-    await expect(runAllPlayerIngestion(test.dependencies, { mode: 'backfill', period: PERIOD }))
-      .resolves.toMatchObject({ status: 'unavailable', persistedObservation: true,
-        diagnostics: [`nonzero-assumption-conflict:free:${PROFILE_TWO}`] });
-    expect(test.recordAllPlayerBatch.mock.calls[0][0].observation.entries
-      .find((value) => value.providerExternalId === 'free')).toMatchObject({
-      eligibleGameCount: null, appearanceGameCount: null, stats: { pass_td: 0.000_000_2 },
-    });
-    expect(test.pointers).toEqual([]);
+    const result = await runAllPlayerIngestion(test.dependencies, { mode, period: PERIOD });
+    // Shadow must apply the same strict score serialization as the real writer:
+    // appearance zero cannot carry nonzero points, even below reconciliation tolerance.
+    expect(result).toMatchObject({ status: 'completed', acceptedLeagues: 0, failedLeagues: 2,
+      leagueOutcomes: expect.arrayContaining([
+        { leagueKey: 'league1', status: 'failed', reason: 'league-processing-failed' },
+        { leagueKey: 'league2', status: 'failed', reason: 'league-participation-conflict' },
+      ]) });
+    if (mode === 'backfill') {
+      expect(test.recordAllPlayerBatch).toHaveBeenCalledOnce();
+      expect(test.recordAllPlayerBatch.mock.calls[0][0].observation.entries
+        .find((value) => value.providerExternalId === 'free')).toMatchObject({
+        eligibleGameCount: 1, appearanceGameCount: 0, stats: { gms_active: 1, pass_td: 0.000_000_2 },
+      });
+    } else expect(test.recordAllPlayerBatch).not.toHaveBeenCalled();
+    expect(test.recordAllPlayerScoreContent).not.toHaveBeenCalled();
+    expect(test.acceptAllPlayerLeagueScore).not.toHaveBeenCalled();
+    expect([...test.leaguePointers.keys()]).toEqual([]);
   });
 
   it.each([
     { mode: 'shadow', missing: true }, { mode: 'backfill', missing: true },
     { mode: 'shadow', missing: false }, { mode: 'backfill', missing: false },
-  ] as const)('withdraws assumptions for official nonzero points ($mode, missing=$missing)', async ({ mode, missing }) => {
+  ] as const)('never accepts official nonzero points against provider nonparticipation ($mode, missing=$missing)', async ({ mode, missing }) => {
     const input = observation();
     const test = harness({ observation: { ...input, entries: input.entries.map((value) => (
       value.providerExternalId === 'p1' ? { ...value,
@@ -1043,29 +1219,21 @@ describe('canonical all-player ingestion orchestration', () => {
         } } : {}),
       } : value
     )) } });
-    const conflicts = [`official-nonzero-assumption-conflict:p1:league1:${PROFILE_ONE}`,
-      `official-nonzero-assumption-conflict:p1:league2:${PROFILE_ONE}`];
     const result = await runAllPlayerIngestion(test.dependencies, { mode, period: PERIOD });
-    expect(result).toMatchObject({ status: 'unavailable', reason: 'provider-coverage-incomplete', diagnostics: conflicts });
-    expect(test.upsertScoringEntities).not.toHaveBeenCalled();
+    expect(result).toMatchObject(missing ? { status: 'unavailable', reason: 'provider-coverage-incomplete' }
+      : { status: 'completed', acceptedLeagues: 0, failedLeagues: 2,
+        leagueOutcomes: expect.arrayContaining([expect.objectContaining({ reason: 'league-participation-conflict' })]) });
     expect(test.recordLeagueWeekObservation).not.toHaveBeenCalled();
+    expect(test.acceptAllPlayerLeagueScore).not.toHaveBeenCalled();
     expect(test.pointers).toEqual([]);
-    if (mode === 'shadow') {
-      expect(test.recordAllPlayerBatch).not.toHaveBeenCalled();
-    } else {
-      expect(result).toMatchObject({ persistedObservation: true });
+    if (mode === 'shadow') expect(test.recordAllPlayerBatch).not.toHaveBeenCalled();
+    else {
       const batch = test.recordAllPlayerBatch.mock.calls[0][0];
       expect(batch.scoreSets).toEqual([]);
-      expect(batch.observation.coverage).toMatchObject({ complete: false, unknownEligibilityCount: 1,
-        unknownAppearanceCount: 1, assumedNonParticipationCount: 0,
-        nonParticipationAssumptionConflicts: conflicts });
-      const saved = batch.observation.entries.find((value) => value.providerExternalId === 'p1');
-      expect(saved).toMatchObject({ eligibleGameCount: null, appearanceGameCount: null,
-        stats: missing ? {} : { gms_active: 1, pass_td: 0 },
-        eligibilityEvidence: missing ? { kind: 'missing-provider-row' }
-          : { kind: 'weekly-stat', source: 'weekly-stat-provider', gmsActive: 1 },
+      expect(batch.observation.entries.find((value) => value.providerExternalId === 'p1')).toMatchObject({
+        appearanceGameCount: 0, stats: missing ? {} : { gms_active: 1, pass_td: 0 },
+        eligibilityEvidence: { kind: 'assumed-nonparticipation' },
       });
-      if (missing) expect(saved?.stats).toEqual({});
     }
   });
 
@@ -1079,13 +1247,11 @@ describe('canonical all-player ingestion orchestration', () => {
           } } : value
     )) } });
     await expect(runAllPlayerIngestion(test.dependencies, { mode: 'backfill', period: PERIOD }))
-      .resolves.toMatchObject({ status: 'unavailable', persistedObservation: true });
+      .resolves.toMatchObject({ status: 'unavailable', reason: 'provider-coverage-incomplete', persistedObservation: true });
+    expect(test.acceptAllPlayerLeagueScore).not.toHaveBeenCalled();
     const saved = test.recordAllPlayerBatch.mock.calls[0][0].observation;
-    expect(saved.coverage).toMatchObject({ unknownEligibilityCount: 2, unknownAppearanceCount: 1,
-      assumedNonParticipationCount: 2, unknownEligibilityIds: ['free', 'p1'] });
     expect(saved.entries.find((value) => value.providerExternalId === 'p1')).toMatchObject({
-      eligibleGameCount: null, appearanceGameCount: null, stats: { pass_td: -1 },
-      eligibilityEvidence: { kind: 'weekly-stat', source: 'weekly-stat-provider' },
+      appearanceGameCount: 0, stats: { pass_td: -1 }, eligibilityEvidence: { kind: 'assumed-nonparticipation' },
     });
     expect(saved.entries.find((value) => value.providerExternalId === 'pzero')).toMatchObject({
       eligibleGameCount: 1, appearanceGameCount: 0,
@@ -1164,9 +1330,12 @@ describe('canonical all-player ingestion orchestration', () => {
     expect(test.batches).toHaveLength(2);
     const [first, second] = test.batches as AllPlayerBatchInput[];
     expect(first.observation.sourceRevision).toBe(second.observation.sourceRevision);
-    expect(first.scoreSets[0].semanticHash).toBe(second.scoreSets[0].semanticHash);
-    expect(first.scoreSets[0].coverage.parity_observation_ids)
-      .not.toEqual(second.scoreSets[0].coverage.parity_observation_ids);
+    const contents = test.recordAllPlayerScoreContent.mock.calls.map(([input]) => input.scoreSet);
+    expect(contents).toHaveLength(2);
+    expect(contents[0].semanticHash).toBe(contents[1].semanticHash);
+    expect(test.acceptAllPlayerLeagueScore.mock.calls.map(([input]) => input.officialObservationId))
+      .toEqual([OBS_ONE, OBS_TWO, 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', 'dddddddd-dddd-4ddd-8ddd-dddddddddddd']);
+    expect(new Set(test.pointers).size).toBe(1);
   });
 
   it.each([
@@ -1213,12 +1382,12 @@ describe('canonical all-player ingestion orchestration', () => {
     const persistence = harness();
     persistence.recordAllPlayerBatch.mockRejectedValueOnce(new Error('database unavailable'));
     await expect(runAllPlayerIngestion(persistence.dependencies, { mode: 'backfill', period: PERIOD }))
-      .resolves.toMatchObject({ status: 'unavailable', reason: 'stage-failed', stage: 'publication' });
+      .resolves.toMatchObject({ status: 'unavailable', reason: 'stage-failed', stage: 'shared-capture-persistence' });
     expect(persistence.pointers).toEqual([]);
   });
 
   it.each(['shadow', 'backfill'] as const)(
-    'fails %s consistently for an existing unverified official identity',
+    'never accepts scores in %s for an existing unverified official identity',
     async (mode) => {
       const test = harness();
       vi.mocked(test.dependencies.store.readAllPlayerIdentityMappings).mockImplementationOnce(
@@ -1234,18 +1403,21 @@ describe('canonical all-player ingestion orchestration', () => {
             mappingStatus: null, validTo: null,
           }),
       );
-      await expect(runAllPlayerIngestion(test.dependencies, {
-        mode, period: PERIOD,
-      })).resolves.toMatchObject({
-        status: 'unavailable', reason: 'identity-mapping-unusable',
-      });
-      expect(test.allPlayerSource.load).not.toHaveBeenCalled();
-      expect(test.upsertScoringEntities).not.toHaveBeenCalled();
-      expect(test.recordAllPlayerBatch).not.toHaveBeenCalled();
+      const result = await runAllPlayerIngestion(test.dependencies, { mode, period: PERIOD });
+      expect(result).toMatchObject(mode === 'shadow'
+        ? { status: 'completed', acceptedLeagues: 0, failedLeagues: 2 }
+        : { status: 'unavailable', reason: 'identity-plan-conflict', persistedObservation: true });
+      expect(test.acceptAllPlayerLeagueScore).not.toHaveBeenCalled();
+      expect(test.pointers).toEqual([]);
+      expect(test.allPlayerSource.load).toHaveBeenCalledOnce();
+      if (mode === 'shadow') {
+        expect(test.upsertScoringEntities).not.toHaveBeenCalled();
+        expect(test.recordAllPlayerBatch).not.toHaveBeenCalled();
+      } else expect(test.recordAllPlayerBatch).toHaveBeenCalledOnce();
     },
   );
 
-  it('stores final corrections as new immutable batches and advances only guarded batch pointers', async () => {
+  it('records fresh retrieval and acceptance lineage without copying unchanged score content', async () => {
     const test = harness();
     const first = await runAllPlayerIngestion(test.dependencies, { mode: 'backfill', period: PERIOD });
     test.acquireJob.mockResolvedValueOnce({
@@ -1263,10 +1435,12 @@ describe('canonical all-player ingestion orchestration', () => {
     expect(test.batches).toHaveLength(2);
     expect(test.batches.map((value) => (value as { observation: AllPlayerStatObservation }).observation.sourceRevision))
       .toEqual(['etag:"week-1"', 'etag:"week-1-corrected"']);
-    expect(new Set(test.pointers).size).toBe(2);
+    expect(new Set(test.pointers).size).toBe(1);
+    expect(test.acceptAllPlayerLeagueScore.mock.calls.slice(2).map(([input]) => input.statObservationId))
+      .toEqual([deterministicUuid('observation', 'etag:"week-1-corrected"'), deterministicUuid('observation', 'etag:"week-1-corrected"')]);
   });
 
-  it('rejects unsupported active rules before a weekly request or ancillary writes', async () => {
+  it('retains the shared capture while rejecting every league with unsupported active rules', async () => {
     const test = harness();
     const original = test.dependencies.loadLeagueWeek;
     test.dependencies = { ...test.dependencies, loadLeagueWeek: async (...args) => {
@@ -1276,11 +1450,14 @@ describe('canonical all-player ingestion orchestration', () => {
       } } };
     } };
     await expect(runAllPlayerIngestion(test.dependencies, { mode: 'backfill', period: PERIOD }))
-      .resolves.toMatchObject({ status: 'unavailable', reason: 'unsupported-active-scoring-rule' });
-    expect(test.allPlayerSource.load).not.toHaveBeenCalled();
-    expect(test.upsertScoringEntities).not.toHaveBeenCalled();
+      .resolves.toMatchObject({ status: 'completed', acceptedLeagues: 0, failedLeagues: 2,
+        leagueOutcomes: expect.arrayContaining([expect.objectContaining({ reason: 'unsupported-active-scoring-rule' })]) });
+    expect(test.allPlayerSource.load).toHaveBeenCalledOnce();
+    expect(test.recordAllPlayerBatch).toHaveBeenCalledOnce();
+    expect(test.acceptAllPlayerLeagueScore).not.toHaveBeenCalled();
     expect(test.dependencies.store.finishAllPlayerJob).toHaveBeenCalledWith(expect.objectContaining({
-      outcome: 'validation-failed',
+      scopedCapture: { statObservationId: expect.any(String) },
+      diagnostic: expect.objectContaining({ acceptedLeagueCount: 0, failedLeagueCount: 2 }),
     }));
   });
 
@@ -1306,7 +1483,7 @@ describe('canonical all-player ingestion orchestration', () => {
     const test = harness();
     vi.mocked(test.dependencies.store.validateAllPlayerJobFence).mockResolvedValue(false);
     await expect(runAllPlayerIngestion(test.dependencies, { mode: 'backfill', period: PERIOD }))
-      .resolves.toMatchObject({ status: 'unavailable', reason: 'lease-lost', stage: 'identity-persistence' });
+      .resolves.toMatchObject({ status: 'unavailable', reason: 'lease-lost', stage: 'shared-capture-persistence' });
     expect(test.upsertScoringEntities).not.toHaveBeenCalled();
     expect(test.recordLeagueWeekObservation).not.toHaveBeenCalled();
     expect(test.recordAllPlayerBatch).not.toHaveBeenCalled();
@@ -1360,12 +1537,10 @@ describe('canonical all-player ingestion orchestration', () => {
         } : { ...value, scoringEntityId: null, mappedEntityKind: null, mappingStatus: null, validTo: null })
       ));
       const result = await runAllPlayerIngestion(test.dependencies, { mode: 'shadow', period: PERIOD });
-      expect(result.status).toBe(validTo.startsWith('2026-09-16') ? 'completed' : 'unavailable');
-      if (result.status === 'unavailable') {
-        expect(result).toMatchObject({ reason: 'identity-mapping-unusable',
-          diagnostics: expect.arrayContaining(['sleeper/p1:required-official:mapping-unusable']) });
-        expect(test.allPlayerSource.load).not.toHaveBeenCalled();
-      }
+      expect(result).toMatchObject({ status: 'completed',
+        acceptedLeagues: validTo.startsWith('2026-09-16') ? 2 : 0,
+        failedLeagues: validTo.startsWith('2026-09-16') ? 0 : 2 });
+      expect(test.acceptAllPlayerLeagueScore).not.toHaveBeenCalled();
     }
   });
 
@@ -1387,10 +1562,10 @@ describe('canonical all-player ingestion orchestration', () => {
         ));
       }
       await expect(runAllPlayerIngestion(test.dependencies, { mode: 'backfill', period: PERIOD }))
-        .resolves.toMatchObject({ status: 'unavailable', reason: variant === 'missing-catalog'
-          ? 'inventory-identity' : 'identity-mapping-unusable' });
-      expect(test.allPlayerSource.load).not.toHaveBeenCalled();
-      expect(test.upsertScoringEntities).not.toHaveBeenCalled();
+        .resolves.toMatchObject({ status: 'unavailable' });
+      expect(test.acceptAllPlayerLeagueScore).not.toHaveBeenCalled();
+      expect(test.recordLeagueWeekObservation).not.toHaveBeenCalled();
+      expect(test.pointers).toEqual([]);
     },
   );
 
@@ -1406,7 +1581,7 @@ describe('canonical all-player ingestion orchestration', () => {
     expect(test.dependencies.store.markAllPlayerRequest).not.toHaveBeenCalled();
   });
 
-  it.each(['bad-time', 'bad-lineup'] as const)('prepares official parent input before identities: %s', async (variant) => {
+  it.each(['bad-time', 'bad-lineup'] as const)('rejects malformed official parent before league publication: %s', async (variant) => {
     const test = harness();
     const load = test.dependencies.loadLeagueWeek;
     test.dependencies = { ...test.dependencies, loadLeagueWeek: async (...args) => {
@@ -1415,10 +1590,10 @@ describe('canonical all-player ingestion orchestration', () => {
         : { ...league.state, lineup: { ...league.state.lineup, lineupRevision: 'invalid' } } } as typeof league;
     } };
     await expect(runAllPlayerIngestion(test.dependencies, { mode: 'backfill', period: PERIOD }))
-      .resolves.toMatchObject({ status: 'unavailable' });
-    expect(test.upsertScoringEntities).not.toHaveBeenCalled();
+      .resolves.toMatchObject({ status: 'completed', acceptedLeagues: 0, failedLeagues: 2 });
     expect(test.recordLeagueWeekObservation).not.toHaveBeenCalled();
-    expect(test.recordAllPlayerBatch).not.toHaveBeenCalled();
+    expect(test.recordAllPlayerBatch).toHaveBeenCalledOnce();
+    expect(test.acceptAllPlayerLeagueScore).not.toHaveBeenCalled();
   });
 
   it.each(['lost', 'failed'] as const)('preserves confirmed publication evidence when outcome recording is %s', async (variant) => {
@@ -1428,8 +1603,8 @@ describe('canonical all-player ingestion orchestration', () => {
     const result = await runAllPlayerIngestion(test.dependencies, { mode: 'backfill', period: PERIOD });
     expect(result).toMatchObject({ status: 'unavailable', stage: 'durable-outcome',
       confirmedPublication: { statObservationId: expect.any(String),
-        pointerOutcomes: ['advanced'], entryCount: 37, scoringProfileCount: 1 } });
-    expect(test.pointers).toHaveLength(1);
+        pointerOutcomes: ['advanced', 'advanced'], entryCount: 37, scoringProfileCount: 1 } });
+    expect(test.pointers).toHaveLength(2);
   });
 
   it.each(['backfill', 'recurring'] as const)('durably records no-fence claim races for %s', async (mode) => {

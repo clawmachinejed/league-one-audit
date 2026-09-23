@@ -696,7 +696,7 @@ export async function getFantasyPlayerCatalog(): Promise<FantasyPlayerCatalog> {
   return getPlayers();
 }
 
-async function getWeekSchedule(season: string, week: number): Promise<{
+export async function getWeekSchedule(season: string, week: number): Promise<{
   schedule: WeekSchedule;
   byeWeeks: Record<string, number>;
   canIdentifyByes: boolean;
