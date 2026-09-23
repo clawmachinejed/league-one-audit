@@ -19,7 +19,6 @@ import {
   rulesHash,
 } from '../adapters/neon/database-values';
 import type {
-  AllPlayerBatchInput,
   AllPlayerJobFence,
   SleeperWeeklyStatReceipt,
   AllPlayerIdentityLookup,
@@ -29,9 +28,9 @@ import type {
 import { prepareAllPlayerBatch } from '../adapters/neon/all-player-statistics';
 import { prepareLeagueWeekObservation } from '../adapters/neon/observations';
 import {
-  buildAllPlayerScoreSets,
+  buildAllPlayerScoreContent,
+  validateLeagueAllPlayerParity,
   validateAllPlayerObservationEvidence,
-  type AllPlayerIdentity,
   type AllPlayerScoreSet,
   type AllPlayerScoringProfile,
   type AllPlayerStatEntry,
@@ -65,7 +64,8 @@ import {
 import { stableJson } from '../shared/stable-json';
 import type { FullSlateProjectionCoverage } from '../worker/contracts';
 import { analyzeFullSlateProjectionCoverage } from '../worker/provider-stage';
-import { projectionEntities, projectionEntityForObservation } from '../worker/roster-context';
+import { projectionEntityForObservation } from '../worker/roster-context';
+import { mapWithConcurrency } from '../worker/worker-operations';
 import { officialPlayerIdentityInventory } from '../shared/official-catalog-identity';
 import { validateAllPlayerPublicationCoverage } from '../domain/all-player-publication-coverage';
 import { prepareAllPlayerDiagnostics } from './all-player-diagnostics';
@@ -88,7 +88,7 @@ const SQL_FAILURE_REASONS = {
 export type AllPlayerIngestionMode = 'shadow' | 'backfill' | 'recurring';
 
 type AllPlayerPregameEvidence = Readonly<{
-  policy: 'exact-period-pregame-v1';
+  policy: 'exact-period-shared-pregame-v1';
   verifiedAt: string;
   firstKickoffAt: string;
   scheduledGameCount: number;
@@ -112,6 +112,8 @@ type AllPlayerStore = Pick<ProjectionStore,
   | 'upsertScoringEntities'
   | 'recordLeagueWeekObservation'
   | 'recordAllPlayerBatch'
+  | 'recordAllPlayerScoreContent'
+  | 'acceptAllPlayerLeagueScore'
   | 'acquireAllPlayerJob'
   | 'markAllPlayerRequest'
   | 'finishAllPlayerJob'
@@ -124,6 +126,8 @@ export type AllPlayerIngestionDependencies = Readonly<{
   store: AllPlayerStore;
   projectionRepository: Pick<ProjectionRepositoryPort, 'readCurrentProjectionSlate'>;
   leagueRegistry: LeagueRegistryPort;
+  /** The existing official NFL schedule boundary, independent of fantasy leagues. */
+  loadSchedule: (period: LeaguePeriod) => Promise<NflWeekSchedule>;
   loadLeagueWeek: (
     configuration: LeagueConfiguration,
     period: LeaguePeriod,
@@ -229,7 +233,22 @@ export type AllPlayerIngestionResult =
       persisted: boolean;
       statObservationId: string | null;
       pointerOutcomes: readonly string[];
+      acceptedLeagues: number;
+      failedLeagues: number;
+      leagueOutcomes: readonly AllPlayerLeagueOutcome[];
     }>;
+
+type AllPlayerProgress = { statObservationId: string | null; entryCount: number; outcomes: AllPlayerLeagueOutcome[] };
+
+export type AllPlayerLeagueOutcome = Readonly<{
+  leagueKey: string;
+  status: 'accepted' | 'failed' | 'deferred';
+  reason?: string;
+  acceptanceId?: string;
+  leagueSeasonId?: string;
+  scoringProfileId?: string;
+  pointerOutcome?: string;
+}>;
 
 type LoadedLeague = AllPlayerLeagueLoad & Readonly<{
   configuration: LeagueConfiguration;
@@ -322,26 +341,11 @@ function responseDiagnostics(evidence: SleeperAllPlayerStatResponseEvidence | un
 function pregameEvidence(
   schedule: NflWeekSchedule,
   games: Awaited<ReturnType<AllPlayerStore['readAllPlayerGameContext']>>,
-  authorities: Awaited<ReturnType<AllPlayerStore['readLeagueLineupAuthorities']>>,
-  leagues: readonly LoadedLeague[],
-  period: LeaguePeriod,
   response: SleeperAllPlayerStatResponseEvidence,
   now: Date,
 ): AllPlayerPregameEvidence | null {
   const checkedAt = now.getTime();
-  const keys = new Set(leagues.map((league) => league.configuration.key));
   if (!Number.isFinite(checkedAt) || Date.parse(response.requestCompletedAt) > checkedAt
-    || authorities.length !== keys.size || new Set(authorities.map((row) => row.leagueKey)).size !== keys.size
-    || authorities.some((row) => row.kind !== 'available' || !keys.has(row.leagueKey)
-      || row.authority.leagueKey !== row.leagueKey || row.authority.sourceProvider !== 'sleeper'
-      || row.authority.leagueLifecycle !== 'active' || row.authority.activeSeason !== period.season
-      || row.authority.activeSeasonType !== 'reg' || row.authority.activeWeek !== period.week
-      || !Number.isFinite(Date.parse(row.authority.verifiedAt))
-      || checkedAt - Date.parse(row.authority.verifiedAt) > 600_000
-      || Date.parse(row.authority.verifiedAt) > checkedAt + 30_000)
-    || leagues.some((league) => league.official.points.some((point) => point.points !== 0)
-      || league.rawMatchups.some((row) => row.points !== 0
-        || row.custom_points != null && row.custom_points !== 0))
     || Object.keys(schedule).length !== NFL_TEAM_CODES.length
     || NFL_TEAM_CODES.some((team) => !schedule[team])) return null;
   const expectedGames = new Map<string, { homeTeam: string; awayTeam: string; kickoff: number }>();
@@ -370,27 +374,9 @@ function pregameEvidence(
       || game.phase !== 'unknown' || Date.parse(game.kickoffAt ?? '') !== expected.kickoff) return null;
     matched.add(key);
   }
-  return { policy: 'exact-period-pregame-v1', verifiedAt: now.toISOString(),
+  return { policy: 'exact-period-shared-pregame-v1', verifiedAt: now.toISOString(),
     firstKickoffAt: new Date(Math.min(...[...expectedGames.values()].map((game) => game.kickoff))).toISOString(),
     scheduledGameCount: expectedGames.size, scheduleRevision: fingerprint(schedule) };
-}
-
-function scheduleFor(leagues: readonly AllPlayerLeagueLoad[]): NflWeekSchedule {
-  const first = leagues[0]?.state.schedule;
-  if (!first || leagues.some((league) => stableJson(league.state.schedule) !== stableJson(first))) {
-    throw new Error('Canonical leagues did not provide one shared NFL schedule.');
-  }
-  return first;
-}
-
-function rosteredPlayerIds(leagues: readonly AllPlayerLeagueLoad[]): string[] {
-  return [...new Set(leagues.flatMap((league) => [
-    ...projectionEntities(league.state).map((entity) => String(entity.externalRef.externalId)),
-    ...league.rawMatchups.flatMap((row) => [
-      ...(Array.isArray(row.players) ? row.players : []),
-      ...(Array.isArray(row.starters) ? row.starters.filter((id) => id !== '0') : []),
-    ]),
-  ]))].sort();
 }
 
 function identityLookupKey(input: AllPlayerIdentityLookup): string {
@@ -796,26 +782,49 @@ function officialObservationInput(league: LoadedLeague, observation: AllPlayerSt
   };
 }
 
-async function persistOfficialObservations(
-  store: AllPlayerStore,
-  leagues: readonly LoadedLeague[],
-  observation: AllPlayerStatObservation,
-  checkpoint: (stage: string, write?: boolean) => Promise<void>,
-): Promise<ReadonlyMap<string, string>> {
-  const results = new Map<string, string>();
-  for (const league of leagues) {
-    await checkpoint(`official-observation-${league.configuration.key}`, true);
-    const result = await store.recordLeagueWeekObservation(officialObservationInput(league, observation));
-    if (result.kind !== 'stored'
-      || result.value.playerPointsStored !== league.official.entityCount
-      || result.value.rosterPointsStored !== league.official.rosterCount
-      || result.value.unmappedSleeperPlayerIds.length > 0
-      || result.value.unmappedTank01GameIds.length > 0) {
-      throw new Error('Official all-player parity observation was not stored completely.');
+/** League source waits are bounded independently; late reads cannot publish. */
+async function loadValidatedLeague(
+  dependencies: AllPlayerIngestionDependencies,
+  configuration: LeagueConfiguration,
+  period: LeaguePeriod,
+  schedule: NflWeekSchedule,
+): Promise<LoadedLeague> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const load = async (): Promise<LoadedLeague> => {
+    const league = await dependencies.loadLeagueWeek(configuration, period);
+    if (!samePeriod(league.state.period, period)) throw new Error('league-period-mismatch');
+    if (configuration.key !== league.state.configuration.key
+      || externalReferenceKey(configuration.leagueRef) !== externalReferenceKey(league.state.configuration.leagueRef)) {
+      throw new Error('league-identity-mismatch');
     }
-    results.set(league.configuration.key, result.value.observationId);
-  }
-  return results;
+    if (stableJson(league.state.schedule) !== stableJson(schedule)) throw new Error('league-schedule-mismatch');
+    if (league.rawMatchups.some((row) => !Array.isArray(row.starters)
+      || row.starters.length !== league.starterSlots.length)) throw new Error('official-starters-unavailable');
+    const normalized = dependencies.normalizeScoringProfile(league.state.scoringSettings);
+    if (normalized.status !== 'available') throw new Error('unsupported-scoring');
+    const rawRules = normalized.profile.provenance.rawRules;
+    if (Object.entries(rawRules).some(([key, weight]) => typeof weight !== 'number'
+      || !Number.isFinite(weight) || weight !== 0 && !SLEEPER_ALL_PLAYER_SCORING_RULE_KEYS.has(key))) {
+      throw new Error('unsupported-active-scoring-rule');
+    }
+    const profiles = await dependencies.store.readAllPlayerLeagueProfiles({ season: period.season,
+      provider: String(dependencies.officialProvider), leagues: [{ leagueKey: configuration.key,
+        externalLeagueId: String(configuration.leagueRef.externalId), rulesHash: rulesHash(rawRules) }] });
+    const profile = profiles[0];
+    if (profiles.length !== 1 || !profile || profile.leagueKey !== configuration.key
+      || profile.rulesHash !== rulesHash(rawRules) || stableJson(profile.rules) !== stableJson(rawRules)) {
+      throw new Error('scoring-profile-inventory');
+    }
+    const official = sleeperOfficialRosteredPoints(league.rawMatchups, league.expectedRosterIds);
+    if (official.status !== 'available') throw new Error('official-parity-incomplete');
+    return { ...league, configuration, scoringProfileId: profile.scoringProfileId,
+      leagueSeasonId: profile.leagueSeasonId, rawRules, official };
+  };
+  try {
+    return await Promise.race([load(), new Promise<never>((_, reject) => {
+      timeout = setTimeout(() => reject(new Error('league-source-timeout')), 8_000);
+    })]);
+  } finally { if (timeout) clearTimeout(timeout); }
 }
 
 async function execute(
@@ -826,12 +835,17 @@ async function execute(
     requireFinalCoverage?: boolean;
     cadenceDiagnostics?: readonly string[];
     fence?: AllPlayerJobFence;
+    eligibleLeagueKeys?: readonly string[];
+    unavailableLeagueKeys?: readonly string[];
+    progress: AllPlayerProgress;
     checkpoint: (stage: string, write?: boolean) => Promise<void>;
   }>,
 ): Promise<AllPlayerIngestionResult> {
   const { mode, period } = input;
   await input.checkpoint('source-context');
-  const configurations = dependencies.leagueRegistry.listActiveLeagues();
+  const allConfigurations = dependencies.leagueRegistry.listActiveLeagues();
+  const configurations = input.eligibleLeagueKeys
+    ? allConfigurations.filter((league) => input.eligibleLeagueKeys!.includes(league.key)) : allConfigurations;
   if (configurations.length === 0
     || configurations.some(({ key, leagueRef }) => !key.trim() || key !== key.trim()
       || leagueRef.resource !== 'league' || leagueRef.provider !== dependencies.officialProvider
@@ -840,11 +854,8 @@ async function execute(
     || new Set(configurations.map(({ leagueRef }) => externalReferenceKey(leagueRef))).size !== configurations.length) {
     return unavailable(mode, period, 'league-inventory');
   }
-  const [leagueLoads, catalog, projectionSlate, gameContext, reviewedEvidence, historicalTeamContexts] = await Promise.all([
-    Promise.all(configurations.map(async (configuration) => ({
-      configuration,
-      ...await dependencies.loadLeagueWeek(configuration, period),
-    }))),
+  const [schedule, catalog, projectionSlate, gameContext, reviewedEvidence, historicalTeamContexts] = await Promise.all([
+    dependencies.loadSchedule(period),
     dependencies.loadCatalog(),
     dependencies.projectionRepository.readCurrentProjectionSlate(
       dependencies.projectionProvider,
@@ -867,20 +878,7 @@ async function execute(
     || !samePeriod(projectionSlate.slate.period, period)) {
     return unavailable(mode, period, 'projection-slate-incomplete');
   }
-  if (leagueLoads.some((league) => !samePeriod(league.state.period, period))) {
-    return unavailable(mode, period, 'league-period-mismatch');
-  }
-  if (leagueLoads.some(({ configuration, state }) => configuration.key !== state.configuration.key
-    || externalReferenceKey(configuration.leagueRef) !== externalReferenceKey(state.configuration.leagueRef))) {
-    return unavailable(mode, period, 'league-identity-mismatch');
-  }
-  // Team-local projection recovery must not turn unknown assignments into official bench facts.
-  if (leagueLoads.some((league) => league.rawMatchups.some((row) =>
-    !Array.isArray(row.starters) || row.starters.length !== league.starterSlots.length))) {
-    return unavailable(mode, period, 'official-starters-unavailable');
-  }
   await input.checkpoint('inventory');
-  const schedule = scheduleFor(leagueLoads);
   const scheduleRevision = fingerprint(schedule);
   if (reviewedEvidence?.scheduleRevision && reviewedEvidence.scheduleRevision !== scheduleRevision) {
     return unavailable(mode, period, 'reviewed-schedule-evidence-conflict');
@@ -899,7 +897,9 @@ async function execute(
     catalog: catalog.catalog,
     catalogComplete: catalog.complete,
     catalogRevision: catalog.identityRevision ?? catalog.sourceRevision,
-    rosteredPlayerIds: rosteredPlayerIds(leagueLoads),
+    // Shared statistics describe the official player inventory, not membership
+    // in any fantasy league. A missing roster identity is validated for that league.
+    rosteredPlayerIds: [],
     projectionPlayerIds: projectionIds,
     gamesByTeam: games,
     byeTeamIds: Object.entries(schedule).flatMap(([team, value]) => (
@@ -951,63 +951,6 @@ async function execute(
       projectionCoverage, diagnostics: identityDiagnostics.sort(),
     });
   }
-  const normalized = leagueLoads.map((league) => ({
-    ...league,
-    normalization: dependencies.normalizeScoringProfile(league.state.scoringSettings),
-  }));
-  await input.checkpoint('profiles-and-official-points');
-  if (normalized.some((league) => league.normalization.status !== 'available')) {
-    return unavailable(mode, period, 'unsupported-scoring', {
-      projectionCoverage,
-    });
-  }
-  const profileInputs = normalized.map((league) => {
-    const value = league.normalization as Extract<SleeperScoringProfileNormalization, { status: 'available' }>;
-    const supported = new Set<string>(SLEEPER_ALL_PLAYER_SCORING_RULE_KEYS);
-    if (Object.entries(value.profile.provenance.rawRules).some(([key, weight]) => (
-      typeof weight !== 'number' || !Number.isFinite(weight) || (weight !== 0 && !supported.has(key))
-    ))) throw new Error('unsupported-active-scoring-rule');
-    return {
-      leagueKey: league.configuration.key,
-      externalLeagueId: String(league.configuration.leagueRef.externalId),
-      rulesHash: rulesHash(value.profile.provenance.rawRules),
-    };
-  });
-  const storedProfiles = await dependencies.store.readAllPlayerLeagueProfiles({
-    season: period.season,
-    provider: String(dependencies.officialProvider),
-    leagues: profileInputs,
-  });
-  if (storedProfiles.length !== normalized.length) {
-    return unavailable(mode, period, 'scoring-profile-inventory', {
-      projectionCoverage,
-    });
-  }
-  const profileByLeague = new Map(storedProfiles.map((profile) => [profile.leagueKey, profile]));
-  const loaded: LoadedLeague[] = [];
-  for (const league of normalized) {
-    const profile = profileByLeague.get(league.configuration.key);
-    const value = league.normalization as Extract<SleeperScoringProfileNormalization, { status: 'available' }>;
-    const official = sleeperOfficialRosteredPoints(
-      league.rawMatchups,
-      league.expectedRosterIds,
-    );
-    if (!profile || profile.rulesHash !== rulesHash(value.profile.provenance.rawRules)
-      || stableJson(profile.rules) !== stableJson(value.profile.provenance.rawRules)
-      || official.status !== 'available') {
-      return unavailable(mode, period, 'official-parity-incomplete', {
-          projectionCoverage,
-      });
-    }
-    loaded.push({
-      ...league,
-      scoringProfileId: profile.scoringProfileId,
-      leagueSeasonId: profile.leagueSeasonId,
-      rawRules: value.profile.provenance.rawRules,
-      official,
-    });
-  }
-
   await input.checkpoint('weekly-stat-request');
   if (mode !== 'shadow' && (!input.fence || !await dependencies.store.markAllPlayerRequest({
     fence: input.fence, period: { ...period, seasonType: 'reg' },
@@ -1032,16 +975,13 @@ async function execute(
       && responseEvidence.httpStatus !== null && responseEvidence.httpStatus >= 200
       && responseEvidence.httpStatus < 300) {
       await input.checkpoint('empty-period-preflight');
-      // Recheck canonical game state and current authority after the request.
+      // Recheck canonical game state after the request. No league is published
+      // from an empty response, so a peer's registration cannot block this proof.
       // A fetch that crosses kickoff cannot turn absent rows into a pregame skip.
-      const [currentGames, authorities] = await Promise.all([
-        dependencies.store.readAllPlayerGameContext({ season: period.season,
-          seasonType: 'reg', week: period.week, gameStateProvider: String(dependencies.gameStateProvider) }),
-        dependencies.store.readLeagueLineupAuthorities(configurations.map((configuration) => configuration.key)),
-      ]);
+      const currentGames = await dependencies.store.readAllPlayerGameContext({ season: period.season,
+        seasonType: 'reg', week: period.week, gameStateProvider: String(dependencies.gameStateProvider) });
       await input.checkpoint('empty-period-preflight');
-      const proof = pregameEvidence(schedule, currentGames, authorities, loaded, period,
-        responseEvidence, dependencies.clock.now());
+      const proof = pregameEvidence(schedule, currentGames, responseEvidence, dependencies.clock.now());
       if (proof) {
         await input.checkpoint('no-statistics-yet', true);
         // The final ownership check can itself cross kickoff.
@@ -1152,16 +1092,16 @@ async function execute(
   if (evidenceFailures.length) return unavailable(mode, period, 'observation-evidence-invalid', {
     projectionCoverage, diagnostics: evidenceFailures,
   });
-  const reconciled = reconcileNonParticipationAssumptions(observation, loaded);
-  const participation = { ...reconciled, diagnostics: [
-    ...(input.cadenceDiagnostics ?? []), ...reconciled.diagnostics,
-  ] };
-  if (participation.failures.length) return unavailable(mode, period, 'score-unsupported-scoring', {
-    projectionCoverage, diagnostics: participation.failures,
+  const participation = { diagnostics: [...(input.cadenceDiagnostics ?? [])] };
+  const invalidStats = observation.entries.flatMap((entry) => Object.entries(entry.stats)
+    .filter(([, value]) => !Number.isFinite(value))
+    .map(([key]) => `invalid-stat:${entry.providerExternalId}:${key}`));
+  if (invalidStats.length) return unavailable(mode, period, 'score-unsupported-scoring', {
+    projectionCoverage, diagnostics: invalidStats,
   });
-  observation = participation.observation;
+  // Reject malformed shared payloads before any storage or league work.
+  prepareAllPlayerBatch({ observation, scoreSets: [], verifiedAt: dependencies.clock.now().toISOString() });
   if (observation.quality !== 'complete' || observation.coverage.complete !== true) {
-    prepareAllPlayerBatch({ observation, scoreSets: [], verifiedAt: dependencies.clock.now().toISOString() });
     if (mode !== 'shadow'
       && observation.quality === 'partial'
       && observation.coverage.complete === false) {
@@ -1181,6 +1121,8 @@ async function execute(
           diagnostics: participation.diagnostics,
         });
       }
+      input.progress.statObservationId = stored.value.statObservationId;
+      input.progress.entryCount = stored.value.entryCount;
       if (mode === 'recurring') return {
         status: 'partial', mode, period, reason: 'provider-coverage-incomplete',
         sourceRevision: observation.sourceRevision, projectionCoverage,
@@ -1214,149 +1156,170 @@ async function execute(
     };
     return [entry.providerExternalId, identityPlan.byReference.get(providerIdentityKey(lookup)) ?? null];
   }));
-  const preliminaryObservationIds = new Map(loaded.map((league) => [
-    league.configuration.key,
-    shadowObservationId(
-      league.configuration.key,
-      league.state.sourceRevision,
-      observation.sourceRevision,
-    ),
-  ]));
-  const expectedProfileIds = [...new Set(loaded.map((league) => league.scoringProfileId))].sort();
-  const shadow = await buildAllPlayerScoreSets({
-      observation,
-      profiles: scoringProfiles(loaded, preliminaryObservationIds),
-      expectedScoringProfileIds: expectedProfileIds,
-      scorerVersion: ALL_PLAYER_SCORER_VERSION,
-      supportedRuleKeys: SLEEPER_ALL_PLAYER_SCORING_RULE_KEYS,
-      parityTolerance: ALL_PLAYER_PARITY_TOLERANCE,
-      resolveIdentity: (entry): AllPlayerIdentity => ({
-        scoringEntityId: entryIds.get(entry.providerExternalId) ?? null,
-        conflict: false,
-      }),
-  });
-  if (shadow.status !== 'available') {
-      return unavailable(mode, period, `score-${shadow.reason}`, {
-        sourceRevision: observation.sourceRevision,
-        projectionCoverage,
-        diagnostics: shadow.details,
-      });
-  }
-  // Official observation UUIDs are database-assigned. Validate their complete
-  // planned shape and every arithmetic/serializer input before creating them.
-  for (const league of loaded) prepareLeagueWeekObservation(officialObservationInput(league, observation));
-  prepareAllPlayerBatch({
-    observation, scoreSets: shadow.scoreSets, verifiedAt: dependencies.clock.now().toISOString(),
-  });
-  if (mode === 'shadow') {
-    return {
-      ...completedEvidence(mode, period, observation, shadow.scoreSets, projectionCoverage),
-      persisted: false,
-      statObservationId: null,
-      pointerOutcomes: [],
-    };
+  // Save the shared evidence before loading or validating a fantasy league.
+  let storedCaptureId: string | null = null;
+  if (mode !== 'shadow') {
+    await input.checkpoint('shared-capture-persistence', true);
+    const stored = await dependencies.store.recordAllPlayerBatch({
+      fence: input.fence, observation, scoreSets: [],
+      verifiedAt: dependencies.clock.now().toISOString(),
+    });
+    if (stored.kind !== 'stored' || stored.value.entryCount !== observation.entries.length
+      || stored.value.scoreSets.length !== 0) {
+      return unavailable(mode, period, 'shared-capture-persistence-incomplete', { projectionCoverage });
+    }
+    storedCaptureId = stored.value.statObservationId;
+    input.progress.statObservationId = storedCaptureId;
+    input.progress.entryCount = stored.value.entryCount;
   }
 
-  await input.checkpoint('identity-persistence', true);
-  const identityWrites = await dependencies.store.upsertScoringEntities(
-    observation.entries.map((entry) => {
-      const catalogPlayer = catalog.catalog[entry.providerExternalId];
-      const displayName = entry.entityKind === 'team_defense'
-        ? `${entry.providerExternalId} D/ST`
-        : catalogPlayer?.full_name?.trim()
-          || [catalogPlayer?.first_name, catalogPlayer?.last_name].filter(Boolean).join(' ').trim()
-          || entry.providerExternalId;
-      return {
-        key: `${entry.entityKind}:${entry.providerExternalId}`,
-        kind: entry.entityKind,
-        displayName,
-        nflTeam: entry.nflTeam,
-        preserveExistingMetadata: true,
-        providerIds: [{
-          provider: String(dependencies.officialProvider),
-          externalId: entry.providerExternalId,
-        }],
-      };
-    }),
-  );
-  if (identityWrites.kind !== 'stored' || identityWrites.value.length !== observation.entries.length
-    || identityWrites.value.some((identity) => identity.conflict || !identity.entityId)) {
-    return unavailable(mode, period, 'identity-write-incomplete', {
-      sourceRevision: observation.sourceRevision,
-      projectionCoverage,
-    });
+  if (mode !== 'shadow') {
+    await input.checkpoint('identity-persistence', true);
+    const identityWrites = await dependencies.store.upsertScoringEntities(
+      observation.entries.map((entry) => {
+        const catalogPlayer = catalog.catalog[entry.providerExternalId];
+        const displayName = entry.entityKind === 'team_defense'
+          ? `${entry.providerExternalId} D/ST`
+          : catalogPlayer?.full_name?.trim()
+            || [catalogPlayer?.first_name, catalogPlayer?.last_name].filter(Boolean).join(' ').trim()
+            || entry.providerExternalId;
+        return {
+          key: `${entry.entityKind}:${entry.providerExternalId}`,
+          kind: entry.entityKind,
+          displayName,
+          nflTeam: entry.nflTeam,
+          preserveExistingMetadata: true,
+          providerIds: [{
+            provider: String(dependencies.officialProvider),
+            externalId: entry.providerExternalId,
+          }],
+        };
+      }),
+    );
+    if (identityWrites.kind !== 'stored' || identityWrites.value.length !== observation.entries.length
+      || identityWrites.value.some((identity) => identity.conflict || !identity.entityId)) {
+      return unavailable(mode, period, 'identity-write-incomplete', {
+        sourceRevision: observation.sourceRevision,
+        projectionCoverage,
+      });
+    }
+    const actualEntityIds = new Map(identityWrites.value.map((identity) => [
+      identity.key.replace(/^(?:player|team_defense):/u, ''),
+      identity.entityId,
+    ]));
+    if (observation.entries.some((entry) => (
+      actualEntityIds.get(entry.providerExternalId) !== entryIds.get(entry.providerExternalId)
+    ))) {
+      return unavailable(mode, period, 'identity-plan-conflict', {
+        sourceRevision: observation.sourceRevision,
+        projectionCoverage,
+      });
+    }
   }
-  const actualEntityIds = new Map(identityWrites.value.map((identity) => [
-    identity.key.replace(/^(?:player|team_defense):/u, ''),
-    identity.entityId,
-  ]));
-  if (observation.entries.some((entry) => (
-    actualEntityIds.get(entry.providerExternalId) !== entryIds.get(entry.providerExternalId)
-  ))) {
-    return unavailable(mode, period, 'identity-plan-conflict', {
-      sourceRevision: observation.sourceRevision,
-      projectionCoverage,
-    });
-  }
-  await input.checkpoint('official-observation-persistence', true);
-  const officialObservationIds = await persistOfficialObservations(
-    dependencies.store,
-    loaded,
-    observation,
-    input.checkpoint,
-  );
-  const built = await buildAllPlayerScoreSets({
-    observation,
-    profiles: scoringProfiles(loaded, officialObservationIds),
-    expectedScoringProfileIds: expectedProfileIds,
-    scorerVersion: ALL_PLAYER_SCORER_VERSION,
-    supportedRuleKeys: SLEEPER_ALL_PLAYER_SCORING_RULE_KEYS,
-    parityTolerance: ALL_PLAYER_PARITY_TOLERANCE,
-    resolveIdentity: (entry) => ({
-      scoringEntityId: actualEntityIds.get(entry.providerExternalId) ?? null,
-      conflict: false,
-    }),
+  const scoreContents = new Map<string, Promise<Awaited<ReturnType<typeof buildAllPlayerScoreContent>>>>();
+  const persistedContents = new Map<string, ReturnType<AllPlayerStore['recordAllPlayerScoreContent']>>();
+  const acceptedSets = new Map<string, AllPlayerScoreSet>();
+  let parityComparisonCount = 0;
+  const outcomes = await mapWithConcurrency(configurations, 8, async (configuration): Promise<AllPlayerLeagueOutcome> => {
+    try {
+      await input.checkpoint('league-validation');
+      const league = await loadValidatedLeague(dependencies, configuration, period, schedule);
+      // A league's official points may invalidate an assumed nonparticipation
+      // result for that league. They never rewrite a capture used by its peers.
+      const participation = reconcileNonParticipationAssumptions(observation, [league]);
+      if (participation.failures.length || participation.diagnostics.length) {
+        throw new Error('league-participation-conflict');
+      }
+      const key = `${league.scoringProfileId}:${hash(league.rawRules)}`;
+      let content = scoreContents.get(key);
+      if (!content) {
+        content = buildAllPlayerScoreContent({ observation,
+          profile: { scoringProfileId: league.scoringProfileId, rawRules: league.rawRules },
+          scorerVersion: ALL_PLAYER_SCORER_VERSION, supportedRuleKeys: SLEEPER_ALL_PLAYER_SCORING_RULE_KEYS,
+          resolveIdentity: (entry) => ({ scoringEntityId: entryIds.get(entry.providerExternalId) ?? null, conflict: false }),
+        }).then((built) => {
+          if (built.status === 'available') prepareAllPlayerBatch({ observation, scoreSets: [built.scoreSet],
+            verifiedAt: dependencies.clock.now().toISOString() }, true);
+          return built;
+        });
+        scoreContents.set(key, content);
+      }
+      const built = await content;
+      if (built.status !== 'available') throw new Error(`score-${built.reason}`);
+      const plannedId = shadowObservationId(configuration.key, league.state.sourceRevision, observation.sourceRevision);
+      const parity = await validateLeagueAllPlayerParity({ scoreSet: built.scoreSet,
+        profile: scoringProfiles([league], new Map([[configuration.key, plannedId]]))[0] });
+      if (parity.status !== 'available') throw new Error(`score-${parity.reason}`);
+      const officialInput = officialObservationInput(league, observation);
+      prepareLeagueWeekObservation(officialInput);
+      if (mode === 'shadow') {
+        acceptedSets.set(key, built.scoreSet);
+        parityComparisonCount += league.official.entityCount;
+        return { leagueKey: configuration.key, leagueSeasonId: league.leagueSeasonId, status: 'accepted' };
+      }
+      await input.checkpoint('league-score-content', true);
+      let persistence = persistedContents.get(key);
+      if (!persistence) {
+        persistence = dependencies.store.recordAllPlayerScoreContent({ fence: input.fence!, observation,
+          scoreSet: built.scoreSet, verifiedAt: dependencies.clock.now().toISOString() });
+        persistedContents.set(key, persistence);
+      }
+      const stored = await persistence;
+      if (stored.kind !== 'stored' || stored.value.statObservationId !== storedCaptureId) {
+        throw new Error('score-content-persistence-incomplete');
+      }
+      await input.checkpoint('league-official-observation', true);
+      const official = await dependencies.store.recordLeagueWeekObservation(officialInput);
+      if (official.kind !== 'stored' || official.value.playerPointsStored !== officialInput.playerPoints.length
+        || official.value.rosterPointsStored !== officialInput.rosterPoints.length
+        || official.value.unmappedSleeperPlayerIds.length > 0) throw new Error('official-observation-incomplete');
+      await input.checkpoint('league-publication', true);
+      const accepted = await dependencies.store.acceptAllPlayerLeagueScore({ fence: input.fence!,
+        statObservationId: storedCaptureId!, scoreSetId: stored.value.scoreSetId,
+        leagueSeasonId: league.leagueSeasonId, officialObservationId: official.value.observationId,
+        verifiedAt: dependencies.clock.now().toISOString() });
+      if (accepted.kind !== 'stored') throw new Error('league-publication-incomplete');
+      if (accepted.value.pointerOutcome === 'superseded') throw new Error('old-observation-rejected');
+      acceptedSets.set(key, built.scoreSet);
+      parityComparisonCount += league.official.entityCount;
+      const outcome: AllPlayerLeagueOutcome = { leagueKey: configuration.key, leagueSeasonId: league.leagueSeasonId, scoringProfileId: league.scoringProfileId, status: 'accepted',
+        acceptanceId: accepted.value.acceptanceId, pointerOutcome: accepted.value.pointerOutcome };
+      input.progress.outcomes.push(outcome);
+      return outcome;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '';
+      const reason = /^[a-z][a-z0-9-]{1,95}$/u.test(message) ? message : 'league-processing-failed';
+      const outcome: AllPlayerLeagueOutcome = { leagueKey: configuration.key, status: 'failed', reason };
+      input.progress.outcomes.push(outcome);
+      return outcome;
+    }
   });
-  if (built.status !== 'available') {
-    return unavailable(mode, period, `final-${built.reason}`, {
-      sourceRevision: observation.sourceRevision,
-      projectionCoverage,
-    });
+  const existingKeys = new Set(outcomes.map((outcome) => outcome.leagueKey));
+  for (const failure of dependencies.leagueRegistry.registration?.failures ?? []) {
+    if (!existingKeys.has(failure.leagueKey)) {
+      outcomes.push({ leagueKey: failure.leagueKey, status: 'failed', reason: `registration-${failure.reason}` });
+      existingKeys.add(failure.leagueKey);
+    }
   }
-  const batch: AllPlayerBatchInput = {
-    fence: input.fence,
-    observation,
-    scoreSets: built.scoreSets,
-    verifiedAt: dependencies.clock.now().toISOString(),
-  };
-  await input.checkpoint('publication', true);
-  const stored = await dependencies.store.recordAllPlayerBatch(batch);
-  if (stored.kind !== 'stored'
-    || stored.value.entryCount !== observation.entries.length
-    || stored.value.scoreSets.length !== built.scoreSets.length) {
-    return unavailable(mode, period, 'batch-persistence-incomplete', {
-      sourceRevision: observation.sourceRevision,
-      projectionCoverage,
-    });
+  for (const leagueKey of input.unavailableLeagueKeys ?? []) {
+    if (!existingKeys.has(leagueKey)) {
+      outcomes.push({ leagueKey, status: 'failed', reason: 'league-authority-unavailable' });
+      existingKeys.add(leagueKey);
+    }
   }
-  if (stored.value.scoreSets.some((scoreSet) => scoreSet.pointerOutcome === 'superseded')) {
-    const rejectedGroup = stored.value.scoreSets.every((scoreSet) => scoreSet.pointerOutcome === 'superseded');
-    return unavailable(mode, period, rejectedGroup ? 'old-observation-rejected' : 'profile-publication-inconsistent', {
-      sourceRevision: observation.sourceRevision, projectionCoverage,
-      persistedObservation: true, statObservationId: stored.value.statObservationId,
-      ...(!rejectedGroup ? { confirmedPublication: {
-        statObservationId: stored.value.statObservationId,
-        pointerOutcomes: stored.value.scoreSets.map((scoreSet) => scoreSet.pointerOutcome),
-        entryCount: stored.value.entryCount, scoringProfileCount: stored.value.scoreSets.length,
-      } } : {}),
-    });
+  for (const configuration of allConfigurations) {
+    if (!existingKeys.has(configuration.key)) outcomes.push({ leagueKey: configuration.key, status: 'deferred', reason: 'different-period' });
   }
   return {
-    ...completedEvidence(mode, period, observation, built.scoreSets, projectionCoverage),
-    persisted: true,
-    statObservationId: stored.value.statObservationId,
-    pointerOutcomes: stored.value.scoreSets.map((scoreSet) => scoreSet.pointerOutcome),
+    ...completedEvidence(mode, period, observation, [...acceptedSets.values()], projectionCoverage),
+    parityComparisonCount,
+    persisted: mode !== 'shadow', statObservationId: storedCaptureId,
+    pointerOutcomes: outcomes.flatMap((outcome) => outcome.pointerOutcome ? [outcome.pointerOutcome] : []),
+    acceptedLeagues: outcomes.filter((outcome) => outcome.status === 'accepted').length,
+    failedLeagues: outcomes.filter((outcome) => outcome.status === 'failed').length,
+    leagueOutcomes: outcomes,
   };
+
 }
 
 export async function runAllPlayerIngestion(
@@ -1366,6 +1329,8 @@ export async function runAllPlayerIngestion(
     period: LeaguePeriod;
     requireFinalCoverage?: boolean;
     cadenceDiagnostics?: readonly string[];
+    eligibleLeagueKeys?: readonly string[];
+    unavailableLeagueKeys?: readonly string[];
   }>,
 ): Promise<AllPlayerIngestionResult> {
   const { mode, period } = input;
@@ -1405,6 +1370,7 @@ export async function runAllPlayerIngestion(
     stage: 'all-player-ingestion', lane: 'all-player', outcome: 'started',
     runId, period, cadence: mode,
   });
+  const progress: AllPlayerProgress = { statObservationId: null, entryCount: 0, outcomes: [] };
   let result: AllPlayerIngestionResult;
   let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -1431,7 +1397,7 @@ export async function runAllPlayerIngestion(
         }
         fence = claim.fence;
       }
-      return execute({ ...dependencies, signal }, { ...input, fence, checkpoint });
+      return execute({ ...dependencies, signal }, { ...input, fence, checkpoint, progress });
     };
     const remainingMs = Math.max(1, Date.parse(deadlineAt) - dependencies.clock.now().getTime());
     result = await Promise.race([operation(), new Promise<never>((_, reject) => {
@@ -1441,7 +1407,8 @@ export async function runAllPlayerIngestion(
         reject(new Error('deadline-exceeded'));
       }, remainingMs);
     })]);
-    if (result.status === 'unavailable' && !result.stage) result = { ...result, stage };
+    if (result.status === 'unavailable') result = { ...result, stage: result.stage ?? stage,
+      ...(progress.statObservationId ? { persistedObservation: true, statObservationId: progress.statObservationId } : {}) };
   } catch (error) {
     const message = error instanceof Error ? error.message : '';
     const code = error !== null && typeof error === 'object' && 'code' in error
@@ -1457,6 +1424,13 @@ export async function runAllPlayerIngestion(
       ...(code ? [`database-sqlstate:${code}`] : []),
     ];
     result = unavailable(mode, period, reason, { stage,
+      ...(progress.statObservationId ? { persistedObservation: true, statObservationId: progress.statObservationId } : {}),
+      ...(progress.outcomes.some((outcome) => outcome.status === 'accepted') ? { confirmedPublication: {
+        statObservationId: progress.statObservationId, entryCount: progress.entryCount,
+        scoringProfileCount: new Set(progress.outcomes.filter((outcome) => outcome.status === 'accepted')
+          .map((outcome) => outcome.scoringProfileId)).size,
+        pointerOutcomes: progress.outcomes.flatMap((outcome) => outcome.pointerOutcome ? [outcome.pointerOutcome] : []),
+      } } : {}),
       ...(diagnostics.length ? { diagnostics } : {}),
     });
   } finally {
@@ -1465,11 +1439,12 @@ export async function runAllPlayerIngestion(
     controller.abort();
   }
   if (fence && mode !== 'shadow') {
-    const retainedEvidence = result.status === 'completed' && result.persisted ? {
-      confirmedPublication: {
+    const retainedEvidence = result.status === 'completed' && result.persisted && result.statObservationId ? {
+      persistedObservation: true, statObservationId: result.statObservationId,
+      ...(result.acceptedLeagues > 0 && result.pointerOutcomes.length > 0 ? { confirmedPublication: {
         statObservationId: result.statObservationId, pointerOutcomes: result.pointerOutcomes,
         entryCount: result.entryCount, scoringProfileCount: result.scoringProfileCount,
-      },
+      } } : {}),
     } : result.status === 'unavailable' && result.confirmedPublication ? {
       confirmedPublication: result.confirmedPublication,
       persistedObservation: result.persistedObservation, statObservationId: result.statObservationId,
@@ -1495,13 +1470,19 @@ export async function runAllPlayerIngestion(
     let cleanupTimeout: ReturnType<typeof setTimeout> | undefined;
     try {
       const finished = await Promise.race([
-        cleanup.finishAllPlayerJob({ fence, outcome, diagnostic: {
+        cleanup.finishAllPlayerJob({ fence, outcome,
+          ...(noStatisticsYet ? { sharedPregame: true } : {}),
+          ...(progress.statObservationId ? { scopedCapture: { statObservationId: progress.statObservationId } } : {}),
+          diagnostic: {
           stage, period, reason: result.status === 'unavailable' || result.status === 'partial'
             || result.status === 'skipped' ? result.reason : result.status,
           ...(diagnosticCount ? {
             diagnostics: outcomeDiagnostics.diagnostics, diagnosticCount,
           } : {}),
           retryDisposition: 'global-budget',
+          ...(result.status === 'completed' ? { acceptedLeagueCount: result.acceptedLeagues, failedLeagueCount: result.failedLeagues,
+            leagueFailures: prepareAllPlayerDiagnostics(result.leagueOutcomes.filter((outcome) => outcome.status !== 'accepted')
+              .map((outcome) => `${outcome.leagueKey}:${outcome.status}:${outcome.reason}`)).diagnostics } : {}),
           finalCoverage: result.status === 'completed'
             && (input.requireFinalCoverage ?? mode !== 'recurring'),
           ...(result.status === 'unavailable' && result.responseEvidence
@@ -1549,13 +1530,16 @@ export async function runAllPlayerIngestion(
       finally { if (cleanupTimeout) clearTimeout(cleanupTimeout); }
     }
   }
-  dependencies.logger.write(result.status === 'completed' || result.status === 'partial'
+  dependencies.logger.write(result.status === 'completed' && result.failedLeagues === 0 || result.status === 'partial'
     || result.status === 'skipped' && result.reason === 'no-statistics-yet' ? 'info' : 'warn', {
     stage: 'all-player-ingestion', lane: 'all-player',
     outcome: result.status === 'completed' || result.status === 'partial' ? 'completed'
       : result.status === 'skipped' ? 'skipped' : 'failed',
     runId, period, cadence: mode,
     stageDurationMs: Math.max(0, dependencies.clock.monotonicNow() - startedAt),
+    ...(result.status === 'completed' ? { publishedLeagues: result.acceptedLeagues, failedLeagues: result.failedLeagues,
+      allPlayerDiagnostics: prepareAllPlayerDiagnostics(result.leagueOutcomes.filter((outcome) => outcome.status !== 'accepted')
+        .map((outcome) => `${outcome.leagueKey}:${outcome.status}:${outcome.reason}`)).diagnostics } : {}),
     ...(result.status === 'unavailable' ? {
       allPlayerFailureStage: result.stage ?? stage,
       allPlayerReason: result.reason,

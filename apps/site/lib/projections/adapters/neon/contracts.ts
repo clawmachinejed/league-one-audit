@@ -720,6 +720,16 @@ export type ProjectionStore = LineupWatchMethods & LineupAcknowledgmentMethods &
   recordAllPlayerBatch: (
     input: AllPlayerBatchInput,
   ) => Promise<PersistenceOutcome<StoredAllPlayerBatch>>;
+  recordAllPlayerScoreContent: (input: Readonly<{
+    observation: AllPlayerStatObservation; scoreSet: AllPlayerScoreSet;
+    fence: AllPlayerJobFence; verifiedAt: string;
+  }>) => Promise<PersistenceOutcome<Readonly<{statObservationId: string; scoreSetId: string}>>>;
+  acceptAllPlayerLeagueScore: (input: Readonly<{
+    fence: AllPlayerJobFence; statObservationId: string; scoreSetId: string;
+    leagueSeasonId: string; officialObservationId: string; verifiedAt: string;
+  }>) => Promise<PersistenceOutcome<Readonly<{
+    acceptanceId: string; pointerOutcome: 'advanced' | 'verified' | 'superseded';
+  }>>>;
   readAllPlayerPlayerMetrics: AllPlayerMetricReader['readAllPlayerPlayerMetrics'];
   readAllPlayerBoxScores?: (input: AllPlayerBoxScoreReadInput) => Promise<StoredAllPlayerBoxScores>;
   readLiveDefenseStatCapture?: (period: LeaguePeriod) => Promise<LiveDefenseStatCapture | null>;
@@ -744,6 +754,8 @@ export type ProjectionStore = LineupWatchMethods & LineupAcknowledgmentMethods &
   finishAllPlayerJob: (input: Readonly<{
     fence: AllPlayerJobFence; outcome: AllPlayerJobOutcome;
     diagnostic: Readonly<Record<string, unknown>>;
+    scopedCapture?: Readonly<{ statObservationId: string }>;
+    sharedPregame?: boolean;
   }>) => Promise<boolean>;
   recordAllPlayerPreclaimOutcome: (input: AllPlayerPreclaimOutcome)
     => Promise<'recorded' | 'unchanged' | 'throttled' | 'disabled'>;

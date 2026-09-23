@@ -78,7 +78,8 @@ export async function refreshCurrentLineupContext(dependencies: LiveProjectionWo
         stored.value.authority.activeScoringPeriod ?? stored.value.authority.defaultDisplayPeriod } : {}) });
     return null;
   });
-  const context = await synchronizeLineupWatches(dependencies.lineupRepository, configurations, results, dependencies.clock.now());
+  const context = await synchronizeLineupWatches(dependencies.lineupRepository, configurations, results, dependencies.clock.now(),
+    dependencies.leagueRegistry.registration);
   return { context,
     failedCadenceLeagueKeys: configurations.filter((_configuration, index) => acceptedCadence[index] === null).map((configuration) => configuration.key),
     cadenceByKey: new Map(acceptedCadence.flatMap((value) => value ? [[value.configuration.key, value] as const] : [])) };

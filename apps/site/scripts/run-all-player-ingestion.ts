@@ -15,7 +15,7 @@ async function main(): Promise<void> {
   stage = 'ingestion';
   const result = await runProductionAllPlayerOperation(input.mode, input.period);
   process.stdout.write(`${JSON.stringify(result)}\n`);
-  if (result.status !== 'completed' && result.status !== 'skipped') process.exitCode = 1;
+  if (result.status === 'completed' ? result.failedLeagues > 0 : result.status !== 'skipped') process.exitCode = 1;
 }
 
 await main().catch((error: unknown) => {

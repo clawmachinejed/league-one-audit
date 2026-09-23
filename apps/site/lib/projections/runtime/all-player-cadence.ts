@@ -17,7 +17,7 @@ function lastAllPlayerPeriod(job: AllPlayerJobState | null) {
   const outcome = job?.payload.lastOutcome;
   const fromOutcome = outcome && typeof outcome === 'object' && !Array.isArray(outcome)
     && 'outcome' in outcome && typeof outcome.outcome === 'string'
-    && ['published', 'partial', 'no-statistics-yet', 'validation-failed', 'provider-failed', 'timeout', 'lease-lost'].includes(outcome.outcome)
+    && ['published', 'captured', 'partial', 'no-statistics-yet', 'validation-failed', 'provider-failed', 'timeout', 'lease-lost'].includes(outcome.outcome)
     && 'period' in outcome ? recordedPeriod(outcome.period) : null;
   // Minute-level live captures share the job, but do not advance hourly history.
   // Older job payloads lack lastOutcome; retain their validated requested period.
@@ -29,18 +29,24 @@ export function isAllPlayerPollingOpportunity(now: Date): boolean {
   return isAllPlayerRefreshOpportunity(now);
 }
 
-type Selection =
+type PeriodSelection =
   | Readonly<{ kind: 'selected'; period: LeaguePeriod; requireFinalCoverage: boolean;
       diagnostics?: readonly string[] }>
   | Readonly<{ kind: 'unavailable'; reason: string; period?: LeaguePeriod;
       diagnostics?: readonly string[] }>;
 
-export function selectAllPlayerRecurringPeriod(
+type Selection = PeriodSelection & Readonly<{
+  eligibleLeagueKeys: readonly string[];
+  unavailableLeagueKeys: readonly string[];
+  deferredLeagueKeys: readonly string[];
+}>;
+
+function selectCoherentPeriod(
   authorities: readonly StoredLeagueAuthorityRead[],
   job: AllPlayerJobState | null,
   now: Date,
   expectedLeagueKeys: readonly string[],
-): Selection {
+): PeriodSelection {
   const expected = new Set(expectedLeagueKeys);
   if (expected.size === 0 || expected.size !== expectedLeagueKeys.length
     || expectedLeagueKeys.some((key) => !key.trim() || key !== key.trim())
@@ -56,7 +62,8 @@ export function selectAllPlayerRecurringPeriod(
   const season = completed ? first.defaultSeason : first.activeSeason;
   const seasonType = completed ? first.defaultSeasonType : first.activeSeasonType;
   const week = completed ? first.defaultWeek : first.activeWeek;
-  if (season === null || season < 2026 || seasonType !== 'reg' || week === null
+  if (season === null || !Number.isInteger(season) || season < 2026 || season > 2200
+    || seasonType !== 'reg' || week === null || !Number.isInteger(week)
     || week < 1 || week > 18 || (!completed && first.leagueLifecycle !== 'active')) {
     return { kind: 'unavailable', reason: 'authority-period-unavailable' };
   }
@@ -79,11 +86,11 @@ export function selectAllPlayerRecurringPeriod(
     && 'week' in entry.period && entry.period.week === targetWeek
     && 'finalCoverage' in entry && entry.finalCoverage === true);
   const diagnostics: string[] = [];
-  const selected = (target: LeaguePeriod, requireFinalCoverage: boolean): Selection => ({
+  const selected = (target: LeaguePeriod, requireFinalCoverage: boolean): PeriodSelection => ({
     kind: 'selected', period: target, requireFinalCoverage,
     ...(diagnostics.length ? { diagnostics } : {}),
   });
-  const unavailable = (reason: string): Selection => ({
+  const unavailable = (reason: string): PeriodSelection => ({
     kind: 'unavailable', reason, period: diagnostics.length
       ? { ...period, week: Number(diagnostics[0].split(':').at(-1)) } : period,
     ...(diagnostics.length ? { diagnostics } : {}),
@@ -128,4 +135,78 @@ export function selectAllPlayerRecurringPeriod(
   // Previous final capture gets the first opportunity at rollover. Alternation
   // then provides corrections without starving the current period.
   return lastWasPrior ? selected(period, false) : selected(prior, true);
+}
+
+export function selectAllPlayerRecurringPeriod(
+  authorities: readonly StoredLeagueAuthorityRead[],
+  job: AllPlayerJobState | null,
+  now: Date,
+  expectedLeagueKeys: readonly string[],
+): Selection {
+  const expected = new Set(expectedLeagueKeys);
+  const keys = [...expected].sort();
+  // An invalid inventory or a result outside the requested inventory cannot be
+  // attributed safely to one league. Keep those shared-store failures closed.
+  if (!Number.isFinite(now.getTime()) || expected.size === 0
+    || expected.size !== expectedLeagueKeys.length
+    || expectedLeagueKeys.some((key) => !key.trim() || key !== key.trim())
+    || authorities.some((row) => !expected.has(row.leagueKey))) {
+    return { kind: 'unavailable', reason: 'authority-missing',
+      eligibleLeagueKeys: [], unavailableLeagueKeys: keys, deferredLeagueKeys: [] };
+  }
+
+  const byLeague = new Map<string, StoredLeagueAuthorityRead[]>();
+  for (const row of authorities) {
+    const rows = byLeague.get(row.leagueKey) ?? [];
+    rows.push(row);
+    byLeague.set(row.leagueKey, rows);
+  }
+  const unavailableLeagueKeys: string[] = [];
+  const rejected: Extract<PeriodSelection, { kind: 'unavailable' }>[] = [];
+  const candidates = new Map<string, {
+    period: LeaguePeriod;
+    requireFinalCoverage: boolean;
+    leagueKeys: string[];
+  }>();
+  const diagnostics = new Set<string>();
+  for (const leagueKey of keys) {
+    // Resolve each authority independently. Duplicate, absent, malformed or stale
+    // rows affect only their own league; a peer's finite correction policy holds.
+    const selection = selectCoherentPeriod(byLeague.get(leagueKey) ?? [], job, now, [leagueKey]);
+    for (const diagnostic of selection.diagnostics ?? []) diagnostics.add(diagnostic);
+    if (selection.kind === 'unavailable') {
+      unavailableLeagueKeys.push(leagueKey);
+      rejected.push(selection);
+      continue;
+    }
+    const key = `${selection.period.season}:${selection.period.week}`;
+    const candidate = candidates.get(key);
+    if (candidate) {
+      candidate.leagueKeys.push(leagueKey);
+      candidate.requireFinalCoverage &&= selection.requireFinalCoverage;
+    } else {
+      candidates.set(key, { period: selection.period,
+        requireFinalCoverage: selection.requireFinalCoverage, leagueKeys: [leagueKey] });
+    }
+  }
+  const diagnosticFields = diagnostics.size ? { diagnostics: [...diagnostics] } : {};
+  if (!candidates.size) {
+    return { ...(rejected[0] ?? { kind: 'unavailable' as const, reason: 'authority-missing' }),
+      ...diagnosticFields, eligibleLeagueKeys: [], unavailableLeagueKeys, deferredLeagueKeys: [] };
+  }
+
+  const ordered = [...candidates.values()].sort((left, right) => (
+    left.period.season - right.period.season || left.period.week - right.period.week
+  ));
+  const last = lastAllPlayerPeriod(job);
+  // Rotate exact periods in stable order rather than favoring the first league.
+  // The existing job outcome is the cursor, including failed provider attempts.
+  const selected = (last && ordered.find(({ period }) => period.season > last.season
+    || (period.season === last.season && period.week > last.week))) || ordered[0];
+  const eligible = new Set(selected.leagueKeys);
+  const unavailable = new Set(unavailableLeagueKeys);
+  return { kind: 'selected', period: selected.period,
+    requireFinalCoverage: selected.requireFinalCoverage, ...diagnosticFields,
+    eligibleLeagueKeys: selected.leagueKeys, unavailableLeagueKeys,
+    deferredLeagueKeys: keys.filter((key) => !eligible.has(key) && !unavailable.has(key)) };
 }

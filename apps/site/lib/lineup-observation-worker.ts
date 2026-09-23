@@ -1,5 +1,5 @@
 import 'server-only';
-import { loadAdministrationRegistry } from './league-administration/registry';
+import { loadIsolatedAdministrationRegistry as loadAdministrationRegistry } from './league-administration/registry';
 
 import { createProductionLineupObservationDependencies } from './projections/runtime/lineup-observation-composition';
 import type { LineupObservationSyncResult } from './projections/worker/lineup-contracts';

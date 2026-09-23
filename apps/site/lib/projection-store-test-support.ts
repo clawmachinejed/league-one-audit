@@ -200,6 +200,7 @@ export function projectionStorePlayerProjectionRow(
 }
 
 export const projectionStoreSqlMarkers = [
+  'accept-all-player-league-score',
   'accept-lineup-observation',
   'acknowledge-current-lineup',
   'acquire-all-player-job',
@@ -220,9 +221,12 @@ export const projectionStoreSqlMarkers = [
   'fail-job',
   'fail-lineup-observation',
   'finish-all-player-job',
+  'finish-all-player-scoped-job',
+  'finish-all-player-shared-pregame-job',
   'finish-live-defense-stat-request',
   'freeze-latest-baselines',
   'lock-all-player-batch',
+  'lock-all-player-league-acceptance',
   'mark-all-player-request',
   'prune-game-observations',
   'prune-jobs',

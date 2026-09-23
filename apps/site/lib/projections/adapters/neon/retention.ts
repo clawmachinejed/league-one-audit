@@ -53,6 +53,10 @@ export function createRetentionMethods(client: DatabaseClient): RetentionMethods
             SELECT 1 FROM all_player_score_verifications verification
             WHERE verification.coverage->'parity_observation_ids' ? observation.id::text
           )
+          AND NOT EXISTS (
+            SELECT 1 FROM all_player_league_acceptances acceptance
+            WHERE acceptance.official_observation_id = observation.id
+          )
         RETURNING observation.id`, [input.before]);
       const gameObservations = await client.query(`/* projection-store:prune-game-observations */
         DELETE FROM game_state_observations observation

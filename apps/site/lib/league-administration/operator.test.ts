@@ -5,7 +5,7 @@ import { createLeagueRegistry } from '../projections/adapters/configuration/leag
 import { externalLeagueRef, providerKey } from '../projections/shared/provider-identity';
 
 const mock = vi.hoisted(() => ({
-  store: { enabled: true, listEnrollments: vi.fn(), recordObservation: vi.fn() },
+  store: { enabled: true, listEnrollments: vi.fn(), listEnrollmentInventory: vi.fn(), readEnrollment: vi.fn(), recordObservation: vi.fn() },
   jobs: { enabled: true, readDatabaseIdentity: vi.fn(), readAllPlayerLeagueProfiles: vi.fn(),
     acquireJob: vi.fn(), completeJob: vi.fn(), failJob: vi.fn(), readLeagueLineupAuthorities: vi.fn() },
   core: vi.fn(), matchup: vi.fn(), transactions: vi.fn(), metadata: vi.fn(), capture: vi.fn(),
@@ -32,6 +32,10 @@ const registry = createLeagueRegistry([{ key: 'example', displayName: 'Example',
 beforeEach(() => {
   vi.resetAllMocks();
   mock.store.listEnrollments.mockResolvedValue([scope]);
+  mock.store.listEnrollmentInventory.mockImplementation(async () => ({ entries: (await mock.store.listEnrollments()).map((enrollment: typeof scope) => ({
+    status: 'ready', intended: enrollment, enrollment,
+  })) }));
+  mock.store.readEnrollment.mockResolvedValue({ status: 'ready', intended: scope, enrollment: scope });
   mock.jobs.readDatabaseIdentity.mockResolvedValue({ databaseName: 'isolated', roleName: 'league_one_runtime' });
   mock.jobs.readAllPlayerLeagueProfiles.mockResolvedValue([{ scoringProfileId: 'profile', leagueSeasonId: 'season' }]);
   mock.jobs.acquireJob.mockResolvedValue({ kind: 'acquired', attempt: 1 });
@@ -53,10 +57,27 @@ beforeEach(() => {
 });
 
 describe('administration operator and scheduled boundary', () => {
+  it('resolves a targeted league without loading or validating unrelated registrations', async () => {
+    mock.store.listEnrollmentInventory.mockRejectedValue(new Error('unrelated registration is unavailable'));
+    expect(await runAdministrationOperator({ ...input, league: 'example' })).toMatchObject({ status: 'completed', leagues: 1 });
+    expect(mock.store.readEnrollment).toHaveBeenCalledWith({ leagueKey: 'example' }, 2026);
+    expect(mock.store.listEnrollmentInventory).not.toHaveBeenCalled();
+  });
+
+  it('reports failed intended registrations while collecting healthy members', async () => {
+    mock.store.listEnrollmentInventory.mockResolvedValue({ entries: [
+      { status: 'ready', intended: scope, enrollment: scope },
+      { status: 'unavailable', intended: { leagueId: 'broken', leagueKey: 'broken', provider: 'sleeper', season: 2026 },
+        reason: 'unregistered-season' },
+    ] });
+    expect(await runAdministrationOperator(input)).toMatchObject({ status: 'partial', leagues: 1,
+      unavailableLeagues: [{ leagueKey: 'broken', reason: 'unregistered-season' }] });
+    expect(mock.core).toHaveBeenCalledOnce();
+  });
   it('shadows complete approved data with no job or source-history writes', async () => {
     expect(await runAdministrationOperator(input)).toMatchObject({ status: 'completed', documents: 5,
       accepted: 5, rejected: 0, providerRequests: 5, writes: false });
-    expect(mock.store.listEnrollments).toHaveBeenCalledWith(2026);
+    expect(mock.store.listEnrollmentInventory).toHaveBeenCalledWith(2026);
     expect(mock.capture).not.toHaveBeenCalled(); expect(mock.store.recordObservation).not.toHaveBeenCalled();
     expect(mock.jobs.acquireJob).not.toHaveBeenCalled(); expect(mock.jobs.completeJob).not.toHaveBeenCalled();
   });

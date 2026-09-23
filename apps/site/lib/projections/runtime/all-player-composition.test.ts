@@ -89,7 +89,7 @@ describe('production all-player recurring composition', () => {
 
   it('loads the requested season enrollment before an explicit historical operation', async () => {
     const registry = administrationRegistry.bootstrapLeagueRegistry();
-    const loadRegistry = vi.spyOn(administrationRegistry, 'loadAdministrationRegistry').mockResolvedValue(registry);
+    const loadRegistry = vi.spyOn(administrationRegistry, 'loadIsolatedAdministrationRegistry').mockResolvedValue(registry);
     const period = { season: 2026, seasonType: 'regular', week: 1 } as const;
     canonicalOperation.mockResolvedValue({ status: 'completed' });
     try {
@@ -193,13 +193,14 @@ describe('production all-player recurring composition', () => {
     expect(canonicalOperation.mock.calls[0][1]).toEqual({
       mode: 'recurring', period: { season: 2026, seasonType: 'regular', week: 1 },
       requireFinalCoverage: false,
+      eligibleLeagueKeys: ['dynasty', 'league1', 'league2'], unavailableLeagueKeys: [],
     });
     expect(logger.write).not.toHaveBeenCalled();
     expect(store.recordAllPlayerPreclaimOutcome).not.toHaveBeenCalled();
   });
 
   it.each(['missing-dynasty', 'duplicate-league'] as const)
-  ('stops %s authority before invoking ingestion for a narrowed league set', async (variant) => {
+  ('continues healthy authorities while reporting %s to ingestion', async (variant) => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-09-12T16:00:00Z'));
     process.env.ALL_PLAYER_RECURRING_ENABLED = 'true';
@@ -210,14 +211,15 @@ describe('production all-player recurring composition', () => {
         sourceProvider: 'sleeper', verifiedAt: '2026-09-12T16:00:00Z',
       },
     })));
-    await expect(runProductionAllPlayerRecurring()).resolves.toMatchObject({
-      status: 'unavailable', reason: 'authority-missing', stage: 'period-selection',
+    canonicalOperation.mockResolvedValueOnce({ status: 'completed' });
+    await expect(runProductionAllPlayerRecurring()).resolves.toMatchObject({ status: 'completed' });
+    expect(canonicalOperation).toHaveBeenCalledExactlyOnceWith(expect.anything(), {
+      mode: 'recurring', period: { season: 2026, seasonType: 'regular', week: 1 }, requireFinalCoverage: false,
+      eligibleLeagueKeys: variant === 'missing-dynasty' ? ['league1', 'league2'] : ['league1'],
+      unavailableLeagueKeys: variant === 'missing-dynasty' ? ['dynasty'] : ['dynasty', 'league2'],
     });
-    expect(canonicalOperation).not.toHaveBeenCalled();
     expect(catalogLoaders.neutral).not.toHaveBeenCalled();
-    expect(store.recordAllPlayerPreclaimOutcome).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
-      outcome: 'validation-failed', reason: 'authority-missing', stage: 'period-selection',
-    }));
+    expect(store.recordAllPlayerPreclaimOutcome).not.toHaveBeenCalled();
   });
 
   it('skips between polling opportunities before any all-player database reads', async () => {
@@ -388,6 +390,7 @@ describe('production all-player recurring composition', () => {
     expect(canonicalOperation).toHaveBeenCalledExactlyOnceWith(expect.anything(), {
       mode: 'recurring', period: { season: 2026, seasonType: 'regular', week: 3 }, requireFinalCoverage: false,
       cadenceDiagnostics: ['final-capture-overdue:2026:regular:1', 'final-capture-overdue:2026:regular:2'],
+      eligibleLeagueKeys: ['dynasty', 'league1', 'league2'], unavailableLeagueKeys: [],
     });
     expect(store.recordAllPlayerPreclaimOutcome).not.toHaveBeenCalled();
   });

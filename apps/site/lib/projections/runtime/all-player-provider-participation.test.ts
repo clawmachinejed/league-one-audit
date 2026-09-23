@@ -25,7 +25,7 @@ function runOfflineComposition() {
 }
 
 describe('approved missing-participation policy on the unchanged incomplete Week 1 capture', () => {
-  it('records explicit product assumptions through real Node composition for both leagues with one local weekly replay and no database writes', async () => {
+  it('records shared product assumptions through real Node composition with one local weekly replay and no league reads or database writes', async () => {
     const child = await runOfflineComposition();
     expect(child.code, child.stderr).toBe(0);
     const evidence = JSON.parse(child.stdout) as {
@@ -66,8 +66,6 @@ describe('approved missing-participation policy on the unchanged incomplete Week
     expect(urls.filter((url) => url.pathname === '/v1/players/nfl')).toHaveLength(1);
     expect(urls.filter((url) => url.pathname === '/v1/stats/nfl/regular/2026/1')).toHaveLength(1);
     expect(urls.some((url) => /tank01|\/profile\/|\/player\//iu.test(url.href))).toBe(false);
-    for (const league of foundationFixture.leagues) {
-      expect(urls.some((url) => url.pathname === `/v1/league/${league.settings.league_id}/rosters`)).toBe(true);
-    }
+    expect(urls.filter((url) => url.pathname.startsWith('/v1/league/'))).toEqual([]);
   }, 30_000);
 });

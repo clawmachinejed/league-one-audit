@@ -167,6 +167,8 @@ export function createProjectionStore(database: Database = getDatabase()): Proje
     failFutureMaterializationRefresh: futureRefresh.failFutureMaterializationRefresh,
     recordProjectionCandidates: projections.recordProjectionCandidates,
     recordAllPlayerBatch: allPlayerStatistics.recordAllPlayerBatch,
+    recordAllPlayerScoreContent: allPlayerStatistics.recordAllPlayerScoreContent,
+    acceptAllPlayerLeagueScore: allPlayerStatistics.acceptAllPlayerLeagueScore,
     readAllPlayerPlayerMetrics: allPlayerMetrics.readAllPlayerPlayerMetrics,
     readAllPlayerBoxScores: allPlayerBoxScores.readAllPlayerBoxScores,
     readLiveDefenseStatCapture: liveDefenseReads.readLiveDefenseStatCapture,

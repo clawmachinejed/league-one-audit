@@ -207,7 +207,7 @@ describe('all-player Neon persistence', () => {
     }]);
     expect(fake.calls[1].statement).toContain('record-all-player-batch');
     expect(fake.calls[1].statement).toContain('advance_current_all_player_score_set');
-    expect(fake.calls[1].parameters).toHaveLength(22);
+    expect(fake.calls[1].parameters).toHaveLength(23);
   });
 
   it('fails closed without the atomic locked-transaction capability', async () => {
@@ -270,5 +270,48 @@ describe('all-player Neon persistence', () => {
     expect(migration).toContain('CHECK (verified_at >= observed_at)');
     expect(migration).toContain('GRANT SELECT ON TABLE public.current_all_player_score_sets');
     expect(migration).not.toMatch(/GRANT\s+(?:INSERT|UPDATE|DELETE)[^;]+current_all_player_score_sets/isu);
+  });
+});
+
+describe('shared content and scoped acceptance persistence', () => {
+  function shared() {
+    const coverage = {...observation.coverage, identity_complete: true, scoring_rules_complete: true,
+      scoring_rules_hash: scoringRulesHash, material_contract: 'all-player-score-content-v2'};
+    const set = {...scoreSet, coverage, parityComparisonCount: 0};
+    return {...set, semanticHash: allPlayerScoreSemanticHash(set, scores)};
+  }
+  it('accepts parity-free content only through the separate storage contract', () => {
+    const input = {observation, scoreSets: [shared()], verifiedAt: observation.observedAt};
+    expect(prepareAllPlayerBatch(input, true).scoreSets[0].parityComparisonCount).toBe(0);
+    expect(() => prepareAllPlayerBatch(input)).toThrow('parity');
+    expect(() => prepareAllPlayerBatch({...input, scoreSets: [scoreSet]}, true)).toThrow('Shared');
+  });
+  it('stores shared material with publication disabled and durable capture proof', async () => {
+    const prepared = prepareAllPlayerBatch({observation, scoreSets: [shared()], verifiedAt: observation.observedAt}, true);
+    const fake = createFakeProjectionDatabase(() => [{observation_id: prepared.observationId,
+      content_id: prepared.contentId, semantic_hash: prepared.semanticHash, entries_stored: 0, entry_count: 33,
+      pointers: [{scoreSetId: prepared.scoreSets[0].scoreSetId, scoringProfileId: profileId, pointerOutcome: 'verified'}]}]);
+    await expect(createAllPlayerStatisticMethods(fake.database).recordAllPlayerScoreContent({
+      observation, scoreSet: shared(), verifiedAt: observation.observedAt, fence,
+    })).resolves.toEqual({kind: 'stored', value: {statObservationId: prepared.observationId,
+      scoreSetId: prepared.scoreSets[0].scoreSetId}});
+    expect(fake.calls[1].parameters[22]).toBe(true);
+    expect(fake.calls[1].parameters[11]).toBe('[]');
+    expect(fake.calls[1].statement).toContain('record_all_player_capture');
+    expect(fake.calls[1].statement).toContain("CASE WHEN $23::boolean THEN 'verified' ELSE");
+  });
+  it('locks ownership before accepting one league and rejects malformed identity before SQL', async () => {
+    const fake = createFakeProjectionDatabase(() => [{acceptance_id: officialObservationId, pointer_outcome: 'advanced'}]);
+    const methods = createAllPlayerStatisticMethods(fake.database);
+    const input = {fence, statObservationId: officialObservationId, scoreSetId: profileId,
+      leagueSeasonId: entityId, officialObservationId, verifiedAt: observation.observedAt};
+    expect(await methods.acceptAllPlayerLeagueScore(input)).toEqual({kind: 'stored', value: {
+      acceptanceId: officialObservationId, pointerOutcome: 'advanced'}});
+    expect(fake.lockedTransactions).toHaveLength(1);
+    expect(fake.calls[0].statement).toContain('assert_all_player_job_fence');
+    expect(fake.calls[1].parameters.slice(1)).toEqual([officialObservationId,
+      profileId, entityId, officialObservationId, observation.observedAt]);
+    await expect(methods.acceptAllPlayerLeagueScore({...input, leagueSeasonId: 'bad'})).rejects.toThrow('UUID');
+    expect(fake.lockedTransactions).toHaveLength(1);
   });
 });

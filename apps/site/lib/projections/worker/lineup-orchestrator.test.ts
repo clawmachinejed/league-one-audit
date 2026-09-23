@@ -3,6 +3,14 @@ import { runLineupObservation } from './lineup-orchestrator';
 import { lineupAuthority, lineupAuthorityResult, lineupConfiguration, lineupHarness, lineupNow } from './lineup-observation.fixtures';
 
 describe('independent lineup observation worker', () => {
+  it('observes a healthy league and reports an unrelated registration failure without retiring its membership', async () => {
+    const h = lineupHarness([lineupConfiguration('one')]);
+    const dependencies = { ...h.dependencies, leagueRegistry: { listActiveLeagues: () => h.configurations,
+      registration: { intendedLeagueKeys: ['one', 'two'], failures: [{ leagueKey: 'two', reason: 'unregistered-season' }] } } };
+    expect(await runLineupObservation(dependencies)).toMatchObject({ status: 'partial', failed: 1 });
+    expect(h.lineupSource.getLineup.mock.calls.every(([input]) => input.configuration.key === 'one')).toBe(true);
+    expect(h.lineupRepository.synchronizeLineupWatchStates).toHaveBeenCalledWith(expect.objectContaining({ registeredLeagueKeys: ['one', 'two'] }));
+  });
   it('stops before registry and provider work with disabled persistence', async () => {
     const h = lineupHarness();
     h.lineupRepository.enabled = false;

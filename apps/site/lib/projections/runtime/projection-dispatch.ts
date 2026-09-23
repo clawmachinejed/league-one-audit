@@ -1,5 +1,5 @@
 import 'server-only';
-import { loadAdministrationRegistry } from '../../league-administration/registry';
+import { loadIsolatedAdministrationRegistry as loadAdministrationRegistry } from '../../league-administration/registry';
 import { runAdministrationMaintenance } from '../../league-administration/maintenance';
 
 import type { LiveProjectionSyncResult } from '../worker/contracts';

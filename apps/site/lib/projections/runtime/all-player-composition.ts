@@ -3,15 +3,16 @@ import 'server-only';
 import { ACTIVE_PROJECTION_SOURCE } from '../../projection-source-config';
 import { createProjectionStore, getProjectionStore } from '../../projection-store';
 import { getDatabase, withDatabaseAbortSignal } from '../../database';
-import { loadAdministrationRegistry } from '../../league-administration/registry';
+import { loadIsolatedAdministrationRegistry } from '../../league-administration/registry';
 import { createLeagueAdministrationStore } from '../../league-administration/store';
 import type { LeagueRegistryPort } from '../ports/league-registry';
-import { getOperatorProjectionSyncInput } from '../../sleeper';
+import { getOperatorProjectionSyncInput, getWeekSchedule } from '../../sleeper';
 import { loadCompletePlayerCatalog } from '../../sleeper-player-catalog';
 import { createNeonProjectionRepository } from '../adapters/neon/repository';
 import { createSleeperAllPlayerStatSource } from '../adapters/sleeper/all-player-stats';
 import { translateSleeperLeagueWeek } from '../adapters/sleeper/league-source';
 import { normalizeSleeperScoringProfile } from '../adapters/sleeper/scoring-profile';
+import { translateSleeperWeekSchedule } from '../adapters/sleeper/schedule';
 import type { LeaguePeriod } from '../domain/contracts';
 import {
   runAllPlayerIngestion,
@@ -97,6 +98,11 @@ export function createProductionAllPlayerDependencies(
       };
     },
     loadCatalog,
+    loadSchedule: async (period) => {
+      const result = await getWeekSchedule(String(period.season), period.week);
+      if (result.warning || !result.canIdentifyByes) throw new Error('shared-schedule-unavailable');
+      return translateSleeperWeekSchedule(result.schedule);
+    },
     sharedCaptureReceipt: (period) => sharedCaptureFor(period)?.receipt,
     allPlayerSource: { access: 'live', load: (input) => createSleeperAllPlayerStatSource({
       fetch: globalThis.fetch, now: shared.clock.now,
@@ -114,7 +120,7 @@ export async function runProductionAllPlayerOperation(
 ): Promise<AllPlayerIngestionResult> {
   const deadlineAt = new Date(Date.now() + 50_000).toISOString();
   const signal = AbortSignal.timeout(50_000);
-  const registry = await loadAdministrationRegistry(
+  const registry = await loadIsolatedAdministrationRegistry(
     createLeagueAdministrationStore(withDatabaseAbortSignal(getDatabase(), signal)), period.season);
   const dependencies = createProductionAllPlayerDependencies({ signal, deadlineAt }, registry);
   return runAllPlayerIngestion(dependencies, {
@@ -208,7 +214,7 @@ export async function runProductionAllPlayerRecurring(
   try {
     const dependencies = createProductionAllPlayerDependencies({
       signal: AbortSignal.timeout(remainingMs), deadlineAt: new Date(invocationStartedAt + 50_000).toISOString(),
-    }, await loadAdministrationRegistry(), getSharedCapture);
+    }, await loadIsolatedAdministrationRegistry(), getSharedCapture);
     preclaimStage = 'global-budget';
     const job = await dependencies.store.readAllPlayerJobState();
     const previousPeriod = diagnosticPeriod(job?.payload.period);
@@ -251,6 +257,8 @@ export async function runProductionAllPlayerRecurring(
     return runAllPlayerIngestion(dependencies, {
       mode: 'recurring',
       period: selection.period,
+      eligibleLeagueKeys: selection.eligibleLeagueKeys,
+      unavailableLeagueKeys: selection.unavailableLeagueKeys,
       requireFinalCoverage: selection.requireFinalCoverage,
       ...(selection.diagnostics ? { cadenceDiagnostics: selection.diagnostics } : {}),
     });

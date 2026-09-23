@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { recordCapturedAdministration } from './runtime';
 import { createLeagueAdministrationStore } from './store';
-import { loadAdministrationRegistry } from './registry';
+import { loadAdministrationRegistry, loadIsolatedAdministrationRegistry } from './registry';
 import { administrationMaintenanceSelection, runAdministrationMaintenance } from './maintenance';
 import type { LeagueAdministrationStore } from './store-contracts';
 import { createLeagueRegistry } from '../projections/adapters/configuration/league-registry';
@@ -18,7 +18,8 @@ function fakeStore(): LeagueAdministrationStore {
   return { enabled: true, recordObservation: vi.fn(async () => ({ status: 'changed' as const,
     observationId: 'observation', versionId: 'version', generation: 2 })),
   readSource: vi.fn(async () => ({ status: 'missing' as const })),
-  readSourceByConnection: vi.fn(async () => ({ status: 'missing' as const })), listEnrollments: vi.fn(async () => []) };
+  readSourceByConnection: vi.fn(async () => ({ status: 'missing' as const })), listEnrollments: vi.fn(async () => []),
+  listEnrollmentInventory: vi.fn(async () => ({ entries: [] })), readEnrollment: vi.fn(async () => ({ status: 'missing' as const })) };
 }
 
 describe('administration collection and enrollment composition', () => {
@@ -96,6 +97,28 @@ describe('administration collection and enrollment composition', () => {
     await expect(loadAdministrationRegistry(store)).rejects.toThrow('No accepted league enrollment');
     vi.mocked(store.listEnrollments).mockRejectedValue(new Error('unavailable'));
     await expect(loadAdministrationRegistry(store)).rejects.toThrow('unavailable');
+  });
+
+  it('keeps healthy collection configurations and explicitly retains failed intended membership', async () => {
+    const store = fakeStore();
+    const enrollment = { leagueId: 'league-id', leagueSeasonId: 'season-id', leagueKey: 'league1',
+      displayName: 'Healthy', season: 2026, provider: 'sleeper' as const, externalLeagueId: 'source', scoringProfileId: 'profile' };
+    vi.mocked(store.listEnrollmentInventory).mockResolvedValue({ entries: [
+      { status: 'ready', intended: enrollment, enrollment },
+      { status: 'unavailable', intended: { leagueId: 'broken', leagueKey: 'other', provider: 'sleeper', season: 2027 },
+        reason: 'unregistered-season' },
+    ] });
+    const registry = await loadIsolatedAdministrationRegistry(store);
+    expect(registry.listActiveLeagues().map(value => value.key)).toEqual(['league1']);
+    expect(registry.registration).toEqual({ intendedLeagueKeys: ['league1', 'other'],
+      failures: [{ leagueKey: 'other', reason: 'unregistered-season' }] });
+    expect(store.listEnrollments).not.toHaveBeenCalled();
+  });
+
+  it('never converts an enabled registry database failure into an empty or bootstrap fleet', async () => {
+    const store = fakeStore();
+    vi.mocked(store.listEnrollmentInventory).mockRejectedValue(new Error('unavailable'));
+    await expect(loadIsolatedAdministrationRegistry(store)).rejects.toThrow('unavailable');
   });
 
   it('pins an operator registry to its explicitly approved historical season', async () => {

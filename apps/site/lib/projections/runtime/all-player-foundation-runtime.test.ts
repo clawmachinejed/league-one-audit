@@ -22,7 +22,7 @@ function runOfflineChild(relativePath: string, arguments_: string[] = []) {
 }
 
 describe('production-shaped retained fixture in real Node outside Next', () => {
-  it('runs real composition, catalog, official roster adapter, weekly source and operation without manufacturing completed Week1', async () => {
+  it('runs shared composition, catalog and weekly source without loading leagues or manufacturing completed Week1', async () => {
     const child = await runOfflineChild('test-support/all-player-foundation-runtime-fixture.ts');
     expect(child.code, child.stderr).toBe(0);
     expect(child.stderr).not.toContain('incrementalCache');
@@ -63,10 +63,9 @@ describe('production-shaped retained fixture in real Node outside Next', () => {
     expect(urls.filter((url) => url.pathname === '/v1/players/nfl')).toHaveLength(1);
     expect(urls.filter((url) => url.pathname === '/v1/stats/nfl/regular/2026/1')).toHaveLength(1);
     expect(urls.some((url) => /tank01|\/profile\/|\/player\//iu.test(url.href))).toBe(false);
-    for (const leagueId of ['1378850182409490432', '1378850360529014784']) {
-      // Both captured populations pass through the actual bulk league loader.
-      expect(urls.some((url) => url.pathname === `/v1/league/${leagueId}/rosters`)).toBe(true);
-    }
+    // Shared partial capture does not spend requests on league parity work that
+    // cannot produce a complete acceptance. The synthetic complete fixture does.
+    expect(urls.filter((url) => url.pathname.startsWith('/v1/league/'))).toEqual([]);
   }, 30_000);
 
   it('starts the actual operator CLI and rejects missing authorization before opening a database', async () => {

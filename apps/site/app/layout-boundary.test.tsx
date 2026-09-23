@@ -61,6 +61,17 @@ describe('platform and public league layout boundary', () => {
     expect(mocks.getCurrentLeagueIds).toHaveBeenCalledOnce();
   });
 
+  it('renders a healthy league when another routed league registration is missing', async () => {
+    mocks.getCurrentLeagueIds.mockResolvedValue({ league1: 'accepted-one' });
+    const html = renderRoot(await LeagueLayout({ children: <ConnectionProbe /> }));
+    expect(html).toContain('League One:accepted-one');
+    expect(html).toContain('aria-label="Main navigation"');
+    mocks.pathname = '/league2/matchups';
+    const unavailable = renderRoot(await LeagueLayout({ children: <ConnectionProbe /> }));
+    expect(unavailable).toContain('League Two:');
+    expect(unavailable).not.toContain('accepted-one');
+  });
+
   it('renders root loading and recovery without a league context or provider-specific claim', () => {
     const loading = renderRoot(<RootLoading />);
     const error = renderRoot(<RootError retry={() => undefined} />);

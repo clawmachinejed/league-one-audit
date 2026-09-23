@@ -107,10 +107,11 @@ export async function prepareFuturePlan(
   const results = await dependencies.periodAuthorityReader.readAuthorities(
     configurations.map((configuration) => configuration.key), now, LINEUP_AUTHORITY_MAX_AGE_MS,
   );
-  const context = await synchronizeLineupWatches(dependencies.lineupRepository, configurations, results, dependencies.clock.now());
+  const context = await synchronizeLineupWatches(dependencies.lineupRepository, configurations, results, dependencies.clock.now(),
+    dependencies.leagueRegistry.registration);
   if (context.kind !== 'stored') return context.kind;
   const authorities = context.authorities;
-  if (configurations.length > 0 && authorities.length === 0) {
+  if (context.skippedLeagueKeys.length > 0 && authorities.length === 0) {
     throw new Error('No configured league has usable persisted period authority.');
   }
   const watches = context.states.filter((watch) => watch.retiredAt === null && watch.materializationLane === 'future'
@@ -129,7 +130,7 @@ export async function prepareFuturePlan(
     woken ||= wake.kind === 'stored';
   }
   if (woken) plans = await readPlans(dependencies, watches, authorities, now.toISOString(), false);
-  return { configurations, authorities, watches, plans, unavailableAuthorityCount: configurations.length - authorities.length, policy: futurePolicyPlans(plans, watches, authorities) };
+  return { configurations, authorities, watches, plans, unavailableAuthorityCount: context.skippedLeagueKeys.length, policy: futurePolicyPlans(plans, watches, authorities) };
 }
 
 export async function refreshPreparedFuturePlan(

@@ -275,22 +275,40 @@ export function createAllPlayerMetricMethods(client: DatabaseClient): AllPlayerM
       }
       const rows = await client.query(`/* projection-store:read-all-player-player-metrics */
         WITH target_profile AS (
-          SELECT season.scoring_profile_id, profile.rules
+          SELECT season.id AS league_season_id, season.scoring_profile_id, profile.rules
           FROM leagues league
           JOIN league_seasons season ON season.league_id = league.id
           JOIN scoring_profiles profile ON profile.id = season.scoring_profile_id
           WHERE league.league_key = $1 AND season.season = $3::smallint
         ), published_pointers AS (
-          SELECT pointer.*
+          SELECT pointer.week, acceptance.observed_at, acceptance.all_player_score_set_id
+          FROM target_profile profile
+          JOIN current_all_player_league_scores pointer ON pointer.league_season_id = profile.league_season_id
+            AND pointer.provider = $2 AND pointer.season = $3::smallint
+            AND pointer.season_type = $4 AND pointer.week <= $5::smallint AND pointer.scorer_version = $6
+          JOIN all_player_league_acceptances acceptance ON acceptance.id = pointer.acceptance_id
+            AND acceptance.scoring_profile_id = profile.scoring_profile_id
+          WHERE $8::timestamptz IS NULL
+          UNION ALL
+          -- Legacy history is usable only when its retained parity explicitly verified this league.
+          SELECT pointer.week, pointer.observed_at, pointer.all_player_score_set_id
           FROM target_profile profile
           JOIN current_all_player_score_sets pointer
             ON pointer.scoring_profile_id = profile.scoring_profile_id
             AND pointer.provider = $2 AND pointer.season = $3::smallint
             AND pointer.season_type = $4 AND pointer.week <= $5::smallint
             AND pointer.scorer_version = $6
-          -- Current pointers have no immutable publication history. A fixed
-          -- cutoff instead derives display-only metrics from retained raw rows.
           WHERE $8::timestamptz IS NULL
+            AND NOT EXISTS (SELECT 1 FROM current_all_player_league_scores scoped
+              WHERE scoped.league_season_id = profile.league_season_id AND scoped.provider = pointer.provider
+                AND scoped.season = pointer.season AND scoped.season_type = pointer.season_type
+                AND scoped.week = pointer.week AND scoped.scorer_version = pointer.scorer_version)
+            AND EXISTS (SELECT 1 FROM all_player_score_verifications verification
+              JOIN league_week_observations official ON verification.coverage->'parity_observation_ids' ? official.id::text
+              WHERE verification.all_player_score_set_id = pointer.all_player_score_set_id
+                AND verification.all_player_stat_observation_id = pointer.all_player_stat_observation_id
+                AND official.league_season_id = profile.league_season_id AND official.provider = pointer.provider
+                AND official.week = pointer.week AND official.quality = 'complete')
         ), published_summary AS (
           SELECT count(*)::integer AS published_week_count,
             max(week)::integer AS published_through_week,

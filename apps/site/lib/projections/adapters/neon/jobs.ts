@@ -136,6 +136,24 @@ export function createJobMethods(client: DatabaseClient): JobMethods {
     },
     async finishAllPlayerJob(input) {
       validateAllPlayerFenceShape(input.fence);
+      if (input.sharedPregame) {
+        if (input.scopedCapture || input.outcome !== 'no-statistics-yet') {
+          throw new Error('Shared pregame completion cannot publish a capture.');
+        }
+        const rows = await client.query(`/* projection-store:finish-all-player-shared-pregame-job */
+          SELECT public.finish_all_player_shared_pregame_job($1::jsonb, $2::jsonb) AS finished`, [
+          json(input.fence), json(input.diagnostic),
+        ]);
+        return rows[0]?.finished === true;
+      }
+      if (input.scopedCapture) {
+        const rows = await client.query(`/* projection-store:finish-all-player-scoped-job */
+          SELECT public.finish_all_player_scoped_job($1::jsonb, $2, $3::jsonb, $4::uuid) AS finished`, [
+          json(input.fence), input.outcome, json(input.diagnostic),
+          requiredText(input.scopedCapture.statObservationId, 'Shared statistics observation'),
+        ]);
+        return rows[0]?.finished === true;
+      }
       const rows = await client.query(`/* projection-store:finish-all-player-job */
         SELECT public.finish_all_player_job($1::jsonb, $2, $3::jsonb) AS finished`, [
         json(input.fence), input.outcome, json(input.diagnostic),

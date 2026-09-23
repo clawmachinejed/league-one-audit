@@ -14,6 +14,8 @@ export function createLeagueAdministrationStore(database: Database): LeagueAdmin
     recordObservation: async () => ({ status: 'disabled' }),
     readSource: async () => ({ status: 'disabled' }),
     readSourceByConnection: async () => ({ status: 'disabled' }),
+    listEnrollmentInventory: async () => ({ entries: [] }),
+    readEnrollment: async () => ({ status: 'missing' }),
     listEnrollments: async () => [],
   };
   return { enabled: true, ...createLeagueAdministrationMethods(database) };

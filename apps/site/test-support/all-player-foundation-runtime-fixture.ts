@@ -169,7 +169,9 @@ const dependencies: AllPlayerIngestionDependencies = {
   store: {
     enabled: true,
     readLeagueLineupAuthorities: async () => [],
-    readAllPlayerLeagueProfiles: async () => capturedProfiles,
+    readAllPlayerLeagueProfiles: async ({ leagues }) => capturedProfiles.filter((profile) => (
+      leagues.some((league) => league.leagueKey === profile.leagueKey)
+    )),
     readAllPlayerIdentityMappings: async (lookups: readonly AllPlayerIdentityLookup[]) => lookups.map((lookup) => {
       const mapping = mappingByKey.get(`${lookup.provider}:${lookup.entityKind}:${lookup.externalId}`);
       return { ...lookup, scoringEntityId: mapping?.scoringEntityId ?? null,
@@ -185,6 +187,8 @@ const dependencies: AllPlayerIngestionDependencies = {
     upsertScoringEntities: writeTrap('upsertScoringEntities'),
     recordLeagueWeekObservation: writeTrap('recordLeagueWeekObservation'),
     recordAllPlayerBatch: writeTrap('recordAllPlayerBatch'),
+    recordAllPlayerScoreContent: writeTrap('recordAllPlayerScoreContent'),
+    acceptAllPlayerLeagueScore: writeTrap('acceptAllPlayerLeagueScore'),
     validateAllPlayerJobFence: async () => true,
     readAllPlayerJobState: async () => null,
   },

@@ -30,7 +30,8 @@ export async function runLineupObservation(
   const execute = async (): Promise<LineupObservationSyncResult> => {
     const scoped = { ...dependencies, ...dependencies.persistence.scope(controller.signal) };
     const configurations = await scoped.leagueRegistry.listActiveLeagues();
-    if (configurations.length === 0) return { status: 'skipped', reason: 'idle' };
+    if (configurations.length === 0) return scoped.leagueRegistry.registration?.failures.length
+      ? { status: 'unavailable' } : { status: 'skipped', reason: 'idle' };
     const now = scoped.clock.now();
     const claim = await scoped.repository.acquireJob({ jobKey: LINEUP_OBSERVATION_JOB_KEY,
       jobType: 'lineup-observation', scheduledFor: new Date(Math.floor(now.getTime() / 60_000) * 60_000).toISOString(),
@@ -41,7 +42,8 @@ export async function runLineupObservation(
     const results = await scoped.periodAuthorityReader.readAuthorities(
       configurations.map((configuration) => configuration.key), now, LINEUP_AUTHORITY_MAX_AGE_MS,
     );
-    const context = await synchronizeLineupWatches(scoped.lineupRepository, configurations, results, scoped.clock.now());
+    const context = await synchronizeLineupWatches(scoped.lineupRepository, configurations, results, scoped.clock.now(),
+      scoped.leagueRegistry.registration);
     if (context.kind !== 'stored') {
       await scoped.repository.failJob(LINEUP_OBSERVATION_JOB_KEY, runId, 'lineup-authority-unavailable');
       ownsJob = false;

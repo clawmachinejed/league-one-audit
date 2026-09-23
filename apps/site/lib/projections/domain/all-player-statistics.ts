@@ -109,7 +109,7 @@ function unavailable(
  * rejects the whole provider observation. No current pointer can advance from a
  * partially validated group.
  */
-export async function buildAllPlayerScoreSets(input: Readonly<{
+async function buildScoreSets(input: Readonly<{
   observation: AllPlayerStatObservation;
   profiles: readonly AllPlayerScoringProfile[];
   expectedScoringProfileIds: readonly string[];
@@ -117,7 +117,7 @@ export async function buildAllPlayerScoreSets(input: Readonly<{
   supportedRuleKeys: ReadonlySet<string>;
   resolveIdentity: (entry: AllPlayerStatEntry) => AllPlayerIdentity;
   parityTolerance?: number;
-}>): Promise<AllPlayerScoreBuildResult> {
+}>, contentOnly = false): Promise<AllPlayerScoreBuildResult> {
   if (input.observation.quality !== 'complete' || input.observation.coverage.complete !== true) {
     return unavailable('incomplete-coverage', ['provider observation is not complete']);
   }
@@ -142,8 +142,8 @@ export async function buildAllPlayerScoreSets(input: Readonly<{
   if (duplicateProfiles.length > 0) return unavailable('invalid-input', duplicateProfiles);
   const invalidParityEvidence: string[] = [];
   for (const profile of input.profiles) {
-    if (profile.officialBatches.length === 0
-      || profile.officialBatches.every((batch) => batch.points.length === 0)) {
+    if (!contentOnly && (profile.officialBatches.length === 0
+      || profile.officialBatches.every((batch) => batch.points.length === 0))) {
       invalidParityEvidence.push(`missing-official-points:${profile.scoringProfileId}`);
     }
     if (!Object.values(profile.rawRules).some((value) => (
@@ -309,7 +309,7 @@ export async function buildAllPlayerScoreSets(input: Readonly<{
       return unavailable('scoring-mismatch', parityMismatches);
     }
 
-    const coverage = {
+    const legacyCoverage = {
       ...input.observation.coverage,
       complete: true,
       identity_complete: true,
@@ -327,6 +327,11 @@ export async function buildAllPlayerScoreSets(input: Readonly<{
         points: officialPoints,
       }),
     };
+    const coverage = contentOnly ? {
+      ...input.observation.coverage, complete: true, identity_complete: true,
+      scoring_rules_complete: true, scoring_rules_hash: scoringRulesHash,
+      material_contract: 'all-player-score-content-v2',
+    } : legacyCoverage;
     const scoreDocument = scores.map((score) => ({
       ...score,
       scoringBreakdown: score.scoringBreakdown,
@@ -354,4 +359,60 @@ export async function buildAllPlayerScoreSets(input: Readonly<{
     });
   }
   return { status: 'available', scoreSets };
+}
+
+/** Legacy coordinated publication contract; its semantic hashes remain unchanged. */
+export function buildAllPlayerScoreSets(input: Parameters<typeof buildScoreSets>[0]) {
+  return buildScoreSets(input);
+}
+
+/** Calculate immutable profile material once; league parity never enters its identity. */
+export async function buildAllPlayerScoreContent(input: Readonly<{
+  observation: AllPlayerStatObservation;
+  profile: Pick<AllPlayerScoringProfile, 'scoringProfileId' | 'rawRules'>;
+  scorerVersion: string;
+  supportedRuleKeys: ReadonlySet<string>;
+  resolveIdentity: (entry: AllPlayerStatEntry) => AllPlayerIdentity;
+}>): Promise<Readonly<{status: 'available'; scoreSet: AllPlayerScoreSet}>
+  | Extract<AllPlayerScoreBuildResult, {status: 'unavailable'}>> {
+  const result = await buildScoreSets({ ...input,
+    profiles: [{ ...input.profile, officialBatches: [] }],
+    expectedScoringProfileIds: [input.profile.scoringProfileId],
+  }, true);
+  return result.status === 'available' ? {status: 'available', scoreSet: result.scoreSets[0]} : result;
+}
+
+/** Check one league's complete official population against shared material without rescoring. */
+export async function validateLeagueAllPlayerParity(input: Readonly<{
+  scoreSet: AllPlayerScoreSet;
+  profile: AllPlayerScoringProfile;
+}>): Promise<Readonly<{status: 'available'}>
+  | Extract<AllPlayerScoreBuildResult, {status: 'unavailable'}>> {
+  const fail = (reason: Extract<AllPlayerScoreBuildResult, {status: 'unavailable'}>['reason'], details: string[]) =>
+    ({status: 'unavailable' as const, reason, details});
+  const { scoreSet, profile } = input;
+  if (scoreSet.scoringProfileId !== profile.scoringProfileId
+    || scoreSet.scoringRulesHash !== await semanticHash(profile.rawRules)
+    || scoreSet.coverage.material_contract !== 'all-player-score-content-v2'
+    || profile.officialBatches.length !== 1) return fail('invalid-input', ['league-profile-binding']);
+  const batch = profile.officialBatches[0];
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(batch.observationId)
+    || !Number.isInteger(batch.rosterCount) || batch.rosterCount < 1
+    || batch.rosterIds.length !== batch.rosterCount
+    || new Set(batch.rosterIds).size !== batch.rosterIds.length
+    || batch.rosterIds.some((id) => !id.trim())
+    || stableJson([...batch.rosterIds].sort()) !== stableJson(batch.rosterIds)
+    || batch.entityCount !== batch.points.length || batch.entityCount < 1
+    || new Set(batch.points.map((point) => point.providerExternalId)).size !== batch.points.length
+    || batch.points.some((point) => !point.providerExternalId.trim() || !Number.isFinite(point.points))
+    || batch.fingerprint !== await officialPointsFingerprint(batch.points)) {
+    return fail('invalid-input', ['invalid-official-batch']);
+  }
+  const points = new Map(scoreSet.scores.map((score) => [score.providerExternalId, score.fantasyPoints]));
+  const mismatches = batch.points.filter((point) => {
+    const calculated = points.get(point.providerExternalId);
+    return calculated === undefined || !Number.isFinite(calculated)
+      || Math.abs(calculated - point.points) > 0.000_001;
+  }).map((point) => point.providerExternalId);
+  return mismatches.length ? fail('scoring-mismatch', mismatches) : {status: 'available'};
 }

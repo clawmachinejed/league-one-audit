@@ -227,9 +227,9 @@ const dependencies = {
     enabled: true,
     readAllPlayerLeagueProfiles: async (input: Readonly<{
       leagues: readonly Readonly<{ leagueKey: string; externalLeagueId: string; rulesHash: string }>[];
-    }>) => input.leagues.map((league, index) => ({
+    }>) => input.leagues.map((league) => ({
       leagueKey: league.leagueKey,
-      leagueSeasonId: deterministicUuid('runtime-season', String(index + 1)),
+      leagueSeasonId: deterministicUuid('runtime-season', league.leagueKey),
       scoringProfileId: league.leagueKey === 'dynasty'
         ? '22222222-2222-4222-8222-222222222222' : '11111111-1111-4111-8111-111111111111',
       rulesHash: rulesHash(rawRules(league.externalLeagueId)),
@@ -265,6 +265,8 @@ const dependencies = {
     upsertScoringEntities: writeTrap('upsertScoringEntities'),
     recordLeagueWeekObservation: writeTrap('recordLeagueWeekObservation'),
     recordAllPlayerBatch: writeTrap('recordAllPlayerBatch'),
+    recordAllPlayerScoreContent: writeTrap('recordAllPlayerScoreContent'),
+    acceptAllPlayerLeagueScore: writeTrap('acceptAllPlayerLeagueScore'),
     finishAllPlayerJob: writeTrap('finishAllPlayerJob'),
     recordAllPlayerPreclaimOutcome: writeTrap('recordAllPlayerPreclaimOutcome'),
     readAllPlayerJobState: async () => null,
