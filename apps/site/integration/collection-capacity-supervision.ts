@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import type { ChildProcess } from 'node:child_process';
 import { spawn } from 'node:child_process';
+import { assertIntegrationOwner, INTEGRATION_MUTEX, type IntegrationOwnerProof } from './integration-database-ownership';
 
-export const CAPACITY_MUTEX = 'league-one-auth-integration-credential';
+export const CAPACITY_MUTEX = INTEGRATION_MUTEX;
 export const CAPACITY_RECEIPT_KIND = 'collection-capacity-supervision-v1';
 export const CAPACITY_OWNER_ENV = 'COLLECTION_CAPACITY_OWNER_PROOF';
 type Row = Readonly<Record<string, unknown>>;
@@ -14,9 +15,7 @@ export type CapacitySnapshot = Readonly<{
   database: string; branch: string; relations: number; otherSessions: number; backends: readonly CapacityBackend[];
 }>;
 type Target = Readonly<{ database: string; branch: string }>;
-export type CapacityOwnerProof = Target & Readonly<{
-  pid: number; backendStart: string; applicationName: string;
-}>;
+export type CapacityOwnerProof = IntegrationOwnerProof;
 
 export async function capacitySessionSnapshot(query: CapacityQuery): Promise<CapacitySnapshot> {
   const rows = await query(`SELECT current_database() AS database,current_setting('neon.branch_id',true) AS branch,
@@ -99,25 +98,7 @@ export function verifyCapacityBackends(
 
 /** Executed by global setup before reset and again before its cleanup. The
  * unique marker identifies the live owner session; the database proves its lock. */
-export async function assertCapacityOwner(query: CapacityQuery, target: Target, serialized: string | undefined): Promise<void> {
-  if (!serialized) throw new Error('Capacity reset requires the supervised runner.');
-  const proof: CapacityOwnerProof = JSON.parse(serialized);
-  assert.equal(proof.database, target.database); assert.equal(proof.branch, target.branch);
-  assert.ok(Number.isSafeInteger(proof.pid) && proof.pid > 0);
-  assert.ok(/^capacity-owner-[a-f0-9-]{36}$/u.test(proof.applicationName));
-  assert.ok(Number.isFinite(Date.parse(proof.backendStart)));
-  const rows = await query(`SELECT EXISTS (
-    SELECT 1 FROM pg_stat_activity activity JOIN pg_locks lock ON lock.pid=activity.pid
-    WHERE activity.pid=$1::integer AND activity.datname=current_database() AND activity.usename=current_user
-      AND activity.application_name=$2::text AND activity.backend_start=$3::timestamptz
-      AND lock.locktype='advisory' AND lock.granted AND lock.mode='ExclusiveLock'
-      AND lock.objsubid=1
-      AND lock.classid=((hashtextextended($4::text,0) >> 32) & 4294967295)::oid
-      AND lock.objid=(hashtextextended($4::text,0) & 4294967295)::oid
-  ) AND current_database()=$5::text AND current_setting('neon.branch_id',true)=$6::text AS owned`,
-  [proof.pid, proof.applicationName, proof.backendStart, CAPACITY_MUTEX, target.database, target.branch]);
-  assert.deepEqual(rows, [{ owned: true }]);
-}
+export const assertCapacityOwner = assertIntegrationOwner;
 
 async function stopOwnedWindowsTree(pid: number): Promise<void> {
   if (!Number.isSafeInteger(pid) || pid <= 0 || process.platform !== 'win32') throw new Error('Owned Windows child is unavailable.');

@@ -11,6 +11,8 @@ export default async function setup() {
   await ownership();
   await prepareIntegrationDatabase();
   try { await installAllPlayerScheduleTestClock(); }
-  catch (error) { await ownership(); await cleanIntegrationDatabase(); throw error; }
-  return async () => { await ownership(); await cleanIntegrationDatabase(); };
+  catch (error) { await cleanIntegrationDatabase(); throw error; }
+  // Central cleanup verifies the delegation and closes its own pinned shared
+  // session even if the parent proof has expired. Do not short-circuit it.
+  return async () => { await cleanIntegrationDatabase(); };
 }

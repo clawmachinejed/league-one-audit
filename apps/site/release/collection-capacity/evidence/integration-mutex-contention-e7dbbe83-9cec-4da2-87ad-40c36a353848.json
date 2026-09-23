@@ -1,0 +1,89 @@
+{
+  "kind": "guarded-real-neon-integration-mutex-contention-v1",
+  "startedAt": "2026-09-23T23:08:44.078Z",
+  "database": "account_reset_integration_test",
+  "branch": "br-still-breeze-avaibago",
+  "stage": "contention-proved",
+  "contenderUsesReadOnlyStartup": true,
+  "delegatedOwnerProof": false,
+  "providerRequests": 0,
+  "productionRequests": 0,
+  "schemaOrDataWrites": 0,
+  "sessionsTerminated": 0,
+  "ownLockMode": "shared-capacity-owner",
+  "contenderRequestedLockMode": "exclusive-ordinary-prepare",
+  "ownLockAcquired": true,
+  "ownLockReleased": true,
+  "expectedBusyRejection": true,
+  "schemaIdentityUnchanged": true,
+  "standardIdentityGuardsPassed": true,
+  "sourceSha256": {
+    "integration/neon-integration-harness.ts": "b53ffeeee14a40d37a27c2b52d400bd6141dcefbbdb7a1eeff04404d476ea82d",
+    "integration/integration-database-ownership.ts": "3834ee6ca797ba2008ba945bdcb7af1ba30919709b84aa41d3ee35bc44659975",
+    "integration/collection-capacity-supervision.ts": "937b7fcd95aa507da489e6f26343de8c229649cb50b614aec04807d6f3680edf"
+  },
+  "freshConnectionSettings": [
+    {
+      "kind": "owner",
+      "database": "account_reset_integration_test",
+      "branch": "br-still-breeze-avaibago",
+      "default_read_only": "on",
+      "transaction_read_only": "on",
+      "statement_timeout": "5s",
+      "lock_timeout": "1500ms"
+    },
+    {
+      "kind": "runtime",
+      "database": "account_reset_integration_test",
+      "branch": "br-still-breeze-avaibago",
+      "default_read_only": "on",
+      "transaction_read_only": "on",
+      "statement_timeout": "5s",
+      "lock_timeout": "1500ms"
+    }
+  ],
+  "before": {
+    "database": "account_reset_integration_test",
+    "branch": "br-still-breeze-avaibago",
+    "default_read_only": "on",
+    "public_schema_oid": "919782",
+    "website_auth_schema_oid": null,
+    "relations": 0
+  },
+  "beforeSessions": {
+    "database": "account_reset_integration_test",
+    "branch": "br-still-breeze-avaibago",
+    "relations": 0,
+    "otherSessions": 0,
+    "backends": []
+  },
+  "ownershipObservation": "No competing owner observed; only exact previously recorded idle runtime backends are allowed.",
+  "lockedSessions": {
+    "database": "account_reset_integration_test",
+    "branch": "br-still-breeze-avaibago",
+    "relations": 0,
+    "otherSessions": 0,
+    "backends": []
+  },
+  "prepareRejection": {
+    "name": "Error",
+    "code": "INTEGRATION_DATABASE_BUSY"
+  },
+  "after": {
+    "database": "account_reset_integration_test",
+    "branch": "br-still-breeze-avaibago",
+    "default_read_only": "on",
+    "public_schema_oid": "919782",
+    "website_auth_schema_oid": null,
+    "relations": 0
+  },
+  "afterSessions": {
+    "database": "account_reset_integration_test",
+    "branch": "br-still-breeze-avaibago",
+    "relations": 0,
+    "otherSessions": 0,
+    "backends": []
+  },
+  "outcome": "passed",
+  "finishedAt": "2026-09-23T23:08:46.465Z"
+}

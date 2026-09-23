@@ -31,7 +31,7 @@ Remaining interpretation limits: local Windows Node-to-Neon timing does not prov
 
 External supervisor receipts `2fc3c46a-00d1-45f9-8bd8-b18bf13666f9` and `a5182b64-0b17-4b0f-ae6b-ae0c03de686d` both record child exit 0, confirmed closure, zero final schema relations and verified cleanup. Main-run Vitest teardown reported a close error; the external supervisor performed guarded recovery cleanup and verified the result. The extension needed no recovery cleanup. The teardown deviation is preserved rather than treated as an unqualified clean teardown.
 
-## Reviewed final bytes
+## Reviewed bytes before the mutex correction
 
 SHA-256 hashes are for exact local bytes. Changed files require a focused recheck. The main run captured capacity-case hash `862088bf7bf4fb7487bbfb22e67994e151a0ff9a350a8a20b5f7ebec2d221f90`; the extension adds only its explicit scope selection and captured the final capacity-case hash below. The reusable runner, global setup and supervision helper were strengthened after both measurements; measured runtime/fixture code was not changed by that safety work. A final standalone probe is separate evidence.
 
@@ -70,6 +70,26 @@ This is a deterministic policy measurement with instantaneous successful current
 
 Scheduling script SHA-256: `e97c62a7c3801c12706824aec80d293c18afba43b6ae3b617bb51d9ed13e2f35`.
 
-## Final standalone qualification
+## Initial standalone qualification
 
 The final reusable runner passed a guarded three-league probe in 23.721 seconds after the earlier HTTP pool backends expired naturally. The owner proof passed before reset and cleanup, all capture invariants passed, the child exited 0, and cleanup was verified with empty application schemas and no active/open transactions. See [the validation record](validation.md) for the exact probe/receipt and complete repository check totals. The reviewed implementation bytes above remained unchanged.
+
+## Independent review of the integration mutex correction
+
+A subsequent PR review correctly identified that ordinary `prepareIntegrationDatabase` and `cleanIntegrationDatabase` callers did not participate in the capacity mutex. The earlier successful measurements do not prove cross-run exclusion. The correction centralizes ownership in the destructive harness, pins its actual migration/schema connection, and retains ownership through cleanup. Capacity uses exclusive admission followed by shared locks in parent and child; every independent run requires exclusive admission. This prevents parent connection loss from opening a competing reset window. Failed owner checks, connection loss, wrong lock modes and changed targets fail closed. Cleanup closes its retained session even when preconditions fail. Owner transport is direct, and changed-target errors omit credentials.
+
+Independent read-only review found no remaining blocker. The reviewer checked all destructive callers, Vitest setup/worker boundaries, repeated migration preparations, exception cleanup and parent/child lock lifetime. The implementer passed 88 focused tests, TypeScript and lint. The release owner separately proved real PostgreSQL conflict rejection with read-only startup protection and a successful guarded capacity probe; see [validation](validation.md). Benchmark operation/fixture code and the 26 earlier performance captures were not changed.
+
+| Corrected file (relative to `apps/site`) | SHA-256 |
+| --- | --- |
+| `integration/integration-database-ownership.ts` | `3834ee6ca797ba2008ba945bdcb7af1ba30919709b84aa41d3ee35bc44659975` |
+| `integration/integration-database-ownership.test.ts` | `f1dda8a65cad267677e84a682936cca0f63837a85f060637a02644be6cf1e479` |
+| `integration/neon-integration-harness.ts` | `b53ffeeee14a40d37a27c2b52d400bd6141dcefbbdb7a1eeff04404d476ea82d` |
+| `integration/neon-integration-harness.test.ts` | `c163bba35d2b9d49f63f9ba494b3e1cb3b89da44e487341ecb57bfcee886ee6a` |
+| `integration/global-setup.ts` | `e9c96e4427af74339d4b25bfe8cb87530c2bef0ad3965dcd2959d637bb0883aa` |
+| `integration/global-setup.test.ts` | `9f25349a47914465991e3a74c333fe3a3376834a8adf2de8065c49270675637b` |
+| `integration/collection-capacity.global-setup.ts` | `b4f684a1bee7b937166a3f91963650d1b772e002b5680bc0f4da30122cee56e3` |
+| `integration/collection-capacity-supervision.ts` | `937b7fcd95aa507da489e6f26343de8c229649cb50b614aec04807d6f3680edf` |
+| `integration/collection-capacity-supervision.test.ts` | `f0e3cad749d68315091f23eadbd20ed3797eaec96e7fe96a54f3b42a36b3cdd1` |
+| `scripts/run-collection-capacity.mjs` | `aa6e8165d997d662defe7f7b05efcdbd061d0ad1469af7b3c37e75eb447381fe` |
+| `integration/README.md` | `de55b98f6b41727a1592ec13ff9e6bd7871e94e66bc0f500d889beb3cb82d5a1` |

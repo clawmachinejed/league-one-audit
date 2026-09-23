@@ -42,7 +42,7 @@ describe('capacity supervisor ownership and idle HTTP attribution', () => {
   });
   it('requires the exact live mutex owner session before a reset is authorized', async () => {
     const proof = JSON.stringify({ ...target, pid: 99, backendStart: start,
-      applicationName: 'capacity-owner-12345678-1234-1234-1234-123456789abc' });
+      applicationName: 'capacity-owner-12345678-1234-1234-1234-123456789abc', lockMode: 'ShareLock' });
     const query = vi.fn<CapacityQuery>(async () => [{ owned: true }]);
     await expect(assertCapacityOwner(query, target, undefined)).rejects.toThrow();
     expect(query).not.toHaveBeenCalled();

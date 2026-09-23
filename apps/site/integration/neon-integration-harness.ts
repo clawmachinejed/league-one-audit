@@ -3,6 +3,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Pool, type PoolClient } from '@neondatabase/serverless';
+import { createIntegrationDatabaseOwnership, INTEGRATION_OWNER_ENV, type IntegrationSession } from './integration-database-ownership';
 import type { DatabaseClient, DatabaseQueryOptions, DatabaseRow, DatabaseStatement,
   DatabaseLockedQueryResult } from '../lib/database';
 
@@ -11,6 +12,11 @@ const COMMENT_PURPOSE = 'league-one-projection-store-integration';
 const ENV_FILE_MARKER = '.env.integration.local';
 const SAFE_NAME_PATTERN = /(?:^|[-_])(integration|test)(?:$|[-_])/iu;
 const FORBIDDEN_NAMES = new Set(['main', 'neondb', 'postgres', 'prod', 'production']);
+const databaseOwnership = createIntegrationDatabaseOwnership();
+
+function delegatedOwner(explicit: string | undefined): string | undefined {
+  return explicit ?? process.env[INTEGRATION_OWNER_ENV] ?? process.env.COLLECTION_CAPACITY_OWNER_PROOF;
+}
 
 export type IntegrationEnvironment = Readonly<{
   ownerDatabaseUrl: string;
@@ -279,7 +285,7 @@ export async function assertSafeIntegrationDatabase(
   }
 }
 
-async function resetIntegrationSchemas(pool: Pool): Promise<void> {
+async function resetIntegrationSchemas(pool: IntegrationSession): Promise<void> {
   // Fixed application-owned schemas only, after the full existing target guards.
   // Never enumerate/drop other schemas (in particular managed neon_auth).
   await pool.query('DROP SCHEMA IF EXISTS website_auth CASCADE');
@@ -289,7 +295,7 @@ async function resetIntegrationSchemas(pool: Pool): Promise<void> {
 }
 
 async function applyMigrations(
-  pool: Pool,
+  pool: IntegrationSession,
   throughMigration?: string,
 ): Promise<readonly string[]> {
   const migrationsDirectory = fileURLToPath(new URL('../migrations/', import.meta.url));
@@ -336,7 +342,7 @@ async function applyMigrations(
 }
 
 async function grantIsolatedPrivateRole(
-  pool: Pool, env: IntegrationEnvironment, role: 'league_one_account' | 'league_one_auth',
+  pool: IntegrationSession, env: IntegrationEnvironment, role: 'league_one_account' | 'league_one_auth',
 ): Promise<void> {
   const identity = await pool.query('SELECT rolname AS owner_role FROM pg_roles WHERE rolname = current_user');
   const ownerRole: unknown = identity.rows[0]?.owner_role;
@@ -361,11 +367,13 @@ export async function prepareIntegrationDatabase(options: Readonly<{
   provisionRuntimeRole?: boolean;
   provisionAccountRole?: boolean;
   provisionAuthRole?: boolean;
+  ownerProof?: string;
 }> = {}): Promise<void> {
-  const env = integrationEnvironment();
-  await assertSafeIntegrationDatabase(env);
-  const ownerPool = new Pool({ connectionString: env.ownerDatabaseUrl, max: 1 });
   try {
+    const env = integrationEnvironment();
+    await assertSafeIntegrationDatabase(env);
+    const ownerPool = await databaseOwnership.acquire({ ownerDatabaseUrl: env.ownerDatabaseUrl,
+      expectedDatabase: env.expectedDatabase, expectedBranchId: env.expectedBranchId }, delegatedOwner(options.ownerProof));
     await resetIntegrationSchemas(ownerPool);
     const empty = await ownerPool.query(`
       SELECT count(*)::integer AS relation_count
@@ -408,20 +416,22 @@ export async function prepareIntegrationDatabase(options: Readonly<{
       resetSchemas: ['public', 'website_auth'],
       migrationNames,
     });
-  } finally {
-    await ownerPool.end();
+    await assertSafeIntegrationDatabase(env);
+  } catch (error) {
+    await databaseOwnership.release();
+    throw error;
   }
-  await assertSafeIntegrationDatabase(env);
 }
 
-export async function cleanIntegrationDatabase(): Promise<void> {
-  const env = integrationEnvironment();
-  await assertSafeIntegrationDatabase(env);
-  const ownerPool = new Pool({ connectionString: env.ownerDatabaseUrl, max: 1 });
+export async function cleanIntegrationDatabase(options: Readonly<{ ownerProof?: string }> = {}): Promise<void> {
   try {
+    const env = integrationEnvironment();
+    await assertSafeIntegrationDatabase(env);
+    const ownerPool = await databaseOwnership.acquire({ ownerDatabaseUrl: env.ownerDatabaseUrl,
+      expectedDatabase: env.expectedDatabase, expectedBranchId: env.expectedBranchId }, delegatedOwner(options.ownerProof));
     await resetIntegrationSchemas(ownerPool);
   } finally {
-    await ownerPool.end();
+    await databaseOwnership.release();
   }
 }
 

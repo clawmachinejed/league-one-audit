@@ -1,9 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocked = vi.hoisted(() => ({ pool: vi.fn(), query: vi.fn(), end: vi.fn(),
-  connect: vi.fn(), sessionQuery: vi.fn(), release: vi.fn(), readdir: vi.fn(), readFile: vi.fn() }));
+  connect: vi.fn(), sessionQuery: vi.fn(), release: vi.fn(), readdir: vi.fn(), readFile: vi.fn(),
+  acquireOwnership: vi.fn(), releaseOwnership: vi.fn() }));
 vi.mock('@neondatabase/serverless', () => ({ Pool: mocked.pool }));
 vi.mock('node:fs/promises', () => ({ readdir: mocked.readdir, readFile: mocked.readFile }));
+vi.mock('./integration-database-ownership', () => ({
+  INTEGRATION_OWNER_ENV: 'PROJECTION_INTEGRATION_OWNER_PROOF',
+  createIntegrationDatabaseOwnership: () => ({ acquire: mocked.acquireOwnership, release: mocked.releaseOwnership }),
+}));
 
 import {
   accountQuery,
@@ -48,12 +53,19 @@ function configureEnvironment() {
 beforeEach(() => {
   vi.resetAllMocks();
   vi.stubEnv('PROJECTION_INTEGRATION_SETUP_PROOF', undefined);
+  vi.stubEnv('PROJECTION_INTEGRATION_OWNER_PROOF', undefined);
+  vi.stubEnv('COLLECTION_CAPACITY_OWNER_PROOF', undefined);
   for (const name of ['DATABASE_URL', 'MIGRATION_DATABASE_URL', 'PRODUCTION_DATABASE_URL',
     'ACCOUNT_DATABASE_URL', 'ACCOUNTS_AUTH_DATABASE_URL']) {
     vi.stubEnv(name, undefined);
   }
   configureEnvironment();
   mocked.end.mockResolvedValue(undefined);
+  mocked.releaseOwnership.mockImplementation(() => mocked.end());
+  mocked.acquireOwnership.mockImplementation(async (environment: { ownerDatabaseUrl: string }) => ({
+    query: (statement: string) => mocked.query(statement, new URL(environment.ownerDatabaseUrl).username),
+    connect: mocked.connect,
+  }));
   mocked.sessionQuery.mockImplementation(async (statement: string) => ({
     rows: statement === 'SHOW transaction_isolation' ? [{ transaction_isolation: 'read committed' }] : [],
   }));
@@ -257,6 +269,42 @@ describe('isolated account-role transactions', () => {
 });
 
 describe('isolated maintained-auth database boundaries', () => {
+  it.each(['prepare', 'cleanup'])('refuses %s before any schema statement when ownership conflicts', async action => {
+    mocked.acquireOwnership.mockRejectedValue(Object.assign(new Error('occupied'), { code: 'INTEGRATION_DATABASE_BUSY' }));
+    await expect(action === 'prepare' ? prepareIntegrationDatabase() : cleanIntegrationDatabase())
+      .rejects.toMatchObject({ code: 'INTEGRATION_DATABASE_BUSY' });
+    expect(mocked.query.mock.calls.some(([statement]) => statement.startsWith('DROP '))).toBe(false);
+    expect(mocked.sessionQuery).not.toHaveBeenCalled();
+  });
+
+  it('passes explicit delegated ownership to both preparation and cleanup', async () => {
+    mockAccountProvisioning();
+    await prepareIntegrationDatabase({ ownerProof: 'server-verified-by-ownership-module' });
+    expect(mocked.releaseOwnership).not.toHaveBeenCalled();
+    await cleanIntegrationDatabase({ ownerProof: 'server-verified-by-ownership-module' });
+    expect(mocked.acquireOwnership.mock.calls.map(([, proof]) => proof))
+      .toEqual(['server-verified-by-ownership-module', 'server-verified-by-ownership-module']);
+    expect(mocked.releaseOwnership).toHaveBeenCalledOnce();
+  });
+
+  it('releases existing ownership even when cleanup authorization is removed', async () => {
+    mockAccountProvisioning(); await prepareIntegrationDatabase();
+    mocked.query.mockClear(); vi.stubEnv('PROJECTION_INTEGRATION_AUTHORIZATION', undefined);
+    await expect(cleanIntegrationDatabase()).rejects.toThrow('authorization');
+    expect(mocked.releaseOwnership).toHaveBeenCalledOnce(); expect(mocked.query).not.toHaveBeenCalled();
+  });
+
+  it('releases the pinned owner when final post-migration identity verification fails', async () => {
+    mockAccountProvisioning();
+    const query = mocked.query.getMockImplementation()!; let identities = 0;
+    mocked.query.mockImplementation(async (statement: string, user: string) => {
+      if (statement.includes('shobj_description') && ++identities > 2) throw new Error('synthetic identity failure');
+      return query(statement, user);
+    });
+    await expect(prepareIntegrationDatabase()).rejects.toThrow();
+    expect(mocked.releaseOwnership).toHaveBeenCalledOnce();
+  });
+
   it.each([
     { options: {}, expected: true },
     { options: { throughMigration: '020_account_foundation.sql' }, expected: false },

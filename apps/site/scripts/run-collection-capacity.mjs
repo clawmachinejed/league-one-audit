@@ -5,6 +5,7 @@ import { access, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Pool } from '@neondatabase/serverless';
+import { assertDirectIntegrationOwnerUrl } from '../integration/integration-database-ownership.ts';
 import { integrationEnvironment, assertSafeIntegrationDatabase, cleanIntegrationDatabase } from '../integration/neon-integration-harness.ts';
 import { CAPACITY_MUTEX, CAPACITY_OWNER_ENV, CAPACITY_RECEIPT_KIND, assertCapacityOwner,
   capacitySessionSnapshot, priorCapacityBackends, superviseCapacityChild, verifyCapacityBackends } from '../integration/collection-capacity-supervision.ts';
@@ -13,6 +14,7 @@ if (process.argv.length !== 2) throw new Error('Collection capacity accepts no c
 if (process.platform !== 'win32') throw new Error('This capacity supervisor currently requires Windows child-tree control.');
 process.env.PROJECTION_INTEGRATION_ENV_FILE = '.env.integration.local';
 const environment = integrationEnvironment();
+assertDirectIntegrationOwnerUrl(environment.ownerDatabaseUrl);
 const output = process.env.COLLECTION_CAPACITY_OUTPUT;
 if (!output || !isAbsolute(output)) throw new Error('Collection capacity requires an absolute COLLECTION_CAPACITY_OUTPUT path.');
 try { await access(output); throw new Error('Capacity refuses to overwrite an existing measurement.'); }
@@ -29,7 +31,7 @@ const abort = () => { controller.abort(); process.exitCode = 1; };
 process.on('SIGINT', abort); process.on('SIGTERM', abort);
 const deadline = setTimeout(abort, 20 * 60_000);
 const hardDeadline = setTimeout(() => { process.stderr.write('Capacity hard deadline; cleanup remains unverified.\n'); process.exit(1); }, 21 * 60_000);
-let pool, client, supervisor, child, locked = false, query, previous, ownedWindow;
+let pool, client, supervisor, child, locked = false, sharedLocked = false, query, previous, ownedWindow;
 try {
   await journal();
   await assertSafeIntegrationDatabase(environment);
@@ -43,7 +45,7 @@ try {
   const applicationName = `capacity-owner-${randomUUID()}`;
   await query("SELECT set_config('application_name',$1::text,false)", [applicationName]);
   const owner = (await query('SELECT pid,backend_start::text AS "backendStart" FROM pg_stat_activity WHERE pid=pg_backend_pid()'))[0];
-  const proof = JSON.stringify({ ...target, ...owner, applicationName });
+  let proof = JSON.stringify({ ...target, ...owner, applicationName, lockMode: 'ExclusiveLock' });
   await assertCapacityOwner(query, target, proof);
   const priorReceipts = [];
   for (const name of await readdir(dirname(receiptPath))) {
@@ -54,6 +56,15 @@ try {
   report.before = await capacitySessionSnapshot(query);
   assert.equal(report.before.relations, 0); verifyCapacityBackends(report.before, target, previous);
   controller.signal.throwIfAborted();
+  // Keep admission exclusive until preflight completes. Parent and child then
+  // retain shared locks on this same key, so either session protects the run
+  // if the other disappears. Every independent run must first get exclusive.
+  await query('SELECT pg_advisory_lock_shared(hashtextextended($1::text,0))', [CAPACITY_MUTEX]);
+  sharedLocked = true;
+  assert.equal((await query('SELECT pg_advisory_unlock(hashtextextended($1::text,0)) AS unlocked', [CAPACITY_MUTEX]))[0].unlocked, true);
+  locked = false;
+  proof = JSON.stringify({ ...target, ...owner, applicationName, lockMode: 'ShareLock' });
+  await assertCapacityOwner(query, target, proof);
   const childEnvironment = { ...process.env, [CAPACITY_OWNER_ENV]: proof };
   for (const name of ['DATABASE_URL', 'MIGRATION_DATABASE_URL', 'PRODUCTION_DATABASE_URL', 'ACCOUNT_DATABASE_URL',
     'ACCOUNTS_AUTH_DATABASE_URL', 'TANK01_API_KEY', 'AUTH_RESET_INTEGRATION_DATABASE_URL']) delete childEnvironment[name];
@@ -76,7 +87,7 @@ try {
   verifyCapacityBackends(report.after, target, previous, ownedWindow);
   if (report.after.relations !== 0) {
     report.recoveryCleanupRequired = true; await journal();
-    await cleanIntegrationDatabase(); report.after = await capacitySessionSnapshot(query);
+    await cleanIntegrationDatabase({ ownerProof: proof }); report.after = await capacitySessionSnapshot(query);
   }
   assert.equal(report.after.relations, 0); verifyCapacityBackends(report.after, target, previous, ownedWindow);
   report.cleanupVerified = true;
@@ -93,6 +104,8 @@ try {
     // Do not reset while child closure, session attribution or ownership is uncertain.
   }
   if (locked && client) await client.query('SELECT pg_advisory_unlock(hashtextextended($1::text,0))', [CAPACITY_MUTEX])
+    .catch(() => { report.unlockFailed = true; process.exitCode = 1; });
+  if (sharedLocked && client) await client.query('SELECT pg_advisory_unlock_shared(hashtextextended($1::text,0))', [CAPACITY_MUTEX])
     .catch(() => { report.unlockFailed = true; process.exitCode = 1; });
   client?.release(); await pool?.end().catch(() => { report.connectionCloseFailed = true; process.exitCode = 1; });
   clearTimeout(deadline); clearTimeout(hardDeadline);
