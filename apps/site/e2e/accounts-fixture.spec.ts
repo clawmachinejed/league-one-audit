@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import type { AccountView, SleeperLeagueDiscovery } from '../lib/accounts/contracts';
+import type { LeagueCapabilityReport } from '../lib/league-capability-contracts';
 
 test.skip(process.env.L1_ACCOUNT_BROWSER_FIXTURE !== 'true', 'Synthetic account UI runs only through playwright.accounts.config.ts.');
 
@@ -367,7 +368,19 @@ function linkedFixture(): AccountView {
 }
 function discoveredFixture(accountId = userId): SleeperLeagueDiscovery {
   return { accountId, season: '2026', status: 'complete', profiles: [{ sourceManagerAccountId: providerId, displayName: 'Fixture Sleeper', status: 'complete' }],
-    leagues: [{ id: '123456789012345678', name: 'External Fixture League', season: '2026', url: 'https://sleeper.com/leagues/123456789012345678', sourceManagerAccountIds: [providerId] }] };
+    leagues: [{ id: '123456789012345678', name: 'External Fixture League', season: '2026', url: 'https://sleeper.com/leagues/123456789012345678',
+      sourceManagerAccountIds: [providerId], capabilities: capabilityFixture() }] };
+}
+function capabilityFixture(): LeagueCapabilityReport {
+  return { version: 'league-capabilities-v1', configurationRevision: 'a'.repeat(64), scoringRulesHash: 'b'.repeat(64),
+    assessedAt: '2026-09-24T12:00:00.000Z', status: 'unsupported', features: [
+      { id: 'roster', label: 'Roster', status: 'supported', reasons: ['These roster slots are supported.'] },
+      { id: 'actual_scoring', label: 'Official scores', status: 'supported', reasons: ['Official points come from Sleeper.'] },
+      { id: 'projections', label: 'Projections', status: 'unsupported', reasons: ['These scoring settings are not supported.'], ruleKeys: ['fixture_bonus'] },
+      { id: 'standings', label: 'Standings', status: 'limited', reasons: ['Projected standings do not include median games.'] },
+      { id: 'schedule_history', label: 'Schedule and history', status: 'supported', reasons: ['This schedule format is supported.'] },
+      { id: 'substitutions', label: 'Substitutions', status: 'unverified', reasons: ['Substitution settings were not supplied.'] },
+    ] };
 }
 
 test('associated Sleeper leagues show season and safe links alongside supported site cards on phone and desktop', async ({ page, baseURL }, info) => {
@@ -382,11 +395,43 @@ test('associated Sleeper leagues show season and safe links alongside supported 
     await expect(section).toContainText('2026');
     await expect(section).toContainText('Fixture Sleeper');
     await expect(section.getByRole('link', { name: 'Open in Sleeper' })).toHaveAttribute('href', 'https://sleeper.com/leagues/123456789012345678');
+    const report = section.locator('details');
+    const summary = report.locator('summary');
+    await expect(summary).toContainText('Website compatibility');
+    await expect(summary).toContainText('Unsupported');
+    await expect(report.getByRole('list', { name: 'Feature compatibility' })).toBeHidden();
+    const discoveryReads = fixture.discoveryReads;
+    await summary.focus();
+    await expect(summary).toBeFocused();
+    await summary.press('Enter');
+    await expect(report.getByRole('list', { name: 'Feature compatibility' })).toBeVisible();
+    await expect(report).toContainText('Supported');
+    await expect(report).toContainText('Limited');
+    await expect(report).toContainText('Unverified');
+    await expect(report).toContainText('Settings: fixture_bonus');
+    await expect(report).toContainText('Settings check only. This does not enable website pages for additional leagues.');
+    expect(fixture.discoveryReads).toBe(discoveryReads);
     await expect(page.getByRole('heading', { name: 'Your leagues', exact: true })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Linked leagues', exact: true })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
     await page.screenshot({ path: info.outputPath('sleeper-leagues-' + width + '.png'), fullPage: true });
   }
+  expect(fixture.writes).toEqual([]); expect(fixture.unexpected).toEqual([]);
+});
+
+test('a malformed compatibility report stays unverified without hiding the Sleeper league', async ({ page, baseURL }) => {
+  const fixture = await installFixture(page, baseURL!);
+  fixture.current = linkedFixture(); fixture.discovery = discoveredFixture();
+  fixture.discovery.leagues[0].capabilities = { ...capabilityFixture(), features: [] };
+  await page.goto('/my-leagues');
+  const section = page.getByRole('region', { name: 'Sleeper leagues', exact: true });
+  await expect(section.getByRole('heading', { name: 'External Fixture League', exact: true })).toBeVisible();
+  const report = section.locator('details');
+  await expect(report.locator('summary')).toContainText('Unverified');
+  await report.locator('summary').click();
+  await expect(report).toContainText('We could not check these league settings.');
+  await expect(section.getByRole('link', { name: 'Open in Sleeper' })).toHaveAttribute('href', 'https://sleeper.com/leagues/123456789012345678');
+  await expect(page.getByRole('heading', { name: 'Your leagues', exact: true })).toBeVisible();
   expect(fixture.writes).toEqual([]); expect(fixture.unexpected).toEqual([]);
 });
 
@@ -417,6 +462,7 @@ test('a delayed discovery response cannot restore the previous account league li
   await expect.poll(() => fixture.discoveryReads).toBe(2);
   release();
   await expect(page.getByRole('heading', { name: 'External Fixture League' })).toHaveCount(0);
+  await expect(page.locator('summary').filter({ hasText: 'Website compatibility' })).toHaveCount(0);
   await expect(page.getByRole('region', { name: 'Sleeper leagues', exact: true })).toContainText('2026');
   expect(fixture.unexpected).toEqual([]);
 });
@@ -430,6 +476,7 @@ test('removing a Sleeper association clears its league list without another prov
   fixture.current.links = [];
   await page.evaluate(() => window.dispatchEvent(new Event('league-one:account-session-change')));
   await expect(page.getByRole('heading', { name: 'External Fixture League' })).toHaveCount(0);
+  await expect(page.locator('summary').filter({ hasText: 'Website compatibility' })).toHaveCount(0);
   await expect(page.getByRole('region', { name: 'Sleeper leagues', exact: true }).getByRole('link')).toHaveAttribute('href', '/account');
   expect(fixture.discoveryReads).toBe(reads); expect(fixture.unexpected).toEqual([]);
 });

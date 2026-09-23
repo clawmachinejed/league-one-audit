@@ -1,6 +1,7 @@
 import 'server-only';
 import { getSleeperDiscoverySeason, getSleeperUserLeagues } from '../sleeper';
 import type { LinkedSleeperProfile, SleeperLeagueDiscovery } from './contracts';
+import { unverifiedLeagueCapabilities } from '../league-capabilities';
 
 type DiscoveryResult = Omit<SleeperLeagueDiscovery, 'accountId'>;
 
@@ -41,10 +42,15 @@ export async function discoverSleeperLeagues(
   // Contradictory metadata across profile responses cannot establish a complete list.
   const names = new Map<string, string>();
   const conflicts = new Set<string>();
+  const revisions = new Map<string, string | null | undefined>();
+  const settingsConflicts = new Set<string>();
   for (const feed of feeds) for (const league of feed ?? []) {
     const existing = names.get(league.id);
     if (existing !== undefined && existing !== league.name) conflicts.add(league.id);
     names.set(league.id, league.name);
+    const revision = league.capabilities?.configurationRevision;
+    if (revisions.has(league.id) && (revisions.get(league.id) !== revision || revision === null)) settingsConflicts.add(league.id);
+    revisions.set(league.id, revision);
   }
   const leagues = new Map<string, SleeperLeagueDiscovery['leagues'][number]>();
   for (let index = 0; index < profiles.length; index += 1) {
@@ -55,6 +61,8 @@ export async function discoverSleeperLeagues(
       let discovered = leagues.get(league.id);
       if (!discovered) {
         discovered = { ...league, url: `https://sleeper.com/leagues/${league.id}`, sourceManagerAccountIds: [] };
+        if (settingsConflicts.has(league.id)) discovered.capabilities = unverifiedLeagueCapabilities(
+          'Associated profiles returned conflicting settings for this league.');
         leagues.set(league.id, discovered);
       }
       if (!discovered.sourceManagerAccountIds.includes(profiles[index].sourceManagerAccountId)) {

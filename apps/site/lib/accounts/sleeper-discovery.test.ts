@@ -4,6 +4,7 @@ vi.mock('../sleeper', () => ({ getSleeperDiscoverySeason: vi.fn(), getSleeperUse
 import { getSleeperDiscoverySeason, getSleeperUserLeagues } from '../sleeper';
 import { discoverSleeperLeagues } from './sleeper-discovery';
 import type { LinkedSleeperProfile } from './contracts';
+import { assessSleeperLeagueCapabilities } from '../league-capabilities';
 
 function profile(id: number): LinkedSleeperProfile {
   return { linkId: `link-${id}`, revision: 1, sourceManagerAccountId: `manager-${id}`,
@@ -66,6 +67,18 @@ describe('private account discovery orchestration', () => {
     expect(getSleeperUserLeagues).toHaveBeenCalledTimes(20);
     await expect(discoverSleeperLeagues(Array.from({ length: 21 }, (_, index) => profile(index + 1)))).rejects.toThrow();
     expect(getSleeperUserLeagues).toHaveBeenCalledTimes(20);
+  });
+  it.each([12, null])('isolates conflicting settings across profiles, including incomplete evidence (%s teams)', async total_rosters => {
+    const settings = { sport: 'nfl', season_type: 'regular', season: '2026', total_rosters, roster_positions: ['QB', 'BN'],
+      scoring_settings: { rec: 0.5 }, settings: { max_subs: 0 } };
+    vi.mocked(getSleeperDiscoverySeason).mockResolvedValue('2026');
+    vi.mocked(getSleeperUserLeagues).mockResolvedValueOnce([{ ...one, capabilities: assessSleeperLeagueCapabilities(settings) }])
+      .mockResolvedValueOnce([{ ...one, capabilities: assessSleeperLeagueCapabilities({ ...settings, scoring_settings: { rec: 1 } }) }]);
+    const result = await discoverSleeperLeagues([profile(1), profile(2)]);
+    expect(result.status).toBe('complete');
+    expect(result.leagues).toHaveLength(1);
+    expect(result.leagues[0].sourceManagerAccountIds).toHaveLength(2);
+    expect(result.leagues[0].capabilities).toMatchObject({ status: 'unverified', configurationRevision: null });
   });
   it('propagates request cancellation without returning a successful stale mapping', async () => {
     vi.mocked(getSleeperDiscoverySeason).mockResolvedValue('2026');

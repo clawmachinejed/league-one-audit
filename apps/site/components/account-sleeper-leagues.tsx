@@ -3,10 +3,29 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import type { AccountLink, SleeperLeagueDiscovery } from '@/lib/accounts/contracts';
+import type { CapabilityStatus, LeagueCapabilityReport } from '@/lib/league-capability-contracts';
 import { readSleeperLeagues, type SleeperLeagueRead } from './account-client';
 import styles from './account.module.css';
 
 type DiscoveryState = SleeperLeagueRead | { status: 'loading' };
+
+const capabilityLabels: Record<CapabilityStatus, string> = {
+  supported: 'Supported', limited: 'Limited', unsupported: 'Unsupported', unverified: 'Unverified',
+};
+
+function LeagueCompatibility({ report }: { report: LeagueCapabilityReport | undefined }) {
+  const status = report?.status ?? 'unverified';
+  return <details className={styles.compatibility}>
+    <summary>Website compatibility <span className={styles.compatibilityStatus} data-status={status}>{capabilityLabels[status]}</span></summary>
+    <p>Settings check only. This does not enable website pages for additional leagues.</p>
+    {report ? <ul className={styles.capabilityList} aria-label="Feature compatibility">{report.features.map(feature => <li key={feature.id}>
+      <div className={styles.capabilityTitle}><strong>{feature.label}</strong>
+        <span className={styles.compatibilityStatus} data-status={feature.status}>{capabilityLabels[feature.status]}</span></div>
+      <ul className={styles.capabilityReasons}>{feature.reasons.map((reason, index) => <li key={index}>{reason}</li>)}</ul>
+      {Boolean(feature.ruleKeys?.length) && <p>Settings: {feature.ruleKeys?.join(', ')}</p>}
+    </li>)}</ul> : <p>We could not check these league settings. Reload My leagues to try again.</p>}
+  </details>;
+}
 
 export function SleeperLeagueResults({ data }: { data: SleeperLeagueDiscovery }) {
   const missing = data.profiles.filter(profile => profile.status === 'unavailable').map(profile => profile.displayName);
@@ -21,6 +40,7 @@ export function SleeperLeagueResults({ data }: { data: SleeperLeagueDiscovery })
     {data.leagues.length > 0 && <div className={`${styles.grid} ${styles.discoveryGrid}`}>{data.leagues.map(league => <article className={styles.card} key={league.id}>
       <h3>{league.name}</h3>
       <p>{data.profiles.filter(profile => league.sourceManagerAccountIds.includes(profile.sourceManagerAccountId)).map(profile => profile.displayName).join(', ')}</p>
+      <LeagueCompatibility report={league.capabilities} />
       <div className={styles.actions}><a className={styles.secondary} href={`https://sleeper.com/leagues/${league.id}`}>Open in Sleeper</a></div>
     </article>)}</div>}
   </>;

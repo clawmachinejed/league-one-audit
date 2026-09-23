@@ -25,7 +25,7 @@ describe('Sleeper account discovery metadata', () => {
     vi.stubGlobal('fetch', request);
     const controller = new AbortController();
     expect(await getSleeperUserLeagues(userId, '2026', controller.signal)).toEqual([
-      { id: league.league_id, name: league.name, season: '2026' },
+      { id: league.league_id, name: league.name, season: '2026', capabilities: expect.objectContaining({ status: 'unverified' }) },
     ]);
     expect(request).toHaveBeenCalledTimes(1);
     expect(request.mock.calls[0][0]).toBe(`https://api.sleeper.app/v1/user/${userId}/leagues/nfl/2026`);
@@ -64,5 +64,14 @@ describe('Sleeper account discovery metadata', () => {
     await expect(getSleeperDiscoverySeason(AbortSignal.abort())).rejects.toThrow();
     await expect(getSleeperUserLeagues(userId, '2026', AbortSignal.abort())).rejects.toThrow();
     expect(request).not.toHaveBeenCalled();
+  });
+  it.each([12, null])('keeps a discoverable league when complete or incomplete settings conflict (%s teams)', async total_rosters => {
+    const first = { ...league, season_type: 'regular', total_rosters, roster_positions: ['QB', 'BN'],
+      scoring_settings: { rec: 0.5 }, settings: { type: 0, max_subs: 0, start_week: 1, best_ball: 0, league_average_match: 0, playoff_week_start: 15 } };
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json([first, { ...first, scoring_settings: { rec: 1 } }, first])));
+    const result = await getSleeperUserLeagues(userId, '2026');
+    expect(result).toHaveLength(1);
+    expect(result[0].capabilities).toMatchObject({ status: 'unverified', configurationRevision: null });
+    expect(result[0].capabilities?.features.every(item => item.status === 'unverified')).toBe(true);
   });
 });

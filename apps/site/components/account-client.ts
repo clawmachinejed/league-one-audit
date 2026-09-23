@@ -1,4 +1,5 @@
 import type { AccountView, SleeperLeagueDiscovery } from '@/lib/accounts/contracts';
+import type { CapabilityStatus, LeagueCapabilityReport } from '@/lib/league-capability-contracts';
 import type { AccountAccessState } from './account-access';
 
 export const ACCOUNT_SESSION_EVENT = 'league-one:account-session-change';
@@ -44,12 +45,36 @@ function isSleeperLeagueDiscovery(value: unknown, accountId: string): value is S
     && league.sourceManagerAccountIds.every(id => typeof id === 'string' && profileIds.has(id)));
 }
 
+function isLeagueCapabilityReport(value: unknown): value is LeagueCapabilityReport {
+  if (!value || typeof value !== 'object') return false;
+  const report = value as LeagueCapabilityReport;
+  const statuses: CapabilityStatus[] = ['supported', 'limited', 'unverified', 'unsupported'];
+  const featureIds = ['roster', 'actual_scoring', 'projections', 'standings', 'schedule_history', 'substitutions'];
+  const hash = (candidate: unknown) => candidate === null || typeof candidate === 'string' && /^[a-f0-9]{64}$/i.test(candidate);
+  if (report.version !== 'league-capabilities-v1' || !statuses.includes(report.status)
+    || !hash(report.configurationRevision) || !hash(report.scoringRulesHash)
+    || typeof report.assessedAt !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(report.assessedAt)
+    || !Number.isFinite(Date.parse(report.assessedAt)) || !Array.isArray(report.features) || report.features.length !== featureIds.length) return false;
+  if (new Date(report.assessedAt).toISOString() !== (report.assessedAt.includes('.') ? report.assessedAt : report.assessedAt.replace('Z', '.000Z'))) return false;
+  if (!report.features.every(feature => feature && featureIds.includes(feature.id) && typeof feature.label === 'string'
+    && feature.label.length > 0 && feature.label.length <= 100 && statuses.includes(feature.status)
+    && Array.isArray(feature.reasons) && feature.reasons.length <= 8
+    && feature.reasons.every(reason => typeof reason === 'string' && reason.length > 0 && reason.length <= 400)
+    && (feature.ruleKeys === undefined || Array.isArray(feature.ruleKeys) && feature.ruleKeys.length <= 512
+      && feature.ruleKeys.every(key => typeof key === 'string' && key.length > 0 && key.length <= 80)))) return false;
+  return new Set(report.features.map(feature => feature.id)).size === featureIds.length
+    && statuses.indexOf(report.status) === Math.max(...report.features.map(feature => statuses.indexOf(feature.status)));
+}
+
 export async function readSleeperLeagues(accountId: string, signal: AbortSignal, request: typeof fetch = fetch): Promise<SleeperLeagueRead> {
   const response = await request('/api/me/sleeper-leagues', { signal, cache: 'no-store', credentials: 'same-origin',
     headers: { Accept: 'application/json', 'X-Expected-Account-ID': accountId } });
   if (!response.ok) return { status: 'unavailable' };
   const data: unknown = await response.json();
-  return isSleeperLeagueDiscovery(data, accountId) ? { status: 'ready', data } : { status: 'unavailable' };
+  if (!isSleeperLeagueDiscovery(data, accountId)) return { status: 'unavailable' };
+  return { status: 'ready', data: { ...data, leagues: data.leagues.map(league => ({ ...league,
+    capabilities: isLeagueCapabilityReport(league.capabilities) ? league.capabilities : undefined,
+  })) } };
 }
 
 /** Signal only a session change; no account identity or private state is persisted. */

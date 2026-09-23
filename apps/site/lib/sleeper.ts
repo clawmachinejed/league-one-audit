@@ -2,6 +2,8 @@ import 'server-only';
 
 import { cache } from 'react';
 import { unstable_cache } from 'next/cache';
+import { assessSleeperLeagueCapabilities, unverifiedLeagueCapabilities } from './league-capabilities';
+import type { LeagueCapabilityReport } from './league-capability-contracts';
 import { readPageAdministrationSource, type AdministrationFamily } from './page-source';
 import { recordProviderCache, sleeperEndpointFamily, startProviderHttp } from './provider-request-telemetry';
 import {
@@ -224,19 +226,30 @@ export async function getSleeperDiscoverySeason(signal?: AbortSignal): Promise<s
 
 export async function getSleeperUserLeagues(
   userId: string, season: string, signal?: AbortSignal,
-): Promise<{ id: string; name: string; season: string }[]> {
+): Promise<{ id: string; name: string; season: string; capabilities?: LeagueCapabilityReport }[]> {
   if (!/^[1-9]\d{0,31}$/u.test(userId) || !/^\d{4}$/u.test(season)) throw new Error('Invalid discovery source.');
   signal?.throwIfAborted();
   const rows = await fetchJson(`/user/${userId}/leagues/nfl/${season}`, CORE_CACHE_SECONDS, signal);
   if (!Array.isArray(rows) || rows.length > 1_000) throw new Error('Sleeper league discovery is unavailable.');
-  const leagues = new Map<string, { id: string; name: string; season: string }>();
+  const leagues = new Map<string, { id: string; name: string; season: string; capabilities?: LeagueCapabilityReport }>();
+  const settingsConflicts = new Set<string>();
+  const assessedAt = new Date().toISOString();
   for (const row of rows) {
+    signal?.throwIfAborted();
     if (!isRecord(row) || typeof row.league_id !== 'string' || !/^[1-9]\d{0,31}$/u.test(row.league_id)
       || typeof row.name !== 'string' || !row.name.trim() || row.name.length > 200
       || row.sport !== 'nfl' || row.season !== season) throw new Error('Sleeper returned invalid discovery metadata.');
-    const league = { id: row.league_id, name: row.name.trim(), season };
+    const league = { id: row.league_id, name: row.name.trim(), season,
+      capabilities: assessSleeperLeagueCapabilities(row, assessedAt) };
     const previous = leagues.get(league.id);
     if (previous && previous.name !== league.name) throw new Error('Sleeper returned contradictory discovery metadata.');
+    if (previous && (previous.capabilities?.configurationRevision !== league.capabilities.configurationRevision
+      || league.capabilities.configurationRevision === null)) {
+      settingsConflicts.add(league.id);
+    }
+    if (settingsConflicts.has(league.id)) {
+      league.capabilities = unverifiedLeagueCapabilities('Sleeper returned conflicting settings for this league.', assessedAt);
+    }
     leagues.set(league.id, league);
   }
   return [...leagues.values()];

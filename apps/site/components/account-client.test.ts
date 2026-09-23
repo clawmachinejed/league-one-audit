@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { LeagueCapabilityReport } from '@/lib/league-capability-contracts';
 import { accountResponseState, readAccount, readSleeperLeagues } from './account-client';
 
 describe('private account browser transport', () => {
@@ -40,6 +41,15 @@ describe('private account browser transport', () => {
 });
 
 describe('private Sleeper league browser transport', () => {
+  const capabilities: LeagueCapabilityReport = { version: 'league-capabilities-v1', configurationRevision: 'a'.repeat(64),
+    scoringRulesHash: 'b'.repeat(64), assessedAt: '2026-09-24T12:00:00.000Z', status: 'unsupported', features: [
+      { id: 'roster', label: 'Roster', status: 'supported', reasons: ['These roster slots are supported.'] },
+      { id: 'actual_scoring', label: 'Official scores', status: 'supported', reasons: ['Official points come from Sleeper.'] },
+      { id: 'projections', label: 'Projections', status: 'unsupported', reasons: ['These scoring settings are not supported.'], ruleKeys: ['pass_rush_yd'] },
+      { id: 'standings', label: 'Standings', status: 'limited', reasons: ['Projected standings do not include median games.'] },
+      { id: 'schedule_history', label: 'Schedule and history', status: 'supported', reasons: ['This schedule format is supported.'] },
+      { id: 'substitutions', label: 'Substitutions', status: 'unverified', reasons: ['Substitution settings were not supplied.'] },
+    ] };
   const data = { accountId: 'user-a', season: '2026', status: 'complete',
     profiles: [{ sourceManagerAccountId: 'source-a', displayName: 'Member', status: 'complete' }],
     leagues: [{ id: '1234567890123456789', name: 'A Sleeper league', season: '2026',
@@ -76,5 +86,33 @@ describe('private Sleeper league browser transport', () => {
     const request = vi.fn<typeof fetch>(async () => { throw new DOMException('Aborted', 'AbortError'); });
     await expect(readSleeperLeagues('user-a', new AbortController().signal, request)).rejects.toMatchObject({ name: 'AbortError' });
     expect(request).toHaveBeenCalledOnce();
+  });
+
+  it('accepts a complete report alongside the existing private league response', async () => {
+    const response = { ...data, leagues: [{ ...data.leagues[0], capabilities }] };
+    const request = vi.fn<typeof fetch>(async () => Response.json(response));
+    expect(await readSleeperLeagues('user-a', new AbortController().signal, request)).toEqual({ status: 'ready', data: response });
+  });
+
+  it.each([
+    null,
+    { ...capabilities, version: 'unknown' },
+    { ...capabilities, status: 'supported' },
+    { ...capabilities, configurationRevision: 'invalid' },
+    { ...capabilities, assessedAt: 'not a date' },
+    { ...capabilities, assessedAt: '2026-02-30T12:00:00.000Z' },
+    { ...capabilities, features: capabilities.features.slice(1) },
+    { ...capabilities, features: capabilities.features.map(() => capabilities.features[0]) },
+    { ...capabilities, features: capabilities.features.map(feature => ({ ...feature, status: 'unknown' })) },
+    { ...capabilities, features: capabilities.features.map(feature => ({ ...feature, reasons: ['x'.repeat(401)] })) },
+    { ...capabilities, features: capabilities.features.map(feature => ({ ...feature, ruleKeys: ['x'.repeat(81)] })) },
+  ])('degrades an invalid report without hiding its valid league or Sleeper link', async invalid => {
+    const request = vi.fn<typeof fetch>(async () => Response.json({ ...data, leagues: [{ ...data.leagues[0], capabilities: invalid }] }));
+    const result = await readSleeperLeagues('user-a', new AbortController().signal, request);
+    expect(result.status).toBe('ready');
+    if (result.status !== 'ready') throw new Error('Expected the private league to remain available');
+    expect(result.data.leagues[0].name).toBe(data.leagues[0].name);
+    expect(result.data.leagues[0].url).toBe(data.leagues[0].url);
+    expect(result.data.leagues[0].capabilities).toBeUndefined();
   });
 });
