@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import type { AccountView } from '../lib/accounts/contracts';
+import type { AccountView, SleeperLeagueDiscovery } from '../lib/accounts/contracts';
 
 test.skip(process.env.L1_ACCOUNT_BROWSER_FIXTURE !== 'true', 'Synthetic account UI runs only through playwright.accounts.config.ts.');
 
@@ -37,6 +37,8 @@ async function installFixture(page: Page, baseURL: string) {
     authPaths: [] as string[], unexpected: [] as string[], nextStatus: 0, readStatus: 0, resetError: false, resetStatus: 0,
     signInError: null as { status: number; code: string } | null,
     holdNextRead: null as Promise<void> | null,
+    discovery: null as SleeperLeagueDiscovery | null, discoveryStatus: 0, discoveryReads: 0,
+    holdNextDiscovery: null as Promise<void> | null,
   };
   await page.route('**/*', async route => {
     const url = new URL(route.request().url());
@@ -51,6 +53,19 @@ async function installFixture(page: Page, baseURL: string) {
       fixture.holdNextRead = null;
       if (held) await held;
       await route.fulfill({ status: captured ? 200 : 401, json: captured ?? { error: 'unauthenticated' }, headers: { 'Cache-Control': 'private, no-store' } }).catch(() => undefined);
+      return;
+    }
+    if (path === '/api/me/sleeper-leagues' && method === 'GET') {
+      fixture.discoveryReads += 1;
+      const expectedAccount = route.request().headers()['x-expected-account-id'];
+      if (!fixture.current) { await route.fulfill({ status: 401, json: { error: 'unauthenticated' } }); return; }
+      if (expectedAccount !== fixture.current.profile.id) { await route.fulfill({ status: 409, json: { error: 'account_changed' } }); return; }
+      if (fixture.discoveryStatus) { await route.fulfill({ status: fixture.discoveryStatus, json: { error: 'account_unavailable' } }); return; }
+      const captured = structuredClone(fixture.discovery ?? { accountId: fixture.current.profile.id, season: '2026', status: 'complete', profiles: [], leagues: [] });
+      const held = fixture.holdNextDiscovery;
+      fixture.holdNextDiscovery = null;
+      if (held) await held;
+      await route.fulfill({ json: captured, headers: { 'Cache-Control': 'private, no-store' } }).catch(() => undefined);
       return;
     }
     if (path.startsWith('/api/me/') && method !== 'GET') {
@@ -343,4 +358,78 @@ test('rate limits do not retry mutations and an account switch rejects the old f
   expect(fixture.writes[1].expectedAccount).toBe(userId);
   expect(fixture.current.profile.displayName).toBe('Second Fixture');
   expect(fixture.unexpected).toEqual([]);
+});
+
+function linkedFixture(): AccountView {
+  const view = accountFixture();
+  view.links = [{ id: providerLinkId, sourceManagerAccountId: providerId, displayName: 'Fixture Sleeper', provider: 'sleeper', assurance: 'user_asserted', revision: 1 }];
+  return view;
+}
+function discoveredFixture(accountId = userId): SleeperLeagueDiscovery {
+  return { accountId, season: '2026', status: 'complete', profiles: [{ sourceManagerAccountId: providerId, displayName: 'Fixture Sleeper', status: 'complete' }],
+    leagues: [{ id: '123456789012345678', name: 'External Fixture League', season: '2026', url: 'https://sleeper.com/leagues/123456789012345678', sourceManagerAccountIds: [providerId] }] };
+}
+
+test('associated Sleeper leagues show season and safe links alongside supported site cards on phone and desktop', async ({ page, baseURL }, info) => {
+  const fixture = await installFixture(page, baseURL!);
+  fixture.current = linkedFixture(); fixture.discovery = discoveredFixture();
+  for (const width of [360, 1280]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/my-leagues');
+    await expect(page.getByRole('heading', { name: 'Sleeper leagues', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'External Fixture League', exact: true })).toBeVisible();
+    const section = page.getByRole('region', { name: 'Sleeper leagues', exact: true });
+    await expect(section).toContainText('2026');
+    await expect(section).toContainText('Fixture Sleeper');
+    await expect(section.getByRole('link', { name: 'Open in Sleeper' })).toHaveAttribute('href', 'https://sleeper.com/leagues/123456789012345678');
+    await expect(page.getByRole('heading', { name: 'Your leagues', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Linked leagues', exact: true })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
+    await page.screenshot({ path: info.outputPath('sleeper-leagues-' + width + '.png'), fullPage: true });
+  }
+  expect(fixture.writes).toEqual([]); expect(fixture.unexpected).toEqual([]);
+});
+
+test('a Sleeper discovery failure leaves site cards usable and supports an explicit retry', async ({ page, baseURL }) => {
+  const fixture = await installFixture(page, baseURL!);
+  fixture.current = linkedFixture(); fixture.discoveryStatus = 503;
+  await page.goto('/my-leagues');
+  const section = page.getByRole('region', { name: 'Sleeper leagues', exact: true });
+  await expect(section.getByRole('button', { name: /retry|try again/i })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Your leagues', exact: true })).toBeVisible();
+  fixture.discoveryStatus = 0; fixture.discovery = discoveredFixture();
+  await section.getByRole('button', { name: /retry|try again/i }).click();
+  await expect(section.getByRole('heading', { name: 'External Fixture League' })).toBeVisible();
+  expect(fixture.unexpected).toEqual([]);
+});
+
+test('a delayed discovery response cannot restore the previous account league list', async ({ page, baseURL }) => {
+  const fixture = await installFixture(page, baseURL!);
+  fixture.current = linkedFixture(); fixture.discovery = discoveredFixture();
+  let release!: () => void;
+  fixture.holdNextDiscovery = new Promise<void>(resolve => { release = resolve; });
+  await page.goto('/my-leagues');
+  await expect.poll(() => fixture.discoveryReads).toBe(1);
+  fixture.current = { ...linkedFixture(), profile: { id: otherUserId, displayName: 'Second Fixture', revision: 1 } };
+  fixture.discovery = { ...discoveredFixture(otherUserId), leagues: [] };
+  await page.evaluate(() => window.dispatchEvent(new Event('league-one:account-session-change')));
+  await expect(page.getByText('Signed in as Second Fixture')).toBeVisible();
+  await expect.poll(() => fixture.discoveryReads).toBe(2);
+  release();
+  await expect(page.getByRole('heading', { name: 'External Fixture League' })).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Sleeper leagues', exact: true })).toContainText('2026');
+  expect(fixture.unexpected).toEqual([]);
+});
+
+test('removing a Sleeper association clears its league list without another provider request', async ({ page, baseURL }) => {
+  const fixture = await installFixture(page, baseURL!);
+  fixture.current = linkedFixture(); fixture.discovery = discoveredFixture();
+  await page.goto('/my-leagues');
+  await expect(page.getByRole('heading', { name: 'External Fixture League' })).toBeVisible();
+  const reads = fixture.discoveryReads;
+  fixture.current.links = [];
+  await page.evaluate(() => window.dispatchEvent(new Event('league-one:account-session-change')));
+  await expect(page.getByRole('heading', { name: 'External Fixture League' })).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Sleeper leagues', exact: true }).getByRole('link')).toHaveAttribute('href', '/account');
+  expect(fixture.discoveryReads).toBe(reads); expect(fixture.unexpected).toEqual([]);
 });

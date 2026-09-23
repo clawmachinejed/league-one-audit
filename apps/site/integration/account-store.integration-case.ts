@@ -150,6 +150,31 @@ describe.sequential('account store adapter against actual accepted-source SQL an
       displayName: 'Source display name', assurance: 'user_asserted',
     });
   }));
+  it('isolates discovery associations by actor, omits revocations and retains IDs without accepted name evidence', async () => rollbackFixture(async f => {
+    const league = await f.league('league1');
+    const first = `discovery-a-${randomUUID()}`; const second = `discovery-b-${randomUUID()}`;
+    await f.record(league, 'users', [{ user_id: first, display_name: 'First association' },
+      { user_id: second, display_name: 'Second association' }]);
+    const a = await f.login(); const b = await f.login();
+    await f.link(a, first); await f.link(b, second);
+    const firstManager = await f.accountId(first); const secondManager = await f.accountId(second);
+    expect(await f.store.readDiscoveryProfiles(a)).toEqual([expect.objectContaining({
+      sourceManagerAccountId: firstManager, externalId: first, displayName: 'First association',
+    })]);
+    expect(await f.store.readDiscoveryProfiles(b)).toEqual([expect.objectContaining({
+      sourceManagerAccountId: secondManager, externalId: second, displayName: 'Second association',
+    })]);
+    // Source retirement removes accepted names, but cannot erase an active private association.
+    await f.query('UPDATE public.league_administration_enrollments SET active=false WHERE league_id=$1', [league.leagueId]);
+    expect(await f.store.readDiscoveryProfiles(a)).toEqual([expect.objectContaining({
+      sourceManagerAccountId: firstManager, externalId: first, displayName: first,
+    })]);
+    const active = (await f.store.readDiscoveryProfiles(a))[0];
+    await f.store.mutate(a, { kind: 'unlink', id: active.linkId, body: { revision: active.revision } });
+    expect(await f.store.readDiscoveryProfiles(a)).toEqual([]);
+    expect((await f.store.readDiscoveryProfiles(b)).map(profile => profile.sourceManagerAccountId)).toEqual([secondManager]);
+  }));
+
   it('executes the full view with owner/co-owner teams across independent leagues and exact source IDs', async () => rollbackFixture(async f => {
     const one = await f.league('league1'); const two = await f.league('league2'); const dynasty = await f.league('dynasty');
     const manager = `manager-${randomUUID()}`; const coOwner = `co-${randomUUID()}`;

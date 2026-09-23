@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AccountAccessNotice, type AccountAvailability } from './account-access';
 import { AccountLibrary, type AccountMutation } from './account-library';
 import { AccountProfile } from './account-profile';
+import { AccountSleeperLeagues } from './account-sleeper-leagues';
 import { ACCOUNT_SESSION_EVENT, accountResponseState, announceAccountSessionChange, readAccount, type AccountRead } from './account-client';
 import styles from './account.module.css';
 
@@ -142,7 +143,10 @@ export function AccountWorkspace({ availability, view }: { availability: Account
     {state.status === 'loading' ? <p className={styles.hint} role="status">Loading your account…</p>
       : state.status !== 'ready' ? <AccountAccessNotice state={state.status} retry={availability === 'available' ? reload : undefined} />
         : <>
-          {view === 'library' ? <AccountLibrary library={state.data.library} mutate={mutate} busy={busy} />
+          {view === 'library' ? <>
+            <AccountSleeperLeagues accountId={state.data.profile.id} links={state.data.links} />
+            <AccountLibrary library={state.data.library} mutate={mutate} busy={busy} />
+          </>
             : <AccountProfile key={`${state.data.profile.id}:${state.data.profile.revision}`} data={state.data} mutate={mutate} busy={busy} />}
         </>}
   </>;

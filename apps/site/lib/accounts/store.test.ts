@@ -71,3 +71,26 @@ describe('account store boundary', () => {
     expect(transaction).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('active Sleeper association discovery query', () => {
+  const row = { linkId: actor, revision: '2', sourceManagerAccountId: other, externalId: '123456789012345678', displayName: 'Stored profile' };
+  it('reads immutable provider IDs from actor-scoped active links even when display evidence is missing', async () => {
+    const { store, transaction } = fixture();
+    transaction.mockResolvedValue([[row]]);
+    expect(await store.readDiscoveryProfiles(actor)).toEqual([{ ...row, revision: 2 }]);
+    const [statements, context] = transaction.mock.calls[0];
+    expect(context?.actorUserId).toBe(actor);
+    expect(statements[0].statement).toContain('link.app_user_id=public.current_app_actor()');
+    expect(statements[0].statement).toContain('link.revoked_at IS NULL');
+    expect(statements[0].statement).toContain('LEFT JOIN provider_accounts');
+    expect(statements[0].statement).toContain('manager.external_manager_id');
+  });
+  it('refuses oversized or malformed stored association sets without silently truncating', async () => {
+    const { store, transaction } = fixture();
+    for (const rows of [Array.from({ length: 21 }, () => row), [{ ...row, revision: 'bad' }],
+      [{ ...row, linkId: 'bad' }], [{ ...row, externalId: null }]]) {
+      transaction.mockResolvedValueOnce([rows]);
+      await expect(store.readDiscoveryProfiles(actor)).rejects.toBeInstanceOf(AccountStoreUnavailableError);
+    }
+  });
+});
