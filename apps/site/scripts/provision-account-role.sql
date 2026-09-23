@@ -120,9 +120,9 @@ DO $$ DECLARE object record; denied_table_privileges text := 'DELETE,TRUNCATE,TR
       RAISE EXCEPTION 'account role can access the auth schema'; END IF;
     FOR object IN SELECT c.oid,c.relkind FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
       WHERE n.nspname='website_auth' AND c.relkind IN ('r','p','v','m','f','S') LOOP
-      IF CASE WHEN object.relkind='S' THEN has_sequence_privilege('league_one_account',object.oid,'SELECT,UPDATE,USAGE')
+      IF (CASE WHEN object.relkind='S' THEN has_sequence_privilege('league_one_account',object.oid,'SELECT,UPDATE,USAGE')
         ELSE has_any_column_privilege('league_one_account',object.oid,'SELECT,INSERT,UPDATE,REFERENCES')
-          OR has_table_privilege('league_one_account',object.oid,denied_table_privileges) END THEN
+          OR has_table_privilege('league_one_account',object.oid,denied_table_privileges) END) THEN
         RAISE EXCEPTION 'account role has auth object privileges'; END IF;
     END LOOP;
   END IF;

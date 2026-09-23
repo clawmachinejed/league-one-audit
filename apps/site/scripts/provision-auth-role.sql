@@ -111,9 +111,9 @@ BEGIN
     IF object.nspname='website_auth' THEN
       FOREACH role_name IN ARRAY ARRAY['league_one_account','league_one_runtime'] LOOP
         IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname=role_name) THEN
-          IF CASE WHEN object.relkind='S' THEN has_sequence_privilege(role_name,object.oid,'SELECT,UPDATE,USAGE')
+          IF (CASE WHEN object.relkind='S' THEN has_sequence_privilege(role_name,object.oid,'SELECT,UPDATE,USAGE')
             ELSE has_any_column_privilege(role_name,object.oid,'SELECT,INSERT,UPDATE,REFERENCES')
-              OR has_table_privilege(role_name,object.oid,denied_table_privileges) END THEN
+              OR has_table_privilege(role_name,object.oid,denied_table_privileges) END) THEN
             RAISE EXCEPTION 'account or worker role has auth object access';
           END IF;
         END IF;
