@@ -40,7 +40,7 @@ Database-backed rate limits remain enabled in local qualification and production
 
 Migration `021_website_auth.sql` creates the reviewed Better Auth core tables and persistent rate-limit table. Existing migrations remain immutable. The app never migrates itself.
 
-After owner-run migrations, run `apps/site/scripts/provision-auth-role.sql` as the database owner. This creates/checks an unprivileged standalone `league_one_auth` role and grants only required auth-table access. The auth role cannot read or change the public account/league tables, own objects, create schema objects or invoke public privileged writers. The account-domain and projection-worker roles cannot access auth tables. Re-run all role checks after credential provisioning. Never give the app an owner connection or Neon management key.
+Inspect the installed migration ledger/checksums, existing roles and their consumers before provisioning. After the required owner-run migrations, `apps/site/scripts/provision-auth-role.sql` runs as the database owner, creates `league_one_auth` only if absent, and checks its unprivileged standalone boundary before granting required auth-table access. The auth role cannot read or change the public account/league tables, own objects, create schema objects or invoke public privileged writers. The account-domain and projection-worker roles cannot access auth tables. Coordinate any authorized credential assignment with existing role consumers and re-run all role checks afterward. Never give the app an owner connection or Neon management key.
 
 The isolated harness now resets both fixed schemas, `public` and `website_auth`, only after its complete authorization, database/branch identity, TLS, sentinel, role and production-denylist checks. Use a fresh disposable database. The retained populated pilot is not a destructive test target.
 
@@ -49,10 +49,12 @@ The isolated harness now resets both fixed schemas, `public` and `website_auth`,
 Replacing the auth service changes the identity namespace. Keep the current pilot intact until the replacement passes synthetic and PostgreSQL qualification.
 
 1. Record each existing exact managed issuer/subject and its application-user ID from authoritative storage. Snapshot the existing private profile, provider-link and preference records.
-2. Enroll the two intended users through a supported Better Auth verification/password setup flow with the replacement's ACCOUNT_DATABASE_URL unset, so authentication can run but no private application identity can be provisioned. Keep that database credential unavailable until the exact identity mappings below are installed. Do not reuse managed sessions, reset tokens or verification tokens. Do not assume password-hash portability.
+2. Use a supported Better Auth verification/password setup flow for the intended users unless a separate, narrowly scoped credential-import procedure has been reviewed and qualified for those exact identities and source/destination versions. Keep the replacement's `ACCOUNT_DATABASE_URL` unset during enrollment so no private application identity can be provisioned before the mappings below are installed. Do not reuse managed sessions, reset tokens or verification tokens. Password-hash portability must never be assumed.
 3. Review a one-to-one mapping of old issuer/subject to the same application-user ID and the new issuer/subject. Insert those new identity mappings in an owner-controlled transaction before enabling private admission. Never sign in first and merge two app accounts by email afterward.
 4. Verify both users retain their application-user IDs, Sleeper associations and preferences, and each sees only their own private information. Preserve old identity history; revoke the old mapping only as part of the approved cutover.
 5. Keep production activation separate from preview/code review. Verify the exact merged Git SHA and both public leagues after any authorized production release.
+
+The retained two-user pilot used a separately reviewed password-preserving import instead of fresh enrollment. That exception required exact old/new issuer/subject-to-app-user mappings, unchanged retained private records, an atomic destination import, and ordinary sign-in to verify actual password compatibility. It did not import sessions or recovery/verification tokens and did not merge identities by email. This qualified pilot transition is not a generic migration tool or authorization to copy pilot credentials into production. Any production transition must be based on its freshly inspected identities and a reviewed, authorized preservation plan.
 
 The application team now owns auth version updates, email delivery, database migrations, abuse controls and operational recovery. Additional cost or a paid service change requires a separate decision.
 
@@ -68,3 +70,13 @@ Require evidence from the exact application configuration, not merely a similar 
 - Actual transactional email and the two-user identity transition verified in the isolated pilot before production activation.
 
 Memory-adapter and synthetic-browser tests are useful regression coverage but do not qualify PostgreSQL locking, provider email delivery, the identity transition or production deployment. Report each layer separately.
+
+An actual reset-link request followed by confirmed delivery qualifies the application email path without requiring another personal-password reset. Its generic UI confirmation alone is not delivery evidence. The reset/session guarantee requires the real PostgreSQL lifecycle proofs above; neither mailbox receipt nor ordinary sign-in substitutes for those proofs.
+
+## Production activation and recovery
+
+Keep accounts disabled while installing only the actually pending reviewed migrations, validating both restricted runtime roles, and preparing any required identity mappings. Configure the freshly verified canonical HTTPS origin and exactly that origin plus `/api/auth` as the issuer, an independent production auth secret, the approved invitation list, both restricted database credentials, and an authorized sending credential with a verified sender. Local pilot credentials, issuer and delivery evidence do not establish production configuration. Vercel Preview remains disabled.
+
+Deploy only within production release authority, verify the exact merged Git SHA and the public leagues, then enable the approved private pilot after all applicable gates pass. Record production sign-in, profile/private-data separation, logout and production email delivery separately from isolated qualification. Follow [the account rollout sequence](account-foundation.md#configuration-and-deployment-sequence) and [release validation](release-validation.md).
+
+For recovery, disable accounts first and preserve account/auth data, identity mappings and audit history. Coordinate any session or credential revocation with existing consumers. A compatible application rollback does not remove migrations 020/021 or restore old user state. In particular, returning to managed authentication after passwords or identities change requires a separately reviewed preservation plan; an older public-schema snapshot is not a complete account/auth backup.
