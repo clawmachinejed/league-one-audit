@@ -32,7 +32,7 @@ export const ACCOUNT_SOURCE_CTES = `WITH enrolled AS (
 ), provider_accounts AS (
   SELECT DISTINCT ON (manager.id) manager.id,manager.provider,manager.external_manager_id,
     nullif(left(entry.source_value->>'username',100),'') AS username,
-    coalesce(nullif(left(entry.source_value->>'display_name',100),''),nullif(left(entry.source_value->>'username',100),''),manager.external_manager_id) AS display_name
+    coalesce(nullif(left(entry.source_value->>'displayName',100),''),nullif(left(entry.source_value->>'username',100),''),manager.external_manager_id) AS display_name
   FROM sources source
   JOIN public.league_administration_manager_entries entry ON entry.content_id=source.content_id
   JOIN public.league_source_manager_accounts manager ON manager.id=entry.manager_id AND manager.provider=source.provider

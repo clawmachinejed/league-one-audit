@@ -103,6 +103,21 @@ describe.sequential('account store adapter against actual accepted-source SQL an
       sleeperLeagueId: `unrelated-maximum-source-${randomUUID()}`, scoringRules: { pass_td: 4, rec: 0.5 } });
   }));
 
+  it('uses the normalized source display name when a Sleeper user has no username', async () => rollbackFixture(async f => {
+    const league = await f.league('league1');
+    const manager = `display-only-${randomUUID()}`;
+    await f.record(league, 'users', [{ user_id: manager, display_name: 'Source display name' }]);
+    const sourceManagerAccountId = await f.accountId(manager);
+    const actor = await f.login();
+    const view = await f.store.read(actor);
+    expect(view.library.availableProviderAccounts.find(account => account.id === sourceManagerAccountId)).toMatchObject({
+      provider: 'sleeper', externalId: manager, displayName: 'Source display name', username: null,
+    });
+    await f.link(actor, manager);
+    expect((await f.store.read(actor)).links.find(link => link.sourceManagerAccountId === sourceManagerAccountId)).toMatchObject({
+      displayName: 'Source display name', assurance: 'user_asserted',
+    });
+  }));
   it('executes the full view with owner/co-owner teams across independent leagues and exact source IDs', async () => rollbackFixture(async f => {
     const one = await f.league('league1'); const two = await f.league('league2'); const dynasty = await f.league('dynasty');
     const manager = `manager-${randomUUID()}`; const coOwner = `co-${randomUUID()}`;
