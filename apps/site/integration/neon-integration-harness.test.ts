@@ -8,11 +8,13 @@ vi.mock('node:fs/promises', () => ({ readdir: mocked.readdir, readFile: mocked.r
 import {
   accountQuery,
   assertSafeIntegrationDatabase,
+  cleanIntegrationDatabase,
   createIndependentDatabase,
   createPinnedIntegrationDatabase,
   integrationEnvironment,
   prepareIntegrationDatabase,
   withAccountActor,
+  withAuthRole,
   type IntegrationEnvironment,
 } from './neon-integration-harness';
 
@@ -46,7 +48,8 @@ function configureEnvironment() {
 beforeEach(() => {
   vi.resetAllMocks();
   vi.stubEnv('PROJECTION_INTEGRATION_SETUP_PROOF', undefined);
-  for (const name of ['DATABASE_URL', 'MIGRATION_DATABASE_URL', 'PRODUCTION_DATABASE_URL']) {
+  for (const name of ['DATABASE_URL', 'MIGRATION_DATABASE_URL', 'PRODUCTION_DATABASE_URL',
+    'ACCOUNT_DATABASE_URL', 'ACCOUNTS_AUTH_DATABASE_URL']) {
     vi.stubEnv(name, undefined);
   }
   configureEnvironment();
@@ -77,18 +80,20 @@ beforeEach(() => {
 
 afterEach(() => vi.unstubAllEnvs());
 
-function mockAccountProvisioning(options: { ownerRole?: string; canSetRole?: boolean } = {}) {
-  mocked.readdir.mockResolvedValue(['001_fixture.sql', '020_account_foundation.sql']);
+function mockAccountProvisioning(options: { ownerRole?: string; canSetRole?: boolean; includeAuth?: boolean } = {}) {
+  mocked.readdir.mockResolvedValue(['001_fixture.sql', '020_account_foundation.sql',
+    ...(options.includeAuth ? ['021_website_auth.sql'] : [])]);
   mocked.readFile.mockImplementation(async (filename: string) => {
     if (filename.endsWith('provision-runtime-role.sql')) return 'fixture-runtime-provision';
     if (filename.endsWith('provision-account-role.sql')) return 'fixture-account-provision';
+    if (filename.endsWith('provision-auth-role.sql')) return 'fixture-auth-provision';
     return 'fixture-migration';
   });
   const identityQuery = mocked.query.getMockImplementation()!;
   mocked.query.mockImplementation(async (statement: string, user: string) => {
     if (statement.includes('AS relation_count')) return { rows: [{ relation_count: 0 }] };
     if (statement.includes('AS owner_role')) return { rows: [{ owner_role: options.ownerRole ?? decodeURIComponent(user) }] };
-    if (statement.includes('AS can_set_account_role')) return { rows: [{ can_set_account_role: options.canSetRole ?? true }] };
+    if (statement.includes('AS can_set_private_role')) return { rows: [{ can_set_private_role: options.canSetRole ?? true }] };
     return identityQuery(statement, user);
   });
 }
@@ -109,7 +114,7 @@ describe('isolated account-role transactions', () => {
       expect(statements.indexOf('fixture-account-provision')).toBeGreaterThan(runtimeIndex);
       const grantIndex = statements.indexOf('GRANT league_one_account TO "fixture_owner" WITH SET TRUE');
       expect(grantIndex).toBeGreaterThan(statements.indexOf('fixture-account-provision'));
-      expect(statements.findIndex(statement => statement.includes('AS can_set_account_role'))).toBeGreaterThan(grantIndex);
+      expect(statements.findIndex(statement => statement.includes('AS can_set_private_role'))).toBeGreaterThan(grantIndex);
     } else {
       expect(statements.some(statement => statement.startsWith('GRANT league_one_account'))).toBe(false);
     }
@@ -251,6 +256,66 @@ describe('isolated account-role transactions', () => {
   });
 });
 
+describe('isolated maintained-auth database boundaries', () => {
+  it.each([
+    { options: {}, expected: true },
+    { options: { throughMigration: '020_account_foundation.sql' }, expected: false },
+    { options: { provisionAuthRole: false }, expected: false },
+  ])('grants auth role only when its migration and provisioning are selected (%j)', async ({ options, expected }) => {
+    mockAccountProvisioning({ includeAuth: true });
+    await prepareIntegrationDatabase(options);
+    const statements = mocked.query.mock.calls.map(([statement]) => statement);
+    expect(statements.includes('fixture-auth-provision')).toBe(expected);
+    expect(statements.includes('GRANT league_one_auth TO "fixture_owner" WITH SET TRUE')).toBe(expected);
+    if (expected) {
+      expect(statements.indexOf('fixture-auth-provision')).toBeGreaterThan(statements.indexOf('fixture-account-provision'));
+    }
+    expect(JSON.parse(process.env.PROJECTION_INTEGRATION_SETUP_PROOF!)).toMatchObject({
+      emptyBeforeMigration: true, resetSchemas: ['public', 'website_auth'],
+    });
+  });
+
+  it('cleans both fixed application schemas after revalidating identity, without touching managed auth', async () => {
+    await cleanIntegrationDatabase();
+    const statements = mocked.query.mock.calls.map(([statement]) => statement);
+    expect(statements.slice(2)).toEqual(['DROP SCHEMA IF EXISTS website_auth CASCADE',
+      'DROP SCHEMA IF EXISTS public CASCADE', 'CREATE SCHEMA public', 'REVOKE CREATE ON SCHEMA public FROM PUBLIC']);
+    expect(statements.some(statement => statement.includes('neon_auth'))).toBe(false);
+  });
+
+  it('does not clean either schema when the target authorization is absent', async () => {
+    vi.stubEnv('PROJECTION_INTEGRATION_AUTHORIZATION', undefined);
+    await expect(cleanIntegrationDatabase()).rejects.toThrow('authorization');
+    expect(mocked.pool).not.toHaveBeenCalled();
+  });
+
+  it('refuses residual objects from either schema before applying any migration', async () => {
+    mockAccountProvisioning({ includeAuth: true });
+    const query = mocked.query.getMockImplementation()!;
+    mocked.query.mockImplementation(async (statement: string, user: string) => statement.includes('AS relation_count')
+      ? { rows: [{ relation_count: 1 }] } : query(statement, user));
+    await expect(prepareIntegrationDatabase()).rejects.toThrow('schemas were not empty');
+    expect(mocked.sessionQuery).not.toHaveBeenCalled();
+    expect(process.env.PROJECTION_INTEGRATION_SETUP_PROOF).toBeUndefined();
+  });
+
+  it.each([false, true])('pins auth role through commit or rollback without account actor context (failure=%s)', async failure => {
+    mocked.sessionQuery.mockImplementation(async (statement: string) => {
+      if (failure && statement === 'auth-write') throw new Error('synthetic auth rejection');
+      return { rows: [] };
+    });
+    const result = withAuthRole(query => query('auth-write'));
+    if (failure) await expect(result).rejects.toThrow('synthetic auth rejection');
+    else await expect(result).resolves.toEqual([]);
+    expect(mocked.sessionQuery.mock.calls.map(([statement]) => statement)).toEqual([
+      'BEGIN ISOLATION LEVEL READ COMMITTED', 'SET LOCAL ROLE league_one_auth', 'auth-write',
+      failure ? 'ROLLBACK' : 'COMMIT',
+    ]);
+    expect(mocked.release).toHaveBeenCalledOnce();
+    expect(mocked.end).toHaveBeenCalledTimes(3);
+  });
+});
+
 describe('existing isolated integration harness safety', () => {
   it.each([false, true])('pins an independent locked transaction through completion (failure=%s)', async (failure) => {
     const session = createIndependentDatabase();
@@ -364,7 +429,8 @@ describe('existing isolated integration harness safety', () => {
     expect(mocked.pool).not.toHaveBeenCalled();
   });
 
-  it.each(['DATABASE_URL', 'MIGRATION_DATABASE_URL', 'PRODUCTION_DATABASE_URL'])(
+  it.each(['DATABASE_URL', 'MIGRATION_DATABASE_URL', 'PRODUCTION_DATABASE_URL',
+    'ACCOUNT_DATABASE_URL', 'ACCOUNTS_AUTH_DATABASE_URL'])(
     'refuses a configured Production target despite different role and pooler spelling in %s', async (name) => {
       vi.stubEnv(name, runtimeUrl.replace('league_one_runtime', 'production_fixture_role'));
       await expect(assertSafeIntegrationDatabase(fixture)).rejects.toThrow('configured production database URL');

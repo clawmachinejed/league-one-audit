@@ -1,6 +1,6 @@
 # Isolated Neon projection-store integration tests
 
-These tests are destructive. They reset the `public` schema before and after the suite. Run them only against a dedicated Neon branch and dedicated database that contain no production data.
+These tests are destructive. They reset the fixed `public` and `website_auth` schemas before and after the suite. Run them only against a dedicated Neon branch and dedicated database that contain no production data.
 
 Create `apps/site/.env.integration.local` with all of these values:
 
@@ -8,6 +8,7 @@ Create `apps/site/.env.integration.local` with all of these values:
 PROJECTION_INTEGRATION_AUTHORIZATION=I_ACKNOWLEDGE_THIS_RESETS_AN_ISOLATED_DATABASE
 PROJECTION_INTEGRATION_OWNER_DATABASE_URL=postgresql://...
 PROJECTION_INTEGRATION_RUNTIME_DATABASE_URL=postgresql://league_one_runtime:...
+AUTH_RESET_INTEGRATION_DATABASE_URL=postgresql://league_one_auth:...
 PROJECTION_INTEGRATION_EXPECTED_DATABASE=projection_refactor_test
 PROJECTION_INTEGRATION_EXPECTED_BRANCH_ID=br-...
 PROJECTION_INTEGRATION_EXPECTED_BRANCH_NAME=projection-integration-test
@@ -24,7 +25,7 @@ COMMENT ON DATABASE projection_refactor_test IS
 '{"purpose":"league-one-projection-store-integration","sentinel":"replace-with-the-same-long-random-value","branchId":"br-replace","branchName":"projection-integration-test"}';
 ```
 
-The owner URL must use the schema-owner role. The runtime URL must use the existing `league_one_runtime` role and point to the same database. Direct and pooled forms of the same Neon endpoint are accepted.
+The owner URL must use the schema-owner role. The runtime URL must use the existing `league_one_runtime` role and point to the same database. The reset lifecycle URL must use the separately provisioned `league_one_auth` role on that same isolated database; never substitute an owner URL. Supply it through an ignored environment file or a supervised test process, and revoke temporary credentials after the child processes close. The standard runner refuses a missing lifecycle credential before any schema reset. Direct and pooled forms of the same Neon endpoint are accepted.
 
 From the repository root, run:
 
@@ -59,3 +60,9 @@ The writer's lock and batch are separate statements in one atomic Read Committed
 transaction. The harness pins the connection and rolls back on failure; ordinary
 client tests separately verify Neon's single HTTP transaction, statement order
 and cancellation. These transport tests use mocked HTTP, not production access.
+
+## Application authentication storage
+
+Migration 021 adds the fixed `website_auth` schema and the separately restricted `league_one_auth` role. The harness resets only `public` and `website_auth`; managed `neon_auth` storage is never a reset target. Historical `throughMigration` runs before 021 skip auth-role provisioning. Configured account-domain and app-auth database URLs are also checked as protected identities before destructive preparation.
+
+Do not run this suite against retained pilot users, even when their database name contains `test`. Use a fresh empty disposable database and include the retained pilot database names in its denylist. The auth catalog/role cases qualify the maintained table layout and reciprocal role boundaries. Lifecycle and concurrent password-reset proofs require their separate explicitly supplied restricted auth connection; report missing credentials as unverified.

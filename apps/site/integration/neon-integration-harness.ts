@@ -212,7 +212,8 @@ function assertComment(env: IntegrationEnvironment, identity: ConnectionIdentity
 
 function productionUrlIdentities(): readonly UrlIdentity[] {
   const identities: UrlIdentity[] = [];
-  for (const name of ['DATABASE_URL', 'MIGRATION_DATABASE_URL', 'PRODUCTION_DATABASE_URL']) {
+  for (const name of ['DATABASE_URL', 'MIGRATION_DATABASE_URL', 'PRODUCTION_DATABASE_URL',
+    'ACCOUNT_DATABASE_URL', 'ACCOUNTS_AUTH_DATABASE_URL']) {
     const value = process.env[name]?.trim();
     if (value) identities.push(parseDatabaseUrl(value, name));
   }
@@ -278,7 +279,10 @@ export async function assertSafeIntegrationDatabase(
   }
 }
 
-async function resetPublicSchema(pool: Pool): Promise<void> {
+async function resetIntegrationSchemas(pool: Pool): Promise<void> {
+  // Fixed application-owned schemas only, after the full existing target guards.
+  // Never enumerate/drop other schemas (in particular managed neon_auth).
+  await pool.query('DROP SCHEMA IF EXISTS website_auth CASCADE');
   await pool.query('DROP SCHEMA IF EXISTS public CASCADE');
   await pool.query('CREATE SCHEMA public');
   await pool.query('REVOKE CREATE ON SCHEMA public FROM PUBLIC');
@@ -331,22 +335,24 @@ async function applyMigrations(
   return selectedNames;
 }
 
-async function grantIsolatedAccountRole(pool: Pool, env: IntegrationEnvironment): Promise<void> {
+async function grantIsolatedPrivateRole(
+  pool: Pool, env: IntegrationEnvironment, role: 'league_one_account' | 'league_one_auth',
+): Promise<void> {
   const identity = await pool.query('SELECT rolname AS owner_role FROM pg_roles WHERE rolname = current_user');
   const ownerRole: unknown = identity.rows[0]?.owner_role;
   if (typeof ownerRole !== 'string'
     || ownerRole !== parseDatabaseUrl(env.ownerDatabaseUrl, 'Integration owner URL').user
-    || ['league_one_account', 'league_one_runtime'].includes(ownerRole)) {
+    || ['league_one_account', 'league_one_runtime', 'league_one_auth'].includes(ownerRole)) {
     throw new Error('The catalog-reported account test owner role does not match the verified owner identity.');
   }
   // PostgreSQL 16+ grants role creators ADMIN but not SET by default. Grant only
   // the verified isolated owner permission to assume the restricted account role;
   // the account role itself gains no membership or owner privileges.
   const quotedOwner = `"${ownerRole.replaceAll('"', '""')}"`;
-  await pool.query(`GRANT league_one_account TO ${quotedOwner} WITH SET TRUE`);
-  const verification = await pool.query("SELECT pg_has_role(current_user, 'league_one_account', 'SET') AS can_set_account_role");
-  if (verification.rows[0]?.can_set_account_role !== true) {
-    throw new Error('The isolated owner could not verify permission to assume the account role.');
+  await pool.query(`GRANT ${role} TO ${quotedOwner} WITH SET TRUE`);
+  const verification = await pool.query(`SELECT pg_has_role(current_user, '${role}', 'SET') AS can_set_private_role`);
+  if (verification.rows[0]?.can_set_private_role !== true) {
+    throw new Error('The isolated owner could not verify permission to assume the private role.');
   }
 }
 
@@ -354,21 +360,22 @@ export async function prepareIntegrationDatabase(options: Readonly<{
   throughMigration?: string;
   provisionRuntimeRole?: boolean;
   provisionAccountRole?: boolean;
+  provisionAuthRole?: boolean;
 }> = {}): Promise<void> {
   const env = integrationEnvironment();
   await assertSafeIntegrationDatabase(env);
   const ownerPool = new Pool({ connectionString: env.ownerDatabaseUrl, max: 1 });
   try {
-    await resetPublicSchema(ownerPool);
+    await resetIntegrationSchemas(ownerPool);
     const empty = await ownerPool.query(`
       SELECT count(*)::integer AS relation_count
       FROM pg_class relation
       JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
-      WHERE namespace.nspname = 'public'
+      WHERE namespace.nspname IN ('public','website_auth')
         AND relation.relkind IN ('r', 'p', 'v', 'm', 'S', 'f')
     `);
     if (Number(empty.rows[0]?.relation_count) !== 0) {
-      throw new Error('The isolated public schema was not empty before migration.');
+      throw new Error('The isolated application schemas were not empty before migration.');
     }
     const migrationNames = await applyMigrations(ownerPool, options.throughMigration);
     if (options.provisionRuntimeRole !== false) {
@@ -385,10 +392,20 @@ export async function prepareIntegrationDatabase(options: Readonly<{
         'utf8',
       );
       await ownerPool.query(provisionSql);
-      await grantIsolatedAccountRole(ownerPool, env);
+      await grantIsolatedPrivateRole(ownerPool, env, 'league_one_account');
+    }
+    if (options.provisionAuthRole !== false
+      && migrationNames.includes('021_website_auth.sql')) {
+      const provisionSql = await readFile(
+        fileURLToPath(new URL('../scripts/provision-auth-role.sql', import.meta.url)),
+        'utf8',
+      );
+      await ownerPool.query(provisionSql);
+      await grantIsolatedPrivateRole(ownerPool, env, 'league_one_auth');
     }
     process.env.PROJECTION_INTEGRATION_SETUP_PROOF = JSON.stringify({
       emptyBeforeMigration: true,
+      resetSchemas: ['public', 'website_auth'],
       migrationNames,
     });
   } finally {
@@ -402,7 +419,7 @@ export async function cleanIntegrationDatabase(): Promise<void> {
   await assertSafeIntegrationDatabase(env);
   const ownerPool = new Pool({ connectionString: env.ownerDatabaseUrl, max: 1 });
   try {
-    await resetPublicSchema(ownerPool);
+    await resetIntegrationSchemas(ownerPool);
   } finally {
     await ownerPool.end();
   }
@@ -549,8 +566,9 @@ export async function runtimeQuery<Row extends QueryRow = QueryRow>(
  * The role and both context values are transaction-local. Each invocation has
  * an independent session, including concurrent requests. The callback may use
  * savepoints for expected SQL errors; this helper owns BEGIN/COMMIT/ROLLBACK. */
-export async function withAccountActor<Result>(
-  context: AccountIntegrationContext,
+async function withPrivateRole<Result>(
+  role: 'league_one_account' | 'league_one_auth',
+  context: AccountIntegrationContext | null,
   run: (query: AccountIntegrationQuery) => Promise<Result>,
 ): Promise<Result> {
   const env = integrationEnvironment();
@@ -562,11 +580,13 @@ export async function withAccountActor<Result>(
   });
   try {
     await client.query('BEGIN ISOLATION LEVEL READ COMMITTED');
-    await client.query('SET LOCAL ROLE league_one_account');
-    await client.query(
-      "SELECT set_config('app.actor_user_id', $1, true), set_config('app.request_id', $2, true)",
-      [context.actorUserId ?? '', context.requestId ?? ''],
-    );
+    await client.query(`SET LOCAL ROLE ${role}`);
+    if (context) {
+      await client.query(
+        "SELECT set_config('app.actor_user_id', $1, true), set_config('app.request_id', $2, true)",
+        [context.actorUserId ?? '', context.requestId ?? ''],
+      );
+    }
     const query: AccountIntegrationQuery = async <Row extends QueryRow = QueryRow>(
       statement: string,
       parameters: readonly unknown[] = [],
@@ -585,6 +605,17 @@ export async function withAccountActor<Result>(
     client.release();
     await pool.end();
   }
+}
+
+export function withAccountActor<Result>(
+  context: AccountIntegrationContext, run: (query: AccountIntegrationQuery) => Promise<Result>,
+): Promise<Result> {
+  return withPrivateRole('league_one_account', context, run);
+}
+
+/** Restricted auth-table tests use the same guarded pinned-transaction path. */
+export function withAuthRole<Result>(run: (query: AccountIntegrationQuery) => Promise<Result>): Promise<Result> {
+  return withPrivateRole('league_one_auth', null, run);
 }
 
 export async function accountQuery<Row extends QueryRow = QueryRow>(

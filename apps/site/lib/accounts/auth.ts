@@ -1,6 +1,7 @@
 import 'server-only';
 
-import { createNeonAuth } from '@neondatabase/auth/next/server';
+import { headers } from 'next/headers';
+import { handleAccountAuth, withAccountAuth, type AccountAuthConfiguration } from './auth-runtime';
 
 export type AccountPrincipal = {
   issuer: string;
@@ -28,23 +29,20 @@ export function accountsEnabled(): boolean {
   return process.env.ACCOUNTS_ENABLED === 'true' && process.env.VERCEL_ENV !== 'preview';
 }
 
-function accountAuthConfiguration() {
+function accountAuthConfiguration(): AccountAuthConfiguration {
   if (!accountsEnabled()) throw new AccountAuthUnavailableError('disabled');
 
-  const secret = process.env.NEON_AUTH_COOKIE_SECRET;
-  const configuredUrl = process.env.NEON_AUTH_BASE_URL;
+  const secret = process.env.ACCOUNTS_AUTH_SECRET;
+  const configuredUrl = process.env.ACCOUNTS_AUTH_ISSUER;
+  const databaseUrl = process.env.ACCOUNTS_AUTH_DATABASE_URL;
+  const emailApiKey = process.env.ACCOUNTS_EMAIL_API_KEY;
+  const emailFrom = process.env.ACCOUNTS_EMAIL_FROM;
   const configuredOrigin = process.env.ACCOUNTS_APP_ORIGIN;
   const invitedEmails = new Set((process.env.ACCOUNTS_INVITED_EMAILS ?? '')
     .split(/[,\n]/).map(email => email.trim().toLowerCase()).filter(Boolean));
   let issuer: string;
   let appOrigin: string;
   try {
-    const url = new URL((configuredUrl ?? '').replace(/\/+$/, ''));
-    if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash
-      || !url.hostname.endsWith('.neon.tech') || !url.pathname.endsWith('/auth')) {
-      throw new Error('Invalid auth endpoint.');
-    }
-    issuer = url.toString().replace(/\/$/, '');
     const origin = new URL(configuredOrigin ?? '');
     const localDevelopment = process.env.NODE_ENV !== 'production' && !process.env.VERCEL_ENV
       && ['localhost', '127.0.0.1', '[::1]'].includes(origin.hostname);
@@ -53,14 +51,30 @@ function accountAuthConfiguration() {
       throw new Error('Invalid application origin.');
     }
     appOrigin = origin.origin;
+    issuer = `${appOrigin}/api/auth`;
+    if (configuredUrl !== issuer) throw new Error('Invalid auth issuer.');
+    const database = new URL(databaseUrl ?? '');
+    if (!['postgres:', 'postgresql:'].includes(database.protocol)
+      || !database.hostname.endsWith('.neon.tech') || !database.hostname.startsWith('ep-')
+      || decodeURIComponent(database.username) !== 'league_one_auth' || !database.password
+      || database.pathname === '/' || !database.pathname || database.hash
+      || !['require', 'verify-full'].includes(database.searchParams.get('sslmode') ?? '')
+      || [...database.searchParams.keys()].some(key => !['sslmode', 'channel_binding'].includes(key))
+      || database.searchParams.getAll('sslmode').length !== 1
+      || database.searchParams.getAll('channel_binding').length > 1
+      || (database.searchParams.has('channel_binding') && database.searchParams.get('channel_binding') !== 'require')) {
+      throw new Error('Invalid auth database.');
+    }
   } catch {
     throw new AccountAuthUnavailableError('configuration');
   }
   if (!secret || secret.length < 32 || invitedEmails.size === 0
-    || [...invitedEmails].some(email => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) {
+    || [...invitedEmails].some(email => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+    || !databaseUrl || !emailApiKey || /[\r\n]/.test(emailApiKey)
+    || !emailFrom || !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(emailFrom)) {
     throw new AccountAuthUnavailableError('configuration');
   }
-  return { issuer, secret, invitedEmails, appOrigin };
+  return { issuer, secret, databaseUrl, emailApiKey, emailFrom, invitedEmails, appOrigin };
 }
 
 export function getAccountAuthAvailability(): 'disabled' | 'unavailable' | 'available' {
@@ -73,33 +87,22 @@ export function getAccountAuthAvailability(): 'disabled' | 'unavailable' | 'avai
   }
 }
 
-function accountAuth(config: ReturnType<typeof accountAuthConfiguration>) {
-  return createNeonAuth({
-    baseUrl: config.issuer,
-    cookies: { secret: config.secret, sameSite: 'lax' },
-    // Upstream diagnostics can contain provider response details. The app returns
-    // safe typed failures; credentials and session data never enter its logs.
-    logLevel: 'silent',
-  });
-}
-
 export async function getAccountPrincipal(): Promise<AccountPrincipal | null> {
   const config = accountAuthConfiguration();
   let result;
   try {
-    // The pinned SDK's server cache bypass reads the serialized string "true".
-    // Keep this authoritative on every private request, including after revocation.
-    result = await accountAuth(config).getSession({ query: { disableCookieCache: 'true' } });
+    // Every private request checks stored sessions. No signed cookie cache can
+    // extend admission beyond a password reset or explicit session revocation.
+    const requestHeaders = await headers();
+    result = await withAccountAuth(config, auth => auth.api.getSession({
+      headers: requestHeaders, query: { disableCookieCache: true, disableRefresh: true },
+    }));
   } catch {
     throw new AccountAuthUnavailableError('provider');
   }
-  if (result.error) {
-    if (result.error.status === 401 || result.error.status === 403) return null;
-    throw new AccountAuthUnavailableError('provider');
-  }
-  if (!result.data?.session || !result.data.user) return null;
+  if (!result?.session || !result.user) return null;
 
-  const { user, session } = result.data;
+  const { user, session } = result;
   if (typeof user.id !== 'string' || !user.id || session.userId !== user.id
     || !Number.isFinite(Date.parse(String(session.expiresAt)))
     || Date.parse(String(session.expiresAt)) <= Date.now()) return null;
@@ -198,7 +201,10 @@ export async function handleAccountAuthRequest(request: Request, context: AuthRo
     if (!(request.method === 'GET' ? AUTH_GET_PATHS : AUTH_POST_PATHS).has(path)) {
       return authFailure(404, 'not_found');
     }
-    // The maintained proxy forwards search parameters unchanged. Pilot callback
+    // Both the handler route and its transaction lock must see the exact same
+    // canonical path; encoded or repeated-separator aliases are not pilot APIs.
+    if (new URL(request.url).pathname !== `/api/auth/${path}`) return authFailure(400, 'invalid_request');
+    // The maintained handler receives search parameters unchanged. Pilot callback
     // destinations belong in the validated JSON body, never an alternate query.
     const search = new URL(request.url).searchParams;
     if (search.has('callbackURL') || search.has('redirectTo')) return authFailure(400, 'invalid_callback');
@@ -216,12 +222,12 @@ export async function handleAccountAuthRequest(request: Request, context: AuthRo
         || !config.invitedEmails.has(bounded.body.email.trim().toLowerCase()))) {
         return authFailure(403, 'admission_denied');
       }
+      if (path === 'email-otp/send-verification-otp' && bounded.body.type !== 'email-verification') {
+        return authFailure(400, 'invalid_request');
+      }
       proxyRequest = bounded.request;
     }
-    const handler = accountAuth(config).handler();
-    const response = request.method === 'GET'
-      ? await handler.GET(proxyRequest, context)
-      : await handler.POST(proxyRequest, context);
+    const response = await handleAccountAuth(config, proxyRequest);
     response.headers.set('Cache-Control', 'private, no-store');
     return response;
   } catch (error) {

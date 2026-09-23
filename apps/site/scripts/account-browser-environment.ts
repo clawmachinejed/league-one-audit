@@ -7,8 +7,11 @@ export function accountBrowserEnvironment(environment: Record<string, string | u
   }
   return {
     ACCOUNTS_ENABLED: 'true',
-    NEON_AUTH_BASE_URL: 'https://account-ui-fixture.neonauth.us-east-1.aws.neon.tech/auth',
-    NEON_AUTH_COOKIE_SECRET: 'synthetic-browser-cookie-secret-not-a-real-credential',
+    ACCOUNTS_AUTH_ISSUER: 'https://account-ui-fixture.example.test/api/auth',
+    ACCOUNTS_AUTH_DATABASE_URL: 'postgresql://league_one_auth:synthetic@ep-account-ui-fixture.us-east-1.aws.neon.tech/account_ui_test?sslmode=require',
+    ACCOUNTS_EMAIL_API_KEY: 'synthetic-no-delivery-key',
+    ACCOUNTS_EMAIL_FROM: 'accounts@example.test',
+    ACCOUNTS_AUTH_SECRET: 'synthetic-browser-cookie-secret-not-a-real-credential',
     ACCOUNTS_APP_ORIGIN: 'https://account-ui-fixture.example.test',
     ACCOUNTS_INVITED_EMAILS: 'invited@example.test',
     ACCOUNT_DATABASE_URL: '', DATABASE_URL: '', MIGRATION_DATABASE_URL: '',

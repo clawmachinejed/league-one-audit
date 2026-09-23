@@ -1,12 +1,27 @@
-import { createHmac } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createNeonAuth } from '@neondatabase/auth/next/server';
 
 const requestContext = vi.hoisted(() => ({ headers: new Headers(), setCookie: vi.fn() }));
 vi.mock('server-only', () => ({}));
 vi.mock('next/headers', () => ({
   headers: async () => requestContext.headers,
   cookies: async () => ({ set: requestContext.setCookie }),
+}));
+
+// The principal/route boundary is isolated from connections here. The real
+// maintained adapter reset and cookie behavior has separate regression coverage.
+vi.mock('./auth-runtime', () => ({
+  withAccountAuth: async (config: { issuer: string }, operation: (auth: unknown) => Promise<unknown>) => operation({
+    api: { getSession: async (options: unknown) => {
+      expect(options).toEqual({ headers: requestContext.headers, query: { disableCookieCache: true, disableRefresh: true } });
+      const response = await fetch(config.issuer + '/get-session?disableCookieCache=true', { method: 'GET' });
+      if (!response.ok) throw new Error('Synthetic runtime failure');
+      return response.json();
+    } },
+  }),
+  handleAccountAuth: async (config: { issuer: string }, request: Request) => fetch(
+    config.issuer + new URL(request.url).pathname.slice('/api/auth'.length),
+    { method: request.method, headers: request.headers, body: request.method === 'POST' ? await request.text() : undefined },
+  ),
 }));
 
 import {
@@ -18,9 +33,9 @@ import {
   handleAccountAuthRequest,
 } from './auth';
 
-const issuer = 'https://ep-synthetic.neonauth.us-east-1.aws.neon.tech/neondb/auth';
+const issuer = 'https://app.example.test/api/auth';
 const secret = 'synthetic-test-secret-not-used-in-any-environment';
-const tokenCookie = '__Secure-neon-auth.session_token=synthetic-session';
+const tokenCookie = '__Secure-league-one-auth.session_token=synthetic-session';
 const fetchMock = vi.fn<typeof fetch>();
 
 function sessionFixture(overrides: { email?: string; emailVerified?: boolean; id?: string; name?: string } = {}) {
@@ -39,23 +54,14 @@ function sessionFixture(overrides: { email?: string; emailVerified?: boolean; id
   };
 }
 
-// This constructs only a synthetic vendor cache fixture. Production credentials,
-// cookie minting, and session validation remain entirely in the maintained SDK.
-function cachedSessionCookie() {
-  const encodedHeader = Buffer.from(JSON.stringify({ alg: 'HS256' })).toString('base64url');
-  const encodedPayload = Buffer.from(JSON.stringify({
-    ...sessionFixture(), exp: Math.floor(Date.now() / 1_000) + 300,
-  })).toString('base64url');
-  const unsigned = `${encodedHeader}.${encodedPayload}`;
-  const signature = createHmac('sha256', secret).update(unsigned).digest('base64url');
-  return `${tokenCookie}; __Secure-neon-auth.local.session_data=${unsigned}.${signature}`;
-}
-
 beforeEach(() => {
   vi.stubEnv('ACCOUNTS_ENABLED', 'true');
   vi.stubEnv('VERCEL_ENV', 'development');
-  vi.stubEnv('NEON_AUTH_BASE_URL', issuer);
-  vi.stubEnv('NEON_AUTH_COOKIE_SECRET', secret);
+  vi.stubEnv('ACCOUNTS_AUTH_ISSUER', issuer);
+  vi.stubEnv('ACCOUNTS_AUTH_SECRET', secret);
+  vi.stubEnv('ACCOUNTS_AUTH_DATABASE_URL', 'postgresql://league_one_auth:synthetic@ep-synthetic.us-east-1.aws.neon.tech/pilot?sslmode=require');
+  vi.stubEnv('ACCOUNTS_EMAIL_API_KEY', 'synthetic-email-key');
+  vi.stubEnv('ACCOUNTS_EMAIL_FROM', 'accounts@example.test');
   vi.stubEnv('ACCOUNTS_INVITED_EMAILS', 'invited@example.test');
   vi.stubEnv('ACCOUNTS_APP_ORIGIN', 'https://app.example.test');
   requestContext.headers = new Headers({ cookie: tokenCookie, origin: 'https://app.example.test' });
@@ -86,11 +92,18 @@ describe('account authentication admission', () => {
   });
 
   it.each([
-    ['NEON_AUTH_BASE_URL', ''],
-    ['NEON_AUTH_BASE_URL', 'http://ep-synthetic.neonauth.us-east-1.aws.neon.tech/neondb/auth'],
-    ['NEON_AUTH_BASE_URL', 'https://unexpected.example.test/auth'],
-    ['NEON_AUTH_BASE_URL', `${issuer}?secret=do-not-return`],
-    ['NEON_AUTH_COOKIE_SECRET', 'short'],
+    ['ACCOUNTS_AUTH_ISSUER', ''],
+    ['ACCOUNTS_AUTH_ISSUER', 'http://ep-synthetic.neonauth.us-east-1.aws.neon.tech/neondb/auth'],
+    ['ACCOUNTS_AUTH_ISSUER', 'https://unexpected.example.test/auth'],
+    ['ACCOUNTS_AUTH_ISSUER', `${issuer}?secret=do-not-return`],
+    ['ACCOUNTS_AUTH_SECRET', 'short'],
+    ['ACCOUNTS_AUTH_DATABASE_URL', ''],
+    ['ACCOUNTS_AUTH_DATABASE_URL', 'postgresql://neondb_owner:synthetic@ep-synthetic.us-east-1.aws.neon.tech/pilot?sslmode=require'],
+    ['ACCOUNTS_AUTH_DATABASE_URL', 'postgresql://league_one_auth:synthetic@ep-synthetic.us-east-1.aws.neon.tech/pilot?sslmode=disable'],
+    ['ACCOUNTS_AUTH_DATABASE_URL', 'postgresql://league_one_auth:synthetic@ep-synthetic.us-east-1.aws.neon.tech/pilot?sslmode=require&options=unsafe'],
+    ['ACCOUNTS_EMAIL_API_KEY', ''],
+    ['ACCOUNTS_EMAIL_API_KEY', 'synthetic\r\nInjected: value'],
+    ['ACCOUNTS_EMAIL_FROM', 'invalid'],
     ['ACCOUNTS_INVITED_EMAILS', ''],
     ['ACCOUNTS_INVITED_EMAILS', 'invalid'],
     ['ACCOUNTS_APP_ORIGIN', 'https://app.example.test/unexpected-path'],
@@ -105,7 +118,7 @@ describe('account authentication admission', () => {
   });
 
   it('returns only stable configured issuer, subject, and display name after verified invite admission', async () => {
-    vi.stubEnv('NEON_AUTH_BASE_URL', `${issuer}/`);
+    vi.stubEnv('ACCOUNTS_AUTH_ISSUER', issuer);
     vi.stubEnv('ACCOUNTS_INVITED_EMAILS', ' Other@example.test, INVITED@example.test\n');
     requestContext.headers.set('host', 'untrusted.example.test');
     fetchMock.mockResolvedValueOnce(Response.json(sessionFixture()));
@@ -119,23 +132,8 @@ describe('account authentication admission', () => {
     );
   });
 
-  it('bypasses a valid SDK cache and rejects a session revoked at the provider', async () => {
-    requestContext.headers.set('cookie', cachedSessionCookie());
-    const sdk = createNeonAuth({ baseUrl: issuer, cookies: { secret }, logLevel: 'silent' });
-    const cached = await sdk.getSession();
-    expect(cached.data?.user.id).toBe('synthetic-user');
-    expect(fetchMock).not.toHaveBeenCalled();
-
-    fetchMock.mockResolvedValueOnce(Response.json(null));
-    await expect(getAccountPrincipal()).resolves.toBeNull();
-    expect(fetchMock).toHaveBeenCalledExactlyOnceWith(
-      `${issuer}/get-session?disableCookieCache=true`, expect.any(Object),
-    );
-  });
-
-  it('does not fall back to a signed cached identity when the provider is unavailable', async () => {
-    requestContext.headers.set('cookie', cachedSessionCookie());
-    fetchMock.mockRejectedValueOnce(new TypeError('synthetic network error'));
+  it('fails closed when the stored session cannot be read', async () => {
+    fetchMock.mockRejectedValueOnce(new TypeError('synthetic database error'));
     await expect(getAccountPrincipal()).rejects.toBeInstanceOf(AccountAuthUnavailableError);
   });
 
@@ -158,13 +156,13 @@ describe('account authentication admission', () => {
     }
   });
 
-  it.each([401, 403])('treats provider status %s as no active session', async status => {
+  it.each([401, 403])('fails closed if the runtime unexpectedly rejects with %s', async status => {
     fetchMock.mockResolvedValueOnce(Response.json({ message: 'Not authenticated' }, { status }));
-    await expect(getAccountPrincipal()).resolves.toBeNull();
+    await expect(getAccountPrincipal()).rejects.toBeInstanceOf(AccountAuthUnavailableError);
   });
 });
 
-describe('feature-gated maintained auth proxy', () => {
+describe('feature-gated maintained auth handler', () => {
   it('returns a non-cacheable 404 without contacting auth when disabled', async () => {
     vi.stubEnv('ACCOUNTS_ENABLED', 'false');
     const response = await handleAccountAuthRequest(new Request('https://app.example.test/api/auth/get-session'), {
@@ -184,19 +182,6 @@ describe('feature-gated maintained auth proxy', () => {
     expect(response.status).toBe(403);
     expect(fetchMock).not.toHaveBeenCalled();
     expect(response.headers.get('Cache-Control')).toBe('private, no-store');
-  });
-
-  it('lets the SDK expire both session cookies on sign-out with explicit SameSite and Secure flags', async () => {
-    fetchMock.mockResolvedValueOnce(Response.json({ success: true }, {
-      headers: { 'Set-Cookie': '__Secure-neon-auth.session_token=; Path=/; HttpOnly; Max-Age=0' },
-    }));
-    const response = await handleAccountAuthRequest(new Request('https://app.example.test/api/auth/sign-out', {
-      method: 'POST', headers: { cookie: tokenCookie, origin: 'https://app.example.test', 'Content-Type': 'application/json' },
-      body: '{}',
-    }), { params: Promise.resolve({ path: ['sign-out'] }) });
-    const cookies = response.headers.getSetCookie();
-    expect(cookies).toHaveLength(2);
-    expect(cookies.every(cookie => /Secure/i.test(cookie) && /SameSite=lax/i.test(cookie) && /Max-Age=0/i.test(cookie))).toBe(true);
   });
 
   it.each([
@@ -223,11 +208,25 @@ describe('feature-gated maintained auth proxy', () => {
       ['delete-user', 'application/json', 404],
       ['sign-in/social', 'application/json', 404],
       ['sign-in/email-otp', 'application/json', 404],
+      ['email-otp/reset-password', 'application/json', 404],
     ] as const) {
       const response = await handleAccountAuthRequest(new Request(`https://app.example.test/api/auth/${path}`, {
         method: 'POST', headers: { origin: 'https://app.example.test', 'Content-Type': contentType }, body: '{}',
       }), { params: Promise.resolve({ path: path.split('/') }) });
       expect(response.status).toBe(expectedStatus);
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects alternate OTP purposes and encoded endpoint aliases before opening auth', async () => {
+    for (const [path, requestedPath, body] of [
+      ['email-otp/send-verification-otp', ['email-otp', 'send-verification-otp'], { type: 'sign-in' }],
+      ['sign-in%2Femail', ['sign-in', 'email'], {}],
+    ] as const) {
+      const response = await handleAccountAuthRequest(new Request(`https://app.example.test/api/auth/${path}`, {
+        method: 'POST', headers: { origin: 'https://app.example.test', 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      }), { params: Promise.resolve({ path: [...requestedPath] }) });
+      expect(response.status).toBe(400);
     }
     expect(fetchMock).not.toHaveBeenCalled();
   });
