@@ -210,6 +210,7 @@ describe.sequential('projection store against an isolated Neon database', () => 
         '019_live_defense_weekly_statistics.sql',
         '020_account_foundation.sql',
         '021_website_auth.sql',
+        '022_sleeper_actual_scoring_events.sql',
       ],
     });
     const rows = await ownerQuery<{ name: string; checksum_length: number }>(`
@@ -238,6 +239,7 @@ describe.sequential('projection store against an isolated Neon database', () => 
       { name: '019_live_defense_weekly_statistics.sql', checksum_length: 64 },
       { name: '020_account_foundation.sql', checksum_length: 64 },
       { name: '021_website_auth.sql', checksum_length: 64 },
+      { name: '022_sleeper_actual_scoring_events.sql', checksum_length: 64 },
     ]);
   });
 

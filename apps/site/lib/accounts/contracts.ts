@@ -1,11 +1,13 @@
 import type { LeagueKey } from '../leagues';
+import type { LeagueCapabilityReport } from '../league-capability-contracts';
 
 export type SleeperLeagueDiscovery = {
   accountId: string;
   season: string | null;
   status: 'complete' | 'partial' | 'unavailable';
   profiles: { sourceManagerAccountId: string; displayName: string; status: 'complete' | 'unavailable' }[];
-  leagues: { id: string; name: string; season: string; url: string; sourceManagerAccountIds: string[] }[];
+  leagues: { id: string; name: string; season: string; url: string; sourceManagerAccountIds: string[];
+    capabilities?: LeagueCapabilityReport }[];
 };
 
 /** Server-side association evidence. Provider IDs never select a website actor. */

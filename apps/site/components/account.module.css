@@ -12,6 +12,18 @@
 .section h2{font-size:20px;letter-spacing:-.03em;margin-bottom:14px}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:14px}
 .discoveryGrid{margin-top:14px}
+.compatibility{margin-top:16px;border-top:1px solid var(--line-soft);padding-top:6px}
+.compatibility summary{min-height:44px;padding:10px 0;cursor:pointer;font-size:13px;font-weight:700;color:var(--ink);overflow-wrap:anywhere}
+.compatibility summary:focus-visible{outline:2px solid var(--focus);outline-offset:3px;border-radius:4px}
+.compatibilityStatus{display:inline-block;margin-left:6px;padding:3px 6px;border-radius:5px;font-size:11px;font-weight:700;line-height:1.5;background:var(--surface-muted);color:var(--muted);vertical-align:middle}
+.compatibilityStatus[data-status=supported]{background:var(--green-soft);color:var(--green)}
+.compatibilityStatus[data-status=limited],.compatibilityStatus[data-status=unsupported]{background:var(--warning-bg);color:var(--warning-ink)}
+.capabilityList{display:grid;gap:14px;margin:14px 0 0;padding:0;list-style:none}
+.capabilityList li{border-top:1px solid var(--line-soft);padding-top:12px;min-width:0}
+.capabilityTitle{display:flex;align-items:baseline;justify-content:space-between;gap:6px;flex-wrap:wrap;font-size:13px;line-height:1.5;overflow-wrap:anywhere}
+.capabilityTitle .compatibilityStatus{margin-left:0}
+.capabilityReasons{margin:6px 0 0;padding-left:18px;color:var(--muted);font-size:12px;line-height:1.65;overflow-wrap:anywhere}
+.capabilityReasons li{border:0;padding:0}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:20px;min-width:0}
 .card h3{font-size:18px;letter-spacing:-.025em;overflow-wrap:anywhere}
 .card p{font-size:13px;line-height:1.65;color:var(--muted);margin-top:8px;overflow-wrap:anywhere}

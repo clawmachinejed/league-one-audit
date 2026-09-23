@@ -60,6 +60,18 @@ export const SLEEPER_ALL_PLAYER_SCORING_RULE_KEYS: ReadonlySet<string> = new Set
   'def_3_and_out',
   'def_4_and_stop',
   'fgm_yds_over_30',
+  // Native counters qualified by the retained scoring-event coverage corpus.
+  'pass_int_td',
+  'st_fum_rec',
+  'ff',
+  'def_st_ff',
+  'st_ff',
+  'fgm_0_19',
+  'fgm_20_29',
+  'fgm_30_39',
+  'fgm_40_49',
+  'fgm_50_59',
+  'fgm_60p',
 ]);
 
 const TWO_POINT_SOURCE_KEYS = ['pass_2pt', 'rush_2pt', 'rec_2pt'] as const;
