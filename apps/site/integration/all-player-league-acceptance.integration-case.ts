@@ -81,6 +81,13 @@ describe('shared all-player captures with league-scoped acceptance', () => {
   });
   afterAll(async () => {
     try {
+      const fixtureKeys = ['scoped-one','scoped-two','scoped-missing','scoped-empty-missing'];
+      await ownerQuery(`UPDATE league_administration_enrollments enrollment SET active=false
+        FROM leagues league WHERE league.id=enrollment.league_id AND league.league_key=ANY($1::text[])`,
+      [fixtureKeys]);
+      expect(await ownerQuery(`SELECT count(*)::integer AS count FROM league_administration_enrollments enrollment
+        JOIN leagues league ON league.id=enrollment.league_id
+        WHERE enrollment.active AND league.league_key=ANY($1::text[])`,[fixtureKeys])).toEqual([{count:0}]);
       await ownerQuery("DELETE FROM projection_jobs WHERE job_key='all-player-ingestion:sleeper'");
       if (previousJob) await ownerQuery('INSERT INTO projection_jobs SELECT * FROM jsonb_populate_record(NULL::projection_jobs,$1::jsonb)',
         [JSON.stringify(previousJob)]);
