@@ -1,9 +1,22 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { accountAuthClient, accountAuthRequest } from './auth-client';
+import { accountAuthClient, accountAuthRequest, isAccountEmailUnverified } from './auth-client';
 
 afterEach(() => { vi.unstubAllGlobals(); });
 
 describe('maintained auth client error boundary', () => {
+  it('recognizes the maintained SDK normalized email-verification failure', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ code: 'EMAIL_NOT_VERIFIED', message: 'Synthetic verification required' }, { status: 403 })));
+    const result = await accountAuthRequest(() => accountAuthClient.signIn.email({ email: 'invited@example.test', password: 'synthetic-password' }));
+    expect(result.error).toMatchObject({ name: 'AuthApiError', code: 'email_not_confirmed', status: 422 });
+    expect(isAccountEmailUnverified(result.error)).toBe(true);
+  });
+
+  it('does not infer verification eligibility from a message or an untyped error', () => {
+    expect(isAccountEmailUnverified(new Error('Email verification required'))).toBe(false);
+    expect(isAccountEmailUnverified({ code: 'email_not_confirmed', status: 422 })).toBe(false);
+    expect(isAccountEmailUnverified({ __isAuthError: true, code: 'invalid_credentials', status: 401 })).toBe(false);
+  });
+
   it('handles the real SDK rejection for an invalid or expired reset token', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => Response.json({ code: 'INVALID_TOKEN', message: 'Synthetic token failure' }, { status: 400 })));
     const result = await accountAuthRequest(() => accountAuthClient.resetPassword({ newPassword: 'synthetic-new-password', token: 'synthetic-expired-token' }));

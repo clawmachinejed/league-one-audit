@@ -53,7 +53,7 @@ export function AccountSignIn({ availability }: { availability: AccountAvailabil
     }
     setBusy(true); setMessage(''); setFailed(false);
     try {
-      const { accountAuthClient, accountAuthRequest } = await import('@/lib/accounts/auth-client');
+      const { accountAuthClient, accountAuthRequest, isAccountEmailUnverified } = await import('@/lib/accounts/auth-client');
       if (!active.current) return;
       const address = email.trim();
       const result = await accountAuthRequest(async () => mode === 'sign-up'
@@ -68,6 +68,11 @@ export function AccountSignIn({ availability }: { availability: AccountAvailabil
       if (!active.current) return;
       setPassword(''); setConfirmation('');
       if (result.error) {
+        if (mode === 'sign-in' && isAccountEmailUnverified(result.error)) {
+          changeMode('verify');
+          setMessage('Verify your email to sign in. Enter your code below or request another email.');
+          return;
+        }
         if (mode === 'recover') {
           // Do not distinguish existing, absent, or ineligible email addresses.
           setMessage('If this email can recover an account, check your inbox for a reset link.'); return;
@@ -141,6 +146,7 @@ export function AccountSignIn({ availability }: { availability: AccountAvailabil
         <div className={styles.actions}>
           <button className={styles.secondary} type="button" disabled={busy} onClick={() => changeMode(mode === 'sign-in' ? 'sign-up' : 'sign-in')}>{mode === 'sign-in' ? 'Create an account' : 'Return to sign in'}</button>
           {(mode === 'sign-in' || mode === 'sign-up' || mode === 'verify') && <button className={styles.secondary} type="button" disabled={busy} onClick={() => { void resendVerification(); }}>Send verification email</button>}
+          {mode === 'sign-in' && <button className={styles.secondary} type="button" disabled={busy} onClick={() => changeMode('verify')}>I have a verification code</button>}
           {mode === 'sign-in' && <button className={styles.secondary} type="button" disabled={busy} onClick={() => changeMode('recover')}>Forgot password?</button>}
         </div>
       </div>

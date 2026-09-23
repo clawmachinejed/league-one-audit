@@ -19,3 +19,8 @@ export async function accountAuthRequest<T>(request: () => Promise<T>): Promise<
     throw error;
   }
 }
+
+// The pinned SDK normalizes Better Auth's EMAIL_NOT_VERIFIED to this typed code.
+export function isAccountEmailUnverified(error: unknown): boolean {
+  return isAuthError(error) && error.code === 'email_not_confirmed';
+}
