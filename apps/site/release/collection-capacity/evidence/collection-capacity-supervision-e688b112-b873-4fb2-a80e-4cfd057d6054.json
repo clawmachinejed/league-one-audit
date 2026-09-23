@@ -1,0 +1,58 @@
+{
+  "startedAt": "2026-09-23T21:55:26.473Z",
+  "childClosed": true,
+  "cleanupVerified": true,
+  "productionWrites": false,
+  "credentialsCreated": false,
+  "database": "account_reset_integration_test",
+  "before": {
+    "database": "account_reset_integration_test",
+    "branch": "br-still-breeze-avaibago",
+    "relations": 0,
+    "other_sessions": 0,
+    "backends": []
+  },
+  "measurementFile": "collection-capacity-measurement-887fe71d-6314-4b7e-862b-c3524ac8b79e.json",
+  "childPid": 44380,
+  "childExit": 1,
+  "after": {
+    "database": "account_reset_integration_test",
+    "branch": "br-still-breeze-avaibago",
+    "relations": 0,
+    "other_sessions": 5,
+    "backends": [
+      {
+        "role": "league_one_runtime",
+        "state": "idle",
+        "backendStart": "2026-09-23T21:55:58.467805+00:00",
+        "transactionStart": null
+      },
+      {
+        "role": "league_one_runtime",
+        "state": "idle",
+        "backendStart": "2026-09-23T21:55:44.483655+00:00",
+        "transactionStart": null
+      },
+      {
+        "role": "league_one_runtime",
+        "state": "idle",
+        "backendStart": "2026-09-23T21:55:39.895443+00:00",
+        "transactionStart": null
+      },
+      {
+        "role": "league_one_runtime",
+        "state": "idle",
+        "backendStart": "2026-09-23T21:55:37.214765+00:00",
+        "transactionStart": null
+      },
+      {
+        "role": "league_one_runtime",
+        "state": "idle",
+        "backendStart": "2026-09-23T21:55:36.411303+00:00",
+        "transactionStart": null
+      }
+    ]
+  },
+  "httpPoolCleanupScope": "Child closed, schemas empty, no active or open-transaction backends; only idle runtime HTTP pool backends created inside recorded owned run windows are allowed. No connections terminated.",
+  "finishedAt": "2026-09-23T21:56:03.013Z"
+}
