@@ -60,6 +60,13 @@ describe('My Fantasy league summary', () => {
     expect(getMyFantasyLeagueSummary(data, context, standings, 999, now).team?.id).toBe(1);
   });
 
+  it('never falls back to another manager when the account team is missing from the league snapshot', () => {
+    const { data, standings } = fixture();
+    expect(getMyFantasyLeagueSummary(data, context, standings, 999, now, true)).toMatchObject({
+      team: null, matchup: null, currentRank: null, projectedRank: null, projectedOutcome: 'unavailable',
+    });
+  });
+
   it('takes current record from official standings instead of an older immutable matchup', () => {
     const { data, standings } = fixture();
     standings.teams = standings.teams.map(team => team.id === 1 ? { ...team, wins: 2 } : team);

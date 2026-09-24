@@ -4,12 +4,14 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ACCOUNT_SESSION_EVENT, readAccount, readSleeperLeagues } from './account-client';
+import type { AccountView, SleeperLeagueDiscovery } from '../lib/accounts/contracts';
 import { currentMatchupWeek } from '../lib/matchup-period';
 import { displayedMatchupManagers } from '../lib/manager-display';
 import { getMyFantasyLeagueSummary, myFantasyStandingsEvidence } from '../lib/my-fantasy';
+import { currentMyFantasyMemberships, type MyFantasyMembership } from '../lib/my-fantasy-membership';
 import type { MyFantasyLeague } from '../lib/my-fantasy-source';
 import type { LeagueKey } from '../lib/leagues';
-import type { Matchup, Team } from '../lib/types';
 import { LeagueSiteProvider } from './league-context';
 import { TeamPreferenceProvider, useTeamPreference } from './team-preference';
 import { ManagerHonorsProvider, ManagerHonorsSeason } from './manager-honors';
@@ -25,12 +27,6 @@ type Summary = ReturnType<typeof getMyFantasyLeagueSummary>;
 type Report = { entry: AvailableLeague; summary: Summary; week: number; season: string };
 type ReportHandler = (key: LeagueKey, report: Report) => void;
 
-function score(value: number | null | undefined) {
-  return typeof value === 'number' && Number.isFinite(value) ? value.toFixed(2) : '—';
-}
-function record(team: Team) {
-  return `${team.wins}–${team.losses}${team.ties ? `–${team.ties}` : ''}`;
-}
 function place(value: number | null) {
   if (value === null) return '—';
   const suffix = value % 100 >= 11 && value % 100 <= 13 ? 'th'
@@ -38,33 +34,18 @@ function place(value: number | null) {
   return `${value}${suffix}`;
 }
 
-function FantasyMatchupSummary({ matchup, expanded, summary }: { matchup: Matchup; expanded: boolean; summary: Summary }) {
-  const [mine, opponent] = matchup.sides;
-  return <>
-    <span className={styles.teams}><span data-team-name>{mine.team.name}</span><span className={styles.versus}>vs</span>
-      <span data-team-name>{opponent?.team.name ?? 'Opponent pending'}</span></span>
-    <span className={styles.scores} aria-label={`Current score ${score(mine.points)} to ${score(opponent?.points)}`}>
-      <span data-score-number>{score(mine.points)}</span><span className={styles.dash}>—</span><span data-score-number>{score(opponent?.points)}</span>
-    </span>
-    <span className={styles.projections}>Proj: <span data-team-projection-number>{score(mine.projectedPoints)}</span> — <span data-team-projection-number>{score(opponent?.projectedPoints)}</span></span>
-    <span className={styles.teamSummary}>
-      <span>Record: <strong>{summary.team ? record(summary.team) : '—'}</strong></span>
-      <span className={styles.rank} title={summary.projectedRankReason ?? undefined}>
-        <span className="sr-only">Current rank </span><strong>{place(summary.currentRank)}</strong><span aria-hidden="true">→</span><span className="sr-only"> to </span><strong>{place(summary.projectedRank)}</strong><span>projected</span>
-        <span className="sr-only">{summary.projectedRank === null ? '. Projected rank unavailable.' : ''}</span>
-      </span>
-    </span>
-    <span className={styles.disclosure}>{expanded ? 'Collapse matchup' : 'Expand matchup'}<Icon name="chevron" className={expanded ? styles.rotated : ''} /></span>
-  </>;
-}
-
-function FantasyLeagueCard({ entry, evaluatedAt, onReport }: { entry: AvailableLeague; evaluatedAt: string; onReport: ReportHandler }) {
+function FantasyLeagueCard({ entry, teamIds, evaluatedAt, onReport, expanded, onToggle }: {
+  entry: AvailableLeague; teamIds: number[]; evaluatedAt: string; onReport: ReportHandler;
+  expanded: boolean; onToggle: () => void;
+}) {
   const { site, source } = entry;
   const snapshot = useMatchupSnapshot({ leagueKey: site.key, ...source });
   const data = useMemo(() => displayedMatchupManagers(site.key, snapshot.data), [site.key, snapshot.data]);
   const { selected } = useTeamPreference(data.teams);
-  const summary = useMemo(() => getMyFantasyLeagueSummary(data, snapshot.periodContext, entry.standingsData, selected, new Date(evaluatedAt)),
-    [data, snapshot.periodContext, entry.standingsData, selected, evaluatedAt]);
+  const accountTeam = selected !== null && teamIds.includes(selected) ? selected : teamIds[0];
+  const summary = useMemo(() => getMyFantasyLeagueSummary(data, snapshot.periodContext, entry.standingsData,
+    accountTeam, new Date(evaluatedAt), true),
+    [data, snapshot.periodContext, entry.standingsData, accountTeam, evaluatedAt]);
   useEffect(() => { onReport(site.key, { entry, summary, week: data.week, season: data.league.season }); },
     [site.key, entry, summary, data.week, data.league.season, onReport]);
   const router = useRouter();
@@ -93,12 +74,17 @@ function FantasyLeagueCard({ entry, evaluatedAt, onReport }: { entry: AvailableL
       </div>
       {summary.matchup ? <MatchupsWithBoxScores key={`${site.key}:${data.league.season}:${data.week}:${summary.team?.id}`}
         matchups={[summary.matchup]} selected={summary.team?.id ?? null} leagueKey={site.key} season={data.league.season}
-        week={data.week} refreshAutomatically={snapshot.periodContext.temporalState === 'active'} showBench
+        week={data.week} refreshAutomatically={snapshot.periodContext.temporalState === 'active'} showBench benchExpandable
+        showManagerTrophies={false} expandedOverride={expanded} onToggle={onToggle} singleColumn
         standings={source.standings?.season === data.league.season ? source.standings : null} observedAt={data.updatedAt}
-        summaryClassName={styles.matchupToggle}
-        renderSummary={(matchup, expanded) => <FantasyMatchupSummary matchup={matchup} expanded={expanded} summary={summary} />} />
-        : <div className={styles.unavailable}><strong>{summary.team?.name ?? 'Team unavailable'}</strong>
-          <p>No matchup posted for Week {data.week}.</p></div>}
+      />
+        : <div className={styles.unavailable}><strong>{summary.team?.name ?? 'Your team is temporarily unavailable'}</strong>
+          <p>{summary.team ? `No matchup posted for Week ${data.week}.` : 'We could not match your account team to this week’s league data.'}</p></div>}
+      {summary.team && <p className={styles.rankSummary} title={summary.projectedRankReason ?? undefined}>
+        <span className="sr-only">Current rank </span><strong>{place(summary.currentRank)}</strong><span aria-hidden="true">→</span>
+        <span className="sr-only"> to </span><strong>{place(summary.projectedRank)}</strong><span>projected</span>
+        <span className="sr-only">{summary.projectedRank === null ? '. Projected rank unavailable.' : ''}</span>
+      </p>}
       {data.warning && <p className={styles.notice}>{data.warning}</p>}
       <div className={styles.cardFooter}>
         <span>{summary.matchup?.status === 'final' ? 'Final' : summary.matchup?.status === 'live' ? 'In progress'
@@ -109,9 +95,13 @@ function FantasyLeagueCard({ entry, evaluatedAt, onReport }: { entry: AvailableL
   </ManagerHonorsSeason>;
 }
 
-export function MyFantasyView({ leagues, evaluatedAt }: { leagues: MyFantasyLeague[]; evaluatedAt: string }) {
+function MyFantasyAccountView({ memberships, evaluatedAt, partialDiscovery }: {
+  memberships: MyFantasyMembership[]; evaluatedAt: string; partialDiscovery: boolean;
+}) {
+  const leagues = memberships.map(membership => membership.entry);
   const router = useRouter();
   const [reports, setReports] = useState<Partial<Record<LeagueKey, Report>>>({});
+  const [expandedLeague, setExpandedLeague] = useState<LeagueKey | null>(null);
   const [now, setNow] = useState(evaluatedAt);
   const report = useCallback<ReportHandler>((key, value) => { setReports(previous => ({ ...previous, [key]: value })); }, []);
   useEffect(() => {
@@ -148,6 +138,7 @@ export function MyFantasyView({ leagues, evaluatedAt }: { leagues: MyFantasyLeag
         {attention.length > 0 && <span className={styles.attentionText}>{attention.length} need attention</span>}
       </p>
     </header>
+    {partialDiscovery && <p className={styles.status}>Some associated Sleeper profiles could not be checked.</p>}
     {attention.length > 0 && <section className={styles.attention} aria-labelledby="fantasy-attention-heading">
       <h2 id="fantasy-attention-heading">Needs attention</h2>
       <ul>{attention.flatMap(({ entry, summary }) => summary.attention.issues.map((issue, index) => <li key={`${entry.site.key}:${issue.slot}:${index}`}>
@@ -159,11 +150,13 @@ export function MyFantasyView({ leagues, evaluatedAt }: { leagues: MyFantasyLeag
     {ready && finalMatchups === leagues.length && leagues.length > 0 && <p className={styles.clear}><Icon name="check" />All matchups complete</p>}
     {!ready && <p className={styles.status}>Checking your team selections…</p>}
     <div className={styles.leagues}>
-      {leagues.map(entry => entry.status === 'available'
+      {memberships.map(({ entry, teamIds }) => entry.status === 'available'
         ? <LeagueSiteProvider key={entry.site.key} site={entry.site} leagueId={entry.leagueId}>
           <TeamPreferenceProvider key={entry.leagueId} leagueId={entry.leagueId}>
             <ManagerHonorsProvider data={entry.honors} season={entry.source.data.league.season}>
-              <FantasyLeagueCard entry={entry} evaluatedAt={now} onReport={report} />
+              <FantasyLeagueCard entry={entry} teamIds={teamIds} evaluatedAt={now} onReport={report}
+                expanded={expandedLeague === entry.site.key}
+                onToggle={() => setExpandedLeague(current => current === entry.site.key ? null : entry.site.key)} />
             </ManagerHonorsProvider>
           </TeamPreferenceProvider>
         </LeagueSiteProvider>
@@ -174,6 +167,73 @@ export function MyFantasyView({ leagues, evaluatedAt }: { leagues: MyFantasyLeag
           <div className={styles.cardFooter}><button type="button" onClick={() => router.refresh()} aria-label={`Retry ${entry.site.name}`}>Try again</button><Link href={`${entry.site.prefix}/my-team`} aria-label={`Enter ${entry.site.name}`}>Enter league ↗</Link></div>
         </section>)}
     </div>
-    <p className={styles.footnote}>Uses your My Team selection in each league. Matchups check for updates every minute while visible.</p>
+    <p className={styles.footnote}>Current Sleeper league membership confirms the cards; the latest stored roster link selects your team. If you have more than one linked team in a league, your saved My Team choice applies. Matchups check for updates every minute while visible.</p>
   </div>;
+}
+
+type FantasyAccountState = { status: 'loading' | 'guest' | 'denied' | 'disabled' | 'unavailable' }
+  | { status: 'ready'; account: AccountView; discovery: SleeperLeagueDiscovery | null };
+
+export function MyFantasyView({ leagues, evaluatedAt }: { leagues: MyFantasyLeague[]; evaluatedAt: string }) {
+  const [state, setState] = useState<FantasyAccountState>({ status: 'loading' });
+  const [refresh, setRefresh] = useState(0);
+  const reload = useCallback(() => { setState({ status: 'loading' }); setRefresh(value => value + 1); }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        const account = await readAccount(controller.signal);
+        if (controller.signal.aborted) return;
+        if (account.status !== 'ready') { setState(account); return; }
+        if (!account.data.links.length) { setState({ status: 'ready', account: account.data, discovery: null }); return; }
+        const discovered = await readSleeperLeagues(account.data.profile.id, controller.signal);
+        if (controller.signal.aborted) return;
+        setState(discovered.status === 'ready'
+          ? { status: 'ready', account: account.data, discovery: discovered.data }
+          : { status: 'unavailable' });
+      } catch { if (!controller.signal.aborted) setState({ status: 'unavailable' }); }
+    })();
+    return () => controller.abort();
+  }, [refresh]);
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === 'visible') reload(); };
+    const onRestore = (event: PageTransitionEvent) => { if (event.persisted) reload(); };
+    let channel: BroadcastChannel | null = null;
+    try { if (typeof BroadcastChannel !== 'undefined') channel = new BroadcastChannel(ACCOUNT_SESSION_EVENT); }
+    catch { /* Focus and visibility checks still refresh the account. */ }
+    if (channel) channel.onmessage = reload;
+    window.addEventListener(ACCOUNT_SESSION_EVENT, reload);
+    window.addEventListener('focus', reload);
+    window.addEventListener('pageshow', onRestore);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      channel?.close();
+      window.removeEventListener(ACCOUNT_SESSION_EVENT, reload);
+      window.removeEventListener('focus', reload);
+      window.removeEventListener('pageshow', onRestore);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [reload]);
+
+  if (state.status === 'loading') return <div className={styles.page}><h1>My Fantasy</h1><p role="status">Checking your leagues…</p></div>;
+  if (state.status !== 'ready') return <div className={styles.page}><h1>My Fantasy</h1>
+    <section className={styles.unavailable} role="status"><p>{state.status === 'guest' || state.status === 'denied'
+      ? 'Sign in to see the leagues where your associated Sleeper profile manages a team.'
+      : 'Your league participation is temporarily unavailable.'}</p>
+      {state.status === 'guest' || state.status === 'denied'
+        ? <Link href="/sign-in" prefetch={false}>Sign in</Link>
+        : <button type="button" onClick={reload}>Try again</button>}
+    </section></div>;
+
+  const memberships = state.discovery ? currentMyFantasyMemberships(leagues, state.account, state.discovery) : [];
+  if (!memberships.length) return <div className={styles.page}><h1>My Fantasy</h1>
+    <section className={styles.unavailable} role="status"><p>{state.account.links.length
+      ? 'No current team participation could be confirmed in the supported leagues. Check your associated Sleeper profiles or try again.'
+      : 'Associate a Sleeper profile with your website account to see your leagues here.'}</p>
+      <Link href="/account" prefetch={false}>Manage Sleeper profiles</Link>
+      {state.account.links.length > 0 && <button type="button" onClick={reload}>Try again</button>}
+    </section></div>;
+  return <MyFantasyAccountView key={state.account.profile.id} memberships={memberships} evaluatedAt={evaluatedAt}
+    partialDiscovery={state.discovery?.status === 'partial'} />;
 }

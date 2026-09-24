@@ -129,8 +129,11 @@ export function getMyFantasyLeagueSummary(
   standingsData: StandingsData | null,
   selected: number | null,
   evaluatedAt = new Date(),
+  requireSelectedTeam = false,
 ): MyFantasyLeagueSummary {
-  const selection = selectMyTeamMatchup(data.teams, data.matchups, selected);
+  const selection = requireSelectedTeam && !data.teams.some(team => team.id === selected)
+    ? { team: null, matchup: null }
+    : selectMyTeamMatchup(data.teams, data.matchups, selected);
   const official = standingsData?.league.season === data.league.season
     && validOfficialTeams(standingsData.teams)
     && standingsData.teams.length === data.teams.length

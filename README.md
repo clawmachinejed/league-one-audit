@@ -1,6 +1,6 @@
 # League One, League Two and Dynasty League
 
-A mobile-first home for League One, its League Two promotion and relegation league, and Dynasty League, powered by public Sleeper league data. My Fantasy summarizes all three; each league shares My Team, Matchups, Standings, and Managers, with rosters, transaction history and schedules inside each manager profile. Each league uses its own official Sleeper scoring settings.
+A mobile-first home for League One, its League Two promotion and relegation league, and Dynasty League, powered by public Sleeper league data. My Fantasy summarizes supported leagues where the signed-in account's associated Sleeper profile has current league membership and a stored team link; each league shares My Team, Matchups, Standings, and Managers, with rosters, transaction history and schedules inside each manager profile. Each league uses its own official Sleeper scoring settings.
 
 Managers has current-season and **History** tabs, in that order, with the current season selected by default. History combines each league's managers across annual Sleeper IDs from 2024 onward for League One and from 2025 onward for League Two and Dynasty, using only completed regular-season results within Weeks 1–14. It shows manager names and honors without team names. The current-season tab preserves the existing cards. See [manager history](docs/manager-history.md) for ownership, source, and completeness rules.
 
@@ -8,7 +8,7 @@ League / Rosters [player PPG and position rank](docs/weekly-roster-metrics.md) u
 
 ## What stays central
 
-- [My Fantasy](docs/my-fantasy.md): compact current-matchup summaries across the three website leagues, using each league's independent My Team selection.
+- [My Fantasy](docs/my-fantasy.md): compact current-matchup summaries for the signed-in account's participating supported leagues.
 - Expandable matchup cards: scan team scores, then open the player and lineup comparison.
 - Tap a starting-position row, including its position label or either score, to expand both teams' [box-score statistics](docs/matchup-box-scores.md) from the saved Sleeper weekly data.
 - Pregame player projections derived from Tank01's raw weekly statistics using each league's Sleeper scoring settings.
@@ -26,7 +26,7 @@ The [account foundation](docs/account-foundation.md) adds private website accoun
 
 League One keeps its existing routes, such as `/matchups`. League Two mirrors the same experience under `/league2`, and Dynasty League under `/dynasty`. The league selector changes the active league across My Team, Matchups, Standings, and Managers. Switching from a manager profile returns to the selected league's Managers page because Sleeper roster numbers are only unique within one league. Dynasty uses its Sleeper league icon. Position labels follow each league's official Sleeper roster slots throughout Matchups, My Team and roster views: **WRT** for FLEX, a two-by-two **WR / TQ** for SUPER_FLEX, **WR / RB** for WRRB_FLEX, and **WR / TE** for REC_FLEX. Accessible names spell out the eligible positions; source slot identities are unchanged. See [Dynasty League integration](docs/dynasty-league.md) for scoring, capacity and release checks.
 
-My Fantasy appears immediately before My Team in desktop and mobile navigation. The global `/my-fantasy` page shows current scores, projected finishes, records and current-to-projected rank for the three website leagues. Each compact card expands the existing matchup and inline box scores; a separate **Enter league** link opens that league's My Team page. Selection uses the existing per-league browser preference and fallback, not account ownership. Missing evidence stays unavailable, and one league's failure does not hide the other cards. See [My Fantasy behavior and limits](docs/my-fantasy.md).
+My Fantasy appears immediately before My Team in desktop and mobile navigation; Managers is no longer in the ribbon, while its routes and team links remain available. The global `/my-fantasy` page shows current scores, projected finishes, records and current-to-projected rank only for website leagues where current-season Sleeper discovery confirms an associated profile and the account has a stored roster link. Its collapsed matchup card matches Matchups, including manager usernames and win chance, without championship trophies. Only one league matchup opens at a time; Bench has its own disclosure and player game statistics remain inline. A separate **Enter league** link opens that league's My Team page. If multiple linked teams belong to a league, the saved My Team choice selects among them; an unrelated or missing selection never substitutes another manager. Missing evidence stays unavailable, and one league's failure does not hide the other participating cards. See [My Fantasy behavior and limits](docs/my-fantasy.md).
 
 My Team remains immediately before Matchups in the navigation. `/my-team`, `/league2/my-team` and `/dynasty/my-team` show the selected team's matchup with that team always on the left, defaulting to the current week. The same week selector as Matchups supports earlier/later weeks, exact-week links and returning to Current. Without a valid saved selection, the page uses the first team in official standings order, including the existing alphabetical tiebreaker, without changing the saved preference. Expanding the shared matchup card shows both starting lineups and benches with available official scores and projections. Bench points never enter team totals. The page follows the same site week rollover and stored-snapshot refresh as Matchups; see [My Team behavior and release checks](docs/my-team.md).
 
@@ -163,7 +163,8 @@ Install Playwright's Chromium browser once with `pnpm --filter @l1/site exec pla
 | `apps/site/lib/config.ts` | Single source of truth for both public Sleeper league IDs. |
 | `apps/site/lib/leagues.ts` | Public league identity, artwork, and route prefixes. |
 | `apps/site/lib/league-matchups-source.ts` | Shared exact-week matchup snapshot, rollover and official fallback selection for league pages and My Fantasy. |
-| `apps/site/lib/my-fantasy-source.ts` | Independent loads for the three My Fantasy cards, with optional official standings history and honors. |
+| `apps/site/lib/my-fantasy-source.ts` | Independent loads for the three candidate website leagues, with optional official standings history and honors. |
+| `apps/site/lib/my-fantasy-membership.ts` | Filters candidate cards to exact current-season Sleeper membership and a corresponding stored account roster link. |
 | `apps/site/lib/my-fantasy.ts` | My Fantasy selection, shared projected-rank composition and factual lineup attention. |
 | `apps/site/lib/sleeper.ts` | Server-side Sleeper requests, caching, and data availability handling. |
 | `apps/site/lib/projections/domain` | Provider-neutral league, projection, game-state, scoring, and sole `clock-v1` policy. |

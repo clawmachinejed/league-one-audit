@@ -97,6 +97,9 @@
 .lineupNote { font-size:10px; line-height:14px; color:var(--muted); text-align:center; padding:8px 0; }
 .bench { border-top:1px solid var(--line); }
 .benchHeading { margin:0; padding:8px 0; color:var(--muted); text-align:center; font-size:10px; font-weight:600; line-height:14px; }
+.benchToggle { display:inline-flex; align-items:center; justify-content:center; gap:5px; min-height:44px; padding:0 12px; border:0; border-radius:5px; background:transparent; color:var(--green); font-size:11px; font-weight:700; cursor:pointer; }
+.benchToggle:hover,.benchToggle[aria-expanded=true] { background:var(--green-soft); }
+.benchToggle:focus-visible { outline:2px solid var(--focus); outline-offset:1px; }
 .unavailable { font-size:12px; line-height:1.5; padding:18px 4px; color:var(--muted); }
 .profileLinks { display:flex; justify-content:space-between; gap:12px; border-top:1px solid var(--line); }
 .profileLinks a { display:flex; align-items:center; min-height:44px; font-size:11px; color:var(--green); }

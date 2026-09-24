@@ -28,19 +28,21 @@ function ChampionshipTrophies({ years, league }: { years: readonly number[]; lea
 }
 
 /** Outer button/link labels replace descendant text in the accessibility tree. */
-export function useManagerNameLabel(team?: ManagerIdentity): string {
+export function useManagerNameLabel(team?: ManagerIdentity, showTrophies = true): string {
   const years = useManagerChampionshipYears(team ?? noManager);
   const promotionYears = useManagerChampionshipYears(team ?? noManager, 'league2');
   if (!team) return '';
+  if (!showTrophies) return team.managerName;
   return [team.managerName, years.length ? championshipLabel(years, 'league1') : null,
     promotionYears.length ? championshipLabel(promotionYears, 'league2') : null].filter(Boolean).join(', ');
 }
 
-export function ManagerName({ team, className, championshipYears, promotionChampionshipYears, trophiesBefore = false }: {
+export function ManagerName({ team, className, championshipYears, promotionChampionshipYears, trophiesBefore = false, showTrophies = true }: {
   team: ManagerIdentity;
   className?: string;
   /** Mirror awards toward the center when this is the right-hand manager. */
   trophiesBefore?: boolean;
+  showTrophies?: boolean;
   /** The directory already carries the same verified honors in its view data. */
   championshipYears?: readonly number[];
   promotionChampionshipYears?: readonly number[];
@@ -49,7 +51,7 @@ export function ManagerName({ team, className, championshipYears, promotionChamp
   const contextPromotionYears = useManagerChampionshipYears(team, 'league2');
   const years = championshipYears ?? contextYears;
   const promotionYears = promotionChampionshipYears ?? contextPromotionYears;
-  const trophies = (years.length > 0 || promotionYears.length > 0) && <>
+  const trophies = showTrophies && (years.length > 0 || promotionYears.length > 0) && <>
     <ChampionshipTrophies years={years} league="league1" />
     {years.length > 0 && promotionYears.length > 0 && ' '}
     <ChampionshipTrophies years={promotionYears} league="league2" />

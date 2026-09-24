@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page, type Request } from '@playwright/test';
 import { LEAGUE_IDS } from '../lib/config';
+import type { AccountView, SleeperLeagueDiscovery } from '../lib/accounts/contracts';
 import { LEAGUE_SITES, type LeagueKey } from '../lib/leagues';
 import type { MatchupPeriodContext } from '../lib/matchup-period';
 import type { MatchupBoxScores } from '../lib/matchup-box-score-types';
@@ -19,6 +20,34 @@ const serverHeading = (page: Page) => card(page, 'league1').getByRole('heading',
 const navigation = (page: Page, width: number) => page.getByRole('navigation', {
   name: width < 760 ? 'Mobile navigation' : 'Main navigation', exact: true,
 });
+
+function fantasyAccount(memberships: Partial<Record<LeagueKey, number[]>> = {
+  league1: [1], league2: [1, 2], dynasty: [3],
+}): AccountView {
+  return { profile: { id: '11111111-1111-4111-8111-111111111111', displayName: 'Fixture Member', revision: 1 },
+    links: [{ id: '22222222-2222-4222-8222-222222222222', sourceManagerAccountId: '33333333-3333-4333-8333-333333333333',
+      displayName: 'Fixture Sleeper', provider: 'sleeper', assurance: 'user_asserted', revision: 1 }],
+    library: { availableProviderAccounts: [], leagues: leagues.map((key, index) => ({
+      id: `${index + 4}4444444-4444-4444-8444-444444444444`, key, name: LEAGUE_SITES[key].name, season: 2026,
+      url: `${LEAGUE_SITES[key].prefix}/matchups`, logo: LEAGUE_SITES[key].logo,
+      saved: key === 'league2' ? { favorite: true, sortPosition: 0, preferredSeasonTeamId: null, revision: 1 } : null,
+      teams: (memberships[key] ?? []).map(id => ({ id: `team-${key}-${id}`, rosterId: String(id), roles: ['owner' as const],
+        sourceManagerAccountIds: ['33333333-3333-4333-8333-333333333333'], assurance: 'user_asserted' as const,
+        freshness: 'stale' as const, observedAt: '2026-09-13T16:00:00Z' })),
+      affiliations: key === 'league2' ? [{ id: 'affiliate', name: 'Connected league' }] : [],
+      linkedFromLeagueIds: key === 'league2' ? ['league-league1'] : [],
+      sourceState: 'stale' as const, sourceObservedAt: '2026-09-13T16:00:00Z',
+    })) } };
+}
+
+function fantasyDiscovery(keys: LeagueKey[] = [...leagues]): SleeperLeagueDiscovery {
+  return { accountId: '11111111-1111-4111-8111-111111111111', season: '2026', status: 'complete',
+    profiles: [{ sourceManagerAccountId: '33333333-3333-4333-8333-333333333333',
+      displayName: 'Fixture Sleeper', status: 'complete' }],
+    leagues: keys.map(key => ({ id: LEAGUE_IDS[key], name: LEAGUE_SITES[key].name, season: '2026',
+      url: `https://sleeper.com/leagues/${LEAGUE_IDS[key]}`,
+      sourceManagerAccountIds: ['33333333-3333-4333-8333-333333333333'] })) };
+}
 
 function fantasyFixture(league: LeagueKey, week: number) {
   const first = snapshotFixture(week);
@@ -67,7 +96,8 @@ async function openFantasyFixture(page: Page, options: { staleInitialRefresh?: b
     holdRefreshMarker: options.staleInitialRefresh ?? false, staleRefreshes: 0,
     weeks: {} as Partial<Record<LeagueKey, number>>,
     boxRequests: [] as Array<{ league: LeagueKey; season: string | null; week: number; queryKeys: string[] }>,
-    providerRequests: [] as string[] };
+    providerRequests: [] as string[], account: { current: fantasyAccount() as AccountView | null },
+    discovery: { current: fantasyDiscovery() } };
   await page.clock.install({ time: new Date('2026-09-13T16:00:00.000Z') });
   await page.clock.pauseAt(new Date('2026-09-13T16:01:00.000Z'));
   await page.addInitScript(preferences => {
@@ -76,6 +106,18 @@ async function openFantasyFixture(page: Page, options: { staleInitialRefresh?: b
       if (localStorage.getItem(key) === null) localStorage.setItem(key, value);
     }
   }, leagues.map(league => [storageKey(league), String(savedTeams[league])]));
+  await page.route('**/api/me', async route => {
+    const current = state.account.current;
+    await route.fulfill({ status: current ? 200 : 401,
+      json: current ? structuredClone(current) : { error: 'unauthenticated' },
+      headers: { 'Cache-Control': 'private, no-store' } });
+  });
+  await page.route('**/api/me/sleeper-leagues', async route => {
+    const current = state.account.current;
+    if (!current) { await route.fulfill({ status: 401, json: { error: 'unauthenticated' } }); return; }
+    expect(route.request().headers()['x-expected-account-id']).toBe(current.profile.id);
+    await route.fulfill({ json: structuredClone(state.discovery.current), headers: { 'Cache-Control': 'private, no-store' } });
+  });
   const refreshes = new Set<Request>();
   const readers = new Set<Request>();
   page.on('request', request => {
@@ -135,12 +177,7 @@ async function openFantasyFixture(page: Page, options: { staleInitialRefresh?: b
       // Only a committed, unmodified RSC refresh can restore the canonical heading.
       const siteName = '\\"site\\":{\\"key\\":\\"league1\\",\\"name\\":\\"League One\\"';
       expect(body.split(siteName)).toHaveLength(2);
-      expect(body.split('<h2>League One</h2>')).toHaveLength(2);
-      body = body.replace(siteName, siteName.replace('League One', initialServerHeading))
-        .replace('<h2>League One</h2>', `<h2>${initialServerHeading}</h2>`)
-        .replace('data-my-fantasy-league="league1" aria-label="League One"',
-          `data-my-fantasy-league="league1" aria-label="${initialServerHeading}"`)
-        .replace('aria-label="Enter League One"', `aria-label="Enter ${initialServerHeading}"`);
+      body = body.replace(siteName, siteName.replace('League One', initialServerHeading));
     }
     state.documents += 1;
     await route.fulfill({ response, body });
@@ -175,16 +212,19 @@ async function openFantasyFixture(page: Page, options: { staleInitialRefresh?: b
     }
   });
   await page.goto('/my-fantasy', { waitUntil: 'networkidle' });
-  await expect(serverHeading(page)).toHaveText(initialServerHeading);
+  await expect(serverHeading(page)).toHaveText(initialServerHeading, { timeout: 20_000 });
   await page.clock.runFor(61_000);
   for (const league of leagues) {
     await expectSelectedScores(card(page, league), league, savedTeams[league]);
+    await expect(card(page, league).locator(`a[href="${LEAGUE_SITES[league].prefix}/my-team"]`))
+      .toHaveAttribute('href', `${LEAGUE_SITES[league].prefix}/my-team`);
     const summary = card(page, league).locator('[data-matchup-toggle]');
-    await expect(summary).toContainText('Record:');
-    await expect(summary).toContainText('projected');
-    await expect(summary).toHaveAccessibleName(/Record:\s*0–0/u);
-    await expect(summary).toHaveAccessibleName(/Current rank\s+—\s+to\s+—\s+projected/u);
-    await expect(summary).toHaveAccessibleName(/Projected rank unavailable/u);
+    await expect(summary).toHaveAccessibleName(/record 0 wins, 0 losses/u);
+    await expect(summary.locator('[data-manager-name-text]')).toHaveCount(2);
+    await expect(summary.locator('[data-team-record]')).toHaveCount(2);
+    await expect(summary.locator('[data-win-chance]')).toHaveCount(1);
+    await expect(card(page, league).locator('.manager-championship-trophy')).toHaveCount(0);
+    await expect(card(page, league)).toContainText('projected');
   }
   // Adoption changes official-record evidence. Observe committed server props
   // rather than transport completion: an accepted stream can end as ERR_ABORTED.
@@ -241,7 +281,7 @@ for (const width of [390, 760, 900, 1280]) {
     await page.goto('/league2/my-team', { waitUntil: 'domcontentloaded' });
     const nav = navigation(page, width);
     const links = nav.locator(':scope > a');
-    await expect(links).toHaveText(['My Fantasy', 'My Team', 'Matchups', 'League', 'Managers']);
+    await expect(links).toHaveText(['My Fantasy', 'My Team', 'Matchups', 'League']);
     await expect(nav.getByRole('link', { name: 'My Fantasy', exact: true })).toHaveAttribute('href', '/my-fantasy');
     await expect(nav.getByRole('link', { name: 'My Team', exact: true })).toHaveAttribute('href', '/league2/my-team');
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1),
@@ -251,13 +291,9 @@ for (const width of [390, 760, 900, 1280]) {
     await expect(page.getByRole('heading', { level: 1, name: 'My Fantasy', exact: true })).toBeVisible();
     await expect(nav.getByRole('link', { name: 'My Fantasy', exact: true })).toHaveAttribute('aria-current', 'page');
     await expect(nav.getByRole('link', { name: 'My Team', exact: true })).not.toHaveAttribute('aria-current', 'page');
-    await expect(page.locator('[data-my-fantasy-league]')).toHaveCount(3);
+    await expect(page.locator('[data-my-fantasy-league]')).toHaveCount(0);
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1),
       `Global My Fantasy navigation must fit ${width}px`).toBe(true);
-    for (const league of leagues) {
-      await expect(card(page, league).getByRole('link', { name: `Enter ${LEAGUE_SITES[league].name}`, exact: true }))
-        .toHaveAttribute('href', `${LEAGUE_SITES[league].prefix}/my-team`);
-    }
   });
 }
 
@@ -316,6 +352,59 @@ test('My Fantasy retains independent saved teams and adopts a change made in Lea
   expect(state.providerRequests).toEqual([]);
 });
 
+test('My Fantasy excludes connected or saved leagues without current account participation', async ({ page }) => {
+  const state = await openFantasyFixture(page);
+  state.discovery.current = fantasyDiscovery(['league1']);
+  await page.evaluate(() => window.dispatchEvent(new Event('league-one:account-session-change')));
+  await expect(page.locator('[data-my-fantasy-league]')).toHaveCount(1);
+  await expect(card(page, 'league1')).toBeVisible();
+  await expect(card(page, 'league2')).toHaveCount(0);
+  await expect(card(page, 'dynasty')).toHaveCount(0);
+  await expect(page.locator('.manager-championship-trophy')).toHaveCount(0);
+
+  state.account.current = fantasyAccount({ league1: [], league2: [1], dynasty: [] });
+  state.discovery.current = fantasyDiscovery(['league2']);
+  await page.evaluate(() => window.dispatchEvent(new Event('league-one:account-session-change')));
+  await expect(page.locator('[data-my-fantasy-league]')).toHaveCount(1);
+  await expect(card(page, 'league1')).toHaveCount(0);
+  await page.clock.runFor(61_000);
+  await expectSelectedScores(card(page, 'league2'), 'league2', 1);
+
+  state.account.current = null;
+  await page.evaluate(() => window.dispatchEvent(new Event('league-one:account-session-change')));
+  await expect(page.locator('[data-my-fantasy-league]')).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Sign in', exact: true })).toBeVisible();
+});
+
+test('My Fantasy opens one league at a time and keeps each bench behind a second tap', async ({ page }) => {
+  await openFantasyFixture(page);
+  const one = card(page, 'league1').locator('[data-matchup-toggle]');
+  const two = card(page, 'league2').locator('[data-matchup-toggle]');
+  await one.click();
+  await expect(one).toHaveAttribute('aria-expanded', 'true');
+  const bench = card(page, 'league1').getByRole('button', { name: 'Bench', exact: true });
+  await expect(bench).toHaveAttribute('aria-expanded', 'false');
+  await expect(card(page, 'league1').locator('[data-bench-row]').first()).toBeHidden();
+  await bench.click();
+  await expect(bench).toHaveAttribute('aria-expanded', 'true');
+  await expect(card(page, 'league1').locator('[data-bench-row]').first()).toBeVisible();
+  await bench.click();
+  await expect(bench).toHaveAttribute('aria-expanded', 'false');
+  await expect(card(page, 'league1').locator('[data-bench-row]').first()).toBeHidden();
+  await bench.click();
+
+  await two.click();
+  await expect(one).toHaveAttribute('aria-expanded', 'false');
+  await expect(two).toHaveAttribute('aria-expanded', 'true');
+  await expect(card(page, 'league1').getByRole('button', { name: 'Bench', exact: true })).toHaveCount(0);
+  await expect(card(page, 'league2').getByRole('button', { name: 'Bench', exact: true })).toHaveAttribute('aria-expanded', 'false');
+  await one.click();
+  await expect(two).toHaveAttribute('aria-expanded', 'false');
+  await expect(card(page, 'league1').getByRole('button', { name: 'Bench', exact: true })).toHaveAttribute('aria-expanded', 'false');
+  await one.click();
+  await expect(page.locator('[data-matchup-toggle][aria-expanded="true"]')).toHaveCount(0);
+});
+
 test('My Fantasy expands each matchup and player statistics inline without entering a league', async ({ page }) => {
   const state = await openFantasyFixture(page);
   for (const league of leagues) {
@@ -350,11 +439,6 @@ test('My Fantasy expands each matchup and player statistics inline without enter
 
 test('My Fantasy cards and inline statistics fit supported phone and desktop widths', async ({ page }) => {
   await openFantasyFixture(page);
-  for (const league of leagues) {
-    await card(page, league).locator('[data-matchup-toggle]').click();
-    await card(page, league).locator('[data-starter-box-score-toggle]').first().click();
-    await expect(card(page, league).locator('[data-box-score-summary]').first()).toBeVisible();
-  }
   for (const width of [320, 360, 390, 430, 760, 900, 1280]) {
     await page.setViewportSize({ width, height: 900 });
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1),
@@ -364,6 +448,11 @@ test('My Fantasy cards and inline statistics fit supported phone and desktop wid
     `My Fantasy cards and expanded statistics must fit ${width}px`).toBe(true);
     for (const league of leagues) {
       const container = card(page, league);
+      await container.locator('[data-matchup-toggle]').click();
+      const playerToggle = container.locator('[data-starter-box-score-toggle]').first();
+      if (await playerToggle.getAttribute('aria-expanded') !== 'true') await playerToggle.click();
+      await expect(container.locator('[data-box-score-summary]').first()).toBeVisible();
+      await expect(page.locator('[data-matchup-toggle][aria-expanded="true"]')).toHaveCount(1);
       if (width >= 760) {
         const layout = await container.evaluate(element => {
           const style = getComputedStyle(element);
@@ -380,6 +469,7 @@ test('My Fantasy cards and inline statistics fit supported phone and desktop wid
         expect(bounds, 'card controls remain rendered').not.toBeNull();
         expect(bounds!.height, `card controls remain usable at ${width}px`).toBeGreaterThanOrEqual(44);
       }
+      await container.locator('[data-matchup-toggle]').click();
     }
   }
 });

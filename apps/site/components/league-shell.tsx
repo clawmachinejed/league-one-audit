@@ -96,7 +96,6 @@ export function LeagueShellFrame({ children, site, pathname }: { children: React
     { href: leagueHref(site, '/my-team'), label: 'My Team', icon: 'my-team' },
     { href: leagueHref(site, '/matchups'), label: 'Matchups', icon: 'matchups' },
     { href: leagueHref(site, '/standings'), label: 'League', icon: 'standings' },
-    { href: leagueHref(site, '/managers'), label: 'Managers', icon: 'managers' },
   ];
   const isCurrent = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
 
