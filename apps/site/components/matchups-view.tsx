@@ -18,7 +18,7 @@ import { matchupWithTeamOnLeft, selectMyTeamMatchup } from '../lib/my-team-match
 import { WeekSelector } from './week-selector';
 import { useLeagueSite } from './league-context';
 import { Avatar, EmptyState, Warning } from './league-primitives';
-import { MatchupBoard } from './matchup-board';
+import { MatchupBoard, type MatchupSummaryProps } from './matchup-board';
 import matchupStyles from './matchups.module.css';
 import { PageIntro } from './page-intro';
 import { useTeamPreference } from './team-preference';
@@ -37,19 +37,20 @@ function SnapshotUpdated({ value, refreshing }: { value: string; refreshing: boo
   </p>;
 }
 
-function MatchupsWithBoxScores({ matchups, selected, leagueKey, season, week, refreshAutomatically, showBench, standings, observedAt }: {
+export function MatchupsWithBoxScores({ matchups, selected, leagueKey, season, week, refreshAutomatically, showBench, standings, observedAt, renderSummary, summaryClassName }: {
   matchups: Matchup[]; selected: number | null; leagueKey: string; season: string; week: number;
   refreshAutomatically: boolean;
   showBench: boolean;
   standings: CurrentStandings | null;
   observedAt: string;
-}) {
+} & MatchupSummaryProps) {
   const players = matchups.flatMap(matchup => matchup.sides.flatMap(side =>
     [...side.starters, ...(showBench ? side.bench ?? [] : [])]));
   const lineupKey = [...new Set(players.filter(player => player.id).map(playerBoxScoreKey))].sort().join(',');
   const boxScores = useMatchupBoxScores({ leagueKey, season, week, lineupKey, refreshAutomatically,
     activity: matchupBoxScoreActivity(players) });
   return <MatchupBoard matchups={matchups} selected={selected} avatar={team => <Avatar team={team} />}
+    renderSummary={renderSummary} summaryClassName={summaryClassName}
     showBench={showBench} standings={standings} observedAt={observedAt}
     boxScores={boxScores.data} boxScoresLoading={boxScores.loading} onBoxScoreOpen={boxScores.request} />;
 }

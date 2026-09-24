@@ -87,11 +87,12 @@ function LeagueSwitcher({ activeSite, pathname, placement }: {
 
 /** Public navigation also serves unknown URLs without requiring a source connection. */
 export function LeagueShellFrame({ children, site, pathname }: { children: ReactNode; site: LeagueSite; pathname: string }) {
-  const compactMain = pathname === leagueHref(site, '/matchups')
+  const compactMain = pathname === '/my-fantasy' || pathname === leagueHref(site, '/matchups')
     || pathname === leagueHref(site, '/my-team')
     || pathname === leagueHref(site, '/standings')
     || pathname === leagueHref(site, '/managers');
   const nav: { href: string; label: string; icon: IconName }[] = [
+    { href: '/my-fantasy', label: 'My Fantasy', icon: 'my-fantasy' },
     { href: leagueHref(site, '/my-team'), label: 'My Team', icon: 'my-team' },
     { href: leagueHref(site, '/matchups'), label: 'Matchups', icon: 'matchups' },
     { href: leagueHref(site, '/standings'), label: 'League', icon: 'standings' },
