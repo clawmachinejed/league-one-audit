@@ -6,7 +6,9 @@ import { compareTeams } from './transform';
 import type { Matchup, MatchupsData, Player, StandingsData, Team } from './types';
 
 export type MyFantasyAttentionIssue = Readonly<{
-  kind: 'out' | 'empty' | 'bye';
+  kind: 'out' | 'empty' | 'bye' | 'inactive' | 'suspended' | 'ir' | 'doubtful' | 'unavailable';
+  severity: 'alert' | 'caution';
+  statusLabel: string;
   playerId: string;
   playerName: string;
   slot: string;
@@ -49,8 +51,37 @@ function isActivePeriod(data: MatchupsData, context: MatchupPeriodContext): bool
     && context.activeWeek === data.week;
 }
 
-function attentionIssue(player: Player, kind: MyFantasyAttentionIssue['kind'], message: string): MyFantasyAttentionIssue {
-  return { kind, playerId: player.id, playerName: player.name, slot: player.slot, message };
+type AttentionDesignation = Pick<MyFantasyAttentionIssue, 'kind' | 'severity' | 'statusLabel'>;
+
+const attentionDesignations: Readonly<Record<string, AttentionDesignation>> = {
+  OUT: { kind: 'out', severity: 'alert', statusLabel: 'OUT' },
+  INACTIVE: { kind: 'inactive', severity: 'alert', statusLabel: 'INACTIVE' },
+  SUSPENDED: { kind: 'suspended', severity: 'alert', statusLabel: 'SUSPENDED' },
+  SUS: { kind: 'suspended', severity: 'alert', statusLabel: 'SUSPENDED' },
+  IR: { kind: 'ir', severity: 'alert', statusLabel: 'IR' },
+  'INJURED RESERVE': { kind: 'ir', severity: 'alert', statusLabel: 'IR' },
+  PUP: { kind: 'unavailable', severity: 'alert', statusLabel: 'PUP' },
+  'PHYSICALLY UNABLE TO PERFORM': { kind: 'unavailable', severity: 'alert', statusLabel: 'PUP' },
+  NFI: { kind: 'unavailable', severity: 'alert', statusLabel: 'NFI' },
+  'NON-FOOTBALL INJURY': { kind: 'unavailable', severity: 'alert', statusLabel: 'NFI' },
+  DOUBTFUL: { kind: 'doubtful', severity: 'caution', statusLabel: 'DOUBTFUL' },
+};
+
+/** Use explicit injury designations, never the catalog's general active/inactive flag. */
+function attentionDesignation(value: string | null): AttentionDesignation | 'clear' | 'unknown' {
+  if (!value?.trim()) return 'clear';
+  const statuses = value.trim().toUpperCase().split(/\s*[/,;|&+]\s*/u);
+  const known = statuses.map(status => attentionDesignations[status]).filter(status => status !== undefined);
+  // Several flags still describe one affected starting position. Definite issues
+  // take precedence over doubtful; repeated slots remain separate positions.
+  const designation = known.find(status => status.severity === 'alert') ?? known[0];
+  if (designation) return designation;
+  return statuses.every(status => status === 'QUESTIONABLE' || status === 'QUES' || status === 'PROBABLE')
+    ? 'clear' : 'unknown';
+}
+
+function attentionIssue(player: Player, designation: AttentionDesignation, message: string): MyFantasyAttentionIssue {
+  return { ...designation, playerId: player.id, playerName: player.name, slot: player.slot, message };
 }
 
 function lineupAttention(
@@ -74,12 +105,14 @@ function lineupAttention(
   let complete = !data.warning;
   for (const player of starters) {
     if (player.id.startsWith('empty-')) {
-      issues.push(attentionIssue(player, 'empty', `${player.slot} starting position is empty.`));
+      issues.push(attentionIssue(player, { kind: 'empty', severity: 'alert', statusLabel: 'No player' },
+        `${player.slot} starting position is empty.`));
       continue;
     }
     const game = player.game;
     if (game?.kind === 'bye') {
-      issues.push(attentionIssue(player, 'bye', `${player.name} has a bye this week.`));
+      issues.push(attentionIssue(player, { kind: 'bye', severity: 'alert', statusLabel: 'BYE' },
+        `${player.name} has a bye this week.`));
       continue;
     }
     if (!game) {
@@ -93,14 +126,23 @@ function lineupAttention(
       complete = false;
       continue;
     }
-    if (kickoff <= evaluatedAt.getTime()) continue;
-    if (player.injuryStatus?.trim().toUpperCase() === 'OUT') {
-      issues.push(attentionIssue(player, 'out', `${player.name} is OUT and in the starting lineup.`));
+    if (kickoff <= evaluatedAt.getTime()) {
+      // Wall-clock passage does not prove kickoff or an accepted game state.
+      // Keep the lineup unverified without inventing a retrospective injury issue.
+      complete = false;
+      continue;
+    }
+    const designation = attentionDesignation(player.injuryStatus);
+    if (designation === 'unknown') complete = false;
+    else if (designation !== 'clear') {
+      issues.push(attentionIssue(player, designation, designation.kind === 'doubtful'
+        ? `${player.name} is DOUBTFUL and in the starting lineup; participation is uncertain.`
+        : `${player.name} is ${designation.statusLabel} and in the starting lineup.`));
     }
   }
   return { status: complete ? 'verified' : 'unknown', issues,
     reason: complete ? null : data.warning ? 'Some current league information is unavailable.'
-      : 'Some player game information is unavailable.' };
+      : 'Some player game or availability information is unavailable.' };
 }
 
 function validOfficialTeams(teams: readonly Team[]): boolean {
@@ -129,8 +171,11 @@ export function getMyFantasyLeagueSummary(
   standingsData: StandingsData | null,
   selected: number | null,
   evaluatedAt = new Date(),
+  requireSelectedTeam = false,
 ): MyFantasyLeagueSummary {
-  const selection = selectMyTeamMatchup(data.teams, data.matchups, selected);
+  const selection = requireSelectedTeam && !data.teams.some(team => team.id === selected)
+    ? { team: null, matchup: null }
+    : selectMyTeamMatchup(data.teams, data.matchups, selected);
   const official = standingsData?.league.season === data.league.season
     && validOfficialTeams(standingsData.teams)
     && standingsData.teams.length === data.teams.length
@@ -138,6 +183,17 @@ export function getMyFantasyLeagueSummary(
     ? [...standingsData.teams].sort(compareTeams) : null;
   const currentIndex = official?.findIndex(team => team.id === selection.team?.id) ?? -1;
   const team = currentIndex >= 0 ? official![currentIndex] : selection.team;
+  const matchup = official && selection.matchup ? {
+    ...selection.matchup,
+    sides: selection.matchup.sides.map(side => {
+      const current = official.find(candidate => candidate.id === side.team.id);
+      if (!current || (current.wins === side.team.wins && current.losses === side.team.losses
+        && current.ties === side.team.ties)) return side;
+      // Current records travel with the current standings, while the accepted
+      // matchup's identity, lineup, scores and probability remain unchanged.
+      return { ...side, team: { ...side.team, wins: current.wins, losses: current.losses, ties: current.ties } };
+    }),
+  } : selection.matchup;
   const projection = standingsData ? projectStandings(standingsData, data, periodContext) : null;
   const projectionComplete = projection?.kind === 'projected'
     && projection.coverage.includedMatchups === projection.coverage.totalMatchups
@@ -146,7 +202,7 @@ export function getMyFantasyLeagueSummary(
   const projectedRank = projectedIndex >= 0 ? projectedIndex + 1 : null;
   return {
     team,
-    matchup: selection.matchup,
+    matchup,
     currentRank: currentIndex >= 0 ? currentIndex + 1 : null,
     projectedRank,
     projectedRankStatus: projectedRank === null ? 'unavailable' : 'available',

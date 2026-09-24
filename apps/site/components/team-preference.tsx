@@ -24,14 +24,42 @@ const preferenceMemory = new Map<string, number | null>();
 const memoryOnlyPreferences = new Set<string>();
 const preferenceEvent = 'league-one:my-team-change';
 
+function preferenceKey(leagueId: string) { return `league-one:my-team:${leagueId}`; }
+
 function parsePreference(value: string | null): number | null {
   if (!value || !/^\d+$/.test(value)) return null;
   const id = Number(value);
   return Number.isSafeInteger(id) && id > 0 ? id : null;
 }
 
+function savedPreference(storageKey: string): number | null {
+  if (memoryOnlyPreferences.has(storageKey)) return preferenceMemory.get(storageKey) ?? null;
+  try { return parsePreference(window.localStorage.getItem(storageKey)); }
+  catch { return preferenceMemory.get(storageKey) ?? null; }
+}
+
+/** Explicit browser choices only; My Team's display default is not a saved choice. */
+export function useBrowserTeamSelections(leagueIds: readonly string[]): (number | null)[] {
+  const subscribe = useCallback((notify: () => void) => {
+    const keys = new Set(leagueIds.map(preferenceKey));
+    const onStorage = (event: StorageEvent) => { if (event.key === null || keys.has(event.key)) notify(); };
+    const onPreference = (event: Event) => {
+      if (keys.has((event as CustomEvent<string>).detail)) notify();
+    };
+    window.addEventListener('storage', onStorage);
+    window.addEventListener(preferenceEvent, onPreference);
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener(preferenceEvent, onPreference);
+    };
+  }, [leagueIds]);
+  const getSnapshot = useCallback(() => leagueIds.map(id => savedPreference(preferenceKey(id)) ?? '').join(','), [leagueIds]);
+  const snapshot = useSyncExternalStore(subscribe, getSnapshot, () => '');
+  return useMemo(() => snapshot.split(',').map(value => parsePreference(value)), [snapshot]);
+}
+
 export function TeamPreferenceProvider({ children, leagueId }: { children: ReactNode; leagueId: string }) {
-  const storageKey = `league-one:my-team:${leagueId}`;
+  const storageKey = preferenceKey(leagueId);
   const [announcement, setAnnouncement] = useState('');
   const [storageWarning, setStorageWarning] = useState('');
   const subscribe = useCallback((notify: () => void) => {
@@ -44,11 +72,7 @@ export function TeamPreferenceProvider({ children, leagueId }: { children: React
       window.removeEventListener(preferenceEvent, onPreference);
     };
   }, [storageKey]);
-  const getSnapshot = useCallback(() => {
-    if (memoryOnlyPreferences.has(storageKey)) return preferenceMemory.get(storageKey) ?? null;
-    try { return parsePreference(window.localStorage.getItem(storageKey)); }
-    catch { return preferenceMemory.get(storageKey) ?? null; }
-  }, [storageKey]);
+  const getSnapshot = useCallback(() => savedPreference(storageKey), [storageKey]);
   const selected = useSyncExternalStore(subscribe, getSnapshot, () => null);
   const ready = useSyncExternalStore(subscribe, () => true, () => false);
 

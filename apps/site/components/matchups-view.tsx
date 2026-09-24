@@ -37,7 +37,9 @@ function SnapshotUpdated({ value, refreshing }: { value: string; refreshing: boo
   </p>;
 }
 
-export function MatchupsWithBoxScores({ matchups, selected, leagueKey, season, week, refreshAutomatically, showBench, standings, observedAt, renderSummary, summaryClassName }: {
+export function MatchupsWithBoxScores({ matchups, selected, leagueKey, season, week, refreshAutomatically, showBench, standings,
+  observedAt, renderSummary, summaryClassName, expandedOverride, onToggle, benchExpandable, showManagerTrophies, singleColumn,
+  presentation, leagueSize, summaryFooter, summaryDescription }: {
   matchups: Matchup[]; selected: number | null; leagueKey: string; season: string; week: number;
   refreshAutomatically: boolean;
   showBench: boolean;
@@ -50,7 +52,9 @@ export function MatchupsWithBoxScores({ matchups, selected, leagueKey, season, w
   const boxScores = useMatchupBoxScores({ leagueKey, season, week, lineupKey, refreshAutomatically,
     activity: matchupBoxScoreActivity(players) });
   return <MatchupBoard matchups={matchups} selected={selected} avatar={team => <Avatar team={team} />}
-    renderSummary={renderSummary} summaryClassName={summaryClassName}
+    renderSummary={renderSummary} summaryClassName={summaryClassName} expandedOverride={expandedOverride} onToggle={onToggle}
+    benchExpandable={benchExpandable} showManagerTrophies={showManagerTrophies} singleColumn={singleColumn}
+    presentation={presentation} leagueSize={leagueSize} summaryFooter={summaryFooter} summaryDescription={summaryDescription}
     showBench={showBench} standings={standings} observedAt={observedAt}
     boxScores={boxScores.data} boxScoresLoading={boxScores.loading} onBoxScoreOpen={boxScores.request} />;
 }

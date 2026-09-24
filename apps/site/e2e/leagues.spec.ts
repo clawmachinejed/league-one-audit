@@ -15,7 +15,6 @@ const primaryNavigation = [
   { section: 'my-team', label: 'My Team' },
   { section: 'matchups', label: 'Matchups' },
   { section: 'standings', label: 'League' },
-  { section: 'managers', label: 'Managers' },
 ] as const;
 
 async function expectNoPageOverflow(page: Page) {
@@ -103,7 +102,7 @@ test('the mobile league selector is first, accessible, and fits every supported 
   for (const width of phoneWidths) {
     await test.step(`${width}px`, async () => {
       await page.setViewportSize({ width, height: 844 });
-      await page.goto('/matchups', { waitUntil: 'domcontentloaded' });
+      await page.goto('/matchups', { waitUntil: 'networkidle' });
 
       const mobileNav = page.getByRole('navigation', { name: 'Mobile navigation' });
       const trigger = mobileNav.getByRole('button', { name: 'Choose league, current League One' });
@@ -224,12 +223,13 @@ test('League navigation stays distinct from Standings content and does not resiz
         await expect(standingsViews.getByRole('tab', { name: 'Waivers', exact: true })).toBeVisible();
         await expect(standingsViews.getByRole('tab', { name: 'Transactions', exact: true })).toBeVisible();
 
-        await navigation.getByRole('link', { name: 'Managers', exact: true }).click();
+        await expect(navigation.getByRole('link', { name: 'Managers', exact: true })).toHaveCount(0);
+        await page.goto(`${prefix}/managers`, { waitUntil: 'domcontentloaded' });
         const managerLink = page.locator(`a[href^="${prefix}/managers/"]`).first();
         if (await managerLink.count()) {
           await managerLink.click();
           await expect(page).toHaveURL(new RegExp(`${prefix}/managers/[^/]+$`, 'u'));
-          await expect(navigation.getByRole('link', { name: 'Managers', exact: true })).toHaveAttribute('aria-current', 'page');
+          await expect(navigation.locator('a[aria-current="page"]')).toHaveCount(0);
           expect(stableGeometry(await readNavigationGeometry(navigation))).toEqual(baseline);
           await expectNoPageOverflow(page);
         } else {
@@ -285,14 +285,14 @@ test('switching leagues changes identity, data routes, and every primary tab', a
   const mobileNav = page.getByRole('navigation', { name: 'Mobile navigation' });
   await expect(mobileNav.getByRole('link', { name: 'Matchups' })).toHaveAttribute('href', '/league2/matchups');
   await expect(mobileNav.getByRole('link', { name: 'League' })).toHaveAttribute('href', '/league2/standings');
-  await expect(mobileNav.getByRole('link', { name: 'Managers' })).toHaveAttribute('href', '/league2/managers');
+  await expect(mobileNav.getByRole('link', { name: 'Managers' })).toHaveCount(0);
 
   await mobileNav.getByRole('link', { name: 'League' }).click();
   await expect(page).toHaveURL(/\/league2\/standings$/u);
   await expect(page.getByRole('heading', { level: 1, name: 'League' })).toBeVisible();
   await expect(page.getByText('2026 season', { exact: true })).toBeVisible();
 
-  await page.getByRole('navigation', { name: 'Mobile navigation' }).getByRole('link', { name: 'Managers' }).click();
+  await page.goto('/league2/managers', { waitUntil: 'domcontentloaded' });
   await expect(page).toHaveURL(/\/league2\/managers$/u);
   await expect(page.getByRole('heading', { level: 1, name: 'Managers' })).toBeVisible();
   await expect(page.getByText('2026 season', { exact: true })).toBeVisible();

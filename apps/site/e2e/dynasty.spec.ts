@@ -79,7 +79,8 @@ test('Dynasty uses its Sleeper icon, all shared routes and an independent My Tea
   await expect(page.locator('link[rel="icon"]')).toHaveAttribute('href', LEAGUE_SITES.dynasty.logo);
 
   const navigation = page.getByRole('navigation', { name: 'Mobile navigation' });
-  await navigation.getByRole('link', { name: 'Managers', exact: true }).click();
+  await expect(navigation.getByRole('link', { name: 'Managers', exact: true })).toHaveCount(0);
+  await page.goto('/dynasty/managers', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('.manager-card')).toHaveCount(10);
   await page.locator(`.manager-card-link[href="/dynasty/managers/${dynastyId}"]`).click();
   await expect(page.getByRole('heading', { name: 'Starting lineup', exact: true })).toBeVisible();

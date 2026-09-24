@@ -5,9 +5,12 @@ import type { MatchupPeriodContext } from './matchup-period';
 import type { MatchupsData, StandingsData } from './types';
 
 vi.mock('server-only', () => ({}));
+vi.mock('next/server', () => ({ connection: vi.fn() }));
+vi.mock('../components/my-fantasy-view', () => ({ MyFantasyView: () => null }));
 
 const mocks = vi.hoisted(() => ({
   resolveCurrentLeagueId: vi.fn(),
+  getCurrentLeagueId: vi.fn(),
   readStoredMatchups: vi.fn(),
   getSiteWeekRollover: vi.fn(),
   getCurrentStandings: vi.fn(),
@@ -17,7 +20,9 @@ const mocks = vi.hoisted(() => ({
   getManagerHonors: vi.fn(),
 }));
 
-vi.mock('./league-administration/registry', () => ({ resolveCurrentLeagueId: mocks.resolveCurrentLeagueId }));
+vi.mock('./league-administration/registry', () => ({
+  resolveCurrentLeagueId: mocks.resolveCurrentLeagueId, getCurrentLeagueId: mocks.getCurrentLeagueId,
+}));
 vi.mock('./projection-reader', () => ({ readStoredMatchups: mocks.readStoredMatchups }));
 vi.mock('./sleeper', () => ({
   getSiteWeekRollover: mocks.getSiteWeekRollover,
@@ -28,7 +33,8 @@ vi.mock('./sleeper', () => ({
   getManagerHonors: mocks.getManagerHonors,
 }));
 
-import { loadMyFantasyLeagues } from './my-fantasy-source';
+import { loadMyFantasyLeagues, type MyFantasyLeague } from './my-fantasy-source';
+import MyFantasyPage from '../app/(leagues)/my-fantasy/page';
 
 const currentIds: Record<LeagueKey, string> = {
   league1: 'current-league1', league2: 'current-league2', dynasty: 'current-dynasty',
@@ -67,6 +73,7 @@ describe('My Fantasy league source composition', () => {
       const key = (Object.keys(LEAGUE_IDS) as LeagueKey[]).find(candidate => LEAGUE_IDS[candidate] === bootstrapId)!;
       return currentIds[key];
     });
+    mocks.getCurrentLeagueId.mockImplementation(async (key: LeagueKey) => currentIds[key]);
     mocks.readStoredMatchups.mockImplementation(async (key: LeagueKey) => stored(key));
     mocks.getSiteWeekRollover.mockResolvedValue({ week: 3, nextRolloverAt: null, evaluatedAt: verifiedAt });
     mocks.getCurrentStandings.mockImplementation(async (leagueId: string) => ({ leagueId, season: '2026',
@@ -95,16 +102,75 @@ describe('My Fantasy league source composition', () => {
     expect(mocks.getOfficialMatchups).not.toHaveBeenCalled();
   });
 
+  it.each([1, 4, 18])('requests exact Week %i for every supported league without following Current', async requestedWeek => {
+    const temporalState = requestedWeek < context.activeWeek! ? 'past' : 'future';
+    mocks.readStoredMatchups.mockImplementation(async (key: LeagueKey, week?: number) =>
+      stored(key, week, { ...context, temporalState }));
+
+    const result = await loadMyFantasyLeagues(requestedWeek);
+
+    expect(mocks.readStoredMatchups.mock.calls).toEqual(Object.keys(LEAGUE_SITES).map(key => [key, requestedWeek]));
+    for (const entry of result) {
+      expect(entry).toMatchObject({ status: 'available', leagueId: currentIds[entry.site.key], source: {
+        data: { week: requestedWeek, teams: [{ name: `${entry.site.key} Team` }] },
+        periodContext: { temporalState, activeWeek: 3 },
+      } });
+    }
+    expect(mocks.getOfficialMatchups).not.toHaveBeenCalled();
+  });
+
+  it('keeps an explicit-week fallback and its failure isolated to the affected league', async () => {
+    mocks.readStoredMatchups.mockImplementation(async (key: LeagueKey, week?: number) => key === 'league2'
+      ? { kind: 'missing', context: { ...context, temporalState: 'past' } }
+      : stored(key, week, { ...context, temporalState: 'past' }));
+    mocks.getOfficialMatchups.mockRejectedValue(new Error('Requested Week 1 unavailable'));
+
+    const result = await loadMyFantasyLeagues(1);
+
+    expect(result.map(entry => entry.status)).toEqual(['available', 'unavailable', 'available']);
+    expect(mocks.getOfficialMatchups).toHaveBeenCalledExactlyOnceWith(currentIds.league2, 1);
+    expect(mocks.readStoredMatchups.mock.calls).toEqual(Object.keys(LEAGUE_SITES).map(key => [key, 1]));
+    expect(result[1]).toEqual({ status: 'unavailable', site: LEAGUE_SITES.league2, leagueId: currentIds.league2 });
+    expect(result[0]).toMatchObject({ source: { data: { week: 1 } } });
+    expect(result[2]).toMatchObject({ source: { data: { week: 1 } } });
+  });
+
+  it.each(['1', '04', '18'])('propagates parsed route week %s to the source and client view', async week => {
+    const requestedWeek = Number(week);
+    mocks.readStoredMatchups.mockImplementation(async (key: LeagueKey, requested?: number) =>
+      stored(key, requested, { ...context, temporalState: requestedWeek < 3 ? 'past' : 'future' }));
+
+    const result = await MyFantasyPage({ searchParams: Promise.resolve({ week }) });
+
+    expect(result.props.requestedWeek).toBe(requestedWeek);
+    expect(mocks.readStoredMatchups.mock.calls).toEqual(Object.keys(LEAGUE_SITES).map(key => [key, requestedWeek]));
+    expect(result.props.leagues.every((entry: MyFantasyLeague) => entry.status === 'available' && entry.source.data.week === requestedWeek)).toBe(true);
+  });
+
+  it.each([undefined, '', 'invalid', '0', '19', '-1', '1.5', ' 2 ', ['1', '2']])(
+    'uses Current for absent or invalid route week %j', async week => {
+      const result = await MyFantasyPage({ searchParams: Promise.resolve({ week }) });
+
+      expect(result.props.requestedWeek).toBeUndefined();
+      expect(mocks.readStoredMatchups.mock.calls).toEqual(Object.keys(LEAGUE_SITES).map(key => [key, undefined]));
+      expect(result.props.leagues.every((entry: MyFantasyLeague) => entry.status === 'available' && entry.source.data.week === 3)).toBe(true);
+    },
+  );
+
   it('keeps both healthy leagues available when another registration cannot be resolved', async () => {
     mocks.resolveCurrentLeagueId.mockImplementation(async (bootstrapId: string) => {
       if (bootstrapId === LEAGUE_IDS.league2) throw new Error('Private registration error details');
       return bootstrapId === LEAGUE_IDS.league1 ? currentIds.league1 : currentIds.dynasty;
     });
+    mocks.getCurrentLeagueId.mockImplementation(async (key: LeagueKey) => {
+      if (key === 'league2') throw new Error('Private registration error details');
+      return currentIds[key];
+    });
 
     const result = await loadMyFantasyLeagues();
 
     expect(result.map(entry => entry.status)).toEqual(['available', 'unavailable', 'available']);
-    expect(result[1]).toEqual({ status: 'unavailable', site: LEAGUE_SITES.league2 });
+    expect(result[1]).toEqual({ status: 'unavailable', site: LEAGUE_SITES.league2, leagueId: null });
     expect(mocks.readStoredMatchups).not.toHaveBeenCalledWith('league2', undefined);
     expect(mocks.getStandings).toHaveBeenCalledTimes(2);
   });
@@ -119,7 +185,7 @@ describe('My Fantasy league source composition', () => {
 
     expect(result.map(entry => entry.status)).toEqual(['available', 'unavailable', 'available']);
     expect(mocks.getOfficialMatchups).toHaveBeenCalledExactlyOnceWith(currentIds.league2, 3);
-    expect(result[1]).toEqual({ status: 'unavailable', site: LEAGUE_SITES.league2 });
+    expect(result[1]).toEqual({ status: 'unavailable', site: LEAGUE_SITES.league2, leagueId: currentIds.league2 });
   });
 
   it('preserves a valid matchup when optional standings history and honors cannot load', async () => {

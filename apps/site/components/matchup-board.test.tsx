@@ -56,6 +56,52 @@ function chanceBars(html: string) {
   };
 }
 
+describe('My Fantasy shared matchup presentation', () => {
+  const render = (matchup: Matchup, selected = 1) => renderToStaticMarkup(<LeagueSiteProvider site={LEAGUE_SITES.league1}>
+    <MatchupBoard matchups={[matchup]} selected={selected} avatar={() => null} presentation="fantasy" leagueSize={12}
+      standings={{ leagueId: 'league', season: '2026', playoffTeams: 6, places: { 1: 9, 2: 6 } }}
+      summaryFooter={<span>9th → 6th</span>} summaryDescription="Current rank ninth; projected rank sixth." />
+  </LeagueSiteProvider>);
+
+  it.each([
+    [0.68, 'favored'], [0.28, 'underdog'], [0.5, 'neutral'], [0.49999, 'underdog'],
+  ])('represents user probability %s against one full-width track with %s emphasis', (probability, tone) => {
+    const html = render(chanceMatchup(probability as number));
+    expect(html).toContain('data-matchup-presentation="fantasy"');
+    expect(html).toContain(`data-win-chance-tone="${tone}"`);
+    expect([...html.matchAll(/data-win-chance-track/gu)]).toHaveLength(1);
+    expect(chanceBars(html).halves).toHaveLength(0);
+    expect(chanceBars(html).widths).toHaveLength(1);
+    expect(chanceBars(html).widths[0]).toBeCloseTo((probability as number) * 100, 10);
+    expect(html).toContain('Current rank ninth; projected rank sixth.');
+    expect(html).toContain('data-team-place="1" data-place-tone="lower"');
+    expect(html).toContain('data-team-place="2" data-place-tone="middle"');
+  });
+
+  it('keeps the selected user on the left without mutating provider order or assigning the opponent a colored segment', () => {
+    const matchup = chanceMatchup(0.28);
+    const original = JSON.stringify(matchup);
+    const html = render(matchup, 2);
+    expect([...html.matchAll(/data-team-name="true"[^>]*>([^<]+)</gu)].map(match => match[1])).toEqual(['Team 2', 'Team 1']);
+    expect(html).toContain('data-win-chance-side="left" data-win-chance-team="2">72%</span>');
+    expect(html).toContain('data-win-chance-side="right" data-win-chance-team="1">28%</span>');
+    expect(chanceBars(html).widths).toEqual([72]);
+    expect(JSON.stringify(matchup)).toBe(original);
+  });
+
+  it('leaves missing win probability neutral and unfilled instead of presenting it as zero', () => {
+    const matchup = chanceMatchup(0.28);
+    delete matchup.winProbability;
+    const html = render(matchup);
+    expect(html).toContain('data-win-chance="unavailable"');
+    expect(html).toContain('data-win-chance-tone="neutral"');
+    expect(chanceBars(html).widths).toHaveLength(0);
+    expect([...html.matchAll(/data-win-chance-side="(?:left|right)"[^>]*>([^<]+)</gu)].map(match => match[1]))
+      .toEqual(['—', '—']);
+    expect(html).toContain('Win chance unavailable.');
+  });
+});
+
 describe.each([false, true])('player actual-score states (benches %s)', showBench => {
   const observedAt = '2026-09-10T00:00:00.000Z';
   const scheduled = {
