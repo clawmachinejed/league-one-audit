@@ -84,16 +84,20 @@ describe('My Fantasy account membership', () => {
   });
 });
 
-describe('My Fantasy preview browser selections', () => {
-  it('shows only explicitly selected teams that belong to their current available league', () => {
+describe('My Fantasy browser selections', () => {
+  it('validates available teams and retains an explicit current-league choice during source failure', () => {
     const entries: MyFantasyLeague[] = [source('league1', '2026', [1, 2]), source('league2', '2026', [3]),
       { status: 'unavailable', site: LEAGUE_SITES.dynasty, leagueId: LEAGUE_IDS.dynasty }];
     expect(selectedBrowserMyFantasyMemberships(entries, [2, null, 4])).toEqual([
       { entry: entries[0], teamIds: [2] },
+      { entry: entries[2], teamIds: [4] },
     ]);
     expect(selectedBrowserMyFantasyMemberships(entries, [3, 3, 4])).toEqual([
       { entry: entries[1], teamIds: [3] },
+      { entry: entries[2], teamIds: [4] },
     ]);
     expect(selectedBrowserMyFantasyMemberships(entries, [])).toEqual([]);
+    expect(selectedBrowserMyFantasyMemberships([{ status: 'unavailable', site: LEAGUE_SITES.dynasty, leagueId: null }], [4])).toEqual([]);
+    expect(selectedBrowserMyFantasyMemberships(entries, [0, Number.NaN, -1])).toEqual([]);
   });
 });

@@ -3,14 +3,17 @@ import type { MyFantasyLeague } from './my-fantasy-source';
 
 export type MyFantasyMembership = { entry: MyFantasyLeague; teamIds: number[] };
 
-/** Public preview mode: an explicit browser choice is scoped to its current league ID. */
+/** An explicit My Team choice is scoped to its current league ID, independently of affiliations. */
 export function selectedBrowserMyFantasyMemberships(
   leagues: readonly MyFantasyLeague[], selectedTeamIds: readonly (number | null)[],
 ): MyFantasyMembership[] {
   return leagues.flatMap((entry, index) => {
     const selected = selectedTeamIds[index];
-    if (entry.status !== 'available' || selected === null || selected === undefined
-      || !entry.source.data.teams.some(team => team.id === selected)) return [];
+    if (!entry.leagueId || selected === null || selected === undefined
+      || !Number.isSafeInteger(selected) || selected <= 0) return [];
+    // Keep the selected league's unavailable state visible during a source failure.
+    // Validate the roster again as soon as current teams are available.
+    if (entry.status === 'available' && !entry.source.data.teams.some(team => team.id === selected)) return [];
     return [{ entry, teamIds: [selected] }];
   });
 }

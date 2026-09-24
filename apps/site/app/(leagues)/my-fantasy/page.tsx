@@ -13,6 +13,5 @@ export default async function MyFantasyPage() {
   return <MyFantasyView
     leagues={leagues}
     evaluatedAt={new Date().toISOString()}
-    preview={process.env.VERCEL_ENV === 'preview'}
   />;
 }

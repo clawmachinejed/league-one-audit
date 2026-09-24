@@ -103,6 +103,35 @@
 .unavailable { font-size:12px; line-height:1.5; padding:18px 4px; color:var(--muted); }
 .profileLinks { display:flex; justify-content:space-between; gap:12px; border-top:1px solid var(--line); }
 .profileLinks a { display:flex; align-items:center; min-height:44px; font-size:11px; color:var(--green); }
+/* My Fantasy wraps this same matchup in league identity and attention context. */
+.fantasyCard { border:0; border-top:1px solid var(--line-soft); border-radius:0; background:transparent; }
+.fantasyCard .toggle { grid-template-columns:minmax(0,1fr) max(148px,var(--score-width)) minmax(0,1fr); grid-template-rows:minmax(36px,auto) minmax(24px,auto); padding:8px 10px; row-gap:5px; border-radius:0; }
+.fantasyCard .toggle:hover,.fantasyCard .toggle[aria-expanded=true] { background:color-mix(in srgb,var(--green-soft) 35%,transparent); }
+.fantasyCard .teamName { font-size:14px; line-height:17px; }
+.fantasyCard .score { font-size:20px; line-height:22px; }
+.fantasyCard .teamOfficial { line-height:22px; }
+.fantasyCard .teamProjection { font-size:12px; line-height:14px; color:var(--fantasy-projection,var(--green)); }
+.fantasyCard .scoreDivider { height:31px; margin-top:2px; }
+.fantasyCard .teamMeta { width:calc(50% - 14px); grid-template-columns:20px minmax(0,1fr) max-content; gap:4px; font-size:11px; line-height:16px; }
+.fantasyCard .teamMeta :global(.avatar) { width:20px; height:20px; font-size:9px; }
+.fantasyCard .manager { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; overflow-wrap:normal; }
+.fantasyCard .recordGroup { gap:5px; }
+.fantasyCard .record { font-size:11px; }
+.fantasyCard .place { font-size:11px; line-height:16px; }
+.fantasyCard .place[data-place-tone=upper] { color:var(--fantasy-rank-upper,var(--green)); }
+.fantasyCard .place[data-place-tone=middle] { color:var(--fantasy-rank-middle,var(--questionable)); }
+.fantasyCard .place[data-place-tone=lower] { color:var(--fantasy-rank-lower,var(--drop-ink)); }
+.fantasyCard .place[data-place-tone=unknown] { color:var(--muted); }
+.fantasyCard .oppositeMeta { grid-template-columns:max-content minmax(0,1fr) 20px; }
+.fantasyCard .expandControl { min-height:24px; }
+.fantasyCard .chevron { width:20px; height:20px; }
+.fantasyCard .doubtful { color:var(--fantasy-doubtful,#c36a36); }
+.fantasyWinChance { grid-column:1 / -1; grid-row:3; position:relative; display:flex; justify-content:space-between; align-items:center; min-width:0; min-height:20px; border-radius:5px; overflow:hidden; background:var(--fantasy-probability-track,#252e29); }
+.fantasyWinChanceFill { position:absolute; inset:0 auto 0 0; background:var(--fantasy-probability-neutral,#3b4941); }
+.fantasyWinChance[data-win-chance-tone=favored] .fantasyWinChanceFill { background:var(--fantasy-probability-favored,#245c41); }
+.fantasyWinChance[data-win-chance-tone=underdog] .fantasyWinChanceFill { background:var(--fantasy-probability-underdog,#80443f); }
+.fantasyWinChanceValue { position:relative; padding:2px 6px; color:var(--fantasy-probability-text,#f3f7f4); font-size:12px; font-weight:700; line-height:16px; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.summaryFooter { grid-column:1 / -1; grid-row:4; min-width:0; justify-self:center; }
 @media(max-width:359px) {
   .toolbar h1 { font-size:24px; }
   .toggle { column-gap:3px; padding-left:4px; padding-right:4px; }

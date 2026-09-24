@@ -67,11 +67,31 @@ describe('My Fantasy league summary', () => {
     });
   });
 
-  it('takes current record from official standings instead of an older immutable matchup', () => {
+  it('presents both current official records without rewriting immutable matchup evidence or identity', () => {
     const { data, standings } = fixture();
-    standings.teams = standings.teams.map(team => team.id === 1 ? { ...team, wins: 2 } : team);
-    expect(getMyFantasyLeagueSummary(data, context, standings, 1, now).team?.wins).toBe(2);
-    expect(data.matchups[0].sides[0].team.wins).toBe(1);
+    standings.teams = standings.teams.map(team => team.id === 1
+      ? { ...team, wins: 2, name: 'New official team name' }
+      : team.id === 2 ? { ...team, losses: 2, ties: 1 } : team);
+    data.matchups[0].winProbability = { modelVersion: 'normal-v2', status: 'estimated', teams: [
+      { teamId: 1, probability: 0.4 }, { teamId: 2, probability: 0.6 },
+    ] };
+    const before = structuredClone({ data, standings });
+    const summary = getMyFantasyLeagueSummary(data, context, standings, 1, now);
+    expect(summary.team?.wins).toBe(2);
+    expect(summary.matchup?.sides.map(side => ({ name: side.team.name, wins: side.team.wins,
+      losses: side.team.losses, ties: side.team.ties }))).toEqual([
+      { name: 'Team 1', wins: 2, losses: 0, ties: 0 },
+      { name: 'Team 2', wins: 0, losses: 2, ties: 1 },
+    ]);
+    const currentRecords = [{ wins: 2, losses: 0, ties: 0 }, { wins: 0, losses: 2, ties: 1 }];
+    for (let index = 0; index < 2; index += 1) {
+      expect(summary.matchup?.sides[index]).toEqual({ ...data.matchups[0].sides[index],
+        team: { ...data.matchups[0].sides[index].team, ...currentRecords[index] } });
+      expect(summary.matchup?.sides[index].starters).toBe(data.matchups[0].sides[index].starters);
+      expect(summary.matchup?.sides[index].bench).toBe(data.matchups[0].sides[index].bench);
+    }
+    expect(summary.matchup?.winProbability).toBe(data.matchups[0].winProbability);
+    expect({ data, standings }).toEqual(before);
   });
 
   it('flags only confirmed starter problems and never makes a start/sit recommendation', () => {
@@ -80,10 +100,68 @@ describe('My Fantasy league summary', () => {
     own.starters[1].injuryStatus = 'Questionable';
     expect(getMyFantasyLeagueSummary(data, context, standings, 1, now).attention).toEqual({
       status: 'verified', reason: null, issues: [{ kind: 'out', playerId: '1-qb', playerName: 'Player 1-qb', slot: 'QB',
+        severity: 'alert', statusLabel: 'OUT',
         message: 'Player 1-qb is OUT and in the starting lineup.' }],
     });
     own.starters[0].injuryStatus = 'Questionable';
     expect(getMyFantasyLeagueSummary(data, context, standings, 1, now).attention).toMatchObject({ status: 'verified', issues: [] });
+  });
+
+  it.each([
+    ['Inactive', 'inactive', 'INACTIVE'], ['Suspended', 'suspended', 'SUSPENDED'],
+    ['Sus', 'suspended', 'SUSPENDED'], ['IR', 'ir', 'IR'], ['Injured reserve', 'ir', 'IR'],
+    ['PUP', 'unavailable', 'PUP'], ['NFI', 'unavailable', 'NFI'],
+  ])('identifies an explicit %s designation in the selected starting lineup', (status, kind, statusLabel) => {
+    const { data, standings, own } = fixture();
+    own.starters[0].injuryStatus = status;
+    expect(getMyFantasyLeagueSummary(data, context, standings, 1, now).attention).toMatchObject({
+      status: 'verified', issues: [{ kind, severity: 'alert', statusLabel, playerId: '1-qb', slot: 'QB' }],
+    });
+  });
+
+  it('distinguishes doubtful from confirmed nonparticipation', () => {
+    const { data, standings, own } = fixture();
+    own.starters[0].injuryStatus = '  Doubtful  ';
+    expect(getMyFantasyLeagueSummary(data, context, standings, 1, now).attention).toMatchObject({
+      status: 'verified', issues: [{ kind: 'doubtful', severity: 'caution', statusLabel: 'DOUBTFUL',
+        message: 'Player 1-qb is DOUBTFUL and in the starting lineup; participation is uncertain.' }],
+    });
+  });
+
+  it('counts affected starting positions once despite overlapping designations', () => {
+    const { data, standings, own } = fixture();
+    data.league.rosterPositions = ['RB', 'RB', 'BN'];
+    own.starters = [player('1-rb', 'RB', { injuryStatus: 'IR / OUT' }),
+      player('2-rb', 'RB', { injuryStatus: 'Doubtful, Out', game: { kind: 'bye' } })];
+    const attention = getMyFantasyLeagueSummary(data, context, standings, 1, now).attention;
+    expect(attention.issues).toHaveLength(2);
+    expect(attention.issues.map(issue => [issue.playerId, issue.kind, issue.severity]))
+      .toEqual([['1-rb', 'ir', 'alert'], ['2-rb', 'bye', 'alert']]);
+    own.starters[1].game = player('2-rb').game;
+    expect(getMyFantasyLeagueSummary(data, context, standings, 1, now).attention.issues[1])
+      .toMatchObject({ kind: 'out', severity: 'alert' });
+  });
+
+  it('does not include the opponent or either bench in the selected team’s attention list', () => {
+    const { data, standings, own } = fixture();
+    own.starters[0].injuryStatus = 'Out';
+    own.starters[1].injuryStatus = 'Doubtful';
+    expect(getMyFantasyLeagueSummary(data, context, standings, 2, now).attention).toMatchObject({
+      status: 'verified', issues: [],
+    });
+    data.matchups[0].sides[1].starters[0].injuryStatus = 'Doubtful';
+    expect(getMyFantasyLeagueSummary(data, context, standings, 2, now).attention.issues)
+      .toMatchObject([{ kind: 'doubtful', playerId: '2-qb' }]);
+  });
+
+  it('withholds an all-clear verdict for unfamiliar availability without inventing a problem', () => {
+    const { data, standings, own } = fixture();
+    own.starters[0].injuryStatus = 'New provider designation';
+    own.starters[1].injuryStatus = 'Doubtful';
+    expect(getMyFantasyLeagueSummary(data, context, standings, 1, now).attention).toMatchObject({
+      status: 'unknown', issues: [{ kind: 'doubtful' }],
+      reason: 'Some player game or availability information is unavailable.',
+    });
   });
 
   it('recognizes known empty slots and exact-week byes independently of projected points', () => {
@@ -95,16 +173,32 @@ describe('My Fantasy league summary', () => {
     expect(attention.issues.map(issue => issue.kind)).toEqual(['empty', 'bye']);
   });
 
-  it.each(['live', 'final', 'kickoff'] as const)('does not call current OUT metadata actionable after %s', state => {
+  it.each(['Out', 'Doubtful', 'IR', 'Inactive', 'Suspended'].flatMap(status =>
+    ['live', 'final', 'kickoff'].map(state => ({ status, state }))))('does not call current $status metadata actionable after $state', ({ status, state }) => {
     const { data, standings, own } = fixture();
-    own.starters[0].injuryStatus = 'Out';
+    own.starters[0].injuryStatus = status;
     const game = own.starters[0].game;
     if (game?.kind !== 'scheduled') throw new Error('Expected scheduled fixture');
     if (state === 'live') game.liveScore = { teamScore: 0, opponentScore: 0, phase: 'q1', clockSeconds: 900 };
     if (state === 'final') game.finalScore = { teamScore: 20, opponentScore: 10 };
     if (state === 'kickoff') game.kickoffAt = now.toISOString();
-    expect(getMyFantasyLeagueSummary(data, context, standings, 1, now).attention.issues).toEqual([]);
+    expect(getMyFantasyLeagueSummary(data, context, standings, 1, now).attention).toMatchObject({
+      status: state === 'kickoff' ? 'unknown' : 'verified', issues: [],
+    });
   });
+
+  it.each([now.toISOString(), '2026-09-20T11:00:00Z'])(
+    'does not claim all clear from elapsed kickoff alone (%s)', kickoffAt => {
+      const { data, standings, own } = fixture();
+      const game = own.starters[0].game;
+      if (game?.kind !== 'scheduled') throw new Error('Expected scheduled fixture');
+      game.kickoffAt = kickoffAt;
+      own.starters[1].injuryStatus = 'Out';
+      expect(getMyFantasyLeagueSummary(data, context, standings, 1, now).attention).toMatchObject({
+        status: 'unknown', issues: [{ kind: 'out', playerId: '1-rb' }],
+      });
+    },
+  );
 
   it('never treats today’s injury information as historical evidence or completed lineups as actionable', () => {
     const { data, standings, own } = fixture();
