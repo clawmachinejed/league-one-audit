@@ -1,5 +1,6 @@
 import type { MatchupPeriodContext } from './matchup-period';
 import { selectMyTeamMatchup } from './my-team-matchup';
+import { classifyPlayerAvailability } from './projections/domain/player-availability';
 import { projectStandings } from './projected-standings';
 import { startingSlots } from './sleeper-lineup';
 import { compareTeams } from './transform';
@@ -53,31 +54,13 @@ function isActivePeriod(data: MatchupsData, context: MatchupPeriodContext): bool
 
 type AttentionDesignation = Pick<MyFantasyAttentionIssue, 'kind' | 'severity' | 'statusLabel'>;
 
-const attentionDesignations: Readonly<Record<string, AttentionDesignation>> = {
-  OUT: { kind: 'out', severity: 'alert', statusLabel: 'OUT' },
-  INACTIVE: { kind: 'inactive', severity: 'alert', statusLabel: 'INACTIVE' },
-  SUSPENDED: { kind: 'suspended', severity: 'alert', statusLabel: 'SUSPENDED' },
-  SUS: { kind: 'suspended', severity: 'alert', statusLabel: 'SUSPENDED' },
-  IR: { kind: 'ir', severity: 'alert', statusLabel: 'IR' },
-  'INJURED RESERVE': { kind: 'ir', severity: 'alert', statusLabel: 'IR' },
-  PUP: { kind: 'unavailable', severity: 'alert', statusLabel: 'PUP' },
-  'PHYSICALLY UNABLE TO PERFORM': { kind: 'unavailable', severity: 'alert', statusLabel: 'PUP' },
-  NFI: { kind: 'unavailable', severity: 'alert', statusLabel: 'NFI' },
-  'NON-FOOTBALL INJURY': { kind: 'unavailable', severity: 'alert', statusLabel: 'NFI' },
-  DOUBTFUL: { kind: 'doubtful', severity: 'caution', statusLabel: 'DOUBTFUL' },
-};
-
-/** Use explicit injury designations, never the catalog's general active/inactive flag. */
 function attentionDesignation(value: string | null): AttentionDesignation | 'clear' | 'unknown' {
-  if (!value?.trim()) return 'clear';
-  const statuses = value.trim().toUpperCase().split(/\s*[/,;|&+]\s*/u);
-  const known = statuses.map(status => attentionDesignations[status]).filter(status => status !== undefined);
-  // Several flags still describe one affected starting position. Definite issues
-  // take precedence over doubtful; repeated slots remain separate positions.
-  const designation = known.find(status => status.severity === 'alert') ?? known[0];
-  if (designation) return designation;
-  return statuses.every(status => status === 'QUESTIONABLE' || status === 'QUES' || status === 'PROBABLE')
-    ? 'clear' : 'unknown';
+  const designation = classifyPlayerAvailability(value);
+  return typeof designation === 'string' ? designation : {
+    kind: designation.kind,
+    severity: designation.participation === 'not-playing' ? 'alert' : 'caution',
+    statusLabel: designation.statusLabel,
+  };
 }
 
 function attentionIssue(player: Player, designation: AttentionDesignation, message: string): MyFantasyAttentionIssue {

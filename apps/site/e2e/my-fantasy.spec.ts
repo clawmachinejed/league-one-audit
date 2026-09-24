@@ -4,6 +4,7 @@ import { LEAGUE_SITES, type LeagueKey } from '../lib/leagues';
 import type { MatchupPeriodContext } from '../lib/matchup-period';
 import type { MatchupBoxScores } from '../lib/matchup-box-score-types';
 import { isMatchupsData } from '../lib/matchups-response';
+import { compactPlayerName } from '../lib/player-name';
 import { contextFixture, snapshotFixture, snapshotHeaders, SNAPSHOT_A } from '../test-support/matchup-snapshot-fixtures';
 
 const leagues = ['league1', 'league2', 'dynasty'] as const;
@@ -697,11 +698,11 @@ test('My Fantasy expands each matchup and player statistics inline without enter
   expect(state.providerRequests).toEqual([]);
 });
 
-test('My Fantasy attention aligns long IR and availability alerts without hiding stored win probability', async ({ page }, testInfo) => {
-  await page.setViewportSize({ width: 390, height: 900 });
-  const longLeagueName = 'League Two Regional Championship Superflex';
+test('My Fantasy attention stays compact, accessible and collapsible without hiding stored win probability', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const leagueLabels: Partial<Record<LeagueKey, string>> = { league2: 'League Two' };
   const state = await openFantasyFixture(page, { incompleteVerification: true,
-    leagueLabels: { league2: longLeagueName } });
+    leagueLabels });
   await expect(card(page, 'dynasty').locator('[data-fantasy-status]')).toHaveAttribute('data-fantasy-status', 'unknown');
   const noIssues = page.locator('[data-fantasy-no-issues]');
   await expect(noIssues).toHaveText('No lineup issues');
@@ -717,24 +718,32 @@ test('My Fantasy attention aligns long IR and availability alerts without hiding
   expect(clearStyle.iconColor).toBe('rgb(255, 255, 255)');
   const iconRgb = clearStyle.iconBackground.match(/[\d.]+/gu)!.map(Number);
   expect(iconRgb[1], 'The no-issues circle is green').toBeGreaterThan(Math.max(iconRgb[0], iconRgb[2]));
+  const cardDot = await card(page, 'league1').locator('[data-fantasy-status]').boundingBox();
+  const clearIcon = await noIssues.locator('[data-fantasy-clear-icon]').boundingBox();
+  expect((await noIssues.boundingBox())!.height, 'The all-clear strip stays compact').toBeLessThanOrEqual(34);
+  expect(clearIcon!.width).toBeLessThanOrEqual(cardDot!.width);
+  expect(clearIcon!.height).toBeLessThanOrEqual(cardDot!.height);
   const selectedStarters = {
     league1: [
-      { name: 'Selected OUT Starter with a Particularly Long Name', status: 'OUT' },
-      { name: 'Jonathan Brooks Injured Reserve Starting Running Back', status: 'IR' },
-      { name: 'Selected Suspended Starting Wide Receiver', status: 'SUSPENDED' },
+      { name: 'Jonathon Brooks', status: 'IR' },
+      { name: 'Empty slot', status: 'No player' },
+      { name: 'George Kittle', status: 'BYE' },
     ],
     league2: [
-      { name: 'Selected Doubtful Starter with a Particularly Long Name', status: 'DOUBTFUL' },
-      { name: 'Selected OUT Running Back with Another Long Name', status: 'OUT' },
-      { name: 'Selected Available Starting Receiver', status: null },
+      { name: 'Christian McCaffrey', status: 'DOUBTFUL' },
+      { name: 'Marquez Valdes-Scantling', status: 'OUT' },
+      { name: 'Trey McBride', status: null },
     ],
     dynasty: [
       { name: 'Selected Questionable Starter', status: 'QUESTIONABLE' },
-      { name: 'Selected Available Running Back', status: null },
-      { name: 'Selected Available Starting Receiver', status: null },
+      { name: 'Puka Nacua', status: null },
+      { name: 'Travis Kelce', status: null },
     ],
   };
-  const issues = [...selectedStarters.league1, ...selectedStarters.league2.slice(0, 2)];
+  const slots = ['RB', 'WR', 'TE'];
+  const issues = [...selectedStarters.league1.map((starter, index) => ({ ...starter, slot: slots[index], league: 'League One' })),
+    ...selectedStarters.league2.slice(0, 2).map((starter, index) => ({ ...starter, slot: slots[index], league: 'League Two' }))];
+  let attentionRevision = 0;
   // Adopt another accepted snapshot through the existing reader. Every NFL game
   // is pre-kickoff with zero actual points. Stored normal-v3 odds remain usable
   // even when an inactive starter needs attention; the UI must not recompute them.
@@ -745,15 +754,19 @@ test('My Fantasy attention aligns long IR and availability alerts without hiding
     expect(leagues).toContain(league);
     const week = Number(url.searchParams.get('week'));
     expect(week).toBe(state.weeks[league]);
-    const revision = ['e', 'f', '1'][leagues.indexOf(league)].repeat(64);
-    const nextVerifiedAt = '2099-09-03T12:01:00.000Z';
+    const revision = (attentionRevision === 0 ? ['e', 'f', '1'] : ['2', '3', '4'])[leagues.indexOf(league)].repeat(64);
+    const nextVerifiedAt = `2099-09-03T12:0${attentionRevision + 1}:00.000Z`;
     const headers = Object.fromEntries(snapshotHeaders(revision, nextVerifiedAt, contextFixture('active', week)));
     if (url.pathname.endsWith('/revision')) {
       await route.fulfill({ headers, json: { status: 'ok', revision, verifiedAt: nextVerifiedAt } });
       return;
     }
     const data = fantasyFixture(league, week);
-    data.league.rosterPositions = ['QB', 'RB', 'WR'];
+    data.league.rosterPositions = slots;
+    data.teams.forEach(team => {
+      team.name = ['SoBro Rippers', 'Leather Cheerio', 'Questionable Decisions', 'Sunday Scaries'][team.id - 1];
+      team.wins += attentionRevision;
+    });
     for (const matchup of data.matchups) {
       matchup.status = 'upcoming';
       const firstProbability = league === 'league1' ? 0.5 : oddTeamWinChance[league];
@@ -766,11 +779,12 @@ test('My Fantasy attention aligns long IR and availability alerts without hiding
         side.points = 0;
         side.starters = selectedStarters[league].map((starter, index) => {
           const status = selected ? starter.status : 'OUT';
-          return { ...side.starters[0], id: `${playerId(league, side.team.id)}-${index}`,
+          return { ...side.starters[0], id: status === 'No player' ? `empty-${slots[index]}` : `${playerId(league, side.team.id)}-${index}`,
             slot: data.league.rosterPositions![index], position: data.league.rosterPositions![index],
             name: selected ? starter.name : `Opponent OUT ${league} ${side.team.id} ${index}`,
-            injuryStatus: status, points: 0, projectedPoints: status && ['OUT', 'IR', 'SUSPENDED'].includes(status) ? 0 : 10,
-            game: { kind: 'scheduled', opponent: 'TEN', location: 'away', date: '2026-09-13',
+            injuryStatus: status === 'BYE' || status === 'No player' ? null : status, points: 0,
+            projectedPoints: status && ['OUT', 'IR', 'BYE', 'No player'].includes(status) ? 0 : 10,
+            game: status === 'BYE' ? { kind: 'bye' } : { kind: 'scheduled', opponent: 'TEN', location: 'away', date: '2026-09-13',
               kickoffAt: '2026-09-13T17:00:00.000Z' } };
         });
         side.projectedPoints = side.starters.reduce((total, player) => total + player.projectedPoints!, 0);
@@ -787,40 +801,41 @@ test('My Fantasy attention aligns long IR and availability alerts without hiding
   }
   expect(state.readerFailures).toEqual([]);
   const panel = page.locator('section[aria-labelledby="fantasy-attention-heading"]');
-  await expect(panel.getByRole('heading', { name: '5 starting positions need attention', exact: true })).toBeVisible();
+  await expect(panel.getByRole('heading', { name: '5 Starters need attention', exact: true })).toBeVisible();
+  const attentionToggle = panel.locator('[data-fantasy-attention-toggle]');
+  const attentionList = panel.locator('[data-fantasy-attention-list]');
+  await expect(attentionToggle).toHaveAttribute('aria-expanded', 'true');
+  await expect(attentionToggle).toHaveAttribute('aria-controls', 'fantasy-attention-list');
+  await expect(attentionList).toBeVisible();
   const rows = panel.locator('[data-fantasy-attention-row]');
   await expect(rows).toHaveCount(issues.length);
-  await expect(rows.locator('[data-fantasy-attention-player]')).toHaveText(issues.map(issue => issue.name));
+  const rowOrder = await rows.evaluateAll(nodes => nodes.map(node => [...node.children].map(child =>
+    ['slot', 'player', 'designation', 'league'].find(part => child.hasAttribute(`data-fantasy-attention-${part}`)))));
+  expect(rowOrder).toEqual(issues.map(() => ['slot', 'player', 'designation', 'league']));
+  for (const [index, issue] of issues.entries()) {
+    const row = rows.nth(index);
+    await expect(row.locator('[data-fantasy-attention-slot] [data-roster-slot]')).toHaveAttribute('data-roster-slot', issue.slot);
+    await expect(row.locator('[data-fantasy-attention-designation]')).toHaveText(
+      issue.status === 'No player' ? 'No Player' : issue.status === 'BYE' ? 'Bye' : issue.status!);
+    await expect(row.locator('[data-fantasy-attention-league]')).toHaveText(issue.league);
+    await expect(row).toHaveAccessibleName(issue.status === 'No player' ? /WR starting position is empty/u
+      : new RegExp(issue.name.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'u'));
+  }
   await expect(panel).not.toContainText(/Opponent|Bench|Questionable/u);
-  await expect(panel.getByText('OUT', { exact: true })).toHaveCount(2);
+  await expect(panel.getByText('OUT', { exact: true })).toHaveCount(1);
   await expect(panel.getByText('IR', { exact: true })).toBeVisible();
-  await expect(panel.getByText('SUSPENDED', { exact: true })).toBeVisible();
+  await expect(rows.locator('[data-fantasy-attention-player] > [aria-hidden="true"]:visible').filter({ hasText: /^EMPTY$/u })).toBeVisible();
+  await expect(panel.getByText('No Player', { exact: true })).toBeVisible();
+  await expect(panel.getByText('Bye', { exact: true })).toBeVisible();
   await expect(panel.getByText('DOUBTFUL', { exact: true })).toBeVisible();
-  await expect(panel.getByText('Starting', { exact: true })).toHaveCount(issues.length);
-  await expect(panel.getByText(longLeagueName, { exact: true })).toHaveCount(2);
-  await expect(panel.locator('h2 svg')).toHaveCount(1);
-  await expect(panel.locator('h2 span[aria-hidden="true"]')).toHaveCount(0);
+  await expect(panel.getByText('Starting', { exact: true })).toHaveCount(0);
+  await expect(rows.locator(':scope > span[aria-hidden="true"]')).toHaveCount(0);
   await expect(page.locator('[data-fantasy-no-issues]')).toHaveCount(0);
   for (const league of leagues) await expect(card(page, league).locator('[data-fantasy-status]'))
     .toHaveAttribute('data-fantasy-status', league === 'dynasty' ? 'clear' : 'alert');
-  const headerDots = page.locator('[data-fantasy-status]');
-  const rowDots = rows.locator(':scope > span[aria-hidden="true"]');
-  await expect(headerDots).toHaveCount(3);
-  await expect(rowDots).toHaveCount(issues.length);
-  const dotSizes = await headerDots.or(rowDots).evaluateAll(nodes => nodes.map(node => {
-    const rect = node.getBoundingClientRect();
-    return { width: rect.width, height: rect.height };
-  }));
-  for (const size of dotSizes) {
-    expect(size.width).toBe(11);
-    expect(size.height).toBe(11);
-  }
-  const colors = await rows.evaluateAll(nodes => nodes.map(node => ({
-    dot: getComputedStyle(node.querySelector(':scope > span[aria-hidden="true"]')!).backgroundColor,
-    designation: getComputedStyle(node.querySelector('[data-fantasy-attention-details] > span:first-child')!).color,
-  })));
-  for (const color of colors) expect(color.dot).toBe(color.designation);
-  expect(colors[0].designation, 'OUT and DOUBTFUL use distinct alert and caution colors').not.toBe(colors[3].designation);
+  const colors = await rows.locator('[data-fantasy-attention-designation]')
+    .evaluateAll(nodes => nodes.map(node => getComputedStyle(node).color));
+  expect(colors[0], 'IR and DOUBTFUL use distinct alert and caution colors').not.toBe(colors[3]);
   const irCard = card(page, 'league1');
   const irProbability = irCard.locator('[data-win-chance-track]');
   await expect(irCard.locator('[data-fantasy-status]')).toHaveAttribute('data-fantasy-status', 'alert');
@@ -829,58 +844,110 @@ test('My Fantasy attention aligns long IR and availability alerts without hiding
   await expect(irProbability).toHaveAttribute('data-win-chance-tone', 'neutral');
   await expect(irProbability.locator('[data-win-chance-fill]')).toBeVisible();
 
+  await attentionToggle.focus();
+  await attentionToggle.press('Enter');
+  await expect(attentionToggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(attentionList).toBeHidden();
+  const heightBudgets = [];
+  for (const viewport of [{ width: 390, height: 844 }, { width: 430, height: 932 }]) {
+    await page.setViewportSize(viewport);
+    await page.evaluate(() => window.scrollTo(0, 0));
+    const bounds = await page.locator('[data-my-fantasy-league]').evaluateAll(nodes => nodes.map(node => {
+      const rect = node.getBoundingClientRect();
+      return { top: rect.top, bottom: rect.bottom, height: rect.height };
+    }));
+    const ribbon = await navigation(page, viewport.width).boundingBox();
+    // There are three registered fixtures. Conservatively add one maximum-size
+    // card and gap; this measures a fourth-card budget, not a fourth membership.
+    const maximumCard = Math.max(...bounds.map(bound => bound.height));
+    const maximumGap = Math.max(...bounds.slice(1).map((bound, index) => bound.top - bounds[index].bottom));
+    const fourCardBottom = bounds[0].top + 4 * maximumCard + 3 * maximumGap;
+    heightBudgets.push({ ...viewport, registeredCards: bounds.length, cards: bounds, maximumCard, maximumGap,
+      fourCardBottom, availableBottom: ribbon!.y });
+    expect(bounds).toHaveLength(3);
+    const screenshot = testInfo.outputPath(`collapsed-attention-${viewport.width}px.png`);
+    await page.screenshot({ path: screenshot });
+    await testInfo.attach(`collapsed-attention-${viewport.width}px`, { path: screenshot, contentType: 'image/png' });
+  }
+  await testInfo.attach('extrapolated-four-card-height-budget', { body: JSON.stringify(heightBudgets, null, 2), contentType: 'application/json' });
+  for (const budget of heightBudgets) expect(budget.fourCardBottom,
+    `Four collapsed cards fit the measured ${budget.width}×${budget.height} phone budget`).toBeLessThanOrEqual(budget.availableBottom);
+  const beforeRefresh = state.refreshRequests;
+  attentionRevision = 1;
+  const longLeagueName = 'League Two Championship';
+  leagueLabels.league2 = longLeagueName;
+  for (let step = 0; step < 13; step += 1) {
+    await page.clock.runFor(5_000);
+    await expect.poll(() => state.readerFinished === state.readerRequests).toBe(true);
+  }
+  await expect.poll(() => state.refreshRequests).toBeGreaterThan(beforeRefresh);
+  await expect(card(page, 'league2').getByRole('heading', { level: 2 })).toHaveText(longLeagueName);
+  await expect(attentionToggle, 'A committed server refresh retains the chosen collapsed state').toHaveAttribute('aria-expanded', 'false');
+  await expect(attentionList).toBeHidden();
+  await attentionToggle.focus();
+  await attentionToggle.press('Space');
+  await expect(attentionToggle).toHaveAttribute('aria-expanded', 'true');
+  await expect(attentionList).toBeVisible();
+
   for (const textScale of [1, 1.5]) {
     if (textScale > 1) {
       // Explicit text-only resize stress preserves viewport width and dot size.
-      await panel.locator('h2, [data-fantasy-attention-row]').evaluateAll(nodes => nodes.forEach(node => {
-        const element = node as HTMLElement;
-        element.style.fontSize = `${Number.parseFloat(getComputedStyle(element).fontSize) * 1.5}px`;
-      }));
+      await panel.locator('[data-fantasy-attention-toggle], [data-fantasy-attention-row], [data-fantasy-attention-player], '
+        + '[data-fantasy-attention-designation], [data-fantasy-attention-league], [data-roster-slot]')
+        .evaluateAll(nodes => {
+          const sizes = nodes.map(node => Number.parseFloat(getComputedStyle(node).fontSize));
+          nodes.forEach((node, index) => { (node as HTMLElement).style.fontSize = `${sizes[index] * 1.5}px`; });
+        });
     }
-    for (const width of [320, 390, 430, 900, 1280]) {
-      await page.setViewportSize({ width, height: 900 });
-      if (width === 390 || width === 900) await page.screenshot({
+    for (const viewport of [{ width: 320, height: 844 }, { width: 390, height: 844 },
+      { width: 430, height: 932 }, { width: 900, height: 900 }, { width: 1280, height: 900 }]) {
+      const { width } = viewport;
+      await page.setViewportSize(viewport);
+      if (width === 390 || width === 430) await page.screenshot({
         path: testInfo.outputPath(`attention-${width}px-${textScale * 100}-percent.png`), fullPage: true,
       });
+      const alertIcon = await panel.locator('[data-fantasy-attention-icon]').boundingBox();
+      expect(alertIcon!.width).toBeLessThanOrEqual(cardDot!.width);
+      expect(alertIcon!.height).toBeLessThanOrEqual(cardDot!.height);
       const geometry = await rows.evaluateAll(nodes => nodes.map(node => {
+        const slot = node.querySelector('[data-fantasy-attention-slot]')!;
         const player = node.querySelector('[data-fantasy-attention-player]')!;
-        const details = node.querySelector('[data-fantasy-attention-details]')!;
-        const status = details.querySelector(':scope > span:first-child')!;
-        const starting = details.querySelector(':scope > span:last-child')!.getBoundingClientRect();
+        const status = node.querySelector('[data-fantasy-attention-designation]')!;
         const league = node.querySelector('[data-fantasy-attention-league]')!;
+        const slotBox = slot.getBoundingClientRect();
         const statusBox = status.getBoundingClientRect();
         const playerBox = player.getBoundingClientRect();
         const leagueBox = league.getBoundingClientRect();
-        return { statusWidth: status.clientWidth, statusScrollWidth: status.scrollWidth,
-          statusLeft: statusBox.left, statusRight: statusBox.right, statusTop: statusBox.top, statusBottom: statusBox.bottom,
-          startingLeft: starting.left, startingTop: starting.top, startingBottom: starting.bottom,
-          playerLeft: playerBox.left, playerRight: playerBox.right, playerTop: playerBox.top, playerBottom: playerBox.bottom,
+        return { slotLeft: slotBox.left, slotRight: slotBox.right,
+          statusWidth: status.clientWidth, statusScrollWidth: status.scrollWidth,
+          statusLeft: statusBox.left, statusRight: statusBox.right,
+          playerLeft: playerBox.left, playerRight: playerBox.right,
           playerWidth: player.clientWidth, playerScrollWidth: player.scrollWidth,
-          leagueLeft: leagueBox.left, leagueTop: leagueBox.top, leagueBottom: leagueBox.bottom, leagueRight: leagueBox.right,
+          compact: player.getAttribute('data-compact'),
+          leagueLeft: leagueBox.left, leagueRight: leagueBox.right,
           leagueWidth: league.clientWidth, leagueScrollWidth: league.scrollWidth,
           rowRight: node.getBoundingClientRect().right, rowWidth: node.clientWidth, rowScrollWidth: node.scrollWidth };
       }));
-      for (const row of geometry) {
+      for (const [index, row] of geometry.entries()) {
         const context = `at ${width}px and ${textScale * 100}% text`;
         expect(row.statusScrollWidth, `The complete availability status fits ${context}`).toBeLessThanOrEqual(row.statusWidth + 1);
-        expect(row.statusRight, `Availability cannot overlap Starting ${context}`).toBeLessThanOrEqual(row.startingLeft - 1);
-        expect(row.playerScrollWidth, `Long player names wrap ${context}`).toBeLessThanOrEqual(row.playerWidth + 1);
+        expect(row.slotRight, `Position precedes player ${context}`).toBeLessThanOrEqual(row.playerLeft - 1);
+        expect(row.playerRight, `Player precedes designation ${context}`).toBeLessThanOrEqual(row.statusLeft - 1);
+        expect(row.statusRight, `Designation precedes league ${context}`).toBeLessThanOrEqual(row.leagueLeft - 1);
+        expect(row.playerScrollWidth, `Compact surnames remain readable ${context}`).toBeLessThanOrEqual(row.playerWidth + 1);
         expect(row.leagueScrollWidth, `Long league names wrap ${context}`).toBeLessThanOrEqual(row.leagueWidth + 1);
         expect(Math.abs(row.leagueRight - row.rowRight), `League labels align right ${context}`).toBeLessThanOrEqual(1);
         expect(row.rowScrollWidth, `The row fits ${context}`).toBeLessThanOrEqual(row.rowWidth + 1);
-        if (width <= 430) {
-          expect(Math.abs(row.playerTop - row.leagueTop), `Player and league begin together ${context}`).toBeLessThanOrEqual(1);
-          expect(row.playerRight, `Player and league names cannot overlap ${context}`).toBeLessThanOrEqual(row.leagueLeft - 1);
-          expect(row.statusTop, `Availability follows both complete names ${context}`)
-            .toBeGreaterThanOrEqual(Math.max(row.playerBottom, row.leagueBottom));
-          expect(Math.abs(row.statusLeft - row.playerLeft), `Availability begins under the player ${context}`).toBeLessThanOrEqual(1);
-          expect(Math.abs(row.statusTop - row.startingTop), `Status and Starting form one readable group ${context}`).toBeLessThanOrEqual(1);
-        } else {
-          expect(row.playerRight, `Player name stays before the status column ${context}`).toBeLessThanOrEqual(row.statusLeft - 1);
-          expect(Math.abs(row.statusLeft - geometry[0].statusLeft), `Statuses share one column ${context}`).toBeLessThanOrEqual(1);
-          expect(Math.abs(row.startingLeft - geometry[0].startingLeft), `Starting shares one column ${context}`).toBeLessThanOrEqual(1);
-        }
+        expect(Math.abs(row.statusLeft - geometry[0].statusLeft), `Designations share one column ${context}`).toBeLessThanOrEqual(1);
+        const name = issues[index].status === 'No player' ? 'EMPTY' : issues[index].name;
+        await expect(rows.nth(index).locator('[data-fantasy-attention-player] > [aria-hidden="true"]:visible')).toHaveText(
+          row.compact === 'true' ? compactPlayerName(name, issues[index].slot) : name);
+        await expect(rows.nth(index)).toHaveAccessibleName(issues[index].status === 'No player' ? /WR starting position is empty/u
+          : new RegExp(issues[index].name.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'u'));
       }
+      if (width === 320) expect(geometry.some(row => row.compact === 'true'), 'Overflowing full names use the shared abbreviated name').toBe(true);
+      if (width === 1280 && textScale === 1) await expect(rows.nth(0).locator('[data-fantasy-attention-player]'))
+        .not.toHaveAttribute('data-compact', 'true');
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
     }
   }
@@ -938,6 +1005,7 @@ test('My Fantasy cards and inline statistics fit supported phone and desktop wid
         const metadataLine = metadata.getBoundingClientRect();
         const logo = element.querySelector('img')!.getBoundingClientRect();
         const enter = element.querySelector('[data-fantasy-enter]')!;
+        const enterBounds = enter.getBoundingClientRect();
         const dot = element.querySelector('[data-fantasy-status]')!.getBoundingClientRect();
         const textBounds = (node: Element) => {
           const range = document.createRange();
@@ -947,12 +1015,14 @@ test('My Fantasy cards and inline statistics fit supported phone and desktop wid
         return { titleTop: title.top, titleBottom: title.bottom, metadataTop: textBounds(metadata).top,
           metadataLineBottom: metadataLine.bottom, logoTop: logo.top, logoBottom: logo.bottom,
           metadataBottom: textBounds(metadata).bottom, enterTextBottom: textBounds(enter).bottom,
-          enterRight: enter.getBoundingClientRect().right, enterTop: enter.getBoundingClientRect().top, dotBottom: dot.bottom,
-          headerRight: element.getBoundingClientRect().right - Number.parseFloat(getComputedStyle(element).paddingRight)
-            - Number.parseFloat(getComputedStyle(element).borderRightWidth) };
+          enterLeft: enterBounds.left, enterRight: enterBounds.right, enterTop: enterBounds.top, enterBottom: enterBounds.bottom,
+          dotLeft: dot.left, dotRight: dot.right, dotTop: dot.top, dotBottom: dot.bottom,
+          actionRight: dot.left - Number.parseFloat(getComputedStyle(element).columnGap) };
       });
       headerGeometry.push(geometry);
-      expect(geometry.dotBottom, `${league} status dot stays outside the Enter League hit target at ${width}px`).toBeLessThanOrEqual(geometry.enterTop);
+      expect(geometry.dotBottom <= geometry.enterTop || geometry.dotTop >= geometry.enterBottom
+        || geometry.dotRight <= geometry.enterLeft || geometry.dotLeft >= geometry.enterRight,
+      `${league} status dot stays outside the Enter League hit target at ${width}px`).toBe(true);
       expect(geometry.metadataTop, `${league} provider metadata belongs below the title at ${width}px`)
         .toBeGreaterThanOrEqual(geometry.titleBottom - 1);
       expect(geometry.metadataTop - geometry.titleBottom,
@@ -963,8 +1033,8 @@ test('My Fantasy cards and inline statistics fit supported phone and desktop wid
         `${league} logo ends at the metadata line at ${width}px`).toBeLessThanOrEqual(2);
       expect(Math.abs(geometry.metadataBottom - geometry.enterTextBottom),
         `${league} Enter League text shares the metadata baseline at ${width}px`).toBeLessThanOrEqual(2);
-      expect(Math.abs(geometry.enterRight - geometry.headerRight),
-        `${league} Enter League is right-aligned at ${width}px`).toBeLessThanOrEqual(1);
+      expect(Math.abs(geometry.enterRight - geometry.actionRight),
+        `${league} Enter League aligns to the content edge before the reserved status track at ${width}px`).toBeLessThanOrEqual(1);
       await expect(header.locator('[data-fantasy-status]')).toHaveAccessibleName(/Starting lineup|starting position|Matchup complete/u);
       const track = container.locator('[data-win-chance-track]');
       await expect(track).toHaveCount(1);

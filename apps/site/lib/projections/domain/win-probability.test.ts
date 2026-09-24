@@ -195,12 +195,16 @@ describe('normal-v3 matchup win probability', () => {
     expectUnavailable(result(side({ players: [{ ...out, expectedRemainingPointsZero: 'true' as unknown as boolean }] })), 'invalid-input');
   });
 
-  it('does not invent a final result when all unresolved starters on both sides are Out', () => {
+  it('keeps an estimated probability when all unresolved starters cannot participate without declaring a final result', () => {
     const outSide = side({ projectedPoints: 0, players: [player({ expectedRemainingPointsZero: true })] });
-    expectUnavailable(result(outSide, outSide), 'unknown-game-state');
+    expect(result(outSide, outSide)).toEqual({ modelVersion: 'normal-v3', status: 'estimated', probabilities: [0.5, 0.5] });
     const liveOutSide = { ...outSide, officialPoints: 7, projectedPoints: 7,
       players: [player({ phase: 'q4', remainingFraction: 0.1, officialPoints: 7, expectedRemainingPointsZero: true })] };
-    expectUnavailable(result(liveOutSide, { ...liveOutSide, officialPoints: 10, projectedPoints: 10 }, 'live'), 'unknown-game-state');
+    const ahead = { ...liveOutSide, officialPoints: 10, projectedPoints: 10 };
+    expect(result(liveOutSide, ahead, 'live')).toEqual({ modelVersion: 'normal-v3', status: 'estimated',
+      probabilities: [0.000001, 0.999999] });
+    expect(result(ahead, liveOutSide, 'live')).toEqual({ modelVersion: 'normal-v3', status: 'estimated',
+      probabilities: [0.999999, 0.000001] });
   });
 
   it('does not claim certainty in a nonfinal matchup even at an overwhelming advantage', () => {
@@ -230,10 +234,12 @@ describe('normal-v3 matchup win probability', () => {
       .toEqual(result(side({ projectedPoints: 0, players: [] })));
   });
 
-  it('does not use byes or empty slots alone as evidence of completed fantasy results', () => {
-    expectUnavailable(result(side({ projectedPoints: 0, players: [] }), side({ projectedPoints: 0, players: [] })), 'unknown-game-state');
+  it('estimates byes and empty slots without treating them as completed fantasy results', () => {
+    const estimate = { modelVersion: 'normal-v3', status: 'estimated', probabilities: [0.5, 0.5] };
+    expect(result(side({ projectedPoints: 0, players: [] }), side({ projectedPoints: 0, players: [] }))).toEqual(estimate);
     const bye = player({ phase: 'bye', baselinePoints: null });
-    expectUnavailable(result(side({ players: [bye] }), side({ players: [bye] })), 'unknown-game-state');
+    expect(result(side({ players: [bye] }), side({ players: [bye] }))).toEqual(estimate);
+    expectUnavailable(result(side({ players: [bye] }), side({ players: [bye] }), 'unknown'), 'unknown-game-state');
   });
 
   it('uses official team totals for finals, including a commissioner adjustment reversing the player sum', () => {

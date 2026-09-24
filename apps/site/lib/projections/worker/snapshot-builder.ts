@@ -17,6 +17,7 @@ import type {
 import type { ProjectionBaselineRecord } from '../ports/projection-repository';
 import { externalReferenceKey, sameExternalReference } from '../shared/provider-identity';
 import type { MatchupsData, NflGame, Player, Team } from '../../types';
+import { classifyPlayerAvailability } from '../domain/player-availability';
 import { MAX_SOURCE_SKEW_MS, matchupStatus, startedGame, stateForEntity } from './game-context';
 import type { PregameProjectionSet } from './contracts';
 import { activeStarters, availableBench, finite, projectionKind } from './roster-context';
@@ -131,8 +132,9 @@ function projectedPlayerMap(input: BuildSnapshotInput, defenseCalculations: Defe
         && state.remainingFraction >= 0 && state.remainingFraction <= 1);
     // Current catalog status is advisory for this active period only. Apply it to
     // the runtime forecast without changing immutable baselines or official points.
+    const availability = classifyPlayerAvailability(entity.injuryStatus);
     const expectedRemainingPointsZero = required && entity.kind === 'player'
-      && ['out', 'ir'].includes(entity.injuryStatus?.trim().toLowerCase() ?? '')
+      && typeof availability !== 'string' && availability.participation === 'not-playing'
       && input.source.currentPlayerStatusPeriod != null
       && samePeriod(input.source.currentPlayerStatusPeriod, input.source.period)
       && samePeriod(input.games.period, input.source.period)

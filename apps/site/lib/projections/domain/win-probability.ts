@@ -11,7 +11,7 @@ export type WinProbabilityPlayerInput = Readonly<{
   baselinePoints: number | null;
   projectionQuality: ProjectionPointQuality;
   officialPoints: number | null;
-  /** Caller-proved requested-period Out or IR designation. Never inferred from a zero baseline. */
+  /** Caller-proved requested-period nonparticipation. Never inferred from a zero baseline. */
   expectedRemainingPointsZero?: boolean;
 }>;
 
@@ -99,7 +99,7 @@ function playerVariance(player: WinProbabilityPlayerInput): number | WinProbabil
       if (!finite(player.remainingFraction)) return 'unknown-game-state';
       if (!finite(player.officialPoints)) return 'missing-official-points';
     }
-    // Scoped Out or IR means no further points are expected. Live actuals, including points
+    // Scoped nonparticipation means no further points are expected. Live actuals, including points
     // scored before an injury, remain part of the caller's canonical mean.
     return 0;
   }
@@ -188,13 +188,18 @@ export function calculateWinProbability(input: WinProbabilityInput): WinProbabil
     variance += contribution;
   }
   if (!Number.isFinite(variance)) return unavailable('invalid-input');
-  // All Out/IR/byes/empty slots cannot establish matchup finality on their own.
-  if (variance <= 0) return unavailable('unknown-game-state');
   const meanDifference = left.projectedPoints - right.projectedPoints;
   if (!Number.isFinite(meanDifference)) return unavailable('invalid-input');
+  // With no modeled remaining uncertainty, use the deterministic limit. Keep
+  // nonfinal estimates inside (0, 1): lineup changes can still change the result,
+  // and designations, byes or empty slots cannot establish official finality.
+  // Equal means retain the model's symmetric, nonfinal 50/50 convention.
+  const rawProbability = variance === 0
+    ? meanDifference === 0 ? 0.5 : meanDifference > 0 ? 1 : 0
+    : normalCdf(meanDifference / Math.sqrt(variance));
   const probability = Math.min(1 - 1 / PROBABILITY_PRECISION, Math.max(
     1 / PROBABILITY_PRECISION,
-    Math.round(normalCdf(meanDifference / Math.sqrt(variance)) * PROBABILITY_PRECISION) / PROBABILITY_PRECISION,
+    Math.round(rawProbability * PROBABILITY_PRECISION) / PROBABILITY_PRECISION,
   ));
   return {
     modelVersion: WIN_PROBABILITY_MODEL_VERSION,
