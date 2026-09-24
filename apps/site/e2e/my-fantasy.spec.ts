@@ -15,6 +15,7 @@ const playerId = (league: LeagueKey, team: number) => `my-fantasy-${league}-${te
 const actualPoints = (league: LeagueKey, team: number) => leagues.indexOf(league) * 10 + team * 11 + 0.5;
 const projectedPoints = (league: LeagueKey, team: number) => leagues.indexOf(league) + team * 10 + 80.25;
 const card = (page: Page, league: LeagueKey) => page.locator(`[data-my-fantasy-league="${league}"]`);
+const serverHeading = (page: Page) => card(page, 'league1').getByRole('heading', { level: 2, name: /^League One/u });
 const navigation = (page: Page, width: number) => page.getByRole('navigation', {
   name: width < 760 ? 'Mobile navigation' : 'Main navigation', exact: true,
 });
@@ -62,6 +63,7 @@ async function expectSelectedScores(container: Locator, league: LeagueKey, ownTe
 async function openFantasyFixture(page: Page, options: { staleInitialRefresh?: boolean } = {}) {
   const state = { documents: 0, full: { league1: 0, league2: 0, dynasty: 0 },
     refreshRequests: 0, refreshFinished: 0, refreshFailures: 0,
+    readerRequests: 0, readerFinished: 0, readerFailures: [] as string[],
     holdRefreshMarker: options.staleInitialRefresh ?? false, staleRefreshes: 0,
     weeks: {} as Partial<Record<LeagueKey, number>>,
     boxRequests: [] as Array<{ league: LeagueKey; season: string | null; week: number; queryKeys: string[] }>,
@@ -75,16 +77,27 @@ async function openFantasyFixture(page: Page, options: { staleInitialRefresh?: b
     }
   }, leagues.map(league => [storageKey(league), String(savedTeams[league])]));
   const refreshes = new Set<Request>();
+  const readers = new Set<Request>();
   page.on('request', request => {
     if (/api\.sleeper\.|tank01/iu.test(new URL(request.url()).hostname)) state.providerRequests.push(request.url());
+    if (new URL(request.url()).pathname.startsWith('/api/matchups/')) {
+      readers.add(request); state.readerRequests += 1;
+    }
     const headers = request.headers();
     if (new URL(request.url()).pathname === '/my-fantasy' && headers.rsc === '1' && !headers['next-router-prefetch']) {
       refreshes.add(request); state.refreshRequests += 1;
     }
   });
-  page.on('requestfinished', request => { if (refreshes.has(request)) state.refreshFinished += 1; });
+  page.on('requestfinished', request => {
+    if (refreshes.has(request)) state.refreshFinished += 1;
+    if (readers.has(request)) state.readerFinished += 1;
+  });
   page.on('requestfailed', request => {
     if (refreshes.has(request)) { state.refreshFinished += 1; state.refreshFailures += 1; }
+    if (readers.has(request)) {
+      state.readerFinished += 1;
+      state.readerFailures.push(`${new URL(request.url()).pathname}: ${request.failure()?.errorText}`);
+    }
   });
   // Keep real SSR markup. Control lineage/context before the normal reader
   // adopts data, and use one presentation marker to observe RSC commits.
@@ -162,7 +175,7 @@ async function openFantasyFixture(page: Page, options: { staleInitialRefresh?: b
     }
   });
   await page.goto('/my-fantasy', { waitUntil: 'networkidle' });
-  await expect(card(page, 'league1').getByRole('heading', { level: 2 })).toHaveText(initialServerHeading);
+  await expect(serverHeading(page)).toHaveText(initialServerHeading);
   await page.clock.runFor(61_000);
   for (const league of leagues) {
     await expectSelectedScores(card(page, league), league, savedTeams[league]);
@@ -176,7 +189,7 @@ async function openFantasyFixture(page: Page, options: { staleInitialRefresh?: b
   // Adoption changes official-record evidence. Observe committed server props
   // rather than transport completion: an accepted stream can end as ERR_ABORTED.
   await expect.poll(() => state.refreshRequests).toBeGreaterThan(0);
-  await expect(card(page, 'league1').getByRole('heading', { level: 2 }),
+  await expect(serverHeading(page),
     'The first standings refresh must preserve the deliberately stale marker or commit genuine server props')
     .toHaveText(options.staleInitialRefresh ? initialServerHeading : 'League One');
   await expect.poll(() => state.refreshFinished === state.refreshRequests).toBe(true);
@@ -189,13 +202,25 @@ async function openFantasyFixture(page: Page, options: { staleInitialRefresh?: b
 
 async function expectBoundedSettlingRefreshes(page: Page, state: {
   refreshRequests: number; refreshFinished: number; full: Record<LeagueKey, number>;
+  readerRequests: number; readerFinished: number; readerFailures: string[];
 }) {
+  async function advanceWithCompletedReaders(milliseconds: number) {
+    for (let remaining = milliseconds; remaining > 0; remaining -= 5_000) {
+      // A long fake-clock jump can fire the existing reader's 15s timeout before
+      // intercepted browser IO completes. Drain IO between small clock steps so
+      // this tests standings retry limits, not an artificial transport outage.
+      await page.clock.runFor(Math.min(remaining, 5_000));
+      await expect.poll(() => state.readerFinished === state.readerRequests).toBe(true);
+      await expect.poll(() => state.refreshFinished === state.refreshRequests).toBe(true);
+      expect(state.readerFailures).toEqual([]);
+    }
+  }
   for (let settlingAttempt = 0; settlingAttempt < 2; settlingAttempt += 1) {
     const previousRequests = state.refreshRequests;
-    await page.clock.runFor(66_000);
+    await advanceWithCompletedReaders(66_000);
     await expect.poll(() => state.refreshRequests, 'Each settling interval retries the official standings read')
       .toBeGreaterThan(previousRequests);
-    await expect(card(page, 'league1').getByRole('heading', { level: 2 }),
+    await expect(serverHeading(page),
       'An untouched delayed RSC response must commit genuine server props').toHaveText('League One');
     await expect.poll(() => state.refreshFinished === state.refreshRequests).toBe(true);
     expect(state.refreshRequests).toBeLessThanOrEqual((settlingAttempt + 2) * leagues.length);
@@ -203,7 +228,7 @@ async function expectBoundedSettlingRefreshes(page: Page, state: {
   }
   const settledRequests = state.refreshRequests;
   // Two more full settling intervals must not restart an exhausted retry budget.
-  await page.clock.runFor(131_000);
+  await advanceWithCompletedReaders(131_000);
   expect(state.refreshRequests).toBe(settledRequests);
   expect(state.refreshRequests).toBeLessThanOrEqual(9);
   expect(state.full).toEqual({ league1: 1, league2: 1, dynasty: 1 });
@@ -240,7 +265,7 @@ test('My Fantasy retries stale server props and preserves the expanded matchup t
   const state = await openFantasyFixture(page, { staleInitialRefresh: true });
   expect(state.staleRefreshes).toBeGreaterThan(0);
   const container = card(page, 'league1');
-  await expect(container.getByRole('heading', { level: 2 })).toHaveText(initialServerHeading);
+  await expect(serverHeading(page)).toHaveText(initialServerHeading);
   const toggle = container.locator('[data-matchup-toggle]');
   await toggle.click();
   const row = container.locator('[data-starter-box-score-toggle]').first();
