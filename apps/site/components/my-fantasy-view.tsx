@@ -16,6 +16,7 @@ import { ManagerHonorsProvider, ManagerHonorsSeason } from './manager-honors';
 import { MatchupsWithBoxScores } from './matchups-view';
 import { useMatchupSnapshot } from './use-matchup-snapshot';
 import { useSiteWeekRollover } from './use-site-week-rollover';
+import { useMyFantasyStandingsRefresh } from './use-my-fantasy-standings-refresh';
 import { Icon } from './icon';
 import styles from './my-fantasy.module.css';
 
@@ -68,15 +69,7 @@ function FantasyLeagueCard({ entry, evaluatedAt, onReport }: { entry: AvailableL
     [site.key, entry, summary, data.week, data.league.season, onReport]);
   const router = useRouter();
   const refreshed = useRef<string | null>(null);
-  const standingsEvidence = myFantasyStandingsEvidence(data);
-  const previousStandingsEvidence = useRef(standingsEvidence);
-  useEffect(() => {
-    if (previousStandingsEvidence.current === standingsEvidence) return;
-    previousStandingsEvidence.current = standingsEvidence;
-    // Reuse the page's official standings reader when records or completed
-    // results advance. Stable older page props cannot repeatedly trigger this.
-    router.refresh();
-  }, [router, standingsEvidence]);
+  useMyFantasyStandingsRefresh(myFantasyStandingsEvidence(data));
   const currentWeek = currentMatchupWeek(snapshot.periodContext);
   const basis = entry.standingsData?.projectionBasis;
   const wrongPeriod = data.week !== currentWeek || (basis?.kind === 'ready' && basis.week !== currentWeek)
