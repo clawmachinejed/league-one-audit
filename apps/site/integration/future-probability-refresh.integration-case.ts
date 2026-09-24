@@ -4,9 +4,9 @@ import type { MatchupsData, MatchupWinProbability } from '../lib/types';
 import { createIndependentDatabase, ownerQuery, type IndependentDatabase } from './neon-integration-harness';
 import { databaseTime, lineageFixture } from './lineup-lineage-fixture';
 
-const EXPECTED_MODEL = 'normal-v2';
+const EXPECTED_MODEL = 'normal-v3';
 type Probability = MatchupWinProbability | undefined;
-const estimated = (modelVersion: 'normal-v1' | 'normal-v2' = EXPECTED_MODEL): MatchupWinProbability => ({
+const estimated = (modelVersion: 'normal-v1' | 'normal-v2' | 'normal-v3' = EXPECTED_MODEL): MatchupWinProbability => ({
   modelVersion, status: 'estimated', teams: [{ teamId: 1, probability: 0.6 }, { teamId: 2, probability: 0.4 }],
 });
 const unavailable: MatchupWinProbability = {
@@ -96,7 +96,7 @@ describe.sequential('future probability rollout refresh in isolated Neon', () =>
   }
 
   it.each([
-    ['missing', undefined], ['older model', estimated('normal-v1')],
+    ['missing', undefined], ['older v1 model', estimated('normal-v1')], ['older v2 model', estimated('normal-v2')],
   ] as const)('expedites a not-due %s result only for an owned worker and explicit expected model', async (_, probability) => {
     const f = await fixture([probability]);
     expect(await f.plan(null)).toMatchObject({ due: false });

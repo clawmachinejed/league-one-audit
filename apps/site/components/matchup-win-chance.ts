@@ -32,7 +32,7 @@ export function matchupWinChance(matchup: Matchup): WinChanceDisplay {
   }
 
   const estimate = matchup.winProbability;
-  if (!estimate || estimate.modelVersion !== 'normal-v1' && estimate.modelVersion !== 'normal-v2'
+  if (!estimate || estimate.modelVersion !== 'normal-v1' && estimate.modelVersion !== 'normal-v2' && estimate.modelVersion !== 'normal-v3'
     || estimate.status !== 'estimated') return unavailable;
   const ordered = [...estimate.teams].sort((a, b) => a.teamId - b.teamId);
   if (ordered.length !== 2 || ordered[0].teamId === ordered[1].teamId

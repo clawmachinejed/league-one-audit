@@ -14,7 +14,8 @@ export function matchesMatchupWinProbability(value: unknown): boolean {
   const chance = value.winProbability;
   // Old immutable snapshots deliberately remain readable.
   if (chance === undefined) return true;
-  if (!record(chance) || chance.modelVersion !== 'normal-v1' && chance.modelVersion !== 'normal-v2') return false;
+  if (!record(chance) || chance.modelVersion !== 'normal-v1' && chance.modelVersion !== 'normal-v2'
+    && chance.modelVersion !== 'normal-v3') return false;
   if (chance.status === 'unavailable') return typeof chance.reason === 'string';
   if (!Array.isArray(chance.teams) || chance.teams.length !== 2
     || !Array.isArray(value.sides) || value.sides.length !== 2) return false;

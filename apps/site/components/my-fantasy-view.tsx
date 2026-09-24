@@ -3,7 +3,7 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { currentMatchupWeek } from '../lib/matchup-period';
 import { displayedMatchupManagers } from '../lib/manager-display';
 import { getMyFantasyLeagueSummary, myFantasyStandingsEvidence } from '../lib/my-fantasy';
@@ -23,6 +23,9 @@ import { useSiteWeekRollover } from './use-site-week-rollover';
 import { useMyFantasyStandingsRefresh } from './use-my-fantasy-standings-refresh';
 import { Icon } from './icon';
 import { relativeRankBand } from '../lib/relative-rank';
+import { compactPlayerName } from '../lib/player-name';
+import { rosterSlotName } from '../lib/roster-slot';
+import { RosterSlot } from './roster-slot';
 import styles from './my-fantasy.module.css';
 
 type AvailableLeague = Extract<MyFantasyLeague, { status: 'available' }>;
@@ -44,6 +47,32 @@ function ageLabel(value: string, now: string) {
   if (minutes < 60) return `Updated ${minutes} min ago`;
   const hours = Math.floor(minutes / 60);
   return hours < 24 ? `Updated ${hours} hr ago` : `Updated ${Math.floor(hours / 24)} days ago`;
+}
+
+function AttentionPlayerName({ name, slot }: { name: string; slot: string }) {
+  const ref = useRef<HTMLElement>(null);
+  useLayoutEffect(() => {
+    const label = ref.current;
+    if (!label) return;
+    let active = true;
+    // Matchups also measures the full name before using compactPlayerName.
+    // Allow a long compact surname to wrap rather than hiding part of it.
+    const fit = () => {
+      if (!active || !label.clientWidth) return;
+      label.removeAttribute('data-compact');
+      if (label.scrollWidth > label.clientWidth) label.dataset.compact = 'true';
+    };
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(label);
+    void document.fonts.ready.then(fit);
+    return () => { active = false; observer.disconnect(); };
+  }, [name, slot]);
+  return <strong ref={ref} className={styles.attentionPlayer} data-fantasy-attention-player title={name}>
+    <span className="sr-only">{name}</span>
+    <span className={styles.fullPlayerName} aria-hidden="true">{name}</span>
+    <span className={styles.shortPlayerName} aria-hidden="true">{compactPlayerName(name, slot)}</span>
+  </strong>;
 }
 
 function LeagueHeader({ entry, week, requestedWeek, attention }: { entry: MyFantasyLeague; week?: number; requestedWeek?: number; attention?: Summary['attention'] }) {
@@ -121,6 +150,7 @@ function MyFantasyLeaguesView({ memberships, evaluatedAt, requestedWeek, fallbac
   const router = useRouter();
   const [reports, setReports] = useState<Partial<Record<LeagueKey, Report>>>({});
   const [expandedLeagues, setExpandedLeagues] = useState<Partial<Record<LeagueKey, boolean>>>({});
+  const [attentionExpanded, setAttentionExpanded] = useState(true);
   const [now, setNow] = useState(evaluatedAt);
   const report = useCallback<ReportHandler>((key, value) => { setReports(previous => ({ ...previous, [key]: value })); }, []);
   useEffect(() => {
@@ -185,14 +215,19 @@ function MyFantasyLeaguesView({ memberships, evaluatedAt, requestedWeek, fallbac
       {Object.values(LEAGUE_SITES).map(site => <Link key={site.key} href={`${site.prefix}/managers`}>{site.name} managers</Link>)}
     </section>}
     {attention.length > 0 && <section className={styles.attention} aria-labelledby="fantasy-attention-heading">
-      <h2 id="fantasy-attention-heading"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.3 3.5a2 2 0 0 1 3.4 0l8 14A2 2 0 0 1 20 20.5H4a2 2 0 0 1-1.7-3z" fill="currentColor" /><path d="M12 8v5m0 3v.2" stroke="var(--surface)" strokeWidth="2" strokeLinecap="round" /></svg>
-        {issueCount} starting position{issueCount === 1 ? '' : 's'} need{issueCount === 1 ? 's' : ''} attention</h2>
-      <ul>{attention.flatMap(({ entry, summary }) => summary.attention.issues.map((issue, index) => <li key={`${entry.site.key}:${issue.slot}:${index}`}>
-        <Link className={styles.attentionRow} href={`#fantasy-${entry.site.key}`} aria-label={`${issue.message} ${entry.site.name}.`}>
-          <span className={`${styles.statusDot} ${issue.severity === 'caution' ? styles.caution : styles.alert}`} aria-hidden="true" />
-          <strong className={styles.attentionPlayer}>{issue.kind === 'empty' ? `Empty ${issue.slot}` : issue.playerName}</strong>
-          <span className={issue.severity === 'caution' ? styles.cautionText : styles.alertText}>{issue.statusLabel}</span>
-          <span className={styles.startingContext}>Starting</span><span className={styles.attentionLeague}>{entry.site.name}</span>
+      <h2 id="fantasy-attention-heading"><button type="button" className={styles.attentionToggle} data-fantasy-attention-toggle
+        aria-expanded={attentionExpanded} aria-controls="fantasy-attention-list" onClick={() => setAttentionExpanded(value => !value)}>
+        <span className={`${styles.statusDot} ${styles.attentionIcon}`} data-fantasy-attention-icon aria-hidden="true">!</span>
+        <span>{issueCount} Starter{issueCount === 1 ? '' : 's'} need{issueCount === 1 ? 's' : ''} attention</span>
+        <span className={styles.attentionChevron} aria-hidden="true">{attentionExpanded ? '−' : '+'}</span>
+      </button></h2>
+      <ul id="fantasy-attention-list" data-fantasy-attention-list hidden={!attentionExpanded}>{attention.flatMap(({ entry, summary }) => summary.attention.issues.map((issue, index) => <li key={`${entry.site.key}:${issue.slot}:${index}`}>
+        <Link className={styles.attentionRow} data-fantasy-attention-row href={`#fantasy-${entry.site.key}`} aria-label={`Starting ${rosterSlotName(issue.slot)}. ${issue.message} ${entry.site.name}.`}>
+          <span className={styles.attentionPosition} data-fantasy-attention-slot><RosterSlot slot={issue.slot} className={styles.rosterSlot} /></span>
+          <AttentionPlayerName name={issue.kind === 'empty' ? 'EMPTY' : issue.playerName} slot={issue.slot} />
+          <span className={`${styles.attentionDesignation} ${issue.severity === 'caution' ? styles.cautionText : styles.alertText}`} data-fantasy-attention-designation>
+            {issue.kind === 'empty' ? 'No Player' : issue.kind === 'bye' ? 'Bye' : issue.statusLabel}</span>
+          <span className={styles.attentionLeague} data-fantasy-attention-league>{entry.site.name}</span>
         </Link>
       </li>))}</ul>
     </section>}
@@ -219,7 +254,6 @@ function MyFantasyLeaguesView({ memberships, evaluatedAt, requestedWeek, fallbac
           <div className={styles.cardFooter}><button type="button" onClick={() => router.refresh()} aria-label={`Retry ${entry.site.name}`}>Try again</button></div>
         </section>)}
     </div>
-    <p className={styles.footnote}>Showing My Team choices saved on each league’s manager page in this browser.</p>
   </div>;
 }
 

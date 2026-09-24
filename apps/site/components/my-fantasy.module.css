@@ -15,26 +15,28 @@
 @media (prefers-color-scheme: dark) {
   .page { --fantasy-rank-upper: #8dc7a3; --fantasy-rank-middle: #d6bc74; --fantasy-rank-lower: #ce9189; --fantasy-doubtful: #dd9156; }
 }
-.pageHeader { margin-bottom: 14px; }
+.pageHeader { margin-bottom: 2px; }
 .summaryRow { display: flex; align-items: baseline; justify-content: space-between; gap: 6px 12px; }
-.freshness { flex: 0 0 auto; max-width: 110px; text-align: right; color: var(--muted); font-size: 11px; line-height: 1.4; }
+.freshness { flex: 0 0 auto; max-width: 110px; text-align: right; color: var(--muted); font-size: 10px; line-height: 1.4; }
 .overview { min-width: 0; display: flex; flex-wrap: wrap; gap: 5px 0; color: var(--muted); font-size: 12px; line-height: 1.5; margin: 0; font-variant-numeric: tabular-nums; }
 .overview > span + span::before { content: '·'; padding: 0 8px; color: var(--muted); }
-.leagues { display: grid; gap: 14px; min-width: 0; }
+.leagues { display: grid; gap: 6px; min-width: 0; }
 .leagueCard { position: relative; min-width: 0; border: 1px solid var(--line-card); border-radius: 13px; background: var(--surface); scroll-margin-top: 100px; }
-.leagueHeader { position: relative; display: grid; grid-template-columns: 40px minmax(0,1fr) 7.5rem; grid-template-rows: auto auto; align-items: baseline; gap: 2px 10px; padding: 12px 14px 14px; min-width: 0; }
-.leagueLogo { grid-column: 1; grid-row: 1 / 3; align-self: stretch; object-fit: contain; border-radius: 5px; width: 40px; height: 100%; }
-.leagueHeader h2 { grid-column: 2 / -1; grid-row: 1; font-size: 15px; line-height: 1.35; margin: 0; padding-right: 23px; overflow-wrap: anywhere; }
-.leagueMetadata { grid-column: 2; grid-row: 2; font-size: 12px; line-height: 18px; padding: 0; color: var(--muted); }
-.enterLeague { grid-column: 3; grid-row: 2; display: flex; justify-content: flex-end; align-items: baseline; gap: 4px; min-height: 44px; font-size: 12px; line-height: 18px; padding: 13px 0; margin: -13px 0; color: var(--green); white-space: nowrap; font-weight: 600; }
+.leagueHeader { position: relative; display: grid; grid-template-columns: 36px minmax(0,1fr) max-content var(--fantasy-status-size); grid-template-rows: auto auto; align-items: baseline; gap: 0 8px; padding: 4px 12px; min-width: 0; }
+.leagueLogo { grid-column: 1; grid-row: 1 / 3; align-self: stretch; object-fit: contain; border-radius: 5px; width: 36px; height: 100%; min-height: 0; }
+.leagueHeader h2 { grid-column: 2 / 4; grid-row: 1; font-size: 15px; line-height: 1.25; margin: 0; overflow-wrap: anywhere; }
+.leagueMetadata { grid-column: 2; grid-row: 2; font-size: 12px; line-height: 18px; margin: 0; padding: 0; color: var(--muted); overflow-wrap: anywhere; }
+/* The asymmetric hit area fits inside this short header. Its text remains on
+   row two; the separate final track keeps the status dot outside the target. */
+.enterLeague { grid-column: 3; grid-row: 2; display: flex; justify-content: flex-end; align-items: baseline; gap: 4px; min-height: 44px; font-size: 12px; line-height: 18px; padding: 22px 0 4px; margin: -22px 0 -4px; color: var(--green); white-space: nowrap; font-weight: 600; }
 .enterLeague span { font-size: 17px; line-height: 18px; }
 .statusDot { display: inline-block; flex: 0 0 var(--fantasy-status-size); width: var(--fantasy-status-size); height: var(--fantasy-status-size); min-width: var(--fantasy-status-size); border-radius: 50%; }
-.leagueHeader > .statusDot { position: absolute; right: 14px; top: 10px; }
+.leagueHeader > .statusDot { position: absolute; right: 12px; top: 7px; }
 .alert { background: var(--injury); }
 .caution { background: var(--fantasy-doubtful); }
 .clear.statusDot { background: var(--fantasy-rank-upper); margin: 0; }
 .unknown { background: var(--muted); box-shadow: inset 0 0 0 3px var(--surface); border: 1px solid var(--muted); }
-.rankSummary { display: flex; align-items: center; justify-content: center; gap: 7px; color: var(--muted); font-size: 13px; line-height: 1.4; font-variant-numeric: tabular-nums; }
+.rankSummary { display: flex; align-items: center; justify-content: center; gap: 7px; color: var(--muted); font-size: 13px; line-height: 16px; font-variant-numeric: tabular-nums; }
 .rankSummary strong { font-weight: 600; }
 .rankSummary [data-rank-band=upper] { color: var(--fantasy-rank-upper); }
 .rankSummary [data-rank-band=middle] { color: var(--fantasy-rank-middle); }
@@ -42,40 +44,40 @@
 .rankSummary [data-rank-band=unknown] { color: var(--muted); }
 .cardFooter { padding: 0 14px 8px; }
 .cardFooter button { min-height: 44px; padding: 0 4px; background: transparent; color: var(--green); font-size: 12px; font-weight: 700; }
-.attention { padding: 12px 14px 6px; margin-bottom: 14px; border: 1px solid color-mix(in srgb, var(--injury) 55%, var(--line)); border-radius: 11px; background: var(--surface); }
-.attention h2 { display: flex; align-items: center; gap: 8px; font-size: 14px; line-height: 1.35; margin: 0 0 4px; color: var(--injury); }
-.attention h2 svg { height: 22px; width: 22px; flex: 0 0 22px; }
-.attention ul { list-style: none; padding: 0; margin: 0; }
+.attention { padding: 0 10px; margin-bottom: 8px; border: 1px solid color-mix(in srgb, var(--injury) 55%, var(--line)); border-radius: 9px; background: var(--surface); }
+.attention h2 { font-size: 13px; line-height: 1.35; margin: 0; color: var(--injury); }
+.attentionToggle { display: flex; align-items: center; gap: 7px; width: 100%; min-height: 44px; padding: 5px 0; background: transparent; color: inherit; font: inherit; text-align: left; font-weight: 700; }
+.attentionIcon { display: inline-flex; align-items: center; justify-content: center; background: var(--injury); color: var(--surface); font-size: 9px; line-height: 1; font-weight: 800; }
+.attentionChevron { margin-left: auto; font-size: 16px; color: var(--muted); }
+.attention ul { list-style: none; padding: 0; margin: 0 0 3px; border-top: 1px solid var(--line-soft); }
 .attention li + li { border-top: 1px solid var(--line-soft); }
-.attentionRow { display: grid; grid-template-columns: var(--fantasy-status-size) minmax(0,1.3fr) minmax(5.5em,auto) auto minmax(6em,1fr); column-gap: 9px; align-items: center; min-height: 44px; padding: 6px 0; font-size: 12px; line-height: 1.4; }
-.attentionPlayer { font-weight: 600; overflow-wrap: anywhere; }
+/* The same four tracks align slot, name, designation and league in every row. */
+.attentionRow { display: grid; grid-template-columns: 28px minmax(0,1.3fr) 6.5em minmax(0,1fr); column-gap: 7px; align-items: center; min-height: 44px; padding: 5px 0; font-size: 12px; line-height: 1.4; }
+.attentionRow > * + * { border-inline-start: 1px solid var(--line-soft); padding-inline-start: 6px; }
+.attentionPosition { display: flex; align-items: center; justify-content: center; min-width: 0; }
+.rosterSlot { display: block; width: 100%; text-align: center; padding: 4px 0; border-radius: 4px; color: var(--muted); background: var(--paper); font-size: 9px; font-weight: 400; line-height: 13px; }
+.attentionPlayer { display: block; position: relative; min-width: 0; font-weight: 600; }
+.fullPlayerName { white-space: nowrap; }
+.shortPlayerName { display: none; overflow-wrap: anywhere; }
+.attentionPlayer[data-compact=true] .fullPlayerName { display: none; }
+.attentionPlayer[data-compact=true] .shortPlayerName { display: inline; }
+.attentionDesignation { min-width: 0; overflow-wrap: anywhere; }
 .alertText { color: var(--injury); }
 .cautionText { color: var(--fantasy-doubtful); }
-.startingContext, .attentionLeague { color: var(--muted); }
-.attentionLeague { text-align: right; overflow-wrap: anywhere; }
-.noIssues { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 12px 14px; margin-bottom: 14px; border: 1px solid color-mix(in srgb, var(--green) 55%, var(--line)); border-radius: 11px; background: var(--green-soft); color: var(--green); font-size: 14px; line-height: 1.4; }
-.clearIcon { display: inline-flex; flex: 0 0 22px; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: #245c41; color: #fff; }
-.clearIcon svg { width: 16px; height: 16px; stroke-width: 2.5; }
+.attentionLeague { min-width: 0; color: var(--muted); text-align: right; overflow-wrap: anywhere; }
+.noIssues { display: flex; align-items: center; gap: 7px; min-height: 30px; padding: 5px 10px; margin-bottom: 8px; border: 1px solid color-mix(in srgb, var(--green) 55%, var(--line)); border-radius: 9px; background: var(--surface); color: var(--green); font-size: 13px; line-height: 1.4; }
+.clearIcon { display: inline-flex; flex: 0 0 var(--fantasy-status-size); align-items: center; justify-content: center; width: var(--fantasy-status-size); height: var(--fantasy-status-size); border-radius: 50%; background: #245c41; color: #fff; }
+.clearIcon svg { width: 8px; height: 8px; stroke-width: 2.5; }
 .clear { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--green); margin: 0 0 14px; }
 .clear svg { height: 16px; width: 16px; }
-.status, .notice, .footnote { font-size: 11px; color: var(--muted); line-height: 1.5; }
+.status, .notice { font-size: 11px; color: var(--muted); line-height: 1.5; }
 .status { margin: 0 0 14px; }
 .notice { margin: 0; padding: 0 12px 10px; }
-.footnote { margin: 16px 0 0; }
 .unavailable { padding: 12px 14px; font-size: 12px; line-height: 1.5; }
 .unavailable p { color: var(--muted); margin: 4px 0 0; }
 .unavailable a, .unavailable button { display: inline-flex; align-items: center; min-height: 44px; margin-right: 12px; color: var(--green); background: transparent; font-size: 12px; font-weight: 700; }
 @media (max-width: 540px) {
-  .leagueHeader { grid-template-columns: 40px minmax(0,1fr) 7.25rem; column-gap: 8px; padding: 11px 11px 14px; }
-  .leagueHeader > .statusDot { top: 9px; right: 12px; }
-  .attentionRow { grid-template-columns: var(--fantasy-status-size) minmax(0,1fr) auto minmax(5.5em,.8fr); gap: 2px 8px; }
-  .attentionRow > .statusDot { grid-column: 1; grid-row: 1; }
-  .attentionPlayer { grid-column: 2 / 4; grid-row: 1; }
-  .attentionRow > .alertText, .attentionRow > .cautionText { grid-column: 2; grid-row: 2; }
-  .startingContext { grid-column: 3; grid-row: 2; }
-  .attentionLeague { grid-column: 4; grid-row: 1 / 3; }
-}
-@media (min-width: 760px) {
-  .leagueHeader { padding: 14px 16px; }
-  .leagueHeader > .statusDot { top: 12px; right: 16px; }
+  .leagueHeader { column-gap: 6px; padding-inline: 10px; }
+  .leagueHeader > .statusDot { right: 10px; }
+  .attentionRow { column-gap: 5px; }
 }

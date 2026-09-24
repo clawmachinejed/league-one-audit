@@ -183,7 +183,19 @@ describe.each(capture.cases)('$leagueKey captured Week 2 Out starter', (observed
     expect(input).toEqual(before);
   });
 
-  it.each([null, 'Questionable', 'Doubtful', 'Inactive'])('does not turn a missing %s baseline into an Out zero', (injuryStatus) => {
+  it('uses the same nonparticipation policy for an active Inactive starter', () => {
+    const changed = structuredClone(observed);
+    for (const player of changed.matchup.sides.flatMap(side => side.starters)) {
+      if (player.id === observed.targetPlayerId) player.injuryStatus = 'Inactive';
+    }
+    const input = canonicalInput(changed, activePeriod(changed));
+    expect(buildSnapshot(input).matchups[0].winProbability)
+      .toEqual(buildSnapshot(canonicalInput(observed, activePeriod(observed))).matchups[0].winProbability);
+    expect(buildSnapshot(input).matchups[0].winProbability?.status).toBe('estimated');
+    assertObservedScoresAndProjections(changed, input);
+  });
+
+  it.each([null, 'Questionable', 'Doubtful', 'Unknown status'])('does not turn a missing %s baseline into a nonparticipation zero', (injuryStatus) => {
     const changed = structuredClone(observed);
     for (const player of changed.matchup.sides.flatMap((side) => side.starters)) {
       if (player.id === observed.targetPlayerId) player.injuryStatus = injuryStatus;

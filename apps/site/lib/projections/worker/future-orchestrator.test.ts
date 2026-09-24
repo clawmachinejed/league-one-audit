@@ -191,9 +191,9 @@ describe('future projection orchestration', () => {
     expect(dependencies.gamesMock).toHaveBeenCalledOnce();
     expect(dependencies.sourceMock).toHaveBeenCalledTimes(2);
     expect(dependencies.lineupRepository.wakeFutureProjectionAndMaterialization).not.toHaveBeenCalled();
-    expect(store.readFuturePlan).toHaveBeenCalledWith(expect.objectContaining({ winProbabilityModelVersion: 'normal-v2' }));
+    expect(store.readFuturePlan).toHaveBeenCalledWith(expect.objectContaining({ winProbabilityModelVersion: 'normal-v3' }));
     expect(store.beginFutureMaterialization).toHaveBeenCalledWith(expect.objectContaining({
-      period, winProbabilityModelVersion: 'normal-v2',
+      period, winProbabilityModelVersion: 'normal-v3',
     }));
     expect(store.beginFutureMaterialization.mock.calls.every(([input]) => input.force === undefined)).toBe(true);
     expect(store.publishInputs).toHaveLength(2);
