@@ -22,10 +22,10 @@ export type MyFantasyLeague = {
 };
 
 /** Public, enrolled site leagues only; account discovery never imports a league here. */
-export async function loadMyFantasyLeagues(): Promise<MyFantasyLeague[]> {
+export async function loadMyFantasyLeagues(requestedWeek?: number): Promise<MyFantasyLeague[]> {
   return Promise.all(Object.values(LEAGUE_SITES).map(async (site): Promise<MyFantasyLeague> => {
     try {
-      const source = await loadLeagueMatchups(LEAGUE_IDS[site.key], site.key);
+      const source = await loadLeagueMatchups(LEAGUE_IDS[site.key], site.key, requestedWeek);
       const [standingsData, honors] = await Promise.all([
         getStandings(source.leagueId).catch(() => null),
         getManagerHonors(source.leagueId).catch(() => null),

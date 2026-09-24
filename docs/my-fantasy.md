@@ -10,6 +10,12 @@ Affiliations do not create My Fantasy cards. League One and League Two remain av
 
 The planned replacement is inclusive aggregation of the signed-in account's associated provider teams. For example, an account associated with clawmachinejedi should receive League One and Dynasty when those are its actual memberships, while affiliated League Two remains accessible through league navigation. That future switch must use account/provider identity evidence, not browser choices, and must retain current-season isolation. Existing account/discovery contracts remain available for that work; this page does not call private account endpoints in the temporary selection phase. Additional discovered leagues still need enrollment and capability checks before website matchup cards are possible. Additional providers are not implemented by this presentation change.
 
+## Week navigation and page heading
+
+My Fantasy reuses `PageIntro`, the Matchups toolbar styles and `WeekSelector`, matching My Team and Matchups typography, season label, content alignment and control spacing. The season comes from accepted league data, with the server-evaluated calendar year used only when no league data is available. The week/league overview follows the season; freshness sits alongside that overview. The empty-selection page retains the same heading and week controls.
+
+`/my-fantasy` follows the current scoring week. A valid `?week=N` selects that exact week across supported leagues through the existing `loadLeagueMatchups` reader/fallback path, and invalid queries retain the existing Current behavior. The shared schedule boundary, bounded settling retry and visibility-return triggers refresh current-week authority. A manually selected week remains pinned through those refreshes. Current returns to the unpinned route. Enter League retains an explicitly selected week when opening that league's My Team page. No new calendar, polling or collection pipeline is introduced.
+
 ## Cards and summary
 
 Cards wrap the existing shared `MatchupBoard` presentation. Both fantasy team names, current scores, projections, manager usernames/avatars, current places and records remain. The mirrored manager → rank → record arrangement stays on one row, with records nearest the centered expansion chevron. Identity text absorbs overflow; rank and record do not move into another row. The user is always on the left, and My Fantasy omits championship trophies.

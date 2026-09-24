@@ -25,6 +25,128 @@ const navigation = (page: Page, width: number) => page.getByRole('navigation', {
   name: width < 760 ? 'Mobile navigation' : 'Main navigation', exact: true,
 });
 
+async function pageIntroGeometry(page: Page) {
+  // A streamed fallback can remain hidden beside the resolved page markup.
+  // Require one visible intro instead of choosing an arbitrary duplicate.
+  const intro = page.locator('#main-content [data-page-intro]:visible');
+  await expect(intro).toHaveCount(1);
+  await expect(intro).toBeVisible();
+  const title = await intro.evaluate(element => {
+    const heading = element.querySelector('h1')!;
+    const season = element.querySelector('p')!;
+    const style = getComputedStyle(heading);
+    const seasonStyle = getComputedStyle(season);
+    const headingBox = heading.getBoundingClientRect();
+    const seasonBox = season.getBoundingClientRect();
+    return { typography: { fontSize: style.fontSize, lineHeight: style.lineHeight, fontWeight: style.fontWeight,
+      letterSpacing: style.letterSpacing, seasonSize: seasonStyle.fontSize, seasonLineHeight: seasonStyle.lineHeight },
+    top: headingBox.top, left: headingBox.left, seasonGap: seasonBox.top - headingBox.bottom,
+    seasonBottom: seasonBox.bottom, seasonText: season.textContent };
+  });
+  const selector = await page.getByRole('combobox', { name: 'Matchup week', exact: true }).boundingBox();
+  expect(selector).not.toBeNull();
+  return { ...title, selectorTop: selector!.y, selectorRight: selector!.x + selector!.width };
+}
+
+async function expectFantasyWeek(page: Page, week: number) {
+  await expect(page.getByRole('combobox', { name: 'Matchup week', exact: true })).toHaveValue(String(week));
+  await expect(page.locator('[data-my-fantasy-league]')).toHaveCount(3);
+  for (const league of leagues) await expect(card(page, league).locator('[data-fantasy-metadata]'))
+    .toHaveText(`Sleeper · Week ${week}`);
+}
+
+async function openFantasyCalendar(page: Page) {
+  const before = '2026-09-15T15:59:58.000Z';
+  const cutoff = '2026-09-15T16:00:00.000Z';
+  const laterCutoff = '2026-09-22T16:00:00.000Z';
+  const thirdCutoff = '2026-09-29T16:00:00.000Z';
+  const state = { currentWeek: 1, navigations: [] as Array<number | null>, accountRequests: [] as string[], providerRequests: [] as string[] };
+  const evaluatedAt = () => state.currentWeek === 1 ? before : state.currentWeek === 2 ? cutoff
+    : state.currentWeek === 3 ? laterCutoff : thirdCutoff;
+  const context = (week: number): MatchupPeriodContext => ({ ...contextFixture('active', state.currentWeek),
+    temporalState: week < state.currentWeek ? 'past' : week > state.currentWeek ? 'future' : 'active' });
+  await page.setViewportSize({ width: 390, height: 900 });
+  await page.clock.install({ time: new Date(Date.parse(before) - 60_000) });
+  await page.addInitScript(preferences => preferences.forEach(([key, value]) => localStorage.setItem(key, value)),
+    leagues.map(league => [storageKey(league), String(savedTeams[league])]));
+  page.on('request', request => {
+    if (/api\.sleeper\.|tank01/iu.test(new URL(request.url()).hostname)) state.providerRequests.push(request.url());
+  });
+  await page.route(/\/api\/me(?:\/|\?|$)/u, async route => {
+    state.accountRequests.push(new URL(route.request().url()).pathname);
+    await route.fulfill({ status: 503, json: { error: 'accounts_unavailable' } });
+  });
+  // Same controlled Flight transport as site-week-rollover.spec.ts. The real
+  // route must supply requestedWeek; the fixture changes only provider evidence.
+  await page.route(/\/my-fantasy(?:\?|$)/u, async route => {
+    const headers = route.request().headers();
+    if (headers.rsc !== '1') return route.continue();
+    if (headers['next-router-prefetch'] === '1') return route.abort();
+    const requested = new URL(route.request().url()).searchParams.get('week');
+    const week = requested === null ? state.currentWeek : Number(requested);
+    state.navigations.push(requested === null ? null : week);
+    const response = await route.fetch();
+    let sourceReplacements = 0;
+    let viewReplacements = 0;
+    function replaceProps(value: unknown, inheritedLeague?: LeagueKey): void {
+      if (!value || typeof value !== 'object') return;
+      let league = inheritedLeague;
+      if (!Array.isArray(value)) {
+        const props = value as Record<string, unknown>;
+        if ('leagues' in props && 'evaluatedAt' in props) {
+          expect(props.requestedWeek === '$undefined' ? undefined : props.requestedWeek).toBe(requested === null ? undefined : week);
+          props.evaluatedAt = evaluatedAt();
+          viewReplacements += 1;
+        }
+        if ('site' in props && 'source' in props) {
+          league = (props.site as { key: LeagueKey }).key;
+          expect(leagues).toContain(league);
+          props.standingsData = null;
+          props.honors = null;
+        }
+        if ('snapshotRevision' in props && 'periodContext' in props && 'data' in props) {
+          expect(league).toBeDefined();
+          const data = fantasyFixture(league!, week);
+          data.updatedAt = evaluatedAt();
+          Object.assign(props, { data, periodContext: context(week), snapshotRevision: SNAPSHOT_A,
+            verifiedAt: evaluatedAt(), standings: null, rollover: { week: state.currentWeek,
+              evaluatedAt: evaluatedAt(), nextRolloverAt: state.currentWeek === 1 ? cutoff
+                : state.currentWeek === 2 ? laterCutoff : state.currentWeek === 3 ? thirdCutoff : '2026-10-06T16:00:00.000Z' } });
+          sourceReplacements += 1;
+          return;
+        }
+      }
+      Object.values(value).forEach(child => replaceProps(child, league));
+    }
+    const body = (await response.text()).split('\n').map(line => {
+      const separator = line.indexOf(':');
+      if (separator < 0) return line;
+      let value: unknown;
+      try { value = JSON.parse(line.slice(separator + 1)); } catch { return line; }
+      replaceProps(value);
+      return `${line.slice(0, separator + 1)}${JSON.stringify(value)}`;
+    }).join('\n');
+    expect(sourceReplacements, 'Every existing league reader receives the same calendar authority').toBe(3);
+    expect(viewReplacements, 'The real My Fantasy page receives its original query selection').toBe(1);
+    await route.fulfill({ response, body });
+  });
+  await page.route('**/api/matchups/**', async route => {
+    const url = new URL(route.request().url());
+    const league = url.pathname.split('/')[3] as LeagueKey;
+    const week = Number(url.searchParams.get('week'));
+    const data = fantasyFixture(league, week);
+    data.updatedAt = evaluatedAt();
+    const headers = Object.fromEntries(snapshotHeaders(SNAPSHOT_A, data.updatedAt, context(week)));
+    await route.fulfill({ headers, json: url.pathname.endsWith('/revision')
+      ? { status: 'ok', revision: SNAPSHOT_A, verifiedAt: data.updatedAt } : data });
+  });
+  await page.goto('/managers', { waitUntil: 'networkidle' });
+  await navigation(page, 390).getByRole('link', { name: 'My Fantasy', exact: true }).click();
+  await expectFantasyWeek(page, 1);
+  await page.clock.pauseAt(new Date(before));
+  return state;
+}
+
 function fantasyFixture(league: LeagueKey, week: number) {
   const first = snapshotFixture(week);
   const second = snapshotFixture(week);
@@ -266,6 +388,9 @@ for (const width of [390, 760, 900, 1280]) {
   test(`My Fantasy precedes My Team and remains global from League Two at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await page.goto('/league2/my-team', { waitUntil: 'domcontentloaded' });
+    const myTeamIntro = await pageIntroGeometry(page);
+    await page.goto('/league2/matchups', { waitUntil: 'networkidle' });
+    const matchupsIntro = await pageIntroGeometry(page);
     const nav = navigation(page, width);
     const links = nav.locator(':scope > a');
     await expect(links).toHaveText(['My Fantasy', 'My Team', 'Matchups', 'League']);
@@ -276,6 +401,19 @@ for (const width of [390, 760, 900, 1280]) {
     await nav.getByRole('link', { name: 'My Fantasy', exact: true }).click();
     await expect(page).toHaveURL(/\/my-fantasy$/u);
     await expect(page.getByRole('heading', { level: 1, name: 'My Fantasy', exact: true })).toBeVisible();
+    const fantasyIntro = await pageIntroGeometry(page);
+    for (const [label, reference] of [['My Team', myTeamIntro], ['Matchups', matchupsIntro]] as const) {
+      expect(fantasyIntro.typography, `My Fantasy matches ${label} heading typography at ${width}px`).toEqual(reference.typography);
+      expect(fantasyIntro.seasonText).toBe(reference.seasonText);
+      for (const field of ['top', 'left', 'seasonGap', 'selectorTop', 'selectorRight'] as const) {
+        expect(Math.abs(fantasyIntro[field] - reference[field]),
+          `My Fantasy matches ${label} ${field} at ${width}px`).toBeLessThanOrEqual(1);
+      }
+    }
+    const overview = page.locator('[data-fantasy-overview]');
+    await expect(overview).toBeVisible();
+    expect((await overview.boundingBox())!.y, 'The season sits above the cross-league overview')
+      .toBeGreaterThanOrEqual(fantasyIntro.seasonBottom);
     await expect(nav.getByRole('link', { name: 'My Fantasy', exact: true })).toHaveAttribute('aria-current', 'page');
     await expect(nav.getByRole('link', { name: 'My Team', exact: true })).not.toHaveAttribute('aria-current', 'page');
     await expect(page.locator('[data-my-fantasy-league]')).toHaveCount(0);
@@ -291,6 +429,84 @@ for (const width of [390, 760, 900, 1280]) {
       `Global My Fantasy navigation must fit ${width}px`).toBe(true);
   });
 }
+
+test('My Fantasy shares exact-week navigation across every card and retains selection on reload', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 900 });
+  await page.addInitScript(preferences => preferences.forEach(([key, value]) => localStorage.setItem(key, value)),
+    leagues.map(league => [storageKey(league), String(savedTeams[league])]));
+  await page.goto('/my-fantasy', { waitUntil: 'networkidle' });
+  const picker = page.getByRole('combobox', { name: 'Matchup week', exact: true });
+  const currentWeek = Number(await picker.inputValue());
+  await expectFantasyWeek(page, currentWeek);
+  await expect(picker.locator('option:checked')).toHaveText(`Week ${currentWeek} · Current`);
+  const weeks = await picker.locator('option').evaluateAll(options => options.map(option => Number((option as HTMLOptionElement).value)));
+  const anotherWeek = weeks.find(week => week !== currentWeek)!;
+  expect(anotherWeek).toBeDefined();
+  await picker.selectOption(String(anotherWeek));
+  await expect(page).toHaveURL(new RegExp(`/my-fantasy\\?week=${anotherWeek}$`, 'u'));
+  await expectFantasyWeek(page, anotherWeek);
+  for (const league of leagues) await expect(card(page, league).getByRole('link', { name: `Enter ${LEAGUE_SITES[league].name}`, exact: true }))
+    .toHaveAttribute('href', `${LEAGUE_SITES[league].prefix}/my-team?week=${anotherWeek}`);
+  await page.reload({ waitUntil: 'networkidle' });
+  await expectFantasyWeek(page, anotherWeek);
+  const current = page.getByRole('link', { name: 'Back to current', exact: true });
+  await expect(current).toHaveAttribute('href', '/my-fantasy');
+  await current.click();
+  await expect(page).toHaveURL(/\/my-fantasy$/u);
+  await expectFantasyWeek(page, currentWeek);
+  await expect(current).toHaveCount(0);
+  // The dropdown's Current option also clears the numeric pin.
+  await picker.selectOption(String(anotherWeek));
+  await expectFantasyWeek(page, anotherWeek);
+  await picker.selectOption(String(currentWeek));
+  await expect(page).toHaveURL(/\/my-fantasy$/u);
+  await expectFantasyWeek(page, currentWeek);
+  expect(await page.evaluate(keys => keys.map(key => localStorage.getItem(key)), leagues.map(storageKey))).toEqual(['1', '2', '3']);
+});
+
+test('My Fantasy follows current-week rollover across all cards while explicit weeks stay pinned', async ({ page }) => {
+  const state = await openFantasyCalendar(page);
+  const picker = page.getByRole('combobox', { name: 'Matchup week', exact: true });
+  const initialNavigations = state.navigations.length;
+  state.currentWeek = 2;
+  await page.clock.runFor(1_999);
+  expect(state.navigations).toHaveLength(initialNavigations);
+  await page.clock.runFor(1);
+  await expectFantasyWeek(page, 2);
+  expect(new URL(page.url()).searchParams.has('week')).toBe(false);
+  expect(state.navigations.at(-1)).toBeNull();
+  await picker.selectOption('3');
+  await expect(page).toHaveURL(/\/my-fantasy\?week=3$/u);
+  await expectFantasyWeek(page, 3);
+  // The pinned future week becomes current while hidden, then historical on a
+  // later refresh. Visibility uses the existing site rollover signal.
+  const visibility = async (visible: boolean) => page.evaluate(value => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => value ? 'visible' : 'hidden' });
+    document.dispatchEvent(new Event('visibilitychange'));
+  }, visible);
+  await visibility(false);
+  state.currentWeek = 3;
+  await page.clock.setSystemTime(new Date('2026-09-22T16:00:01.000Z'));
+  await visibility(true);
+  await expect(picker.locator('option[value="3"]')).toContainText('Current');
+  await expectFantasyWeek(page, 3);
+  await expect(page).toHaveURL(/\/my-fantasy\?week=3$/u);
+  await visibility(false);
+  state.currentWeek = 4;
+  await page.clock.setSystemTime(new Date('2026-09-29T16:00:01.000Z'));
+  await visibility(true);
+  await expect(picker.locator('option[value="4"]')).toContainText('Current');
+  await expectFantasyWeek(page, 3);
+  await expect(page).toHaveURL(/\/my-fantasy\?week=3$/u);
+  const current = page.getByRole('link', { name: 'Back to current', exact: true });
+  await expect(current).toHaveAttribute('href', '/my-fantasy');
+  // The separate real-response navigation test verifies Current and reload.
+  // Keep this controlled calendar transport focused on rollover and pinning;
+  // cached navigation may correctly return an empty Flight patch with no props.
+  expect(state.accountRequests).toEqual([]);
+  expect(state.providerRequests).toEqual([]);
+  await page.unrouteAll({ behavior: 'wait' });
+});
 
 test('My Fantasy retries stale server props and preserves the expanded matchup through bounded recovery', async ({ page }) => {
   const state = await openFantasyFixture(page, { staleInitialRefresh: true });

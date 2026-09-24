@@ -10,7 +10,10 @@ import { getMyFantasyLeagueSummary, myFantasyStandingsEvidence } from '../lib/my
 import { selectedBrowserMyFantasyMemberships,
   type MyFantasyMembership } from '../lib/my-fantasy-membership';
 import type { MyFantasyLeague } from '../lib/my-fantasy-source';
-import type { LeagueKey } from '../lib/leagues';
+import { LEAGUE_SITES, type LeagueKey } from '../lib/leagues';
+import { PageIntro } from './page-intro';
+import { WeekSelector } from './week-selector';
+import matchupStyles from './matchups.module.css';
 import { LeagueSiteProvider } from './league-context';
 import { TeamPreferenceProvider, useBrowserTeamSelections, useTeamPreference } from './team-preference';
 import { ManagerHonorsProvider, ManagerHonorsSeason } from './manager-honors';
@@ -24,7 +27,7 @@ import styles from './my-fantasy.module.css';
 
 type AvailableLeague = Extract<MyFantasyLeague, { status: 'available' }>;
 type Summary = ReturnType<typeof getMyFantasyLeagueSummary>;
-type Report = { entry: AvailableLeague; summary: Summary; week: number; season: string; updatedAt: string };
+type Report = { entry: AvailableLeague; summary: Summary; week: number; currentWeek: number; season: string; updatedAt: string };
 type ReportHandler = (key: LeagueKey, report: Report) => void;
 
 function place(value: number | null) {
@@ -43,7 +46,7 @@ function ageLabel(value: string, now: string) {
   return hours < 24 ? `Updated ${hours} hr ago` : `Updated ${Math.floor(hours / 24)} days ago`;
 }
 
-function LeagueHeader({ entry, week, attention }: { entry: MyFantasyLeague; week?: number; attention?: Summary['attention'] }) {
+function LeagueHeader({ entry, week, requestedWeek, attention }: { entry: MyFantasyLeague; week?: number; requestedWeek?: number; attention?: Summary['attention'] }) {
   const issue = (attention?.issues.length ?? 0) > 0;
   const state = issue ? 'alert' : attention?.status === 'verified' ? 'clear' : 'unknown';
   const description = issue ? `${attention!.issues.length} starting position${attention!.issues.length === 1 ? '' : 's'} need attention`
@@ -53,16 +56,16 @@ function LeagueHeader({ entry, week, attention }: { entry: MyFantasyLeague; week
     <Image className={styles.leagueLogo} src={entry.site.logo} width={40} height={40} alt="" />
     <h2>{entry.site.name}</h2>
     <p className={styles.leagueMetadata} data-fantasy-metadata>Sleeper{week !== undefined && <> · Week {week}</>}</p>
-    <Link className={styles.enterLeague} data-fantasy-enter href={`${entry.site.prefix}/my-team`}
+    <Link className={styles.enterLeague} data-fantasy-enter href={`${entry.site.prefix}/my-team${requestedWeek === undefined ? '' : `?week=${requestedWeek}`}`}
       aria-label={`Enter ${entry.site.name}`}>Enter League <span aria-hidden="true">›</span></Link>
     <span className={`${styles.statusDot} ${styles[state]}`} data-fantasy-status={state}
       role="img" aria-label={description} />
   </header>;
 }
 
-function FantasyLeagueCard({ entry, teamIds, evaluatedAt, onReport, expanded, onToggle }: {
+function FantasyLeagueCard({ entry, teamIds, evaluatedAt, onReport, expanded, onToggle, requestedWeek }: {
   entry: AvailableLeague; teamIds: number[]; evaluatedAt: string; onReport: ReportHandler;
-  expanded: boolean; onToggle: () => void;
+  expanded: boolean; onToggle: () => void; requestedWeek?: number;
 }) {
   const { site, source } = entry;
   const snapshot = useMatchupSnapshot({ leagueKey: site.key, ...source });
@@ -72,22 +75,22 @@ function FantasyLeagueCard({ entry, teamIds, evaluatedAt, onReport, expanded, on
   const summary = useMemo(() => getMyFantasyLeagueSummary(data, snapshot.periodContext, entry.standingsData,
     selectedTeam, new Date(evaluatedAt), true),
     [data, snapshot.periodContext, entry.standingsData, selectedTeam, evaluatedAt]);
-  useEffect(() => { onReport(site.key, { entry, summary, week: data.week, season: data.league.season, updatedAt: snapshot.updatedAt }); },
-    [site.key, entry, summary, data.week, data.league.season, snapshot.updatedAt, onReport]);
+  const currentWeek = currentMatchupWeek(snapshot.periodContext);
+  useEffect(() => { onReport(site.key, { entry, summary, week: data.week, currentWeek, season: data.league.season, updatedAt: snapshot.updatedAt }); },
+    [site.key, entry, summary, data.week, currentWeek, data.league.season, snapshot.updatedAt, onReport]);
   const router = useRouter();
   const refreshed = useRef<string | null>(null);
   useMyFantasyStandingsRefresh(myFantasyStandingsEvidence(data));
-  const currentWeek = currentMatchupWeek(snapshot.periodContext);
   const basis = entry.standingsData?.projectionBasis;
   const wrongPeriod = data.week !== currentWeek || (basis?.kind === 'ready' && basis.week !== currentWeek)
     || (entry.standingsData !== null && entry.standingsData.league.season !== data.league.season);
   useEffect(() => {
-    if (!wrongPeriod) return;
+    if (requestedWeek !== undefined || !wrongPeriod) return;
     const key = `${snapshot.periodContext.defaultSeason}:${currentWeek}`;
     if (refreshed.current === key) return;
     refreshed.current = key;
     router.refresh();
-  }, [currentWeek, router, snapshot.periodContext.defaultSeason, wrongPeriod]);
+  }, [currentWeek, requestedWeek, router, snapshot.periodContext.defaultSeason, wrongPeriod]);
 
   const ranks = summary.team ? <span className={styles.rankSummary} data-fantasy-rank title={summary.projectedRankReason ?? undefined} aria-hidden="true">
     <strong data-rank-band={relativeRankBand(summary.currentRank, data.teams.length)}>{place(summary.currentRank)}</strong>
@@ -96,7 +99,7 @@ function FantasyLeagueCard({ entry, teamIds, evaluatedAt, onReport, expanded, on
   const rankDescription = `Current rank ${summary.currentRank === null ? 'unavailable' : place(summary.currentRank)}; projected rank ${summary.projectedRank === null ? 'unavailable' : place(summary.projectedRank)}.`;
   return <ManagerHonorsSeason season={data.league.season}>
     <section id={`fantasy-${site.key}`} className={styles.leagueCard} data-my-fantasy-league={site.key} aria-label={site.name}>
-      <LeagueHeader entry={entry} week={data.week} attention={summary.attention} />
+      <LeagueHeader entry={entry} week={data.week} requestedWeek={requestedWeek} attention={summary.attention} />
       {summary.matchup ? <MatchupsWithBoxScores key={`${site.key}:${data.league.season}:${data.week}:${summary.team?.id}`}
         matchups={[summary.matchup]} selected={summary.team?.id ?? null} leagueKey={site.key} season={data.league.season}
         week={data.week} refreshAutomatically={snapshot.periodContext.temporalState === 'active'} showBench benchExpandable
@@ -111,8 +114,8 @@ function FantasyLeagueCard({ entry, teamIds, evaluatedAt, onReport, expanded, on
   </ManagerHonorsSeason>;
 }
 
-function MyFantasyLeaguesView({ memberships, evaluatedAt }: {
-  memberships: MyFantasyMembership[]; evaluatedAt: string;
+function MyFantasyLeaguesView({ memberships, evaluatedAt, requestedWeek, fallbackLeague }: {
+  memberships: MyFantasyMembership[]; evaluatedAt: string; requestedWeek?: number; fallbackLeague?: AvailableLeague;
 }) {
   const leagues = memberships.map(membership => membership.entry);
   const router = useRouter();
@@ -128,13 +131,22 @@ function MyFantasyLeaguesView({ memberships, evaluatedAt }: {
     return () => { window.clearInterval(timer); document.removeEventListener('visibilitychange', update); };
   }, []);
   const available = leagues.filter((entry): entry is AvailableLeague => entry.status === 'available');
-  const rollover = available.map(entry => entry.source.rollover).filter(entry => entry !== null)
+  const calendarLeagues = available.length ? available : fallbackLeague ? [fallbackLeague] : [];
+  const rollover = calendarLeagues.map(entry => entry.source.rollover).filter(entry => entry !== null)
     .sort((a, b) => (a.nextRolloverAt ?? 'z').localeCompare(b.nextRolloverAt ?? 'z'))[0];
   useSiteWeekRollover(rollover);
   const currentReports = available.flatMap(entry => reports[entry.site.key]?.entry === entry ? [reports[entry.site.key]!] : []);
   const ready = currentReports.length === available.length;
+  const headerLeague = available[0] ?? fallbackLeague;
+  const headerReport = currentReports.find(report => report.entry === headerLeague);
+  const season = headerReport?.season ?? headerLeague?.source.data.league.season
+    ?? String(new Date(evaluatedAt).getUTCFullYear());
+  const selectedWeek = requestedWeek ?? headerReport?.week ?? headerLeague?.source.data.week;
+  const currentWeek = headerLeague ? headerLeague.source.rollover?.week ?? headerReport?.currentWeek
+    ?? currentMatchupWeek(headerLeague.source.periodContext) : undefined;
   const periods = new Set(currentReports.map(entry => `${entry.season}:${entry.week}`));
   const samePeriod = ready && periods.size === 1;
+  const overviewWeek = samePeriod ? currentReports[0].week : requestedWeek ?? (leagues.length === 0 ? selectedWeek : undefined);
   const projected = currentReports.filter(entry => entry.summary.projectedOutcome !== 'unavailable');
   const wins = projected.filter(entry => entry.summary.projectedOutcome === 'win').length;
   const losses = projected.filter(entry => entry.summary.projectedOutcome === 'loss').length;
@@ -151,15 +163,27 @@ function MyFantasyLeaguesView({ memberships, evaluatedAt }: {
 
   return <div className={styles.page}>
     <header className={styles.pageHeader}>
-      <h1>My Fantasy</h1>
-      <p className={styles.freshness} title={oldestUpdate ? `Oldest successful matchup update across these leagues: ${oldestUpdate}` : undefined}>
-        {oldestUpdate ? ageLabel(oldestUpdate, now) : 'Update time unavailable'}
-      </p>
-      <p className={styles.overview} aria-live="polite">
-        <span>{samePeriod ? `Week ${currentReports[0].week}` : 'Current matchups'}</span><span>{leagues.length} {leagues.length === 1 ? 'League' : 'Leagues'}</span>
-        {samePeriod && projected.length > 0 && <span>{wins}–{losses}{ties > 0 ? `–${ties}` : ''} projected{projected.length < leagues.length ? ` · ${projected.length} of ${leagues.length}` : ''}</span>}
-      </p>
+      <div className={matchupStyles.toolbar} data-fantasy-toolbar>
+        <PageIntro title="My Fantasy" league={{ season }} />
+        {headerLeague && selectedWeek !== undefined && currentWeek !== undefined && <WeekSelector
+          label="Matchup week" week={selectedWeek} currentWeek={currentWeek} maxWeek={headerLeague.source.data.league.maxWeek}
+          onChange={week => router.push(week === currentWeek ? '/my-fantasy' : `/my-fantasy?week=${week}`)}
+          hrefForWeek={week => `/my-fantasy?week=${week}`} currentHref="/my-fantasy" />}
+      </div>
+      <div className={styles.summaryRow} data-fantasy-overview>
+        <p className={styles.overview} aria-live="polite">
+          <span>{overviewWeek === undefined ? 'Current matchups' : `Week ${overviewWeek}`}</span><span>{leagues.length} {leagues.length === 1 ? 'League' : 'Leagues'}</span>
+          {samePeriod && projected.length > 0 && <span>{wins}–{losses}{ties > 0 ? `–${ties}` : ''} projected{projected.length < leagues.length ? ` · ${projected.length} of ${leagues.length}` : ''}</span>}
+        </p>
+        {leagues.length > 0 && <p className={styles.freshness} title={oldestUpdate ? `Oldest successful matchup update across these leagues: ${oldestUpdate}` : undefined}>
+          {oldestUpdate ? ageLabel(oldestUpdate, now) : 'Update time unavailable'}
+        </p>}
+      </div>
     </header>
+    {leagues.length === 0 && <section className={styles.unavailable} role="status">
+      <p>Select My Team on a league’s manager page to show that team here.</p>
+      {Object.values(LEAGUE_SITES).map(site => <Link key={site.key} href={`${site.prefix}/managers`}>{site.name} managers</Link>)}
+    </section>}
     {attention.length > 0 && <section className={styles.attention} aria-labelledby="fantasy-attention-heading">
       <h2 id="fantasy-attention-heading"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.3 3.5a2 2 0 0 1 3.4 0l8 14A2 2 0 0 1 20 20.5H4a2 2 0 0 1-1.7-3z" fill="currentColor" /><path d="M12 8v5m0 3v.2" stroke="var(--surface)" strokeWidth="2" strokeLinecap="round" /></svg>
         {issueCount} starting position{issueCount === 1 ? '' : 's'} need{issueCount === 1 ? 's' : ''} attention</h2>
@@ -183,14 +207,14 @@ function MyFantasyLeaguesView({ memberships, evaluatedAt }: {
         ? <LeagueSiteProvider key={entry.site.key} site={entry.site} leagueId={entry.leagueId}>
           <TeamPreferenceProvider key={entry.leagueId} leagueId={entry.leagueId}>
             <ManagerHonorsProvider data={entry.honors} season={entry.source.data.league.season}>
-              <FantasyLeagueCard entry={entry} teamIds={teamIds} evaluatedAt={now} onReport={report}
+              <FantasyLeagueCard key={`${entry.source.data.league.season}:${entry.source.data.week}`} entry={entry} teamIds={teamIds} evaluatedAt={now} onReport={report} requestedWeek={requestedWeek}
                 expanded={expandedLeagues[entry.site.key] ?? false}
                 onToggle={() => setExpandedLeagues(current => ({ ...current, [entry.site.key]: !current[entry.site.key] }))} />
             </ManagerHonorsProvider>
           </TeamPreferenceProvider>
         </LeagueSiteProvider>
         : <section key={entry.site.key} className={styles.leagueCard} data-my-fantasy-league={entry.site.key} aria-label={entry.site.name}>
-          <LeagueHeader entry={entry} />
+          <LeagueHeader entry={entry} week={requestedWeek} requestedWeek={requestedWeek} />
           <div className={styles.unavailable}><strong>League data temporarily unavailable</strong><p>Your other leagues are still available.</p></div>
           <div className={styles.cardFooter}><button type="button" onClick={() => router.refresh()} aria-label={`Retry ${entry.site.name}`}>Try again</button></div>
         </section>)}
@@ -201,14 +225,10 @@ function MyFantasyLeaguesView({ memberships, evaluatedAt }: {
 
 /** Temporary public-team selection, explicitly chosen by the user for every environment.
  * Account/provider membership will replace this rule in a later phase. */
-export function MyFantasyView({ leagues, evaluatedAt }: { leagues: MyFantasyLeague[]; evaluatedAt: string }) {
+export function MyFantasyView({ leagues, evaluatedAt, requestedWeek }: { leagues: MyFantasyLeague[]; evaluatedAt: string; requestedWeek?: number }) {
   const leagueIds = useMemo(() => leagues.map(entry => entry.leagueId ?? ''), [leagues]);
   const selections = useBrowserTeamSelections(leagueIds);
   const memberships = useMemo(() => selectedBrowserMyFantasyMemberships(leagues, selections), [leagues, selections]);
-  if (!memberships.length) return <div className={styles.page}><h1>My Fantasy</h1>
-    <section className={styles.unavailable} role="status">
-      <p>Select My Team on a league’s manager page to show that team here.</p>
-      {leagues.map(entry => <Link key={entry.site.key} href={`${entry.site.prefix}/managers`}>{entry.site.name} managers</Link>)}
-    </section></div>;
-  return <MyFantasyLeaguesView memberships={memberships} evaluatedAt={evaluatedAt} />;
+  const fallbackLeague = leagues.find((entry): entry is AvailableLeague => entry.status === 'available');
+  return <MyFantasyLeaguesView memberships={memberships} evaluatedAt={evaluatedAt} requestedWeek={requestedWeek} fallbackLeague={fallbackLeague} />;
 }
