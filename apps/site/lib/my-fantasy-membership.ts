@@ -1,5 +1,4 @@
 import type { AccountView, SleeperLeagueDiscovery } from './accounts/contracts';
-import { LEAGUE_IDS } from './config';
 import type { MyFantasyLeague } from './my-fantasy-source';
 
 export type MyFantasyMembership = { entry: MyFantasyLeague; teamIds: number[] };
@@ -13,7 +12,8 @@ export function currentMyFantasyMemberships(
   const complete = new Set(discovery.profiles.filter(profile => profile.status === 'complete')
     .map(profile => profile.sourceManagerAccountId));
   return leagues.flatMap(entry => {
-    const leagueId = entry.status === 'available' ? entry.leagueId : LEAGUE_IDS[entry.site.key];
+    const leagueId = entry.leagueId;
+    if (!leagueId) return [];
     const discovered = discovery.leagues.find(candidate => candidate.id === leagueId && candidate.season === discovery.season);
     if (!discovered) return [];
     const confirmedProfiles = new Set(discovered.sourceManagerAccountIds.filter(id => linked.has(id) && complete.has(id)));

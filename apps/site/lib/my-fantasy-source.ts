@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { LEAGUE_IDS } from './config';
+import { getCurrentLeagueId } from './league-administration/registry';
 import { loadLeagueMatchups, type LeagueMatchupsSource } from './league-matchups-source';
 import { LEAGUE_SITES, type LeagueSite } from './leagues';
 import type { ManagerHonors } from './manager-honors';
@@ -17,6 +18,7 @@ export type MyFantasyLeague = {
 } | {
   status: 'unavailable';
   site: LeagueSite;
+  leagueId: string | null;
 };
 
 /** Public, enrolled site leagues only; account discovery never imports a league here. */
@@ -31,7 +33,10 @@ export async function loadMyFantasyLeagues(): Promise<MyFantasyLeague[]> {
       return { status: 'available', site, leagueId: source.leagueId, source, standingsData, honors };
     } catch {
       // A registration or matchup failure belongs to this league, not the page.
-      return { status: 'unavailable', site };
+      // The registration read is request-cached. Keep its exact ID when only
+      // matchup data failed; an unproved ID must never fall back to bootstrap.
+      const leagueId = await getCurrentLeagueId(site.key).catch(() => null);
+      return { status: 'unavailable', site, leagueId };
     }
   }));
 }

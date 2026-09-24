@@ -58,10 +58,20 @@ describe('My Fantasy account membership', () => {
   });
 
   it('keeps a confirmed member’s card visible when that league’s matchup source fails', () => {
-    const unavailable: MyFantasyLeague = { status: 'unavailable', site: LEAGUE_SITES.league1 };
+    const unavailable: MyFantasyLeague = { status: 'unavailable', site: LEAGUE_SITES.league1, leagueId: LEAGUE_IDS.league1 };
     expect(currentMyFantasyMemberships([unavailable, source('league2')], account([
       league('league1', [team('3')]), league('league2', []),
     ]), discovery(['league1']))).toEqual([{ entry: unavailable, teamIds: [3] }]);
+  });
+
+  it('retains an unavailable card for a confirmed member after the league renews its Sleeper ID', () => {
+    const unavailable: MyFantasyLeague = { status: 'unavailable', site: LEAGUE_SITES.league1, leagueId: 'renewed-league-one' };
+    const current = discovery(['league1']);
+    current.leagues[0].id = 'renewed-league-one';
+    expect(currentMyFantasyMemberships([unavailable], account([league('league1', [team('3')])]), current))
+      .toEqual([{ entry: unavailable, teamIds: [3] }]);
+    expect(currentMyFantasyMemberships([{ ...unavailable, leagueId: null }], account([league('league1', [team('3')])]), current))
+      .toEqual([]);
   });
 
   it('shows a stale stored team only for the exact profile still in that Sleeper league', () => {

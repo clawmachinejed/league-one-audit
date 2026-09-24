@@ -8,6 +8,7 @@ vi.mock('server-only', () => ({}));
 
 const mocks = vi.hoisted(() => ({
   resolveCurrentLeagueId: vi.fn(),
+  getCurrentLeagueId: vi.fn(),
   readStoredMatchups: vi.fn(),
   getSiteWeekRollover: vi.fn(),
   getCurrentStandings: vi.fn(),
@@ -17,7 +18,9 @@ const mocks = vi.hoisted(() => ({
   getManagerHonors: vi.fn(),
 }));
 
-vi.mock('./league-administration/registry', () => ({ resolveCurrentLeagueId: mocks.resolveCurrentLeagueId }));
+vi.mock('./league-administration/registry', () => ({
+  resolveCurrentLeagueId: mocks.resolveCurrentLeagueId, getCurrentLeagueId: mocks.getCurrentLeagueId,
+}));
 vi.mock('./projection-reader', () => ({ readStoredMatchups: mocks.readStoredMatchups }));
 vi.mock('./sleeper', () => ({
   getSiteWeekRollover: mocks.getSiteWeekRollover,
@@ -67,6 +70,7 @@ describe('My Fantasy league source composition', () => {
       const key = (Object.keys(LEAGUE_IDS) as LeagueKey[]).find(candidate => LEAGUE_IDS[candidate] === bootstrapId)!;
       return currentIds[key];
     });
+    mocks.getCurrentLeagueId.mockImplementation(async (key: LeagueKey) => currentIds[key]);
     mocks.readStoredMatchups.mockImplementation(async (key: LeagueKey) => stored(key));
     mocks.getSiteWeekRollover.mockResolvedValue({ week: 3, nextRolloverAt: null, evaluatedAt: verifiedAt });
     mocks.getCurrentStandings.mockImplementation(async (leagueId: string) => ({ leagueId, season: '2026',
@@ -100,11 +104,15 @@ describe('My Fantasy league source composition', () => {
       if (bootstrapId === LEAGUE_IDS.league2) throw new Error('Private registration error details');
       return bootstrapId === LEAGUE_IDS.league1 ? currentIds.league1 : currentIds.dynasty;
     });
+    mocks.getCurrentLeagueId.mockImplementation(async (key: LeagueKey) => {
+      if (key === 'league2') throw new Error('Private registration error details');
+      return currentIds[key];
+    });
 
     const result = await loadMyFantasyLeagues();
 
     expect(result.map(entry => entry.status)).toEqual(['available', 'unavailable', 'available']);
-    expect(result[1]).toEqual({ status: 'unavailable', site: LEAGUE_SITES.league2 });
+    expect(result[1]).toEqual({ status: 'unavailable', site: LEAGUE_SITES.league2, leagueId: null });
     expect(mocks.readStoredMatchups).not.toHaveBeenCalledWith('league2', undefined);
     expect(mocks.getStandings).toHaveBeenCalledTimes(2);
   });
@@ -119,7 +127,7 @@ describe('My Fantasy league source composition', () => {
 
     expect(result.map(entry => entry.status)).toEqual(['available', 'unavailable', 'available']);
     expect(mocks.getOfficialMatchups).toHaveBeenCalledExactlyOnceWith(currentIds.league2, 3);
-    expect(result[1]).toEqual({ status: 'unavailable', site: LEAGUE_SITES.league2 });
+    expect(result[1]).toEqual({ status: 'unavailable', site: LEAGUE_SITES.league2, leagueId: currentIds.league2 });
   });
 
   it('preserves a valid matchup when optional standings history and honors cannot load', async () => {
