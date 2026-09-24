@@ -254,7 +254,6 @@ function MyFantasyLeaguesView({ memberships, evaluatedAt, requestedWeek, fallbac
           <div className={styles.cardFooter}><button type="button" onClick={() => router.refresh()} aria-label={`Retry ${entry.site.name}`}>Try again</button></div>
         </section>)}
     </div>
-    <p className={styles.footnote}>Showing My Team choices saved on each league’s manager page in this browser.</p>
   </div>;
 }
 
