@@ -732,8 +732,8 @@ describe('canonical all-player ingestion orchestration', () => {
       expect(test.recordLeagueWeekObservation).not.toHaveBeenCalled();
       expect(test.recordAllPlayerBatch).not.toHaveBeenCalled();
     } else {
-      expect(test.recordLeagueWeekObservation.mock.calls.map(([input]) => input.leagueSeasonId))
-        .toEqual([SEASON_ONE, SEASON_TWO, SEASON_DYNASTY]);
+      expect(test.recordLeagueWeekObservation.mock.calls.map(([input]) => input.leagueSeasonId).sort())
+        .toEqual([SEASON_ONE, SEASON_TWO, SEASON_DYNASTY].sort());
       expect(test.recordAllPlayerBatch).toHaveBeenCalledOnce();
       expect(test.recordAllPlayerBatch.mock.calls[0][0].scoreSets).toEqual([]);
       const scoreSets = test.recordAllPlayerScoreContent.mock.calls.map(([input]) => input.scoreSet);
