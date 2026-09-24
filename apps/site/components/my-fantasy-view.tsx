@@ -9,11 +9,12 @@ import type { AccountView, SleeperLeagueDiscovery } from '../lib/accounts/contra
 import { currentMatchupWeek } from '../lib/matchup-period';
 import { displayedMatchupManagers } from '../lib/manager-display';
 import { getMyFantasyLeagueSummary, myFantasyStandingsEvidence } from '../lib/my-fantasy';
-import { currentMyFantasyMemberships, type MyFantasyMembership } from '../lib/my-fantasy-membership';
+import { currentMyFantasyMemberships, selectedBrowserMyFantasyMemberships,
+  type MyFantasyMembership } from '../lib/my-fantasy-membership';
 import type { MyFantasyLeague } from '../lib/my-fantasy-source';
 import type { LeagueKey } from '../lib/leagues';
 import { LeagueSiteProvider } from './league-context';
-import { TeamPreferenceProvider, useTeamPreference } from './team-preference';
+import { TeamPreferenceProvider, useBrowserTeamSelections, useTeamPreference } from './team-preference';
 import { ManagerHonorsProvider, ManagerHonorsSeason } from './manager-honors';
 import { MatchupsWithBoxScores } from './matchups-view';
 import { useMatchupSnapshot } from './use-matchup-snapshot';
@@ -79,7 +80,7 @@ function FantasyLeagueCard({ entry, teamIds, evaluatedAt, onReport, expanded, on
         standings={source.standings?.season === data.league.season ? source.standings : null} observedAt={data.updatedAt}
       />
         : <div className={styles.unavailable}><strong>{summary.team?.name ?? 'Your team is temporarily unavailable'}</strong>
-          <p>{summary.team ? `No matchup posted for Week ${data.week}.` : 'We could not match your account team to this week’s league data.'}</p></div>}
+          <p>{summary.team ? `No matchup posted for Week ${data.week}.` : 'We could not match your selected team to this week’s league data.'}</p></div>}
       {summary.team && <p className={styles.rankSummary} title={summary.projectedRankReason ?? undefined}>
         <span className="sr-only">Current rank </span><strong>{place(summary.currentRank)}</strong><span aria-hidden="true">→</span>
         <span className="sr-only"> to </span><strong>{place(summary.projectedRank)}</strong><span>projected</span>
@@ -95,8 +96,8 @@ function FantasyLeagueCard({ entry, teamIds, evaluatedAt, onReport, expanded, on
   </ManagerHonorsSeason>;
 }
 
-function MyFantasyAccountView({ memberships, evaluatedAt, partialDiscovery }: {
-  memberships: MyFantasyMembership[]; evaluatedAt: string; partialDiscovery: boolean;
+function MyFantasyLeaguesView({ memberships, evaluatedAt, partialDiscovery, browserSelections = false }: {
+  memberships: MyFantasyMembership[]; evaluatedAt: string; partialDiscovery: boolean; browserSelections?: boolean;
 }) {
   const leagues = memberships.map(membership => membership.entry);
   const router = useRouter();
@@ -167,8 +168,23 @@ function MyFantasyAccountView({ memberships, evaluatedAt, partialDiscovery }: {
           <div className={styles.cardFooter}><button type="button" onClick={() => router.refresh()} aria-label={`Retry ${entry.site.name}`}>Try again</button><Link href={`${entry.site.prefix}/my-team`} aria-label={`Enter ${entry.site.name}`}>Enter league ↗</Link></div>
         </section>)}
     </div>
-    <p className={styles.footnote}>Current Sleeper league membership confirms the cards; the latest stored roster link selects your team. If you have more than one linked team in a league, your saved My Team choice applies. Matchups check for updates every minute while visible.</p>
+    <p className={styles.footnote}>{browserSelections
+      ? 'These public matchups follow explicit My Team choices saved in this preview browser. They do not confirm Sleeper account membership. Preview and production save choices separately.'
+      : 'Current Sleeper league membership confirms the cards; the latest stored roster link selects your team. If you have more than one linked team in a league, your saved My Team choice applies.'} Matchups check for updates every minute while visible.</p>
   </div>;
+}
+
+function MyFantasyBrowserView({ leagues, evaluatedAt }: { leagues: MyFantasyLeague[]; evaluatedAt: string }) {
+  const leagueIds = useMemo(() => leagues.map(entry => entry.leagueId ?? ''), [leagues]);
+  const selections = useBrowserTeamSelections(leagueIds);
+  const memberships = useMemo(() => selectedBrowserMyFantasyMemberships(leagues, selections), [leagues, selections]);
+  if (!memberships.length) return <div className={styles.page}><h1>My Fantasy</h1>
+    <section className={styles.unavailable} role="status">
+      <p>Select My Team on a manager profile in this preview to show that league here. Preview and production save choices separately.</p>
+      <Link href="/managers">Browse managers</Link>
+    </section></div>;
+  return <MyFantasyLeaguesView memberships={memberships} evaluatedAt={evaluatedAt}
+    partialDiscovery={false} browserSelections />;
 }
 
 type FantasyAccountState = { status: 'loading' | 'guest' | 'denied' | 'disabled' | 'unavailable' }
@@ -219,6 +235,7 @@ export function MyFantasyView({ leagues, evaluatedAt, preview = false }: {
   }, [reload]);
 
   if (state.status === 'loading') return <div className={styles.page}><h1>My Fantasy</h1><p role="status">Checking your leagues…</p></div>;
+  if (preview && state.status === 'disabled') return <MyFantasyBrowserView leagues={leagues} evaluatedAt={evaluatedAt} />;
   if (state.status !== 'ready') {
     const signInNeeded = state.status === 'guest' || state.status === 'denied';
     const message = signInNeeded
@@ -244,6 +261,6 @@ export function MyFantasyView({ leagues, evaluatedAt, preview = false }: {
       <Link href="/account" prefetch={false}>Manage Sleeper profiles</Link>
       {state.account.links.length > 0 && <button type="button" onClick={reload}>Try again</button>}
     </section></div>;
-  return <MyFantasyAccountView key={state.account.profile.id} memberships={memberships} evaluatedAt={evaluatedAt}
+  return <MyFantasyLeaguesView key={state.account.profile.id} memberships={memberships} evaluatedAt={evaluatedAt}
     partialDiscovery={state.discovery?.status === 'partial'} />;
 }

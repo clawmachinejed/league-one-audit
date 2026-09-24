@@ -3,11 +3,12 @@ import type { AccountView, LibraryLeague, SleeperLeagueDiscovery, TeamParticipat
 import { LEAGUE_IDS } from './config';
 import { LEAGUE_SITES, type LeagueKey } from './leagues';
 import type { MyFantasyLeague } from './my-fantasy-source';
-import { currentMyFantasyMemberships } from './my-fantasy-membership';
+import { currentMyFantasyMemberships, selectedBrowserMyFantasyMemberships } from './my-fantasy-membership';
 
-function source(key: LeagueKey, season = '2026'): MyFantasyLeague {
+function source(key: LeagueKey, season = '2026', teamIds: number[] = []): MyFantasyLeague {
+  const sourceData = { data: { league: { season }, teams: teamIds.map(id => ({ id })) } };
   return { status: 'available', site: LEAGUE_SITES[key], leagueId: LEAGUE_IDS[key], standingsData: null, honors: null,
-    source: { data: { league: { season } } } as Extract<MyFantasyLeague, { status: 'available' }>['source'] };
+    source: sourceData as Extract<MyFantasyLeague, { status: 'available' }>['source'] };
 }
 
 function team(rosterId: string, freshness: TeamParticipation['freshness'] = 'current'): TeamParticipation {
@@ -80,5 +81,19 @@ describe('My Fantasy account membership', () => {
     expect(currentMyFantasyMemberships([entry], view, discovery(['league1']))).toEqual([{ entry, teamIds: [3] }]);
     expect(currentMyFantasyMemberships([entry], view, discovery(['league1'], ['other-profile']))).toEqual([]);
     expect(currentMyFantasyMemberships([entry], view, { ...discovery(['league1']), status: 'unavailable' })).toEqual([]);
+  });
+});
+
+describe('My Fantasy preview browser selections', () => {
+  it('shows only explicitly selected teams that belong to their current available league', () => {
+    const entries: MyFantasyLeague[] = [source('league1', '2026', [1, 2]), source('league2', '2026', [3]),
+      { status: 'unavailable', site: LEAGUE_SITES.dynasty, leagueId: LEAGUE_IDS.dynasty }];
+    expect(selectedBrowserMyFantasyMemberships(entries, [2, null, 4])).toEqual([
+      { entry: entries[0], teamIds: [2] },
+    ]);
+    expect(selectedBrowserMyFantasyMemberships(entries, [3, 3, 4])).toEqual([
+      { entry: entries[1], teamIds: [3] },
+    ]);
+    expect(selectedBrowserMyFantasyMemberships(entries, [])).toEqual([]);
   });
 });

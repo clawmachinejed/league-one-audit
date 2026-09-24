@@ -3,6 +3,18 @@ import type { MyFantasyLeague } from './my-fantasy-source';
 
 export type MyFantasyMembership = { entry: MyFantasyLeague; teamIds: number[] };
 
+/** Public preview mode: an explicit browser choice is scoped to its current league ID. */
+export function selectedBrowserMyFantasyMemberships(
+  leagues: readonly MyFantasyLeague[], selectedTeamIds: readonly (number | null)[],
+): MyFantasyMembership[] {
+  return leagues.flatMap((entry, index) => {
+    const selected = selectedTeamIds[index];
+    if (entry.status !== 'available' || selected === null || selected === undefined
+      || !entry.source.data.teams.some(team => team.id === selected)) return [];
+    return [{ entry, teamIds: [selected] }];
+  });
+}
+
 /** Current-season provider membership must confirm a stored account roster link. */
 export function currentMyFantasyMemberships(
   leagues: readonly MyFantasyLeague[], account: AccountView, discovery: SleeperLeagueDiscovery,
