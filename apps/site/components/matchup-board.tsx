@@ -17,6 +17,10 @@ import { ManagerName, useManagerNameLabel } from './manager-name';
 import styles from './matchups.module.css';
 
 type AvatarRenderer = (team: Team) => ReactNode;
+export type MatchupSummaryProps = {
+  renderSummary?: (matchup: Matchup, expanded: boolean) => ReactNode;
+  summaryClassName?: string;
+};
 type BoxScoreProps = {
   boxScores?: MatchupBoxScores | null;
   boxScoresLoading?: boolean;
@@ -140,10 +144,10 @@ function PlayerBoxScore({ player, panelId, expanded, opposite, boxScores, boxSco
   </section>;
 }
 
-function MatchupCard({ matchup, selected, avatar, boxScores, boxScoresLoading, onBoxScoreOpen, showBench = false, standings, observedAt }: {
+function MatchupCard({ matchup, selected, avatar, boxScores, boxScoresLoading, onBoxScoreOpen, showBench = false, standings, observedAt, renderSummary, summaryClassName }: {
   matchup: Matchup; selected: number | null; avatar: AvatarRenderer; showBench?: boolean; standings?: CurrentStandings | null;
   observedAt?: string;
-} & BoxScoreProps) {
+} & BoxScoreProps & MatchupSummaryProps) {
   const site = useLeagueSite();
   const [expanded, setExpanded] = useState(false);
   const [expandedSlots, setExpandedSlots] = useState<ReadonlySet<string>>(() => new Set());
@@ -259,7 +263,8 @@ function MatchupCard({ matchup, selected, avatar, boxScores, boxScoresLoading, o
     </Fragment>;
   }
   return <article className={`${styles.card} ${mine ? styles.myMatchup : ''}`} aria-label={`${left.team.name}${right ? ` versus ${right.team.name}` : ', opponent pending'}`}>
-    <button className={styles.toggle} type="button" data-matchup-toggle aria-expanded={expanded} aria-controls={panelId} onClick={() => setExpanded(value => !value)} aria-label={accessibleLabel}>
+    <button className={renderSummary ? summaryClassName : styles.toggle} type="button" data-matchup-toggle aria-expanded={expanded} aria-controls={panelId} onClick={() => setExpanded(value => !value)} aria-label={renderSummary ? undefined : accessibleLabel}>
+      {renderSummary ? renderSummary(matchup, expanded) : <>
       <span className={styles.teamName} data-team-name>{left.team.name}</span>
       <span className={styles.scorePair} aria-hidden="true">
         <span className={styles.score} data-score-side="left"><span className={styles.teamOfficial} data-score-number>{points(left.points)}</span><span className={styles.teamProjection} data-team-projection-number aria-hidden="true">{points(left.projectedPoints)}</span></span>
@@ -286,6 +291,7 @@ function MatchupCard({ matchup, selected, avatar, boxScores, boxScoresLoading, o
           </span>;
         })}
       </span>
+      </>}
     </button>
     <div id={panelId} ref={panelRef} className={styles.lineup} hidden={!expanded}>
       {count ? <>
@@ -302,10 +308,10 @@ function MatchupCard({ matchup, selected, avatar, boxScores, boxScoresLoading, o
   </article>;
 }
 
-export function MatchupBoard({ matchups, selected, avatar, boxScores, boxScoresLoading, onBoxScoreOpen, showBench = false, standings, observedAt }: {
+export function MatchupBoard({ matchups, selected, avatar, boxScores, boxScoresLoading, onBoxScoreOpen, showBench = false, standings, observedAt, renderSummary, summaryClassName }: {
   matchups: Matchup[]; selected: number | null; avatar: AvatarRenderer; showBench?: boolean; standings?: CurrentStandings | null;
   observedAt?: string;
-} & BoxScoreProps) {
+} & BoxScoreProps & MatchupSummaryProps) {
   const boardRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const board = boardRef.current;
@@ -331,8 +337,9 @@ export function MatchupBoard({ matchups, selected, avatar, boxScores, boxScoresL
     return () => { active = false; observer.disconnect(); };
   }, [matchups, standings]);
   const observed = boxScores?.status === 'available' ? boxScoreObservedLabel(boxScores.observedAt) : null;
-  return <><div ref={boardRef} className={styles.board}>{matchups.map(matchup => <MatchupCard key={matchup.id}
+  return <><div ref={boardRef} className={`${styles.board} ${renderSummary ? styles.summaryBoard : ''}`}>{matchups.map(matchup => <MatchupCard key={matchup.id}
     matchup={matchup} selected={selected} avatar={avatar} boxScores={boxScores} standings={standings} observedAt={observedAt}
+    renderSummary={renderSummary} summaryClassName={summaryClassName}
     boxScoresLoading={boxScoresLoading} onBoxScoreOpen={onBoxScoreOpen} showBench={showBench} />)}</div>
     {observed && <p className={styles.boxScoreObserved} data-box-score-source>{observed}<span>Sleeper</span></p>}
   </>;

@@ -1,9 +1,10 @@
 import type { ReactNode } from 'react';
 
-export type IconName = 'my-team' | 'matchups' | 'standings' | 'managers' | 'chevron' | 'arrow' | 'refresh' | 'check' | 'star';
+export type IconName = 'my-fantasy' | 'my-team' | 'matchups' | 'standings' | 'managers' | 'chevron' | 'arrow' | 'refresh' | 'check' | 'star';
 
 export function Icon({ name, className = '' }: { name: IconName; className?: string }) {
   const paths: Record<IconName, ReactNode> = {
+    'my-fantasy': <><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></>,
     'my-team': <><path d="m8 3-5 3 2 5 3-1v11h8V10l3 1 2-5-5-3" /><path d="M8 3a4 4 0 0 0 8 0M12 9v6" /></>,
     matchups: <><path d="M5 4v16M19 4v16M3 7h6m6 10h6M9 4v6m6 4v6M9 7h6m-6 10h6" /></>,
     standings: <><path d="M4 20V10h4v10m2 0V4h4v16m2 0v-7h4v7M2 20h20" /></>,

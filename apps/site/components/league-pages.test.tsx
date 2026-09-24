@@ -709,6 +709,8 @@ describe('LeagueMatchupsPage', () => {
   it('has no direct Tank01 import in the current page, Sleeper fallback, or snapshot reader', () => {
     const requestPathModules = [
       ['league page', new URL('./league-pages.tsx', import.meta.url)],
+      ['shared matchup source', new URL('../lib/league-matchups-source.ts', import.meta.url)],
+      ['My Fantasy source', new URL('../lib/my-fantasy-source.ts', import.meta.url)],
       ['official Sleeper fallback', new URL('../lib/sleeper.ts', import.meta.url)],
       ['stored snapshot reader', new URL('../lib/projection-reader.ts', import.meta.url)],
     ] as const;
