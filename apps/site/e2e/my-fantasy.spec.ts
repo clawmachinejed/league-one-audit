@@ -71,7 +71,7 @@ async function expectSelectedScores(container: Locator, league: LeagueKey, ownTe
     [ownTeam, opponent].map(team => projectedPoints(league, team).toFixed(2)));
 }
 
-async function openFantasyFixture(page: Page, options: { staleInitialRefresh?: boolean } = {}) {
+async function openFantasyFixture(page: Page, options: { staleInitialRefresh?: boolean; incompleteVerification?: boolean } = {}) {
   const state = { documents: 0, full: { league1: 0, league2: 0, dynasty: 0 },
     refreshRequests: 0, refreshFinished: 0, refreshFailures: 0,
     readerRequests: 0, readerFinished: 0, readerFailures: [] as string[],
@@ -182,7 +182,9 @@ async function openFantasyFixture(page: Page, options: { staleInitialRefresh?: b
       await route.fulfill({ headers, json: { status: 'ok', revision, verifiedAt } });
     } else {
       state.full[league] += 1;
-      await route.fulfill({ headers, json: fantasyFixture(league, week) });
+      const data = fantasyFixture(league, week);
+      if (options.incompleteVerification && league === 'dynasty') data.warning = 'Player availability coverage is incomplete.';
+      await route.fulfill({ headers, json: data });
     }
   });
   await page.goto('/my-fantasy', { waitUntil: 'networkidle' });
@@ -218,6 +220,10 @@ async function openFantasyFixture(page: Page, options: { staleInitialRefresh?: b
   // These deliberately future-dated verification headers preserve adopted
   // fixtures through RSC refreshes; they cannot honestly claim recent updates.
   await expect(page.getByText('Update time unavailable', { exact: true })).toBeVisible();
+  await expect(page.locator('[data-fantasy-no-issues]')).toHaveText('No lineup issues');
+  await expect(page.locator('[data-fantasy-clear-icon]')).toBeVisible();
+  await expect(page.getByText('Starting lineup unverified', { exact: true })).toHaveCount(0);
+  await expect(page.getByText(/^\d+ lineups? could not be verified\.$/u)).toHaveCount(0);
   return state;
 }
 
@@ -466,8 +472,22 @@ test('My Fantasy expands each matchup and player statistics inline without enter
 
 test('My Fantasy attention shows only selected starters and remains readable with larger text', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 900 });
-  const state = await openFantasyFixture(page);
-  await expect(page.getByText('All 3 lineups clear', { exact: true })).toBeVisible();
+  const state = await openFantasyFixture(page, { incompleteVerification: true });
+  await expect(card(page, 'dynasty').locator('[data-fantasy-status]')).toHaveAttribute('data-fantasy-status', 'unknown');
+  const noIssues = page.locator('[data-fantasy-no-issues]');
+  await expect(noIssues).toHaveText('No lineup issues');
+  const clearStyle = await noIssues.evaluate(element => {
+    const panel = getComputedStyle(element);
+    const icon = getComputedStyle(element.querySelector('[data-fantasy-clear-icon]')!);
+    return { border: Number.parseFloat(panel.borderTopWidth), background: panel.backgroundColor,
+      iconBackground: icon.backgroundColor, iconColor: icon.color, iconRadius: icon.borderRadius };
+  });
+  expect(clearStyle.border).toBeGreaterThan(0);
+  expect(clearStyle.background).not.toBe('rgba(0, 0, 0, 0)');
+  expect(clearStyle.iconRadius).toBe('50%');
+  expect(clearStyle.iconColor).toBe('rgb(255, 255, 255)');
+  const iconRgb = clearStyle.iconBackground.match(/[\d.]+/gu)!.map(Number);
+  expect(iconRgb[1], 'The no-issues circle is green').toBeGreaterThan(Math.max(iconRgb[0], iconRgb[2]));
   const designations = { league1: 'OUT', league2: 'DOUBTFUL', dynasty: 'QUESTIONABLE' } as const;
   const selectedNames = { league1: 'Selected OUT Starter', league2: 'Selected Doubtful Starter',
     dynasty: 'Selected Questionable Starter' };
@@ -524,7 +544,7 @@ test('My Fantasy attention shows only selected starters and remains readable wit
   await expect(panel.getByText('Starting', { exact: true })).toHaveCount(2);
   await expect(panel.locator('h2 svg')).toHaveCount(1);
   await expect(panel.locator('span[aria-hidden="true"]')).toHaveCount(2);
-  await expect(page.getByText('All 3 lineups clear', { exact: true })).toHaveCount(0);
+  await expect(page.locator('[data-fantasy-no-issues]')).toHaveCount(0);
   for (const league of leagues) await expect(card(page, league).locator('[data-fantasy-status]'))
     .toHaveAttribute('data-fantasy-status', league === 'dynasty' ? 'clear' : 'alert');
   const headerDots = page.locator('[data-fantasy-status]');
@@ -629,21 +649,32 @@ test('My Fantasy cards and inline statistics fit supported phone and desktop wid
       const geometry = await header.evaluate(element => {
         const title = element.querySelector('h2')!.getBoundingClientRect();
         const metadata = element.querySelector('[data-fantasy-metadata]')!;
+        const metadataLine = metadata.getBoundingClientRect();
+        const logo = element.querySelector('img')!.getBoundingClientRect();
         const enter = element.querySelector('[data-fantasy-enter]')!;
+        const dot = element.querySelector('[data-fantasy-status]')!.getBoundingClientRect();
         const textBounds = (node: Element) => {
           const range = document.createRange();
           range.selectNode(node.firstChild!);
           return range.getBoundingClientRect();
         };
-        return { titleBottom: title.bottom, metadataTop: textBounds(metadata).top,
+        return { titleTop: title.top, titleBottom: title.bottom, metadataTop: textBounds(metadata).top,
+          metadataLineBottom: metadataLine.bottom, logoTop: logo.top, logoBottom: logo.bottom,
           metadataBottom: textBounds(metadata).bottom, enterTextBottom: textBounds(enter).bottom,
-          enterRight: enter.getBoundingClientRect().right,
+          enterRight: enter.getBoundingClientRect().right, enterTop: enter.getBoundingClientRect().top, dotBottom: dot.bottom,
           headerRight: element.getBoundingClientRect().right - Number.parseFloat(getComputedStyle(element).paddingRight)
             - Number.parseFloat(getComputedStyle(element).borderRightWidth) };
       });
       headerGeometry.push(geometry);
+      expect(geometry.dotBottom, `${league} status dot stays outside the Enter League hit target at ${width}px`).toBeLessThanOrEqual(geometry.enterTop);
       expect(geometry.metadataTop, `${league} provider metadata belongs below the title at ${width}px`)
         .toBeGreaterThanOrEqual(geometry.titleBottom - 1);
+      expect(geometry.metadataTop - geometry.titleBottom,
+        `${league} provider metadata sits directly below the title at ${width}px`).toBeLessThanOrEqual(6);
+      expect(Math.abs(geometry.logoTop - geometry.titleTop),
+        `${league} logo starts at the title line at ${width}px`).toBeLessThanOrEqual(2);
+      expect(Math.abs(geometry.logoBottom - geometry.metadataLineBottom),
+        `${league} logo ends at the metadata line at ${width}px`).toBeLessThanOrEqual(2);
       expect(Math.abs(geometry.metadataBottom - geometry.enterTextBottom),
         `${league} Enter League text shares the metadata baseline at ${width}px`).toBeLessThanOrEqual(2);
       expect(Math.abs(geometry.enterRight - geometry.headerRight),

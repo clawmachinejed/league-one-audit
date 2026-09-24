@@ -50,14 +50,13 @@ function LeagueHeader({ entry, week, attention }: { entry: MyFantasyLeague; week
     : state === 'clear' ? 'Starting lineup verified clear'
       : attention?.status === 'completed' ? 'Matchup complete' : 'Starting lineup unverified';
   return <header className={styles.leagueHeader} data-fantasy-header>
-    <Image className={styles.leagueLogo} src={entry.site.logo} width={36} height={36} alt="" />
+    <Image className={styles.leagueLogo} src={entry.site.logo} width={40} height={40} alt="" />
     <h2>{entry.site.name}</h2>
     <p className={styles.leagueMetadata} data-fantasy-metadata>Sleeper{week !== undefined && <> · Week {week}</>}</p>
     <Link className={styles.enterLeague} data-fantasy-enter href={`${entry.site.prefix}/my-team`}
       aria-label={`Enter ${entry.site.name}`}>Enter League <span aria-hidden="true">›</span></Link>
     <span className={`${styles.statusDot} ${styles[state]}`} data-fantasy-status={state}
-      role="img" aria-label={description} title={description} />
-    {state === 'unknown' && <span className={styles.lineupState}>{description}</span>}
+      role="img" aria-label={description} />
   </header>;
 }
 
@@ -142,10 +141,8 @@ function MyFantasyLeaguesView({ memberships, evaluatedAt }: {
   const ties = projected.filter(entry => entry.summary.projectedOutcome === 'tie').length;
   const attention = currentReports.filter(entry => entry.summary.attention.issues.length > 0);
   const issueCount = attention.reduce((total, entry) => total + entry.summary.attention.issues.length, 0);
-  const unverified = leagues.length - currentReports.filter(entry => entry.summary.attention.status !== 'unknown').length;
-  const completed = currentReports.filter(entry => entry.summary.attention.status === 'completed').length;
   const finalMatchups = currentReports.filter(entry => entry.summary.matchup?.status === 'final').length;
-  const allClear = ready && unverified === 0 && attention.length === 0 && completed === 0 && leagues.length > 0;
+  const noIssues = ready && attention.length === 0 && leagues.length > 0;
   // The oldest successful source/snapshot update bounds the cross-league claim.
   const updateTimes = currentReports.map(entry => Date.parse(entry.updatedAt));
   const oldestUpdate = ready && currentReports.length === leagues.length && updateTimes.length > 0
@@ -175,8 +172,10 @@ function MyFantasyLeaguesView({ memberships, evaluatedAt }: {
         </Link>
       </li>))}</ul>
     </section>}
-    {allClear && <p className={styles.clear}><Icon name="check" />All {leagues.length} lineups clear</p>}
-    {ready && unverified > 0 && <p className={styles.status}>{unverified} lineup{unverified === 1 ? '' : 's'} could not be verified.</p>}
+    {noIssues && <section className={styles.noIssues} data-fantasy-no-issues aria-label="Lineup attention">
+      <span className={styles.clearIcon} data-fantasy-clear-icon aria-hidden="true"><Icon name="check" /></span>
+      <strong>No lineup issues</strong>
+    </section>}
     {ready && finalMatchups === leagues.length && leagues.length > 0 && <p className={styles.clear}><Icon name="check" />All matchups complete</p>}
     {!ready && <p className={styles.status}>Checking your team selections…</p>}
     <div className={styles.leagues}>
