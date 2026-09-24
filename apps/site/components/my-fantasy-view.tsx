@@ -174,7 +174,9 @@ function MyFantasyAccountView({ memberships, evaluatedAt, partialDiscovery }: {
 type FantasyAccountState = { status: 'loading' | 'guest' | 'denied' | 'disabled' | 'unavailable' }
   | { status: 'ready'; account: AccountView; discovery: SleeperLeagueDiscovery | null };
 
-export function MyFantasyView({ leagues, evaluatedAt }: { leagues: MyFantasyLeague[]; evaluatedAt: string }) {
+export function MyFantasyView({ leagues, evaluatedAt, preview = false }: {
+  leagues: MyFantasyLeague[]; evaluatedAt: string; preview?: boolean;
+}) {
   const [state, setState] = useState<FantasyAccountState>({ status: 'loading' });
   const [refresh, setRefresh] = useState(0);
   const reload = useCallback(() => { setState({ status: 'loading' }); setRefresh(value => value + 1); }, []);
@@ -217,14 +219,22 @@ export function MyFantasyView({ leagues, evaluatedAt }: { leagues: MyFantasyLeag
   }, [reload]);
 
   if (state.status === 'loading') return <div className={styles.page}><h1>My Fantasy</h1><p role="status">Checking your leagues…</p></div>;
-  if (state.status !== 'ready') return <div className={styles.page}><h1>My Fantasy</h1>
-    <section className={styles.unavailable} role="status"><p>{state.status === 'guest' || state.status === 'denied'
+  if (state.status !== 'ready') {
+    const signInNeeded = state.status === 'guest' || state.status === 'denied';
+    const message = signInNeeded
       ? 'Sign in to see the leagues where your associated Sleeper profile manages a team.'
-      : 'Your league participation is temporarily unavailable.'}</p>
-      {state.status === 'guest' || state.status === 'denied'
+      : state.status === 'disabled'
+        ? preview
+          ? 'Accounts are intentionally disabled in this preview. Your personal league cards cannot be shown here.'
+          : 'Accounts are disabled for this deployment. Your personal league cards cannot be shown here.'
+        : 'Your league participation is temporarily unavailable.';
+    return <div className={styles.page}><h1>My Fantasy</h1>
+    <section className={styles.unavailable} role="status"><p>{message}</p>
+      {signInNeeded
         ? <Link href="/sign-in" prefetch={false}>Sign in</Link>
-        : <button type="button" onClick={reload}>Try again</button>}
+        : state.status === 'unavailable' && <button type="button" onClick={reload}>Try again</button>}
     </section></div>;
+  }
 
   const memberships = state.discovery ? currentMyFantasyMemberships(leagues, state.account, state.discovery) : [];
   if (!memberships.length) return <div className={styles.page}><h1>My Fantasy</h1>

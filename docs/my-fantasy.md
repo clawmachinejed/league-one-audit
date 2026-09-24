@@ -6,6 +6,8 @@
 
 The private `/api/me` read establishes the website account and its linked roster IDs. The existing `/api/me/sleeper-leagues` read confirms which of those associated profiles belong to each current-season Sleeper league. The exact Sleeper league ID, season and linked profile ID must agree; a stored roster link alone, a saved follow and a connected league cannot establish participation. The stored roster link can be last known while current provider discovery confirms league membership, so the selected roster may lag an ownership change until the account source refreshes. My Fantasy never shows league cards while those reads are pending, unavailable or signed out. An account or session change clears previous cards before the next private reads. The empty state offers a retry and a link to manage associated profiles.
 
+Vercel previews intentionally disable account authentication and account storage. They can show the public navigation, but cannot display a signed-in user's My Fantasy cards. The disabled state says this explicitly and does not offer a retry. Account-scoped card behavior is verified against the isolated local browser fixtures until it can be checked after an authorized production release.
+
 Within a participating league, a saved My Team browser choice applies only if it belongs to that account's current eligible roster IDs. Otherwise, the first eligible roster is shown without changing the saved preference. Missing account-team data stays unavailable; My Fantasy never substitutes another manager's team. Equal roster numbers in different leagues remain unrelated. The linked Sleeper association is user supplied and is not proof that the website user controls the provider account.
 
 ## Cards and summary
