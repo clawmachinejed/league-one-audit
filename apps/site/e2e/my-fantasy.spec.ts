@@ -9,6 +9,7 @@ import { contextFixture, snapshotFixture, snapshotHeaders, SNAPSHOT_A } from '..
 const leagues = ['league1', 'league2', 'dynasty'] as const;
 const savedTeams: Record<LeagueKey, number> = { league1: 1, league2: 2, dynasty: 3 };
 const verifiedAt = '2099-09-03T12:00:00.000Z';
+const initialServerHeading = 'League One before standings refresh';
 const storageKey = (league: LeagueKey) => `league-one:my-team:${LEAGUE_IDS[league]}`;
 const playerId = (league: LeagueKey, team: number) => `my-fantasy-${league}-${team}`;
 const actualPoints = (league: LeagueKey, team: number) => leagues.indexOf(league) * 10 + team * 11 + 0.5;
@@ -101,6 +102,18 @@ async function openFantasyFixture(page: Page) {
       return `\\"periodContext\\":${JSON.stringify({ ...initial,
         ...contextFixture('active', initial.activeWeek ?? initial.defaultWeek) }).replace(/"/gu, '\\"')}`;
     });
+    if (state.documents === 0 && new URL(route.request().url()).pathname === '/my-fantasy') {
+      // Mark an initial server-owned prop in both the HTML and Flight payload.
+      // Only a committed, unmodified RSC refresh can restore the canonical heading.
+      const siteName = '\\"site\\":{\\"key\\":\\"league1\\",\\"name\\":\\"League One\\"';
+      expect(body.split(siteName)).toHaveLength(2);
+      expect(body.split('<h2>League One</h2>')).toHaveLength(2);
+      body = body.replace(siteName, siteName.replace('League One', initialServerHeading))
+        .replace('<h2>League One</h2>', `<h2>${initialServerHeading}</h2>`)
+        .replace('data-my-fantasy-league="league1" aria-label="League One"',
+          `data-my-fantasy-league="league1" aria-label="${initialServerHeading}"`)
+        .replace('aria-label="Enter League One"', `aria-label="Enter ${initialServerHeading}"`);
+    }
     state.documents += 1;
     await route.fulfill({ response, body });
   });
@@ -134,6 +147,7 @@ async function openFantasyFixture(page: Page) {
     }
   });
   await page.goto('/my-fantasy', { waitUntil: 'networkidle' });
+  await expect(card(page, 'league1').getByRole('heading', { level: 2 })).toHaveText(initialServerHeading);
   await page.clock.runFor(61_000);
   for (const league of leagues) {
     await expectSelectedScores(card(page, league), league, savedTeams[league]);
@@ -144,14 +158,15 @@ async function openFantasyFixture(page: Page) {
     await expect(summary).toHaveAccessibleName(/Current rank\s+—\s+to\s+—\s+projected/u);
     await expect(summary).toHaveAccessibleName(/Projected rank unavailable/u);
   }
-  // Adoption changes official-record evidence. Allow the real bounded RSC
-  // refresh and prove its older server props neither replace accepted data nor
-  // start a refresh loop. RSC requests deliberately pass through unmodified.
+  // Adoption changes official-record evidence. Prove a real bounded RSC refresh
+  // commits server props, preserves accepted data, and does not loop. RSC
+  // requests deliberately pass through unmodified; streamed responses can end
+  // as ERR_ABORTED even after their server props have been committed.
   await expect.poll(() => state.refreshRequests).toBeGreaterThan(0);
+  await expect(card(page, 'league1').getByRole('heading', { level: 2 }),
+    'The genuine standings refresh must commit new server props').toHaveText('League One');
   await expect.poll(() => state.refreshFinished === state.refreshRequests).toBe(true);
   expect(state.refreshRequests).toBeLessThanOrEqual(3);
-  // React may supersede an earlier refresh when multiple cards update together.
-  expect(state.refreshFinished - state.refreshFailures).toBeGreaterThan(0);
   const completedRefreshes = state.refreshRequests;
   await page.clock.runFor(61_000);
   for (const league of leagues) await expectSelectedScores(card(page, league), league, savedTeams[league]);
