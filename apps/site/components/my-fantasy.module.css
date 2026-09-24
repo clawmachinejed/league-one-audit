@@ -47,8 +47,11 @@
 .attention h2 svg { height: 22px; width: 22px; flex: 0 0 22px; }
 .attention ul { list-style: none; padding: 0; margin: 0; }
 .attention li + li { border-top: 1px solid var(--line-soft); }
-.attentionRow { display: grid; grid-template-columns: var(--fantasy-status-size) minmax(0,1.3fr) minmax(5.5em,auto) auto minmax(6em,1fr); column-gap: 9px; align-items: center; min-height: 44px; padding: 6px 0; font-size: 12px; line-height: 1.4; }
+/* Fixed status/context tracks keep their text aligned across independent rows. */
+.attentionRow { display: grid; grid-template-columns: var(--fantasy-status-size) minmax(0,1.3fr) 7.5em 4.5em minmax(0,1fr); column-gap: 9px; align-items: center; min-height: 44px; padding: 6px 0; font-size: 12px; line-height: 1.4; }
 .attentionPlayer { font-weight: 600; overflow-wrap: anywhere; }
+.attentionDetails { display: contents; }
+.attentionSeparator { display: none; color: var(--muted); }
 .alertText { color: var(--injury); }
 .cautionText { color: var(--fantasy-doubtful); }
 .startingContext, .attentionLeague { color: var(--muted); }
@@ -68,12 +71,12 @@
 @media (max-width: 540px) {
   .leagueHeader { grid-template-columns: 40px minmax(0,1fr) 7.25rem; column-gap: 8px; padding: 11px 11px 14px; }
   .leagueHeader > .statusDot { top: 9px; right: 12px; }
-  .attentionRow { grid-template-columns: var(--fantasy-status-size) minmax(0,1fr) auto minmax(5.5em,.8fr); gap: 2px 8px; }
-  .attentionRow > .statusDot { grid-column: 1; grid-row: 1; }
-  .attentionPlayer { grid-column: 2 / 4; grid-row: 1; }
-  .attentionRow > .alertText, .attentionRow > .cautionText { grid-column: 2; grid-row: 2; }
-  .startingContext { grid-column: 3; grid-row: 2; }
-  .attentionLeague { grid-column: 4; grid-row: 1 / 3; }
+  .attentionRow { grid-template-columns: var(--fantasy-status-size) minmax(0,1fr) minmax(6em,.7fr); gap: 2px 8px; align-items: start; }
+  .attentionRow > .statusDot { grid-column: 1; grid-row: 1; margin-top: 3px; }
+  .attentionPlayer { grid-column: 2; grid-row: 1; }
+  .attentionDetails { grid-column: 2 / -1; grid-row: 2; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 6px; }
+  .attentionSeparator { display: inline; }
+  .attentionLeague { grid-column: 3; grid-row: 1; }
 }
 @media (min-width: 760px) {
   .leagueHeader { padding: 14px 16px; }

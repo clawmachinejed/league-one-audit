@@ -1,7 +1,7 @@
 import type { MatchupStatus, NflGamePhase, ProjectionPointQuality } from './contracts';
 import type { LiveProjectionKind } from './live-calculation';
 
-export const WIN_PROBABILITY_MODEL_VERSION = 'normal-v2' as const;
+export const WIN_PROBABILITY_MODEL_VERSION = 'normal-v3' as const;
 
 export type WinProbabilityPlayerInput = Readonly<{
   position: string;
@@ -11,7 +11,7 @@ export type WinProbabilityPlayerInput = Readonly<{
   baselinePoints: number | null;
   projectionQuality: ProjectionPointQuality;
   officialPoints: number | null;
-  /** Caller-proved requested-period Out designation. Never inferred from a zero baseline. */
+  /** Caller-proved requested-period Out or IR designation. Never inferred from a zero baseline. */
   expectedRemainingPointsZero?: boolean;
 }>;
 
@@ -99,7 +99,7 @@ function playerVariance(player: WinProbabilityPlayerInput): number | WinProbabil
       if (!finite(player.remainingFraction)) return 'unknown-game-state';
       if (!finite(player.officialPoints)) return 'missing-official-points';
     }
-    // Out means no further points are expected. Live actuals, including points
+    // Scoped Out or IR means no further points are expected. Live actuals, including points
     // scored before an injury, remain part of the caller's canonical mean.
     return 0;
   }
@@ -188,7 +188,7 @@ export function calculateWinProbability(input: WinProbabilityInput): WinProbabil
     variance += contribution;
   }
   if (!Number.isFinite(variance)) return unavailable('invalid-input');
-  // All Out/byes/empty slots cannot establish matchup finality on their own.
+  // All Out/IR/byes/empty slots cannot establish matchup finality on their own.
   if (variance <= 0) return unavailable('unknown-game-state');
   const meanDifference = left.projectedPoints - right.projectedPoints;
   if (!Number.isFinite(meanDifference)) return unavailable('invalid-input');

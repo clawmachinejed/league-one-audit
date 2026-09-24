@@ -132,7 +132,7 @@ function projectedPlayerMap(input: BuildSnapshotInput, defenseCalculations: Defe
     // Current catalog status is advisory for this active period only. Apply it to
     // the runtime forecast without changing immutable baselines or official points.
     const expectedRemainingPointsZero = required && entity.kind === 'player'
-      && entity.injuryStatus?.trim().toLowerCase() === 'out'
+      && ['out', 'ir'].includes(entity.injuryStatus?.trim().toLowerCase() ?? '')
       && input.source.currentPlayerStatusPeriod != null
       && samePeriod(input.source.currentPlayerStatusPeriod, input.source.period)
       && samePeriod(input.games.period, input.source.period)

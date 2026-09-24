@@ -274,9 +274,9 @@ export function validationCases(): ValidationCase[] {
       probabilityTeams(m)[1].probability = 0;
     }),
     probabilityCase('unknown model', false, (m) => { Object.assign(m.winProbability!, { modelVersion: 'other-v1' }); }),
-    probabilityCase('unknown normal model version', false, (m) => { Object.assign(m.winProbability!, { modelVersion: 'normal-v3' }); }),
+    probabilityCase('unknown normal model version', false, (m) => { Object.assign(m.winProbability!, { modelVersion: 'normal-v4' }); }),
     probabilityCase('unknown unavailable model version', false, (m) => {
-      Object.assign(m, { winProbability: { modelVersion: 'normal-v3', status: 'unavailable', reason: 'missing-lineup' } });
+      Object.assign(m, { winProbability: { modelVersion: 'normal-v4', status: 'unavailable', reason: 'missing-lineup' } });
     }),
     probabilityCase('missing unavailable reason', false, (m) => {
       Object.assign(m, { winProbability: { modelVersion: 'normal-v1', status: 'unavailable' } });
@@ -290,14 +290,16 @@ export function validationCases(): ValidationCase[] {
   ];
   // The same immutable-payload corpus is consumed by full readers, compact
   // readers and isolated PostgreSQL parity checks. Preserve v1 cases and replay
-  // every applicable semantic guard for v2, including unavailable/final/tie.
+  // every applicable semantic guard for v2/v3, including unavailable/final/tie.
   for (const example of [...cases]) {
     if (!example.name.startsWith('win probability semantic:')) continue;
     const data = JSON.parse(example.json) as { matchups: { winProbability?: { modelVersion?: unknown } | null }[] };
     const probability = data.matchups[0].winProbability;
     if (probability?.modelVersion !== 'normal-v1') continue;
-    probability.modelVersion = 'normal-v2';
-    cases.push({ ...example, name: `${example.name} (normal-v2)`, json: JSON.stringify(data) });
+    for (const modelVersion of ['normal-v2', 'normal-v3']) {
+      probability.modelVersion = modelVersion;
+      cases.push({ ...example, name: `${example.name} (${modelVersion})`, json: JSON.stringify(data) });
+    }
   }
   const roundedIdentity = probabilityCase('JavaScript identity rounding', true, (m) => {
     Object.assign(m.sides[0].team, { id: '__NUMBER__' });

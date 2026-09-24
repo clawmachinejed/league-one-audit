@@ -59,3 +59,9 @@ The route renders at request time to reread accepted standings. Existing provide
 Use real phone widths, long names, expanded rows, dark/light contrast and independent hit targets to verify the layout; a mockup alone is not fit evidence. Scoped probability colors provide at least 6.9:1 contrast for their internal percentage text over fill/remainder. Color is accompanied by status words, numbers and accessible descriptions. The four-league/two-minute goal requires real user testing for accurate answers, missed issues and unnecessary navigation; automated layout checks do not establish that usability result.
 
 Implementation is not a production release. Preview, CI and any later authorized production release require the normal [release evidence](release-validation.md).
+
+## Attention-row alignment and IR forecasts
+
+On phones, each attention row puts the player name and right-aligned league on the same first row. The status and Starting context stay together directly below the player. Larger layouts keep player, status, context and league in shared column positions. Long names wrap within their own columns; status dots retain the shared size.
+
+An active-week IR starter uses the shared normal-v3 Out/IR forecast assumption: zero expected remaining points and zero remaining variance, with the existing exact-period, game-context and official-score guards. The missing baseline for that starter alone no longer makes the matchup probability unavailable. The IR attention alert remains visible. Other missing starter projections and untrusted context remain unavailable; this page consumes the stored estimate rather than reconstructing it from displayed player values. See [estimated matchup win chance](matchup-win-probability.md) for version compatibility and publication rules.

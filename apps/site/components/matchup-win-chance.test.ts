@@ -3,7 +3,7 @@ import { matchupWithTeamOnLeft } from '../lib/my-team-matchup';
 import { snapshotFixture } from '../test-support/matchup-snapshot-fixtures';
 import { matchupWinChance } from './matchup-win-chance';
 
-function matchup(probability = 0.505, modelVersion: 'normal-v1' | 'normal-v2' = 'normal-v1') {
+function matchup(probability = 0.505, modelVersion: 'normal-v1' | 'normal-v2' | 'normal-v3' = 'normal-v1') {
   const value = snapshotFixture().matchups[0];
   value.winProbability = { modelVersion, status: 'estimated', teams: [
     { teamId: 2, probability: 1 - probability }, { teamId: 1, probability },
@@ -12,7 +12,7 @@ function matchup(probability = 0.505, modelVersion: 'normal-v1' | 'normal-v2' = 
 }
 
 describe('matchup win chance presentation', () => {
-  it.each(['normal-v1', 'normal-v2'] as const)('shows stored %s estimates with the same orientation and rounding', modelVersion => {
+  it.each(['normal-v1', 'normal-v2', 'normal-v3'] as const)('shows stored %s estimates with the same orientation and rounding', modelVersion => {
     const source = matchup(0.654321, modelVersion);
     expect(matchupWinChance(source)).toMatchObject({
       status: 'estimated', values: ['65%', '35%'], probabilities: [0.654321, 1 - 0.654321],
@@ -23,7 +23,7 @@ describe('matchup win chance presentation', () => {
     });
   });
 
-  it.each(['normal-v3', 'other-v1', '', 'NORMAL-V2'])('withholds an estimate from an unsupported model %j', modelVersion => {
+  it.each(['normal-v4', 'other-v1', '', 'NORMAL-V3'])('withholds an estimate from an unsupported model %j', modelVersion => {
     for (const status of ['upcoming', 'live'] as const) {
       const source = matchup();
       source.status = status;
@@ -32,7 +32,7 @@ describe('matchup win chance presentation', () => {
     }
   });
 
-  it.each(['normal-v1', 'normal-v2'] as const)('retains an explicit %s unavailable state', modelVersion => {
+  it.each(['normal-v1', 'normal-v2', 'normal-v3'] as const)('retains an explicit %s unavailable state', modelVersion => {
     const source = matchup();
     source.winProbability = { modelVersion, status: 'unavailable', reason: 'missing-projection' };
     expect(matchupWinChance(source).status).toBe('unavailable');

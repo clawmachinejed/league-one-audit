@@ -193,7 +193,8 @@ async function expectSelectedScores(container: Locator, league: LeagueKey, ownTe
     [ownTeam, opponent].map(team => projectedPoints(league, team).toFixed(2)));
 }
 
-async function openFantasyFixture(page: Page, options: { staleInitialRefresh?: boolean; incompleteVerification?: boolean } = {}) {
+async function openFantasyFixture(page: Page, options: { staleInitialRefresh?: boolean; incompleteVerification?: boolean;
+  leagueLabels?: Partial<Record<LeagueKey, string>> } = {}) {
   const state = { documents: 0, full: { league1: 0, league2: 0, dynasty: 0 },
     refreshRequests: 0, refreshFinished: 0, refreshFailures: 0,
     readerRequests: 0, readerFinished: 0, readerFailures: [] as string[],
@@ -243,17 +244,27 @@ async function openFantasyFixture(page: Page, options: { staleInitialRefresh?: b
     if (route.request().resourceType() !== 'document') {
       const request = route.request();
       const headers = request.headers();
-      if (!state.holdRefreshMarker || new URL(request.url()).pathname !== '/my-fantasy'
+      if ((!state.holdRefreshMarker && !options.leagueLabels) || new URL(request.url()).pathname !== '/my-fantasy'
         || headers.rsc !== '1' || headers['next-router-prefetch']) return route.continue();
       // A successful refresh can still carry old server props. Keep the marker
       // for the first wave only; later retries receive the untouched response.
       const response = await route.fetch();
       expect(response.status()).toBe(200);
-      const body = await response.text();
-      const siteName = '"site":{"key":"league1","name":"League One"';
-      expect(body.split(siteName)).toHaveLength(2);
-      state.staleRefreshes += 1;
-      return route.fulfill({ response, body: body.replace(siteName, siteName.replace('League One', initialServerHeading)) });
+      let body = await response.text();
+      if (state.holdRefreshMarker) {
+        const siteName = '"site":{"key":"league1","name":"League One"';
+        expect(body.split(siteName)).toHaveLength(2);
+        state.staleRefreshes += 1;
+        body = body.replace(siteName, siteName.replace('League One', initialServerHeading));
+      }
+      for (const league of leagues) {
+        const label = options.leagueLabels?.[league];
+        if (!label) continue;
+        const siteName = `"site":{"key":"${league}","name":${JSON.stringify(LEAGUE_SITES[league].name)}`;
+        expect(body.split(siteName), 'Layout labels come from actual server props').toHaveLength(2);
+        body = body.replace(siteName, `"site":{"key":"${league}","name":${JSON.stringify(label)}`);
+      }
+      return route.fulfill({ response, body });
     }
     const response = await route.fetch();
     const html = await response.text();
@@ -686,9 +697,11 @@ test('My Fantasy expands each matchup and player statistics inline without enter
   expect(state.providerRequests).toEqual([]);
 });
 
-test('My Fantasy attention shows only selected starters and remains readable with larger text', async ({ page }, testInfo) => {
+test('My Fantasy attention aligns long IR and availability alerts without hiding stored win probability', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 900 });
-  const state = await openFantasyFixture(page, { incompleteVerification: true });
+  const longLeagueName = 'League Two Regional Championship Superflex';
+  const state = await openFantasyFixture(page, { incompleteVerification: true,
+    leagueLabels: { league2: longLeagueName } });
   await expect(card(page, 'dynasty').locator('[data-fantasy-status]')).toHaveAttribute('data-fantasy-status', 'unknown');
   const noIssues = page.locator('[data-fantasy-no-issues]');
   await expect(noIssues).toHaveText('No lineup issues');
@@ -704,11 +717,27 @@ test('My Fantasy attention shows only selected starters and remains readable wit
   expect(clearStyle.iconColor).toBe('rgb(255, 255, 255)');
   const iconRgb = clearStyle.iconBackground.match(/[\d.]+/gu)!.map(Number);
   expect(iconRgb[1], 'The no-issues circle is green').toBeGreaterThan(Math.max(iconRgb[0], iconRgb[2]));
-  const designations = { league1: 'OUT', league2: 'DOUBTFUL', dynasty: 'QUESTIONABLE' } as const;
-  const selectedNames = { league1: 'Selected OUT Starter', league2: 'Selected Doubtful Starter',
-    dynasty: 'Selected Questionable Starter' };
+  const selectedStarters = {
+    league1: [
+      { name: 'Selected OUT Starter with a Particularly Long Name', status: 'OUT' },
+      { name: 'Jonathan Brooks Injured Reserve Starting Running Back', status: 'IR' },
+      { name: 'Selected Suspended Starting Wide Receiver', status: 'SUSPENDED' },
+    ],
+    league2: [
+      { name: 'Selected Doubtful Starter with a Particularly Long Name', status: 'DOUBTFUL' },
+      { name: 'Selected OUT Running Back with Another Long Name', status: 'OUT' },
+      { name: 'Selected Available Starting Receiver', status: null },
+    ],
+    dynasty: [
+      { name: 'Selected Questionable Starter', status: 'QUESTIONABLE' },
+      { name: 'Selected Available Running Back', status: null },
+      { name: 'Selected Available Starting Receiver', status: null },
+    ],
+  };
+  const issues = [...selectedStarters.league1, ...selectedStarters.league2.slice(0, 2)];
   // Adopt another accepted snapshot through the existing reader. Every NFL game
-  // is pre-kickoff with zero actual points; only two selected starters need attention.
+  // is pre-kickoff with zero actual points. Stored normal-v3 odds remain usable
+  // even when an inactive starter needs attention; the UI must not recompute them.
   await page.route('**/api/matchups/**', async route => {
     const url = new URL(route.request().url());
     if (url.pathname.endsWith('/box-scores')) return route.fallback();
@@ -724,20 +753,29 @@ test('My Fantasy attention shows only selected starters and remains readable wit
       return;
     }
     const data = fantasyFixture(league, week);
+    data.league.rosterPositions = ['QB', 'RB', 'WR'];
     for (const matchup of data.matchups) {
       matchup.status = 'upcoming';
+      const firstProbability = league === 'league1' ? 0.5 : oddTeamWinChance[league];
+      matchup.winProbability = { modelVersion: 'normal-v3', status: 'estimated', teams: [
+        { teamId: matchup.sides[0].team.id, probability: firstProbability },
+        { teamId: matchup.sides[1].team.id, probability: 1 - firstProbability },
+      ] };
       for (const side of matchup.sides) {
         const selected = side.team.id === savedTeams[league];
         side.points = 0;
-        for (const player of [...side.starters, ...(side.bench ?? [])]) {
-          const starter = side.starters.includes(player);
-          player.name = selected && starter ? selectedNames[league]
-            : `${starter ? 'Opponent' : 'Bench'} OUT ${league} ${side.team.id}`;
-          player.injuryStatus = selected && starter ? designations[league] : 'OUT';
-          player.points = 0;
-          player.game = { kind: 'scheduled', opponent: 'TEN', location: 'away', date: '2026-09-13',
-            kickoffAt: '2026-09-13T17:00:00.000Z' };
-        }
+        side.starters = selectedStarters[league].map((starter, index) => {
+          const status = selected ? starter.status : 'OUT';
+          return { ...side.starters[0], id: `${playerId(league, side.team.id)}-${index}`,
+            slot: data.league.rosterPositions![index], position: data.league.rosterPositions![index],
+            name: selected ? starter.name : `Opponent OUT ${league} ${side.team.id} ${index}`,
+            injuryStatus: status, points: 0, projectedPoints: status && ['OUT', 'IR', 'SUSPENDED'].includes(status) ? 0 : 10,
+            game: { kind: 'scheduled', opponent: 'TEN', location: 'away', date: '2026-09-13',
+              kickoffAt: '2026-09-13T17:00:00.000Z' } };
+        });
+        side.projectedPoints = side.starters.reduce((total, player) => total + player.projectedPoints!, 0);
+        side.bench = [{ ...side.starters[0], id: `${playerId(league, side.team.id)}-bench`,
+          name: `Bench OUT ${league} ${side.team.id}`, slot: 'BN', injuryStatus: 'OUT' }];
       }
     }
     expect(isMatchupsData(data)).toBe(true);
@@ -749,24 +787,26 @@ test('My Fantasy attention shows only selected starters and remains readable wit
   }
   expect(state.readerFailures).toEqual([]);
   const panel = page.locator('section[aria-labelledby="fantasy-attention-heading"]');
-  await expect(panel.getByRole('heading', { name: '2 starting positions need attention', exact: true })).toBeVisible();
-  const rows = panel.locator('li a');
-  await expect(rows).toHaveCount(2);
-  await expect(panel.getByText(selectedNames.league1, { exact: true })).toBeVisible();
-  await expect(panel.getByText(selectedNames.league2, { exact: true })).toBeVisible();
+  await expect(panel.getByRole('heading', { name: '5 starting positions need attention', exact: true })).toBeVisible();
+  const rows = panel.locator('[data-fantasy-attention-row]');
+  await expect(rows).toHaveCount(issues.length);
+  await expect(rows.locator('[data-fantasy-attention-player]')).toHaveText(issues.map(issue => issue.name));
   await expect(panel).not.toContainText(/Opponent|Bench|Questionable/u);
-  await expect(panel.getByText('OUT', { exact: true })).toBeVisible();
+  await expect(panel.getByText('OUT', { exact: true })).toHaveCount(2);
+  await expect(panel.getByText('IR', { exact: true })).toBeVisible();
+  await expect(panel.getByText('SUSPENDED', { exact: true })).toBeVisible();
   await expect(panel.getByText('DOUBTFUL', { exact: true })).toBeVisible();
-  await expect(panel.getByText('Starting', { exact: true })).toHaveCount(2);
+  await expect(panel.getByText('Starting', { exact: true })).toHaveCount(issues.length);
+  await expect(panel.getByText(longLeagueName, { exact: true })).toHaveCount(2);
   await expect(panel.locator('h2 svg')).toHaveCount(1);
-  await expect(panel.locator('span[aria-hidden="true"]')).toHaveCount(2);
+  await expect(panel.locator('h2 span[aria-hidden="true"]')).toHaveCount(0);
   await expect(page.locator('[data-fantasy-no-issues]')).toHaveCount(0);
   for (const league of leagues) await expect(card(page, league).locator('[data-fantasy-status]'))
     .toHaveAttribute('data-fantasy-status', league === 'dynasty' ? 'clear' : 'alert');
   const headerDots = page.locator('[data-fantasy-status]');
   const rowDots = rows.locator(':scope > span[aria-hidden="true"]');
   await expect(headerDots).toHaveCount(3);
-  await expect(rowDots).toHaveCount(2);
+  await expect(rowDots).toHaveCount(issues.length);
   const dotSizes = await headerDots.or(rowDots).evaluateAll(nodes => nodes.map(node => {
     const rect = node.getBoundingClientRect();
     return { width: rect.width, height: rect.height };
@@ -776,43 +816,73 @@ test('My Fantasy attention shows only selected starters and remains readable wit
     expect(size.height).toBe(11);
   }
   const colors = await rows.evaluateAll(nodes => nodes.map(node => ({
-    dot: getComputedStyle(node.children[0]).backgroundColor,
-    designation: getComputedStyle(node.children[2]).color,
+    dot: getComputedStyle(node.querySelector(':scope > span[aria-hidden="true"]')!).backgroundColor,
+    designation: getComputedStyle(node.querySelector('[data-fantasy-attention-details] > span:first-child')!).color,
   })));
-  expect(colors[0].dot).toBe(colors[0].designation);
-  expect(colors[1].dot).toBe(colors[1].designation);
-  expect(colors[0].designation, 'OUT and DOUBTFUL use distinct alert and caution colors').not.toBe(colors[1].designation);
+  for (const color of colors) expect(color.dot).toBe(color.designation);
+  expect(colors[0].designation, 'OUT and DOUBTFUL use distinct alert and caution colors').not.toBe(colors[3].designation);
+  const irCard = card(page, 'league1');
+  const irProbability = irCard.locator('[data-win-chance-track]');
+  await expect(irCard.locator('[data-fantasy-status]')).toHaveAttribute('data-fantasy-status', 'alert');
+  await expect(irProbability).toBeVisible();
+  await expect(irProbability.locator('[data-win-chance-side]')).toHaveText(['50%', '50%']);
+  await expect(irProbability).toHaveAttribute('data-win-chance-tone', 'neutral');
+  await expect(irProbability.locator('[data-win-chance-fill]')).toBeVisible();
 
   for (const textScale of [1, 1.5]) {
     if (textScale > 1) {
-      // Explicit text-only resize stress, preserving the 390px viewport and dot size.
-      await panel.locator('h2, li a').evaluateAll(nodes => nodes.forEach(node => {
+      // Explicit text-only resize stress preserves viewport width and dot size.
+      await panel.locator('h2, [data-fantasy-attention-row]').evaluateAll(nodes => nodes.forEach(node => {
         const element = node as HTMLElement;
         element.style.fontSize = `${Number.parseFloat(getComputedStyle(element).fontSize) * 1.5}px`;
       }));
-      await expect(panel.getByText('DOUBTFUL', { exact: true })).toHaveCSS('font-size', '18px');
     }
-    await page.screenshot({ path: testInfo.outputPath(`attention-390px-${textScale * 100}-percent.png`), fullPage: true });
-    const geometry = await rows.evaluateAll(nodes => nodes.map(node => {
-      const status = node.children[2] as HTMLElement;
-      const starting = node.children[3].getBoundingClientRect();
-      const league = node.children[4] as HTMLElement;
-      const range = document.createRange();
-      range.selectNodeContents(status);
-      return { statusWidth: status.clientWidth, statusScrollWidth: status.scrollWidth,
-        statusTextRight: range.getBoundingClientRect().right, startingLeft: starting.left,
-        leagueRight: league.getBoundingClientRect().right, rowRight: node.getBoundingClientRect().right,
-        leagueAlign: getComputedStyle(league).textAlign, rowWidth: node.clientWidth, rowScrollWidth: node.scrollWidth };
-    }));
-    for (const row of geometry) {
-      expect(row.statusScrollWidth, `The complete status fits at ${textScale * 100}% text`).toBeLessThanOrEqual(row.statusWidth + 1);
-      expect(row.statusTextRight, 'Availability text cannot overlap Starting').toBeLessThanOrEqual(row.startingLeft - 1);
-      expect(row.leagueAlign).toBe('right');
-      expect(Math.abs(row.leagueRight - row.rowRight), 'League labels align to the right edge').toBeLessThanOrEqual(1);
-      expect(row.rowScrollWidth).toBeLessThanOrEqual(row.rowWidth + 1);
+    for (const width of [320, 390, 430, 900, 1280]) {
+      await page.setViewportSize({ width, height: 900 });
+      if (width === 390 || width === 900) await page.screenshot({
+        path: testInfo.outputPath(`attention-${width}px-${textScale * 100}-percent.png`), fullPage: true,
+      });
+      const geometry = await rows.evaluateAll(nodes => nodes.map(node => {
+        const player = node.querySelector('[data-fantasy-attention-player]')!;
+        const details = node.querySelector('[data-fantasy-attention-details]')!;
+        const status = details.querySelector(':scope > span:first-child')!;
+        const starting = details.querySelector(':scope > span:last-child')!.getBoundingClientRect();
+        const league = node.querySelector('[data-fantasy-attention-league]')!;
+        const statusBox = status.getBoundingClientRect();
+        const playerBox = player.getBoundingClientRect();
+        const leagueBox = league.getBoundingClientRect();
+        return { statusWidth: status.clientWidth, statusScrollWidth: status.scrollWidth,
+          statusLeft: statusBox.left, statusRight: statusBox.right, statusTop: statusBox.top, statusBottom: statusBox.bottom,
+          startingLeft: starting.left, startingTop: starting.top, startingBottom: starting.bottom,
+          playerLeft: playerBox.left, playerRight: playerBox.right, playerTop: playerBox.top, playerBottom: playerBox.bottom,
+          playerWidth: player.clientWidth, playerScrollWidth: player.scrollWidth,
+          leagueLeft: leagueBox.left, leagueTop: leagueBox.top, leagueBottom: leagueBox.bottom, leagueRight: leagueBox.right,
+          leagueWidth: league.clientWidth, leagueScrollWidth: league.scrollWidth,
+          rowRight: node.getBoundingClientRect().right, rowWidth: node.clientWidth, rowScrollWidth: node.scrollWidth };
+      }));
+      for (const row of geometry) {
+        const context = `at ${width}px and ${textScale * 100}% text`;
+        expect(row.statusScrollWidth, `The complete availability status fits ${context}`).toBeLessThanOrEqual(row.statusWidth + 1);
+        expect(row.statusRight, `Availability cannot overlap Starting ${context}`).toBeLessThanOrEqual(row.startingLeft - 1);
+        expect(row.playerScrollWidth, `Long player names wrap ${context}`).toBeLessThanOrEqual(row.playerWidth + 1);
+        expect(row.leagueScrollWidth, `Long league names wrap ${context}`).toBeLessThanOrEqual(row.leagueWidth + 1);
+        expect(Math.abs(row.leagueRight - row.rowRight), `League labels align right ${context}`).toBeLessThanOrEqual(1);
+        expect(row.rowScrollWidth, `The row fits ${context}`).toBeLessThanOrEqual(row.rowWidth + 1);
+        if (width <= 430) {
+          expect(Math.abs(row.playerTop - row.leagueTop), `Player and league begin together ${context}`).toBeLessThanOrEqual(1);
+          expect(row.playerRight, `Player and league names cannot overlap ${context}`).toBeLessThanOrEqual(row.leagueLeft - 1);
+          expect(row.statusTop, `Availability follows both complete names ${context}`)
+            .toBeGreaterThanOrEqual(Math.max(row.playerBottom, row.leagueBottom));
+          expect(Math.abs(row.statusLeft - row.playerLeft), `Availability begins under the player ${context}`).toBeLessThanOrEqual(1);
+          expect(Math.abs(row.statusTop - row.startingTop), `Status and Starting form one readable group ${context}`).toBeLessThanOrEqual(1);
+        } else {
+          expect(row.playerRight, `Player name stays before the status column ${context}`).toBeLessThanOrEqual(row.statusLeft - 1);
+          expect(Math.abs(row.statusLeft - geometry[0].statusLeft), `Statuses share one column ${context}`).toBeLessThanOrEqual(1);
+          expect(Math.abs(row.startingLeft - geometry[0].startingLeft), `Starting shares one column ${context}`).toBeLessThanOrEqual(1);
+        }
+      }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
     }
-    expect(Math.abs(geometry[0].leagueRight - geometry[1].leagueRight)).toBeLessThanOrEqual(1);
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
   }
   expect(state.accountRequests).toEqual([]);
   expect(state.providerRequests).toEqual([]);

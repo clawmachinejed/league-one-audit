@@ -188,11 +188,15 @@ function MyFantasyLeaguesView({ memberships, evaluatedAt, requestedWeek, fallbac
       <h2 id="fantasy-attention-heading"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.3 3.5a2 2 0 0 1 3.4 0l8 14A2 2 0 0 1 20 20.5H4a2 2 0 0 1-1.7-3z" fill="currentColor" /><path d="M12 8v5m0 3v.2" stroke="var(--surface)" strokeWidth="2" strokeLinecap="round" /></svg>
         {issueCount} starting position{issueCount === 1 ? '' : 's'} need{issueCount === 1 ? 's' : ''} attention</h2>
       <ul>{attention.flatMap(({ entry, summary }) => summary.attention.issues.map((issue, index) => <li key={`${entry.site.key}:${issue.slot}:${index}`}>
-        <Link className={styles.attentionRow} href={`#fantasy-${entry.site.key}`} aria-label={`${issue.message} ${entry.site.name}.`}>
+        <Link className={styles.attentionRow} data-fantasy-attention-row href={`#fantasy-${entry.site.key}`} aria-label={`${issue.message} ${entry.site.name}.`}>
           <span className={`${styles.statusDot} ${issue.severity === 'caution' ? styles.caution : styles.alert}`} aria-hidden="true" />
-          <strong className={styles.attentionPlayer}>{issue.kind === 'empty' ? `Empty ${issue.slot}` : issue.playerName}</strong>
-          <span className={issue.severity === 'caution' ? styles.cautionText : styles.alertText}>{issue.statusLabel}</span>
-          <span className={styles.startingContext}>Starting</span><span className={styles.attentionLeague}>{entry.site.name}</span>
+          <strong className={styles.attentionPlayer} data-fantasy-attention-player>{issue.kind === 'empty' ? `Empty ${issue.slot}` : issue.playerName}</strong>
+          <span className={styles.attentionDetails} data-fantasy-attention-details>
+            <span className={issue.severity === 'caution' ? styles.cautionText : styles.alertText}>{issue.statusLabel}</span>
+            <span className={styles.attentionSeparator} aria-hidden="true">·</span>
+            <span className={styles.startingContext}>Starting</span>
+          </span>
+          <span className={styles.attentionLeague} data-fantasy-attention-league>{entry.site.name}</span>
         </Link>
       </li>))}</ul>
     </section>}

@@ -34,9 +34,9 @@ function expectUnavailable(estimate: WinProbabilityResult, reason: string) {
   expect(estimate).toEqual({ modelVersion: WIN_PROBABILITY_MODEL_VERSION, status: 'unavailable', reason });
 }
 
-describe('normal-v2 matchup win probability', () => {
+describe('normal-v3 matchup win probability', () => {
   it('gives equal canonical projected finishes equal chances', () => {
-    expect(result()).toEqual({ modelVersion: 'normal-v2', status: 'estimated', probabilities: [0.5, 0.5] });
+    expect(result()).toEqual({ modelVersion: 'normal-v3', status: 'estimated', probabilities: [0.5, 0.5] });
   });
 
   it('matches a known standard-normal probability independently of the implementation approximation', () => {
@@ -179,7 +179,7 @@ describe('normal-v2 matchup win probability', () => {
     const finished = player({ phase: 'final', officialPoints: 12, projectionQuality: 'official-final' });
     expect(result(side({ projectedPoints: 0, officialPoints: 25, players: [out] }),
       side({ officialPoints: 12, players: [finished] }), 'final'))
-      .toEqual({ modelVersion: 'normal-v2', status: 'final', probabilities: [1, 0] });
+      .toEqual({ modelVersion: 'normal-v3', status: 'final', probabilities: [1, 0] });
     expect(result(side({ projectedPoints: 25, officialPoints: 25, players: [out] }), side(), 'live'))
       .toEqual(result(side({ projectedPoints: 25, officialPoints: 25, players: [] }), side(), 'live'));
   });
@@ -239,13 +239,13 @@ describe('normal-v2 matchup win probability', () => {
   it('uses official team totals for finals, including a commissioner adjustment reversing the player sum', () => {
     const left = side({ officialPoints: 3, projectedPoints: null, players: [player({ phase: 'final', officialPoints: 50, baselinePoints: null })] });
     const right = side({ officialPoints: 10, projectedPoints: null, players: [player({ phase: 'final', officialPoints: 2, baselinePoints: null })] });
-    expect(result(left, right, 'final')).toEqual({ modelVersion: 'normal-v2', status: 'final', probabilities: [0, 1] });
-    expect(result(right, left, 'final')).toEqual({ modelVersion: 'normal-v2', status: 'final', probabilities: [1, 0] });
+    expect(result(left, right, 'final')).toEqual({ modelVersion: 'normal-v3', status: 'final', probabilities: [0, 1] });
+    expect(result(right, left, 'final')).toEqual({ modelVersion: 'normal-v3', status: 'final', probabilities: [1, 0] });
   });
 
   it('labels an official final tie explicitly instead of a fabricated 50% chance', () => {
     const finished = side({ officialPoints: 24.6, players: [player({ phase: 'final' })] });
-    expect(result(finished, finished, 'final')).toEqual({ modelVersion: 'normal-v2', status: 'tie', probabilities: [0, 0] });
+    expect(result(finished, finished, 'final')).toEqual({ modelVersion: 'normal-v3', status: 'tie', probabilities: [0, 0] });
   });
 
   it('requires final game evidence, both official totals, and an available lineup before final results', () => {
