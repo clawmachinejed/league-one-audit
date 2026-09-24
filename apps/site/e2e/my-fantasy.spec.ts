@@ -255,7 +255,7 @@ test('My Fantasy cards and inline statistics fit supported phone and desktop wid
     await card(page, league).locator('[data-starter-box-score-toggle]').first().click();
     await expect(card(page, league).locator('[data-box-score-summary]').first()).toBeVisible();
   }
-  for (const width of [360, 390, 430, 760, 900, 1280]) {
+  for (const width of [320, 360, 390, 430, 760, 900, 1280]) {
     await page.setViewportSize({ width, height: 900 });
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1),
       `My Fantasy document must fit ${width}px`).toBe(true);

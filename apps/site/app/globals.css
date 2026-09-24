@@ -137,6 +137,7 @@ button{border:0}
 .mobile-nav a{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-height:44px;border-radius:9px;font-size:10px;line-height:1.2;font-weight:700;color:var(--muted)}
 .mobile-nav a[aria-current=page]{color:var(--green);background:var(--green-soft)}
 .mobile-nav .icon{width:19px;height:19px}
+@media(max-width:359px){.mobile-nav a[href="/my-fantasy"]>span{font-size:9px;line-height:12px;white-space:nowrap}}
 .league-switcher{position:relative;display:flex;align-items:center;justify-content:center;min-width:0}
 .league-switcher-desktop{display:none}
 .league-switcher-trigger,.league-switcher-choice{display:flex;align-items:center;justify-content:center;width:44px;height:44px;padding:6px;border:1px solid transparent;border-radius:9px;background:transparent;color:var(--muted)}
