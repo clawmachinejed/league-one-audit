@@ -724,11 +724,11 @@ describe('canonical all-player ingestion orchestration', () => {
     { mode: 'backfill', reverse: false }, { mode: 'backfill', reverse: true },
   ] as const)('uses one response for three leagues and two complete profiles in $mode (reverse=$reverse)', async ({ mode, reverse }) => {
     const test = harness({ dynasty: true });
-    if (reverse) {
-      const configurations = [...test.dependencies.leagueRegistry.listActiveLeagues()].reverse();
-      test.dependencies.leagueRegistry.listActiveLeagues = () => configurations;
-    }
-    const result = await runAllPlayerIngestion(test.dependencies, { mode, period: PERIOD });
+    const dependencies = reverse ? { ...test.dependencies, leagueRegistry: {
+      ...test.dependencies.leagueRegistry,
+      listActiveLeagues: () => [...test.dependencies.leagueRegistry.listActiveLeagues()].reverse(),
+    } } : test.dependencies;
+    const result = await runAllPlayerIngestion(dependencies, { mode, period: PERIOD });
     expect(result).toMatchObject({ status: 'completed', scoringProfileCount: 2,
       parityComparisonCount: 3, parityMismatchCount: 0, persisted: mode === 'backfill' });
     expect(test.dependencies.loadLeagueWeek).toHaveBeenCalledTimes(3);
