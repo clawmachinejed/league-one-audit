@@ -1,10 +1,32 @@
-import type { AccountView, SleeperLeagueDiscovery } from '@/lib/accounts/contracts';
+import type { AccountView, SleeperLeagueDiscovery, SleeperLinkPreview } from '@/lib/accounts/contracts';
 import type { CapabilityStatus, LeagueCapabilityReport } from '@/lib/league-capability-contracts';
 import type { AccountAccessState } from './account-access';
 
 export const ACCOUNT_SESSION_EVENT = 'league-one:account-session-change';
 export type AccountRead = { status: 'ready'; data: AccountView } | { status: AccountAccessState };
 export type SleeperLeagueRead = { status: 'ready'; data: SleeperLeagueDiscovery } | { status: 'unavailable' };
+
+export async function readSleeperLinkPreview(accountId: string, sourceManagerAccountId: string,
+  signal: AbortSignal, request: typeof fetch = fetch): Promise<SleeperLinkPreview> {
+  const params = new URLSearchParams({ sourceManagerAccountId });
+  const response = await request(`/api/me/provider-link-preview?${params}`, { signal, cache: 'no-store', credentials: 'same-origin',
+    headers: { Accept: 'application/json', 'X-Expected-Account-ID': accountId } });
+  if (!response.ok) throw new Error('Sleeper profile preview unavailable.');
+  const value: unknown = await response.json();
+  if (!value || typeof value !== 'object') throw new Error('Invalid Sleeper profile preview.');
+  const data = value as SleeperLinkPreview;
+  if (data.sourceManagerAccountId !== sourceManagerAccountId || !/^[1-9]\d{0,31}$/.test(data.userId)
+    || typeof data.username !== 'string' || !data.username || typeof data.displayName !== 'string' || !data.displayName
+    || !(data.avatarUrl === null || typeof data.avatarUrl === 'string' && data.avatarUrl.startsWith('https://sleepercdn.com/avatars/thumbs/'))
+    || !/^\d{4}$/.test(data.season) || !Array.isArray(data.leagues) || !Array.isArray(data.teams)
+    || !data.leagues.every(league => /^[1-9]\d{0,31}$/.test(league.id) && typeof league.name === 'string' && league.name)
+    || !data.teams.every(team => data.leagues.some(league => league.id === team.leagueId)
+      && typeof team.teamName === 'string' && Number.isSafeInteger(team.rosterId) && team.rosterId > 0
+      && Array.isArray(team.players) && team.players.every(player => typeof player === 'string'))) {
+    throw new Error('Invalid Sleeper profile preview.');
+  }
+  return data;
+}
 
 export async function accountResponseState(response: Response): Promise<AccountAccessState | null> {
   if (response.status === 401) return 'guest';

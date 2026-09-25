@@ -224,6 +224,21 @@ export async function getSleeperDiscoverySeason(signal?: AbortSignal): Promise<s
   return state.league_season;
 }
 
+/** Public identity lookup for account-link confirmation; the stable ID must match the selected source account. */
+export async function getSleeperUserIdentity(userId: string, signal?: AbortSignal): Promise<{
+  userId: string; username: string; displayName: string; avatarUrl: string | null;
+}> {
+  if (!/^[1-9]\d{0,31}$/u.test(userId)) throw new Error('Invalid Sleeper user ID.');
+  const value = await fetchJson(`/user/${userId}`, CORE_CACHE_SECONDS, signal);
+  if (!isRecord(value) || value.user_id !== userId || typeof value.username !== 'string'
+    || !value.username.trim() || value.username.length > 100) throw new Error('Sleeper identity is unavailable.');
+  const displayName = typeof value.display_name === 'string' && value.display_name.trim()
+    && value.display_name.length <= 100 ? value.display_name.trim() : value.username.trim();
+  const avatarUrl = typeof value.avatar === 'string' && /^[a-zA-Z0-9_-]{1,128}$/u.test(value.avatar)
+    ? `https://sleepercdn.com/avatars/thumbs/${value.avatar}` : null;
+  return { userId, username: value.username.trim(), displayName, avatarUrl };
+}
+
 export async function getSleeperUserLeagues(
   userId: string, season: string, signal?: AbortSignal,
 ): Promise<{ id: string; name: string; season: string; capabilities?: LeagueCapabilityReport }[]> {
