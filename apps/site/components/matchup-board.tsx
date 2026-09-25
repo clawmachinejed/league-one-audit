@@ -139,13 +139,22 @@ function Starter({ player, opposite, high, pending, unavailable, bench, blank, o
   </div>;
 }
 
-function BenchDisclosure({ children, onToggle }: { children: ReactNode; onToggle: () => void }) {
+function BenchDisclosure({ children, onToggle, presentation }: {
+  children: ReactNode;
+  onToggle: () => void;
+  presentation: NonNullable<MatchupSummaryProps['presentation']>;
+}) {
   const [expanded, setExpanded] = useState(false);
   const panelId = useId();
   return <section aria-label="Bench players" className={styles.bench}>
     <h2 className={styles.benchHeading}><button type="button" className={styles.benchToggle}
       aria-expanded={expanded} aria-controls={panelId} onClick={() => { setExpanded(value => !value); onToggle(); }}>
-      Bench <span aria-hidden="true">{expanded ? '−' : '+'}</span>
+      {presentation === 'fantasy' ? <span className={styles.fantasyBenchLabel}>Bench
+        <svg className={`${styles.fantasyBenchChevron} ${expanded ? styles.fantasyBenchChevronOpen : ''}`}
+          viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+          <path d="m7 10 5 5 5-5" />
+        </svg>
+      </span> : <>Bench <span aria-hidden="true">{expanded ? '−' : '+'}</span></>}
     </button></h2>
     <div id={panelId} hidden={!expanded}>{children}</div>
   </section>;
@@ -340,7 +349,7 @@ function MatchupCard({ matchup, selected, avatar, boxScores, boxScoresLoading, o
         </p>}
       </> : <p className={styles.unavailable}>Starting lineups are unavailable from Sleeper for this week.</p>}
       {showBench && (benchExpandable
-        ? (presentation === 'fantasy' || expanded) && <BenchDisclosure onToggle={() => setBenchRefresh(value => value + 1)}>{benchCount ? Array.from({ length: benchCount }, (_, index) => renderPlayerRow(index, 'bench'))
+        ? (presentation === 'fantasy' || expanded) && <BenchDisclosure presentation={presentation} onToggle={() => setBenchRefresh(value => value + 1)}>{benchCount ? Array.from({ length: benchCount }, (_, index) => renderPlayerRow(index, 'bench'))
           : <p className={styles.lineupNote}>No bench players.</p>}</BenchDisclosure>
         : <section aria-label="Bench players" className={styles.bench}>
           <h2 className={styles.benchHeading}>Bench</h2>

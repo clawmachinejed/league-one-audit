@@ -636,7 +636,7 @@ test('My Fantasy keeps league expansions independent and each bench behind a sec
   ]);
   expect(benchBox).not.toBeNull();
   expect(matchupBox).not.toBeNull();
-  expect(benchBox!.height).toBeLessThanOrEqual(32);
+  expect(benchBox!.height).toBeLessThanOrEqual(30);
   expect(benchBox!.width).toBeGreaterThan(matchupBox!.width - 4);
   await expect(card(page, 'league1').locator('[data-bench-row]').first()).toBeHidden();
   await bench.press('Enter');
