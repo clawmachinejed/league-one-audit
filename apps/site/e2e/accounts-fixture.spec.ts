@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import type { AccountView, SleeperLeagueDiscovery } from '../lib/accounts/contracts';
 import type { LeagueCapabilityReport } from '../lib/league-capability-contracts';
+import { snapshotFixture, contextFixture, SNAPSHOT_TIME } from '../test-support/matchup-snapshot-fixtures';
 
 test.skip(process.env.L1_ACCOUNT_BROWSER_FIXTURE !== 'true', 'Synthetic account UI runs only through playwright.accounts.config.ts.');
 
@@ -40,9 +41,15 @@ async function installFixture(page: Page, baseURL: string) {
     holdNextRead: null as Promise<void> | null,
     discovery: null as SleeperLeagueDiscovery | null, discoveryStatus: 0, discoveryReads: 0,
     holdNextDiscovery: null as Promise<void> | null,
+    onboardingStatus: 0,
   };
   await page.route('**/*', async route => {
     const url = new URL(route.request().url());
+    if (url.origin === 'https://sleepercdn.com' && /^\/avatars\/[a-zA-Z0-9_-]+$/u.test(url.pathname)
+      && route.request().resourceType() === 'image') {
+      await route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"><rect width="40" height="40" fill="#173d30"/></svg>' });
+      return;
+    }
     if (url.origin !== origin) { fixture.unexpected.push(url.origin); await route.abort('blockedbyclient'); return; }
     const path = url.pathname;
     const method = route.request().method();
@@ -68,6 +75,42 @@ async function installFixture(page: Page, baseURL: string) {
       if (held) await held;
       await route.fulfill({ json: captured, headers: { 'Cache-Control': 'private, no-store' } }).catch(() => undefined);
       return;
+    }
+    if (path === '/api/me/sleeper-onboarding' && method === 'POST') {
+      const body = route.request().postDataJSON();
+      const expectedAccount = route.request().headers()['x-expected-account-id'];
+      fixture.writes.push({ path, expectedAccount, body });
+      if (!fixture.current || expectedAccount !== fixture.current.profile.id) {
+        await route.fulfill({ status: 409, json: { error: 'account_changed' } }); return;
+      }
+      if (body.action === 'preview') {
+        await route.fulfill({ json: { userId: '999999999', username: 'fixturemember', displayName: 'Fixture Sleeper',
+          avatarUrl: null, season: '2026', teams: [
+            { leagueId: '123456789', leagueName: 'League One', rosterId: 1, teamName: 'Questionable Decisions', logo: '/league-placeholder.svg', status: 'ready', reason: null },
+            { leagueId: '987654321', leagueName: 'New Sleeper League', rosterId: 1, teamName: 'New Team', logo: '/league-placeholder.svg', status: 'ready', reason: null },
+            { leagueId: '999', leagueName: 'Unsupported League', rosterId: 3, teamName: 'Best Ball Team', logo: '/league-placeholder.svg', status: 'unsupported', reason: 'These league settings need support before this league can be imported.' },
+          ] } }); return;
+      }
+      if (fixture.onboardingStatus) { await route.fulfill({ status: fixture.onboardingStatus, json: { error: 'account_unavailable' } }); return; }
+      fixture.current.links = [{ id: providerLinkId, sourceManagerAccountId: providerId, displayName: 'Fixture Sleeper', provider: 'sleeper', assurance: 'user_asserted', revision: 1 }];
+      if (body.leagueId === '987654321' && !fixture.current.library.leagues.some(league => league.key === 'sleeper-987654321')) {
+        fixture.current.library.leagues.push({ ...structuredClone(fixture.current.library.leagues[0]), id: '99999999-9999-4999-8999-999999999999',
+          key: 'sleeper-987654321', name: 'New Sleeper League', logo: '/league-placeholder.svg',
+          url: '/leagues/sleeper-987654321/matchups', saved: null, affiliations: [], linkedFromLeagueIds: [] });
+      }
+      await route.fulfill({ json: { ok: true } }); return;
+    }
+    if (path === '/api/me/fantasy' && method === 'GET') {
+      if (!fixture.current) { await route.fulfill({ status: 401, json: { error: 'unauthenticated' } }); return; }
+      const memberships = fixture.current.library.leagues.filter(league => league.teams.length).map(league => {
+        const prefix = league.url.replace(/\/matchups$/u, '');
+        const data = snapshotFixture(4);
+        return { teamIds: [1], entry: { status: 'available', leagueId: league.id,
+          site: { key: league.key, name: league.name, brand: league.name.toUpperCase(), prefix, logo: '/league-placeholder.svg' },
+          source: { leagueId: league.id, data, periodContext: contextFixture(), snapshotRevision: null, verifiedAt: null, rollover: null, standings: null },
+          standingsData: null, honors: null } };
+      });
+      await route.fulfill({ json: { accountId: fixture.current.profile.id, memberships, evaluatedAt: SNAPSHOT_TIME } }); return;
     }
     if (path === '/api/me/provider-link-preview' && method === 'GET') {
       const expectedAccount = route.request().headers()['x-expected-account-id'];
@@ -127,6 +170,46 @@ async function installFixture(page: Page, baseURL: string) {
   });
   return fixture;
 }
+
+test('username onboarding confirms teams, imports a new league, and opens account My Fantasy', async ({ page, baseURL }, info) => {
+  const fixture = await installFixture(page, baseURL!);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/account');
+  await page.getByLabel('Sleeper username', { exact: true }).fill('fixturemember');
+  await page.getByRole('button', { name: 'Find my teams', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Is this your Sleeper account?' })).toBeVisible();
+  expect(fixture.writes.filter(write => write.body.action === 'confirm')).toHaveLength(0);
+  await page.getByRole('button', { name: 'Yes, this is my account', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Confirm your teams', exact: true })).toBeVisible();
+  await expect(page.getByLabel(/Unsupported League/)).toBeDisabled();
+  await page.screenshot({ path: info.outputPath('onboarding-confirm-teams.png'), fullPage: true });
+  await page.getByRole('button', { name: 'Confirm teams and open My Fantasy', exact: true }).click();
+  await expect(page).toHaveURL(/\/my-fantasy$/u);
+  await expect(page.locator('[data-my-fantasy-league="sleeper-987654321"]')).toBeVisible();
+  await expect(page.locator('[data-my-fantasy-league="league2"]')).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Enter New Sleeper League' })).toHaveAttribute('href', '/leagues/sleeper-987654321/my-team');
+  await page.getByRole('button', { name: /Choose league/ }).filter({ visible: true }).click();
+  await expect(page.getByRole('link', { name: 'View League Two', exact: true }).filter({ visible: true })).toContainText('Linked league');
+  await expect(page.getByRole('link', { name: 'View New Sleeper League', exact: true }).filter({ visible: true })).toContainText('Your league');
+  expect(fixture.writes.filter(write => write.body.action === 'confirm').map(write => write.body.leagueId)).toEqual(['123456789', '987654321']);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test('failed onboarding stays on confirmation and allows a safe retry', async ({ page, baseURL }) => {
+  const fixture = await installFixture(page, baseURL!);
+  fixture.onboardingStatus = 503;
+  await page.goto('/account');
+  await page.getByLabel('Sleeper username', { exact: true }).fill('fixturemember');
+  await page.getByRole('button', { name: 'Find my teams', exact: true }).click();
+  await page.getByRole('button', { name: 'Yes, this is my account', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm teams and open My Fantasy', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('could not be completed');
+  await expect(page).toHaveURL(/\/account$/u);
+  expect(fixture.current?.links).toHaveLength(0);
+  fixture.onboardingStatus = 0;
+  await page.getByRole('button', { name: 'Confirm teams and open My Fantasy', exact: true }).click();
+  await expect(page).toHaveURL(/\/my-fantasy$/u);
+});
 
 test('library cards distinguish participation and affiliation and fit phone and desktop', async ({ page, baseURL }, info) => {
   const fixture = await installFixture(page, baseURL!);
@@ -206,8 +289,8 @@ test('sign-up and email verification use the SDK without contacting an external 
   await expect(page.getByText('Email verified. Sign in to continue.')).toBeVisible();
   await page.getByLabel('Website password').fill('synthetic-browser-password');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-  await expect(page).toHaveURL(/\/my-leagues$/);
-  await expect(page.getByText('Signed in as Fixture Member')).toBeVisible();
+  await expect(page).toHaveURL(/\/my-fantasy$/);
+  await expect(page.getByText('Connect your Sleeper username and confirm your teams to get started.')).toBeVisible();
   expect(fixture.authPaths).toEqual(expect.arrayContaining(['/api/auth/sign-up/email', '/api/auth/send-verification-email', '/api/auth/email-otp/verify-email', '/api/auth/sign-in/email']));
   expect(fixture.unexpected).toEqual([]);
 });

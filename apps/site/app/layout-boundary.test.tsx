@@ -128,7 +128,7 @@ describe('platform and public league layout boundary', () => {
 
   it('keeps league-specific metadata in the public group', () => {
     expect(leagueMetadata.description).toContain('The home of League One fantasy football.');
-    expect(leagueMetadata.icons).toEqual({ icon: '/league-one-logo-63ab193e.jpg', apple: '/league-one-logo-63ab193e.jpg' });
+    expect(leagueMetadata.icons).toEqual({ icon: '/league-one-site-20260925.png', apple: '/league-one-site-20260925.png' });
     expect(rootMetadata.description).not.toContain('managers');
   });
 });

@@ -3,7 +3,7 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import type { LibraryLeague, LibraryView } from '@/lib/accounts/contracts';
-import { LEAGUE_SITES } from '@/lib/leagues';
+import { siteForLeague } from '@/lib/leagues';
 import styles from './account.module.css';
 
 export type AccountMutation = (path: string, method: 'POST' | 'PATCH' | 'PUT' | 'DELETE', body: unknown) => Promise<boolean>;
@@ -23,7 +23,7 @@ export function AccountLibrary({ library, mutate, busy }: { library: LibraryView
   ];
   return <>{groups.filter(group => group.leagues.length).map(group => <section key={group.title} className={styles.section}>
     <h2>{group.title}</h2><div className={styles.grid}>{group.leagues.map(league => {
-      const site = LEAGUE_SITES[league.key];
+      const site = siteForLeague(league.key, league.name, league.logo)!;
       const relationship = leagueRelationship(league);
       const saved = league.saved;
       const save = (favorite: boolean) => mutate(`/api/me/leagues/${encodeURIComponent(league.id)}`, 'PUT', {
@@ -32,7 +32,7 @@ export function AccountLibrary({ library, mutate, busy }: { library: LibraryView
       });
       return <article className={styles.card} key={league.id}>
         <span className={`${styles.badge} ${league.teams.length ? styles.participating : ''}`}>{relationship}</span>
-        <div className={styles.cardHeader}><Image src={site.logo} alt="" width={42} height={42} /><h3>{league.name}</h3></div>
+        <div className={styles.cardHeader}><Image src={site.logo} alt="" width={42} height={42} unoptimized /><h3>{league.name}</h3></div>
         {league.season !== null && <p>{league.season} season</p>}
         {league.teams.length > 0 && <p>Matches your associated Sleeper account{league.teams.some(team => team.roles.includes('co_owner')) ? ' as an owner or co-owner' : ''}. This association is user supplied.</p>}
         {league.linkedFromLeagueIds.length > 0 && <p>Linked to {library.leagues.filter(source => league.linkedFromLeagueIds.includes(source.id)).map(source => source.name).join(', ') || 'a related league'}. This does not mean you manage a team here.</p>}

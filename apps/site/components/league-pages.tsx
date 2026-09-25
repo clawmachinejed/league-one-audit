@@ -7,7 +7,7 @@ import { parseMatchupWeek } from '@/lib/matchup-week';
 import { MANAGER_SCHEDULE_WEEKS } from '@/lib/my-team-schedule';
 import { loadLeagueMatchups } from '@/lib/league-matchups-source';
 import { readStoredMatchups } from '@/lib/projection-reader';
-import type { LeagueKey } from '@/lib/leagues';
+import type { LeagueRouteKey as LeagueKey } from '@/lib/leagues';
 import { getCurrentMatchupPeriodContext, getOverview, getManagers, getManagersHistory, getManager, getManagerHonors, getStandings, getTransactions, getSiteWeekRollover, getMyTeamSchedule } from '@/lib/sleeper';
 import { MatchupsView } from './matchups-view';
 import { ManagerView } from './manager-view';

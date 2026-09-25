@@ -10,7 +10,7 @@ function record(value: unknown): value is Record<string, unknown> {
 
 type RosterMatch = { leagueId: string; leagueName: string; rosterId: number; teamName: string; playerIds: string[] };
 
-async function matchingRoster(league: { id: string; name: string }, userId: string, signal: AbortSignal): Promise<RosterMatch | null> {
+export async function matchingRoster(league: { id: string; name: string }, userId: string, signal: AbortSignal): Promise<RosterMatch | null> {
   const observation = await getOfficialAdministrationObservation(league.id, 'rosters', null, 60, signal);
   if (!Array.isArray(observation.payload) || observation.payload.length > 100) return null;
   for (const row of observation.payload) {

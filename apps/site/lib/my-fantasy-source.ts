@@ -1,31 +1,33 @@
 import 'server-only';
-
 import { LEAGUE_IDS } from './config';
+
 import { getCurrentLeagueId } from './league-administration/registry';
 import { loadLeagueMatchups, type LeagueMatchupsSource } from './league-matchups-source';
-import { LEAGUE_SITES, type LeagueSite } from './leagues';
+import { LEAGUE_SITES, type LeagueSite, type LeagueKey, type LeagueRouteKey } from './leagues';
 import type { ManagerHonors } from './manager-honors';
 import { getManagerHonors, getStandings } from './sleeper';
 import type { StandingsData } from './types';
+import { getLeagueSite } from './league-sites';
 
-export type MyFantasyLeague = {
+export type MyFantasyLeague<K extends LeagueRouteKey = LeagueRouteKey> = {
   status: 'available';
-  site: LeagueSite;
+  site: LeagueSite & { key: K };
   leagueId: string;
   source: LeagueMatchupsSource;
   standingsData: StandingsData | null;
   honors: ManagerHonors | null;
 } | {
   status: 'unavailable';
-  site: LeagueSite;
+  site: LeagueSite & { key: K };
   leagueId: string | null;
 };
 
 /** Public, enrolled site leagues only; account discovery never imports a league here. */
-export async function loadMyFantasyLeagues(requestedWeek?: number): Promise<MyFantasyLeague[]> {
-  return Promise.all(Object.values(LEAGUE_SITES).map(async (site): Promise<MyFantasyLeague> => {
+export async function loadMyFantasyLeagues(requestedWeek?: number): Promise<MyFantasyLeague<LeagueKey>[]> {
+  return Promise.all(Object.values(LEAGUE_SITES).map(async (fallbackSite): Promise<MyFantasyLeague<LeagueKey>> => {
+    const site = { ...await getLeagueSite(fallbackSite.key).catch(() => fallbackSite), key: fallbackSite.key };
     try {
-      const source = await loadLeagueMatchups(LEAGUE_IDS[site.key], site.key, requestedWeek);
+      const source = await loadLeagueMatchups(LEAGUE_IDS[fallbackSite.key], site.key, requestedWeek);
       const [standingsData, honors] = await Promise.all([
         getStandings(source.leagueId).catch(() => null),
         getManagerHonors(source.leagueId).catch(() => null),

@@ -3,7 +3,7 @@ import 'server-only';
 import type { SiteWeekRollover } from '../components/use-site-week-rollover';
 import type { CurrentStandings } from './current-standings';
 import { resolveCurrentLeagueId } from './league-administration/registry';
-import type { LeagueKey } from './leagues';
+import type { LeagueRouteKey } from './leagues';
 import { currentMatchupWeek, type MatchupPeriodContext } from './matchup-period';
 import { readStoredMatchups } from './projection-reader';
 import {
@@ -41,7 +41,7 @@ function contextForSelectedWeek(context: MatchupPeriodContext, week: number): Ma
 
 /** The same exact-week snapshot and official fallback policy for every matchup view. */
 export async function loadLeagueMatchups(
-  leagueId: string, leagueKey: LeagueKey, requestedWeek?: number,
+  leagueId: string, leagueKey: LeagueRouteKey, requestedWeek?: number,
 ): Promise<LeagueMatchupsSource> {
   leagueId = await resolveCurrentLeagueId(leagueId);
   const [rollover, initialStored, standings] = await Promise.all([

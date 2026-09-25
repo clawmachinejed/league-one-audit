@@ -25,7 +25,7 @@ describe('Sleeper account discovery metadata', () => {
     vi.stubGlobal('fetch', request);
     const controller = new AbortController();
     expect(await getSleeperUserLeagues(userId, '2026', controller.signal)).toEqual([
-      { id: league.league_id, name: league.name, season: '2026', capabilities: expect.objectContaining({ status: 'unverified' }) },
+      { id: league.league_id, name: league.name, season: '2026', avatar: null, capabilities: expect.objectContaining({ status: 'unverified' }) },
     ]);
     expect(request).toHaveBeenCalledTimes(1);
     expect(request.mock.calls[0][0]).toBe(`https://api.sleeper.app/v1/user/${userId}/leagues/nfl/2026`);

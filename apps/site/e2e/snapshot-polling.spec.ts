@@ -446,7 +446,7 @@ test('a previous league response cannot overwrite the newly selected league at t
   await page.getByRole('link', { name: 'View League Two' }).click();
   await expect(page).toHaveURL(/\/league2\/matchups$/u);
   await expect(page.getByLabel('Matchup week')).toHaveValue(String(destinationWeek));
-  await expect(page.getByRole('link', { name: 'League Two home' })).toBeVisible();
+  await expect(page.locator('.league-switcher-trigger:visible')).toHaveAttribute('aria-label', 'Choose league, current League Two');
   held.resolve();
   await page.clock.runFor(1);
   await expect(page.getByText('Late League One', { exact: true })).toHaveCount(0);

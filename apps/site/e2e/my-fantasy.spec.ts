@@ -432,8 +432,9 @@ for (const width of [390, 760, 900, 1280]) {
     await page.waitForLoadState('networkidle');
     const switcher = page.locator('.league-switcher-trigger:visible');
     await switcher.press('Enter');
-    const choices = page.locator('.league-switcher-panel:visible a');
+    const choices = page.locator('.league-switcher-panel:visible a[aria-label^="View "]');
     await expect(choices).toHaveCount(3);
+    await expect(page.locator('.league-switcher-panel:visible').getByRole('link', { name: 'Connect Sleeper' })).toHaveAttribute('href', '/account');
     for (const league of leagues) await expect(page.locator('.league-switcher-panel:visible')
       .getByRole('link', { name: `View ${LEAGUE_SITES[league].name}`, exact: true })).toHaveCount(1);
     await switcher.press('Escape');

@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { LEAGUE_SITES } from './leagues';
+import { isLeagueRouteKey } from './leagues';
 import {
   MATCHUP_BOX_SCORE_STAT_KEYS, type AllPlayerBoxScoreIdentity, type MatchupBoxScores,
   type StoredAllPlayerBoxScores,
@@ -65,7 +65,7 @@ export async function handleMatchupBoxScoresRequest(
   suppliedStore?: ProjectionStore,
   now?: Date,
 ): Promise<Response> {
-  if (!Object.hasOwn(LEAGUE_SITES, league)) {
+  if (!isLeagueRouteKey(league)) {
     return Response.json({ error: 'Unknown league.' }, { status: 404, headers: noStore });
   }
   const params = new URL(request.url).searchParams;

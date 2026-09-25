@@ -1,6 +1,6 @@
 # Website accounts and the existing league library
 
-This increment implements the first two items in the approved foundation sequence and preserves the third. It does not open unrelated-league onboarding or redesign My Team.
+This document records the original three-league account foundation. The subsequent [account league onboarding](account-league-onboarding.md) change adds explicit username discovery, bounded imports, account-based My Fantasy and ribbon navigation. It supersedes the original discovery-only and three-route limits described below. Invitation-only admission and the existing My Team contract remain.
 
 1. Website accounts, private preferences and My Leagues for the three existing leagues.
 2. Optional League One / League Two affiliation; Dynasty independent.

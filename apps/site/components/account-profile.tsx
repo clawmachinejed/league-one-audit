@@ -6,6 +6,7 @@ import type { AccountView, SleeperLinkPreview } from '@/lib/accounts/contracts';
 import type { AccountMutation } from './account-library';
 import { readSleeperLinkPreview } from './account-client';
 import styles from './account.module.css';
+import { SleeperOnboarding } from './sleeper-onboarding';
 
 export function AccountProfile({ data, mutate, busy }: { data: AccountView; mutate: AccountMutation; busy: boolean }) {
   const [displayName, setDisplayName] = useState(data.profile.displayName);
@@ -45,6 +46,7 @@ export function AccountProfile({ data, mutate, busy }: { data: AccountView; muta
     if (await mutate('/api/me/provider-links', 'POST', { sourceManagerAccountId: selectedAccount })) selectAccount('');
   }
   return <>
+    <SleeperOnboarding key={data.profile.id} accountId={data.profile.id} />
     <section className={styles.section} aria-labelledby="profile-heading"><h2 id="profile-heading">Your profile</h2>
       <form className={`${styles.card} ${styles.form}`} onSubmit={saveProfile}>
         <label className={styles.field}>Website display name<input name="displayName" autoComplete="nickname" value={displayName} onChange={event => setDisplayName(event.target.value)} required maxLength={100} disabled={busy} /></label>
@@ -97,7 +99,7 @@ export function AccountProfile({ data, mutate, busy }: { data: AccountView; muta
             </>}
           </div>}
         </div>}
-        <p>Profiles come from the three supported leagues. Your Sleeper password is never needed.</p>
+        <p>Use Connect Sleeper above to find a username or add newly discovered leagues. Your Sleeper password is never needed.</p>
       </div>
     </section>
   </>;

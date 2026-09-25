@@ -1,4 +1,4 @@
-import type { LeagueKey } from '../leagues';
+import type { LeagueRouteKey } from '../leagues';
 import type { LeagueCapabilityReport } from '../league-capability-contracts';
 
 export type SleeperLeagueDiscovery = {
@@ -46,7 +46,7 @@ export type TeamParticipation = {
 };
 export type LibraryLeague = {
   id: string;
-  key: LeagueKey;
+  key: LeagueRouteKey;
   name: string;
   season: number | null;
   url: string;
@@ -60,7 +60,7 @@ export type LibraryLeague = {
 };
 export type LibraryView = { leagues: LibraryLeague[]; availableProviderAccounts: ProviderAccount[] };
 export type AccountView = { profile: AccountProfile; links: AccountLink[]; library: LibraryView };
-export type AccountTeam = TeamParticipation & { leagueId: string; leagueKey: LeagueKey; leagueName: string; season: number };
+export type AccountTeam = TeamParticipation & { leagueId: string; leagueKey: LeagueRouteKey; leagueName: string; season: number };
 
 /** These are accepted source observations, not proof that a website user controls a provider account. */
 export type SourceLeague = {

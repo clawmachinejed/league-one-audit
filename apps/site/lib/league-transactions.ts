@@ -1,4 +1,4 @@
-import type { LeagueKey } from './leagues';
+import type { LeagueRouteKey as LeagueKey } from './leagues';
 import type {
   LeagueMoveActivity,
   LeagueTradeActivity,

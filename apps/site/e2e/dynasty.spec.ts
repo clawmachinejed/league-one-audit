@@ -1,6 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { LEAGUE_IDS } from '../lib/config';
-import { LEAGUE_SITES, type LeagueKey } from '../lib/leagues';
+import { LEAGUE_SITES, SITE_LOGO, type LeagueKey } from '../lib/leagues';
 
 const widths = [320, 390, 430, 760, 1280] as const;
 const preferenceKey = (league: LeagueKey) => `league-one:my-team:${LEAGUE_IDS[league]}`;
@@ -9,10 +9,10 @@ async function chooseLeague(page: Page, league: LeagueKey) {
   await page.locator('.league-switcher-trigger:visible').click();
   const choice = page.getByRole('link', { name: `View ${LEAGUE_SITES[league].name}`, exact: true });
   const source = await choice.locator('img').getAttribute('src');
-  const image = new URL(source!, 'http://localhost');
-  expect(image.searchParams.get('url') ?? image.pathname).toBe(LEAGUE_SITES[league].logo);
+  expect(source).toMatch(/^https:\/\/sleepercdn\.com\/avatars\/[a-zA-Z0-9_-]+$/u);
   await choice.click();
-  await expect(page.locator('.brand-name')).toHaveText(`${LEAGUE_SITES[league].brand}.`);
+  await expect(page.locator('.brand-name')).toHaveText('LEAGUE ONE.');
+  await expect(page.locator('.league-switcher-trigger:visible img')).toHaveAttribute('src', source!);
 }
 
 async function savePreference(page: Page, league: LeagueKey, id: string) {
@@ -74,9 +74,9 @@ test('Dynasty uses its Sleeper icon, all shared routes and an independent My Tea
   const dynastyId = selected.get('dynasty')!;
   await expect(page.locator('.standings-table .selected-row .standings-team'))
     .toHaveAttribute('href', `/dynasty/managers/${dynastyId}`);
-  const brandImage = page.getByRole('link', { name: 'Dynasty League home' }).locator('img');
+  const brandImage = page.getByRole('link', { name: 'League One home' }).locator('img');
   await expect.poll(() => brandImage.evaluate(image => (image as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
-  await expect(page.locator('link[rel="icon"]')).toHaveAttribute('href', LEAGUE_SITES.dynasty.logo);
+  await expect(page.locator('link[rel="icon"]')).toHaveAttribute('href', SITE_LOGO);
 
   const navigation = page.getByRole('navigation', { name: 'Mobile navigation' });
   await expect(navigation.getByRole('link', { name: 'Managers', exact: true })).toHaveCount(0);

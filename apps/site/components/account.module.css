@@ -1,6 +1,6 @@
 .shell{max-width:1000px;margin:0 auto;padding:0 20px 64px;min-width:0}
 .header{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:24px 0;border-bottom:1px solid var(--line);flex-wrap:wrap}
-.brand{font-size:15px;font-weight:800;letter-spacing:.06em;color:var(--ink);text-decoration:none}
+.brand{display:flex;align-items:center;gap:10px;font-size:15px;font-weight:800;letter-spacing:.06em;color:var(--ink);text-decoration:none}
 .nav{display:flex;gap:8px;flex-wrap:wrap}
 .nav a{padding:10px 12px;min-height:44px;display:flex;align-items:center;color:var(--muted);border-radius:8px;font-size:13px;font-weight:700;text-decoration:none}
 .nav a[aria-current=page]{color:var(--green);background:var(--green-soft)}
@@ -60,3 +60,7 @@
 .sectionHeader{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:14px}
 .sectionHeader h2{margin-bottom:0}
 @media(max-width:480px){.shell{padding:0 16px 40px}.header{gap:12px;padding:20px 0}.nav{gap:2px}.nav a{padding:10px}.main{padding-top:26px}.card{padding:17px}.actions>*{flex-grow:1}}
+.onboardingTeam { display: flex; align-items: center; gap: 12px; width: 100%; }
+.onboardingTeam > span { display: grid; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
+.onboardingTeam img { flex: none; }
+.onboardingTeam input { width: 20px; height: 20px; flex: none; }

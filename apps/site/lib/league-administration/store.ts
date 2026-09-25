@@ -2,6 +2,7 @@ import 'server-only';
 
 import { getDatabase, withDatabaseAbortSignal, type Database } from '../database';
 import { createLeagueAdministrationMethods } from './neon/administration';
+export { createAccountEnrollmentMethods as createAccountEnrollmentStore } from './neon/account-enrollment';
 import type { LeagueAdministrationStore } from './store-contracts';
 
 export type { LeagueAdministrationStore, LeagueAdministrationStoreRead } from './store-contracts';
