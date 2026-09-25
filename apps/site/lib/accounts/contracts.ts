@@ -10,6 +10,18 @@ export type SleeperLeagueDiscovery = {
     capabilities?: LeagueCapabilityReport }[];
 };
 
+/** Public Sleeper evidence shown before a user-asserted profile association. */
+export type SleeperLinkPreview = {
+  sourceManagerAccountId: string;
+  userId: string;
+  username: string;
+  displayName: string;
+  avatarUrl: string | null;
+  season: string;
+  leagues: { id: string; name: string }[];
+  teams: { leagueId: string; leagueName: string; rosterId: number; teamName: string; players: string[] }[];
+};
+
 /** Server-side association evidence. Provider IDs never select a website actor. */
 export type LinkedSleeperProfile = {
   linkId: string;

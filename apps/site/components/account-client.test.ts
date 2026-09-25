@@ -1,6 +1,24 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { LeagueCapabilityReport } from '@/lib/league-capability-contracts';
-import { accountResponseState, readAccount, readSleeperLeagues } from './account-client';
+import { accountResponseState, readAccount, readSleeperLeagues, readSleeperLinkPreview } from './account-client';
+
+describe('Sleeper link preview transport', () => {
+  const source = 'source-a';
+  const preview = { sourceManagerAccountId: source, userId: '123456789', username: 'member', displayName: 'Member',
+    avatarUrl: null, season: '2026', leagues: [{ id: '555', name: 'League One' }],
+    teams: [{ leagueId: '555', leagueName: 'League One', rosterId: 1, teamName: 'Team One', players: ['Josh Allen'] }] };
+  it('uses a private account-scoped request and rejects a mismatched source', async () => {
+    const request = vi.fn<typeof fetch>(async () => Response.json(preview));
+    const signal = new AbortController().signal;
+    expect(await readSleeperLinkPreview('account-a', source, signal, request)).toEqual(preview);
+    expect(request).toHaveBeenCalledWith('/api/me/provider-link-preview?sourceManagerAccountId=source-a', {
+      signal, cache: 'no-store', credentials: 'same-origin',
+      headers: { Accept: 'application/json', 'X-Expected-Account-ID': 'account-a' },
+    });
+    request.mockResolvedValue(Response.json({ ...preview, sourceManagerAccountId: 'source-b' }));
+    await expect(readSleeperLinkPreview('account-a', source, signal, request)).rejects.toThrow('Invalid');
+  });
+});
 
 describe('private account browser transport', () => {
   it('uses an abortable same-origin no-store request and returns only the current response', async () => {

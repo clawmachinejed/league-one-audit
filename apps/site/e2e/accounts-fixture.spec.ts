@@ -69,6 +69,21 @@ async function installFixture(page: Page, baseURL: string) {
       await route.fulfill({ json: captured, headers: { 'Cache-Control': 'private, no-store' } }).catch(() => undefined);
       return;
     }
+    if (path === '/api/me/provider-link-preview' && method === 'GET') {
+      const expectedAccount = route.request().headers()['x-expected-account-id'];
+      if (!fixture.current) { await route.fulfill({ status: 401, json: { error: 'unauthenticated' } }); return; }
+      if (expectedAccount !== fixture.current.profile.id) { await route.fulfill({ status: 409, json: { error: 'account_changed' } }); return; }
+      if (url.searchParams.get('sourceManagerAccountId') !== providerId) { fixture.unexpected.push(route.request().url()); await route.abort('blockedbyclient'); return; }
+      await route.fulfill({ json: { sourceManagerAccountId: providerId, userId: '999999999', username: 'fixture-sleeper',
+        displayName: 'Fixture Sleeper', avatarUrl: null, season: '2026',
+        leagues: [{ id: '123456789', name: 'League One' }, { id: '987654321', name: 'Dynasty League' }],
+        teams: [{ leagueId: '123456789', leagueName: 'League One', rosterId: 1,
+          teamName: 'Questionable Decisions', players: ['Josh Allen', 'Puka Nacua'] },
+          { leagueId: '987654321', leagueName: 'Dynasty League', rosterId: 2,
+            teamName: 'SoBro Rippers', players: ['Bijan Robinson'] }] },
+      headers: { 'Cache-Control': 'private, no-store' } });
+      return;
+    }
     if (path.startsWith('/api/me/') && method !== 'GET') {
       const body = route.request().postDataJSON() as Record<string, unknown>;
       const expectedAccount = route.request().headers()['x-expected-account-id'];
@@ -148,16 +163,24 @@ test('profile and favorite writes include an account precondition and preserve t
   expect(fixture.unexpected).toEqual([]);
 });
 
-test('a public Sleeper association requires an explicit choice and confirmation', async ({ page, baseURL }) => {
+test('Sleeper association requires profile and team recognition before the user-supplied link is saved', async ({ page, baseURL }, info) => {
   const fixture = await installFixture(page, baseURL!);
+  await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/account');
-  const add = page.getByRole('button', { name: 'Associate profile' });
-  await expect(add).toBeDisabled();
   await page.getByLabel('Choose a Sleeper profile').selectOption(providerId);
-  await expect(add).toBeDisabled();
-  await page.getByLabel('I want this public Sleeper profile to personalize my account.').check();
-  await add.click();
-  await expect(page.getByText('Sleeper · User supplied')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Is this your Sleeper account?' })).toBeVisible();
+  await expect(page.getByText('Dynasty League')).toBeVisible();
+  expect(fixture.writes).toHaveLength(0);
+  await page.getByRole('button', { name: 'Yes, this is my account' }).click();
+  await expect(page.getByText('Questionable Decisions')).toBeVisible();
+  await expect(page.getByText(/Josh Allen/)).toBeVisible();
+  await page.getByRole('button', { name: 'Wrong team' }).click();
+  await expect(page.getByText('SoBro Rippers')).toBeVisible();
+  expect(fixture.writes).toHaveLength(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
+  await page.screenshot({ path: info.outputPath('sleeper-link-confirmation-390.png'), fullPage: true });
+  await page.getByRole('button', { name: 'Yes, this is my team' }).click();
+  await expect(page.getByText('Sleeper · User confirmed; ownership not verified')).toBeVisible();
   expect(fixture.writes[0].body).toEqual({ sourceManagerAccountId: providerId });
   await page.getByRole('button', { name: 'Remove association' }).click();
   await expect(page.getByText('No Sleeper profile is associated with this website account.')).toBeVisible();

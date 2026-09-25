@@ -4,8 +4,9 @@ import { AccountStoreUnavailableError, AccountWriteRateLimitError, createAccount
 import { accountTeams } from './library';
 import { AccountConflictError, createAccountStore, type AccountMutation } from './store';
 import { AccountInputError, accountUuid } from './validation';
-import type { LinkedSleeperProfile } from './contracts';
+import type { AccountView, LinkedSleeperProfile, SleeperLinkPreview } from './contracts';
 import { discoverSleeperLeagues } from './sleeper-discovery';
+import { previewSleeperLink } from './sleeper-link-preview';
 
 const PRIVATE_HEADERS = { 'Cache-Control': 'private, no-store, max-age=0', Vary: 'Cookie', 'X-Content-Type-Options': 'nosniff' };
 class AccountRequestError extends Error {
@@ -53,6 +54,11 @@ const defaultDependencies: { principal: typeof getAccountPrincipal; store: () =>
 };
 const discoveryDependencies = { principal: getAccountPrincipal,
   store: () => createAccountStore(createAccountDatabase()), discover: discoverSleeperLeagues };
+const previewDependencies = { principal: getAccountPrincipal,
+  store: () => createAccountStore(createAccountDatabase()), preview: previewSleeperLink };
+type PreviewDependencies = Omit<typeof previewDependencies, 'store'> & {
+  store: () => Pick<ReturnType<typeof createAccountStore>, 'resolve' | 'read'>;
+};
 type DiscoveryDependencies = Omit<typeof discoveryDependencies, 'store'> & {
   store: () => Pick<ReturnType<typeof createAccountStore>, 'resolve' | 'readDiscoveryProfiles'>;
 };
@@ -60,6 +66,38 @@ type DiscoveryDependencies = Omit<typeof discoveryDependencies, 'store'> & {
 function associationFingerprint(profiles: readonly LinkedSleeperProfile[]): string {
   return JSON.stringify(profiles.map(({ linkId, revision, sourceManagerAccountId, externalId }) =>
     [linkId, revision, sourceManagerAccountId, externalId]).sort((a, b) => String(a[0]).localeCompare(String(b[0]))));
+}
+
+function availablePreviewAccount(view: AccountView, sourceManagerAccountId: string) {
+  if (view.links.some(link => link.sourceManagerAccountId === sourceManagerAccountId)) return null;
+  return view.library.availableProviderAccounts.find(account => account.id === sourceManagerAccountId) ?? null;
+}
+
+/** Preview only a currently selectable public profile for the authenticated website actor. */
+export async function sleeperLinkPreviewResponse(request: Request, dependencies: PreviewDependencies = previewDependencies): Promise<Response> {
+  try {
+    request.signal.throwIfAborted();
+    const expectedActor = accountUuid(request.headers.get('x-expected-account-id'));
+    const url = new URL(request.url);
+    if (url.searchParams.size !== 1) throw new AccountInputError();
+    const sourceManagerAccountId = accountUuid(url.searchParams.get('sourceManagerAccountId'));
+    if (request.headers.get('origin') || request.headers.get('sec-fetch-site') === 'cross-site') requireAccountOrigin(request);
+    const principal = await dependencies.principal();
+    if (!principal) return Response.json({ error: 'unauthenticated' }, { status: 401, headers: PRIVATE_HEADERS });
+    const store = dependencies.store();
+    const actor = await store.resolve(principal);
+    if (actor !== expectedActor) throw new AccountRequestError(409, 'account_changed');
+    const account = availablePreviewAccount(await store.read(actor), sourceManagerAccountId);
+    if (!account) throw new AccountInputError();
+    const preview: SleeperLinkPreview = await dependencies.preview(account, request.signal);
+    request.signal.throwIfAborted();
+    const latestPrincipal = await dependencies.principal();
+    if (!latestPrincipal || latestPrincipal.issuer !== principal.issuer || latestPrincipal.subject !== principal.subject
+      || await store.resolve(latestPrincipal) !== actor) throw new AccountRequestError(409, 'account_changed');
+    const latestAccount = availablePreviewAccount(await store.read(actor), sourceManagerAccountId);
+    if (!latestAccount || latestAccount.externalId !== account.externalId) throw new AccountRequestError(409, 'associations_changed');
+    return Response.json(preview, { headers: PRIVATE_HEADERS });
+  } catch (error) { return accountErrorResponse(error); }
 }
 
 /** Only active associations belonging to the verified session can trigger discovery. */

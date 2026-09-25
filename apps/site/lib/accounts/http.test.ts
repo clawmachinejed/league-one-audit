@@ -2,9 +2,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 vi.mock('server-only', () => ({}));
 import { AccountAdmissionDeniedError, AccountAuthUnavailableError } from './auth';
 import { AccountStoreUnavailableError, AccountWriteRateLimitError } from './database';
-import { accountResponse, readAccountJson, requireAccountOrigin, sleeperLeagueDiscoveryResponse } from './http';
+import { accountResponse, readAccountJson, requireAccountOrigin, sleeperLeagueDiscoveryResponse, sleeperLinkPreviewResponse } from './http';
 import { AccountConflictError } from './store';
-import type { AccountView, LinkedSleeperProfile, SleeperLeagueDiscovery } from './contracts';
+import type { AccountView, LinkedSleeperProfile, SleeperLeagueDiscovery, SleeperLinkPreview } from './contracts';
 
 const actor = '10000000-0000-4000-8000-000000000001';
 const principal = { issuer: 'https://test.neon.tech/auth', subject: 'provider-subject', displayName: 'Member' };
@@ -17,6 +17,62 @@ function request(body: unknown = { displayName: 'New name', revision: 1 }, origi
   return new Request('https://www.league1fantasy.com/api/me/profile', { method: 'PATCH', headers: { origin, 'content-type': 'application/json', 'x-expected-account-id': actor }, body: JSON.stringify(body) });
 }
 afterEach(() => vi.unstubAllEnvs());
+describe('Sleeper account-link recognition boundary', () => {
+  const sourceId = '40000000-0000-4000-8000-000000000004';
+  const provider = { id: sourceId, provider: 'sleeper' as const, externalId: '123456789012345678',
+    displayName: 'Sleeper Member', username: 'sleepermember' };
+  const preview: SleeperLinkPreview = { sourceManagerAccountId: sourceId, userId: provider.externalId,
+    username: provider.username, displayName: provider.displayName, avatarUrl: null, season: '2026',
+    leagues: [{ id: '987654321', name: 'League One' }],
+    teams: [{ leagueId: '987654321', leagueName: 'League One', rosterId: 1, teamName: 'My Team', players: ['Josh Allen'] }] };
+  function previewDeps() {
+    const view: AccountView = { profile: { id: actor, displayName: 'Member', revision: 1 }, links: [],
+      library: { leagues: [], availableProviderAccounts: [provider] } };
+    const store = { resolve: vi.fn(async () => actor), read: vi.fn(async () => view) };
+    return { principal: vi.fn(async () => principal as typeof principal | null), store: vi.fn(() => store),
+      preview: vi.fn(async () => preview) };
+  }
+  function previewRequest(source = sourceId, expected = actor) {
+    return new Request(`https://www.league1fantasy.com/api/me/provider-link-preview?sourceManagerAccountId=${source}`,
+      { headers: { 'x-expected-account-id': expected } });
+  }
+  it('previews only an available profile under the signed-in account and rechecks it after the provider call', async () => {
+    const deps = previewDeps();
+    const input = previewRequest();
+    const response = await sleeperLinkPreviewResponse(input, deps);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toContain('private, no-store');
+    expect(await response.json()).toEqual(preview);
+    expect(deps.preview).toHaveBeenCalledWith(provider, input.signal);
+    expect(deps.store().read).toHaveBeenCalledTimes(2);
+  });
+  it('never previews an arbitrary, already linked, logged-out, or stale-account candidate', async () => {
+    const arbitrary = previewDeps();
+    expect((await sleeperLinkPreviewResponse(previewRequest('50000000-0000-4000-8000-000000000005'), arbitrary)).status).toBe(400);
+    expect(arbitrary.preview).not.toHaveBeenCalled();
+    const linked = previewDeps();
+    linked.store().read.mockResolvedValue({ profile: { id: actor, displayName: 'Member', revision: 1 },
+      links: [{ id: '60000000-0000-4000-8000-000000000006', sourceManagerAccountId: sourceId,
+        displayName: 'Sleeper Member', provider: 'sleeper', assurance: 'user_asserted', revision: 1 }],
+      library: { leagues: [], availableProviderAccounts: [provider] } });
+    expect((await sleeperLinkPreviewResponse(previewRequest(), linked)).status).toBe(400);
+    const loggedOut = previewDeps(); loggedOut.principal.mockResolvedValue(null);
+    expect((await sleeperLinkPreviewResponse(previewRequest(), loggedOut)).status).toBe(401);
+    const changed = previewDeps();
+    expect((await sleeperLinkPreviewResponse(previewRequest(sourceId, '70000000-0000-4000-8000-000000000007'), changed)).status).toBe(409);
+  });
+  it('withholds a result when session or profile availability changes during lookup', async () => {
+    const session = previewDeps();
+    session.principal.mockResolvedValueOnce(principal).mockResolvedValueOnce(null);
+    expect((await sleeperLinkPreviewResponse(previewRequest(), session)).status).toBe(409);
+    const association = previewDeps();
+    association.store().read.mockResolvedValueOnce({ profile: { id: actor, displayName: 'Member', revision: 1 },
+      links: [], library: { leagues: [], availableProviderAccounts: [provider] } })
+      .mockResolvedValueOnce({ profile: { id: actor, displayName: 'Member', revision: 1 }, links: [],
+        library: { leagues: [], availableProviderAccounts: [] } });
+    expect((await sleeperLinkPreviewResponse(previewRequest(), association)).status).toBe(409);
+  });
+});
 describe('private account HTTP boundary', () => {
   it('returns private/no-store data and derives the actor from a verified identity only', async () => {
     const deps = dependencies();
