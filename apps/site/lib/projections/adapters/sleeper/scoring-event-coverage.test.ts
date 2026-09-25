@@ -82,14 +82,17 @@ describe('qualified native Sleeper actual-scoring events', () => {
     }
   });
 
-  it('does not turn actual-event evidence into unsupported Tank01 projections', () => {
+  it('distinguishes historically estimated events from native Tank01 forecasts', () => {
     const rawRules = Object.fromEntries(addedKeys.map((key) => [key, 1]));
     const result = normalizeSleeperScoringProfile({ provider: providerKey('sleeper'), rawRules });
     expect(result.status).toBe('available');
     if (result.status !== 'available') throw new Error('Expected valid raw rules.');
-    expect(result.profile.rules).toEqual({});
-    expect(result.profile.provenance.supportedSourceKeys).toEqual([]);
-    expect(result.profile.provenance.unsupportedSourceKeys).toEqual([...addedKeys].sort());
+    expect(result.profile.rules.fieldGoalsMade).toBeCloseTo(1, 12);
+    expect(result.profile.provenance.supportedSourceKeys).toEqual([...addedKeys].sort());
+    expect(result.profile.provenance.unsupportedSourceKeys).toEqual([]);
+    expect(result.profile.provenance.supplementalEstimate).toEqual({
+      model: 'sleeper-2025-supplemental-v1', sourceKeys: [...addedKeys].sort(),
+    });
     expect(result.profile.provenance.rawRules).toBe(rawRules);
   });
 

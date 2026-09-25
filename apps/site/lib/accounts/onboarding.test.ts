@@ -16,6 +16,7 @@ vi.mock('../league-administration/store', async importOriginal => ({ ...await im
 vi.mock('../league-administration/runtime', () => ({ recordCapturedAdministration: mocks.capture }));
 vi.mock('../league-capabilities', () => ({ assessSleeperLeagueCapabilities: mocks.capabilities }));
 import { importSleeperTeam, previewSleeperUsername } from './onboarding';
+import captured from '../../test-support/fixtures/sleeper-capability-settings.json';
 const signal = () => new AbortController().signal;
 beforeEach(() => {
   vi.resetAllMocks();
@@ -36,6 +37,26 @@ beforeEach(() => {
   mocks.capture.mockResolvedValue({ status: 'stored' });
 });
 describe('account-confirmed league onboarding', () => {
+  it.each(['Myers', 'The GridIron II'])('discovers and imports %s with its captured real settings and fresh validation', async name => {
+    const { assessSleeperLeagueCapabilities } = await vi.importActual<typeof import('../league-capabilities')>('../league-capabilities');
+    const settings = captured.leagues.find(league => league.name === name)!;
+    mocks.capabilities.mockImplementation(assessSleeperLeagueCapabilities);
+    const capabilities = assessSleeperLeagueCapabilities(settings);
+    mocks.leagues.mockResolvedValue([{ id: settings.league_id, name, season: settings.season, capabilities }]);
+    mocks.documents.mockResolvedValue([
+      { family: 'league', payload: settings },
+      { family: 'rosters', payload: [{ roster_id: 2, owner_id: '123' }] }, { family: 'users', payload: [] },
+    ]);
+    const discovered = await previewSleeperUsername('member', signal());
+    expect(discovered.teams[0]).toMatchObject({ leagueId: settings.league_id, status: 'ready' });
+    await importSleeperTeam('123', settings.league_id, 2, signal());
+    expect(mocks.capabilities).toHaveBeenCalledWith(settings);
+    expect(mocks.register).toHaveBeenCalledWith(expect.objectContaining({ leagueKey: `sleeper-${settings.league_id}`,
+      sleeperLeagueId: settings.league_id, scoringRules: settings.scoring_settings }));
+    expect(mocks.query.mock.calls.find(call => String(call[0]).includes('activate_account'))?.[1])
+      .toEqual([`sleeper-${settings.league_id}`, 2026, settings.league_id]);
+  });
+
   it('resolves a username to a stable ID and shows the official league icon and team', async () => {
     const result = await previewSleeperUsername('member', signal());
     expect(mocks.leagues).toHaveBeenCalledWith('123', '2026', expect.any(AbortSignal));

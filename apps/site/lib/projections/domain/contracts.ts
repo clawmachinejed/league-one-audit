@@ -135,6 +135,8 @@ export type ScoringProvenance = Readonly<{
   unsupportedSourceKeys: readonly string[];
   aggregateTwoPointConversionSupported: boolean;
   usesPointsAllowedBucketProxy: boolean;
+  /** League weights applied to historical event rates anchored to aggregate forecasts. */
+  supplementalEstimate?: Readonly<{ model: string; sourceKeys: readonly string[] }>;
 }>;
 
 export type CanonicalScoringProfile = Readonly<{

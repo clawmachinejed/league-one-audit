@@ -8,6 +8,7 @@ import type {
   ProjectionScoringRules,
 } from '../../domain/scoring-events';
 import type { DefenseStatMapping } from '../../ports/live-defense-stat-source';
+import { SUPPLEMENTAL_PROJECTION_MODEL, SUPPLEMENTAL_PROJECTION_RULES } from './supplemental-projection-rules';
 
 const SOURCE_RULES = [
   ['pass_yd', 'passingYards'],
@@ -44,9 +45,8 @@ const SOURCE_RULES = [
 
 /**
  * Exact weekly-stat keys exercised by the approved 2026 and historical parity
- * corpus. Projection support remains the smaller SOURCE_RULES subset above;
- * actual weekly scoring can safely consume the additional provider-native keys
- * because Sleeper publishes those values directly in its sparse stat objects.
+ * corpus. Actual weekly scoring consumes provider-native counters directly;
+ * projection-only supplemental estimates never alter those counters or weights.
  */
 export const SLEEPER_ALL_PLAYER_SCORING_RULE_KEYS: ReadonlySet<string> = new Set([
   ...SOURCE_RULES.map(([sourceKey]) => sourceKey),
@@ -151,6 +151,16 @@ export function normalizeSleeperScoringProfile(
     (event ? supportedSourceKeys : unsupportedSourceKeys).add(sourceKey);
   }
 
+  const estimatedSourceKeys: string[] = [];
+  for (const [sourceKey, event, rate] of SUPPLEMENTAL_PROJECTION_RULES) {
+    const weight = rawRules[sourceKey];
+    if (!isActiveWeight(weight)) continue;
+    rules[event] = (rules[event] ?? 0) + weight * rate;
+    unsupportedSourceKeys.delete(sourceKey);
+    supportedSourceKeys.add(sourceKey);
+    estimatedSourceKeys.push(sourceKey);
+  }
+
   const twoPointWeights = TWO_POINT_SOURCE_KEYS.map((key) => rawRules[key] ?? 0);
   const aggregateTwoPointConversionSupported = twoPointWeights
     .every((weight) => weight === twoPointWeights[0]);
@@ -175,6 +185,9 @@ export function normalizeSleeperScoringProfile(
         unsupportedSourceKeys: uniqueSorted(unsupportedSourceKeys),
         aggregateTwoPointConversionSupported,
         usesPointsAllowedBucketProxy,
+        ...(estimatedSourceKeys.length ? { supplementalEstimate: {
+          model: SUPPLEMENTAL_PROJECTION_MODEL, sourceKeys: uniqueSorted(estimatedSourceKeys),
+        } } : {}),
       },
     },
   };

@@ -26,9 +26,10 @@ describe('automatic settings capabilities', () => {
       expect(feature(fixture.leagues.find(league => league.name === name), 'projections').status).toBe('limited');
     }
     for (const name of ['The GridIron II', 'Myers']) {
-      expect(feature(fixture.leagues.find(league => league.name === name), 'projections').status).toBe('unsupported');
+      expect(feature(fixture.leagues.find(league => league.name === name), 'projections').status).toBe('limited');
+      expect(report(fixture.leagues.find(league => league.name === name)).status).toBe('limited');
     }
-    expect(feature(fixture.leagues.find(league => league.name === 'Myers'), 'substitutions').status).toBe('unverified');
+    expect(feature(fixture.leagues.find(league => league.name === 'Myers'), 'substitutions').status).toBe('supported');
   });
   it('uses supported rule vocabulary regardless of league name, identity or scoring weight', () => {
     const a = report({ ...simple, league_id: '1', name: 'Unrelated', scoring_settings: { pass_yd: 0.05, rec: 1 } });
@@ -37,10 +38,11 @@ describe('automatic settings capabilities', () => {
       scoring_settings: { rec: 1, pass_yd: 0.05 } }).configurationRevision);
     expect(a.scoringRulesHash).not.toBe(report().scoringRulesHash);
   });
-  it('does not silently classify a new actual scoring event as an approved projection omission', () => {
+  it('estimates distance-based field goals explicitly instead of omitting the configured award', () => {
     const source = { ...simple, scoring_settings: { ...simple.scoring_settings, fgmiss: -1, fgm_60p: 6 } };
     expect(feature(source, 'actual_scoring').status).toBe('supported');
-    expect(feature(source, 'projections')).toMatchObject({ status: 'unsupported', ruleKeys: ['fgm_60p'] });
+    expect(feature(source, 'projections').status).toBe('limited');
+    expect(feature(source, 'projections').reasons.join(' ')).toContain('historical NFL rates');
   });
   it('ignores zero-valued unknown scoring keys but refuses active unfamiliar rules', () => {
     expect(feature({ ...simple, scoring_settings: { ...simple.scoring_settings, future_rule: 0 } }, 'actual_scoring').status).toBe('supported');
@@ -73,7 +75,7 @@ describe('automatic settings capabilities', () => {
   it('keeps missing settings and newly introduced provider format fields unverified', () => {
     expect(feature({ ...simple, settings: null }, 'standings').status).toBe('unverified');
     expect(feature({ ...simple, settings: { ...simple.settings, future_format: 1 } }, 'standings').status).toBe('unverified');
-    expect(feature({ ...simple, settings: { ...simple.settings, max_subs: 2 } }, 'substitutions').status).toBe('unverified');
+    expect(feature({ ...simple, settings: { ...simple.settings, max_subs: 2 } }, 'substitutions').status).toBe('supported');
   });
   it('records configured and scoring changes while ignoring runtime counters and JSON key order', () => {
     const baseline = report();
@@ -83,6 +85,15 @@ describe('automatic settings capabilities', () => {
       .toBe(baseline.configurationRevision);
     expect(report({ ...simple, settings: { ...simple.settings, max_subs: 2 } }).configurationRevision).not.toBe(baseline.configurationRevision);
     expect(report({ ...simple, roster_positions: [...simple.roster_positions].reverse() }).configurationRevision).not.toBe(baseline.configurationRevision);
+  });
+  it.each([-1, 1.5, 4, undefined])('does not qualify an unknown AutoSub count %s', max_subs => {
+    expect(feature({ ...simple, settings: { ...simple.settings, max_subs } }, 'substitutions').status).toBe('unverified');
+  });
+  it.each([0, 1])('follows official swaps for AutoSub start-time policy %s', sub_start_time_eligibility => {
+    expect(feature({ ...simple, settings: { ...simple.settings, max_subs: 2,
+      sub_start_time_eligibility, sub_lock_if_starter_active: 0 } }, 'substitutions').status).toBe('supported');
+    expect(feature({ ...simple, settings: { ...simple.settings, max_subs: 2,
+      sub_start_time_eligibility: 2 } }, 'substitutions').status).toBe('unverified');
   });
   it('does not hash unchecked team-count objects or claim an odd-team projected table is supported', () => {
     const circular: Record<string, unknown> = {}; circular.self = circular;

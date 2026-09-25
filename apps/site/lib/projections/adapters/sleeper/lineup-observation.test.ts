@@ -21,6 +21,22 @@ const rawRows = [
 ];
 
 describe('one raw lineup normalization for full and thin consumers', () => {
+  it('waits for the official AutoSub starter replacement and gives both readers the same new revision', async () => {
+    const pending = rawRows.map(row => ({ ...row, subs: { 'rb-a': 'replacement' } }));
+    const applied = pending.map((row, index) => index === 0
+      ? { ...row, starters: ['qb-a', 'replacement', 'flex-a', 'NYJ'] } : row);
+    const revision = async (rows: Parameters<typeof translateSleeperLineupObservation>[3]) => {
+      const result = translateSleeperLineupObservation(league, period, shape, rows);
+      if (result.status !== 'complete') throw new Error('Expected complete official starters');
+      return calculateLineupRevision(result.observation);
+    };
+    expect(await revision(pending)).toEqual(await revision(rawRows));
+    assertProjectionMatchupReadiness(applied, rosters, positions);
+    expect(await revision(applied)).not.toEqual(await revision(pending));
+    const load = createRawSleeperMatchupLoader({ readJson: async () => applied, now: () => '2026-09-03T12:00:00.000Z' });
+    expect(await revision((await load(String(league.externalId), period.week, 0)).rows)).toEqual(await revision(applied));
+  });
+
   it('retains authoritative roster membership instead of accepting only the same row count', () => {
     const foreignRows = rawRows.map((row) => ({ ...row, roster_id: row.roster_id + 10 }));
     expect(shape.expectedRosterRefs.map((reference) => String(reference.externalId))).toEqual(['1', '2']);
