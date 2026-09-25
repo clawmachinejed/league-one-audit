@@ -46,8 +46,14 @@ Aggregate evidence lives beside the Sleeper scoring adapter in
 and their player/team IDs live in the identically named test-support fixture;
 tests replay every aggregate total. The model ID and active estimated keys
 are retained in scoring provenance and the canonical league observation, and
-participate in snapshot revision identity. Changing calibration requires a new
-model ID. Raw scoring rules and their database hash remain unchanged.
+participate in snapshot revision identity. Stored forecast candidates, latest
+candidate reads, baseline freezing and baseline reads use the model identity
+`clock-v1:sleeper-2025-supplemental-v1`. Changing calibration requires a new
+model ID, so identical provider slates cannot silently reuse earlier model
+points. The public live calculation, snapshots and scheduling retain `clock-v1`.
+Raw scoring rules and their database hash remain unchanged. Frozen rows are
+never rewritten or transferred between calibration models; a model update
+cannot manufacture a missing pre-kickoff baseline for a game already started.
 
 ## AutoSubs and import
 

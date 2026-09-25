@@ -321,7 +321,8 @@ function repositoryHarness(
       },
     };
   });
-  const freezeLatestBaselines = vi.fn(async () => {
+  const freezeLatestBaselines = vi.fn(async (input: Parameters<ProjectionRepositoryPort['freezeLatestBaselines']>[0]) => {
+    void input;
     operations.push('freeze');
     return { kind: 'stored' as const, value: [] };
   });
@@ -551,6 +552,13 @@ describe('canonical league projection stage', () => {
           supplementalEstimate: { ...normalized.profile.provenance.supplementalEstimate, model } } } };
       };
       await processTestLeague(dependencies(repository, normalizer), selectedLeague);
+      const expectedCandidateModel = `clock-v1:${model}`;
+      expect(mocks.recordProjectionCandidates.mock.calls[0][0].modelVersion).toBe(expectedCandidateModel);
+      expect(mocks.freezeLatestBaselines.mock.calls[0]?.[0]).toMatchObject({ modelVersion: expectedCandidateModel });
+      expect(mocks.readLatestCandidates.mock.calls[0][0].modelVersion).toBe(expectedCandidateModel);
+      expect(mocks.readFrozenBaselines.mock.calls[0][0].modelVersion).toBe(expectedCandidateModel);
+      // The public live calculation and future scheduler still use clock-v1.
+      expect(mocks.publishSnapshot.mock.calls[0][0].modelVersion).toBe('clock-v1');
       expect(mocks.recordLeagueWeekObservation.mock.calls[0][0].sourceData.supplementalEstimate)
         .toEqual({ model, sourceKeys: ['fgm_60p'] });
       revisions.push(mocks.publishSnapshot.mock.calls[0][0].revisionKey);

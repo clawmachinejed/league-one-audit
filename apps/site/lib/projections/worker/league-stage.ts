@@ -162,6 +162,11 @@ export async function processLeague(
     throw new Error('League scoring settings could not be normalized.');
   }
   const scoringProfile = normalized.profile;
+  const supplementalEstimate = scoringProfile.provenance.supplementalEstimate;
+  // Forecast calibration belongs to stored candidate/baseline identity. The
+  // public clock model and its immutable snapshots retain their existing key.
+  const candidateModelVersion = supplementalEstimate
+    ? `${LIVE_PROJECTION_MODEL_VERSION}:${supplementalEstimate.model}` : LIVE_PROJECTION_MODEL_VERSION;
   const leagueSeason = await dependencies.repository.registerLeagueSeason({
     configuration,
     leagueName: source.leagueName,
@@ -225,7 +230,7 @@ export async function processLeague(
     const storedRun = await dependencies.repository.recordProjectionCandidates({
       source: persisted.projections.source,
       period: source.period,
-      modelVersion: LIVE_PROJECTION_MODEL_VERSION,
+      modelVersion: candidateModelVersion,
       sourceRevision: projectionSourceRevision,
       requestStartedAt: persisted.projections.requestStartedAt,
       requestCompletedAt: persisted.projections.requestCompletedAt,
@@ -295,7 +300,7 @@ export async function processLeague(
     const frozen = await dependencies.repository.freezeLatestBaselines({
       leagueSeasonId: leagueSeason.value.leagueSeasonId,
       period: source.period,
-      modelVersion: LIVE_PROJECTION_MODEL_VERSION,
+      modelVersion: candidateModelVersion,
       projectionSource: persisted.projections.source,
       gameStateSource: persisted.games.source,
       gameRefs: startedGameRefs,
@@ -308,14 +313,14 @@ export async function processLeague(
       leagueSeasonId: leagueSeason.value.leagueSeasonId,
       period: source.period,
       source: persisted.projections.source,
-      modelVersion: LIVE_PROJECTION_MODEL_VERSION,
+      modelVersion: candidateModelVersion,
       officialEntityRefs,
     }),
     dependencies.repository.readFrozenBaselines({
       leagueSeasonId: leagueSeason.value.leagueSeasonId,
       period: source.period,
       source: persisted.projections.source,
-      modelVersion: LIVE_PROJECTION_MODEL_VERSION,
+      modelVersion: candidateModelVersion,
       officialEntityRefs,
     }),
     dependencies.repository.readCurrentSnapshot(leagueSeason.value.leagueSeasonId, source.period),
@@ -364,7 +369,6 @@ export async function processLeague(
     liveDefenseStats: persisted.liveDefenseStats, scoringProfile,
   });
   const liveBoxScores = liveBoxScoresForLeague(source, persisted.games, persisted.liveDefenseStats);
-  const supplementalEstimate = scoringProfile.provenance.supplementalEstimate;
   const sourceRevision = liveDefense || liveBoxScores || supplementalEstimate
     ? compatibleRevision({ officialSourceRevision: source.sourceRevision,
       ...(liveDefense ? { liveDefense } : {}), ...(liveBoxScores ? { liveBoxScores } : {}),
