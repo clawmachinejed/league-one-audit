@@ -74,8 +74,10 @@ active-week board returns to the existing hourly collection window plus three
 minutes, so later corrections still appear. Historical pages never schedule
 these hourly reads.
 
-A single note below the matchup board shows **Stats as of** the actual source
-observation time and identifies Sleeper. Collection is budgeted at least 60 seconds
+A single note below the dedicated Matchups and My Team boards shows **Stats as of**
+the actual source observation time and identifies Sleeper. My Fantasy omits this
+per-card source footer and its expanded live/final source note to preserve the compact
+cross-league overview. Collection is budgeted at least 60 seconds
 apart globally; browser polling does not force collection. Provider timing,
 hourly priority, failures and publication delays can make the source older than
 one minute. Scores and details can arrive at different times. The source timestamp
