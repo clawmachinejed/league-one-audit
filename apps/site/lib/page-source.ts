@@ -2,7 +2,7 @@ import 'server-only';
 
 import { cache } from 'react';
 import { LEAGUE_IDS } from './config';
-import { LEAGUE_SITES } from './leagues';
+import { isLeagueRouteKey, LEAGUE_SITES } from './leagues';
 import { getLeagueAdministrationStore } from './league-administration/store';
 import type { AdministrationEnvelope, AdministrationFamily, AdministrationScope } from './league-administration/contracts';
 import { ADMINISTRATION_DIALECT, ADMINISTRATION_NORMALIZER_VERSION, ADMINISTRATION_SCHEMA_VERSION } from './league-administration/contracts';
@@ -92,7 +92,7 @@ function assertEnvelope(envelope: AdministrationEnvelope, request: PageAdministr
   const bootstrapKey = Object.entries(LEAGUE_IDS).find(([, id]) => id === request.externalLeagueId)?.[0];
   const expectedKey = request.leagueKey ?? bootstrapKey;
   if (!envelope || envelope.scope?.provider !== 'sleeper'
-    || !Object.prototype.hasOwnProperty.call(LEAGUE_SITES, envelope.scope.leagueKey)
+    || !isLeagueRouteKey(envelope.scope.leagueKey)
     || envelope.schemaVersion !== ADMINISTRATION_SCHEMA_VERSION || envelope.normalizerVersion !== ADMINISTRATION_NORMALIZER_VERSION
     || envelope.dialect !== ADMINISTRATION_DIALECT
     || envelope.scope.externalLeagueId !== request.externalLeagueId

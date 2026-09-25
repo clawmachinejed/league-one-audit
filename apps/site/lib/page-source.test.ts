@@ -213,6 +213,26 @@ describe('accepted completed prior-season page source', () => {
 });
 
 describe('accepted administration page source', () => {
+  it.each(['1398809418962898944', '1395875117568913408'])('reads an enrolled Sleeper league %s through the shared page reader', async externalLeagueId => {
+    const importedScope = { ...scope, leagueKey: `sleeper-${externalLeagueId}`, externalLeagueId };
+    const configuration = available();
+    const matchups = available('matchups', 2);
+    if (configuration.status !== 'available' || matchups.status !== 'available') throw new Error('Fixture unavailable');
+    store.readSourceByConnection.mockResolvedValue({ ...configuration, envelope: { ...configuration.envelope, scope: importedScope } });
+    store.readSource.mockResolvedValue({ ...matchups, envelope: { ...matchups.envelope, scope: importedScope } });
+    const read = createPageAdministrationReader(() => store);
+    expect(await read({ ...request, ...importedScope })).toMatchObject({ status: 'available', payload: [],
+      requestCompletedAt: provenance.requestCompletedAt });
+    expect(store.readSource).toHaveBeenCalledWith({ ...importedScope, family: 'matchups', week: 2 });
+
+    // Enrollment does not relax the existing source freshness or isolation rules.
+    vi.setSystemTime(new Date('2026-09-15T18:00:00.000Z'));
+    expect(await read({ ...request, ...importedScope })).toEqual({ status: 'fallback', reason: 'stale' });
+    store.readSource.mockResolvedValue({ ...matchups, envelope: { ...matchups.envelope, scope: { ...importedScope,
+      leagueKey: externalLeagueId === '1398809418962898944' ? 'sleeper-1395875117568913408' : 'sleeper-1398809418962898944' } } });
+    await expect(read({ ...request, ...importedScope })).rejects.toThrow(AdministrationSourceConflictError);
+  });
+
   it('pins exact source identity and week, preserving original observation times without a provider or writer', async () => {
     const read = createPageAdministrationReader(() => store);
     expect(await read(request)).toEqual({ status: 'available', payload: [], origin: 'cache', sourceObservedAt: null,
