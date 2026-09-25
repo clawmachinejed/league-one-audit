@@ -1,6 +1,6 @@
 import { expect, test, type Locator, type Page, type Request } from '@playwright/test';
 import { LEAGUE_IDS } from '../lib/config';
-import { LEAGUE_SITES, type LeagueKey } from '../lib/leagues';
+import { LEAGUE_SITES, SITE_LOGO, type LeagueKey } from '../lib/leagues';
 import type { MatchupPeriodContext } from '../lib/matchup-period';
 import type { MatchupBoxScores } from '../lib/matchup-box-score-types';
 import { isMatchupsData } from '../lib/matchups-response';
@@ -431,15 +431,27 @@ for (const width of [390, 760, 900, 1280]) {
     await expect(page.locator('[data-my-fantasy-league]')).toHaveCount(0);
     await page.waitForLoadState('networkidle');
     const switcher = page.locator('.league-switcher-trigger:visible');
+    await expect(switcher.locator('img')).toHaveAttribute('src', SITE_LOGO);
     await switcher.press('Enter');
     const choices = page.locator('.league-switcher-panel:visible a[aria-label^="View "]');
     await expect(choices).toHaveCount(3);
     await expect(page.locator('.league-switcher-panel:visible').getByRole('link', { name: 'Connect Sleeper' })).toHaveAttribute('href', '/account');
-    for (const league of leagues) await expect(page.locator('.league-switcher-panel:visible')
-      .getByRole('link', { name: `View ${LEAGUE_SITES[league].name}`, exact: true })).toHaveCount(1);
+    for (const league of leagues) {
+      const choice = page.locator('.league-switcher-panel:visible')
+        .getByRole('link', { name: `View ${LEAGUE_SITES[league].name}`, exact: true });
+      await expect(choice).toHaveCount(1);
+      await expect(choice.locator('img')).not.toHaveAttribute('src', SITE_LOGO);
+    }
+    const leagueOneLogo = await page.locator('.league-switcher-panel:visible')
+      .getByRole('link', { name: 'View League One', exact: true }).locator('img').getAttribute('src');
+    expect(leagueOneLogo).toBeTruthy();
     await switcher.press('Escape');
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1),
       `Global My Fantasy navigation must fit ${width}px`).toBe(true);
+    await switcher.press('Enter');
+    await page.locator('.league-switcher-panel:visible').getByRole('link', { name: 'View League One', exact: true }).click();
+    await expect(page).toHaveURL(/\/matchups$/u);
+    await expect(page.locator('.league-switcher-trigger:visible img')).toHaveAttribute('src', leagueOneLogo!);
   });
 }
 

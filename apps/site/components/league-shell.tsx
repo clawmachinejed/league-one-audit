@@ -43,6 +43,7 @@ function LeagueSwitcher({ activeSite, pathname, placement, sites }: {
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const menuId = useId();
+  const isMyFantasy = pathname === '/my-fantasy';
   const section = currentSection(pathname, activeSite);
 
   useEffect(() => {
@@ -69,23 +70,23 @@ function LeagueSwitcher({ activeSite, pathname, placement, sites }: {
       ref={triggerRef}
       className="league-switcher-trigger"
       type="button"
-      aria-label={`Choose league, current ${activeSite.name}`}
+      aria-label={isMyFantasy ? 'Choose league from My Fantasy' : `Choose league, current ${activeSite.name}`}
       aria-expanded={open}
       aria-controls={menuId}
       onClick={() => setOpen(value => !value)}
     >
-      <Image src={activeSite.logo} width={30} height={30} alt="" unoptimized />
+      <Image src={isMyFantasy ? SITE_LOGO : activeSite.logo} width={30} height={30} alt="" unoptimized />
     </button>
     {open && <div className="league-switcher-panel" id={menuId} aria-label="Choose a league" ref={menuRef}>
       {choices.map(({ site, relation }) => <Link
         key={site.key}
         className="league-switcher-choice"
-        href={site.key === activeSite.key ? pathname : leagueHref(site, section)}
+        href={!isMyFantasy && site.key === activeSite.key ? pathname : leagueHref(site, section)}
         aria-label={`View ${site.name}`}
-        aria-current={site.key === activeSite.key ? 'page' : undefined}
+        aria-current={!isMyFantasy && site.key === activeSite.key ? 'page' : undefined}
         title={site.name}
         onClick={(event) => {
-          if (site.key === activeSite.key) event.preventDefault();
+          if (!isMyFantasy && site.key === activeSite.key) event.preventDefault();
           setOpen(false);
         }}
       ><Image src={site.logo} width={30} height={30} alt="" unoptimized /><span>{site.name}{relation && <small>{relation}</small>}</span></Link>)}
