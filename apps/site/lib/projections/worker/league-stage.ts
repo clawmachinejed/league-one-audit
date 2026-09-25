@@ -364,9 +364,11 @@ export async function processLeague(
     liveDefenseStats: persisted.liveDefenseStats, scoringProfile,
   });
   const liveBoxScores = liveBoxScoresForLeague(source, persisted.games, persisted.liveDefenseStats);
-  const sourceRevision = liveDefense || liveBoxScores
+  const supplementalEstimate = scoringProfile.provenance.supplementalEstimate;
+  const sourceRevision = liveDefense || liveBoxScores || supplementalEstimate
     ? compatibleRevision({ officialSourceRevision: source.sourceRevision,
-      ...(liveDefense ? { liveDefense } : {}), ...(liveBoxScores ? { liveBoxScores } : {}) }) : source.sourceRevision;
+      ...(liveDefense ? { liveDefense } : {}), ...(liveBoxScores ? { liveBoxScores } : {}),
+      ...(supplementalEstimate ? { supplementalEstimate } : {}) }) : source.sourceRevision;
   const observation = await dependencies.repository.recordLeagueWeekObservation({
     lineup: source.lineup,
     leagueSeasonId: leagueSeason.value.leagueSeasonId,
@@ -380,6 +382,7 @@ export async function processLeague(
       ...(source.administrationContext ? { administration: source.administrationContext } : {}),
       ...(liveDefense ? { liveDefense } : {}),
       ...(liveBoxScores ? { liveBoxScores } : {}),
+      ...(supplementalEstimate ? { supplementalEstimate } : {}),
       leagueKey: configuration.key,
       season: String(source.period.season),
       week: source.period.week,

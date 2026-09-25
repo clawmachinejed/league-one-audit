@@ -99,6 +99,9 @@ export function assessSleeperLeagueCapabilities(source: unknown, assessedAt = ne
     if (normalized.profile.provenance.usesPointsAllowedBucketProxy) {
       raise(projections, 'limited', 'Team-defense points allowed use the existing projected scoring-tier approximation.');
     }
+    if (normalized.profile.provenance.supplementalEstimate) {
+      raise(projections, 'limited', 'Distance-based field goals and rare-event bonuses use historical NFL rates applied to Tank01 forecasts. Actual points use the exact Sleeper rules.');
+    }
   }
   if (roster.status !== 'supported') raise(projections, roster.status, 'Projection eligibility also depends on supported roster slots and a verified team count.');
   let standings = feature('standings', 'unverified', 'Complete competition settings are required.');
@@ -127,9 +130,14 @@ export function assessSleeperLeagueCapabilities(source: unknown, assessedAt = ne
       raise(history, 'unverified', 'Unfamiliar league-format settings require verification.');
     }
     if (settings.best_ball !== 0) raise(projections, 'unverified', 'Best-ball lineup selection is not qualified.');
-    substitutions = settings.max_subs === 0 ? feature('substitutions', 'supported', 'Player substitutions are disabled in these settings.')
-      : feature('substitutions', 'unverified', 'Player substitutions require verification against official starter changes and frozen live projections.');
-    if (settings.max_subs !== 0) raise(projections, 'unverified', 'Substitution behavior has not been qualified for live projections.');
+    const knownAutoSubs = Number.isInteger(settings.max_subs) && settings.max_subs >= 0 && settings.max_subs <= 3
+      && ['sub_start_time_eligibility', 'sub_lock_if_starter_active'].every(key =>
+        settings[key] === undefined || settings[key] === 0 || settings[key] === 1);
+    substitutions = knownAutoSubs ? feature('substitutions', 'supported', settings.max_subs === 0
+      ? 'Player substitutions are disabled in these settings.'
+      : 'Sleeper applies AutoSubs. Official starter changes refresh the same matchup; incoming players retain their own frozen kickoff baseline, including earlier games.')
+      : feature('substitutions', 'unverified', 'The AutoSub count or eligibility settings are not recognized.');
+    if (!knownAutoSubs) raise(projections, 'unverified', 'Substitution settings have not been verified.');
   } else raise(projections, 'unverified', 'Competition settings are missing or invalid.');
   result.features = [roster, actual, projections, standings, history, substitutions];
   result.status = aggregate(result.features);

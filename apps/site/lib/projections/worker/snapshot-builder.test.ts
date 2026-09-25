@@ -234,6 +234,33 @@ const scored: PregameProjectionSet = { status: 'available', projections: [] };
 
 describe('optional exact-week bench projections', () => {
   it.each([
+    { name: 'live', incoming: live, actual: 10, playerProjection: 20, teamProjection: 20 },
+    { name: 'already finished', incoming: final, actual: 18, playerProjection: 20, teamProjection: 18 },
+    { name: 'pregame', incoming: pregame, actual: 0, playerProjection: 12, teamProjection: 12 },
+  ])('follows an official AutoSub into a $name game using the incoming player baseline',
+    ({ incoming, actual, playerProjection, teamProjection }) => {
+      const input = snapshotInput();
+      const outgoing = missingFrozen;
+      const match = input.source.matchups[0];
+      const state = (applied: boolean): LeagueWeekState => ({ ...input.source, matchups: [{ ...match, sides: [
+        { ...match.sides[0], officialPoints: applied ? actual : 0,
+          starters: [{ kind: 'occupied', slot: 'RB', entity: applied ? incoming : outgoing, officialPoints: applied ? actual : 0 }],
+          bench: [{ kind: 'occupied', slot: 'BN', entity: applied ? outgoing : incoming, officialPoints: applied ? 0 : actual }] },
+        match.sides[1],
+      ] }] });
+      const frozen = [baseline(outgoing, 30, 'outgoing'), baseline(incoming, 20, 'incoming')];
+      const originalFrozen = structuredClone(frozen);
+      const latest = [baseline(incoming, incoming === pregame ? 12 : 999, 'new-candidate')];
+      const before = buildSnapshot({ ...input, source: state(false), frozen, latest });
+      const after = buildSnapshot({ ...input, source: state(true), frozen, latest });
+      expect(before.matchups[0].sides[0].starters[0].id).toBe('missing-frozen');
+      expect(after.matchups[0].sides[0].starters[0]).toMatchObject({ id: String(incoming.externalRef.externalId), projectedPoints: playerProjection });
+      expect(after.matchups[0].sides[0]).toMatchObject({ points: actual, projectedPoints: teamProjection });
+      expect(after.matchups[0].sides[0].bench?.[0].id).toBe('missing-frozen');
+      expect(frozen).toEqual(originalFrozen);
+    });
+
+  it.each([
     { name: 'pregame', team: 'BUF' as const, officialPoints: 0, expected: 20 },
     { name: 'live', team: 'KC' as const, officialPoints: 4, expected: 14 },
     { name: 'final', team: 'PHI' as const, officialPoints: 13, expected: 20 },

@@ -19,8 +19,8 @@ adapter allowlist qualify these eleven native actual-stat counters:
 | `st_ff` | Individual special-teams forced fumble |
 | `fgm_0_19`, `fgm_20_29`, `fgm_30_39`, `fgm_40_49`, `fgm_50_59`, `fgm_60p` | Made field goals in each of six distance ranges |
 
-The native categories remain separate. No aliasing, special-teams aggregation,
-field-goal distance estimates, or league-specific override is introduced. A
+The native actual categories remain separate. No aliasing, special-teams aggregation,
+field-goal distance estimates, or league-specific override enters actual scoring. A
 league can configure both a base field-goal award and distance awards; each
 active configured rule contributes exactly once.
 
@@ -47,12 +47,12 @@ Sleeper's [scoring option descriptions](https://support.sleeper.com/en/articles/
 provide category names. Actual support is established by the native counters
 and official-point parity, rather than inferred from a label alone.
 
-This expands **actual calculated scoring only**. Tank01's existing normalized
-projection data does not provide these eleven independent events. The
-projection adapter therefore still reports all eleven as unsupported when
-active. Official Sleeper scores remain authoritative. This does not enroll
-additional leagues or establish complete projection, standings or playoff
-support.
+The native-event qualification expands **actual calculated scoring only**.
+Tank01's normalized forecast does not provide these eleven independent events.
+The projection adapter now separately estimates them from its aggregate forecast
+using the versioned [supplemental projection model](supplemental-projections.md).
+Official Sleeper scores remain authoritative. Actual-event qualification alone
+does not establish complete projection, standings or playoff support.
 
 ## Version and database compatibility
 

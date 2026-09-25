@@ -36,6 +36,7 @@ import type {
   ScoringProfileNormalization,
 } from './contracts';
 import { processLeague } from './league-stage';
+import { normalizeSleeperScoringProfile } from '../adapters/sleeper/scoring-profile';
 import { createProviderGroupScoringCache } from './scoring-cache';
 
 const officialProvider = providerKey('official-source');
@@ -538,6 +539,25 @@ function groupWithFreeAgentIdentityGap(): PersistedGroup {
 }
 
 describe('canonical league projection stage', () => {
+  it('retains supplemental estimate provenance and changes the publication revision when the model changes', async () => {
+    const selectedLeague = leagueVariant('imported', { rec_yd: 0.1, sack: 1, fgm_60p: 6 });
+    const revisions: string[] = [];
+    for (const model of ['sleeper-2025-supplemental-v1', 'future-calibration']) {
+      const { repository, mocks } = repositoryHarness();
+      const normalizer: LiveProjectionWorkerDependencies['normalizeScoringProfile'] = settings => {
+        const normalized = normalizeSleeperScoringProfile(settings);
+        if (normalized.status !== 'available' || !normalized.profile.provenance.supplementalEstimate) throw new Error('Expected estimate');
+        return { status: 'available', profile: { ...normalized.profile, provenance: { ...normalized.profile.provenance,
+          supplementalEstimate: { ...normalized.profile.provenance.supplementalEstimate, model } } } };
+      };
+      await processTestLeague(dependencies(repository, normalizer), selectedLeague);
+      expect(mocks.recordLeagueWeekObservation.mock.calls[0][0].sourceData.supplementalEstimate)
+        .toEqual({ model, sourceKeys: ['fgm_60p'] });
+      revisions.push(mocks.publishSnapshot.mock.calls[0][0].revisionKey);
+    }
+    expect(revisions[0]).not.toBe(revisions[1]);
+  });
+
   it.each([0, -2.5, null])('persists sourced bench points %s through the existing observation without adding them to team totals', async (points) => {
     const harness = repositoryHarness();
     const selectedSource: LeagueWeekState = { ...source, matchups: [{ ...source.matchups[0], sides: [

@@ -1,0 +1,42 @@
+{
+  "version": "sleeper-2025-supplemental-v1",
+  "season": 2025,
+  "source": "https://api.sleeper.app/v1/stats/nfl/regular/2025",
+  "sourceSha256": "cd9c98ef7db4c2089629e301988fe793f92faabb182a6bf2393e098299b005af",
+  "catalogSource": "https://api.sleeper.app/v1/players/nfl",
+  "catalogSha256": "43c260c1baf6d18f8821858af1551004746e7a318e86a62f0589790cee15e9bf",
+  "observedAt": "2026-09-25T17:57:54.4217238Z",
+  "offense": {
+    "rows": 3045,
+    "totals": {
+      "pass_int_td": 28.0,
+      "st_fum_rec": 5.0,
+      "pass_int": 380.0,
+      "rush_yd": 63519.0,
+      "st_ff": 4.0,
+      "rec_yd": 121627.0,
+      "rec": 11124.0
+    }
+  },
+  "defense": {
+    "rows": 32,
+    "totals": {
+      "def_st_ff": 32.0,
+      "fum_rec": 218.0,
+      "def_st_fum_rec": 28.0,
+      "ff": 332.0
+    }
+  },
+  "kickers": {
+    "rows": 154,
+    "totals": {
+      "fgm": 931.0,
+      "fgm_50_59": 171.0,
+      "fgm_0_19": 4.0,
+      "fgm_20_29": 202.0,
+      "fgm_40_49": 264.0,
+      "fgm_60p": 12.0,
+      "fgm_30_39": 278.0
+    }
+  }
+}

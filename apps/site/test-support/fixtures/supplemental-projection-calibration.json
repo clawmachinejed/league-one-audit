@@ -1,0 +1,6095 @@
+[
+  {
+    "group": "defense",
+    "id": "ARI",
+    "stats": {
+      "def_st_ff": 1.0,
+      "fum_rec": 9.0,
+      "ff": 11.0
+    },
+    "position": "DEF"
+  },
+  {
+    "group": "defense",
+    "id": "ATL",
+    "stats": {
+      "fum_rec": 5.0,
+      "def_st_fum_rec": 2.0,
+      "ff": 12.0
+    },
+    "position": "DEF"
+  },
+  {
+    "group": "defense",
+    "id": "BAL",
+    "stats": {
+      "def_st_ff": 3.0,
+      "fum_rec": 8.0,
+      "def_st_fum_rec": 1.0,
+      "ff": 11.0
+    },
+    "position": "DEF"
+  },
+  {
+    "group": "defense",
+    "id": "BUF",
+    "stats": {
+      "def_st_ff": 1.0,
+      "fum_rec": 7.0,
+      "ff": 12.0
+    },
+    "position": "DEF"
+  },
+  {
+    "group": "defense",
+    "id": "CAR",
+    "stats": {
+      "def_st_ff": 2.0,
+      "fum_rec": 4.0,
+      "def_st_fum_rec": 2.0,
+      "ff": 7.0
+    },
+    "position": "DEF"
+  },
+  {
+    "group": "defense",
+    "id": "CHI",
+    "stats": {
+      "def_st_ff": 1.0,
+      "fum_rec": 10.0,
+      "ff": 11.0
+    },
+    "position": "DEF"
+  },
+  {
+    "group": "defense",
+    "id": "CIN",
+    "stats": {
+      "ff": 11.0,
+      "fum_rec": 7.0
+    },
+    "position": "DEF"
+  },
+  {
+    "group": "defense",
+    "id": "CLE",
+    "stats": {
+      "def_st_ff": 1.0,
+      "fum_rec": 5.0,
+      "def_st_fum_rec": 2.0,
+      "ff": 14.0
+    },
+    "position": "DEF"
+  },
+  {
+    "group": "defense",
+    "id": "DAL",
+    "stats": {
+      "def_st_ff": 1.0,
+      "fum_rec": 5.0,
+      "def_st_fum_rec": 1.0,
+      "ff": 10.0
+    },
+    "position": "DEF"
+  },
+  {
+    "group": "defense",
+    "id": "DEN",
+    "stats": {
+      "def_st_ff": 2.0,
+      "fum_rec": 3.0,
+      "def_st_fum_rec": 1.0,
+      "ff": 7.0
+    },
+    "position": "DEF"
+  },
+  {
+    "group": "defense",
+    "id": "DET",
+    "stats": {
+      "ff": 15.0,
+      "fum_rec": 6.0
+    },
+    "position": "DEF"
+  },
+  {
+    "group": "defense",
+    "id": "GB",
+    "stats": {
+      "def_st_ff": 1.0,
+      "fum_rec": 6.0,
+      "def_st_fum_rec": 1.0,
+      "ff": 7.0
+    },
+    "position": "DEF"
+  },
+  {
+    "group": "defense",
+    "id": "HOU",
+    "stats": {
+      "def_st_ff": 1.0,
+      "fum_rec": 8.0,
+      "def_st_fum_rec": 2.0,
+      "ff": 12.0
+    },
+    "position": "DEF"
+  },
+  {
+    "group": "defense",
+    "id": "IND",
+    "stats": {
+      "def_st_ff": 1.0,
+      "fum_rec": 7.0,
+      "ff": 9.0
+    },
+    "position": "DEF"
+  },
+  {
+    "group": "defense",
+    "id": "JAX",
+    "stats": {
+      "def_st_ff": 3.0,
+      "fum_rec": 7.0,
+      "def_st_fum_rec": 2.0,
+      "ff": 8.0
+    },
+    "position": "DEF"
+  },
+  {
+    "group": "defense",
+    "id": "KC",
+    "stats": {
+      "def_st_ff": 1.0,
+      "fum_rec": 3.0,
+      "def_st_fum_rec": 1.0,
+      "ff": 6.0
+    },
+    "position": "DEF"
+  },
+  {
+    "group": "defense",
+    "id": "LAC",
+    "stats": {
+      "def_st_ff": 1.0,
+      "fum_rec": 3.0,
+      "def_st_fum_rec": 1.0,
+      "ff": 9.0
+    },
+    "position": "DEF"
+  },
+  {
+    "group": "defense",
+    "id": "LAR",
+    "stats": {
+      "ff": 12.0,
+      "fum_rec": 9.0
+    },
+    "position": "DEF"
+  },
+  {
+    "group": "defense",
+    "id": "LV",
+    "stats": {
+      "ff": 10.0,
+      "fum_rec": 8.0
+    },
+    "position": "DEF"
+  },
+  {
+    "group": "defense",
+    "id": "MIA",
+    "stats": {
+      "def_st_ff": 1.0,
+      "fum_rec": 9.0,
+      "def_st_fum_rec": 2.0,
+      "ff": 10.0
+    },
+    "position": "DEF"
+  },
+  {
+    "group": "defense",
+    "id": "MIN",
+    "stats": {
+      "def_st_ff": 1.0,
+      "fum_rec": 13.0,
+      "ff": 16.0
+    },
+    "position": "DEF"
+  },
+  {
+    "group": "defense",
+    "id": "NE",
+    "stats": {
+      "def_st_ff": 1.0,
+      "fum_rec": 8.0,
+      "def_st_fum_rec": 1.0,
+      "ff": 9.0
+    },
+    "position": "DEF"
+  },
+  {
+    "group": "defense",
+    "id": "NO",
+    "stats": {
+      "ff": 12.0,
+      "fum_rec": 10.0
+    },
+    "position": "DEF"
+  },
+  {
+    "group": "defense",
+    "id": "NYG",
+    "stats": {
+      "ff": 10.0,
+      "fum_rec": 6.0
+    },
+    "position": "DEF"
+  },
+  {
+    "group": "defense",
+    "id": "NYJ",
+    "stats": {
+      "def_st_ff": 1.0,
+      "fum_rec": 3.0,
+      "def_st_fum_rec": 1.0,
+      "ff": 8.0
+    },
+    "position": "DEF"
+  },
+  {
+    "group": "defense",
+    "id": "PHI",
+    "stats": {
+      "ff": 12.0,
+      "fum_rec": 9.0
+    },
+    "position": "DEF"
+  },
+  {
+    "group": "defense",
+    "id": "PIT",
+    "stats": {
+      "def_st_ff": 1.0,
+      "fum_rec": 10.0,
+      "def_st_fum_rec": 2.0,
+      "ff": 16.0
+    },
+    "position": "DEF"
+  },
+  {
+    "group": "defense",
+    "id": "SEA",
+    "stats": {
+      "def_st_ff": 1.0,
+      "fum_rec": 6.0,
+      "def_st_fum_rec": 1.0,
+      "ff": 7.0
+    },
+    "position": "DEF"
+  },
+  {
+    "group": "defense",
+    "id": "SF",
+    "stats": {
+      "def_st_ff": 3.0,
+      "fum_rec": 8.0,
+      "def_st_fum_rec": 2.0,
+      "ff": 10.0
+    },
+    "position": "DEF"
+  },
+  {
+    "group": "defense",
+    "id": "TB",
+    "stats": {
+      "def_st_ff": 1.0,
+      "fum_rec": 9.0,
+      "def_st_fum_rec": 1.0,
+      "ff": 12.0
+    },
+    "position": "DEF"
+  },
+  {
+    "group": "defense",
+    "id": "TEN",
+    "stats": {
+      "fum_rec": 6.0,
+      "def_st_fum_rec": 1.0,
+      "ff": 7.0
+    },
+    "position": "DEF"
+  },
+  {
+    "group": "defense",
+    "id": "WAS",
+    "stats": {
+      "def_st_ff": 2.0,
+      "fum_rec": 1.0,
+      "def_st_fum_rec": 1.0,
+      "ff": 9.0
+    },
+    "position": "DEF"
+  },
+  {
+    "group": "kickers",
+    "id": "10937",
+    "stats": {
+      "fgm_50_59": 2.0,
+      "fgm": 19.0,
+      "fgm_40_49": 5.0,
+      "fgm_30_39": 7.0,
+      "fgm_20_29": 5.0
+    },
+    "position": "K"
+  },
+  {
+    "group": "kickers",
+    "id": "10955",
+    "stats": {
+      "fgm_50_59": 6.0,
+      "fgm": 25.0,
+      "fgm_40_49": 7.0,
+      "fgm_30_39": 7.0,
+      "fgm_20_29": 5.0
+    },
+    "position": "K"
+  },
+  {
+    "group": "kickers",
+    "id": "11058",
+    "stats": {
+      "fgm_20_29": 9.0,
+      "fgm_30_39": 10.0,
+      "fgm_60p": 1.0,
+      "fgm": 29.0,
+      "fgm_50_59": 6.0,
+      "fgm_40_49": 3.0
+    },
+    "position": "K"
+  },
+  {
+    "group": "kickers",
+    "id": "11261",
+    "stats": {
+      "fgm_50_59": 5.0,
+      "fgm": 24.0,
+      "fgm_40_49": 5.0,
+      "fgm_30_39": 10.0,
+      "fgm_20_29": 4.0
+    },
+    "position": "K"
+  },
+  {
+    "group": "kickers",
+    "id": "11533",
+    "stats": {
+      "fgm_20_29": 10.0,
+      "fgm_30_39": 5.0,
+      "fgm_60p": 3.0,
+      "fgm": 36.0,
+      "fgm_50_59": 8.0,
+      "fgm_40_49": 10.0
+    },
+    "position": "K"
+  },
+  {
+    "group": "kickers",
+    "id": "11539",
+    "stats": {
+      "fgm_50_59": 4.0,
+      "fgm": 27.0,
+      "fgm_40_49": 9.0,
+      "fgm_30_39": 8.0,
+      "fgm_20_29": 6.0
+    },
+    "position": "K"
+  },
+  {
+    "group": "kickers",
+    "id": "11653",
+    "stats": {
+      "fgm_50_59": 4.0,
+      "fgm": 12.0,
+      "fgm_40_49": 3.0,
+      "fgm_30_39": 4.0,
+      "fgm_20_29": 1.0
+    },
+    "position": "K"
+  },
+  {
+    "group": "kickers",
+    "id": "11786",
+    "stats": {
+      "fgm_20_29": 5.0,
+      "fgm_30_39": 9.0,
+      "fgm_60p": 2.0,
+      "fgm": 30.0,
+      "fgm_50_59": 6.0,
+      "fgm_40_49": 8.0
+    },
+    "position": "K"
+  },
+  {
+    "group": "kickers",
+    "id": "11789",
+    "stats": {
+      "fgm_50_59": 1.0,
+      "fgm": 10.0,
+      "fgm_40_49": 3.0,
+      "fgm_30_39": 3.0,
+      "fgm_20_29": 3.0
+    },
+    "position": "K"
+  },
+  {
+    "group": "kickers",
+    "id": "11792",
+    "stats": {
+      "fgm_20_29": 6.0,
+      "fgm_30_39": 9.0,
+      "fgm_60p": 1.0,
+      "fgm": 33.0,
+      "fgm_50_59": 10.0,
+      "fgm_40_49": 7.0
+    },
+    "position": "K"
+  },
+  {
+    "group": "kickers",
+    "id": "12015",
+    "stats": {
+      "fgm_50_59": 1.0,
+      "fgm": 12.0,
+      "fgm_40_49": 5.0,
+      "fgm_30_39": 3.0,
+      "fgm_20_29": 3.0
+    },
+    "position": "K"
+  },
+  {
+    "group": "kickers",
+    "id": "12185",
+    "stats": {
+      "fgm_50_59": 1.0,
+      "fgm": 13.0,
+      "fgm_40_49": 2.0,
+      "fgm_30_39": 5.0,
+      "fgm_20_29": 5.0
+    },
+    "position": "K"
+  },
+  {
+    "group": "kickers",
+    "id": "12385",
+    "stats": {
+      "fgm": 2.0,
+      "fgm_30_39": 1.0,
+      "fgm_20_29": 1.0
+    },
+    "position": "K"
+  },
+  {
+    "group": "kickers",
+    "id": "12711",
+    "stats": {
+      "fgm_50_59": 1.0,
+      "fgm": 30.0,
+      "fgm_40_49": 8.0,
+      "fgm_30_39": 11.0,
+      "fgm_20_29": 10.0
+    },
+    "position": "K"
+  },
+  {
+    "group": "kickers",
+    "id": "12713",
+    "stats": {
+      "fgm_20_29": 6.0,
+      "fgm_30_39": 8.0,
+      "fgm_40_49": 7.0,
+      "fgm": 27.0,
+      "fgm_50_59": 4.0,
+      "fgm_0_19": 2.0
+    },
+    "position": "K"
+  },
+  {
+    "group": "kickers",
+    "id": "12961",
+    "stats": {
+      "fgm_50_59": 2.0,
+      "fgm": 24.0,
+      "fgm_40_49": 8.0,
+      "fgm_30_39": 8.0,
+      "fgm_20_29": 6.0
+    },
+    "position": "K"
+  },
+  {
+    "group": "kickers",
+    "id": "13066",
+    "stats": {
+      "fgm": 8.0,
+      "fgm_40_49": 1.0,
+      "fgm_30_39": 4.0,
+      "fgm_20_29": 3.0
+    },
+    "position": "K"
+  },
+  {
+    "group": "kickers",
+    "id": "1433",
+    "stats": {
+      "fgm_50_59": 3.0,
+      "fgm": 24.0,
+      "fgm_40_49": 3.0,
+      "fgm_30_39": 8.0,
+      "fgm_20_29": 10.0
+    },
+    "position": "K"
+  },
+  {
+    "group": "kickers",
+    "id": "17",
+    "stats": {
+      "fgm_50_59": 1.0,
+      "fgm": 18.0,
+      "fgm_40_49": 6.0,
+      "fgm_30_39": 7.0,
+      "fgm_20_29": 4.0
+    },
+    "position": "K"
+  },
+  {
+    "group": "kickers",
+    "id": "1945",
+    "stats": {
+      "fgm_20_29": 6.0,
+      "fgm_30_39": 2.0,
+      "fgm_60p": 1.0,
+      "fgm": 27.0,
+      "fgm_50_59": 8.0,
+      "fgm_40_49": 10.0
+    },
+    "position": "K"
+  },
+  {
+    "group": "kickers",
+    "id": "2020",
+    "stats": {
+      "fgm_50_59": 4.0,
+      "fgm": 25.0,
+      "fgm_40_49": 10.0,
+      "fgm_30_39": 8.0,
+      "fgm_20_29": 3.0
+    },
+    "position": "K"
+  },
+  {
+    "group": "kickers",
+    "id": "2747",
+    "stats": {
+      "fgm_50_59": 9.0,
+      "fgm": 41.0,
+      "fgm_40_49": 13.0,
+      "fgm_30_39": 14.0,
+      "fgm_20_29": 5.0
+    },
+    "position": "K"
+  },
+  {
+    "group": "kickers",
+    "id": "3451",
+    "stats": {
+      "fgm_50_59": 9.0,
+      "fgm": 44.0,
+      "fgm_40_49": 16.0,
+      "fgm_30_39": 11.0,
+      "fgm_20_29": 8.0
+    },
+    "position": "K"
+  },
+  {
+    "group": "kickers",
+    "id": "3678",
+    "stats": {
+      "fgm_50_59": 4.0,
+      "fgm": 28.0,
+      "fgm_40_49": 3.0,
+      "fgm_30_39": 11.0,
+      "fgm_20_29": 10.0
+    },
+    "position": "K"
+  },
+  {
+    "group": "kickers",
+    "id": "4195",
+    "stats": {
+      "fgm_50_59": 4.0,
+      "fgm": 20.0,
+      "fgm_40_49": 7.0,
+      "fgm_30_39": 6.0,
+      "fgm_20_29": 3.0
+    },
+    "position": "K"
+  },
+  {
+    "group": "kickers",
+    "id": "4227",
+    "stats": {
+      "fgm_20_29": 9.0,
+      "fgm_30_39": 9.0,
+      "fgm_40_49": 9.0,
+      "fgm": 33.0,
+      "fgm_50_59": 5.0,
+      "fgm_0_19": 1.0
+    },
+    "position": "K"
+  },
+  {
+    "group": "kickers",
+    "id": "4233",
+    "stats": {
+      "fgm_50_59": 7.0,
+      "fgm": 19.0,
+      "fgm_40_49": 8.0,
+      "fgm_30_39": 3.0,
+      "fgm_20_29": 1.0
+    },
+    "position": "K"
+  },
+  {
+    "group": "kickers",
+    "id": "4666",
+    "stats": {
+      "fgm_0_19": 1.0,
+      "fgm": 6.0,
+      "fgm_40_49": 2.0,
+      "fgm_30_39": 2.0,
+      "fgm_20_29": 1.0
+    },
+    "position": "K"
+  },
+  {
+    "group": "kickers",
+    "id": "503",
+    "stats": {
+      "fgm_50_59": 1.0,
+      "fgm": 9.0,
+      "fgm_40_49": 1.0,
+      "fgm_30_39": 4.0,
+      "fgm_20_29": 3.0
+    },
+    "position": "K"
+  },
+  {
+    "group": "kickers",
+    "id": "5095",
+    "stats": {
+      "fgm_20_29": 5.0,
+      "fgm_30_39": 6.0,
+      "fgm_60p": 1.0,
+      "fgm": 22.0,
+      "fgm_50_59": 4.0,
+      "fgm_40_49": 6.0
+    },
+    "position": "K"
+  },
+  {
+    "group": "kickers",
+    "id": "5189",
+    "stats": {
+      "fgm_50_59": 6.0,
+      "fgm": 28.0,
+      "fgm_40_49": 10.0,
+      "fgm_30_39": 7.0,
+      "fgm_20_29": 5.0
+    },
+    "position": "K"
+  },
+  {
+    "group": "kickers",
+    "id": "5230",
+    "stats": {
+      "fgm_50_59": 2.0,
+      "fgm": 11.0,
+      "fgm_40_49": 5.0,
+      "fgm_30_39": 3.0,
+      "fgm_20_29": 1.0
+    },
+    "position": "K"
+  },
+  {
+    "group": "kickers",
+    "id": "6083",
+    "stats": {
+      "fgm_50_59": 4.0,
+      "fgm": 17.0,
+      "fgm_40_49": 6.0,
+      "fgm_30_39": 3.0,
+      "fgm_20_29": 4.0
+    },
+    "position": "K"
+  },
+  {
+    "group": "kickers",
+    "id": "6268",
+    "stats": {
+      "fgm": 5.0,
+      "fgm_40_49": 3.0,
+      "fgm_30_39": 1.0,
+      "fgm_20_29": 1.0
+    },
+    "position": "K"
+  },
+  {
+    "group": "kickers",
+    "id": "650",
+    "stats": {
+      "fgm_50_59": 7.0,
+      "fgm": 28.0,
+      "fgm_40_49": 7.0,
+      "fgm_30_39": 9.0,
+      "fgm_20_29": 5.0
+    },
+    "position": "K"
+  },
+  {
+    "group": "kickers",
+    "id": "6528",
+    "stats": {
+      "fgm_50_59": 9.0,
+      "fgm": 28.0,
+      "fgm_40_49": 7.0,
+      "fgm_30_39": 6.0,
+      "fgm_20_29": 6.0
+    },
+    "position": "K"
+  },
+  {
+    "group": "kickers",
+    "id": "6650",
+    "stats": {
+      "fgm_20_29": 6.0,
+      "fgm_30_39": 9.0,
+      "fgm_60p": 1.0,
+      "fgm": 32.0,
+      "fgm_50_59": 10.0,
+      "fgm_40_49": 6.0
+    },
+    "position": "K"
+  },
+  {
+    "group": "kickers",
+    "id": "7839",
+    "stats": {
+      "fgm_20_29": 4.0,
+      "fgm_30_39": 6.0,
+      "fgm_60p": 1.0,
+      "fgm": 25.0,
+      "fgm_50_59": 4.0,
+      "fgm_40_49": 10.0
+    },
+    "position": "K"
+  },
+  {
+    "group": "kickers",
+    "id": "7922",
+    "stats": {
+      "fgm_50_59": 3.0,
+      "fgm": 27.0,
+      "fgm_40_49": 11.0,
+      "fgm_30_39": 8.0,
+      "fgm_20_29": 5.0
+    },
+    "position": "K"
+  },
+  {
+    "group": "kickers",
+    "id": "8259",
+    "stats": {
+      "fgm_50_59": 5.0,
+      "fgm": 38.0,
+      "fgm_40_49": 12.0,
+      "fgm_30_39": 14.0,
+      "fgm_20_29": 7.0
+    },
+    "position": "K"
+  },
+  {
+    "group": "kickers",
+    "id": "8670",
+    "stats": {
+      "fgm_50_59": 1.0,
+      "fgm": 11.0,
+      "fgm_40_49": 1.0,
+      "fgm_30_39": 7.0,
+      "fgm_20_29": 2.0
+    },
+    "position": "K"
+  },
+  {
+    "group": "kickers",
+    "id": "8932",
+    "stats": {
+      "fgm": 4.0,
+      "fgm_40_49": 1.0,
+      "fgm_30_39": 2.0,
+      "fgm_60p": 1.0
+    },
+    "position": "K"
+  },
+  {
+    "group": "offense",
+    "id": "10212",
+    "stats": {
+      "rec_yd": 36.0,
+      "rec": 5.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "10213",
+    "stats": {
+      "rush_yd": 51.0,
+      "rec_yd": 696.0,
+      "rec": 57.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "10214",
+    "stats": {
+      "rec_yd": 208.0,
+      "rec": 24.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "10217",
+    "stats": {
+      "rush_yd": 23.0,
+      "pass_int": 1.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "10218",
+    "stats": {
+      "rush_yd": 22.0,
+      "rec_yd": 428.0,
+      "rec": 35.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "10219",
+    "stats": {
+      "rush_yd": 500.0,
+      "rec_yd": 30.0,
+      "rec": 3.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "10220",
+    "stats": {
+      "rec_yd": 16.0,
+      "rec": 1.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "10221",
+    "stats": {
+      "rec_yd": 23.0,
+      "rec": 2.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "10222",
+    "stats": {
+      "rush_yd": 28.0,
+      "rec_yd": 207.0,
+      "rec": 19.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "10225",
+    "stats": {
+      "rec_yd": 25.0,
+      "rec": 1.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "10226",
+    "stats": {
+      "rush_yd": 14.0,
+      "rec_yd": 435.0,
+      "rec": 33.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "10227",
+    "stats": {
+      "rec_yd": 11.0,
+      "rec": 1.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "10229",
+    "stats": {
+      "rush_yd": 20.0,
+      "rec_yd": 571.0,
+      "rec": 53.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "10231",
+    "stats": {
+      "rec_yd": 301.0,
+      "rec": 30.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "10232",
+    "stats": {
+      "rec_yd": 1006.0,
+      "rec": 78.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "10234",
+    "stats": {
+      "rush_yd": 5.0,
+      "rec_yd": 10.0,
+      "rec": 2.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "10235",
+    "stats": {
+      "rush_yd": 17.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "10236",
+    "stats": {
+      "rec_yd": 571.0,
+      "rec": 39.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "10444",
+    "stats": {
+      "rec_yd": 270.0,
+      "rec": 21.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "10859",
+    "stats": {
+      "rec_yd": 489.0,
+      "rec": 40.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "10860",
+    "stats": {
+      "rush_yd": 1.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "10866",
+    "stats": {
+      "rush_yd": 7.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "10867",
+    "stats": {
+      "rec_yd": 20.0,
+      "rec": 2.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "10871",
+    "stats": {
+      "rec_yd": 132.0,
+      "rec": 14.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "11034",
+    "stats": {
+      "rec_yd": 51.0,
+      "rec": 3.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "11056",
+    "stats": {
+      "rec_yd": 20.0,
+      "rec": 2.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "11065",
+    "stats": {
+      "rush_yd": -1.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "11068",
+    "stats": {
+      "rec_yd": 116.0,
+      "rec": 8.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "11082",
+    "stats": {
+      "rec_yd": 30.0,
+      "rec": 3.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "11157",
+    "stats": {
+      "rec_yd": 160.0,
+      "rec": 14.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "11168",
+    "stats": {
+      "rec_yd": 303.0,
+      "rec": 18.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "11199",
+    "stats": {
+      "rush_yd": 312.0,
+      "rec_yd": 101.0,
+      "rec": 13.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "11201",
+    "stats": {
+      "rec_yd": 4.0,
+      "rec": 2.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "11210",
+    "stats": {
+      "rec_yd": 86.0,
+      "rec": 6.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "11237",
+    "stats": {
+      "rush_yd": 11.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "11256",
+    "stats": {
+      "rush_yd": 7.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "11257",
+    "stats": {
+      "rush_yd": 3.0,
+      "rec_yd": 56.0,
+      "rec": 4.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "11299",
+    "stats": {
+      "rush_yd": 114.0,
+      "rec_yd": 98.0,
+      "rec": 14.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "11306",
+    "stats": {
+      "rec_yd": 6.0,
+      "rec": 2.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "11320",
+    "stats": {
+      "rush_yd": 11.0,
+      "rec_yd": 21.0,
+      "rec": 1.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "11370",
+    "stats": {
+      "rush_yd": 106.0,
+      "rec_yd": 91.0,
+      "rec": 13.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "11371",
+    "stats": {
+      "rec_yd": 140.0,
+      "rec": 15.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "11377",
+    "stats": {
+      "rec_yd": 245.0,
+      "rec": 15.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "11384",
+    "stats": {
+      "rush_yd": 6.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "11421",
+    "stats": {
+      "rec_yd": 34.0,
+      "st_fum_rec": 1.0,
+      "rec": 2.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "11433",
+    "stats": {
+      "rec_yd": 48.0,
+      "rec": 6.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "11435",
+    "stats": {
+      "rush_yd": 496.0,
+      "rec_yd": 99.0,
+      "rec": 15.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "11439",
+    "stats": {
+      "rush_yd": 187.0,
+      "rec_yd": 27.0,
+      "rec": 4.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "11474",
+    "stats": {
+      "rec_yd": 42.0,
+      "rec": 7.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "11557",
+    "stats": {
+      "rush_yd": 50.0,
+      "pass_int": 2.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "11559",
+    "stats": {
+      "pass_int_td": 1.0,
+      "pass_int": 3.0,
+      "rush_yd": 70.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "11560",
+    "stats": {
+      "rec_yd": 22.0,
+      "pass_int": 7.0,
+      "rush_yd": 383.0,
+      "rec": 2.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "11562",
+    "stats": {
+      "pass_int_td": 1.0,
+      "pass_int": 5.0,
+      "rush_yd": 167.0,
+      "rec": 1.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "11563",
+    "stats": {
+      "rush_yd": 356.0,
+      "pass_int": 11.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "11564",
+    "stats": {
+      "pass_int_td": 1.0,
+      "rec_yd": 2.0,
+      "pass_int": 8.0,
+      "rush_yd": 450.0,
+      "rec": 1.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "11565",
+    "stats": {
+      "pass_int_td": 1.0,
+      "pass_int": 12.0,
+      "rush_yd": 181.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "11566",
+    "stats": {
+      "rush_yd": 278.0,
+      "pass_int": 3.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "11570",
+    "stats": {
+      "rush_yd": 24.0,
+      "rec_yd": 68.0,
+      "rec": 9.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "11571",
+    "stats": {
+      "rush_yd": 236.0,
+      "rec_yd": 186.0,
+      "rec": 21.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "11574",
+    "stats": {
+      "rush_yd": 9.0,
+      "rec_yd": 18.0,
+      "rec": 3.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "11575",
+    "stats": {
+      "rush_yd": 275.0,
+      "rec_yd": 86.0,
+      "rec": 10.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "11576",
+    "stats": {
+      "rush_yd": 76.0,
+      "rec_yd": 17.0,
+      "rec": 2.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "11577",
+    "stats": {
+      "rush_yd": 49.0,
+      "rec_yd": 56.0,
+      "rec": 9.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "11579",
+    "stats": {
+      "rush_yd": 198.0,
+      "rec_yd": 103.0,
+      "rec": 12.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "11584",
+    "stats": {
+      "rush_yd": 588.0,
+      "rec_yd": 277.0,
+      "rec": 30.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "11586",
+    "stats": {
+      "rush_yd": 746.0,
+      "rec_yd": 36.0,
+      "rec": 8.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "11588",
+    "stats": {
+      "rush_yd": 193.0,
+      "rec_yd": 34.0,
+      "rec": 7.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "11589",
+    "stats": {
+      "rush_yd": 160.0,
+      "rec_yd": 64.0,
+      "rec": 13.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "11593",
+    "stats": {
+      "rec_yd": 90.0,
+      "rec": 9.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "11595",
+    "stats": {
+      "rec_yd": 4.0,
+      "rec": 1.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "11596",
+    "stats": {
+      "rec_yd": 114.0,
+      "rec": 11.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "11597",
+    "stats": {
+      "rec_yd": 528.0,
+      "rec": 45.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "11599",
+    "stats": {
+      "rush_yd": 3.0,
+      "rec_yd": 76.0,
+      "rec": 12.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "11600",
+    "stats": {
+      "rec_yd": 190.0,
+      "rec": 29.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "11603",
+    "stats": {
+      "rush_yd": 14.0,
+      "rec_yd": 519.0,
+      "rec": 52.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "11604",
+    "stats": {
+      "rush_yd": 2.0,
+      "rec_yd": 680.0,
+      "rec": 64.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "11608",
+    "stats": {
+      "rush_yd": 34.0,
+      "rec_yd": 193.0,
+      "rec": 26.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "11610",
+    "stats": {
+      "rush_yd": 110.0,
+      "rec_yd": 317.0,
+      "rec": 46.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "11617",
+    "stats": {
+      "rush_yd": 127.0,
+      "rec_yd": 79.0,
+      "rec": 11.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "11618",
+    "stats": {
+      "rush_yd": 1.0,
+      "rec_yd": 178.0,
+      "rec": 12.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "11620",
+    "stats": {
+      "rec_yd": 661.0,
+      "rec": 44.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "11623",
+    "stats": {
+      "rush_yd": 12.0,
+      "rec_yd": 171.0,
+      "rec": 18.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "11624",
+    "stats": {
+      "rush_yd": 87.0,
+      "rec_yd": 532.0,
+      "rec": 42.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "11625",
+    "stats": {
+      "rush_yd": -4.0,
+      "rec_yd": 453.0,
+      "rec": 33.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "11626",
+    "stats": {
+      "rec_yd": 363.0,
+      "rec": 35.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "11627",
+    "stats": {
+      "rush_yd": 12.0,
+      "rec_yd": 709.0,
+      "rec": 65.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "11628",
+    "stats": {
+      "rec_yd": 608.0,
+      "rec": 41.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "11629",
+    "stats": {
+      "rec_yd": 136.0,
+      "rec": 6.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "11630",
+    "stats": {
+      "rec_yd": 166.0,
+      "rec": 12.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "11631",
+    "stats": {
+      "rush_yd": 21.0,
+      "rec_yd": 707.0,
+      "rec": 48.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "11632",
+    "stats": {
+      "rec_yd": 271.0,
+      "rec": 18.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "11633",
+    "stats": {
+      "rec_yd": 107.0,
+      "rec": 10.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "11635",
+    "stats": {
+      "rec_yd": 789.0,
+      "rec": 66.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "11637",
+    "stats": {
+      "rec_yd": 404.0,
+      "rec": 38.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "11638",
+    "stats": {
+      "rush_yd": -2.0,
+      "rec_yd": 528.0,
+      "rec": 36.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "11643",
+    "stats": {
+      "rush_yd": 288.0,
+      "rec_yd": 44.0,
+      "rec": 5.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "11646",
+    "stats": {
+      "rec_yd": 394.0,
+      "rec": 33.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "11647",
+    "stats": {
+      "rush_yd": 643.0,
+      "rec_yd": 136.0,
+      "rec": 16.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "11649",
+    "stats": {
+      "rush_yd": 2.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "11650",
+    "stats": {
+      "rec_yd": 203.0,
+      "rec": 11.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "11651",
+    "stats": {
+      "st_ff": 1.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "11655",
+    "stats": {
+      "rush_yd": 740.0,
+      "rec_yd": 288.0,
+      "rec": 36.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "1166",
+    "stats": {
+      "pass_int_td": 1.0,
+      "pass_int": 5.0,
+      "rush_yd": 7.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "11716",
+    "stats": {
+      "rec_yd": 18.0,
+      "rec": 3.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "11729",
+    "stats": {
+      "rush_yd": 4.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "11762",
+    "stats": {
+      "rec_yd": 6.0,
+      "rec": 2.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "11783",
+    "stats": {
+      "rush_yd": 25.0,
+      "rec_yd": 475.0,
+      "rec": 40.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "11806",
+    "stats": {
+      "rec_yd": 94.0,
+      "rec": 6.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "11820",
+    "stats": {
+      "rec_yd": 6.0,
+      "rec": 1.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "11821",
+    "stats": {
+      "rec_yd": 37.0,
+      "rec": 3.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "11834",
+    "stats": {
+      "rec_yd": 293.0,
+      "rec": 25.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "11895",
+    "stats": {
+      "rush_yd": 18.0,
+      "rec_yd": 76.0,
+      "rec": 11.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "11921",
+    "stats": {
+      "rec_yd": 67.0,
+      "rec": 7.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "11942",
+    "stats": {
+      "rec_yd": 18.0,
+      "rec": 2.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "11959",
+    "stats": {
+      "rec_yd": 8.0,
+      "rec": 1.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "11994",
+    "stats": {
+      "rush_yd": 13.0,
+      "rec_yd": 64.0,
+      "rec": 4.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "12048",
+    "stats": {
+      "rush_yd": 73.0,
+      "rec_yd": 15.0,
+      "rec": 2.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "12062",
+    "stats": {
+      "rec_yd": 7.0,
+      "rec": 2.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "12171",
+    "stats": {
+      "rush_yd": 78.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "1234",
+    "stats": {
+      "rush_yd": 106.0,
+      "pass_int": 3.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "12357",
+    "stats": {
+      "rec_yd": 30.0,
+      "rec": 4.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "12374",
+    "stats": {
+      "rec_yd": 48.0,
+      "rec": 4.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "12412",
+    "stats": {
+      "rush_yd": 73.0,
+      "rec_yd": 9.0,
+      "rec": 1.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "12455",
+    "stats": {
+      "rush_yd": 151.0,
+      "rec_yd": 172.0,
+      "rec": 25.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "12457",
+    "stats": {
+      "rush_yd": 129.0,
+      "rec_yd": 5.0,
+      "rec": 1.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "12469",
+    "stats": {
+      "rush_yd": 175.0,
+      "rec_yd": 271.0,
+      "rec": 33.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "12470",
+    "stats": {
+      "rec_yd": -3.0,
+      "pass_int": 3.0,
+      "rush_yd": 27.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "12471",
+    "stats": {
+      "rush_yd": 96.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "12472",
+    "stats": {
+      "rush_yd": 92.0,
+      "rec_yd": 21.0,
+      "rec": 3.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "12473",
+    "stats": {
+      "rush_yd": 1.0,
+      "rec_yd": 171.0,
+      "rec": 19.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "12474",
+    "stats": {
+      "rush_yd": 703.0,
+      "rec_yd": 208.0,
+      "rec": 24.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "12476",
+    "stats": {
+      "rush_yd": 206.0,
+      "rec_yd": 104.0,
+      "rec": 17.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "12480",
+    "stats": {
+      "rec_yd": 10.0,
+      "rec": 2.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "12481",
+    "stats": {
+      "rush_yd": 410.0,
+      "rec_yd": 207.0,
+      "rec": 24.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "12482",
+    "stats": {
+      "rush_yd": 37.0,
+      "rec_yd": 78.0,
+      "rec": 10.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "12483",
+    "stats": {
+      "rec_yd": 224.0,
+      "rec": 20.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "12484",
+    "stats": {
+      "rec_yd": 525.0,
+      "rec": 41.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "12485",
+    "stats": {
+      "rush_yd": 22.0,
+      "rec_yd": 322.0,
+      "rec": 28.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "12486",
+    "stats": {
+      "rush_yd": 86.0,
+      "pass_int": 2.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "12487",
+    "stats": {
+      "rec_yd": 231.0,
+      "rec": 11.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "12489",
+    "stats": {
+      "rush_yd": 540.0,
+      "rec_yd": 356.0,
+      "rec": 47.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "12490",
+    "stats": {
+      "rush_yd": 307.0,
+      "rec_yd": 79.0,
+      "rec": 10.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "12491",
+    "stats": {
+      "rush_yd": 58.0,
+      "rec_yd": 15.0,
+      "rec": 2.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "12492",
+    "stats": {
+      "rec_yd": 378.0,
+      "rec": 31.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "12493",
+    "stats": {
+      "rec_yd": 664.0,
+      "rec": 49.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "12495",
+    "stats": {
+      "rush_yd": 199.0,
+      "rec_yd": 32.0,
+      "rec": 7.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "12496",
+    "stats": {
+      "rec_yd": 25.0,
+      "rec": 3.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "12497",
+    "stats": {
+      "rec_yd": 161.0,
+      "rec": 13.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "12498",
+    "stats": {
+      "rec_yd": 369.0,
+      "rec": 44.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "12499",
+    "stats": {
+      "rec_yd": 515.0,
+      "rec": 41.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "12500",
+    "stats": {
+      "rec_yd": -6.0,
+      "pass_int": 3.0,
+      "rush_yd": 19.0,
+      "rec": 1.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "12501",
+    "stats": {
+      "rush_yd": 49.0,
+      "rec_yd": 361.0,
+      "rec": 29.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "12502",
+    "stats": {
+      "rec_yd": 357.0,
+      "rec": 44.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "12503",
+    "stats": {
+      "rush_yd": 29.0,
+      "rec_yd": 338.0,
+      "rec": 18.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "12504",
+    "stats": {
+      "rush_yd": 69.0,
+      "rec_yd": 9.0,
+      "rec": 1.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "12505",
+    "stats": {
+      "rec_yd": 4.0,
+      "rec": 2.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "12506",
+    "stats": {
+      "rush_yd": 13.0,
+      "rec_yd": 731.0,
+      "rec": 72.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "12507",
+    "stats": {
+      "rush_yd": 545.0,
+      "rec_yd": 192.0,
+      "rec": 32.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "12508",
+    "stats": {
+      "rush_yd": 487.0,
+      "pass_int": 5.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "12509",
+    "stats": {
+      "rush_yd": 10.0,
+      "rec_yd": 324.0,
+      "rec": 30.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "12510",
+    "stats": {
+      "rush_yd": 4.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "12512",
+    "stats": {
+      "rush_yd": 827.0,
+      "rec_yd": 171.0,
+      "rec": 26.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "12514",
+    "stats": {
+      "rush_yd": 9.0,
+      "rec_yd": 938.0,
+      "rec": 63.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "12516",
+    "stats": {
+      "rush_yd": 7.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "12517",
+    "stats": {
+      "rush_yd": -2.0,
+      "rec_yd": 713.0,
+      "rec": 58.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "12518",
+    "stats": {
+      "rush_yd": 8.0,
+      "rec_yd": 817.0,
+      "rec": 76.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "12519",
+    "stats": {
+      "rush_yd": 37.0,
+      "rec_yd": 652.0,
+      "rec": 47.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "12520",
+    "stats": {
+      "rec_yd": 41.0,
+      "rec": 3.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "12521",
+    "stats": {
+      "rec_yd": 179.0,
+      "rec": 15.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "12522",
+    "stats": {
+      "pass_int_td": 1.0,
+      "pass_int": 7.0,
+      "rush_yd": 159.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "12523",
+    "stats": {
+      "rush_yd": 69.0,
+      "rec_yd": 108.0,
+      "rec": 11.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "12524",
+    "stats": {
+      "rush_yd": 169.0,
+      "pass_int": 10.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "12526",
+    "stats": {
+      "rec_yd": 1014.0,
+      "rec": 70.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "12527",
+    "stats": {
+      "rush_yd": 975.0,
+      "rec_yd": 346.0,
+      "rec": 55.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "12529",
+    "stats": {
+      "rush_yd": 911.0,
+      "rec_yd": 221.0,
+      "rec": 35.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "12531",
+    "stats": {
+      "rush_yd": 94.0,
+      "rec_yd": 13.0,
+      "rec": 3.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "12533",
+    "stats": {
+      "rush_yd": 805.0,
+      "rec_yd": 68.0,
+      "rec": 9.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "12534",
+    "stats": {
+      "rush_yd": 783.0,
+      "rec_yd": 164.0,
+      "rec": 18.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "12535",
+    "stats": {
+      "rec_yd": 239.0,
+      "rec": 16.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "12536",
+    "stats": {
+      "rush_yd": 12.0,
+      "rec_yd": 292.0,
+      "rec": 26.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "12538",
+    "stats": {
+      "rush_yd": 49.0,
+      "pass_int": 7.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "12539",
+    "stats": {
+      "rush_yd": 13.0,
+      "rec_yd": 52.0,
+      "rec": 7.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "12540",
+    "stats": {
+      "rush_yd": 18.0,
+      "rec_yd": 423.0,
+      "rec": 48.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "12541",
+    "stats": {
+      "rec_yd": 135.0,
+      "rec": 10.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "12542",
+    "stats": {
+      "rec_yd": 75.0,
+      "rec": 3.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "12543",
+    "stats": {
+      "rush_yd": 45.0,
+      "rec_yd": 9.0,
+      "rec": 1.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "12544",
+    "stats": {
+      "st_fum_rec": 1.0,
+      "rec_yd": 54.0,
+      "st_ff": 1.0,
+      "rush_yd": 94.0,
+      "rec": 10.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "12545",
+    "stats": {
+      "rush_yd": 186.0,
+      "pass_int": 6.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "12547",
+    "stats": {
+      "rush_yd": 3.0,
+      "rec_yd": 209.0,
+      "rec": 10.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "12634",
+    "stats": {
+      "rec_yd": 26.0,
+      "rec": 2.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "12641",
+    "stats": {
+      "rush_yd": 7.0,
+      "rec_yd": 225.0,
+      "rec": 16.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "12658",
+    "stats": {
+      "rec_yd": 187.0,
+      "rec": 16.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "12670",
+    "stats": {
+      "rec_yd": 51.0,
+      "rec": 5.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "12718",
+    "stats": {
+      "rec_yd": 92.0,
+      "rec": 10.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "12738",
+    "stats": {
+      "rush_yd": 18.0,
+      "rec_yd": 11.0,
+      "rec": 2.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "12765",
+    "stats": {
+      "rec_yd": 35.0,
+      "rec": 4.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "12775",
+    "stats": {
+      "pass_int_td": 1.0,
+      "pass_int": 4.0,
+      "rush_yd": 11.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "12787",
+    "stats": {
+      "rush_yd": 11.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "12860",
+    "stats": {
+      "rec_yd": 139.0,
+      "rec": 6.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "12889",
+    "stats": {
+      "rec_yd": 25.0,
+      "rec": 2.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "12897",
+    "stats": {
+      "rush_yd": 60.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "12907",
+    "stats": {
+      "rec_yd": 10.0,
+      "rec": 1.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "12928",
+    "stats": {
+      "rush_yd": 8.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "12935",
+    "stats": {
+      "rec_yd": 15.0,
+      "rec": 2.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "12971",
+    "stats": {
+      "rush_yd": 10.0,
+      "rec_yd": 5.0,
+      "rec": 1.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "13047",
+    "stats": {
+      "rush_yd": 20.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "13079",
+    "stats": {
+      "rec_yd": 87.0,
+      "rec": 6.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "13101",
+    "stats": {
+      "rush_yd": 3.0,
+      "rec_yd": 71.0,
+      "rec": 7.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "13120",
+    "stats": {
+      "rec_yd": 25.0,
+      "rec": 1.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "13121",
+    "stats": {
+      "rec_yd": 14.0,
+      "rec": 2.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "13122",
+    "stats": {
+      "rec_yd": 3.0,
+      "rec": 1.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "13150",
+    "stats": {
+      "rec_yd": 92.0,
+      "rec": 9.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "13210",
+    "stats": {
+      "rec_yd": 3.0,
+      "rec": 1.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "1339",
+    "stats": {
+      "rec_yd": 504.0,
+      "rec": 50.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "1373",
+    "stats": {
+      "pass_int_td": 1.0,
+      "pass_int": 17.0,
+      "rush_yd": 109.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "1426",
+    "stats": {
+      "rec_yd": 330.0,
+      "rec": 22.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "1466",
+    "stats": {
+      "rush_yd": 1.0,
+      "rec_yd": 851.0,
+      "rec": 76.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "1479",
+    "stats": {
+      "rec_yd": 777.0,
+      "rec": 81.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "1689",
+    "stats": {
+      "rec_yd": 186.0,
+      "rec": 19.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "1837",
+    "stats": {
+      "rush_yd": -10.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "19",
+    "stats": {
+      "pass_int_td": 2.0,
+      "pass_int": 10.0,
+      "rush_yd": 35.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "2133",
+    "stats": {
+      "rec_yd": 789.0,
+      "rec": 60.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "2152",
+    "stats": {
+      "rush_yd": 4.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "2197",
+    "stats": {
+      "rec_yd": 279.0,
+      "rec": 24.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "2216",
+    "stats": {
+      "rec_yd": 368.0,
+      "rec": 30.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "2306",
+    "stats": {
+      "rec_yd": 33.0,
+      "pass_int": 2.0,
+      "rush_yd": 23.0,
+      "rec": 1.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "2307",
+    "stats": {
+      "pass_int_td": 1.0,
+      "pass_int": 7.0,
+      "rush_yd": 297.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "2359",
+    "stats": {
+      "rush_yd": 60.0,
+      "rec_yd": 99.0,
+      "rec": 16.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "2374",
+    "stats": {
+      "rec_yd": 291.0,
+      "rec": 32.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "2449",
+    "stats": {
+      "rec_yd": 1013.0,
+      "rec": 85.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "2505",
+    "stats": {
+      "rush_yd": 4.0,
+      "rec_yd": 283.0,
+      "rec": 24.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "260",
+    "stats": {
+      "rush_yd": 55.0,
+      "pass_int": 2.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "2749",
+    "stats": {
+      "rush_yd": 104.0,
+      "rec_yd": 70.0,
+      "rec": 12.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "3048",
+    "stats": {
+      "rec_yd": 7.0,
+      "rec": 1.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "3161",
+    "stats": {
+      "pass_int_td": 1.0,
+      "pass_int": 5.0,
+      "rush_yd": 57.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "3163",
+    "stats": {
+      "rush_yd": 45.0,
+      "pass_int": 8.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "3198",
+    "stats": {
+      "rush_yd": 1595.0,
+      "rec_yd": 150.0,
+      "rec": 15.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "3200",
+    "stats": {
+      "rush_yd": 19.0,
+      "rec_yd": 371.0,
+      "rec": 39.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "3202",
+    "stats": {
+      "rec_yd": 263.0,
+      "rec": 21.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "3214",
+    "stats": {
+      "rec_yd": 768.0,
+      "rec": 60.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "3257",
+    "stats": {
+      "rush_yd": 168.0,
+      "pass_int": 8.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "3269",
+    "stats": {
+      "rush_yd": 9.0,
+      "rec_yd": 207.0,
+      "rec": 11.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "3271",
+    "stats": {
+      "rec_yd": 281.0,
+      "rec": 25.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "3286",
+    "stats": {
+      "rush_yd": 6.0,
+      "rec_yd": 276.0,
+      "rec": 22.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "3294",
+    "stats": {
+      "rush_yd": 177.0,
+      "pass_int": 10.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "331",
+    "stats": {
+      "pass_int_td": 1.0,
+      "pass_int": 3.0,
+      "rush_yd": -1.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "3321",
+    "stats": {
+      "rec_yd": 265.0,
+      "rec": 21.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "3357",
+    "stats": {
+      "pass_int_td": 1.0,
+      "pass_int": 1.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "3423",
+    "stats": {
+      "rec_yd": 53.0,
+      "rec": 5.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "3634",
+    "stats": {
+      "rush_yd": 19.0,
+      "rec_yd": 289.0,
+      "rec": 24.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "3976",
+    "stats": {
+      "rush_yd": 6.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "4033",
+    "stats": {
+      "rec_yd": 293.0,
+      "rec": 33.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "4034",
+    "stats": {
+      "rush_yd": 1202.0,
+      "rec_yd": 924.0,
+      "rec": 102.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "4035",
+    "stats": {
+      "rush_yd": 471.0,
+      "rec_yd": 186.0,
+      "rec": 33.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "4037",
+    "stats": {
+      "rec_yd": 360.0,
+      "rec": 33.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "4039",
+    "stats": {
+      "rec_yd": 593.0,
+      "pass_int": 1.0,
+      "rec": 47.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "4040",
+    "stats": {
+      "rec_yd": 345.0,
+      "rec": 33.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "4046",
+    "stats": {
+      "pass_int_td": 1.0,
+      "rec_yd": -10.0,
+      "pass_int": 11.0,
+      "rush_yd": 422.0,
+      "rec": 1.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "4054",
+    "stats": {
+      "rec_yd": 117.0,
+      "rec": 13.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "4066",
+    "stats": {
+      "rush_yd": 7.0,
+      "rec_yd": 461.0,
+      "rec": 50.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "4080",
+    "stats": {
+      "rec_yd": 183.0,
+      "rec": 12.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "4082",
+    "stats": {
+      "rec_yd": 81.0,
+      "rec": 7.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "4098",
+    "stats": {
+      "rush_yd": 611.0,
+      "rec_yd": 143.0,
+      "rec": 18.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "4137",
+    "stats": {
+      "rush_yd": 95.0,
+      "rec_yd": 38.0,
+      "rec": 8.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "4144",
+    "stats": {
+      "rush_yd": 70.0,
+      "rec_yd": 222.0,
+      "rec": 38.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "4147",
+    "stats": {
+      "rush_yd": 382.0,
+      "rec_yd": 87.0,
+      "rec": 17.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "4171",
+    "stats": {
+      "rec_yd": 101.0,
+      "rec": 11.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "4177",
+    "stats": {
+      "rush_yd": 4.0,
+      "rec_yd": 550.0,
+      "rec": 46.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "4179",
+    "stats": {
+      "rush_yd": -5.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "4189",
+    "stats": {
+      "rec_yd": 31.0,
+      "rec": 4.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "4199",
+    "stats": {
+      "rush_yd": 548.0,
+      "rec_yd": 199.0,
+      "rec": 28.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "421",
+    "stats": {
+      "pass_int_td": 2.0,
+      "pass_int": 8.0,
+      "rush_yd": 1.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "4217",
+    "stats": {
+      "rush_yd": -3.0,
+      "rec_yd": 628.0,
+      "rec": 57.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "4219",
+    "stats": {
+      "rush_yd": 221.0,
+      "rec_yd": 196.0,
+      "rec": 25.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "4234",
+    "stats": {
+      "rec_yd": 83.0,
+      "rec": 5.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "4274",
+    "stats": {
+      "rush_yd": 12.0,
+      "rec_yd": 5.0,
+      "rec": 1.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "4314",
+    "stats": {
+      "rec_yd": 111.0,
+      "rec": 9.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "4351",
+    "stats": {
+      "rec_yd": 187.0,
+      "rec": 15.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "4381",
+    "stats": {
+      "rush_yd": 114.0,
+      "rec_yd": 91.0,
+      "rec": 11.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "4435",
+    "stats": {
+      "rec_yd": 53.0,
+      "rec": 8.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "4443",
+    "stats": {
+      "rec_yd": 1.0,
+      "rec": 2.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "4454",
+    "stats": {
+      "rec_yd": 551.0,
+      "rec": 37.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "4464",
+    "stats": {
+      "rush_yd": -8.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "4574",
+    "stats": {
+      "rush_yd": -4.0,
+      "pass_int": 4.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "4602",
+    "stats": {
+      "rec_yd": 1.0,
+      "rec": 1.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "4663",
+    "stats": {
+      "rush_yd": 43.0,
+      "rec_yd": 38.0,
+      "rec": 5.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "4718",
+    "stats": {
+      "st_fum_rec": 1.0,
+      "rec_yd": 76.0,
+      "rush_yd": 25.0,
+      "rec": 10.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "4866",
+    "stats": {
+      "rush_yd": 1140.0,
+      "rec_yd": 273.0,
+      "rec": 37.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "4881",
+    "stats": {
+      "pass_int_td": 1.0,
+      "pass_int": 7.0,
+      "rush_yd": 349.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "4892",
+    "stats": {
+      "pass_int_td": 1.0,
+      "pass_int": 11.0,
+      "rush_yd": 382.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "4943",
+    "stats": {
+      "rush_yd": 95.0,
+      "pass_int": 14.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "4950",
+    "stats": {
+      "rec_yd": 239.0,
+      "rec": 28.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "4972",
+    "stats": {
+      "rush_yd": 6.0,
+      "pass_int": 2.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "4981",
+    "stats": {
+      "rec_yd": 303.0,
+      "rec": 17.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "4983",
+    "stats": {
+      "rush_yd": 79.0,
+      "rec_yd": 682.0,
+      "rec": 50.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "4984",
+    "stats": {
+      "rush_yd": 579.0,
+      "pass_int": 10.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "4988",
+    "stats": {
+      "rush_yd": 506.0,
+      "rec_yd": 67.0,
+      "rec": 13.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "4992",
+    "stats": {
+      "rec_yd": 127.0,
+      "rec": 9.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "4993",
+    "stats": {
+      "rec_yd": 307.0,
+      "rec": 28.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "4995",
+    "stats": {
+      "rec_yd": 114.0,
+      "rec": 13.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "5001",
+    "stats": {
+      "rec_yd": 777.0,
+      "rec": 82.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "5008",
+    "stats": {
+      "rec_yd": 25.0,
+      "rec": 4.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "5010",
+    "stats": {
+      "rec_yd": 97.0,
+      "rec": 11.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "5012",
+    "stats": {
+      "rush_yd": 48.0,
+      "rec_yd": 422.0,
+      "rec": 48.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "5022",
+    "stats": {
+      "rec_yd": 591.0,
+      "rec": 60.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "5045",
+    "stats": {
+      "rec_yd": 1017.0,
+      "rec": 74.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "5086",
+    "stats": {
+      "rec_yd": 120.0,
+      "rec": 14.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "5096",
+    "stats": {
+      "rec_yd": 69.0,
+      "rec": 7.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "5113",
+    "stats": {
+      "rec_yd": 44.0,
+      "rec": 5.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "5121",
+    "stats": {
+      "rec_yd": 37.0,
+      "rec": 6.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "5127",
+    "stats": {
+      "rush_yd": -3.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "5133",
+    "stats": {
+      "rush_yd": 2.0,
+      "rec_yd": 101.0,
+      "rec": 7.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "5154",
+    "stats": {
+      "rec_yd": 21.0,
+      "rec": 3.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "5185",
+    "stats": {
+      "rec_yd": 70.0,
+      "rec": 10.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "5285",
+    "stats": {
+      "rec_yd": 7.0,
+      "rec": 2.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "5347",
+    "stats": {
+      "rush_yd": -2.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "5374",
+    "stats": {
+      "rec_yd": 30.0,
+      "rec": 3.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "5409",
+    "stats": {
+      "rec_yd": 168.0,
+      "rec": 19.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "5773",
+    "stats": {
+      "rec_yd": 31.0,
+      "rec": 3.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "5844",
+    "stats": {
+      "rec_yd": 438.0,
+      "rec": 51.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "5846",
+    "stats": {
+      "rush_yd": 12.0,
+      "rec_yd": 850.0,
+      "rec": 59.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "5848",
+    "stats": {
+      "rec_yd": 587.0,
+      "rec": 49.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "5849",
+    "stats": {
+      "rush_yd": 173.0,
+      "pass_int": 3.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "5850",
+    "stats": {
+      "rush_yd": 929.0,
+      "rec_yd": 282.0,
+      "rec": 36.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "5854",
+    "stats": {
+      "rush_yd": -5.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "5857",
+    "stats": {
+      "rec_yd": 288.0,
+      "rec": 34.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "5859",
+    "stats": {
+      "rec_yd": 1003.0,
+      "rec": 78.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "5870",
+    "stats": {
+      "rush_yd": 164.0,
+      "pass_int": 8.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "5872",
+    "stats": {
+      "rush_yd": 75.0,
+      "rec_yd": 727.0,
+      "rec": 72.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "5892",
+    "stats": {
+      "rush_yd": 716.0,
+      "rec_yd": 192.0,
+      "rec": 24.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "5906",
+    "stats": {
+      "rec_yd": 417.0,
+      "rec": 36.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "5927",
+    "stats": {
+      "rec_yd": 582.0,
+      "rec": 38.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "5938",
+    "stats": {
+      "rec_yd": 156.0,
+      "rec": 13.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "5947",
+    "stats": {
+      "rush_yd": 13.0,
+      "rec_yd": 835.0,
+      "rec": 75.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "5955",
+    "stats": {
+      "rec_yd": 89.0,
+      "rec": 15.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "5967",
+    "stats": {
+      "rush_yd": 1082.0,
+      "rec_yd": 206.0,
+      "rec": 33.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "5970",
+    "stats": {
+      "rush_yd": 15.0,
+      "rec_yd": 206.0,
+      "rec": 29.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "5973",
+    "stats": {
+      "rec_yd": 160.0,
+      "rec": 15.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "5980",
+    "stats": {
+      "rush_yd": 6.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "5985",
+    "stats": {
+      "rec_yd": 59.0,
+      "rec": 7.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "5995",
+    "stats": {
+      "rush_yd": 93.0,
+      "rec_yd": 169.0,
+      "rec": 21.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "6001",
+    "stats": {
+      "rush_yd": 3.0,
+      "rec_yd": 106.0,
+      "rec": 15.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "6011",
+    "stats": {
+      "rush_yd": 2.0,
+      "pass_int": 1.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "6012",
+    "stats": {
+      "rush_yd": -2.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "6039",
+    "stats": {
+      "rush_yd": 200.0,
+      "rec_yd": 263.0,
+      "rec": 24.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "6111",
+    "stats": {
+      "pass_int_td": 1.0,
+      "pass_int": 8.0,
+      "rush_yd": 39.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "6130",
+    "stats": {
+      "rush_yd": 437.0,
+      "rec_yd": 151.0,
+      "rec": 18.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "6136",
+    "stats": {
+      "rush_yd": -1.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "6144",
+    "stats": {
+      "rush_yd": 36.0,
+      "rec_yd": 55.0,
+      "rec": 8.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "6149",
+    "stats": {
+      "rec_yd": 538.0,
+      "rec": 37.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "6151",
+    "stats": {
+      "rush_yd": 117.0,
+      "rec_yd": 30.0,
+      "rec": 8.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "6154",
+    "stats": {
+      "rec_yd": 191.0,
+      "rec": 18.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "6271",
+    "stats": {
+      "rush_yd": 25.0,
+      "rec_yd": 313.0,
+      "rec": 39.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "6290",
+    "stats": {
+      "rec_yd": 62.0,
+      "rec": 9.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "6323",
+    "stats": {
+      "rush_yd": 5.0,
+      "rec_yd": 45.0,
+      "rec": 6.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "6386",
+    "stats": {
+      "rec_yd": 12.0,
+      "rec": 2.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "6427",
+    "stats": {
+      "rush_yd": 44.0,
+      "rec_yd": 106.0,
+      "rec": 5.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "6588",
+    "stats": {
+      "rec_yd": 36.0,
+      "rec": 4.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "6659",
+    "stats": {
+      "rush_yd": 4.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "6694",
+    "stats": {
+      "rush_yd": 25.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "6699",
+    "stats": {
+      "rec_yd": 145.0,
+      "rec": 10.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "6768",
+    "stats": {
+      "pass_int_td": 1.0,
+      "pass_int": 15.0,
+      "rush_yd": 43.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "6770",
+    "stats": {
+      "pass_int_td": 3.0,
+      "pass_int": 5.0,
+      "rush_yd": 41.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "6783",
+    "stats": {
+      "rush_yd": 5.0,
+      "rec_yd": 602.0,
+      "rec": 50.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "6786",
+    "stats": {
+      "rush_yd": 2.0,
+      "rec_yd": 1077.0,
+      "rec": 75.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "6790",
+    "stats": {
+      "rush_yd": 1087.0,
+      "rec_yd": 299.0,
+      "rec": 34.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "6794",
+    "stats": {
+      "rush_yd": 7.0,
+      "rec_yd": 1048.0,
+      "rec": 84.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "6797",
+    "stats": {
+      "pass_int_td": 1.0,
+      "pass_int": 13.0,
+      "rush_yd": 498.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "6801",
+    "stats": {
+      "rec_yd": 846.0,
+      "rec": 59.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "6804",
+    "stats": {
+      "rush_yd": 199.0,
+      "pass_int": 6.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "6806",
+    "stats": {
+      "rush_yd": 772.0,
+      "rec_yd": 37.0,
+      "rec": 11.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "6813",
+    "stats": {
+      "rush_yd": 1585.0,
+      "rec_yd": 378.0,
+      "rec": 46.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "6819",
+    "stats": {
+      "rec_yd": 784.0,
+      "rec": 80.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "6820",
+    "stats": {
+      "rush_yd": 13.0,
+      "rec_yd": 9.0,
+      "rec": 2.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "6826",
+    "stats": {
+      "rec_yd": 347.0,
+      "rec": 30.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "6828",
+    "stats": {
+      "rush_yd": 60.0,
+      "rec_yd": 21.0,
+      "rec": 3.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "6843",
+    "stats": {
+      "rec_yd": 36.0,
+      "rec": 5.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "6847",
+    "stats": {
+      "rec_yd": 26.0,
+      "rec": 2.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "6850",
+    "stats": {
+      "rec_yd": 7.0,
+      "rec": 2.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "6853",
+    "stats": {
+      "rec_yd": 350.0,
+      "rec": 29.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "6865",
+    "stats": {
+      "rec_yd": 408.0,
+      "rec": 43.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "6869",
+    "stats": {
+      "rec_yd": 195.0,
+      "rec": 20.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "6904",
+    "stats": {
+      "rush_yd": 421.0,
+      "pass_int": 6.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "6920",
+    "stats": {
+      "rec_yd": 115.0,
+      "rec": 10.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "6931",
+    "stats": {
+      "rush_yd": 21.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "6938",
+    "stats": {
+      "rush_yd": 19.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "6943",
+    "stats": {
+      "rec_yd": 129.0,
+      "rec": 12.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "6945",
+    "stats": {
+      "rush_yd": 106.0,
+      "rec_yd": 6.0,
+      "rec": 2.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "6957",
+    "stats": {
+      "rec_yd": 65.0,
+      "rec": 6.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "6960",
+    "stats": {
+      "rec_yd": 197.0,
+      "rec": 12.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "7002",
+    "stats": {
+      "rec_yd": 889.0,
+      "rec": 77.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "7021",
+    "stats": {
+      "rush_yd": 1076.0,
+      "rec_yd": 297.0,
+      "rec": 39.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "7039",
+    "stats": {
+      "rec_yd": 90.0,
+      "rec": 3.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "7049",
+    "stats": {
+      "rec_yd": 643.0,
+      "rec": 55.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "7050",
+    "stats": {
+      "rec_yd": 21.0,
+      "rec": 3.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "7075",
+    "stats": {
+      "rec_yd": 48.0,
+      "rec": 8.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "7083",
+    "stats": {
+      "rush_yd": 151.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "7090",
+    "stats": {
+      "rec_yd": 443.0,
+      "rec": 32.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "7204",
+    "stats": {
+      "rush_yd": 4.0,
+      "rec_yd": 24.0,
+      "rec": 2.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "7233",
+    "stats": {
+      "rec_yd": 8.0,
+      "rec": 2.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "7436",
+    "stats": {
+      "rec_yd": 48.0,
+      "rec": 2.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "7496",
+    "stats": {
+      "rec_yd": 89.0,
+      "rec": 11.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "7523",
+    "stats": {
+      "rush_yd": 359.0,
+      "pass_int": 12.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "7525",
+    "stats": {
+      "rec_yd": 1008.0,
+      "rec": 77.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "7526",
+    "stats": {
+      "rush_yd": 28.0,
+      "rec_yd": 910.0,
+      "rec": 64.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "7527",
+    "stats": {
+      "rush_yd": 60.0,
+      "pass_int": 6.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "7528",
+    "stats": {
+      "rush_yd": 61.0,
+      "rec_yd": 25.0,
+      "rec": 3.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "7531",
+    "stats": {
+      "rush_yd": 4.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "7535",
+    "stats": {
+      "rec_yd": 85.0,
+      "rec": 12.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "7536",
+    "stats": {
+      "rec_yd": 55.0,
+      "rec": 6.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "7537",
+    "stats": {
+      "rush_yd": 159.0,
+      "rec_yd": 8.0,
+      "rec": 3.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "7538",
+    "stats": {
+      "rush_yd": 1.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "7543",
+    "stats": {
+      "rush_yd": 1107.0,
+      "rec_yd": 292.0,
+      "rec": 36.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "7547",
+    "stats": {
+      "rush_yd": 9.0,
+      "rec_yd": 1401.0,
+      "rec": 117.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "7553",
+    "stats": {
+      "rec_yd": 928.0,
+      "rec": 88.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "7562",
+    "stats": {
+      "rec_yd": 192.0,
+      "rec": 6.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "7564",
+    "stats": {
+      "rush_yd": 14.0,
+      "rec_yd": 1412.0,
+      "rec": 125.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "7567",
+    "stats": {
+      "rec_yd": 486.0,
+      "st_ff": 1.0,
+      "rush_yd": 537.0,
+      "rec": 73.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "7569",
+    "stats": {
+      "rush_yd": 15.0,
+      "rec_yd": 1117.0,
+      "rec": 71.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "7571",
+    "stats": {
+      "rec_yd": 224.0,
+      "rec": 19.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "7585",
+    "stats": {
+      "rush_yd": 60.0,
+      "pass_int": 1.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "7587",
+    "stats": {
+      "rush_yd": 30.0,
+      "rec_yd": 227.0,
+      "rec": 20.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "7588",
+    "stats": {
+      "rush_yd": 1201.0,
+      "rec_yd": 137.0,
+      "rec": 35.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "7591",
+    "stats": {
+      "rush_yd": 383.0,
+      "pass_int": 1.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "7594",
+    "stats": {
+      "rush_yd": 511.0,
+      "rec_yd": 223.0,
+      "rec": 30.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "7595",
+    "stats": {
+      "rec_yd": 45.0,
+      "rec": 4.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "7596",
+    "stats": {
+      "rush_yd": 24.0,
+      "rec_yd": 112.0,
+      "rec": 9.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "7600",
+    "stats": {
+      "rec_yd": 486.0,
+      "rec": 41.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "7602",
+    "stats": {
+      "rec_yd": 40.0,
+      "rec": 7.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "7607",
+    "stats": {
+      "rush_yd": 333.0,
+      "rec_yd": 267.0,
+      "rec": 33.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "7608",
+    "stats": {
+      "rush_yd": 52.0,
+      "rec_yd": 4.0,
+      "rec": 1.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "7610",
+    "stats": {
+      "pass_int_td": 1.0,
+      "pass_int": 1.0,
+      "rush_yd": 85.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "7611",
+    "stats": {
+      "rush_yd": 603.0,
+      "rec_yd": 345.0,
+      "rec": 32.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "7612",
+    "stats": {
+      "rec_yd": 62.0,
+      "rec": 4.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "7670",
+    "stats": {
+      "rec_yd": 303.0,
+      "rec": 22.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "7694",
+    "stats": {
+      "rec_yd": 249.0,
+      "rec": 27.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "7716",
+    "stats": {
+      "rec_yd": 103.0,
+      "rec": 11.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "7720",
+    "stats": {
+      "rush_yd": 49.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "7746",
+    "stats": {
+      "rec_yd": 46.0,
+      "rec": 3.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "7757",
+    "stats": {
+      "rec_yd": 69.0,
+      "st_fum_rec": 1.0,
+      "rec": 4.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "7828",
+    "stats": {
+      "rec_yd": 178.0,
+      "rec": 21.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "7842",
+    "stats": {
+      "rec_yd": 85.0,
+      "rec": 11.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "7891",
+    "stats": {
+      "rec_yd": 108.0,
+      "rec": 14.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "7946",
+    "stats": {
+      "rec_yd": 46.0,
+      "rec": 6.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "8002",
+    "stats": {
+      "rush_yd": 4.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "8013",
+    "stats": {
+      "rec_yd": 15.0,
+      "rec": 1.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "8041",
+    "stats": {
+      "rec_yd": 20.0,
+      "rec": 3.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "8076",
+    "stats": {
+      "rec_yd": 50.0,
+      "rec": 4.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "8089",
+    "stats": {
+      "rec_yd": 11.0,
+      "rec": 2.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "8107",
+    "stats": {
+      "st_ff": 1.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "8110",
+    "stats": {
+      "rush_yd": 1.0,
+      "rec_yd": 600.0,
+      "rec": 82.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "8111",
+    "stats": {
+      "rec_yd": 572.0,
+      "rec": 59.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "8112",
+    "stats": {
+      "rec_yd": 919.0,
+      "rec": 68.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "8117",
+    "stats": {
+      "rec_yd": 203.0,
+      "rec": 18.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "8119",
+    "stats": {
+      "rec_yd": 262.0,
+      "rec": 18.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "8121",
+    "stats": {
+      "rec_yd": 724.0,
+      "rec": 55.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "8122",
+    "stats": {
+      "rush_yd": 269.0,
+      "rec_yd": 160.0,
+      "rec": 22.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "8123",
+    "stats": {
+      "rush_yd": 47.0,
+      "rec_yd": 13.0,
+      "rec": 4.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "8125",
+    "stats": {
+      "rec_yd": 372.0,
+      "rec": 31.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "8126",
+    "stats": {
+      "rush_yd": 5.0,
+      "rec_yd": 1014.0,
+      "rec": 92.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "8127",
+    "stats": {
+      "rec_yd": 142.0,
+      "rec": 10.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "8129",
+    "stats": {
+      "rush_yd": 36.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "8130",
+    "stats": {
+      "rec_yd": 1239.0,
+      "rec": 126.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "8131",
+    "stats": {
+      "rec_yd": 307.0,
+      "rec": 27.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "8132",
+    "stats": {
+      "rush_yd": 514.0,
+      "rec_yd": 96.0,
+      "rec": 14.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "8134",
+    "stats": {
+      "rush_yd": 5.0,
+      "rec_yd": 719.0,
+      "rec": 72.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "8135",
+    "stats": {
+      "rec_yd": 130.0,
+      "rec": 10.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "8136",
+    "stats": {
+      "rush_yd": 572.0,
+      "rec_yd": 218.0,
+      "rec": 40.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "8137",
+    "stats": {
+      "rec_yd": 1429.0,
+      "rec": 93.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "8138",
+    "stats": {
+      "rush_yd": 1621.0,
+      "rec_yd": 291.0,
+      "rec": 33.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "8139",
+    "stats": {
+      "rush_yd": 32.0,
+      "rec_yd": 24.0,
+      "rec": 4.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "8142",
+    "stats": {
+      "rec_yd": 1003.0,
+      "rec": 47.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "8143",
+    "stats": {
+      "rush_yd": 73.0,
+      "rec_yd": 103.0,
+      "rec": 26.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "8144",
+    "stats": {
+      "rec_yd": 1163.0,
+      "pass_int": 1.0,
+      "rush_yd": -3.0,
+      "rec": 100.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "8145",
+    "stats": {
+      "rec_yd": 179.0,
+      "rec": 23.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "8146",
+    "stats": {
+      "rec_yd": 395.0,
+      "rec": 36.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "8147",
+    "stats": {
+      "rush_yd": -5.0,
+      "rec_yd": 274.0,
+      "rec": 33.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "8148",
+    "stats": {
+      "rush_yd": 12.0,
+      "rec_yd": 1117.0,
+      "rec": 65.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "8150",
+    "stats": {
+      "rush_yd": 1252.0,
+      "rec_yd": 281.0,
+      "rec": 36.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "8151",
+    "stats": {
+      "rush_yd": 1027.0,
+      "rec_yd": 282.0,
+      "rec": 31.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "8154",
+    "stats": {
+      "rush_yd": 400.0,
+      "rec_yd": 25.0,
+      "rec": 8.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "8155",
+    "stats": {
+      "rush_yd": 1065.0,
+      "rec_yd": 350.0,
+      "rec": 36.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "8160",
+    "stats": {
+      "rush_yd": 22.0,
+      "pass_int": 2.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "8161",
+    "stats": {
+      "rush_yd": 123.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "8167",
+    "stats": {
+      "rush_yd": 3.0,
+      "rec_yd": 611.0,
+      "rec": 35.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "8168",
+    "stats": {
+      "rush_yd": 11.0,
+      "rec_yd": 87.0,
+      "rec": 5.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "8170",
+    "stats": {
+      "rec_yd": 28.0,
+      "rec": 3.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "8172",
+    "stats": {
+      "rush_yd": -7.0,
+      "rec_yd": 335.0,
+      "rec": 26.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "8177",
+    "stats": {
+      "rec_yd": 76.0,
+      "rec": 9.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "8180",
+    "stats": {
+      "rush_yd": 13.0,
+      "rec_yd": 444.0,
+      "rec": 29.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "8181",
+    "stats": {
+      "rush_yd": 43.0,
+      "rec_yd": 21.0,
+      "rec": 3.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "8183",
+    "stats": {
+      "pass_int_td": 1.0,
+      "pass_int": 10.0,
+      "rush_yd": 147.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "8188",
+    "stats": {
+      "rec_yd": 438.0,
+      "rec": 19.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "8195",
+    "stats": {
+      "rush_yd": 46.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "8200",
+    "stats": {
+      "rec_yd": 140.0,
+      "rec": 13.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "8204",
+    "stats": {
+      "rush_yd": 35.0,
+      "rec_yd": 107.0,
+      "rec": 4.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "8205",
+    "stats": {
+      "rush_yd": 462.0,
+      "rec_yd": 101.0,
+      "rec": 19.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "8207",
+    "stats": {
+      "rush_yd": 24.0,
+      "rec_yd": 8.0,
+      "rec": 2.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "8208",
+    "stats": {
+      "rush_yd": 23.0,
+      "rec_yd": 141.0,
+      "rec": 19.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "8210",
+    "stats": {
+      "rec_yd": 560.0,
+      "rec": 56.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "8219",
+    "stats": {
+      "rec_yd": 4.0,
+      "rec": 1.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "8223",
+    "stats": {
+      "rush_yd": 32.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "8225",
+    "stats": {
+      "rec_yd": 286.0,
+      "rec": 19.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "8228",
+    "stats": {
+      "rush_yd": 958.0,
+      "rec_yd": 333.0,
+      "rec": 40.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "8230",
+    "stats": {
+      "rush_yd": 47.0,
+      "rec_yd": 11.0,
+      "rec": 3.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "8235",
+    "stats": {
+      "rec_yd": 3.0,
+      "rec": 1.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "8249",
+    "stats": {
+      "rec_yd": 15.0,
+      "rec": 2.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "8250",
+    "stats": {
+      "rec_yd": 23.0,
+      "rec": 2.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "8253",
+    "stats": {
+      "rush_yd": 5.0,
+      "rec_yd": 27.0,
+      "rec": 3.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "8254",
+    "stats": {
+      "rush_yd": 40.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "827",
+    "stats": {
+      "pass_int_td": 1.0,
+      "pass_int": 5.0,
+      "rush_yd": 143.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "829",
+    "stats": {
+      "rush_yd": -2.0,
+      "pass_int": 1.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "8408",
+    "stats": {
+      "rush_yd": 758.0,
+      "rec_yd": 51.0,
+      "rec": 14.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "8413",
+    "stats": {
+      "rush_yd": 18.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "8414",
+    "stats": {
+      "rec_yd": 20.0,
+      "rec": 2.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "8423",
+    "stats": {
+      "rush_yd": 37.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "8489",
+    "stats": {
+      "rec_yd": 27.0,
+      "rec": 4.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "8500",
+    "stats": {
+      "rec_yd": 72.0,
+      "rec": 12.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "8527",
+    "stats": {
+      "rec_yd": 48.0,
+      "rec": 2.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "8583",
+    "stats": {
+      "rec_yd": 52.0,
+      "rec": 7.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "8676",
+    "stats": {
+      "rush_yd": 69.0,
+      "rec_yd": 687.0,
+      "rec": 59.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "8698",
+    "stats": {
+      "rec_yd": 293.0,
+      "st_fum_rec": 1.0,
+      "rec": 34.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "8799",
+    "stats": {
+      "rec_yd": 17.0,
+      "rec": 2.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "8800",
+    "stats": {
+      "rush_yd": 250.0,
+      "rec_yd": 16.0,
+      "rec": 2.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "8849",
+    "stats": {
+      "rec_yd": 91.0,
+      "rec": 9.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "8885",
+    "stats": {
+      "rec_yd": 19.0,
+      "rec": 2.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "8917",
+    "stats": {
+      "rush_yd": 89.0,
+      "rec_yd": 396.0,
+      "rec": 26.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "9220",
+    "stats": {
+      "rush_yd": 48.0,
+      "rec_yd": 6.0,
+      "rec": 1.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "9221",
+    "stats": {
+      "rush_yd": 1223.0,
+      "rec_yd": 616.0,
+      "rec": 77.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "9224",
+    "stats": {
+      "rush_yd": 1019.0,
+      "rec_yd": 437.0,
+      "rec": 69.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "9225",
+    "stats": {
+      "rush_yd": 356.0,
+      "rec_yd": 32.0,
+      "rec": 3.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "9226",
+    "stats": {
+      "rush_yd": 1350.0,
+      "rec_yd": 488.0,
+      "rec": 67.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "9228",
+    "stats": {
+      "rush_yd": 216.0,
+      "pass_int": 11.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "9229",
+    "stats": {
+      "rush_yd": -1.0,
+      "rec_yd": 9.0,
+      "rec": 1.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "9230",
+    "stats": {
+      "rush_yd": 8.0,
+      "pass_int": 1.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "9479",
+    "stats": {
+      "rec_yd": 364.0,
+      "rec": 31.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "9480",
+    "stats": {
+      "rec_yd": 540.0,
+      "rec": 46.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "9481",
+    "stats": {
+      "rec_yd": 252.0,
+      "rec": 24.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "9482",
+    "stats": {
+      "rec_yd": 328.0,
+      "rec": 35.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "9484",
+    "stats": {
+      "rush_yd": 3.0,
+      "rec_yd": 489.0,
+      "rec": 32.0
+    },
+    "position": "TE"
+  },
+  {
+    "group": "offense",
+    "id": "9486",
+    "stats": {
+      "rush_yd": 6.0,
+      "rec_yd": 332.0,
+      "rec": 30.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "9487",
+    "stats": {
+      "rec_yd": 847.0,
+      "rec": 58.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "9488",
+    "stats": {
+      "rush_yd": 36.0,
+      "rec_yd": 1793.0,
+      "rec": 119.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "9493",
+    "stats": {
+      "rush_yd": 105.0,
+      "rec_yd": 1715.0,
+      "rec": 129.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "9494",
+    "stats": {
+      "rush_yd": 78.0,
+      "rec_yd": 322.0,
+      "rec": 37.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "9497",
+    "stats": {
+      "rec_yd": 35.0,
+      "rec": 5.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "9500",
+    "stats": {
+      "rush_yd": -2.0,
+      "rec_yd": 566.0,
+      "rec": 58.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "9501",
+    "stats": {
+      "rush_yd": 21.0,
+      "rec_yd": 447.0,
+      "rec": 31.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "9504",
+    "stats": {
+      "rec_yd": 551.0,
+      "rec": 33.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "9506",
+    "stats": {
+      "rush_yd": 320.0,
+      "rec_yd": 34.0,
+      "rec": 8.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "9508",
+    "stats": {
+      "rush_yd": 283.0,
+      "rec_yd": 264.0,
+      "rec": 45.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "9509",
+    "stats": {
+      "rush_yd": 1478.0,
+      "rec_yd": 820.0,
+      "rec": 79.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "9511",
+    "stats": {
+      "rush_yd": 341.0,
+      "rec_yd": 63.0,
+      "rec": 9.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "96",
+    "stats": {
+      "rec_yd": -9.0,
+      "pass_int": 7.0,
+      "rush_yd": 61.0,
+      "rec": 1.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "9753",
+    "stats": {
+      "rush_yd": 730.0,
+      "rec_yd": 144.0,
+      "rec": 20.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "9754",
+    "stats": {
+      "rush_yd": 7.0,
+      "rec_yd": 735.0,
+      "rec": 51.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "9756",
+    "stats": {
+      "rush_yd": 81.0,
+      "rec_yd": 610.0,
+      "rec": 42.0
+    },
+    "position": "WR"
+  },
+  {
+    "group": "offense",
+    "id": "9757",
+    "stats": {
+      "rush_yd": 193.0,
+      "rec_yd": 30.0,
+      "rec": 5.0
+    },
+    "position": "RB"
+  },
+  {
+    "group": "offense",
+    "id": "9758",
+    "stats": {
+      "rush_yd": 209.0,
+      "pass_int": 8.0
+    },
+    "position": "QB"
+  },
+  {
+    "group": "offense",
+    "id": "9997",
+    "stats": {
+      "rush_yd": 62.0,
+      "rec_yd": 1211.0,
+      "rec": 86.0
+    },
+    "position": "WR"
+  }
+]
