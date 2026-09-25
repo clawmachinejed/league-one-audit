@@ -348,7 +348,7 @@ for (const destination of ['league', 'week'] as const) {
         .getByRole('button', { name: 'Choose league, current League One' }).click();
       await page.getByRole('link', { name: 'View League Two' }).click();
       await expect(page).toHaveURL(/\/league2\/matchups$/u);
-      await expect(page.getByRole('link', { name: 'League Two home' })).toBeVisible();
+      await expect(page.locator('.league-switcher-trigger:visible')).toHaveAttribute('aria-label', 'Choose league, current League Two');
     } else {
       const picker = page.getByLabel('Matchup week');
       // Current deliberately uses the unpinned route. This race exercises an

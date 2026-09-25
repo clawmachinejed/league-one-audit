@@ -1,7 +1,6 @@
 import 'server-only';
 
-import { LEAGUE_IDS } from './config';
-import type { LeagueKey } from './leagues';
+import { isLeagueRouteKey } from './leagues';
 import { parseMatchupWeek } from './matchup-week';
 import { matchupPeriodHeaders } from './matchup-period';
 import { SNAPSHOT_REVISION_HEADER, SNAPSHOT_VERIFIED_AT_HEADER, validSnapshotRevision } from './matchup-snapshot-metadata';
@@ -28,9 +27,7 @@ function response(
   return Response.json(body, { status, headers });
 }
 
-function validLeagueKey(value: string): value is LeagueKey {
-  return Object.prototype.hasOwnProperty.call(LEAGUE_IDS, value);
-}
+const validLeagueKey = isLeagueRouteKey;
 
 export async function handleMatchupsSnapshotRequest(
   request: Request,

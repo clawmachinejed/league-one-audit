@@ -1,7 +1,7 @@
 import 'server-only';
 
 import { getCurrentLeagueId } from './league-administration/registry';
-import { LEAGUE_SITES, type LeagueKey } from './leagues';
+import { isLeagueRouteKey, type LeagueRouteKey as LeagueKey } from './leagues';
 import { getProjectionStore, type StoredAllPlayerMetricRead } from './projection-store';
 import { scoreSparseStatistics } from './projections/domain/scoring';
 import { getRostersWithMetricContext, type RostersLoad } from './sleeper';
@@ -10,7 +10,7 @@ import type { RostersData } from './types';
 const responseHeaders = { 'Cache-Control': 'private, no-store' };
 
 function isLeagueKey(value: string): value is LeagueKey {
-  return Object.hasOwn(LEAGUE_SITES, value);
+  return isLeagueRouteKey(value);
 }
 
 type LoadRosters = (leagueId: string, week: number) => Promise<RostersLoad>;

@@ -11,7 +11,8 @@ export const ACCOUNT_SOURCE_CTES = `WITH enrolled AS (
   LEFT JOIN public.league_seasons season ON season.league_id=league.id AND season.season=intended.season
   LEFT JOIN public.league_source_connections connection ON connection.league_season_id=season.id AND connection.provider=enrollment.provider
   WHERE (enrollment.active OR EXISTS(SELECT 1 FROM public.app_user_leagues saved WHERE saved.league_id=league.id))
-    AND enrollment.provider='sleeper' AND league.league_key IN ('league1','league2','dynasty')
+    AND enrollment.provider='sleeper'
+    AND (league.league_key IN ('league1','league2','dynasty') OR league.league_key ~ '^sleeper-[1-9][0-9]{0,31}$')
 ), sources AS (
   SELECT enrolled.*,family.name AS family,head.checked_at,head.verified_at,
     -- Identical network verification can advance the head while retaining an

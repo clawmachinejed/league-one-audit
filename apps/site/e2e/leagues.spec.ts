@@ -252,23 +252,24 @@ test('League navigation stays distinct from Standings content and does not resiz
 });
 
 test('switching leagues changes identity, data routes, and every primary tab', async ({ page }) => {
-  const leagueOneLogo = /league-one-logo-63ab193e\.jpg/u;
-  const leagueTwoLogo = /league-two-logo-6c951682\.jpg/u;
-  const expectBrand = async (name: 'League One' | 'League Two', image: RegExp, icon: string) => {
-    const home = page.getByRole('link', { name: `${name} home` });
+  const leagueOneLogo = /^https:\/\/sleepercdn\.com\/avatars\/[a-zA-Z0-9_-]+$/u;
+  const leagueTwoLogo = leagueOneLogo;
+  const expectBrand = async (name: 'League One' | 'League Two', image: RegExp) => {
+    const home = page.getByRole('link', { name: 'League One home' });
     await expect(home).toBeVisible();
-    await expect(home.locator('img')).toHaveAttribute('src', image);
+    await expect(home.locator('img')).toHaveAttribute('src', /league-one-site-20260925\.png/u);
+    await expect(page.locator('.league-switcher-trigger:visible')).toHaveAttribute('aria-label', `Choose league, current ${name}`);
     await expect(page.locator('.league-switcher-mobile button img')).toHaveAttribute('src', image);
     await expect(page.locator('.league-switcher-desktop button img')).toHaveAttribute('src', image);
     for (const rel of ['icon', 'apple-touch-icon']) {
       const metadata = page.locator(`link[rel="${rel}"]`);
       await expect(metadata).toHaveCount(1);
-      await expect(metadata).toHaveAttribute('href', icon);
+      await expect(metadata).toHaveAttribute('href', '/league-one-site-20260925.png');
     }
   };
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/matchups', { waitUntil: 'networkidle' });
-  await expectBrand('League One', leagueOneLogo, '/league-one-logo-63ab193e.jpg');
+  await expectBrand('League One', leagueOneLogo);
 
   await page.getByRole('navigation', { name: 'Mobile navigation' })
     .getByRole('button', { name: 'Choose league, current League One' }).click();
@@ -277,9 +278,9 @@ test('switching leagues changes identity, data routes, and every primary tab', a
   await page.getByRole('link', { name: 'View League Two' }).click();
 
   await expect(page).toHaveURL(/\/league2\/matchups$/u);
-  const leagueTwoHome = page.getByRole('link', { name: 'League Two home' });
-  await expectBrand('League Two', leagueTwoLogo, '/league-two-logo-6c951682.jpg');
-  await expect(leagueTwoHome).toContainText('LEAGUE TWO.');
+  const leagueTwoHome = page.getByRole('link', { name: 'League One home' });
+  await expectBrand('League Two', leagueTwoLogo);
+  await expect(leagueTwoHome).toContainText('LEAGUE ONE.');
   await expect(page.getByRole('heading', { level: 1, name: 'Matchups' })).toBeVisible();
 
   const mobileNav = page.getByRole('navigation', { name: 'Mobile navigation' });
@@ -306,7 +307,7 @@ test('switching leagues changes identity, data routes, and every primary tab', a
   await expect(mobileNav.getByRole('link', { name: 'View League Two' }).locator('img')).toHaveAttribute('src', leagueTwoLogo);
   await mobileNav.getByRole('link', { name: 'View League One' }).click();
   await expect(page).toHaveURL(/\/managers$/u);
-  await expectBrand('League One', leagueOneLogo, '/league-one-logo-63ab193e.jpg');
+  await expectBrand('League One', leagueOneLogo);
 });
 
 test('selecting the active league preserves the viewed matchup week', async ({ page }) => {

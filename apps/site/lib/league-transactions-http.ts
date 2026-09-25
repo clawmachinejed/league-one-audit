@@ -1,13 +1,13 @@
 import 'server-only';
 
 import { getCurrentLeagueId } from './league-administration/registry';
-import { LEAGUE_SITES, type LeagueKey } from './leagues';
+import { isLeagueRouteKey, type LeagueRouteKey as LeagueKey } from './leagues';
 import { getLeagueTransactions } from './sleeper';
 
 const responseHeaders = { 'Cache-Control': 'private, no-store' };
 
 function isLeagueKey(value: string): value is LeagueKey {
-  return Object.hasOwn(LEAGUE_SITES, value);
+  return isLeagueRouteKey(value);
 }
 
 export async function handleLeagueTransactionsRequest(

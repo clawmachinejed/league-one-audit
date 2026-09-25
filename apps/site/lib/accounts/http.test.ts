@@ -74,6 +74,11 @@ describe('Sleeper account-link recognition boundary', () => {
   });
 });
 describe('private account HTTP boundary', () => {
+  it('withholds private mapping if the session changes while loading league artwork', async () => {
+    const deps = { ...dependencies(), present: async (view: AccountView) => view };
+    deps.principal.mockResolvedValueOnce(principal).mockResolvedValueOnce(null);
+    expect((await accountResponse(new Request('https://www.league1fantasy.com/api/me'), { kind: 'read' }, deps)).status).toBe(409);
+  });
   it('returns private/no-store data and derives the actor from a verified identity only', async () => {
     const deps = dependencies();
     const response = await accountResponse(new Request('https://www.league1fantasy.com/api/me?userId=someone-else'), { kind: 'read' }, deps);

@@ -64,9 +64,12 @@ export const getCurrentLeagueIds = cache(async (): Promise<Partial<Record<League
   return Object.fromEntries(rows.flat());
 });
 
-export const getCurrentLeagueId = cache(async (key: LeagueKey): Promise<string> => {
+export const getCurrentLeagueId = cache(async (key: string): Promise<string> => {
   const store = getLeagueAdministrationStore();
-  if (!store.enabled) return LEAGUE_IDS[key];
+  if (!store.enabled) {
+    if (!Object.hasOwn(LEAGUE_IDS, key)) throw new Error('The requested league registration is unavailable.');
+    return LEAGUE_IDS[key as LeagueKey];
+  }
   const entry = await store.readEnrollment({ leagueKey: key });
   if (entry.status !== 'ready') throw new Error('The requested league registration is unavailable.');
   return entry.enrollment.externalLeagueId;

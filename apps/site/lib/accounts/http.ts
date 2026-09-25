@@ -7,6 +7,7 @@ import { AccountInputError, accountUuid } from './validation';
 import type { AccountView, LinkedSleeperProfile, SleeperLinkPreview } from './contracts';
 import { discoverSleeperLeagues } from './sleeper-discovery';
 import { previewSleeperLink } from './sleeper-link-preview';
+import { getLeagueSite } from '../league-sites';
 
 const PRIVATE_HEADERS = { 'Cache-Control': 'private, no-store, max-age=0', Vary: 'Cookie', 'X-Content-Type-Options': 'nosniff' };
 class AccountRequestError extends Error {
@@ -49,8 +50,13 @@ export async function readAccountJson(request: Request): Promise<unknown> {
 
 type Operation = { kind: 'read' | 'teams' } | { kind: AccountMutation['kind']; id?: string };
 type AccountHttpStore = Pick<ReturnType<typeof createAccountStore>, 'resolve' | 'read' | 'mutate'>;
-const defaultDependencies: { principal: typeof getAccountPrincipal; store: () => AccountHttpStore } = {
+const defaultDependencies: { principal: typeof getAccountPrincipal; store: () => AccountHttpStore;
+  present?: (view: AccountView) => Promise<AccountView> } = {
   principal: getAccountPrincipal, store: () => createAccountStore(createAccountDatabase()),
+  present: async view => ({ ...view, library: { ...view.library, leagues: await Promise.all(view.library.leagues.map(async league => {
+    const site = await getLeagueSite(league.key).catch(() => null);
+    return site ? { ...league, logo: site.logo, name: site.name } : league;
+  })) } }),
 };
 const discoveryDependencies = { principal: getAccountPrincipal,
   store: () => createAccountStore(createAccountDatabase()), discover: discoverSleeperLeagues };
@@ -130,7 +136,7 @@ export async function sleeperLeagueDiscoveryResponse(
   } catch (error) { return accountErrorResponse(error); }
 }
 
-function accountErrorResponse(error: unknown): Response {
+export function accountErrorResponse(error: unknown): Response {
   let status = 503;
   let code = 'account_unavailable';
   if (error instanceof AccountAuthUnavailableError && error.reason === 'disabled') code = 'accounts_disabled';
@@ -165,7 +171,15 @@ export async function accountResponse(request: Request, operation: Operation, de
     // a precondition only; it never selects or authorizes the actor.
     if (expectedActor && expectedActor !== actor) throw new AccountRequestError(409, 'account_changed');
     if (operation.kind === 'read' || operation.kind === 'teams') {
-      const view = await store.read(actor);
+      const storedView = await store.read(actor);
+      const view = operation.kind === 'read' && dependencies.present ? await dependencies.present(storedView) : storedView;
+      if (dependencies.present) {
+        request.signal.throwIfAborted();
+        const latest = await dependencies.principal();
+        if (!latest || latest.issuer !== principal.issuer || latest.subject !== principal.subject) {
+          throw new AccountRequestError(409, 'account_changed');
+        }
+      }
       return Response.json(operation.kind === 'teams' ? { teams: accountTeams(view) } : view, { headers: PRIVATE_HEADERS });
     }
     let mutation: AccountMutation;

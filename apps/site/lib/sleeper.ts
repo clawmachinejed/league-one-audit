@@ -34,7 +34,7 @@ import { leagueOneChampionshipYears, leagueTwoChampionshipYears } from './manage
 import type { ManagerHonors } from './manager-honors';
 import { displayedManagerOwnerId, displayedManagerTeams } from './manager-display';
 import { findCurrentLeagueKey } from './league-administration/registry';
-import type { LeagueKey } from './leagues';
+import type { LeagueRouteKey as LeagueKey } from './leagues';
 import type { CurrentStandings } from './current-standings';
 import { normalizeLeagueTransactions } from './league-transactions';
 import { matchupTemporalState, type MatchupPeriodContext } from './matchup-period';
@@ -228,25 +228,26 @@ export async function getSleeperDiscoverySeason(signal?: AbortSignal): Promise<s
 export async function getSleeperUserIdentity(userId: string, signal?: AbortSignal): Promise<{
   userId: string; username: string; displayName: string; avatarUrl: string | null;
 }> {
-  if (!/^[1-9]\d{0,31}$/u.test(userId)) throw new Error('Invalid Sleeper user ID.');
-  const value = await fetchJson(`/user/${userId}`, CORE_CACHE_SECONDS, signal);
-  if (!isRecord(value) || value.user_id !== userId || typeof value.username !== 'string'
+  if (!/^[a-zA-Z0-9_]{1,100}$/u.test(userId)) throw new Error('Invalid Sleeper username.');
+  const value = await fetchJson(`/user/${encodeURIComponent(userId)}`, CORE_CACHE_SECONDS, signal);
+  if (!isRecord(value) || typeof value.user_id !== 'string' || !/^[1-9]\d{0,31}$/u.test(value.user_id)
+    || (/^[1-9]\d{0,31}$/u.test(userId) && value.user_id !== userId) || typeof value.username !== 'string'
     || !value.username.trim() || value.username.length > 100) throw new Error('Sleeper identity is unavailable.');
   const displayName = typeof value.display_name === 'string' && value.display_name.trim()
     && value.display_name.length <= 100 ? value.display_name.trim() : value.username.trim();
   const avatarUrl = typeof value.avatar === 'string' && /^[a-zA-Z0-9_-]{1,128}$/u.test(value.avatar)
     ? `https://sleepercdn.com/avatars/thumbs/${value.avatar}` : null;
-  return { userId, username: value.username.trim(), displayName, avatarUrl };
+  return { userId: value.user_id, username: value.username.trim(), displayName, avatarUrl };
 }
 
 export async function getSleeperUserLeagues(
   userId: string, season: string, signal?: AbortSignal,
-): Promise<{ id: string; name: string; season: string; capabilities?: LeagueCapabilityReport }[]> {
+): Promise<{ id: string; name: string; season: string; avatar?: string | null; capabilities?: LeagueCapabilityReport }[]> {
   if (!/^[1-9]\d{0,31}$/u.test(userId) || !/^\d{4}$/u.test(season)) throw new Error('Invalid discovery source.');
   signal?.throwIfAborted();
   const rows = await fetchJson(`/user/${userId}/leagues/nfl/${season}`, CORE_CACHE_SECONDS, signal);
   if (!Array.isArray(rows) || rows.length > 1_000) throw new Error('Sleeper league discovery is unavailable.');
-  const leagues = new Map<string, { id: string; name: string; season: string; capabilities?: LeagueCapabilityReport }>();
+  const leagues = new Map<string, { id: string; name: string; season: string; avatar?: string | null; capabilities?: LeagueCapabilityReport }>();
   const settingsConflicts = new Set<string>();
   const assessedAt = new Date().toISOString();
   for (const row of rows) {
@@ -254,7 +255,7 @@ export async function getSleeperUserLeagues(
     if (!isRecord(row) || typeof row.league_id !== 'string' || !/^[1-9]\d{0,31}$/u.test(row.league_id)
       || typeof row.name !== 'string' || !row.name.trim() || row.name.length > 200
       || row.sport !== 'nfl' || row.season !== season) throw new Error('Sleeper returned invalid discovery metadata.');
-    const league = { id: row.league_id, name: row.name.trim(), season,
+    const league = { id: row.league_id, name: row.name.trim(), season, avatar: typeof row.avatar === 'string' ? row.avatar : null,
       capabilities: assessSleeperLeagueCapabilities(row, assessedAt) };
     const previous = leagues.get(league.id);
     if (previous && previous.name !== league.name) throw new Error('Sleeper returned contradictory discovery metadata.');

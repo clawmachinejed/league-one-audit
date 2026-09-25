@@ -1,4 +1,4 @@
-import { LEAGUE_SITES, type LeagueKey } from '../leagues';
+import { LEAGUE_SITES, siteForLeague } from '../leagues';
 import type { AccountLibraryInput, AccountTeam, AccountView, LibraryLeague, SourceLeague, TeamParticipation } from './contracts';
 
 // Match the existing core-source freshness threshold without starting a second
@@ -25,14 +25,12 @@ export function buildAccountView(input: AccountLibraryInput, now = Date.now()): 
   const keys = new Set<string>();
   const leagues: LibraryLeague[] = [];
   for (const source of input.sources) {
-    // The pilot has only the approved public routes. Enrollment of another league
-    // must pass capability/isolation work before this page can advertise it.
-    if (!Object.hasOwn(LEAGUE_SITES, source.key)) continue;
+    const site = siteForLeague(source.key, source.name);
+    if (!site) continue;
     if (ids.has(source.id) || keys.has(source.key)) throw new Error('Ambiguous account league source.');
     ids.add(source.id);
     keys.add(source.key);
-    const key = source.key as LeagueKey;
-    const site = LEAGUE_SITES[key];
+    const key = site.key;
     const state = sourceState(source, now);
     const teams = new Map<string, TeamParticipation>();
     if (state !== 'unavailable') {

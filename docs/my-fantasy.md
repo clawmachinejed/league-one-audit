@@ -2,13 +2,13 @@
 
 ## Scope and selection
 
-`/my-fantasy` is the cross-league awareness screen, immediately before My Team in desktop and mobile navigation. **For the current phase, cards follow explicit My Team choices made on each league's manager profile, in every environment, including production.** Account sign-in is not the selection source for this phase. The supported `LEAGUE_SITES` registry remains League One, League Two and Dynasty League; a league with no saved My Team choice adds no card. A default team displayed by My Team does not count as a saved selection.
+`/my-fantasy` is the cross-league awareness screen, immediately before My Team in desktop and mobile navigation. Signed-in cards follow the account's accepted current-season Sleeper team participation, including imported leagues. A linked affiliate does not add a personal card. Sign-in redirects here, with a Connect Sleeper action when no profile is associated. See [account league onboarding](account-league-onboarding.md) for import and release gates.
 
-Choices are scoped to the current annual league ID and validated against current teams. A stale roster ID adds no card. When a league's data fails but its current league ID and saved choice are known, its card remains unavailable without substituting another manager. Equal roster IDs across leagues are unrelated. Preview and production are separate browser origins and therefore keep separate selections. Cards retain registry order during refreshes.
+Signed-out choices remain scoped to the current annual league ID and validated against current teams. A stale roster ID adds no card. When a league's data fails but its membership is known, its card remains unavailable without substituting another manager. Equal roster IDs across leagues are unrelated. Preview and production are separate browser origins and therefore keep separate guest selections.
 
 Affiliations do not create My Fantasy cards. League One and League Two remain available in the league selector; selecting a League One team alone does not add League Two to this page. Managers remains reachable through direct routes and expanded team-profile links, but is absent from the navigation ribbon.
 
-The planned replacement is inclusive aggregation of the signed-in account's associated provider teams. For example, an account associated with clawmachinejedi should receive League One and Dynasty when those are its actual memberships, while affiliated League Two remains accessible through league navigation. That future switch must use account/provider identity evidence, not browser choices, and must retain current-season isolation. Existing account/discovery contracts remain available for that work; this page does not call private account endpoints in the temporary selection phase. Additional discovered leagues still need enrollment and capability checks before website matchup cards are possible. Additional providers are not implemented by this presentation change.
+The private account endpoint aggregates current-season associated provider teams and rechecks the session and association set after loading league data. Browser choices may select among that account's matching teams but cannot add an unrelated league or manager. Additional discovered leagues require explicit confirmation, capability checks and accepted enrollment before website cards appear. Additional providers are not implemented.
 
 ## Week navigation and page heading
 
@@ -52,7 +52,7 @@ Injury metadata can lag Sleeper. The general catalog active/inactive flag is not
 
 Each league uses one existing `useMatchupSnapshot` instance for summary and expanded detail. Visible current/future periods check stored revisions every 60 seconds; historical periods do not poll. Existing rollover and bounded standings refresh remain unchanged: changed record/final evidence requests an immediate route refresh and at most two settling retries, 65 seconds apart. Hidden pages pause retries and returning to visibility sends at most one overdue attempt. Prop objects and render timestamps do not reset this budget or prove that source data advanced.
 
-The route renders at request time to reread accepted standings. Existing provider fallback caches may still briefly return older information. Refresh does not accelerate collection. Inline box scores remain lazy and use the existing stored-data endpoint. No new provider feed, browser-to-provider call, Tank01 call, scorer, worker, publication path, enrollment or database migration is introduced.
+The route renders at request time to reread accepted standings. Existing provider fallback caches may still briefly return older information. Refresh does not accelerate collection. Inline box scores remain lazy and use the existing stored-data endpoint. Page reads introduce no new provider feed, browser-to-provider call, Tank01 call, scorer, worker or publication path. Explicit account onboarding uses migration 025 and the existing enrollment registry.
 
 ## Validation and limits
 

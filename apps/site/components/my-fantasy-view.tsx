@@ -10,7 +10,8 @@ import { getMyFantasyLeagueSummary, myFantasyStandingsEvidence } from '../lib/my
 import { selectedBrowserMyFantasyMemberships,
   type MyFantasyMembership } from '../lib/my-fantasy-membership';
 import type { MyFantasyLeague } from '../lib/my-fantasy-source';
-import { LEAGUE_SITES, type LeagueKey } from '../lib/leagues';
+import { LEAGUE_SITES, type LeagueRouteKey } from '../lib/leagues';
+import { useNavigationAccount } from './account-navigation';
 import { PageIntro } from './page-intro';
 import { WeekSelector } from './week-selector';
 import matchupStyles from './matchups.module.css';
@@ -31,7 +32,7 @@ import styles from './my-fantasy.module.css';
 type AvailableLeague = Extract<MyFantasyLeague, { status: 'available' }>;
 type Summary = ReturnType<typeof getMyFantasyLeagueSummary>;
 type Report = { entry: AvailableLeague; summary: Summary; week: number; currentWeek: number; season: string; updatedAt: string };
-type ReportHandler = (key: LeagueKey, report: Report) => void;
+type ReportHandler = (key: LeagueRouteKey, report: Report) => void;
 
 function place(value: number | null) {
   if (value === null) return '—';
@@ -82,7 +83,7 @@ function LeagueHeader({ entry, week, requestedWeek, attention }: { entry: MyFant
     : state === 'clear' ? 'Starting lineup verified clear'
       : attention?.status === 'completed' ? 'Matchup complete' : 'Starting lineup unverified';
   return <header className={styles.leagueHeader} data-fantasy-header>
-    <Image className={styles.leagueLogo} src={entry.site.logo} width={40} height={40} alt="" />
+    <Image className={styles.leagueLogo} src={entry.site.logo} width={40} height={40} alt="" unoptimized />
     <h2>{entry.site.name}</h2>
     <p className={styles.leagueMetadata} data-fantasy-metadata>Sleeper{week !== undefined && <> · Week {week}</>}</p>
     <Link className={styles.enterLeague} data-fantasy-enter href={`${entry.site.prefix}/my-team${requestedWeek === undefined ? '' : `?week=${requestedWeek}`}`}
@@ -148,8 +149,8 @@ function MyFantasyLeaguesView({ memberships, evaluatedAt, requestedWeek, fallbac
 }) {
   const leagues = memberships.map(membership => membership.entry);
   const router = useRouter();
-  const [reports, setReports] = useState<Partial<Record<LeagueKey, Report>>>({});
-  const [expandedLeagues, setExpandedLeagues] = useState<Partial<Record<LeagueKey, boolean>>>({});
+  const [reports, setReports] = useState<Partial<Record<LeagueRouteKey, Report>>>({});
+  const [expandedLeagues, setExpandedLeagues] = useState<Partial<Record<LeagueRouteKey, boolean>>>({});
   const [attentionExpanded, setAttentionExpanded] = useState(true);
   const [now, setNow] = useState(evaluatedAt);
   const report = useCallback<ReportHandler>((key, value) => { setReports(previous => ({ ...previous, [key]: value })); }, []);
@@ -257,9 +258,40 @@ function MyFantasyLeaguesView({ memberships, evaluatedAt, requestedWeek, fallbac
   </div>;
 }
 
-/** Temporary public-team selection, explicitly chosen by the user for every environment.
- * Account/provider membership will replace this rule in a later phase. */
+/** Private account membership when signed in; explicit browser selections for guests. */
 export function MyFantasyView({ leagues, evaluatedAt, requestedWeek }: { leagues: MyFantasyLeague[]; evaluatedAt: string; requestedWeek?: number }) {
+  const account = useNavigationAccount();
+  if (account.status === 'ready') return <AccountFantasy key={`${account.data.profile.id}:${requestedWeek ?? 'current'}`} account={account.data} requestedWeek={requestedWeek} />;
+  if (account.status === 'loading') return <p role="status">Loading your fantasy teams…</p>;
+  if (account.status === 'unavailable' || account.status === 'denied') return <p role="status">Your account is temporarily unavailable. <Link href="/account">Open account</Link></p>;
+  return <GuestFantasy leagues={leagues} evaluatedAt={evaluatedAt} requestedWeek={requestedWeek} />;
+}
+
+function AccountFantasy({ account, requestedWeek }: { account: import('../lib/accounts/contracts').AccountView; requestedWeek?: number }) {
+  const [state, setState] = useState<{ memberships: MyFantasyMembership[]; evaluatedAt: string } | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    const controller = new AbortController();
+    const query = requestedWeek === undefined ? '' : `?week=${requestedWeek}`;
+    void fetch(`/api/me/fantasy${query}`, { signal: controller.signal, credentials: 'same-origin', cache: 'no-store',
+      headers: { 'X-Expected-Account-ID': account.profile.id } }).then(async response => {
+      if (!response.ok) throw new Error('Unavailable');
+      const result = await response.json();
+      if (result.accountId !== account.profile.id || !Array.isArray(result.memberships)) throw new Error('Account changed');
+      if (!controller.signal.aborted) setState(result);
+    }).catch(() => { if (!controller.signal.aborted) setFailed(true); });
+    return () => controller.abort();
+  }, [account, requestedWeek]);
+  if (!account.links.length) return <section className={styles.unavailable}><h1>My Fantasy</h1>
+    <p>Connect your Sleeper username and confirm your teams to get started.</p><Link href="/account">Connect Sleeper</Link></section>;
+  if (failed) return <section className={styles.unavailable}><h1>My Fantasy</h1><p>Your teams could not be loaded.</p><Link href="/account">Review your account</Link></section>;
+  if (!state) return <p role="status">Loading your fantasy teams…</p>;
+  if (!state.memberships.length) return <section className={styles.unavailable}><h1>My Fantasy</h1>
+    <p>No current-season teams are connected yet.</p><Link href="/account">Find and confirm teams</Link></section>;
+  return <MyFantasyLeaguesView key={requestedWeek ?? 'current'} memberships={state.memberships} evaluatedAt={state.evaluatedAt} requestedWeek={requestedWeek} />;
+}
+
+function GuestFantasy({ leagues, evaluatedAt, requestedWeek }: { leagues: MyFantasyLeague[]; evaluatedAt: string; requestedWeek?: number }) {
   const leagueIds = useMemo(() => leagues.map(entry => entry.leagueId ?? ''), [leagues]);
   const selections = useBrowserTeamSelections(leagueIds);
   const memberships = useMemo(() => selectedBrowserMyFantasyMemberships(leagues, selections), [leagues, selections]);

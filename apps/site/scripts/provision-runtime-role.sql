@@ -285,6 +285,13 @@ END; $$;
 -- Shared score content uses existing immutable INSERT rights; only guarded
 -- functions may create league acceptances, capture receipts or current pointers.
 DO $$ BEGIN
+  IF to_regprocedure('public.prepare_account_league_enrollment(uuid,integer,text)') IS NOT NULL THEN
+    GRANT EXECUTE ON FUNCTION public.prepare_account_league_enrollment(uuid,integer,text),
+      public.activate_account_league_enrollment(text,integer,text) TO league_one_runtime;
+  END IF;
+END; $$;
+
+DO $$ BEGIN
   IF to_regclass('public.all_player_league_acceptances') IS NOT NULL THEN
     REVOKE ALL ON public.all_player_league_acceptances, public.current_all_player_league_scores FROM league_one_runtime;
     GRANT SELECT ON public.all_player_league_acceptances, public.current_all_player_league_scores TO league_one_runtime;

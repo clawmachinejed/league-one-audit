@@ -101,7 +101,7 @@ export function AccountSignIn({ availability }: { availability: AccountAvailabil
         setMessage('Email verified. Sign in to continue.');
       } else {
         announceAccountSessionChange();
-        window.location.replace('/my-leagues');
+        window.location.replace('/my-fantasy');
       }
     } catch {
       if (active.current) { setPassword(''); setConfirmation(''); setFailed(true); setMessage('Account access is temporarily unavailable. Please try again.'); }
