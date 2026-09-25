@@ -630,6 +630,14 @@ test('My Fantasy keeps league expansions independent and each bench behind a sec
   await expect(one).toHaveAttribute('aria-expanded', 'true');
   const bench = card(page, 'league1').getByRole('button', { name: 'Bench', exact: true });
   await expect(bench).toHaveAttribute('aria-expanded', 'false');
+  const [benchBox, matchupBox] = await Promise.all([
+    bench.boundingBox(),
+    card(page, 'league1').locator('[data-matchup-presentation="fantasy"]').boundingBox(),
+  ]);
+  expect(benchBox).not.toBeNull();
+  expect(matchupBox).not.toBeNull();
+  expect(benchBox!.height).toBeLessThanOrEqual(32);
+  expect(benchBox!.width).toBeGreaterThan(matchupBox!.width - 4);
   await expect(card(page, 'league1').locator('[data-bench-row]').first()).toBeHidden();
   await bench.press('Enter');
   await expect(bench).toHaveAttribute('aria-expanded', 'true');
@@ -675,6 +683,8 @@ test('My Fantasy expands each matchup and player statistics inline without enter
     await expect(row).toHaveAttribute('aria-expanded', 'false');
     expect(state.boxRequests).toHaveLength(leagues.indexOf(league));
     await row.click();
+    await expect(container.getByText('Scores reported by Sleeper.', { exact: true })).toHaveCount(0);
+    await expect(container.locator('[data-box-score-source]')).toHaveCount(0);
     const team = savedTeams[league];
     const opponent = team % 2 === 0 ? team - 1 : team + 1;
     const ownPanel = container.locator(`[data-player-box-score][data-player-side="left"][data-box-score-key="player:${playerId(league, team)}"]`);

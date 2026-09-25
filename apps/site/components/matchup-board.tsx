@@ -335,7 +335,9 @@ function MatchupCard({ matchup, selected, avatar, boxScores, boxScoresLoading, o
     <div id={panelId} ref={panelRef} className={styles.lineup} hidden={!expanded}>
       {count ? <>
         {Array.from({ length: count }, (_, index) => renderPlayerRow(index, 'starter'))}
-        <p className={styles.lineupNote}>{matchup.status === 'upcoming' ? 'Lineups may change before kickoff.' : 'Scores reported by Sleeper.'}</p>
+        {(matchup.status === 'upcoming' || presentation !== 'fantasy') && <p className={styles.lineupNote}>
+          {matchup.status === 'upcoming' ? 'Lineups may change before kickoff.' : 'Scores reported by Sleeper.'}
+        </p>}
       </> : <p className={styles.unavailable}>Starting lineups are unavailable from Sleeper for this week.</p>}
       {showBench && (benchExpandable
         ? (presentation === 'fantasy' || expanded) && <BenchDisclosure onToggle={() => setBenchRefresh(value => value + 1)}>{benchCount ? Array.from({ length: benchCount }, (_, index) => renderPlayerRow(index, 'bench'))
@@ -387,6 +389,6 @@ export function MatchupBoard({ matchups, selected, avatar, boxScores, boxScoresL
     benchExpandable={benchExpandable} showManagerTrophies={showManagerTrophies}
     presentation={presentation} leagueSize={leagueSize} summaryFooter={summaryFooter} summaryDescription={summaryDescription}
     boxScoresLoading={boxScoresLoading} onBoxScoreOpen={onBoxScoreOpen} showBench={showBench} />)}</div>
-    {observed && <p className={styles.boxScoreObserved} data-box-score-source>{observed}<span>Sleeper</span></p>}
+    {observed && presentation !== 'fantasy' && <p className={styles.boxScoreObserved} data-box-score-source>{observed}<span>Sleeper</span></p>}
   </>;
 }
