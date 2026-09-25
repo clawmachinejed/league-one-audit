@@ -719,8 +719,15 @@ describe('canonical all-player ingestion orchestration', () => {
     expect(test.recordAllPlayerBatch).not.toHaveBeenCalled();
   });
 
-  it.each(['shadow', 'backfill'] as const)('uses one response for three leagues and two complete profiles in %s', async (mode) => {
+  it.each([
+    { mode: 'shadow', reverse: false }, { mode: 'shadow', reverse: true },
+    { mode: 'backfill', reverse: false }, { mode: 'backfill', reverse: true },
+  ] as const)('uses one response for three leagues and two complete profiles in $mode (reverse=$reverse)', async ({ mode, reverse }) => {
     const test = harness({ dynasty: true });
+    if (reverse) {
+      const configurations = [...test.dependencies.leagueRegistry.listActiveLeagues()].reverse();
+      test.dependencies.leagueRegistry.listActiveLeagues = () => configurations;
+    }
     const result = await runAllPlayerIngestion(test.dependencies, { mode, period: PERIOD });
     expect(result).toMatchObject({ status: 'completed', scoringProfileCount: 2,
       parityComparisonCount: 3, parityMismatchCount: 0, persisted: mode === 'backfill' });
@@ -740,8 +747,12 @@ describe('canonical all-player ingestion orchestration', () => {
       expect(scoreSets).toHaveLength(2);
       expect(test.acceptAllPlayerLeagueScore.mock.calls.map(([input]) => input.officialObservationId).sort())
         .toEqual([OBS_ONE, OBS_TWO, OBS_DYNASTY]);
-      expect(scoreSets.map((set) => set.scores.find((score) => score.providerExternalId === 'p1')?.fantasyPoints))
-        .toEqual([4, 6]);
+      expect(scoreSets.map((set) => ({
+        profileId: set.scoringProfileId,
+        points: set.scores.find((score) => score.providerExternalId === 'p1')?.fantasyPoints,
+      })).sort((left, right) => left.profileId.localeCompare(right.profileId))).toEqual([
+        { profileId: PROFILE_ONE, points: 4 }, { profileId: PROFILE_TWO, points: 6 },
+      ]);
       expect(scoreSets.every((set) => set.coverage.complete === true)).toBe(true);
     }
   });
@@ -1333,7 +1344,7 @@ describe('canonical all-player ingestion orchestration', () => {
     const contents = test.recordAllPlayerScoreContent.mock.calls.map(([input]) => input.scoreSet);
     expect(contents).toHaveLength(2);
     expect(contents[0].semanticHash).toBe(contents[1].semanticHash);
-    expect(test.acceptAllPlayerLeagueScore.mock.calls.map(([input]) => input.officialObservationId))
+    expect(test.acceptAllPlayerLeagueScore.mock.calls.map(([input]) => input.officialObservationId).sort())
       .toEqual([OBS_ONE, OBS_TWO, 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', 'dddddddd-dddd-4ddd-8ddd-dddddddddddd']);
     expect(new Set(test.pointers).size).toBe(1);
   });
