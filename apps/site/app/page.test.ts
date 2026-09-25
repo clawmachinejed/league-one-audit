@@ -15,6 +15,7 @@ vi.mock('@/lib/accounts/auth', () => ({
 }));
 
 import Home from './page';
+import { AccountAdmissionDeniedError, AccountAuthUnavailableError } from '@/lib/accounts/auth';
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -33,5 +34,15 @@ describe('site entry', () => {
     mocks.availability = 'disabled';
     await expect(Home()).rejects.toThrow('redirect:/my-fantasy');
     expect(mocks.principal).not.toHaveBeenCalled();
+  });
+
+  it('keeps public My Fantasy available during a session provider outage', async () => {
+    mocks.principal.mockRejectedValueOnce(new AccountAuthUnavailableError('provider'));
+    await expect(Home()).rejects.toThrow('redirect:/my-fantasy');
+  });
+
+  it('sends an inadmissible session to sign in', async () => {
+    mocks.principal.mockRejectedValueOnce(new AccountAdmissionDeniedError('not_invited'));
+    await expect(Home()).rejects.toThrow('redirect:/sign-in');
   });
 });

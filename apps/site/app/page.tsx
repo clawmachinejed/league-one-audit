@@ -15,7 +15,8 @@ export default async function Home() {
   try {
     signedIn = Boolean(await getAccountPrincipal());
   } catch (error) {
-    if (!(error instanceof AccountAdmissionDeniedError || error instanceof AccountAuthUnavailableError)) throw error;
+    if (error instanceof AccountAuthUnavailableError) redirect('/my-fantasy');
+    if (!(error instanceof AccountAdmissionDeniedError)) throw error;
   }
   redirect(signedIn ? '/my-fantasy' : '/sign-in');
 }
