@@ -3,6 +3,7 @@ import 'server-only';
 import type { DatabaseClient, DatabaseRow } from '../../database';
 import type { AdministrationEnvelope } from '../contracts';
 import { normalizeAdministrationObservation } from '../normalize';
+import { projectRetainedRoster } from '../../aggregator/roster-bridge';
 import { readEnrollmentInventory } from './enrollment';
 import type { AdministrationReadInput, AdministrationWriteResult,
   LeagueAdministrationStore, LeagueAdministrationStoreRead } from '../store-contracts';
@@ -28,7 +29,17 @@ const sourceColumns = `league.league_key,season.season,connection.provider,conne
   head.generation,head.checked_at,head.verified_at,head.read_conflict,observation.id AS observation_id,
   observation.origin,observation.request_started_at,observation.request_completed_at,observation.source_observed_at,
   content.configuration_version_id,content.normalizer_version,content.completeness,content.payload,
-  content.external_league_id AS observed_external_league_id,content.family,content.week`;
+  content.external_league_id AS observed_external_league_id,content.family,content.week,
+  season.id AS league_season_id,content.id AS content_id,content.content_hash,
+  observation.checked_at AS observation_checked_at,
+  CASE WHEN content.family='rosters' THEN (
+    SELECT COALESCE(jsonb_agg(jsonb_build_object('seasonTeamId',team.id,'externalRosterId',team.external_roster_id)
+      ORDER BY team.external_roster_id),'[]'::jsonb)
+    FROM public.league_administration_team_entries entry
+    JOIN public.league_season_teams team ON team.id=entry.team_id AND team.league_season_id=entry.league_season_id
+    WHERE entry.content_id=content.id AND entry.league_season_id=season.id
+      AND team.provider=content.provider AND team.external_league_id=content.external_league_id
+  ) END AS roster_team_identities`;
 const sourceJoins = `FROM public.leagues league
   JOIN public.league_seasons season ON season.league_id=league.id
   JOIN public.league_administration_enrollment_seasons enrollment ON enrollment.league_id=league.id AND enrollment.season=season.season
@@ -60,13 +71,17 @@ function sourceResult(rows: readonly DatabaseRow[]): LeagueAdministrationStoreRe
     || !Number.isSafeInteger(Number(row.generation)) || Number(row.generation) < 1) {
     return { status: 'conflict', reason: 'invalid_stored_administration_head' };
   }
-  if (normalizeAdministrationObservation(envelope).status !== 'accepted') {
+  const normalized = normalizeAdministrationObservation(envelope);
+  if (normalized.status !== 'accepted') {
     return { status: 'conflict', reason: 'invalid_stored_administration_document' };
   }
-  return { status: 'available', envelope, observationId: text(row, 'observation_id'),
+  const result: Extract<LeagueAdministrationStoreRead, { status: 'available' }> = {
+    status: 'available', envelope, observationId: text(row, 'observation_id'),
     versionId: typeof row.configuration_version_id === 'string' ? row.configuration_version_id : null,
     generation: Number(row.generation), checkedAt: envelope.provenance.checkedAt,
     verifiedAt: row.verified_at ? timestamp(row.verified_at) : null };
+  return envelope.family === 'rosters'
+    ? { ...result, commonRoster: projectRetainedRoster(result, row, normalized) } : result;
 }
 
 export function createLeagueAdministrationMethods(client: DatabaseClient): Omit<LeagueAdministrationStore, 'enabled'> {

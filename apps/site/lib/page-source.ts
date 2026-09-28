@@ -18,6 +18,7 @@ export class AdministrationSourceConflictError extends Error {}
 export type PageAdministrationRead = Readonly<{
   status: 'available'; payload: unknown; requestStartedAt: string; requestCompletedAt: string;
   sourceObservedAt: string | null; origin: AdministrationEnvelope['provenance']['origin'];
+  commonRoster?: Extract<SourceRead, { status: 'available' }>['commonRoster'];
 }> | Readonly<{ status: 'fallback'; reason: 'missing' | 'disabled' | 'unavailable' | 'stale' }>;
 
 export type PageAdministrationRequest = Readonly<{
@@ -169,7 +170,8 @@ export function createPageAdministrationReader(getStore: () => PageAdministratio
     return { status: 'available', payload: read.envelope.payload, origin: provenance.origin,
       requestStartedAt: provenance.requestStartedAt ?? provenance.checkedAt,
       requestCompletedAt: provenance.requestCompletedAt ?? provenance.checkedAt,
-      sourceObservedAt: provenance.sourceObservedAt };
+      sourceObservedAt: provenance.sourceObservedAt,
+      ...(read.commonRoster ? { commonRoster: read.commonRoster } : {}) };
   };
 }
 

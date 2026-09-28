@@ -1,5 +1,6 @@
 import type { AdministrationEnvelope, AdministrationFamily, AdministrationScope,
   NormalizedAdministrationObservation } from './contracts';
+import type { RetainedRosterProjection } from '../aggregator/roster-bridge';
 
 export type AdministrationReadInput = AdministrationScope & Readonly<{
   family: AdministrationFamily; week: number | null;
@@ -9,7 +10,9 @@ export type AdministrationConnectionReadInput = Readonly<{
 }>;
 export type LeagueAdministrationStoreRead =
   | Readonly<{ status: 'available'; envelope: AdministrationEnvelope;
-    observationId: string; versionId: string | null; generation: number; checkedAt: string; verifiedAt: string | null }>
+    observationId: string; versionId: string | null; generation: number; checkedAt: string; verifiedAt: string | null;
+    /** Internal comparison only; never a v2 accepted head or a public DTO. */
+    commonRoster?: RetainedRosterProjection }>
   | Readonly<{ status: 'missing' | 'disabled' | 'conflict' | 'unavailable'; reason?: string }>;
 export type AdministrationWriteResult = Readonly<{
   status: 'changed' | 'unchanged' | 'replayed' | 'stale' | 'rejected' | 'disabled';
