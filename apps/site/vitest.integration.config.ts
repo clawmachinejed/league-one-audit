@@ -14,7 +14,10 @@ export default defineConfig({
     globalSetup: ['./integration/global-setup.ts'],
     hookTimeout: 120_000,
     include: ['integration/**/*.integration-case.ts'],
+    includeTaskLocation: true,
     maxWorkers: 1,
+    // Emit failed-test messages before a later timeout can interrupt the final report.
+    reporters: ['verbose'],
     testTimeout: 60_000,
   },
 });

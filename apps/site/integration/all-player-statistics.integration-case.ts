@@ -1728,7 +1728,6 @@ describe('all-player statistics foundation', () => {
       expect(await measured.store.finishAllPlayerJob({ fence:claim.fence,outcome:'partial',
         diagnostic:{stage:'isolated-capacity',reason:'retained-incomplete-week1'} })).toBe(true);
       process.stdout.write(`${JSON.stringify({kind:result.kind,
-        artifact:'release/011-capacity.partial.integration.json',
         scenarios:result.scenarios.length, liveProviderRequests:result.liveProviderRequests})}\n`);
     } finally {
       await ownerQuery('DELETE FROM projection_jobs WHERE job_key=$1', [fence.jobKey]);

@@ -1,6 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { writeIntegrationArtifact } from './integration-artifacts';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createProjectionStore } from '../lib/projection-store';
 import { prepareLeagueWeekObservation } from '../lib/projections/adapters/neon/observations';
@@ -167,10 +166,7 @@ describe.sequential('compact live box-score observation persistence and reads', 
         'Existing 48-hour pruning still preserves referenced current/history parents; no new retention policy is assumed.',
         'Page allocation and free-space reuse affect small batches. This is not a season-fit or transfer measurement.',
       ] };
-    const serialized = `${JSON.stringify(report, null, 2)}\n`;
     console.info(`LIVE_BOX_SCORE_CAPACITY ${JSON.stringify(report)}`);
-    if (process.env.PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY) {
-      await writeFile(join(process.env.PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY, 'live-box-score-capacity.integration.json'), serialized);
-    }
+    await writeIntegrationArtifact('live-box-score-capacity.integration.json', report);
   }, 60_000);
 });

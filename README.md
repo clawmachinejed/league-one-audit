@@ -136,7 +136,7 @@ Routine future preparation retains the Week+1 canary, initial 15-minute staggeri
 
 ### Projection validation and scale
 
-The destructive Neon integration suite is excluded from normal unit tests. `pnpm test:integration` reads only `apps/site/.env.integration.local`, requires an explicit reset authorization, distinct owner and restricted runtime roles, TLS, safe test names, a production denylist, matching URL and server-reported database identities, and a durable JSON comment containing the expected branch ID, branch name, and random sentinel. It resets the isolated database's fixed `public` and `website_auth` schemas before and after the suite. See [the integration test guide](apps/site/integration/README.md); never point this command at production.
+The destructive Neon integration suite is excluded from normal unit tests. `pnpm test:integration` reads `apps/site/.env.integration-control.local` or a secured `NEON_TEST_*` environment, creates a disposable branch in the dedicated test-only project, and uses the existing guarded migration and test harness. It verifies child closure, schema cleanup, temporary credential revocation, and branch deletion. The old `.env.integration.local` file does not select or supply this standard gate. `pnpm verify:full` reports SQL integration as skipped/unverified when disposable configuration is absent. See [the integration test guide](apps/site/integration/README.md) for authorization, setup, receipts, and manual CI activation; never use production or retained pilot data.
 
 Deterministic tests cover lineup revisions, balanced phases, per-league failure isolation, ownership races, publication lineage, browser adoption, and shared provider work. Scale fixtures include 2–3, 50, and 300 leagues. These fixtures prove bounded concurrency, stable output, capacity diagnostics and bounded deferral. They do not measure real provider or database throughput.
 
@@ -150,7 +150,7 @@ The shared lineup-check allowance is 20 per minute. Future targets reserve at le
 | `pnpm lint` | Check source quality with ESLint. |
 | `pnpm typecheck` | Generate Next.js route types and check TypeScript. |
 | `pnpm test` | Run the Vitest unit tests. |
-| `pnpm test:integration` | Destructively test the store facade against an explicitly authorized isolated Neon database; never use production. |
+| `pnpm test:integration` | Create, qualify, and delete a disposable Neon test branch using the explicitly authorized test-only control environment. |
 | `pnpm test:browser` | Run Playwright smoke tests against a local server, or against `BASE_URL` when supplied. |
 | `pnpm db:migrate` | Apply pending, checksummed Neon schema migrations using `apps/site/.env.local`. |
 | `pnpm all-player:operate -- --mode shadow\|backfill --season 2026 --season-type regular --week 1` | Run the guarded server-only all-player shadow or exact-period backfill operation. Target identity and write authorization are supplied only through secured environment state. |

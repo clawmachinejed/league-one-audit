@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { writeFile } from 'node:fs/promises';
+import { writeIntegrationArtifact } from './integration-artifacts';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { prepareLeagueWeekObservation } from '../lib/projections/adapters/neon/observations';
 import { createIndependentDatabase, ownerQuery, type IndependentDatabase } from './neon-integration-harness';
@@ -194,7 +194,7 @@ describe.sequential('live defense source publication in isolated Neon', () => {
         physicalGrowthBytes: Object.fromEntries(Object.keys(before).map((key) => [key,
           after[key as keyof typeof after] - before[key as keyof typeof before]])) });
     }
-    await writeFile(new URL('../release/019-live-defense-capacity.integration.json', import.meta.url), `${JSON.stringify({
+    await writeIntegrationArtifact('019-live-defense-capacity.integration.json', {
       kind: 'synthetic-isolated-live-defense-parent-history-capacity', measuredAt: new Date().toISOString(),
       providerRequests: 0, totalObservations: 400, observationsPerVariant: 200,
       limitations: ['Owner bulk inserts use runtime serializer into actual parent table; replay uses runtime writer.',
@@ -203,6 +203,6 @@ describe.sequential('live defense source publication in isolated Neon', () => {
         'Physical allocation includes page/index/TOAST granularity and preexisting free-space effects; stored column/row sizes are separately measured PostgreSQL values.',
         'This measurement alone does not establish a retained-season capacity or transfer allowance.'],
       batches,
-    }, null, 2)}\n`);
+    });
   }, 30_000);
 });

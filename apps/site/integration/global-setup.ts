@@ -3,10 +3,14 @@ import {
   prepareIntegrationDatabase,
 } from './neon-integration-harness';
 import { installAllPlayerScheduleTestClock } from './all-player-schedule-test-clock';
+import { initializeIntegrationArtifactDirectory } from './integration-artifacts';
 
 export default async function globalSetup(): Promise<() => Promise<void>> {
   await prepareIntegrationDatabase();
-  try { await installAllPlayerScheduleTestClock(); }
+  try {
+    await initializeIntegrationArtifactDirectory();
+    await installAllPlayerScheduleTestClock();
+  }
   catch (error) { await cleanIntegrationDatabase(); throw error; }
   return async () => cleanIntegrationDatabase();
 }

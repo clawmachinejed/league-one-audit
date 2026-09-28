@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdir, writeFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { writeIntegrationArtifact } from './integration-artifacts';
 import type { ProjectionStore } from '../lib/projection-store';
 import type { AllPlayerBatchInput, ResolvedScoringEntity } from '../lib/projections/adapters/neon/contracts';
 import type { AllPlayerStatEntry, AllPlayerStatObservation } from '../lib/projections/domain/all-player-statistics';
@@ -264,9 +263,7 @@ export async function runSyntheticCompleteCapacity(input: SyntheticCompleteCapac
       'Separate synthetic periods compare divergent versus shared profiles', 'Synthetic parity population smaller than real league rosters',
       'No Neon compute usage measurement', 'No ordinary-workload reserve or full-season fit claim'],
   };
-  const artifactPath = resolve(process.cwd(), 'release/011-capacity.synthetic.integration.json');
-  await mkdir(resolve(process.cwd(), 'release'), { recursive: true });
-  await writeFile(artifactPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+  const artifactPath = await writeIntegrationArtifact('011-capacity.synthetic.integration.json', report);
   process.stdout.write(`${JSON.stringify({ kind: report.kind, artifactPath, scenarios: scenarios.length,
     syntheticEntryCount: 4385, unchangedRetrievalCount: 20, liveProviderRequests: 0,
     wallTimeMs: report.wallTimeMs })}\n`);
