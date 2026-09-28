@@ -407,24 +407,25 @@ async function applyMigrations(
   return selectedNames;
 }
 
-async function grantIsolatedPrivateRole(
-  pool: IntegrationSession, env: IntegrationEnvironment, role: 'league_one_account' | 'league_one_auth',
+async function grantIsolatedRoleSetPermission(
+  pool: IntegrationSession, env: IntegrationEnvironment,
+  role: 'league_one_runtime' | 'league_one_account' | 'league_one_auth',
 ): Promise<void> {
   const identity = await pool.query('SELECT rolname AS owner_role FROM pg_roles WHERE rolname = current_user');
   const ownerRole: unknown = identity.rows[0]?.owner_role;
   if (typeof ownerRole !== 'string'
     || ownerRole !== parseDatabaseUrl(env.ownerDatabaseUrl, 'Integration owner URL').user
     || ['league_one_account', 'league_one_runtime', 'league_one_auth'].includes(ownerRole)) {
-    throw new Error('The catalog-reported account test owner role does not match the verified owner identity.');
+    throw new Error('The catalog-reported test owner role does not match the verified owner identity.');
   }
   // PostgreSQL 16+ grants role creators ADMIN but not SET by default. Grant only
-  // the verified isolated owner permission to assume the restricted account role;
-  // the account role itself gains no membership or owner privileges.
+  // the verified isolated owner permission to assume the restricted role;
+  // the restricted role itself gains no membership or owner privileges.
   const quotedOwner = `"${ownerRole.replaceAll('"', '""')}"`;
   await pool.query(`GRANT ${role} TO ${quotedOwner} WITH SET TRUE`);
   const verification = await pool.query(`SELECT pg_has_role(current_user, '${role}', 'SET') AS can_set_private_role`);
   if (verification.rows[0]?.can_set_private_role !== true) {
-    throw new Error('The isolated owner could not verify permission to assume the private role.');
+    throw new Error('The isolated owner could not verify permission to assume the restricted role.');
   }
 }
 
@@ -458,6 +459,7 @@ export async function prepareIntegrationDatabase(options: Readonly<{
         'utf8',
       );
       await ownerPool.query(provisionSql);
+      await grantIsolatedRoleSetPermission(ownerPool, env, 'league_one_runtime');
     }
     if (options.provisionAccountRole !== false
       && migrationNames.includes('020_account_foundation.sql')) {
@@ -466,7 +468,7 @@ export async function prepareIntegrationDatabase(options: Readonly<{
         'utf8',
       );
       await ownerPool.query(provisionSql);
-      await grantIsolatedPrivateRole(ownerPool, env, 'league_one_account');
+      await grantIsolatedRoleSetPermission(ownerPool, env, 'league_one_account');
     }
     if (options.provisionAuthRole !== false
       && migrationNames.includes('021_website_auth.sql')) {
@@ -475,7 +477,7 @@ export async function prepareIntegrationDatabase(options: Readonly<{
         'utf8',
       );
       await ownerPool.query(provisionSql);
-      await grantIsolatedPrivateRole(ownerPool, env, 'league_one_auth');
+      await grantIsolatedRoleSetPermission(ownerPool, env, 'league_one_auth');
     }
     process.env.PROJECTION_INTEGRATION_SETUP_PROOF = JSON.stringify({
       emptyBeforeMigration: true,

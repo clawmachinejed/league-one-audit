@@ -1,6 +1,9 @@
 name: disposable-integration
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - 'codex/integration-qualification-*'
 permissions:
   contents: read
 concurrency:

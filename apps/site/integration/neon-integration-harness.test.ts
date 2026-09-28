@@ -118,6 +118,54 @@ function mockAccountProvisioning(options: { ownerRole?: string; canSetRole?: boo
 }
 
 describe('isolated account-role transactions', () => {
+  it('lets the verified owner enter the runtime role in a rollback-only enrollment fixture', async () => {
+    mockAccountProvisioning();
+    const assumableRoles = new Set<string>();
+    const query = mocked.query.getMockImplementation()!;
+    mocked.query.mockImplementation(async (statement: string, user: string) => {
+      const grant = /^GRANT (league_one_\w+) TO "fixture_owner" WITH SET TRUE$/u.exec(statement);
+      if (grant) assumableRoles.add(grant[1]);
+      const verification = /pg_has_role\(current_user, '(league_one_\w+)', 'SET'\)/u.exec(statement);
+      if (verification) return { rows: [{ can_set_private_role: assumableRoles.has(verification[1]) }] };
+      return query(statement, user);
+    });
+    mocked.sessionQuery.mockImplementation(async (statement: string) => {
+      const role = /^SET LOCAL ROLE (league_one_\w+)$/u.exec(statement)?.[1];
+      if (role && !assumableRoles.has(role)) {
+        throw Object.assign(new Error(`permission denied to set role "${role}"`), { code: '42501' });
+      }
+      return { rows: [] };
+    });
+
+    await prepareIntegrationDatabase();
+    mocked.sessionQuery.mockClear();
+    const rollback = new Error('rollback-only onboarding fixture');
+    const enrollment = vi.fn();
+    await expect(withAccountActor({}, async query => {
+      await query('RESET ROLE');
+      await query('DELETE FROM public.league_administration_enrollments');
+      await query('SET LOCAL ROLE league_one_runtime');
+      enrollment();
+      throw rollback;
+    })).rejects.toBe(rollback);
+    expect(enrollment).toHaveBeenCalledOnce();
+    expect(mocked.sessionQuery).toHaveBeenLastCalledWith('ROLLBACK');
+    expect(mocked.sessionQuery.mock.calls.some(([statement]) => statement === 'COMMIT')).toBe(false);
+    const statements = mocked.query.mock.calls.map(([statement]) => statement);
+    expect(statements.indexOf('GRANT league_one_runtime TO "fixture_owner" WITH SET TRUE'))
+      .toBeGreaterThan(statements.indexOf('fixture-runtime-provision'));
+  });
+
+  it('does not grant runtime SET permission when runtime provisioning is disabled', async () => {
+    mockAccountProvisioning();
+    await prepareIntegrationDatabase({ provisionRuntimeRole: false });
+    const statements = mocked.query.mock.calls.map(([statement]) => statement);
+    expect(statements).not.toContain('fixture-runtime-provision');
+    expect(statements.some(statement => statement.startsWith('GRANT league_one_runtime '))).toBe(false);
+    expect(statements.some(statement => statement.includes("pg_has_role(current_user, 'league_one_runtime', 'SET')"))).toBe(false);
+    expect(statements).toContain('GRANT league_one_account TO "fixture_owner" WITH SET TRUE');
+  });
+
   it.each([
     { options: {}, expectedAccountProvision: true },
     { options: { throughMigration: '001_fixture.sql' }, expectedAccountProvision: false },
@@ -133,7 +181,8 @@ describe('isolated account-role transactions', () => {
       expect(statements.indexOf('fixture-account-provision')).toBeGreaterThan(runtimeIndex);
       const grantIndex = statements.indexOf('GRANT league_one_account TO "fixture_owner" WITH SET TRUE');
       expect(grantIndex).toBeGreaterThan(statements.indexOf('fixture-account-provision'));
-      expect(statements.findIndex(statement => statement.includes('AS can_set_private_role'))).toBeGreaterThan(grantIndex);
+      expect(statements.findIndex(statement => statement.includes("pg_has_role(current_user, 'league_one_account', 'SET')")))
+        .toBeGreaterThan(grantIndex);
     } else {
       expect(statements.some(statement => statement.startsWith('GRANT league_one_account'))).toBe(false);
     }
@@ -145,19 +194,30 @@ describe('isolated account-role transactions', () => {
     await prepareIntegrationDatabase();
     const grants = mocked.query.mock.calls.map(([statement]) => statement)
       .filter(statement => statement.startsWith('GRANT '));
-    expect(grants).toEqual(['GRANT league_one_account TO "fixture""owner" WITH SET TRUE']);
+    expect(grants).toEqual([
+      'GRANT league_one_runtime TO "fixture""owner" WITH SET TRUE',
+      'GRANT league_one_account TO "fixture""owner" WITH SET TRUE',
+    ]);
   });
 
-  it('rejects an unexpected catalog owner before granting account role access', async () => {
-    mockAccountProvisioning({ ownerRole: 'unexpected_owner' });
-    await expect(prepareIntegrationDatabase()).rejects.toThrow('does not match the verified owner identity');
+  const isolatedRoleCases = [
+    { role: 'runtime', options: {} },
+    { role: 'account', options: { provisionRuntimeRole: false } },
+    { role: 'auth', options: { provisionRuntimeRole: false, provisionAccountRole: false } },
+  ];
+
+  it.each(isolatedRoleCases)('rejects an unexpected catalog owner before granting $role access', async ({ options }) => {
+    mockAccountProvisioning({ ownerRole: 'unexpected_owner', includeAuth: true });
+    await expect(prepareIntegrationDatabase(options)).rejects.toThrow('does not match the verified owner identity');
     expect(mocked.query.mock.calls.some(([statement]) => statement.startsWith('GRANT '))).toBe(false);
     expect(process.env.PROJECTION_INTEGRATION_SETUP_PROOF).toBeUndefined();
   });
 
-  it('requires positive server verification of account SET permission before claiming setup success', async () => {
-    mockAccountProvisioning({ canSetRole: false });
-    await expect(prepareIntegrationDatabase()).rejects.toThrow('could not verify permission');
+  it.each(isolatedRoleCases)('requires positive server verification of $role SET permission before claiming setup success', async ({ role, options }) => {
+    mockAccountProvisioning({ canSetRole: false, includeAuth: true });
+    await expect(prepareIntegrationDatabase(options)).rejects.toThrow('could not verify permission');
+    expect(mocked.query.mock.calls.map(([statement]) => statement).filter(statement => statement.startsWith('GRANT ')))
+      .toEqual([`GRANT league_one_${role} TO "fixture_owner" WITH SET TRUE`]);
     expect(process.env.PROJECTION_INTEGRATION_SETUP_PROOF).toBeUndefined();
     expect(mocked.end).toHaveBeenCalledTimes(3);
   });
