@@ -8,6 +8,13 @@
 - Preserve unrelated user changes and keep the primary `main` checkout clean. Perform code changes and working mockups in a dedicated Git worktree outside OneDrive or any other synchronized folder.
 - Permit only one production-writing or release-owning task at a time. Base ownership statements on observable worktrees, branches, pull requests, deployments, cron activity, and database or worker leases. Say “no competing owner observed”; never claim that no other task or chat exists.
 
+## Product mission
+
+- Build a single home for a manager's fantasy football teams across supported providers: a cross-league overview with a clear path into each league's matchups, teams, standings, transactions, schedules, and history. Enrich official data with League One projections, forecasts, win probabilities, and projected standings where supported.
+- Treat Sleeper as the only implemented fantasy-league provider today. Yahoo, ESPN, and others are future integrations; do not describe them as shipped or assume access to their data.
+- Keep the host provider authoritative for official league data and scoring. League One owns provider-neutral normalization and presentation, identity links, projections, forecasts, and analytics. Do not require complete support for every scoring or competition edge case before showing a league whose official data can be represented reliably. Label derived-feature coverage independently and never substitute an estimate for an official result.
+- Evolve the existing shared feature and worker architecture incrementally. Provider additions should primarily add adapters, identity mappings, and provider tests, rather than parallel feature pages or a rewrite. The current-source and behavior rules below continue to apply until a requested change explicitly updates them.
+
 ## Canonical behavior
 
 - Read [README.md](README.md) for product scope, the single league registry, provider roles, commands, and the code map.
