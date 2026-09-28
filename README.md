@@ -1,4 +1,12 @@
-# League One, League Two and Dynasty League
+# League One Engineering
+
+## Product mission
+
+League One's mission is to give a fantasy football manager one place to see all of their teams across supported providers and then explore each league in depth. The current product began with three Sleeper leagues and Sleeper-only account onboarding; Yahoo, ESPN, and other providers are future integrations, not current capabilities. New work should move toward a shared, provider-neutral league model and consistent My Fantasy, My Team, Matchups, Standings, Rosters, Managers, Transactions, and History experiences across providers.
+
+Each host provider remains authoritative for its league's official rosters, lineups, scores, results, standings, transactions, and scoring settings. League One owns cross-provider identity and presentation, its own projections and forecasts, and the resulting analytics. A league with reliable official data should remain viewable when a derived feature has limited or unavailable coverage; unsupported analytics should be labeled rather than substituted for official results. This direction guides incremental changes to the existing modular application, not a rewrite or a claim that additional provider integrations already exist.
+
+## Current product
 
 A mobile-first home for League One, its League Two promotion and relegation league, and Dynasty League, powered by public Sleeper league data. My Fantasy currently summarizes each league with an explicit My Team choice saved on its manager profile; account-linked provider teams will replace that temporary selection rule later. Each league shares My Team, Matchups, Standings, and Managers, with rosters, transaction history and schedules inside each manager profile. Each league uses its own official Sleeper scoring settings.
 
