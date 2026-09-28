@@ -8,6 +8,8 @@ The host provider remains authoritative for official league data, including rost
 
 Today the product supports Sleeper leagues; Yahoo, ESPN, and other providers are future integrations. The existing modular application should evolve toward this goal incrementally.
 
+The [aggregator backend contracts and migration design](docs/aggregator-backend/README.md) defines the proposed shared data foundation, screen-by-screen sources, provider differences, and staged migration. It is a design for future implementation, not a claim of shipped multi-provider support.
+
 ## Current product
 
 A mobile-first home for League One, its League Two promotion and relegation league, and Dynasty League, powered by public Sleeper league data. My Fantasy currently summarizes each league with an explicit My Team choice saved on its manager profile; account-linked provider teams will replace that temporary selection rule later. Each league shares My Team, Matchups, Standings, and Managers, with rosters, transaction history and schedules inside each manager profile. Each league uses its own official Sleeper scoring settings.
