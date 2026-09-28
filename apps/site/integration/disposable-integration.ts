@@ -208,7 +208,9 @@ export async function runDisposableIntegration(options: { environment: NodeJS.Pr
       receipt.provisionStep = 'connection-uri';
       const ownerUrl = await api.getOwnerConnectionUri(config, branch);
       controller.signal.throwIfAborted();
-      secrets.push(ownerUrl);
+      // Child/driver diagnostics can contain either standalone password form.
+      const ownerPassword = new URL(ownerUrl).password;
+      secrets.push(ownerUrl, ownerPassword, decodeURIComponent(ownerPassword));
       pool = new Pool({ connectionString: ownerUrl, max: 1, connectionTimeoutMillis: 10_000,
         statement_timeout: 15_000, query_timeout: 20_000 });
       receipt.provisionStep = 'owner-connect';
