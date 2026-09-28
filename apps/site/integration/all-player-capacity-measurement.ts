@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { writeFile } from 'node:fs/promises';
+import { writeIntegrationArtifact } from './integration-artifacts';
 import { createProjectionStore, type ProjectionStore } from '../lib/projection-store';
 import type { AllPlayerJobFence } from '../lib/projections/adapters/neon/contracts';
 import type { AllPlayerStatObservation } from '../lib/projections/domain/all-player-statistics';
@@ -178,7 +178,6 @@ export async function measureRetainedPartialHistory(input: Readonly<{
       'eligibility correction', 'identity additions', 'actual Neon outbound allowance accounting',
       'ordinary workload reserve', 'season horizon fit'],
   };
-  await writeFile(new URL('../release/011-capacity.partial.integration.json', import.meta.url),
-    `${JSON.stringify(result,null,2)}\n`);
+  await writeIntegrationArtifact('011-capacity.partial.integration.json', result);
   return result;
 }

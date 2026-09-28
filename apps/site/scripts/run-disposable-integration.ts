@@ -13,9 +13,10 @@ if (execFileSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8'
 const output = resolve(root, 'test-results', 'integration', `run-${Date.now()}.json`);
 await mkdir(dirname(output), { recursive: true });
 const controller = new AbortController();
-const abort = () => controller.abort();
-process.on('SIGINT', abort); process.on('SIGTERM', abort);
-const timeout = setTimeout(abort, 20 * 60_000);
+const interrupt = () => controller.abort('sigint');
+const terminate = () => controller.abort('sigterm');
+process.on('SIGINT', interrupt); process.on('SIGTERM', terminate);
+const timeout = setTimeout(() => controller.abort('deadline'), 35 * 60_000);
 // Expiry is the final fallback if the OS kills this process before cleanup.
 try {
   const { passed, receipt } = await runDisposableIntegration({ environment: process.env, gitSha,
@@ -23,15 +24,24 @@ try {
     journal: receipt => writeFile(output, `${JSON.stringify(receipt, null, 2)}\n`, { mode: 0o600 }) });
   const sourceUnchanged = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8', windowsHide: true }).trim() === gitSha
     && !execFileSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8', windowsHide: true }).trim();
-  if (!sourceUnchanged) { receipt.failures.push('source-changed'); receipt.stage = 'failed';
+  if (controller.signal.aborted && !receipt.cancellationReason) {
+    const reason: unknown = controller.signal.reason;
+    receipt.cancellationReason = reason === 'deadline' || reason === 'sigint' || reason === 'sigterm' ? reason : 'requested';
+  }
+  const cancelled = controller.signal.aborted || Boolean(receipt.cancellationReason);
+  if (!sourceUnchanged) receipt.failures.push('source-changed');
+  if (cancelled && receipt.tests === 'passed' && !receipt.failures.includes('cancelled')) receipt.failures.push('cancelled');
+  if (!sourceUnchanged || cancelled) { receipt.stage = 'failed';
     await writeFile(output, `${JSON.stringify(receipt, null, 2)}\n`, { mode: 0o600 }); }
-  process.exitCode = passed && sourceUnchanged ? 0 : 1;
-  process.stdout.write(`${JSON.stringify({ outcome: passed && sourceUnchanged ? 'passed' : 'failed', receipt: output,
+  const qualificationPassed = passed && sourceUnchanged && !cancelled;
+  process.exitCode = qualificationPassed ? 0 : 1;
+  process.stdout.write(`${JSON.stringify({ outcome: qualificationPassed ? 'passed' : 'failed', receipt: output,
     tests: receipt.tests, childClosed: receipt.childClosed, schemaCleanupVerified: receipt.schemaCleanupVerified,
-    credentialsRevoked: receipt.credentialsRevoked, branchDeletionVerified: receipt.branchDeletionVerified, failures: receipt.failures })}\n`);
+    credentialsRevoked: receipt.credentialsRevoked, branchDeletionVerified: receipt.branchDeletionVerified,
+    cancellationReason: receipt.cancellationReason, failures: receipt.failures })}\n`);
 } catch {
   process.stderr.write('Disposable integration preflight failed. Check required test-only configuration in integration/README.md. No SQL test pass is claimed.\n');
   process.exitCode = 1;
 } finally {
-  clearTimeout(timeout); process.removeListener('SIGINT', abort); process.removeListener('SIGTERM', abort);
+  clearTimeout(timeout); process.removeListener('SIGINT', interrupt); process.removeListener('SIGTERM', terminate);
 }

@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { isAbsolute } from 'node:path';
 import { Pool, type PoolClient } from '@neondatabase/serverless';
 import { DisposableNeonApi, NeonApiError, type DisposableNeonConfig } from './disposable-neon-api';
 import { assertSafeIntegrationDatabase, cleanIntegrationDatabase, integrationEnvironment } from './neon-integration-harness';
 import { INTEGRATION_MUTEX, INTEGRATION_OWNER_ENV, assertIntegrationOwner } from './integration-database-ownership';
 import { superviseCapacityChild } from './collection-capacity-supervision';
 import { spawnIntegrationChild, stopIntegrationChildTree, verifyIntegrationChildTreeClosed } from './integration-child-process';
+import { createIntegrationArtifactDirectory, INTEGRATION_ARTIFACT_DIRECTORY_ENV } from './integration-artifacts';
 
 export const DISPOSABLE_AUTHORIZATION = 'I_AUTHORIZE_DISPOSABLE_TEST_BRANCHES';
 const protectedIdentities = ['solitary-base-99261075', 'br-rapid-boat-avgeevye', 'br-still-breeze-avaibago',
@@ -39,10 +41,16 @@ export function disposableConfiguration(env: Record<string, string | undefined>)
 
 /** Control-plane, application, provider, NODE_OPTIONS and unrelated DB secrets
  * never enter the test subprocess. Test code must still be reviewed/trusted. */
-export function integrationChildEnvironment(source: Record<string, string | undefined>): NodeJS.ProcessEnv {
+export function integrationChildEnvironment(source: Record<string, string | undefined>, artifactDirectory?: string): NodeJS.ProcessEnv {
+  if (artifactDirectory !== undefined && !isAbsolute(artifactDirectory)) throw new Error('Integration artifact directory must be absolute.');
   const allow = new Set(['path', 'systemroot', 'windir', 'comspec', 'temp', 'tmp', 'tmpdir', 'home', 'userprofile',
     'localappdata', 'appdata', 'pathext', 'lang', 'lc_all', 'tz', 'ci', 'term', 'no_color', 'force_color']);
-  return { ...Object.fromEntries(Object.entries(source).filter(([name]) => allow.has(name.toLowerCase()))), NODE_ENV: 'test' };
+  return { ...Object.fromEntries(Object.entries(source).filter(([name]) => allow.has(name.toLowerCase()))), NODE_ENV: 'test',
+    ...(artifactDirectory === undefined ? {} : { [INTEGRATION_ARTIFACT_DIRECTORY_ENV]: artifactDirectory }) };
+}
+
+export function integrationCancellationReason(reason: unknown): NonNullable<IntegrationRunReceipt['cancellationReason']> {
+  return reason === 'deadline' || reason === 'sigint' || reason === 'sigterm' || reason === 'ownership-lost' ? reason : 'requested';
 }
 
 export function redactIntegrationOutput(value: string, secrets: readonly string[]): string {
@@ -80,6 +88,8 @@ export type IntegrationRunReceipt = {
   credentialsRevoked: boolean; branchDeletionVerified: boolean; failures: string[]; productionWrites: false;
   diagnostics?: { stage: string; status?: number; code: string; requestId?: string }[];
   childClosureEvidence?: string;
+  artifactDirectory?: string;
+  cancellationReason?: 'deadline' | 'sigint' | 'sigterm' | 'requested' | 'ownership-lost';
 };
 type Runtime = {
   provision: () => Promise<void>; execute: () => Promise<{ passed: boolean; closed: boolean }>;
@@ -89,8 +99,16 @@ type Runtime = {
 /** Always delete owned resources even after failed creation/setup; SQL cleanup
  * is allowed only after confirmed child closure. A cleanup failure cannot pass. */
 export async function runIntegrationLifecycle(runtime: Runtime, receipt: IntegrationRunReceipt,
-  journal: () => Promise<void>): Promise<boolean> {
+  journal: () => Promise<void>, signal?: AbortSignal): Promise<boolean> {
   let provisioned = false;
+  const recordCancellation = () => {
+    if (!signal?.aborted) return false;
+    const previousReason = receipt.cancellationReason;
+    receipt.cancellationReason = integrationCancellationReason(signal.reason);
+    const newlyFailed = receipt.tests === 'passed' && !receipt.failures.includes('cancelled');
+    if (newlyFailed) receipt.failures.push('cancelled');
+    return previousReason !== receipt.cancellationReason || newlyFailed;
+  };
   const fail = (stage: string, error: unknown) => {
     receipt.failures.push(stage);
     if (error instanceof NeonApiError) (receipt.diagnostics ??= []).push({ stage, status: error.status,
@@ -117,18 +135,25 @@ export async function runIntegrationLifecycle(runtime: Runtime, receipt: Integra
     }
     await attempt('connection-close', runtime.close);
     await attempt('branch-deletion', async () => { await runtime.delete(); receipt.branchDeletionVerified = true; });
+    recordCancellation();
     receipt.finishedAt = new Date().toISOString(); receipt.stage = receipt.failures.length ? 'failed' : 'complete';
     try { await journal(); } catch { receipt.failures.push('receipt'); }
+    // The deadline can fire while the final asynchronous receipt write is pending.
+    const finalCancellationChanged = recordCancellation();
+    if (finalCancellationChanged || (receipt.stage === 'complete' && receipt.failures.length)) {
+      receipt.stage = 'failed';
+      try { await journal(); } catch { receipt.failures.push('receipt'); }
+    }
   }
   return receipt.tests === 'passed' && receipt.childClosed && receipt.schemaCleanupVerified
-    && receipt.credentialsRevoked && receipt.branchDeletionVerified && receipt.failures.length === 0;
+    && receipt.credentialsRevoked && receipt.branchDeletionVerified && receipt.failures.length === 0 && !signal?.aborted;
 }
 
 export async function runDisposableIntegration(options: { environment: NodeJS.ProcessEnv; gitSha: string;
   journal: (receipt: IntegrationRunReceipt) => Promise<void>; signal: AbortSignal; output: (text: string) => void }) {
   const config = disposableConfiguration(options.environment);
   const controller = new AbortController();
-  const abort = () => controller.abort();
+  const abort = () => controller.abort(integrationCancellationReason(options.signal.reason));
   options.signal.addEventListener('abort', abort, { once: true });
   if (options.signal.aborted) abort();
   const api = new DisposableNeonApi({ apiKey: options.environment.NEON_TEST_API_KEY!, signal: controller.signal });
@@ -137,6 +162,10 @@ export async function runDisposableIntegration(options: { environment: NodeJS.Pr
     projectId: config.projectId, parentBranchId: config.parentBranchId, startedAt: new Date().toISOString(),
     stage: 'preflight', tests: 'not-run', childClosed: false, schemaCleanupVerified: false,
     credentialsRevoked: false, branchDeletionVerified: false, failures: [], productionWrites: false };
+  const journal = async () => {
+    if (controller.signal.aborted) receipt.cancellationReason = integrationCancellationReason(controller.signal.reason);
+    await options.journal(receipt);
+  };
   let pool: Pool | undefined;
   let client: PoolClient | undefined;
   let proof: string | undefined;
@@ -144,7 +173,7 @@ export async function runDisposableIntegration(options: { environment: NodeJS.Pr
   const savedEnvironment = { ...process.env };
   const secrets = [options.environment.NEON_TEST_API_KEY!];
   const safeOutput = (value: string) => options.output(redactIntegrationOutput(value, secrets));
-  const onLoss = () => { ownerLost = true; abort(); };
+  const onLoss = () => { ownerLost = true; controller.abort('ownership-lost'); };
   let ownerLost = false;
   const query = async (sql: string, parameters: unknown[] = []) => {
     if (!client || ownerLost) throw new Error('Disposable owner connection unavailable.');
@@ -158,17 +187,21 @@ export async function runDisposableIntegration(options: { environment: NodeJS.Pr
   const runtime: Runtime = {
     async provision() {
       controller.signal.throwIfAborted();
+      receipt.provisionStep = 'artifact-directory';
+      receipt.artifactDirectory = await createIntegrationArtifactDirectory();
+      await journal();
+      controller.signal.throwIfAborted();
       receipt.provisionStep = 'api-target-validation';
       await api.validateTarget(config);
       receipt.provisionStep = 'branch-creation';
       const branch = await api.createBranch(config, runId, async intent => {
         controller.signal.throwIfAborted();
         receipt.attemptedBranchName = intent.branchName; receipt.expiresAt = intent.expiresAt;
-        await options.journal(receipt);
+        await journal();
         controller.signal.throwIfAborted();
       });
       Object.assign(receipt, { branchId: branch.branchId, branchName: branch.branchName, expiresAt: branch.expiresAt });
-      await options.journal(receipt);
+      await journal();
       controller.signal.throwIfAborted();
       receipt.provisionStep = 'child-owner-rotation';
       await api.rotateOwnerCredentials(config, branch);
@@ -220,7 +253,7 @@ export async function runDisposableIntegration(options: { environment: NodeJS.Pr
       assert.equal((await query('SELECT pg_advisory_unlock(hashtextextended($1::text,0)) AS unlocked', [INTEGRATION_MUTEX])).rows[0].unlocked, true);
       proof = JSON.stringify({ database: config.databaseName, branch: branch.branchId, ...identity, applicationName, lockMode: 'ShareLock' });
       await verifyOwner();
-      childEnvironment = { ...integrationChildEnvironment(options.environment), ...generated, [INTEGRATION_OWNER_ENV]: proof };
+      childEnvironment = { ...integrationChildEnvironment(options.environment, receipt.artifactDirectory), ...generated, [INTEGRATION_OWNER_ENV]: proof };
       receipt.provisionStep = 'complete';
     },
     async execute() {
@@ -282,6 +315,6 @@ export async function runDisposableIntegration(options: { environment: NodeJS.Pr
       if (owned.length === 0) throw new Error('No created branch identity; provisioning/deletion remains unverified.');
     },
   };
-  try { return { passed: await runIntegrationLifecycle(runtime, receipt, () => options.journal(receipt)), receipt }; }
+  try { return { passed: await runIntegrationLifecycle(runtime, receipt, journal, controller.signal), receipt }; }
   finally { options.signal.removeEventListener('abort', abort); }
 }

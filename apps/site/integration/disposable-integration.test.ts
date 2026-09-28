@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
+import { resolve } from 'node:path';
 import { assertEmptyDisposableDatabase, disposableConfiguration, DISPOSABLE_AUTHORIZATION,
-  integrationChildEnvironment, redactIntegrationOutput, runIntegrationLifecycle, type IntegrationRunReceipt } from './disposable-integration';
+  integrationCancellationReason, integrationChildEnvironment, redactIntegrationOutput, runIntegrationLifecycle, type IntegrationRunReceipt } from './disposable-integration';
 
 const valid = {
   NEON_TEST_AUTHORIZATION: DISPOSABLE_AUTHORIZATION, NEON_TEST_API_KEY: 'secret',
@@ -25,8 +26,23 @@ describe('disposable test configuration', () => {
   it('passes only explicit OS variables to children', () => {
     expect(integrationChildEnvironment({ PATH: 'bin', SystemRoot: 'Windows', CI: '1',
       NEON_TEST_API_KEY: 'secret', DATABASE_URL: 'secret', NODE_OPTIONS: '--inspect',
+      PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY: 'untrusted-parent-path',
       VERCEL_TOKEN: 'secret', TANK01_API_KEY: 'secret', UNKNOWN_SECRET: 'secret' }))
       .toEqual({ PATH: 'bin', SystemRoot: 'Windows', CI: '1', NODE_ENV: 'test' });
+  });
+  it('passes only the supervisor-created absolute artifact directory', () => {
+    const directory = resolve('test-results/integration/artifacts/owned-run');
+    expect(integrationChildEnvironment({ PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY: 'untrusted-parent-path',
+      NEON_TEST_API_KEY: 'secret' }, directory)).toEqual({ NODE_ENV: 'test', PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY: directory });
+    expect(() => integrationChildEnvironment({}, 'relative-path')).toThrow('must be absolute');
+  });
+  it.each(['deadline', 'sigint', 'sigterm', 'ownership-lost'] as const)('records the safe cancellation reason %s', reason => {
+    expect(integrationCancellationReason(reason)).toBe(reason);
+  });
+  it('never serializes arbitrary cancellation values into receipts', () => {
+    expect(integrationCancellationReason(new Error('secret-bearing failure'))).toBe('requested');
+    expect(integrationCancellationReason('private-token')).toBe('requested');
+    expect(integrationCancellationReason(undefined)).toBe('requested');
   });
   it('redacts URLs, standalone passwords, sentinel and API key from diagnostics', () => {
     expect(redactIntegrationOutput('postgresql://owner:password@host/test?sslmode=require api-key sentinel password',
@@ -84,6 +100,43 @@ describe('disposable lifecycle failure boundaries', () => {
     expect(await runIntegrationLifecycle(runtime, receipt, journal)).toBe(false);
     expect(runtime.clean).toHaveBeenCalledOnce(); expect(runtime.revoke).toHaveBeenCalledOnce();
     expect(receipt.branchDeletionVerified).toBe(true);
+  });
+  it('fails a deadline during cleanup even when every test passed, while completing cleanup', async () => {
+    const { receipt, runtime, journal } = setup();
+    const controller = new AbortController();
+    runtime.clean.mockImplementation(async () => { controller.abort('deadline'); });
+    expect(await runIntegrationLifecycle(runtime, receipt, journal, controller.signal)).toBe(false);
+    expect(runtime.revoke).toHaveBeenCalledOnce(); expect(runtime.close).toHaveBeenCalledOnce();
+    expect(runtime.delete).toHaveBeenCalledOnce();
+    expect(receipt).toMatchObject({ tests: 'passed', stage: 'failed', cancellationReason: 'deadline',
+      failures: ['cancelled'], schemaCleanupVerified: true, credentialsRevoked: true, branchDeletionVerified: true });
+  });
+  it('rewrites the final receipt if cancellation arrives while its successful write is pending', async () => {
+    const { receipt, runtime } = setup();
+    const controller = new AbortController();
+    const writtenStages: string[] = [];
+    const journal = vi.fn(async () => {
+      writtenStages.push(receipt.stage);
+      if (receipt.stage === 'complete') { await Promise.resolve(); controller.abort('sigterm'); }
+    });
+    expect(await runIntegrationLifecycle(runtime, receipt, journal, controller.signal)).toBe(false);
+    expect(writtenStages.slice(-2)).toEqual(['complete', 'failed']);
+    expect(receipt).toMatchObject({ stage: 'failed', cancellationReason: 'sigterm', failures: ['cancelled'] });
+    expect(runtime.delete).toHaveBeenCalledOnce();
+  });
+  it('persists a late cancellation reason on an already failed test run', async () => {
+    const { receipt, runtime } = setup();
+    runtime.execute.mockResolvedValue({ passed: false, closed: true });
+    const controller = new AbortController();
+    const writtenReceipts: IntegrationRunReceipt[] = [];
+    const journal = vi.fn(async () => {
+      writtenReceipts.push(structuredClone(receipt));
+      if (receipt.finishedAt && !controller.signal.aborted) { await Promise.resolve(); controller.abort('deadline'); }
+    });
+    expect(await runIntegrationLifecycle(runtime, receipt, journal, controller.signal)).toBe(false);
+    expect(receipt).toMatchObject({ stage: 'failed', cancellationReason: 'deadline', failures: ['tests'] });
+    expect(writtenReceipts.at(-2)?.cancellationReason).toBeUndefined();
+    expect(writtenReceipts.at(-1)?.cancellationReason).toBe('deadline');
   });
   it('does not issue destructive SQL when cancellation leaves child closure uncertain', async () => {
     const { receipt, runtime, journal } = setup(); runtime.execute.mockResolvedValue({ passed: false, closed: false });

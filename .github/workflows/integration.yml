@@ -11,7 +11,7 @@ jobs:
     if: github.repository == 'clawmachinejed/league-one-audit'
     environment: integration-test
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       # Approvers review this exact selected head, including workflow, supervisor,
       # tests and dependencies. No untrusted fork or automatic PR trigger.
@@ -48,11 +48,13 @@ jobs:
           NEON_TEST_PARENT_BRANCH_NAME: ${{ vars.NEON_TEST_PARENT_BRANCH_NAME }}
           NEON_TEST_DATABASE: ${{ vars.NEON_TEST_DATABASE }}
           NEON_TEST_OWNER_ROLE: ${{ vars.NEON_TEST_OWNER_ROLE }}
-      - name: Preserve sanitized lifecycle receipts
+      - name: Preserve sanitized integration evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: integration-${{ github.sha }}-${{ github.run_attempt }}
-          path: test-results/integration/*.json
+          path: |
+            test-results/integration/*.json
+            test-results/integration/artifacts/**/*.json
           if-no-files-found: warn
           retention-days: 14
