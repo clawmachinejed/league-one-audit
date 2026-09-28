@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -185,66 +185,25 @@ describe.sequential('projection store against an isolated Neon database', () => 
   });
 
   it('proves the suite migrated an empty schema and applied every migration once', async () => {
+    const migrationDirectory = new URL('../migrations/', import.meta.url);
+    const migrationNames = (await readdir(migrationDirectory))
+      .filter(name => /^\d+_[a-z0-9_]+\.sql$/u.test(name)).sort();
+    expect(migrationNames.length).toBeGreaterThan(0);
+    const expectedMigrations = await Promise.all(migrationNames.map(async name => ({
+      name,
+      checksum: createHash('sha256').update((await readFile(new URL(name, migrationDirectory), 'utf8'))
+        .replace(/\r\n?/gu, '\n')).digest('hex'),
+    })));
     const proof = JSON.parse(process.env.PROJECTION_INTEGRATION_SETUP_PROOF ?? 'null') as unknown;
     expect(proof).toMatchObject({
       emptyBeforeMigration: true,
-      migrationNames: [
-        '001_projection_foundation.sql',
-        '002_manager_snapshot_payloads.sql',
-        '003_league_period_authority.sql',
-        '004_durable_projection_slates.sql',
-        '005_future_projection_refresh.sql',
-        '006_flexed_kickoff_candidate_index.sql',
-        '007_lineup_freshness.sql',
-        '008_additive_write_guards.sql',
-        '009_game_clock_plausibility.sql',
-        '010_all_player_statistics.sql',
-        '011_all_player_foundation_guards.sql',
-        '012_all_player_provider_participation.sql',
-        '013_all_player_participation_assumption.sql',
-        '014_all_player_hourly_collection.sql',
-        '015_all_player_dynasty_publication.sql',
-        '016_portable_league_administration.sql',
-        '017_enrolled_all_player_publication.sql',
-        '018_all_player_partial_context.sql',
-        '019_live_defense_weekly_statistics.sql',
-        '020_account_foundation.sql',
-        '021_website_auth.sql',
-        '022_sleeper_actual_scoring_events.sql',
-        '023_all_player_league_acceptance.sql',
-        '024_all_player_scoped_completion.sql',
-      ],
+      migrationNames,
     });
-    const rows = await ownerQuery<{ name: string; checksum_length: number }>(`
-      SELECT name, length(checksum)::integer AS checksum_length
+    const rows = await ownerQuery<{ name: string; checksum: string }>(`
+      SELECT name, checksum
       FROM app_schema_migrations ORDER BY name
     `);
-    expect(rows).toEqual([
-      { name: '001_projection_foundation.sql', checksum_length: 64 },
-      { name: '002_manager_snapshot_payloads.sql', checksum_length: 64 },
-      { name: '003_league_period_authority.sql', checksum_length: 64 },
-      { name: '004_durable_projection_slates.sql', checksum_length: 64 },
-      { name: '005_future_projection_refresh.sql', checksum_length: 64 },
-      { name: '006_flexed_kickoff_candidate_index.sql', checksum_length: 64 },
-      { name: '007_lineup_freshness.sql', checksum_length: 64 },
-      { name: '008_additive_write_guards.sql', checksum_length: 64 },
-      { name: '009_game_clock_plausibility.sql', checksum_length: 64 },
-      { name: '010_all_player_statistics.sql', checksum_length: 64 },
-      { name: '011_all_player_foundation_guards.sql', checksum_length: 64 },
-      { name: '012_all_player_provider_participation.sql', checksum_length: 64 },
-      { name: '013_all_player_participation_assumption.sql', checksum_length: 64 },
-      { name: '014_all_player_hourly_collection.sql', checksum_length: 64 },
-      { name: '015_all_player_dynasty_publication.sql', checksum_length: 64 },
-      { name: '016_portable_league_administration.sql', checksum_length: 64 },
-      { name: '017_enrolled_all_player_publication.sql', checksum_length: 64 },
-      { name: '018_all_player_partial_context.sql', checksum_length: 64 },
-      { name: '019_live_defense_weekly_statistics.sql', checksum_length: 64 },
-      { name: '020_account_foundation.sql', checksum_length: 64 },
-      { name: '021_website_auth.sql', checksum_length: 64 },
-      { name: '022_sleeper_actual_scoring_events.sql', checksum_length: 64 },
-      { name: '023_all_player_league_acceptance.sql', checksum_length: 64 },
-      { name: '024_all_player_scoped_completion.sql', checksum_length: 64 },
-    ]);
+    expect(rows).toEqual(expectedMigrations);
   });
 
   it('records migration 010 transactionally and the production migrator reruns it idempotently', async () => {

@@ -84,6 +84,8 @@ describe('shared destructive integration ownership', () => {
 
   it('uses the same pinned connection for migration transactions without releasing its lock', async () => {
     const owner = createIntegrationDatabaseOwnership(); const session = await owner.acquire(environment);
+    expect(mocked.pool).toHaveBeenCalledWith({ connectionString: environment.ownerDatabaseUrl, max: 1,
+      connectionTimeoutMillis: 10_000, statement_timeout: 60_000, query_timeout: 75_000 });
     const migration = await session.connect();
     await migration.query('BEGIN'); await migration.query('COMMIT'); migration.release();
     expect(exclusive).toBe(1); expect(backends.get(1)?.release).not.toHaveBeenCalled();

@@ -1,39 +1,79 @@
-# Isolated Neon projection-store integration tests
+# Disposable Neon integration tests
 
-These tests are destructive. They reset the fixed `public` and `website_auth` schemas before and after the suite. Run them only against a dedicated Neon branch and dedicated database that contain no production data.
+`pnpm test:integration` creates a fresh test branch, runs the existing destructive SQL suite, verifies cleanup and credential revocation, and deletes that run's branch. It never reads the old `apps/site/.env.integration.local` file. Retained pilot data and production remain separate from test infrastructure.
 
-Create `apps/site/.env.integration.local` with all of these values:
+The dedicated test project is `steep-glitter-44680287` (`league-one-integration-tests`). Its empty baseline must have no application relations, functions, custom types, managed `neon_auth` schema, or inherited application roles. Each run uses the repository's migrations and synthetic fixtures. The baseline is not a copy of retained accounts and is not the target of destructive tests.
+
+The production/retained project `solitary-base-99261075`, its production branch `br-rapid-boat-avgeevye`, its retained branch `br-still-breeze-avaibago`, and the retained `projection_refactor_test` and `account_reset_integration_test` database names are explicitly denied. The shared SQL harness independently denies both branch IDs and both retained database names for every caller, including legacy migration and capacity commands, regardless of the supplied denylist or an old valid safety comment. Do not reset either retained database or rotate roles on that branch.
+
+## One-time test infrastructure setup
+
+The test project, empty baseline, verified database and owner identities, and scoped API credential must be configured before the first run. A project name alone does not establish readiness. Use an API key scoped only to this dedicated test project; do not use a production connection string or an organization-wide key as ordinary test configuration. Keep the baseline empty, without an application, auth, worker, or development client attached.
+
+Create the ignored `apps/site/.env.integration-control.local` file. Revalidate these project/baseline/database/owner identities before activation:
 
 ```dotenv
-PROJECTION_INTEGRATION_AUTHORIZATION=I_ACKNOWLEDGE_THIS_RESETS_AN_ISOLATED_DATABASE
-PROJECTION_INTEGRATION_OWNER_DATABASE_URL=postgresql://...
-PROJECTION_INTEGRATION_RUNTIME_DATABASE_URL=postgresql://league_one_runtime:...
-AUTH_RESET_INTEGRATION_DATABASE_URL=postgresql://league_one_auth:...
-PROJECTION_INTEGRATION_EXPECTED_DATABASE=projection_refactor_test
-PROJECTION_INTEGRATION_EXPECTED_BRANCH_ID=br-...
-PROJECTION_INTEGRATION_EXPECTED_BRANCH_NAME=projection-integration-test
-PROJECTION_INTEGRATION_DATABASE_SENTINEL=replace-with-a-long-random-value
-PROJECTION_INTEGRATION_PRODUCTION_DENYLIST=production-branch-id,production-branch-name,production-database,production-endpoint-host
+NEON_TEST_AUTHORIZATION=I_AUTHORIZE_DISPOSABLE_TEST_BRANCHES
+NEON_TEST_API_KEY=replace-with-dedicated-test-project-api-key
+NEON_TEST_PROJECT_ID=steep-glitter-44680287
+NEON_TEST_PROJECT_NAME=league-one-integration-tests
+NEON_TEST_PARENT_BRANCH_ID=br-plain-bread-b7sgfdl8
+NEON_TEST_PARENT_BRANCH_NAME=integration-test-base
+NEON_TEST_DATABASE=integration_test
+NEON_TEST_OWNER_ROLE=neondb_owner
 ```
 
-The file is covered by the repository's `.env.*` ignore rule. Never commit it.
+The parent branch name must explicitly identify a test branch, and the database name must identify a test database. The API and server checks must agree on the configured identities. The `.env.*` ignore rule covers this control file. Never commit it, paste its key into a task, or publish it as a CI artifact.
 
-Before the first run, store the matching identity on the dedicated database. Run this with the owner connection after replacing every placeholder:
-
-```sql
-COMMENT ON DATABASE projection_refactor_test IS
-'{"purpose":"league-one-projection-store-integration","sentinel":"replace-with-the-same-long-random-value","branchId":"br-replace","branchName":"projection-integration-test"}';
-```
-
-The owner URL must use the schema-owner role and the direct Neon endpoint, because session ownership cannot use a transaction pooler. The runtime URL must use the existing `league_one_runtime` role and point to the same database; its pooled endpoint is allowed. The reset lifecycle URL must use the separately provisioned `league_one_auth` role on that same isolated database; never substitute an owner URL. Supply it through an ignored environment file or a supervised test process, and revoke temporary credentials after the child processes close. The standard runner refuses a missing lifecycle credential before any schema reset.
-
-From the repository root, run:
+Commit and review the intended test source before running it. The supervisor requires a clean Git checkout, records its exact SHA, and checks that the checkout and SHA remain unchanged after testing and cleanup. Ignored control files and receipts do not make the checkout dirty. From the repository root:
 
 ```text
 pnpm test:integration
 ```
 
-The runner and global setup independently refuse to continue unless authorization, URL identity, server-reported database identity, the durable JSON database comment, safe test naming, distinct roles, TLS, and the production denylist all pass. Configured production database URLs are compared by normalized endpoint and database identity rather than raw connection-string text.
+The same `NEON_TEST_*` values can be injected by a secured process environment instead of a local file. `pnpm verify:full` runs this gate only when the new control file exists or `NEON_TEST_API_KEY` is supplied. Without that configuration it reports SQL integration as **SKIPPED / UNVERIFIED**; deterministic and browser results do not substitute for SQL evidence. A configured but invalid control environment fails the gate.
+
+## Run lifecycle and evidence
+
+The supervisor verifies the project and parent through the Neon API, journals a unique branch name and expiry before creation, and creates that branch with a one-hour expiry and a fixed 0.25-CU endpoint that suspends after five idle minutes. It rotates only the new child's owner password and waits for completion, so test code cannot reuse an inherited owner password against the empty parent. It then verifies the exact server identity and empty state before writing any role or safety comment. It creates temporary restricted `league_one_runtime` and `league_one_auth` login credentials through SQL. Connection strings, passwords, the random sentinel, and ownership proof remain in the supervised process environment. The Neon API key and unrelated provider, application, or production secrets are excluded from the test child.
+
+The existing harness remains responsible for migrations, role grants, synthetic fixtures, and resetting only the fixed `public` and `website_auth` schemas. The standard suite includes the restricted-login password-reset lifecycle tests. Account-role tests use guarded owner sessions with transaction-local `SET ROLE`; no separate account password is required.
+
+The runner and global setup refuse to continue unless authorization, URL identity, actual server-reported database and Neon branch, the durable JSON database comment, safe test naming, distinct authenticated roles, TLS, and the production denylist all pass. The configured auth connection must authenticate as `league_one_auth` with restricted role flags and no memberships before any reset. Historical migration and capacity callers can omit that credential. Configured production database URLs are compared by normalized endpoint and database identity rather than raw connection-string text.
+
+The owner connection uses the direct endpoint because ownership requires a pinned session. A pooled runtime or auth endpoint is allowed only when it resolves to the same verified database. Never substitute an owner connection for a restricted runtime or auth login.
+
+Each invocation exclusively reserves a timestamp-and-UUID receipt path under `test-results/integration/` before provisioning, then writes its sanitized lifecycle evidence there. Record the exact Git SHA and all of `tests`, `childClosed`, `childClosureEvidence`, `schemaCleanupVerified`, `credentialsRevoked`, `branchDeletionVerified`, and `failures`. POSIX closure includes process-group checks; Windows normal completion records child/stdio closure, while cancellation additionally records successful tree termination. A run passes only when tests and every cleanup condition pass. Infrastructure failures, test failures, and cleanup failures remain distinct; expiry is a fallback, not evidence that deletion already happened. Invalid initial configuration can leave an empty reserved receipt and never qualifies the SQL gate.
+
+The runner gives the complete serial SQL suite a 35-minute cooperative deadline; branch expiry remains one hour. An aborted run records a safe `cancellationReason`, and the built-in verbose reporter emits individual test results and failure messages as they arrive through the supervisor's existing redaction. A deadline can leave the suite incomplete: report only observed results and do not infer final totals from partial output.
+
+Standard-suite measurements use a fresh ignored `test-results/integration/artifacts/run-*` directory recorded as `artifactDirectory` in the receipt. The supervisor supplies that absolute directory through `PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY`; inherited overrides are not admitted to its child. Writers refuse to overwrite an existing artifact, and tracked `release/*.json` evidence stays unchanged. Explicit artifact directories for separately supervised standard Vitest runs remain supported. The specialized collection-capacity and release measurement commands retain their own explicit output contracts.
+
+After child closure, cleanup runs before temporary credentials are revoked. The supervisor then closes its connections, deletes only its proven owned branch, and verifies deletion. If the process is interrupted or a step fails, retain the receipt and inspect the exact recorded branch and expiry through the Neon API. Never rerun against a surviving branch or manually delete a baseline/retained branch to clear a failure. A new invocation creates a new target.
+
+## Why this design
+
+A [project-scoped API key](https://neon.com/docs/manage/api-keys) has broad authority within its project. A separate test project limits that authority away from production and retained accounts. Ordinary children of an empty parent avoid copying personal data, managed auth configuration, or schema drift; migrations and synthetic fixtures remain the sole application setup path. [Schema-only branching](https://neon.com/docs/guides/branching-schema-only) is unnecessary here and introduces separate root-branch limits. Earlier console failures were not enough to establish a root cause.
+
+[Roles are branch scoped](https://neon.com/docs/manage/roles), and ordinary branches can inherit passwords. The supervisor rotates only its newly created child owner; it creates restricted SQL roles rather than Neon API roles with administrative privileges. [Expiration](https://neon.com/docs/guides/branch-expiration) protects against host loss but is asynchronous, so successful API deletion and observed absence remain the cleanup gate. API response validation and operation polling follow the [official v2 specification](https://neon.com/api_spec/release/v2.json). Ambiguous creates are reconciled by their journaled unique name, parent, and creation window, without retrying the creation POST. API errors record only status, code, and request ID, never raw credential-bearing response bodies.
+
+CI permits one run at a time. A preflight inventory also refuses more than two existing non-parent branches; this is a budget guard, not an atomic cross-host lease. Local overlapping qualification uses distinct targets and must stay within the approved test budget. Never automatically delete another run's branch to make room.
+
+## CI qualification
+
+The checked-in `disposable-integration` workflow supports manual dispatch (`workflow_dispatch`) and pushes only to branches matching `codex/integration-qualification-*` in the canonical repository. [Manual dispatch requires the workflow to exist on the default branch](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_dispatch); once registered there, select an approved internal branch in GitHub. Before merge, an explicitly reviewed commit can instead be published to a dedicated qualification ref named `codex/integration-qualification-<shortSHA>`. That ref must point to the exact full reviewed SHA without another code commit; [push workflows can run before merge](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#push). Each matching push queues a run, so publish only a commit ready for qualification and environment review. Ordinary development branches and pull-request events do not trigger this workflow.
+
+Both paths require review of the immutable `github.sha` recorded for the run and qualify that exact checkout; there is no arbitrary SHA input. The canonical-repository guard and protected `integration-test` environment apply to qualification pushes as well as manual dispatch. No fork code receives the control-plane credential. The workflow has read-only repository permissions, does not persist checkout credentials, serializes integration jobs without cancelling an active cleanup, and has a 45-minute limit to allow dependency installation and cleanup around the bounded suite. The API key is supplied only to the test-runner step. Sanitized receipts and synthetic measurement JSON from each run's artifact directory are uploaded even after failure when available.
+
+Activation is a separate repository setup step. Create the `integration-test` environment with required review and deployment branch restrictions for approved internal branches, including the explicitly reviewed qualification refs used before merge. Require an independent reviewer and prevent self-review when a separate reviewer is available; otherwise record the responsible maintainer's manual approval of the exact SHA. Review the workflow, supervisor, tests, and dependency changes before releasing the secret to a run. Pushing a matching qualification ref does not replace environment approval. Store `NEON_TEST_API_KEY` as that environment's dedicated-project secret and all other `NEON_TEST_*` values above as environment variables. Set `NEON_TEST_AUTHORIZATION` to the explicit authorization value only when setup is ready.
+
+Filtering the child's environment reduces accidental exposure; it does not sandbox repository code from the CI host or make untrusted code safe. Do not approve untrusted changes, enable `pull_request_target` execution, or treat a same-repository branch name as sufficient review. A modified supervisor or dependency can access the host's credentials. The dedicated test-project key bounds control-plane authority; it is not a substitute for code review.
+
+A committed workflow or matching branch name does not prove the GitHub environment, secret, reviewer configuration, or live SQL run is active. Before environment activation, run the reviewed checkout locally with the ignored control file and report local qualification separately. Record the GitHub run URL, exact SHA, test totals/skips, receipt, and every cleanup outcome for each CI qualification; this is not yet an automatic required PR check.
+
+## Ownership and specialized harnesses
+
+The older migration-wrapper and capacity commands below are specialized callers of the same harness. They still require an explicitly supervised disposable target and their existing low-level `PROJECTION_INTEGRATION_*` configuration; the control file is not a source of reusable database URLs. Do not direct these commands at the empty baseline or any retained database. Their evidence is separate from the standard suite's disposable-run receipt.
 
 Every caller of `prepareIntegrationDatabase` and `cleanIntegrationDatabase` shares the `league-one-auth-integration-credential` advisory mutex. Ordinary preparation pins an exclusive lock on its actual schema/migration connection, retains it through the test body and repeated preparations, and releases it after cleanup. A conflicting run fails before schema reset. Lost ownership is terminal for that harness process; it never reconnects and resumes destructive work automatically.
 

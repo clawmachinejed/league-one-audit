@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { writeFile } from 'node:fs/promises';
+import { writeIntegrationArtifact } from './integration-artifacts';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { createProjectionStore } from '../lib/projection-store';
 import type { AllPlayerStatObservation } from '../lib/projections/domain/all-player-statistics';
@@ -282,7 +282,7 @@ describe('012 provider participation guards in the isolated runtime database', (
         writeWallMs: [firstWallMs, laterWallMs], eachWriteWithin55Seconds: firstWallMs < 55000 && laterWallMs < 55000,
         compactContextBytes: [initial, changed].map((observation) => Buffer.byteLength(JSON.stringify(observation.providerContext))),
       };
-      await writeFile(new URL('../release/012-context-capacity.integration.json', import.meta.url), `${JSON.stringify(artifact, null, 2)}\n`);
+      await writeIntegrationArtifact('012-context-capacity.integration.json', artifact);
     } finally {
       try { await query('ROLLBACK'); } finally { await connection.close(); }
     }

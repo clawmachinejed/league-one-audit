@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { writeFile } from 'node:fs/promises';
+import { writeIntegrationArtifact } from './integration-artifacts';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { createProjectionStore } from '../lib/projection-store';
 import { allPlayerEligibilityCounts,
@@ -213,11 +213,11 @@ describe('013 explicit missing participation assumption in the isolated database
         (SELECT count(*)::integer FROM all_player_stat_observations WHERE all_player_stat_content_id=$1) AS observations
         FROM all_player_stat_entries WHERE all_player_stat_content_id=$1`, [first.value.statContentId]))[0];
       expect(count).toEqual({ entries: 1000, unknown_eligible: 1000, zero_appearances: 1000, observations: 2 });
-      await writeFile(new URL('../release/013-assumption-capacity.integration.json', import.meta.url), `${JSON.stringify({
+      await writeIntegrationArtifact('013-assumption-capacity.integration.json', {
         observedAt: new Date().toISOString(), kind: 'synthetic-1000-player-partial-assumption', providerRequests: 0,
         limitation: 'Bounded synthetic raw-history allocation only; no source completion or whole-season fit claim. All writes roll back.',
         before, afterFirst, afterLater, count, entriesStored: [1000, 0, 0], firstWallMs, laterWallMs,
-      }, null, 2)}\n`);
+      });
     } finally { try { await query('ROLLBACK'); } finally { await connection.close(); } }
   }, 120_000);
 });
