@@ -47,6 +47,15 @@ describe('full verification disposable database selection', () => {
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('SKIPPED / UNVERIFIED'));
   });
 
+  it.each(['neon_test_api_key', 'Neon_Test_Api_Key'])('filters Windows-compatible key spelling %s from non-SQL steps', async key => {
+    vi.stubEnv(key, 'synthetic-case-key');
+    mocked.exists.mockReturnValue(true);
+    await import('./full-verify.mjs');
+    expect(mocked.spawn.mock.calls.slice(0, 3).every(([, , options]) => Object.keys(options.env)
+      .every(name => name.toUpperCase() !== 'NEON_TEST_API_KEY'))).toBe(true);
+    expect(mocked.spawn.mock.calls[3][2].env[key]).toBe('synthetic-case-key');
+  });
+
   it('propagates a configured integration failure instead of reporting full verification complete', async () => {
     mocked.exists.mockReturnValue(true);
     mocked.spawn.mockImplementation((_command, args) => ({ status: args.at(-1) === 'test:integration' ? 1 : 0 }));

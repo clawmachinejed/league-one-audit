@@ -16,7 +16,7 @@ function run(label, args, controlPlane = false) {
   const result = spawnSync(process.execPath, [pnpmEntrypoint, ...args], {
     cwd: root,
     env: controlPlane ? process.env : Object.fromEntries(Object.entries(process.env)
-      .filter(([name]) => name !== 'NEON_TEST_API_KEY')),
+      .filter(([name]) => name.toUpperCase() !== 'NEON_TEST_API_KEY')),
     stdio: 'inherit',
     windowsHide: true,
   });
