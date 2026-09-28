@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,8 +11,10 @@ const gitSha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding:
 if (execFileSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8', windowsHide: true }).trim()) {
   throw new Error('Commit the reviewed test source before running disposable integration; qualification must identify one clean Git SHA.');
 }
-const output = resolve(root, 'test-results', 'integration', `run-${Date.now()}.json`);
+const output = resolve(root, 'test-results', 'integration', `run-${Date.now()}-${randomUUID()}.json`);
 await mkdir(dirname(output), { recursive: true });
+// Reserve this invocation's path before provisioning; the first journal replaces the empty claim.
+await writeFile(output, '', { flag: 'wx', mode: 0o600 });
 const controller = new AbortController();
 const interrupt = () => controller.abort('sigint');
 const terminate = () => controller.abort('sigterm');

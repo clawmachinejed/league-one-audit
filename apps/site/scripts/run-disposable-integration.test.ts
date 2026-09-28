@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { IntegrationRunReceipt, runDisposableIntegration } from '../integration/disposable-integration';
 
-const mocked = vi.hoisted(() => ({ git: vi.fn(), mkdir: vi.fn(), writeFile: vi.fn(), run: vi.fn() }));
+const mocked = vi.hoisted(() => ({ git: vi.fn(), uuid: vi.fn(), mkdir: vi.fn(), writeFile: vi.fn(), run: vi.fn() }));
 vi.mock('node:child_process', () => ({ execFileSync: mocked.git }));
+vi.mock('node:crypto', () => ({ randomUUID: mocked.uuid }));
 vi.mock('node:fs/promises', () => ({ mkdir: mocked.mkdir, writeFile: mocked.writeFile }));
 vi.mock('../integration/disposable-integration', () => ({ runDisposableIntegration: mocked.run }));
 
@@ -13,6 +14,8 @@ const originalInterrupts = process.listeners('SIGINT');
 const originalTerminations = process.listeners('SIGTERM');
 const messages: string[] = [];
 const sha = 'a'.repeat(40);
+const firstUuid = '00000000-0000-4000-8000-000000000001';
+const secondUuid = '00000000-0000-4000-8000-000000000002';
 
 function receipt(cancellationReason?: IntegrationRunReceipt['cancellationReason']): IntegrationRunReceipt {
   return { kind: 'disposable-integration-v1', runId: 'fixture', gitSha: sha,
@@ -41,6 +44,7 @@ beforeEach(() => {
   process.exitCode = undefined;
   messages.length = 0;
   mocked.git.mockImplementation((_command: string, arguments_: string[]) => arguments_[0] === 'status' ? '' : sha);
+  mocked.uuid.mockReturnValue(firstUuid);
   mocked.mkdir.mockResolvedValue(undefined); mocked.writeFile.mockResolvedValue(undefined);
   mocked.run.mockResolvedValue({ passed: true, receipt: receipt() });
   vi.spyOn(process.stdout, 'write').mockImplementation(value => { messages.push(String(value)); return true; });
@@ -114,7 +118,7 @@ describe('disposable integration command cancellation and source evidence', () =
     });
     await import('./run-disposable-integration');
     expect(process.exitCode).toBe(1);
-    expect(JSON.parse(mocked.writeFile.mock.calls[0][1])).toMatchObject({ stage: 'failed', failures: ['source-changed'] });
+    expect(JSON.parse(mocked.writeFile.mock.calls.at(-1)![1])).toMatchObject({ stage: 'failed', failures: ['source-changed'] });
     expect(JSON.parse(messages.at(-1)!)).toMatchObject({ outcome: 'failed', failures: ['source-changed'] });
   });
 
@@ -143,7 +147,7 @@ describe('disposable integration command cancellation and source evidence', () =
     cleanup.resolve();
     await executing;
     expect(process.exitCode).toBe(1);
-    expect(JSON.parse(mocked.writeFile.mock.calls[0][1])).toMatchObject({
+    expect(JSON.parse(mocked.writeFile.mock.calls.at(-1)![1])).toMatchObject({
       tests: 'passed', stage: 'failed', cancellationReason: 'deadline', failures: ['cancelled'],
     });
     expect(JSON.parse(messages.at(-1)!)).toMatchObject({ outcome: 'failed', cancellationReason: 'deadline' });
@@ -154,9 +158,53 @@ describe('disposable integration command cancellation and source evidence', () =
     mocked.run.mockResolvedValue({ passed: true, receipt: result });
     await import('./run-disposable-integration');
     expect(process.exitCode).toBe(1);
-    expect(JSON.parse(mocked.writeFile.mock.calls[0][1])).toMatchObject({
+    expect(JSON.parse(mocked.writeFile.mock.calls.at(-1)![1])).toMatchObject({
       tests: 'passed', stage: 'failed', cancellationReason: 'ownership-lost', failures: ['cancelled'],
     });
     expect(JSON.parse(messages.at(-1)!)).toMatchObject({ outcome: 'failed', cancellationReason: 'ownership-lost' });
+  });
+});
+
+describe('disposable integration receipt ownership', () => {
+  it('gives same-timestamp invocations distinct exclusively claimed paths and keeps later journals on each path', async () => {
+    vi.setSystemTime(new Date('2026-09-28T00:00:00Z'));
+    const timestamp = Date.now();
+    mocked.uuid.mockReturnValueOnce(firstUuid).mockReturnValueOnce(secondUuid);
+    const journals: RunOptions['journal'][] = [];
+    mocked.run.mockImplementation(async (options: RunOptions) => {
+      journals.push(options.journal);
+      await options.journal({ ...receipt(), stage: 'provision' });
+      await options.journal(receipt());
+      return { passed: true, receipt: receipt() };
+    });
+    await import('./run-disposable-integration');
+    vi.resetModules();
+    await import('./run-disposable-integration');
+    expect(Date.now()).toBe(timestamp);
+    const firstPath = mocked.writeFile.mock.calls[0][0];
+    const secondPath = mocked.writeFile.mock.calls[3][0];
+    expect(firstPath).toContain(`run-${timestamp}-${firstUuid}.json`);
+    expect(secondPath).toContain(`run-${timestamp}-${secondUuid}.json`);
+    expect(firstPath).not.toBe(secondPath);
+    expect(mocked.writeFile.mock.calls.slice(0, 3).map(call => call[0])).toEqual([firstPath, firstPath, firstPath]);
+    expect(mocked.writeFile.mock.calls.slice(3, 6).map(call => call[0])).toEqual([secondPath, secondPath, secondPath]);
+    expect(mocked.writeFile.mock.calls[0]).toEqual([firstPath, '', { flag: 'wx', mode: 0o600 }]);
+    expect(mocked.writeFile.mock.calls[3]).toEqual([secondPath, '', { flag: 'wx', mode: 0o600 }]);
+    expect(mocked.writeFile.mock.calls[1][2]).toEqual({ mode: 0o600 });
+    expect(mocked.writeFile.mock.calls[4][2]).toEqual({ mode: 0o600 });
+    await journals[0]({ ...receipt(), stage: 'schema-cleanup' });
+    expect(mocked.writeFile.mock.calls.at(-1)![0]).toBe(firstPath);
+    expect(messages.map(message => JSON.parse(message).receipt)).toEqual([firstPath, secondPath]);
+  });
+
+  it('fails before provisioning if the exclusive receipt claim finds an existing path', async () => {
+    const collision = Object.assign(new Error('Existing receipt'), { code: 'EEXIST' });
+    mocked.writeFile.mockRejectedValueOnce(collision);
+    await expect(import('./run-disposable-integration')).rejects.toBe(collision);
+    expect(mocked.writeFile).toHaveBeenCalledOnce();
+    expect(mocked.writeFile.mock.calls[0][2]).toEqual({ flag: 'wx', mode: 0o600 });
+    expect(mocked.run).not.toHaveBeenCalled();
+    expect(messages).toEqual([]);
+    expect(vi.getTimerCount()).toBe(0);
   });
 });
