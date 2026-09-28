@@ -11,11 +11,12 @@ if (!pnpmEntrypoint) {
   process.exit(1);
 }
 
-function run(label, args) {
+function run(label, args, controlPlane = false) {
   console.log(`\n== ${label} ==`);
   const result = spawnSync(process.execPath, [pnpmEntrypoint, ...args], {
     cwd: root,
-    env: process.env,
+    env: controlPlane ? process.env : Object.fromEntries(Object.entries(process.env)
+      .filter(([name]) => name !== 'NEON_TEST_API_KEY')),
     stdio: 'inherit',
     windowsHide: true,
   });
@@ -34,13 +35,13 @@ run('Fast Check', ['verify']);
 run('Chromium browser tests', ['test:browser']);
 run('Synthetic account browser tests', ['test:browser:accounts']);
 
-const integrationEnvironment = resolve(root, 'apps/site/.env.integration.local');
-if (existsSync(integrationEnvironment)) {
-  console.log('\nThe isolated integration environment exists. The repository harness will now recheck every authorization, identity, role, TLS, sentinel, and production-denylist guard before any reset.');
-  run('Isolated Neon integration tests', ['test:integration']);
+const integrationEnvironment = resolve(root, 'apps/site/.env.integration-control.local');
+if (existsSync(integrationEnvironment) || process.env.NEON_TEST_API_KEY?.trim()) {
+  console.log('\nDisposable integration configuration is present. The supervisor will verify the test-only project and parent, create a fresh branch, and recheck every database guard before any reset.');
+  run('Disposable Neon integration tests', ['test:integration'], true);
 } else {
-  console.log('\nIsolated Neon integration tests: SKIPPED / UNVERIFIED');
-  console.log('apps/site/.env.integration.local is not configured. No database command was run.');
+  console.log('\nDisposable Neon integration tests: SKIPPED / UNVERIFIED');
+  console.log('Configure apps/site/.env.integration-control.local or the secured NEON_TEST_* environment. Legacy database URL files do not enable this gate. No database command was run.');
 }
 
 console.log('\nFull Verify completed.');

@@ -87,7 +87,10 @@ export function createIntegrationDatabaseOwnership() {
         await lease.verify(); return lease.session;
       }
       acquiring = true;
-      const pool = new Pool({ connectionString: environment.ownerDatabaseUrl, max: 1 });
+      // Bound admission, migrations and cleanup below the integration hook
+      // deadline so a stalled owner cannot indefinitely delay branch deletion.
+      const pool = new Pool({ connectionString: environment.ownerDatabaseUrl, max: 1,
+        connectionTimeoutMillis: 10_000, statement_timeout: 60_000, query_timeout: 75_000 });
       const onLoss = () => { lost = true; };
       pool.on('error', onLoss);
       let client: PoolClient | undefined;

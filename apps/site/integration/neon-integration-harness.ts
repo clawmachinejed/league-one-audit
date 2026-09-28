@@ -12,6 +12,13 @@ const COMMENT_PURPOSE = 'league-one-projection-store-integration';
 const ENV_FILE_MARKER = '.env.integration.local';
 const SAFE_NAME_PATTERN = /(?:^|[-_])(integration|test)(?:$|[-_])/iu;
 const FORBIDDEN_NAMES = new Set(['main', 'neondb', 'postgres', 'prod', 'production']);
+// These branches/databases retain production or pilot data. Every caller,
+// including legacy migration/capacity wrappers, denies them independently of
+// caller-supplied configuration or a previously valid integration sentinel.
+const BUILTIN_PROTECTED_IDENTITIES = new Set([
+  'br-rapid-boat-avgeevye', 'br-still-breeze-avaibago',
+  'projection_refactor_test', 'account_reset_integration_test',
+]);
 const databaseOwnership = createIntegrationDatabaseOwnership();
 
 function delegatedOwner(explicit: string | undefined): string | undefined {
@@ -39,7 +46,9 @@ type DatabaseComment = Readonly<{
 
 type ConnectionIdentity = Readonly<{
   database: string;
+  branch: string;
   user: string;
+  sessionUser: string;
   comment: DatabaseComment;
 }>;
 
@@ -179,6 +188,8 @@ async function connectionIdentity(pool: Pool, label: string): Promise<Connection
     const result = await pool.query(`
       SELECT current_database() AS database_name,
         current_user AS database_user,
+        session_user AS session_user,
+        current_setting('neon.branch_id', true) AS branch_id,
         shobj_description(database.oid, 'pg_database') AS database_comment
       FROM pg_database database
       WHERE database.datname = current_database()
@@ -188,19 +199,26 @@ async function connectionIdentity(pool: Pool, label: string): Promise<Connection
     throw new Error(`${label} could not verify the isolated database identity.`);
   }
   const row = rows[0];
-  if (!row || typeof row.database_name !== 'string' || typeof row.database_user !== 'string') {
+  if (!row || typeof row.database_name !== 'string' || typeof row.database_user !== 'string'
+    || typeof row.session_user !== 'string' || typeof row.branch_id !== 'string') {
     throw new Error(`${label} did not return a database identity.`);
   }
   return {
     database: row.database_name,
+    branch: row.branch_id,
     user: row.database_user,
+    sessionUser: row.session_user,
     comment: parseDatabaseComment(row.database_comment),
   };
 }
 
 function assertNotDenied(env: IntegrationEnvironment, values: readonly string[]): void {
   for (const value of values) {
-    if (env.productionDenylist.has(value.toLowerCase())) {
+    const normalized = value.toLowerCase();
+    if (BUILTIN_PROTECTED_IDENTITIES.has(normalized)) {
+      throw new Error('The integration target matches a protected production or retained identity.');
+    }
+    if (env.productionDenylist.has(normalized)) {
       throw new Error('The integration target matches the production denylist.');
     }
   }
@@ -208,11 +226,33 @@ function assertNotDenied(env: IntegrationEnvironment, values: readonly string[])
 
 function assertComment(env: IntegrationEnvironment, identity: ConnectionIdentity): void {
   if (identity.database !== env.expectedDatabase
+    || identity.branch !== env.expectedBranchId
     || identity.comment.purpose !== COMMENT_PURPOSE
     || identity.comment.sentinel !== env.databaseSentinel
     || identity.comment.branchId !== env.expectedBranchId
     || identity.comment.branchName !== env.expectedBranchName) {
     throw new Error('The database-reported integration identity does not match the expected sentinels.');
+  }
+}
+
+async function assertRestrictedAuthRole(pool: Pool): Promise<void> {
+  let rows: readonly QueryRow[];
+  try {
+    const result = await pool.query(`
+      SELECT role.rolcanlogin, role.rolsuper, role.rolcreatedb, role.rolcreaterole,
+        role.rolreplication, role.rolinherit, role.rolbypassrls,
+        EXISTS (SELECT 1 FROM pg_auth_members WHERE member = role.oid) AS has_memberships
+      FROM pg_roles role WHERE role.rolname = current_user
+    `);
+    rows = result.rows as QueryRow[];
+  } catch {
+    throw new Error('The auth connection could not verify its restricted role privileges.');
+  }
+  const role = rows[0];
+  if (rows.length !== 1 || role?.rolcanlogin !== true
+    || ['rolsuper', 'rolcreatedb', 'rolcreaterole', 'rolreplication', 'rolinherit',
+      'rolbypassrls', 'has_memberships'].some(flag => role[flag] !== false)) {
+    throw new Error('Integration auth must be an unprivileged standalone LOGIN role.');
   }
 }
 
@@ -231,6 +271,19 @@ export async function assertSafeIntegrationDatabase(
 ): Promise<void> {
   const ownerUrl = parseDatabaseUrl(env.ownerDatabaseUrl, 'Integration owner URL');
   const runtimeUrl = parseDatabaseUrl(env.runtimeDatabaseUrl, 'Integration runtime URL');
+  // The standard runner requires this credential. Historical migration and
+  // capacity callers may omit it, but a configured credential must always pass
+  // the same pre-reset identity checks, even before migration 021 creates tables.
+  const authDatabaseUrl = process.env.AUTH_RESET_INTEGRATION_DATABASE_URL?.trim();
+  if (authDatabaseUrl) {
+    const authUrl = parseDatabaseUrl(authDatabaseUrl, 'Integration auth URL');
+    const parsed = new URL(authDatabaseUrl);
+    if (authUrl.target !== ownerUrl.target || authUrl.user !== 'league_one_auth'
+      || !parsed.password || parsed.hash || (parsed.port && parsed.port !== '5432')
+      || !['require', 'verify-ca', 'verify-full'].includes(parsed.searchParams.get('sslmode')?.toLowerCase() ?? '')) {
+      throw new Error('Integration auth URL must use the restricted role on the same guarded database.');
+    }
+  }
   const expectedDatabase = env.expectedDatabase.toLowerCase();
   const expectedBranchName = env.expectedBranchName.toLowerCase();
 
@@ -260,28 +313,41 @@ export async function assertSafeIntegrationDatabase(
     }
   }
 
-  const ownerPool = new Pool({ connectionString: env.ownerDatabaseUrl, max: 1 });
-  const runtimePool = new Pool({ connectionString: env.runtimeDatabaseUrl, max: 1 });
+  // Failed connection/identity probes must leave time for the supervisor's
+  // branch-deletion fallback. The server deadline precedes the client deadline.
+  const preflightLimits = { max: 1, connectionTimeoutMillis: 10_000,
+    statement_timeout: 15_000, query_timeout: 20_000 };
+  const ownerPool = new Pool({ connectionString: env.ownerDatabaseUrl, ...preflightLimits });
+  const runtimePool = new Pool({ connectionString: env.runtimeDatabaseUrl, ...preflightLimits });
+  const authPool = authDatabaseUrl ? new Pool({ connectionString: authDatabaseUrl, ...preflightLimits }) : undefined;
   try {
-    const [ownerIdentity, runtimeIdentity] = await Promise.all([
+    const [ownerIdentity, runtimeIdentity, authIdentity] = await Promise.all([
       connectionIdentity(ownerPool, 'The owner connection'),
       connectionIdentity(runtimePool, 'The runtime connection'),
+      authPool ? connectionIdentity(authPool, 'The auth connection') : undefined,
     ]);
+    for (const identity of [ownerIdentity, runtimeIdentity, authIdentity]) {
+      if (identity) assertNotDenied(env, [identity.database, identity.branch,
+        identity.comment.branchId, identity.comment.branchName]);
+    }
     assertComment(env, ownerIdentity);
     assertComment(env, runtimeIdentity);
     if (ownerIdentity.database !== runtimeIdentity.database
+      || ownerIdentity.user !== ownerUrl.user || ownerIdentity.sessionUser !== ownerUrl.user
       || ownerIdentity.user === runtimeIdentity.user
-      || runtimeIdentity.user !== 'league_one_runtime'
+      || runtimeIdentity.user !== 'league_one_runtime' || runtimeIdentity.sessionUser !== 'league_one_runtime'
       || JSON.stringify(ownerIdentity.comment) !== JSON.stringify(runtimeIdentity.comment)) {
       throw new Error('Owner and runtime sessions do not share the same isolated database identity.');
     }
-    assertNotDenied(env, [
-      ownerIdentity.database,
-      ownerIdentity.comment.branchId,
-      ownerIdentity.comment.branchName,
-    ]);
+    if (authIdentity && authPool) {
+      assertComment(env, authIdentity);
+      if (authIdentity.user !== 'league_one_auth' || authIdentity.sessionUser !== 'league_one_auth') {
+        throw new Error('The auth connection did not authenticate as the restricted league_one_auth role.');
+      }
+      await assertRestrictedAuthRole(authPool);
+    }
   } finally {
-    await Promise.allSettled([ownerPool.end(), runtimePool.end()]);
+    await Promise.allSettled([ownerPool.end(), runtimePool.end(), authPool?.end()]);
   }
 }
 
