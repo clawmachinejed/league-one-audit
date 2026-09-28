@@ -246,7 +246,22 @@ Each request resolves the actor server-side, checks a current grant/association,
 
 Public Sleeper links remain user-asserted and nonexclusive. Guest team selection remains a display preference. Following, managing, and being allowed to read a league stay distinct.
 
-## 9. Required contract cases
+## 9. Adding data and handling provider changes
+
+Start a collection change with a user need and a screen-map entry: field meaning, authority, period, units, required coverage, missing-data behavior and consuming feature. A provider offering a field is not by itself a reason to collect it. Check that access, retention and request budgets cover the addition.
+
+| Change | Required handling | Acceptance evidence |
+| --- | --- | --- |
+| Add a field for a new feature | Extend the canonical record and reader contract compatibly where possible; map each implemented provider independently. Distinguish not-yet-collected, not-provided and unsupported states. Deploy readers that tolerate absence before requiring the field; version incompatible contracts explicitly. | Old stored records and existing readers still work; new records render correctly; a provider lacking the field produces an explicit limitation. |
+| Retrieve past values for the new field | Normalize retained evidence under a new version when it contains the field; otherwise use bounded ordinary collection only where the provider supplies historical evidence. | Replay retains original observation age and lineage. Unavailable history remains missing; today's value never becomes an invented past fact. |
+| Provider renames/removes a field or changes its format/meaning | Update that provider's adapter, validation and mapping fixtures. Keep canonical meaning stable when the source still supports it. A genuine new meaning requires a versioned canonical change and affected-feature reassessment. | Old/new response examples have explicit expected mappings. Invalid or ambiguous responses cannot replace accepted facts; unrelated fields/providers remain usable. |
+| Provider corrects an official fact | Accept a new source revision under ordering and scope rules; refresh affected official read models and eligible dependent calculations through the existing publication path. | A corrected score is reflected without changing unrelated periods, inventing adjustment reasons, rewriting frozen baselines or mutating immutable published snapshots. New derived revisions preserve lineage. |
+
+Detect unexpected source shapes through runtime validation and scoped diagnostics, including missing required fields and unknown enum values. Tolerate harmless additive fields without automatically exposing or depending on them. Syntactically valid semantic changes also require maintained provider examples and pilot comparisons; schema validation alone cannot prove meaning. Use authorized last-good data only within the resource's freshness policy, otherwise show unavailable. Track the affected adapter/resource and provide an operator-visible failure reason without logging private payloads or credentials. Recovery reuses bounded collection/replay and the same fenced writer.
+
+Package A must include explicit fixtures for additive-field compatibility, provider format/meaning changes and official corrections. These requirements are not implemented tests in this documentation PR.
+
+## 10. Required contract cases
 
 Implementation qualification covers overlapping provider/league IDs; annual renewal; co-managers/replacement; unresolved player/defense; multiweek contest versus NFL week; empty slot versus missing lineup; empty complete collection versus failed/paginated collection; cached age versus verification; past correction; partial scan without deletion; duplicate/out-of-order capture; settings with unknown effective dates; optional scoring profile; official adjustment without invented cause; audience collisions; revocation during fetch/read/publish; partial provider failure; and unsupported analytics with readable official facts.
 

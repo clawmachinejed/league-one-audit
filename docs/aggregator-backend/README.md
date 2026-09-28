@@ -80,7 +80,22 @@ Source evidence, official records, and calculated outputs have different authori
 | D: second-provider pilot | Approved Yahoo connection, real NFL samples, resource adapters, shared views | Documentation/live mapping reconciled; unsupported fields explicit; privacy qualification |
 | E: growth qualification | Bounded work/continuation and measured read/collection budgets | Outage/correction/replay recovery; capacity, freshness, latency, retention and cost targets |
 
-Access qualification and representative fixtures can overlap A/B. Real second-provider feedback should arrive before broad schema/reader cutover. Enrollment expansion waits for the applicable access and growth gates.
+Begin access qualification and representative fixture work alongside A/B. Reconcile real second-provider feedback before broad schema/reader cutover; do not defer discovery of source differences until package D. If authorized access is not yet available, contract work may proceed using documented specimens, but that qualification gate stays open. Enrollment expansion waits for the applicable access and growth gates.
+
+## Decisions and evidence required during implementation
+
+The documented design accounts for current screen values; it does not establish every launch decision or prove a live integration. The following items remain open until an implementation task records the stated evidence. They do not all block starting package A.
+
+| Item | Required evidence or decision | Deadline |
+| --- | --- | --- |
+| Initial support boundaries | Provider/league-format/feature matrix covering official viewing separately from analytics; supported, limited, unavailable or unverified outcomes and their user-visible behavior. Preserve current Sleeper behavior. | Before implementing the affected new-provider feature/presenter; before admitting that format. |
+| Real second-provider data | Authorized, sanitized current-season examples covering account/team relationships, settings, current/past lineups, scores/results and transaction coverage; record differences from documentation. | Start alongside A/B; reconcile before broad schema/reader cutover and before connector activation. |
+| Freshness expectations | Resource-specific target age, stale-display limit, refresh priority and request budget for live scores, rosters, transactions and history. Record measured behavior and the user-visible stale/unavailable policy. | Before finalizing collection schedules or new-provider reader freshness policies; no existing cadence change is authorized here. |
+| Data evolution | Executable old/new fixtures for adding fields, provider format/meaning changes and official corrections, following [the change contract](contracts.md#9-adding-data-and-handling-provider-changes). | Package A, extended by each affected adapter and reader implementation. |
+| Migration comparison | Per-screen expected values and provenance for normal, partial, stale, corrected and rollover cases; stable reason codes for missing data. No unexplained official-value or existing-projection differences; any numeric tolerance must be field-specific and justified. | Before switching each resource/reader cohort. |
+| Access and retention | Established provider access authority and applicable storage/display conditions; tested audience isolation, revocation and retention handling. | Before collecting private pilot data under that authority; full activation qualification before enabling the provider. |
+
+Maintain these decisions and fixture references with the screen map as features change. Adding a new feature also requires checking whether its information needs extend the bounded collection catalogue; the current inventory is not a promise to cover every future feature.
 
 ## Implementation review checklist
 
