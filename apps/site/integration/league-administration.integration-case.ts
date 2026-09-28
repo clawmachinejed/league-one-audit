@@ -1,10 +1,12 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import type { DatabaseRow, DatabaseStatement } from '../lib/database';
 import type { AdministrationEnvelope, AdministrationFamily, JsonValue } from '../lib/league-administration/contracts';
 import { normalizeAdministrationObservation } from '../lib/league-administration/normalize';
 import { createLeagueAdministrationMethods } from '../lib/league-administration/neon/administration';
 import { createProjectionStore } from '../lib/projection-store';
 import { compatibleScoringRulesHash } from '../lib/projections/shared/revision-compatibility';
+import { writeIntegrationArtifact } from './integration-artifacts';
 import { createIndependentDatabase, integrationEnvironment, ownerQuery, runtimeQuery,
   type IndependentDatabase } from './neon-integration-harness';
 
@@ -303,6 +305,126 @@ describe.sequential('portable league administration against the isolated Neon da
         reserve: { availability: 'missing', value: null }, taxi: { availability: 'missing', value: null } } }],
       featureSupport: { officialRoster: 'limited' },
     } });
+  });
+
+  it('keeps roster aliases bound to persisted teams after reordering and measures the actual retained read', async () => {
+    const f = await fixture();
+    const roster = [
+      { roster_id: 2, players: ['player-two'], reserve: [], taxi: [] },
+      { roster_id: 7, players: ['player-seven'], reserve: [], taxi: [] },
+    ];
+    const firstInput = normalizeAdministrationObservation(envelope(f, 1, roster, 'rosters'));
+    const first = await administration.recordObservation(firstInput);
+    const readInput = { ...firstInput.envelope.scope, family: 'rosters' as const, week: null };
+    const firstRead = await administration.readSource(readInput);
+    if (firstRead.status !== 'available' || firstRead.commonRoster?.status !== 'available') throw new Error('Expected initial roster.');
+    const identities = await ownerQuery(`SELECT external_roster_id,id::text FROM league_season_teams
+      WHERE league_season_id=$1 AND provider='sleeper' AND external_league_id=$2 ORDER BY external_roster_id`,
+    [f.leagueSeasonId, f.externalLeagueId]);
+    const idsByAlias = Object.fromEntries(identities.map(row => [String(row.external_roster_id), row.id]));
+    expect(identities).toHaveLength(2);
+    expect(Object.fromEntries(firstRead.commonRoster.teams.map(team => [team.sourceTeam.nativeId, team.seasonTeamId])))
+      .toEqual(idsByAlias);
+    const reorderedInput = normalizeAdministrationObservation(envelope(f, 2, [...roster].reverse(), 'rosters'));
+    expect(reorderedInput.contentHash).not.toBe(firstInput.contentHash);
+    expect(reorderedInput.semanticHash).toBe(firstInput.semanticHash);
+    const reordered = await administration.recordObservation(reorderedInput);
+    expect(reordered).toMatchObject({ status: 'unchanged', generation: first.generation });
+    expect(reordered.observationId).not.toBe(first.observationId);
+
+    // Instrument the existing SELECT, without copying SQL or measuring fixture writes.
+    const statements: DatabaseStatement[] = [];
+    const samples: { wallTimeMs: number; rows: number; decodedResultBytes: number }[] = [];
+    const measured = createLeagueAdministrationMethods({ enabled: true,
+      async query<Row extends DatabaseRow>(statement: string, parameters: readonly unknown[] = []) {
+        expect(statement).toMatch(/^\/\* league-administration:read-source \*\/ SELECT/u);
+        statements.push({ statement, parameters });
+        const started = performance.now();
+        const rows = await connection.database.query<Row>(statement, parameters);
+        samples.push({ wallTimeMs: performance.now() - started, rows: rows.length,
+          decodedResultBytes: Buffer.byteLength(JSON.stringify(rows), 'utf8') });
+        return rows;
+      },
+    });
+    for (let index = 0; index < 3; index += 1) {
+      const read = await measured.readSource(readInput);
+      if (read.status !== 'available' || read.commonRoster?.status !== 'available') throw new Error('Expected reordered roster.');
+      expect(read).toMatchObject({ observationId: reordered.observationId, generation: first.generation,
+        envelope: { payload: [...roster].reverse() } });
+      expect(read.commonRoster.lineage.rawContentRef).not.toBe(firstRead.commonRoster.lineage.rawContentRef);
+      expect(Object.fromEntries(read.commonRoster.teams.map(team => [team.sourceTeam.nativeId, team.seasonTeamId])))
+        .toEqual(idsByAlias);
+      expect(Object.fromEntries(read.commonRoster.teams.map(team => [team.sourceTeam.nativeId,
+        team.groups.roster.value?.map(member => member.sourceEntity.nativeId)])))
+        .toEqual({ '2': ['player-two'], '7': ['player-seven'] });
+    }
+    expect(statements).toHaveLength(3);
+    expect(statements.every(query => query.statement === statements[0].statement)).toBe(true);
+    expect(samples.every(sample => sample.rows === 1)).toBe(true);
+    const query = statements[0];
+    const plan = await connection.database.query(`EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ${query.statement}`, query.parameters);
+    expect(plan).toHaveLength(1);
+    await writeIntegrationArtifact('retained-roster-read.json', {
+      schemaVersion: 'retained-roster-read-measurement-v1',
+      scope: 'synthetic two-team fixture in the supervised disposable database',
+      role: 'league_one_runtime', sampleCount: samples.length, fixtureTeamCount: roster.length,
+      statementSha256: createHash('sha256').update(query.statement).digest('hex'),
+      statementsPerRead: 1, explainExecutions: 1, samples, plan,
+      limitations: ['Small functional fixture; not fleet capacity or p95/p99 evidence.',
+        'Wall time includes database transport; plan follows three reads and may use warmed buffers.',
+        'No before/after comparison or production cost inference.'],
+    });
+  });
+
+  it('isolates the same native roster number across an owner remap and annual continuation', async () => {
+    const f = await fixture();
+    const roster = [{ roster_id: 1, players: ['synthetic-player'], reserve: [], taxi: [] }];
+    const originalInput = envelope(f, 1, roster, 'rosters');
+    await administration.recordObservation(normalizeAdministrationObservation(originalInput));
+    const originalRead = await administration.readSource({ ...originalInput.scope, family: 'rosters', week: null });
+    if (originalRead.status !== 'available' || originalRead.commonRoster?.status !== 'available') throw new Error('Expected original roster.');
+    const remapped = { ...f, externalLeagueId: `remapped-${f.externalLeagueId}` };
+    await ownerQuery(`SELECT public.remap_league_source_connection($1,'sleeper',$2,$3,'synthetic source correction')`,
+      [f.leagueSeasonId, f.externalLeagueId, remapped.externalLeagueId]);
+    expect(await administration.readSource({ ...originalInput.scope, family: 'rosters', week: null }))
+      .toMatchObject({ status: 'conflict' });
+    const remappedInput = envelope(remapped, 2, roster, 'rosters');
+    await administration.recordObservation(normalizeAdministrationObservation(remappedInput));
+    const remappedRead = await administration.readSource({ ...remappedInput.scope, family: 'rosters', week: null });
+    if (remappedRead.status !== 'available' || remappedRead.commonRoster?.status !== 'available') throw new Error('Expected remapped roster.');
+    const annualExternalId = `2151-${remapped.externalLeagueId}`;
+    const annual = await ownerQuery(`SELECT public.connect_league_administration_season($1,2151::smallint,$2,$3,$4,$5::jsonb,
+      'synthetic annual continuity')::text AS id`,
+    [f.leagueId, remapped.externalLeagueId, annualExternalId, compatibleScoringRulesHash(rules), JSON.stringify(rules)]);
+    const annualInput = { ...envelope(f, 3, roster, 'rosters'),
+      scope: { ...originalInput.scope, season: 2151, externalLeagueId: annualExternalId } };
+    await administration.recordObservation(normalizeAdministrationObservation(annualInput));
+    const annualRead = await administration.readSource({ ...annualInput.scope, family: 'rosters', week: null });
+    if (annualRead.status !== 'available' || annualRead.commonRoster?.status !== 'available') throw new Error('Expected annual roster.');
+    expect(remappedRead.commonRoster.scope).toMatchObject({ season: 2150, leagueSeasonId: f.leagueSeasonId, externalLeagueId: remapped.externalLeagueId });
+    expect(annualRead.commonRoster.scope).toMatchObject({ season: 2151, leagueSeasonId: annual[0].id, externalLeagueId: annualExternalId });
+    const teams = [originalRead.commonRoster, remappedRead.commonRoster, annualRead.commonRoster].map(value => value.teams[0]);
+    expect(teams.map(team => team.sourceTeam.nativeId)).toEqual(['1', '1', '1']);
+    expect(new Set(teams.map(team => team.seasonTeamId)).size).toBe(3);
+    expect(new Set(teams.map(team => team.sourceTeam.nativeNamespace)).size).toBe(3);
+    expect(await administration.readSource({ ...remappedInput.scope, family: 'rosters', week: null })).toEqual(remappedRead);
+    expect(await ownerQuery(`SELECT entry.team_id::text,content.payload FROM league_administration_team_entries entry
+      JOIN league_administration_contents content ON content.id=entry.content_id WHERE content.id=$1`,
+    [originalRead.commonRoster.lineage.rawContentRef])).toEqual([{ team_id: teams[0].seasonTeamId, payload: roster }]);
+  });
+
+  it('withholds only the common projection when the trusted fixture writer retains a mismatched hash', async () => {
+    const f = await fixture();
+    const roster = [{ roster_id: 1, players: ['synthetic-player'], reserve: [], taxi: [] }];
+    const input = normalizeAdministrationObservation(envelope(f, 1, roster, 'rosters'));
+    const mismatchedHash = '0'.repeat(64);
+    expect(input.contentHash).not.toBe(mismatchedHash);
+    // Exercise the existing trusted writer contract; do not edit immutable tables or bypass triggers.
+    const stored = await administration.recordObservation({ ...input, contentHash: mismatchedHash });
+    expect(stored.status).toBe('changed');
+    expect(await administration.readSource({ ...input.envelope.scope, family: 'rosters', week: null }))
+      .toMatchObject({ status: 'available', observationId: stored.observationId, envelope: { payload: roster },
+        commonRoster: { status: 'unavailable', reason: 'retained_content_mismatch' } });
   });
 
   it('exposes the inherited completion-time ordering limit for conflicting overlapping roster requests', async () => {
