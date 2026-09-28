@@ -57,6 +57,7 @@ The TypeScript notation below fixes semantics, not runtime exports. `Id` is an o
 
 ```ts
 type SourceScope = {
+  kind: 'enrolled-resource';
   connectionId: Id;
   leagueSeasonId: Id;
   family: ResourceFamily;
@@ -64,6 +65,19 @@ type SourceScope = {
   scoringPeriodId: Id | null;
   audienceId: Id; // server-resolved visibility partition
   coverageSpecId: Id; // immutable requested interval, fields, entities and filters
+};
+
+type DiscoveryScope = {
+  kind: 'discovery';
+  provider: ProviderCode;
+  accessContextId: Id; // server-resolved public access or private grant context
+  sourceLeagueKey: string; // opaque candidate key; no enrollment required
+  sourceSeasonNamespace: string;
+  sport: 'nfl';
+  season: number;
+  leagueSeasonId: Id | null; // null until an internal identity is proved
+  audienceId: Id;
+  coverageSpecId: Id;
 };
 
 type SourceObservation<T> = {
@@ -113,7 +127,7 @@ type AcceptedResource = {
 };
 ```
 
-This league-resource scope applies after enrollment identity resolution. Discovery is scoped by provider connection/grant plus requested sport/season with a nullable internal league-season until proven. Shared NFL catalogue/projection/game-state resources retain their existing sport/period/feed scope, outside fantasy league identity. They are joined through explicit references, not forced into a fake league scope.
+`SourceScope` and the observation/acceptance envelopes above apply after enrollment identity resolution. Pre-enrollment compatibility assessments use `DiscoveryScope`, keyed by provider, native candidate identity, requested sport/season, access context and coverage. Discovery captures retain their own observation IDs and provenance without requiring an official source connection or source-mapping revision. A public access context grants no private permission. Resolving an enrolled identity explicitly links discovery evidence to `SourceScope`; it never invents an ID or enrolls a league merely to assess compatibility. Shared NFL catalogue/projection/game-state resources retain their existing sport/period/feed scope, outside fantasy league identity. They are joined through explicit references, not forced into a fake league scope.
 
 The immutable coverage specification identifies requested periods/interval boundaries (including inclusive/exclusive semantics), entity selection, field set and filters. Fetches, scan continuations, accepted heads and jobs reference the same specification; a seven-day transaction request cannot replace a season-wide collection. Observed coverage reports what was actually returned against that request. Pagination cursors belong to a scan, not to a new resource scope. Replay uses the captured source-mapping revision, never today's connection mapping. Accepted-head identity also includes the canonical normalizer version, allowing old and new interpretations to coexist during comparison without overwriting each other.
 
@@ -181,7 +195,7 @@ type FieldGroup<T> = {
 type FeatureAssessment = {
   feature: FeatureId;
   support: Support;
-  scope: SourceScope;
+  scope: SourceScope | DiscoveryScope;
   configurationVersionId: Id | null;
   requiredInputs: string[];
   missingInputs: string[];
@@ -264,5 +278,7 @@ Package A must include explicit fixtures for additive-field compatibility, provi
 ## 10. Required contract cases
 
 Implementation qualification covers overlapping provider/league IDs; annual renewal; co-managers/replacement; unresolved player/defense; multiweek contest versus NFL week; empty slot versus missing lineup; empty complete collection versus failed/paginated collection; cached age versus verification; past correction; partial scan without deletion; duplicate/out-of-order capture; settings with unknown effective dates; optional scoring profile; official adjustment without invented cause; audience collisions; revocation during fetch/read/publish; partial provider failure; and unsupported analytics with readable official facts.
+
+Discovery fixtures must assess an unenrolled candidate with `leagueSeasonId: null` without creating league/source-connection records, then prove explicit evidence linkage after enrollment. Discovery support is provisional and must be reassessed against accepted configuration and current access before activating enrolled features.
 
 The [provider specimens](provider-mapping.md) are documentation-derived mapping evidence. The [migration gates](migration.md) determine when implemented contracts may serve production readers.
