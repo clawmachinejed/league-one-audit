@@ -381,8 +381,9 @@ BEGIN
   -- retains its distinct raw evidence and observation without a semantic change.
   -- League operational counters still advance raw evidence independently of settings.
   IF result_status='unchanged' AND head.read_conflict IS NULL AND old_content.id=content_row.id
-    AND (NOT exact_mapping OR EXISTS (SELECT 1 FROM public.league_administration_observation_mappings
-      WHERE observation_id=head.accepted_observation_id AND source_mapping_revision_id=mapping_revision_id)) THEN
+    AND (NOT exact_mapping OR EXISTS (SELECT 1 FROM public.league_administration_observation_mappings observed_mapping
+      WHERE observed_mapping.observation_id=head.accepted_observation_id
+        AND observed_mapping.source_mapping_revision_id=mapping_revision_id)) THEN
     IF fence IS NOT NULL AND (NOT EXISTS (SELECT 1 FROM public.projection_jobs WHERE job_key=fence->>'jobKey'
       AND lease_until>clock_timestamp()) OR (fence->>'deadlineAt')::timestamptz<=clock_timestamp()) THEN
       RAISE EXCEPTION 'league administration writer fence expired'; END IF;
