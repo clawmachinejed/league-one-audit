@@ -5,7 +5,7 @@ import { createLeagueRegistry } from '../projections/adapters/configuration/leag
 import { externalLeagueRef, providerKey } from '../projections/shared/provider-identity';
 
 const mock = vi.hoisted(() => ({
-  store: { enabled: true, listEnrollments: vi.fn(), listEnrollmentInventory: vi.fn(), readEnrollment: vi.fn(), recordObservation: vi.fn() },
+  store: { enabled: true, listEnrollments: vi.fn(), listEnrollmentInventory: vi.fn(), readEnrollment: vi.fn(), recordObservation: vi.fn(), readSourceMapping: vi.fn() },
   jobs: { enabled: true, readDatabaseIdentity: vi.fn(), readAllPlayerLeagueProfiles: vi.fn(),
     acquireJob: vi.fn(), completeJob: vi.fn(), failJob: vi.fn(), readLeagueLineupAuthorities: vi.fn() },
   core: vi.fn(), matchup: vi.fn(), transactions: vi.fn(), metadata: vi.fn(), capture: vi.fn(),
@@ -14,7 +14,7 @@ vi.mock('server-only', () => ({}));
 vi.mock('../database', () => ({ getDatabase: () => ({ enabled: true }), withDatabaseAbortSignal: (database: unknown) => database }));
 vi.mock('../projection-store', () => ({ createProjectionStore: () => mock.jobs }));
 vi.mock('./store', () => ({ createLeagueAdministrationStore: () => mock.store }));
-vi.mock('./runtime', () => ({ recordCapturedAdministration: mock.capture }));
+vi.mock('./runtime', async original => ({ ...await original<object>(), recordCapturedAdministration: mock.capture }));
 vi.mock('../sleeper', () => ({ getOfficialLeagueAdministration: mock.core,
   getOfficialMatchupObservation: mock.matchup, getOfficialTransactionWeek: mock.transactions,
   getOfficialAdministrationMetadata: mock.metadata }));
@@ -31,6 +31,7 @@ const registry = createLeagueRegistry([{ key: 'example', displayName: 'Example',
 
 beforeEach(() => {
   vi.resetAllMocks();
+  mock.store.readSourceMapping.mockResolvedValue(null);
   mock.store.listEnrollments.mockResolvedValue([scope]);
   mock.store.listEnrollmentInventory.mockImplementation(async () => ({ entries: (await mock.store.listEnrollments()).map((enrollment: typeof scope) => ({
     status: 'ready', intended: enrollment, enrollment,
@@ -57,6 +58,30 @@ beforeEach(() => {
 });
 
 describe('administration operator and scheduled boundary', () => {
+  it('awaits prefetch mapping in the real operator, passes the same token into the writer, and stops before fetch on lookup failure', async () => {
+    const token = { connectionId: '11111111-1111-4111-8111-111111111111', leagueSeasonId: '22222222-2222-4222-8222-222222222222',
+      revisionId: '33333333-3333-4333-8333-333333333333', generation: 1,
+      scope: { leagueKey: 'example', provider: 'sleeper', externalLeagueId: 'external', season: 2026 } };
+    const runtime = await vi.importActual<typeof import('./runtime')>('./runtime');
+    mock.capture.mockImplementation(runtime.recordCapturedAdministration);
+    mock.store.recordObservation.mockResolvedValue({ status: 'changed' });
+    let release!: (value: typeof token) => void;
+    let entered!: () => void;
+    const pending = new Promise<typeof token>(resolve => { release = resolve; });
+    const started = new Promise<void>(resolve => { entered = resolve; });
+    mock.store.readSourceMapping.mockImplementation(() => { entered(); return pending; });
+    const operation = runAdministrationOperator({ ...input, mode: 'write' });
+    await started;
+    expect(mock.core).not.toHaveBeenCalled();
+    release(token);
+    expect(await operation).toMatchObject({ status: 'completed' });
+    const rosterWrites = mock.store.recordObservation.mock.calls.filter(([value]) => value.envelope.family === 'rosters');
+    expect(rosterWrites).toHaveLength(1); expect(rosterWrites[0][2]).toBe(token);
+    mock.core.mockClear(); mock.store.recordObservation.mockClear();
+    mock.store.readSourceMapping.mockRejectedValue(new Error('mapping unavailable'));
+    expect(await runAdministrationOperator({ ...input, mode: 'write' })).toMatchObject({ status: 'failed' });
+    expect(mock.core).not.toHaveBeenCalled(); expect(mock.store.recordObservation).not.toHaveBeenCalled();
+  });
   it('resolves a targeted league without loading or validating unrelated registrations', async () => {
     mock.store.listEnrollmentInventory.mockRejectedValue(new Error('unrelated registration is unavailable'));
     expect(await runAdministrationOperator({ ...input, league: 'example' })).toMatchObject({ status: 'completed', leagues: 1 });

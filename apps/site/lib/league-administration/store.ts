@@ -13,6 +13,7 @@ export function createLeagueAdministrationStore(database: Database): LeagueAdmin
     enabled: false,
     // Disabled stores deliberately do not inspect inputs or construct a client.
     recordObservation: async () => ({ status: 'disabled' }),
+    readSourceMapping: async () => null,
     readSource: async () => ({ status: 'disabled' }),
     readSourceByConnection: async () => ({ status: 'disabled' }),
     listEnrollmentInventory: async () => ({ entries: [] }),

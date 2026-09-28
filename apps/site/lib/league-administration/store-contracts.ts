@@ -1,6 +1,7 @@
 import type { AdministrationEnvelope, AdministrationFamily, AdministrationScope,
   NormalizedAdministrationObservation } from './contracts';
 import type { RetainedRosterProjection } from '../aggregator/roster-bridge';
+import type { AdministrationSourceMapping } from './source-mapping';
 
 export type AdministrationReadInput = AdministrationScope & Readonly<{
   family: AdministrationFamily; week: number | null;
@@ -39,7 +40,9 @@ export type AdministrationWriteFence = Readonly<{
 }>;
 export type LeagueAdministrationStore = Readonly<{
   enabled: boolean;
-  recordObservation: (input: NormalizedAdministrationObservation, fence?: AdministrationWriteFence) => Promise<AdministrationWriteResult>;
+  recordObservation: (input: NormalizedAdministrationObservation, fence?: AdministrationWriteFence,
+    mapping?: AdministrationSourceMapping) => Promise<AdministrationWriteResult>;
+  readSourceMapping: (externalLeagueId: string) => Promise<AdministrationSourceMapping | null>;
   readSource: (input: AdministrationReadInput) => Promise<LeagueAdministrationStoreRead>;
   readSourceByConnection: (input: AdministrationConnectionReadInput) => Promise<LeagueAdministrationStoreRead>;
   /** Every intended membership is retained, including incomplete registrations. */

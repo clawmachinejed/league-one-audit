@@ -1,0 +1,51 @@
+# Package 2: roster mapping revisions
+
+This slice adds durable mapping identity and an in-flight remap fence to the existing public Sleeper roster capture. It authors migration `026_source_mapping_revisions.sql`; it does not apply it to production or complete v2 acceptance. The implementation retains one administration acquisition/normalization/writer path. Public routes, payloads, source fallback, provider requests, caching, scoring and projection algorithms are unchanged.
+
+## Identity and writer boundary
+
+Each existing `league_source_connections` row receives a stable UUID, positive mapping generation and current immutable revision. A remap retains that season's connection UUID and appends a new revision. Ordinary `registerLeagueSeason` updates to `connected_at` do not rotate identity. A new annual season receives a new connection UUID and revision; the existing owner continuity evidence is preserved, but this slice does not claim an exact cross-season predecessor revision. The old annual continuity API's external-ID check is not an ABA-safe predecessor-revision proof.
+
+The migration baselines **only the current connection**. Its baseline has no previous revision or historical-event link. All original source-history rows, observation/content IDs, team UUIDs, raw payloads, normalization hashes, scoring identities and snapshots remain intact. Ambiguous or tied old history is never sorted into invented revisions, and no old observation receives inferred linkage.
+
+The existing owner `remap_league_source_connection` remains compatible, including same-target no-op behavior. The new owner-only `revise_league_source_connection(season, provider, expectedRevision, target, evidence)` performs revision compare-and-swap, including same-source corrections. An exact retry against the immediate resulting revision returns that revision. Different evidence or a later revision conflicts. New owner work should use this revision API; the legacy external-ID API cannot prove an owner's stale A → B → A intent. Both serialize with the sole administration writer using the existing season advisory lock and connection row lock.
+
+The runtime's existing registration INSERT/UPDATE grants do not authorize mapping changes: INSERT guards allocate connection IDs and initial revisions; UPDATE guards preserve the ID and require an owner-created immutable successor revision in the same transaction. Runtime has SELECT-only access to revisions and observation links, and no EXECUTE on owner/trigger functions. PUBLIC execution is revoked; definer entry points retain the fixed search path and schema-owner ownership.
+
+## Acquisition and exact lineage
+
+Projection calendar/full-source composition, administration maintenance and write-mode operator resolve one enrolled mapping before their existing source load. The default mapping lookup has a three-second abort signal; maintenance/operator reuse their operation-scoped store. Missing/ambiguous mapping or database errors fail the collector before provider acquisition. This adds one scoped SQL round trip per capture batch, including each calendar/full-source invocation, without adding a Sleeper or Tank01 request. It does not establish fleet latency or capacity.
+
+The captured connection, season UUID, revision, generation and full source scope travel unchanged to the existing `record_league_administration_observation` for roster documents. Under the source lock, the writer compares every identity field and the current revision/generation **before** content insertion, replay, either unchanged shortcut or head updates. A same-source revision, ordinary remap, or remap away and back makes an older token fail atomically. There is no tokenless retry after failure. The existing changed-cache verification request retains the original token; a remap cannot substitute today's revision onto the earlier operation.
+
+Only a token-qualified **network** roster observation gains an immutable `league_administration_observation_mappings` link. Cache captures retain unknown source age and do not gain exact mapping lineage. Discovery/onboarding captures fetched before enrollment remain legacy; the next regular enrolled network capture can establish lineage. No extra onboarding fetch is introduced. The legacy tokenless entry point remains available for application rollback and must not be described as fenced.
+
+If an identical network response follows a legacy or differently linked accepted observation, the writer appends a new observation pointing to the existing immutable content and team IDs. It never attaches metadata to the old observation. Replays include the original token in their identity. A qualified unchanged response may reuse a previously qualified observation with the same revision, preserving that observation's original source times and the existing head verification policy.
+
+The link insertion guard and internal reader both validate observation/content/revision scope; links to another season, provider or source are invalid. Correct retained links remain valid after a later remap; historical revisions need not remain current. Application and database clocks are not compared to infer lineage. The trusted collector's pre-acquisition token and transactional generation check establish the mapping fence, not timestamps or content hashes.
+
+The internal bridge stays `legacy-retained-roster`, even when it exposes `sourceMappingRevisionId`, `sourceConnectionId` and `mappingGeneration`. Exact linkage reports `v2_acceptance_not_qualified`; absent linkage keeps `sourceMappingRevisionId: null` and `mapping_revision_not_captured`. It does not become `AcceptedResource`. Audience/coverage-aware heads, overlapping-request ordering, historical backfill, private access, other resources and reader/account cutover remain later work. The inherited completion-time ordering limitation is unchanged.
+
+## Qualification and activation
+
+The preimplementation source check matched clean local/GitHub main and Ready Vercel Production at `ece457c4749c536ea8ccf6a2e8c988a71572bb52`, deployment `9rSJvWXcD59PyxrpJxpsxHmVnymn`, canonical repository `clawmachinejed/league-one-audit`, branch `main`, root `apps/site`. This is source-binding evidence, not an installed production-catalog qualification. No production database was read or modified by this implementation task.
+
+Executable qualification includes:
+
+- Contract and transport tests for exact token validation, missing schema fail-closed behavior, bounded cancellation, collector waiting before acquisition, changed-cache verification, stale-token failure without legacy retry, and bridge scope contradictions.
+- `source-mapping.integration-case.ts`: actual restricted-runtime SQL for registration identity, mapping retry, same-source correction, identical content over legacy history, replay, changed/identical A → B → A, cache shortcuts, scope substitution, annual continuity, immutable evidence, effective role/catalog restrictions, and a writer blocked on a second session's uncommitted same-source revision.
+- `source-mapping-upgrade.integration-case.ts`: the guarded harness creates a synthetic schema through 025, seeds legacy data and ambiguous history, applies 026 plus its checksum ledger entry under the migration advisory lock, and proves unchanged retained rows/IDs and baseline-only metadata. It restores the complete synthetic schema/test clock before the serial suite resumes. This is disposable data only.
+
+SQL qualification uses only `.github/workflows/integration.yml`, protected environment `integration-test`, dedicated Neon project `steep-glitter-44680287` and empty baseline `br-plain-bread-b7sgfdl8`. Commit and independently review the exact source before dispatch. A responsible maintainer must approve that exact run; the implementation task must not self-approve. Require test totals/skips and the sanitized receipt proving child closure, schema cleanup, credential revocation, branch deletion and no receipt failures. Source tests or dispatch alone are **not** a passed SQL gate. Record run URL, SHA, checksum, full verification, preview and any pending gate in PR/task evidence without modifying qualified source just to append results.
+
+Production migration and release require separate authorization. Before any later release, revalidate local/GitHub main, Vercel source binding and exact production SHA, installed catalog/ACLs/checksums and no competing owner observed. Apply only the reviewed migration through the checksummed runner under the existing advisory lock; stop for unexpected pending migrations or catalog disagreement. Verify old application operation after expansion, then release the reviewed new callers. Preview remains database-disabled and cannot qualify SQL behavior. Verify both League One and League Two after any authorized release.
+
+| Application / schema | Supported behavior and rollback boundary |
+| --- | --- |
+| Old app + through 025 | Existing legacy behavior; no exact revision linkage or ABA fence. |
+| Old app + 026 | Compatible original writer signature and payloads. Old writes stay legacy/unverified; new revision history is retained. The prefetch fence is not active in old callers. |
+| New app + 026 | Enrolled roster capture carries the prefetch token; exact network observations gain links. Cache/discovery/tokenless paths retain the limits above. |
+| New app + through 025 | Unsupported rollout order. Mapping query fails closed; collectors do not retry as legacy. Readers use their existing database-unavailable fallback. Do not activate before migration; no schema-probe bypass exists. |
+| Preview or local persistence disabled | No mapping SQL or persistence; existing public provider and page behavior. |
+
+Application rollback may restore the reviewed old application while leaving 026 and all immutable records intact. That restores legacy capture behavior and loses the new in-flight fence for those old callers; report this explicitly and avoid concurrent owner remapping during rollback operation. Do not remove triggers, widen grants, erase revisions, relabel legacy observations, move heads, or reverse the schema to roll back the application. Database rollback, production data changes, backfill and release are outside this PR's authorization.
