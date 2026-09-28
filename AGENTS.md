@@ -10,9 +10,9 @@
 
 ## Product mission
 
-- Build an account-centered fantasy football aggregator: a manager should see their teams across supported providers in one place and open any league for consistent, detailed views.
+- Build a single home for a manager's fantasy football teams across supported providers: a cross-league overview with a clear path into each league's matchups, teams, standings, transactions, schedules, and history. Enrich official data with League One projections, forecasts, win probabilities, and projected standings where supported.
 - Treat Sleeper as the only implemented fantasy-league provider today. Yahoo, ESPN, and others are future integrations; do not describe them as shipped or assume access to their data.
-- Keep the host provider authoritative for official league data and scoring. League One owns provider-neutral normalization and presentation, identity links, projections, forecasts, and analytics. Label derived-feature coverage independently so unsupported analytics do not block an otherwise reliable official league view.
+- Keep the host provider authoritative for official league data and scoring. League One owns provider-neutral normalization and presentation, identity links, projections, forecasts, and analytics. Do not require complete support for every scoring or competition edge case before showing a league whose official data can be represented reliably. Label derived-feature coverage independently and never substitute an estimate for an official result.
 - Evolve the existing shared feature and worker architecture incrementally. Provider additions should primarily add adapters, identity mappings, and provider tests, rather than parallel feature pages or a rewrite. The current-source and behavior rules below continue to apply until a requested change explicitly updates them.
 
 ## Canonical behavior

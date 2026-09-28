@@ -2,9 +2,11 @@
 
 ## Product mission
 
-League One's mission is to give a fantasy football manager one place to see all of their teams across supported providers and then explore each league in depth. The current product began with three Sleeper leagues and Sleeper-only account onboarding; Yahoo, ESPN, and other providers are future integrations, not current capabilities. New work should move toward a shared, provider-neutral league model and consistent My Fantasy, My Team, Matchups, Standings, Rosters, Managers, Transactions, and History experiences across providers.
+League One is a single home for a fantasy football manager's teams across supported providers. A manager can scan their leagues and live matchups in one place, then open any league for consistent views of teams, rosters, standings, transactions, schedules, and history. League One adds its own projections, live forecasts, win probabilities, and projected standings wherever the available data supports them.
 
-Each host provider remains authoritative for its league's official rosters, lineups, scores, results, standings, transactions, and scoring settings. League One owns cross-provider identity and presentation, its own projections and forecasts, and the resulting analytics. A league with reliable official data should remain viewable when a derived feature has limited or unavailable coverage; unsupported analytics should be labeled rather than substituted for official results. This direction guides incremental changes to the existing modular application, not a rewrite or a claim that additional provider integrations already exist.
+The host provider remains authoritative for official league data, including rosters, lineups, scores, results, standings, transactions, and scoring settings. League One connects and presents that data across providers and adds its own analysis. When official league data can be represented reliably, an unsupported projection or unusual scoring rule should limit the affected insight, not hide the league or override an official result. Show the coverage of each derived feature clearly.
+
+Today the product supports Sleeper leagues; Yahoo, ESPN, and other providers are future integrations. The existing modular application should evolve toward this goal incrementally.
 
 ## Current product
 
