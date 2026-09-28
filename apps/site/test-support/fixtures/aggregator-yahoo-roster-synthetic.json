@@ -1,0 +1,56 @@
+{
+  "evidence": {
+    "kind": "documentation-derived-synthetic",
+    "source": "https://sports.yahoo.com/developer/docs/",
+    "designReference": "docs/aggregator-backend/provider-mapping.md",
+    "qualification": "Not an authenticated capture, current live qualification, or implemented Yahoo connector."
+  },
+  "native": {
+    "league_key": "G.l.Example",
+    "league_update_timestamp": "1790593200",
+    "team_key": "G.l.Example.t.7",
+    "players": [
+      { "player_key": "G.p.0017", "selected_position": { "coverage_type": "week", "week": "4", "position": "BN" } },
+      { "player_key": "G.p.Defense-X", "selected_position": { "coverage_type": "week", "week": "4", "position": "IR" } },
+      { "player_key": "G.p.Unknown", "selected_position": { "coverage_type": "week", "week": "4", "position": "FUTURE_GROUP" } }
+    ]
+  },
+  "memberships": [
+    {
+      "seasonTeamId": null,
+      "sourceTeam": { "provider": "yahoo", "resourceKind": "team", "nativeNamespace": "G.l.Example", "nativeId": "G.l.Example.t.7" },
+      "sourceEntity": { "provider": "yahoo", "resourceKind": "player", "nativeNamespace": "G", "nativeId": "G.p.0017" },
+      "canonicalEntityId": null,
+      "identityState": "unresolved",
+      "nativeSection": "BN",
+      "section": "bench",
+      "effectiveFrom": null,
+      "effectiveTo": null,
+      "effectiveEvidence": "unknown"
+    },
+    {
+      "seasonTeamId": null,
+      "sourceTeam": { "provider": "yahoo", "resourceKind": "team", "nativeNamespace": "G.l.Example", "nativeId": "G.l.Example.t.7" },
+      "sourceEntity": { "provider": "yahoo", "resourceKind": "player", "nativeNamespace": "G", "nativeId": "G.p.Defense-X" },
+      "canonicalEntityId": null,
+      "identityState": "unresolved",
+      "nativeSection": "IR",
+      "section": "reserve",
+      "effectiveFrom": null,
+      "effectiveTo": null,
+      "effectiveEvidence": "unknown"
+    },
+    {
+      "seasonTeamId": null,
+      "sourceTeam": { "provider": "yahoo", "resourceKind": "team", "nativeNamespace": "G.l.Example", "nativeId": "G.l.Example.t.7" },
+      "sourceEntity": { "provider": "yahoo", "resourceKind": "player", "nativeNamespace": "G", "nativeId": "G.p.Unknown" },
+      "canonicalEntityId": null,
+      "identityState": "unresolved",
+      "nativeSection": "FUTURE_GROUP",
+      "section": "unknown",
+      "effectiveFrom": null,
+      "effectiveTo": null,
+      "effectiveEvidence": "unknown"
+    }
+  ]
+}

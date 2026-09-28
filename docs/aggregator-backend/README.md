@@ -2,6 +2,8 @@
 
 Status: proposed implementation contract, 28 September 2026. This package defines the backend foundation; it does not implement a connector, alter enrollment, run a migration, change a calculation, or establish production capacity.
 
+The first package-2 code slice is recorded in [retained roster implementation](roster-implementation.md). It adds common contract validators and an internal roster comparison through the existing store/reader path; the broader migration and read-service cutover remain pending.
+
 ## Purpose and completion gate
 
 League One collects a bounded set of league information, translates provider-specific representations into shared records, and serves a consistent portfolio and league-detail experience. Host providers remain authoritative for their own official records. League One adds presentation calculations and separately qualified forecasts.
