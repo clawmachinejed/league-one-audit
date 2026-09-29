@@ -7,6 +7,7 @@ import type { AdministrationWriteFence } from '../lib/league-administration/stor
 import { createProjectionStore } from '../lib/projection-store';
 import type { RosterAttempt, RosterPopulationEvidence } from '../lib/aggregator/current-roster';
 import { exactMatchupsScope } from '../lib/aggregator/exact-matchups';
+import { exactMatchupClockInstant } from './exact-matchup-clock';
 import { createIndependentDatabase, createPinnedIntegrationDatabase, ownerQuery, runtimeQuery,
   type IndependentDatabase } from './neon-integration-harness';
 
@@ -40,8 +41,9 @@ describe.sequential('exact native-period matchup shadow acceptance', () => {
   type Fixture = Awaited<ReturnType<typeof fixture>>;
   async function capture(f: Fixture, family: AdministrationFamily, payload: Payload, week: number | null,
     completeness: 'complete' | 'partial' = 'complete', origin: 'network' | 'cache' = 'network') {
-    const [clock] = await ownerQuery('SELECT clock_timestamp() AS at');
-    const at = new Date(String(clock.at)).toISOString();
+    // The wait keeps a millisecond-resolution fixture clock after a preceding reservation.
+    const [clock] = await ownerQuery('SELECT clock_timestamp() AS at FROM pg_sleep(0.005)');
+    const at = exactMatchupClockInstant(clock.at);
     return normalizeAdministrationObservation({ schemaVersion: 'league-administration-v1',
       normalizerVersion: 'sleeper-administration-v1', dialect: 'sleeper-nfl-v1',
       scope: f.mapping.scope, family, week, completeness, payload: payload as JsonValue,
@@ -72,8 +74,8 @@ describe.sequential('exact native-period matchup shadow acceptance', () => {
     const jobKey = `exact-matchup-fence:${randomUUID()}`; const workerId = randomUUID();
     await ownerQuery(`INSERT INTO projection_jobs(job_key,job_type,scheduled_for,state,lease_owner,lease_until,attempt_count)
       VALUES($1,'league-administration',clock_timestamp(),'running',$2,clock_timestamp()+interval '5 minutes',1)`, [jobKey, workerId]);
-    const [clock] = await ownerQuery('SELECT clock_timestamp()+($1::integer * interval \'1 second\') AS at', [seconds]);
-    return { jobKey, workerId, generation: 1, deadlineAt: new Date(String(clock.at)).toISOString() };
+    const [clock] = await ownerQuery("SELECT clock_timestamp()+($1::integer * interval '1 second') AS at", [seconds]);
+    return { jobKey, workerId, generation: 1, deadlineAt: exactMatchupClockInstant(clock.at) };
   }
   async function seed(week = 3) {
     const f = await fixture(); const attempt = await reserve(f, week); const proof = await population(f);
