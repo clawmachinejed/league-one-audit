@@ -146,7 +146,7 @@ BEGIN
         'family','matchups','entityId',NULL,'scoringPeriodId',period_value,'audienceId','public',
         'coverageSpecId','sleeper-exact-period-all-teams-matchups-v1'),
         'policy',jsonb_build_object('audienceId','public','coverageSpecId','sleeper-exact-period-all-teams-matchups-v1',
-        'canonicalNormalizerVersion','sleeper-exact-matchups-v1','validationVersion','latest-network-attempt-v1')))) THEN
+        'canonicalNormalizerVersion','sleeper-exact-matchups-v1','validationVersion','latest-network-attempt-v1'))) THEN
     RAISE EXCEPTION 'matchup attempt scope mismatch'; END IF;
   SELECT * INTO STRICT head FROM public.league_roster_resource_heads WHERE scope_id=attempt.scope_id FOR UPDATE;
   IF attempt.write_fence IS NOT NULL AND NOT EXISTS(SELECT 1 FROM public.projection_jobs job
