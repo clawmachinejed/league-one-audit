@@ -8,6 +8,7 @@ import { normalizeAdministrationObservation } from '../lib/league-administration
 import type { AdministrationSourceMapping } from '../lib/league-administration/source-mapping';
 import type { AdministrationWriteFence } from '../lib/league-administration/store-contracts';
 import { createProjectionStore } from '../lib/projection-store';
+import { compatibleScoringRulesHash } from '../lib/projections/shared/revision-compatibility';
 import { createIndependentDatabase, createPinnedIntegrationDatabase, ownerQuery, runtimeQuery,
   type IndependentDatabase } from './neon-integration-harness';
 
@@ -513,8 +514,21 @@ describe.sequential('persisted scoped current held-player acceptance', () => {
 
   it('isolates leagues and annual seasons even when roster IDs and players are identical', async () => {
     const first = await seed(); const other = await seed();
-    const annual = await seed(await fixture(first.f.season + 1, first.f.leagueKey));
-    expect(annual.f.leagueId).toBe(first.f.leagueId);
+    const season = first.f.season + 1; const externalLeagueId = `annual-${randomUUID()}`;
+    await expect(createProjectionStore(connection.database).registerLeagueSeason({ leagueKey: first.f.leagueKey,
+      leagueName: 'Synthetic roster acceptance fixture', season, sleeperLeagueId: externalLeagueId, scoringRules: rules }))
+      .rejects.toThrow(/continuity approval/u);
+    expect(await ownerQuery('SELECT id FROM league_seasons WHERE league_id=$1 AND season=$2', [first.f.leagueId, season]))
+      .toEqual([]);
+    // An enrolled league's next season requires the existing evidenced owner path.
+    const [annualConnection] = await ownerQuery<{ id: string }>(`SELECT public.connect_league_administration_season(
+      $1,$2::smallint,$3,$4,$5,$6::jsonb,'synthetic roster acceptance annual continuity')::text AS id`,
+    [first.f.leagueId, season, first.f.externalLeagueId, externalLeagueId, compatibleScoringRulesHash(rules), JSON.stringify(rules)]);
+    const annual = await seed({ ...first.f, season, externalLeagueId, leagueSeasonId: annualConnection.id });
+    expect(await ownerQuery('SELECT league_id,season FROM league_seasons WHERE id=$1', [annual.f.leagueSeasonId]))
+      .toEqual([{ league_id: first.f.leagueId, season }]);
+    expect(annual.f.leagueSeasonId).not.toBe(first.f.leagueSeasonId);
+    expect(annual.token.scope).toMatchObject({ leagueKey: first.f.leagueKey, season, externalLeagueId });
     expect(new Set([first.attempt.scopeId, other.attempt.scopeId, annual.attempt.scopeId]).size).toBe(3);
     expect(new Set([first.read.teams[0].seasonTeamId, other.read.teams[0].seasonTeamId, annual.read.teams[0].seasonTeamId]).size).toBe(3);
     const before = await state(first.f);
