@@ -20,6 +20,7 @@ function fakeStore(): LeagueAdministrationStore {
   readSource: vi.fn(async () => ({ status: 'missing' as const })),
   readSourceMapping: vi.fn(async () => null),
   beginLeagueSettingsAttempt: vi.fn(), readAcceptedLeagueSettings: vi.fn(async () => ({ status: 'missing' as const })),
+  beginExactMatchupAttempt: vi.fn(), readAcceptedExactMatchups: vi.fn(async () => ({ status: 'missing' as const })),
   beginRosterAttempt: vi.fn(), readAcceptedCurrentRoster: vi.fn(async () => ({ status: 'missing' as const })),
   beginRosterCapture: vi.fn(), readAcceptedTeamManagers: vi.fn(async () => ({ status: 'missing' as const })),
   readSourceByConnection: vi.fn(async () => ({ status: 'missing' as const })), listEnrollments: vi.fn(async () => []),
@@ -27,6 +28,44 @@ function fakeStore(): LeagueAdministrationStore {
 }
 
 describe('administration collection and enrollment composition', () => {
+  it('forwards an exact-period attempt with same-batch population but never reserves ordinary cache evidence', async () => {
+    const store = fakeStore();
+    const mapping = { connectionId: '11111111-1111-4111-8111-111111111111', leagueSeasonId: '22222222-2222-4222-8222-222222222222',
+      revisionId: '33333333-3333-4333-8333-333333333333', generation: 1, scope };
+    const attempt = { id: 'matchup-attempt', scopeId: 'matchup-scope', ordinal: 1, expectedGeneration: 0 };
+    const matchup = { family: 'matchups' as const, week: 3, payload: [{ roster_id: 1, matchup_id: null, players: [], starters: [], points: 0 }],
+      requestStartedAt: time, requestCompletedAt: time };
+    await recordCapturedAdministration(scope, [{ ...document, origin: 'network' }, { ...matchup, origin: 'network' }],
+      { store, mapping, matchupAttempt: { week: 3, attempt }, now: () => new Date(time) });
+    const call = vi.mocked(store.recordObservation).mock.calls[1];
+    expect(call[2]).toEqual(mapping);
+    expect(call[6]).toMatchObject({ attempt, population: { envelope: { family: 'league', provenance: { origin: 'network' } } } });
+    await recordCapturedAdministration(scope, [{ ...matchup, origin: 'cache' }],
+      { store, mapping, now: () => new Date(time) });
+    expect(store.beginExactMatchupAttempt).not.toHaveBeenCalled();
+    expect(vi.mocked(store.recordObservation).mock.calls[2]).toHaveLength(3);
+  });
+
+  it('reserves a changed-cache matchup only before its existing verification fetch', async () => {
+    const store = fakeStore();
+    const mapping = { connectionId: '11111111-1111-4111-8111-111111111111', leagueSeasonId: '22222222-2222-4222-8222-222222222222',
+      revisionId: '33333333-3333-4333-8333-333333333333', generation: 1, scope };
+    const attempt = { id: 'matchup-attempt', scopeId: 'matchup-scope', ordinal: 1, expectedGeneration: 0 };
+    const matchup = { family: 'matchups' as const, week: 3, payload: [{ roster_id: 1, players: [], starters: [] }],
+      requestStartedAt: time, requestCompletedAt: time, origin: 'cache' as const };
+    vi.mocked(store.recordObservation).mockResolvedValueOnce({ status: 'changed', observationId: 'network-population' })
+      .mockResolvedValueOnce({ status: 'stale', reason: 'unproven_cache_change' })
+      .mockResolvedValueOnce({ status: 'changed' });
+    vi.mocked(store.beginExactMatchupAttempt).mockResolvedValue(attempt);
+    const verify = vi.fn(async () => {
+      expect(store.beginExactMatchupAttempt).toHaveBeenCalledWith(mapping, 3, expect.any(String), undefined);
+      return { ...matchup, origin: 'network' as const };
+    });
+    await recordCapturedAdministration(scope, [{ ...document, origin: 'network' }, matchup],
+      { store, mapping, verify, now: () => new Date(time) });
+    expect(verify).toHaveBeenCalledOnce();
+    expect(vi.mocked(store.recordObservation).mock.calls.at(-1)?.[6]).toEqual({ attempt });
+  });
   it('reserves only an already-needed league network verification and never borrows roster attempts', async () => {
     const store = fakeStore();
     const mapping = { connectionId: '11111111-1111-4111-8111-111111111111', leagueSeasonId: '22222222-2222-4222-8222-222222222222',

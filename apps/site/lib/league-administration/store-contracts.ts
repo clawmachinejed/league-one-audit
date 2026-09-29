@@ -4,6 +4,7 @@ import type { RetainedRosterProjection } from '../aggregator/roster-bridge';
 import type { AdministrationSourceMapping } from './source-mapping';
 import type { AcceptedTeamManagersRead, RosterCaptureAttempts } from '../aggregator/team-managers';
 import type { AcceptedLeagueSettingsRead } from '../aggregator/league-settings';
+import type { AcceptedExactMatchupsRead } from '../aggregator/exact-matchups';
 import type { AcceptedCurrentRosterRead, CurrentRosterPolicy, RosterAcceptanceInput,
   RosterAcceptanceResult, RosterAttempt } from '../aggregator/current-roster';
 
@@ -26,6 +27,7 @@ export type AdministrationWriteResult = Readonly<{
   rosterAcceptance?: RosterAcceptanceResult;
   teamManagerAcceptance?: RosterAcceptanceResult;
   leagueSettingsAcceptance?: RosterAcceptanceResult;
+  matchupAcceptance?: RosterAcceptanceResult;
 }>;
 export type AdministrationEnrollment = Readonly<{
   leagueId: string; leagueSeasonId: string; leagueKey: string; displayName: string;
@@ -49,9 +51,13 @@ export type LeagueAdministrationStore = Readonly<{
   enabled: boolean;
   recordObservation: (input: NormalizedAdministrationObservation, fence?: AdministrationWriteFence,
     mapping?: AdministrationSourceMapping, acceptance?: RosterAcceptanceInput,
-    managerAcceptance?: RosterAcceptanceInput, leagueSettingsAcceptance?: Readonly<{ attempt: RosterAttempt }>) => Promise<AdministrationWriteResult>;
+    managerAcceptance?: RosterAcceptanceInput, leagueSettingsAcceptance?: Readonly<{ attempt: RosterAttempt }>,
+    matchupAcceptance?: RosterAcceptanceInput) => Promise<AdministrationWriteResult>;
   beginLeagueSettingsAttempt: (mapping: AdministrationSourceMapping, attemptId: string, fence?: AdministrationWriteFence) => Promise<RosterAttempt>;
   readAcceptedLeagueSettings: (mapping: AdministrationSourceMapping) => Promise<AcceptedLeagueSettingsRead>;
+  beginExactMatchupAttempt: (mapping: AdministrationSourceMapping, week: number, attemptId: string,
+    fence?: AdministrationWriteFence) => Promise<RosterAttempt>;
+  readAcceptedExactMatchups: (mapping: AdministrationSourceMapping, week: number) => Promise<AcceptedExactMatchupsRead>;
   beginRosterCapture: (mapping: AdministrationSourceMapping, playersId: string, managersId: string,
     fence?: AdministrationWriteFence) => Promise<RosterCaptureAttempts>;
   readAcceptedTeamManagers: (mapping: AdministrationSourceMapping) => Promise<AcceptedTeamManagersRead>;

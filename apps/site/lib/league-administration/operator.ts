@@ -93,7 +93,13 @@ export async function runAdministrationOperator(input: AdministrationOperatorInp
       const mapping = input.mode === 'write' ? await captureAdministrationSourceMapping(league.externalLeagueId, store) : null;
       const attempts = mapping ? await store.beginRosterCapture(mapping, randomUUID(), randomUUID(), fence) : undefined;
       const leagueSettingsAttempt = mapping ? await store.beginLeagueSettingsAttempt(mapping, randomUUID(), fence) : undefined;
-      const inspect = async (observations: readonly CapturedAdministrationDocument[]) => {
+      const matchupAttempts = new Map<number, Awaited<ReturnType<typeof store.beginExactMatchupAttempt>>>();
+      if (mapping) for (const week of input.weeks) if (week > 0) {
+        matchupAttempts.set(week, await store.beginExactMatchupAttempt(mapping, week, randomUUID(), fence));
+      }
+      let populationEvidence: Awaited<ReturnType<typeof recordCapturedAdministration>>['population'];
+      const inspect = async (observations: readonly CapturedAdministrationDocument[],
+        matchupAttempt?: Awaited<ReturnType<typeof store.beginExactMatchupAttempt>>) => {
         signal.throwIfAborted();
         let incompatibleConfiguration = false;
         for (const observation of observations) {
@@ -116,7 +122,11 @@ export async function runAdministrationOperator(input: AdministrationOperatorInp
         }
         if (input.mode === 'write') {
           const result = await recordCapturedAdministration(scope, observations, { store, fence, signal, expectedRosterCount, mapping,
-            rosterAttempt: attempts?.players, managerAttempt: attempts?.managers, leagueSettingsAttempt });
+            rosterAttempt: attempts?.players, managerAttempt: attempts?.managers, leagueSettingsAttempt,
+            populationEvidence,
+            ...(matchupAttempt && observations.some(item => item.family === 'matchups')
+              ? { matchupAttempt: { week: observations.find(item => item.family === 'matchups')!.week!, attempt: matchupAttempt } } : {}) });
+          if (result.population) populationEvidence = result.population;
           if (result.status !== 'stored') throw new Error('Administration batch contains unaccepted evidence.');
         }
         if (incompatibleConfiguration) throw new Error('Administration configuration requires an evidenced compatibility decision.');
@@ -135,12 +145,13 @@ export async function runAdministrationOperator(input: AdministrationOperatorInp
         if (metadata.reason) throw new Error('Administration metadata coverage is incomplete.');
       }
       for (const week of input.weeks) {
+        const matchupAttempt = matchupAttempts.get(week);
         providerRequests += week > 0 ? 2 : 1; reservedRequests -= week > 0 ? 2 : 1;
         const observations = await Promise.all([
           ...(week > 0 ? [getOfficialMatchupObservation(league.externalLeagueId, week, 0, signal)] : []),
           getOfficialTransactionWeek(league.externalLeagueId, week, 0, signal),
         ]);
-        await inspect(observations);
+        await inspect(observations, matchupAttempt);
       }
     }
     if (fence && !await jobs.completeJob(jobKey, workerId)) throw new Error('Administration operation lost ownership.');

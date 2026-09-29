@@ -31,6 +31,8 @@ export type AdministrationCaptureResult = Readonly<{
   status: 'stored' | 'disabled' | 'unavailable';
   results: readonly Readonly<{ family: AdministrationFamily; result: AdministrationWriteResult }>[];
   context?: AdministrationCalculationContext;
+  /** The same run may collect later periods after its independently observed league document. */
+  population?: RosterPopulationEvidence;
 }>;
 
 /** A collection failure remains visible; it never makes a rejected setting current. */
@@ -42,6 +44,8 @@ export async function recordCapturedAdministration(
     rosterAttempt?: RosterAttempt;
     managerAttempt?: RosterAttempt;
     leagueSettingsAttempt?: RosterAttempt;
+    matchupAttempt?: Readonly<{ week: number; attempt: RosterAttempt }>;
+    populationEvidence?: RosterPopulationEvidence;
     verify?: (document: CapturedAdministrationDocument, signal: AbortSignal) => Promise<CapturedAdministrationDocument> }> = {},
 ): Promise<AdministrationCaptureResult> {
   const signal = options.signal ?? AbortSignal.timeout(8_000);
@@ -56,7 +60,7 @@ export async function recordCapturedAdministration(
   let context: AdministrationCalculationContext | undefined;
   let sourceChangedDuringVerification = false;
   let expectedRosterCount = options.expectedRosterCount;
-  let population: RosterPopulationEvidence | undefined;
+  let population: RosterPopulationEvidence | undefined = options.populationEvidence;
   // Configuration first supplies the expected roster population, not the other way around.
   const ordered = [...documents].sort((left, right) => Number(right.family === 'league') - Number(left.family === 'league'));
   for (const document of ordered) {
@@ -75,16 +79,24 @@ export async function recordCapturedAdministration(
       },
       completeness: document.completeness ?? 'complete', payload: document.payload as JsonValue,
     }, expectedRosterCount === undefined ? undefined : { expectedRosterCount });
-    const mapping = ['rosters', 'league'].includes(document.family) ? options.mapping ?? undefined : undefined;
+    let mapping = ['rosters', 'league'].includes(document.family)
+      || (document.family === 'matchups' && options.matchupAttempt?.week === document.week)
+      ? options.mapping ?? undefined : undefined;
     let attempt = origin === 'network' && mapping && document.family === 'rosters' ? options.rosterAttempt : undefined;
     let managerAttempt = origin === 'network' && mapping && document.family === 'rosters' ? options.managerAttempt : undefined;
     let leagueSettingsAttempt = origin === 'network' && mapping && document.family === 'league' ? options.leagueSettingsAttempt : undefined;
-    const write = () => attempt || managerAttempt || leagueSettingsAttempt
-      ? store.recordObservation(normalized, options.fence, mapping,
+    let matchupAttempt = origin === 'network' && mapping && document.family === 'matchups'
+      && options.matchupAttempt?.week === document.week ? options.matchupAttempt.attempt : undefined;
+    let matchupPopulationEligible = true;
+    const write = () => matchupAttempt
+      ? store.recordObservation(normalized, options.fence, mapping, undefined, undefined, undefined,
+        { attempt: matchupAttempt, ...(population && matchupPopulationEligible ? { population } : {}) })
+      : attempt || managerAttempt || leagueSettingsAttempt
+        ? store.recordObservation(normalized, options.fence, mapping,
         attempt ? { attempt, ...(population ? { population } : {}) } : undefined,
         managerAttempt ? { attempt: managerAttempt, ...(population ? { population } : {}) } : undefined,
         leagueSettingsAttempt ? { attempt: leagueSettingsAttempt } : undefined)
-      : store.recordObservation(normalized, options.fence, document.family === 'rosters' ? mapping : undefined);
+        : store.recordObservation(normalized, options.fence, document.family === 'rosters' ? mapping : undefined);
     let result = await write();
     if (result.status === 'stale' && result.reason === 'unproven_cache_change' && origin === 'cache') {
       // Only changed cached documents need a fresh verification. Never overwrite a
@@ -94,9 +106,15 @@ export async function recordCapturedAdministration(
       // checks cannot suppress another in-flight network capture.
       if (mapping && document.family === 'league') {
         leagueSettingsAttempt = await store.beginLeagueSettingsAttempt(mapping, randomUUID(), options.fence);
-      } else if (mapping) {
+      } else if (mapping && document.family === 'rosters') {
         const attempts = await store.beginRosterCapture(mapping, randomUUID(), randomUUID(), options.fence);
         attempt = attempts.players; managerAttempt = attempts.managers;
+      } else if (document.family === 'matchups' && options.mapping && document.week !== null) {
+        mapping = options.mapping;
+        matchupAttempt = await store.beginExactMatchupAttempt(mapping, document.week, randomUUID(), options.fence);
+        // The prior league document predates this newly reserved verification.
+        // Preserve the legacy verification write without claiming shadow population.
+        matchupPopulationEligible = false;
       }
       const source = options.verify ? null : await import('../sleeper');
       const verified: CapturedAdministrationDocument = options.verify ? await options.verify(document, signal)
@@ -141,5 +159,6 @@ export async function recordCapturedAdministration(
   return {
     status: sourceChangedDuringVerification || results.some(({ result }) => ['rejected', 'stale', 'disabled'].includes(result.status))
       ? 'unavailable' : 'stored', results, ...(context && !sourceChangedDuringVerification ? { context } : {}),
+    ...(population ? { population } : {}),
   };
 }
