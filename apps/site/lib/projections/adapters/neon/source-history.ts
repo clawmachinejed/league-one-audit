@@ -169,16 +169,7 @@ function sourceHistory(value: unknown, expectedId: string, request: SnapshotSour
   } catch { return { status: 'source_epoch_unproved', reason: 'invalid_source_capture' }; }
 }
 
-export function createSnapshotSourceHistoryReader(client: DatabaseClient) {
-  return {
-    async readSnapshotSourceHistory(input: SnapshotSourceHistoryInput): Promise<SnapshotSourceHistoryRead> {
-      try {
-        id(input.snapshotId); id(input.leagueSeasonId); text(input.modelVersion);
-        if (!Number.isSafeInteger(input.season) || input.season < 1920 || input.season > 2200
-          || !Number.isSafeInteger(input.week) || input.week < 1 || input.week > 18) throw new Error('Invalid period.');
-      } catch { return { status: 'unavailable', reason: 'invalid_request' }; }
-      try {
-        const rows = await client.query(`/* projection-store:read-snapshot-source-history */
+export const SNAPSHOT_SOURCE_HISTORY_READ_SQL = `
           SELECT snapshot.id AS snapshot_id,snapshot.league_season_id,season.season,league.league_key,
             snapshot.week,snapshot.model_version,snapshot.league_week_observation_id,snapshot.game_state_observation_ids,
             current.snapshot_id AS current_snapshot_id,current.verification_source_observation_id,
@@ -208,17 +199,28 @@ export function createSnapshotSourceHistoryReader(client: DatabaseClient) {
             AND current.league_season_id=snapshot.league_season_id AND current.week=snapshot.week
           LEFT JOIN public.league_week_observations verification ON verification.id=current.verification_source_observation_id
           WHERE snapshot.id=$1::uuid AND snapshot.league_season_id=$2::uuid
-            AND season.season=$3 AND snapshot.week=$4 AND snapshot.model_version=$5`,
+            AND season.season=$3 AND snapshot.week=$4 AND snapshot.model_version=$5`;
+
+export function createSnapshotSourceHistoryReader(client: DatabaseClient) {
+  return {
+    async readSnapshotSourceHistory(input: SnapshotSourceHistoryInput): Promise<SnapshotSourceHistoryRead> {
+      try {
+        id(input.snapshotId); id(input.leagueSeasonId); text(input.modelVersion);
+        if (!Number.isSafeInteger(input.season) || input.season < 1920 || input.season > 2200
+          || !Number.isSafeInteger(input.week) || input.week < 1 || input.week > 18) throw new Error('Invalid period.');
+      } catch { return { status: 'unavailable', reason: 'invalid_request' }; }
+      try {
+        const rows = await client.query(`/* projection-store:read-snapshot-source-history */${SNAPSHOT_SOURCE_HISTORY_READ_SQL}`,
         [input.snapshotId, input.leagueSeasonId, input.season, input.week, input.modelVersion]);
         if (rows.length === 0) return { status: 'missing' };
         if (rows.length !== 1) throw new Error('Ambiguous source history.');
-        return readRow(rows[0], input);
+        return readSnapshotSourceHistoryRow(rows[0], input);
       } catch { return { status: 'unavailable', reason: 'source_history_unavailable' }; }
     },
   };
 }
 
-function readRow(row: DatabaseRow, input: SnapshotSourceHistoryInput): SnapshotSourceHistoryRead {
+export function readSnapshotSourceHistoryRow(row: DatabaseRow, input: SnapshotSourceHistoryInput): SnapshotSourceHistoryRead {
   if (row.snapshot_id !== input.snapshotId || row.league_season_id !== input.leagueSeasonId
     || integer(row.season) !== input.season || integer(row.week) !== input.week || row.model_version !== input.modelVersion
     || !Array.isArray(row.game_state_observation_ids) || !Array.isArray(row.inputs)

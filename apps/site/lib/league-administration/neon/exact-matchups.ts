@@ -1,6 +1,6 @@
 import 'server-only';
 import { readNativePeriodMapping } from './period-mapping';
-import type { DatabaseClient } from '../../database';
+import type { DatabaseClient, DatabaseRow } from '../../database';
 import { EXACT_MATCHUPS_POLICY, exactMatchupsScope, projectExactMatchups,
   type AcceptedExactMatchupsRead } from '../../aggregator/exact-matchups';
 import { assertAcceptedResource } from '../../aggregator/validation';
@@ -29,29 +29,7 @@ function integer(value: unknown, minimum = 1): number {
   return n;
 }
 
-export function exactMatchupMethods(client: DatabaseClient) {
-  return {
-    async beginExactMatchupAttempt(mapping: AdministrationSourceMapping, week: number, attemptId: string,
-      fence?: AdministrationWriteFence): Promise<RosterAttempt> {
-      if (!isAdministrationSourceMapping(mapping)) throw new Error('Invalid matchup mapping.');
-      exactMatchupsScope(mapping, week);
-      const rows = await client.query(`/* league-administration:begin-exact-matchup-attempt */
-        SELECT public.begin_exact_matchup_attempt($1::jsonb,$2::uuid,$3::integer,$4::jsonb) AS result`,
-      [JSON.stringify(mapping), id(attemptId), week, fence ? JSON.stringify(fence) : null]);
-      if (rows.length !== 1) throw new Error('Missing matchup reservation.');
-      const row = object(rows[0].result);
-      if (row.id !== attemptId) throw new Error('Wrong matchup reservation.');
-      return { id: id(row.id), scopeId: id(row.scopeId), ordinal: integer(row.ordinal),
-        expectedGeneration: integer(row.expectedGeneration, 0) };
-    },
-    async readAcceptedExactMatchups(mapping: AdministrationSourceMapping, week: number): Promise<AcceptedExactMatchupsRead> {
-      if (!isAdministrationSourceMapping(mapping)) return { status: 'unavailable', reason: 'invalid_mapping' };
-      let scope: ReturnType<typeof exactMatchupsScope>;
-      try { scope = exactMatchupsScope(mapping, week); }
-      catch { return { status: 'unavailable', reason: 'invalid_period' }; }
-      try {
-        const identity = { scope, policy: EXACT_MATCHUPS_POLICY };
-        const rows = await client.query(`/* league-administration:read-accepted-exact-matchups */
+export const EXACT_MATCHUPS_READ_SQL = `/* league-administration:read-accepted-exact-matchups */
           SELECT scope.identity,accepted.generation,accepted.source_mapping_revision_id,
             receipt.id AS receipt_id,receipt.attempt_id,receipt.provenance,receipt.coverage,
             receipt.configuration_content_id,receipt.population_evidence,receipt.expected_team_count,
@@ -89,78 +67,115 @@ export function exactMatchupMethods(client: DatabaseClient) {
           JOIN public.league_administration_enrollment_seasons enrollment ON enrollment.league_id=season.league_id
             AND enrollment.season=season.season AND enrollment.provider=connection.provider
           WHERE scope.identity=$1::jsonb AND connection.current_mapping_revision_id=$2::uuid
-            AND connection.mapping_generation=$3 AND content.family='matchups' AND content.week=$4`,
+            AND connection.mapping_generation=$3 AND content.family='matchups' AND content.week=$4`;
+
+export function exactMatchupMethods(client: DatabaseClient) {
+  return {
+    async beginExactMatchupAttempt(mapping: AdministrationSourceMapping, week: number, attemptId: string,
+      fence?: AdministrationWriteFence): Promise<RosterAttempt> {
+      if (!isAdministrationSourceMapping(mapping)) throw new Error('Invalid matchup mapping.');
+      exactMatchupsScope(mapping, week);
+      const rows = await client.query(`/* league-administration:begin-exact-matchup-attempt */
+        SELECT public.begin_exact_matchup_attempt($1::jsonb,$2::uuid,$3::integer,$4::jsonb) AS result`,
+      [JSON.stringify(mapping), id(attemptId), week, fence ? JSON.stringify(fence) : null]);
+      if (rows.length !== 1) throw new Error('Missing matchup reservation.');
+      const row = object(rows[0].result);
+      if (row.id !== attemptId) throw new Error('Wrong matchup reservation.');
+      return { id: id(row.id), scopeId: id(row.scopeId), ordinal: integer(row.ordinal),
+        expectedGeneration: integer(row.expectedGeneration, 0) };
+    },
+    async readAcceptedExactMatchups(mapping: AdministrationSourceMapping, week: number): Promise<AcceptedExactMatchupsRead> {
+      if (!isAdministrationSourceMapping(mapping)) return { status: 'unavailable', reason: 'invalid_mapping' };
+      let scope: ReturnType<typeof exactMatchupsScope>;
+      try { scope = exactMatchupsScope(mapping, week); }
+      catch { return { status: 'unavailable', reason: 'invalid_period' }; }
+      try {
+        const identity = { scope, policy: EXACT_MATCHUPS_POLICY };
+        const rows = await client.query(EXACT_MATCHUPS_READ_SQL,
         [JSON.stringify(identity), mapping.revisionId, mapping.generation, week]);
-        if (!rows.length) return { status: 'missing' };
-        if (rows.length !== 1) throw new Error('Ambiguous exact matchup acceptance.');
-        const row = rows[0];
-        const expectedCoverage = { periodIds: [scope.scoringPeriodId], interval: null, entitySet: 'full',
-          fields: ['roster_id', 'matchup_id'],
-          pagination: 'complete', nextCursor: null, completeness: 'complete', reasons: [] };
-        if (!isAdministrationSourceMapping(row.source_mapping)
-          || compatibleRevision(row.source_mapping) !== compatibleRevision(mapping)
-          || compatibleRevision(row.identity) !== compatibleRevision(identity)
-          || row.source_mapping_revision_id !== mapping.revisionId
-          || row.league_season_id !== mapping.leagueSeasonId || row.provider !== 'sleeper'
-          || row.external_league_id !== mapping.scope.externalLeagueId || row.family !== 'matchups'
-          || Number(row.week) !== week || row.normalizer_version !== 'sleeper-administration-v1'
-          || row.completeness !== 'complete' || row.configuration_content_id === null
-          || row.population_evidence === null || integer(row.expected_team_count) < 1
-          || compatibleRevision(row.coverage) !== compatibleRevision(expectedCoverage)) {
-          throw new Error('Invalid matchup acceptance lineage.');
-        }
-        const provenance = object(row.provenance) as AdministrationEnvelope['provenance'];
-        const population = object(row.population_evidence);
-        const configuration = object(row.configuration_payload);
-        if (population.contentHash !== row.configuration_hash
-          || configuration.league_id !== mapping.scope.externalLeagueId
-          || configuration.season !== String(mapping.scope.season)
-          || configuration.total_rosters !== integer(row.expected_team_count)) {
-          throw new Error('Invalid matchup population evidence.');
-        }
-        if (provenance.origin !== 'network' || !provenance.sourceObservedAt
-          || !provenance.requestStartedAt || !provenance.requestCompletedAt) throw new Error('Missing network provenance.');
-        const normalized = normalizeAdministrationObservation({ schemaVersion: 'league-administration-v1',
-          normalizerVersion: 'sleeper-administration-v1', dialect: 'sleeper-nfl-v1', scope: mapping.scope,
-          family: 'matchups', week, completeness: 'complete', provenance,
-          payload: row.payload as AdministrationEnvelope['payload'] }, { expectedRosterCount: integer(row.expected_team_count) });
-        if (normalized.status !== 'accepted' || normalized.contentHash !== row.content_hash
-          || normalized.semanticHash !== row.semantic_hash
-          || compatibleRevision(normalized.value) !== compatibleRevision(row.normalized_value)) {
-          throw new Error('Raw and legacy matchup evidence disagree.');
-        }
-        if (!Array.isArray(row.teams) || row.teams.length !== integer(row.expected_team_count)) {
-          throw new Error('Incomplete matchup team links.');
-        }
-        const teams = row.teams.map((team: unknown) => {
-          const entry = object(team);
-          return { seasonTeamId: id(entry.seasonTeamId), externalRosterId: String(entry.externalRosterId) };
-        });
-        const settings = configuration.settings && typeof configuration.settings === 'object'
-          && !Array.isArray(configuration.settings) ? configuration.settings as Record<string, unknown> : null;
-        const positions = configuration.roster_positions;
-        const slotEvidence = configuration.status === 'in_season' && settings?.leg === week && Array.isArray(positions)
-          && positions.every(slot => typeof slot === 'string' && slot.length > 0)
-          ? { nativePeriodWeek: week, nativeRosterPositions: positions as string[],
-            evidenceRef: id(row.configuration_content_id) } : undefined;
-        const official = projectExactMatchups(normalized, teams, slotEvidence);
-        // The first retained compatible proof establishes identity only. It makes no
-        // latest-calendar claim and remains stable across A -> B -> A schedule replays.
-        const periodMapping = readNativePeriodMapping(row.calendar_evidence, mapping,
-          id(row.configuration_content_id), configuration, week);
-        const value = periodMapping.status === 'mapped' ? { ...official, period: { ...official.period,
-          nflWeekMappings: [{ season: periodMapping.season, seasonType: periodMapping.seasonType,
-            week: periodMapping.week, evidenceRef: periodMapping.evidenceRef }] } } : official;
-        const accepted: AcceptedResource = { scope, canonicalNormalizerVersion: EXACT_MATCHUPS_POLICY.canonicalNormalizerVersion,
-          sourceMappingRevisionId: mapping.revisionId, contentId: id(row.content_id), observationIds: [id(row.receipt_id)],
-          validationVersion: EXACT_MATCHUPS_POLICY.validationVersion, acceptedGeneration: integer(row.generation),
-          verifiedAt: provenance.sourceObservedAt, effectiveFrom: null, effectiveTo: null, effectiveEvidence: 'unknown' };
-        assertAcceptedResource(accepted);
-        return { status: 'available', accepted, value, periodMapping, receipt: { id: id(row.receipt_id),
-          attemptId: id(row.attempt_id), ordinal: integer(row.ordinal), legacyObservationId: id(row.legacy_observation_id),
-          provenance, rawContentHash: normalized.contentHash, expectedTeamCount: integer(row.expected_team_count) },
-          comparison: { status: 'equal', fields: ['raw-content', 'legacy-normalized-value', 'team-points', 'participants'] } };
+        return readAcceptedExactMatchupsRows(rows, mapping, week);
       } catch { return { status: 'unavailable', reason: 'exact_matchup_evidence_unavailable' }; }
     },
   };
+}
+
+/** Reuse the accepted-evidence parser when a caller reads several resources in one statement. */
+export function readAcceptedExactMatchupsRows(rows: readonly DatabaseRow[], mapping: AdministrationSourceMapping,
+  week: number): AcceptedExactMatchupsRead {
+  if (!isAdministrationSourceMapping(mapping)) return { status: 'unavailable', reason: 'invalid_mapping' };
+  let scope: ReturnType<typeof exactMatchupsScope>;
+  try { scope = exactMatchupsScope(mapping, week); }
+  catch { return { status: 'unavailable', reason: 'invalid_period' }; }
+  try {
+    const identity = { scope, policy: EXACT_MATCHUPS_POLICY };
+    if (!rows.length) return { status: 'missing' };
+    if (rows.length !== 1) throw new Error('Ambiguous exact matchup acceptance.');
+    const row = rows[0];
+    const expectedCoverage = { periodIds: [scope.scoringPeriodId], interval: null, entitySet: 'full',
+      fields: ['roster_id', 'matchup_id'],
+      pagination: 'complete', nextCursor: null, completeness: 'complete', reasons: [] };
+    if (!isAdministrationSourceMapping(row.source_mapping)
+      || compatibleRevision(row.source_mapping) !== compatibleRevision(mapping)
+      || compatibleRevision(row.identity) !== compatibleRevision(identity)
+      || row.source_mapping_revision_id !== mapping.revisionId
+      || row.league_season_id !== mapping.leagueSeasonId || row.provider !== 'sleeper'
+      || row.external_league_id !== mapping.scope.externalLeagueId || row.family !== 'matchups'
+      || Number(row.week) !== week || row.normalizer_version !== 'sleeper-administration-v1'
+      || row.completeness !== 'complete' || row.configuration_content_id === null
+      || row.population_evidence === null || integer(row.expected_team_count) < 1
+      || compatibleRevision(row.coverage) !== compatibleRevision(expectedCoverage)) {
+      throw new Error('Invalid matchup acceptance lineage.');
+    }
+    const provenance = object(row.provenance) as AdministrationEnvelope['provenance'];
+    const population = object(row.population_evidence);
+    const configuration = object(row.configuration_payload);
+    if (population.contentHash !== row.configuration_hash
+      || configuration.league_id !== mapping.scope.externalLeagueId
+      || configuration.season !== String(mapping.scope.season)
+      || configuration.total_rosters !== integer(row.expected_team_count)) {
+      throw new Error('Invalid matchup population evidence.');
+    }
+    if (provenance.origin !== 'network' || !provenance.sourceObservedAt
+      || !provenance.requestStartedAt || !provenance.requestCompletedAt) throw new Error('Missing network provenance.');
+    const normalized = normalizeAdministrationObservation({ schemaVersion: 'league-administration-v1',
+      normalizerVersion: 'sleeper-administration-v1', dialect: 'sleeper-nfl-v1', scope: mapping.scope,
+      family: 'matchups', week, completeness: 'complete', provenance,
+      payload: row.payload as AdministrationEnvelope['payload'] }, { expectedRosterCount: integer(row.expected_team_count) });
+    if (normalized.status !== 'accepted' || normalized.contentHash !== row.content_hash
+      || normalized.semanticHash !== row.semantic_hash
+      || compatibleRevision(normalized.value) !== compatibleRevision(row.normalized_value)) {
+      throw new Error('Raw and legacy matchup evidence disagree.');
+    }
+    if (!Array.isArray(row.teams) || row.teams.length !== integer(row.expected_team_count)) {
+      throw new Error('Incomplete matchup team links.');
+    }
+    const teams = row.teams.map((team: unknown) => {
+      const entry = object(team);
+      return { seasonTeamId: id(entry.seasonTeamId), externalRosterId: String(entry.externalRosterId) };
+    });
+    const settings = configuration.settings && typeof configuration.settings === 'object'
+      && !Array.isArray(configuration.settings) ? configuration.settings as Record<string, unknown> : null;
+    const positions = configuration.roster_positions;
+    const slotEvidence = configuration.status === 'in_season' && settings?.leg === week && Array.isArray(positions)
+      && positions.every(slot => typeof slot === 'string' && slot.length > 0)
+      ? { nativePeriodWeek: week, nativeRosterPositions: positions as string[],
+        evidenceRef: id(row.configuration_content_id) } : undefined;
+    const official = projectExactMatchups(normalized, teams, slotEvidence);
+    // The first retained compatible proof establishes identity only. It makes no
+    // latest-calendar claim and remains stable across A -> B -> A schedule replays.
+    const periodMapping = readNativePeriodMapping(row.calendar_evidence, mapping,
+      id(row.configuration_content_id), configuration, week);
+    const value = periodMapping.status === 'mapped' ? { ...official, period: { ...official.period,
+      nflWeekMappings: [{ season: periodMapping.season, seasonType: periodMapping.seasonType,
+        week: periodMapping.week, evidenceRef: periodMapping.evidenceRef }] } } : official;
+    const accepted: AcceptedResource = { scope, canonicalNormalizerVersion: EXACT_MATCHUPS_POLICY.canonicalNormalizerVersion,
+      sourceMappingRevisionId: mapping.revisionId, contentId: id(row.content_id), observationIds: [id(row.receipt_id)],
+      validationVersion: EXACT_MATCHUPS_POLICY.validationVersion, acceptedGeneration: integer(row.generation),
+      verifiedAt: provenance.sourceObservedAt, effectiveFrom: null, effectiveTo: null, effectiveEvidence: 'unknown' };
+    assertAcceptedResource(accepted);
+    return { status: 'available', accepted, value, periodMapping, receipt: { id: id(row.receipt_id),
+      attemptId: id(row.attempt_id), ordinal: integer(row.ordinal), legacyObservationId: id(row.legacy_observation_id),
+      configurationContentId: id(row.configuration_content_id), provenance, rawContentHash: normalized.contentHash, expectedTeamCount: integer(row.expected_team_count) },
+      comparison: { status: 'equal', fields: ['raw-content', 'legacy-normalized-value', 'team-points', 'participants'] } };
+  } catch { return { status: 'unavailable', reason: 'exact_matchup_evidence_unavailable' }; }
 }

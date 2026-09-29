@@ -9,7 +9,8 @@ import type {
 import type { LoadedLeague } from './contracts';
 import { activeStarters } from './roster-context';
 
-export const MAX_SOURCE_SKEW_MS = 90_000;
+import { MAX_SOURCE_SKEW_MS } from '../shared/source-timing';
+export { MAX_SOURCE_SKEW_MS } from '../shared/source-timing';
 
 export function applicableSourceSkewSeconds(
   leagueRequestCompletedAt: string,

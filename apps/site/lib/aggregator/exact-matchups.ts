@@ -59,7 +59,7 @@ export type ExactPeriodMappingQualification = Readonly<{
 export type AcceptedExactMatchupsRead = Readonly<{
   status: 'available'; accepted: AcceptedResource; value: ExactMatchupValue;
   periodMapping: ExactPeriodMappingQualification;
-  receipt: { id: string; attemptId: string; ordinal: number; legacyObservationId: string;
+  receipt: { id: string; attemptId: string; ordinal: number; legacyObservationId: string; configurationContentId: string;
     provenance: AdministrationEnvelope['provenance']; rawContentHash: string; expectedTeamCount: number };
   comparison: { status: 'equal'; fields: readonly string[] };
 }> | Readonly<{ status: 'missing' | 'unavailable' | 'disabled'; reason?: string }>;

@@ -3,6 +3,10 @@ import 'server-only';
 import { getDatabase, withDatabaseAbortSignal, type Database } from '../database';
 import { createLeagueAdministrationMethods } from './neon/administration';
 export { createAccountEnrollmentMethods as createAccountEnrollmentStore } from './neon/account-enrollment';
+import { createProjectionExactMatchupCompatibilityReader } from '../projection-store';
+import { EXACT_MATCHUPS_READ_SQL, readAcceptedExactMatchupsRows } from './neon/exact-matchups';
+import { readNativePeriodMapping } from './neon/period-mapping';
+import type { ExactMatchupCompatibilityRead } from '../aggregator/exact-matchup-compatibility';
 import type { LeagueAdministrationStore } from './store-contracts';
 
 export type { LeagueAdministrationStore, LeagueAdministrationStoreRead } from './store-contracts';
@@ -34,4 +38,33 @@ export function createLeagueAdministrationStore(database: Database): LeagueAdmin
 
 export function getLeagueAdministrationStore(): LeagueAdministrationStore {
   return createLeagueAdministrationStore(withDatabaseAbortSignal(getDatabase(), AbortSignal.timeout(3_000)));
+}
+
+export type { ExactMatchupCompatibilityReadInput } from '../projection-store';
+
+/** Optional internal composition. Existing pages and workers do not call this reader. */
+export function createExactMatchupCompatibilityReader(
+  database: Database = getDatabase(),
+): ReturnType<typeof createProjectionExactMatchupCompatibilityReader> {
+  if (database.enabled) return {
+    async readExactMatchupCompatibility(input) {
+      const operationDatabase = withDatabaseAbortSignal(database, AbortSignal.timeout(3_000));
+      if (!operationDatabase.enabled) throw new Error('Enabled database unexpectedly disabled.');
+      return createProjectionExactMatchupCompatibilityReader(operationDatabase, {
+        acceptedSql: EXACT_MATCHUPS_READ_SQL, readAcceptedRows: readAcceptedExactMatchupsRows, readNativePeriodMapping,
+      }).readExactMatchupCompatibility(input);
+    },
+  };
+  return {
+    async readExactMatchupCompatibility(): Promise<ExactMatchupCompatibilityRead> {
+      // Disabled persistence never examines the request or constructs a provider client.
+      return {
+        official: { status: 'disabled' },
+        sourceHistory: { status: 'unavailable', reason: 'persistence_disabled' },
+        forecast: { status: 'unavailable', reason: 'persistence_disabled' },
+        gameState: { status: 'unavailable', reason: 'persistence_disabled' },
+        probability: { status: 'unavailable', reason: 'persistence_disabled' },
+      };
+    },
+  };
 }

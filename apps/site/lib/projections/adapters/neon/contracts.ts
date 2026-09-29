@@ -1,3 +1,5 @@
+import type { ProjectionActivityWindow, StoredProjectionSnapshot } from '../../shared/stored-snapshot';
+export type { ProjectionActivityWindow, StoredProjectionSnapshot } from '../../shared/stored-snapshot';
 import type { MatchupsData } from '../../../types';
 import type { AllPlayerBoxScoreReadInput, StoredAllPlayerBoxScores } from '../../../matchup-box-score-types';
 import type { SnapshotFreshnessMetadata } from '../../../matchup-snapshot-metadata';
@@ -391,32 +393,9 @@ export type StoredLeagueWeekObservation = Readonly<{
   unmappedTank01GameIds: readonly string[];
 }>;
 
-export type ProjectionActivityWindow = Readonly<{
-  /** Two hours before one full-slate kickoff. */
-  startsAt: string;
-  /** Seven hours after the same full-slate kickoff. */
-  endsAt: string;
-}>;
-
 export type JobClaim =
   | Readonly<{ kind: 'acquired'; attempt: number; leaseUntil: string }>
   | Readonly<{ kind: 'busy' | 'completed' | 'disabled' }>;
-
-export type StoredProjectionSnapshot = Readonly<{
-  snapshotId: string;
-  leagueSeasonId: string;
-  week: number;
-  modelVersion: string;
-  revisionKey: string;
-  calculatedAt: string;
-  publishedAt: string | null;
-  /** Latest successful source validation, even when material content did not change. */
-  verifiedAt: string;
-  /** Compact kickoff-derived refresh windows for every game in the NFL week. */
-  activityWindows: readonly ProjectionActivityWindow[];
-  isCurrent: boolean;
-  payload: MatchupsData;
-}>;
 
 export type StoredProjectionSnapshotSelection = Readonly<{
   selected: StoredProjectionSnapshot | null;

@@ -27,6 +27,9 @@ import { createProjectionSlateMethods } from './projections/adapters/neon/projec
 import { createRetentionMethods } from './projections/adapters/neon/retention';
 import { createSnapshotMethods } from './projections/adapters/neon/snapshots';
 import { createSnapshotSourceHistoryReader } from './projections/adapters/neon/source-history';
+import { createExactMatchupCompatibilityReader as createNeonCompatibilityReader,
+  type ExactMatchupCompatibilityDependencies } from './projections/adapters/neon/exact-matchup-compatibility';
+import type { DatabaseClient } from './database';
 import type { SnapshotSourceHistoryRead } from './projections/shared/source-history';
 
 export type {
@@ -118,6 +121,13 @@ export function createProjectionSourceHistoryReader(database: Database = getData
     },
   };
 }
+
+/** Internal cross-store composition; projection SQL remains private to its adapter. */
+export function createProjectionExactMatchupCompatibilityReader(client: DatabaseClient,
+  dependencies: ExactMatchupCompatibilityDependencies): ReturnType<typeof createNeonCompatibilityReader> {
+  return createNeonCompatibilityReader(client, dependencies);
+}
+export type { ExactMatchupCompatibilityReadInput } from './projections/adapters/neon/exact-matchup-compatibility';
 
 export function createProjectionStore(database: Database = getDatabase()): ProjectionStore {
   const client = connected(database);

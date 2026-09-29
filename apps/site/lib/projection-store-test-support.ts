@@ -246,6 +246,7 @@ export const projectionStoreSqlMarkers = [
   'read-current-projection-slate',
   'read-current-snapshot',
   'read-database-identity',
+  'read-exact-matchup-compatibility',
   'read-frozen-baselines',
   'read-future-refresh-plan',
   'read-job-state',
