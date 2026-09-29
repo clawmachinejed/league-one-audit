@@ -137,14 +137,32 @@ describe.sequential('exact native-period matchup shadow acceptance', () => {
 
   it('preserves the prior head for missing population, partial capture, stale attempt and failed newest attempt', async () => {
     const { f, current, week } = await seed();
+    const legacyHead = await ownerQuery('SELECT accepted_observation_id FROM league_administration_heads WHERE league_season_id=$1 AND family=\'matchups\' AND week=$2',
+      [f.leagueSeasonId, week]);
+    async function assertPartialPreserved(input: NormalizedAdministrationObservation, attempt: RosterAttempt,
+      proof: RosterPopulationEvidence) {
+      const result = await write(f, input, attempt, proof);
+      expect(result.matchupAcceptance).toMatchObject({ status: 'preserved', reason: 'complete_matchup_population_unproved' });
+      const receiptId = result.matchupAcceptance?.receiptId;
+      if (!receiptId || !result.observationId) throw new Error('Missing partial capture lineage.');
+      expect(await ownerQuery(`SELECT content.accepted,content.completeness,content.content_hash,
+        receipt.legacy_observation_id,observation.content_id=receipt.content_id AS observation_matches_content
+        FROM league_roster_capture_receipts receipt
+        JOIN league_administration_contents content ON content.id=receipt.content_id
+        JOIN league_administration_observations observation ON observation.id=receipt.legacy_observation_id
+        WHERE receipt.id=$1`, [receiptId])).toEqual([{ accepted: false, completeness: 'partial',
+        content_hash: input.contentHash, legacy_observation_id: result.observationId, observation_matches_content: true }]);
+      expect(await ownerQuery('SELECT accepted_observation_id FROM league_administration_heads WHERE league_season_id=$1 AND family=\'matchups\' AND week=$2',
+        [f.leagueSeasonId, week])).toEqual(legacyHead);
+      expect(await store.readAcceptedExactMatchups(f.mapping, week)).toEqual(current);
+    }
     const missing = await reserve(f, week); const input = await capture(f, 'matchups', ordinary, week);
     expect((await write(f, input, missing)).matchupAcceptance?.status).toBe('preserved');
     const partial = await reserve(f, week); const proof = await population(f);
     const partialInput = await capture(f, 'matchups', ordinary.slice(0, 1), week, 'partial');
-    expect((await write(f, partialInput, partial, proof)).matchupAcceptance?.status).toBe('preserved');
+    await assertPartialPreserved(partialInput, partial, proof);
     const fullCountPartial = await reserve(f, week); const fullProof = await population(f);
-    expect((await write(f, await capture(f, 'matchups', ordinary, week, 'partial'), fullCountPartial, fullProof))
-      .matchupAcceptance?.status).toBe('preserved');
+    await assertPartialPreserved(await capture(f, 'matchups', ordinary, week, 'partial'), fullCountPartial, fullProof);
     const older = await reserve(f, week); const olderProof = await population(f);
     const newer = await reserve(f, week); const newerProof = await population(f);
     const newerInput = await capture(f, 'matchups', ordinary, week);

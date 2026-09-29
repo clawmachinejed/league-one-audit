@@ -171,7 +171,7 @@ BEGIN
       AND stored.family='matchups' AND stored.week=(p_input->'envelope'->>'week')::integer
       AND stored.normalizer_version='sleeper-administration-v1' AND stored.content_hash=p_input->>'contentHash'
       AND stored.completeness=p_input->'envelope'->>'completeness'
-      AND stored.accepted=(p_input->>'status'='accepted')
+      AND stored.accepted=(p_input->>'status'='accepted' AND p_input->'envelope'->>'completeness'='complete')
       AND stored.payload=p_input->'envelope'->'payload' AND stored.normalized_value IS NOT DISTINCT FROM p_input->'value';
   -- Population must come from a separately stored network league document in this batch.
   IF population IS NOT NULL THEN
