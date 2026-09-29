@@ -165,7 +165,7 @@ export function projectExactMatchups(
     nativeMatchupId: members[0].nativeMatchupId,
     participantTeamIds: members.map(team => team.seasonTeamId).sort(),
     format: members.length === 1 ? 'unpaired' : members.length === 2 ? 'paired' : 'multiple-participants',
-    resultSupport: members.length > 2 ? 'limited' : 'supported',
+    resultSupport: members.length === 2 ? 'supported' : 'limited',
   }));
   return { period: { source: { provider: 'sleeper', resourceKind: 'competition-period',
     nativeNamespace: envelope.scope.externalLeagueId, nativeId: String(envelope.week) },

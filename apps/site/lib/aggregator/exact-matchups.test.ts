@@ -37,7 +37,7 @@ describe('same-capture exact matchup projection', () => {
     expect(projected.teams[1].starters?.[0].officialPoints).toBe('7.5');
     expect(projected.groups).toEqual(expect.arrayContaining([
       expect.objectContaining({ format: 'paired', participantTeamIds: ['season-team-1', 'season-team-2'] }),
-      expect.objectContaining({ format: 'unpaired', participantTeamIds: ['season-team-3'] }),
+      expect.objectContaining({ format: 'unpaired', resultSupport: 'limited', participantTeamIds: ['season-team-3'] }),
     ]));
     expect(projected.period).toMatchObject({ nativeWeek: 3, nflWeekMappings: [] });
     expect(projected.state).toMatchObject({ provider: 'unknown', local: 'unknown' });

@@ -3,10 +3,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { normalizeAdministrationObservation } from '../lib/league-administration/normalize';
 import type { AdministrationFamily, JsonValue, NormalizedAdministrationObservation } from '../lib/league-administration/contracts';
 import { createLeagueAdministrationMethods } from '../lib/league-administration/neon/administration';
+import type { AdministrationWriteFence } from '../lib/league-administration/store-contracts';
 import { createProjectionStore } from '../lib/projection-store';
 import type { RosterAttempt, RosterPopulationEvidence } from '../lib/aggregator/current-roster';
 import { exactMatchupsScope } from '../lib/aggregator/exact-matchups';
-import { createIndependentDatabase, ownerQuery, runtimeQuery, type IndependentDatabase } from './neon-integration-harness';
+import { createIndependentDatabase, createPinnedIntegrationDatabase, ownerQuery, runtimeQuery,
+  type IndependentDatabase } from './neon-integration-harness';
 
 const rules = { rec: 0.5 };
 const ordinary = [
@@ -54,10 +56,25 @@ describe.sequential('exact native-period matchup shadow acceptance', () => {
     if (!result.observationId) throw new Error('Missing population observation.');
     return { observationId: result.observationId, contentHash: input.contentHash, envelope: input.envelope };
   }
-  const reserve = (f: Fixture, week: number) => store.beginExactMatchupAttempt(f.mapping, week, randomUUID());
+  const reserve = (f: Fixture, week: number, fence?: AdministrationWriteFence) =>
+    store.beginExactMatchupAttempt(f.mapping, week, randomUUID(), fence);
   const write = (f: Fixture, input: NormalizedAdministrationObservation, attempt: RosterAttempt,
-    proof?: RosterPopulationEvidence) => store.recordObservation(input, undefined, f.mapping,
+    proof?: RosterPopulationEvidence, fence?: AdministrationWriteFence) => store.recordObservation(input, fence, f.mapping,
     undefined, undefined, undefined, { attempt, ...(proof ? { population: proof } : {}) });
+  async function matchupCounts(f: Fixture) {
+    const [row] = await ownerQuery<{ contents: number; observations: number }>(`SELECT
+      (SELECT count(*)::integer FROM league_administration_contents WHERE league_season_id=$1 AND family='matchups') AS contents,
+      (SELECT count(*)::integer FROM league_administration_observations WHERE league_season_id=$1 AND family='matchups') AS observations`,
+    [f.leagueSeasonId]);
+    return row;
+  }
+  async function workerFence(seconds = 300): Promise<AdministrationWriteFence> {
+    const jobKey = `exact-matchup-fence:${randomUUID()}`; const workerId = randomUUID();
+    await ownerQuery(`INSERT INTO projection_jobs(job_key,job_type,scheduled_for,state,lease_owner,lease_until,attempt_count)
+      VALUES($1,'league-administration',clock_timestamp(),'running',$2,clock_timestamp()+interval '5 minutes',1)`, [jobKey, workerId]);
+    const [clock] = await ownerQuery('SELECT clock_timestamp()+($1::integer * interval \'1 second\') AS at', [seconds]);
+    return { jobKey, workerId, generation: 1, deadlineAt: new Date(String(clock.at)).toISOString() };
+  }
   async function seed(week = 3) {
     const f = await fixture(); const attempt = await reserve(f, week); const proof = await population(f);
     const input = await capture(f, 'matchups', ordinary, week);
@@ -134,6 +151,139 @@ describe.sequential('exact native-period matchup shadow acceptance', () => {
     expect(await store.readAcceptedExactMatchups(f.mapping, week)).toEqual(next);
   });
 
+  it.each(['older-first', 'newer-first'] as const)('keeps the newest reserved capture under overlapping %s completion', async order => {
+    const { f, week } = await seed();
+    const older = await reserve(f, week);
+    const peer = createIndependentDatabase();
+    try {
+      const peerStore = createLeagueAdministrationMethods(peer.database);
+      const newer = await peerStore.beginExactMatchupAttempt(f.mapping, week, randomUUID());
+      const proof = await population(f);
+      const olderInput = await capture(f, 'matchups', [{ ...ordinary[0], custom_points: -1 }, ordinary[1]], week);
+      const newerInput = await capture(f, 'matchups', [{ ...ordinary[0], custom_points: 2 }, ordinary[1]], week);
+      const finishOlder = () => write(f, olderInput, older, proof);
+      const finishNewer = () => peerStore.recordObservation(newerInput, undefined, f.mapping,
+        undefined, undefined, undefined, { attempt: newer, population: proof });
+      const first = await (order === 'older-first' ? finishOlder() : finishNewer());
+      const second = await (order === 'older-first' ? finishNewer() : finishOlder());
+      const olderResult = order === 'older-first' ? first : second;
+      const newerResult = order === 'older-first' ? second : first;
+      expect(olderResult.matchupAcceptance).toMatchObject({ status: 'preserved', reason: 'newer_network_attempt_reserved' });
+      expect(newerResult.matchupAcceptance).toMatchObject({ status: 'accepted', reason: null });
+      expect(await store.readAcceptedExactMatchups(f.mapping, week)).toMatchObject({ status: 'available',
+        receipt: { attemptId: newer.id }, value: { teams: [{ officialTeamPoints: { effective: '2' } }] } });
+    } finally { await peer.close(); }
+  });
+
+  it('rejects wrong league, season and pre-reservation population without moving the accepted head', async () => {
+    const { f, current, week } = await seed();
+    const wrongLeague = await fixture(); const wrongSeason = await fixture(2161);
+    const attempt = await reserve(f, week);
+    const input = await capture(f, 'matchups', ordinary, week);
+    for (const proof of [await population(wrongLeague), await population(wrongSeason)]) {
+      await expect(write(f, input, attempt, proof)).rejects.toThrow(/population evidence mismatch/);
+    }
+    const oldProof = await population(f);
+    const later = await reserve(f, week);
+    await expect(write(f, await capture(f, 'matchups', ordinary, week), later, oldProof))
+      .rejects.toThrow(/population evidence mismatch/);
+    expect(await store.readAcceptedExactMatchups(f.mapping, week)).toEqual(current);
+  });
+
+  it('binds the exact writer fence and rolls back expired writes including legacy history', async () => {
+    const { f, current, week } = await seed(); const fence = await workerFence();
+    for (const invalid of [{ ...fence, generation: 2 }, { ...fence, workerId: randomUUID() },
+      { ...fence, deadlineAt: '2020-01-01T00:00:00.000Z' }]) {
+      await expect(reserve(f, week, invalid)).rejects.toThrow(/writer fence/);
+    }
+    const attempt = await reserve(f, week, fence); const proof = await population(f);
+    const input = await capture(f, 'matchups', [{ ...ordinary[0], custom_points: 6 }, ordinary[1]], week);
+    const before = await matchupCounts(f);
+    await expect(write(f, input, attempt, proof)).rejects.toThrow(/attempt scope mismatch/);
+    await expect(write(f, input, attempt, proof, { ...fence, workerId: randomUUID() }))
+      .rejects.toThrow(/attempt scope mismatch/);
+    await ownerQuery("UPDATE projection_jobs SET lease_until=clock_timestamp()-interval '1 second' WHERE job_key=$1", [fence.jobKey]);
+    await expect(write(f, input, attempt, proof, fence)).rejects.toThrow(/writer fence/);
+    expect(await matchupCounts(f)).toEqual(before);
+    expect(await store.readAcceptedExactMatchups(f.mapping, week)).toEqual(current);
+  });
+
+  it.each(['source', 'head'] as const)('rejects a reservation whose fence expires while blocked on the %s lock', async lock => {
+    const { f, current, week, attempt } = await seed();
+    const owner = await createPinnedIntegrationDatabase('owner');
+    const writer = await createPinnedIntegrationDatabase('runtime');
+    let completion: Promise<{ error?: unknown }> | undefined;
+    try {
+      const [ownerPid] = await owner.database.query('SELECT pg_backend_pid() AS pid');
+      const [writerPid] = await writer.database.query('SELECT pg_backend_pid() AS pid');
+      const fence = await workerFence(8);
+      await owner.database.query('BEGIN');
+      if (lock === 'source') await owner.database.query(
+        "SELECT pg_advisory_xact_lock(hashtextextended('league-configuration:'||$1::text,0))", [f.leagueSeasonId]);
+      else await owner.database.query('SELECT scope_id FROM league_roster_resource_heads WHERE scope_id=$1 FOR UPDATE', [attempt.scopeId]);
+      const rejectedId = randomUUID();
+      completion = createLeagueAdministrationMethods(writer.database)
+        .beginExactMatchupAttempt(f.mapping, week, rejectedId, fence)
+        .then(() => ({}), error => ({ error }));
+      let blocked = false;
+      for (let poll = 0; poll < 50; poll++) {
+        const [row] = await owner.database.query<{ blocked: boolean }>(
+          'SELECT $1::integer=ANY(pg_blocking_pids($2::integer)) AS blocked', [ownerPid.pid, writerPid.pid]);
+        if (row.blocked) { blocked = true; break; }
+        await new Promise(resolve => setTimeout(resolve, 20));
+      }
+      expect(blocked).toBe(true);
+      await owner.database.query(`SELECT pg_sleep(GREATEST(0,EXTRACT(EPOCH FROM ($1::timestamptz-clock_timestamp())))+0.025)`,
+        [fence.deadlineAt]);
+      await owner.database.query('COMMIT');
+      expect(String((await completion).error)).toMatch(/reservation writer fence expired/);
+      expect(await ownerQuery('SELECT id FROM league_roster_resource_attempts WHERE id=$1', [rejectedId])).toEqual([]);
+      expect(await store.readAcceptedExactMatchups(f.mapping, week)).toEqual(current);
+    } finally {
+      await owner.database.query('ROLLBACK').catch(() => undefined);
+      await completion;
+      await writer.close(); await owner.close();
+    }
+  });
+
+  it('rolls back a capture blocked past its fence deadline, leaving v1 and shadow unchanged', async () => {
+    const { f, current, week } = await seed();
+    const owner = await createPinnedIntegrationDatabase('owner');
+    const writer = await createPinnedIntegrationDatabase('runtime');
+    let completion: Promise<{ error?: unknown }> | undefined;
+    try {
+      const [ownerPid] = await owner.database.query('SELECT pg_backend_pid() AS pid');
+      const [writerPid] = await writer.database.query('SELECT pg_backend_pid() AS pid');
+      const fence = await workerFence(8);
+      const attempt = await reserve(f, week, fence); const proof = await population(f);
+      const input = await capture(f, 'matchups', [{ ...ordinary[0], custom_points: 7 }, ordinary[1]], week);
+      const before = await matchupCounts(f);
+      await owner.database.query('BEGIN');
+      await owner.database.query('SELECT scope_id FROM league_roster_resource_heads WHERE scope_id=$1 FOR UPDATE', [attempt.scopeId]);
+      completion = createLeagueAdministrationMethods(writer.database)
+        .recordObservation(input, fence, f.mapping, undefined, undefined, undefined, { attempt, population: proof })
+        .then(() => ({}), error => ({ error }));
+      let blocked = false;
+      for (let poll = 0; poll < 50; poll++) {
+        const [row] = await owner.database.query<{ blocked: boolean }>(
+          'SELECT $1::integer=ANY(pg_blocking_pids($2::integer)) AS blocked', [ownerPid.pid, writerPid.pid]);
+        if (row.blocked) { blocked = true; break; }
+        await new Promise(resolve => setTimeout(resolve, 20));
+      }
+      expect(blocked).toBe(true);
+      await owner.database.query(`SELECT pg_sleep(GREATEST(0,EXTRACT(EPOCH FROM ($1::timestamptz-clock_timestamp())))+0.025)`,
+        [fence.deadlineAt]);
+      await owner.database.query('COMMIT');
+      expect(String((await completion).error)).toMatch(/writer fence.*(?:stale|expired)/);
+      expect(await matchupCounts(f)).toEqual(before);
+      expect(await store.readAcceptedExactMatchups(f.mapping, week)).toEqual(current);
+    } finally {
+      await owner.database.query('ROLLBACK').catch(() => undefined);
+      await completion;
+      await writer.close(); await owner.close();
+    }
+  });
+
   it('fences remap, foreign period and cached evidence while preserving old callers and history', async () => {
     const { f, current, week } = await seed();
     const attempt = await reserve(f, week); const proof = await population(f);
@@ -157,6 +307,18 @@ describe.sequential('exact native-period matchup shadow acceptance', () => {
     expect((await store.readAcceptedExactMatchups(latest!, week)).status).toBe('available');
     await store.recordObservation(await capture(newFixture, 'matchups', ordinary, week));
     expect((await store.readAcceptedExactMatchups(latest!, week)).status).toBe('available');
+  });
+
+  it('leaves the accepted shadow fixed when an old v1 caller writes changed matchup content', async () => {
+    const { f, current, week } = await seed();
+    const changed = await capture(f, 'matchups', [{ ...ordinary[0], custom_points: 27 }, ordinary[1]], week);
+    expect((await store.recordObservation(changed)).status).toMatch(/changed|unchanged/);
+    expect(await store.readAcceptedExactMatchups(f.mapping, week)).toEqual(current);
+    const [legacy] = await ownerQuery<{ content_hash: string }>(`SELECT content.content_hash FROM league_administration_heads head
+      JOIN league_administration_observations observation ON observation.id=head.accepted_observation_id
+      JOIN league_administration_contents content ON content.id=observation.content_id
+      WHERE head.league_season_id=$1 AND head.family='matchups' AND head.week=$2`, [f.leagueSeasonId, week]);
+    expect(legacy.content_hash).toBe(changed.contentHash);
   });
 
   it('does not infer a historical bench from a completed league retaining the last leg', async () => {

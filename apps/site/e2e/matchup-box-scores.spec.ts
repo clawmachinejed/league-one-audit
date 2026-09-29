@@ -52,9 +52,6 @@ async function openFixture(page: Page, league: League = 'league1', phase: 'sched
     holdBox: null as Promise<void> | null, completedBoxes: 0, abortedBoxes: [] as string[], providerRequests: [] as string[],
   };
   await page.clock.install({ time: new Date('2026-09-13T16:00:00.000Z') });
-  // Pause before hydration starts its interval. Advancing an existing interval
-  // here could start a request that the next clock jump immediately times out.
-  await page.clock.pauseAt(new Date('2026-09-13T16:01:00.000Z'));
   await page.addInitScript((keys) => keys.forEach((key) => localStorage.setItem(key, '2')),
     [LEAGUE_IDS.league1, LEAGUE_IDS.league2].map((id) => `league-one:my-team:${id}`));
   page.on('request', (request) => {
@@ -78,7 +75,9 @@ async function openFixture(page: Page, league: League = 'league1', phase: 'sched
     expect([...body.matchAll(period)]).toHaveLength(1);
     body = body.replace(period, (_match, serialized: string) => {
       const original = JSON.parse(serialized.replace(/\\"/gu, '"')) as MatchupPeriodContext;
-      return `\\"periodContext\\":${JSON.stringify({ ...original, ...contextFixture('active', 1) }).replace(/"/gu, '\\"')}`;
+      const controlled: MatchupPeriodContext = { ...original, lifecycle: 'active', nflPhase: 'regular',
+        activeSeason: 2026, activeWeek: 1, temporalState: 'active', refreshDue: false };
+      return `\\"periodContext\\":${JSON.stringify(controlled).replace(/"/gu, '\\"')}`;
     });
     if (!body.includes('class="refresh-note"')) body = body.replace(/(<p class="updated"[^>]*>[\s\S]*?<\/p>)/u,
       '$1<p class="refresh-note">Checks for a newer matchup snapshot every minute while this page is open.</p>');
@@ -127,6 +126,15 @@ async function openFixture(page: Page, league: League = 'league1', phase: 'sched
   });
   await page.goto(`${league === 'league2' ? '/league2' : ''}/matchups?week=1`, { waitUntil: 'networkidle' });
   expect(state.documentCount).toBe(1);
+  // Hydration must finish before pausing the clock; the first League One board
+  // can otherwise keep its SSR markup without installing the polling effect.
+  const firstMatchup = page.locator('[data-matchup-toggle]').first();
+  await firstMatchup.click();
+  await expect(firstMatchup).toHaveAttribute('aria-expanded', 'true');
+  await firstMatchup.click();
+  await expect(firstMatchup).toHaveAttribute('aria-expanded', 'false');
+  const now = await page.evaluate(() => Date.now());
+  await page.clock.pauseAt(new Date(now + 1_000));
   await page.clock.runFor(61_000);
   await expect(page.getByText('Fixture Alpha', { exact: true })).toBeVisible();
   await expect(page.locator('[data-matchup-toggle]').first().locator('[data-team-name]'))
