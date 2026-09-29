@@ -40,6 +40,7 @@ export async function recordCapturedAdministration(
   options: Readonly<{ store?: LeagueAdministrationStore; now?: () => Date; fence?: AdministrationWriteFence;
     signal?: AbortSignal; expectedRosterCount?: number; mapping?: AdministrationSourceMapping | null;
     rosterAttempt?: RosterAttempt;
+    managerAttempt?: RosterAttempt;
     verify?: (document: CapturedAdministrationDocument, signal: AbortSignal) => Promise<CapturedAdministrationDocument> }> = {},
 ): Promise<AdministrationCaptureResult> {
   const signal = options.signal ?? AbortSignal.timeout(8_000);
@@ -75,8 +76,11 @@ export async function recordCapturedAdministration(
     }, expectedRosterCount === undefined ? undefined : { expectedRosterCount });
     const mapping = document.family === 'rosters' ? options.mapping ?? undefined : undefined;
     let attempt = origin === 'network' && mapping ? options.rosterAttempt : undefined;
-    const write = () => attempt
-      ? store.recordObservation(normalized, options.fence, mapping, { attempt, ...(population ? { population } : {}) })
+    let managerAttempt = origin === 'network' && mapping ? options.managerAttempt : undefined;
+    const write = () => attempt || managerAttempt
+      ? store.recordObservation(normalized, options.fence, mapping,
+        attempt ? { attempt, ...(population ? { population } : {}) } : undefined,
+        managerAttempt ? { attempt: managerAttempt, ...(population ? { population } : {}) } : undefined)
       : store.recordObservation(normalized, options.fence, mapping);
     let result = await write();
     if (result.status === 'stale' && result.reason === 'unproven_cache_change' && origin === 'cache') {
@@ -85,7 +89,10 @@ export async function recordCapturedAdministration(
       signal.throwIfAborted();
       // Reserve only this already-needed NETWORK acquisition. Ordinary cache
       // checks cannot suppress another in-flight network capture.
-      if (mapping) attempt = await store.beginRosterAttempt(mapping, randomUUID(), undefined, options.fence);
+      if (mapping) {
+        const attempts = await store.beginRosterCapture(mapping, randomUUID(), randomUUID(), options.fence);
+        attempt = attempts.players; managerAttempt = attempts.managers;
+      }
       const source = options.verify ? null : await import('../sleeper');
       const verified: CapturedAdministrationDocument = options.verify ? await options.verify(document, signal)
         : document.family === 'drafts'

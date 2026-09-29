@@ -20,11 +20,50 @@ function fakeStore(): LeagueAdministrationStore {
   readSource: vi.fn(async () => ({ status: 'missing' as const })),
   readSourceMapping: vi.fn(async () => null),
   beginRosterAttempt: vi.fn(), readAcceptedCurrentRoster: vi.fn(async () => ({ status: 'missing' as const })),
+  beginRosterCapture: vi.fn(), readAcceptedTeamManagers: vi.fn(async () => ({ status: 'missing' as const })),
   readSourceByConnection: vi.fn(async () => ({ status: 'missing' as const })), listEnrollments: vi.fn(async () => []),
   listEnrollmentInventory: vi.fn(async () => ({ entries: [] })), readEnrollment: vi.fn(async () => ({ status: 'missing' as const })) };
 }
 
 describe('administration collection and enrollment composition', () => {
+  it('reserves both policies before an already-required changed-cache network verification and forwards the same receipt evidence', async () => {
+    const store = fakeStore();
+    const mapping = { connectionId: '11111111-1111-4111-8111-111111111111', leagueSeasonId: '22222222-2222-4222-8222-222222222222',
+      revisionId: '33333333-3333-4333-8333-333333333333', generation: 1, scope };
+    const players = { id: 'players', scopeId: 'players-scope', ordinal: 2, expectedGeneration: 1 };
+    const managers = { id: 'managers', scopeId: 'managers-scope', ordinal: 3, expectedGeneration: 0 };
+    const roster = { family: 'rosters' as const, week: null, payload: [{ roster_id: 1, owner_id: 'owner', co_owners: null, players: [] }],
+      origin: 'cache' as const, requestStartedAt: time, requestCompletedAt: time };
+    vi.mocked(store.recordObservation).mockResolvedValueOnce({ status: 'stale', reason: 'unproven_cache_change' })
+      .mockResolvedValueOnce({ status: 'changed' });
+    vi.mocked(store.beginRosterCapture).mockResolvedValue({ players, managers });
+    const verify = vi.fn(async () => {
+      expect(store.beginRosterCapture).toHaveBeenCalledExactlyOnceWith(mapping, expect.any(String), expect.any(String), undefined);
+      return { ...roster, origin: 'network' as const };
+    });
+    await recordCapturedAdministration(scope, [roster], { store, mapping, verify, now: () => new Date(time) });
+    expect(verify).toHaveBeenCalledOnce();
+    expect(vi.mocked(store.recordObservation).mock.calls[0]).toHaveLength(3);
+    const completed = vi.mocked(store.recordObservation).mock.calls[1];
+    expect(completed[2]).toBe(mapping); expect(completed[3]).toEqual({ attempt: players }); expect(completed[4]).toEqual({ attempt: managers });
+    expect(completed[0]).toMatchObject({ teamManagers: { status: 'partial', teams: [{ primaryOwner: { state: 'owned' } }] } });
+  });
+
+  it('does not fetch after failed paired reservation and does not reserve for ordinary cache evidence', async () => {
+    const store = fakeStore();
+    const mapping = { connectionId: '11111111-1111-4111-8111-111111111111', leagueSeasonId: '22222222-2222-4222-8222-222222222222',
+      revisionId: '33333333-3333-4333-8333-333333333333', generation: 1, scope };
+    const roster = { family: 'rosters' as const, week: null, payload: [{ roster_id: 1, owner_id: 'owner' }],
+      origin: 'cache' as const, requestStartedAt: time, requestCompletedAt: time };
+    const verify = vi.fn();
+    await recordCapturedAdministration(scope, [roster], { store, mapping, verify, now: () => new Date(time) });
+    expect(store.beginRosterCapture).not.toHaveBeenCalled(); expect(verify).not.toHaveBeenCalled();
+    vi.mocked(store.recordObservation).mockResolvedValue({ status: 'stale', reason: 'unproven_cache_change' });
+    vi.mocked(store.beginRosterCapture).mockRejectedValue(new Error('mapping moved'));
+    await expect(recordCapturedAdministration(scope, [roster], { store, mapping, verify, now: () => new Date(time) })).rejects.toThrow('mapping moved');
+    expect(verify).not.toHaveBeenCalled();
+  });
+
   it.each(['changed', 'rejected', 'stale'] as const)('only forwards independently retained network population evidence after a %s configuration write', async status => {
     const store = fakeStore();
     const mapping = { connectionId: '11111111-1111-4111-8111-111111111111', leagueSeasonId: '22222222-2222-4222-8222-222222222222',

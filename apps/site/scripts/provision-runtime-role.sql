@@ -321,6 +321,20 @@ DO $$ DECLARE object_name text; BEGIN
   END IF;
 END; $$;
 
+-- 028 relationship evidence remains SELECT-only, including late role bootstrap.
+DO $$ BEGIN
+  IF to_regclass('public.league_team_manager_entries') IS NOT NULL THEN
+    REVOKE ALL ON public.league_team_manager_entries,public.league_team_manager_memberships FROM league_one_runtime;
+    GRANT SELECT ON public.league_team_manager_entries,public.league_team_manager_memberships TO league_one_runtime;
+    REVOKE ALL ON FUNCTION public.qualify_team_manager_projection(jsonb,jsonb,text,integer),
+      public.validate_team_manager_entry(),public.validate_team_manager_membership() FROM league_one_runtime;
+    IF has_table_privilege('league_one_runtime','public.league_team_manager_entries','INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN')
+      OR has_table_privilege('league_one_runtime','public.league_team_manager_memberships','INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN') THEN
+      RAISE EXCEPTION 'league_one_runtime has incorrect team manager privileges';
+    END IF;
+  END IF;
+END; $$;
+
 DO $$ BEGIN
   IF to_regclass('public.all_player_league_acceptances') IS NOT NULL THEN
     REVOKE ALL ON public.all_player_league_acceptances, public.current_all_player_league_scores FROM league_one_runtime;

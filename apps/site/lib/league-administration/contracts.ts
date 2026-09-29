@@ -165,6 +165,8 @@ export type NormalizedAdministrationObservation = Readonly<{
   semanticHash: string | null;
   diagnostics: readonly AdministrationDiagnostic[];
   value: NormalizedAdministrationValue | null;
+  /** Independently qualified projection of the same raw roster; never changes v1 values/hashes. */
+  teamManagers?: import('../aggregator/team-managers').TeamManagersNormalization;
 }>;
 
 export type AdministrationNormalizationExpectations = Readonly<{
