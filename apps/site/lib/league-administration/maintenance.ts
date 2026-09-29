@@ -6,7 +6,7 @@ import { createProjectionStore } from '../projection-store';
 import { getOfficialLeagueAdministration, getOfficialMatchupObservation, getOfficialTransactionWeek,
   getOfficialAdministrationMetadata } from '../sleeper';
 import type { LeagueRegistryPort } from '../projections/ports/league-registry';
-import { recordCapturedAdministration } from './runtime';
+import { captureAdministrationSourceMapping, recordCapturedAdministration } from './runtime';
 import { createLeagueAdministrationStore } from './store';
 
 const HOUR_MS = 3_600_000;
@@ -75,6 +75,7 @@ export async function runAdministrationMaintenance(registry: LeagueRegistryPort,
     const currentWeek = period.activeWeek ?? period.defaultWeek;
     const { week, metadata } = administrationMaintenanceSelection(now, intendedKeys.length, currentWeek);
     const externalLeagueId = String(configuration.leagueRef.externalId);
+    const mapping = await captureAdministrationSourceMapping(externalLeagueId, store);
     const core = await getOfficialLeagueAdministration(externalLeagueId, { revalidate: 0, signal });
     const extra = metadata ? await getOfficialAdministrationMetadata(externalLeagueId, season, { signal, maxRequests: 28 })
       : { observations: await Promise.all([
@@ -84,7 +85,7 @@ export async function runAdministrationMaintenance(registry: LeagueRegistryPort,
     signal.throwIfAborted();
     const captured = await recordCapturedAdministration({ leagueKey: configuration.key,
       provider: 'sleeper', externalLeagueId, season }, [...core, ...extra.observations], {
-      store, signal, fence: { jobKey, workerId, generation: claim.attempt, deadlineAt },
+      store, signal, mapping, fence: { jobKey, workerId, generation: claim.attempt, deadlineAt },
     });
     if (captured.status !== 'stored' || extra.reason) throw new Error('administration-observation-rejected');
     if (!await jobs.completeJob(jobKey, workerId)) throw new Error('administration-lease-lost');

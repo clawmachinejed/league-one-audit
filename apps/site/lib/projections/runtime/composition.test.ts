@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ProjectionCadenceInput } from '../../sleeper';
 
-const calls = vi.hoisted(() => ({ query: vi.fn<(...parameters: unknown[]) => Promise<never[]>>(async () => []),
+const calls = vi.hoisted(() => ({ query: vi.fn<(...parameters: unknown[]) => Promise<Record<string, unknown>[]>>(async () => []),
   cacheFactory: vi.fn((...args: unknown[]) => args[0]),
   cadence: vi.fn<(leagueId: string, evaluatedAt?: string) => Promise<ProjectionCadenceInput>>() }));
 vi.mock('server-only', () => ({}));
@@ -22,7 +22,7 @@ import { createProductionLineupObservationDependencies } from './lineup-observat
 import { createProductionProjectionDependencies } from './projection-composition';
 import { createProductionFutureProjectionDependencies } from './future-projection-composition';
 
-beforeEach(() => { calls.query.mockClear(); calls.cadence.mockReset(); vi.stubGlobal('fetch', vi.fn()); });
+beforeEach(() => { calls.query.mockReset(); calls.query.mockResolvedValue([]); calls.cadence.mockReset(); vi.stubGlobal('fetch', vi.fn()); });
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); vi.restoreAllMocks(); });
 
 function expectScopedQueries(signal: AbortSignal, minimum: number): void {
@@ -79,6 +79,11 @@ describe('production worker capability composition', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-09-15T15:59:59.000Z'));
     vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    calls.query.mockImplementation(async (sql, parameters) => String(sql).includes('read-source-mapping') ? [{
+      connection_id: '11111111-1111-4111-8111-111111111111', league_season_id: '22222222-2222-4222-8222-222222222222',
+      revision_id: '33333333-3333-4333-8333-333333333333', mapping_generation: 1, league_key: 'league1',
+      external_league_id: (parameters as string[])[0], provider: 'sleeper', season: 2026,
+    }] : []);
     calls.cadence.mockImplementation(async (leagueId, evaluatedAt) => ({
       sleeperLeagueId: leagueId, season: '2026', defaultDisplayWeek: 1, week: 1,
       activeScoringWeek: 1, leagueLifecycle: 'active', leagueStatus: 'in_season', schedule: {},
@@ -100,7 +105,9 @@ describe('production worker capability composition', () => {
       [String(leagueTwo.leagueRef.externalId), '2026-09-15T15:59:59.000Z'],
       [String(leagueOne.leagueRef.externalId), '2026-09-15T16:00:01.000Z'],
     ]);
-    expect(calls.query).not.toHaveBeenCalled();
+    expect(calls.query).toHaveBeenCalledTimes(3);
+    expect(calls.query.mock.calls.every(([sql, , options]) => String(sql).includes('read-source-mapping')
+      && (options as { signal: AbortSignal }).signal instanceof AbortSignal)).toBe(true);
     expect(fetch).not.toHaveBeenCalled();
   });
 

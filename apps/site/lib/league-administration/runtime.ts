@@ -6,6 +6,13 @@ import { normalizeAdministrationObservation } from './normalize';
 import { createLeagueAdministrationStore } from './store';
 import { getDatabase, withDatabaseAbortSignal } from '../database';
 import type { AdministrationWriteResult, AdministrationWriteFence, LeagueAdministrationStore } from './store-contracts';
+import { isAdministrationSourceMapping, type AdministrationSourceMapping } from './source-mapping';
+
+/** Called by existing enrolled collectors before loading any roster document. */
+export async function captureAdministrationSourceMapping(externalLeagueId: string,
+  store = createLeagueAdministrationStore(withDatabaseAbortSignal(getDatabase(), AbortSignal.timeout(3_000)))) {
+  return store.enabled ? store.readSourceMapping(externalLeagueId) : null;
+}
 
 /** These documents come from the existing official loaders, never from page reads. */
 export type CapturedAdministrationDocument = Readonly<{
@@ -29,12 +36,16 @@ export async function recordCapturedAdministration(
   scope: AdministrationScope,
   documents: readonly CapturedAdministrationDocument[],
   options: Readonly<{ store?: LeagueAdministrationStore; now?: () => Date; fence?: AdministrationWriteFence;
-    signal?: AbortSignal; expectedRosterCount?: number;
+    signal?: AbortSignal; expectedRosterCount?: number; mapping?: AdministrationSourceMapping | null;
     verify?: (document: CapturedAdministrationDocument, signal: AbortSignal) => Promise<CapturedAdministrationDocument> }> = {},
 ): Promise<AdministrationCaptureResult> {
   const signal = options.signal ?? AbortSignal.timeout(8_000);
   const store = options.store ?? createLeagueAdministrationStore(withDatabaseAbortSignal(getDatabase(), signal));
   if (!store.enabled) return { status: 'disabled', results: [] };
+  if (options.mapping && (!isAdministrationSourceMapping(options.mapping)
+    || Object.entries(scope).some(([key, value]) => options.mapping!.scope[key as keyof AdministrationScope] !== value))) {
+    throw new Error('Administration capture mapping does not match the requested scope.');
+  }
   const now = options.now ?? (() => new Date());
   const results: { family: AdministrationFamily; result: AdministrationWriteResult }[] = [];
   let context: AdministrationCalculationContext | undefined;
@@ -58,7 +69,8 @@ export async function recordCapturedAdministration(
       },
       completeness: document.completeness ?? 'complete', payload: document.payload as JsonValue,
     }, expectedRosterCount === undefined ? undefined : { expectedRosterCount });
-    let result = await store.recordObservation(normalized, options.fence);
+    const mapping = document.family === 'rosters' ? options.mapping ?? undefined : undefined;
+    let result = await store.recordObservation(normalized, options.fence, mapping);
     if (result.status === 'stale' && result.reason === 'unproven_cache_change' && origin === 'cache') {
       // Only changed cached documents need a fresh verification. Never overwrite a
       // newer network observation using an unknown cache age, or refetch a whole league.
@@ -80,7 +92,9 @@ export async function recordCapturedAdministration(
           requestCompletedAt: verified.requestCompletedAt, sourceObservedAt: verified.sourceObservedAt !== undefined
             ? verified.sourceObservedAt : verified.requestCompletedAt,
           checkedAt: now().toISOString() } }, expectedRosterCount === undefined ? undefined : { expectedRosterCount });
-      result = await store.recordObservation(normalized, options.fence);
+      // Retain the pre-acquisition token through verification. A remap never
+      // authorizes this older capture by substituting today's revision.
+      result = await store.recordObservation(normalized, options.fence, mapping);
       // The caller already transformed its original source. Retain the newer
       // evidence, but never label that older calculation with the newer version.
       sourceChangedDuringVerification ||= normalized.contentHash !== originalContentHash;

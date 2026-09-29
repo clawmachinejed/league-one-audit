@@ -285,6 +285,15 @@ END; $$;
 -- Shared score content uses existing immutable INSERT rights; only guarded
 -- functions may create league acceptances, capture receipts or current pointers.
 DO $$ BEGIN
+  IF to_regclass('public.league_source_mapping_revisions') IS NOT NULL THEN
+    REVOKE ALL ON public.league_source_mapping_revisions,public.league_administration_observation_mappings FROM league_one_runtime;
+    GRANT SELECT ON public.league_source_mapping_revisions,public.league_administration_observation_mappings TO league_one_runtime;
+    REVOKE ALL ON FUNCTION public.guard_source_mapping_pointer(),public.record_initial_source_mapping_revision(),
+      public.revise_league_source_connection(uuid,text,uuid,text,text),public.validate_administration_observation_mapping() FROM league_one_runtime;
+  END IF;
+END; $$;
+
+DO $$ BEGIN
   IF to_regprocedure('public.prepare_account_league_enrollment(uuid,integer,text)') IS NOT NULL THEN
     GRANT EXECUTE ON FUNCTION public.prepare_account_league_enrollment(uuid,integer,text),
       public.activate_account_league_enrollment(text,integer,text) TO league_one_runtime;

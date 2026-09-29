@@ -29,6 +29,20 @@ function capture(raw: JsonValue = payload) {
 }
 
 describe('retained Sleeper roster common projection', () => {
+  it('exposes exact observation mapping without claiming v2 acceptance, and refuses malformed linkage', () => {
+    const { read, evidence, normalized } = capture();
+    const linked = { ...evidence, source_mapping_revision_id: 'revision-a', source_connection_id: 'connection-a', source_mapping_generation: '3',
+      mapping_league_season_id: evidence.league_season_id, mapping_provider: 'sleeper', mapping_external_league_id: 'source' };
+    expect(projectRetainedRoster(read, linked, normalized)).toMatchObject({ kind: 'legacy-retained-roster',
+      lineage: { sourceMappingRevisionId: 'revision-a', sourceConnectionId: 'connection-a', mappingGeneration: 3,
+        reasons: ['v2_acceptance_not_qualified'] } });
+    expect(projectRetainedRoster(read, { ...linked, source_connection_id: null }, normalized))
+      .toEqual({ status: 'unavailable', reason: 'retained_mapping_lineage_invalid' });
+    for (const corrupt of [{ mapping_league_season_id: 'other-season' }, { mapping_provider: 'yahoo' }, { mapping_external_league_id: 'other-source' }]) {
+      expect(projectRetainedRoster(read, { ...linked, ...corrupt }, normalized))
+        .toEqual({ status: 'unavailable', reason: 'retained_mapping_lineage_invalid' });
+    }
+  });
   it('preserves persisted identity, native evidence and source age without claiming complete v2 mapping lineage', () => {
     const { read, evidence, normalized } = capture();
     const before = JSON.stringify(read);

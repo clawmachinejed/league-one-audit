@@ -9,7 +9,7 @@ import { ADMINISTRATION_DIALECT, ADMINISTRATION_NORMALIZER_VERSION, ADMINISTRATI
 import type { JsonValue } from './contracts';
 import { normalizeAdministrationObservation } from './normalize';
 import { ADMINISTRATION_MAINTENANCE_JOB } from './maintenance';
-import { recordCapturedAdministration } from './runtime';
+import { captureAdministrationSourceMapping, recordCapturedAdministration } from './runtime';
 import { createLeagueAdministrationStore } from './store';
 
 export type AdministrationOperatorInput = Readonly<{
@@ -90,6 +90,7 @@ export async function runAdministrationOperator(input: AdministrationOperatorInp
       const scope = { leagueKey: league.leagueKey, provider: league.provider,
         externalLeagueId: league.externalLeagueId, season: input.season };
       let expectedRosterCount: number | undefined;
+      const mapping = input.mode === 'write' ? await captureAdministrationSourceMapping(league.externalLeagueId, store) : null;
       const inspect = async (observations: readonly CapturedAdministrationDocument[]) => {
         signal.throwIfAborted();
         let incompatibleConfiguration = false;
@@ -112,7 +113,7 @@ export async function runAdministrationOperator(input: AdministrationOperatorInp
           documents++; if (normalized.status === 'accepted') accepted++; else rejected++;
         }
         if (input.mode === 'write') {
-          const result = await recordCapturedAdministration(scope, observations, { store, fence, signal, expectedRosterCount });
+          const result = await recordCapturedAdministration(scope, observations, { store, fence, signal, expectedRosterCount, mapping });
           if (result.status !== 'stored') throw new Error('Administration batch contains unaccepted evidence.');
         }
         if (incompatibleConfiguration) throw new Error('Administration configuration requires an evidenced compatibility decision.');

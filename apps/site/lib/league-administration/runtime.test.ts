@@ -18,6 +18,7 @@ function fakeStore(): LeagueAdministrationStore {
   return { enabled: true, recordObservation: vi.fn(async () => ({ status: 'changed' as const,
     observationId: 'observation', versionId: 'version', generation: 2 })),
   readSource: vi.fn(async () => ({ status: 'missing' as const })),
+  readSourceMapping: vi.fn(async () => null),
   readSourceByConnection: vi.fn(async () => ({ status: 'missing' as const })), listEnrollments: vi.fn(async () => []),
   listEnrollmentInventory: vi.fn(async () => ({ entries: [] })), readEnrollment: vi.fn(async () => ({ status: 'missing' as const })) };
 }
@@ -38,7 +39,7 @@ describe('administration collection and enrollment composition', () => {
     expect(result.context).toEqual({ observationId: 'observation', configurationVersionId: 'version', generation: 2 });
     expect(store.recordObservation).toHaveBeenCalledWith(expect.objectContaining({ status: 'accepted', envelope: expect.objectContaining({
       provenance: { origin: 'cache', requestStartedAt: time, requestCompletedAt: time, sourceObservedAt: null, checkedAt: time },
-    }) }), fence);
+    }) }), fence, undefined);
   });
 
   it('retains a rejected source observation without claiming an accepted calculation context', async () => {
@@ -48,7 +49,7 @@ describe('administration collection and enrollment composition', () => {
       { store, now: () => new Date(time) });
     expect(result.status).toBe('unavailable');
     expect(result.context).toBeUndefined();
-    expect(store.recordObservation).toHaveBeenCalledWith(expect.objectContaining({ status: 'rejected' }), undefined);
+    expect(store.recordObservation).toHaveBeenCalledWith(expect.objectContaining({ status: 'rejected' }), undefined, undefined);
   });
 
   it('verifies a changed unknown-age cache once and binds only the verified configuration', async () => {

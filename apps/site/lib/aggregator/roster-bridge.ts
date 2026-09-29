@@ -17,7 +17,8 @@ export type RetainedRosterProjection = Readonly<{
   lineage: {
     observationId: string; rawContentRef: string; rawContentHash: string;
     legacyNormalizerVersion: string; generation: number; verifiedAt: string | null;
-    sourceMappingRevisionId: null; reasons: readonly ['mapping_revision_not_captured'];
+    sourceMappingRevisionId: string | null; sourceConnectionId?: string; mappingGeneration?: number;
+    reasons: readonly string[];
   };
   source: StoredRead['envelope']['provenance'] & { sourceUpdatedAt: null };
   teams: readonly Readonly<{
@@ -83,6 +84,16 @@ export function projectRetainedRoster(
     return { status: 'unavailable', reason: 'retained_observation_time_missing' };
   }
   const checkedAt = new Date(checkedTime).toISOString();
+  const mappingId = evidence.source_mapping_revision_id;
+  const capturedMapping = mappingId != null;
+  if (capturedMapping && (!id(mappingId) || !id(evidence.source_connection_id)
+    || !Number.isSafeInteger(Number(evidence.source_mapping_generation)) || Number(evidence.source_mapping_generation) < 1
+    || evidence.mapping_league_season_id !== evidence.league_season_id
+    || evidence.mapping_provider !== read.envelope.scope.provider
+    || evidence.mapping_external_league_id !== read.envelope.scope.externalLeagueId
+    || read.envelope.provenance.origin !== 'network')) {
+    return { status: 'unavailable', reason: 'retained_mapping_lineage_invalid' };
+  }
   const groups: readonly Group[] = ['roster', 'reserve', 'taxi'];
   const nativeFields = { roster: 'players', reserve: 'reserve', taxi: 'taxi' } as const;
   const nativeIds = (team: SourceTeam, group: Group) => group === 'roster'
@@ -127,7 +138,10 @@ export function projectRetainedRoster(
     lineage: { observationId: read.observationId, rawContentRef: evidence.content_id,
       rawContentHash: normalized.contentHash, legacyNormalizerVersion: read.envelope.normalizerVersion,
       generation: read.generation, verifiedAt: read.verifiedAt,
-      sourceMappingRevisionId: null, reasons: ['mapping_revision_not_captured'] },
+      sourceMappingRevisionId: capturedMapping ? mappingId as string : null,
+      ...(capturedMapping ? { sourceConnectionId: evidence.source_connection_id as string,
+        mappingGeneration: Number(evidence.source_mapping_generation) } : {}),
+      reasons: capturedMapping ? ['v2_acceptance_not_qualified'] : ['mapping_revision_not_captured'] },
     source: { ...read.envelope.provenance, checkedAt, sourceUpdatedAt: null },
     teams, comparison: { status: 'equal', fields: ['players', 'reserve', 'taxi'] },
     featureSupport: { officialRoster: missing ? 'limited' : 'full', exactPeriodLineup: 'unverified',

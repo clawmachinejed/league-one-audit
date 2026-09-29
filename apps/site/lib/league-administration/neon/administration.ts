@@ -5,6 +5,7 @@ import type { AdministrationEnvelope } from '../contracts';
 import { normalizeAdministrationObservation } from '../normalize';
 import { projectRetainedRoster } from '../../aggregator/roster-bridge';
 import { readEnrollmentInventory } from './enrollment';
+import { isAdministrationSourceMapping } from '../source-mapping';
 import type { AdministrationReadInput, AdministrationWriteResult,
   LeagueAdministrationStore, LeagueAdministrationStoreRead } from '../store-contracts';
 
@@ -32,6 +33,10 @@ const sourceColumns = `league.league_key,season.season,connection.provider,conne
   content.external_league_id AS observed_external_league_id,content.family,content.week,
   season.id AS league_season_id,content.id AS content_id,content.content_hash,
   observation.checked_at AS observation_checked_at,
+  mapping.source_mapping_revision_id,revision.connection_id AS source_connection_id,
+  revision.generation AS source_mapping_generation,
+  revision.league_season_id AS mapping_league_season_id,revision.provider AS mapping_provider,
+  revision.external_league_id AS mapping_external_league_id,
   CASE WHEN content.family='rosters' THEN (
     SELECT COALESCE(jsonb_agg(jsonb_build_object('seasonTeamId',team.id,'externalRosterId',team.external_roster_id)
       ORDER BY team.external_roster_id),'[]'::jsonb)
@@ -46,7 +51,9 @@ const sourceJoins = `FROM public.leagues league
   JOIN public.league_source_connections connection ON connection.league_season_id=season.id AND connection.provider=enrollment.provider
   LEFT JOIN public.league_administration_heads head ON head.league_season_id=season.id AND head.family=$3 AND head.week=$4
   LEFT JOIN public.league_administration_observations observation ON observation.id=head.accepted_observation_id
-  LEFT JOIN public.league_administration_contents content ON content.id=observation.content_id`;
+  LEFT JOIN public.league_administration_contents content ON content.id=observation.content_id
+  LEFT JOIN public.league_administration_observation_mappings mapping ON mapping.observation_id=observation.id
+  LEFT JOIN public.league_source_mapping_revisions revision ON revision.id=mapping.source_mapping_revision_id`;
 
 function sourceResult(rows: readonly DatabaseRow[]): LeagueAdministrationStoreRead {
   if (rows.length === 0) return { status: 'missing' };
@@ -102,10 +109,29 @@ export function createLeagueAdministrationMethods(client: DatabaseClient): Omit<
   }
 
   return {
-    async recordObservation(input, fence) {
+    async readSourceMapping(externalLeagueId) {
+      const rows = await client.query(`/* league-administration:read-source-mapping */
+        SELECT connection.id AS connection_id,connection.league_season_id,
+          connection.current_mapping_revision_id AS revision_id,connection.mapping_generation,
+          league.league_key,season.season,connection.provider,connection.external_league_id
+        FROM public.league_source_connections connection
+        JOIN public.league_seasons season ON season.id=connection.league_season_id
+        JOIN public.leagues league ON league.id=season.league_id
+        JOIN public.league_administration_enrollment_seasons enrollment
+          ON enrollment.league_id=league.id AND enrollment.season=season.season AND enrollment.provider=connection.provider
+        WHERE connection.provider='sleeper' AND connection.external_league_id=$1`, [externalLeagueId]);
+      if (rows.length !== 1) throw new Error('Administration source mapping is unavailable or ambiguous.');
+      const row = rows[0];
+      const mapping = { connectionId: row.connection_id, leagueSeasonId: row.league_season_id,
+        revisionId: row.revision_id, generation: Number(row.mapping_generation),
+        scope: { leagueKey: row.league_key, provider: row.provider, externalLeagueId: row.external_league_id, season: Number(row.season) } };
+      if (!isAdministrationSourceMapping(mapping)) throw new Error('Invalid administration source mapping.');
+      return mapping;
+    },
+    async recordObservation(input, fence, mapping) {
       const rows = await client.query(`/* league-administration:record-observation */
         SELECT public.record_league_administration_observation($1::jsonb) AS result`,
-      [JSON.stringify(fence ? { ...input, writeFence: fence } : input)]);
+      [JSON.stringify({ ...input, ...(fence ? { writeFence: fence } : {}), ...(mapping ? { sourceMapping: mapping } : {}) })]);
       if (rows.length !== 1) throw new Error('Administration observation did not return one result.');
       const result = object(rows[0].result);
       if (!['changed', 'unchanged', 'replayed', 'stale', 'rejected'].includes(String(result.status))) {

@@ -2,7 +2,7 @@ import 'server-only';
 
 import { getProjectionStore } from '../../projection-store';
 import { getProjectionCadenceInput, getRawLineupMatchups } from '../../sleeper';
-import { recordCapturedAdministration } from '../../league-administration/runtime';
+import { captureAdministrationSourceMapping, recordCapturedAdministration } from '../../league-administration/runtime';
 import { observeProviderAdapter } from '../../provider-request-telemetry';
 import { createSleeperLineupSource } from '../adapters/sleeper/lineup-source';
 import { createSleeperNflCalendar } from '../adapters/sleeper/nfl-calendar';
@@ -23,6 +23,7 @@ export function createProductionProjectionDependencies(
   // the rollover at the same instant even when their source loads straddle noon.
   const evaluatedAt = shared.clock.now().toISOString();
   const calendar = createSleeperNflCalendar(async (leagueId) => {
+    const mapping = await captureAdministrationSourceMapping(leagueId);
     const source = await getProjectionCadenceInput(leagueId, evaluatedAt);
     if (source.administrationObservations?.length) {
       const configuration = shared.leagueRegistry.listActiveLeagues()
@@ -32,7 +33,7 @@ export function createProductionProjectionDependencies(
       // Durable heads use their own monotonic/CAS protection before the projection lease.
       const captured = await recordCapturedAdministration({ leagueKey: configuration.key,
         provider: 'sleeper', externalLeagueId: leagueId, season: Number(source.season) },
-      source.administrationObservations, { now: shared.clock.now });
+      source.administrationObservations, { now: shared.clock.now, mapping });
       if (captured.status === 'unavailable') throw new Error('League administration observation was not accepted.');
     }
     return source;
