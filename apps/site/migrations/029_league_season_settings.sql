@@ -140,7 +140,7 @@ BEGIN
   coverage_reason:=CASE WHEN league_resource THEN 'complete_league_identity_unproved' WHEN manager_resource THEN 'complete_primary_owner_population_unproved' ELSE 'complete_players_population_unproved' END;
   population:=addition->'population'; population_proof:=NULL; configuration:=NULL;
   covered:=false; expected_count:=NULL; observed_count:=NULL; reason_value:=NULL;
-  IF p_input->'envelope'->>'family' IS DISTINCT FROM CASE WHEN league_resource THEN 'league' ELSE 'rosters' END
+  IF p_input->'envelope'->>'family' IS DISTINCT FROM (CASE WHEN league_resource THEN 'league' ELSE 'rosters' END)
     OR p_input->'envelope'->'week' IS DISTINCT FROM 'null'::jsonb
     OR provenance->>'origin' IS DISTINCT FROM 'network'
     OR p_input->'sourceMapping' IS NULL THEN RAISE EXCEPTION 'current roster requires mapped network capture'; END IF;

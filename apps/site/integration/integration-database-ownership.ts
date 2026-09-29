@@ -125,6 +125,10 @@ export function createIntegrationDatabaseOwnership() {
         const query = new Proxy(pinned.query.bind(pinned), {
           apply(fn, thisArgument, args) {
             healthy();
+            // An aborted transaction cannot run the ownership SELECT. Only a
+            // transaction-wide rollback on this pinned connection can bypass it;
+            // every subsequent operation still verifies ownership, never reacquires.
+            if (args.length === 1 && args[0] === 'ROLLBACK') return Reflect.apply(fn, thisArgument, args);
             // Delegated ownership can disappear independently of this connection.
             // Revalidate before each schema/migration operation, never reacquire.
             if (delegated !== undefined) return verify().then(() => Reflect.apply(fn, thisArgument, args));

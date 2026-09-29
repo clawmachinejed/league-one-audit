@@ -59,6 +59,17 @@ function parentProof(parent: Backend, mode = 'ShareLock') {
     pid: parent.pid, backendStart: parent.start, applicationName: parent.applicationName, lockMode: mode });
 }
 
+function abortTransactionOn(item: Backend, statement: string, failure: Error) {
+  const execute = item.query.getMockImplementation()!;
+  let aborted = false;
+  item.query.mockImplementation(async (sql: string, parameters: unknown[] = []) => {
+    if (sql === statement) { aborted = true; throw failure; }
+    if (sql === 'ROLLBACK') aborted = false;
+    if (aborted) throw Object.assign(new Error('current transaction is aborted'), { code: '25P02' });
+    return Reflect.apply(execute, undefined, [sql, parameters]);
+  });
+}
+
 beforeEach(() => {
   vi.resetAllMocks(); backends = new Map(); exclusive = undefined; shared = new Set(); mutations = []; sequence = 0;
   mocked.pool.mockImplementation(function () {
@@ -105,6 +116,59 @@ describe('shared destructive integration ownership', () => {
     await child.release(); expect(shared.size).toBe(0);
     await expect(child.acquire(environment)).rejects.toThrow('session was lost');
   });
+
+  it('rolls back an aborted delegated transaction on its pinned session and preserves the migration error', async () => {
+    const parent = backend(); shared.add(parent.pid);
+    const child = createIntegrationDatabaseOwnership();
+    const session = await child.acquire(environment, parentProof(parent));
+    const pinned = backends.get(2)!;
+    const failure = Object.assign(new Error('syntax error at end of input'), { code: '42601' });
+    abortTransactionOn(pinned, 'invalid migration', failure);
+    const migration = await session.connect();
+    const apply = async () => {
+      try { await migration.query('BEGIN'); await migration.query('invalid migration'); }
+      catch (error) { await migration.query('ROLLBACK'); throw error; }
+      finally { migration.release(); }
+    };
+    await expect(apply()).rejects.toBe(failure);
+    expect(pinned.query.mock.calls.slice(-2).map(call => call[0])).toEqual(['invalid migration', 'ROLLBACK']);
+    expect(shared.size).toBe(2);
+    await session.query('DROP SCHEMA fixture_cleanup');
+    expect(pinned.query.mock.calls.at(-2)?.[0]).toMatch(/^SELECT EXISTS/u);
+    expect(mutations).toEqual(['DROP SCHEMA fixture_cleanup']);
+    await child.release(); parent.end();
+    expect(mocked.pool).toHaveBeenCalledTimes(1); expect(backends.size).toBe(0);
+  });
+
+  it('permits only local rollback after delegated parent loss and still blocks the next schema operation', async () => {
+    const parent = backend(); shared.add(parent.pid);
+    const child = createIntegrationDatabaseOwnership();
+    const session = await child.acquire(environment, parentProof(parent));
+    const pinned = backends.get(2)!;
+    abortTransactionOn(pinned, 'invalid migration', new Error('migration failed'));
+    await expect(session.query('invalid migration')).rejects.toThrow('migration failed');
+    parent.end();
+    await session.query('ROLLBACK');
+    expect(shared.size).toBe(1);
+    await expect(session.query('DROP SCHEMA must_not_run')).rejects.toThrow();
+    expect(() => session.query('ROLLBACK')).toThrow('session was lost');
+    await child.release();
+    await expect(child.acquire(environment)).rejects.toThrow('session was lost');
+    expect(mocked.pool).toHaveBeenCalledTimes(1); expect(mutations).toEqual([]);
+  });
+
+  it.each(['ROLLBACK; DROP SCHEMA must_not_run', 'ROLLBACK TO SAVEPOINT fixture', { text: 'ROLLBACK' }])
+    ('does not bypass ownership for a rollback variant %j', async statement => {
+      const parent = backend(); shared.add(parent.pid);
+      const child = createIntegrationDatabaseOwnership();
+      const session = await child.acquire(environment, parentProof(parent));
+      const pinned = backends.get(2)!;
+      parent.end();
+      await expect(session.query(statement)).rejects.toThrow();
+      expect(pinned.query.mock.calls.some(call => call[0] === statement)).toBe(false);
+      expect(mutations).toEqual([]);
+      await child.release();
+    });
 
   it('does not reset for a missing owner, stale proof or old exclusive-only wrapper', async () => {
     const parent = backend(); exclusive = parent.pid;
