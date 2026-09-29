@@ -1,5 +1,6 @@
 import 'server-only';
 import { randomUUID } from 'node:crypto';
+import { validateSleeperCalendarEvidence, type SleeperCalendarEvidence } from './period-mapping';
 
 import { ADMINISTRATION_SCHEMA_VERSION, ADMINISTRATION_NORMALIZER_VERSION, ADMINISTRATION_DIALECT,
   type AdministrationScope, type AdministrationFamily, type JsonValue } from './contracts';
@@ -46,6 +47,7 @@ export async function recordCapturedAdministration(
     leagueSettingsAttempt?: RosterAttempt;
     matchupAttempt?: Readonly<{ week: number; attempt: RosterAttempt }>;
     populationEvidence?: RosterPopulationEvidence;
+    calendarEvidence?: SleeperCalendarEvidence;
     verify?: (document: CapturedAdministrationDocument, signal: AbortSignal) => Promise<CapturedAdministrationDocument> }> = {},
 ): Promise<AdministrationCaptureResult> {
   const signal = options.signal ?? AbortSignal.timeout(8_000);
@@ -88,7 +90,19 @@ export async function recordCapturedAdministration(
     let matchupAttempt = origin === 'network' && mapping && document.family === 'matchups'
       && options.matchupAttempt?.week === document.week ? options.matchupAttempt.attempt : undefined;
     let matchupPopulationEligible = true;
-    const write = () => matchupAttempt
+    // Retain only evidence acquired alongside this exact original league document.
+    // Unknown cache age is preserved, and verification never grafts this proof onto a new document.
+    const payload = normalized.envelope.payload;
+    const leaguePayload = payload && typeof payload === 'object' && !Array.isArray(payload)
+      ? payload as Readonly<Record<string, JsonValue>> : null;
+    let calendarEvidence = document.family === 'league' && mapping && normalized.status === 'accepted'
+      && normalized.envelope.completeness === 'complete' && leaguePayload
+      && leaguePayload.sport === 'nfl' && leaguePayload.season_type === 'regular'
+      ? validateSleeperCalendarEvidence(options.calendarEvidence, String(scope.season)) ?? undefined : undefined;
+    const write = () => calendarEvidence
+      ? store.recordObservation(normalized, options.fence, mapping, undefined, undefined,
+        leagueSettingsAttempt ? { attempt: leagueSettingsAttempt } : undefined, undefined, calendarEvidence)
+      : matchupAttempt
       ? store.recordObservation(normalized, options.fence, mapping, undefined, undefined, undefined,
         { attempt: matchupAttempt, ...(population && matchupPopulationEligible ? { population } : {}) })
       : attempt || managerAttempt || leagueSettingsAttempt
@@ -125,6 +139,7 @@ export async function recordCapturedAdministration(
         throw new Error('Administration verification did not return the requested network document.');
       }
       const originalContentHash = normalized.contentHash;
+      calendarEvidence = undefined;
       normalized = normalizeAdministrationObservation({ schemaVersion: ADMINISTRATION_SCHEMA_VERSION,
         normalizerVersion: ADMINISTRATION_NORMALIZER_VERSION, dialect: ADMINISTRATION_DIALECT,
         scope, family: verified.family, week: verified.week, completeness: verified.completeness ?? 'complete',

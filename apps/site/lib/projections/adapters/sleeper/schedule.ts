@@ -2,6 +2,8 @@ import { canonicalNflTeam } from '../../../nfl-teams';
 import type { WeekSchedule } from '../../../nfl-schedule';
 import type { LeaguePeriod, NflTeam, NflWeekSchedule, TeamWeek } from '../../domain/contracts';
 
+export const SLEEPER_NATIVE_WEEK_MAPPING_POLICY_VERSION = 'sleeper-native-week-to-nfl-regular-v1' as const;
+
 export function sleeperRegularSeasonPeriod(season: string, week: number): LeaguePeriod {
   if (!/^20\d{2}$/u.test(season) || !Number.isInteger(week) || week < 1 || week > 18) {
     throw new Error('Sleeper returned an invalid projection season or week.');

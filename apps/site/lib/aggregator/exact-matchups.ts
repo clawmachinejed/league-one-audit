@@ -49,8 +49,16 @@ export type ExactMatchupValue = Readonly<{
   state: { provider: 'unknown'; local: 'unknown'; reason: 'no_matchup_finality_evidence' };
   lineupDefinitionRef: string | null; playerMetadataRef: null; gameStateRef: null; projectionRef: null;
 }>;
+export type ExactPeriodMappingQualification = Readonly<{
+  status: 'mapped'; purpose: 'native-period-identity'; evidenceRef: string;
+  policyVersion: string; scheduleRevision: string; evaluatedAt: string;
+  retrievalStartedAt: string; retrievalCompletedAt: string; sourceObservedAt: null;
+  season: number; seasonType: 'regular'; week: number;
+}> | Readonly<{ status: 'unmapped'; reason: 'calendar_evidence_missing' | 'calendar_evidence_invalid' | 'league_format_unqualified' }>;
+
 export type AcceptedExactMatchupsRead = Readonly<{
   status: 'available'; accepted: AcceptedResource; value: ExactMatchupValue;
+  periodMapping: ExactPeriodMappingQualification;
   receipt: { id: string; attemptId: string; ordinal: number; legacyObservationId: string;
     provenance: AdministrationEnvelope['provenance']; rawContentHash: string; expectedTeamCount: number };
   comparison: { status: 'equal'; fields: readonly string[] };

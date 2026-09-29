@@ -1,3 +1,5 @@
+import capture from '../../test-support/fixtures/sleeper-2026-season-schedule.json';
+import { createSleeperCalendarEvidence } from './period-mapping';
 import { describe, expect, it, vi } from 'vitest';
 import { recordCapturedAdministration } from './runtime';
 import { createLeagueAdministrationStore } from './store';
@@ -274,5 +276,55 @@ describe('administration collection and enrollment composition', () => {
   it('skips maintenance before any database, registry or provider work outside its existing-lane opportunity', async () => {
     const registry = createLeagueRegistry([]);
     expect(await runAdministrationMaintenance(registry, Date.parse('2026-09-16T18:00:00Z'))).toEqual({ status: 'not-due' });
+  });
+});
+
+describe('calendar evidence through the existing administration capture', () => {
+  const mapping = { connectionId: '11111111-1111-4111-8111-111111111111', leagueSeasonId: '22222222-2222-4222-8222-222222222222',
+    revisionId: '33333333-3333-4333-8333-333333333333', generation: 1, scope };
+  function calendar() {
+    const evidence = createSleeperCalendarEvidence({ season: '2026', seasonSchedule: capture.body,
+      evaluatedAt: time, retrievalStartedAt: time, retrievalCompletedAt: time });
+    if (!evidence) throw new Error('Invalid calendar fixture.');
+    return evidence;
+  }
+  const league = { ...document, payload: { ...document.payload, season_type: 'regular' } };
+
+  it('forwards original calendar evidence and pre-load mapping only alongside its accepted league document', async () => {
+    const store = fakeStore();
+    const calendarEvidence = calendar();
+    await recordCapturedAdministration(scope, [league, { ...document, family: 'rosters', payload: [{ roster_id: 1, players: [] }] }],
+      { store, mapping, calendarEvidence, now: () => new Date(time) });
+    const calls = vi.mocked(store.recordObservation).mock.calls;
+    expect(calls[0][2]).toEqual(mapping);
+    expect(calls[0][7]).toEqual(calendarEvidence);
+    expect(calls[0][0].envelope.provenance.sourceObservedAt).toBeNull();
+    expect(calls[1][7]).toBeUndefined();
+    expect(store.beginLeagueSettingsAttempt).not.toHaveBeenCalled();
+  });
+
+  it('drops original calendar proof before a changed cached league is verified', async () => {
+    const store = fakeStore();
+    vi.mocked(store.recordObservation).mockResolvedValueOnce({ status: 'stale', reason: 'unproven_cache_change' })
+      .mockResolvedValueOnce({ status: 'changed', observationId: 'new-config' });
+    vi.mocked(store.beginLeagueSettingsAttempt).mockResolvedValue({ id: 'attempt', scopeId: 'scope', ordinal: 1, expectedGeneration: 0 });
+    const verify = vi.fn(async () => ({ ...league, origin: 'network' as const,
+      payload: { ...league.payload, roster_positions: ['QB', 'RB', 'BN'] } }));
+    await recordCapturedAdministration(scope, [league], { store, mapping, calendarEvidence: calendar(), verify,
+      now: () => new Date(time) });
+    const calls = vi.mocked(store.recordObservation).mock.calls;
+    expect(calls[0][7]).toBeDefined();
+    expect(calls[1][7]).toBeUndefined();
+    expect(calls[1][2]).toEqual(mapping);
+    expect(verify).toHaveBeenCalledOnce();
+  });
+
+  it('keeps unsupported or unmapped league writes unchanged without retaining optional proof', async () => {
+    const store = fakeStore();
+    await recordCapturedAdministration(scope, [document], { store, mapping, calendarEvidence: calendar(), now: () => new Date(time) });
+    await recordCapturedAdministration(scope, [league], { store, calendarEvidence: calendar(), now: () => new Date(time) });
+    await recordCapturedAdministration(scope, [{ ...league, completeness: 'partial' }],
+      { store, mapping, calendarEvidence: calendar(), now: () => new Date(time) });
+    for (const call of vi.mocked(store.recordObservation).mock.calls) expect(call).toHaveLength(3);
   });
 });

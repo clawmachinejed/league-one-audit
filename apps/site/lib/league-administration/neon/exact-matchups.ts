@@ -1,4 +1,5 @@
 import 'server-only';
+import { readNativePeriodMapping } from './period-mapping';
 import type { DatabaseClient } from '../../database';
 import { EXACT_MATCHUPS_POLICY, exactMatchupsScope, projectExactMatchups,
   type AcceptedExactMatchupsRead } from '../../aggregator/exact-matchups';
@@ -59,6 +60,12 @@ export function exactMatchupMethods(client: DatabaseClient) {
             content.id AS content_id,content.content_hash,content.semantic_hash,content.payload,
             content.normalized_value,content.normalizer_version,content.completeness,
             content.league_season_id,content.provider,content.external_league_id,content.family,content.week,
+            (SELECT to_jsonb(calendar) FROM public.league_native_period_calendar_evidence calendar
+              WHERE calendar.connection_id=scope.connection_id AND calendar.league_season_id=scope.league_season_id
+                AND calendar.source_mapping_revision_id=accepted.source_mapping_revision_id
+                AND calendar.configuration_content_id=receipt.configuration_content_id
+                AND calendar.mapping_policy_version='sleeper-native-week-to-nfl-regular-v1'
+              ORDER BY calendar.retained_at,calendar.id LIMIT 1) AS calendar_evidence,
             (SELECT COALESCE(jsonb_agg(jsonb_build_object('seasonTeamId',team.id,
               'externalRosterId',team.external_roster_id) ORDER BY team.external_roster_id),'[]'::jsonb)
               FROM public.league_administration_team_entries entry
@@ -136,13 +143,20 @@ export function exactMatchupMethods(client: DatabaseClient) {
           && positions.every(slot => typeof slot === 'string' && slot.length > 0)
           ? { nativePeriodWeek: week, nativeRosterPositions: positions as string[],
             evidenceRef: id(row.configuration_content_id) } : undefined;
-        const value = projectExactMatchups(normalized, teams, slotEvidence);
+        const official = projectExactMatchups(normalized, teams, slotEvidence);
+        // The first retained compatible proof establishes identity only. It makes no
+        // latest-calendar claim and remains stable across A -> B -> A schedule replays.
+        const periodMapping = readNativePeriodMapping(row.calendar_evidence, mapping,
+          id(row.configuration_content_id), configuration, week);
+        const value = periodMapping.status === 'mapped' ? { ...official, period: { ...official.period,
+          nflWeekMappings: [{ season: periodMapping.season, seasonType: periodMapping.seasonType,
+            week: periodMapping.week, evidenceRef: periodMapping.evidenceRef }] } } : official;
         const accepted: AcceptedResource = { scope, canonicalNormalizerVersion: EXACT_MATCHUPS_POLICY.canonicalNormalizerVersion,
           sourceMappingRevisionId: mapping.revisionId, contentId: id(row.content_id), observationIds: [id(row.receipt_id)],
           validationVersion: EXACT_MATCHUPS_POLICY.validationVersion, acceptedGeneration: integer(row.generation),
           verifiedAt: provenance.sourceObservedAt, effectiveFrom: null, effectiveTo: null, effectiveEvidence: 'unknown' };
         assertAcceptedResource(accepted);
-        return { status: 'available', accepted, value, receipt: { id: id(row.receipt_id),
+        return { status: 'available', accepted, value, periodMapping, receipt: { id: id(row.receipt_id),
           attemptId: id(row.attempt_id), ordinal: integer(row.ordinal), legacyObservationId: id(row.legacy_observation_id),
           provenance, rawContentHash: normalized.contentHash, expectedTeamCount: integer(row.expected_team_count) },
           comparison: { status: 'equal', fields: ['raw-content', 'legacy-normalized-value', 'team-points', 'participants'] } };

@@ -349,3 +349,20 @@ DO $$ BEGIN
     GRANT EXECUTE ON FUNCTION public.finish_all_player_shared_pregame_job(jsonb,jsonb) TO league_one_runtime;
   END IF;
 END; $$;
+
+-- 031 retains optional calendar evidence with the same permissions when the
+-- runtime role is provisioned after migrations. The existing public writer is
+-- already granted above; its private delegate and validators stay inaccessible.
+DO $$ BEGIN
+  IF to_regclass('public.league_native_period_calendar_evidence') IS NOT NULL THEN
+    REVOKE ALL ON public.league_native_period_calendar_evidence FROM league_one_runtime;
+    GRANT SELECT ON public.league_native_period_calendar_evidence TO league_one_runtime;
+    REVOKE ALL ON FUNCTION public.validate_native_period_calendar_evidence(jsonb,text),
+      public.validate_native_period_calendar_lineage(),
+      public.record_league_administration_observation_v30(jsonb) FROM league_one_runtime;
+    IF has_table_privilege('league_one_runtime','public.league_native_period_calendar_evidence',
+      'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN') THEN
+      RAISE EXCEPTION 'league_one_runtime has incorrect calendar evidence privileges';
+    END IF;
+  END IF;
+END; $$;

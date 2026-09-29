@@ -1,3 +1,4 @@
+import type { SleeperCalendarEvidence } from './period-mapping';
 import type { AdministrationEnvelope, AdministrationFamily, AdministrationScope,
   NormalizedAdministrationObservation } from './contracts';
 import type { RetainedRosterProjection } from '../aggregator/roster-bridge';
@@ -29,6 +30,7 @@ export type AdministrationWriteResult = Readonly<{
   teamManagerAcceptance?: RosterAcceptanceResult;
   leagueSettingsAcceptance?: RosterAcceptanceResult;
   matchupAcceptance?: RosterAcceptanceResult;
+  calendarEvidence?: Readonly<{ id: string; status: 'retained' | 'replayed' }>;
 }>;
 export type AdministrationEnrollment = Readonly<{
   leagueId: string; leagueSeasonId: string; leagueKey: string; displayName: string;
@@ -53,7 +55,7 @@ export type LeagueAdministrationStore = Readonly<{
   recordObservation: (input: NormalizedAdministrationObservation, fence?: AdministrationWriteFence,
     mapping?: AdministrationSourceMapping, acceptance?: RosterAcceptanceInput,
     managerAcceptance?: RosterAcceptanceInput, leagueSettingsAcceptance?: Readonly<{ attempt: RosterAttempt }>,
-    matchupAcceptance?: RosterAcceptanceInput) => Promise<AdministrationWriteResult>;
+    matchupAcceptance?: RosterAcceptanceInput, calendarEvidence?: SleeperCalendarEvidence) => Promise<AdministrationWriteResult>;
   beginLeagueSettingsAttempt: (mapping: AdministrationSourceMapping, attemptId: string, fence?: AdministrationWriteFence) => Promise<RosterAttempt>;
   readAcceptedLeagueSettings: (mapping: AdministrationSourceMapping) => Promise<AcceptedLeagueSettingsRead>;
   beginExactMatchupAttempt: (mapping: AdministrationSourceMapping, week: number, attemptId: string,
