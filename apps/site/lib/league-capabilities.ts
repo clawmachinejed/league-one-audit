@@ -4,7 +4,8 @@ import { compatibleRevision, compatibleScoringRulesHash } from './projections/sh
 import { providerKey } from './projections/shared/provider-identity';
 
 const VERSION = 'league-capabilities-v1';
-const SLOT_TYPES = new Set(['QB', 'RB', 'WR', 'TE', 'K', 'DEF', 'FLEX', 'SUPER_FLEX', 'WRRB_FLEX', 'REC_FLEX', 'BN', 'IR', 'TAXI']);
+export const SLEEPER_RECOGNIZED_ROSTER_SLOTS: ReadonlySet<string> = new Set(['QB', 'RB', 'WR', 'TE', 'K', 'DEF', 'FLEX', 'SUPER_FLEX', 'WRRB_FLEX', 'REC_FLEX', 'BN', 'IR', 'TAXI']);
+const SLOT_TYPES = SLEEPER_RECOGNIZED_ROSTER_SLOTS;
 // These omissions already have an approved, documented projection policy. New
 // events cannot inherit that exception merely because actual scoring supports them.
 const ESTABLISHED_PROJECTION_OMISSIONS = new Set(['pass_td_40p', 'rush_td_40p', 'rec_td_40p', 'fum_rec',

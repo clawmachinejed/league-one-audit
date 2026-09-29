@@ -1,5 +1,10 @@
 import { compatibleRevision, compatibleScoringRulesHash } from '../projections/shared/revision-compatibility';
 import { TEAM_MANAGERS_POLICY, type SourceTeamManagers, type TeamManagersNormalization } from '../aggregator/team-managers';
+import { LEAGUE_SETTINGS_POLICY, type SettingField, type LeagueSettingsNormalization,
+  type LeagueSettingsValue, type NativePeriodReference } from '../aggregator/league-settings';
+import { normalizeSleeperScoringProfile } from '../projections/adapters/sleeper/scoring-profile';
+import { providerKey } from '../projections/shared/provider-identity';
+import { SLEEPER_RECOGNIZED_ROSTER_SLOTS } from '../league-capabilities';
 import {
   ADMINISTRATION_DIALECT,
   ADMINISTRATION_NORMALIZER_VERSION,
@@ -230,6 +235,102 @@ function normalizeLeague(raw: JsonObject, envelope: AdministrationEnvelope): Nor
       component('extensions', extensions),
     ],
   };
+}
+
+/** Same captured document, independent field coverage. Never changes the v1 value or its hash. */
+function normalizeLeagueSettings(envelope: AdministrationEnvelope): LeagueSettingsNormalization {
+  const version = LEAGUE_SETTINGS_POLICY.canonicalNormalizerVersion;
+  try {
+    validateEnvelope(envelope);
+    const raw = object(envelope.payload, 'payload');
+    if (identifier(raw.league_id, 'payload.league_id') !== envelope.scope.externalLeagueId
+      || sourceSeason(raw.season, 'payload.season') !== envelope.scope.season || raw.sport !== 'nfl') {
+      invalid('source_identity_mismatch', 'payload', 'League identity must match its enrolled NFL season.');
+    }
+    const field = <T>(value: JsonValue | undefined, path: string, parse: (value: JsonValue, path: string) => T): SettingField<T> => {
+      if (value === undefined) return { sourcePath: path, state: 'absent', value: null };
+      if (value === null) return { sourcePath: path, state: 'null', value: null };
+      try {
+        const result = parse(value, path);
+        const empty = value === '' || (typeof value === 'object' && Object.keys(value).length === 0);
+        return { sourcePath: path, state: empty ? 'empty' : 'known', value: result };
+      } catch (error) {
+        if (!(error instanceof InvalidDocument)) throw error;
+        return { sourcePath: path, state: 'invalid', value: null, raw: value };
+      }
+    };
+    const string = (value: JsonValue, path: string) => {
+      if (typeof value !== 'string') invalid('invalid_string', path, 'Expected text.');
+      return value;
+    };
+    const namespace = JSON.stringify(['nfl', envelope.scope.season, envelope.scope.externalLeagueId]);
+    const sourceLeague = { provider: 'sleeper' as const, resourceKind: 'league', nativeNamespace: 'nfl', nativeId: envelope.scope.externalLeagueId };
+    const settings = field(raw.settings, 'settings', object);
+    const setting = (key: string): SettingField<number> => settings.value === null
+      ? { sourcePath: `settings.${key}`, state: settings.state as 'absent' | 'null' | 'invalid', value: null,
+        ...(settings.state === 'invalid' ? { raw: settings.raw } : {}) }
+      : field(settings.value[key], `settings.${key}`, safeInteger);
+    const group = <K extends string>(keys: Record<K, string>) => Object.fromEntries(Object.entries<string>(keys)
+      .map(([key, native]) => [key, setting(native)])) as Record<K, SettingField<number>>;
+    const scoring = field(raw.scoring_settings, 'scoring_settings', (value, path) => {
+      const rules = object(value, path);
+      Object.entries(rules).forEach(([key, weight]) => {
+        if (typeof weight !== 'number' || !Number.isFinite(weight)) invalid('invalid_scoring_weight', `${path}.${key}`, 'Expected finite weight.');
+      });
+      return rules as Readonly<Record<string, number>>;
+    });
+    const profile = normalizeSleeperScoringProfile({ provider: providerKey('sleeper'), rawRules: scoring.value });
+    const unsupportedScoringRules = profile.status === 'available' ? profile.profile.provenance.unsupportedSourceKeys : [];
+    const slots = field(raw.roster_positions, 'roster_positions', (value, path) => rows(value, path).map((code, ordinal) => ({
+      nativeCode: identifier(code, `${path}[${ordinal}]`), count: 1, ordinal, semantics: 'ordered-occurrence' as const,
+    })));
+    // Classification only, never a replacement eligibility/lineup or scoring implementation.
+    const unknownSlots = [...new Set(slots.value?.filter(slot => !SLEEPER_RECOGNIZED_ROSTER_SLOTS.has(slot.nativeCode)).map(slot => slot.nativeCode) ?? [])];
+    const period = (key: string, purpose: NativePeriodReference['purpose']): SettingField<NativePeriodReference> => {
+      const native = setting(key);
+      return native.value === null ? { ...native, value: null } : { sourcePath: native.sourcePath, state: 'known', value: {
+        source: { provider: 'sleeper', resourceKind: 'period', nativeNamespace: namespace, nativeId: String(native.value) },
+        kind: 'week', purpose, canonicalPeriodId: null,
+      } };
+    };
+    const competition = group({ startPeriod: 'start_week', playoffStartPeriod: 'playoff_week_start', playoffTeamCount: 'playoff_teams',
+      playoffFormat: 'playoff_type', playoffRoundFormat: 'playoff_round_type', playoffSeeding: 'playoff_seed_type',
+      additionalMatch: 'league_average_match', bestBall: 'best_ball', divisionCount: 'divisions', leagueType: 'type' });
+    const limitedCompetition = ['additionalMatch', 'bestBall', 'divisionCount']
+      .filter(key => (competition[key as keyof typeof competition].value ?? 0) > 0);
+    const value: LeagueSettingsValue = {
+      sourceLeague, season: envelope.scope.season, sport: 'nfl',
+      name: field(raw.name, 'name', string), artwork: field(raw.avatar, 'avatar', string),
+      predecessor: field(raw.previous_league_id, 'previous_league_id', (value, path) => {
+        const nativeId = identifier(value, path);
+        if (nativeId === sourceLeague.nativeId) invalid('invalid_predecessor', path, 'A league cannot precede itself.');
+        return { ...sourceLeague, nativeId };
+      }),
+      lifecycle: field(raw.status, 'status', string), seasonType: field(raw.season_type, 'season_type', string),
+      visibility: { sourceAccess: 'public-endpoint', native: setting('public'), grantsPrivateAccess: false },
+      teamCount: field(raw.total_rosters, 'total_rosters', (value, path) => safeInteger(value, path, 1)), slots,
+      scoring: { provider: 'sleeper', dialect: envelope.dialect, format: 'flat-weights', rules: scoring,
+        statCatalog: { sourcePath: 'scoring_settings', state: 'absent', value: null } },
+      competition, rosterRules: group({ reserveSlotCount: 'reserve_slots', taxiSlotCount: 'taxi_slots', taxiYears: 'taxi_years',
+        taxiVeterans: 'taxi_allow_vets', taxiDeadline: 'taxi_deadline', reserveOut: 'reserve_allow_out',
+        reserveSuspended: 'reserve_allow_sus', reserveDoubtful: 'reserve_allow_doubtful', maxSubstitutions: 'max_subs',
+        substitutionLockWhenStarterActive: 'sub_lock_if_starter_active', substitutionStartTimeEligibility: 'sub_start_time_eligibility' }),
+      waivers: group({ budget: 'waiver_budget', type: 'waiver_type', clearDays: 'waiver_clear_days', dailyEnabled: 'daily_waivers',
+        dailyHour: 'daily_waivers_hour', dailyDays: 'daily_waivers_days', tradeDeadline: 'trade_deadline' }),
+      nativeSettings: { provider: 'sleeper', dialect: envelope.dialect, fields: settings },
+      periods: [period('leg', 'scoring'), period('last_scored_leg', 'last-scored')], nflWeekMappings: [],
+      interpretation: {
+        scoring: profile.status === 'unavailable' ? 'unavailable' : unsupportedScoringRules.length ? 'limited' : 'unverified',
+        unsupportedScoringRules, roster: slots.value === null ? 'unavailable' : unknownSlots.length ? 'limited' : 'unverified', unknownSlots,
+        competition: limitedCompetition.length ? 'limited' : 'unverified',
+        reasons: ['analytics_not_qualified_by_settings_alone', 'nfl_period_mapping_requires_separate_evidence', ...limitedCompetition],
+      },
+    };
+    return { version, status: 'complete', value, diagnostics: [] };
+  } catch (error) {
+    if (!(error instanceof InvalidDocument)) throw error;
+    return { version, status: 'invalid', value: null, diagnostics: [error.diagnostic] };
+  }
 }
 
 function normalizeRosters(raw: readonly JsonValue[], expectations: AdministrationNormalizationExpectations): NormalizedAdministrationValue {
@@ -555,7 +656,8 @@ export function normalizeAdministrationObservation(
   assertJson(input, 'envelope');
   const envelope = frozenCopy(input);
   const contentHash = compatibleRevision(envelope.payload);
-  const projection = envelope.family === 'rosters' ? { teamManagers: normalizeTeamManagers(envelope, expectations) } : {};
+  const projection = envelope.family === 'rosters' ? { teamManagers: normalizeTeamManagers(envelope, expectations) }
+    : envelope.family === 'league' ? { leagueSettings: normalizeLeagueSettings(envelope) } : {};
   try {
     validateEnvelope(envelope);
     let value: NormalizedAdministrationValue;

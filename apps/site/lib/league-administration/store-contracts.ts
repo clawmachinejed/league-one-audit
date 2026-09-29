@@ -3,6 +3,7 @@ import type { AdministrationEnvelope, AdministrationFamily, AdministrationScope,
 import type { RetainedRosterProjection } from '../aggregator/roster-bridge';
 import type { AdministrationSourceMapping } from './source-mapping';
 import type { AcceptedTeamManagersRead, RosterCaptureAttempts } from '../aggregator/team-managers';
+import type { AcceptedLeagueSettingsRead } from '../aggregator/league-settings';
 import type { AcceptedCurrentRosterRead, CurrentRosterPolicy, RosterAcceptanceInput,
   RosterAcceptanceResult, RosterAttempt } from '../aggregator/current-roster';
 
@@ -24,6 +25,7 @@ export type AdministrationWriteResult = Readonly<{
   reason?: string;
   rosterAcceptance?: RosterAcceptanceResult;
   teamManagerAcceptance?: RosterAcceptanceResult;
+  leagueSettingsAcceptance?: RosterAcceptanceResult;
 }>;
 export type AdministrationEnrollment = Readonly<{
   leagueId: string; leagueSeasonId: string; leagueKey: string; displayName: string;
@@ -47,7 +49,9 @@ export type LeagueAdministrationStore = Readonly<{
   enabled: boolean;
   recordObservation: (input: NormalizedAdministrationObservation, fence?: AdministrationWriteFence,
     mapping?: AdministrationSourceMapping, acceptance?: RosterAcceptanceInput,
-    managerAcceptance?: RosterAcceptanceInput) => Promise<AdministrationWriteResult>;
+    managerAcceptance?: RosterAcceptanceInput, leagueSettingsAcceptance?: Readonly<{ attempt: RosterAttempt }>) => Promise<AdministrationWriteResult>;
+  beginLeagueSettingsAttempt: (mapping: AdministrationSourceMapping, attemptId: string, fence?: AdministrationWriteFence) => Promise<RosterAttempt>;
+  readAcceptedLeagueSettings: (mapping: AdministrationSourceMapping) => Promise<AcceptedLeagueSettingsRead>;
   beginRosterCapture: (mapping: AdministrationSourceMapping, playersId: string, managersId: string,
     fence?: AdministrationWriteFence) => Promise<RosterCaptureAttempts>;
   readAcceptedTeamManagers: (mapping: AdministrationSourceMapping) => Promise<AcceptedTeamManagersRead>;

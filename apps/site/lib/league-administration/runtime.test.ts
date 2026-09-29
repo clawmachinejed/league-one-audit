@@ -19,6 +19,7 @@ function fakeStore(): LeagueAdministrationStore {
     observationId: 'observation', versionId: 'version', generation: 2 })),
   readSource: vi.fn(async () => ({ status: 'missing' as const })),
   readSourceMapping: vi.fn(async () => null),
+  beginLeagueSettingsAttempt: vi.fn(), readAcceptedLeagueSettings: vi.fn(async () => ({ status: 'missing' as const })),
   beginRosterAttempt: vi.fn(), readAcceptedCurrentRoster: vi.fn(async () => ({ status: 'missing' as const })),
   beginRosterCapture: vi.fn(), readAcceptedTeamManagers: vi.fn(async () => ({ status: 'missing' as const })),
   readSourceByConnection: vi.fn(async () => ({ status: 'missing' as const })), listEnrollments: vi.fn(async () => []),
@@ -26,6 +27,35 @@ function fakeStore(): LeagueAdministrationStore {
 }
 
 describe('administration collection and enrollment composition', () => {
+  it('reserves only an already-needed league network verification and never borrows roster attempts', async () => {
+    const store = fakeStore();
+    const mapping = { connectionId: '11111111-1111-4111-8111-111111111111', leagueSeasonId: '22222222-2222-4222-8222-222222222222',
+      revisionId: '33333333-3333-4333-8333-333333333333', generation: 1, scope };
+    const attempt = { id: 'league-attempt', scopeId: 'league-scope', ordinal: 1, expectedGeneration: 0 };
+    vi.mocked(store.beginLeagueSettingsAttempt).mockResolvedValue(attempt);
+    vi.mocked(store.recordObservation).mockResolvedValueOnce({ status: 'stale', reason: 'unproven_cache_change' }).mockResolvedValueOnce({ status: 'changed' });
+    const verify = vi.fn(async () => {
+      expect(store.beginLeagueSettingsAttempt).toHaveBeenCalledOnce(); return { ...document, origin: 'network' as const };
+    });
+    await recordCapturedAdministration(scope, [document], { store, mapping, verify, now: () => new Date(time) });
+    expect(verify).toHaveBeenCalledOnce(); expect(store.beginRosterCapture).not.toHaveBeenCalled();
+    expect(vi.mocked(store.recordObservation).mock.calls[1].slice(2)).toEqual([mapping, undefined, undefined, { attempt }]);
+    const ordinary = fakeStore();
+    await recordCapturedAdministration(scope, [document], { store: ordinary, mapping, now: () => new Date(time) });
+    expect(ordinary.beginLeagueSettingsAttempt).not.toHaveBeenCalled();
+  });
+
+  it('forwards the pre-acquisition league attempt only to network league capture', async () => {
+    const store = fakeStore();
+    const mapping = { connectionId: '11111111-1111-4111-8111-111111111111', leagueSeasonId: '22222222-2222-4222-8222-222222222222',
+      revisionId: '33333333-3333-4333-8333-333333333333', generation: 1, scope };
+    const attempt = { id: 'league-attempt', scopeId: 'league-scope', ordinal: 1, expectedGeneration: 0 };
+    await recordCapturedAdministration(scope, [{ ...document, origin: 'network' }], { store, mapping, leagueSettingsAttempt: attempt, now: () => new Date(time) });
+    expect(store.recordObservation).toHaveBeenCalledOnce();
+    expect(vi.mocked(store.recordObservation).mock.calls[0].slice(2)).toEqual([mapping, undefined, undefined, { attempt }]);
+    expect(store.beginLeagueSettingsAttempt).not.toHaveBeenCalled();
+  });
+
   it('reserves both policies before an already-required changed-cache network verification and forwards the same receipt evidence', async () => {
     const store = fakeStore();
     const mapping = { connectionId: '11111111-1111-4111-8111-111111111111', leagueSeasonId: '22222222-2222-4222-8222-222222222222',

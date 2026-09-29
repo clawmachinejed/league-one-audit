@@ -14,6 +14,8 @@ export function createLeagueAdministrationStore(database: Database): LeagueAdmin
     // Disabled stores deliberately do not inspect inputs or construct a client.
     recordObservation: async () => ({ status: 'disabled' }),
     readSourceMapping: async () => null,
+    beginLeagueSettingsAttempt: async () => { throw new Error('Administration persistence disabled.'); },
+    readAcceptedLeagueSettings: async () => ({ status: 'disabled' }),
     beginRosterAttempt: async () => { throw new Error('Administration persistence disabled.'); },
     beginRosterCapture: async () => { throw new Error('Administration persistence disabled.'); },
     readAcceptedTeamManagers: async () => ({ status: 'disabled' }),

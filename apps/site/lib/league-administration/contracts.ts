@@ -167,6 +167,7 @@ export type NormalizedAdministrationObservation = Readonly<{
   value: NormalizedAdministrationValue | null;
   /** Independently qualified projection of the same raw roster; never changes v1 values/hashes. */
   teamManagers?: import('../aggregator/team-managers').TeamManagersNormalization;
+  leagueSettings?: import('../aggregator/league-settings').LeagueSettingsNormalization;
 }>;
 
 export type AdministrationNormalizationExpectations = Readonly<{

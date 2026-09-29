@@ -5,7 +5,7 @@ import { createLeagueRegistry } from '../projections/adapters/configuration/leag
 import { externalLeagueRef, providerKey } from '../projections/shared/provider-identity';
 
 const mock = vi.hoisted(() => ({
-  store: { enabled: true, listEnrollments: vi.fn(), listEnrollmentInventory: vi.fn(), readEnrollment: vi.fn(), recordObservation: vi.fn(), readSourceMapping: vi.fn(), beginRosterCapture: vi.fn() },
+  store: { enabled: true, listEnrollments: vi.fn(), listEnrollmentInventory: vi.fn(), readEnrollment: vi.fn(), recordObservation: vi.fn(), readSourceMapping: vi.fn(), beginRosterCapture: vi.fn(), beginLeagueSettingsAttempt: vi.fn() },
   jobs: { enabled: true, readDatabaseIdentity: vi.fn(), readAllPlayerLeagueProfiles: vi.fn(),
     acquireJob: vi.fn(), completeJob: vi.fn(), failJob: vi.fn(), readLeagueLineupAuthorities: vi.fn() },
   core: vi.fn(), matchup: vi.fn(), transactions: vi.fn(), metadata: vi.fn(), capture: vi.fn(),

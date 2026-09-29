@@ -1,5 +1,10 @@
 # Aggregator backend contracts and migration design
 
+[Shared league-season and settings](league-season-settings.md) adds an internal
+identity/settings resource over the same capture and scoped acceptance machinery.
+Identity coverage and optional setting interpretation stay separate; public readers
+and enrollment remain unchanged. SQL qualification and release are separate gates.
+
 [Current primary ownership and optional co-manager evidence](team-manager-relationships.md)
 extends the same capture and scoped acceptance path with provider-qualified team
 relationships. Complete coverage names primary ownership only; optional co-manager
