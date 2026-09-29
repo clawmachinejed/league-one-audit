@@ -6,6 +6,8 @@ The first package-2 code slice is recorded in [retained roster implementation](r
 
 The next bounded slice is [durable roster mapping revisions](mapping-revisions.md): additive connection identity, exact network observation linkage and an in-flight remap fence through that same writer. Its runbook separates implementation, SQL qualification, migration activation and release.
 
+[Scoped current held-player acceptance](current-roster-acceptance.md) adds shadow persisted acceptance for public Sleeper `players` membership through the existing administration writer. Its durable network reservations, exact receipts and internal readback preserve v1/public behavior. SQL qualification, migration activation and release remain separate gates; other resources and the shared reader cutover remain later work.
+
 ## Purpose and completion gate
 
 League One collects a bounded set of league information, translates provider-specific representations into shared records, and serves a consistent portfolio and league-detail experience. Host providers remain authoritative for their own official records. League One adds presentation calculations and separately qualified forecasts.

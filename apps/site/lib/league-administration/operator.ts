@@ -91,6 +91,7 @@ export async function runAdministrationOperator(input: AdministrationOperatorInp
         externalLeagueId: league.externalLeagueId, season: input.season };
       let expectedRosterCount: number | undefined;
       const mapping = input.mode === 'write' ? await captureAdministrationSourceMapping(league.externalLeagueId, store) : null;
+      const rosterAttempt = mapping ? await store.beginRosterAttempt(mapping, randomUUID(), undefined, fence) : undefined;
       const inspect = async (observations: readonly CapturedAdministrationDocument[]) => {
         signal.throwIfAborted();
         let incompatibleConfiguration = false;
@@ -113,7 +114,7 @@ export async function runAdministrationOperator(input: AdministrationOperatorInp
           documents++; if (normalized.status === 'accepted') accepted++; else rejected++;
         }
         if (input.mode === 'write') {
-          const result = await recordCapturedAdministration(scope, observations, { store, fence, signal, expectedRosterCount, mapping });
+          const result = await recordCapturedAdministration(scope, observations, { store, fence, signal, expectedRosterCount, mapping, rosterAttempt });
           if (result.status !== 'stored') throw new Error('Administration batch contains unaccepted evidence.');
         }
         if (incompatibleConfiguration) throw new Error('Administration configuration requires an evidenced compatibility decision.');

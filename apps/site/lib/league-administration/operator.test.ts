@@ -5,7 +5,7 @@ import { createLeagueRegistry } from '../projections/adapters/configuration/leag
 import { externalLeagueRef, providerKey } from '../projections/shared/provider-identity';
 
 const mock = vi.hoisted(() => ({
-  store: { enabled: true, listEnrollments: vi.fn(), listEnrollmentInventory: vi.fn(), readEnrollment: vi.fn(), recordObservation: vi.fn(), readSourceMapping: vi.fn() },
+  store: { enabled: true, listEnrollments: vi.fn(), listEnrollmentInventory: vi.fn(), readEnrollment: vi.fn(), recordObservation: vi.fn(), readSourceMapping: vi.fn(), beginRosterAttempt: vi.fn() },
   jobs: { enabled: true, readDatabaseIdentity: vi.fn(), readAllPlayerLeagueProfiles: vi.fn(),
     acquireJob: vi.fn(), completeJob: vi.fn(), failJob: vi.fn(), readLeagueLineupAuthorities: vi.fn() },
   core: vi.fn(), matchup: vi.fn(), transactions: vi.fn(), metadata: vi.fn(), capture: vi.fn(),
@@ -74,9 +74,15 @@ describe('administration operator and scheduled boundary', () => {
     await started;
     expect(mock.core).not.toHaveBeenCalled();
     release(token);
+    const attempt = { id: 'attempt', scopeId: 'scope', ordinal: 1, expectedGeneration: 0 };
+    mock.store.beginRosterAttempt.mockResolvedValue(attempt);
     expect(await operation).toMatchObject({ status: 'completed' });
     const rosterWrites = mock.store.recordObservation.mock.calls.filter(([value]) => value.envelope.family === 'rosters');
     expect(rosterWrites).toHaveLength(1); expect(rosterWrites[0][2]).toBe(token);
+    expect(rosterWrites[0][3]).toMatchObject({ attempt });
+    expect(mock.store.beginRosterAttempt).toHaveBeenCalledWith(token, expect.any(String), undefined,
+      expect.objectContaining({ generation: 1, jobKey: 'league-administration-maintenance' }));
+    expect(mock.store.beginRosterAttempt.mock.invocationCallOrder[0]).toBeLessThan(mock.core.mock.invocationCallOrder[0]);
     mock.core.mockClear(); mock.store.recordObservation.mockClear();
     mock.store.readSourceMapping.mockRejectedValue(new Error('mapping unavailable'));
     expect(await runAdministrationOperator({ ...input, mode: 'write' })).toMatchObject({ status: 'failed' });
