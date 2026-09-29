@@ -1,5 +1,10 @@
 # Aggregator backend contracts and migration design
 
+[Current primary ownership and optional co-manager evidence](team-manager-relationships.md)
+extends the same capture and scoped acceptance path with provider-qualified team
+relationships. Complete coverage names primary ownership only; optional co-manager
+groups preserve their own known/unknown state. Public/account readers remain unchanged.
+
 Status: proposed implementation contract, 28 September 2026. This package defines the backend foundation; it does not implement a connector, alter enrollment, run a migration, change a calculation, or establish production capacity.
 
 The first package-2 code slice is recorded in [retained roster implementation](roster-implementation.md). It adds common contract validators and an internal roster comparison through the existing store/reader path; the broader migration and read-service cutover remain pending.

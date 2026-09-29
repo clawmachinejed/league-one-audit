@@ -1,4 +1,5 @@
 import { compatibleRevision, compatibleScoringRulesHash } from '../projections/shared/revision-compatibility';
+import { TEAM_MANAGERS_POLICY, type SourceTeamManagers, type TeamManagersNormalization } from '../aggregator/team-managers';
 import {
   ADMINISTRATION_DIALECT,
   ADMINISTRATION_NORMALIZER_VERSION,
@@ -257,6 +258,53 @@ function normalizeRosters(raw: readonly JsonValue[], expectations: Administratio
   return { family: 'rosters', teams, memberships };
 }
 
+/** Resource projection inside the sole normalizer. Unrelated player/display fields cannot reject it. */
+function normalizeTeamManagers(envelope: AdministrationEnvelope,
+  expectations: AdministrationNormalizationExpectations): TeamManagersNormalization {
+  const version = TEAM_MANAGERS_POLICY.canonicalNormalizerVersion;
+  try {
+    validateEnvelope(envelope);
+    const raw = rows(envelope.payload, 'payload');
+    countMatches(raw.length, expectations, 'payload');
+    const diagnostics: AdministrationDiagnostic[] = [];
+    const teams: SourceTeamManagers[] = raw.map((entry, index) => {
+      const path = `payload[${index}]`;
+      const row = object(entry, path);
+      const externalRosterId = rosterIdentifier(row.roster_id, `${path}.roster_id`);
+      // Unlike v1, a conflicting supplied league ID is not admitted by this resource.
+      if (row.league_id !== undefined && row.league_id !== envelope.scope.externalLeagueId) {
+        invalid('foreign_roster_league', `${path}.league_id`, 'Roster league does not match its source scope.');
+      }
+      const primaryOwner: SourceTeamManagers['primaryOwner'] = row.owner_id === undefined
+        ? { state: 'unknown', externalManagerId: null }
+        : row.owner_id === null ? { state: 'unowned', externalManagerId: null }
+          : { state: 'owned', externalManagerId: identifier(row.owner_id, `${path}.owner_id`) };
+      let coManagers: SourceTeamManagers['coManagers'];
+      try {
+        const coIds = idArray(row.co_owners, `${path}.co_owners`);
+        if (primaryOwner.state === 'owned' && coIds?.includes(primaryOwner.externalManagerId)) {
+          invalid('duplicate_membership', `${path}.co_owners`, 'The primary owner also occurs as a co-owner.');
+        }
+        coManagers = coIds === null ? { state: 'unknown', externalManagerIds: null,
+          reason: row.co_owners === null ? 'co_managers_null' : 'co_managers_absent' }
+          : { state: 'known', externalManagerIds: coIds };
+      } catch (error) {
+        if (!(error instanceof InvalidDocument)) throw error;
+        coManagers = { state: 'unknown', externalManagerIds: null, reason: 'co_managers_invalid' };
+      }
+      if (primaryOwner.state === 'unknown') diagnostics.push({ code: 'owner_absent', path: `${path}.owner_id`, message: 'Primary ownership is unknown.' });
+      if (coManagers.state === 'unknown') diagnostics.push({ code: coManagers.reason,
+        path: `${path}.co_owners`, message: 'Co-manager inventory is unknown; absence cannot establish removal.' });
+      return { externalRosterId, primaryOwner, coManagers };
+    });
+    unique(teams, team => team.externalRosterId, 'payload');
+    return { version, status: diagnostics.length ? 'partial' : 'complete', teams, diagnostics };
+  } catch (error) {
+    if (!(error instanceof InvalidDocument)) throw error;
+    return { version, status: 'invalid', teams: null, diagnostics: [error.diagnostic] };
+  }
+}
+
 function normalizeUsers(raw: readonly JsonValue[]): NormalizedAdministrationValue {
   const managers: SourceManager[] = raw.map((entry, index) => {
     const path = `payload[${index}]`;
@@ -507,6 +555,7 @@ export function normalizeAdministrationObservation(
   assertJson(input, 'envelope');
   const envelope = frozenCopy(input);
   const contentHash = compatibleRevision(envelope.payload);
+  const projection = envelope.family === 'rosters' ? { teamManagers: normalizeTeamManagers(envelope, expectations) } : {};
   try {
     validateEnvelope(envelope);
     let value: NormalizedAdministrationValue;
@@ -527,10 +576,10 @@ export function normalizeAdministrationObservation(
     return frozenCopy({
       status: 'accepted', envelope, contentHash,
       semanticHash: compatibleRevision({ schemaVersion: envelope.schemaVersion, normalizerVersion: envelope.normalizerVersion, dialect: envelope.dialect, family: envelope.family, value: material }),
-      diagnostics: [], value,
+      diagnostics: [], value, ...projection,
     });
   } catch (error) {
     if (!(error instanceof InvalidDocument)) throw error;
-    return frozenCopy({ status: 'rejected', envelope, contentHash, semanticHash: null, diagnostics: [error.diagnostic], value: null });
+    return frozenCopy({ status: 'rejected', envelope, contentHash, semanticHash: null, diagnostics: [error.diagnostic], value: null, ...projection });
   }
 }

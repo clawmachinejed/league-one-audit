@@ -2,6 +2,7 @@ import type { AdministrationEnvelope, AdministrationFamily, AdministrationScope,
   NormalizedAdministrationObservation } from './contracts';
 import type { RetainedRosterProjection } from '../aggregator/roster-bridge';
 import type { AdministrationSourceMapping } from './source-mapping';
+import type { AcceptedTeamManagersRead, RosterCaptureAttempts } from '../aggregator/team-managers';
 import type { AcceptedCurrentRosterRead, CurrentRosterPolicy, RosterAcceptanceInput,
   RosterAcceptanceResult, RosterAttempt } from '../aggregator/current-roster';
 
@@ -22,6 +23,7 @@ export type AdministrationWriteResult = Readonly<{
   observationId?: string; versionId?: string | null; generation?: number; leagueSeasonId?: string;
   reason?: string;
   rosterAcceptance?: RosterAcceptanceResult;
+  teamManagerAcceptance?: RosterAcceptanceResult;
 }>;
 export type AdministrationEnrollment = Readonly<{
   leagueId: string; leagueSeasonId: string; leagueKey: string; displayName: string;
@@ -44,7 +46,11 @@ export type AdministrationWriteFence = Readonly<{
 export type LeagueAdministrationStore = Readonly<{
   enabled: boolean;
   recordObservation: (input: NormalizedAdministrationObservation, fence?: AdministrationWriteFence,
-    mapping?: AdministrationSourceMapping, acceptance?: RosterAcceptanceInput) => Promise<AdministrationWriteResult>;
+    mapping?: AdministrationSourceMapping, acceptance?: RosterAcceptanceInput,
+    managerAcceptance?: RosterAcceptanceInput) => Promise<AdministrationWriteResult>;
+  beginRosterCapture: (mapping: AdministrationSourceMapping, playersId: string, managersId: string,
+    fence?: AdministrationWriteFence) => Promise<RosterCaptureAttempts>;
+  readAcceptedTeamManagers: (mapping: AdministrationSourceMapping) => Promise<AcceptedTeamManagersRead>;
   beginRosterAttempt: (mapping: AdministrationSourceMapping, attemptId: string, policy?: CurrentRosterPolicy,
     fence?: AdministrationWriteFence) => Promise<RosterAttempt>;
   readAcceptedCurrentRoster: (mapping: AdministrationSourceMapping) => Promise<AcceptedCurrentRosterRead>;

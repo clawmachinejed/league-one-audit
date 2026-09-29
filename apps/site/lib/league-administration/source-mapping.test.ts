@@ -67,10 +67,11 @@ describe('captured source mapping boundary', () => {
     const writes: Record<string, unknown>[] = [];
     const events: string[] = [];
     const store = { enabled: true, ...createLeagueAdministrationMethods(client((sql, args) => {
-      if (sql.includes('begin-roster-attempt')) {
+      if (sql.includes('begin-roster-capture')) {
         events.push('reserve');
         expect(JSON.parse(String(args[0]))).toEqual(mapping);
-        return [{ result: { id: args[1], scopeId: mapping.leagueSeasonId, ordinal: 1, expectedGeneration: 0 } }];
+        return [{ players: { id: args[1], scopeId: mapping.leagueSeasonId, ordinal: 1, expectedGeneration: 0 },
+          managers: { id: args[5], scopeId: mapping.connectionId, ordinal: 1, expectedGeneration: 0 } }];
       }
       events.push('write');
       writes.push(JSON.parse(String(args[0])));
@@ -84,6 +85,7 @@ describe('captured source mapping boundary', () => {
     expect(writes[1]).toMatchObject({ envelope: { provenance: { sourceObservedAt: document.requestCompletedAt, origin: 'network' } } });
     expect(writes[0]).not.toHaveProperty('rosterAcceptance');
     expect(writes[1]).toHaveProperty('rosterAcceptance.attempt.ordinal', 1);
+    expect(writes[1]).toHaveProperty('teamManagerAcceptance.attempt.ordinal', 1);
     expect(events).toEqual(['write', 'reserve', 'network', 'write']);
   });
 
