@@ -2,6 +2,7 @@ import 'server-only';
 import { teamManagerMethods } from './team-managers';
 import { leagueSettingsMethods } from './league-settings';
 import { exactMatchupMethods } from './exact-matchups';
+import { isCalculationSourceCapture } from '../calculation-capture';
 
 import type { DatabaseClient, DatabaseRow } from '../../database';
 import type { AdministrationEnvelope } from '../contracts';
@@ -117,6 +118,19 @@ export function createLeagueAdministrationMethods(client: DatabaseClient): Omit<
     ...teamManagerMethods(client),
     ...leagueSettingsMethods(client),
     ...exactMatchupMethods(client),
+    async beginCalculationSourceCapture(mapping, week, id) {
+      if (!isAdministrationSourceMapping(mapping) || !Number.isInteger(week) || week < 1 || week > 18
+        || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu.test(id)) {
+        throw new Error('Invalid calculation source capture.');
+      }
+      const rows = await client.query(`/* league-administration:begin-calculation-source-capture */
+        SELECT public.begin_league_calculation_source_capture($1::jsonb,$2::integer,$3::uuid) AS result`,
+      [JSON.stringify(mapping), week, id]);
+      const capture = rows.length === 1 ? object(rows[0].result) : null;
+      if (!isCalculationSourceCapture(capture) || capture.id !== id) throw new Error('Invalid calculation capture reservation.');
+      // Retain database timestamp precision for replay; do not round to JS milliseconds.
+      return { id: capture.id, reservedAt: capture.reservedAt };
+    },
     async readSourceMapping(externalLeagueId) {
       const rows = await client.query(`/* league-administration:read-source-mapping */
         SELECT connection.id AS connection_id,connection.league_season_id,
@@ -136,14 +150,15 @@ export function createLeagueAdministrationMethods(client: DatabaseClient): Omit<
       if (!isAdministrationSourceMapping(mapping)) throw new Error('Invalid administration source mapping.');
       return mapping;
     },
-    async recordObservation(input, fence, mapping, acceptance, managerAcceptance, leagueSettingsAcceptance, matchupAcceptance, calendarEvidence) {
+    async recordObservation(input, fence, mapping, acceptance, managerAcceptance, leagueSettingsAcceptance, matchupAcceptance, calendarEvidence, calculationCapture) {
       const rows = await client.query(`/* league-administration:record-observation */
         SELECT public.record_league_administration_observation($1::jsonb) AS result`,
       [JSON.stringify({ ...input, ...(fence ? { writeFence: fence } : {}), ...(mapping ? { sourceMapping: mapping } : {}),
         ...(acceptance ? { rosterAcceptance: acceptance } : {}),
         ...(managerAcceptance ? { teamManagerAcceptance: managerAcceptance } : {}),
         ...(leagueSettingsAcceptance ? { leagueSettingsAcceptance } : {}),
-        ...(matchupAcceptance ? { matchupAcceptance } : {}), ...(calendarEvidence ? { calendarEvidence } : {}) })]);
+        ...(matchupAcceptance ? { matchupAcceptance } : {}), ...(calendarEvidence ? { calendarEvidence } : {}),
+        ...(calculationCapture ? { calculationCapture } : {}) })]);
       if (rows.length !== 1) throw new Error('Administration observation did not return one result.');
       const result = object(rows[0].result);
       if (!['changed', 'unchanged', 'replayed', 'stale', 'rejected'].includes(String(result.status))) {

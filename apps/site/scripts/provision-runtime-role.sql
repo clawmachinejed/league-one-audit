@@ -366,3 +366,21 @@ DO $$ BEGIN
     END IF;
   END IF;
 END; $$;
+
+-- 032 consumes retained inputs without granting independent history writes.
+DO $$ BEGIN
+  IF to_regclass('public.league_calculation_source_captures') IS NOT NULL THEN
+    REVOKE ALL ON public.league_calculation_source_captures,public.league_calculation_capture_inputs FROM league_one_runtime;
+    GRANT SELECT ON public.league_calculation_source_captures,public.league_calculation_capture_inputs TO league_one_runtime;
+    REVOKE ALL ON FUNCTION public.validate_calculation_input_lineage(),public.validate_calculation_source_lineage(),
+      public.guard_calculation_source_association(),public.record_league_administration_observation_v31(jsonb) FROM league_one_runtime;
+    GRANT EXECUTE ON FUNCTION public.begin_league_calculation_source_capture(jsonb,integer,uuid),
+      public.record_league_administration_observation(jsonb) TO league_one_runtime;
+    IF has_table_privilege('league_one_runtime','public.league_calculation_source_captures',
+      'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN')
+      OR has_table_privilege('league_one_runtime','public.league_calculation_capture_inputs',
+        'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN') THEN
+      RAISE EXCEPTION 'league_one_runtime has incorrect calculation history privileges';
+    END IF;
+  END IF;
+END; $$;

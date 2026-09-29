@@ -1,7 +1,7 @@
 import capture from '../../test-support/fixtures/sleeper-2026-season-schedule.json';
 import { createSleeperCalendarEvidence } from './period-mapping';
 import { describe, expect, it, vi } from 'vitest';
-import { recordCapturedAdministration } from './runtime';
+import { beginCalculationSourceCapture, recordCapturedAdministration } from './runtime';
 import { createLeagueAdministrationStore } from './store';
 import { loadAdministrationRegistry, loadIsolatedAdministrationRegistry } from './registry';
 import { administrationMaintenanceSelection, runAdministrationMaintenance } from './maintenance';
@@ -21,6 +21,7 @@ function fakeStore(): LeagueAdministrationStore {
     observationId: 'observation', versionId: 'version', generation: 2 })),
   readSource: vi.fn(async () => ({ status: 'missing' as const })),
   readSourceMapping: vi.fn(async () => null),
+  beginCalculationSourceCapture: vi.fn(),
   beginLeagueSettingsAttempt: vi.fn(), readAcceptedLeagueSettings: vi.fn(async () => ({ status: 'missing' as const })),
   beginExactMatchupAttempt: vi.fn(), readAcceptedExactMatchups: vi.fn(async () => ({ status: 'missing' as const })),
   beginRosterAttempt: vi.fn(), readAcceptedCurrentRoster: vi.fn(async () => ({ status: 'missing' as const })),
@@ -326,5 +327,73 @@ describe('calendar evidence through the existing administration capture', () => 
     await recordCapturedAdministration(scope, [{ ...league, completeness: 'partial' }],
       { store, mapping, calendarEvidence: calendar(), now: () => new Date(time) });
     for (const call of vi.mocked(store.recordObservation).mock.calls) expect(call).toHaveLength(3);
+  });
+});
+
+describe('calculation input source history', () => {
+  const mapping = { connectionId: '11111111-1111-4111-8111-111111111111', leagueSeasonId: '22222222-2222-4222-8222-222222222222',
+    revisionId: '33333333-3333-4333-8333-333333333333', generation: 1, scope };
+  const reservation = { id: '44444444-4444-4444-8444-444444444444', reservedAt: '2026-09-16T17:59:59.123456+00:00' };
+  const matchup = { family: 'matchups' as const, week: 3, origin: 'network' as const,
+    requestStartedAt: time, requestCompletedAt: time,
+    payload: [{ roster_id: 1, matchup_id: null, players: [], starters: [], points: 0 }] };
+  const options = { mapping, calculationCapture: { week: 3, reservation }, now: () => new Date(time) };
+
+  it('uses an independent reservation and leaves accepted-resource attempts alone', async () => {
+    const store = fakeStore();
+    vi.mocked(store.beginCalculationSourceCapture).mockResolvedValue(reservation);
+    expect(await beginCalculationSourceCapture(mapping, 3, store)).toEqual(reservation);
+    expect(store.beginCalculationSourceCapture).toHaveBeenCalledWith(mapping, 3, expect.any(String));
+    expect(store.beginExactMatchupAttempt).not.toHaveBeenCalled();
+    expect(store.beginLeagueSettingsAttempt).not.toHaveBeenCalled();
+  });
+
+  it('retains consumed cache provenance separately from a reused v1 observation and the network matchup', async () => {
+    const store = fakeStore();
+    vi.mocked(store.recordObservation).mockResolvedValueOnce({ status: 'unchanged', observationId: 'old-v1-league',
+      versionId: 'same-version', generation: 2, calculationInput: { id: 'league-input', status: 'retained' } })
+      .mockResolvedValueOnce({ status: 'unchanged', observationId: 'old-v1-matchup', calculationInput: { id: 'matchup-input', status: 'retained' } });
+    const result = await recordCapturedAdministration(scope, [matchup, document], { ...options, store });
+    expect(result.context).toEqual({ observationId: 'old-v1-league', configurationVersionId: 'same-version', generation: 2,
+      sourceCapture: { captureId: reservation.id, leagueInputId: 'league-input', matchupInputId: 'matchup-input' } });
+    const calls = vi.mocked(store.recordObservation).mock.calls;
+    expect(calls[0][0].envelope.provenance).toMatchObject({ origin: 'cache', sourceObservedAt: null, requestStartedAt: time });
+    expect(calls[1][0].envelope.provenance).toMatchObject({ origin: 'network', sourceObservedAt: time });
+    expect(calls.map(call => call[8])).toEqual([reservation, reservation]);
+    expect(calls.every(call => call[2] === mapping)).toBe(true);
+    expect(store.beginExactMatchupAttempt).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])('never grafts a verification replacement onto the original input (changed=%s)', async changed => {
+    const store = fakeStore();
+    vi.mocked(store.recordObservation).mockResolvedValueOnce({ status: 'stale', reason: 'unproven_cache_change' })
+      .mockResolvedValueOnce({ status: 'changed', observationId: 'verified', versionId: 'version', generation: 2,
+        calculationInput: { id: 'must-not-use', status: 'retained' } })
+      .mockResolvedValueOnce({ status: 'changed', calculationInput: { id: 'matchup-input', status: 'retained' } });
+    const verify = vi.fn(async () => ({ ...document, origin: 'network' as const,
+      payload: { ...document.payload, ...(changed ? { name: 'Changed' } : {}) } }));
+    const result = await recordCapturedAdministration(scope, [document, matchup], { ...options, store, verify });
+    expect(result.context?.sourceCapture).toBeUndefined();
+    expect(vi.mocked(store.recordObservation).mock.calls[1][8]).toBeUndefined();
+    expect(verify).toHaveBeenCalledOnce();
+    expect(result.status).toBe(changed ? 'unavailable' : 'stored');
+  });
+
+  it('leaves incomplete associations unproved and never borrows a receipt from another period or document family', async () => {
+    const store = fakeStore();
+    vi.mocked(store.recordObservation).mockResolvedValue({ status: 'changed', observationId: 'old', versionId: 'version', generation: 2 });
+    const other = { ...matchup, week: 4 };
+    const result = await recordCapturedAdministration(scope, [document, matchup, other,
+      { ...document, family: 'rosters', payload: [{ roster_id: 1, players: [] }] }], { ...options, store });
+    expect(result.context).not.toHaveProperty('sourceCapture');
+    expect(vi.mocked(store.recordObservation).mock.calls.slice(2).every(call => call[8] === undefined)).toBe(true);
+  });
+
+  it('refuses ambiguous or missing original inputs before any write', async () => {
+    const store = fakeStore();
+    for (const documents of [[document], [document, document, matchup], [document, matchup, matchup]]) {
+      await expect(recordCapturedAdministration(scope, documents, { ...options, store })).rejects.toThrow('exact league and matchup');
+    }
+    expect(store.recordObservation).not.toHaveBeenCalled();
   });
 });

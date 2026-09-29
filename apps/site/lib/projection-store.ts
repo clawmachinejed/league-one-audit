@@ -26,6 +26,8 @@ import { createAllPlayerContextMethods } from './projections/adapters/neon/all-p
 import { createProjectionSlateMethods } from './projections/adapters/neon/projection-slates';
 import { createRetentionMethods } from './projections/adapters/neon/retention';
 import { createSnapshotMethods } from './projections/adapters/neon/snapshots';
+import { createSnapshotSourceHistoryReader } from './projections/adapters/neon/source-history';
+import type { SnapshotSourceHistoryRead } from './projections/shared/source-history';
 
 export type {
   AllPlayerBatchInput,
@@ -106,6 +108,16 @@ export type {
   CompleteLineupObservationInput, LineupObservationWriteOutcome,
   LineupWatchTransition, LineupWatchSyncInput, ClaimDueLineupObservationsInput, WakeFutureLineupInput,
 } from './projections/adapters/neon/lineup-watch-contracts';
+
+/** Exact internal input provenance; it does not qualify analytics compatibility. */
+export function createProjectionSourceHistoryReader(database: Database = getDatabase()): ReturnType<typeof createSnapshotSourceHistoryReader> {
+  const client = connected(database);
+  return client ? createSnapshotSourceHistoryReader(client) : {
+    async readSnapshotSourceHistory(): Promise<SnapshotSourceHistoryRead> {
+      return { status: 'unavailable', reason: 'persistence_disabled' };
+    },
+  };
+}
 
 export function createProjectionStore(database: Database = getDatabase()): ProjectionStore {
   const client = connected(database);

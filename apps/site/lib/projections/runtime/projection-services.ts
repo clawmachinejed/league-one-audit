@@ -2,7 +2,7 @@ import 'server-only';
 
 import { ACTIVE_PROJECTION_SOURCE } from '../../projection-source-config';
 import { getProjectionSyncInput } from '../../sleeper';
-import { captureAdministrationSourceMapping, recordCapturedAdministration, type AdministrationCalculationContext } from '../../league-administration/runtime';
+import { beginCalculationSourceCapture, captureAdministrationSourceMapping, recordCapturedAdministration, type AdministrationCalculationContext } from '../../league-administration/runtime';
 import { observeProviderAdapter } from '../../provider-request-telemetry';
 import { createSleeperLeagueSource } from '../adapters/sleeper/league-source';
 import { normalizeSleeperScoringProfile } from '../adapters/sleeper/scoring-profile';
@@ -34,11 +34,13 @@ export function createProjectionServices(shared: ReturnType<typeof createProduct
       let administration: AdministrationCalculationContext | undefined;
       const source = createSleeperLeagueSource(async (leagueId, target) => {
         const mapping = await captureAdministrationSourceMapping(leagueId);
+        const capture = mapping ? await beginCalculationSourceCapture(mapping, target.week) : null;
         const loaded = await getProjectionSyncInput(leagueId, target);
         if (loaded.administrationObservations?.length) {
           const captured = await recordCapturedAdministration({ leagueKey: configuration.key,
             provider: 'sleeper', externalLeagueId: leagueId, season: Number(loaded.data.league.season) },
-          loaded.administrationObservations, { now: shared.clock.now, mapping });
+          loaded.administrationObservations, { now: shared.clock.now, mapping,
+            ...(capture ? { calculationCapture: { week: target.week, reservation: capture } } : {}) });
           if (captured.status === 'unavailable') throw new Error('League administration observation was not accepted.');
           administration = captured.context;
         }

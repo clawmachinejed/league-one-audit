@@ -22,6 +22,19 @@ const row = {
 };
 
 describe('administration Neon adapter boundaries', () => {
+  it('reserves source history with the real SQL argument order and preserves submillisecond database time', async () => {
+    const mapping = { connectionId: '11111111-1111-4111-8111-111111111111', leagueSeasonId: '22222222-2222-4222-8222-222222222222',
+      revisionId: '33333333-3333-4333-8333-333333333333', generation: 1, scope };
+    const capture = { id: '44444444-4444-4444-8444-444444444444', reservedAt: '2026-09-16T17:59:59.123456+00:00' };
+    const respond = vi.fn((sql: string, parameters: readonly unknown[]) => {
+      expect(sql).toContain('begin_league_calculation_source_capture($1::jsonb,$2::integer,$3::uuid)');
+      expect(parameters).toEqual([JSON.stringify(mapping), 3, capture.id]);
+      return [{ result: capture }];
+    });
+    expect(await createLeagueAdministrationMethods(database(respond)).beginCalculationSourceCapture(mapping, 3, capture.id)).toEqual(capture);
+    expect(respond).toHaveBeenCalledOnce();
+  });
+
   it('reconstructs transaction week zero separately from season-only scope', async () => {
     const store = createLeagueAdministrationMethods(database(() => [row]));
     expect(await store.readSource({ ...scope, family: 'transactions', week: 0 }))

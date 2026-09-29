@@ -146,7 +146,8 @@ export type CanonicalScoringProfile = Readonly<{
 
 export type LeagueWeekState = Readonly<{
   /** Accepted administration evidence used by this calculation, absent for legacy callers. */
-  administrationContext?: Readonly<{ observationId: string; configurationVersionId: string; generation: number }>;
+  administrationContext?: Readonly<{ observationId: string; configurationVersionId: string; generation: number;
+    sourceCapture?: Readonly<{ captureId: string; leagueInputId: string; matchupInputId: string }> }>;
   lineupShape: LineupShape;
   configuration: LeagueConfiguration;
   leagueName: string;
