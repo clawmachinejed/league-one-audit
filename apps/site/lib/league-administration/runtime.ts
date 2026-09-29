@@ -41,6 +41,7 @@ export async function recordCapturedAdministration(
     signal?: AbortSignal; expectedRosterCount?: number; mapping?: AdministrationSourceMapping | null;
     rosterAttempt?: RosterAttempt;
     managerAttempt?: RosterAttempt;
+    leagueSettingsAttempt?: RosterAttempt;
     verify?: (document: CapturedAdministrationDocument, signal: AbortSignal) => Promise<CapturedAdministrationDocument> }> = {},
 ): Promise<AdministrationCaptureResult> {
   const signal = options.signal ?? AbortSignal.timeout(8_000);
@@ -74,14 +75,16 @@ export async function recordCapturedAdministration(
       },
       completeness: document.completeness ?? 'complete', payload: document.payload as JsonValue,
     }, expectedRosterCount === undefined ? undefined : { expectedRosterCount });
-    const mapping = document.family === 'rosters' ? options.mapping ?? undefined : undefined;
-    let attempt = origin === 'network' && mapping ? options.rosterAttempt : undefined;
-    let managerAttempt = origin === 'network' && mapping ? options.managerAttempt : undefined;
-    const write = () => attempt || managerAttempt
+    const mapping = ['rosters', 'league'].includes(document.family) ? options.mapping ?? undefined : undefined;
+    let attempt = origin === 'network' && mapping && document.family === 'rosters' ? options.rosterAttempt : undefined;
+    let managerAttempt = origin === 'network' && mapping && document.family === 'rosters' ? options.managerAttempt : undefined;
+    let leagueSettingsAttempt = origin === 'network' && mapping && document.family === 'league' ? options.leagueSettingsAttempt : undefined;
+    const write = () => attempt || managerAttempt || leagueSettingsAttempt
       ? store.recordObservation(normalized, options.fence, mapping,
         attempt ? { attempt, ...(population ? { population } : {}) } : undefined,
-        managerAttempt ? { attempt: managerAttempt, ...(population ? { population } : {}) } : undefined)
-      : store.recordObservation(normalized, options.fence, mapping);
+        managerAttempt ? { attempt: managerAttempt, ...(population ? { population } : {}) } : undefined,
+        leagueSettingsAttempt ? { attempt: leagueSettingsAttempt } : undefined)
+      : store.recordObservation(normalized, options.fence, document.family === 'rosters' ? mapping : undefined);
     let result = await write();
     if (result.status === 'stale' && result.reason === 'unproven_cache_change' && origin === 'cache') {
       // Only changed cached documents need a fresh verification. Never overwrite a
@@ -89,7 +92,9 @@ export async function recordCapturedAdministration(
       signal.throwIfAborted();
       // Reserve only this already-needed NETWORK acquisition. Ordinary cache
       // checks cannot suppress another in-flight network capture.
-      if (mapping) {
+      if (mapping && document.family === 'league') {
+        leagueSettingsAttempt = await store.beginLeagueSettingsAttempt(mapping, randomUUID(), options.fence);
+      } else if (mapping) {
         const attempts = await store.beginRosterCapture(mapping, randomUUID(), randomUUID(), options.fence);
         attempt = attempts.players; managerAttempt = attempts.managers;
       }

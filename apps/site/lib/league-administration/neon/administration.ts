@@ -1,5 +1,6 @@
 import 'server-only';
 import { teamManagerMethods } from './team-managers';
+import { leagueSettingsMethods } from './league-settings';
 
 import type { DatabaseClient, DatabaseRow } from '../../database';
 import type { AdministrationEnvelope } from '../contracts';
@@ -113,6 +114,7 @@ export function createLeagueAdministrationMethods(client: DatabaseClient): Omit<
   return {
     ...currentRosterMethods(client),
     ...teamManagerMethods(client),
+    ...leagueSettingsMethods(client),
     async readSourceMapping(externalLeagueId) {
       const rows = await client.query(`/* league-administration:read-source-mapping */
         SELECT connection.id AS connection_id,connection.league_season_id,
@@ -132,12 +134,13 @@ export function createLeagueAdministrationMethods(client: DatabaseClient): Omit<
       if (!isAdministrationSourceMapping(mapping)) throw new Error('Invalid administration source mapping.');
       return mapping;
     },
-    async recordObservation(input, fence, mapping, acceptance, managerAcceptance) {
+    async recordObservation(input, fence, mapping, acceptance, managerAcceptance, leagueSettingsAcceptance) {
       const rows = await client.query(`/* league-administration:record-observation */
         SELECT public.record_league_administration_observation($1::jsonb) AS result`,
       [JSON.stringify({ ...input, ...(fence ? { writeFence: fence } : {}), ...(mapping ? { sourceMapping: mapping } : {}),
         ...(acceptance ? { rosterAcceptance: acceptance } : {}),
-        ...(managerAcceptance ? { teamManagerAcceptance: managerAcceptance } : {}) })]);
+        ...(managerAcceptance ? { teamManagerAcceptance: managerAcceptance } : {}),
+        ...(leagueSettingsAcceptance ? { leagueSettingsAcceptance } : {}) })]);
       if (rows.length !== 1) throw new Error('Administration observation did not return one result.');
       const result = object(rows[0].result);
       if (!['changed', 'unchanged', 'replayed', 'stale', 'rejected'].includes(String(result.status))) {
