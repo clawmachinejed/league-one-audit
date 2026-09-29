@@ -145,6 +145,42 @@ recorded in the existing [Step 2 ledger](step-2-checklist.md). The follow-on rem
 unreleased, and its new SQL assertions require their own protected qualification;
 PR270's passing receipt is baseline evidence only.
 
+## Bundle 1 follow-on: dated current player metadata
+
+The A2 metadata continuation composes optional metadata with the internal accepted-roster
+read using an already-loaded player catalog. It adds no catalog request or public
+reader switch. Current player names, NFL team, position, eligibility and
+injury/status evidence are separate from accepted roster membership and groups;
+missing or invalid metadata must not make those official roster facts unavailable.
+
+The existing filtered catalog merger preserves each supplying position slice's
+revision and original retrieval date. Different cached ages remain separate, and
+missing/invalid dates stay unknown. It must preserve the existing aggregate
+`sourceRevision`, completeness, warning and player-selection behavior. In
+particular it must not add global `observedAt` or `identityRevision` to that merged
+path: existing all-player workers use those fields to select lineage and provider
+context. The existing bulk catalog path retains its own behavior.
+
+Metadata uses its source revision, including injury/status changes, rather than
+an identity-only revision. It is current-display evidence with unverified
+historical applicability; a player name does not prove historical NFL membership,
+a missing team does not mean a bye, and absent injury data does not mean healthy.
+The accepted roster receipt retains its original time even when supplied metadata
+is newer. Conflicting catalog identities remain excluded. Equal rows from
+multiple positions retain all supplying evidence; a merge must not silently pick
+the newest timestamp as if it dated every source field.
+
+This increment does not finish A2 historical slot applicability. The existing
+`resolveConfigurationComponent` accepts explicit exact-period bindings, but
+ordinary `observed_current` collection does not create such proof and there is no
+qualified history-store binding reader yet. Existing exact-matchup facts remain
+usable without slot labels or historical injury/team metadata. Broader retained
+comparison and applicability qualification remain open in the Step 2 ledger.
+Existing evidenced-period configuration activations can support a conservative
+reader without a new schema, but their period domain and source linkage must be
+proved against the requested native matchup period first. Period mapping therefore
+precedes consuming those bindings; current configuration is not a substitute.
+
 ## Rollout, rollback and validation status
 
 Authoring 027 does not install it. Apply only after separate production migration

@@ -7,6 +7,7 @@ import type { AcceptedLeagueSettingsRead } from '../aggregator/league-settings';
 import type { AcceptedExactMatchupsRead } from '../aggregator/exact-matchups';
 import type { AcceptedCurrentRosterRead, CurrentRosterPolicy, RosterAcceptanceInput,
   RosterAcceptanceResult, RosterAttempt } from '../aggregator/current-roster';
+import type { CurrentRosterReadOptions } from '../aggregator/current-roster-metadata';
 
 export type AdministrationReadInput = AdministrationScope & Readonly<{
   family: AdministrationFamily; week: number | null;
@@ -63,7 +64,7 @@ export type LeagueAdministrationStore = Readonly<{
   readAcceptedTeamManagers: (mapping: AdministrationSourceMapping) => Promise<AcceptedTeamManagersRead>;
   beginRosterAttempt: (mapping: AdministrationSourceMapping, attemptId: string, policy?: CurrentRosterPolicy,
     fence?: AdministrationWriteFence) => Promise<RosterAttempt>;
-  readAcceptedCurrentRoster: (mapping: AdministrationSourceMapping) => Promise<AcceptedCurrentRosterRead>;
+  readAcceptedCurrentRoster: (mapping: AdministrationSourceMapping, options?: CurrentRosterReadOptions) => Promise<AcceptedCurrentRosterRead>;
   readSourceMapping: (externalLeagueId: string) => Promise<AdministrationSourceMapping | null>;
   readSource: (input: AdministrationReadInput) => Promise<LeagueAdministrationStoreRead>;
   readSourceByConnection: (input: AdministrationConnectionReadInput) => Promise<LeagueAdministrationStoreRead>;

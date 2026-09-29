@@ -15,6 +15,17 @@ const PLAYER_FAILURE_CACHE_SECONDS = 300;
 export const FANTASY_PLAYER_POSITIONS = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'] as const;
 export type FantasyPlayerPosition = typeof FANTASY_PLAYER_POSITIONS[number];
 
+/** Original contributing capture evidence; combining cached slices never restamps their age. */
+export type PlayerCatalogSourceSlice = Readonly<{
+  scope: FantasyPlayerPosition | 'all';
+  status: 'available' | 'unavailable';
+  sourceRevision: string | null;
+  observedAt: string | null;
+  /** Individual capture completeness; merged identity conflicts are reflected by catalog.complete. */
+  complete: boolean;
+  playerIds: readonly string[];
+}>;
+
 export type FantasyPlayerCatalog = Readonly<{
   catalog: PlayerCatalog;
   complete: boolean;
@@ -23,6 +34,8 @@ export type FantasyPlayerCatalog = Readonly<{
   observedAt?: string;
   /** All-player inventory revision excludes advisory current status labels. */
   identityRevision?: string;
+  /** Optional for older cached results and injected catalog fixtures. */
+  sourceSlices?: readonly PlayerCatalogSourceSlice[];
   warning?: string;
 }>;
 
@@ -212,6 +225,12 @@ export async function loadFantasyPlayerCatalog(
   return {
     catalog,
     sourceRevision,
+    sourceSlices: results.map((result, index) => result.status === 'fulfilled' ? {
+      scope: FANTASY_PLAYER_POSITIONS[index], status: 'available', sourceRevision: result.value.sourceRevision,
+      observedAt: result.value.observedAt ?? null, complete: result.value.malformedRowCount === 0,
+      playerIds: Object.keys(result.value.catalog),
+    } : { scope: FANTASY_PLAYER_POSITIONS[index], status: 'unavailable', sourceRevision: null,
+      observedAt: null, complete: false, playerIds: [] }),
     ...(warning ? { warning } : {}),
     complete: warning === undefined,
   };
@@ -228,6 +247,8 @@ export async function loadCompletePlayerCatalog(): Promise<FantasyPlayerCatalog>
       sourceRevision: slice.sourceRevision,
       observedAt: slice.observedAt,
       identityRevision: playerCatalogIdentityRevision(slice.catalog),
+      sourceSlices: [{ scope: 'all', status: 'available', sourceRevision: slice.sourceRevision,
+        observedAt: slice.observedAt ?? null, complete: slice.malformedRowCount === 0, playerIds: Object.keys(slice.catalog) }],
       complete: slice.malformedRowCount === 0,
       ...(slice.malformedRowCount === 0 ? {} : {
         warning: `Sleeper returned ${slice.malformedRowCount} malformed official catalog rows; complete identity classification is unavailable.`,

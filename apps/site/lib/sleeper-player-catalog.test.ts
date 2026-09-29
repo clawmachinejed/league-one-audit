@@ -2,13 +2,69 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 vi.mock('server-only', () => ({}));
 import {
   classifySleeperCatalogIdentity, loadCompletePlayerCatalog,
-  loadFantasyPlayerCatalog, projectPlayerCatalog,
+  loadFantasyPlayerCatalog, projectPlayerCatalog, playerCatalogIdentityRevision, FANTASY_PLAYER_POSITIONS,
 } from './sleeper-player-catalog';
 import { foundationFixture, loadFoundationFixtureCatalogPosition } from '../test-support/all-player-foundation-fixture';
 
 afterEach(() => vi.unstubAllGlobals());
 
 describe('shared official catalog identity boundary', () => {
+  it('preserves original mixed cache ages separately without changing aggregate identity or activating global context', async () => {
+    const load = async (laterDates = false) => loadFantasyPlayerCatalog(async position => ({
+      ...projectPlayerCatalog({ [position]: { full_name: `Player ${position}`, position } }),
+      observedAt: position === 'QB' ? '2026-09-27T10:00:00.000Z'
+        : laterDates ? '2026-09-29T10:00:00.000Z' : '2026-09-28T10:00:00.000Z',
+    }));
+    const first = await load(); const repeat = await load(); const refreshed = await load(true);
+    expect(repeat).toEqual(first);
+    expect(refreshed.catalog).toEqual(first.catalog);
+    expect(refreshed.sourceRevision).toBe(first.sourceRevision);
+    expect(first).not.toHaveProperty('observedAt');
+    expect(first).not.toHaveProperty('identityRevision');
+    expect(first.sourceSlices?.map(slice => ({ scope: slice.scope, observedAt: slice.observedAt }))).toEqual(
+      FANTASY_PLAYER_POSITIONS.map(position => ({ scope: position, observedAt: position === 'QB'
+        ? '2026-09-27T10:00:00.000Z' : '2026-09-28T10:00:00.000Z' })));
+    expect(first.sourceSlices?.every(slice => slice.status === 'available' && slice.complete && slice.playerIds.length === 1)).toBe(true);
+  });
+
+  it('retains absent dates and failed slices without inventing acquisition evidence', async () => {
+    const catalog = await loadFantasyPlayerCatalog(async position => {
+      if (position === 'QB') throw new Error('Synthetic unavailable position.');
+      return projectPlayerCatalog({ [position]: { full_name: `Player ${position}`, position } });
+    });
+    expect(catalog).toMatchObject({ complete: false, sourceRevision: null });
+    expect(catalog).not.toHaveProperty('observedAt');
+    expect(catalog.sourceSlices?.[0]).toEqual({ scope: 'QB', status: 'unavailable', sourceRevision: null,
+      observedAt: null, complete: false, playerIds: [] });
+    expect(catalog.sourceSlices?.slice(1).every(slice => slice.observedAt === null && slice.status === 'available')).toBe(true);
+  });
+
+  it('keeps every supporting slice for equal duplicate identities and removes conflicting rows as before', async () => {
+    const catalog = await loadFantasyPlayerCatalog(async () => ({
+      ...projectPlayerCatalog({ shared: { full_name: 'Shared Player', position: 'TE' } }),
+      observedAt: '2026-09-28T10:00:00.000Z',
+    }));
+    expect(catalog.complete).toBe(true);
+    expect(Object.keys(catalog.catalog)).toEqual(['shared']);
+    expect(catalog.sourceSlices?.map(slice => slice.playerIds)).toEqual(FANTASY_PLAYER_POSITIONS.map(() => ['shared']));
+    const conflicting = await loadFantasyPlayerCatalog(async position => projectPlayerCatalog({ shared: {
+      full_name: position === 'TE' ? 'Conflicting Player' : 'Shared Player', position: 'TE',
+    } }));
+    expect(conflicting.complete).toBe(false);
+    expect(Object.hasOwn(conflicting.catalog, 'shared')).toBe(false);
+  });
+
+  it('changes metadata revision for injury-only corrections while preserving identity revision', async () => {
+    const load = (injury: string) => loadFantasyPlayerCatalog(async position => projectPlayerCatalog({ [position]: {
+      full_name: `Player ${position}`, position, injury_status: position === 'QB' ? injury : undefined,
+    } }));
+    const questionable = await load('Questionable'); const out = await load('Out');
+    expect(out.sourceRevision).not.toBe(questionable.sourceRevision);
+    expect(playerCatalogIdentityRevision(out.catalog)).toBe(playerCatalogIdentityRevision(questionable.catalog));
+    expect(out.sourceSlices?.[0].sourceRevision).not.toBe(questionable.sourceSlices?.[0].sourceRevision);
+    expect(out).not.toHaveProperty('identityRevision');
+  });
+
   it('retains nine identical real memberships and all eight FB fantasy identities', async () => {
     const catalog = await loadFantasyPlayerCatalog(loadFoundationFixtureCatalogPosition);
     expect(catalog.complete).toBe(true);
