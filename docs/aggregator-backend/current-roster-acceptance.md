@@ -141,9 +141,13 @@ observation; legacy-head changes cannot substitute another capture's groups.
 Adapter and isolated-SQL cases cover these limits, group-only corrections with
 unchanged held players, immutable evidence and comparison with the existing
 presenter on complete non-conflicting captures. Qualification and release are
-recorded in the existing [Step 2 ledger](step-2-checklist.md). The follow-on remains
-unreleased, and its new SQL assertions require their own protected qualification;
-PR270's passing receipt is baseline evidence only.
+recorded in the existing [Step 2 ledger](step-2-checklist.md). PR271 is qualified at
+`caab634883d44aa907d14dd00a8cd57a627f97f2`: protected SQL run 36608760918 passes
+40 files / 640 tests / zero skips, including both new group cases. Its sanitized
+receipt verifies process closure, schema cleanup, credential revocation and
+branch deletion, with no failures or production writes. Hosted CI and exact-SHA
+Preview also pass. This follow-on remains unmerged and unreleased; PR270's earlier
+receipt remains separate evidence for its own commit.
 
 ## Bundle 1 follow-on: dated current player metadata
 
