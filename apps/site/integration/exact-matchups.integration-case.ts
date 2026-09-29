@@ -125,8 +125,12 @@ describe.sequential('exact native-period matchup shadow acceptance', () => {
     const corrected = await reserve(f, week); const proof = await population(f);
     expect((await write(f, await capture(f, 'matchups', [{ ...ordinary[0], custom_points: -2 }, ordinary[1]], week), corrected, proof))
       .matchupAcceptance?.status).toBe('accepted');
-    expect((await store.readAcceptedExactMatchups(f.mapping, week))).toMatchObject({ status: 'available',
-      value: { teams: [{ officialTeamPoints: { effective: '-2' } }] } });
+    const correctedRead = await store.readAcceptedExactMatchups(f.mapping, week);
+    expect(correctedRead.status).toBe('available');
+    if (correctedRead.status !== 'available') throw new Error('Missing corrected matchup resource.');
+    expect(correctedRead.value.teams).toHaveLength(2);
+    expect(correctedRead.value.teams.find(team => team.externalRosterId === '1'))
+      .toMatchObject({ officialTeamPoints: { effective: '-2' } });
   });
 
   it('preserves the prior head for missing population, partial capture, stale attempt and failed newest attempt', async () => {
@@ -170,8 +174,13 @@ describe.sequential('exact native-period matchup shadow acceptance', () => {
       const newerResult = order === 'older-first' ? second : first;
       expect(olderResult.matchupAcceptance).toMatchObject({ status: 'preserved', reason: 'newer_network_attempt_reserved' });
       expect(newerResult.matchupAcceptance).toMatchObject({ status: 'accepted', reason: null });
-      expect(await store.readAcceptedExactMatchups(f.mapping, week)).toMatchObject({ status: 'available',
-        receipt: { attemptId: newer.id }, value: { teams: [{ officialTeamPoints: { effective: '2' } }] } });
+      const acceptedRead = await store.readAcceptedExactMatchups(f.mapping, week);
+      expect(acceptedRead.status).toBe('available');
+      if (acceptedRead.status !== 'available') throw new Error('Missing latest matchup resource.');
+      expect(acceptedRead.receipt.attemptId).toBe(newer.id);
+      expect(acceptedRead.value.teams).toHaveLength(2);
+      expect(acceptedRead.value.teams.find(team => team.externalRosterId === '1'))
+        .toMatchObject({ officialTeamPoints: { effective: '2' } });
     } finally { await peer.close(); }
   });
 
@@ -201,6 +210,9 @@ describe.sequential('exact native-period matchup shadow acceptance', () => {
     const before = await matchupCounts(f);
     await expect(write(f, input, attempt, proof)).rejects.toThrow(/attempt scope mismatch/);
     await expect(write(f, input, attempt, proof, { ...fence, workerId: randomUUID() }))
+      .rejects.toThrow(/league administration writer fence is stale/);
+    await expect(write(f, input, attempt, proof, { ...fence,
+      deadlineAt: new Date(new Date(fence.deadlineAt).getTime() + 1000).toISOString() }))
       .rejects.toThrow(/attempt scope mismatch/);
     await ownerQuery("UPDATE projection_jobs SET lease_until=clock_timestamp()-interval '1 second' WHERE job_key=$1", [fence.jobKey]);
     await expect(write(f, input, attempt, proof, fence)).rejects.toThrow(/writer fence/);
