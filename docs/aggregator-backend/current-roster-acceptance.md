@@ -109,9 +109,41 @@ independently evidenced count and immutable team entries. The accepted resource'
 `observationIds` identify exact roster capture receipts in this slice, not v1's
 possibly reused observation. Internal readback reads the receipt's content and
 team UUIDs, validates the complete requested/captured mapping, policy, coverage,
-normalization and hash, and never rebuilds membership from the v1 head. It exposes
+normalization and hash, and never rebuilds membership from the v1 head. Its qualified resource covers
 held players only, with unresolved native scoring-entity identities and unknown
 effective dates; this resource is not historical lineup or analytics evidence.
+
+## Bundle 1 follow-on: current group evidence
+
+The internal accepted-roster read now adds `currentGroups` per team, projected
+from the same receipt-linked content after the existing mapping, UUID, hash and
+normalizer checks. This is `current-roster-field-evidence` with projection version
+`sleeper-current-groups-v1`; it is not a second `AcceptedResource`. Immutable SQL
+coverage remains `players` only. No migration, query, writer, normalizer,
+acquisition or public presenter changes are required for this extension.
+
+Ordered starters preserve native indexes and repeated literal `"0"` vacancy
+markers. Reserve and taxi preserve their native lists. Missing/null lists remain
+unknown; an explicit empty list is known empty. Membership outside held players
+or across conflicting groups withholds only the affected group fields. A vacancy
+marker cannot become a reserve, taxi or bench player. Derived bench membership
+requires all exclusion groups to be known and a usable held inventory. Raw lists
+remain available for inspection even when placements are withheld. Existing v1
+rejection of structurally invalid or duplicate optional arrays is unchanged.
+
+Every field is labeled `current-display`, copies the accepted capture's receipt
+reference and actual source provenance, and reports unknown freshness and
+unverified historical applicability. No slot rule, canonical player identity,
+current injury status or historical roster status is inferred. Equal-content
+reacquisition uses its new receipt's timestamps without restamping the original
+observation; legacy-head changes cannot substitute another capture's groups.
+
+Adapter and isolated-SQL cases cover these limits, group-only corrections with
+unchanged held players, immutable evidence and comparison with the existing
+presenter on complete non-conflicting captures. Qualification and release are
+recorded in the existing [Step 2 ledger](step-2-checklist.md). The follow-on remains
+unreleased, and its new SQL assertions require their own protected qualification;
+PR270's passing receipt is baseline evidence only.
 
 ## Rollout, rollback and validation status
 

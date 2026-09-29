@@ -10,6 +10,7 @@ import { normalizeAdministrationObservation } from '../normalize';
 import type { AdministrationEnvelope } from '../contracts';
 import type { AdministrationWriteFence } from '../store-contracts';
 import { compatibleRevision } from '../../projections/shared/revision-compatibility';
+import { projectCurrentRosterGroups } from '../../aggregator/current-roster-groups';
 
 function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid current roster evidence.');
@@ -109,7 +110,8 @@ export function currentRosterMethods(client: DatabaseClient) {
             canonicalEntityId: null, identityState: 'unresolved', nativeSection: 'players', section: 'roster',
             effectiveFrom: null, effectiveTo: null, effectiveEvidence: 'unknown' }));
           players.forEach(assertRosterMembership);
-          return { seasonTeamId, externalRosterId: team.externalRosterId, players };
+          return { seasonTeamId, externalRosterId: team.externalRosterId, players,
+            currentGroups: projectCurrentRosterGroups(team, players, id(row.receipt_id), provenance) };
         });
         const accepted: AcceptedResource = { scope: currentRosterScope(mapping),
           canonicalNormalizerVersion: CURRENT_ROSTER_POLICY.canonicalNormalizerVersion,

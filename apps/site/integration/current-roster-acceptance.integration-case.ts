@@ -148,13 +148,15 @@ describe.sequential('persisted scoped current held-player acceptance', () => {
   it('reads only the accepted receipt team inventory while preserving historical identities and old-caller writes', async () => {
     const { f, token, proof, read: original } = await seed();
     const attempt = await store.beginRosterAttempt(token, randomUUID());
-    const input = await capture(f, [{ roster_id: 1, players: ['replacement-a'] }, { roster_id: 3, players: [] }]);
+    const input = await capture(f, [{ roster_id: 1, players: ['replacement-a'], starters: ['replacement-a', '0'], reserve: [], taxi: [] },
+      { roster_id: 3, players: [], starters: [], reserve: [], taxi: [] }]);
     const result = await store.recordObservation(input, undefined, token, { attempt, population: proof });
     expect(result.rosterAcceptance?.status).toBe('accepted');
     const current = await accepted(token);
     expect(current.teams.map(team => team.externalRosterId)).toEqual(['1', '3']);
     expect(current.teams[0].seasonTeamId).toBe(original.teams[0].seasonTeamId);
     expect(current.teams[1].players).toEqual([]);
+    expect(current.teams[0].currentGroups.starters.value?.map(slot => slot.nativePlayerId)).toEqual(['replacement-a', '0']);
     expect(await ownerQuery(`SELECT id FROM league_season_teams WHERE league_season_id=$1 AND external_roster_id='2'`,
       [f.leagueSeasonId])).toEqual([{ id: original.teams[1].seasonTeamId }]);
     const legacy = await store.recordObservation(await capture(f, [{ roster_id: 1, players: ['rollback-player'] },
@@ -165,6 +167,105 @@ describe.sequential('persisted scoped current held-player acceptance', () => {
     expect(await accepted(token)).toEqual(current);
     expect(await ownerQuery(`SELECT count(*)::integer AS count FROM league_roster_resource_acceptances WHERE scope_id=$1`,
       [attempt.scopeId])).toEqual([{ count: 2 }]);
+  });
+
+  it('projects current groups from exact accepted receipt content while preserving players-only SQL coverage', async () => {
+    const f = await fixture(); const token = await mapping(f); const proof = await population(f);
+    const attempt = await store.beginRosterAttempt(token, randomUUID());
+    const payload = [{ roster_id: 1, players: ['held-bench', 'starter', 'reserve', 'taxi'],
+      starters: ['0', 'starter', '0'], reserve: ['reserve'], taxi: ['taxi'] },
+    { roster_id: 2, players: [], starters: [], reserve: [], taxi: [] }];
+    const input = await capture(f, payload);
+    const result = await store.recordObservation(input, undefined, token, { attempt, population: proof });
+    expect(result.rosterAcceptance?.status).toBe('accepted');
+    const beforeRead = await state(f);
+    const read = await accepted(token);
+    const first = read.teams[0].currentGroups;
+    expect(first).toMatchObject({ kind: 'current-roster-field-evidence', historicalApplicability: 'unverified',
+      source: input.envelope.provenance, nativeLists: { starters: ['0', 'starter', '0'], reserve: ['reserve'], taxi: ['taxi'] },
+      starters: { sourceRefs: [read.receipt.id], temporalContext: 'current-display', value: [
+        { index: 0, nativePlayerId: '0', empty: true, membership: null },
+        { index: 1, nativePlayerId: 'starter', empty: false, membership: { seasonTeamId: read.teams[0].seasonTeamId,
+          sourceEntity: { nativeId: 'starter' }, effectiveFrom: null, effectiveTo: null, effectiveEvidence: 'unknown' } },
+        { index: 2, nativePlayerId: '0', empty: true, membership: null },
+      ] }, reserve: { value: [{ sourceEntity: { nativeId: 'reserve' } }] }, taxi: { value: [{ sourceEntity: { nativeId: 'taxi' } }] },
+      bench: { authority: 'presentation-derived', value: [{ sourceEntity: { nativeId: 'held-bench' } }] } });
+    expect(read.teams[1].currentGroups).toMatchObject({ starters: { value: [], availability: 'empty' },
+      reserve: { value: [], availability: 'empty' }, taxi: { value: [], availability: 'empty' }, bench: { value: [], availability: 'empty' } });
+    expect(await ownerQuery(`SELECT receipt.content_id,receipt.legacy_observation_id,receipt.coverage->'fields' AS fields,
+      content.payload,content.content_hash FROM league_roster_capture_receipts receipt
+      JOIN league_administration_contents content ON content.id=receipt.content_id WHERE receipt.id=$1`, [read.receipt.id]))
+      .toEqual([{ content_id: read.accepted.contentId, legacy_observation_id: result.observationId,
+        fields: ['players'], payload, content_hash: input.contentHash }]);
+    expect(await accepted(token)).toEqual(read);
+    expect(await state(f)).toEqual(beforeRead);
+    const retainedReceipt = () => ownerQuery(`SELECT to_jsonb(receipt) AS receipt,to_jsonb(content) AS content
+      FROM league_roster_capture_receipts receipt JOIN league_administration_contents content ON content.id=receipt.content_id
+      WHERE receipt.id=$1`, [read.receipt.id]);
+    const originalEvidence = await retainedReceipt();
+    // Only group assignments change: held players and team order/identity stay exact.
+    const movedPayload = [{ ...payload[0], starters: ['taxi', '0', 'held-bench'], reserve: ['starter'], taxi: [] }, payload[1]];
+    const movedAttempt = await store.beginRosterAttempt(token, randomUUID());
+    const movedInput = await capture(f, movedPayload);
+    expect(movedInput.contentHash).not.toBe(input.contentHash);
+    const movedWrite = await store.recordObservation(movedInput, undefined, token, { attempt: movedAttempt, population: proof });
+    expect(movedWrite).toMatchObject({ status: 'changed', rosterAcceptance: { status: 'accepted', acceptedGeneration: 2 } });
+    const moved = await accepted(token);
+    expect(moved.accepted.contentId).not.toBe(read.accepted.contentId);
+    expect(moved.receipt.id).not.toBe(read.receipt.id);
+    const heldInventory = (value: typeof read) => value.teams.map(({ seasonTeamId, externalRosterId, players }) => ({
+      seasonTeamId, externalRosterId, players,
+    }));
+    expect(heldInventory(moved)).toEqual(heldInventory(read));
+    expect(moved.accepted).toMatchObject({ scope: read.accepted.scope,
+      canonicalNormalizerVersion: CURRENT_ROSTER_POLICY.canonicalNormalizerVersion,
+      validationVersion: CURRENT_ROSTER_POLICY.validationVersion });
+    expect(moved.teams[0].currentGroups).toMatchObject({ source: movedInput.envelope.provenance,
+      nativeLists: { starters: ['taxi', '0', 'held-bench'], reserve: ['starter'], taxi: [] },
+      starters: { sourceRefs: [moved.receipt.id], value: [
+        { index: 0, nativePlayerId: 'taxi' }, { index: 1, nativePlayerId: '0', empty: true },
+        { index: 2, nativePlayerId: 'held-bench' },
+      ] }, reserve: { value: [{ sourceEntity: { nativeId: 'starter' } }] }, taxi: { value: [], availability: 'empty' },
+      bench: { value: [{ sourceEntity: { nativeId: 'reserve' } }] } });
+    expect(await ownerQuery(`SELECT content_id,legacy_observation_id,coverage->'fields' AS fields
+      FROM league_roster_capture_receipts WHERE id=$1`, [moved.receipt.id])).toEqual([{
+      content_id: moved.accepted.contentId, legacy_observation_id: movedWrite.observationId, fields: ['players'],
+    }]);
+    expect(await retainedReceipt()).toEqual(originalEvidence);
+  });
+
+  it('keeps held players accepted while missing or contradictory current placements stay field-specific unknown', async () => {
+    const f = await fixture(); const token = await mapping(f); const proof = await population(f);
+    const attempt = await store.beginRosterAttempt(token, randomUUID());
+    const input = await capture(f, [{ roster_id: 1, players: ['held'], starters: ['foreign'], reserve: [], taxi: null },
+      { roster_id: 2, players: ['shared'], starters: ['shared', '0'], reserve: ['shared'], taxi: [] }]);
+    expect(input.status).toBe('accepted');
+    const result = await store.recordObservation(input, undefined, token, { attempt, population: proof });
+    expect(result.rosterAcceptance?.status).toBe('accepted');
+    const read = await accepted(token);
+    expect(read.teams.map(team => team.players.map(player => player.sourceEntity.nativeId))).toEqual([['held'], ['shared']]);
+    expect(read.teams[0].currentGroups).toMatchObject({
+      starters: { value: null, reasons: ['group_player_not_held'] }, reserve: { value: [], availability: 'empty' },
+      taxi: { value: null, reasons: ['source_field_missing'] }, bench: { value: null },
+    });
+    expect(read.teams[1].currentGroups).toMatchObject({ nativeLists: { starters: ['shared', '0'], reserve: ['shared'], taxi: [] },
+      starters: { value: null, reasons: ['group_overlaps_reserve'] }, reserve: { value: null, reasons: ['group_overlaps_starters'] },
+      taxi: { value: [], availability: 'empty' }, bench: { value: null } });
+    const markerAttempt = await store.beginRosterAttempt(token, randomUUID());
+    const markerInput = await capture(f, [{ roster_id: 1, players: ['0'], starters: [], reserve: [], taxi: [] },
+      { roster_id: 2, players: ['shared'], starters: ['shared', '0'], reserve: ['0'], taxi: [] }]);
+    expect((await store.recordObservation(markerInput, undefined, token, { attempt: markerAttempt, population: proof }))
+      .rosterAcceptance?.status).toBe('accepted');
+    const markerRead = await accepted(token);
+    expect(markerRead.teams[0]).toMatchObject({ players: [{ sourceEntity: { nativeId: '0' } }], currentGroups: {
+      starters: { value: [], availability: 'empty' }, reserve: { value: [], availability: 'empty' },
+      taxi: { value: [], availability: 'empty' }, bench: { value: null, reasons: ['held_players_contains_vacancy_marker'] },
+    } });
+    expect(markerRead.teams[1].currentGroups).toMatchObject({
+      starters: { value: [{ nativePlayerId: 'shared' }, { nativePlayerId: '0', empty: true }] },
+      reserve: { value: null, reasons: ['group_contains_vacancy_marker'] }, taxi: { value: [], availability: 'empty' },
+      bench: { value: null, reasons: ['reserve_evidence_unknown'] },
+    });
   });
 
   it.each(['older-first', 'newer-first'] as const)('only publishes the latest reserved overlapping attempt (%s completion)', async order => {
@@ -267,6 +368,9 @@ describe.sequential('persisted scoped current held-player acceptance', () => {
     expect(read.accepted.contentId).toBe(originalRead.accepted.contentId);
     expect(read.receipt.id).not.toBe(originalRead.receipt.id);
     expect(read.receipt.provenance).toEqual(input.envelope.provenance);
+    expect(read.teams[0].currentGroups.source).toEqual(input.envelope.provenance);
+    expect(read.teams[0].currentGroups.starters.sourceRefs).toEqual([read.receipt.id]);
+    expect(originalRead.teams[0].currentGroups.source).toEqual(originalInput.envelope.provenance);
     expect(read.accepted.verifiedAt).toBe(input.envelope.provenance.sourceObservedAt);
     expect(await ownerQuery(`SELECT * FROM league_administration_observations WHERE id=$1`, [original.observationId])).toEqual(originalObservation);
     const before = await state(f);

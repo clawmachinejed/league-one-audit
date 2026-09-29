@@ -6,6 +6,7 @@ import type { AdministrationSourceMapping } from '../source-mapping';
 import { normalizeAdministrationObservation } from '../normalize';
 import { createLeagueAdministrationStore } from '../store';
 import { currentRosterMethods } from './current-roster';
+import { managerLineup } from '../../transform';
 
 vi.mock('server-only', () => ({}));
 
@@ -95,6 +96,114 @@ describe('current roster shadow Neon adapter', () => {
       ordinal: 5, provenance, configurationContentId: ids.configuration, expectedTeamCount: 2,
       legacyObservationId: ids.legacyObservation } });
     expect(ids.receipt).not.toBe(ids.legacyObservation);
+  });
+
+  it('projects current groups from the same accepted content without widening its players-only policy', async () => {
+    const roster = { roster_id: 7, players: ['001', 'DEF', 'reserve', 'taxi', 'bench'],
+      starters: ['DEF', '0', '001', '0'], reserve: ['reserve'], taxi: ['taxi'] };
+    const row = storedRow([roster, payload[1]]);
+    const result = await read(row);
+    if (result.status !== 'available') throw new Error('Expected available held-player evidence.');
+    const team = result.teams[0];
+    expect(team.players.map(player => player.sourceEntity.nativeId)).toEqual(['001', 'DEF', 'reserve', 'taxi', 'bench']);
+    expect(team.currentGroups).toMatchObject({ kind: 'current-roster-field-evidence', historicalApplicability: 'unverified',
+      source: provenance, nativeLists: { starters: ['DEF', '0', '001', '0'], reserve: ['reserve'], taxi: ['taxi'] }, starters: { value: [
+        { index: 0, nativePlayerId: 'DEF', empty: false, membership: { seasonTeamId: ids.teamOne, section: 'active', nativeSection: 'starters' } },
+        { index: 1, nativePlayerId: '0', empty: true, membership: null },
+        { index: 2, nativePlayerId: '001', empty: false }, { index: 3, nativePlayerId: '0', empty: true, membership: null },
+      ] }, reserve: { value: [{ sourceEntity: { nativeId: 'reserve' }, section: 'reserve' }] },
+      taxi: { value: [{ sourceEntity: { nativeId: 'taxi' }, section: 'taxi' }] },
+      bench: { authority: 'presentation-derived', value: [{ sourceEntity: { nativeId: 'bench' }, section: 'bench' }] } });
+    for (const group of ['starters', 'reserve', 'taxi', 'bench'] as const) {
+      expect(team.currentGroups[group]).toMatchObject({ temporalContext: 'current-display', sourceRefs: [ids.receipt], freshness: 'unknown' });
+    }
+    expect(team.currentGroups.reserve.value?.[0]).toMatchObject({ canonicalEntityId: null, identityState: 'unresolved',
+      effectiveFrom: null, effectiveTo: null, effectiveEvidence: 'unknown' });
+    expect(result.accepted.scope).toEqual(currentRosterScope(mapping));
+    expect(result.accepted.canonicalNormalizerVersion).toBe('sleeper-current-players-v1');
+    expect(row.coverage.fields).toEqual(['players']);
+    expect((await read(row))).toEqual(result);
+    // Compare actual legacy presentation on this exact complete, nonconflicting capture.
+    // Slot labels come only from the legacy fixture configuration, not the new projection.
+    const legacy = managerLineup(roster, { season: String(mapping.scope.season), week: 3, maxWeek: 18,
+      rosterPositions: ['DEF', 'FLEX', 'QB', 'FLEX', 'BN', 'IR', 'TAXI'] }, {});
+    expect(team.currentGroups.starters.value?.map(({ index, nativePlayerId, empty }) => ({ index, nativePlayerId, empty })))
+      .toEqual(legacy.starters.map((player, index) => {
+        const empty = player.id === `empty-${player.slot}-${index}`;
+        return { index, nativePlayerId: empty ? '0' : player.id, empty };
+      }));
+    expect(team.currentGroups.bench.value?.map(member => member.sourceEntity.nativeId)).toEqual(legacy.bench.map(player => player.id));
+    expect(team.currentGroups.reserve.value?.map(member => member.sourceEntity.nativeId))
+      .toEqual(legacy.reserve.filter(player => player.slot === 'IR').map(player => player.id));
+    expect(team.currentGroups.taxi.value?.map(member => member.sourceEntity.nativeId))
+      .toEqual(legacy.reserve.filter(player => player.slot === 'TAXI').map(player => player.id));
+  });
+
+  it.each([undefined, null])('keeps missing/null groups unknown while explicit empty lists remain usable: %j', async missing => {
+    const raw = { roster_id: 7, players: ['001'], ...(missing === null ? { starters: null } : {}), reserve: [], taxi: [] };
+    const result = await read(storedRow([raw, { roster_id: 12, players: [], starters: [], reserve: [], taxi: [] }]));
+    expect(result).toMatchObject({ status: 'available', teams: [{ currentGroups: {
+      starters: { value: null, availability: 'missing', completeness: 'unknown', reasons: ['source_field_missing'] },
+      reserve: { value: [], availability: 'empty', completeness: 'complete' }, taxi: { value: [], availability: 'empty' },
+      bench: { value: null, reasons: ['starters_evidence_unknown'] },
+    } }, { currentGroups: { starters: { value: [], availability: 'empty' }, bench: { value: [], availability: 'empty' } } }] });
+  });
+
+  it.each(['starters', 'reserve', 'taxi'] as const)('isolates %s membership outside the held inventory without rejecting players', async group => {
+    const raw = { roster_id: 7, players: ['001'], starters: [], reserve: [], taxi: [], [group]: ['foreign'] };
+    const result = await read(storedRow([raw, payload[1]]));
+    if (result.status !== 'available') throw new Error('Expected available held-player evidence.');
+    expect(result.teams[0].players.map(player => player.sourceEntity.nativeId)).toEqual(['001']);
+    for (const name of ['starters', 'reserve', 'taxi'] as const) {
+      expect(result.teams[0].currentGroups[name]).toMatchObject(name === group
+        ? { value: null, reasons: ['group_player_not_held'] } : { value: [], reasons: [] });
+    }
+    expect(result.teams[0].currentGroups.bench).toMatchObject({ value: null, reasons: [`${group}_evidence_unknown`] });
+  });
+
+  it.each([['starters', 'reserve'], ['starters', 'taxi'], ['reserve', 'taxi']] as const)(
+    'withholds conflicting %s/%s placements and preserves the unaffected field', async (first, second) => {
+      const raw = { roster_id: 7, players: ['001'], starters: [], reserve: [], taxi: [], [first]: ['001'], [second]: ['001'] };
+      const result = await read(storedRow([raw, payload[1]]));
+      if (result.status !== 'available') throw new Error('Expected available held-player evidence.');
+      const groups = result.teams[0].currentGroups;
+      expect(groups.nativeLists[first]).toEqual(['001']);
+      expect(groups.nativeLists[second]).toEqual(['001']);
+      expect(groups[first]).toMatchObject({ value: null, reasons: [`group_overlaps_${second}`] });
+      expect(groups[second]).toMatchObject({ value: null, reasons: [`group_overlaps_${first}`] });
+      for (const name of ['starters', 'reserve', 'taxi'] as const) {
+        if (name !== first && name !== second) expect(groups[name]).toMatchObject({ value: [], availability: 'empty' });
+      }
+      expect(groups.bench.value).toBeNull();
+    });
+
+  it('treats repeated starter vacancies as slots and retains held-player order in the derived bench', async () => {
+    const result = await read(storedRow([{ roster_id: 7, players: ['DEF', '001'], starters: ['0', '0'], reserve: [], taxi: [] }, payload[1]]));
+    if (result.status !== 'available') throw new Error('Expected available held-player evidence.');
+    const groups = result.teams[0].currentGroups;
+    expect(groups.starters).toMatchObject({ availability: 'present', value: [
+      { index: 0, nativePlayerId: '0', empty: true, membership: null }, { index: 1, nativePlayerId: '0', empty: true, membership: null },
+    ] });
+    expect(groups.bench.value?.map(member => member.sourceEntity.nativeId)).toEqual(['DEF', '001']);
+  });
+
+  it('keeps legacy held-player evidence but never turns its vacancy marker into a bench player', async () => {
+    const result = await read(storedRow([{ roster_id: 7, players: ['0'], starters: [], reserve: [], taxi: [] }, payload[1]]));
+    expect(result).toMatchObject({ status: 'available', teams: [{ players: [{ sourceEntity: { nativeId: '0' } }], currentGroups: {
+      starters: { value: [], availability: 'empty' }, reserve: { value: [], availability: 'empty' },
+      taxi: { value: [], availability: 'empty' }, bench: { value: null, reasons: ['held_players_contains_vacancy_marker'] },
+    } }, {}] });
+  });
+
+  it.each(['reserve', 'taxi'] as const)('withholds %s vacancy markers even when they are not in held players', async group => {
+    const result = await read(storedRow([{ roster_id: 7, players: ['001'], starters: ['001', '0'], reserve: [], taxi: [], [group]: ['0'] }, payload[1]]));
+    if (result.status !== 'available') throw new Error('Expected available held-player evidence.');
+    const groups = result.teams[0].currentGroups;
+    expect(groups.nativeLists[group]).toEqual(['0']);
+    expect(groups[group]).toMatchObject({ value: null, reasons: ['group_contains_vacancy_marker'] });
+    expect(groups.starters.value?.map(slot => slot.nativePlayerId)).toEqual(['001', '0']);
+    expect(groups[group === 'reserve' ? 'taxi' : 'reserve']).toMatchObject({ value: [], availability: 'empty' });
+    expect(groups.bench).toMatchObject({ value: null, reasons: [`${group}_evidence_unknown`] });
   });
 
   it('handles JSONB key ordering and bigint strings without changing captured identity', async () => {
