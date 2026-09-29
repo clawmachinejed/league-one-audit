@@ -1,4 +1,5 @@
 import 'server-only';
+import { randomUUID } from 'node:crypto';
 
 import { ADMINISTRATION_SCHEMA_VERSION, ADMINISTRATION_NORMALIZER_VERSION, ADMINISTRATION_DIALECT,
   type AdministrationScope, type AdministrationFamily, type JsonValue } from './contracts';
@@ -7,6 +8,7 @@ import { createLeagueAdministrationStore } from './store';
 import { getDatabase, withDatabaseAbortSignal } from '../database';
 import type { AdministrationWriteResult, AdministrationWriteFence, LeagueAdministrationStore } from './store-contracts';
 import { isAdministrationSourceMapping, type AdministrationSourceMapping } from './source-mapping';
+import type { RosterAttempt, RosterPopulationEvidence } from '../aggregator/current-roster';
 
 /** Called by existing enrolled collectors before loading any roster document. */
 export async function captureAdministrationSourceMapping(externalLeagueId: string,
@@ -37,6 +39,7 @@ export async function recordCapturedAdministration(
   documents: readonly CapturedAdministrationDocument[],
   options: Readonly<{ store?: LeagueAdministrationStore; now?: () => Date; fence?: AdministrationWriteFence;
     signal?: AbortSignal; expectedRosterCount?: number; mapping?: AdministrationSourceMapping | null;
+    rosterAttempt?: RosterAttempt;
     verify?: (document: CapturedAdministrationDocument, signal: AbortSignal) => Promise<CapturedAdministrationDocument> }> = {},
 ): Promise<AdministrationCaptureResult> {
   const signal = options.signal ?? AbortSignal.timeout(8_000);
@@ -51,6 +54,7 @@ export async function recordCapturedAdministration(
   let context: AdministrationCalculationContext | undefined;
   let sourceChangedDuringVerification = false;
   let expectedRosterCount = options.expectedRosterCount;
+  let population: RosterPopulationEvidence | undefined;
   // Configuration first supplies the expected roster population, not the other way around.
   const ordered = [...documents].sort((left, right) => Number(right.family === 'league') - Number(left.family === 'league'));
   for (const document of ordered) {
@@ -70,11 +74,18 @@ export async function recordCapturedAdministration(
       completeness: document.completeness ?? 'complete', payload: document.payload as JsonValue,
     }, expectedRosterCount === undefined ? undefined : { expectedRosterCount });
     const mapping = document.family === 'rosters' ? options.mapping ?? undefined : undefined;
-    let result = await store.recordObservation(normalized, options.fence, mapping);
+    let attempt = origin === 'network' && mapping ? options.rosterAttempt : undefined;
+    const write = () => attempt
+      ? store.recordObservation(normalized, options.fence, mapping, { attempt, ...(population ? { population } : {}) })
+      : store.recordObservation(normalized, options.fence, mapping);
+    let result = await write();
     if (result.status === 'stale' && result.reason === 'unproven_cache_change' && origin === 'cache') {
       // Only changed cached documents need a fresh verification. Never overwrite a
       // newer network observation using an unknown cache age, or refetch a whole league.
       signal.throwIfAborted();
+      // Reserve only this already-needed NETWORK acquisition. Ordinary cache
+      // checks cannot suppress another in-flight network capture.
+      if (mapping) attempt = await store.beginRosterAttempt(mapping, randomUUID(), undefined, options.fence);
       const source = options.verify ? null : await import('../sleeper');
       const verified: CapturedAdministrationDocument = options.verify ? await options.verify(document, signal)
         : document.family === 'drafts'
@@ -94,7 +105,7 @@ export async function recordCapturedAdministration(
           checkedAt: now().toISOString() } }, expectedRosterCount === undefined ? undefined : { expectedRosterCount });
       // Retain the pre-acquisition token through verification. A remap never
       // authorizes this older capture by substituting today's revision.
-      result = await store.recordObservation(normalized, options.fence, mapping);
+      result = await write();
       // The caller already transformed its original source. Retain the newer
       // evidence, but never label that older calculation with the newer version.
       sourceChangedDuringVerification ||= normalized.contentHash !== originalContentHash;
@@ -103,6 +114,10 @@ export async function recordCapturedAdministration(
     if (document.family === 'league') {
       if (normalized.status === 'accepted' && normalized.value?.family === 'league') {
         expectedRosterCount = normalized.value.totalRosters ?? undefined;
+        if (normalized.envelope.provenance.origin === 'network'
+          && result.observationId && ['changed', 'unchanged', 'replayed'].includes(result.status)) {
+          population = { observationId: result.observationId, contentHash: normalized.contentHash, envelope: normalized.envelope };
+        }
       }
       if (['changed', 'unchanged', 'replayed'].includes(result.status)
         && result.observationId && result.versionId && result.generation !== undefined) {

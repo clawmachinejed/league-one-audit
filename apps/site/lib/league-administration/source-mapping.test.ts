@@ -65,16 +65,35 @@ describe('captured source mapping boundary', () => {
 
   it('sends the same prefetch token on changed-cache verification and preserves source age', async () => {
     const writes: Record<string, unknown>[] = [];
-    const store = { enabled: true, ...createLeagueAdministrationMethods(client((_sql, args) => {
+    const events: string[] = [];
+    const store = { enabled: true, ...createLeagueAdministrationMethods(client((sql, args) => {
+      if (sql.includes('begin-roster-attempt')) {
+        events.push('reserve');
+        expect(JSON.parse(String(args[0]))).toEqual(mapping);
+        return [{ result: { id: args[1], scopeId: mapping.leagueSeasonId, ordinal: 1, expectedGeneration: 0 } }];
+      }
+      events.push('write');
       writes.push(JSON.parse(String(args[0])));
       return [{ result: writes.length === 1 ? { status: 'stale', reason: 'unproven_cache_change' } : { status: 'changed' } }];
     })) };
-    const verify = vi.fn(async () => document);
+    const verify = vi.fn(async () => { events.push('network'); return document; });
     await recordCapturedAdministration(mapping.scope, [{ ...document, origin: 'cache' }], { store, mapping, verify });
     expect(verify).toHaveBeenCalledOnce(); expect(writes).toHaveLength(2);
     expect(writes.map(value => value.sourceMapping)).toEqual([mapping, mapping]);
     expect(writes[0]).toMatchObject({ envelope: { provenance: { sourceObservedAt: null, origin: 'cache' } } });
     expect(writes[1]).toMatchObject({ envelope: { provenance: { sourceObservedAt: document.requestCompletedAt, origin: 'network' } } });
+    expect(writes[0]).not.toHaveProperty('rosterAcceptance');
+    expect(writes[1]).toHaveProperty('rosterAcceptance.attempt.ordinal', 1);
+    expect(events).toEqual(['write', 'reserve', 'network', 'write']);
+  });
+
+  it('never reserves an attempt for an unchanged cache check', async () => {
+    const queries: string[] = [];
+    const store = { enabled: true, ...createLeagueAdministrationMethods(client(sql => {
+      queries.push(sql); return [{ result: { status: 'unchanged' } }];
+    })) };
+    await recordCapturedAdministration(mapping.scope, [{ ...document, origin: 'cache' }], { store, mapping });
+    expect(queries).toHaveLength(1); expect(queries[0]).toContain('record-observation');
   });
 
   it('never retries a stale mapping as legacy or relabels a foreign scope', async () => {

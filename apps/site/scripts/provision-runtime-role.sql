@@ -300,6 +300,27 @@ DO $$ BEGIN
   END IF;
 END; $$;
 
+-- 027 may be migrated before the runtime role is first provisioned. Preserve
+-- the same narrow grants as expansion with an already-existing runtime role.
+DO $$ DECLARE object_name text; BEGIN
+  IF to_regclass('public.league_roster_resource_scopes') IS NOT NULL THEN
+    FOREACH object_name IN ARRAY ARRAY['league_roster_resource_scopes','league_roster_resource_heads',
+      'league_roster_resource_attempts','league_roster_capture_receipts','league_roster_resource_acceptances'] LOOP
+      EXECUTE format('REVOKE ALL ON TABLE public.%I FROM league_one_runtime',object_name);
+      EXECUTE format('GRANT SELECT ON TABLE public.%I TO league_one_runtime',object_name);
+      IF EXISTS(SELECT 1 FROM pg_class object JOIN pg_namespace namespace ON namespace.oid=object.relnamespace
+        JOIN pg_roles owner ON owner.oid=object.relowner WHERE namespace.nspname='public'
+          AND object.relname=object_name AND owner.rolname='league_one_runtime') THEN
+        RAISE EXCEPTION 'league_one_runtime owns protected roster acceptance object';
+      END IF;
+    END LOOP;
+    REVOKE ALL ON FUNCTION public.record_league_administration_observation_v1(jsonb),
+      public.validate_current_roster_mapping(jsonb),public.validate_current_roster_lineage() FROM league_one_runtime;
+    GRANT EXECUTE ON FUNCTION public.begin_current_roster_attempt(jsonb,uuid,jsonb,jsonb,jsonb),
+      public.record_league_administration_observation(jsonb) TO league_one_runtime;
+  END IF;
+END; $$;
+
 DO $$ BEGIN
   IF to_regclass('public.all_player_league_acceptances') IS NOT NULL THEN
     REVOKE ALL ON public.all_player_league_acceptances, public.current_all_player_league_scores FROM league_one_runtime;

@@ -19,11 +19,31 @@ function fakeStore(): LeagueAdministrationStore {
     observationId: 'observation', versionId: 'version', generation: 2 })),
   readSource: vi.fn(async () => ({ status: 'missing' as const })),
   readSourceMapping: vi.fn(async () => null),
+  beginRosterAttempt: vi.fn(), readAcceptedCurrentRoster: vi.fn(async () => ({ status: 'missing' as const })),
   readSourceByConnection: vi.fn(async () => ({ status: 'missing' as const })), listEnrollments: vi.fn(async () => []),
   listEnrollmentInventory: vi.fn(async () => ({ entries: [] })), readEnrollment: vi.fn(async () => ({ status: 'missing' as const })) };
 }
 
 describe('administration collection and enrollment composition', () => {
+  it.each(['changed', 'rejected', 'stale'] as const)('only forwards independently retained network population evidence after a %s configuration write', async status => {
+    const store = fakeStore();
+    const mapping = { connectionId: '11111111-1111-4111-8111-111111111111', leagueSeasonId: '22222222-2222-4222-8222-222222222222',
+      revisionId: '33333333-3333-4333-8333-333333333333', generation: 1, scope };
+    const rosterAttempt = { id: 'attempt', scopeId: 'scope', ordinal: 1, expectedGeneration: 0 };
+    vi.mocked(store.recordObservation).mockResolvedValueOnce({ status, observationId: 'exact-config-observation' })
+      .mockResolvedValueOnce({ status: 'changed' });
+    await recordCapturedAdministration(scope, [{ ...document, origin: 'network' },
+      { family: 'rosters', week: null, payload: [{ roster_id: 1, players: [], reserve: null }],
+        origin: 'network', requestStartedAt: time, requestCompletedAt: time }],
+    { store, mapping, rosterAttempt, now: () => new Date(time) });
+    const acceptance = vi.mocked(store.recordObservation).mock.calls[1][3];
+    expect(acceptance?.attempt).toBe(rosterAttempt);
+    if (status === 'changed') expect(acceptance?.population).toMatchObject({ observationId: 'exact-config-observation',
+      envelope: { family: 'league', provenance: { origin: 'network' }, payload: { total_rosters: 1 } } });
+    else expect(acceptance).not.toHaveProperty('population');
+    expect(store.beginRosterAttempt).not.toHaveBeenCalled();
+  });
+
   it('does not inspect inputs or construct storage when persistence is disabled', async () => {
     const store = createLeagueAdministrationStore({ enabled: false, reason: 'preview-persistence-disabled' });
     const unreadable = new Proxy({}, { get() { throw new Error('must not inspect'); } });

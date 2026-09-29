@@ -2,6 +2,8 @@ import type { AdministrationEnvelope, AdministrationFamily, AdministrationScope,
   NormalizedAdministrationObservation } from './contracts';
 import type { RetainedRosterProjection } from '../aggregator/roster-bridge';
 import type { AdministrationSourceMapping } from './source-mapping';
+import type { AcceptedCurrentRosterRead, CurrentRosterPolicy, RosterAcceptanceInput,
+  RosterAcceptanceResult, RosterAttempt } from '../aggregator/current-roster';
 
 export type AdministrationReadInput = AdministrationScope & Readonly<{
   family: AdministrationFamily; week: number | null;
@@ -19,6 +21,7 @@ export type AdministrationWriteResult = Readonly<{
   status: 'changed' | 'unchanged' | 'replayed' | 'stale' | 'rejected' | 'disabled';
   observationId?: string; versionId?: string | null; generation?: number; leagueSeasonId?: string;
   reason?: string;
+  rosterAcceptance?: RosterAcceptanceResult;
 }>;
 export type AdministrationEnrollment = Readonly<{
   leagueId: string; leagueSeasonId: string; leagueKey: string; displayName: string;
@@ -41,7 +44,10 @@ export type AdministrationWriteFence = Readonly<{
 export type LeagueAdministrationStore = Readonly<{
   enabled: boolean;
   recordObservation: (input: NormalizedAdministrationObservation, fence?: AdministrationWriteFence,
-    mapping?: AdministrationSourceMapping) => Promise<AdministrationWriteResult>;
+    mapping?: AdministrationSourceMapping, acceptance?: RosterAcceptanceInput) => Promise<AdministrationWriteResult>;
+  beginRosterAttempt: (mapping: AdministrationSourceMapping, attemptId: string, policy?: CurrentRosterPolicy,
+    fence?: AdministrationWriteFence) => Promise<RosterAttempt>;
+  readAcceptedCurrentRoster: (mapping: AdministrationSourceMapping) => Promise<AcceptedCurrentRosterRead>;
   readSourceMapping: (externalLeagueId: string) => Promise<AdministrationSourceMapping | null>;
   readSource: (input: AdministrationReadInput) => Promise<LeagueAdministrationStoreRead>;
   readSourceByConnection: (input: AdministrationConnectionReadInput) => Promise<LeagueAdministrationStoreRead>;
