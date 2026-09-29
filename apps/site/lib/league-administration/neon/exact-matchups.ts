@@ -16,7 +16,7 @@ function object(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 function id(value: unknown): string {
-  if (typeof value !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value)) {
+  if (typeof value !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value)) {
     throw new Error('Invalid matchup identity.');
   }
   return value;
