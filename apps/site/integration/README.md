@@ -83,6 +83,25 @@ An external supervisor already holding the mutex must explicitly delegate owners
 
 The 13 store-facade cases exercise a migration from a verified empty schema; canonical scoring JSON and hashes; immutable scoring rules, baselines, and snapshot history; concurrent provider-identity resolution and orphan cleanup; corrected game aliases and conflicts; projection-run replay and eligibility; the absence of a synthetic row when a baseline is missing; forward and rejected game-state transitions; official-observation replay and unmapped reports; competing job claims and lease ownership; exact snapshot source sets, source skew, material deduplication, verification advancement, history, and older-pointer rejection; requested and latest snapshot selection in one query; malformed payload rejection after an owner-level insert; runtime-role restrictions; and safe pruning with current pointers and frozen sources retained.
 
+## B2 season-overview acceptance
+
+`bundle-two.integration-case.ts` exercises the internal `createBundleTwoReader`
+with synthetic accepted captures through the existing restricted runtime login.
+Its eight cases cover exact optional official facts, independent ranking and
+waiver policies, corrections/partial population, bounded B1 schedules and
+unrounded results, current manager/display separation, season/remapping fences,
+stored projection and metric joins, and serialized frozen comparison restart.
+The fixtures preserve existing evidence and pointers across reads. Setup uses
+the existing administration and snapshot writers; metric rows use guarded
+synthetic fixture inserts. No provider feed or alternate publication is added.
+
+This suite qualifies only the exact reviewed checkout actually run under the
+supervisor. Ordinary unit/build/Preview results do not execute it. It does not
+qualify production population, historical applicability, late runtime-role
+provisioning, durable persisted replay or Step 3 public/account reader cutover.
+See the [B2 composition notes](../../../docs/aggregator-backend/season-overview.md)
+and the sole [Step 2 evidence ledger](../../../docs/aggregator-backend/step-2-checklist.md).
+
 ## Deliberately outside this PR2 database suite
 
 - Player projection math and policies for pregame, live, halftime, final, bye, empty-slot, explicit zero substitution, retained prior values, D/ST, duplicate starters, and exact team sums remain pure-domain and worker tests. A missing baseline is represented in Neon by no row; the worker's zero substitution does not belong in the store.

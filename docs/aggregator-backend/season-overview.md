@@ -61,3 +61,28 @@ This work does not apply or repeat migrations 030–032, change role grants, or
 qualify newly provisioned runtime roles. Existing production-role qualification
 is separate. Preview persistence remains disabled; preview checks establish
 public behavior, not production B2 coverage.
+
+## Real-store acceptance qualification
+
+The B2 acceptance continuation uses the existing disposable Neon harness and
+synthetic captures to exercise `createBundleTwoReader` through its restricted
+runtime connection. The same capture is retained for exact field comparisons;
+existing administration acceptance, B1 matchup reads, snapshot publication and
+all-player metric storage remain the sole paths. A passing deterministic build
+or persistence-disabled Preview does not execute these SQL fixtures.
+
+Qualification must record the clean reviewed SHA, complete SQL totals/skips and
+the supervisor receipt proving child closure, schema cleanup, credential
+revocation and branch deletion. The protected run requires separate approval;
+the remaining balance of the earlier cumulative USD10 allowance is unknown.
+Current production B2 population and historical applicability remain unverified.
+
+Fresh-role provisioning is a separate gate. Source review confirms that
+`030_exact_period_matchups.sql` revokes PUBLIC execution of
+`begin_exact_matchup_attempt(jsonb,uuid,integer,jsonb)` and grants it only when
+`league_one_runtime` already exists. `provision-runtime-role.sql` does not grant
+that function when creating the role later. The normal disposable supervisor
+creates roles before migrations, so its pass would not qualify that later
+bootstrap order. This is independently checked source control-flow evidence,
+not a live SQL reproduction or a permissions repair. No grants are changed by
+the B2 fixtures.
