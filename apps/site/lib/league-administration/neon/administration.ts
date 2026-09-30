@@ -11,6 +11,7 @@ import { normalizeAdministrationObservation } from '../normalize';
 import { projectRetainedRoster } from '../../aggregator/roster-bridge';
 import { readEnrollmentInventory } from './enrollment';
 import { isAdministrationSourceMapping } from '../source-mapping';
+import { transactionMethods } from './transactions';
 import { currentRosterMethods } from './current-roster';
 import type { AdministrationReadInput, AdministrationWriteResult,
   LeagueAdministrationStore, LeagueAdministrationStoreRead } from '../store-contracts';
@@ -115,6 +116,7 @@ export function createLeagueAdministrationMethods(client: DatabaseClient): Omit<
   }
 
   return {
+    ...transactionMethods(client),
     ...currentRosterMethods(client),
     ...teamManagerMethods(client),
     ...leagueSettingsMethods(client),
@@ -152,7 +154,7 @@ export function createLeagueAdministrationMethods(client: DatabaseClient): Omit<
       if (!isAdministrationSourceMapping(mapping)) throw new Error('Invalid administration source mapping.');
       return mapping;
     },
-    async recordObservation(input, fence, mapping, acceptance, managerAcceptance, leagueSettingsAcceptance, matchupAcceptance, calendarEvidence, calculationCapture) {
+    async recordObservation(input, fence, mapping, acceptance, managerAcceptance, leagueSettingsAcceptance, matchupAcceptance, calendarEvidence, calculationCapture, transactionAcceptance) {
       const rows = await client.query(`/* league-administration:record-observation */
         SELECT public.record_league_administration_observation($1::jsonb) AS result`,
       [JSON.stringify({ ...input, ...(fence ? { writeFence: fence } : {}), ...(mapping ? { sourceMapping: mapping } : {}),
@@ -160,7 +162,7 @@ export function createLeagueAdministrationMethods(client: DatabaseClient): Omit<
         ...(managerAcceptance ? { teamManagerAcceptance: managerAcceptance } : {}),
         ...(leagueSettingsAcceptance ? { leagueSettingsAcceptance } : {}),
         ...(matchupAcceptance ? { matchupAcceptance } : {}), ...(calendarEvidence ? { calendarEvidence } : {}),
-        ...(calculationCapture ? { calculationCapture } : {}) })]);
+        ...(calculationCapture ? { calculationCapture } : {}), ...(transactionAcceptance ? { transactionAcceptance } : {}) })]);
       if (rows.length !== 1) throw new Error('Administration observation did not return one result.');
       const result = object(rows[0].result);
       if (!['changed', 'unchanged', 'replayed', 'stale', 'rejected'].includes(String(result.status))) {
