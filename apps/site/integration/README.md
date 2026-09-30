@@ -102,6 +102,21 @@ provisioning, durable persisted replay or Step 3 public/account reader cutover.
 See the [B2 composition notes](../../../docs/aggregator-backend/season-overview.md)
 and the sole [Step 2 evidence ledger](../../../docs/aggregator-backend/step-2-checklist.md).
 
+## B4 historical-continuity acceptance
+
+`bundle-four.integration-case.ts` adds seven guarded cases using synthetic annual
+league captures through the existing Sleeper adapter, administration writer and
+restricted store reader. They cover annual identity, same-capture compatibility,
+partial retention, missing scores and ambiguous ownership, completion verification,
+corrections, serialized frozen comparison, stale sources, unsupported settings and
+concurrent remapping. The fixture restores only its newly created enrollment rows;
+it preserves immutable evidence and never resets schemas itself.
+
+These cases require the existing authorized disposable supervisor and cleanup
+receipts. Authored source and ordinary tests do not qualify their SQL behavior or
+production population. See the [B4 contract](../../../docs/aggregator-backend/historical-continuity.md)
+and the [Step 2 evidence ledger](../../../docs/aggregator-backend/step-2-checklist.md).
+
 ## Deliberately outside this PR2 database suite
 
 - Player projection math and policies for pregame, live, halftime, final, bye, empty-slot, explicit zero substitution, retained prior values, D/ST, duplicate starters, and exact team sums remain pure-domain and worker tests. A missing baseline is represented in Neon by no row; the worker's zero substitution does not belong in the store.

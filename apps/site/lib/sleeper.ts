@@ -49,6 +49,11 @@ import { resolveSiteWeek, resolveWeeklyPlayerMetrics, type SiteWeekResolution, t
 import { assertSiteCalendarNotRegressed, getRetainedSiteCalendar } from './site-calendar-authority';
 import { buildCompletedStandingsBasis, reconcileStandingsBasis, standingsTotalsMatch } from './projected-standings';
 import { buildManagerHistory, type ManagerHistorySeason } from './manager-history';
+import { assertSleeperCoreCompleteness as assertCoreCompleteness, assertSleeperRosterCompleteness as assertRosterCompleteness,
+  isSleeperCoOwners, isSleeperLeague, isSleeperRoster, isSleeperRosterForRosterView, isSleeperUser, isStringArray,
+  parseSleeperRows as parseRows } from './sleeper-history-validation';
+import { assertManagerHistoryPreviousSeasonIdentity, managerHistoryFirstSeason, managerHistoryPreviousLeagueId,
+  managerHistoryRegularEnd, managerHistoryUnsupported } from './manager-history-policy';
 import { buildMyTeamScheduleWeeks, MY_TEAM_SCHEDULE_WEEKS, type MyTeamScheduleData, type ScheduleWeekCount } from './my-team-schedule';
 import {
   canDecorateMatchupWeek,
@@ -312,17 +317,6 @@ function isOptionalRecord(value: unknown): boolean {
   return value === undefined || value === null || isRecord(value);
 }
 
-function isStringArray(value: unknown): boolean {
-  return value === undefined || value === null
-    || (Array.isArray(value) && value.every((item) => typeof item === 'string'));
-}
-
-function isSleeperCoOwners(value: unknown): value is string[] | null | undefined {
-  return value === undefined || value === null
-    || (Array.isArray(value) && value.every(item => typeof item === 'string' && item.length > 0 && item === item.trim())
-      && new Set(value).size === value.length);
-}
-
 function isNumberArray(value: unknown): boolean {
   return value === undefined || value === null
     || (Array.isArray(value) && value.every((item) => typeof item === 'number' && Number.isInteger(item) && item > 0));
@@ -331,55 +325,6 @@ function isNumberArray(value: unknown): boolean {
 function isOptionalNumber(value: unknown, nullable = true): boolean {
   return value === undefined || (nullable && value === null)
     || (typeof value === 'number' && Number.isFinite(value));
-}
-
-function validRosterSettings(value: unknown): boolean {
-  if (!isRecord(value)) return false;
-  if (!['wins', 'losses', 'ties'].every((field) => {
-    const count = value[field];
-    return typeof count === 'number' && Number.isInteger(count) && count >= 0;
-  })) return false;
-  if (typeof value.fpts !== 'number' || !Number.isFinite(value.fpts)) return false;
-  const games = Number(value.wins) + Number(value.losses) + Number(value.ties);
-  if (games > 0 && (typeof value.fpts_against !== 'number' || !Number.isFinite(value.fpts_against))) return false;
-  return ['fpts_decimal', 'fpts_against', 'fpts_against_decimal']
-    .every((field) => value[field] === undefined
-      || (typeof value[field] === 'number' && Number.isFinite(value[field])));
-}
-
-function validRosterViewSettings(value: unknown): boolean {
-  if (!isRecord(value)) return false;
-  if (!['wins', 'losses', 'ties'].every((field) => {
-    const count = value[field];
-    return typeof count === 'number' && Number.isInteger(count) && count >= 0;
-  })) return false;
-  return typeof value.fpts === 'number' && Number.isFinite(value.fpts)
-    && (value.fpts_decimal === undefined
-      || (typeof value.fpts_decimal === 'number' && Number.isFinite(value.fpts_decimal)));
-}
-
-function isSleeperRoster(value: unknown): value is SleeperRoster {
-  return isRecord(value) && typeof value.roster_id === 'number' && Number.isInteger(value.roster_id)
-    && value.roster_id > 0 && isOptionalString(value.owner_id)
-    && isSleeperCoOwners(value.co_owners)
-    && isStringArray(value.players) && isStringArray(value.starters)
-    && isStringArray(value.reserve) && isStringArray(value.taxi)
-    && validRosterSettings(value.settings) && isOptionalRecord(value.metadata);
-}
-
-function isSleeperRosterForRosterView(value: unknown): value is SleeperRoster {
-  return isRecord(value) && typeof value.roster_id === 'number' && Number.isInteger(value.roster_id)
-    && value.roster_id > 0 && isOptionalString(value.owner_id)
-    && isSleeperCoOwners(value.co_owners)
-    && isStringArray(value.players) && isStringArray(value.starters)
-    && isStringArray(value.reserve) && isStringArray(value.taxi)
-    && validRosterViewSettings(value.settings) && isOptionalRecord(value.metadata);
-}
-
-function isSleeperUser(value: unknown): value is SleeperUser {
-  return isRecord(value) && typeof value.user_id === 'string' && Boolean(value.user_id.trim())
-    && isOptionalString(value.display_name) && isOptionalString(value.username)
-    && isOptionalString(value.avatar) && isOptionalRecord(value.metadata);
 }
 
 function isRosterMap(value: unknown): boolean {
@@ -416,17 +361,6 @@ function isSleeperTransaction(value: unknown): value is SleeperTransaction {
     && isOptionalRecord(value.settings) && isOptionalRecord(value.metadata);
 }
 
-function isSleeperLeague(value: unknown): value is SleeperLeague {
-  return isRecord(value) && typeof value.league_id === 'string' && Boolean(value.league_id.trim())
-    && typeof value.name === 'string' && Boolean(value.name.trim())
-    && typeof value.season === 'string' && /^\d{4}$/u.test(value.season)
-    && ['pre_draft', 'drafting', 'in_season', 'complete'].includes(String(value.status))
-    && typeof value.total_rosters === 'number' && Number.isInteger(value.total_rosters) && value.total_rosters > 0
-    && Array.isArray(value.roster_positions) && value.roster_positions.length > 0
-    && value.roster_positions.every((position) => typeof position === 'string' && Boolean(position.trim()))
-    && isRecord(value.settings) && isOptionalRecord(value.scoring_settings);
-}
-
 function isSleeperState(value: unknown): value is SleeperState {
   return isRecord(value) && typeof value.season === 'string' && /^\d{4}$/u.test(value.season)
     && isOptionalString(value.season_type) && isOptionalString(value.season_start_date)
@@ -434,37 +368,6 @@ function isSleeperState(value: unknown): value is SleeperState {
       const candidate = value[field];
       return candidate === undefined || (typeof candidate === 'number' && Number.isInteger(candidate));
     });
-}
-
-function parseRows<T>(
-  value: unknown,
-  path: string,
-  validate: (value: unknown) => value is T,
-  key: (row: T) => string,
-): T[] {
-  if (!Array.isArray(value) || value.some((row) => !validate(row))) {
-    throw new Error(`Sleeper returned an invalid response for ${path}.`);
-  }
-  const rows = value as T[];
-  const keys = rows.map(key);
-  if (new Set(keys).size !== keys.length) {
-    throw new Error(`Sleeper returned duplicate entries for ${path}.`);
-  }
-  return rows;
-}
-
-function assertRosterCompleteness(league: SleeperLeague, rosters: readonly SleeperRoster[]): void {
-  if (rosters.length !== league.total_rosters) {
-    throw new Error(`Sleeper returned ${rosters.length} of ${league.total_rosters} league rosters.`);
-  }
-}
-
-function assertCoreCompleteness(league: SleeperLeague, rosters: SleeperRoster[], users: SleeperUser[]): void {
-  assertRosterCompleteness(league, rosters);
-  const userIds = new Set(users.map((user) => user.user_id));
-  if (rosters.some((roster) => roster.owner_id && !userIds.has(roster.owner_id))) {
-    throw new Error('Sleeper returned incomplete manager information for the league rosters.');
-  }
 }
 
 function projectionTargetWeek(
@@ -793,41 +696,31 @@ export async function getManagers(leagueId: string): Promise<ManagersData> {
 export async function getManagersHistory(leagueId: string, leagueKey: LeagueKey): Promise<ManagersData> {
   const [data, core] = await Promise.all([getManagers(leagueId), getCore(leagueId)]);
   const currentSeason = Number(core.sourceLeague.season);
-  const regularEnd = (league: SleeperLeague) => {
-    const start = league.settings?.playoff_week_start;
-    return typeof start === 'number' && Number.isInteger(start) && start > 0
-      ? Math.max(0, Math.min(14, start - 1)) : 14;
-  };
-  const unsupported = (league: SleeperLeague) =>
-    Number(league.settings?.league_average_match ?? 0) !== 0
-    || Number(league.settings?.best_ball ?? 0) !== 0
-    || Number(league.settings?.start_week ?? 1) !== 1;
   const throughWeek = core.calendar.lifecycle === 'preseason' ? 0
-    : core.calendar.lifecycle === 'complete' ? regularEnd(core.sourceLeague)
-      : core.calendar.activeWeek === null ? null : Math.min(regularEnd(core.sourceLeague), core.calendar.activeWeek - 1);
+    : core.calendar.lifecycle === 'complete' ? managerHistoryRegularEnd(core.sourceLeague)
+      : core.calendar.activeWeek === null ? null : Math.min(managerHistoryRegularEnd(core.sourceLeague), core.calendar.activeWeek - 1);
   const current = await loadRosterHistory(leagueId, throughWeek, currentSeason);
   const seasons: ManagerHistorySeason[] = [{
     season: currentSeason, externalLeagueId: leagueId, teams: data.teams, rosters: core.rosters, throughWeek,
     rows: current.rows.map((rows, index) => current.malformedWeeks.includes(index + 1) ? null : rows),
-    ...(unsupported(core.sourceLeague) ? { unavailableReason: `${currentSeason} uses unsupported extra-match or season settings.` } : {}),
+    ...(managerHistoryUnsupported(core.sourceLeague) ? { unavailableReason: `${currentSeason} uses unsupported extra-match or season settings.` } : {}),
   }];
   let source = core.sourceLeague;
   // League One includes its approved 2024 history; the other leagues retain
   // their existing 2025 boundary. Future renewals retain these starting years.
-  const firstSeason = leagueKey === 'league1' ? 2024 : 2025;
+  const firstSeason = managerHistoryFirstSeason(leagueKey);
   // A bounded chain prevents corrupt or circular provider links from fanout.
   const seen = new Set([leagueId]);
   for (let season = currentSeason - 1; season >= firstSeason; season -= 1) {
     let historicalId = source.previous_league_id;
     try {
-      if (seen.size >= 20 || typeof historicalId !== 'string' || !/^\d+$/u.test(historicalId)
-        || seen.has(historicalId)) throw new Error('The prior-season league connection is missing or invalid.');
+      historicalId = managerHistoryPreviousLeagueId(historicalId, seen);
       seen.add(historicalId);
       const observation = await readAdministration(historicalId, 'league', null, 'history', 86_400, season, leagueKey);
-      if (!isSleeperLeague(observation.payload) || observation.payload.league_id !== historicalId
-        || observation.payload.season !== String(season) || observation.payload.status !== 'complete') {
+      if (!isSleeperLeague(observation.payload)) {
         throw new Error('The prior-season league identity or completed status could not be verified.');
       }
+      assertManagerHistoryPreviousSeasonIdentity(observation.payload, historicalId, season);
       source = observation.payload;
       const [rosterObservation, userObservation] = await Promise.all([
         readAdministration(historicalId, 'rosters', null, 'history', 86_400, season, leagueKey),
@@ -836,12 +729,12 @@ export async function getManagersHistory(leagueId: string, leagueKey: LeagueKey)
       const rosters = parseRows<SleeperRoster>(rosterObservation.payload, 'historical rosters', isSleeperRoster, row => String(row.roster_id));
       const users = parseRows<SleeperUser>(userObservation.payload, 'historical users', isSleeperUser, row => row.user_id);
       assertCoreCompleteness(source, rosters, users);
-      const historicalThroughWeek = regularEnd(source);
+      const historicalThroughWeek = managerHistoryRegularEnd(source);
       const history = await loadRosterHistory(historicalId, historicalThroughWeek, season, 'history', leagueKey);
       seasons.push({ season, externalLeagueId: historicalId, teams: normalizeTeams(rosters, users), rosters,
         throughWeek: historicalThroughWeek,
         rows: history.rows.map((rows, index) => history.malformedWeeks.includes(index + 1) ? null : rows),
-        ...(unsupported(source) ? { unavailableReason: `${season} uses unsupported extra-match or season settings.` } : {}),
+        ...(managerHistoryUnsupported(source) ? { unavailableReason: `${season} uses unsupported extra-match or season settings.` } : {}),
       });
     } catch {
       historicalId = typeof historicalId === 'string' ? historicalId : '';

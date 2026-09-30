@@ -45,8 +45,8 @@ Each migration comparison uses one captured source version and checks official v
 | 29 Team schedules | matchup history → My Team/manager | `TeamSchedule` over B1 matchup/result; B2 | Team UUID and explicit 1–15 or 1–14 UI range; missing opponent/score no invented bye/result | Reuse lazy history loader; compare score/W-L-T/range/corrections; foundation |
 | 30 Manager directory | roster/users/curation → Managers | Participant and season-team directory; B2 | Current season; missing primary owner explicit, curation separate | Reuse 268 and current display; compare names/avatar/profile target; foundation |
 | 31 Manager profile | current roster and browser preference → profile | Current `RosterSnapshot`/starter/reserve/taxi evidence; B1; preference/presenter in Step 3 | Current season/team, not historical scoring lineup; held players alone do not establish groups; empty vs unavailable | Reuse 267 held players and existing current reader; current group fields qualified at PR271 `caab6348`; section selection/presenter cutover remains Step 3 |
-| 32 Manager history | verified annual chain and results → History | `LeagueSeasonLineage`, attribution, history; B4 | Proven prior-season links, bounded range; ambiguous owner/results unavailable | Reuse manager-history verifier, compare completed results and warnings; foundation |
-| 33 Honors/corrections | curated championship/display modules → pages | Curated honor and attribution override; B4 | Explicit league/year/effective manager, never inferred from name | Reuse curation unchanged; compare trophies and corrections separately from official source; existing path |
+| 32 Manager history | verified annual chain and results → History | `LeagueSeasonLineage`, attribution, history; B4 | Proven prior-season links, bounded range; ambiguous owner/results unavailable | Internal [B4 compatibility composition](historical-continuity.md) reuses the history verifier and exact accepted v1 sources; qualification/production coverage remain separate gates. |
+| 33 Honors/corrections | curated championship/display modules → pages | Curated honor and attribution override; B4 | Explicit league/year/effective manager, never inferred from name | B4 labels existing curation separately from source ownership/results; existing public path unchanged. |
 | 34 Display policy | rank/name/slot formatters → pages | Compatibility presenter; Step 3 | Per-screen style, never canonical scoring evidence | Reuse present components; visual and accessibility comparison; existing path |
 
 ## Bundle exit gates and implementation order
@@ -283,3 +283,43 @@ The previous B2 approval is consumed; the remaining balance of the cumulative
 USD10 cap is unknown. A new exact-SHA approval with explicit scope and cost limits
 is required before a paid disposable qualification run. Production coverage and
 reader readiness remain unestablished.
+
+### B4 historical-continuity development baseline
+
+Fresh checks on September 30, 2026 found clean primary local `main`, GitHub
+`main` and Ready Vercel Production `72twXB95zjCnGaG6bX2crDzc3wZV` at
+`c9a025ccec78729f2b3aa05bb002bbffd2ca52e4`. The canonical repository,
+`main` production branch and `apps/site` root agree. No competing owner observed
+in worktrees, open PRs, recent workflows and deployment evidence; database/worker
+leases were not inspected for this development-only task.
+
+Current release evidence is in the merged PRs: B1 [277](https://github.com/clawmachinejed/league-one-audit/pull/277)
+(migrations 030–032), B2 [278](https://github.com/clawmachinejed/league-one-audit/pull/278)
+and real-store acceptance [279](https://github.com/clawmachinejed/league-one-audit/pull/279),
+B3 [281](https://github.com/clawmachinejed/league-one-audit/pull/281)
+(migration 033). Earlier development checkpoints and failed qualification attempts
+above remain historical evidence, not current release status. PR279's guarded SQL
+run 36761386041 passed 46 files / 726 tests with complete cleanup on candidate
+`9a1c44588162d2d73f68a1668593bf493c5b308a`; it shares the merged production tree
+but does not qualify new B4 source.
+
+The [B4 acceptance matrix](historical-continuity.md) defines the bounded internal
+resource and retained compatibility path. Existing immutable documents and
+content-linked season-team identities suffice; no migration, new writer, durable
+checkpoint or production processing is introduced. The existing public history
+reader reuses extracted policy/validation functions with unchanged behavior.
+B4 owns no public/account reader cutover or production release.
+
+Fresh public Sleeper metadata verified the seven annual league identities in the
+approved range: League One 2026 → 2025 → 2024, League Two 2026 → 2025, Dynasty
+2026 → 2025. Every predecessor's exact year and completed status matched. This
+is source-chain evidence, not proof of retained production history population.
+Frozen existing manager-history fixtures separately verify account attribution.
+
+Independent source review, ordinary verification, actual Preview, exact-SHA SQL
+and production coverage must be recorded independently on the draft PR. New
+paid SQL authority is absent: previous one-run approvals are consumed and the
+remaining balance of the earlier cumulative USD10 cap is unknown. Finish
+ordinary checks and Preview before requesting one concrete guarded run at the
+final reviewed SHA. No qualification ref, workflow dispatch, protected credential
+release, merge, deployment or production permission repair is authorized here.
