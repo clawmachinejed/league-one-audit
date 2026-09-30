@@ -3,7 +3,10 @@ import { assertInstant } from './validation';
 import type { FantasyPlayerCatalog, PlayerCatalogSourceSlice } from '../sleeper-player-catalog';
 import type { SleeperPlayer } from '../sleeper-catalog-types';
 
-export type CurrentRosterReadOptions = Readonly<{ playerCatalog: FantasyPlayerCatalog }>;
+export type CurrentRosterReadOptions = Readonly<{
+  playerCatalog?: FantasyPlayerCatalog;
+  includeSeasonOverview?: true;
+}>;
 type MetadataField<T> = Readonly<{
   value: T | null; availability: 'present' | 'empty' | 'missing'; sourcePaths: readonly string[];
 }>;

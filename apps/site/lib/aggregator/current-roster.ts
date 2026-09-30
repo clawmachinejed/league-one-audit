@@ -3,6 +3,7 @@ import type { AdministrationSourceMapping } from '../league-administration/sourc
 import type { AdministrationEnvelope } from '../league-administration/contracts';
 import type { CurrentRosterGroups } from './current-roster-groups';
 import type { CurrentRosterMetadata } from './current-roster-metadata';
+import type { CurrentRosterCaptureReceipt, SeasonOverviewSourceRead } from './season-overview-source-contracts';
 
 /** A closed qualification registry, not caller-selected claims of support. */
 export const CURRENT_ROSTER_POLICY = Object.freeze({
@@ -28,13 +29,13 @@ export type RosterAcceptanceResult = Readonly<{
 }>;
 export type AcceptedCurrentRosterRead = Readonly<{
   status: 'available'; accepted: AcceptedResource;
-  receipt: { id: string; attemptId: string; ordinal: number;
-    provenance: AdministrationEnvelope['provenance']; configurationContentId: string;
-    expectedTeamCount: number; legacyObservationId: string };
+  receipt: CurrentRosterCaptureReceipt;
   teams: readonly { seasonTeamId: string; externalRosterId: string; players: readonly RosterMembership[];
     currentGroups: CurrentRosterGroups }[];
   /** Optional current catalog evidence has its own provenance, never the roster receipt's age. */
   currentPlayerMetadata?: CurrentRosterMetadata;
+  /** Optional same-capture season fields; the accepted receipt still qualifies players only. */
+  seasonOverview?: SeasonOverviewSourceRead;
 }> | Readonly<{ status: 'missing' | 'unavailable' | 'disabled'; reason?: string }>;
 
 export function currentRosterScope(mapping: AdministrationSourceMapping): SourceScope {
