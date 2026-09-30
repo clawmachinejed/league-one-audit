@@ -1,0 +1,67 @@
+diff --git a/dist/esm/server/image-optimizer.js b/dist/esm/server/image-optimizer.js
+index 710e248ea1e0bc293d239e4fd26b336a3e5f41e4..ce694a9f4f63fe417925d926c0614262d3db3996 100644
+--- a/dist/esm/server/image-optimizer.js	
++++ b/dist/esm/server/image-optimizer.js
+@@ -9,7 +9,7 @@ import { join } from 'path';
+ import { getImageBlurSvg } from '../shared/lib/image-blur-svg';
+ import { hasLocalMatch } from '../shared/lib/match-local-pattern';
+ import { hasRemoteMatch } from '../shared/lib/match-remote-pattern';
+-import { createRequestResponseMocks } from './lib/mock-request';
++import { MockedRequest, MockedResponse } from './lib/mock-request';
+ import { CachedRouteKind, IncrementalCacheKind } from './response-cache';
+ import { sendEtagResponse } from './send-payload';
+ import { getContentType, getExtension } from './serve-static';
+@@ -905,12 +905,18 @@ export async function fetchInternalImage(href, _req, _res, maximumResponseBody,
+     try {
+         // Coerce HEAD to GET to avoid issues with the image optimizer
+         const method = !_req.method || _req.method === 'HEAD' ? 'GET' : _req.method;
+-        const mocked = createRequestResponseMocks({
+-            url: href,
+-            method,
+-            socket: _req.socket,
+-            maximumResponseBody
+-        });
++        // Keep connection metadata on the request, but detach the shared image
++        // response so one disconnected client cannot abandon the static stream.
++        // Backport of vercel/next.js#98168.
++        const mocked = {
++            req: new MockedRequest({
++                url: href,
++                method,
++                headers: {},
++                socket: _req.socket
++            }),
++            res: new MockedResponse({ maximumResponseBody })
++        };
+         await handleRequest(mocked.req, mocked.res, parseReqUrl(href));
+         await mocked.res.hasStreamed;
+         if (!mocked.res.statusCode) {
+diff --git a/dist/server/image-optimizer.js b/dist/server/image-optimizer.js
+index e94b5f44054bcd3cff397863add153b8657ee032..6ac38fc7f37b9ab6818bf0d1a5b359267715ba95 100644
+--- a/dist/server/image-optimizer.js	
++++ b/dist/server/image-optimizer.js
+@@ -1021,12 +1021,18 @@ async function fetchInternalImage(href, _req, _res, maximumResponseBody, handleR
+     try {
+         // Coerce HEAD to GET to avoid issues with the image optimizer
+         const method = !_req.method || _req.method === 'HEAD' ? 'GET' : _req.method;
+-        const mocked = (0, _mockrequest.createRequestResponseMocks)({
+-            url: href,
+-            method,
+-            socket: _req.socket,
+-            maximumResponseBody
+-        });
++        // Keep connection metadata on the request, but detach the shared image
++        // response so one disconnected client cannot abandon the static stream.
++        // Backport of vercel/next.js#98168.
++        const mocked = {
++            req: new _mockrequest.MockedRequest({
++                url: href,
++                method,
++                headers: {},
++                socket: _req.socket
++            }),
++            res: new _mockrequest.MockedResponse({ maximumResponseBody })
++        };
+         await handleRequest(mocked.req, mocked.res, (0, _url.parseReqUrl)(href));
+         await mocked.res.hasStreamed;
+         if (!mocked.res.statusCode) {

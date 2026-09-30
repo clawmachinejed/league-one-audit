@@ -38,6 +38,43 @@ The pre-build port guard briefly acquires and releases TCP bindings on IPv4/IPv6
 
 Successful local setup reports the exact target URL, checkout, Git SHA, working-tree state, build ID, and run ID. To exercise an already-deployed preview, set `BASE_URL` to that preview address before running `pnpm test:browser`. Explicit `BASE_URL` mode starts no local server and requires no local marker; its report identifies the selected target without claiming local-build provenance. URL query strings, fragments, and embedded credentials are omitted from target reporting. Record the preview's exact commit separately through Vercel. A protected preview must be made accessible to the test runner through the normal Vercel access mechanism; do not place bypass credentials in the repository.
 
+### Local image cancellation regression
+
+The pinned Next.js 16.3.3 dependency includes a pnpm backport of the merged
+[upstream image cancellation fix](https://github.com/vercel/next.js/pull/98168)
+(`dcbfff7789b84f39388228e6dab11456c446e269`). Both CommonJS and ESM distributions
+are patched. Keep the patch and lockfile together; remove the backport only after
+a stable Next release includes the fix and the cancellation regression passes.
+
+On unpatched `next start`, disconnecting the first client during a cold local
+image fetch can leave that image's shared cache promise pending. Later requests
+for the same source, width, quality and output format then stall even while raw
+files, pages and other image sizes respond normally. The internal request must
+retain connection metadata, but its shared response must be independent of the
+first client's socket. The patch changes only that response ownership.
+
+The September 30 investigation reproduced the exact stalled logo URL on clean
+`1a530208`: after a cold request was cancelled, all ten followers timed out;
+raw-logo, build-marker and alternate-width controls returned 200. Restarting the
+same build restored the image. An unchanged ten-worker public suite also passed
+121 cases with 20 intentional account exclusions, showing that worker count
+alone was not the cause. The original initiating event was not captured and
+remains unproven; the controlled cancellation reproduced the same failure signature.
+
+`scripts/next-image-abort.test.ts` exercises installed Next static serving and
+coalescing with GET/HEAD disconnects before and during streaming. It requires all
+ten consumers to receive the complete original bytes and preserves request
+connection metadata. The unpatched dependency fails all four cases. Application
+image assets, optimization settings, browser waits, worker counts and retries
+remain unchanged. There is no application fixture route.
+
+For an older unpatched checkout showing this signature, preserve traces and
+verify the serving checkout before restarting only its owned local test server.
+A restart is temporary recovery, not a fix. Use the patched locked install for
+subsequent runs. Do not clear another task's cache, warm images to conceal the
+failure, or report a single-worker pass as proof that the cancellation defect is
+resolved. Hosted Preview inspection remains a separate release gate.
+
 ## Historical baseline and current release record
 
 Before this review change, production was based on commit [`e15ef17`](https://github.com/clawmachinejed/league-one-audit/commit/e15ef17677ea18c08e2ea99ae5e499a6e401a46d). [GitHub verification run 33532262074](https://github.com/clawmachinejed/league-one-audit/actions/runs/33532262074) passed the then-current lint, type, 88-test Vitest, and production-build gate. The automated Playwright job was introduced after that baseline, so it must be verified on the new pull request rather than attributed retroactively.
