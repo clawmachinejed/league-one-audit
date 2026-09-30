@@ -11,6 +11,7 @@ import type { AcceptedCurrentRosterRead, CurrentRosterPolicy, RosterAcceptanceIn
   RosterAcceptanceResult, RosterAttempt } from '../aggregator/current-roster';
 import type { CurrentRosterReadOptions } from '../aggregator/current-roster-metadata';
 import type { RetainedMatchupRead, RetainedMatchupSelection } from './retained-matchups-contracts';
+import type { AcceptedTransactionsRead, RetainedTransactionRead, RetainedTransactionSelection } from './transaction-capture-contracts';
 
 export type AdministrationReadInput = AdministrationScope & Readonly<{
   family: AdministrationFamily; week: number | null;
@@ -32,6 +33,7 @@ export type AdministrationWriteResult = Readonly<{
   teamManagerAcceptance?: RosterAcceptanceResult;
   leagueSettingsAcceptance?: RosterAcceptanceResult;
   matchupAcceptance?: RosterAcceptanceResult;
+  transactionAcceptance?: RosterAcceptanceResult;
   calendarEvidence?: Readonly<{ id: string; status: 'retained' | 'replayed' }>;
   calculationInput?: Readonly<{ id: string; status: 'retained' | 'replayed' }>;
 }>;
@@ -59,7 +61,13 @@ export type LeagueAdministrationStore = Readonly<{
     mapping?: AdministrationSourceMapping, acceptance?: RosterAcceptanceInput,
     managerAcceptance?: RosterAcceptanceInput, leagueSettingsAcceptance?: Readonly<{ attempt: RosterAttempt }>,
     matchupAcceptance?: RosterAcceptanceInput, calendarEvidence?: SleeperCalendarEvidence,
-    calculationCapture?: CalculationSourceCapture) => Promise<AdministrationWriteResult>;
+    calculationCapture?: CalculationSourceCapture, transactionAcceptance?: Readonly<{ attempt: RosterAttempt }>) => Promise<AdministrationWriteResult>;
+  beginTransactionAttempt: (mapping: AdministrationSourceMapping, week: number, id: string,
+    fence?: AdministrationWriteFence) => Promise<RosterAttempt>;
+  readAcceptedTransactions: (mapping: AdministrationSourceMapping, week: number) => Promise<AcceptedTransactionsRead>;
+  /** Original immutable observations only; later receipt times never rewrite their mapping proof. */
+  scanRetainedTransactions: (selection: RetainedTransactionSelection) => Promise<RetainedTransactionRead>;
+  readRetainedTransactions: (selection: RetainedTransactionSelection, observationIds: readonly string[]) => Promise<RetainedTransactionRead>;
   beginCalculationSourceCapture: (mapping: AdministrationSourceMapping, week: number, id: string) => Promise<CalculationSourceCapture>;
   beginLeagueSettingsAttempt: (mapping: AdministrationSourceMapping, attemptId: string, fence?: AdministrationWriteFence) => Promise<RosterAttempt>;
   readAcceptedLeagueSettings: (mapping: AdministrationSourceMapping) => Promise<AcceptedLeagueSettingsRead>;

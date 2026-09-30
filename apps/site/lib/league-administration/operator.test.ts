@@ -5,7 +5,7 @@ import { createLeagueRegistry } from '../projections/adapters/configuration/leag
 import { externalLeagueRef, providerKey } from '../projections/shared/provider-identity';
 
 const mock = vi.hoisted(() => ({
-  store: { enabled: true, listEnrollments: vi.fn(), listEnrollmentInventory: vi.fn(), readEnrollment: vi.fn(), recordObservation: vi.fn(), readSourceMapping: vi.fn(), beginRosterCapture: vi.fn(), beginLeagueSettingsAttempt: vi.fn(), beginExactMatchupAttempt: vi.fn() },
+  store: { enabled: true, listEnrollments: vi.fn(), listEnrollmentInventory: vi.fn(), readEnrollment: vi.fn(), recordObservation: vi.fn(), readSourceMapping: vi.fn(), beginRosterCapture: vi.fn(), beginLeagueSettingsAttempt: vi.fn(), beginExactMatchupAttempt: vi.fn(), beginTransactionAttempt: vi.fn() },
   jobs: { enabled: true, readDatabaseIdentity: vi.fn(), readAllPlayerLeagueProfiles: vi.fn(),
     acquireJob: vi.fn(), completeJob: vi.fn(), failJob: vi.fn(), readLeagueLineupAuthorities: vi.fn() },
   core: vi.fn(), matchup: vi.fn(), transactions: vi.fn(), metadata: vi.fn(), capture: vi.fn(),
@@ -33,6 +33,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   mock.store.readSourceMapping.mockResolvedValue(null);
   mock.store.beginExactMatchupAttempt.mockResolvedValue({ id: 'matchup-attempt', scopeId: 'matchup-scope', ordinal: 1, expectedGeneration: 0 });
+  mock.store.beginTransactionAttempt.mockResolvedValue({ id: 'transaction-attempt', scopeId: 'transaction-scope', ordinal: 1, expectedGeneration: 0 });
   mock.store.listEnrollments.mockResolvedValue([scope]);
   mock.store.listEnrollmentInventory.mockImplementation(async () => ({ entries: (await mock.store.listEnrollments()).map((enrollment: typeof scope) => ({
     status: 'ready', intended: enrollment, enrollment,
@@ -90,6 +91,9 @@ describe('administration operator and scheduled boundary', () => {
       expect.objectContaining({ generation: 1, jobKey: 'league-administration-maintenance' }));
     expect(mock.store.beginExactMatchupAttempt.mock.invocationCallOrder[0]).toBeLessThan(mock.core.mock.invocationCallOrder[0]);
     expect(mock.store.beginExactMatchupAttempt.mock.invocationCallOrder[0]).toBeLessThan(mock.matchup.mock.invocationCallOrder[0]);
+    expect(mock.store.beginTransactionAttempt).toHaveBeenCalledWith(token, 1, expect.any(String),
+      expect.objectContaining({ jobKey: 'league-administration-maintenance', generation: 1 }));
+    expect(mock.store.beginTransactionAttempt.mock.invocationCallOrder[0]).toBeLessThan(mock.transactions.mock.invocationCallOrder[0]);
     const matchupWrites = mock.store.recordObservation.mock.calls.filter(([value]) => value.envelope.family === 'matchups');
     expect(matchupWrites).toHaveLength(1);
     expect(matchupWrites[0][6]).toMatchObject({ attempt: { id: 'matchup-attempt' },

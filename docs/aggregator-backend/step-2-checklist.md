@@ -92,7 +92,7 @@ Review the whole affected capture → normalizer → adapter → writer → read
 | B1 calculation source history | [Dependent source association](calculation-source-history.md) reserves mapping before the existing acquisition, retains exact consumed inputs and exposes original/verification snapshot lineage separately; additive 032 | Qualified at preserved PR274 `b1c81b9ebba60ef0fdafebb52d21bb8211f43e38`. Local dependencies/lint/types/build pass; 245 unit files / 4,976 passed / one known Windows scoped-IPv6 skip. Independent source and SQL-fixture reviews pass. [SQL36637753550](https://github.com/clawmachinejed/league-one-audit/actions/runs/36637753550) passed first attempt: 42 files / 682 tests / zero skips, including all 21 new cases. Exact-SHA receipt confirms POSIX child closure, schema cleanup, credential revocation, deletion of `br-dawn-hill-b735zrro`, empty failures and no production writes; authenticated Neon Console independently showed only the idle baseline. [CI36635606197](https://github.com/clawmachinejed/league-one-audit/actions/runs/36635606197) passed 4,977 unit tests / zero skips, 120 public browser tests / 21 skips (20 intentional account exclusions; one unidentified), and 20 account tests, with no retries. Synthetic merge tree equals candidate. Ready exact-SHA Preview `CJoUdWwKSAtpspifQJX1BQZQ6z7k` and both leagues' current 4 / explicit 3 views, expanded lineups and layout inspected. This evidence qualifies `b1c81b9`, not this later change | No | None | Source association only; actual score/ordered-starter/profile/model joins, historical applicability and composed B1 gate remain open |
 | B1 exact-period derived compatibility | [Optional internal join](exact-matchup-compatibility.md) copies existing stored forecast/game-state/probability references after exact official-value, source-mapping, retained-calendar, profile and model checks; no migration or public-reader change | Qualified at preserved PR275 `f5e06895980fb9586458b705f14fe32e376e93bf`: independent review passes; CI36649992516 passes 248 files / 5,057 units / zero skips, 121 public Chromium tests / 20 intentional account-fixture exclusions and 20 account tests, no retries. Exact-SHA Ready Preview HrfK9MzZpgyMAHw1ouGzJBvtbvjE inspected for both leagues/current Week 4/exact Week 3. Protected SQL36651345524 passes 43 files / 696 tests / zero skips or retries, including all 14 compatibility cases; independently audited closure, cleanup, revocation and branch deletion, empty failures and no production writes. Earlier 6254e22 fixture failure and local checks remain recorded below. This evidence does not qualify the new retained planner | No; PR275 draft and unmerged | None | Original candidate/baseline reconstruction, historical applicability, attention/box scores, retained comparison/restart and final composed B1 acceptance remain open |
 | B2 season overview | Internal exact season facts, current order/waiver/manager resources, B1 schedules and existing projection/metric composition; see the B2 contract below | PR278 deterministic/public regression qualification is historical; real-store B2 acceptance continuation below remains unqualified until an approved exact-SHA SQL run | PR278 merged as `1a5302084c9e060e31059e75bc76e2968dca8b0a` | Ready production `dpl_GKwJxxMtDwjuuhWscTvfmEthpSDT` at that SHA; populated B2 coverage not established | Frozen exact-capture comparison and bounded cursors are comparison artifacts, not durable replay; Step 3 cutover remains blocked |
-| B3 activity | Not started | Not started | No | None | Window/page completeness, transfers/waivers, retained processing and comparison |
+| B3 activity | [Typed internal activity](transaction-activity.md), existing capture reservation/receipt extension, scoped accepted/retained reads and frozen league/manager comparison implemented | PR281 candidate `ad5fb7c0d8fff93c3b2890f9a971f305677896bc` qualified by protected SQL36747503495: 45 files / 718 passes / zero skips, all cleanup verified; see [B3 release evidence](https://github.com/clawmachinejed/league-one-audit/pull/281). This does not qualify a later combined candidate | PR281 merged as `a4360074fd9bc1e2c319904dde80b2075913a604` | Migration 033 and exact-SHA Production released; populated B3 coverage remains unverified | Native Week 0 and window/page/claim coverage remain separate; retained original-observation comparison is not durable replay. Public/account readers remain unchanged; Step 3 activation and B4 remain separate |
 | B4 history | Not started | Not started | No | None | Verified lineage, attribution, bounded retained processing and comparison |
 | Cross-resource gate | Not started | Not started | No | None | Pilot cohort or compatibility path, all identity/immutability checks, cutover/rollback plan |
 
@@ -193,6 +193,12 @@ freeze, status-only evidence belongs in the PR body and external artifacts.
 
 ### B2 real-store acceptance continuation
 
+The following is the original pre-qualification record. Later exact-SHA SQL
+qualification and the approved PR279 release continuation are recorded in
+[PR279](https://github.com/clawmachinejed/league-one-audit/pull/279). Its original
+717-test result qualifies only 2928e4413358673a27af2937604c300fca6e4058;
+a candidate updated with B3 and PR280 requires fresh qualification.
+
 PR278's release is recorded in its
 [final release evidence](https://github.com/clawmachinejed/league-one-audit/pull/278#issuecomment-5912974332).
 Fresh checks on September 30, 2026 found clean primary local `main`, GitHub
@@ -221,3 +227,59 @@ qualification ref, merge or production deployment is authorized by this
 continuation. Source, review, local/hosted verification and Preview evidence must
 be recorded separately from SQL qualification. The documented late-role grant
 gap remains a separate unqualified path; no permissions repair is included.
+
+### B3 transaction-activity candidate
+
+The following preserves the development-time evidence and authority boundaries.
+PR281 subsequently qualified and released B3, including migration 033, as recorded
+in the milestone row above and its linked release evidence. The earlier statements
+about pending qualification and release authority do not describe the released state.
+
+The isolated B3 worktree starts at B2's released merge
+`1a5302084c9e060e31059e75bc76e2968dca8b0a` on
+`codex/step2-b3-transactions`. Fresh primary/local/GitHub `main` and Ready Vercel
+Production `GKwJxxMtDwjuuhWscTvfmEthpSDT` agree on that SHA. Canonical repository,
+`apps/site` root, Node 24 and `main` production branch were verified. The three
+enabled minute cron definitions match source, and natural observation/future/current
+activity plus live League One/Two reads were observed without forcing writes.
+No competing owner observed in accessible worktrees, PRs, workflows, deployments
+and cron activity; database/worker lease rows were not inspected.
+
+[The internal B3 contract](transaction-activity.md) covers typed native and mapped
+status, participants, directional player/pick/FAAB movements, bid/note evidence,
+native Week 0–18, per-week source coverage, interval coverage, stable bounded
+pagination and team/type filters. Claim visibility is independent of source and
+page completeness. Current waiver priority/budget remain B2. Same-capture league
+and manager comparison preserves their existing different pending policies and
+New York day grouping. Frozen source/mapping/times/display/catalog/version inputs
+support bounded serialized comparison restart, not database-persisted replay.
+
+The original-observation retained inventory never grafts later equal-content
+receipt mapping onto old evidence. Accepted receipt reads retain their own times.
+Additive migration 033 extends existing resource reservations, receipts and
+acceptance through the existing collector/writer; no parallel pipeline, new
+schedule or public reader was introduced. Existing source hashes and immutable
+history remain intact. Nine guarded real-store cases are authored; no migration
+or SQL test has been executed for this candidate.
+
+Independent review reproduced and corrected microsecond time-order validation,
+actual stored partial-capture semantics, fresh-receipt versus original-observation
+times, native-period family prefixes, retained source scope after remapping,
+serialized native property order and prototype-safe extension copying. Full
+ordinary verification passes dependencies, lint, TypeScript, 267 unit files /
+5,426 tests with one documented Windows scoped-local-IPv6 skip, production build,
+120 public browser tests and 20 separately run account tests. The public run
+skips those 20 account cases plus the existing My Team cross-league case. The
+first sandboxed run failed eight subprocess tests; rerunning outside the sandbox
+passed without source changes. SQL was skipped and no database command ran.
+Final frozen-SHA independent review, hosted CI and actual Preview inspection are
+separate qualification steps. Record their final evidence on the PR after freeze.
+
+Authority covers development, reviewable migration source, ordinary tests, branch
+publication, PR and Preview. Merge, production migration/release/data writes,
+backfill/replay, Step 3 public/account activation, B4 and provider enrollment remain
+unauthorized. No B3 protected SQL run or matching qualification ref is authorized.
+The previous B2 approval is consumed; the remaining balance of the cumulative
+USD10 cap is unknown. A new exact-SHA approval with explicit scope and cost limits
+is required before a paid disposable qualification run. Production coverage and
+reader readiness remain unestablished.

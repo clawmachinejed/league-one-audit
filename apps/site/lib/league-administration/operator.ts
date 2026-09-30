@@ -94,12 +94,17 @@ export async function runAdministrationOperator(input: AdministrationOperatorInp
       const attempts = mapping ? await store.beginRosterCapture(mapping, randomUUID(), randomUUID(), fence) : undefined;
       const leagueSettingsAttempt = mapping ? await store.beginLeagueSettingsAttempt(mapping, randomUUID(), fence) : undefined;
       const matchupAttempts = new Map<number, Awaited<ReturnType<typeof store.beginExactMatchupAttempt>>>();
+      const transactionAttempts = new Map<number, Awaited<ReturnType<typeof store.beginTransactionAttempt>>>();
+      if (mapping) for (const week of input.weeks) {
+        transactionAttempts.set(week, await store.beginTransactionAttempt(mapping, week, randomUUID(), fence));
+      }
       if (mapping) for (const week of input.weeks) if (week > 0) {
         matchupAttempts.set(week, await store.beginExactMatchupAttempt(mapping, week, randomUUID(), fence));
       }
       let populationEvidence: Awaited<ReturnType<typeof recordCapturedAdministration>>['population'];
       const inspect = async (observations: readonly CapturedAdministrationDocument[],
-        matchupAttempt?: Awaited<ReturnType<typeof store.beginExactMatchupAttempt>>) => {
+        matchupAttempt?: Awaited<ReturnType<typeof store.beginExactMatchupAttempt>>,
+        transactionAttempt?: Awaited<ReturnType<typeof store.beginTransactionAttempt>>) => {
         signal.throwIfAborted();
         let incompatibleConfiguration = false;
         for (const observation of observations) {
@@ -124,6 +129,8 @@ export async function runAdministrationOperator(input: AdministrationOperatorInp
           const result = await recordCapturedAdministration(scope, observations, { store, fence, signal, expectedRosterCount, mapping,
             rosterAttempt: attempts?.players, managerAttempt: attempts?.managers, leagueSettingsAttempt,
             populationEvidence,
+            ...(transactionAttempt && observations.some(item => item.family === 'transactions')
+              ? { transactionAttempt: { week: observations.find(item => item.family === 'transactions')!.week!, attempt: transactionAttempt } } : {}),
             ...(matchupAttempt && observations.some(item => item.family === 'matchups')
               ? { matchupAttempt: { week: observations.find(item => item.family === 'matchups')!.week!, attempt: matchupAttempt } } : {}) });
           if (result.population) populationEvidence = result.population;
@@ -151,7 +158,7 @@ export async function runAdministrationOperator(input: AdministrationOperatorInp
           ...(week > 0 ? [getOfficialMatchupObservation(league.externalLeagueId, week, 0, signal)] : []),
           getOfficialTransactionWeek(league.externalLeagueId, week, 0, signal),
         ]);
-        await inspect(observations, matchupAttempt);
+        await inspect(observations, matchupAttempt, transactionAttempts.get(week));
       }
     }
     if (fence && !await jobs.completeJob(jobKey, workerId)) throw new Error('Administration operation lost ownership.');
