@@ -2,6 +2,7 @@ import 'server-only';
 import { teamManagerMethods } from './team-managers';
 import { leagueSettingsMethods } from './league-settings';
 import { exactMatchupMethods } from './exact-matchups';
+import { retainedMatchupMethods } from './retained-matchups';
 import { isCalculationSourceCapture } from '../calculation-capture';
 
 import type { DatabaseClient, DatabaseRow } from '../../database';
@@ -118,6 +119,7 @@ export function createLeagueAdministrationMethods(client: DatabaseClient): Omit<
     ...teamManagerMethods(client),
     ...leagueSettingsMethods(client),
     ...exactMatchupMethods(client),
+    ...retainedMatchupMethods(client),
     async beginCalculationSourceCapture(mapping, week, id) {
       if (!isAdministrationSourceMapping(mapping) || !Number.isInteger(week) || week < 1 || week > 18
         || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu.test(id)) {

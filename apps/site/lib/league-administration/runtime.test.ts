@@ -21,6 +21,8 @@ function fakeStore(): LeagueAdministrationStore {
     observationId: 'observation', versionId: 'version', generation: 2 })),
   readSource: vi.fn(async () => ({ status: 'missing' as const })),
   readSourceMapping: vi.fn(async () => null),
+  scanRetainedMatchups: vi.fn(async () => ({ status: 'available' as const, evidence: [] })),
+  readRetainedMatchups: vi.fn(async () => ({ status: 'available' as const, evidence: [] })),
   beginCalculationSourceCapture: vi.fn(),
   beginLeagueSettingsAttempt: vi.fn(), readAcceptedLeagueSettings: vi.fn(async () => ({ status: 'missing' as const })),
   beginExactMatchupAttempt: vi.fn(), readAcceptedExactMatchups: vi.fn(async () => ({ status: 'missing' as const })),

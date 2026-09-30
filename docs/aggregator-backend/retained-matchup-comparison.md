@@ -1,0 +1,33 @@
+# Retained matchup comparison planner
+
+This internal B1 continuation compares immutable administration matchup evidence without accepting a new network resource. It does not switch a page, run a production replay, or qualify durable database backfill. The [sole Step 2 checklist](step-2-checklist.md) records qualification and the remaining B1 work. The [migration decision](migration.md#bundle-1-retained-evidence-decision) remains the scope boundary.
+
+## Read and comparison boundary
+
+`createRetainedMatchupComparison` accepts only `scanRetainedMatchups` and `readRetainedMatchups` from the existing administration store. The store uses SELECT statements against existing immutable observations, contents, team entries and captured mapping lineage. No provider client, acquisition, reservation, writer, current accepted-head lookup, scorer, baseline, snapshot or publication operation is used. No schema, grants, migrations, workflows, cron settings or public API changes are needed.
+
+Use the administration facade's `createRetainedMatchupComparisonReader` to get a service with a fresh three-second query deadline per scan/read. Call `createManifest` with an explicit league-season UUID, original administration source scope and sorted, unique native weeks. This is an internal service, not a public route or an operator that automatically connects to production. The existing database facade continues to own credentials, Preview isolation and query cancellation. Tests may inject read capabilities directly; production processing needs separate authorization.
+
+The inventory is one database-statement snapshot, capped at 1,000 observations. Overflow returns unavailable without silently truncating; select a narrower native-period scope. The selected league UUID/key/season must agree even when the selected period has no observations. An empty manifest establishes only an empty selected inventory, never league completeness.
+
+Each manifest freezes its full source selection, ordered observation/content IDs, captured mapping evidence IDs/revisions, expected raw and legacy semantic/value hashes, and the complete immutable evidence fingerprint. The manifest includes explicit manifest, selection and transformation versions. Its identity is the digest of that complete body. Ordering uses original observation ordering time with microsecond precision and observation UUID as the tie-breaker; it never uses current heads or replay time.
+
+`compareBatch({ manifest, cursor, batchSize })` processes at most 100 entries. The cursor contains the manifest identity and next index. Results include the original entry index, source IDs, a semantic hash of the projected value, a hash of the full result including lineage, and an equal comparison or stable rejection/limitation reason. A completed cursor is a no-op with no database read. Failed reads and cancellation return no advanced cursor. Retrying the same manifest/cursor repeats the same bounded comparison; the caller can discard an uncommitted batch and resume at its previous cursor.
+
+Manifests, cursors and results are serializable and outputs are detached and deeply frozen. This slice does not write progress artifacts or database checkpoints. A consumer may keep a manifest and successfully completed batches in its own reviewed artifact workflow. It must not claim crash-safe artifact persistence or transactional database materialization from this in-memory service.
+
+## Immutable lineage and limitations
+
+The pure wrapper reuses `normalizeAdministrationObservation` and `projectExactMatchups`. It checks observation/content linkage, original source/family/native period, raw and semantic hashes, old normalized values, content-linked team values and team UUID scope. Missing, duplicate, contradictory and cross-season links are rejected. It preserves source times, custom zero, corrections, null/empty distinctions, ordered starters, vacancy markers and participant/group identities. It never replaces an official score with a sum or a projection.
+
+The direct observation-mapping bridge was originally roster-specific. Matchup mappings may instead be retained in existing exact-matchup receipts/attempts or calculation-input/capture associations. Only associations bound to the original observation/content and equivalent original provenance can establish its captured mapping. Their immutable mapping token and revision must agree. Later equal-content reacquisition may reuse a legacy observation ID; its later provenance must not refresh the original source age or backdate its mapping. No current source connection is consulted, so an A → B → A remap preserves distinct captured revisions.
+
+Mapping association membership is itself frozen by namespaced evidence IDs. Associations appended after the manifest was made belong to a new manifest. Rereads select only its frozen associations before checking the expected fingerprint; missing, changed or duplicate frozen associations reject the entry. The read adapter bounds associations at 100 per observation and reports overflow as unavailable, which can pause an existing manifest until a separately reviewed narrower read is available. It never silently truncates or chooses a current revision.
+
+Available results are labeled `legacy-retained-matchups`, never `AcceptedResource`. A complete v1 payload alone does not prove expected population. Missing historical mapping remains `mapping_revision_not_captured`; population, configuration applicability, metadata, NFL mapping, finality and derived provenance remain explicitly unproved. This scan does not load period-bound configuration bindings, so it does not invoke the applicability resolver or infer historical slot labels from nearby times/current `leg`. Existing exact-period facts remain available with those limitations; historical applicability, attention, box-score joins and final composed B1 acceptance are separate work.
+
+## Verification and rollback
+
+Unit and adapter tests cover batch size, interruption/retry, new captures, fixed mapping membership, corruption, wrong scope, duplicate/cross-season teams, remapping and original age, explicit missing evidence and absence of provider/writer calls. SQL fixtures use only the complete existing guarded disposable suite. They are not qualified until a new exact-SHA approved run and every cleanup gate pass. Prior PR275 results belong only to `f5e06895980fb9586458b705f14fe32e376e93bf`.
+
+Rollback stops calling the optional comparison service. Original evidence, accepted heads, scoring profiles, frozen baselines, snapshots and publication history remain unchanged. No merge, release, production replay, enrollment or Step 3 reader cutover is part of this implementation.

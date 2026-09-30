@@ -10,6 +10,7 @@ import type { AcceptedExactMatchupsRead } from '../aggregator/exact-matchups';
 import type { AcceptedCurrentRosterRead, CurrentRosterPolicy, RosterAcceptanceInput,
   RosterAcceptanceResult, RosterAttempt } from '../aggregator/current-roster';
 import type { CurrentRosterReadOptions } from '../aggregator/current-roster-metadata';
+import type { RetainedMatchupRead, RetainedMatchupSelection } from './retained-matchups-contracts';
 
 export type AdministrationReadInput = AdministrationScope & Readonly<{
   family: AdministrationFamily; week: number | null;
@@ -74,6 +75,9 @@ export type LeagueAdministrationStore = Readonly<{
   readSourceMapping: (externalLeagueId: string) => Promise<AdministrationSourceMapping | null>;
   readSource: (input: AdministrationReadInput) => Promise<LeagueAdministrationStoreRead>;
   readSourceByConnection: (input: AdministrationConnectionReadInput) => Promise<LeagueAdministrationStoreRead>;
+  /** Bounded immutable evidence only; these methods do not follow or advance accepted heads. */
+  scanRetainedMatchups: (selection: RetainedMatchupSelection) => Promise<RetainedMatchupRead>;
+  readRetainedMatchups: (selection: RetainedMatchupSelection, observationIds: readonly string[]) => Promise<RetainedMatchupRead>;
   /** Every intended membership is retained, including incomplete registrations. */
   listEnrollmentInventory: (season?: number) => Promise<AdministrationEnrollmentInventory>;
   /** Filter in SQL before validation, so unrelated registration cannot block a scoped read. */

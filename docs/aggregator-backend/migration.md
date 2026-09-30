@@ -157,7 +157,7 @@ Gate: rollback rehearsal preserves user access boundaries, old and new source ev
 
 ## Bundle 1 retained-evidence decision
 
-Decision for the approved B1 continuation: preserve useful old facts through an explicitly labeled **retained compatibility projection**, while leaving PR270's qualified network acceptance unchanged. This follows the existing `legacy-retained-roster` bridge, not a new collector or an independent publication writer. It is a design decision for the next implementation; a retained-matchup history scan, manifest planner and durable replay are not already shipped.
+Decision for the approved B1 continuation: preserve useful old facts through an explicitly labeled **retained compatibility projection**, while leaving PR270's qualified network acceptance unchanged. This follows the existing `legacy-retained-roster` bridge, not a new collector or an independent publication writer. The [retained-matchup comparison planner](retained-matchup-comparison.md) implements the first read-only inventory/manifest/batch step in a dependent continuation from PR275. Qualification and release are tracked in the sole Step 2 checklist; durable replay and production processing remain separate.
 
 Three outcomes must remain distinguishable:
 

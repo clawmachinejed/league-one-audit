@@ -8,6 +8,7 @@ import { EXACT_MATCHUPS_READ_SQL, readAcceptedExactMatchupsRows } from './neon/e
 import { readNativePeriodMapping } from './neon/period-mapping';
 import type { ExactMatchupCompatibilityRead } from '../aggregator/exact-matchup-compatibility';
 import type { LeagueAdministrationStore } from './store-contracts';
+import { createRetainedMatchupComparison } from './retained-matchup-comparison';
 
 export type { LeagueAdministrationStore, LeagueAdministrationStoreRead } from './store-contracts';
 
@@ -29,6 +30,8 @@ export function createLeagueAdministrationStore(database: Database): LeagueAdmin
     readAcceptedCurrentRoster: async () => ({ status: 'disabled' }),
     readSource: async () => ({ status: 'disabled' }),
     readSourceByConnection: async () => ({ status: 'disabled' }),
+    scanRetainedMatchups: async () => ({ status: 'disabled', reason: 'persistence_disabled' }),
+    readRetainedMatchups: async () => ({ status: 'disabled', reason: 'persistence_disabled' }),
     listEnrollmentInventory: async () => ({ entries: [] }),
     readEnrollment: async () => ({ status: 'missing' }),
     listEnrollments: async () => [],
@@ -38,6 +41,15 @@ export function createLeagueAdministrationStore(database: Database): LeagueAdmin
 
 export function getLeagueAdministrationStore(): LeagueAdministrationStore {
   return createLeagueAdministrationStore(withDatabaseAbortSignal(getDatabase(), AbortSignal.timeout(3_000)));
+}
+
+/** Each scan/batch receives its own deadline, including retries after a paused manifest. */
+export function createRetainedMatchupComparisonReader(database: Database = getDatabase()) {
+  const readStore = () => createLeagueAdministrationStore(withDatabaseAbortSignal(database, AbortSignal.timeout(3_000)));
+  return createRetainedMatchupComparison({
+    scanRetainedMatchups: selection => readStore().scanRetainedMatchups(selection),
+    readRetainedMatchups: (selection, observationIds) => readStore().readRetainedMatchups(selection, observationIds),
+  });
 }
 
 export type { ExactMatchupCompatibilityReadInput } from '../projection-store';
