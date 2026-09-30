@@ -14,7 +14,8 @@ jobs:
     if: github.repository == 'clawmachinejed/league-one-audit'
     environment: integration-test
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # Preserve ten minutes around the supervisor's fixed 40-minute lifecycle deadline.
+    timeout-minutes: 50
     steps:
       # Approvers review this exact selected head, including workflow, supervisor,
       # tests and dependencies. No untrusted fork or automatic PR trigger.

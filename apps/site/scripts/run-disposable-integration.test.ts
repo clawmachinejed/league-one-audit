@@ -63,11 +63,11 @@ afterEach(() => {
 });
 
 describe('disposable integration command cancellation and source evidence', () => {
-  it('allows the full 35-minute budget and records a deadline abort while awaiting cleanup', async () => {
+  it('allows the full 40-minute budget and records a deadline abort while awaiting cleanup', async () => {
     const { ready, finishCleanup } = waitForCancellation();
     const executing = import('./run-disposable-integration');
     const options = await ready;
-    await vi.advanceTimersByTimeAsync(35 * 60_000 - 1);
+    await vi.advanceTimersByTimeAsync(40 * 60_000 - 1);
     expect(options.signal.aborted).toBe(false);
     await vi.advanceTimersByTimeAsync(1);
     expect(options.signal.reason).toBe('deadline');
@@ -91,7 +91,7 @@ describe('disposable integration command cancellation and source evidence', () =
       const handler = process.listeners(signal).find(listener => !before.includes(listener));
       expect(handler).toBeDefined();
       handler!(signal);
-      await vi.advanceTimersByTimeAsync(35 * 60_000);
+      await vi.advanceTimersByTimeAsync(40 * 60_000);
       expect(options.signal.reason).toBe(reason);
       finishCleanup();
       await executing;
@@ -142,7 +142,7 @@ describe('disposable integration command cancellation and source evidence', () =
     });
     const executing = import('./run-disposable-integration');
     const options = await ready.promise;
-    await vi.advanceTimersByTimeAsync(35 * 60_000);
+    await vi.advanceTimersByTimeAsync(40 * 60_000);
     expect(options.signal.reason).toBe('deadline');
     cleanup.resolve();
     await executing;
