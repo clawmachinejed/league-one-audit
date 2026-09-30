@@ -107,7 +107,10 @@ describe.sequential('retained native-week calendar identity evidence', () => {
       evidenceRef: added.calendarEvidence?.id, season: 2026, seasonType: 'regular', week,
       evaluatedAt: evidence.evaluatedAt, sourceObservedAt: null });
     expect(after.value.period.nflWeekMappings).toEqual([{ season: 2026, seasonType: 'regular', week, evidenceRef: added.calendarEvidence?.id }]);
-    expect({ ...after, periodMapping: current.periodMapping, value: { ...after.value, period: current.value.period } }).toEqual(current);
+    expect(current.lineupApplicability).toEqual({ status: 'unavailable', reason: 'period_mapping_unproved' });
+    expect(after.lineupApplicability).toEqual({ status: 'unavailable', reason: 'no_binding' });
+    expect({ ...after, periodMapping: current.periodMapping, lineupApplicability: current.lineupApplicability,
+      value: { ...after.value, period: current.value.period } }).toEqual(current);
     expect(await ownerQuery('SELECT * FROM league_administration_observations WHERE id=$1', [result.observationId])).toEqual(beforeObservation);
     expect((await rows(f))[0]).toMatchObject({ observation_id: result.observationId, evidence });
   });

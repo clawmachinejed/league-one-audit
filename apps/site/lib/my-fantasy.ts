@@ -82,10 +82,18 @@ function lineupAttention(
     || starters.some((player, index) => player.slot !== slots[index])) {
     return { status: 'unknown', issues: [], reason: 'The complete starting lineup is unavailable.' };
   }
+  return assessStarterAttention(starters, evaluatedAt, !data.warning,
+    data.warning ? 'Some current league information is unavailable.' : null);
+}
+
+/** Shared current-starter rules. Callers prove selected lineup, period and source applicability. */
+export function assessStarterAttention(
+  starters: readonly Player[], evaluatedAt: Date, coverageComplete = true, coverageReason: string | null = null,
+): MyFantasyAttention {
   const issues: MyFantasyAttentionIssue[] = [];
   // Warnings may include incomplete player metadata. A null injury designation
   // cannot prove a healthy lineup when the source itself reports missing data.
-  let complete = !data.warning;
+  let complete = coverageComplete;
   for (const player of starters) {
     if (player.id.startsWith('empty-')) {
       issues.push(attentionIssue(player, { kind: 'empty', severity: 'alert', statusLabel: 'No player' },
@@ -124,7 +132,7 @@ function lineupAttention(
     }
   }
   return { status: complete ? 'verified' : 'unknown', issues,
-    reason: complete ? null : data.warning ? 'Some current league information is unavailable.'
+    reason: complete ? null : coverageReason !== null ? coverageReason
       : 'Some player game or availability information is unavailable.' };
 }
 
@@ -136,7 +144,7 @@ function validOfficialTeams(teams: readonly Team[]): boolean {
       && (team.pointsAgainst === null || Number.isFinite(team.pointsAgainst)));
 }
 
-function projectedOutcome(
+export function myFantasyProjectedOutcome(
   data: MatchupsData, context: MatchupPeriodContext, matchup: Matchup | null,
 ): MyFantasyLeagueSummary['projectedOutcome'] {
   if (!isActivePeriod(data, context) || !matchup || matchup.status === 'unknown' || matchup.sides.length !== 2) return 'unavailable';
@@ -192,7 +200,7 @@ export function getMyFantasyLeagueSummary(
     projectedRankReason: projectedRank !== null ? null : projection?.kind === 'unavailable' ? projection.reason
       : projection?.kind === 'projected' ? 'Projected results do not cover every league matchup.'
         : 'The official standings baseline is unavailable.',
-    projectedOutcome: projectedOutcome(data, periodContext, selection.matchup),
+    projectedOutcome: myFantasyProjectedOutcome(data, periodContext, selection.matchup),
     attention: lineupAttention(data, periodContext, selection.matchup, evaluatedAt),
   };
 }

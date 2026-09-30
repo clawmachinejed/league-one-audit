@@ -27,7 +27,8 @@ describe('same-capture exact matchup projection', () => {
     const normalized = capture(source);
     const legacy = JSON.stringify(normalized.value);
     const projected = projectExactMatchups(normalized, identities,
-      { nativePeriodWeek: 3, nativeRosterPositions: ['QB', 'RB', 'BN'], evidenceRef: 'same-capture-config' });
+      { nativePeriodWeek: 3, season: scope.season, externalLeagueId: scope.externalLeagueId,
+        nativeRosterPositions: ['QB', 'RB', 'BN'], evidenceRef: 'same-capture-config' });
     expect(JSON.stringify(normalized.value)).toBe(legacy);
     expect(projected.teams[0]).toMatchObject({ seasonTeamId: 'season-team-1',
       officialTeamPoints: { raw: '10.75', custom: '0', effective: '0', adjustment: 'custom-override', adjustmentReason: null },
@@ -50,7 +51,8 @@ describe('same-capture exact matchup projection', () => {
       { roster_id: 3, matchup_id: null, players: [], starters: [], points: 0 },
     ];
     const result = projectExactMatchups(capture(cases), identities,
-      { nativePeriodWeek: 3, nativeRosterPositions: ['BN'], evidenceRef: 'proved-empty-lineup-config' });
+      { nativePeriodWeek: 3, season: scope.season, externalLeagueId: scope.externalLeagueId,
+        nativeRosterPositions: ['BN'], evidenceRef: 'proved-empty-lineup-config' });
     expect(result.teams[0]).toMatchObject({ starters: null, bench: null, coverage: { status: 'partial' } });
     expect(result.teams[1]).toMatchObject({ players: null, bench: null, coverage: { status: 'partial' } });
     expect(result.teams[2]).toMatchObject({ players: [], starters: [], bench: [], coverage: { status: 'complete' } });
@@ -81,6 +83,7 @@ describe('same-capture exact matchup projection', () => {
   it('keeps an unproved short lineup from claiming bench coverage or slot labels', () => {
     const projected = projectExactMatchups(capture(source), identities);
     expect(projected.teams[0].bench).toBeNull();
+    expect(projected.teams[0].nonstarters).toEqual({ state: 'known', players: [{ playerExternalId: 'b', officialPoints: '-2.5' }] });
     expect(projected.teams[0].starters?.[0].nativeSlot).toBeNull();
     expect(projected.teams[0].coverage).toMatchObject({ status: 'partial', reasons: ['slot_definition_unproved'] });
     expect(projected.lineupDefinitionRef).toBeNull();

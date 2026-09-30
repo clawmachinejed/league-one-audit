@@ -1,5 +1,6 @@
 import 'server-only';
 import { readNativePeriodMapping } from './period-mapping';
+import { EXACT_LINEUP_APPLICABILITY_COLUMNS, readExactLineupApplicability } from './exact-lineup-applicability';
 import type { DatabaseClient, DatabaseRow } from '../../database';
 import { EXACT_MATCHUPS_POLICY, exactMatchupsScope, projectExactMatchups,
   type AcceptedExactMatchupsRead } from '../../aggregator/exact-matchups';
@@ -38,6 +39,7 @@ export const EXACT_MATCHUPS_READ_SQL = `/* league-administration:read-accepted-e
             content.id AS content_id,content.content_hash,content.semantic_hash,content.payload,
             content.normalized_value,content.normalizer_version,content.completeness,
             content.league_season_id,content.provider,content.external_league_id,content.family,content.week,
+            ${EXACT_LINEUP_APPLICABILITY_COLUMNS},
             (SELECT to_jsonb(calendar) FROM public.league_native_period_calendar_evidence calendar
               WHERE calendar.connection_id=scope.connection_id AND calendar.league_season_id=scope.league_season_id
                 AND calendar.source_mapping_revision_id=accepted.source_mapping_revision_id
@@ -153,18 +155,15 @@ export function readAcceptedExactMatchupsRows(rows: readonly DatabaseRow[], mapp
       const entry = object(team);
       return { seasonTeamId: id(entry.seasonTeamId), externalRosterId: String(entry.externalRosterId) };
     });
-    const settings = configuration.settings && typeof configuration.settings === 'object'
-      && !Array.isArray(configuration.settings) ? configuration.settings as Record<string, unknown> : null;
-    const positions = configuration.roster_positions;
-    const slotEvidence = configuration.status === 'in_season' && settings?.leg === week && Array.isArray(positions)
-      && positions.every(slot => typeof slot === 'string' && slot.length > 0)
-      ? { nativePeriodWeek: week, nativeRosterPositions: positions as string[],
-        evidenceRef: id(row.configuration_content_id) } : undefined;
-    const official = projectExactMatchups(normalized, teams, slotEvidence);
     // The first retained compatible proof establishes identity only. It makes no
     // latest-calendar claim and remains stable across A -> B -> A schedule replays.
     const periodMapping = readNativePeriodMapping(row.calendar_evidence, mapping,
       id(row.configuration_content_id), configuration, week);
+    const lineupApplicability = readExactLineupApplicability(row.lineup_applicability_evidence, mapping, periodMapping);
+    const slotEvidence = lineupApplicability.status === 'available'
+      ? { nativePeriodWeek: week, season: mapping.scope.season, externalLeagueId: mapping.scope.externalLeagueId,
+        nativeRosterPositions: lineupApplicability.nativeRosterPositions, evidenceRef: lineupApplicability.activationRef } : undefined;
+    const official = projectExactMatchups(normalized, teams, slotEvidence);
     const value = periodMapping.status === 'mapped' ? { ...official, period: { ...official.period,
       nflWeekMappings: [{ season: periodMapping.season, seasonType: periodMapping.seasonType,
         week: periodMapping.week, evidenceRef: periodMapping.evidenceRef }] } } : official;
@@ -173,7 +172,7 @@ export function readAcceptedExactMatchupsRows(rows: readonly DatabaseRow[], mapp
       validationVersion: EXACT_MATCHUPS_POLICY.validationVersion, acceptedGeneration: integer(row.generation),
       verifiedAt: provenance.sourceObservedAt, effectiveFrom: null, effectiveTo: null, effectiveEvidence: 'unknown' };
     assertAcceptedResource(accepted);
-    return { status: 'available', accepted, value, periodMapping, receipt: { id: id(row.receipt_id),
+    return { status: 'available', accepted, value, periodMapping, lineupApplicability, receipt: { id: id(row.receipt_id),
       attemptId: id(row.attempt_id), ordinal: integer(row.ordinal), legacyObservationId: id(row.legacy_observation_id),
       configurationContentId: id(row.configuration_content_id), provenance, rawContentHash: normalized.contentHash, expectedTeamCount: integer(row.expected_team_count) },
       comparison: { status: 'equal', fields: ['raw-content', 'legacy-normalized-value', 'team-points', 'participants'] } };

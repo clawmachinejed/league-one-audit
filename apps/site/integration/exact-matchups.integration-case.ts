@@ -8,6 +8,8 @@ import { createProjectionStore } from '../lib/projection-store';
 import type { RosterAttempt, RosterPopulationEvidence } from '../lib/aggregator/current-roster';
 import { exactMatchupsScope } from '../lib/aggregator/exact-matchups';
 import { exactMatchupClockInstant } from './exact-matchup-clock';
+import captureSchedule from '../test-support/fixtures/sleeper-2026-season-schedule.json';
+import { createSleeperCalendarEvidence } from '../lib/league-administration/period-mapping';
 import { createIndependentDatabase, createPinnedIntegrationDatabase, ownerQuery, runtimeQuery,
   type IndependentDatabase } from './neon-integration-harness';
 
@@ -96,7 +98,8 @@ describe.sequential('exact native-period matchup shadow acceptance', () => {
       rawContentHash: input.contentHash, expectedTeamCount: 2, provenance: input.envelope.provenance });
     expect(current.value.teams[0]).toMatchObject({ officialTeamPoints: { raw: '8.25', custom: '0', effective: '0' },
       starters: [{ officialPoints: '8.25' }, { empty: true, officialPoints: null }],
-      bench: [{ playerExternalId: 'b', officialPoints: '-1' }] });
+      bench: null, nonstarters: { state: 'known', players: [{ playerExternalId: 'b', officialPoints: '-1' }] } });
+    expect(current.lineupApplicability).toEqual({ status: 'unavailable', reason: 'period_mapping_unproved' });
     expect(current.value.groups).toEqual([expect.objectContaining({ format: 'paired', participantTeamIds: expect.arrayContaining([
       current.value.teams[0].seasonTeamId, current.value.teams[1].seasonTeamId,
     ]) })]);
@@ -364,6 +367,92 @@ describe.sequential('exact native-period matchup shadow acceptance', () => {
     if (read.status !== 'available') throw new Error('Missing completed-league read.');
     expect(read.value.teams[0].bench).toBeNull();
     expect(read.value.teams[0].starters?.[0].nativeSlot).toBeNull();
+    expect(read.value.teams[0].nonstarters).toEqual({ state: 'known', players: [{ playerExternalId: 'b', officialPoints: '-1' }] });
+  });
+
+  async function exactConfiguration(f: Fixture, positions: readonly string[], leg = 18, status = 'complete') {
+    const input = await capture(f, 'league', { league_id: f.externalLeagueId, season: String(f.season),
+      sport: 'nfl', season_type: 'regular', total_rosters: 2, scoring_settings: rules,
+      roster_positions: positions, settings: { leg }, status }, null);
+    const at = input.envelope.provenance.checkedAt;
+    const calendar = createSleeperCalendarEvidence({ season: String(f.season), seasonSchedule: captureSchedule.body,
+      evaluatedAt: at, retrievalStartedAt: at, retrievalCompletedAt: at });
+    if (!calendar) throw new Error('Invalid exact applicability calendar fixture.');
+    const result = await store.recordObservation(input, undefined, f.mapping, undefined, undefined, undefined, undefined, calendar);
+    if (!result.observationId || !result.versionId) throw new Error('Missing existing configuration writer result.');
+    return { input, result, proof: { observationId: result.observationId, contentHash: input.contentHash, envelope: input.envelope } };
+  }
+
+  async function activate(f: Fixture, versionId: string, week: number, seasonType = 'regular') {
+    const [state] = await ownerQuery<{ generation: number }>(`SELECT COALESCE(max(generation),0)::integer AS generation
+      FROM league_configuration_activations WHERE league_season_id=$1 AND component='roster'`, [f.leagueSeasonId]);
+    const [activation] = await ownerQuery<{ id: string }>(`SELECT activate_league_configuration_component(
+      $1::uuid,'roster',$2::text,$3::smallint,$3::smallint,'synthetic explicitly evidenced slots',$4::bigint) AS id`,
+    [versionId, seasonType, week, state.generation]);
+    return activation.id;
+  }
+
+  it.each([1, 4, 18])('reads the existing writer and explicit activation for exact Week %i without current-leg inference', async week => {
+    const f = await fixture(2026);
+    const attempt = await reserve(f, week);
+    const configuration = await exactConfiguration(f, ['QB', 'RB', 'BN']);
+    const input = await capture(f, 'matchups', ordinary, week);
+    expect((await write(f, input, attempt, configuration.proof)).matchupAcceptance?.status).toBe('accepted');
+    const before = await store.readAcceptedExactMatchups(f.mapping, week);
+    if (before.status !== 'available') throw new Error('Missing unqualified official fixture.');
+    expect(before.lineupApplicability).toEqual({ status: 'unavailable', reason: 'no_binding' });
+    expect(before.value.teams[0].bench).toBeNull();
+    const activationId = await activate(f, configuration.result.versionId!, week);
+    const after = await store.readAcceptedExactMatchups(f.mapping, week);
+    if (after.status !== 'available') throw new Error('Missing qualified official fixture.');
+    expect(after.lineupApplicability).toMatchObject({ status: 'available', activationRef: activationId,
+      configurationVersionId: configuration.result.versionId, sourceMappingRevisionId: f.mapping.revisionId,
+      period: { season: 2026, seasonType: 'regular', week }, startingSlots: ['QB', 'RB'] });
+    expect(after.value.teams[0]).toMatchObject({ starters: [{ nativeSlot: 'QB', officialPoints: '8.25' },
+      { nativeSlot: 'RB', empty: true }], bench: [{ playerExternalId: 'b', officialPoints: '-1' }],
+      reserveAndTaxi: { state: 'unknown' } });
+    // Roster 2's one-slot array cannot prove a complete two-slot lineup/bench.
+    expect(after.value.teams[1].bench).toBeNull();
+    expect(after.value.teams[1].starters?.[0].nativeSlot).toBeNull();
+    expect(after.receipt).toEqual(before.receipt);
+    expect(after.accepted).toEqual(before.accepted);
+    expect(await ownerQuery('SELECT payload,normalized_value FROM league_administration_contents WHERE id=$1', [after.accepted.contentId]))
+      .toEqual([{ payload: ordinary, normalized_value: input.value }]);
+  });
+
+  it('keeps exact slot corrections generation-scoped and waits for configuration mapping evidence', async () => {
+    const f = await fixture(2026); const week = 3;
+    const firstAttempt = await reserve(f, week);
+    const first = await exactConfiguration(f, ['QB', 'RB', 'BN']);
+    await write(f, await capture(f, 'matchups', ordinary, week), firstAttempt, first.proof);
+    const oldActivation = await activate(f, first.result.versionId!, week);
+    const before = await store.readAcceptedExactMatchups(f.mapping, week);
+    expect(before).toMatchObject({ status: 'available', lineupApplicability: { status: 'available', activationRef: oldActivation } });
+    const nextAttempt = await reserve(f, week);
+    const correction = await exactConfiguration(f, ['QB', 'SUPER_FLEX', 'BN']);
+    const newActivation = await activate(f, correction.result.versionId!, week);
+    const unbound = await store.readAcceptedExactMatchups(f.mapping, week);
+    if (unbound.status !== 'available') throw new Error('Missing official values during optional mapping gap.');
+    expect(unbound.lineupApplicability).toEqual({ status: 'unavailable', reason: 'invalid_applicability_evidence' });
+    expect(unbound.value.teams[0].officialTeamPoints.effective).toBe('0');
+    expect((await write(f, await capture(f, 'matchups', ordinary, week), nextAttempt, correction.proof)).matchupAcceptance?.status).toBe('accepted');
+    const after = await store.readAcceptedExactMatchups(f.mapping, week);
+    expect(after).toMatchObject({ status: 'available', lineupApplicability: { status: 'available', activationRef: newActivation,
+      startingSlots: ['QB', 'SUPER_FLEX'] } });
+    expect(await ownerQuery('SELECT id FROM league_configuration_activations WHERE id=$1', [oldActivation])).toEqual([{ id: oldActivation }]);
+  });
+
+  it('does not apply a different season type or week and never grants runtime configuration activation', async () => {
+    const f = await fixture(2026); const week = 4; const attempt = await reserve(f, week);
+    const configuration = await exactConfiguration(f, ['QB', 'RB', 'BN'], week, 'in_season');
+    await write(f, await capture(f, 'matchups', ordinary, week), attempt, configuration.proof);
+    await activate(f, configuration.result.versionId!, week, 'post');
+    await activate(f, configuration.result.versionId!, week - 1);
+    const current = await store.readAcceptedExactMatchups(f.mapping, week);
+    expect(current).toMatchObject({ status: 'available', lineupApplicability: { status: 'unavailable', reason: 'no_binding' } });
+    await expect(runtimeQuery(`SELECT activate_league_configuration_component(
+      $1::uuid,'roster','regular',4::smallint,4::smallint,'unprivileged fixture',3::bigint)`, [configuration.result.versionId]))
+      .rejects.toThrow(/permission denied/);
   });
 
   it('keeps shadow history immutable and the renamed writer inaccessible to runtime', async () => {

@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { cache } from 'react';
+import { PLAYER_CACHE_SECONDS } from './sleeper-player-cache-policy';
 import { unstable_cache } from 'next/cache';
 import { createSleeperCalendarEvidence, type SleeperCalendarEvidence } from './league-administration/period-mapping';
 import { sleeperRegularSeasonPeriod } from './projections/adapters/sleeper/schedule';
@@ -152,8 +153,7 @@ const SCORES_API = 'https://api.sleeper.com/scores/nfl/regular';
 const CORE_CACHE_SECONDS = 60;
 const SCHEDULE_CACHE_SECONDS = 300;
 const SEASON_SCHEDULE_CACHE_SECONDS = 3_600;
-// Sleeper asks consumers to store player data and refresh it at most daily.
-const PLAYER_CACHE_SECONDS = 86_400;
+
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);

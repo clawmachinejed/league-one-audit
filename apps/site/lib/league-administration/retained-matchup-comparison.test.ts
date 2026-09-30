@@ -194,6 +194,20 @@ describe('immutable retained matchup comparison manifest', () => {
     expect(await run.service.compareBatch({ manifest, batchSize: 2 })).toEqual({ status: 'unavailable', reason: 'retained_batch_membership_mismatch' });
   });
 
+  it('rejects a previously valid v1 transformation manifest before reading or reusing its cursor', async () => {
+    const run = fixture(1); const current = await manifestOf(run);
+    expect(current.transformationVersion).toBe('sleeper-retained-matchups-v2');
+    const { id: _id, ...body } = current;
+    void _id;
+    const oldBody = { ...body, transformationVersion: 'sleeper-retained-matchups-v1' };
+    // Recompute the old-version digest so rejection is about semantic version, not a corrupt hash.
+    const oldManifest = { ...oldBody, id: compatibleRevision(oldBody) } as RetainedMatchupManifest;
+    expect(isRetainedMatchupManifest(oldManifest)).toBe(false);
+    expect(await run.service.compareBatch({ manifest: oldManifest,
+      cursor: { manifestId: oldManifest.id, nextIndex: 0 }, batchSize: 1 }))
+      .toEqual({ status: 'unavailable', reason: 'invalid_retained_manifest' });
+    expect(run.readRetainedMatchups).not.toHaveBeenCalled();
+  });
   it('rejects tampered membership, scope, hashes, versions and order before reading', async () => {
     const run = fixture(2); const manifest = await manifestOf(run);
     const mutations = [

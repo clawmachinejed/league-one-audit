@@ -3,7 +3,8 @@ import 'server-only';
 import { getDatabase, withDatabaseAbortSignal, type Database } from '../database';
 import { createLeagueAdministrationMethods } from './neon/administration';
 export { createAccountEnrollmentMethods as createAccountEnrollmentStore } from './neon/account-enrollment';
-import { createProjectionExactMatchupCompatibilityReader } from '../projection-store';
+import { createProjectionExactMatchupCompatibilityReader, createProjectionStore } from '../projection-store';
+import { createBundleOneReadService } from '../aggregator/bundle-one';
 import { EXACT_MATCHUPS_READ_SQL, readAcceptedExactMatchupsRows } from './neon/exact-matchups';
 import { readNativePeriodMapping } from './neon/period-mapping';
 import type { ExactMatchupCompatibilityRead } from '../aggregator/exact-matchup-compatibility';
@@ -79,4 +80,20 @@ export function createExactMatchupCompatibilityReader(
       };
     },
   };
+}
+
+/** B1 composition remains internal; the established database factory owns isolation and credentials. */
+export function createBundleOneReader(database: Database = getDatabase()) {
+  const administration = () => createLeagueAdministrationStore(withDatabaseAbortSignal(database, AbortSignal.timeout(3_000)));
+  return createBundleOneReadService({
+    enabled: database.enabled,
+    readAcceptedExactMatchups: (mapping, week) => administration().readAcceptedExactMatchups(mapping, week),
+    readAcceptedCurrentRoster: (mapping, options) => administration().readAcceptedCurrentRoster(mapping, options),
+    readExactMatchupCompatibility: input => createExactMatchupCompatibilityReader(database).readExactMatchupCompatibility(input),
+    readAllPlayerBoxScores: input => {
+      const store = createProjectionStore(withDatabaseAbortSignal(database, AbortSignal.timeout(3_000)));
+      return store.readAllPlayerBoxScores?.(input)
+        ?? Promise.resolve({ status: 'unavailable', observedAt: null, revision: null, players: {} });
+    },
+  });
 }

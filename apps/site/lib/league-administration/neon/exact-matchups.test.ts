@@ -8,6 +8,7 @@ import { normalizeAdministrationObservation } from '../normalize';
 import type { JsonValue } from '../contracts';
 import type { AdministrationSourceMapping } from '../source-mapping';
 import { exactMatchupMethods } from './exact-matchups';
+import { lineupApplicabilityFixture } from '../../aggregator/exact-lineup-applicability.fixtures';
 
 vi.mock('server-only', () => ({}));
 
@@ -153,6 +154,23 @@ function mappedFixture(week = 3) {
 }
 
 describe('accepted exact matchup period mapping', () => {
+  it.each(['in_season', 'complete'])('requires explicit applicability even when the %s configuration leg matches', async status => {
+    const base = mappedFixture();
+    const row = { ...base, configuration_payload: { ...base.configuration_payload, status } };
+    const unproved = await exactMatchupMethods(database(() => [row])).readAcceptedExactMatchups(mapping, 3);
+    if (unproved.status !== 'available') throw new Error('Expected official lineup.');
+    expect(unproved.lineupApplicability).toEqual({ status: 'unavailable', reason: 'no_binding' });
+    expect(unproved.value.teams[0].starters?.[0].nativeSlot).toBeNull();
+    const evidence = lineupApplicabilityFixture(mapping, row.configuration_payload, 3);
+    const proved = await exactMatchupMethods(database(() => [{ ...row, lineup_applicability_evidence: [evidence] }]))
+      .readAcceptedExactMatchups(mapping, 3);
+    if (proved.status !== 'available') throw new Error('Expected proved lineup.');
+    expect(proved.lineupApplicability).toMatchObject({ status: 'available', activationRef: evidence.activation.id });
+    expect(proved.value.teams[0].starters?.[0].nativeSlot).toBe('QB');
+    expect(proved.value.teams[0].bench).toEqual([]);
+    expect(proved.accepted).toEqual(unproved.accepted);
+    expect(proved.receipt).toEqual(unproved.receipt);
+  });
   it.each([1, 3, 18])('maps exact native week %s with retained proof, regardless of the old evaluated current week', async week => {
     const row = mappedFixture(week);
     const respond = vi.fn(() => [row]);

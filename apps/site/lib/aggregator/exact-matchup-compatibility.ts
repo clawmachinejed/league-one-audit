@@ -10,7 +10,8 @@ import { compatibleScoringRulesHash } from '../projections/shared/revision-compa
 import { stableJson } from '../projections/shared/stable-json';
 import { MAX_SOURCE_SKEW_MS } from '../projections/shared/source-timing';
 import type { CalculationObservationSourceHistory, SnapshotSourceHistoryInput, SnapshotSourceHistoryRead } from '../projections/shared/source-history';
-import type { MatchupSide, MatchupWinProbability, Player } from '../types';
+import type { Matchup, MatchupSide, MatchupWinProbability, Player } from '../types';
+import { myFantasyProjectedOutcome } from '../my-fantasy';
 import { exactMatchupsScope, projectExactMatchups, type AcceptedExactMatchupsRead,
   type ExactMatchupValue, type ExactPeriodMappingQualification } from './exact-matchups';
 
@@ -52,9 +53,12 @@ export type ExactMatchupCompatibilityRead = Readonly<{
   sourceHistory: SnapshotSourceHistoryRead;
   forecast: Unavailable | Readonly<{ status: 'available'; reference: SnapshotReference;
     teams: readonly Readonly<{ seasonTeamId: string; externalRosterId: string; projectedPoints: number | null;
+      display: Readonly<{ source: 'stored-snapshot'; temporalContext: 'snapshot-display'; name: string; managerName: string; avatar: string | null }>;
+      projectedOutcome: ReturnType<typeof myFantasyProjectedOutcome>;
       starters: readonly Readonly<{ index: number; playerExternalId: string | null; projectedPoints: number | null }>[] }>[] }>;
   gameState: Unavailable | Readonly<{ status: 'available'; reference: SnapshotReference;
     observations: readonly CompatibilityGameEvidence[];
+    groups: readonly Readonly<{ identity: string; status: Matchup['status']; authority: 'local-interpretation' }>[];
     teams: readonly Readonly<{ seasonTeamId: string; starters: readonly Readonly<{ index: number; game: Player['game'] }>[] }>[] }>;
   probability: Unavailable | Readonly<{ status: 'available'; reference: SnapshotReference;
     groups: readonly Readonly<{ identity: string; value: MatchupWinProbability;
@@ -259,6 +263,14 @@ export function joinAcceptedExactMatchupDerived(input: JoinAcceptedExactMatchupD
     const gameOK = gamesValid(input);
     const forecastTeams = accepted.value.teams.map(team => ({ seasonTeamId: team.seasonTeamId, externalRosterId: team.externalRosterId,
       projectedPoints: sides.get(team.externalRosterId)!.projectedPoints,
+      display: { source: 'stored-snapshot' as const, temporalContext: 'snapshot-display' as const,
+        name: sides.get(team.externalRosterId)!.team.name, managerName: sides.get(team.externalRosterId)!.team.managerName,
+        avatar: sides.get(team.externalRosterId)!.team.avatar },
+      projectedOutcome: myFantasyProjectedOutcome(snapshot.payload, input.context, (() => {
+        const matchup = snapshot.payload.matchups.find(value => value.id === team.nativeMatchupId)!;
+        return { ...matchup, sides: [sides.get(team.externalRosterId)!,
+          ...matchup.sides.filter(side => String(side.team.id) !== team.externalRosterId)] };
+      })()),
       starters: team.starters!.map((slot, index) => ({ index, playerExternalId: slot.playerExternalId,
         projectedPoints: sides.get(team.externalRosterId)!.starters[index].projectedPoints })) }));
     const hasForecast = forecastTeams.some(team => finite(team.projectedPoints));
@@ -272,6 +284,7 @@ export function joinAcceptedExactMatchupDerived(input: JoinAcceptedExactMatchupD
       forecast: !gameOK ? unavailable('game_evidence_unavailable') : hasForecast
         ? { status: 'available', reference, teams: forecastTeams } : unavailable('forecast_unavailable'),
       gameState: gameOK ? { status: 'available', reference, observations: evidence.games!.observations,
+        groups: probabilityGroups.map(({ identity, matchup }) => ({ identity, status: matchup.status, authority: 'local-interpretation' as const })),
         teams: accepted.value.teams.map(team => ({ seasonTeamId: team.seasonTeamId,
           starters: sides.get(team.externalRosterId)!.starters.map((player, index) => ({ index, game: player.game })) })) }
         : unavailable('game_evidence_unavailable'),

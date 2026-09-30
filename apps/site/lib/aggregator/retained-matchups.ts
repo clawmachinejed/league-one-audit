@@ -7,7 +7,7 @@ import { isAdministrationSourceMapping } from '../league-administration/source-m
 import { compatibleRevision } from '../projections/shared/revision-compatibility';
 import { projectExactMatchups, type ExactMatchupValue } from './exact-matchups';
 
-export const RETAINED_MATCHUPS_TRANSFORMATION_VERSION = 'sleeper-retained-matchups-v1' as const;
+export const RETAINED_MATCHUPS_TRANSFORMATION_VERSION = 'sleeper-retained-matchups-v2' as const;
 
 export type RetainedMatchupRejection = 'retained_selection_invalid' | 'retained_scope_mismatch'
   | 'retained_content_missing' | 'retained_content_link_invalid' | 'complete_matchup_capture_required'

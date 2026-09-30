@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import captureSchedule from '../test-support/fixtures/sleeper-2026-season-schedule.json';
 import type { AdministrationFamily, JsonValue } from '../lib/league-administration/contracts';
 import { createLeagueAdministrationMethods } from '../lib/league-administration/neon/administration';
-import { createExactMatchupCompatibilityReader } from '../lib/league-administration/store';
+import { createBundleOneReader, createExactMatchupCompatibilityReader } from '../lib/league-administration/store';
 import { normalizeAdministrationObservation } from '../lib/league-administration/normalize';
 import { createSleeperCalendarEvidence } from '../lib/league-administration/period-mapping';
 import { createProjectionStore, type PublishSnapshotInput } from '../lib/projection-store';
@@ -189,6 +189,40 @@ describe.sequential('accepted exact-period stored derived compatibility', () => 
     expect(value.probability).toMatchObject({ status: 'unavailable', reason });
   };
 
+  it('composes B1 from the accepted capture and stored snapshot while isolating absent optional resources', async () => {
+    const value = await seed();
+    const published = await publish(value, await publicationFence(value.f));
+    const request = readInput(value, published);
+    const result = await createBundleOneReader(connection.database).readBundleOne({
+      expectedMapping: value.f.mapping, nativeWeek: 3,
+      snapshot: { snapshotId: request.request.snapshotId, modelVersion: request.request.modelVersion },
+      selectedSeasonTeamId: value.official.value.teams[0].seasonTeamId,
+      context: request.context, now: request.now,
+    });
+    if (result.status !== 'read') throw new Error('Expected composed B1 read.');
+    expect(result.official).toEqual(value.official);
+    expect(result.dependencies.official).toMatchObject({ contentId: value.official.accepted.contentId,
+      receiptId: value.official.receipt.id, mappingRevisionId: value.f.mapping.revisionId,
+      sourceObservedAt: value.official.receipt.provenance.sourceObservedAt });
+    expect(result.forecast).toMatchObject({ status: 'available', teams: [
+      { projectedPoints: 13.25, projectedOutcome: 'loss', display: { name: 'Team 1', source: 'stored-snapshot' } },
+      { projectedPoints: 17.5, projectedOutcome: 'win' },
+    ] });
+    expect(result.currentRoster.value.status).toBe('missing');
+    expect(result.metadata).toMatchObject({ status: 'available', historicalPlayerState: 'unverified',
+      currentDisplay: { status: 'unavailable' } });
+    expect(result.boxScores).toMatchObject({ status: 'unavailable', reason: 'player_identity_invalid' });
+    expect(result.gameState).toMatchObject({ status: 'available', groups: [
+      { status: 'upcoming', authority: 'local-interpretation' },
+    ] });
+    const retry = await createBundleOneReader(connection.database).readBundleOne({
+      expectedMapping: value.f.mapping, nativeWeek: 3, snapshot: null,
+      selectedSeasonTeamId: null, context: request.context, now: request.now,
+    });
+    if (retry.status !== 'read') throw new Error('Expected official-only B1 read.');
+    expect(retry.official).toEqual(value.official);
+    expect(retry.forecast).toEqual({ status: 'unavailable', reason: 'snapshot_reference_missing' });
+  });
   it('attaches stored results by team identity, preserving custom zero, ordered vacancies and official starter points', async () => {
     const value = await seed(); const published = await publish(value, await publicationFence(value.f));
     const result = await read(value, published);

@@ -1,5 +1,6 @@
 import type { AcceptedResource, Decimal, ProviderReference, SourceScope } from './contracts';
-import type { AdministrationEnvelope, JsonValue, NormalizedAdministrationObservation, SourceMatchup } from '../league-administration/contracts';
+import type { AdministrationEnvelope, JsonValue, NormalizedAdministrationObservation, SourceMatchup,
+  ConfigurationBinding, ConfigurationPeriod } from '../league-administration/contracts';
 import type { AdministrationSourceMapping } from '../league-administration/source-mapping';
 import { startingSlots } from '../sleeper-lineup';
 
@@ -31,6 +32,9 @@ export type ExactMatchupTeam = Readonly<{
   seasonTeamId: string; externalRosterId: string; nativeMatchupId: string | null;
   players: readonly string[] | null; starters: readonly ExactLineupSlot[] | null;
   bench: readonly ExactBenchEntry[] | null;
+  /** Exact nonstarter membership is weaker than a complete, slot-qualified bench. */
+  nonstarters: Readonly<{ state: 'known'; players: readonly ExactBenchEntry[] }>
+    | Readonly<{ state: 'unknown'; reason: 'membership_or_starters_missing' | 'membership_inconsistent' }>;
   reserveAndTaxi: { state: 'unknown'; reason: 'period_reserve_evidence_missing' };
   officialPlayerPoints: Readonly<Record<string, OfficialPoint>> | null;
   officialTeamPoints: Readonly<{ raw: OfficialPoint; custom: OfficialPoint; effective: OfficialPoint;
@@ -56,9 +60,18 @@ export type ExactPeriodMappingQualification = Readonly<{
   season: number; seasonType: 'regular'; week: number;
 }> | Readonly<{ status: 'unmapped'; reason: 'calendar_evidence_missing' | 'calendar_evidence_invalid' | 'league_format_unqualified' }>;
 
+export type ExactLineupApplicability = Readonly<{
+  status: 'available'; activationRef: string; configurationVersionId: string; componentHash: string;
+  sourceMappingRevisionId: string; periodMappingRef: string; period: ConfigurationPeriod;
+  recordedAt: string; evidence: ConfigurationBinding['evidence'];
+  nativeRosterPositions: readonly string[]; startingSlots: readonly string[];
+}> | Readonly<{ status: 'unavailable'; reason: 'period_mapping_unproved' | 'no_binding'
+  | 'missing_version' | 'inconsistent_binding' | 'roster_positions_missing' | 'invalid_applicability_evidence' }>;
+
 export type AcceptedExactMatchupsRead = Readonly<{
   status: 'available'; accepted: AcceptedResource; value: ExactMatchupValue;
   periodMapping: ExactPeriodMappingQualification;
+  lineupApplicability?: ExactLineupApplicability;
   receipt: { id: string; attemptId: string; ordinal: number; legacyObservationId: string; configurationContentId: string;
     provenance: AdministrationEnvelope['provenance']; rawContentHash: string; expectedTeamCount: number };
   comparison: { status: 'equal'; fields: readonly string[] };
@@ -96,7 +109,8 @@ function ids(value: JsonValue | undefined): string[] | null {
 export function projectExactMatchups(
   normalized: NormalizedAdministrationObservation,
   seasonTeams: readonly Readonly<{ seasonTeamId: string; externalRosterId: string }>[],
-  slotEvidence?: Readonly<{ nativePeriodWeek: number; nativeRosterPositions: readonly string[]; evidenceRef: string }>,
+  slotEvidence?: Readonly<{ nativePeriodWeek: number; season: number; externalLeagueId: string;
+    nativeRosterPositions: readonly string[]; evidenceRef: string }>,
 ): ExactMatchupValue {
   const { envelope, value } = normalized;
   if (normalized.status !== 'accepted' || value?.family !== 'matchups' || envelope.family !== 'matchups'
@@ -107,7 +121,8 @@ export function projectExactMatchups(
   if (teamIds.size !== seasonTeams.length || teamIds.size !== value.matchups.length || envelope.payload.length !== value.matchups.length) {
     throw new Error('Matchup population identity mismatch.');
   }
-  const slots = slotEvidence?.nativePeriodWeek === envelope.week && slotEvidence.evidenceRef
+  const slots = slotEvidence?.nativePeriodWeek === envelope.week && slotEvidence.season === envelope.scope.season
+    && slotEvidence.externalLeagueId === envelope.scope.externalLeagueId && slotEvidence.evidenceRef
     ? startingSlots(slotEvidence.nativeRosterPositions) : null;
   const rawByRoster = new Map<string, Record<string, JsonValue>>();
   for (const source of envelope.payload) {
@@ -149,14 +164,20 @@ export function projectExactMatchups(
     }
     if (entry.points === null && entry.customPoints === null) reasons.push('team_points_missing');
     if (rawPlayers && rawPlayers.some(player => score(pointMap?.[player]) === null)) reasons.push('player_points_incomplete');
-    const bench = rawPlayers && rawStarters && slotCountProved
+    const nonstarterPlayers = rawPlayers && rawStarters
       && !reasons.includes('starter_outside_membership') && !reasons.includes('invalid_player_vacancy')
       ? rawPlayers.filter(player => !starterIds.has(player)).map(player => ({
         playerExternalId: player, officialPoints: pointMap ? score(pointMap[player]) : null,
       })) : null;
+    const nonstarters: ExactMatchupTeam['nonstarters'] = nonstarterPlayers !== null
+      ? { state: 'known', players: nonstarterPlayers }
+      : { state: 'unknown', reason: rawPlayers === null || rawStarters === null
+        ? 'membership_or_starters_missing' : 'membership_inconsistent' };
+    // Explicitly empty membership has no possible bench members even when slot labels are unknown.
+    const bench = slotCountProved || (rawPlayers?.length === 0 && rawStarters?.length === 0) ? nonstarterPlayers : null;
     const effective = entry.customPoints ?? entry.points;
     return { seasonTeamId, externalRosterId: entry.externalRosterId, nativeMatchupId: entry.externalMatchupId,
-      players: rawPlayers, starters, bench, reserveAndTaxi: { state: 'unknown', reason: 'period_reserve_evidence_missing' },
+      players: rawPlayers, starters, bench, nonstarters, reserveAndTaxi: { state: 'unknown', reason: 'period_reserve_evidence_missing' },
       officialPlayerPoints: pointMap ? Object.fromEntries(Object.entries(pointMap).map(([id, points]) => [id, score(points)])) : null,
       officialTeamPoints: { raw: decimal(entry.points), custom: decimal(entry.customPoints), effective: decimal(effective),
         adjustment: entry.customPoints !== null ? 'custom-override' : entry.points !== null ? 'none' : 'unknown',

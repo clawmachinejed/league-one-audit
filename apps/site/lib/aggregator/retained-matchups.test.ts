@@ -35,7 +35,7 @@ describe('immutable retained matchup projection', () => {
         officialTeamPoints: { raw: '10.75', custom: '0', effective: '0', adjustment: 'custom-override' },
         starters: [{ index: 0, playerExternalId: '001', officialPoints: '0', pointSource: 'starter-index', nativeSlot: null },
           { index: 1, playerExternalId: null, empty: true, officialPoints: null }], bench: null },
-      { seasonTeamId: retainedMatchupId(101) }, { seasonTeamId: retainedMatchupId(102), players: [], starters: [], bench: null }],
+      { seasonTeamId: retainedMatchupId(101) }, { seasonTeamId: retainedMatchupId(102), players: [], starters: [], bench: [] }],
       groups: [{ format: 'paired', participantTeamIds: [retainedMatchupId(100), retainedMatchupId(101)] },
         { format: 'unpaired', participantTeamIds: [retainedMatchupId(102)] }] }, comparison: { status: 'equal' } });
     expect(result).not.toHaveProperty('accepted');
