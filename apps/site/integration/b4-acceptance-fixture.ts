@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import assert from 'node:assert/strict';
 import { vi } from 'vitest';
 import type { DatabaseClient } from '../lib/database';
 import type { AdministrationFamily, JsonObject, JsonValue } from '../lib/league-administration/contracts';
@@ -7,8 +8,34 @@ import { captureAdministrationSourceMapping, recordCapturedAdministration } from
 import { getOfficialAdministrationObservation } from '../lib/sleeper';
 import type { BundleFourReadInput } from '../lib/aggregator/bundle-four';
 import { registerEnrolledIntegrationSeason } from './administration-enrollment-fixture';
-import { createPinnedIntegrationDatabase, ownerQuery } from './neon-integration-harness';
+import { createPinnedIntegrationDatabase, ownerQuery, type IndependentDatabase } from './neon-integration-harness';
 import { exactMatchupClockInstant } from './exact-matchup-clock';
+
+type Enrollment = { league_id: string; provider: string; active: boolean; evidence: string; enrolled_at: string };
+type EnrollmentSeason = { league_id: string; season: number; provider: string; evidence: string; recorded_at: string };
+type EnrollmentState = { enrollment: Enrollment | null; seasons: EnrollmentSeason[] | null };
+
+function assertEnrollmentIntegrity(before: EnrollmentState, after: EnrollmentState, createdSeasons: readonly number[]) {
+  assert.ok(after.enrollment, 'B4 fixture enrollment must remain present.');
+  if (before.enrollment) assert.deepEqual(after.enrollment, before.enrollment, 'B4 must preserve original enrollment evidence.');
+  else {
+    assert.match(after.enrollment.league_id, /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu);
+    assert.ok(Number.isFinite(Date.parse(after.enrollment.enrolled_at)), 'B4 enrollment must have its recorded timestamp.');
+    assert.deepEqual(after.enrollment, { league_id: after.enrollment.league_id, provider: 'sleeper', active: true,
+      evidence: 'isolated fixture owner approval', enrolled_at: after.enrollment.enrolled_at });
+  }
+  const originalSeasons = before.seasons ?? [], retainedSeasons = after.seasons ?? [];
+  assert.deepEqual(retainedSeasons.map(row => row.season), [...originalSeasons.map(row => row.season), ...createdSeasons]
+    .sort((a, b) => a - b), 'B4 must retain exactly the original and explicitly enrolled seasons.');
+  for (const original of originalSeasons) assert.deepEqual(retainedSeasons.find(row => row.season === original.season),
+    original, 'B4 must preserve original season enrollment evidence.');
+  for (const season of createdSeasons) {
+    const membership = retainedSeasons.find(row => row.season === season)!;
+    assert.ok(Number.isFinite(Date.parse(membership.recorded_at)), 'B4 membership must have its recorded timestamp.');
+    assert.deepEqual(membership, { league_id: after.enrollment.league_id, season, provider: 'sleeper',
+      evidence: 'isolated fixture season approval', recorded_at: membership.recorded_at });
+  }
+}
 
 export const b4Rosters = (season: number): JsonObject[] => [1, 2].map(id => ({ roster_id: id,
   owner_id: id === 1 ? (season === 2026 ? 'b4-new-owner' : 'b4-old-owner') : 'b4-returning-owner',
@@ -23,23 +50,21 @@ export async function createB4Fixture(database: DatabaseClient) {
   const administration = createLeagueAdministrationStore(database);
   const suffix = BigInt(`0x${randomUUID().replaceAll('-', '')}`).toString().slice(0, 20);
   const externalIds = { 2026: `992026${suffix}`, 2025: `992025${suffix}` };
-  const enrollmentState = () => ownerQuery(`SELECT
+  const enrollmentState = async () => (await ownerQuery<EnrollmentState>(`SELECT
     (SELECT to_jsonb(enrollment) FROM league_administration_enrollments enrollment JOIN leagues league ON league.id=enrollment.league_id
       WHERE league.league_key='league2') AS enrollment,
     (SELECT jsonb_agg(to_jsonb(membership) ORDER BY membership.season) FROM league_administration_enrollment_seasons membership
-      JOIN leagues league ON league.id=membership.league_id WHERE league.league_key='league2') AS seasons`);
+      JOIN leagues league ON league.id=membership.league_id WHERE league.league_key='league2') AS seasons`))[0];
   const originalEnrollment = await enrollmentState();
-  const existingSeasons = await ownerQuery<{ season: number }>(`SELECT membership.season FROM league_administration_enrollment_seasons membership
-    JOIN leagues league ON league.id=membership.league_id WHERE league.league_key='league2'`);
+  const existingSeasons = originalEnrollment.seasons ?? [];
   const createdSeasons = [2025, 2026].filter(season => !existingSeasons.some(row => row.season === season));
+  let registeredEnrollment: EnrollmentState | undefined;
   async function cleanup() {
-    // Remove only enrollment rows created by this synthetic fixture. Immutable source evidence remains untouched.
-    await ownerQuery(`DELETE FROM league_administration_enrollment_seasons membership USING leagues league
-      WHERE membership.league_id=league.id AND league.league_key='league2' AND membership.season=ANY($1::smallint[])
-        AND membership.evidence='isolated fixture season approval'`, [createdSeasons]);
-    if (originalEnrollment[0].enrollment === null) await ownerQuery(`DELETE FROM league_administration_enrollments enrollment USING leagues league
-      WHERE enrollment.league_id=league.id AND league.league_key='league2' AND enrollment.evidence='isolated fixture owner approval'`);
-    return { before: originalEnrollment, after: await enrollmentState() };
+    // Committed enrollment/history is immutable. Only the existing guarded global schema teardown removes it.
+    const after = await enrollmentState();
+    assertEnrollmentIntegrity(originalEnrollment, after, createdSeasons);
+    if (registeredEnrollment) assert.deepEqual(after, registeredEnrollment, 'B4 committed enrollment evidence must remain unchanged.');
+    return after;
   }
   // Existing owner registration requires the historical-connection proof and insertion in the same transaction.
   const owner = await createPinnedIntegrationDatabase('owner');
@@ -100,7 +125,11 @@ export async function createB4Fixture(database: DatabaseClient) {
         lifecycle: 'preseason', nflPhase: 'preseason', temporalState: 'future', refreshDue: false }, ...overrides };
   }
   let seasons: string[];
-  try { seasons = [(await mapping(2025)).leagueSeasonId, (await mapping(2026)).leagueSeasonId]; }
+  try {
+    registeredEnrollment = await enrollmentState();
+    assertEnrollmentIntegrity(originalEnrollment, registeredEnrollment, createdSeasons);
+    seasons = [(await mapping(2025)).leagueSeasonId, (await mapping(2026)).leagueSeasonId];
+  }
   catch (error) { await cleanup(); throw error; }
   async function fingerprint() {
     return ownerQuery(`SELECT
@@ -113,3 +142,10 @@ export async function createB4Fixture(database: DatabaseClient) {
   return { administration, externalIds, mapping, league, capture, seed, request, fingerprint, cleanup };
 }
 export type B4Fixture = Awaited<ReturnType<typeof createB4Fixture>>;
+
+/** Read-only fixture validation must never prevent the independent restricted connection from closing. */
+export async function closeB4Fixture(fixture: Pick<B4Fixture, 'cleanup'> | undefined,
+  connection: Pick<IndependentDatabase, 'close'> | undefined) {
+  try { await fixture?.cleanup(); }
+  finally { await connection?.close(); }
+}

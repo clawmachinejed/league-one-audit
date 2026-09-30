@@ -7,17 +7,14 @@ import { buildManagerHistory, type ManagerHistorySeason } from '../lib/manager-h
 import { normalizeTeams, type SleeperRoster, type SleeperUser, type SleeperMatchup } from '../lib/transform';
 import type { DatabaseClient, DatabaseRow, DatabaseQueryOptions } from '../lib/database';
 import { createIndependentDatabase, ownerQuery, type IndependentDatabase } from './neon-integration-harness';
-import { b4Rosters, b4WeeklyRows, createB4Fixture, type B4Fixture } from './b4-acceptance-fixture';
+import { b4Rosters, b4WeeklyRows, closeB4Fixture, createB4Fixture, type B4Fixture } from './b4-acceptance-fixture';
 
 /** Only the existing guarded disposable suite executes these real restricted-store cases. */
 describe.sequential('B4 retained historical continuity through the guarded real store', () => {
   let connection: IndependentDatabase, f: B4Fixture;
   beforeAll(async () => { connection = createIndependentDatabase(); f = await createB4Fixture(connection.database); });
   beforeEach(async () => { await f.seed(); });
-  afterAll(async () => {
-    try { if (f) { const state = await f.cleanup(); expect(state.after).toEqual(state.before); } }
-    finally { await connection?.close(); }
-  });
+  afterAll(async () => closeB4Fixture(f, connection));
 
   async function read(overrides: Partial<BundleFourReadInput> = {}) {
     const queries: string[] = [];

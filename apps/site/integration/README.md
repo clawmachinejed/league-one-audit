@@ -111,13 +111,25 @@ league captures through the existing Sleeper adapter, administration writer and
 restricted store reader. They cover annual identity, same-capture compatibility,
 partial retention, missing scores and ambiguous ownership, completion verification,
 corrections, serialized frozen comparison, stale sources, unsupported settings and
-concurrent remapping. The fixture restores only its newly created enrollment rows;
-it preserves immutable evidence and never resets schemas itself.
+concurrent remapping. The fixture validates retained enrollment evidence during
+teardown; it never deletes committed history or resets schemas itself.
 
 These cases require the existing authorized disposable supervisor and cleanup
 receipts. Authored source and ordinary tests do not qualify their SQL behavior or
 production population. See the [B4 contract](../../../docs/aggregator-backend/historical-continuity.md)
 and the [Step 2 evidence ledger](../../../docs/aggregator-backend/step-2-checklist.md).
+
+## B4 fixture teardown
+
+The B4 historical-continuity fixture retains its committed synthetic enrollment
+and history rows until the existing guarded global schema teardown. Migration
+016 makes enrollment-season history immutable, including for the fixture owner;
+fixture cleanup must not delete it or disable its guards. Cleanup reads and
+checks that original enrollment evidence is preserved, that registration added
+only the expected synthetic memberships, and that the committed enrollment state
+is unchanged. The same check applies after a post-registration setup failure.
+The independent restricted connection still closes if validation fails, and the
+source-remapping case restores its source through the existing revision writer.
 
 ## Deliberately outside this PR2 database suite
 
