@@ -74,12 +74,12 @@ describe.sequential('accepted exact-period stored derived compatibility', () => 
   }
 
   async function seed(f: Fixture | undefined = undefined, options: {
-    rows?: readonly SleeperMatchup[]; configuration?: Readonly<Record<string, unknown>>; calendar?: boolean;
+    rows?: readonly SleeperMatchup[]; calendar?: boolean;
   } = {}) {
     const target = f ?? await fixture();
     const capture = await administration.beginCalculationSourceCapture(target.mapping, 3, randomUUID());
     const attempt = await administration.beginExactMatchupAttempt(target.mapping, 3, randomUUID());
-    const league = await document(target, 'league', { ...leaguePayload(target), ...options.configuration });
+    const league = await document(target, 'league', leaguePayload(target));
     const at = await instant();
     const calendar = options.calendar === false ? undefined : createSleeperCalendarEvidence({ season: '2026',
       seasonSchedule: captureSchedule.body, evaluatedAt: at, retrievalStartedAt: at, retrievalCompletedAt: at }) ?? undefined;
@@ -272,15 +272,49 @@ describe.sequential('accepted exact-period stored derived compatibility', () => 
     unavailable(result, 'original_official_facts_mismatch');
   });
 
-  it('keeps accepted scoring corrections official while the immutable calculation profile stays incompatible', async () => {
+  it('rejects a scoring-profile change without replacing accepted facts or linked calculation history', async () => {
     const original = await seed(); const fence = await publicationFence(original.f); const published = await publish(original, fence);
-    const correction = await seed(original.f, { configuration: { scoring_settings: { rec: 1 } } });
-    const result = await read(correction, published);
-    expect(result.official).toEqual(correction.official);
-    unavailable(result, 'accepted_configuration_mismatch');
-    // Existing write guards prohibit a mismatched verification source from being
-    // linked in the first place; this fixture does not weaken those guards.
-    await expect(publish(correction, fence)).rejects.toThrow(/administration lineage/);
+    const before = await read(original, published);
+    expect(before).toMatchObject({ official: original.official, forecast: { status: 'available' },
+      gameState: { status: 'available' }, probability: { status: 'available' },
+      sourceHistory: { status: 'available',
+        original: { leagueWeekObservationId: published.observationId,
+          source: { status: 'linked', captureId: original.capture.id } },
+        verification: { leagueWeekObservationId: published.observationId,
+          source: { status: 'linked', captureId: original.capture.id } } } });
+    const current = await projection.readCurrentSnapshot(original.f.leagueSeasonId, 3);
+    expect(current?.snapshotId).toBe(published.published.snapshot.snapshotId);
+
+    const capture = await administration.beginCalculationSourceCapture(original.f.mapping, 3, randomUUID());
+    const changed = await document(original.f, 'league', { ...leaguePayload(original.f), scoring_settings: { rec: 1 } });
+    const at = await instant();
+    const calendar = createSleeperCalendarEvidence({ season: '2026', seasonSchedule: captureSchedule.body,
+      evaluatedAt: at, retrievalStartedAt: at, retrievalCompletedAt: at });
+    if (!calendar) throw new Error('Invalid synthetic calendar.');
+    const rejected = await administration.recordObservation(changed, undefined, original.f.mapping,
+      undefined, undefined, undefined, undefined, calendar, capture);
+    expect(rejected).toMatchObject({ status: 'rejected',
+      reason: 'scoring_profile_change_requires_explicit_compatibility_and_period_review' });
+    expect(rejected.calculationInput).toBeUndefined();
+    expect(rejected.calendarEvidence).toBeUndefined();
+    if (!rejected.observationId || !rejected.versionId) throw new Error('Missing retained rejected configuration.');
+    expect(rejected.versionId).not.toBe(original.source.configurationVersionId);
+    expect(await ownerQuery('SELECT id FROM league_calculation_capture_inputs WHERE capture_id=$1', [capture.id])).toEqual([]);
+    expect(await ownerQuery('SELECT id FROM league_native_period_calendar_evidence WHERE observation_id=$1',
+      [rejected.observationId])).toEqual([]);
+    expect(await administration.readSource({ ...original.f.mapping.scope, family: 'league', week: null }))
+      .toMatchObject({ status: 'conflict', reason: 'scoring_profile_change_requires_explicit_compatibility_and_period_review' });
+
+    // A rejected configuration cannot be grafted onto the existing capture to
+    // advance verification. The real official-observation writer enforces this.
+    await expect(publish({ ...original, source: { ...original.source, observationId: rejected.observationId,
+      configurationVersionId: rejected.versionId, generation: rejected.generation } }, fence))
+      .rejects.toThrow(/official observation administration lineage is stale or mismatched/);
+    expect(await ownerQuery('SELECT scoring_profile_id FROM league_seasons WHERE id=$1', [original.f.leagueSeasonId]))
+      .toEqual([{ scoring_profile_id: original.f.scoringProfileId }]);
+    expect(await administration.readAcceptedExactMatchups(original.f.mapping, 3)).toEqual(original.official);
+    expect(await projection.readCurrentSnapshot(original.f.leagueSeasonId, 3)).toEqual(current);
+    expect(await read(original, published)).toEqual(before);
   });
 
   it('requires retained native-to-NFL calendar evidence despite numerically equal weeks', async () => {
