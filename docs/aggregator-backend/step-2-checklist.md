@@ -91,7 +91,7 @@ Review the whole affected capture → normalizer → adapter → writer → read
 | B1 retained native-to-NFL mapping | Optional immutable calendar sidecar and exact accepted-matchup consumer; additive 031, same acquisition and writer | Local dependency/lint/type/build checks pass; 243 files / 4,933 unit tests pass / one Windows-specific skip. Qualified at unchanged PR273 `7e0d7c044701503ad74d746bf37ebfcc3625c3f2`: independent review and fixture audit pass; [SQL36624167133](https://github.com/clawmachinejed/league-one-audit/actions/runs/36624167133) passes 41 files / 661 tests / zero skips on its first attempt, with child closure, schema cleanup, credential revocation and branch deletion verified, no failures or production writes. [CI36621820903](https://github.com/clawmachinejed/league-one-audit/actions/runs/36621820903) passes 4,934 unit tests / zero skips, 119 public browser cases first attempt plus two passing retries, 20 intentional exclusions and 20 account cases. Both retry cases passed local repetitions 6/6 on candidate and 6/6 on predecessor; their cause remains unproven. Ready exact-SHA Preview nE748MvmgKyPjSZhmPCZxzMEpB6p and both leagues inspected. These results qualify 7e0d7c0, not this later documentation commit | No | None | Exact weekly identity only. Current authority freshness, historical slot applicability, stored analytics joins, retained processing and composed B1 acceptance remain separate |
 | B1 calculation source history | [Dependent source association](calculation-source-history.md) reserves mapping before the existing acquisition, retains exact consumed inputs and exposes original/verification snapshot lineage separately; additive 032 | Qualified at preserved PR274 `b1c81b9ebba60ef0fdafebb52d21bb8211f43e38`. Local dependencies/lint/types/build pass; 245 unit files / 4,976 passed / one known Windows scoped-IPv6 skip. Independent source and SQL-fixture reviews pass. [SQL36637753550](https://github.com/clawmachinejed/league-one-audit/actions/runs/36637753550) passed first attempt: 42 files / 682 tests / zero skips, including all 21 new cases. Exact-SHA receipt confirms POSIX child closure, schema cleanup, credential revocation, deletion of `br-dawn-hill-b735zrro`, empty failures and no production writes; authenticated Neon Console independently showed only the idle baseline. [CI36635606197](https://github.com/clawmachinejed/league-one-audit/actions/runs/36635606197) passed 4,977 unit tests / zero skips, 120 public browser tests / 21 skips (20 intentional account exclusions; one unidentified), and 20 account tests, with no retries. Synthetic merge tree equals candidate. Ready exact-SHA Preview `CJoUdWwKSAtpspifQJX1BQZQ6z7k` and both leagues' current 4 / explicit 3 views, expanded lineups and layout inspected. This evidence qualifies `b1c81b9`, not this later change | No | None | Source association only; actual score/ordered-starter/profile/model joins, historical applicability and composed B1 gate remain open |
 | B1 exact-period derived compatibility | [Optional internal join](exact-matchup-compatibility.md) copies existing stored forecast/game-state/probability references after exact official-value, source-mapping, retained-calendar, profile and model checks; no migration or public-reader change | Qualified at preserved PR275 `f5e06895980fb9586458b705f14fe32e376e93bf`: independent review passes; CI36649992516 passes 248 files / 5,057 units / zero skips, 121 public Chromium tests / 20 intentional account-fixture exclusions and 20 account tests, no retries. Exact-SHA Ready Preview HrfK9MzZpgyMAHw1ouGzJBvtbvjE inspected for both leagues/current Week 4/exact Week 3. Protected SQL36651345524 passes 43 files / 696 tests / zero skips or retries, including all 14 compatibility cases; independently audited closure, cleanup, revocation and branch deletion, empty failures and no production writes. Earlier 6254e22 fixture failure and local checks remain recorded below. This evidence does not qualify the new retained planner | No; PR275 draft and unmerged | None | Original candidate/baseline reconstruction, historical applicability, attention/box scores, retained comparison/restart and final composed B1 acceptance remain open |
-| B2 season overview | Not started | Not started | No | None | Schedule, record/rank and metric joins, retained processing and comparison |
+| B2 season overview | Internal exact season facts, current order/waiver/manager resources, B1 schedules and existing projection/metric composition; see the B2 contract below | Candidate verification and independent review in progress; no new SQL/schema/writer change | No | None established | Frozen exact-capture comparison and bounded cursors are comparison artifacts, not durable replay; Step 3 cutover remains blocked |
 | B3 activity | Not started | Not started | No | None | Window/page completeness, transfers/waivers, retained processing and comparison |
 | B4 history | Not started | Not started | No | None | Verified lineage, attribution, bounded retained processing and comparison |
 | Cross-resource gate | Not started | Not started | No | None | Pilot cohort or compatibility path, all identity/immutability checks, cutover/rollback plan |
@@ -142,3 +142,51 @@ The existing B1 contract is executed with this compact acceptance matrix. It ref
 The [internal composed reader](exact-matchup-compatibility.md#cohesive-b1-composition), historical applicability, attention, box-score references and same-capture acceptance fixtures are implemented. Independent source and fixture review is complete with no remaining actionable blocker. Review reproduced and corrected stale catalog injury assertions, swallowed analytics-read failures hiding official facts, superseded configuration applicability, NFL-team/game identity mismatch and retained transformation version reuse. Targeted checks include 476 composed/architecture cases before the final two fixes, 248 affected attention/cache/My Fantasy cases afterward and 34 independent final regression cases, all passing without skips; these overlapping runs are not added into a claimed suite total. Qualification remains open until complete local/hosted verification, exact-candidate Preview and protected exact-SHA SQL are recorded. Status-only evidence after candidate freeze belongs in the PR body/external artifact. The cumulative USD10 test cap includes all prior spend; exact cumulative billed cost is unavailable and no remaining balance is claimed. A fresh concrete approval is required for the new exact SHA before the guarded SQL run.
 
 No merge, production deployment, production replay/backfill, reader cutover, provider enrollment or destructive production change is authorized. No new acquisition/writer/scorer/normalizer/snapshot/publication path or speculative durable checkpoint is required. The retained planner is an immutable in-memory read/comparison service, not crash-safe persisted replay. B2 records/ranks, B3 activity and B4 annual lineage stay outside B1.
+
+### B2 season-overview candidate
+
+The fresh B2 worktree starts at B1's protected squash merge `0dea57be1ae0b2990700ca42e32b68a7ce305616`.
+Clean primary local `main`, freshly read GitHub `main`, and authenticated Ready
+Vercel Production `Br8wdxq6s617XULJEsrYU4TaGiin` agree on that exact SHA. Vercel
+shows canonical repository `clawmachinejed/league-one-audit`, `apps/site` root,
+`main` production branch and `www.league1fantasy.com`. Open PR inventory was
+empty and the recent verification/integration workflows were complete. No
+competing owner observed in inspected worktrees, branches, PRs, workflows and
+deployments; production database/worker leases were not inspected for B2.
+
+The B1 release handoff records migrations 030–032 and qualified existing-role
+operation separately. This B2 candidate does not retry migrations, backfill or
+replay production. B1 matchup shadow was empty at release; no populated matchup
+or historical coverage is claimed. Historical applicability and dated metadata
+limits remain visible. A newly provisioned runtime role remains unqualified due
+to the separately known provisioning-script grant gaps.
+
+The [source inventory and composition notes](season-overview.md) explain why no
+new materialization is needed. This matrix refines B2's existing exit gate:
+
+| Rows | Narrow acceptance contract |
+| --- | --- |
+| 21, 23 | The accepted roster's same raw capture supplies exact W-L-T/PF/PA components and native rank/seed/waiver fields. Missing/null/invalid fields remain distinct; negative budget used is preserved. Existing presentation rounding/defaults and calculated remaining budget are separate. |
+| 17, 9 | Provider rank, Standings order, Rosters order and projected movement retain separate meanings. Current record/rank stays current on historical matchups. Missing display evidence that can affect a tie-break withholds a qualified local rank. |
+| 29 | B1 season-team/native period/mapping plus existing schedule builder; explicit lazy 1–15 and 1–14 ranges, custom zero and unrounded outcome, corrected/incomplete/unpaired weeks. Local NFL completion is not provider finality. |
+| 22 | Existing completed basis, reconciliation and projection over compatible B1 stored references. No double count, corrected/incomplete history, unsupported competition, partial projected coverage and rollover. Rounded baseline arithmetic is labeled derived; exact official facts stay independent. Missing future schedule weeks cannot block completed-history projection. |
+| 26, 28 | Current roster summary with selected completed-history average and existing metric references. Separate 4 AM Eastern cutoff and noon rollover, profile/season/mapping joins, missing identities/denominators and provisional coverage. No immutable metric-publication ledger is invented. |
+| 30 | Accepted provider manager identities, separate dated users and curated display attribution, current season-team profile target, unowned/unknown/missing metadata. No website-account ownership inference. |
+| Retained and composition | Frozen original capture, transformation version, exact mapping and hashes; bounded deterministic manifest/cursor retry and serialized restart. Existing B1 retained matchup comparison supplies its own limitations. Comparison is not database-persisted replay. Existing readers and rollback remain intact. |
+
+Authority covers implementation, branch publication, PR and Preview only. Merge,
+production migration/release/data writes, provider enrollment, cron changes and
+public/account reader cutover are not authorized. No paid SQL run is authorized
+by the unknown remaining balance of the earlier cumulative USD10 cap. This
+candidate changes no SQL query, schema, grant or writer; deterministic adapter
+tests qualify its optional projection, and no new real-SQL evidence is claimed.
+
+Independent source and composed-resource review corrected calendar/context
+rollover and future-evidence guards, missing display tie-break qualification,
+exact-period overlay identity, legacy projection midpoint rounding, and future
+schedule gaps blocking completed-history projection. The first full run passed
+5,338 tests with one scoped-local-IPv6 platform skip and exposed three existing
+architecture-gate violations in the new dependency graph. Those boundaries were
+repaired and all 19 architecture checks pass without relaxing the gates. Final verification, exact-candidate
+Preview and hosted checks remain separate qualification steps. After candidate
+freeze, status-only evidence belongs in the PR body and external artifacts.

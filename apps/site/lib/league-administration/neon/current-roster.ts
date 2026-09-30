@@ -12,6 +12,7 @@ import type { AdministrationWriteFence } from '../store-contracts';
 import { compatibleRevision } from '../../projections/shared/revision-compatibility';
 import { projectCurrentRosterGroups } from '../../aggregator/current-roster-groups';
 import { projectCurrentRosterMetadata, type CurrentRosterReadOptions } from '../../aggregator/current-roster-metadata';
+import { projectSeasonOverviewSource } from '../../aggregator/season-overview-source';
 
 function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid current roster evidence.');
@@ -26,6 +27,14 @@ function integer(value: unknown, minimum = 1): number {
 function id(value: unknown): string {
   if (typeof value !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) throw new Error('Invalid current roster identity.');
   return value;
+}
+
+/** Optional malformed decoration input cannot reject already accepted official membership. */
+function readOptions(options: CurrentRosterReadOptions | undefined): { metadata: boolean; seasonOverview: boolean } {
+  try {
+    const seasonOverview = options?.includeSeasonOverview === true;
+    return { metadata: options !== undefined && (!seasonOverview || Object.hasOwn(options, 'playerCatalog')), seasonOverview };
+  } catch { return { metadata: options !== undefined, seasonOverview: false }; }
 }
 
 /** Internal-only shadow readback. It never selects content through the v1 head. */
@@ -120,10 +129,14 @@ export function currentRosterMethods(client: DatabaseClient) {
           validationVersion: CURRENT_ROSTER_POLICY.validationVersion, acceptedGeneration: integer(row.generation),
           verifiedAt: provenance.sourceObservedAt, effectiveFrom: null, effectiveTo: null, effectiveEvidence: 'unknown' };
         assertAcceptedResource(accepted);
-        return { status: 'available', accepted, receipt: { id: id(row.receipt_id), attemptId: id(row.attempt_id),
+        const receipt = { id: id(row.receipt_id), attemptId: id(row.attempt_id),
           ordinal: integer(row.ordinal), provenance, configurationContentId: id(row.configuration_content_id),
-          expectedTeamCount: integer(row.expected_team_count), legacyObservationId: id(row.legacy_observation_id) }, teams,
-          ...(options === undefined ? {} : { currentPlayerMetadata: projectCurrentRosterMetadata(teams, options) }) };
+          expectedTeamCount: integer(row.expected_team_count), legacyObservationId: id(row.legacy_observation_id) };
+        const requested = readOptions(options);
+        return { status: 'available', accepted, receipt, teams,
+          ...(requested.metadata ? { currentPlayerMetadata: projectCurrentRosterMetadata(teams, options!) } : {}),
+          ...(requested.seasonOverview ? { seasonOverview: projectSeasonOverviewSource({ normalized, mapping, accepted, receipt,
+            seasonTeams: teams }) } : {}) };
       } catch { return { status: 'unavailable', reason: 'current_roster_evidence_unavailable' }; }
     },
   };

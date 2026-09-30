@@ -80,6 +80,52 @@ async function metadataCatalog(): Promise<FantasyPlayerCatalog> {
 }
 
 describe('current roster shadow Neon adapter', () => {
+  it('optionally exposes exact season fields from the same roster SQL, capture and identities', async () => {
+    const raw = [{ ...payload[0], settings: { wins: 2, losses: 1, ties: 0, fpts: 100.004, fpts_decimal: 0.1,
+      fpts_against: 80, fpts_against_decimal: 25, waiver_position: 4, waiver_budget_used: -5 } }, payload[1]];
+    const query = vi.fn(() => [storedRow(raw)]); const store = createLeagueAdministrationStore(database(query));
+    const original = await store.readAcceptedCurrentRoster(mapping);
+    const decorated = await store.readAcceptedCurrentRoster(mapping, { includeSeasonOverview: true });
+    if (decorated.status !== 'available') throw new Error('Expected official roster.');
+    const { seasonOverview, ...official } = decorated;
+    expect(official).toEqual(original);
+    expect(decorated).not.toHaveProperty('currentPlayerMetadata');
+    expect(seasonOverview).toMatchObject({ status: 'available', mapping, completeness: 'partial', freshness: 'unknown',
+      source: { receiptId: ids.receipt, contentId: ids.content, generation: 2, provenance, expectedTeamCount: 2 },
+      teams: [{ seasonTeamId: ids.teamOne, record: { wins: { value: 2 } }, pointsFor: { value: '100.005' },
+        pointsAgainst: { value: '80.25' }, providerRank: { state: 'absent', value: null }, waiver: { budgetUsed: { value: -5 } } },
+      { seasonTeamId: ids.teamTwo, record: { wins: { state: 'absent', value: null } } }] });
+    expect(query).toHaveBeenCalledTimes(2);
+    expect(query.mock.calls[1]).toEqual(query.mock.calls[0]);
+    expect(await store.readAcceptedCurrentRoster(mapping, { includeSeasonOverview: true })).toEqual(decorated);
+  });
+
+  it('composes optional metadata and season fields without changing either source age or membership', async () => {
+    const catalog = await metadataCatalog(); const methods = currentRosterMethods(database(() => [storedRow()]));
+    const metadataOnly = await methods.readAcceptedCurrentRoster(mapping, { playerCatalog: catalog });
+    const composed = await methods.readAcceptedCurrentRoster(mapping, { playerCatalog: catalog, includeSeasonOverview: true });
+    if (composed.status !== 'available') throw new Error('Expected roster.');
+    const { seasonOverview, ...other } = composed;
+    expect(other).toEqual(metadataOnly);
+    expect(seasonOverview).toMatchObject({ status: 'available', source: { provenance } });
+    expect(composed.currentPlayerMetadata).toMatchObject({ status: 'available', players: [
+      { sources: [{ observedAt: '2026-09-28T10:00:00.000Z' }, { observedAt: '2026-09-29T11:00:00.000Z' }] }, {}] });
+  });
+
+  it('keeps accepted membership when optional season settings are malformed and rejects remapped source reads', async () => {
+    const row = storedRow([{ ...payload[0], settings: { wins: 'invalid', losses: null, fpts: null } }, payload[1]]);
+    const methods = currentRosterMethods(database(() => [row]));
+    const original = await methods.readAcceptedCurrentRoster(mapping);
+    const result = await methods.readAcceptedCurrentRoster(mapping, { includeSeasonOverview: true });
+    if (result.status !== 'available') throw new Error('Season fields must not block membership.');
+    const { seasonOverview, ...official } = result;
+    expect(official).toEqual(original);
+    expect(seasonOverview).toMatchObject({ status: 'available', completeness: 'partial', teams: [
+      { record: { wins: { state: 'invalid' }, losses: { state: 'null' } }, pointsFor: { state: 'null', value: null } }, {}] });
+    expect(await methods.readAcceptedCurrentRoster({ ...mapping, revisionId: ids.different }, { includeSeasonOverview: true }))
+      .toEqual({ status: 'unavailable', reason: 'current_roster_evidence_unavailable' });
+  });
+
   it('optionally decorates the actual store read from the already-loaded catalog without fetching or changing roster evidence', async () => {
     const catalog = await metadataCatalog();
     const fetcher = vi.fn(() => { throw new Error('Decoration must not fetch.'); });
