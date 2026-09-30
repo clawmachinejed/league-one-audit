@@ -1,0 +1,33 @@
+# Calculation input source history
+
+This dependent Bundle 1 increment starts at qualified PR273 `7e0d7c044701503ad74d746bf37ebfcc3625c3f2`. It retains a calculation's actual input association through the existing administration and official-observation writers. It does not qualify the complete forecast/game-state/probability join or finish B1. The [Step 2 checklist](step-2-checklist.md) remains the single completion ledger.
+
+## What is retained
+
+The shared current/future projection source composition reads its source mapping and reserves an immutable calculation capture before its existing source load. This reservation records the connection, league-season, mapping revision, exact native week and database reservation time. It does not reserve an accepted-resource attempt, advance a shadow head or acquire another provider document. Its full timestamp precision survives the adapter round trip.
+
+The existing administration writer retains two exact consumed inputs: league configuration and network matchup document. Each input refers to its immutable content and the returned legacy observation, while separately preserving the input's actual provenance. Equal content can reuse an older v1 observation; that old observation's dates and source epoch are never replaced by the new capture's dates. No new receipt retroactively proves an old acquisition.
+
+Cached league configuration establishes which content was consumed under the reserved source mapping. Its original provider acquisition age and epoch remain unknown. Its retrieval may precede the reservation when the existing invocation cache supplied it. The network matchup acquisition must follow reservation. A changed-cache verification replacement cannot become evidence for the original document consumed by the calculation, even when the verified content is equal. In that case the legacy calculation context remains usable under its existing rules, but this stronger association is omitted.
+
+The returned capture and two input IDs travel in `source_data.administration.sourceCapture` at the original `league_week_observations` insert. SQL validates the exact mapping, league-season, week, configuration identity, original matchup interval and supplied population context. The association cannot be added to an existing unlinked observation, removed or replaced; linked observation context cannot be rewritten. Deletion behavior for the existing pruning path is unchanged. Old callers remain unlinked and continue through their existing guards.
+
+## Exact internal read and limits
+
+The store facade exposes an internal history reader requiring an exact snapshot UUID, league-season UUID, numeric season, week and model version. It reads immutable input IDs rather than a moving accepted head or the default-season page reader. At most four input IDs are needed for original and verification history; primary-key lookups bound this work independently of retained history size.
+
+The snapshot's original official-observation ID and game-state observation IDs remain separate from the current pointer's later verification official-observation ID. An unchanged-content publication can move the latter without rewriting the former. An old unlinked original therefore remains `source_epoch_unproved` even when its later verification is linked. No latest verification game-state IDs are invented, because the current schema does not retain them separately. Noncurrent snapshots do not borrow another snapshot's verification pointer.
+
+The result is explicitly `calculation-input-source-history`, with analytics compatibility `not_evaluated`. A linked result proves the recorded source association; it does not establish exact official score/ordered-starter compatibility, scoring-profile/model applicability, fantasy finality, current authority freshness or historical slot configuration. These remain independently qualified joins. Current frozen-baseline reads cannot establish historical profiles. All-player observations that bypass this capture path remain unproved. Missing optional lineage never supplies estimated official facts.
+
+## Qualification and release boundary
+
+Migration `032_calculation_source_history.sql` is additive. Migrations 001–031 are unchanged. Runtime can read the new relations and call the narrow reservation and existing administration writer; it cannot mutate retained history or execute renamed delegates. The sole administration wrapper calls its predecessor once in the same transaction. Review covers the actual source loader, normalizer, adapter arguments, writer, insertion trigger and reader; synthetic tests preserve A1 → B2 → A3 remaps with identical configuration content, original/verification separation, cache age, retries and rollback.
+
+Before implementation, clean primary local/GitHub `main` and Ready Vercel Production agreed at `2a46133a866af259066f454307e14cbf32152f76`, deployment `A57m3zjCdGRAwxSE9cpTrT87fZqg`. The canonical binding remained `clawmachinejed/league-one-audit`, `apps/site`, production branch `main`. PR270–273 were open drafts at their preserved heads; observed workflows had completed. No competing owner observed in inspected worktrees, PRs, workflows and deployments. Production leases were not inspected for this implementation-only change.
+
+Local checks, independent review, hosted CI, exact-SHA Preview and protected SQL qualification are separate evidence gates. A new exact application/migration SHA requires its own concrete approval before the disposable SQL run; PR273's approval does not extend to 032. The original total $5 test cap remains and must be rechecked. No production secrets, migration, replay/backfill, enrollment, merge/release or Step 3 reader switch is authorized here.
+
+Future release installs 032 through the existing checksummed migration runner before these callers. Application rollback restores the predecessor callers while retaining additive tables and immutable history. Schema reversal, history deletion, pointer rewinds and forced production processing are outside this change. Capacity/retention policy changes remain separate work; bounded read lookups and no added provider acquisition do not constitute a new fleet-capacity measurement.
+
+Local verification passed dependency consistency, lint, strict types, 245 unit files / 4,976 tests passed / one Windows scoped-IPv6 environment skip, and the production build. Independent source and SQL-fixture reviews found no unresolved actionable issues. The 21 new integration cases are prepared but have not run. The new SQL reader is included in the existing unique-operation inventory (76 operations). No hosted CI, Preview or SQL outcome is claimed by this local checkpoint.

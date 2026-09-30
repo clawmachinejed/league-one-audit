@@ -109,9 +109,81 @@ independently evidenced count and immutable team entries. The accepted resource'
 `observationIds` identify exact roster capture receipts in this slice, not v1's
 possibly reused observation. Internal readback reads the receipt's content and
 team UUIDs, validates the complete requested/captured mapping, policy, coverage,
-normalization and hash, and never rebuilds membership from the v1 head. It exposes
+normalization and hash, and never rebuilds membership from the v1 head. Its qualified resource covers
 held players only, with unresolved native scoring-entity identities and unknown
 effective dates; this resource is not historical lineup or analytics evidence.
+
+## Bundle 1 follow-on: current group evidence
+
+The internal accepted-roster read now adds `currentGroups` per team, projected
+from the same receipt-linked content after the existing mapping, UUID, hash and
+normalizer checks. This is `current-roster-field-evidence` with projection version
+`sleeper-current-groups-v1`; it is not a second `AcceptedResource`. Immutable SQL
+coverage remains `players` only. No migration, query, writer, normalizer,
+acquisition or public presenter changes are required for this extension.
+
+Ordered starters preserve native indexes and repeated literal `"0"` vacancy
+markers. Reserve and taxi preserve their native lists. Missing/null lists remain
+unknown; an explicit empty list is known empty. Membership outside held players
+or across conflicting groups withholds only the affected group fields. A vacancy
+marker cannot become a reserve, taxi or bench player. Derived bench membership
+requires all exclusion groups to be known and a usable held inventory. Raw lists
+remain available for inspection even when placements are withheld. Existing v1
+rejection of structurally invalid or duplicate optional arrays is unchanged.
+
+Every field is labeled `current-display`, copies the accepted capture's receipt
+reference and actual source provenance, and reports unknown freshness and
+unverified historical applicability. No slot rule, canonical player identity,
+current injury status or historical roster status is inferred. Equal-content
+reacquisition uses its new receipt's timestamps without restamping the original
+observation; legacy-head changes cannot substitute another capture's groups.
+
+Adapter and isolated-SQL cases cover these limits, group-only corrections with
+unchanged held players, immutable evidence and comparison with the existing
+presenter on complete non-conflicting captures. Qualification and release are
+recorded in the existing [Step 2 ledger](step-2-checklist.md). PR271 is qualified at
+`caab634883d44aa907d14dd00a8cd57a627f97f2`: protected SQL run 36608760918 passes
+40 files / 640 tests / zero skips, including both new group cases. Its sanitized
+receipt verifies process closure, schema cleanup, credential revocation and
+branch deletion, with no failures or production writes. Hosted CI and exact-SHA
+Preview also pass. This follow-on remains unmerged and unreleased; PR270's earlier
+receipt remains separate evidence for its own commit.
+
+## Bundle 1 follow-on: dated current player metadata
+
+The A2 metadata continuation composes optional metadata with the internal accepted-roster
+read using an already-loaded player catalog. It adds no catalog request or public
+reader switch. Current player names, NFL team, position, eligibility and
+injury/status evidence are separate from accepted roster membership and groups;
+missing or invalid metadata must not make those official roster facts unavailable.
+
+The existing filtered catalog merger preserves each supplying position slice's
+revision and original retrieval date. Different cached ages remain separate, and
+missing/invalid dates stay unknown. It must preserve the existing aggregate
+`sourceRevision`, completeness, warning and player-selection behavior. In
+particular it must not add global `observedAt` or `identityRevision` to that merged
+path: existing all-player workers use those fields to select lineage and provider
+context. The existing bulk catalog path retains its own behavior.
+
+Metadata uses its source revision, including injury/status changes, rather than
+an identity-only revision. It is current-display evidence with unverified
+historical applicability; a player name does not prove historical NFL membership,
+a missing team does not mean a bye, and absent injury data does not mean healthy.
+The accepted roster receipt retains its original time even when supplied metadata
+is newer. Conflicting catalog identities remain excluded. Equal rows from
+multiple positions retain all supplying evidence; a merge must not silently pick
+the newest timestamp as if it dated every source field.
+
+This increment does not finish A2 historical slot applicability. The existing
+`resolveConfigurationComponent` accepts explicit exact-period bindings, but
+ordinary `observed_current` collection does not create such proof and there is no
+qualified history-store binding reader yet. Existing exact-matchup facts remain
+usable without slot labels or historical injury/team metadata. Broader retained
+comparison and applicability qualification remain open in the Step 2 ledger.
+Existing evidenced-period configuration activations can support a conservative
+reader without a new schema, but their period domain and source linkage must be
+proved against the requested native matchup period first. Period mapping therefore
+precedes consuming those bindings; current configuration is not a substitute.
 
 ## Rollout, rollback and validation status
 

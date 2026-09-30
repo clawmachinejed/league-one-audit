@@ -16,6 +16,9 @@ vi.mock('../../sleeper', async (original) => ({
 }));
 
 import { LEAGUE_IDS } from '../../config';
+import * as administrationRuntime from '../../league-administration/runtime';
+import { createSleeperCalendarEvidence } from '../../league-administration/period-mapping';
+import seasonCapture from '../../../test-support/fixtures/sleeper-2026-season-schedule.json';
 import { FIRST_MATCHUP_WEEK, LAST_MATCHUP_WEEK } from '../../matchup-week';
 import { externalGameRef, providerKey } from '../shared/provider-identity';
 import { createProductionLineupObservationDependencies } from './lineup-observation-composition';
@@ -111,6 +114,40 @@ describe('production worker capability composition', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it('forwards the already-loaded calendar and original documents through the existing administration capture', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-15T17:35:00.000Z'));
+    vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    const captured = vi.spyOn(administrationRuntime, 'recordCapturedAdministration').mockResolvedValue({ status: 'stored', results: [] });
+    calls.query.mockImplementation(async (sql, parameters) => String(sql).includes('read-source-mapping') ? [{
+      connection_id: '11111111-1111-4111-8111-111111111111', league_season_id: '22222222-2222-4222-8222-222222222222',
+      revision_id: '33333333-3333-4333-8333-333333333333', mapping_generation: 1, league_key: 'league1',
+      external_league_id: (parameters as string[])[0], provider: 'sleeper', season: 2026,
+    }] : []);
+    const at = new Date().toISOString();
+    const calendarEvidence = createSleeperCalendarEvidence({ season: '2026', seasonSchedule: seasonCapture.body,
+      evaluatedAt: at, retrievalStartedAt: at, retrievalCompletedAt: at })!;
+    const documents = [{ family: 'league' as const, week: null, payload: { league_id: LEAGUE_IDS.league1, season: '2026' },
+      requestStartedAt: at, requestCompletedAt: at, origin: 'cache' as const, sourceObservedAt: null }];
+    calls.cadence.mockResolvedValue({
+      sleeperLeagueId: LEAGUE_IDS.league1, season: '2026', defaultDisplayWeek: 2, week: 2,
+      activeScoringWeek: 2, leagueLifecycle: 'active', leagueStatus: 'in_season', schedule: {},
+      matchupShape: { rosterIds: [1], expectedRosterCount: 1, expectedStarterSlotCount: 1, starterSlots: ['QB'] },
+      currentNflSeason: '2026', currentNflWeek: 2, currentNflSeasonType: 'regular',
+      requestStartedAt: at, requestCompletedAt: at, verifiedAt: at, calendarEvidence, administrationObservations: documents,
+    });
+    const dependencies = createProductionProjectionDependencies();
+    await dependencies.nflCalendar.getCadenceState(dependencies.leagueRegistry.listActiveLeagues()[0]);
+    expect(captured).toHaveBeenCalledOnce();
+    expect(captured).toHaveBeenCalledWith({
+      leagueKey: 'league1', provider: 'sleeper', externalLeagueId: LEAGUE_IDS.league1, season: 2026,
+    }, documents, expect.objectContaining({ calendarEvidence,
+      mapping: expect.objectContaining({ revisionId: '33333333-3333-4333-8333-333333333333' }) }));
+    expect(captured.mock.calls[0][1]).toBe(documents);
+    expect(captured.mock.calls[0][2]?.calendarEvidence).toBe(calendarEvidence);
+    expect(calls.cadence).toHaveBeenCalledOnce();
+    expect(fetch).not.toHaveBeenCalled();
+  });
   it('binds all three thin persistence ports to the same operation deadline', async () => {
     const dependencies = createProductionLineupObservationDependencies();
     const controller = new AbortController();

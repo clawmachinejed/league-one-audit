@@ -1,5 +1,7 @@
 # Aggregator backend contracts and migration design
 
+The [Step 2 implementation checklist](step-2-checklist.md) is the current screen-by-screen completion ledger. The [exact-period matchup shadow resource](exact-period-matchups.md) records the first Bundle 1 implementation boundary, its evidence and remaining qualification gates.
+
 [Shared league-season and settings](league-season-settings.md) adds an internal
 identity/settings resource over the same capture and scoped acceptance machinery.
 Identity coverage and optional setting interpretation stay separate; public readers

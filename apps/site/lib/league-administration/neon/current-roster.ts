@@ -10,6 +10,8 @@ import { normalizeAdministrationObservation } from '../normalize';
 import type { AdministrationEnvelope } from '../contracts';
 import type { AdministrationWriteFence } from '../store-contracts';
 import { compatibleRevision } from '../../projections/shared/revision-compatibility';
+import { projectCurrentRosterGroups } from '../../aggregator/current-roster-groups';
+import { projectCurrentRosterMetadata, type CurrentRosterReadOptions } from '../../aggregator/current-roster-metadata';
 
 function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid current roster evidence.');
@@ -40,7 +42,7 @@ export function currentRosterMethods(client: DatabaseClient) {
       return { id: id(result.id), scopeId: id(result.scopeId), ordinal: integer(result.ordinal),
         expectedGeneration: integer(result.expectedGeneration, 0) };
     },
-    async readAcceptedCurrentRoster(mapping: AdministrationSourceMapping): Promise<AcceptedCurrentRosterRead> {
+    async readAcceptedCurrentRoster(mapping: AdministrationSourceMapping, options?: CurrentRosterReadOptions): Promise<AcceptedCurrentRosterRead> {
       if (!isAdministrationSourceMapping(mapping)) return { status: 'unavailable', reason: 'invalid_mapping' };
       try {
         const rows = await client.query(`/* league-administration:read-accepted-current-roster */
@@ -109,7 +111,8 @@ export function currentRosterMethods(client: DatabaseClient) {
             canonicalEntityId: null, identityState: 'unresolved', nativeSection: 'players', section: 'roster',
             effectiveFrom: null, effectiveTo: null, effectiveEvidence: 'unknown' }));
           players.forEach(assertRosterMembership);
-          return { seasonTeamId, externalRosterId: team.externalRosterId, players };
+          return { seasonTeamId, externalRosterId: team.externalRosterId, players,
+            currentGroups: projectCurrentRosterGroups(team, players, id(row.receipt_id), provenance) };
         });
         const accepted: AcceptedResource = { scope: currentRosterScope(mapping),
           canonicalNormalizerVersion: CURRENT_ROSTER_POLICY.canonicalNormalizerVersion,
@@ -119,7 +122,8 @@ export function currentRosterMethods(client: DatabaseClient) {
         assertAcceptedResource(accepted);
         return { status: 'available', accepted, receipt: { id: id(row.receipt_id), attemptId: id(row.attempt_id),
           ordinal: integer(row.ordinal), provenance, configurationContentId: id(row.configuration_content_id),
-          expectedTeamCount: integer(row.expected_team_count), legacyObservationId: id(row.legacy_observation_id) }, teams };
+          expectedTeamCount: integer(row.expected_team_count), legacyObservationId: id(row.legacy_observation_id) }, teams,
+          ...(options === undefined ? {} : { currentPlayerMetadata: projectCurrentRosterMetadata(teams, options) }) };
       } catch { return { status: 'unavailable', reason: 'current_roster_evidence_unavailable' }; }
     },
   };

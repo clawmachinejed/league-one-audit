@@ -1,6 +1,6 @@
 import type { MatchupPeriodContext } from './matchup-period';
 import type { SnapshotFreshnessMetadata } from './matchup-snapshot-metadata';
-import type { StoredProjectionSnapshot } from './projection-store';
+import type { StoredProjectionSnapshot } from './projections/shared/stored-snapshot';
 import type { MatchupsData } from './types';
 
 const ACTIVE_MAX_AGE_MS = 3 * 60 * 1_000;

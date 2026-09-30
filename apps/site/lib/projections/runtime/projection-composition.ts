@@ -33,7 +33,7 @@ export function createProductionProjectionDependencies(
       // Durable heads use their own monotonic/CAS protection before the projection lease.
       const captured = await recordCapturedAdministration({ leagueKey: configuration.key,
         provider: 'sleeper', externalLeagueId: leagueId, season: Number(source.season) },
-      source.administrationObservations, { now: shared.clock.now, mapping });
+      source.administrationObservations, { now: shared.clock.now, mapping, calendarEvidence: source.calendarEvidence });
       if (captured.status === 'unavailable') throw new Error('League administration observation was not accepted.');
     }
     return source;

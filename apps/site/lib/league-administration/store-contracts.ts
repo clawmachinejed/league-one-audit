@@ -1,11 +1,16 @@
+import type { SleeperCalendarEvidence } from './period-mapping';
+import type { CalculationSourceCapture } from './calculation-capture';
 import type { AdministrationEnvelope, AdministrationFamily, AdministrationScope,
   NormalizedAdministrationObservation } from './contracts';
 import type { RetainedRosterProjection } from '../aggregator/roster-bridge';
 import type { AdministrationSourceMapping } from './source-mapping';
 import type { AcceptedTeamManagersRead, RosterCaptureAttempts } from '../aggregator/team-managers';
 import type { AcceptedLeagueSettingsRead } from '../aggregator/league-settings';
+import type { AcceptedExactMatchupsRead } from '../aggregator/exact-matchups';
 import type { AcceptedCurrentRosterRead, CurrentRosterPolicy, RosterAcceptanceInput,
   RosterAcceptanceResult, RosterAttempt } from '../aggregator/current-roster';
+import type { CurrentRosterReadOptions } from '../aggregator/current-roster-metadata';
+import type { RetainedMatchupRead, RetainedMatchupSelection } from './retained-matchups-contracts';
 
 export type AdministrationReadInput = AdministrationScope & Readonly<{
   family: AdministrationFamily; week: number | null;
@@ -26,6 +31,9 @@ export type AdministrationWriteResult = Readonly<{
   rosterAcceptance?: RosterAcceptanceResult;
   teamManagerAcceptance?: RosterAcceptanceResult;
   leagueSettingsAcceptance?: RosterAcceptanceResult;
+  matchupAcceptance?: RosterAcceptanceResult;
+  calendarEvidence?: Readonly<{ id: string; status: 'retained' | 'replayed' }>;
+  calculationInput?: Readonly<{ id: string; status: 'retained' | 'replayed' }>;
 }>;
 export type AdministrationEnrollment = Readonly<{
   leagueId: string; leagueSeasonId: string; leagueKey: string; displayName: string;
@@ -49,18 +57,27 @@ export type LeagueAdministrationStore = Readonly<{
   enabled: boolean;
   recordObservation: (input: NormalizedAdministrationObservation, fence?: AdministrationWriteFence,
     mapping?: AdministrationSourceMapping, acceptance?: RosterAcceptanceInput,
-    managerAcceptance?: RosterAcceptanceInput, leagueSettingsAcceptance?: Readonly<{ attempt: RosterAttempt }>) => Promise<AdministrationWriteResult>;
+    managerAcceptance?: RosterAcceptanceInput, leagueSettingsAcceptance?: Readonly<{ attempt: RosterAttempt }>,
+    matchupAcceptance?: RosterAcceptanceInput, calendarEvidence?: SleeperCalendarEvidence,
+    calculationCapture?: CalculationSourceCapture) => Promise<AdministrationWriteResult>;
+  beginCalculationSourceCapture: (mapping: AdministrationSourceMapping, week: number, id: string) => Promise<CalculationSourceCapture>;
   beginLeagueSettingsAttempt: (mapping: AdministrationSourceMapping, attemptId: string, fence?: AdministrationWriteFence) => Promise<RosterAttempt>;
   readAcceptedLeagueSettings: (mapping: AdministrationSourceMapping) => Promise<AcceptedLeagueSettingsRead>;
+  beginExactMatchupAttempt: (mapping: AdministrationSourceMapping, week: number, attemptId: string,
+    fence?: AdministrationWriteFence) => Promise<RosterAttempt>;
+  readAcceptedExactMatchups: (mapping: AdministrationSourceMapping, week: number) => Promise<AcceptedExactMatchupsRead>;
   beginRosterCapture: (mapping: AdministrationSourceMapping, playersId: string, managersId: string,
     fence?: AdministrationWriteFence) => Promise<RosterCaptureAttempts>;
   readAcceptedTeamManagers: (mapping: AdministrationSourceMapping) => Promise<AcceptedTeamManagersRead>;
   beginRosterAttempt: (mapping: AdministrationSourceMapping, attemptId: string, policy?: CurrentRosterPolicy,
     fence?: AdministrationWriteFence) => Promise<RosterAttempt>;
-  readAcceptedCurrentRoster: (mapping: AdministrationSourceMapping) => Promise<AcceptedCurrentRosterRead>;
+  readAcceptedCurrentRoster: (mapping: AdministrationSourceMapping, options?: CurrentRosterReadOptions) => Promise<AcceptedCurrentRosterRead>;
   readSourceMapping: (externalLeagueId: string) => Promise<AdministrationSourceMapping | null>;
   readSource: (input: AdministrationReadInput) => Promise<LeagueAdministrationStoreRead>;
   readSourceByConnection: (input: AdministrationConnectionReadInput) => Promise<LeagueAdministrationStoreRead>;
+  /** Bounded immutable evidence only; these methods do not follow or advance accepted heads. */
+  scanRetainedMatchups: (selection: RetainedMatchupSelection) => Promise<RetainedMatchupRead>;
+  readRetainedMatchups: (selection: RetainedMatchupSelection, observationIds: readonly string[]) => Promise<RetainedMatchupRead>;
   /** Every intended membership is retained, including incomplete registrations. */
   listEnrollmentInventory: (season?: number) => Promise<AdministrationEnrollmentInventory>;
   /** Filter in SQL before validation, so unrelated registration cannot block a scoped read. */

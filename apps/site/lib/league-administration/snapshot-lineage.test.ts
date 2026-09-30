@@ -19,7 +19,8 @@ function input(): BuildSnapshotInput {
 describe('administration lineage and the existing snapshot content identity', () => {
   it('keeps fresh observation lineage out of snapshot material content', () => {
     const before = input();
-    const context = { observationId: 'new-observation', configurationVersionId: 'same-configuration', generation: 2 };
+    const context = { observationId: 'new-observation', configurationVersionId: 'same-configuration', generation: 2,
+      sourceCapture: { captureId: 'new-capture', leagueInputId: 'league-input', matchupInputId: 'matchup-input' } };
     const after = { ...before, source: { ...before.source, administrationContext: context,
       sourceRevision: compatibleRevision({ sourceRevision: before.source.sourceRevision, administration: context }) },
     calculatedAt: new Date(NOW.getTime() + 1_000).toISOString() };

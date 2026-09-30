@@ -484,13 +484,25 @@ describe('shared schedule-based site calendar', () => {
     expect(after.week).toBe(2);
     expect(before.siteWeekPolicy?.scheduleRevision).toBe(after.siteWeekPolicy?.scheduleRevision);
     expect(before.siteWeekPolicy?.nextRolloverAt).not.toBe(after.siteWeekPolicy?.nextRolloverAt);
+    expect(before.calendarEvidence?.scheduleRevision).toBe(after.calendarEvidence?.scheduleRevision);
+    expect(before.calendarEvidence?.sourceObservedAt).toBeNull();
+    expect(after.calendarEvidence?.sourceObservedAt).toBeNull();
+    expect(before.calendarEvidence?.evaluatedAt).toBe('2026-09-15T15:59:59.999Z');
+    expect(after.calendarEvidence?.evaluatedAt).toBe('2026-09-15T16:00:00.000Z');
   });
 
   it('shares a single season request with both league calendars and exact-week schedule loads', async () => {
     reactCacheControl.enabled = true;
-    await Promise.all([getProjectionCadenceInput(leagueOneId), getProjectionCadenceInput(leagueTwoId),
+    const [first, second] = await Promise.all([getProjectionCadenceInput(leagueOneId), getProjectionCadenceInput(leagueTwoId),
       getOfficialMatchups(leagueOneId), getOfficialMatchups(leagueTwoId)]);
-    expect(vi.mocked(fetch).mock.calls.filter(([input]) => requestPath(input) === '/schedule/nfl/regular/2026')).toHaveLength(1);
+    const scheduleRequests = vi.mocked(fetch).mock.calls.filter(([input]) => requestPath(input) === '/schedule/nfl/regular/2026');
+    expect(scheduleRequests).toHaveLength(1);
+    expect(scheduleRequests[0][1]).toMatchObject({ next: { revalidate: 3_600 } });
+    expect(first.calendarEvidence).toMatchObject({ sourceObservedAt: null,
+      source: { provider: 'sleeper', resource: 'schedule/nfl/regular', season: '2026' },
+      scheduleRevision: first.siteWeekPolicy?.scheduleRevision });
+    expect(second.calendarEvidence?.scheduleRevision).toBe(first.calendarEvidence?.scheduleRevision);
+    expect(second.calendarEvidence?.schedule).toEqual(first.calendarEvidence?.schedule);
   });
 
   it('does not advance an unfinished game after the scheduled noon boundary', async () => {

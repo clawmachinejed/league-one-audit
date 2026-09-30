@@ -37,7 +37,6 @@ async function openFixture(page: Page, league: LeagueKey) {
   const context = contextFixture('active', 2);
   const state = { injected: 0, full: 0, refreshed: false, providerRequests: [] as string[] };
   await page.clock.install({ time: new Date(SNAPSHOT_TIME) });
-  await page.clock.pauseAt(new Date(Date.parse(SNAPSHOT_TIME) + 60_000));
   await page.addInitScript(key => localStorage.setItem(key, '2'), `league-one:my-team:${LEAGUE_IDS[league]}`);
   page.on('request', request => {
     if (/api\.sleeper\.|tank01/iu.test(new URL(request.url()).hostname)) state.providerRequests.push(request.url());
@@ -101,6 +100,9 @@ async function openFixture(page: Page, league: LeagueKey) {
   await page.getByRole('navigation', { name: 'Mobile navigation' }).getByRole('link', { name: 'Matchups', exact: true }).click();
   await expect(page.locator('[data-matchup-toggle]').first().locator('[data-team-name]')).toHaveText([teamName(2), teamName(1)]);
   expect(state.injected).toBe(1);
+  // Keep navigation and hydration running before pausing fake time for polling assertions.
+  const now = await page.evaluate(() => Date.now());
+  await page.clock.pauseAt(new Date(now + 1_000));
   return state;
 }
 

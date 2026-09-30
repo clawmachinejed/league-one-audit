@@ -1,7 +1,10 @@
 import 'server-only';
 
 import { cache } from 'react';
+import { PLAYER_CACHE_SECONDS } from './sleeper-player-cache-policy';
 import { unstable_cache } from 'next/cache';
+import { createSleeperCalendarEvidence, type SleeperCalendarEvidence } from './league-administration/period-mapping';
+import { sleeperRegularSeasonPeriod } from './projections/adapters/sleeper/schedule';
 import { assessSleeperLeagueCapabilities, unverifiedLeagueCapabilities } from './league-capabilities';
 import type { LeagueCapabilityReport } from './league-capability-contracts';
 import { readPageAdministrationSource, type AdministrationFamily } from './page-source';
@@ -122,6 +125,8 @@ export type ProjectionCadenceInput = Readonly<{
     nextRolloverAt: string | null;
     evaluatedAt: string;
   }>;
+  /** Optional retained evidence from the same already-loaded season calendar. */
+  calendarEvidence?: SleeperCalendarEvidence;
   /** Unmodified provider week retained separately from the site's operational week. */
   sourceNflWeek?: number | null;
   administrationObservations?: readonly CapturedAdministrationDocument[];
@@ -148,8 +153,7 @@ const SCORES_API = 'https://api.sleeper.com/scores/nfl/regular';
 const CORE_CACHE_SECONDS = 60;
 const SCHEDULE_CACHE_SECONDS = 300;
 const SEASON_SCHEDULE_CACHE_SECONDS = 3_600;
-// Sleeper asks consumers to store player data and refresh it at most daily.
-const PLAYER_CACHE_SECONDS = 86_400;
+
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -482,7 +486,7 @@ function projectionTargetWeek(
   if (String(targetPeriod.season) !== league.season) {
     throw new Error('The requested projection season does not match the configured Sleeper league.');
   }
-  return targetPeriod.week;
+  return sleeperRegularSeasonPeriod(league.season, targetPeriod.week).week;
 }
 
 function playerCoverageWarning(catalog: PlayerCatalog, ids: Iterable<string>): string | undefined {
@@ -527,12 +531,18 @@ const getLeagueCalendar = cache(async (leagueId: string, revalidate: number, eva
   let siteWeek: SiteWeekResolution | null = null;
   let weeklyMetrics: WeeklyPlayerMetricWindow | null = null;
   let calendarUnavailable = false;
+  let calendarEvidence: SleeperCalendarEvidence | null = null;
   if (lifecycle !== 'preseason') {
     try {
-      const scheduleInput = { season: rawLeague.season,
-        seasonSchedule: await getSeasonSchedule(rawLeague.season), evaluatedAt: asOf };
+      const retrievalStartedAt = new Date().toISOString();
+      const seasonSchedule = await getSeasonSchedule(rawLeague.season);
+      const retrievalCompletedAt = new Date().toISOString();
+      const scheduleInput = { season: rawLeague.season, seasonSchedule, evaluatedAt: asOf };
       siteWeek = resolveSiteWeek(scheduleInput);
       weeklyMetrics = resolveWeeklyPlayerMetrics(scheduleInput);
+      if (mode === 'official') {
+        calendarEvidence = createSleeperCalendarEvidence({ ...scheduleInput, retrievalStartedAt, retrievalCompletedAt });
+      }
     } catch {
       // A schedule outage must not hide official teams, scores or transactions.
       // A retained display choice is never fresh worker or scoring authority.
@@ -563,6 +573,7 @@ const getLeagueCalendar = cache(async (leagueId: string, revalidate: number, eva
     siteWeek,
     weeklyMetrics,
     calendarUnavailable,
+    calendarEvidence,
     warning: calendarUnavailable
       ? 'NFL calendar is temporarily unavailable. The displayed week is a fallback; automatic week advancement is paused.'
       : undefined,
@@ -1578,6 +1589,7 @@ export async function getProjectionCadenceInput(leagueId: string, evaluatedAt?: 
     requestCompletedAt,
     verifiedAt: new Date().toISOString(),
     administrationObservations: [calendar.leagueObservation, rosterFeed.observation],
+    ...(calendar.calendarEvidence ? { calendarEvidence: calendar.calendarEvidence } : {}),
   };
 }
 
