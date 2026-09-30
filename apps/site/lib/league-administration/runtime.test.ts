@@ -21,6 +21,9 @@ function fakeStore(): LeagueAdministrationStore {
     observationId: 'observation', versionId: 'version', generation: 2 })),
   readSource: vi.fn(async () => ({ status: 'missing' as const })),
   readSourceMapping: vi.fn(async () => null),
+  beginTransactionAttempt: vi.fn(), readAcceptedTransactions: vi.fn(async () => ({ status: 'missing' as const })),
+  scanRetainedTransactions: vi.fn(async () => ({ status: 'available' as const, captures: [] })),
+  readRetainedTransactions: vi.fn(async () => ({ status: 'available' as const, captures: [] })),
   scanRetainedMatchups: vi.fn(async () => ({ status: 'available' as const, evidence: [] })),
   readRetainedMatchups: vi.fn(async () => ({ status: 'available' as const, evidence: [] })),
   beginCalculationSourceCapture: vi.fn(),
@@ -33,6 +36,41 @@ function fakeStore(): LeagueAdministrationStore {
 }
 
 describe('administration collection and enrollment composition', () => {
+  it('forwards only the reserved exact native transaction week, including Week 0', async () => {
+    const store = fakeStore();
+    const mapping = { connectionId: '11111111-1111-4111-8111-111111111111', leagueSeasonId: '22222222-2222-4222-8222-222222222222',
+      revisionId: '33333333-3333-4333-8333-333333333333', generation: 1, scope };
+    const attempt = { id: 'transaction-attempt', scopeId: 'transaction-scope', ordinal: 1, expectedGeneration: 0 };
+    const transaction = { family: 'transactions' as const, week: 0, payload: [], requestStartedAt: time, requestCompletedAt: time };
+    await recordCapturedAdministration(scope, [{ ...transaction, origin: 'network' }],
+      { store, mapping, transactionAttempt: { week: 0, attempt }, now: () => new Date(time) });
+    expect(vi.mocked(store.recordObservation).mock.calls[0][2]).toEqual(mapping);
+    expect(vi.mocked(store.recordObservation).mock.calls[0][9]).toEqual({ attempt });
+    await recordCapturedAdministration(scope, [{ ...transaction, origin: 'cache' }],
+      { store, mapping, transactionAttempt: { week: 0, attempt }, now: () => new Date(time) });
+    await recordCapturedAdministration(scope, [{ ...transaction, week: 1, origin: 'network' }],
+      { store, mapping, transactionAttempt: { week: 0, attempt }, now: () => new Date(time) });
+    expect(vi.mocked(store.recordObservation).mock.calls[1]).toHaveLength(3);
+    expect(vi.mocked(store.recordObservation).mock.calls[2]).toHaveLength(3);
+    expect(store.beginTransactionAttempt).not.toHaveBeenCalled();
+  });
+  it('reserves transaction proof before an already-needed cache verification, preserving its mapping token', async () => {
+    const store = fakeStore();
+    const mapping = { connectionId: '11111111-1111-4111-8111-111111111111', leagueSeasonId: '22222222-2222-4222-8222-222222222222',
+      revisionId: '33333333-3333-4333-8333-333333333333', generation: 1, scope };
+    const attempt = { id: 'transaction-attempt', scopeId: 'transaction-scope', ordinal: 1, expectedGeneration: 0 };
+    const transaction = { family: 'transactions' as const, week: 0, payload: [], requestStartedAt: time, requestCompletedAt: time, origin: 'cache' as const };
+    vi.mocked(store.recordObservation).mockResolvedValueOnce({ status: 'stale', reason: 'unproven_cache_change' })
+      .mockResolvedValueOnce({ status: 'changed' });
+    vi.mocked(store.beginTransactionAttempt).mockResolvedValue(attempt);
+    const verify = vi.fn(async () => {
+      expect(store.beginTransactionAttempt).toHaveBeenCalledWith(mapping, 0, expect.any(String), undefined);
+      return { ...transaction, origin: 'network' as const };
+    });
+    await recordCapturedAdministration(scope, [transaction], { store, mapping, verify, now: () => new Date(time) });
+    expect(vi.mocked(store.recordObservation).mock.calls[1][9]).toEqual({ attempt });
+    expect(vi.mocked(store.recordObservation).mock.calls[1][2]).toEqual(mapping);
+  });
   it('forwards an exact-period attempt with same-batch population but never reserves ordinary cache evidence', async () => {
     const store = fakeStore();
     const mapping = { connectionId: '11111111-1111-4111-8111-111111111111', leagueSeasonId: '22222222-2222-4222-8222-222222222222',
