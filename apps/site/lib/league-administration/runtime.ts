@@ -54,6 +54,7 @@ export async function recordCapturedAdministration(
     managerAttempt?: RosterAttempt;
     leagueSettingsAttempt?: RosterAttempt;
     matchupAttempt?: Readonly<{ week: number; attempt: RosterAttempt }>;
+    transactionAttempt?: Readonly<{ week: number; attempt: RosterAttempt }>;
     populationEvidence?: RosterPopulationEvidence;
     calendarEvidence?: SleeperCalendarEvidence;
     calculationCapture?: Readonly<{ week: number; reservation: CalculationSourceCapture }>;
@@ -101,6 +102,7 @@ export async function recordCapturedAdministration(
       completeness: document.completeness ?? 'complete', payload: document.payload as JsonValue,
     }, expectedRosterCount === undefined ? undefined : { expectedRosterCount });
     let mapping = ['rosters', 'league'].includes(document.family)
+      || document.family === 'transactions' && options.transactionAttempt?.week === document.week
       || (document.family === 'matchups' && (options.matchupAttempt?.week === document.week
         || options.calculationCapture?.week === document.week))
       ? options.mapping ?? undefined : undefined;
@@ -109,6 +111,8 @@ export async function recordCapturedAdministration(
     let leagueSettingsAttempt = origin === 'network' && mapping && document.family === 'league' ? options.leagueSettingsAttempt : undefined;
     let matchupAttempt = origin === 'network' && mapping && document.family === 'matchups'
       && options.matchupAttempt?.week === document.week ? options.matchupAttempt.attempt : undefined;
+    let transactionAttempt = origin === 'network' && mapping && document.family === 'transactions'
+      && options.transactionAttempt?.week === document.week ? options.transactionAttempt.attempt : undefined;
     let matchupPopulationEligible = true;
     let calculationCapture = mapping && normalized.status === 'accepted' && normalized.envelope.completeness === 'complete'
       && ((document.family === 'league' && (origin === 'cache' || origin === 'network'))
@@ -123,7 +127,10 @@ export async function recordCapturedAdministration(
       && normalized.envelope.completeness === 'complete' && leaguePayload
       && leaguePayload.sport === 'nfl' && leaguePayload.season_type === 'regular'
       ? validateSleeperCalendarEvidence(options.calendarEvidence, String(scope.season)) ?? undefined : undefined;
-    const write = () => calculationCapture
+    const write = () => transactionAttempt
+      ? store.recordObservation(normalized, options.fence, mapping, undefined, undefined, undefined,
+        undefined, undefined, undefined, { attempt: transactionAttempt })
+      : calculationCapture
       ? store.recordObservation(normalized, options.fence, mapping,
         attempt ? { attempt, ...(population ? { population } : {}) } : undefined,
         managerAttempt ? { attempt: managerAttempt, ...(population ? { population } : {}) } : undefined,
@@ -160,6 +167,9 @@ export async function recordCapturedAdministration(
         // The prior league document predates this newly reserved verification.
         // Preserve the legacy verification write without claiming shadow population.
         matchupPopulationEligible = false;
+      } else if (document.family === 'transactions' && options.mapping && document.week !== null) {
+        mapping = options.mapping;
+        transactionAttempt = await store.beginTransactionAttempt(mapping, document.week, randomUUID(), options.fence);
       }
       const source = options.verify ? null : await import('../sleeper');
       const verified: CapturedAdministrationDocument = options.verify ? await options.verify(document, signal)

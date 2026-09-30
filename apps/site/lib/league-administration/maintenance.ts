@@ -81,6 +81,8 @@ export async function runAdministrationMaintenance(registry: LeagueRegistryPort,
     const leagueSettingsAttempt = mapping ? await store.beginLeagueSettingsAttempt(mapping, randomUUID(), fence) : undefined;
     const matchupAttempt = mapping && !metadata && week > 0
       ? { week, attempt: await store.beginExactMatchupAttempt(mapping, week, randomUUID(), fence) } : undefined;
+    const transactionAttempt = mapping && !metadata
+      ? { week, attempt: await store.beginTransactionAttempt(mapping, week, randomUUID(), fence) } : undefined;
     const core = await getOfficialLeagueAdministration(externalLeagueId, { revalidate: 0, signal });
     const extra = metadata ? await getOfficialAdministrationMetadata(externalLeagueId, season, { signal, maxRequests: 28 })
       : { observations: await Promise.all([
@@ -91,7 +93,7 @@ export async function runAdministrationMaintenance(registry: LeagueRegistryPort,
     const captured = await recordCapturedAdministration({ leagueKey: configuration.key,
       provider: 'sleeper', externalLeagueId, season }, [...core, ...extra.observations], {
       store, signal, mapping, rosterAttempt: attempts?.players, managerAttempt: attempts?.managers,
-      leagueSettingsAttempt, matchupAttempt, fence,
+      leagueSettingsAttempt, matchupAttempt, transactionAttempt, fence,
     });
     if (captured.status !== 'stored' || extra.reason) throw new Error('administration-observation-rejected');
     if (!await jobs.completeJob(jobKey, workerId)) throw new Error('administration-lease-lost');
