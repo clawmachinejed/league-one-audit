@@ -45,7 +45,9 @@ The owner connection uses the direct endpoint because ownership requires a pinne
 
 Each invocation exclusively reserves a timestamp-and-UUID receipt path under `test-results/integration/` before provisioning, then writes its sanitized lifecycle evidence there. Record the exact Git SHA and all of `tests`, `childClosed`, `childClosureEvidence`, `schemaCleanupVerified`, `credentialsRevoked`, `branchDeletionVerified`, and `failures`. POSIX closure includes process-group checks; Windows normal completion records child/stdio closure, while cancellation additionally records successful tree termination. A run passes only when tests and every cleanup condition pass. Infrastructure failures, test failures, and cleanup failures remain distinct; expiry is a fallback, not evidence that deletion already happened. Invalid initial configuration can leave an empty reserved receipt and never qualifies the SQL gate.
 
-The runner gives the complete serial SQL suite a 35-minute cooperative deadline; branch expiry remains one hour. An aborted run records a safe `cancellationReason`, and the built-in verbose reporter emits individual test results and failure messages as they arrive through the supervisor's existing redaction. A deadline can leave the suite incomplete: report only observed results and do not infer final totals from partial output.
+The runner has a fixed 40-minute cooperative lifecycle deadline, including provisioning, the complete serial SQL suite, and cleanup; branch expiry remains one hour. The deadline aborts testing and still awaits cleanup. An aborted run records a safe `cancellationReason`, and the built-in verbose reporter emits individual test results and failure messages as they arrive through the supervisor's existing redaction. A deadline can leave the suite incomplete: report only observed results and do not infer final totals from partial output.
+
+The bound accounts for observed aggregate runtime pressure: the September 30 B4 attempt reached the prior 35-minute deadline after 672 of 733 authored cases, with 61 cases remaining in the final file and no observed assertion failure. This partial attempt does not qualify SQL. The five-minute increase retains all serial coverage and the same 0.25-CU endpoint; it is not an environment-configurable override or retry policy.
 
 Standard-suite measurements use a fresh ignored `test-results/integration/artifacts/run-*` directory recorded as `artifactDirectory` in the receipt. The supervisor supplies that absolute directory through `PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY`; inherited overrides are not admitted to its child. Writers refuse to overwrite an existing artifact, and tracked `release/*.json` evidence stays unchanged. Explicit artifact directories for separately supervised standard Vitest runs remain supported. The specialized collection-capacity and release measurement commands retain their own explicit output contracts.
 
@@ -63,7 +65,7 @@ CI permits one run at a time. A preflight inventory also refuses more than two e
 
 The checked-in `disposable-integration` workflow supports manual dispatch (`workflow_dispatch`) and pushes only to branches matching `codex/integration-qualification-*` in the canonical repository. [Manual dispatch requires the workflow to exist on the default branch](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_dispatch); once registered there, select an approved internal branch in GitHub. Before merge, an explicitly reviewed commit can instead be published to a dedicated qualification ref named `codex/integration-qualification-<shortSHA>`. That ref must point to the exact full reviewed SHA without another code commit; [push workflows can run before merge](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#push). Each matching push queues a run, so publish only a commit ready for qualification and environment review. Ordinary development branches and pull-request events do not trigger this workflow.
 
-Both paths require review of the immutable `github.sha` recorded for the run and qualify that exact checkout; there is no arbitrary SHA input. The canonical-repository guard and protected `integration-test` environment apply to qualification pushes as well as manual dispatch. No fork code receives the control-plane credential. The workflow has read-only repository permissions, does not persist checkout credentials, serializes integration jobs without cancelling an active cleanup, and has a 45-minute limit to allow dependency installation and cleanup around the bounded suite. The API key is supplied only to the test-runner step. Sanitized receipts and synthetic measurement JSON from each run's artifact directory are uploaded even after failure when available.
+Both paths require review of the immutable `github.sha` recorded for the run and qualify that exact checkout; there is no arbitrary SHA input. The canonical-repository guard and protected `integration-test` environment apply to qualification pushes as well as manual dispatch. No fork code receives the control-plane credential. The workflow has read-only repository permissions, does not persist checkout credentials, serializes integration jobs without cancelling an active cleanup, and has a 50-minute limit. This preserves the nominal ten-minute allowance for dependency installation, cleanup and artifact upload around the supervisor deadline; installation consumes part of that allowance. Cleanup has bounded individual operations, including separate three-minute deletion-operation and absence-verification phases, but no guaranteed aggregate completion time. The API key is supplied only to the test-runner step. Sanitized receipts and synthetic measurement JSON from each run's artifact directory are uploaded even after failure when available.
 
 Activation is a separate repository setup step. Create the `integration-test` environment with required review and deployment branch restrictions for approved internal branches, including the explicitly reviewed qualification refs used before merge. Require an independent reviewer and prevent self-review when a separate reviewer is available; otherwise record the responsible maintainer's manual approval of the exact SHA. Review the workflow, supervisor, tests, and dependency changes before releasing the secret to a run. Pushing a matching qualification ref does not replace environment approval. Store `NEON_TEST_API_KEY` as that environment's dedicated-project secret and all other `NEON_TEST_*` values above as environment variables. Set `NEON_TEST_AUTHORIZATION` to the explicit authorization value only when setup is ready.
 
@@ -101,6 +103,33 @@ qualify production population, historical applicability, late runtime-role
 provisioning, durable persisted replay or Step 3 public/account reader cutover.
 See the [B2 composition notes](../../../docs/aggregator-backend/season-overview.md)
 and the sole [Step 2 evidence ledger](../../../docs/aggregator-backend/step-2-checklist.md).
+
+## B4 historical-continuity acceptance
+
+`bundle-four.integration-case.ts` adds seven guarded cases using synthetic annual
+league captures through the existing Sleeper adapter, administration writer and
+restricted store reader. They cover annual identity, same-capture compatibility,
+partial retention, missing scores and ambiguous ownership, completion verification,
+corrections, serialized frozen comparison, stale sources, unsupported settings and
+concurrent remapping. The fixture validates retained enrollment evidence during
+teardown; it never deletes committed history or resets schemas itself.
+
+These cases require the existing authorized disposable supervisor and cleanup
+receipts. Authored source and ordinary tests do not qualify their SQL behavior or
+production population. See the [B4 contract](../../../docs/aggregator-backend/historical-continuity.md)
+and the [Step 2 evidence ledger](../../../docs/aggregator-backend/step-2-checklist.md).
+
+## B4 fixture teardown
+
+The B4 historical-continuity fixture retains its committed synthetic enrollment
+and history rows until the existing guarded global schema teardown. Migration
+016 makes enrollment-season history immutable, including for the fixture owner;
+fixture cleanup must not delete it or disable its guards. Cleanup reads and
+checks that original enrollment evidence is preserved, that registration added
+only the expected synthetic memberships, and that the committed enrollment state
+is unchanged. The same check applies after a post-registration setup failure.
+The independent restricted connection still closes if validation fails, and the
+source-remapping case restores its source through the existing revision writer.
 
 ## Deliberately outside this PR2 database suite
 

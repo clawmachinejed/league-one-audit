@@ -19,7 +19,8 @@ const controller = new AbortController();
 const interrupt = () => controller.abort('sigint');
 const terminate = () => controller.abort('sigterm');
 process.on('SIGINT', interrupt); process.on('SIGTERM', terminate);
-const timeout = setTimeout(() => controller.abort('deadline'), 35 * 60_000);
+// Keep the CI job's ten-minute setup/cleanup allowance beyond this lifecycle deadline.
+const timeout = setTimeout(() => controller.abort('deadline'), 40 * 60_000);
 // Expiry is the final fallback if the OS kills this process before cleanup.
 try {
   const { passed, receipt } = await runDisposableIntegration({ environment: process.env, gitSha,

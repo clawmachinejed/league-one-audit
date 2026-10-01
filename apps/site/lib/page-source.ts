@@ -130,7 +130,8 @@ function checkConflict(read: SourceRead): void {
 }
 
 /** Injection remains read-only: page misses cannot enqueue collection or write acceptance. */
-export function createPageAdministrationReader(getStore: () => PageAdministrationStore) {
+export function createPageAdministrationReader(getStore: () => PageAdministrationStore,
+  clock: () => number = () => Date.now()) {
   const readConfiguration = cache(async (externalLeagueId: string) => {
     const read = await readSafely(() => getStore().readSourceByConnection({ externalLeagueId,
       provider: 'sleeper', family: 'league', week: null }));
@@ -139,7 +140,7 @@ export function createPageAdministrationReader(getStore: () => PageAdministratio
     return read;
   });
   return async (request: PageAdministrationRequest): Promise<PageAdministrationRead> => {
-    if (request.historicalSeason === true) assertHistoricalRequest(request, Date.now());
+    if (request.historicalSeason === true) assertHistoricalRequest(request, clock());
     const configuration = await readConfiguration(request.externalLeagueId);
     if (configuration.status !== 'available') {
       if (configuration.status === 'conflict') throw new AdministrationSourceConflictError('Stored league administration identity is conflicting.');
@@ -157,7 +158,7 @@ export function createPageAdministrationReader(getStore: () => PageAdministratio
       return { status: 'fallback', reason: read.status };
     }
     assertEnvelope(read.envelope, request, configuration.envelope.scope);
-    const now = Date.now();
+    const now = clock();
     const maxAgeSeconds = request.maxAgeSeconds ?? 60;
     const usableTimes = request.historicalSeason === true
       ? hasCompletedSeasonVerification(configuration, read, now)
