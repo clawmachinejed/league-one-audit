@@ -7,7 +7,7 @@ import { createLeagueAdministrationMethods } from '../lib/league-administration/
 import { registerEnrolledIntegrationSeason } from './administration-enrollment-fixture';
 import { createIndependentDatabase, integrationEnvironment, ownerQuery, runtimeQuery,
   type IndependentDatabase } from './neon-integration-harness';
-import { installSyntheticAccountSession, setSyntheticActorReceipt,
+import { installSyntheticAccountSession, prepareSyntheticAccountSession, setSyntheticActorReceipt,
   syntheticAccountQuery as accountQuery, withSyntheticAccountActor as withAccountActor } from './account-authority-fixture';
 
 const issuer = 'https://isolated-auth.example.test';
@@ -18,10 +18,9 @@ const privateTables = ['app_users', 'app_login_identities', 'app_provider_accoun
 const actor = (appUserId: string) => ({ actorUserId: appUserId, requestId: randomUUID() });
 
 async function user(subject = randomUUID(), name = 'Isolated account') {
+  const receipt = await prepareSyntheticAccountSession(issuer, subject);
   const result = await withAccountActor({}, async query => {
-    await query('RESET ROLE');
-    await installSyntheticAccountSession(query, issuer, subject);
-    await query('SET LOCAL ROLE league_one_account');
+    await query("SELECT set_config('app.session_receipt_v2',$1,true)", [JSON.stringify(receipt)]);
     return query<{ id: string }>(resolveSql, [issuer, subject, name, randomUUID()]);
   });
   return { id: result[0].id, subject };
@@ -57,9 +56,12 @@ describe.sequential('private account foundation against the guarded isolated dat
     return { ...result[0], ...registered, leagueKey, externalLeagueId, envelope };
   }
 
-  it('resolves concurrent first sign-ins once without merging same display names or different issuers', async () => {
+  it('does not merge same display names or different configured issuers', async () => {
     const subject = randomUUID();
-    const [a, b] = await Promise.all([user(subject, 'Shared display'), user(subject, 'Shared display')]);
+    // Genuine concurrent bootstrap is qualified separately with actual LOGINs
+    // and observed registration-lock overlap, not these owner SET ROLE fixtures.
+    const a = await user(subject, 'Shared display');
+    const b = await user(subject, 'Shared display');
     expect(a.id).toBe(b.id);
     const other = await user(randomUUID(), 'Shared display');
     // A separate configured issuer is an explicit epoch transition, never a

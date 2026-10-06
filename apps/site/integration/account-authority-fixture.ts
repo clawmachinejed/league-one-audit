@@ -1,8 +1,73 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { Pool } from '@neondatabase/serverless';
+import { ACCOUNT_DATABASE_GUARD } from '../lib/accounts/neon/database';
+import { assertSafeIntegrationDatabase, createPinnedIntegrationDatabase } from './neon-integration-harness';
 import { withAccountActor as withGuardedAccountActor, type AccountIntegrationContext,
   type AccountIntegrationQuery } from './neon-integration-harness';
 
 const digest = (value: string) => createHash('sha256').update(value, 'utf8').digest('hex');
+
+/** Commit auth writers before starting any account race. Otherwise their
+ * exclusive transaction gate serializes the purported concurrent resolvers. */
+export async function prepareSyntheticAccountSession(issuer: string, subject: string) {
+  const owner = await createPinnedIntegrationDatabase('owner');
+  let committed = false;
+  try {
+    await owner.database.query('BEGIN');
+    const receipt = await installSyntheticAccountSession(owner.database.query, issuer, subject);
+    await owner.database.query('COMMIT');
+    committed = true;
+    return receipt;
+  } finally {
+    if (!committed) await owner.database.query('ROLLBACK').catch(() => undefined);
+    await owner.close();
+  }
+}
+
+/** Only the credential minted and preflighted by the disposable harness is
+ * accepted. Each transaction checks out its own actual restricted LOGIN; never
+ * simulate session_user using an owner's SET ROLE. No receipt/error is logged. */
+export async function createRealAccountLoginFixture() {
+  await assertSafeIntegrationDatabase();
+  const accountUrl = process.env.ACCOUNT_AUTHORITY_INTEGRATION_DATABASE_URL;
+  if (!accountUrl) throw new Error('Actual account LOGIN qualification requires the guarded disposable account credential.');
+  const pool = new Pool({ connectionString: accountUrl, max: 4, connectionTimeoutMillis: 5_000,
+    statement_timeout: 8_000, query_timeout: 12_000 });
+  pool.on('error', () => {});
+  const safeError = (error: unknown) => {
+    const code = error && typeof error === 'object' && 'code' in error ? error.code : undefined;
+    return Object.assign(new Error('Isolated account LOGIN operation failed.'),
+      typeof code === 'string' && /^[0-9A-Z]{5}$/u.test(code) ? { code } : {});
+  };
+  return {
+    async transaction<Result>(context: { receipt: unknown; actorUserId?: string; requestId?: string },
+      run: (query: AccountIntegrationQuery, pid: number) => Promise<Result>): Promise<Result> {
+      const client = await pool.connect().catch(error => { throw safeError(error); });
+      let destroyClient = false;
+      try {
+        await client.query('BEGIN ISOLATION LEVEL READ COMMITTED');
+        await client.query(ACCOUNT_DATABASE_GUARD);
+        const identity = await client.query(`SELECT current_user AS current_role,session_user AS session_role,pg_backend_pid() AS pid`);
+        if (identity.rows[0]?.current_role !== 'league_one_account' || identity.rows[0]?.session_role !== 'league_one_account'
+          || !Number.isInteger(identity.rows[0]?.pid)) throw new Error('Actual account LOGIN identity is unavailable.');
+        await client.query(`SELECT set_config('app.actor_user_id',$1,true),set_config('app.request_id',$2,true),
+          set_config('app.session_receipt_v2',$3,true),set_config('lock_timeout','3000',true)`,
+        [context.actorUserId ?? '', context.requestId ?? randomUUID(), JSON.stringify(context.receipt)]);
+        const query: AccountIntegrationQuery = async (statement, parameters = []) => {
+          const result = await client.query(statement, [...parameters]);
+          return result.rows;
+        };
+        const result = await run(query, identity.rows[0].pid);
+        await client.query('COMMIT');
+        return result;
+      } catch (error) {
+        await client.query('ROLLBACK').catch(() => { destroyClient = true; });
+        throw safeError(error);
+      } finally { client.release(destroyClient); }
+    },
+    close: () => pool.end(),
+  };
+}
 
 /** Owner-only synthetic fixture setup inside the already guarded isolated harness.
  * This is not authentication and never runs from application code. Fixtures install

@@ -14,16 +14,19 @@ jobs:
     if: github.repository == 'clawmachinejed/league-one-audit'
     environment: integration-test
     runs-on: ubuntu-latest
-    # Preserve ten minutes around the supervisor's fixed 40-minute lifecycle deadline.
+    # Setup is capped at 8min; the supervisor owns one 40min budget including
+    # cleanup and receipt finalization. Runner loss remains a failed qualification.
     timeout-minutes: 50
     steps:
       # Approvers review this exact selected head, including workflow, supervisor,
       # tests and dependencies. No untrusted fork or automatic PR trigger.
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        timeout-minutes: 1
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
       - name: Verify the approved checkout identity
+        timeout-minutes: 1
         shell: bash
         env:
           REVIEWED_SHA: ${{ github.sha }}
@@ -32,15 +35,19 @@ jobs:
           test "$(git rev-parse HEAD)" = "$REVIEWED_SHA"
           git rev-parse HEAD
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        timeout-minutes: 1
         with:
           run_install: false
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        timeout-minutes: 1
         with:
           node-version: 24
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
+        timeout-minutes: 4
       - name: Run the disposable SQL gate
+        timeout-minutes: 41
         run: pnpm test:integration
         env:
           CI: '1'
@@ -53,6 +60,7 @@ jobs:
           NEON_TEST_DATABASE: ${{ vars.NEON_TEST_DATABASE }}
           NEON_TEST_OWNER_ROLE: ${{ vars.NEON_TEST_OWNER_ROLE }}
       - name: Preserve sanitized integration evidence
+        timeout-minutes: 1
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

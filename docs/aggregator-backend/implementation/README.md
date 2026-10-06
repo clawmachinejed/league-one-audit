@@ -18,6 +18,14 @@ BC-M1 is **in progress / unqualified**. Target public activation remains disable
 
 See [backlog](backlog.md), [preflight evidence](preflight.md) and [decisions and evidence](evidence.md). Historical B1/B2/B4 completion does not complete any BC-M milestone.
 
+## Independent audit and authorized remediation
+
+The independent audit reviewed `c907584571052cfbea6957e8bad08066fe11f432` and withheld the proposed paid run and qualified checkpoint; BC-M1 completion/merge/release remained NO. Its preserved 108-obligation assessment is **3 implemented-and-verified, 5 implemented-but-unverified, 100 still pending**, counting whole obligations rather than partial components or a completion percentage. The reviewed audit and JSON remain under ignored `test-results/independent-audit/`; their source-bound findings are recorded in [evidence](evidence.md).
+
+The user subsequently authorized implementation remediation through the lead-engineering chat. This remains the same BC-M1 implementation outcome and worktree; the chat is pinned as “BC-M1 Audit remediation and account foundation.” The independent audit worktree remains untouched at its reviewed SHA. Local engineering, meaningful checks, draft PR updates and review preparation are authorized. Paid SQL runs, provisioning, production migration, merge, deployment and public activation remain unauthorized.
+
+The immediate corrective candidate addresses lifecycle-budget enforcement, genuine account-LOGIN bootstrap concurrency and transport quarantine termination. [The migration transition plan](migration-transition.md) inventories existing callers, epoch/database authority, coordinated installation and recovery; it is not implemented compatibility or release authorization. The complete original backlog and all 108 obligations remain in force.
+
 ## Working increments
 
 | Item | Source | Owner | Dependencies | Acceptance evidence | State |

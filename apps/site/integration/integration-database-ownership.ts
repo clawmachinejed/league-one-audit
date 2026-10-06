@@ -51,7 +51,7 @@ export function assertDirectIntegrationOwnerUrl(databaseUrl: string): void {
  * the test body and repeated migration preparations until explicit cleanup. */
 export function createIntegrationDatabaseOwnership() {
   type Lease = { pool: Pool; client: PoolClient; environment: Environment; delegated: string | undefined;
-    session: IntegrationSession; verify: () => Promise<void>; onLoss: () => void };
+    session: (signal?: AbortSignal) => IntegrationSession; verify: () => Promise<void>; onLoss: () => void };
   let lease: Lease | undefined;
   let lost = false;
   let acquiring = false;
@@ -73,8 +73,9 @@ export function createIntegrationDatabaseOwnership() {
     }
   };
   return {
-    async acquire(environment: Environment, delegated?: string): Promise<IntegrationSession> {
+    async acquire(environment: Environment, delegated?: string, signal?: AbortSignal): Promise<IntegrationSession> {
       healthy();
+      signal?.throwIfAborted();
       assertDirectIntegrationOwnerUrl(environment.ownerDatabaseUrl);
       if (acquiring) throw new Error('Concurrent preparation in one integration harness is not supported.');
       if (lease) {
@@ -84,7 +85,7 @@ export function createIntegrationDatabaseOwnership() {
           throw new Error('Integration ownership target changed during the run.');
         }
         if (lease.delegated !== delegated) throw new Error('Integration ownership delegation changed during the run.');
-        await lease.verify(); return lease.session;
+        await lease.verify(); signal?.throwIfAborted(); return lease.session(signal);
       }
       acquiring = true;
       // Bound admission, migrations and cleanup below the integration hook
@@ -96,8 +97,14 @@ export function createIntegrationDatabaseOwnership() {
       let client: PoolClient | undefined;
       try {
         client = await pool.connect(); client.on('error', onLoss); client.on('end', onLoss);
+        signal?.throwIfAborted();
         const pinned = client;
-        const raw: IntegrationQuery = async (statement, parameters = []) => (await pinned.query(statement, [...parameters])).rows;
+        const raw: IntegrationQuery = async (statement, parameters = []) => {
+          signal?.throwIfAborted();
+          const result = await pinned.query(statement, [...parameters]);
+          signal?.throwIfAborted();
+          return result.rows;
+        };
         const target = { database: environment.expectedDatabase, branch: environment.expectedBranchId };
         let proof = delegated;
         if (proof === undefined) {
@@ -122,22 +129,33 @@ export function createIntegrationDatabaseOwnership() {
           catch (error) { lost = true; throw error; }
         };
         await verify();
-        const query = new Proxy(pinned.query.bind(pinned), {
+        const sessions = new Map<AbortSignal | undefined, IntegrationSession>();
+        const session = (querySignal?: AbortSignal): IntegrationSession => {
+          const existing = sessions.get(querySignal);
+          if (existing) return existing;
+          const query = new Proxy(pinned.query.bind(pinned), {
           apply(fn, thisArgument, args) {
             healthy();
             // An aborted transaction cannot run the ownership SELECT. Only a
             // transaction-wide rollback on this pinned connection can bypass it;
             // every subsequent operation still verifies ownership, never reacquires.
             if (args.length === 1 && args[0] === 'ROLLBACK') return Reflect.apply(fn, thisArgument, args);
+            querySignal?.throwIfAborted();
             // Delegated ownership can disappear independently of this connection.
             // Revalidate before each schema/migration operation, never reacquire.
-            if (delegated !== undefined) return verify().then(() => Reflect.apply(fn, thisArgument, args));
+            if (delegated !== undefined) return verify().then(() => {
+              querySignal?.throwIfAborted();
+              return Reflect.apply(fn, thisArgument, args);
+            });
             return Reflect.apply(fn, thisArgument, args);
           },
         });
-        const session: IntegrationSession = { query, connect: async () => ({ query, release: () => undefined }) };
+          const guarded = { query, connect: async () => ({ query, release: () => undefined }) };
+          sessions.set(querySignal, guarded);
+          return guarded;
+        };
         lease = { pool, client: pinned, environment: { ...environment }, delegated, session, verify, onLoss };
-        return session;
+        return session(signal);
       } catch (error) {
         // This process has not started a test body. Closing its own pinned
         // connection releases any just-acquired lock; never release another owner.

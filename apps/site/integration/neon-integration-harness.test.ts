@@ -339,6 +339,37 @@ describe('isolated account-role transactions', () => {
 });
 
 describe('isolated maintained-auth database boundaries', () => {
+  it('never opens connections when cleanup was already cancelled', async () => {
+    const controller = new AbortController(); controller.abort(new Error('deadline'));
+    await expect(cleanIntegrationDatabase({ signal: controller.signal })).rejects.toThrow('deadline');
+    expect(mocked.pool).not.toHaveBeenCalled();
+    expect(mocked.acquireOwnership).not.toHaveBeenCalled();
+  });
+
+  it('fences destructive SQL if cancellation arrives while ownership admission is pending', async () => {
+    const controller = new AbortController();
+    mocked.acquireOwnership.mockImplementation(async () => {
+      controller.abort(new Error('deadline'));
+      return { query: mocked.sessionQuery };
+    });
+    await expect(cleanIntegrationDatabase({ signal: controller.signal })).rejects.toThrow('deadline');
+    expect(mocked.sessionQuery).not.toHaveBeenCalled();
+    expect(mocked.releaseOwnership).toHaveBeenCalledOnce();
+  });
+
+  it('does not send the next schema statement after an in-flight cleanup result arrives late', async () => {
+    const controller = new AbortController(); const query = mocked.query.getMockImplementation()!;
+    mocked.query.mockImplementation(async (statement: string, user: string) => {
+      if (statement.startsWith('DROP ')) controller.abort(new Error('deadline'));
+      return query(statement, user);
+    });
+    await expect(cleanIntegrationDatabase({ signal: controller.signal })).rejects.toThrow('deadline');
+    expect(mocked.query.mock.calls.filter(([statement]) => statement.startsWith('DROP ')))
+      .toEqual([['DROP SCHEMA IF EXISTS website_auth CASCADE', 'fixture_owner']]);
+    expect(mocked.query.mock.calls.some(([statement]) => statement.startsWith('CREATE SCHEMA'))).toBe(false);
+    expect(mocked.releaseOwnership).toHaveBeenCalledOnce();
+  });
+
   it.each(['prepare', 'cleanup'])('refuses %s before any schema statement when ownership conflicts', async action => {
     mocked.acquireOwnership.mockRejectedValue(Object.assign(new Error('occupied'), { code: 'INTEGRATION_DATABASE_BUSY' }));
     await expect(action === 'prepare' ? prepareIntegrationDatabase() : cleanIntegrationDatabase())

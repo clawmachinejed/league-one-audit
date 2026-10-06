@@ -44,9 +44,14 @@ export interface SleeperPermitPort {
 /** Capacity must be reserved before SQL, without a hidden post-grant queue.
  * dispatch invokes the observable HTTP start synchronously, once, and does not
  * retry. This local connection reservation is NOT the global SQL slot ledger.
- * release requires confirmed local teardown (remote cancellation is unknown). */
+ * terminateLocal must immediately destroy exclusively owned local resources and
+ * acknowledge only their observed closure, never just an abort/destroy request.
+ * An unconfirmed slot is permanently retired by the capacity owner. release is
+ * called only before dispatch or after that acknowledgement; it never refunds
+ * the durable permit. No method asserts remote cancellation. */
 export interface SleeperDispatchSlot {
   dispatch(url: string, init: RequestInit): Promise<Response>;
+  terminateLocal(): Promise<'terminated' | 'unconfirmed'>;
   release(): void;
 }
 export type PermitTransportResult =
@@ -179,7 +184,32 @@ export function createSleeperPermitTransport(dependencies: {
     try { slot = await dependencies.reserveLocalCapacity(); } catch { return unavailable('transport'); }
     if (!slot) return unavailable('transport');
     let released = false;
-    const release = () => { if (!released) { released = true; slot.release(); } };
+    let retired = false;
+    let quarantine: ReturnType<typeof setTimeout> | undefined;
+    let teardown: Promise<void> | undefined;
+    const release = () => {
+      if (!released && !retired) { released = true; clearTimeout(quarantine); slot.release(); }
+    };
+    const terminate = (): Promise<void> => {
+      if (teardown) return teardown;
+      clearTimeout(quarantine);
+      // Start local destruction at the quarantine boundary. The additional
+      // second only waits for closure proof; capacity remains occupied. If the
+      // owner cannot prove closure, retire permanently, including late settles.
+      teardown = (async () => {
+        let confirmationTimer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          const confirmation = slot.terminateLocal();
+          const result = await Promise.race([confirmation, new Promise<'unconfirmed'>((resolve) => {
+            confirmationTimer = setTimeout(() => resolve('unconfirmed'), 1000);
+          })]);
+          if (result === 'terminated') release();
+          else retired = true;
+        } catch { retired = true; }
+        finally { clearTimeout(confirmationTimer); }
+      })();
+      return teardown;
+    };
     const anchor = dependencies.monotonicNow();
     if (!Number.isFinite(anchor) || anchor < 0) { release(); return unavailable('deadline'); }
     let reservation: Awaited<ReturnType<SleeperPermitPort['reserveCommitted']>>;
@@ -196,7 +226,14 @@ export function createSleeperPermitTransport(dependencies: {
     let timedOut = false;
     let observedHeaders: { outcome: PermitOutcome; retry: number | null } | null = null;
     const deadline = new Promise<null>((resolve) => {
-      timeout = setTimeout(() => { timedOut = true; controller.abort(); resolve(null); }, permit.httpDeadlineMs);
+      timeout = setTimeout(() => {
+        timedOut = true;
+        // Install cleanup before abort: abort listeners and accounting can fail
+        // or remain pending without preventing the owned-resource deadline.
+        quarantine = setTimeout(() => { void terminate(); }, 60_000);
+        controller.abort();
+        resolve(null);
+      }, permit.httpDeadlineMs);
     });
     const init: RequestInit = { method: 'GET', cache: 'no-store', redirect: 'manual',
       headers: { Accept: 'application/json' }, signal: controller.signal };
@@ -207,7 +244,7 @@ export function createSleeperPermitTransport(dependencies: {
     }
     let responsePromise: Promise<Response>;
     try { responsePromise = slot.dispatch(url, init); }
-    catch { clearTimeout(timeout); release(); await finish(permit.permitId, 'network', null); return unavailable('transport'); }
+    catch { clearTimeout(timeout); await terminate(); await finish(permit.permitId, 'network', null); return unavailable('transport'); }
     const operation = responsePromise.then(async (response) => {
       const outcome = responseOutcome(response.status);
       const retry = response.status === 429 || response.status === 503
@@ -215,22 +252,25 @@ export function createSleeperPermitTransport(dependencies: {
       observedHeaders = { outcome, retry };
       if (timedOut) {
         // A late observation only tightens accounting, never accepts source data.
-        await finish(permit.permitId, outcome, retry);
-        await response.body?.cancel().catch(() => {});
-        release();
+        void finish(permit.permitId, outcome, retry);
+        // Headers alone are not completion. Teardown owns cancellation even if
+        // a custom response body's cancel promise never settles.
+        void response.body?.cancel().catch(() => {});
+        await terminate();
         return null;
       }
       try {
         const body = await response.text();
-        release();
+        await terminate();
+        if (retired) { await finish(permit.permitId, outcome === 'success' ? 'network' : outcome, retry); return null; }
         if (timedOut) { await finish(permit.permitId, outcome, retry); return null; }
         return { response, body, outcome, retry };
       } catch {
-        release();
+        await terminate();
         await finish(permit.permitId, outcome === 'success' ? 'network' : outcome, retry);
         return null;
       }
-    }, async () => { release(); if (!timedOut) await finish(permit.permitId, 'network', null); return null; });
+    }, async () => { await terminate(); if (!timedOut) await finish(permit.permitId, 'network', null); return null; });
     const observed = await Promise.race([operation, deadline]);
     clearTimeout(timeout);
     if (timedOut) {

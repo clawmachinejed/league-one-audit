@@ -19,14 +19,159 @@ function setup() {
   const finish = vi.fn<SleeperPermitPort['finish']>().mockResolvedValue(true);
   const dispatch = vi.fn<(url: string, init: RequestInit) => Promise<Response>>().mockImplementation(async () => new Response('{"season":"2026"}'));
   const release = vi.fn();
-  const reserveLocalCapacity = vi.fn().mockResolvedValue({ dispatch, release });
+  const terminateLocal = vi.fn<() => Promise<'terminated' | 'unconfirmed'>>().mockResolvedValue('terminated');
+  const reserveLocalCapacity = vi.fn().mockResolvedValue({ dispatch, release, terminateLocal });
   const monotonicNow = vi.fn().mockReturnValue(100);
   const send = createSleeperPermitTransport({ permits: { reserveCommitted, finish }, reserveLocalCapacity, monotonicNow });
-  return { send, reserveCommitted, finish, dispatch, release, reserveLocalCapacity, monotonicNow };
+  return { send, reserveCommitted, finish, dispatch, release, terminateLocal, reserveLocalCapacity, monotonicNow };
 }
 afterEach(() => vi.useRealTimers());
 
 describe('permit-bound Sleeper HTTP boundary', () => {
+  it.each(['dispatch', 'body'])('terminates a never-settling %s after exactly 60 seconds of quarantine', async (kind) => {
+    vi.useFakeTimers();
+    const s = setup();
+    s.dispatch.mockImplementation(() => kind === 'dispatch'
+      ? new Promise(() => {}) : Promise.resolve(new Response(new ReadableStream({ start() {} }))));
+    const result = s.send(request);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(await result).toEqual({ status: 'unavailable', reason: 'deadline' });
+    await vi.advanceTimersByTimeAsync(59999);
+    expect(s.terminateLocal).not.toHaveBeenCalled();
+    expect(s.release).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(s.terminateLocal).toHaveBeenCalledTimes(1);
+    expect(s.release).toHaveBeenCalledTimes(1);
+    expect(s.terminateLocal.mock.invocationCallOrder[0]).toBeLessThan(s.release.mock.invocationCallOrder[0]);
+    expect(s.reserveCommitted).toHaveBeenCalledTimes(1);
+    expect(s.dispatch).toHaveBeenCalledTimes(1);
+    expect(s.finish.mock.calls).toContainEqual([id, 'unknown', null]);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each(['unconfirmed', 'throws', 'hangs'])('permanently retires capacity when teardown %s, even after late settlement', async (failure) => {
+    vi.useFakeTimers();
+    const s = setup();
+    let respond!: (response: Response) => void;
+    s.dispatch.mockImplementation(() => new Promise((resolve) => { respond = resolve; }));
+    if (failure === 'unconfirmed') s.terminateLocal.mockResolvedValue('unconfirmed');
+    if (failure === 'throws') s.terminateLocal.mockImplementation(() => { throw new Error('close failed'); });
+    if (failure === 'hangs') s.terminateLocal.mockImplementation(() => new Promise(() => {}));
+    const result = s.send(request);
+    await vi.advanceTimersByTimeAsync(66_000);
+    expect(await result).toEqual({ status: 'unavailable', reason: 'deadline' });
+    expect(s.terminateLocal).toHaveBeenCalledTimes(1);
+    expect(s.release).not.toHaveBeenCalled();
+    respond(new Response('late source data', { status: 503, headers: { 'Retry-After': '60' } }));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(s.finish).toHaveBeenCalledWith(id, 'http503', 60);
+    expect(s.release).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('does not revive retired capacity when closure proof itself arrives after its deadline', async () => {
+    vi.useFakeTimers();
+    const s = setup();
+    let confirm!: (result: 'terminated') => void;
+    s.terminateLocal.mockImplementation(() => new Promise((resolve) => { confirm = resolve; }));
+    s.dispatch.mockImplementation(() => new Promise(() => {}));
+    const result = s.send(request);
+    await vi.advanceTimersByTimeAsync(66_000);
+    expect(await result).toEqual({ status: 'unavailable', reason: 'deadline' });
+    confirm('terminated');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(s.release).not.toHaveBeenCalled();
+  });
+
+  it.each([429, 503])('records late %s after terminal teardown without double release or accepting data', async (status) => {
+    vi.useFakeTimers();
+    const s = setup();
+    let respond!: (response: Response) => void;
+    s.dispatch.mockImplementation(() => new Promise((resolve) => { respond = resolve; }));
+    const result = s.send(request);
+    await vi.advanceTimersByTimeAsync(65_000);
+    expect(await result).toEqual({ status: 'unavailable', reason: 'deadline' });
+    const response = new Response('late', { status, headers: { 'Retry-After': '20' } });
+    const read = vi.spyOn(response, 'text');
+    respond(response);
+    respond(new Response('conflicting later settle'));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(s.finish.mock.calls).toEqual([[id, 'unknown', null], [id, `http${status}`, 20]]);
+    expect(read).not.toHaveBeenCalled();
+    expect(s.release).toHaveBeenCalledTimes(1);
+    expect(s.terminateLocal).toHaveBeenCalledTimes(1);
+    expect(s.reserveCommitted).toHaveBeenCalledTimes(1);
+  });
+
+  it('quarantine teardown does not depend on a stalled accounting acknowledgment', async () => {
+    vi.useFakeTimers();
+    const s = setup();
+    let confirmAccounting!: (result: boolean) => void;
+    s.finish.mockImplementation(() => new Promise((resolve) => { confirmAccounting = resolve; }));
+    s.dispatch.mockImplementation(() => new Promise(() => {}));
+    const result = s.send(request);
+    await vi.advanceTimersByTimeAsync(65_000);
+    expect(s.terminateLocal).toHaveBeenCalledTimes(1);
+    expect(s.release).toHaveBeenCalledTimes(1);
+    confirmAccounting(false);
+    expect(await result).toEqual({ status: 'unavailable', reason: 'deadline' });
+  });
+
+  it('late body settlement cannot release twice or return timed-out bytes', async () => {
+    vi.useFakeTimers();
+    const s = setup();
+    let body!: ReadableStreamDefaultController<Uint8Array>;
+    s.dispatch.mockResolvedValue(new Response(new ReadableStream<Uint8Array>({ start(controller) { body = controller; } })));
+    const result = s.send(request);
+    await vi.advanceTimersByTimeAsync(65_000);
+    expect(await result).toEqual({ status: 'unavailable', reason: 'deadline' });
+    body.enqueue(new TextEncoder().encode('late source bytes'));
+    body.close();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(s.release).toHaveBeenCalledTimes(1);
+    expect(s.terminateLocal).toHaveBeenCalledTimes(1);
+    expect(s.reserveCommitted).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('fails closed when even an otherwise complete response cannot prove local teardown', async () => {
+    const s = setup();
+    s.terminateLocal.mockResolvedValue('unconfirmed');
+    expect(await s.send(request)).toEqual({ status: 'unavailable', reason: 'transport' });
+    expect(s.release).not.toHaveBeenCalled();
+    expect(s.finish).toHaveBeenCalledWith(id, 'network', null);
+  });
+
+  it.each([429, 503])('preserves known %s cooldown even if completed-body teardown fails', async (status) => {
+    const s = setup();
+    s.dispatch.mockResolvedValue(new Response('overloaded', { status, headers: { 'Retry-After': '60' } }));
+    s.terminateLocal.mockResolvedValue('unconfirmed');
+    expect(await s.send(request)).toEqual({ status: 'unavailable', reason: 'transport' });
+    expect(s.release).not.toHaveBeenCalled();
+    expect(s.finish).toHaveBeenCalledWith(id, `http${status}`, 60);
+  });
+
+  it('releases only after observed local closure and leaves no quarantine timer on an early late completion', async () => {
+    vi.useFakeTimers();
+    const s = setup();
+    let respond!: (response: Response) => void;
+    let confirm!: (result: 'terminated') => void;
+    s.dispatch.mockImplementation(() => new Promise((resolve) => { respond = resolve; }));
+    s.terminateLocal.mockImplementation(() => new Promise((resolve) => { confirm = resolve; }));
+    const result = s.send(request);
+    await vi.advanceTimersByTimeAsync(5000);
+    await result;
+    respond(new Response('late'));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(s.release).not.toHaveBeenCalled();
+    confirm('terminated');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(s.release).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(s.terminateLocal).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it('reserves local capacity before SQL and makes exactly one uncached manual-redirect GET', async () => {
     const s = setup();
     expect(await s.send(request)).toEqual({ status: 'received', permitId: id, httpStatus: 200, body: '{"season":"2026"}' });

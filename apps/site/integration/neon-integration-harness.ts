@@ -283,7 +283,9 @@ function productionUrlIdentities(): readonly UrlIdentity[] {
 
 export async function assertSafeIntegrationDatabase(
   env = integrationEnvironment(),
+  signal?: AbortSignal,
 ): Promise<void> {
+  signal?.throwIfAborted();
   const ownerUrl = parseDatabaseUrl(env.ownerDatabaseUrl, 'Integration owner URL');
   const runtimeUrl = parseDatabaseUrl(env.runtimeDatabaseUrl, 'Integration runtime URL');
   // The standard runner requires this credential. Historical migration and
@@ -353,6 +355,7 @@ export async function assertSafeIntegrationDatabase(
       authPool ? connectionIdentity(authPool, 'The auth connection') : undefined,
       accountPool ? connectionIdentity(accountPool, 'The account connection') : undefined,
     ]);
+    signal?.throwIfAborted();
     for (const identity of [ownerIdentity, runtimeIdentity, authIdentity, accountIdentity]) {
       if (identity) assertNotDenied(env, [identity.database, identity.branch,
         identity.comment.branchId, identity.comment.branchName]);
@@ -372,6 +375,7 @@ export async function assertSafeIntegrationDatabase(
         throw new Error('The auth connection did not authenticate as the restricted league_one_auth role.');
       }
       await assertRestrictedPrivateRole(authPool, 'auth');
+      signal?.throwIfAborted();
     }
     if (accountIdentity && accountPool) {
       assertComment(env, accountIdentity);
@@ -379,19 +383,22 @@ export async function assertSafeIntegrationDatabase(
         throw new Error('The account connection did not authenticate as the restricted league_one_account role.');
       }
       await assertRestrictedPrivateRole(accountPool, 'account');
+      signal?.throwIfAborted();
     }
   } finally {
     await Promise.allSettled([ownerPool.end(), runtimePool.end(), authPool?.end(), accountPool?.end()]);
   }
 }
 
-async function resetIntegrationSchemas(pool: IntegrationSession): Promise<void> {
+async function resetIntegrationSchemas(pool: IntegrationSession, signal?: AbortSignal): Promise<void> {
   // Fixed application-owned schemas only, after the full existing target guards.
   // Never enumerate/drop other schemas (in particular managed neon_auth).
-  await pool.query('DROP SCHEMA IF EXISTS website_auth CASCADE');
-  await pool.query('DROP SCHEMA IF EXISTS public CASCADE');
-  await pool.query('CREATE SCHEMA public');
-  await pool.query('REVOKE CREATE ON SCHEMA public FROM PUBLIC');
+  for (const statement of ['DROP SCHEMA IF EXISTS website_auth CASCADE', 'DROP SCHEMA IF EXISTS public CASCADE',
+    'CREATE SCHEMA public', 'REVOKE CREATE ON SCHEMA public FROM PUBLIC']) {
+    signal?.throwIfAborted();
+    await pool.query(statement);
+    signal?.throwIfAborted();
+  }
 }
 
 async function applyMigrations(
@@ -525,13 +532,16 @@ export async function prepareIntegrationDatabase(options: Readonly<{
   }
 }
 
-export async function cleanIntegrationDatabase(options: Readonly<{ ownerProof?: string }> = {}): Promise<void> {
+export async function cleanIntegrationDatabase(options: Readonly<{ ownerProof?: string; signal?: AbortSignal }> = {}): Promise<void> {
   try {
+    options.signal?.throwIfAborted();
     const env = integrationEnvironment();
-    await assertSafeIntegrationDatabase(env);
+    await assertSafeIntegrationDatabase(env, options.signal);
+    options.signal?.throwIfAborted();
     const ownerPool = await databaseOwnership.acquire({ ownerDatabaseUrl: env.ownerDatabaseUrl,
-      expectedDatabase: env.expectedDatabase, expectedBranchId: env.expectedBranchId }, delegatedOwner(options.ownerProof));
-    await resetIntegrationSchemas(ownerPool);
+      expectedDatabase: env.expectedDatabase, expectedBranchId: env.expectedBranchId }, delegatedOwner(options.ownerProof), options.signal);
+    options.signal?.throwIfAborted();
+    await resetIntegrationSchemas(ownerPool, options.signal);
   } finally {
     await databaseOwnership.release();
   }
