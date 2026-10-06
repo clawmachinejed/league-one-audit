@@ -203,8 +203,9 @@ async function openFantasyFixture(page: Page, options: { staleInitialRefresh?: b
     weeks: {} as Partial<Record<LeagueKey, number>>,
     boxRequests: [] as Array<{ league: LeagueKey; season: string | null; week: number; queryKeys: string[] }>,
     providerRequests: [] as string[], accountRequests: [] as string[] };
-  await page.clock.install({ time: new Date('2026-09-13T16:00:00.000Z') });
-  await page.clock.pauseAt(new Date('2026-09-13T16:01:00.000Z'));
+  const fixtureTime = new Date('2026-09-13T16:01:00.000Z');
+  await page.clock.install({ time: fixtureTime });
+  await page.clock.setFixedTime(fixtureTime);
   await page.addInitScript(preferences => {
     for (const [key, value] of preferences) {
       // Reloading must retain later choices made through the existing My Team controls.
@@ -323,6 +324,9 @@ async function openFantasyFixture(page: Page, options: { staleInitialRefresh?: b
   });
   await page.goto('/my-fantasy', { waitUntil: 'networkidle' });
   await expect(serverHeading(page)).toHaveText(initialServerHeading, { timeout: 20_000 });
+  // Let delayed client chunks finish mounting before freezing React's startup timers.
+  await page.clock.pauseAt(fixtureTime);
+  await page.clock.setSystemTime(fixtureTime);
   await page.clock.runFor(61_000);
   for (const league of leagues) {
     await expectSelectedScores(card(page, league), league, savedTeams[league]);

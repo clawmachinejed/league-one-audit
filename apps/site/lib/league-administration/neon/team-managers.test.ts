@@ -381,3 +381,16 @@ describe('separate latest observed manager evidence reader', () => {
     await expect(disabled.beginTeamManagerEvidenceAttempt!(mapping, ids.managersAttempt)).rejects.toThrow('disabled');
   });
 });
+
+
+describe.each(['readAcceptedTeamManagers', 'readAcceptedTeamManagerEvidence'] as const)('%s mapping boundary', reader => {
+  it.each([
+    ['missing', undefined], ['null', null], ['primitive', false], ['array', []], ['empty object', {}],
+    ['incomplete scope', { ...mapping, scope: null }],
+  ])('returns invalid_mapping for %s before constructing a scope or querying', async (_label, input) => {
+    const query = vi.fn(() => { throw new Error('Invalid mapping must not reach storage.'); });
+    await expect(teamManagerMethods(database(query))[reader](input as AdministrationSourceMapping))
+      .resolves.toEqual({ status: 'unavailable', reason: 'invalid_mapping' });
+    expect(query).not.toHaveBeenCalled();
+  });
+});

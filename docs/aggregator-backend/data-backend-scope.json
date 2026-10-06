@@ -246,6 +246,14 @@
       "proof": "Offline malformed/missing/null primary and valid co-manager, version/replay/old-readback tests; authored actual restricted LOGIN atomicity, fencing, ordering and privilege oracle, SQL execution pending.",
       "reviewer": "Independent GPT-6 Astra ultra review in Review new backend end to end (01a0f411-7133-7491-b693-4c89af678ca6)",
       "reviewReference": "DATA-SCOPE-2026-10-06-MANAGER-EVIDENCE-V2-01"
+    },
+    {
+      "path": "apps/site/e2e/my-fantasy.spec.ts",
+      "resource": "Existing website regression evidence for the shared backend",
+      "purpose": "Keep the existing fake date while allowing initial fixture hydration before pausing browser timers; preserve all bounded polling, recovery, isolation and layout assertions. No product code, retries, timeout or worker-count relaxation.",
+      "proof": "Independent delayed-chunk replay reproduced startup stalling under a paused clock; targeted existing browser cases and changed-SHA review required. Separate ECONNRESET remains unresolved.",
+      "reviewer": "Independent GPT-6 Astra ultra review in Review new backend end to end (01a0f411-7133-7491-b693-4c89af678ca6)",
+      "reviewReference": "DATA-SCOPE-2026-10-06-BROWSER-STARTUP-CLOCK-01"
     }
   ],
   "governanceChanges": [

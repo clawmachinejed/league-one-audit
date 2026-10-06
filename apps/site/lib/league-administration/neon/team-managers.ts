@@ -51,9 +51,9 @@ export function teamManagerMethods(client: DatabaseClient) {
   async function readManagers(mapping: AdministrationSourceMapping, evidence: false): Promise<AcceptedTeamManagersRead>;
   async function readManagers(mapping: AdministrationSourceMapping, evidence: true): Promise<AcceptedTeamManagerEvidenceRead>;
   async function readManagers(mapping: AdministrationSourceMapping, evidence: boolean): Promise<AcceptedTeamManagersRead | AcceptedTeamManagerEvidenceRead> {
+      if (!isAdministrationSourceMapping(mapping)) return { status: 'unavailable', reason: 'invalid_mapping' };
       const policy = evidence ? TEAM_MANAGER_EVIDENCE_POLICY : TEAM_MANAGERS_POLICY;
       const scope = evidence ? teamManagerEvidenceScope(mapping) : teamManagersScope(mapping);
-      if (!isAdministrationSourceMapping(mapping)) return { status: 'unavailable', reason: 'invalid_mapping' };
       try {
         const rows = await client.query(`/* league-administration:read-accepted-team-managers */
           SELECT scope.identity,accepted.generation,accepted.source_mapping_revision_id,
