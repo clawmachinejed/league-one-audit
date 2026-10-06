@@ -12,6 +12,20 @@ const receipt = { sessionId: 'session', subject: 'subject', expiresAt: '2030-01-
   clockDomain: identity.clockDomain, admittedEmailDigest: 'b'.repeat(64), sessionTokenDigest: 'c'.repeat(64) };
 afterEach(() => vi.clearAllMocks());
 describe('private database composition', () => {
+  it.each([
+    url.replace('ep-isolated.example.neon.tech','unexpected.example.test'),
+    url.replace('ep-isolated.example.neon.tech','localhost'),
+    url.replace('neon.tech','neon.tech.evil.test'),
+    url+'&sslmode=disable',url+'&sslmode=require',url+'&host=unexpected.example.test',
+    url+'&options=-crole=owner',url+'&channel_binding=require&channel_binding=require',
+    url+'&channel_binding=disable',url.replace('/test?','/%2ftest?'),url.replace('/test?','/?'),
+    url.replace('.tech/','.tech:6543/'),url+'#fragment',
+  ])('blocks ambiguous or external credential destinations before constructing the driver %#',value=>{
+    const invalid={...environment,ACCOUNT_DATABASE_URL:value};
+    expect(accountDatabaseUrl(invalid)).toBeNull();
+    expect(()=>createAccountAuthorityDatabase(receipt,invalid)).toThrow('unavailable');
+    expect(mock.neon).not.toHaveBeenCalled();
+  });
   it('samples final SQL authority after domain work in the same committing transaction', async () => {
     const timing = { dbSampleAt: '2026-10-06T00:00:00.000Z', minimumAuthorityExpiresAt: receipt.expiresAt,
       remainingLifetimeMs: '102211200000' };

@@ -12,12 +12,17 @@ import { ACCOUNT_DATABASE_GUARD } from '../lib/accounts/neon/database';
 import { createRealAccountLoginFixture, prepareSyntheticAccountSession } from './account-authority-fixture';
 
 const receipt = { fixtureOnly: 'synthetic authority' };
+const syntheticIdentity = { clockDomain: 'neon:synthetic-test-clock' };
+function ownerRows(sql: string) {
+  if (sql.startsWith('SELECT website_auth.account_server_identity_v1()')) return [{ identity: syntheticIdentity }];
+  return sql.startsWith('SELECT jsonb_build_object') ? [{ receipt }] : [];
+}
 beforeEach(() => {
   vi.resetAllMocks();
   vi.stubEnv('ACCOUNT_AUTHORITY_INTEGRATION_DATABASE_URL', 'postgresql://league_one_account:synthetic@ep-test.example.test/integration_test?sslmode=require');
   mocked.preflight.mockResolvedValue(undefined);
   mocked.ownerClose.mockResolvedValue(undefined); mocked.end.mockResolvedValue(undefined);
-  mocked.ownerQuery.mockImplementation(async (sql: string) => sql.startsWith('SELECT jsonb_build_object') ? [{ receipt }] : []);
+  mocked.ownerQuery.mockImplementation(async (sql: string) => ownerRows(sql));
   mocked.query.mockImplementation(async (sql: string) => ({ rows: sql.startsWith('SELECT current_user')
     ? [{ current_role: 'league_one_account', session_role: 'league_one_account', pid: 101 }] : [] }));
   mocked.connect.mockResolvedValue({ query: mocked.query, release: mocked.release });
@@ -30,13 +35,15 @@ describe('no-network account race fixture safety (not SQL qualification)', () =>
     let commit!: () => void; let published = false;
     mocked.ownerQuery.mockImplementation(async (sql: string) => {
       if (sql === 'COMMIT') await new Promise<void>(resolve => { commit = resolve; });
-      return sql.startsWith('SELECT jsonb_build_object') ? [{ receipt }] : [];
+      return ownerRows(sql);
     });
     const preparation = prepareSyntheticAccountSession('https://issuer.test', 'subject').then(result => { published = true; return result; });
     await vi.waitFor(() => expect(commit).toBeTypeOf('function'));
     expect(published).toBe(false);
     commit();
     expect(await preparation).toBe(receipt);
+    expect(mocked.ownerQuery.mock.calls.find(([sql]) => sql.startsWith('INSERT INTO website_auth.admission_epoch'))?.[1])
+      .toEqual([expect.any(String), 'https://issuer.test', syntheticIdentity.clockDomain]);
     expect(mocked.ownerClose).toHaveBeenCalledOnce();
   });
 

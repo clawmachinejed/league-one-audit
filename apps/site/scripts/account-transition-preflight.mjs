@@ -3,7 +3,7 @@
 export function accountTransitionApproval(value, checksums) {
   let input;
   try { input = JSON.parse(value ?? ''); } catch { throw new Error('Reviewed account transition approval is required.'); }
-  const keys = ['reviewedSha', 'compatibleRecoverySha', 'maintenanceEvidenceHash', 'drainEvidenceHash', 'migrationChecksums'];
+  const keys = ['reviewedSha', 'compatibleRecoverySha', 'maintenanceEvidenceHash', 'drainEvidenceHash', 'migrationChecksums', 'databaseIdentity'];
   if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).length !== keys.length
     || keys.some(key => !Object.hasOwn(input, key))
     || !/^[a-f0-9]{40}$/u.test(input.reviewedSha ?? '') || !/^[a-f0-9]{40}$/u.test(input.compatibleRecoverySha ?? '')
@@ -12,7 +12,44 @@ export function accountTransitionApproval(value, checksums) {
     || Object.entries(checksums).some(([name, hash]) => input.migrationChecksums[name] !== hash)) {
     throw new Error('Reviewed account transition approval is invalid.');
   }
-  return input;
+  return { ...input, databaseIdentity: migrationDatabaseIdentity(input.databaseIdentity) };
+}
+
+/** Explicit non-secret identity from independently reviewed infrastructure
+ * evidence. Never infer target authorization from the supplied credential. */
+export function migrationDatabaseIdentity(input) {
+  const fields=['projectId','branchId','tenantId','timelineId','databaseName','databaseOid','clockDomain'];
+  if (!input || typeof input!=='object' || Array.isArray(input)
+    || Object.keys(input).length!==fields.length || fields.some(key=>typeof input[key]!=='string' || !input[key])
+    || !/^[a-z0-9]+(?:-[a-z0-9]+)+$/u.test(input.projectId)
+    || !/^br-[a-z0-9-]+$/u.test(input.branchId)
+    || !/^[a-f0-9]{32}$/u.test(input.tenantId) || !/^[a-f0-9]{32}$/u.test(input.timelineId)
+    || !/^[1-9]\d{0,9}$/u.test(input.databaseOid) || BigInt(input.databaseOid)>4294967295n
+    || input.databaseName.length>63 || /[\u0000-\u001f]/u.test(input.databaseName)
+    || input.clockDomain!==`neon:${input.tenantId}:${input.timelineId}:${input.databaseOid}`) {
+    throw new Error('Approved migration database identity is required.');
+  }
+  return Object.freeze(Object.fromEntries(fields.map(key=>[key,input[key]])));
+}
+
+/** Raw built-in catalog proof works before 036 exists. No function from the
+ * schema being installed participates in proving the destination. */
+export async function verifyMigrationDatabaseIdentity(client, expected) {
+  const approved=migrationDatabaseIdentity(expected);
+  const result=await client.query(`SELECT current_database() AS "databaseName",
+    (SELECT oid::text FROM pg_catalog.pg_database WHERE datname=current_database()) AS "databaseOid",
+    (SELECT jsonb_object_agg(name,jsonb_build_object('setting',setting,'context',context,'pendingRestart',pending_restart))
+      FROM pg_catalog.pg_settings WHERE name IN
+      ('neon.project_id','neon.branch_id','neon.tenant_id','neon.timeline_id')) AS settings`);
+  if (result.rows.length!==1) throw new Error('Migration destination identity was not verified.');
+  const row=result.rows[0];
+  const names={projectId:'neon.project_id',branchId:'neon.branch_id',tenantId:'neon.tenant_id',timelineId:'neon.timeline_id'};
+  if (row.databaseName!==approved.databaseName || row.databaseOid!==approved.databaseOid
+    || Object.entries(names).some(([key,name])=>row.settings?.[name]?.setting!==approved[key]
+      || row.settings[name].context!=='postmaster' || row.settings[name].pendingRestart!==false)) {
+    throw new Error('Migration destination identity was not verified.');
+  }
+  return approved;
 }
 
 /** Parse before constructing a driver. Only explicit credentials are accepted;
@@ -50,10 +87,12 @@ export function accountTransitionState(migrations, rows) {
 /** The caller has independently established maintenance, drain, source and
  * owner authority. One transaction commits all mandatory guard migrations and
  * their ledger entries. An acknowledgement loss is never reported as rollback. */
-export async function installAccountTransition(client, migrations) {
+export async function installAccountTransition(client, migrations, expectedIdentity) {
   let committing = false;
   try {
     await client.query('BEGIN');
+    await verifyMigrationDatabaseIdentity(client, expectedIdentity);
+    await client.query('SELECT pg_advisory_xact_lock(19740517,1)');
     await client.query("SELECT pg_advisory_xact_lock(hashtext('league-one-schema-migrations'))");
     await client.query(`DO $owner$ BEGIN
       IF current_user<>session_user OR NOT EXISTS(SELECT 1 FROM pg_namespace

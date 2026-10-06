@@ -755,9 +755,12 @@ describe('projection migration', () => {
       new URL('../scripts/migrate.mjs', import.meta.url),
       'utf8',
     );
-    expect(migrationRunner).toContain('process.env.MIGRATION_DATABASE_URL?.trim()');
+    expect(migrationRunner).toContain('migrationOwnerUrl(process.env.MIGRATION_DATABASE_URL');
     expect(migrationRunner).not.toContain('process.env.DATABASE_URL');
-    expect(migrationRunner).toContain("['require', 'verify-ca', 'verify-full']");
+    // TLS/override behavior is exercised by account-transition-preflight.test.mjs;
+    // the runner must compose that shared parser before constructing its driver.
+    expect(migrationRunner.indexOf('migrationOwnerUrl(process.env.MIGRATION_DATABASE_URL'))
+      .toBeLessThan(migrationRunner.indexOf('new Pool('));
 
     const grants = await readFile(
       new URL('../scripts/provision-runtime-role.sql', import.meta.url),

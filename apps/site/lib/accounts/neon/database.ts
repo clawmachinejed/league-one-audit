@@ -50,9 +50,17 @@ export function accountDatabaseUrl(environment: Readonly<Record<string, string |
   if (environment.ACCOUNTS_ENABLED !== 'true' || environment.VERCEL_ENV === 'preview') return null;
   try {
     const url = new URL(environment.ACCOUNT_DATABASE_URL ?? '');
-    if (!['postgres:', 'postgresql:'].includes(url.protocol) || !url.hostname || !url.password
+    const database = decodeURIComponent(url.pathname.slice(1));
+    if (!['postgres:', 'postgresql:'].includes(url.protocol)
+      || !url.hostname.endsWith('.neon.tech') || !url.hostname.startsWith('ep-') || !url.password
       || decodeURIComponent(url.username) !== 'league_one_account'
-      || !['require', 'verify-full', 'verify-ca'].includes(url.searchParams.get('sslmode') ?? '')) return null;
+      || !database || database.length > 63 || /[\/\\\u0000-\u001f]/u.test(database)
+      || url.hash || (url.port && url.port !== '5432')
+      || !['require', 'verify-full'].includes(url.searchParams.get('sslmode') ?? '')
+      || url.searchParams.getAll('sslmode').length !== 1
+      || [...url.searchParams.keys()].some(key => !['sslmode', 'channel_binding'].includes(key))
+      || url.searchParams.getAll('channel_binding').length > 1
+      || (url.searchParams.has('channel_binding') && url.searchParams.get('channel_binding') !== 'require')) return null;
     return url.toString();
   } catch { return null; }
 }
