@@ -1,5 +1,5 @@
 import { compatibleRevision, compatibleScoringRulesHash } from '../projections/shared/revision-compatibility';
-import { TEAM_MANAGERS_POLICY, type SourceTeamManagers, type TeamManagersNormalization } from '../aggregator/team-managers';
+import { TEAM_MANAGERS_PARTIAL_VERSION, TEAM_MANAGERS_POLICY, type SourceTeamManagers, type TeamManagersNormalization } from '../aggregator/team-managers';
 import { LEAGUE_SETTINGS_POLICY, type SettingField, type LeagueSettingsNormalization,
   type LeagueSettingsValue, type NativePeriodReference } from '../aggregator/league-settings';
 import { normalizeSleeperScoringProfile } from '../projections/adapters/sleeper/scoring-profile';
@@ -362,7 +362,7 @@ function normalizeRosters(raw: readonly JsonValue[], expectations: Administratio
 /** Resource projection inside the sole normalizer. Unrelated player/display fields cannot reject it. */
 function normalizeTeamManagers(envelope: AdministrationEnvelope,
   expectations: AdministrationNormalizationExpectations): TeamManagersNormalization {
-  const version = TEAM_MANAGERS_POLICY.canonicalNormalizerVersion;
+  let version: TeamManagersNormalization['version'] = TEAM_MANAGERS_POLICY.canonicalNormalizerVersion;
   try {
     validateEnvelope(envelope);
     const raw = rows(envelope.payload, 'payload');
@@ -376,10 +376,21 @@ function normalizeTeamManagers(envelope: AdministrationEnvelope,
       if (row.league_id !== undefined && row.league_id !== envelope.scope.externalLeagueId) {
         invalid('foreign_roster_league', `${path}.league_id`, 'Roster league does not match its source scope.');
       }
-      const primaryOwner: SourceTeamManagers['primaryOwner'] = row.owner_id === undefined
-        ? { state: 'unknown', externalManagerId: null }
-        : row.owner_id === null ? { state: 'unowned', externalManagerId: null }
-          : { state: 'owned', externalManagerId: identifier(row.owner_id, `${path}.owner_id`) };
+      let primaryOwner: SourceTeamManagers['primaryOwner'];
+      try {
+        primaryOwner = row.owner_id === undefined ? { state: 'unknown', externalManagerId: null }
+          : row.owner_id === null ? { state: 'unowned', externalManagerId: null }
+            : { state: 'owned', externalManagerId: identifier(row.owner_id, `${path}.owner_id`) };
+        if (primaryOwner.state === 'unknown') diagnostics.push({ code: 'owner_absent', path: `${path}.owner_id`, message: 'Primary ownership is unknown.' });
+      } catch (error) {
+        if (!(error instanceof InvalidDocument)) throw error;
+        // This owner cannot prove ownership or vacancy, but it cannot erase an
+        // independently valid co-manager group. Keep this new partial meaning
+        // outside the closed v1 acceptance policy; never relabel old receipts.
+        version = TEAM_MANAGERS_PARTIAL_VERSION;
+        primaryOwner = { state: 'unknown', externalManagerId: null };
+        diagnostics.push(error.diagnostic);
+      }
       let coManagers: SourceTeamManagers['coManagers'];
       try {
         const coIds = idArray(row.co_owners, `${path}.co_owners`);
@@ -393,7 +404,6 @@ function normalizeTeamManagers(envelope: AdministrationEnvelope,
         if (!(error instanceof InvalidDocument)) throw error;
         coManagers = { state: 'unknown', externalManagerIds: null, reason: 'co_managers_invalid' };
       }
-      if (primaryOwner.state === 'unknown') diagnostics.push({ code: 'owner_absent', path: `${path}.owner_id`, message: 'Primary ownership is unknown.' });
       if (coManagers.state === 'unknown') diagnostics.push({ code: coManagers.reason,
         path: `${path}.co_owners`, message: 'Co-manager inventory is unknown; absence cannot establish removal.' });
       return { externalRosterId, primaryOwner, coManagers };

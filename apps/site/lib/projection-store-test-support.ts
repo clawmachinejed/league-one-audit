@@ -209,6 +209,7 @@ export const projectionStoreSqlMarkers = [
   'acquire-shared-all-player-job',
   'begin-future-materialization-refresh',
   'begin-future-projection-refresh',
+  'claim-account-acquisition',
   'claim-due-lineup-observations',
   'clean-orphan-nfl-games',
   'clean-orphan-scoring-entities',

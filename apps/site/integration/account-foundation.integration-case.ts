@@ -5,8 +5,10 @@ import type { AdministrationEnvelope } from '../lib/league-administration/contra
 import { normalizeAdministrationObservation } from '../lib/league-administration/normalize';
 import { createLeagueAdministrationMethods } from '../lib/league-administration/neon/administration';
 import { registerEnrolledIntegrationSeason } from './administration-enrollment-fixture';
-import { accountQuery, createIndependentDatabase, integrationEnvironment, ownerQuery, runtimeQuery,
-  withAccountActor, type IndependentDatabase } from './neon-integration-harness';
+import { createIndependentDatabase, integrationEnvironment, ownerQuery, runtimeQuery,
+  type IndependentDatabase } from './neon-integration-harness';
+import { installSyntheticAccountSession, prepareSyntheticAccountSession, setSyntheticActorReceipt,
+  syntheticAccountQuery as accountQuery, withSyntheticAccountActor as withAccountActor } from './account-authority-fixture';
 
 const issuer = 'https://isolated-auth.example.test';
 const rules = { pass_td: 4, rec: 0.5 };
@@ -16,7 +18,11 @@ const privateTables = ['app_users', 'app_login_identities', 'app_provider_accoun
 const actor = (appUserId: string) => ({ actorUserId: appUserId, requestId: randomUUID() });
 
 async function user(subject = randomUUID(), name = 'Isolated account') {
-  const result = await accountQuery<{ id: string }>(resolveSql, [issuer, subject, name, randomUUID()]);
+  const receipt = await prepareSyntheticAccountSession(issuer, subject);
+  const result = await withAccountActor({}, async query => {
+    await query("SELECT set_config('app.session_receipt_v2',$1,true)", [JSON.stringify(receipt)]);
+    return query<{ id: string }>(resolveSql, [issuer, subject, name, randomUUID()]);
+  });
   return { id: result[0].id, subject };
 }
 
@@ -50,13 +56,23 @@ describe.sequential('private account foundation against the guarded isolated dat
     return { ...result[0], ...registered, leagueKey, externalLeagueId, envelope };
   }
 
-  it('resolves concurrent first sign-ins once without merging same display names or different issuers', async () => {
+  it('does not merge same display names or different configured issuers', async () => {
     const subject = randomUUID();
-    const [a, b] = await Promise.all([user(subject, 'Shared display'), user(subject, 'Shared display')]);
+    // Genuine concurrent bootstrap is qualified separately with actual LOGINs
+    // and observed registration-lock overlap, not these owner SET ROLE fixtures.
+    const a = await user(subject, 'Shared display');
+    const b = await user(subject, 'Shared display');
     expect(a.id).toBe(b.id);
     const other = await user(randomUUID(), 'Shared display');
-    const otherIssuer = await accountQuery<{ id: string }>(resolveSql,
-      ['https://another-isolated-auth.example.test', subject, 'Shared display', randomUUID()]);
+    // A separate configured issuer is an explicit epoch transition, never a
+    // caller-supplied issuer trusted under another site's admission policy.
+    const otherIssuer = await withAccountActor({}, async query => {
+      await query('RESET ROLE');
+      await installSyntheticAccountSession(query, 'https://another-isolated-auth.example.test', subject);
+      await query('SET LOCAL ROLE league_one_account');
+      return query<{ id: string }>(resolveSql,
+        ['https://another-isolated-auth.example.test', subject, 'Shared display', randomUUID()]);
+    });
     expect(other.id).not.toBe(a.id);
     expect(otherIssuer[0].id).not.toBe(a.id);
     expect(await ownerQuery(`SELECT count(*)::integer AS count FROM public.app_login_identities WHERE issuer=$1 AND subject=$2`,
@@ -69,6 +85,9 @@ describe.sequential('private account foundation against the guarded isolated dat
   it('rolls back new user, login and audit together after a failed first-login transaction', async () => {
     const subject = randomUUID(); const requestId = randomUUID(); const displayName = `rollback-${randomUUID()}`;
     await expect(withAccountActor({}, async query => {
+      await query('RESET ROLE');
+      await installSyntheticAccountSession(query, issuer, subject);
+      await query('SET LOCAL ROLE league_one_account');
       await query(resolveSql, [issuer, subject, displayName, requestId]);
       await query('SELECT 1/0');
     })).rejects.toThrow();
@@ -83,7 +102,11 @@ describe.sequential('private account foundation against the guarded isolated dat
   it('records first-login authentication provenance and restores the caller transaction context', async () => {
     const requestId = randomUUID();
     const id = await withAccountActor({}, async query => {
-      const rows = await query<{ id: string }>(resolveSql, [issuer, randomUUID(), 'New account', requestId]);
+      const subject = randomUUID();
+      await query('RESET ROLE');
+      await installSyntheticAccountSession(query, issuer, subject);
+      await query('SET LOCAL ROLE league_one_account');
+      const rows = await query<{ id: string }>(resolveSql, [issuer, subject, 'New account', requestId]);
       expect(await query(`SELECT public.current_app_actor() AS actor,
         current_setting('app.request_id',true) AS request`)).toEqual([{ actor: null, request: '' }]);
       return rows[0].id;
@@ -250,6 +273,7 @@ describe.sequential('private account foundation against the guarded isolated dat
     const owner = createIndependentDatabase(integrationEnvironment().ownerDatabaseUrl);
     try {
       await owner.database.query('BEGIN ISOLATION LEVEL REPEATABLE READ');
+      await setSyntheticActorReceipt(owner.database.query, a.id);
       await owner.database.query('SET LOCAL ROLE league_one_account');
       await owner.database.query("SELECT set_config('app.actor_user_id',$1,true),set_config('app.request_id',$2,true)", [a.id, randomUUID()]);
       await expect(owner.database.query('UPDATE public.app_users SET display_name=$1 WHERE id=$2', ['Wrong isolation', a.id]))
@@ -259,7 +283,7 @@ describe.sequential('private account foundation against the guarded isolated dat
       .toEqual([{ display_name: 'Isolated account', revision: '1' }]);
   });
 
-  it('rejects concurrent distinct-row writes with the actor lock before the first audit event commits', async () => {
+  it('fences concurrent distinct-row writes with the actor lock before the first audit event commits', async () => {
     const a = await user(); const one = await leagueFixture(); const two = await leagueFixture();
     for (const leagueId of [one.league_id, two.league_id]) await accountQuery(
       'INSERT INTO public.app_user_leagues(app_user_id,league_id) VALUES($1,$2)', [a.id, leagueId], actor(a.id));
@@ -274,8 +298,8 @@ describe.sequential('private account foundation against the guarded isolated dat
     const update = 'UPDATE public.app_user_leagues SET favorite=true WHERE league_id=$1 RETURNING favorite,revision';
     const first = withAccountActor(actor(a.id), async query => {
       const result = await query(update, [one.league_id]);
-      // Hold the first row's successful write and actor advisory lock open.
-      // The second row shares no row lock and cannot see this uncommitted audit.
+      // The mandatory authority guard now locks Actor before either preference
+      // row. A bounded competing transaction must wait without mutating data.
       signalHeld();
       await release;
       return result;
@@ -283,12 +307,15 @@ describe.sequential('private account foundation against the guarded isolated dat
     const second = (async () => {
       try {
         await held;
-        return await accountQuery(update, [two.league_id], actor(a.id));
+        return await withAccountActor(actor(a.id), async query => {
+          await query("SET LOCAL lock_timeout='150ms'");
+          return query(update, [two.league_id]);
+        });
       } finally { releaseFirst(); }
     })();
     const results = await Promise.allSettled([first, second]);
     expect(results[0]).toMatchObject({ status: 'fulfilled', value: [{ favorite: true, revision: '2' }] });
-    expect(results[1]).toMatchObject({ status: 'rejected', reason: { code: 'P4290' } });
+    expect(results[1]).toMatchObject({ status: 'rejected', reason: { code: '55P03' } });
     expect(await accountQuery('SELECT favorite,revision FROM public.app_user_leagues WHERE league_id=$1', [one.league_id], actor(a.id)))
       .toEqual([{ favorite: true, revision: '2' }]);
     expect(await accountQuery('SELECT favorite,revision FROM public.app_user_leagues WHERE league_id=$1', [two.league_id], actor(a.id)))

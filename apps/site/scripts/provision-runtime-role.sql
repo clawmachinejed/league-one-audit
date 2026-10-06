@@ -384,3 +384,19 @@ DO $$ BEGIN
     END IF;
   END IF;
 END; $$;
+
+-- 037 target acquisition owns private rows through exact helpers only.
+DO $$ BEGIN
+ IF to_regprocedure('public.require_runtime_infrastructure_v1(jsonb)') IS NOT NULL THEN
+   ALTER ROLE league_one_runtime NOINHERIT;
+   REVOKE ALL ON public.provider_access_contexts,public.provider_request_policy_qualifications,public.provider_request_attempts,
+     public.provider_capture_receipts,public.provider_identity_evidence,public.app_discovery_scans,public.app_discovery_scan_seasons,
+     public.app_discovery_candidates,public.provider_request_gates,public.provider_request_lane_limits,public.app_acquisition_demands,
+     public.provider_http_permits,public.app_league_renewals,public.app_current_league_selections,
+     public.provider_acquisition_policy_installations,public.app_association_commands FROM league_one_runtime;
+   GRANT EXECUTE ON FUNCTION public.require_runtime_infrastructure_v1(jsonb),public.claim_account_acquisition_v1(text),
+     public.account_discovery_work_v1(uuid,jsonb),public.prepare_account_acquisition_attempt_v1(jsonb),public.reserve_account_provider_http_v1(jsonb),
+     public.finish_provider_http_v1(uuid,text,integer),public.capture_account_acquisition_v1(jsonb),public.fail_account_acquisition_v1(uuid,jsonb,text)
+     TO league_one_runtime;
+ END IF;
+END; $$;

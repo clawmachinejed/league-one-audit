@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { JsonValue, NormalizedAdministrationObservation } from '../lib/league-administration/contracts';
 import { normalizeAdministrationObservation } from '../lib/league-administration/normalize';
 import { createLeagueAdministrationMethods } from '../lib/league-administration/neon/administration';
-import { TEAM_MANAGERS_POLICY, teamManagersScope, type RosterCaptureAttempts } from '../lib/aggregator/team-managers';
+import { TEAM_MANAGERS_PARTIAL_VERSION, TEAM_MANAGERS_POLICY, teamManagersScope, type RosterCaptureAttempts } from '../lib/aggregator/team-managers';
 import type { RosterPopulationEvidence } from '../lib/aggregator/current-roster';
 import type { AdministrationWriteFence } from '../lib/league-administration/store-contracts';
 import { createProjectionStore } from '../lib/projection-store';
@@ -161,6 +161,30 @@ describe.sequential('current primary ownership and independent optional co-manag
     expect(result.teamManagerAcceptance).toMatchObject({ status: 'preserved', reason: 'complete_primary_owner_population_unproved' });
     expect(result.rosterAcceptance?.status).toBe(players ? 'accepted' : 'preserved');
     expect(await read(f)).toEqual(current);
+  });
+
+  it('retains invalid-owner co-manager facts outside v1 acceptance without fabricating membership or restamping prior evidence', async () => {
+    const { f, proof, current } = await seed();
+    const before = await history(f);
+    const attempts = await reserve(f);
+    const unqualifiedManager = `unqualified-co-${randomUUID()}`;
+    const input = await capture(f, [{ ...initial[0], owner_id: 123, co_owners: [unqualifiedManager] }, initial[1]]);
+    expect(input.teamManagers).toMatchObject({ version: TEAM_MANAGERS_PARTIAL_VERSION, status: 'partial', teams: [
+      { primaryOwner: { state: 'unknown', externalManagerId: null },
+        coManagers: { state: 'known', externalManagerIds: [unqualifiedManager] } },
+      { primaryOwner: { state: 'owned', externalManagerId: 'manager-b' } },
+    ] });
+    const result = await write(f, input, attempts, proof);
+    expect(result.teamManagerAcceptance).toMatchObject({ status: 'preserved', reason: 'complete_primary_owner_population_unproved' });
+    expect(await read(f)).toEqual(current);
+    expect(await history(f)).toEqual(before);
+    expect(await ownerQuery('SELECT id FROM league_source_manager_accounts WHERE provider=$1 AND external_manager_id=$2',
+      ['sleeper', unqualifiedManager])).toEqual([]);
+    expect(await ownerQuery(`SELECT coverage->>'completeness' AS completeness FROM league_roster_capture_receipts WHERE attempt_id=$1`,
+      [attempts.managers.id])).toEqual([{ completeness: 'unknown' }]);
+    await write(f, input, attempts, proof);
+    expect(await read(f)).toEqual(current);
+    expect(await history(f)).toEqual(before);
   });
 
   it.each(['older-first', 'newer-first'] as const)('orders two same-fetch policies independently under %s completion', async order => {

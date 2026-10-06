@@ -23,6 +23,25 @@ the exact same receipt independently report known arrays (including explicit
 empty arrays) or unknown with a reason. Missing/null/malformed co-manager fields
 do not block proven primary ownership. Unknown never means empty or removal.
 
+BC-M1 R035 also preserves an independently valid co-manager group when the primary
+owner is malformed: that primary is unknown, with its original invalid-identifier
+diagnostic, rather than vacant. This enriched **unqualified** projection uses
+`sleeper-current-team-managers-partial-v2`. It is not a registered acceptance
+policy. Every representable v1 projection and accepted value retains its existing
+version, shape and hash; historical receipts are not reinterpreted or rewritten.
+The sole writer's closed v1 policy and the accepted reader still require complete
+primary-owner coverage. Consequently these new partial facts cannot create a
+provider-manager identity, membership, fresh acceptance or exhaustive exclusion.
+Qualification of partial positive role groups for account access remains pending.
+
+A failed, malformed or partial-unqualified later attempt preserves prior accepted facts and
+their original source time. It does not itself establish a qualified adverse
+removal, renew an old membership, or erase a still-valid D02 allowance. The future
+account membership composition must evaluate the selected qualified positive
+group, the full qualified adverse set and the original 3,600-second deadline;
+neither this normalization result nor the public accepted reader is an account
+authorization decision. Missing co-manager coverage cannot prove exhaustive loss.
+
 The [Sleeper API reference](https://docs.sleeper.com/) documents roster owner IDs,
 the all-rosters endpoint and stable user IDs; `users.is_owner` means commissioner.
 Its sample omits `co_owners` and does not establish null semantics. The official

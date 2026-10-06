@@ -228,6 +228,12 @@ async function fetchJson(path: string, revalidate = CORE_CACHE_SECONDS, signal?:
 export async function getSleeperDiscoverySeason(signal?: AbortSignal): Promise<string> {
   signal?.throwIfAborted();
   const state = await fetchJson('/state/nfl', CORE_CACHE_SECONDS, signal);
+  return normalizeSleeperDiscoverySeason(state);
+}
+
+/** Shared interpretation of retained and directly retrieved official NFL state. */
+export const SLEEPER_DISCOVERY_CALENDAR_VERSION = 'sleeper-discovery-calendar-v1';
+export function normalizeSleeperDiscoverySeason(state: unknown): string {
   if (!isSleeperState(state) || !isRecord(state) || typeof state.league_season !== 'string'
     || !/^\d{4}$/u.test(state.league_season)) throw new Error('Sleeper discovery season is unavailable.');
   return state.league_season;
@@ -239,14 +245,47 @@ export async function getSleeperUserIdentity(userId: string, signal?: AbortSigna
 }> {
   if (!/^[a-zA-Z0-9_]{1,100}$/u.test(userId)) throw new Error('Invalid Sleeper username.');
   const value = await fetchJson(`/user/${encodeURIComponent(userId)}`, CORE_CACHE_SECONDS, signal);
+  return normalizeSleeperUserIdentity(value, userId);
+}
+
+/** Public recognition only; this never proves control of a provider account. */
+export const SLEEPER_ACCOUNT_IDENTITY_VERSION = 'sleeper-account-identity-v1';
+export type SleeperIdentityField = { state: 'known' | 'empty'; value: string }
+  | { state: 'absent' | 'null' | 'invalid'; value: null };
+export type SleeperAccountIdentity = { kind: 'identity'; nativeAccountId: string;
+  username: SleeperIdentityField; displayName: SleeperIdentityField; avatar: SleeperIdentityField };
+
+function identityField(value: Record<string, unknown>, key: string, valid: (value: string) => boolean): SleeperIdentityField {
+  if (!Object.hasOwn(value, key)) return { state: 'absent', value: null };
+  if (value[key] === null) return { state: 'null', value: null };
+  if (value[key] === '') return { state: 'empty', value: '' };
+  return typeof value[key] === 'string' && valid(value[key])
+    ? { state: 'known', value: value[key] } : { state: 'invalid', value: null };
+}
+
+/** Canonical identity keeps optional source distinctions; the legacy view below
+ * alone supplies display fallbacks. Neither form establishes provider control. */
+export function normalizeSleeperAccountIdentity(value: unknown, requestedIdentity: string): SleeperAccountIdentity {
+  if (!/^[a-zA-Z0-9_]{1,100}$/u.test(requestedIdentity)) throw new Error('Invalid Sleeper username.');
   if (!isRecord(value) || typeof value.user_id !== 'string' || !/^[1-9]\d{0,31}$/u.test(value.user_id)
-    || (/^[1-9]\d{0,31}$/u.test(userId) && value.user_id !== userId) || typeof value.username !== 'string'
-    || !value.username.trim() || value.username.length > 100) throw new Error('Sleeper identity is unavailable.');
-  const displayName = typeof value.display_name === 'string' && value.display_name.trim()
-    && value.display_name.length <= 100 ? value.display_name.trim() : value.username.trim();
-  const avatarUrl = typeof value.avatar === 'string' && /^[a-zA-Z0-9_-]{1,128}$/u.test(value.avatar)
-    ? `https://sleepercdn.com/avatars/thumbs/${value.avatar}` : null;
-  return { userId: value.user_id, username: value.username.trim(), displayName, avatarUrl };
+    || (/^[1-9]\d{0,31}$/u.test(requestedIdentity) && value.user_id !== requestedIdentity)) {
+    throw new Error('Sleeper identity is unavailable.');
+  }
+  const display = (text: string) => Boolean(text.trim()) && text.length <= 100;
+  return { kind: 'identity', nativeAccountId: value.user_id,
+    username: identityField(value, 'username', display), displayName: identityField(value, 'display_name', display),
+    avatar: identityField(value, 'avatar', text => /^[a-zA-Z0-9_-]{1,128}$/u.test(text)) };
+}
+
+export function normalizeSleeperUserIdentity(value: unknown, userId: string): {
+  userId: string; username: string; displayName: string; avatarUrl: string | null;
+} {
+  const identity = normalizeSleeperAccountIdentity(value, userId);
+  if (identity.username.state !== 'known') throw new Error('Sleeper identity is unavailable.');
+  const username = identity.username.value.trim();
+  return { userId: identity.nativeAccountId, username,
+    displayName: identity.displayName.state === 'known' ? identity.displayName.value.trim() : username,
+    avatarUrl: identity.avatar.state === 'known' ? `https://sleepercdn.com/avatars/thumbs/${identity.avatar.value}` : null };
 }
 
 export async function getSleeperUserLeagues(
@@ -255,6 +294,16 @@ export async function getSleeperUserLeagues(
   if (!/^[1-9]\d{0,31}$/u.test(userId) || !/^\d{4}$/u.test(season)) throw new Error('Invalid discovery source.');
   signal?.throwIfAborted();
   const rows = await fetchJson(`/user/${userId}/leagues/nfl/${season}`, CORE_CACHE_SECONDS, signal);
+  return normalizeSleeperUserLeagues(rows, season, signal);
+}
+
+/** Shared list interpretation for the legacy adapter and admitted internal work.
+ * Parsing establishes candidate identity, never membership or account control. */
+export const SLEEPER_ACCOUNT_LEAGUES_VERSION = 'sleeper-account-leagues-v1';
+export function normalizeSleeperUserLeagues(rows: unknown, season: string, signal?: AbortSignal):
+  { id: string; name: string; season: string; avatar?: string | null; capabilities?: LeagueCapabilityReport }[] {
+  if (!/^\d{4}$/u.test(season)) throw new Error('Invalid discovery source.');
+  signal?.throwIfAborted();
   if (!Array.isArray(rows) || rows.length > 1_000) throw new Error('Sleeper league discovery is unavailable.');
   const leagues = new Map<string, { id: string; name: string; season: string; avatar?: string | null; capabilities?: LeagueCapabilityReport }>();
   const settingsConflicts = new Set<string>();

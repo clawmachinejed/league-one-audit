@@ -66,6 +66,14 @@ END; $$;
 GRANT USAGE ON SCHEMA website_auth TO league_one_auth;
 GRANT SELECT,INSERT,UPDATE,DELETE ON website_auth."user",website_auth.session,
   website_auth.account,website_auth.verification,website_auth."rateLimit" TO league_one_auth;
+DO $$ BEGIN
+  IF to_regprocedure('website_auth.require_auth_infrastructure_v1(jsonb)') IS NOT NULL THEN
+    GRANT EXECUTE ON FUNCTION website_auth.require_auth_infrastructure_v1(jsonb) TO league_one_auth;
+  END IF;
+  IF to_regprocedure('website_auth.read_admission_epoch_locked_v1(text,text)') IS NOT NULL THEN
+    GRANT EXECUTE ON FUNCTION website_auth.read_admission_epoch_locked_v1(text,text) TO league_one_auth;
+  END IF;
+END; $$;
 
 DO $$ DECLARE object record; role_name text;
   denied_table_privileges text := 'DELETE,TRUNCATE,TRIGGER';
@@ -86,7 +94,7 @@ BEGIN
     RAISE EXCEPTION 'league_one_auth can create permanent database objects';
   END IF;
   IF (SELECT array_agg(c.relname::text ORDER BY c.relname) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-      WHERE n.nspname='website_auth' AND c.relkind IN ('r','p'))
+      WHERE n.nspname='website_auth' AND c.relkind IN ('r','p') AND c.relname NOT IN ('admission_epoch','admission_epoch_activations'))
     IS DISTINCT FROM ARRAY['account','rateLimit','session','user','verification']::text[] THEN
     RAISE EXCEPTION 'unexpected website_auth table manifest';
   END IF;
@@ -121,7 +129,9 @@ BEGIN
     END IF;
   END LOOP;
   FOR object IN SELECT p.oid FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-    WHERE n.nspname NOT LIKE 'pg_%' AND n.nspname<>'information_schema' AND p.prosecdef LOOP
+    WHERE n.nspname NOT LIKE 'pg_%' AND n.nspname<>'information_schema' AND p.prosecdef
+      AND p.oid IS DISTINCT FROM to_regprocedure('website_auth.read_admission_epoch_locked_v1(text,text)')
+      AND p.oid IS DISTINCT FROM to_regprocedure('website_auth.require_auth_infrastructure_v1(jsonb)') LOOP
     IF has_function_privilege('league_one_auth',object.oid,'EXECUTE') THEN
       RAISE EXCEPTION 'auth role can execute a privileged application function';
     END IF;

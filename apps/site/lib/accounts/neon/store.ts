@@ -1,7 +1,7 @@
 import 'server-only';
 import { randomUUID } from 'node:crypto';
 import type { AccountLibraryInput, AccountView, LinkedSleeperProfile } from '../contracts';
-import { type AccountDatabase, AccountStoreUnavailableError } from './database';
+import { type AccountDatabase, type AccountAuthorityDatabase, AccountStoreUnavailableError } from './database';
 import { buildAccountView } from '../library';
 import { ACCOUNT_SOURCE_CTES, ACCOUNT_VIEW_SQL } from './source-sql';
 import { accountUuid, deleteInput, profileInput, providerLinkInput, savedLeagueInput } from '../validation';
@@ -10,6 +10,13 @@ export class AccountConflictError extends Error {
   constructor() { super('This setting changed or is no longer available. Refresh and try again.'); this.name = 'AccountConflictError'; }
 }
 export type VerifiedAccountPrincipal = { issuer: string; subject: string; displayName: string };
+export type AccountRevisionExpectation = { profileRevision: number; links: readonly {
+  id: string; revision: number; sourceManagerAccountId: string;
+}[] };
+export function accountRevisionExpectation(view: AccountView): AccountRevisionExpectation {
+  return { profileRevision: view.profile.revision, links: view.links.map(({ id, revision, sourceManagerAccountId }) =>
+    ({ id, revision, sourceManagerAccountId })).sort((a, b) => a.id.localeCompare(b.id)) };
+}
 export type AccountMutation =
   | { kind: 'profile'; body: unknown }
   | { kind: 'link'; body: unknown }
@@ -26,7 +33,38 @@ function readInput(value: unknown): AccountLibraryInput {
   return input;
 }
 
+const DISCOVERY_SQL = `${ACCOUNT_SOURCE_CTES}
+        SELECT link.id AS "linkId",link.revision,manager.id AS "sourceManagerAccountId",
+          manager.external_manager_id AS "externalId",
+          coalesce(account.display_name,manager.external_manager_id) AS "displayName"
+        FROM public.app_provider_account_links link
+        JOIN public.league_source_manager_accounts manager ON manager.id=link.source_manager_account_id
+        LEFT JOIN provider_accounts account ON account.id=manager.id
+        WHERE link.app_user_id=public.current_app_actor() AND link.revoked_at IS NULL AND manager.provider='sleeper'
+        ORDER BY link.id LIMIT 21`;
+function readDiscoveryRows(results: Awaited<ReturnType<AccountDatabase['transaction']>>): LinkedSleeperProfile[] {
+  const rows = results[0];
+  if (results.length !== 1 || !rows || rows.length > 20) throw new AccountStoreUnavailableError();
+  try {
+    return rows.map(row => {
+      // PostgreSQL bigint revisions can arrive as strings with the Neon driver.
+      const revision = Number(row.revision);
+      if (!Number.isSafeInteger(revision) || revision < 1 || typeof row.externalId !== 'string'
+        || typeof row.displayName !== 'string' || !row.displayName.trim()) throw new AccountStoreUnavailableError();
+      return { linkId: accountUuid(row.linkId), revision,
+        sourceManagerAccountId: accountUuid(row.sourceManagerAccountId),
+        externalId: row.externalId, displayName: row.displayName };
+    });
+  } catch { throw new AccountStoreUnavailableError(); }
+}
+
 export function createAccountStore(database: AccountDatabase) {
+  // The legacy low-level interface remains useful to isolated fixtures. Final
+  // protected operations never fall back to its receiptless transaction path.
+  const finalTransaction: AccountAuthorityDatabase['finalTransaction'] = (statements, context) => {
+    if (!('finalTransaction' in database) || typeof database.finalTransaction !== 'function') throw new AccountStoreUnavailableError();
+    return (database as AccountAuthorityDatabase).finalTransaction(statements, context);
+  };
   return {
     async resolve(principal: VerifiedAccountPrincipal): Promise<string> {
       const results = await database.transaction([{ statement: `SELECT public.resolve_app_login_identity($1,$2,$3,$4::uuid) AS id`,
@@ -39,31 +77,22 @@ export function createAccountStore(database: AccountDatabase) {
       if (results[0]?.length !== 1) throw new AccountStoreUnavailableError();
       return buildAccountView(readInput(results[0][0].view));
     },
-    async readDiscoveryProfiles(actorUserId: string): Promise<LinkedSleeperProfile[]> {
-      const results = await database.transaction([{ statement: `${ACCOUNT_SOURCE_CTES}
-        SELECT link.id AS "linkId",link.revision,manager.id AS "sourceManagerAccountId",
-          manager.external_manager_id AS "externalId",
-          coalesce(account.display_name,manager.external_manager_id) AS "displayName"
-        FROM public.app_provider_account_links link
-        JOIN public.league_source_manager_accounts manager ON manager.id=link.source_manager_account_id
-        LEFT JOIN provider_accounts account ON account.id=manager.id
-        WHERE link.app_user_id=public.current_app_actor() AND link.revoked_at IS NULL AND manager.provider='sleeper'
-        ORDER BY link.id LIMIT 21`, parameters: [] }], { actorUserId, requestId: randomUUID() });
-      const rows = results[0];
-      if (results.length !== 1 || !rows || rows.length > 20) throw new AccountStoreUnavailableError();
-      try {
-        return rows.map(row => {
-          // PostgreSQL bigint revisions can arrive as strings with the Neon driver.
-          const revision = Number(row.revision);
-          if (!Number.isSafeInteger(revision) || revision < 1 || typeof row.externalId !== 'string'
-            || typeof row.displayName !== 'string' || !row.displayName.trim()) throw new AccountStoreUnavailableError();
-          return { linkId: accountUuid(row.linkId), revision,
-            sourceManagerAccountId: accountUuid(row.sourceManagerAccountId),
-            externalId: row.externalId, displayName: row.displayName };
-        });
-      } catch { throw new AccountStoreUnavailableError(); }
+    async readFinal(actorUserId: string): Promise<{ value: AccountView; decisionTiming: unknown }> {
+      const { results, decisionTiming } = await finalTransaction([{ statement: ACCOUNT_VIEW_SQL, parameters: [] }],
+        { actorUserId, requestId: randomUUID() });
+      if (results[0]?.length !== 1) throw new AccountStoreUnavailableError();
+      return { value: buildAccountView(readInput(results[0][0].view)), decisionTiming };
     },
-    async mutate(actorUserId: string, mutation: AccountMutation): Promise<void> {
+    async readDiscoveryProfiles(actorUserId: string): Promise<LinkedSleeperProfile[]> {
+      return readDiscoveryRows(await database.transaction([{ statement: DISCOVERY_SQL, parameters: [] }],
+        { actorUserId, requestId: randomUUID() }));
+    },
+    async readDiscoveryProfilesFinal(actorUserId: string): Promise<{ value: LinkedSleeperProfile[]; decisionTiming: unknown }> {
+      const { results, decisionTiming } = await finalTransaction([{ statement: DISCOVERY_SQL, parameters: [] }],
+        { actorUserId, requestId: randomUUID() });
+      return { value: readDiscoveryRows(results), decisionTiming };
+    },
+    async mutate(actorUserId: string, mutation: AccountMutation, expected?: AccountRevisionExpectation): Promise<unknown> {
       const actor = accountUuid(actorUserId);
       let statement: string;
       let parameters: unknown[];
@@ -118,11 +147,14 @@ export function createAccountStore(database: AccountDatabase) {
       }
       // Serialize each user's mutations. The subsequent statement gets a fresh
       // READ COMMITTED snapshot after the lock, including any concurrent save.
-      const results = await database.transaction([
+      const { results, decisionTiming } = await finalTransaction([
         { statement: 'SELECT id FROM public.app_users WHERE id=public.current_app_actor() FOR UPDATE', parameters: [] },
+        ...(expected ? [{ statement: 'SELECT public.require_account_revision_v2($1::bigint,$2::jsonb)',
+          parameters: [expected.profileRevision, JSON.stringify(expected.links)] }] : []),
         { statement, parameters },
-      ], { actorUserId: actor, requestId: randomUUID() });
-      if (results[0]?.length !== 1 || results[1]?.length !== 1) throw new AccountConflictError();
+      ], { actorUserId: actor, requestId: randomUUID(), access: 'write' });
+      if (results[0]?.length !== 1 || results.at(-1)?.length !== 1) throw new AccountConflictError();
+      return decisionTiming;
     },
   };
 }

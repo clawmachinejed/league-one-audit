@@ -114,6 +114,19 @@ describe('team manager Neon reader', () => {
     expect(await read(row)).toMatchObject({ status: 'available', teams: [{ primaryOwner: { state: 'owned' } }, { primaryOwner: { state: 'unowned' } }] });
   });
 
+  it('keeps preserved partial co-manager facts outside the complete-primary acceptance contract', async () => {
+    const row = storedRow([{ ...payload[0], owner_id: {} }, payload[1]]);
+    expect(row.identities[0].sourceValue).toMatchObject({
+      primaryOwner: { state: 'unknown', externalManagerId: null },
+      coManagers: { state: 'known', externalManagerIds: ['co-002'] },
+    });
+    // Even an invented receipt with a matching raw hash and only the evidenced
+    // co-manager identity cannot claim the complete-primary v1 policy.
+    expect(await read({ ...row, managers: [coMembership] })).toEqual({
+      status: 'unavailable', reason: 'team_manager_evidence_unavailable',
+    });
+  });
+
   it('permits the same provider manager on multiple teams without merging the team identities', async () => {
     const row = storedRow([payload[0], { ...payload[1], owner_id: 'owner-001' }]);
     const result = await read({ ...row, managers: [...row.managers, { ...ownerMembership, seasonTeamId: ids.teamTwo }] });

@@ -6,6 +6,7 @@ import { APIError } from 'better-auth/api';
 import { emailOTP } from 'better-auth/plugins';
 import { Kysely, PostgresDialect, sql } from 'kysely';
 import { sendAccountEmail } from './auth-email';
+import { accountInfrastructureIdentity } from './infrastructure-identity';
 
 export type AccountAuthConfiguration = {
   issuer: string;
@@ -99,6 +100,10 @@ type AuthDatabase = Kysely<Record<string, Record<string, unknown>>>;
 
 /** Neon WebSocket connections cannot survive a serverless request boundary. */
 async function withAuthDatabase<T>(config: AccountAuthConfiguration, operation: (database: AuthDatabase) => Promise<T>): Promise<T> {
+  // Maintained GET handlers can refresh sessions or update rate counters too.
+  // Service-boundary drain must cover every auth operation, not just POSTs.
+  if (process.env.ACCOUNTS_PRIVATE_MAINTENANCE === 'true') throw new Error('Account authentication is unavailable.');
+  const identity = accountInfrastructureIdentity();
   const pool = new Pool({
     connectionString: config.databaseUrl,
     max: 2,
@@ -113,7 +118,12 @@ async function withAuthDatabase<T>(config: AccountAuthConfiguration, operation: 
     // Neon exposes compatible acquired clients through its maintained Pool.
     const postgresPool = { connect: () => pool.connect(), end: () => pool.end(), options: pool.options };
     const database = new Kysely<Record<string, Record<string, unknown>>>({ dialect: new PostgresDialect({ pool: postgresPool }) }).withSchema('website_auth');
-    return await operation(database);
+    // Server-reported postmaster identity and actual LOGIN privilege checks run
+    // before maintained auth reads/writes, independently of URL/config echoes.
+    return await database.connection().execute(async connection => {
+      await sql`select website_auth.require_auth_infrastructure_v1(${JSON.stringify(identity)}::jsonb)`.execute(connection);
+      return operation(connection);
+    });
   } finally {
     await pool.end();
   }
@@ -121,6 +131,19 @@ async function withAuthDatabase<T>(config: AccountAuthConfiguration, operation: 
 
 export async function withAccountAuth<T>(config: AccountAuthConfiguration, operation: (auth: ReturnType<typeof createAccountAuth>) => Promise<T>): Promise<T> {
   return withAuthDatabase(config, database => operation(createAccountAuth(config, { db: database, type: 'postgres', transaction: true })));
+}
+
+/** Reads configuration admission only; the account transaction must revalidate
+ * and own actual session authority locks through its own commit. */
+export async function readAccountAdmissionEpoch(config: AccountAuthConfiguration, expectedHash: string) {
+  return withAuthDatabase(config, async database => {
+    const result = await sql<{ revision: string; config_hash: string; issuer: string; clock_domain: string }>`
+      select revision::text,config_hash,issuer,clock_domain
+      from website_auth.read_admission_epoch_locked_v1(${expectedHash},${config.issuer})`.execute(database);
+    if (result.rows.length !== 1) throw new Error('Account authority is unavailable.');
+    if (result.rows[0].clock_domain !== accountInfrastructureIdentity().clockDomain) throw new Error('Account authority is unavailable.');
+    return result.rows[0];
+  });
 }
 
 const SECURITY_MUTATIONS = new Set([

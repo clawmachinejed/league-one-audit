@@ -6,12 +6,14 @@ import { accountResponse, readAccountJson, requireAccountOrigin, sleeperLeagueDi
 import { AccountConflictError } from './store';
 import type { AccountView, LinkedSleeperProfile, SleeperLeagueDiscovery, SleeperLinkPreview } from './contracts';
 
+const timing = { dbSampleAt: '2026-10-06T00:00:00.000Z', minimumAuthorityExpiresAt: '2026-10-06T00:01:00.000Z', remainingLifetimeMs: '60000' };
+const sameAuthority = (left: { issuer: string; subject: string }, right: { issuer: string; subject: string }) => left.issuer === right.issuer && left.subject === right.subject;
 const actor = '10000000-0000-4000-8000-000000000001';
 const principal = { issuer: 'https://test.neon.tech/auth', subject: 'provider-subject', displayName: 'Member' };
 function dependencies() {
   const view: AccountView = { profile: { id: actor, displayName: 'Member', revision: 1 }, links: [], library: { leagues: [], availableProviderAccounts: [] } };
-  const store = { resolve: vi.fn(async () => actor), read: vi.fn(async () => view), mutate: vi.fn(async () => {}) };
-  return { principal: vi.fn(async () => principal as typeof principal | null), store: vi.fn(() => store) };
+  const store = { resolve: vi.fn(async () => actor), read: vi.fn(async () => view), mutate: vi.fn(async () => timing) };
+  return { sameAuthority, principal: vi.fn(async () => principal as typeof principal | null), store: vi.fn(() => Object.assign(store, { readFinal: async () => ({ value: await store.read(), decisionTiming: timing }) })) };
 }
 function request(body: unknown = { displayName: 'New name', revision: 1 }, origin = 'https://www.league1fantasy.com'): Request {
   return new Request('https://www.league1fantasy.com/api/me/profile', { method: 'PATCH', headers: { origin, 'content-type': 'application/json', 'x-expected-account-id': actor }, body: JSON.stringify(body) });
@@ -29,7 +31,7 @@ describe('Sleeper account-link recognition boundary', () => {
     const view: AccountView = { profile: { id: actor, displayName: 'Member', revision: 1 }, links: [],
       library: { leagues: [], availableProviderAccounts: [provider] } };
     const store = { resolve: vi.fn(async () => actor), read: vi.fn(async () => view) };
-    return { principal: vi.fn(async () => principal as typeof principal | null), store: vi.fn(() => store),
+    return { sameAuthority, principal: vi.fn(async () => principal as typeof principal | null), store: vi.fn(() => Object.assign(store, { readFinal: async () => ({ value: await store.read(), decisionTiming: timing }) })),
       preview: vi.fn(async () => preview) };
   }
   function previewRequest(source = sourceId, expected = actor) {
@@ -45,6 +47,18 @@ describe('Sleeper account-link recognition boundary', () => {
     expect(await response.json()).toEqual(preview);
     expect(deps.preview).toHaveBeenCalledWith(provider, input.signal);
     expect(deps.store().read).toHaveBeenCalledTimes(2);
+  });
+  it('reacquires a request-owned store for the final preview check', async () => {
+    const deps = previewDeps();
+    const initial = deps.store();
+    const freshPrincipal = { ...principal };
+    const readFinal = vi.fn(async () => ({ value: await initial.read(), decisionTiming: timing }));
+    const fresh = { ...initial, readFinal };
+    const store = vi.fn((bound: typeof principal) => bound === freshPrincipal ? fresh : initial);
+    deps.principal.mockResolvedValueOnce(principal).mockResolvedValueOnce(freshPrincipal);
+    expect((await sleeperLinkPreviewResponse(previewRequest(), { ...deps, store })).status).toBe(200);
+    expect(store.mock.calls.map(call => call[0])).toEqual([principal, freshPrincipal]);
+    expect(readFinal).toHaveBeenCalledExactlyOnceWith(actor);
   });
   it('never previews an arbitrary, already linked, logged-out, or stale-account candidate', async () => {
     const arbitrary = previewDeps();
@@ -74,6 +88,43 @@ describe('Sleeper account-link recognition boundary', () => {
   });
 });
 describe('private account HTTP boundary', () => {
+  it('withholds an unconfirmed mutation acknowledgement without claiming rollback or retrying', async () => {
+    vi.stubEnv('ACCOUNTS_APP_ORIGIN', 'https://www.league1fantasy.com');
+    const deps = dependencies();
+    deps.store().mutate.mockRejectedValue(new AccountStoreUnavailableError());
+    const response = await accountResponse(request(), { kind: 'profile' }, deps);
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: 'account_unavailable' });
+    expect(deps.store().mutate).toHaveBeenCalledTimes(1);
+  });
+  it('withholds a protected response when the final SQL timing is missing', async () => {
+    const deps = dependencies();
+    const base = deps.store();
+    const store = () => ({ ...base, readFinal: async () => ({ value: await base.read(), decisionTiming: null }) });
+    const response = await accountResponse(new Request('https://www.league1fantasy.com/api/me'), { kind: 'read' }, { ...deps, store });
+    expect(response.status).toBe(503);
+    expect(await response.text()).not.toContain('Member');
+  });
+  it('requires exact authority continuity, including a replaced session for the same identity', async () => {
+    const deps = { ...dependencies(), sameAuthority: vi.fn(() => false), present: async (view: AccountView) => view };
+    const response = await accountResponse(new Request('https://www.league1fantasy.com/api/me'), { kind: 'read' }, deps);
+    expect(response.status).toBe(409);
+    expect(deps.sameAuthority).toHaveBeenCalledWith(principal, principal);
+  });
+  it('rebinds the final read to the freshly admitted principal after slow presentation', async () => {
+    const deps = dependencies();
+    const initial = deps.store();
+    const freshPrincipal = { ...principal };
+    const finalRead = vi.fn(async () => ({ value: await initial.read(), decisionTiming: timing }));
+    const fresh = { ...initial, readFinal: finalRead };
+    const store = vi.fn((bound: typeof principal) => bound === freshPrincipal ? fresh : initial);
+    deps.principal.mockResolvedValueOnce(principal).mockResolvedValueOnce(freshPrincipal);
+    const response = await accountResponse(new Request('https://www.league1fantasy.com/api/me'), { kind: 'read' },
+      { ...deps, store, present: async (view: AccountView) => view });
+    expect(response.status).toBe(200);
+    expect(store.mock.calls.map(call => call[0])).toEqual([principal, freshPrincipal]);
+    expect(finalRead).toHaveBeenCalledExactlyOnceWith(actor);
+  });
   it('withholds private mapping if the session changes while loading league artwork', async () => {
     const deps = { ...dependencies(), present: async (view: AccountView) => view };
     deps.principal.mockResolvedValueOnce(principal).mockResolvedValueOnce(null);
@@ -86,7 +137,7 @@ describe('private account HTTP boundary', () => {
     expect(response.headers.get('cache-control')).toContain('private, no-store');
     expect(response.headers.get('vary')).toBe('Cookie');
     expect(deps.store().resolve).toHaveBeenCalledWith(principal);
-    expect(deps.store().read).toHaveBeenCalledWith(actor);
+    expect(deps.store).toHaveBeenCalledWith(principal);
   });
   it('does no database work for a logged-out or uninvited caller', async () => {
     const deps = dependencies();
@@ -185,8 +236,8 @@ describe('authenticated Sleeper league discovery HTTP boundary', () => {
       profiles: [{ sourceManagerAccountId: linked.sourceManagerAccountId, displayName: linked.displayName, status: 'complete' }],
       leagues: [{ id: '123', name: 'Discovered', season: '2026', url: 'https://sleeper.com/leagues/123',
         sourceManagerAccountIds: [linked.sourceManagerAccountId] }] };
-    return { principal: vi.fn(async () => principal as typeof principal | null),
-      store: vi.fn(() => store), discover: vi.fn(async () => result) };
+    return { sameAuthority, principal: vi.fn(async () => principal as typeof principal | null),
+      store: vi.fn(() => Object.assign(store, { readDiscoveryProfilesFinal: async () => ({ value: await store.readDiscoveryProfiles(), decisionTiming: timing }) })), discover: vi.fn(async () => result) };
   }
   it('uses only the authenticated actor and active stable associations with private uncached responses', async () => {
     const deps = discoveryDependencies(); const input = discoveryRequest();
@@ -198,6 +249,18 @@ describe('authenticated Sleeper league discovery HTTP boundary', () => {
     expect(deps.discover).toHaveBeenCalledWith([linked], input.signal);
     expect(deps.store().readDiscoveryProfiles).toHaveBeenCalledTimes(2);
     expect(deps.principal).toHaveBeenCalledTimes(2);
+  });
+  it('reacquires a request-owned store for the final association check after discovery', async () => {
+    const deps = discoveryDependencies();
+    const initial = deps.store();
+    const freshPrincipal = { ...principal };
+    const readDiscoveryProfilesFinal = vi.fn(async () => ({ value: await initial.readDiscoveryProfiles(), decisionTiming: timing }));
+    const fresh = { ...initial, readDiscoveryProfilesFinal };
+    const store = vi.fn((bound: typeof principal) => bound === freshPrincipal ? fresh : initial);
+    deps.principal.mockResolvedValueOnce(principal).mockResolvedValueOnce(freshPrincipal);
+    expect((await sleeperLeagueDiscoveryResponse(discoveryRequest(), { ...deps, store })).status).toBe(200);
+    expect(store.mock.calls.map(call => call[0])).toEqual([principal, freshPrincipal]);
+    expect(readDiscoveryProfilesFinal).toHaveBeenCalledExactlyOnceWith(actor);
   });
   it('performs no provider or storage work for logged-out, denied or disabled callers', async () => {
     for (const failure of [null, new AccountAdmissionDeniedError('not_invited'), new AccountAuthUnavailableError('disabled')]) {

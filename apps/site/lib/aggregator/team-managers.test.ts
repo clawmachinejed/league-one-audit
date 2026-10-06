@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { AdministrationEnvelope, JsonObject } from '../league-administration/contracts';
 import { normalizeAdministrationObservation } from '../league-administration/normalize';
 import { CURRENT_ROSTER_POLICY, currentRosterScope } from './current-roster';
-import { TEAM_MANAGERS_POLICY, teamManagersScope } from './team-managers';
+import { TEAM_MANAGERS_PARTIAL_VERSION, TEAM_MANAGERS_POLICY, teamManagersScope } from './team-managers';
+import { PRIMARY_OWNER_EVIDENCE_FIXTURES } from './team-managers.fixtures';
 
 const scope = { leagueKey: 'league1', provider: 'sleeper' as const, externalLeagueId: 'fixture-source', season: 2026 };
 const provenance: AdministrationEnvelope['provenance'] = {
@@ -67,11 +68,49 @@ describe('current team manager resource normalization', () => {
     expect(result.status).toBe(reason === 'co_managers_invalid' ? 'rejected' : 'accepted');
   });
 
-  it.each(['', ' manager-001', 'manager-001 ', 'manager\u0000', 123, [], {}])(
-    'rejects invalid primary owner %j instead of asserting a vacant team', owner_id => {
-      expect(normalize([{ ...owned, owner_id }]).teamManagers).toMatchObject({ status: 'invalid', teams: null,
+  it.each(['', ' manager-001', 'manager-001 ', 'manager\u0000', 123, [], {}].map(owner_id => ({ owner_id })))(
+    'retains independent co-managers with unknown primary owner for invalid $owner_id', ({ owner_id }) => {
+      const result = normalize([{ ...owned, owner_id }]);
+      expect(result.teamManagers).toMatchObject({ version: TEAM_MANAGERS_PARTIAL_VERSION, status: 'partial', teams: [{
+        primaryOwner: { state: 'unknown', externalManagerId: null },
+        coManagers: { state: 'known', externalManagerIds: ['manager-002'] },
+      }],
         diagnostics: [{ code: 'invalid_identifier', path: 'payload[0].owner_id' }] });
+      // R035 enrichment does not broaden the existing legacy/players policy.
+      expect(result).toMatchObject({ status: 'rejected', value: null, semanticHash: null });
     });
+
+  it.each(PRIMARY_OWNER_EVIDENCE_FIXTURES)('FS07.01 retained synthetic fixture: $name', ({ payload, expected }) => {
+    const result = normalize([payload]);
+    expect(result.teamManagers?.teams).toEqual([{ externalRosterId: '7', primaryOwner: expected,
+      coManagers: { state: 'known', externalManagerIds: ['M'] } }]);
+  });
+
+  it('retains other team evidence when one primary is invalid without claiming complete primary coverage', () => {
+    const result = normalize([{ ...owned, owner_id: 123 }, { roster_id: 8, owner_id: 'N', co_owners: [] }], 2);
+    expect(result.teamManagers).toMatchObject({ version: TEAM_MANAGERS_PARTIAL_VERSION, status: 'partial', teams: [
+      { externalRosterId: '7', primaryOwner: { state: 'unknown', externalManagerId: null },
+        coManagers: { state: 'known', externalManagerIds: ['manager-002'] } },
+      { externalRosterId: '8', primaryOwner: { state: 'owned', externalManagerId: 'N' },
+        coManagers: { state: 'known', externalManagerIds: [] } },
+    ] });
+  });
+
+  it('retains both invalid reasons and never invents empty co-manager coverage', () => {
+    const result = normalize([{ roster_id: 7, owner_id: {}, co_owners: ['M', 'M'] }]);
+    expect(result.teamManagers).toMatchObject({ version: TEAM_MANAGERS_PARTIAL_VERSION, status: 'partial', teams: [{
+      primaryOwner: { state: 'unknown', externalManagerId: null },
+      coManagers: { state: 'unknown', externalManagerIds: null, reason: 'co_managers_invalid' },
+    }], diagnostics: [{ code: 'invalid_identifier' }, { code: 'co_managers_invalid' }] });
+  });
+
+  it('does not rescue valid co-managers from an invalid team population or foreign source', () => {
+    for (const [payload, count] of [
+      [[{ ...owned, owner_id: {} }], 2],
+      [[{ ...owned, owner_id: {}, league_id: 'foreign' }], 1],
+      [[{ ...owned, owner_id: {} }, owned], 2],
+    ] as const) expect(normalize(payload, count).teamManagers).toMatchObject({ status: 'invalid', teams: null });
+  });
 
   it.each(['players', 'starters', 'reserve', 'taxi'] as const)(
     'qualifies managers despite malformed unrelated %s without accepting the v1 content', field => {

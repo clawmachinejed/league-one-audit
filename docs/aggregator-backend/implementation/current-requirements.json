@@ -1,0 +1,2923 @@
+{
+  "schemaVersion": "bc-m1-current-requirements-v1",
+  "status": "reviewed-partial-source-qualification-blocked",
+  "canonicalRequirements": "docs/aggregator-backend/design-requirements.json",
+  "parentBaselineSha": "1305e1c4855c86e25035a7faf4cdcc46a8c6b1f3",
+  "reviewedCandidateSha": "a4b0f5274a3886db7a50f20377e5911dfef6a28c",
+  "sourceBinding": "Full offline verification and separate security/architecture review bind to the clean implementation SHA above. This evidence-only follow-up changes no application, migration, workflow, dependency or test source. Qualification is blocked by the explicit old/new SQL oracle conflict and environment prerequisites; no SQL pass is implied.",
+  "scope": "Current execution ledger only; original c907584 and ffa7bd0 independent audits remain immutable.",
+  "classificationRule": "Whole-obligation status includes its allocated canonical oracle. Tested helpers do not promote incomplete workflows. Inherited bounded baseline verification is distinct from new candidate proof. Counts are not completion percentages.",
+  "counts": {
+    "implemented-and-verified": 3,
+    "implemented-but-unverified": 21,
+    "still-pending": 84,
+    "total": 108
+  },
+  "componentEvidence": {
+    "baseline-bounded-proof": {
+      "sha": "ffa7bd0d16bdc34c1578e2a2e77690cb6c756381",
+      "scope": "R037/R040 inherited bounded reader/normalizer unit oracles and R089 static provider-boundary inspection.",
+      "unit": {
+        "passed": 315,
+        "files": 7,
+        "skipped": 0,
+        "sql": 0
+      },
+      "receipt": "Preserved historical audit proof remains unchanged. Current adapter/architecture review verified source-equivalent blobs and the full current unit run passed; see evidence.md."
+    },
+    "account-composition": {
+      "state": "implemented-in-source; candidate-qualification-pending",
+      "scope": "Existing HTTP/onboarding/fantasy handlers, request-owned stores, post-provider reacquisition, final timing/acknowledgement. No complete target membership decision."
+    },
+    "infrastructure-transition": {
+      "state": "authored-source-and-tests; SQL-unexecuted",
+      "scope": "036 identity/LOGIN/owner epoch and coordinated installation/recovery source plus authored genuine LOGIN transition rehearsal. SQL and actual deployed service-boundary drain/recovery unexecuted. 037 legacy cutover remains held."
+    },
+    "r035-normalizer": {
+      "state": "normalizer-component-repaired; whole-oracle-pending",
+      "scope": "Invalid primary becomes unknown while known co-managers survive under partial-v2; canonical v1 registry/accepted readers remain strict. Current frozen unit and independent source evidence pass; whole SQL identity/access oracle remains unexecuted."
+    },
+    "isolated-test-safety": {
+      "state": "baseline-local-repairs-reviewed; candidate-SQL-unexecuted",
+      "scope": "Reviewed local guards/lifecycle and prepared rehearsal/preflight do not prove saved key binding, parent emptiness or cleanup. Latest-schema suite has a known pre037/post037 association oracle conflict; database-run readiness is withheld."
+    },
+    "finite-discovery": {
+      "state": "internal-concrete-composition-authored; SQL-unexecuted; public-mounting-off",
+      "scope": "Finite frozen scan through concrete existing job/permit/Neon ports, atomic capture/checkpoint and protected stored reader adapted to existing consumer DTO. Public route/cron mounting, membership, enrollment, selection, follows and authorized roster composition remain pending.",
+      "reportedDevelopmentEvidence": {
+        "passed": 69,
+        "files": 3,
+        "sql": 0,
+        "source": "Historical implementer development total only. The same source was independently reviewed in the 350-test architecture run and included in the current frozen full unit pass; totals overlap."
+      }
+    },
+    "connected-acquisition": {
+      "state": "concrete-internal-source-independently-reviewed; SQL-unexecuted; public-mounting-off",
+      "scope": "Trusted account request → existing durable job → admitted Sleeper HTTP outside SQL → retained normalized captures/checkpoint → protected reader → existing consumer DTO. Policy/context recovery and actor-CAS corrections reviewed at the bound SHA; migration037 installation remains held."
+    }
+  },
+  "rows": [
+    {
+      "id": "R001",
+      "caseIds": [
+        "FS18.01"
+      ],
+      "status": "implemented-but-unverified",
+      "code": [
+        {
+          "path": "apps/site/migrations/037_account_acquisition.sql",
+          "line": 516
+        },
+        {
+          "path": "apps/site/lib/accounts/discovery-http.ts",
+          "line": 48
+        },
+        {
+          "path": "apps/site/lib/projections/runtime/account-acquisition-composition.ts",
+          "line": 25
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/accounts/discovery-http.test.ts",
+          "line": 33
+        },
+        {
+          "path": "apps/site/integration/account-acquisition.integration-case.ts",
+          "line": 46
+        }
+      ],
+      "componentEvidence": [
+        "connected-acquisition"
+      ],
+      "missing": "Trusted-principal resolution and actor-bound internal commands are composed. FS18.01 actual-role forged-actor/reference and revocation schedules remain unexecuted."
+    },
+    {
+      "id": "R002",
+      "caseIds": [
+        "FS17.01"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/accounts/auth.ts",
+          "line": 140
+        },
+        {
+          "path": "apps/site/migrations/034_account_session_authority.sql",
+          "line": 65
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/accounts/auth.test.ts",
+          "line": 117
+        },
+        {
+          "path": "apps/site/integration/account-authority-v2.integration-case.ts",
+          "line": 82
+        }
+      ],
+      "componentEvidence": [],
+      "missing": "Implement membership/disconnect lifecycle paths and prove they never disable the website actor or login."
+    },
+    {
+      "id": "R003",
+      "caseIds": [
+        "FS08.01"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/accounts/auth.ts",
+          "line": 170
+        },
+        {
+          "path": "apps/site/lib/accounts/http.ts",
+          "line": 56
+        },
+        {
+          "path": "apps/site/lib/accounts/neon/store.ts",
+          "line": 80
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/accounts/response-authority.test.ts",
+          "line": 7
+        }
+      ],
+      "componentEvidence": [
+        "account-composition"
+      ],
+      "missing": "Legacy and new internal discovery callers resolve request-owned authority. Complete membership/roster domain dependency validation and real SQL revocation/delivery schedules remain pending."
+    },
+    {
+      "id": "R004",
+      "caseIds": [
+        "FS18.02"
+      ],
+      "status": "implemented-but-unverified",
+      "code": [
+        {
+          "path": "apps/site/migrations/037_account_acquisition.sql",
+          "line": 981
+        },
+        {
+          "path": "apps/site/lib/accounts/discovery-http.ts",
+          "line": 48
+        },
+        {
+          "path": "apps/site/lib/projections/runtime/account-acquisition-composition.ts",
+          "line": 25
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/accounts/discovery-http.test.ts",
+          "line": 33
+        },
+        {
+          "path": "apps/site/integration/account-acquisition.integration-case.ts",
+          "line": 46
+        }
+      ],
+      "componentEvidence": [
+        "connected-acquisition"
+      ],
+      "missing": "Stable provider/native identity uses the shared manager identity owner. FS18.02 rename/reassignment persistence and independent real source evidence remain unexecuted."
+    },
+    {
+      "id": "R005",
+      "caseIds": [
+        "FS01.01"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/league-administration/normalize.ts",
+          "line": 363
+        },
+        {
+          "path": "apps/site/lib/accounts/sleeper-link-preview.ts",
+          "line": 42
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/aggregator/team-managers.test.ts",
+          "line": 126
+        }
+      ],
+      "componentEvidence": [],
+      "missing": "Lookup provenance is retained against the shared exact provider/native identity. Qualified-role-only identity provenance and the full cross-source oracle remain pending."
+    },
+    {
+      "id": "R006",
+      "caseIds": [
+        "FS11.01"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/league-administration/normalize.ts",
+          "line": 363
+        },
+        {
+          "path": "apps/site/lib/accounts/sleeper-link-preview.ts",
+          "line": 42
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/aggregator/team-managers.test.ts",
+          "line": 126
+        }
+      ],
+      "componentEvidence": [],
+      "missing": "Lookup normalization, persistence and closed decoding retain optional display field states without losing stable identity. Complete qualified-role-only identity/display behavior and the allocated real persistence oracle remain pending."
+    },
+    {
+      "id": "R007",
+      "caseIds": [
+        "FS18.03"
+      ],
+      "status": "implemented-but-unverified",
+      "code": [
+        {
+          "path": "apps/site/migrations/037_account_acquisition.sql",
+          "line": 761
+        },
+        {
+          "path": "apps/site/lib/accounts/discovery-http.ts",
+          "line": 48
+        },
+        {
+          "path": "apps/site/lib/projections/runtime/account-acquisition-composition.ts",
+          "line": 25
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/accounts/discovery-http.test.ts",
+          "line": 33
+        },
+        {
+          "path": "apps/site/integration/account-acquisition.integration-case.ts",
+          "line": 46
+        }
+      ],
+      "componentEvidence": [
+        "connected-acquisition"
+      ],
+      "missing": "Immutable pre-enrollment attempt/capture/context storage is authored. FS18.03 actual committed-state and replay inspection remain unexecuted."
+    },
+    {
+      "id": "R008",
+      "caseIds": [
+        "FS18.04"
+      ],
+      "status": "implemented-but-unverified",
+      "code": [
+        {
+          "path": "apps/site/migrations/037_account_acquisition.sql",
+          "line": 516
+        },
+        {
+          "path": "apps/site/lib/accounts/discovery-http.ts",
+          "line": 48
+        },
+        {
+          "path": "apps/site/lib/projections/runtime/account-acquisition-composition.ts",
+          "line": 25
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/accounts/discovery-http.test.ts",
+          "line": 33
+        },
+        {
+          "path": "apps/site/integration/account-acquisition.integration-case.ts",
+          "line": 46
+        }
+      ],
+      "componentEvidence": [
+        "connected-acquisition"
+      ],
+      "missing": "Identification does not activate, enroll or follow. FS18.04 actual committed-state inspection remains unexecuted."
+    },
+    {
+      "id": "R009",
+      "caseIds": [
+        "FS13.01"
+      ],
+      "status": "implemented-but-unverified",
+      "code": [
+        {
+          "path": "apps/site/migrations/037_account_acquisition.sql",
+          "line": 1210
+        },
+        {
+          "path": "apps/site/lib/accounts/discovery-http.ts",
+          "line": 48
+        },
+        {
+          "path": "apps/site/lib/projections/runtime/account-acquisition-composition.ts",
+          "line": 25
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/accounts/discovery-http.test.ts",
+          "line": 33
+        },
+        {
+          "path": "apps/site/integration/account-acquisition.integration-case.ts",
+          "line": 46
+        }
+      ],
+      "componentEvidence": [
+        "connected-acquisition"
+      ],
+      "missing": "Canonical identification output and safe pre-admission failure are composed. FS13.01 complete real capture/status variants remain unexecuted."
+    },
+    {
+      "id": "R010",
+      "caseIds": [
+        "FS18.05"
+      ],
+      "status": "implemented-but-unverified",
+      "code": [
+        {
+          "path": "apps/site/migrations/037_account_acquisition.sql",
+          "line": 436
+        },
+        {
+          "path": "apps/site/lib/accounts/discovery-http.ts",
+          "line": 48
+        },
+        {
+          "path": "apps/site/lib/projections/runtime/account-acquisition-composition.ts",
+          "line": 25
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/accounts/discovery-http.test.ts",
+          "line": 33
+        },
+        {
+          "path": "apps/site/integration/account-acquisition.integration-case.ts",
+          "line": 46
+        }
+      ],
+      "componentEvidence": [
+        "connected-acquisition"
+      ],
+      "missing": "Activation pins a matching qualified own lookup. FS18.05 wrong-subject/failed/role-only receipt schedules remain unexecuted."
+    },
+    {
+      "id": "R011",
+      "caseIds": [
+        "FS02.01"
+      ],
+      "status": "implemented-but-unverified",
+      "code": [
+        {
+          "path": "apps/site/migrations/037_account_acquisition.sql",
+          "line": 334
+        },
+        {
+          "path": "apps/site/lib/accounts/discovery-http.ts",
+          "line": 48
+        },
+        {
+          "path": "apps/site/lib/projections/runtime/account-acquisition-composition.ts",
+          "line": 25
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/accounts/discovery-http.test.ts",
+          "line": 33
+        },
+        {
+          "path": "apps/site/integration/account-acquisition.integration-case.ts",
+          "line": 46
+        }
+      ],
+      "componentEvidence": [
+        "connected-acquisition"
+      ],
+      "missing": "Exclusive active provider-account claim constraint and helper are authored. FS02.01 genuine LOGIN concurrency and bypass constraints remain unexecuted. Legacy cutover is held under R087."
+    },
+    {
+      "id": "R012",
+      "caseIds": [
+        "FS03.01"
+      ],
+      "status": "implemented-but-unverified",
+      "code": [
+        {
+          "path": "apps/site/migrations/037_account_acquisition.sql",
+          "line": 338
+        },
+        {
+          "path": "apps/site/lib/accounts/discovery-http.ts",
+          "line": 48
+        },
+        {
+          "path": "apps/site/lib/projections/runtime/account-acquisition-composition.ts",
+          "line": 25
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/accounts/discovery-http.test.ts",
+          "line": 33
+        },
+        {
+          "path": "apps/site/integration/account-acquisition.integration-case.ts",
+          "line": 46
+        }
+      ],
+      "componentEvidence": [
+        "connected-acquisition"
+      ],
+      "missing": "One active provider account per actor/provider is authored. FS03.01 actual concurrency and direct bypass constraints remain unexecuted. Legacy compatibility remains held under R087."
+    },
+    {
+      "id": "R013",
+      "caseIds": [
+        "FS03.02"
+      ],
+      "status": "implemented-but-unverified",
+      "code": [
+        {
+          "path": "apps/site/migrations/037_account_acquisition.sql",
+          "line": 436
+        },
+        {
+          "path": "apps/site/lib/accounts/discovery-http.ts",
+          "line": 48
+        },
+        {
+          "path": "apps/site/lib/projections/runtime/account-acquisition-composition.ts",
+          "line": 25
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/accounts/discovery-http.test.ts",
+          "line": 33
+        },
+        {
+          "path": "apps/site/integration/account-acquisition.integration-case.ts",
+          "line": 46
+        }
+      ],
+      "componentEvidence": [
+        "connected-acquisition"
+      ],
+      "missing": "Activation command identity and retained outcome are authored. FS03.02 real lost acknowledgement/restart and revision-checked replay remain unexecuted."
+    },
+    {
+      "id": "R014",
+      "caseIds": [
+        "FS13.02"
+      ],
+      "status": "implemented-but-unverified",
+      "code": [
+        {
+          "path": "apps/site/migrations/037_account_acquisition.sql",
+          "line": 436
+        },
+        {
+          "path": "apps/site/lib/accounts/discovery-http.ts",
+          "line": 48
+        },
+        {
+          "path": "apps/site/lib/projections/runtime/account-acquisition-composition.ts",
+          "line": 25
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/accounts/discovery-http.test.ts",
+          "line": 33
+        },
+        {
+          "path": "apps/site/integration/account-acquisition.integration-case.ts",
+          "line": 46
+        }
+      ],
+      "componentEvidence": [
+        "connected-acquisition"
+      ],
+      "missing": "Stored and returned association assurance is user_asserted. FS13.02 actual stored/result inspection remains unexecuted."
+    },
+    {
+      "id": "R015",
+      "caseIds": [
+        "FS08.02"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/accounts/neon/store.ts",
+          "line": 61
+        },
+        {
+          "path": "apps/site/migrations/035_account_follow_intent.sql",
+          "line": 4
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/integration/account-store.integration-case.ts",
+          "line": 323
+        }
+      ],
+      "componentEvidence": [],
+      "missing": "Implement revisioned association end/history and D03 fresh-login release; legacy unlink is not the target lifecycle."
+    },
+    {
+      "id": "R016",
+      "caseIds": [
+        "FS16.01"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/migrations/027_current_roster_acceptance.sql",
+          "line": 157
+        },
+        {
+          "path": "apps/site/lib/aggregator/current-roster.ts",
+          "line": 21
+        }
+      ],
+      "tests": [],
+      "componentEvidence": [],
+      "missing": "Target public-context identity/calendar/list acquisition is server-resolved and permit-checked in source. Private/other context compatibility, complete acquisition paths and real SQL authority qualification remain pending."
+    },
+    {
+      "id": "R017",
+      "caseIds": [
+        "FS08.03"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/migrations/027_current_roster_acceptance.sql",
+          "line": 157
+        },
+        {
+          "path": "apps/site/lib/aggregator/current-roster.ts",
+          "line": 21
+        }
+      ],
+      "tests": [],
+      "componentEvidence": [],
+      "missing": "Implemented acquisition paths revalidate current context/policy revision and expiry. Complete resource/publication paths and real SQL pending-work fences remain pending."
+    },
+    {
+      "id": "R018",
+      "caseIds": [
+        "FS09.01"
+      ],
+      "status": "implemented-but-unverified",
+      "code": [
+        {
+          "path": "apps/site/migrations/037_account_acquisition.sql",
+          "line": 697
+        },
+        {
+          "path": "apps/site/lib/accounts/discovery-http.ts",
+          "line": 48
+        },
+        {
+          "path": "apps/site/lib/projections/runtime/account-acquisition-composition.ts",
+          "line": 25
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/accounts/discovery-http.test.ts",
+          "line": 33
+        },
+        {
+          "path": "apps/site/integration/account-acquisition.integration-case.ts",
+          "line": 46
+        }
+      ],
+      "componentEvidence": [
+        "connected-acquisition"
+      ],
+      "missing": "Revision-bound durable scan reservation, source/job fences and protected reads are composed. FS09.01 persisted association-change and worker-fence schedules remain unexecuted."
+    },
+    {
+      "id": "R019",
+      "caseIds": [
+        "FS19.01"
+      ],
+      "status": "implemented-but-unverified",
+      "code": [
+        {
+          "path": "apps/site/migrations/037_account_acquisition.sql",
+          "line": 1098
+        },
+        {
+          "path": "apps/site/lib/accounts/discovery-http.ts",
+          "line": 48
+        },
+        {
+          "path": "apps/site/lib/projections/runtime/account-acquisition-composition.ts",
+          "line": 25
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/accounts/discovery-http.test.ts",
+          "line": 33
+        },
+        {
+          "path": "apps/site/integration/account-acquisition.integration-case.ts",
+          "line": 46
+        }
+      ],
+      "componentEvidence": [
+        "connected-acquisition"
+      ],
+      "missing": "Qualified calendar capture freezes the current/prior-two/retained-selection set. FS19.01 independently qualified strategy/input and persisted plan schedules remain unexecuted."
+    },
+    {
+      "id": "R020",
+      "caseIds": [
+        "FS09.02"
+      ],
+      "status": "implemented-but-unverified",
+      "code": [
+        {
+          "path": "apps/site/migrations/037_account_acquisition.sql",
+          "line": 1098
+        },
+        {
+          "path": "apps/site/lib/accounts/discovery-http.ts",
+          "line": 48
+        },
+        {
+          "path": "apps/site/lib/projections/runtime/account-acquisition-composition.ts",
+          "line": 25
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/accounts/discovery-http.test.ts",
+          "line": 33
+        },
+        {
+          "path": "apps/site/integration/account-acquisition.integration-case.ts",
+          "line": 46
+        }
+      ],
+      "componentEvidence": [
+        "connected-acquisition"
+      ],
+      "missing": "Atomic capture/checkpoint, retained completion, bounded fresh execution and stale-evidence retirement are authored. FS09.02 real crash/restart, expiry, policy/context change, immutable history and independent receipt oracles remain unexecuted. Latest recovery corrections have independent source review; no SQL result is claimed."
+    },
+    {
+      "id": "R021",
+      "caseIds": [
+        "FS04.01"
+      ],
+      "status": "implemented-but-unverified",
+      "code": [
+        {
+          "path": "apps/site/migrations/037_account_acquisition.sql",
+          "line": 1244
+        },
+        {
+          "path": "apps/site/lib/accounts/discovery-http.ts",
+          "line": 48
+        },
+        {
+          "path": "apps/site/lib/projections/runtime/account-acquisition-composition.ts",
+          "line": 25
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/accounts/discovery-http.test.ts",
+          "line": 33
+        },
+        {
+          "path": "apps/site/integration/account-acquisition.integration-case.ts",
+          "line": 46
+        }
+      ],
+      "componentEvidence": [
+        "connected-acquisition"
+      ],
+      "missing": "Persisted candidates confer no membership, enrollment, selection or follow. FS04.01 committed-state and authorization oracle remain unexecuted."
+    },
+    {
+      "id": "R022",
+      "caseIds": [
+        "FS14.01"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/league-administration/source-mapping.ts",
+          "line": 4
+        }
+      ],
+      "tests": [],
+      "componentEvidence": [],
+      "missing": "Implement target qualified annual renewal preserving stable UUID and route identity."
+    },
+    {
+      "id": "R023",
+      "caseIds": [
+        "FS13.03"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/league-administration/source-mapping.ts",
+          "line": 4
+        }
+      ],
+      "tests": [],
+      "componentEvidence": [],
+      "missing": "Implement target first-slice league-season/native season/sport contract and qualification."
+    },
+    {
+      "id": "R024",
+      "caseIds": [
+        "FS10.01"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/league-administration/source-mapping.ts",
+          "line": 4
+        }
+      ],
+      "tests": [],
+      "componentEvidence": [],
+      "missing": "Bind target selections/enrollment to exact immutable connection and mapping revisions."
+    },
+    {
+      "id": "R025",
+      "caseIds": [
+        "FS14.02"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/league-administration/normalize.ts",
+          "line": 241
+        }
+      ],
+      "tests": [],
+      "componentEvidence": [],
+      "missing": "Preserve name/lifecycle field states in target selection/eligibility rather than using directory success as permission."
+    },
+    {
+      "id": "R026",
+      "caseIds": [
+        "FS14.03"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/league-administration/source-mapping.ts",
+          "line": 4
+        }
+      ],
+      "tests": [],
+      "componentEvidence": [],
+      "missing": "Implement predecessor-as-candidate handling and separate qualified renewal transition."
+    },
+    {
+      "id": "R027",
+      "caseIds": [
+        "FS12.01"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/league-administration/neon/team-managers.ts",
+          "line": 49
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/league-administration/neon/team-managers.test.ts",
+          "line": 87
+        }
+      ],
+      "componentEvidence": [],
+      "missing": "Carry independent expected-population evidence into target membership qualification; inherited resource acceptance is only a component."
+    },
+    {
+      "id": "R028",
+      "caseIds": [
+        "FS11.02"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/league-administration/normalize.ts",
+          "line": 241
+        }
+      ],
+      "tests": [],
+      "componentEvidence": [],
+      "missing": "Compose actual native typed settings/source provenance into target first-slice result."
+    },
+    {
+      "id": "R029",
+      "caseIds": [
+        "FS11.03"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/accounts/neon/database.ts",
+          "line": 96
+        },
+        {
+          "path": "apps/site/lib/accounts/decision-timing.ts",
+          "line": 53
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/accounts/decision-timing.test.ts",
+          "line": 28
+        }
+      ],
+      "componentEvidence": [],
+      "missing": "Decouple target official access from analytics/catalog/directory optional failures and execute failure matrix."
+    },
+    {
+      "id": "R030",
+      "caseIds": [
+        "FS14.04"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/accounts/neon/database.ts",
+          "line": 96
+        },
+        {
+          "path": "apps/site/lib/accounts/decision-timing.ts",
+          "line": 53
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/accounts/decision-timing.test.ts",
+          "line": 28
+        }
+      ],
+      "componentEvidence": [],
+      "missing": "Implement per-association/per-stable-league selections supporting mixed season years."
+    },
+    {
+      "id": "R031",
+      "caseIds": [
+        "FS20.01"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/accounts/neon/database.ts",
+          "line": 96
+        },
+        {
+          "path": "apps/site/lib/accounts/decision-timing.ts",
+          "line": 53
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/accounts/decision-timing.test.ts",
+          "line": 28
+        }
+      ],
+      "componentEvidence": [],
+      "missing": "Implement exact selection composite-key and league-season ownership validation."
+    },
+    {
+      "id": "R032",
+      "caseIds": [
+        "FS14.05"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/league-administration/source-mapping.ts",
+          "line": 4
+        }
+      ],
+      "tests": [],
+      "componentEvidence": [],
+      "missing": "Persist initial selection provenance without fabricating a renewal record."
+    },
+    {
+      "id": "R033",
+      "caseIds": [
+        "FS01.02"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/league-administration/neon/team-managers.ts",
+          "line": 49
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/league-administration/neon/team-managers.test.ts",
+          "line": 87
+        }
+      ],
+      "componentEvidence": [],
+      "missing": "Resolve all co-managers to shared season-team/roster evidence in the target service."
+    },
+    {
+      "id": "R034",
+      "caseIds": [
+        "FS13.04"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/league-administration/neon/team-managers.ts",
+          "line": 49
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/league-administration/neon/team-managers.test.ts",
+          "line": 87
+        }
+      ],
+      "componentEvidence": [],
+      "missing": "Validate target team aliases against accepted source team and captured mapping namespace."
+    },
+    {
+      "id": "R035",
+      "caseIds": [
+        "FS07.01"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/league-administration/normalize.ts",
+          "line": 379
+        },
+        {
+          "path": "apps/site/lib/aggregator/team-managers.ts",
+          "line": 14
+        },
+        {
+          "path": "apps/site/lib/league-administration/neon/team-managers.ts",
+          "line": 105
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/aggregator/team-managers.test.ts",
+          "line": 74
+        },
+        {
+          "path": "apps/site/integration/team-manager-relationships.integration-case.ts",
+          "line": 166
+        }
+      ],
+      "componentEvidence": [
+        "r035-normalizer"
+      ],
+      "missing": "Normalization now preserves unknown primary plus known co-managers under a new partial version. The closed accepted registry intentionally does not qualify that version. FS07.01 shared manager identity resolution/authorized consumption and real SQL evidence remain pending; authored preservation tests and normalizer units do not close the whole oracle."
+    },
+    {
+      "id": "R036",
+      "caseIds": [
+        "FS07.02"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/league-administration/normalize.ts",
+          "line": 363
+        },
+        {
+          "path": "apps/site/lib/league-administration/normalize.ts",
+          "line": 662
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/aggregator/team-managers.test.ts",
+          "line": 41
+        }
+      ],
+      "componentEvidence": [],
+      "missing": "Complete manager resolution and qualified complete-removal evaluator; current co-manager state normalizer is partial coverage only."
+    },
+    {
+      "id": "R037",
+      "caseIds": [
+        "FS13.05"
+      ],
+      "status": "implemented-and-verified",
+      "code": [
+        {
+          "path": "apps/site/lib/league-administration/neon/team-managers.ts",
+          "line": 49
+        },
+        {
+          "path": "apps/site/lib/league-administration/neon/team-managers.ts",
+          "line": 155
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/league-administration/neon/team-managers.test.ts",
+          "line": 72
+        }
+      ],
+      "componentEvidence": [
+        "baseline-bounded-proof"
+      ],
+      "missing": "None for this bounded unit-level obligation. Real SQL acceptance, protected target service composition and production qualification remain separately open and are not implied by this status."
+    },
+    {
+      "id": "R038",
+      "caseIds": [
+        "FS12.02"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/league-administration/neon/current-roster.ts",
+          "line": 54
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/league-administration/neon/current-roster.test.ts",
+          "line": 135
+        }
+      ],
+      "componentEvidence": [],
+      "missing": "Integrate complete-population/known-player acceptance with the target held resource and real SQL malformed/empty cases."
+    },
+    {
+      "id": "R039",
+      "caseIds": [
+        "FS15.01"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/league-administration/neon/current-roster.ts",
+          "line": 54
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/league-administration/neon/current-roster.test.ts",
+          "line": 135
+        }
+      ],
+      "componentEvidence": [],
+      "missing": "Expose positionally aligned canonical/native held references including null mappings through target result."
+    },
+    {
+      "id": "R040",
+      "caseIds": [
+        "FS11.04"
+      ],
+      "status": "implemented-and-verified",
+      "code": [
+        {
+          "path": "apps/site/lib/league-administration/neon/current-roster.ts",
+          "line": 54
+        },
+        {
+          "path": "apps/site/lib/aggregator/current-roster-groups.ts",
+          "line": 30
+        },
+        {
+          "path": "apps/site/lib/aggregator/current-roster-metadata.ts",
+          "line": 57
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/league-administration/neon/current-roster.test.ts",
+          "line": 129
+        },
+        {
+          "path": "apps/site/lib/league-administration/neon/current-roster.test.ts",
+          "line": 160
+        }
+      ],
+      "componentEvidence": [
+        "baseline-bounded-proof"
+      ],
+      "missing": "None for the bounded reader/normalizer oracle: current exact-source unit checks preserve held identity, unknown placement, same-capture group evidence and independent metadata age. This does not qualify real SQL acceptance or the protected target service."
+    },
+    {
+      "id": "R041",
+      "caseIds": [
+        "INV-R041"
+      ],
+      "status": "implemented-but-unverified",
+      "code": [
+        {
+          "path": "apps/site/lib/league-administration/neon/current-roster.ts",
+          "line": 54
+        },
+        {
+          "path": "apps/site/lib/league-administration/neon/exact-matchups.ts",
+          "line": 89
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/league-administration/neon/current-roster.test.ts",
+          "line": 135
+        }
+      ],
+      "componentEvidence": [],
+      "missing": "Execute preserved lineup/held-inventory separation regression at exact SHA; no code in candidate substitutes one for the other."
+    },
+    {
+      "id": "R042",
+      "caseIds": [
+        "FS12.03"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/migrations/027_current_roster_acceptance.sql",
+          "line": 157
+        },
+        {
+          "path": "apps/site/lib/aggregator/current-roster.ts",
+          "line": 21
+        }
+      ],
+      "tests": [],
+      "componentEvidence": [],
+      "missing": "Add qualified removal-to-denial path and execute split-resource oracle; inherited manager acceptance alone does not deny target access."
+    },
+    {
+      "id": "R043",
+      "caseIds": [
+        "FS20.02"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/accounts/neon/store.ts",
+          "line": 61
+        },
+        {
+          "path": "apps/site/migrations/035_account_follow_intent.sql",
+          "line": 4
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/integration/account-store.integration-case.ts",
+          "line": 323
+        }
+      ],
+      "componentEvidence": [],
+      "missing": "Implement target explicit follow choice independent of permission and prove policy uses eligibility separately."
+    },
+    {
+      "id": "R044",
+      "caseIds": [
+        "FS20.03"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/accounts/neon/store.ts",
+          "line": 61
+        },
+        {
+          "path": "apps/site/migrations/035_account_follow_intent.sql",
+          "line": 4
+        },
+        {
+          "path": "apps/site/migrations/035_account_follow_intent.sql",
+          "line": 37
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/integration/account-store.integration-case.ts",
+          "line": 323
+        }
+      ],
+      "componentEvidence": [],
+      "missing": "Add tuple-addressable tombstone dependency read and stale renewal carryover checks; migration 035 writes tombstones but target dependency/renewal reader is absent."
+    },
+    {
+      "id": "R045",
+      "caseIds": [
+        "FS14.06"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/league-administration/source-mapping.ts",
+          "line": 4
+        }
+      ],
+      "tests": [],
+      "componentEvidence": [],
+      "missing": "Implement immutable compatible predecessor/successor renewal proof with strict later-season and stable-league matching."
+    },
+    {
+      "id": "R046",
+      "caseIds": [
+        "FS10.02"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/league-administration/source-mapping.ts",
+          "line": 4
+        }
+      ],
+      "tests": [],
+      "componentEvidence": [],
+      "missing": "Implement renewal transaction CAS over association, both mapping revisions and current-selection revision."
+    },
+    {
+      "id": "R047",
+      "caseIds": [
+        "FS14.07"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/accounts/neon/database.ts",
+          "line": 96
+        },
+        {
+          "path": "apps/site/lib/accounts/decision-timing.ts",
+          "line": 53
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/accounts/decision-timing.test.ts",
+          "line": 28
+        }
+      ],
+      "componentEvidence": [],
+      "missing": "Require fresh qualified successor membership in target access; never carry predecessor verification age."
+    },
+    {
+      "id": "R048",
+      "caseIds": [
+        "FS20.04"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/accounts/neon/store.ts",
+          "line": 61
+        },
+        {
+          "path": "apps/site/migrations/035_account_follow_intent.sql",
+          "line": 4
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/integration/account-store.integration-case.ts",
+          "line": 323
+        }
+      ],
+      "componentEvidence": [],
+      "missing": "Implement renewal follow carryover CAS against captured still-current preference/tombstone revision."
+    },
+    {
+      "id": "R049",
+      "caseIds": [
+        "FS07.03"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/accounts/neon/store.ts",
+          "line": 61
+        },
+        {
+          "path": "apps/site/migrations/035_account_follow_intent.sql",
+          "line": 4
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/integration/account-store.integration-case.ts",
+          "line": 323
+        }
+      ],
+      "componentEvidence": [],
+      "missing": "Implement multi-actor target lifecycle independence and prove shared facts survive unfollow/disconnect/loss."
+    },
+    {
+      "id": "R050",
+      "caseIds": [
+        "FS13.06"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/migrations/027_current_roster_acceptance.sql",
+          "line": 157
+        },
+        {
+          "path": "apps/site/lib/aggregator/current-roster.ts",
+          "line": 21
+        }
+      ],
+      "tests": [],
+      "componentEvidence": [],
+      "missing": "Implement all target evidence references and validate complete declared scope, audience and mapping lineage."
+    },
+    {
+      "id": "R051",
+      "caseIds": [
+        "FS21.01"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/migrations/027_current_roster_acceptance.sql",
+          "line": 157
+        },
+        {
+          "path": "apps/site/lib/aggregator/current-roster.ts",
+          "line": 21
+        }
+      ],
+      "tests": [],
+      "componentEvidence": [],
+      "missing": "Qualify dual-policy same-capture acceptance/head coexistence; inherited scope+policy key alone does not implement target version promotion/replay."
+    },
+    {
+      "id": "R052",
+      "caseIds": [
+        "FS09.03"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/migrations/027_current_roster_acceptance.sql",
+          "line": 157
+        },
+        {
+          "path": "apps/site/lib/aggregator/current-roster.ts",
+          "line": 21
+        }
+      ],
+      "tests": [],
+      "componentEvidence": [],
+      "missing": "Target HTTP chronology, attempt reservation and capture timestamps are composed. Full cache/replay provenance and independent real source-clock oracles remain pending."
+    },
+    {
+      "id": "R053",
+      "caseIds": [
+        "FS12.04"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/migrations/027_current_roster_acceptance.sql",
+          "line": 157
+        },
+        {
+          "path": "apps/site/lib/aggregator/current-roster.ts",
+          "line": 21
+        }
+      ],
+      "tests": [],
+      "componentEvidence": [],
+      "missing": "Implement target failed-attempt receipts with null content/acceptance/normalization where no event occurred."
+    },
+    {
+      "id": "R054",
+      "caseIds": [
+        "FS22.01"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/migrations/027_current_roster_acceptance.sql",
+          "line": 157
+        },
+        {
+          "path": "apps/site/lib/aggregator/current-roster.ts",
+          "line": 21
+        }
+      ],
+      "tests": [],
+      "componentEvidence": [],
+      "missing": "Implement qualifying network-role membership verification clock; no target membership evaluator exists."
+    },
+    {
+      "id": "R055",
+      "caseIds": [
+        "FS12.05"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/migrations/027_current_roster_acceptance.sql",
+          "line": 157
+        },
+        {
+          "path": "apps/site/lib/aggregator/current-roster.ts",
+          "line": 21
+        }
+      ],
+      "tests": [],
+      "componentEvidence": [],
+      "missing": "Implement requested/observed/independently-qualified coverage in target membership evidence."
+    },
+    {
+      "id": "R056",
+      "caseIds": [
+        "FS10.03"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/migrations/027_current_roster_acceptance.sql",
+          "line": 157
+        },
+        {
+          "path": "apps/site/lib/aggregator/current-roster.ts",
+          "line": 21
+        }
+      ],
+      "tests": [],
+      "componentEvidence": [],
+      "missing": "Extend target acceptance/current-selection generation fences and run delayed completion interleavings."
+    },
+    {
+      "id": "R057",
+      "caseIds": [
+        "FS22.02"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/migrations/027_current_roster_acceptance.sql",
+          "line": 157
+        },
+        {
+          "path": "apps/site/lib/aggregator/current-roster.ts",
+          "line": 21
+        }
+      ],
+      "tests": [],
+      "componentEvidence": [],
+      "missing": "Implement target correction acceptance and derived invalidation with immutable frozen lineage parity."
+    },
+    {
+      "id": "R058",
+      "caseIds": [
+        "FS16.02"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/projections/worker/account-demand-policy.ts",
+          "line": 28
+        },
+        {
+          "path": "apps/site/lib/projections/adapters/sleeper/permit-transport.ts",
+          "line": 37
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/projections/worker/account-demand-policy.test.ts",
+          "line": 12
+        },
+        {
+          "path": "apps/site/lib/projections/adapters/sleeper/permit-transport.test.ts",
+          "line": 175
+        }
+      ],
+      "componentEvidence": [],
+      "missing": "Wire durable coalesced target demand to sole acquisition owner with distinct observation/interpretation provenance."
+    },
+    {
+      "id": "R059",
+      "caseIds": [
+        "FS21.02"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/accounts/neon/database.ts",
+          "line": 96
+        },
+        {
+          "path": "apps/site/lib/accounts/decision-timing.ts",
+          "line": 53
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/accounts/decision-timing.test.ts",
+          "line": 28
+        }
+      ],
+      "componentEvidence": [],
+      "missing": "Implement explicit reader serving-binding selection for exact compatible versioned scope."
+    },
+    {
+      "id": "R060",
+      "caseIds": [
+        "FS09.04"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/migrations/027_current_roster_acceptance.sql",
+          "line": 157
+        },
+        {
+          "path": "apps/site/lib/aggregator/current-roster.ts",
+          "line": 21
+        }
+      ],
+      "tests": [],
+      "componentEvidence": [],
+      "missing": "Implement atomic serving-binding revision and required existing-job/materialization persistence."
+    },
+    {
+      "id": "R061",
+      "caseIds": [
+        "FS21.03"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/accounts/neon/database.ts",
+          "line": 96
+        },
+        {
+          "path": "apps/site/lib/accounts/decision-timing.ts",
+          "line": 53
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/accounts/decision-timing.test.ts",
+          "line": 28
+        }
+      ],
+      "componentEvidence": [],
+      "missing": "Implement cross-version adverse evidence and supersession so promotion/rollback/replay cannot revive removed access."
+    },
+    {
+      "id": "R062",
+      "caseIds": [
+        "FS08.04"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/accounts/neon/database.ts",
+          "line": 96
+        },
+        {
+          "path": "apps/site/lib/accounts/decision-timing.ts",
+          "line": 53
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/accounts/decision-timing.test.ts",
+          "line": 28
+        }
+      ],
+      "componentEvidence": [],
+      "missing": "Implement coherent complete adverse-evidence set and source authorization generation to detect insertions/removals."
+    },
+    {
+      "id": "R063",
+      "caseIds": [
+        "FS06.01"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/accounts/neon/database.ts",
+          "line": 96
+        },
+        {
+          "path": "apps/site/lib/accounts/decision-timing.ts",
+          "line": 53
+        },
+        {
+          "path": "apps/site/migrations/034_account_session_authority.sql",
+          "line": 149
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/accounts/decision-timing.test.ts",
+          "line": 28
+        }
+      ],
+      "componentEvidence": [],
+      "missing": "Implement D02 membership evaluator with exact T+3600 boundary; timing utility currently checks session lifetime only."
+    },
+    {
+      "id": "R064",
+      "caseIds": [
+        "FS07.04"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/accounts/neon/database.ts",
+          "line": 96
+        },
+        {
+          "path": "apps/site/lib/accounts/decision-timing.ts",
+          "line": 53
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/accounts/decision-timing.test.ts",
+          "line": 28
+        }
+      ],
+      "componentEvidence": [],
+      "missing": "Intersect D02 with all independent denies and earlier session/context expiries at final decision."
+    },
+    {
+      "id": "R065",
+      "caseIds": [
+        "FS06.02"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/accounts/neon/database.ts",
+          "line": 96
+        },
+        {
+          "path": "apps/site/lib/accounts/decision-timing.ts",
+          "line": 53
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/accounts/decision-timing.test.ts",
+          "line": 28
+        }
+      ],
+      "componentEvidence": [],
+      "missing": "Implement first-time unknown membership fail-closed target access result."
+    },
+    {
+      "id": "R066",
+      "caseIds": [
+        "FS06.03"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/accounts/neon/database.ts",
+          "line": 96
+        },
+        {
+          "path": "apps/site/lib/accounts/decision-timing.ts",
+          "line": 53
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/accounts/decision-timing.test.ts",
+          "line": 28
+        }
+      ],
+      "componentEvidence": [],
+      "missing": "Implement network-qualified verification advancement; failure/partial/cache/replay/outage must not refresh the clock."
+    },
+    {
+      "id": "R067",
+      "caseIds": [
+        "FS17.02"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/projections/worker/account-demand-policy.ts",
+          "line": 28
+        },
+        {
+          "path": "apps/site/lib/projections/adapters/sleeper/permit-transport.ts",
+          "line": 37
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/projections/worker/account-demand-policy.test.ts",
+          "line": 12
+        },
+        {
+          "path": "apps/site/lib/projections/adapters/sleeper/permit-transport.test.ts",
+          "line": 175
+        }
+      ],
+      "componentEvidence": [],
+      "missing": "Wire independently authorized bounded revalidation to durable jobs; pure recovery policy alone performs no work."
+    },
+    {
+      "id": "R068",
+      "caseIds": [
+        "FS05.01"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/accounts/neon/database.ts",
+          "line": 96
+        },
+        {
+          "path": "apps/site/lib/accounts/decision-timing.ts",
+          "line": 53
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/accounts/decision-timing.test.ts",
+          "line": 28
+        }
+      ],
+      "componentEvidence": [],
+      "missing": "Implement current qualified owner/co-manager entitlement evaluator."
+    },
+    {
+      "id": "R069",
+      "caseIds": [
+        "FS01.03"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/league-administration/neon/team-managers.ts",
+          "line": 49
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/league-administration/neon/team-managers.test.ts",
+          "line": 87
+        }
+      ],
+      "componentEvidence": [],
+      "missing": "Enumerate every eligible target team in the selected season; existing discovery/preview is not the target enumeration."
+    },
+    {
+      "id": "R070",
+      "caseIds": [
+        "FS13.07"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/accounts/neon/database.ts",
+          "line": 96
+        },
+        {
+          "path": "apps/site/lib/accounts/decision-timing.ts",
+          "line": 53
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/accounts/decision-timing.test.ts",
+          "line": 28
+        }
+      ],
+      "componentEvidence": [],
+      "missing": "Implement immutable access policy version and current binding validation at delivery."
+    },
+    {
+      "id": "R071",
+      "caseIds": [
+        "FS08.05"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/accounts/neon/database.ts",
+          "line": 96
+        },
+        {
+          "path": "apps/site/lib/accounts/decision-timing.ts",
+          "line": 53
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/accounts/decision-timing.test.ts",
+          "line": 28
+        }
+      ],
+      "componentEvidence": [],
+      "missing": "Complete coherent final helper over full domain dependency vector, adverse set and single final clock; account-only locks are partial."
+    },
+    {
+      "id": "R072",
+      "caseIds": [
+        "FS13.08"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/accounts/neon/database.ts",
+          "line": 96
+        },
+        {
+          "path": "apps/site/lib/accounts/decision-timing.ts",
+          "line": 53
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/accounts/decision-timing.test.ts",
+          "line": 28
+        }
+      ],
+      "componentEvidence": [],
+      "missing": "Implement closed variant-specific target dependency keys and revision/session validation."
+    },
+    {
+      "id": "R073",
+      "caseIds": [
+        "FS17.03"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/accounts/neon/database.ts",
+          "line": 96
+        },
+        {
+          "path": "apps/site/lib/accounts/decision-timing.ts",
+          "line": 53
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/accounts/decision-timing.test.ts",
+          "line": 28
+        }
+      ],
+      "componentEvidence": [],
+      "missing": "Implement exact selected-season access decision and stable expiry/removal reasons."
+    },
+    {
+      "id": "R074",
+      "caseIds": [
+        "FS13.09"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/league-administration/neon/current-roster.ts",
+          "line": 54
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/league-administration/neon/current-roster.test.ts",
+          "line": 135
+        }
+      ],
+      "componentEvidence": [],
+      "missing": "Implement closed ReadCurrentRosterResult available shape with selected season, roster/resource revision and every required field."
+    },
+    {
+      "id": "R075",
+      "caseIds": [
+        "FS13.10"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/league-administration/neon/current-roster.ts",
+          "line": 54
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/league-administration/neon/current-roster.test.ts",
+          "line": 135
+        }
+      ],
+      "componentEvidence": [],
+      "missing": "Implement authorized pending/unavailable result with truthful missing resources and timing intersection."
+    },
+    {
+      "id": "R076",
+      "caseIds": [
+        "FS05.02"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/accounts/neon/database.ts",
+          "line": 96
+        },
+        {
+          "path": "apps/site/lib/accounts/decision-timing.ts",
+          "line": 53
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/accounts/decision-timing.test.ts",
+          "line": 28
+        }
+      ],
+      "componentEvidence": [],
+      "missing": "Implement closed denied/indeterminate target decoder suppressing all protected fields even without current selection."
+    },
+    {
+      "id": "R077",
+      "caseIds": [
+        "FS11.05"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/league-administration/neon/current-roster.ts",
+          "line": 54
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/league-administration/neon/current-roster.test.ts",
+          "line": 135
+        }
+      ],
+      "componentEvidence": [],
+      "missing": "Compose target official field groups with original source authority/coverage/age independent of derived assessment."
+    },
+    {
+      "id": "R078",
+      "caseIds": [
+        "FS19.02"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/accounts/discovery-scan.ts",
+          "line": 40
+        },
+        {
+          "path": "apps/site/lib/accounts/discovery-scan.ts",
+          "line": 102
+        },
+        {
+          "path": "apps/site/lib/sleeper.ts",
+          "line": 263
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/accounts/discovery-scan.test.ts",
+          "line": 47
+        }
+      ],
+      "componentEvidence": [
+        "finite-discovery"
+      ],
+      "missing": "Internal list-scan progress exists, but complete DiscoverCurrentTeamsResult with durable scan, independent per-league selections and unresolved candidate evidence is pending."
+    },
+    {
+      "id": "R079",
+      "caseIds": [
+        "FS19.03"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/accounts/discovery-scan.ts",
+          "line": 40
+        },
+        {
+          "path": "apps/site/lib/accounts/discovery-scan.ts",
+          "line": 102
+        },
+        {
+          "path": "apps/site/lib/sleeper.ts",
+          "line": 263
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/accounts/discovery-scan.test.ts",
+          "line": 47
+        }
+      ],
+      "componentEvidence": [
+        "finite-discovery"
+      ],
+      "missing": "Completed list scopes are not qualified current teams. Implement independent team/population/role qualification and truthful target completeness; dormant progress complete refers only to the finite list scan."
+    },
+    {
+      "id": "R080",
+      "caseIds": [
+        "FS05.03"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/league-administration/neon/current-roster.ts",
+          "line": 54
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/league-administration/neon/current-roster.test.ts",
+          "line": 135
+        }
+      ],
+      "componentEvidence": [],
+      "missing": "Wire target stored reader to persisted evidence only and prove zero provider starts."
+    },
+    {
+      "id": "R081",
+      "caseIds": [
+        "FS15.02"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/league-administration/normalize.ts",
+          "line": 363
+        },
+        {
+          "path": "apps/site/lib/league-administration/normalize.ts",
+          "line": 662
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/aggregator/team-managers.test.ts",
+          "line": 41
+        }
+      ],
+      "componentEvidence": [],
+      "missing": "Implement and execute exact opaque identity round trips across all target lookup/association/roster fields; existing receipt/URL cases are partial."
+    },
+    {
+      "id": "R082",
+      "caseIds": [
+        "FS15.03"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/league-administration/normalize.ts",
+          "line": 363
+        },
+        {
+          "path": "apps/site/lib/league-administration/normalize.ts",
+          "line": 662
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/aggregator/team-managers.test.ts",
+          "line": 41
+        }
+      ],
+      "componentEvidence": [],
+      "missing": "Implement full target known/empty/absent/null/invalid field-state serialization."
+    },
+    {
+      "id": "R083",
+      "caseIds": [
+        "INV-R083"
+      ],
+      "status": "implemented-but-unverified",
+      "code": [
+        {
+          "path": "apps/site/migrations/037_account_acquisition.sql",
+          "line": 660
+        },
+        {
+          "path": "apps/site/lib/accounts/discovery-http.ts",
+          "line": 48
+        },
+        {
+          "path": "apps/site/lib/projections/runtime/account-acquisition-composition.ts",
+          "line": 25
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/accounts/discovery-http.test.ts",
+          "line": 33
+        },
+        {
+          "path": "apps/site/integration/account-acquisition.integration-case.ts",
+          "line": 46
+        }
+      ],
+      "componentEvidence": [
+        "connected-acquisition"
+      ],
+      "missing": "Internal composition reuses existing job, adapter, normalization, storage and reader owners. INV-R083 instrumented complete service journey and public cutover remain unexecuted. Architecture corrections passed unchanged guards and independent review."
+    },
+    {
+      "id": "R084",
+      "caseIds": [
+        "INV-R084"
+      ],
+      "status": "implemented-but-unverified",
+      "code": [
+        {
+          "path": "docs/aggregator-backend/implementation/README.md",
+          "line": 15
+        },
+        {
+          "path": "docs/aggregator-backend/backend-build-plan.md",
+          "line": 1
+        },
+        {
+          "path": "apps/site/lib/projections/worker/lineup-observation-stage.ts",
+          "line": 12
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/projections/worker/lineup-observation-stage.test.ts",
+          "line": 25
+        }
+      ],
+      "componentEvidence": [],
+      "missing": "Passing browser fixtures verify zero direct browser provider requests for covered journeys, and unit/source checks preserve observer ownership. Complete the allocated browser/server-observer provider-start census; client request listeners and mocked observer dependencies do not prove zero Tank01 starts across all server-side paths."
+    },
+    {
+      "id": "R085",
+      "caseIds": [
+        "INV-R085"
+      ],
+      "status": "implemented-but-unverified",
+      "code": [
+        {
+          "path": "docs/aggregator-backend/implementation/README.md",
+          "line": 15
+        },
+        {
+          "path": "docs/aggregator-backend/backend-build-plan.md",
+          "line": 1
+        },
+        {
+          "path": "apps/site/lib/projections/worker/snapshot-builder.ts",
+          "line": 216
+        }
+      ],
+      "tests": [],
+      "componentEvidence": [],
+      "missing": "Passing unit/browser regressions cover existing exact-week, clock-v1, bye/missing and baseline behavior. Retain the allocated before/after comparison using identical fixture/source manifests and immutable baseline/snapshot hashes; a green aggregate run alone is not that parity receipt."
+    },
+    {
+      "id": "R086",
+      "caseIds": [
+        "INV-R086"
+      ],
+      "status": "implemented-but-unverified",
+      "code": [
+        {
+          "path": "docs/aggregator-backend/implementation/README.md",
+          "line": 15
+        },
+        {
+          "path": "docs/aggregator-backend/backend-build-plan.md",
+          "line": 1
+        },
+        {
+          "path": "apps/site/lib/config.ts",
+          "line": 6
+        }
+      ],
+      "tests": [],
+      "componentEvidence": [],
+      "missing": "Passing browser/unit journeys cover both named leagues and scoped selections. Complete the allocated collision/cross-reference fixture proof across stored source/settings/score/selection/snapshot state; visual separation and mocked responses do not qualify actual SQL isolation."
+    },
+    {
+      "id": "R087",
+      "caseIds": [
+        "INV-R087"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/accounts/http.ts",
+          "line": 56
+        },
+        {
+          "path": "apps/site/lib/accounts/onboarding-http.ts",
+          "line": 11
+        },
+        {
+          "path": "apps/site/scripts/migrate.mjs",
+          "line": 64
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/integration/account-infrastructure.integration-case.ts",
+          "line": 33
+        },
+        {
+          "path": "apps/site/scripts/account-transition-preflight.test.mjs",
+          "line": 108
+        }
+      ],
+      "componentEvidence": [
+        "account-composition",
+        "infrastructure-transition"
+      ],
+      "missing": "Receipt-aware callers and a real-SQL transition rehearsal are authored. Actual installation/drain, old/new LOGIN compatibility, epoch identity and recovery are unexecuted. Migration037 changes legacy nonexclusive associations and is held before driver construction until compatible callers and coordinated034–037cutover are qualified. Latest-schema setup also contradicts the retained foundation duplicate-association oracle. Preserve explicit pre037 and post-transition stages; do not weaken the test."
+    },
+    {
+      "id": "R088",
+      "caseIds": [
+        "INV-R088"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/projections/worker/account-demand-policy.ts",
+          "line": 28
+        },
+        {
+          "path": "apps/site/lib/projections/adapters/sleeper/permit-transport.ts",
+          "line": 37
+        },
+        {
+          "path": "apps/site/lib/projections/worker/account-demand-policy.ts",
+          "line": 28
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/projections/worker/account-demand-policy.test.ts",
+          "line": 12
+        },
+        {
+          "path": "apps/site/lib/projections/adapters/sleeper/permit-transport.test.ts",
+          "line": 175
+        }
+      ],
+      "componentEvidence": [],
+      "missing": "Persist follows/view leases/first-loss/cooldown and integrate pure demand policies into existing shared scheduler."
+    },
+    {
+      "id": "R089",
+      "caseIds": [
+        "INV-R089"
+      ],
+      "status": "implemented-and-verified",
+      "code": [
+        {
+          "path": "docs/aggregator-backend/implementation/README.md",
+          "line": 15
+        },
+        {
+          "path": "docs/aggregator-backend/backend-build-plan.md",
+          "line": 1
+        },
+        {
+          "path": "README.md",
+          "line": 9
+        }
+      ],
+      "tests": [],
+      "componentEvidence": [
+        "baseline-bounded-proof"
+      ],
+      "missing": "No missing implementation in this slice; static inspection found Sleeper-only implemented paths and no added Yahoo/ESPN adapter."
+    },
+    {
+      "id": "R090",
+      "caseIds": [
+        "INV-R090"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "docs/aggregator-backend/implementation/README.md",
+          "line": 15
+        },
+        {
+          "path": "docs/aggregator-backend/backend-build-plan.md",
+          "line": 1
+        }
+      ],
+      "tests": [],
+      "componentEvidence": [],
+      "missing": "Corroborate implementation workspace/primary-checkout preservation with contemporaneous external worktree/status evidence; tracked claims alone are insufficient."
+    },
+    {
+      "id": "R091",
+      "caseIds": [
+        "INV-R091"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "docs/aggregator-backend/implementation/README.md",
+          "line": 15
+        },
+        {
+          "path": "docs/aggregator-backend/backend-build-plan.md",
+          "line": 1
+        },
+        {
+          "path": "docs/aggregator-backend/README.md",
+          "line": 6
+        }
+      ],
+      "tests": [],
+      "componentEvidence": [],
+      "missing": "Verify actual portable package hashes/source revision/dirty state; normative repository entry point is present but copies were not inspected here."
+    },
+    {
+      "id": "R092",
+      "caseIds": [
+        "INV-R092"
+      ],
+      "status": "implemented-but-unverified",
+      "code": [
+        {
+          "path": "apps/site/integration/neon-integration-harness.ts",
+          "line": 473
+        },
+        {
+          "path": "apps/site/integration/disposable-integration.ts",
+          "line": 190
+        }
+      ],
+      "tests": [],
+      "componentEvidence": [
+        "isolated-test-safety"
+      ],
+      "missing": "Saved GitHub key/project binding and branch-wide parent emptiness remain unproved; current candidate real LOGIN/SQL and cleanup receipts remain unexecuted. No database connection or provisioning is authorized by this ledger."
+    },
+    {
+      "id": "R093",
+      "caseIds": [
+        "INV-R093"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "docs/aggregator-backend/implementation/README.md",
+          "line": 15
+        },
+        {
+          "path": "docs/aggregator-backend/backend-build-plan.md",
+          "line": 1
+        }
+      ],
+      "tests": [],
+      "componentEvidence": [],
+      "missing": "Corroborate canonical main/GitHub/Vercel identity and ownership preflight independently; parent owns live evidence and release revalidation remains gated."
+    },
+    {
+      "id": "R094",
+      "caseIds": [
+        "INV-R094"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "docs/aggregator-backend/implementation/README.md",
+          "line": 15
+        },
+        {
+          "path": "docs/aggregator-backend/backend-build-plan.md",
+          "line": 1
+        }
+      ],
+      "tests": [],
+      "componentEvidence": [],
+      "missing": "Record bidirectional impact closure for each changed invariant and its runtime oracle; documentation allocation is not execution."
+    },
+    {
+      "id": "R095",
+      "caseIds": [
+        "FS08.06"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/accounts/auth.ts",
+          "line": 170
+        },
+        {
+          "path": "apps/site/migrations/036_account_infrastructure_transition.sql",
+          "line": 83
+        },
+        {
+          "path": "apps/site/lib/accounts/neon/store.ts",
+          "line": 80
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/integration/account-infrastructure.integration-case.ts",
+          "line": 33
+        },
+        {
+          "path": "apps/site/lib/accounts/infrastructure-identity.test.ts",
+          "line": 6
+        }
+      ],
+      "componentEvidence": [
+        "account-composition",
+        "infrastructure-transition"
+      ],
+      "missing": "Owner-only epoch CAS/identity and legacy account receipt composition are authored. Execute real SQL stale/missing/wrong epoch and config cases; integrate epoch validation into complete target league allow."
+    },
+    {
+      "id": "R096",
+      "caseIds": [
+        "FS08.07"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/accounts/infrastructure-identity.ts",
+          "line": 5
+        },
+        {
+          "path": "apps/site/migrations/036_account_infrastructure_transition.sql",
+          "line": 7
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/accounts/infrastructure-identity.test.ts",
+          "line": 6
+        },
+        {
+          "path": "apps/site/integration/account-infrastructure.integration-case.ts",
+          "line": 33
+        }
+      ],
+      "componentEvidence": [
+        "infrastructure-transition"
+      ],
+      "missing": "Actual server identity wrappers are authored, but Neon settings/catalog/role behavior and common auth/account database are unexecuted. Approved manifest provenance and complete protected target reader remain required."
+    },
+    {
+      "id": "R097",
+      "caseIds": [
+        "FS08.08"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/migrations/027_current_roster_acceptance.sql",
+          "line": 157
+        },
+        {
+          "path": "apps/site/lib/aggregator/current-roster.ts",
+          "line": 21
+        }
+      ],
+      "tests": [],
+      "componentEvidence": [],
+      "missing": "Account/acquisition source includes ordered locks and context/policy revision checks. Complete membership/selection/follow/resource lock inventory and authorization-generation protocol remain pending; real SQL concurrency is unexecuted."
+    },
+    {
+      "id": "R098",
+      "caseIds": [
+        "FS08.09"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/accounts/response-authority.ts",
+          "line": 7
+        },
+        {
+          "path": "apps/site/lib/accounts/neon/store.ts",
+          "line": 80
+        },
+        {
+          "path": "apps/site/lib/accounts/fantasy.ts",
+          "line": 36
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/accounts/response-authority.test.ts",
+          "line": 7
+        }
+      ],
+      "componentEvidence": [
+        "account-composition"
+      ],
+      "missing": "Legacy and internal discovery responses use final timing, closed results and guarded handoff. Complete target roster/domain deadline intersection and actual revocation/expiry/cache delivery schedules remain pending."
+    },
+    {
+      "id": "R099",
+      "caseIds": [
+        "INV-R099"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/accounts/neon/database.ts",
+          "line": 96
+        },
+        {
+          "path": "apps/site/lib/accounts/decision-timing.ts",
+          "line": 53
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/accounts/decision-timing.test.ts",
+          "line": 28
+        }
+      ],
+      "componentEvidence": [],
+      "missing": "Implement typed diagnostic event envelope with allowed reason/outcome combinations and non-identifying values."
+    },
+    {
+      "id": "R100",
+      "caseIds": [
+        "INV-R100"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/accounts/neon/database.ts",
+          "line": 96
+        },
+        {
+          "path": "apps/site/lib/accounts/decision-timing.ts",
+          "line": 53
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/accounts/decision-timing.test.ts",
+          "line": 28
+        }
+      ],
+      "componentEvidence": [],
+      "missing": "Implement target closed-result serialization guard and safe count/correlation event for rejected shapes."
+    },
+    {
+      "id": "R101",
+      "caseIds": [
+        "INV-R101"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/projections/worker/account-demand-policy.ts",
+          "line": 28
+        },
+        {
+          "path": "apps/site/lib/projections/adapters/sleeper/permit-transport.ts",
+          "line": 37
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/projections/worker/account-demand-policy.test.ts",
+          "line": 12
+        },
+        {
+          "path": "apps/site/lib/projections/adapters/sleeper/permit-transport.test.ts",
+          "line": 175
+        }
+      ],
+      "componentEvidence": [],
+      "missing": "Implement diagnostics from committed durable revalidation work/pending count/oldest age."
+    },
+    {
+      "id": "R102",
+      "caseIds": [
+        "INV-R102"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/accounts/neon/database.ts",
+          "line": 96
+        },
+        {
+          "path": "apps/site/lib/accounts/decision-timing.ts",
+          "line": 53
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/accounts/decision-timing.test.ts",
+          "line": 28
+        }
+      ],
+      "componentEvidence": [],
+      "missing": "Implement nontransactional diagnostic sink isolation and no recursive logging."
+    },
+    {
+      "id": "R103",
+      "caseIds": [
+        "INV-R103"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/accounts/neon/store.ts",
+          "line": 61
+        },
+        {
+          "path": "apps/site/migrations/035_account_follow_intent.sql",
+          "line": 4
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/integration/account-store.integration-case.ts",
+          "line": 323
+        }
+      ],
+      "componentEvidence": [],
+      "missing": "Implement target command/selection/renewal mutation plus required audit and job persistence atomic rollback; existing account audit tests cover only subset."
+    },
+    {
+      "id": "R104",
+      "caseIds": [
+        "INV-R104"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "docs/aggregator-backend/implementation/README.md",
+          "line": 15
+        },
+        {
+          "path": "docs/aggregator-backend/backend-build-plan.md",
+          "line": 1
+        }
+      ],
+      "tests": [],
+      "componentEvidence": [],
+      "missing": "Implement restricted operator diagnostics and enforced retention <=7 days before activation."
+    },
+    {
+      "id": "R105",
+      "caseIds": [
+        "FS13.11"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/migrations/036_account_infrastructure_transition.sql",
+          "line": 7
+        },
+        {
+          "path": "apps/site/migrations/036_account_infrastructure_transition.sql",
+          "line": 83
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/integration/account-infrastructure.integration-case.ts",
+          "line": 33
+        }
+      ],
+      "componentEvidence": [
+        "infrastructure-transition"
+      ],
+      "missing": "Infrastructure/epoch/acquisition helpers and closed grants are authored. Remaining domain helpers plus actual LOGIN/catalog/search_path/hostile-input qualification remain pending; owner SET ROLE is insufficient."
+    },
+    {
+      "id": "R106",
+      "caseIds": [
+        "FS05.04"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/accounts/response-authority.ts",
+          "line": 7
+        },
+        {
+          "path": "apps/site/lib/accounts/neon/store.ts",
+          "line": 80
+        },
+        {
+          "path": "apps/site/lib/accounts/fantasy.ts",
+          "line": 36
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/accounts/response-authority.test.ts",
+          "line": 7
+        }
+      ],
+      "componentEvidence": [
+        "account-composition"
+      ],
+      "missing": "Legacy and internal discovery responses use final timing, closed results and guarded handoff. Complete target roster/domain deadline intersection and actual revocation/expiry/cache delivery schedules remain pending."
+    },
+    {
+      "id": "R107",
+      "caseIds": [
+        "INV-R107"
+      ],
+      "status": "still-pending",
+      "code": [
+        {
+          "path": "apps/site/lib/accounts/http.ts",
+          "line": 56
+        },
+        {
+          "path": "apps/site/lib/accounts/onboarding-http.ts",
+          "line": 11
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/accounts/response-authority.test.ts",
+          "line": 7
+        }
+      ],
+      "componentEvidence": [
+        "account-composition"
+      ],
+      "missing": "Durable identify/discover admission, canonical command idempotency and shared jobs are composed. Resource recovery, remaining mutations/actor buckets and actual rollback/rate/concurrency qualification remain pending. Distinct live same-scope intent is LIMITED under AA-P05, not silently coalesced."
+    },
+    {
+      "id": "R108",
+      "caseIds": [
+        "INV-R108"
+      ],
+      "status": "implemented-but-unverified",
+      "code": [
+        {
+          "path": "apps/site/migrations/037_account_acquisition.sql",
+          "line": 882
+        },
+        {
+          "path": "apps/site/lib/accounts/discovery-http.ts",
+          "line": 48
+        },
+        {
+          "path": "apps/site/lib/projections/runtime/account-acquisition-composition.ts",
+          "line": 25
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/site/lib/accounts/discovery-http.test.ts",
+          "line": 33
+        },
+        {
+          "path": "apps/site/integration/account-acquisition.integration-case.ts",
+          "line": 46
+        }
+      ],
+      "componentEvidence": [
+        "connected-acquisition"
+      ],
+      "missing": "Closed provider routes and bound SQL arguments are composed. INV-R108 hostile-key/native-key fixtures across real boundaries remain unexecuted. Universal existing callsite gate convergence remains pending and is not claimed here."
+    }
+  ],
+  "frozenVerification": {
+    "sha": "a4b0f5274a3886db7a50f20377e5911dfef6a28c",
+    "command": "pnpm verify:full",
+    "unitPassed": 6024,
+    "unitSkipped": 1,
+    "unitFiles": 295,
+    "publicBrowserPassed": 121,
+    "publicBrowserSkipped": 20,
+    "syntheticAccountBrowserPassed": 20,
+    "syntheticAccountBrowserSkipped": 0,
+    "failed": 0,
+    "SQL": "SKIPPED / UNVERIFIED; no database command",
+    "authoredAcquisitionSqlCases": 17,
+    "executedAcquisitionSqlCases": 0,
+    "log": "test-results/bcm1-connected-a4b0f52-verify.log",
+    "logSha256": "b1cdb09e3b36624dbe35b135cd1dddade4f99c42d5fa17ad2990f87a3d481e17",
+    "scope": "Offline/unit and mocked browser regression evidence. One host-interface unit skip; 20 public skips run by the separate synthetic account gate. Known SQL oracle conflict remains unexecuted."
+  },
+  "historicalVerification": [
+    {
+      "sha": "fe3d983e062e766aec77b2bff67ee04b2fb19fde",
+      "command": "pnpm verify:full",
+      "unitPassed": 5871,
+      "unitSkipped": 1,
+      "unitFiles": 284,
+      "publicBrowserPassed": 121,
+      "publicBrowserSkipped": 20,
+      "syntheticAccountBrowserPassed": 20,
+      "syntheticAccountBrowserSkipped": 0,
+      "failed": 0,
+      "SQL": "SKIPPED / UNVERIFIED; no database command",
+      "log": "test-results/bcm1-gap-fe3d983-verify.log",
+      "scope": "Offline/unit and mocked browser regression evidence, not completed target workflow or SQL qualification."
+    }
+  ],
+  "independentReviews": {
+    "security": {
+      "sha": "a4b0f5274a3886db7a50f20377e5911dfef6a28c",
+      "report": "test-results/connected-acquisition/security-a4b0f52.json",
+      "reportSha256": "94c2f88257ee6f0489f77154b6a7a89bc86122c5a219568c6acdefcaa646c08a",
+      "passed": 451,
+      "files": 20,
+      "skipped": 0,
+      "scope": "Bounded offline checks; actual SQL and complete workflow not qualified."
+    },
+    "architecture": {
+      "sha": "a4b0f5274a3886db7a50f20377e5911dfef6a28c",
+      "report": "test-results/connected-acquisition/architecture-a4b0f52.json",
+      "reportSha256": "281f83e2607a69670a0a68e81d2d2c4e05493e4684a1456553556044ae43ce11",
+      "carriedForwardTests": {
+        "sha": "7fbffa73b9d517f0a2900b2e3c2a81ebde08d024",
+        "passed": 285,
+        "files": 13,
+        "skipped": 0,
+        "basis": "Tested TypeScript/library/scripts tree blobs unchanged; no additional test count."
+      },
+      "scope": "Changed SQL/fixture source review and all108 mappings; actual SQL unexecuted."
+    }
+  },
+  "blockingFindings": [
+    {
+      "id": "R087-037-qualification-oracle-conflict",
+      "priority": 2,
+      "sha": "a4b0f5274a3886db7a50f20377e5911dfef6a28c",
+      "requirements": [
+        "R087",
+        "D03",
+        "F1"
+      ],
+      "evidence": [
+        {
+          "path": "apps/site/integration/account-foundation.integration-case.ts",
+          "line": 161
+        },
+        {
+          "path": "apps/site/integration/global-setup.ts",
+          "line": 13
+        },
+        {
+          "path": "apps/site/migrations/037_account_acquisition.sql",
+          "line": 334
+        }
+      ],
+      "result": "Source contradiction independently confirmed, not SQL-executed: latest setup imposes exclusive active manager while retained legacy case expects a second active actor claim to succeed.",
+      "correction": "Preserve pre037 legacy oracle; implement the approved staged transition and compatible callers; qualify post-transition exclusivity. Keep normal installation held."
+    }
+  ],
+  "verdicts": {
+    "databaseQualification": "WITHHOLD: source oracle/cutover conflict, key provenance, parent/quiescence, billing/runtime/cleanup conditions and explicit exact-SHA authority remain. Passing SQL is required afterward for acceptance, not before the first authorized experiment.",
+    "partialCheckpoint": "Reviewed substantive source increment only; not F1 closure or a qualified foundation.",
+    "BCM1Complete": "NO",
+    "releaseReady": "NO"
+  }
+}

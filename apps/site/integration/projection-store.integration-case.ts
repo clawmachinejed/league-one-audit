@@ -220,19 +220,20 @@ describe.sequential('projection store against an isolated Neon database', () => 
     `, [migrationName]), 'All-player migration ledger');
     expect(before.checksum).toBe(expectedChecksum);
 
-    const previousMigrationUrl = process.env.MIGRATION_DATABASE_URL;
-    process.env.MIGRATION_DATABASE_URL = integrationEnvironment().ownerDatabaseUrl;
-    try {
-      const rerun = await execFileAsync(
-        process.execPath,
-        [fileURLToPath(new URL('../scripts/migrate.mjs', import.meta.url))],
-        { env: process.env, windowsHide: true },
-      );
-      expect(rerun.stdout).toContain(`Already applied ${migrationName}`);
-    } finally {
-      if (previousMigrationUrl === undefined) delete process.env.MIGRATION_DATABASE_URL;
-      else process.env.MIGRATION_DATABASE_URL = previousMigrationUrl;
-    }
+    // Guarded isolated owner sampling is a synthetic rerun fixture, never an
+    // independently reviewed deployment approval or first-install rehearsal.
+    const target = only(await ownerQuery<{ identity: unknown }>(
+      'SELECT website_auth.account_server_identity_v1() AS identity',
+    ), 'Isolated migrator target identity');
+    const rerun = await execFileAsync(
+      process.execPath,
+      [fileURLToPath(new URL('../scripts/migrate.mjs', import.meta.url))],
+      { env: { ...process.env,
+        MIGRATION_DATABASE_URL: integrationEnvironment().ownerDatabaseUrl,
+        ACCOUNTS_MIGRATION_DATABASE_IDENTITY: JSON.stringify(target.identity),
+      }, windowsHide: true },
+    );
+    expect(rerun.stdout).toContain(`Already applied ${migrationName}`);
 
     const after = only(await ownerQuery<{ checksum: string; applied_at: string }>(`
       SELECT checksum, applied_at::text

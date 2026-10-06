@@ -53,6 +53,58 @@ function fixture(override?: Override, timeouts: { operationTimeoutMs?: number; r
 }
 
 describe('disposable Neon API identities and owned lifecycle', () => {
+  it('reconciles an aborted ambiguous create during teardown without retrying the creation POST', async () => {
+    const work = new AbortController();
+    const state = fixture(async (method, path, body) => {
+      if (method === 'POST' && path === `${projectPath}/branches`) {
+        state.setBranch({ ...body?.branch as object, id: 'br-run-test', project_id: config.projectId,
+          current_state: 'ready', default: false, protected: false, created_at: new Date().toISOString() });
+        work.abort();
+        return new Promise<Response>(() => {}); // Provider committed; caller lost the response.
+      }
+    }, { signal: work.signal });
+    await expect(state.api.createBranch(config, runId)).rejects.toThrow('cancelled');
+    expect(state.api.ownedReceipts()).toEqual([]);
+    const cleanup = new AbortController();
+    await state.api.reconcileCreation(config, cleanup.signal);
+    const [owned] = state.api.ownedReceipts();
+    expect(owned.branchId).toBe('br-run-test');
+    await state.api.deleteBranch(config, owned, cleanup.signal);
+    expect(state.api.ownedReceipts()).toEqual([]);
+    expect(state.calls.filter(call => call.method === 'POST' && call.path.endsWith('/branches'))).toHaveLength(1);
+  });
+
+  it('stops a never-settling cleanup request at its phase signal and keeps ownership unresolved', async () => {
+    let deleting = false;
+    const state = fixture(async (method, path) => {
+      if (deleting && method === 'DELETE' && path === branchPath) return new Promise<Response>(() => {});
+    });
+    const owned = await state.api.createBranch(config, runId);
+    deleting = true;
+    const cleanup = new AbortController();
+    const result = state.api.deleteBranch(config, owned, cleanup.signal);
+    while (!state.calls.some(call => call.method === 'DELETE')) await Promise.resolve();
+    cleanup.abort();
+    await expect(result).rejects.toMatchObject({ code: 'REQUEST_CANCELLED' });
+    expect(state.api.ownedReceipts()).toEqual([owned]);
+    expect(state.calls.filter(call => call.method === 'DELETE')).toHaveLength(1);
+  });
+
+  it('does not claim absence or retry when ambiguous creation cannot be reconciled in its cleanup phase', async () => {
+    const work = new AbortController();
+    const state = fixture(async (method, path) => {
+      if (method === 'POST' && path === `${projectPath}/branches`) { work.abort(); return new Promise<Response>(() => {}); }
+    }, { signal: work.signal });
+    await expect(state.api.createBranch(config, runId)).rejects.toThrow('cancelled');
+    const cleanup = new AbortController();
+    const result = state.api.reconcileCreation(config, cleanup.signal);
+    cleanup.abort();
+    await expect(result).rejects.toThrow();
+    expect(state.api.ownedReceipts()).toEqual([]);
+    expect(state.calls.filter(call => call.method === 'POST')).toHaveLength(1);
+    expect(state.calls.filter(call => call.method === 'DELETE')).toHaveLength(0);
+  });
+
   it('creates bounded, expiring ordinary branches and fetches an explicit direct owner connection', async () => {
     const state = fixture();
     const receipt = await state.api.createBranch(config, runId);
@@ -180,7 +232,7 @@ describe('Neon asynchronous operations, ambiguous responses and redaction', () =
       if (method === 'GET' && (phase === 'project' ? path === projectPath : path.includes('branches?'))) controller.abort();
       return undefined;
     }, { signal: controller.signal });
-    await expect(state.api.createBranch(config, runId)).rejects.toMatchObject({ code: 'REQUEST_CANCELLED' });
+    await expect(state.api.createBranch(config, runId)).rejects.toMatchObject({ code: 'REQUEST_ABORTED' });
     expect(state.calls.some(call => call.method === 'POST')).toBe(false);
     expect(state.api.ownedReceipts()).toEqual([]);
   });
@@ -191,7 +243,7 @@ describe('Neon asynchronous operations, ambiguous responses and redaction', () =
       if (method === 'GET' && path === `${projectPath}/endpoints`) controller.abort();
       return undefined;
     }, { signal: controller.signal });
-    await expect(state.api.createBranch(config, runId)).rejects.toThrow('cancelled');
+    await expect(state.api.createBranch(config, runId)).rejects.toMatchObject({ code: 'REQUEST_ABORTED' });
     const [receipt] = state.api.ownedReceipts();
     expect(receipt).toBeDefined();
     await expect(state.api.rotateOwnerCredentials(config, receipt)).rejects.toMatchObject({ code: 'REQUEST_CANCELLED' });

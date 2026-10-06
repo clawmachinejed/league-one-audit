@@ -1,6 +1,7 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 
-const mocked = vi.hoisted(() => ({ prepare: vi.fn(), clean: vi.fn(), safe: vi.fn(), clock: vi.fn(), owner: vi.fn(), artifacts: vi.fn() }));
+const mocked = vi.hoisted(() => ({ prepare: vi.fn(), clean: vi.fn(), safe: vi.fn(), clock: vi.fn(), owner: vi.fn(), artifacts: vi.fn(), rehearsal: vi.fn() }));
+vi.mock('./account-transition-rehearsal', () => ({ rehearseAccountTransition: mocked.rehearsal }));
 vi.mock('./neon-integration-harness', () => ({ prepareIntegrationDatabase: mocked.prepare,
   cleanIntegrationDatabase: mocked.clean, assertSafeIntegrationDatabase: mocked.safe, ownerQuery: vi.fn(),
   integrationEnvironment: () => ({ expectedDatabase: 'fixture_test', expectedBranchId: 'br-fixture-test' }) }));
@@ -34,7 +35,14 @@ it('delegates expired-parent teardown to central cleanup so its shared session i
 it('closes standard ownership if artifact directory initialization fails before teardown registration', async () => {
   mocked.artifacts.mockRejectedValue(new Error('artifact directory unavailable'));
   await expect(standardSetup()).rejects.toThrow('artifact directory unavailable');
-  expect(mocked.prepare).toHaveBeenCalledOnce();
+  expect(mocked.prepare).not.toHaveBeenCalled();
   expect(mocked.clean).toHaveBeenCalledOnce();
   expect(mocked.clock).not.toHaveBeenCalled();
+});
+
+it('does not start the normal suite after a failed transition rehearsal', async () => {
+  mocked.rehearsal.mockRejectedValue(new Error('transition unqualified'));
+  await expect(standardSetup()).rejects.toThrow('transition unqualified');
+  expect(mocked.prepare).not.toHaveBeenCalled();
+  expect(mocked.clean).toHaveBeenCalledOnce();
 });

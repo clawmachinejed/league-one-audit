@@ -49,6 +49,7 @@ beforeEach(() => {
   mocked.run.mockResolvedValue({ passed: true, receipt: receipt() });
   vi.spyOn(process.stdout, 'write').mockImplementation(value => { messages.push(String(value)); return true; });
   vi.spyOn(process.stderr, 'write').mockImplementation(value => { messages.push(String(value)); return true; });
+  vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
 });
 
 afterEach(() => {
@@ -58,16 +59,16 @@ afterEach(() => {
   for (const listener of process.listeners('SIGTERM')) {
     if (!originalTerminations.includes(listener)) process.removeListener('SIGTERM', listener);
   }
-  vi.useRealTimers(); vi.restoreAllMocks();
+  vi.clearAllTimers(); vi.useRealTimers(); vi.restoreAllMocks();
   process.argv = originalArguments; process.exitCode = originalExitCode;
 });
 
 describe('disposable integration command cancellation and source evidence', () => {
-  it('allows the full 40-minute budget and records a deadline abort while awaiting cleanup', async () => {
+  it('stops work at minute30, leaving the final ten minutes for cleanup', async () => {
     const { ready, finishCleanup } = waitForCancellation();
     const executing = import('./run-disposable-integration');
     const options = await ready;
-    await vi.advanceTimersByTimeAsync(40 * 60_000 - 1);
+    await vi.advanceTimersByTimeAsync(30 * 60_000 - 1);
     expect(options.signal.aborted).toBe(false);
     await vi.advanceTimersByTimeAsync(1);
     expect(options.signal.reason).toBe('deadline');
@@ -79,7 +80,8 @@ describe('disposable integration command cancellation and source evidence', () =
     expect(process.exitCode).toBe(1);
     expect(JSON.parse(messages.at(-1)!)).toMatchObject({ outcome: 'failed', cancellationReason: 'deadline',
       childClosed: true, schemaCleanupVerified: true, credentialsRevoked: true, branchDeletionVerified: true });
-    expect(vi.getTimerCount()).toBe(0);
+    expect(process.exit).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(1); // Unref'ed last-resort exit for leaked handles.
   });
 
   it.each([['SIGINT', 'sigint'], ['SIGTERM', 'sigterm']] as const)(
@@ -91,14 +93,14 @@ describe('disposable integration command cancellation and source evidence', () =
       const handler = process.listeners(signal).find(listener => !before.includes(listener));
       expect(handler).toBeDefined();
       handler!(signal);
-      await vi.advanceTimersByTimeAsync(40 * 60_000);
+      await vi.advanceTimersByTimeAsync(1_000);
       expect(options.signal.reason).toBe(reason);
       finishCleanup();
       await executing;
       expect(options.signal.reason).toBe(reason);
       expect(JSON.parse(messages.at(-1)!)).toMatchObject({ outcome: 'failed', cancellationReason: reason });
       expect(process.listeners(signal)).toEqual(before);
-      expect(vi.getTimerCount()).toBe(0);
+      expect(vi.getTimerCount()).toBe(1);
     },
   );
 
@@ -142,7 +144,7 @@ describe('disposable integration command cancellation and source evidence', () =
     });
     const executing = import('./run-disposable-integration');
     const options = await ready.promise;
-    await vi.advanceTimersByTimeAsync(40 * 60_000);
+    await vi.advanceTimersByTimeAsync(30 * 60_000);
     expect(options.signal.reason).toBe('deadline');
     cleanup.resolve();
     await executing;
@@ -163,18 +165,42 @@ describe('disposable integration command cancellation and source evidence', () =
     });
     expect(JSON.parse(messages.at(-1)!)).toMatchObject({ outcome: 'failed', cancellationReason: 'ownership-lost' });
   });
+
+  it('cannot report success when SIGTERM arrives during final receipt persistence', async () => {
+    mocked.writeFile.mockImplementation(async (_path, value) => {
+      if (value && JSON.parse(String(value)).qualification === 'passed') {
+        const terminate = process.listeners('SIGTERM').find(listener => !originalTerminations.includes(listener));
+        terminate!('SIGTERM');
+      }
+    });
+    await import('./run-disposable-integration');
+    expect(process.exitCode).toBe(1);
+    expect(JSON.parse(messages.at(-1)!)).toMatchObject({ outcome: 'failed', cancellationReason: 'sigterm' });
+    expect(JSON.parse(mocked.writeFile.mock.calls.at(-1)![1])).toMatchObject({ qualification: 'failed', stage: 'failed' });
+  });
+
+  it('exits failed at the absolute minute40 boundary when cleanup never returns', async () => {
+    const { ready, finishCleanup } = waitForCancellation();
+    const executing = import('./run-disposable-integration');
+    await ready;
+    await vi.advanceTimersByTimeAsync(40 * 60_000);
+    expect(process.exit).toHaveBeenCalledWith(1);
+    expect(messages.join(' ')).toContain('Expiry is not verified cleanup');
+    finishCleanup(); await executing; // The mocked exit returns; real process exits here.
+    expect(process.exitCode).toBe(1);
+  });
 });
 
 describe('disposable integration receipt ownership', () => {
-  it('gives same-timestamp invocations distinct exclusively claimed paths and keeps later journals on each path', async () => {
+  it('gives same-timestamp invocations distinct claims and immutable ordered journals', async () => {
     vi.setSystemTime(new Date('2026-09-28T00:00:00Z'));
     const timestamp = Date.now();
     mocked.uuid.mockReturnValueOnce(firstUuid).mockReturnValueOnce(secondUuid);
     const journals: RunOptions['journal'][] = [];
     mocked.run.mockImplementation(async (options: RunOptions) => {
       journals.push(options.journal);
-      await options.journal({ ...receipt(), stage: 'provision' });
-      await options.journal(receipt());
+      await options.journal({ ...receipt(), stage: 'provision' }, new AbortController().signal);
+      await options.journal(receipt(), new AbortController().signal);
       return { passed: true, receipt: receipt() };
     });
     await import('./run-disposable-integration');
@@ -182,19 +208,19 @@ describe('disposable integration receipt ownership', () => {
     await import('./run-disposable-integration');
     expect(Date.now()).toBe(timestamp);
     const firstPath = mocked.writeFile.mock.calls[0][0];
-    const secondPath = mocked.writeFile.mock.calls[3][0];
+    const secondPath = mocked.writeFile.mock.calls[4][0];
     expect(firstPath).toContain(`run-${timestamp}-${firstUuid}.json`);
     expect(secondPath).toContain(`run-${timestamp}-${secondUuid}.json`);
     expect(firstPath).not.toBe(secondPath);
-    expect(mocked.writeFile.mock.calls.slice(0, 3).map(call => call[0])).toEqual([firstPath, firstPath, firstPath]);
-    expect(mocked.writeFile.mock.calls.slice(3, 6).map(call => call[0])).toEqual([secondPath, secondPath, secondPath]);
-    expect(mocked.writeFile.mock.calls[0]).toEqual([firstPath, '', { flag: 'wx', mode: 0o600 }]);
-    expect(mocked.writeFile.mock.calls[3]).toEqual([secondPath, '', { flag: 'wx', mode: 0o600 }]);
-    expect(mocked.writeFile.mock.calls[1][2]).toEqual({ mode: 0o600 });
-    expect(mocked.writeFile.mock.calls[4][2]).toEqual({ mode: 0o600 });
-    await journals[0]({ ...receipt(), stage: 'schema-cleanup' });
-    expect(mocked.writeFile.mock.calls.at(-1)![0]).toBe(firstPath);
-    expect(messages.map(message => JSON.parse(message).receipt)).toEqual([firstPath, secondPath]);
+    expect(new Set(mocked.writeFile.mock.calls.map(call => call[0])).size).toBe(8);
+    expect(mocked.writeFile.mock.calls[0]).toEqual([firstPath, '', expect.objectContaining({ flag: 'wx', mode: 0o600 })]);
+    expect(mocked.writeFile.mock.calls[4]).toEqual([secondPath, '', expect.objectContaining({ flag: 'wx', mode: 0o600 })]);
+    expect(mocked.writeFile.mock.calls[1][2]).toMatchObject({ flag: 'wx', mode: 0o600 });
+    expect(mocked.writeFile.mock.calls[5][2]).toMatchObject({ flag: 'wx', mode: 0o600 });
+    await journals[0]({ ...receipt(), stage: 'schema-cleanup' }, new AbortController().signal);
+    expect(mocked.writeFile.mock.calls.at(-1)![0]).toBe(firstPath.replace('.json', '-0004.json'));
+    expect(messages.map(message => JSON.parse(message).receipt)).toEqual([
+      firstPath.replace('.json', '-0003.json'), secondPath.replace('.json', '-0003.json')]);
   });
 
   it('fails before provisioning if the exclusive receipt claim finds an existing path', async () => {
@@ -202,7 +228,7 @@ describe('disposable integration receipt ownership', () => {
     mocked.writeFile.mockRejectedValueOnce(collision);
     await expect(import('./run-disposable-integration')).rejects.toBe(collision);
     expect(mocked.writeFile).toHaveBeenCalledOnce();
-    expect(mocked.writeFile.mock.calls[0][2]).toEqual({ flag: 'wx', mode: 0o600 });
+    expect(mocked.writeFile.mock.calls[0][2]).toMatchObject({ flag: 'wx', mode: 0o600 });
     expect(mocked.run).not.toHaveBeenCalled();
     expect(messages).toEqual([]);
     expect(vi.getTimerCount()).toBe(0);

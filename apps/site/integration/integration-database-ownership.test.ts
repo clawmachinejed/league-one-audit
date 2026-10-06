@@ -79,6 +79,23 @@ beforeEach(() => {
 });
 
 describe('shared destructive integration ownership', () => {
+  it('does not issue DROP after cancellation during the delegated ownership verification await', async () => {
+    const parent = backend(); shared.add(parent.pid);
+    const owner = createIntegrationDatabaseOwnership();
+    const controller = new AbortController();
+    const session = await owner.acquire(environment, parentProof(parent), controller.signal);
+    const pinned = [...backends.values()].find(item => item !== parent)!;
+    const execute = pinned.query.getMockImplementation()!;
+    pinned.query.mockImplementation(async (sql: string, parameters: unknown[] = []) => {
+      const result = await Reflect.apply(execute, undefined, [sql, parameters]);
+      if (sql.startsWith('SELECT EXISTS')) controller.abort(new Error('phase deadline'));
+      return result;
+    });
+    await expect(session.query('DROP SCHEMA fixture_after_deadline')).rejects.toThrow('phase deadline');
+    expect(mutations).toEqual([]);
+    await owner.release();
+  });
+
   it('rejects a second ordinary preparation before a reset and retains ownership through cleanup', async () => {
     const first = createIntegrationDatabaseOwnership(); const second = createIntegrationDatabaseOwnership();
     const session = await first.acquire(environment);

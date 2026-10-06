@@ -4,12 +4,13 @@ import type { DatabaseRow } from '../lib/database';
 import type { AdministrationEnvelope, AdministrationFamily, JsonValue } from '../lib/league-administration/contracts';
 import { createLeagueAdministrationMethods } from '../lib/league-administration/neon/administration';
 import { normalizeAdministrationObservation } from '../lib/league-administration/normalize';
-import type { AccountDatabase } from '../lib/accounts/database';
+import type { AccountDatabase, AccountAuthorityDatabase } from '../lib/accounts/database';
 import { accountTeams } from '../lib/accounts/library';
 import { ACCOUNT_VIEW_SQL } from '../lib/accounts/neon/source-sql';
 import { AccountConflictError, createAccountStore } from '../lib/accounts/store';
 import { enrollIntegrationSeason, registerEnrolledIntegrationSeason } from './administration-enrollment-fixture';
 import { ownerQuery, withAccountActor, type AccountIntegrationQuery } from './neon-integration-harness';
+import { installSyntheticAccountSession, setSyntheticActorReceipt } from './account-authority-fixture';
 
 type LeagueFixture = { leagueKey: string; leagueId: string; leagueSeasonId: string; season: number; externalLeagueId: string };
 type Fixture = Awaited<ReturnType<typeof createFixture>>;
@@ -31,25 +32,32 @@ async function rollbackFixture(run: (fixture: Fixture) => Promise<void>, prepare
 }
 
 async function createFixture(query: AccountIntegrationQuery) {
-  const database: AccountDatabase = {
-    async transaction(statements, context) {
-      await query('SAVEPOINT account_adapter_request');
-      try {
-        await query('SET LOCAL ROLE league_one_account');
-        await query("SELECT set_config('app.actor_user_id',$1,true),set_config('app.request_id',$2,true)",
-          [context?.actorUserId ?? '', context?.requestId ?? '']);
-        const results: (readonly DatabaseRow[])[] = [];
-        for (const statement of statements) results.push(await query(statement.statement, statement.parameters));
-        await query('RESET ROLE');
-        await query("SELECT set_config('app.actor_user_id','',true),set_config('app.request_id','',true)");
-        await query('RELEASE SAVEPOINT account_adapter_request');
-        return results;
-      } catch (error) {
-        await query('ROLLBACK TO SAVEPOINT account_adapter_request');
-        await query('RELEASE SAVEPOINT account_adapter_request');
-        throw error;
-      }
-    },
+  const execute = async (statements: Parameters<AccountDatabase['transaction']>[0], context: Parameters<AccountDatabase['transaction']>[1], final: boolean) => {
+    await query('SAVEPOINT account_adapter_request');
+    try {
+      if (context?.actorUserId) await setSyntheticActorReceipt(query, context.actorUserId);
+      await query('SET LOCAL ROLE league_one_account');
+      await query("SELECT set_config('app.actor_user_id',$1,true),set_config('app.request_id',$2,true)",
+        [context?.actorUserId ?? '', context?.requestId ?? '']);
+      const results: (readonly DatabaseRow[])[] = [];
+      if (context?.actorUserId) await query(`SELECT public.lock_account_actor_authority_v2(
+        current_setting('app.session_receipt_v2')::jsonb,$1::boolean)`, [context.access === 'write']);
+      else await query(`SELECT public.lock_account_session_authority_v2(current_setting('app.session_receipt_v2')::jsonb)`);
+      for (const statement of statements) results.push(await query(statement.statement, statement.parameters));
+      const timing = final ? await query<{ timing: unknown }>(`SELECT public.read_account_authority_timing_v2(current_setting('app.session_receipt_v2')::jsonb) AS timing`) : null;
+      await query('RESET ROLE');
+      await query("SELECT set_config('app.actor_user_id','',true),set_config('app.request_id','',true)");
+      await query('RELEASE SAVEPOINT account_adapter_request');
+      return { results, decisionTiming: timing?.[0]?.timing ?? null };
+    } catch (error) {
+      await query('ROLLBACK TO SAVEPOINT account_adapter_request');
+      await query('RELEASE SAVEPOINT account_adapter_request');
+      throw error;
+    }
+  };
+  const database: AccountAuthorityDatabase = {
+    transaction: async (statements, context) => (await execute(statements, context, false)).results,
+    finalTransaction: (statements, context) => execute(statements, context, true),
   };
   const store = createAccountStore(database);
   const latest = await query<{ season: number }>(`SELECT coalesce(max(enrollment.season),2149)::integer AS season
@@ -96,7 +104,11 @@ async function createFixture(query: AccountIntegrationQuery) {
     expect(['changed', 'unchanged']).toContain(result.status);
     return result;
   }
-  async function login() { return store.resolve({ issuer: 'https://isolated-adapter.example.test', subject: randomUUID(), displayName: 'Adapter user' }); }
+  async function login() {
+    const issuer = 'https://isolated-adapter.example.test'; const subject = randomUUID();
+    await installSyntheticAccountSession(query, issuer, subject);
+    return store.resolve({ issuer, subject, displayName: 'Adapter user' });
+  }
   async function accountId(externalId: string) {
     const rows = await query<{ id: string }>('SELECT id FROM public.league_source_manager_accounts WHERE provider=\'sleeper\' AND external_manager_id=$1', [externalId]);
     return rows[0].id;
@@ -267,6 +279,76 @@ describe.sequential('account store adapter against actual accepted-source SQL an
     await f.store.mutate(actor, { kind: 'save-league', id: old.leagueId,
       body: { favorite: false, sortPosition: 3, preferredSeasonTeamId: null, revision: 1 } });
     expect((await f.store.read(actor)).library.leagues.find(value => value.key === 'league1')?.saved?.favorite).toBe(false);
+  }));
+
+  it('retains unfollow revision and explicit re-follow advances beyond the tombstone', async () => rollbackFixture(async f => {
+    const league = await f.league('league1'); const actor = await f.login();
+    const save = () => f.store.mutate(actor, { kind: 'save-league', id: league.leagueId,
+      body: { favorite: false, sortPosition: 0, preferredSeasonTeamId: null, revision: null } });
+    await save();
+    await f.store.mutate(actor, { kind: 'remove-league', id: league.leagueId, body: { revision: 1 } });
+    expect(await f.query(`SELECT last_revision::text FROM public.app_user_league_preference_tombstones
+      WHERE app_user_id=$1 AND league_id=$2`, [actor, league.leagueId])).toEqual([{ last_revision: '2' }]);
+    await save();
+    expect(await f.query(`SELECT revision::text FROM public.app_user_leagues WHERE app_user_id=$1 AND league_id=$2`,
+      [actor, league.leagueId])).toEqual([{ revision: '3' }]);
+    expect(await f.query(`SELECT last_revision FROM public.app_user_league_preference_tombstones
+      WHERE app_user_id=$1 AND league_id=$2`, [actor, league.leagueId])).toEqual([]);
+    // A stale earlier command cannot erase the newer explicit intention.
+    await expect(f.store.mutate(actor, { kind: 'remove-league', id: league.leagueId, body: { revision: 1 } }))
+      .rejects.toBeInstanceOf(AccountConflictError);
+    expect(await f.query(`SELECT count(*)::integer AS count FROM public.app_identity_audit_events
+      WHERE subject_type='app_user_leagues' AND subject_user_id=$1 AND subject_id=$2`, [actor, league.leagueId]))
+      .toEqual([{ count: 3 }]);
+  }));
+
+  it('rolls back preference and derived tombstone together after failure', async () => rollbackFixture(async f => {
+    const league = await f.league('league1'); const actor = await f.login();
+    await f.store.mutate(actor, { kind: 'save-league', id: league.leagueId,
+      body: { favorite: false, sortPosition: 0, preferredSeasonTeamId: null, revision: null } });
+    await f.query('SAVEPOINT follow_atomicity');
+    await f.store.mutate(actor, { kind: 'remove-league', id: league.leagueId, body: { revision: 1 } });
+    await expect(f.query('SELECT 1/0')).rejects.toThrow();
+    await f.query('ROLLBACK TO SAVEPOINT follow_atomicity');
+    await f.query('RELEASE SAVEPOINT follow_atomicity');
+    expect(await f.query(`SELECT revision::text FROM public.app_user_leagues WHERE app_user_id=$1 AND league_id=$2`,
+      [actor, league.leagueId])).toEqual([{ revision: '1' }]);
+    expect(await f.query(`SELECT last_revision FROM public.app_user_league_preference_tombstones
+      WHERE app_user_id=$1 AND league_id=$2`, [actor, league.leagueId])).toEqual([]);
+    expect(await f.query(`SELECT count(*)::integer AS count FROM public.app_identity_audit_events
+      WHERE subject_type='app_user_leagues' AND subject_user_id=$1 AND subject_id=$2`, [actor, league.leagueId]))
+      .toEqual([{ count: 1 }]);
+  }));
+
+  it('rejects an owner-corrupted active preference plus tombstone without repairing or auditing it', async () => rollbackFixture(async f => {
+    const league = await f.league('league1'); const actor = await f.login();
+    const save = () => f.store.mutate(actor, { kind: 'save-league', id: league.leagueId,
+      body: { favorite: false, sortPosition: 0, preferredSeasonTeamId: null, revision: null } });
+    await save();
+    const requestId = randomUUID();
+    await f.query(`INSERT INTO public.app_user_league_preference_tombstones
+      (app_user_id,league_id,last_revision,request_id) VALUES($1,$2,9,$3)`, [actor, league.leagueId, requestId]);
+    await expect(save()).rejects.toThrow('conflicting follow intention');
+    expect(await f.query(`SELECT revision::text FROM public.app_user_leagues WHERE app_user_id=$1 AND league_id=$2`,
+      [actor, league.leagueId])).toEqual([{ revision: '1' }]);
+    expect(await f.query(`SELECT last_revision::text,request_id FROM public.app_user_league_preference_tombstones
+      WHERE app_user_id=$1 AND league_id=$2`, [actor, league.leagueId]))
+      .toEqual([{ last_revision: '9', request_id: requestId }]);
+    expect(await f.query(`SELECT count(*)::integer AS count FROM public.app_identity_audit_events
+      WHERE subject_type='app_user_leagues' AND subject_user_id=$1 AND subject_id=$2`, [actor, league.leagueId]))
+      .toEqual([{ count: 1 }]);
+  }));
+
+  it('does not grant account clients direct tombstone access or trigger execution', async () => rollbackFixture(async f => {
+    const actor = await f.login();
+    for (const statement of [
+      'SELECT * FROM public.app_user_league_preference_tombstones',
+      'DELETE FROM public.app_user_league_preference_tombstones',
+      'SELECT public.retain_account_follow_intent_v1()',
+    ]) {
+      await expect(f.database.transaction([{ statement, parameters: [] }], { actorUserId: actor, requestId: randomUUID() }))
+        .rejects.toMatchObject({ code: '42501' });
+    }
   }));
 
   it('applies the store mutation revisions and private row scope using the real account role', async () => rollbackFixture(async f => {

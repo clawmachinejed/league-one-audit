@@ -3,6 +3,64 @@ import 'server-only';
 import type { DatabaseClient } from '../../../database';
 import type { AllPlayerJobFence, ProjectionStore, SleeperWeeklyStatReceipt } from './contracts';
 import { json, requiredText, rowNullableText, rowNumber, rowObject, rowText } from './database-values';
+import type { PermitJobFence } from '../sleeper/permit-transport';
+
+export type AccountAcquisitionClaim =
+  | { status: 'idle' | 'limited'; retryAfterSeconds: number }
+  | { status: 'claimed'; demandId: string; fence: PermitJobFence;
+    work: { kind: 'identify'; username: string } | { kind: 'calendar-state' }
+      | { kind: 'discover'; nativeAccountId: string; scanId: string; requiredSeasons: number[] } };
+
+function exactObject(value: unknown, fields: readonly string[]): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    && Object.keys(value).length === fields.length && fields.every(field => Object.hasOwn(value, field));
+}
+const discoveryUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+function validAcquisitionWork(work: unknown): boolean {
+  if (exactObject(work, ['kind']) && work.kind === 'calendar-state') return true;
+  if (exactObject(work, ['kind', 'username']) && work.kind === 'identify') {
+    return typeof work.username === 'string' && /^[a-zA-Z0-9_]{1,100}$/.test(work.username);
+  }
+  return exactObject(work, ['kind', 'nativeAccountId', 'scanId', 'requiredSeasons'])
+    && work.kind === 'discover' && typeof work.nativeAccountId === 'string'
+    && /^[1-9]\d{0,31}$/.test(work.nativeAccountId)
+    && typeof work.scanId === 'string' && discoveryUuid.test(work.scanId)
+    && Array.isArray(work.requiredSeasons) && work.requiredSeasons.length >= 3
+    && work.requiredSeasons.every((year, index, years) => Number.isInteger(year)
+      && year >= 1000 && year <= 9999 && (index === 0 || year > years[index - 1]));
+}
+
+/** The existing projection_jobs owner selects and claims due work atomically.
+ * No caller-supplied scan, schedule, payload or actor can bypass its fairness
+ * order. A lost acknowledgement throws; it never manufactures a live lease. */
+export function createAcquisitionJobMethods(client: DatabaseClient) {
+  return {
+    async claimAccountAcquisition(workerId: string): Promise<AccountAcquisitionClaim> {
+      if (typeof workerId !== 'string' || !workerId.trim() || workerId.length > 100) {
+        throw new Error('Acquisition worker identity is invalid.');
+      }
+      const rows = await client.query(`/* projection-store:claim-account-acquisition */
+        SELECT public.claim_account_acquisition_v1($1) AS result`, [workerId]);
+      const result = rows.length === 1 ? rows[0].result : null;
+      if (exactObject(result, ['status', 'retryAfterSeconds'])
+        && ['idle', 'limited'].includes(String(result.status))
+        && Number.isInteger(result.retryAfterSeconds) && Number(result.retryAfterSeconds) >= 1
+        && Number(result.retryAfterSeconds) <= 60) return result as AccountAcquisitionClaim;
+      if (!exactObject(result, ['status', 'demandId', 'fence', 'work']) || result.status !== 'claimed'
+        || typeof result.demandId !== 'string' || !discoveryUuid.test(result.demandId)
+        || !exactObject(result.fence, ['jobKey', 'workerId', 'attemptCount', 'leaseUntil'])
+        || typeof result.fence.jobKey !== 'string' || !result.fence.jobKey.length
+        || result.fence.workerId !== workerId || !Number.isSafeInteger(result.fence.attemptCount)
+        || Number(result.fence.attemptCount) < 1 || typeof result.fence.leaseUntil !== 'string'
+        || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(result.fence.leaseUntil)
+        || !Number.isFinite(Date.parse(result.fence.leaseUntil))
+        || !validAcquisitionWork(result.work)) {
+        throw new Error('Acquisition claim result is invalid.');
+      }
+      return result as AccountAcquisitionClaim;
+    },
+  };
+}
 
 export const ALL_PLAYER_JOB_KEY = 'all-player-ingestion:sleeper';
 
