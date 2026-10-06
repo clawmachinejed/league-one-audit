@@ -27,17 +27,31 @@ Append dated outcomes; preserve failed/partial attempts. Owner: implementation l
 - Extended the existing disposable supervisor with a generated restricted account login on only its owned child, matching pre-reset URL/server database/branch/TLS/sentinel/role proofs and credential redaction/revocation. Independent review reproduced the actual driver's last-duplicate `sslmode` behavior without connecting to a database. Central parsing now rejects ambiguous/unsupported connection overrides across owner/runtime/auth/account. A parent follow-up also requires invalid denylist URLs to fail closed rather than degrade into ineffective raw tokens. This is a confirmed test-safety repair within the same qualification boundary.
 - Vercel production was rechecked in a fresh in-app browser tab after stale-tab timeouts: ready deployment `8C3YSnXRCbmPETftQgRtirfyck5e`, main, canonical repository, exact production SHA still `87da4d0cb909ee280e125e73ad10e1c3dbd7cd9f`.
 
+## October 6, 2026 — frozen implementation checkpoint
+
+- Committed and independently reviewed implementation candidate `5781aa82c24a07780532e290b1e04fc1580ea0aa`. Review found no remaining actionable source blocker for an **authorized isolated qualification attempt**, not for release. Final denylist URL fix was reproduced before repair; 217 focused harness tests passed with zero skips. No test credential or actual connection was used for those deterministic checks.
+- Published `codex/bc-m1-account-roster` and attached [draft PR287](https://github.com/clawmachinejed/league-one-audit/pull/287), stacked on planning PR286 to isolate the implementation diff. Neither PR was merged.
+- Ran the unchanged `verify:full` workflow against the clean committed candidate in CI mode with Node24.19.0/pnpm11.19.0. Dependency checks, full lint, Next route generation, TypeScript, **277 unit files / 5,675 passed / one skipped**, production build, **120 public-browser passed / 21 skipped**, and **20 synthetic-account-browser passed / zero skipped** completed successfully. Public-browser skips comprise the 20 separately run account cases and the provider-dependent My Team selection case when manager cards were absent. The unit skip is host-interface-dependent. Earlier failures remain recorded above; no application change was made to conceal them.
+- The guarded SQL step explicitly reported **SKIPPED / UNVERIFIED**; the full command exited zero without any database command. That exit code does not qualify PostgreSQL behavior or the BC-M1 target. Ignored local log: `test-results/bcm1-frozen-verify.log`.
+- GitHub main verification job passed on the same implementation SHA; hosted browser job was still running at this checkpoint. Latest check state belongs to the PR. This documentation-only follow-up changes no tested application, migration, test, dependency or workflow source.
+- Inspected actual ready Vercel Preview `5N9SPky7T6jA6AUexFdVWTwKzrib` in the built-in browser, verified exact source SHA `5781aa82c24a07780532e290b1e04fc1580ea0aa`, and opened My Fantasy, dormant Account, League One Matchups and League Two Matchups. Both named leagues rendered distinct official scores and scoped navigation. Preview deliberately has no target database authority; this is baseline behavior evidence only.
+- Primary main checkout remains clean at the original baseline. No migration application, production deployment, production source binding/provider configuration/cron change or paid database provisioning occurred.
+
+## Next qualification action requiring authority
+
+The candidate is reviewable but BC-M1 remains incomplete. Before building further on the mandatory authority guards, request authorization for **one** existing `disposable-integration` workflow run through GitHub's protected `integration-test` environment on the reviewed draft head: only project `steep-glitter-44680287`, empty parent `br-plain-bread-b7sgfdl8`, new disposable child at fixed 0.25 CU, fixed 40-minute lifecycle, one-hour expiry fallback, verified credential revocation and child deletion, and no automatic retries. Never retrieve the environment secret or substitute a retained database. The earlier implementation scope excluded paid provisioning; neither an old passing receipt nor existing configuration grants a new run budget. Review exact head again before dispatch, then retain the existing supervisor's full lifecycle receipt. This action is not merge, migration or release authorization.
+
 ## Delivery state
 
 | Evidence class | State |
 | --- | --- |
-| Local target implementation | In progress |
-| Target unit/runtime tests | Foundation suites pass within 5,637 total passes; one host-dependent skip; target orchestration not implemented |
+| Local target implementation | Reviewed foundation checkpoint; complete target still in progress |
+| Target unit/runtime tests | Foundation suites pass within 5,675 total passes; one host-dependent skip; target orchestration not implemented |
 | 108 acceptance procedures | Not yet executed against implementation |
-| Actual PostgreSQL qualification | Missing test-only setup and new run budget; unverified |
+| Actual PostgreSQL qualification | Protected test environment exists; new run budget/approval absent; 37 new SQL cases unexecuted |
 | Independent adversarial code review | Foundation findings fixed; migration/public composition blocker remains; full target review pending |
-| Full repository verification | Fast Check passed; browser checks in progress; SQL unverified |
-| Branch publication / PR | Not yet published |
-| Actual implementation preview | Not yet created/inspected |
+| Full repository verification | Frozen local Fast Check + public/account browser gates passed with stated skips; SQL unverified |
+| Branch publication / PR | Published and attached draft PR287, stacked on unmerged PR286 |
+| Actual implementation preview | Ready implementation SHA inspected; target not activated; no target SQL proof |
 | Merge | Not authorized / not performed |
 | Production migration/deployment/public activation | Not authorized / not performed |
