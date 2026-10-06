@@ -1,6 +1,8 @@
 import 'server-only';
 import type { DatabaseClient } from '../database';
 import type { LeagueAdministrationStore } from './store-contracts';
+import { isAdministrationSourceMapping } from './source-mapping';
+import { compatibleRevision } from '../projections/shared/revision-compatibility';
 
 function receiptBound<T extends { status: string }>(resource: T, expected: unknown) {
   const accepted = 'accepted' in resource ? resource.accepted as { observationIds?: readonly string[] } : undefined;
@@ -24,9 +26,18 @@ export async function readPublicSleeperIntake(client: DatabaseClient, administra
   const lists = await client.query(`/* public-data-intake:read-lists */
     SELECT season,request_started_at,request_completed_at FROM public.public_data_league_lists WHERE intake_id=$1::uuid ORDER BY season`, [requestId]);
   const candidates = await client.query(`/* public-data-intake:read-candidates */
-    SELECT season,external_league_id,name,stage,league_season_id,league_observation_id,roster_observation_id,users_observation_id,
-      settings_receipt_id,players_receipt_id,managers_receipt_id
-    FROM public.public_data_league_candidates WHERE intake_id=$1::uuid ORDER BY season,external_league_id`, [requestId]);
+    SELECT candidate.season,candidate.external_league_id,candidate.name,candidate.stage,candidate.league_season_id,
+      candidate.league_observation_id,candidate.roster_observation_id,candidate.users_observation_id,
+      candidate.settings_receipt_id,candidate.players_receipt_id,candidate.managers_receipt_id,
+      CASE WHEN capture.id IS NOT NULL THEN jsonb_build_object('id',capture.id,'contentId',capture.content_id,
+        'legacyObservationId',capture.legacy_observation_id,'sourceMapping',capture.source_mapping,
+        'requestStartedAt',capture.request_started_at,'requestCompletedAt',capture.request_completed_at,
+        'sourceObservedAt',capture.source_observed_at) END AS directory_capture
+    FROM public.public_data_league_candidates candidate
+    LEFT JOIN public.public_data_directory_captures capture ON capture.id=candidate.users_capture_id
+      AND capture.intake_id=candidate.intake_id AND capture.league_season_id=candidate.league_season_id
+      AND capture.legacy_observation_id=candidate.users_observation_id
+    WHERE candidate.intake_id=$1::uuid ORDER BY candidate.season,candidate.external_league_id`, [requestId]);
   const rejected = await client.query(`/* public-data-intake:read-rejections */
     SELECT revision,resource,source_scope,request_started_at,request_completed_at,reason
     FROM public.public_data_rejections WHERE intake_id=$1::uuid ORDER BY revision`, [requestId]);
@@ -50,13 +61,18 @@ export async function readPublicSleeperIntake(client: DatabaseClient, administra
         administration.readAcceptedCurrentRoster(mapping, { includeSeasonOverview: true }).catch(() => ({ status: 'unavailable' as const, reason: 'held-roster-read-failed' })),
         administration.readSource({ ...mapping.scope, family: 'users', week: null }).catch(() => ({ status: 'unavailable' as const, reason: 'directory-read-failed' })),
       ]);
+      const acquisition = candidate.directory_capture && typeof candidate.directory_capture === 'object'
+        ? candidate.directory_capture as Record<string, unknown> : null;
+      const directoryCurrent = acquisition && isAdministrationSourceMapping(acquisition.sourceMapping) && compatibleRevision(acquisition.sourceMapping) === compatibleRevision(mapping);
       leagues.push({ ...identity, name: String(candidate.name), leagueSeasonId: mapping.leagueSeasonId,
         leagueKey: mapping.scope.leagueKey, collection: String(candidate.stage),
         resources: { settings: receiptBound(settings, candidate.settings_receipt_id),
           teamManagers: receiptBound(teamManagers, candidate.managers_receipt_id),
           heldRoster: receiptBound(heldRoster, candidate.players_receipt_id),
-          directory: directory.status === 'available' && directory.observationId !== candidate.users_observation_id
-            ? { status: 'unavailable' as const, reason: 'intake-capture-not-current-head', retained: directory } : directory } });
+          directory: directory.status === 'available'
+            ? directory.observationId !== candidate.users_observation_id || !directoryCurrent
+              ? { status: 'unavailable' as const, reason: 'intake-capture-not-current-head', retained: directory }
+              : { ...directory, acquisition } : directory } });
     } catch {
       leagues.push({ ...identity, name: String(candidate.name), collection: String(candidate.stage),
         resources: null, reason: 'stored-source-unavailable' });
@@ -70,7 +86,7 @@ export async function readPublicSleeperIntake(client: DatabaseClient, administra
   const status = !header.external_manager_id || !allSeasons ? header.terminal ? 'unavailable' : 'pending'
     : completeResources ? 'available' : header.terminal ? 'partial' : 'pending';
   return { status, readAt: new Date().toISOString(), request: header, lists, leagues, rejected,
-    freshness: 'Use each resource acceptance verifiedAt and each list request_completed_at; this read does not refresh them.',
+    freshness: 'Use each resource acceptance verifiedAt and each directory acquisition sourceObservedAt and list request_completed_at; this read does not refresh them.',
     coverage: { requested: ['identity', 'season-league-lists', 'league-settings', 'team-managers', 'held-rosters', 'manager-directory'],
       notRequested: ['exact-matchups', 'official-results', 'transactions', 'drafts', 'playoff-brackets', 'annual-history'],
       note: 'Provider standings fields are retained with the roster; no derived rank or calculation is produced.' } } as const;

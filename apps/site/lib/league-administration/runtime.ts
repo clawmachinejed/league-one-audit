@@ -203,7 +203,8 @@ export async function recordCapturedAdministration(
       if (normalized.status === 'accepted' && normalized.value?.family === 'league') {
         expectedRosterCount = normalized.value.totalRosters ?? undefined;
         if (normalized.envelope.provenance.origin === 'network'
-          && result.observationId && ['changed', 'unchanged', 'replayed'].includes(result.status)) {
+          && result.observationId && (['changed', 'unchanged', 'replayed'].includes(result.status)
+            || result.leagueSettingsAcceptance?.status === 'accepted')) {
           population = { observationId: result.observationId, contentHash: normalized.contentHash, envelope: normalized.envelope };
         }
       }

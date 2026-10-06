@@ -19,6 +19,8 @@ export type PublicIntakeOutcome = Readonly<{ status: 'progress' | 'busy' | Publi
   resource?: PublicIntakeWork['kind']; providerRequests: number }>;
 export type PublicCoreCheckpoint = Readonly<{
   observations: Readonly<{ league?: string; rosters?: string; users?: string }>;
+  /** Fresh source request alongside its immutable, potentially deduplicated directory observation. */
+  directoryCapture?: CapturedAdministrationDocument;
   receipts?: Readonly<{ settings: string; players: string; managers: string }>;
 }>;
 export type PublicIntakeStore = Readonly<{

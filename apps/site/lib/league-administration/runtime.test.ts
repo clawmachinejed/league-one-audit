@@ -195,6 +195,25 @@ describe('administration collection and enrollment composition', () => {
     expect(store.beginRosterAttempt).not.toHaveBeenCalled();
   });
 
+  it('retains typed official population when a scoring correction rejects only calculation compatibility', async () => {
+    const store = fakeStore();
+    const mapping = { connectionId: '11111111-1111-4111-8111-111111111111', leagueSeasonId: '22222222-2222-4222-8222-222222222222',
+      revisionId: '33333333-3333-4333-8333-333333333333', generation: 1, scope };
+    const rosterAttempt = { id: 'attempt', scopeId: 'scope', ordinal: 1, expectedGeneration: 0 };
+    vi.mocked(store.recordObservation).mockResolvedValueOnce({ status: 'rejected', observationId: 'official-correction',
+      leagueSettingsAcceptance: { status: 'accepted', receiptId: 'official-settings-receipt', acceptedGeneration: 2 } })
+      .mockResolvedValueOnce({ status: 'changed' });
+    const result = await recordCapturedAdministration(scope, [{ ...document, origin: 'network',
+      payload: { ...document.payload, scoring_settings: { pass_yd: 0.05 } } },
+      { family: 'rosters', week: null, payload: [{ roster_id: 1, players: [], owner_id: null }],
+        origin: 'network', requestStartedAt: time, requestCompletedAt: time }],
+      { store, mapping, rosterAttempt, now: () => new Date(time) });
+    expect(vi.mocked(store.recordObservation).mock.calls[1][3]?.population).toMatchObject({
+      observationId: 'official-correction', envelope: { payload: { scoring_settings: { pass_yd: 0.05 } } } });
+    expect(result.context).toBeUndefined();
+    expect(result.population?.observationId).toBe('official-correction');
+  });
+
   it('does not inspect inputs or construct storage when persistence is disabled', async () => {
     const store = createLeagueAdministrationStore({ enabled: false, reason: 'preview-persistence-disabled' });
     const unreadable = new Proxy({}, { get() { throw new Error('must not inspect'); } });

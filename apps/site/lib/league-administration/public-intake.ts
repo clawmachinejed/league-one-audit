@@ -87,12 +87,13 @@ export async function runPublicIntakeStep(requestId: string, dependencies: Publi
             managers: roster.teamManagerAcceptance.receiptId } }, fence);
       } else {
         requests++;
-        const captured = await recordCapturedAdministration(mapping.scope,
-          [await source.core(work.externalLeagueId, 'users', signal)], { store: administration, signal, fence, now });
+        const directoryCapture = await source.core(work.externalLeagueId, 'users', signal);
+        const captured = await recordCapturedAdministration(mapping.scope, [directoryCapture],
+          { store: administration, signal, fence, now });
         const entry = captured.results[0]?.result;
         if (entry && ['changed', 'unchanged', 'replayed'].includes(entry.status)) observations.users = entry.observationId;
         if (!observations.users) throw new Error('Directory evidence remains unavailable.');
-        await intake.completeCore(work, mapping, { observations }, fence);
+        await intake.completeCore(work, mapping, { observations, directoryCapture }, fence);
       }
     }
     signal.throwIfAborted();
