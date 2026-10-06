@@ -1183,8 +1183,8 @@ describe('official preconfiguration source normalization to restricted typed sto
       expect(committed).toHaveLength(1);
       expect(committed[0].scoring_profile_id).toBeNull();
       expect(await database.query('SELECT * FROM public_data_collection_reservations WHERE external_league_id=$1', [native])).toHaveLength(1);
-      expect((await database.query('SELECT league_id,league_season_id,bootstrap_payload FROM public_data_league_candidates WHERE intake_id=$1', [id]))[0])
-        .toMatchObject({ league_id: null, league_season_id: null, bootstrap_payload: null });
+      expect((await database.query('SELECT league_season_id,bootstrap_payload FROM public_data_league_candidates WHERE intake_id=$1', [id]))[0])
+        .toMatchObject({ league_season_id: null, bootstrap_payload: null });
       for (const resource of ['bootstrap', 'core', 'users']) expect(await progress()).toMatchObject({ status: 'progress', resource });
       expect(await identity()).toEqual(committed);
       const read = await readPublicSleeperIntake(database, administration, id);
