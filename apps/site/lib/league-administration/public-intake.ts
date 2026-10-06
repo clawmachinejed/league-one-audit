@@ -4,6 +4,7 @@ import { capturePublicSleeperCore, capturePublicSleeperIdentity, capturePublicSl
 import type { ProjectionStore } from '../projection-store';
 import type { LeagueAdministrationStore } from './store-contracts';
 import { recordCapturedAdministration } from './runtime';
+import type { PublicDataRefreshOutcome, PublicDataRefreshSelected, PublicDataRefreshSelectionFailure, PublicDataRefreshStore } from './public-refresh-contracts';
 import { PUBLIC_INTAKE_JOB, type PublicIntakeOutcome, type PublicIntakeStore } from './public-intake-contracts';
 
 export type PublicIntakeDependencies = Readonly<{
@@ -15,7 +16,10 @@ export type PublicIntakeDependencies = Readonly<{
   now?: () => Date;
   /** Requires installed R035; adds evidence without replacing either v1 reservation. */
   managerEvidenceVersion?: 'v2';
-  cleanup?: () => Readonly<{ intake: Pick<PublicIntakeStore, 'fail'>; jobs: Pick<ProjectionStore, 'failJob'> }>;
+  /** Absolute work deadline, including time already spent obtaining the owner. */
+  deadlineAt?: string;
+  cleanup?: () => Readonly<{ intake: Pick<PublicIntakeStore, 'fail'>; jobs: Pick<ProjectionStore, 'failJob'>;
+    refresh?: Pick<PublicDataRefreshStore, 'recordSelectionFailure'> }>;
 }>;
 
 /** One bounded selection owned by the existing administration worker and jobs table.
@@ -23,7 +27,19 @@ export type PublicIntakeDependencies = Readonly<{
  * scoring, Tank01, page requests or new scheduler participate in this collection. */
 export async function runPublicIntakeStep(requestId: string, dependencies: PublicIntakeDependencies,
   signal: AbortSignal): Promise<PublicIntakeOutcome> {
+  return runOwnedPublicIntakeStep(requestId, dependencies, signal) as Promise<PublicIntakeOutcome>;
+}
+
+export async function runPublicDataRefreshStep(dependencies: PublicIntakeDependencies & Readonly<{ refresh: PublicDataRefreshStore }>,
+  signal: AbortSignal): Promise<PublicDataRefreshOutcome> {
+  return runOwnedPublicIntakeStep(undefined, dependencies, signal);
+}
+
+async function runOwnedPublicIntakeStep(requestId: string | undefined,
+  dependencies: PublicIntakeDependencies & Readonly<{ refresh?: PublicDataRefreshStore }>,
+  signal: AbortSignal): Promise<PublicDataRefreshOutcome> {
   const { intake, jobs, administration } = dependencies;
+  const refresh = requestId === undefined ? dependencies.refresh : undefined;
   const now = dependencies.now ?? (() => new Date());
   const source = dependencies.source ?? { identity: capturePublicSleeperIdentity,
     leagues: capturePublicSleeperLeagueList, core: capturePublicSleeperCore };
@@ -32,23 +48,47 @@ export async function runPublicIntakeStep(requestId: string, dependencies: Publi
   // All public intakes share one owner and a minimum minute between successful steps.
   const claim = await jobs.acquireJob({ jobKey: PUBLIC_INTAKE_JOB, jobType: PUBLIC_INTAKE_JOB, workerId,
     scheduledFor: new Date(Math.floor(now().getTime() / 60_000) * 60_000).toISOString(),
-    leaseSeconds: 25, minimumIntervalSeconds: 60, payload: { requestId, policy: 'public-data-intake-v1' } });
+    leaseSeconds: 25, minimumIntervalSeconds: 60, payload: refresh
+      ? { policy: 'public-data-refresh-v1', mode: 'recurring' } : { requestId, policy: 'public-data-intake-v1' } });
   if (claim.kind !== 'acquired') return { status: 'busy', providerRequests: 0 };
   const fence = { jobKey: PUBLIC_INTAKE_JOB, workerId, generation: claim.attempt,
-    deadlineAt: new Date(now().getTime() + 20_000).toISOString() };
+    deadlineAt: new Date(Math.min(now().getTime() + 20_000,
+      dependencies.deadlineAt ? Date.parse(dependencies.deadlineAt) : Infinity)).toISOString() };
   let work: Awaited<ReturnType<PublicIntakeStore['next']>> | undefined;
   let requests = 0;
+  let selected: PublicDataRefreshSelected | null = null;
+  let selectionFailure: PublicDataRefreshSelectionFailure | undefined = refresh ? 'selection-failed' : undefined;
   try {
+    signal.throwIfAborted();
+    if (refresh) {
+      const selection = await refresh.select(fence);
+      if (selection.status !== 'selected') {
+        selectionFailure = undefined;
+        if (!await jobs.completeJob(PUBLIC_INTAKE_JOB, workerId)) throw new Error('Intake lease lost.');
+        return { status: selection.status, providerRequests: 0 };
+      }
+      selected = selection;
+      requestId = selection.requestId;
+      selectionFailure = 'request-state-failed';
+    }
+    if (!requestId) throw new Error('Intake request binding unavailable.');
+    signal.throwIfAborted();
     await intake.recover(requestId, fence);
     work = await intake.next(requestId);
     if (typeof work === 'string') {
+      selectionFailure = undefined;
       if (!await jobs.completeJob(PUBLIC_INTAKE_JOB, workerId)) throw new Error('Intake lease lost.');
       return { status: work, providerRequests: 0 };
     }
+    signal.throwIfAborted();
+    if (refresh) selectionFailure = 'admission-unconfirmed';
     if (!await intake.admit(work, fence)) {
+      selectionFailure = undefined;
       if (!await jobs.completeJob(PUBLIC_INTAKE_JOB, workerId)) throw new Error('Intake lease lost.');
       return { status: 'backoff', providerRequests: 0 };
     }
+    selectionFailure = undefined; // Durable admission owns all subsequent failure/recovery accounting.
+    signal.throwIfAborted();
     if (work.kind === 'identity') {
       requests++;
       await intake.recordIdentity(work, await source.identity(work.username, signal), fence);
@@ -108,7 +148,12 @@ export async function runPublicIntakeStep(requestId: string, dependencies: Publi
     if (!await jobs.completeJob(PUBLIC_INTAKE_JOB, workerId)) throw new Error('Intake lease lost.');
     return { status: 'progress', resource: work.kind, providerRequests: requests };
   } catch {
-    const cleanup = dependencies.cleanup?.() ?? { intake, jobs };
+    const cleanup = dependencies.cleanup?.() ?? { intake, jobs, refresh };
+    if (refresh && selectionFailure && !signal.aborted) {
+      // SQL first reconciles this exact owner's persisted selection/dispatch. An
+      // unknown acknowledgment must never create another cycle or double credit.
+      await (cleanup.refresh ?? refresh).recordSelectionFailure(selected, fence, selectionFailure).catch(() => undefined);
+    }
     if (work && typeof work === 'object') await cleanup.intake.fail(work, fence).catch(() => undefined);
     await cleanup.jobs.failJob(PUBLIC_INTAKE_JOB, workerId, 'public-data-intake-step-failed').catch(() => false);
     return { status: 'unavailable', ...(work && typeof work === 'object' ? { resource: work.kind } : {}), providerRequests: requests };

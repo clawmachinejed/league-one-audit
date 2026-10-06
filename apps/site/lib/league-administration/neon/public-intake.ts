@@ -1,4 +1,6 @@
 import 'server-only';
+import { validatePublicDataRefresh, refreshUuid, refreshOrdinal, type PublicDataRefreshStore,
+  type PublicDataRefreshSelectionResult, type PublicDataRefreshFailureResult } from '../public-refresh-contracts';
 import type { DatabaseClient, DatabaseRow, DatabaseQueryOptions } from '../../database';
 import { createProjectionStore } from '../../projection-store';
 import { normalizeAdministrationObservation } from '../normalize';
@@ -101,5 +103,49 @@ export function createPublicIntakeStore(client: DatabaseClient): PublicIntakeSto
     },
     completeCore: (work, mapping, captured, fence) => checkpoint(work, { mapping, ...captured }, fence),
     fail: (work, fence) => checkpoint(work, { failed: true }, fence),
+  };
+}
+
+
+/** Optional R036 surface. Constructed only by explicitly selected backend callers. */
+export function createPublicDataRefreshStore(client: DatabaseClient): PublicDataRefreshStore {
+  const date = (value: unknown) => value === undefined || value === null
+    || typeof value === 'string' && Number.isFinite(Date.parse(value));
+  return {
+    async configure(input) {
+      const validated = validatePublicDataRefresh(input);
+      const rows = await client.query('/* public-data-refresh:configure */ SELECT public.configure_public_data_refresh($1::jsonb) AS result',
+        [JSON.stringify(validated)]);
+      if (rows.length !== 1) throw new Error('Missing refresh configuration result.');
+      const value = record(rows[0].result);
+      if (!['configured', 'replayed'].includes(String(value.status)) || value.targetId !== validated.id
+        || value.configurationRevision !== validated.expectedRevision + 1) throw new Error('Invalid refresh configuration result.');
+      return { status: value.status as 'configured' | 'replayed', targetId: validated.id, configurationRevision: Number(value.configurationRevision) };
+    },
+    async select(fence) {
+      const rows = await client.query('/* public-data-refresh:select */ SELECT public.select_public_data_refresh($1::jsonb) AS result',
+        [JSON.stringify(fence)]);
+      if (rows.length !== 1) throw new Error('Missing refresh selection result.');
+      const value = record(rows[0].result);
+      if (value.status === 'selected') {
+        if (!refreshUuid(value.targetId) || !refreshUuid(value.requestId) || !refreshOrdinal(value.configurationRevision)
+          || !refreshOrdinal(value.cycleConfigurationRevision) || Number(value.cycleConfigurationRevision) > Number(value.configurationRevision)
+          || !refreshOrdinal(value.cycle)) throw new Error('Invalid refresh selection token.');
+      } else if (!['idle', 'backoff', 'capacity'].includes(String(value.status))
+        || value.reason !== undefined && typeof value.reason !== 'string' || !date(value.nextEligibleAt)) {
+        throw new Error('Invalid refresh selection disposition.');
+      }
+      return value as PublicDataRefreshSelectionResult;
+    },
+    async recordSelectionFailure(selection, fence, reason) {
+      const rows = await client.query('/* public-data-refresh:selection-failure */ SELECT public.record_public_data_refresh_selection_failure($1::jsonb,$2::jsonb,$3::text) AS result',
+        [selection ? JSON.stringify(selection) : null, JSON.stringify(fence), reason]);
+      if (rows.length !== 1) throw new Error('Missing refresh failure result.');
+      const value = record(rows[0].result);
+      if (!['recorded', 'already-recorded', 'admitted', 'unbound', 'superseded'].includes(String(value.status)) || !date(value.retryAt)) {
+        throw new Error('Invalid refresh failure disposition.');
+      }
+      return value as PublicDataRefreshFailureResult;
+    },
   };
 }

@@ -3,7 +3,7 @@ import 'server-only';
 import { getDatabase, withDatabaseAbortSignal, type Database } from '../database';
 import { createLeagueAdministrationMethods } from './neon/administration';
 export { createAccountEnrollmentMethods as createAccountEnrollmentStore } from './neon/account-enrollment';
-export { createPublicIntakeStore } from './neon/public-intake';
+export { createPublicIntakeStore, createPublicDataRefreshStore } from './neon/public-intake';
 import { createProjectionExactMatchupCompatibilityReader, createProjectionStore } from '../projection-store';
 import { createBundleOneReadService } from '../aggregator/bundle-one';
 import { EXACT_MATCHUPS_READ_SQL, readAcceptedExactMatchupsRows } from './neon/exact-matchups';

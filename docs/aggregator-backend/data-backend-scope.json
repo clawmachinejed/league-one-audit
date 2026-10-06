@@ -42,18 +42,18 @@
     {
       "path": "apps/site/scripts/provision-runtime-role.sql",
       "resource": "Restricted infrastructure access to retained public intake data",
-      "purpose": "Explicit narrow intake function/read grants without direct history mutation; conditional catalog guards preserve 001-033 provisioning compatibility.",
+      "purpose": "Explicit narrow intake function/read grants without direct history mutation; conditional catalog guards preserve 001-033 provisioning compatibility. Also permit only narrow refresh-function execution and retained refresh-table reads; private helpers remain owner-only and no direct history writes are granted.",
       "proof": "Offline grant assertions and authored privilege-negative integration cases; actual restricted-role SQL execution pending.",
-      "reviewer": "Independent GPT-6 Astra ultra review in Review new backend end to end (01a0f411-7133-7491-b693-4c89af678ca6)",
-      "reviewReference": "DATA-SCOPE-2026-10-06-PUBLIC-INTAKE-01"
+      "reviewer": "Independent GPT-6 Astra ultra review in Review new backend end to end (01a0f411-7133-7491-b693-4c89af678ca6); independent database/security confirmation in Backend foundation reconciliation (01a10e85-7bde-74b1-8ad7-93d3d1838eab)",
+      "reviewReference": "DATA-SCOPE-2026-10-06-PUBLIC-INTAKE-01; DATA-SCOPE-2026-10-06-REFRESH-CYCLES-02"
     },
     {
       "path": "apps/site/integration/public-data-intake.integration-case.ts",
       "resource": "Provider identity/list/core source-to-stored-reader persistence",
-      "purpose": "Use existing guarded PostgreSQL harness for readback, replay, lost lease, rollback, capacity and no projection enrollment; source authoring only.",
+      "purpose": "Use existing guarded PostgreSQL harness for readback, replay, lost lease, rollback, capacity and no projection enrollment; source authoring only. Also author actual restricted-LOGIN recurrence, fair admission, shared limits, pause/expiry/configuration races, unknown commit and rollback cases through the existing guarded harness.",
       "proof": "Authored oracle remains unexecuted until a separately authorized isolated database qualification run.",
-      "reviewer": "Independent GPT-6 Astra ultra review in Review new backend end to end (01a0f411-7133-7491-b693-4c89af678ca6)",
-      "reviewReference": "DATA-SCOPE-2026-10-06-PUBLIC-INTAKE-01"
+      "reviewer": "Independent GPT-6 Astra ultra review in Review new backend end to end (01a0f411-7133-7491-b693-4c89af678ca6); independent database/security confirmation in Backend foundation reconciliation (01a10e85-7bde-74b1-8ad7-93d3d1838eab)",
+      "reviewReference": "DATA-SCOPE-2026-10-06-PUBLIC-INTAKE-01; DATA-SCOPE-2026-10-06-REFRESH-CYCLES-02"
     },
     {
       "path": "apps/site/lib/database.ts",
@@ -254,6 +254,14 @@
       "proof": "Independent delayed-chunk replay reproduced startup stalling under a paused clock; targeted existing browser cases and changed-SHA review required. Separate ECONNRESET remains unresolved.",
       "reviewer": "Independent GPT-6 Astra ultra review in Review new backend end to end (01a0f411-7133-7491-b693-4c89af678ca6)",
       "reviewReference": "DATA-SCOPE-2026-10-06-BROWSER-STARTUP-CLOCK-01"
+    },
+    {
+      "path": "apps/site/migrations/036_public_data_refresh.sql",
+      "resource": "Durable recurring public Sleeper identity/list/core refresh",
+      "purpose": "Bounded stable-manager targets, immutable configuration/cycle/outcome/failure evidence and fair selection under the existing public intake job and admission. Recheck revision, pause and expiry at admission; preserve ordinary manual requests and old-schema dormant callers. No second scheduler, queue, provider feed or activation.",
+      "proof": "Independent REFRESH-CYCLES-02 scope assessment; offline dispatch/recovery/fairness checks and authored restricted-LOGIN concurrency, limits, unknown acknowledgments, permissions and rollback oracles. Actual SQL and freshness/capacity qualification pending.",
+      "reviewer": "Independent GPT-6 Astra ultra review in Backend foundation reconciliation (01a10e85-7bde-74b1-8ad7-93d3d1838eab) and Review new backend end to end (01a0f411-7133-7491-b693-4c89af678ca6)",
+      "reviewReference": "DATA-SCOPE-2026-10-06-REFRESH-CYCLES-02"
     }
   ],
   "governanceChanges": [

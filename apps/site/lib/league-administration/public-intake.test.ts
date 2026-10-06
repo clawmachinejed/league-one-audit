@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { readFile } from 'node:fs/promises';
-import { runPublicIntakeStep, type PublicIntakeDependencies } from './public-intake';
+import { runPublicDataRefreshStep, runPublicIntakeStep, type PublicIntakeDependencies } from './public-intake';
+import type { PublicDataRefreshStore } from './public-refresh-contracts';
 import { validatePublicIntake, type PublicIntakeStore, type PublicIntakeWork } from './public-intake-contracts';
 import { createLeagueAdministrationStore } from './store';
 import { readPublicSleeperIntake } from './public-intake-reader';
@@ -405,5 +406,109 @@ describe('opt-in manager evidence through public DATA intake', () => {
     expect(result.leagues[0].resources?.teamManagers.status).not.toBe('available');
     expect(read).toHaveBeenCalledExactlyOnceWith(mapping);
     expect(f.source.core).not.toHaveBeenCalled(); expect(f.intake.completeCore).not.toHaveBeenCalled();
+  });
+});
+
+describe('recurring DATA uses the same owned intake step', () => {
+  const selected = { status: 'selected' as const, targetId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    configurationRevision: 3, cycleConfigurationRevision: 2, cycle: 4, requestId: id };
+  function recurring() {
+    const f = fixture();
+    const refresh: PublicDataRefreshStore = { configure: vi.fn(), select: vi.fn(async () => selected),
+      recordSelectionFailure: vi.fn(async () => ({ status: 'recorded' as const })) };
+    return { ...f, refresh, dependencies: { ...f.dependencies, refresh } };
+  }
+  it('keeps an explicit manual request on its original path even if a dependency object also exposes recurrence', async () => {
+    const f = recurring();
+    expect((await runPublicIntakeStep(id, f.dependencies, new AbortController().signal)).status).toBe('progress');
+    expect(f.refresh.select).not.toHaveBeenCalled(); expect(f.refresh.recordSelectionFailure).not.toHaveBeenCalled();
+    expect(f.dependencies.jobs.acquireJob).toHaveBeenCalledWith(expect.objectContaining({ payload: { requestId: id, policy: 'public-data-intake-v1' } }));
+  });
+  it('binds the selected immutable request under one owner before the unchanged capture path', async () => {
+    const f = recurring();
+    vi.mocked(f.refresh.select).mockImplementation(async fence => {
+      expect(f.dependencies.jobs.acquireJob).toHaveBeenCalledOnce();
+      expect(f.intake.next).not.toHaveBeenCalled();
+      expect(fence.deadlineAt).toBe('2026-10-06T12:00:18.000Z');
+      return selected;
+    });
+    const result = await runPublicDataRefreshStep({ ...f.dependencies, deadlineAt: '2026-10-06T12:00:18.000Z' }, new AbortController().signal);
+    expect(result).toEqual({ status: 'progress', resource: 'core', providerRequests: 2 });
+    expect(f.dependencies.jobs.acquireJob).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      jobKey: 'league-administration-public-intake', payload: { policy: 'public-data-refresh-v1', mode: 'recurring' } }));
+    expect(f.intake.recover).toHaveBeenCalledWith(id, expect.objectContaining({ generation: 1 }));
+    expect(f.intake.next).toHaveBeenCalledExactlyOnceWith(id);
+    expect(f.source.core).toHaveBeenCalledTimes(2);
+    expect(f.administration.beginRosterCapture).toHaveBeenCalledOnce();
+    expect(f.intake.completeCore).toHaveBeenCalledOnce();
+    expect(f.refresh.recordSelectionFailure).not.toHaveBeenCalled();
+  });
+  it.each(['idle', 'backoff', 'capacity'] as const)('makes no intake/provider request for selector %s', async status => {
+    const f = recurring(); vi.mocked(f.refresh.select).mockResolvedValue({ status });
+    expect(await runPublicDataRefreshStep(f.dependencies, new AbortController().signal)).toEqual({ status, providerRequests: 0 });
+    expect(f.intake.next).not.toHaveBeenCalled(); expect(f.source.core).not.toHaveBeenCalled();
+    expect(f.dependencies.jobs.completeJob).toHaveBeenCalledOnce(); expect(f.refresh.recordSelectionFailure).not.toHaveBeenCalled();
+  });
+  it('does not select or debit failure for busy ownership or admission throttle', async () => {
+    const f = recurring(); vi.mocked(f.dependencies.jobs.acquireJob).mockResolvedValueOnce({ kind: 'busy' });
+    expect((await runPublicDataRefreshStep(f.dependencies, new AbortController().signal)).status).toBe('busy');
+    expect(f.refresh.select).not.toHaveBeenCalled();
+    vi.mocked(f.intake.admit).mockResolvedValue(false);
+    expect((await runPublicDataRefreshStep(f.dependencies, new AbortController().signal)).status).toBe('backoff');
+    expect(f.refresh.recordSelectionFailure).not.toHaveBeenCalled(); expect(f.source.core).not.toHaveBeenCalled();
+  });
+  it.each(['selection-failed', 'request-state-failed', 'admission-unconfirmed'] as const)(
+    'reconciles %s using the exact owner before releasing its lease', async reason => {
+      const f = recurring();
+      const method = reason === 'selection-failed' ? f.refresh.select : reason === 'request-state-failed' ? f.intake.next : f.intake.admit;
+      vi.mocked(method).mockRejectedValue(new Error('unknown acknowledgment'));
+      vi.mocked(f.refresh.recordSelectionFailure).mockImplementation(async (token, fence, actualReason) => {
+        expect(token).toEqual(reason === 'selection-failed' ? null : selected);
+        expect(actualReason).toBe(reason); expect(fence.workerId).toEqual(expect.any(String));
+        expect(f.dependencies.jobs.failJob).not.toHaveBeenCalled();
+        return { status: reason === 'admission-unconfirmed' ? 'admitted' : 'recorded' };
+      });
+      expect(await runPublicDataRefreshStep(f.dependencies, new AbortController().signal)).toMatchObject({ status: 'unavailable', providerRequests: 0 });
+      expect(f.refresh.recordSelectionFailure).toHaveBeenCalledOnce(); expect(f.source.core).not.toHaveBeenCalled();
+      expect(f.dependencies.jobs.failJob).toHaveBeenCalledOnce();
+    });
+  it('uses admitted capture recovery without adding pre-admission failure credit', async () => {
+    const f = recurring(); f.source.core.mockRejectedValue(new Error('source failed'));
+    expect((await runPublicDataRefreshStep(f.dependencies, new AbortController().signal)).status).toBe('unavailable');
+    expect(f.intake.fail).toHaveBeenCalledOnce(); expect(f.refresh.recordSelectionFailure).not.toHaveBeenCalled();
+  });
+  it('never grants a new work fence after a delayed owner claim', async () => {
+    const f = recurring(); let clock = Date.parse(time);
+    vi.mocked(f.dependencies.jobs.acquireJob).mockImplementation(async () => {
+      clock += 17_000; return { kind: 'acquired', attempt: 1, leaseUntil: '2026-10-06T12:00:25.000Z' };
+    });
+    await runPublicDataRefreshStep({ ...f.dependencies, now: () => new Date(clock), deadlineAt: '2026-10-06T12:00:20.000Z' }, new AbortController().signal);
+    expect(f.refresh.select).toHaveBeenCalledWith(expect.objectContaining({ deadlineAt: '2026-10-06T12:00:20.000Z' }));
+    expect(f.intake.admit).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ deadlineAt: '2026-10-06T12:00:20.000Z' }));
+  });
+  it('cleans up an owner obtained after cancellation without selecting or charging a target', async () => {
+    const f = recurring(); const controller = new AbortController();
+    vi.mocked(f.dependencies.jobs.acquireJob).mockImplementation(async () => {
+      controller.abort(); return { kind: 'acquired', attempt: 1, leaseUntil: '2026-10-06T12:00:25.000Z' };
+    });
+    expect((await runPublicDataRefreshStep(f.dependencies, controller.signal)).status).toBe('unavailable');
+    expect(f.refresh.select).not.toHaveBeenCalled(); expect(f.refresh.recordSelectionFailure).not.toHaveBeenCalled();
+    expect(f.dependencies.jobs.failJob).toHaveBeenCalledOnce(); expect(f.source.core).not.toHaveBeenCalled();
+  });
+  it('does not blame selection for a spent work budget and cleans up through an independent bounded store', async () => {
+    const f = recurring(); const controller = new AbortController();
+    vi.mocked(f.refresh.select).mockImplementation(async () => { controller.abort(); throw controller.signal.reason; });
+    const cleanup = { intake: { fail: vi.fn() }, jobs: { failJob: vi.fn(async () => true) },
+      refresh: { recordSelectionFailure: vi.fn() } };
+    expect((await runPublicDataRefreshStep({ ...f.dependencies, cleanup: () => cleanup }, controller.signal)).status).toBe('unavailable');
+    expect(cleanup.jobs.failJob).toHaveBeenCalledOnce(); expect(f.dependencies.jobs.failJob).not.toHaveBeenCalled();
+    expect(cleanup.refresh.recordSelectionFailure).not.toHaveBeenCalled(); expect(f.refresh.recordSelectionFailure).not.toHaveBeenCalled();
+    expect(f.source.core).not.toHaveBeenCalled();
+  });
+  it('returns a terminal request without creating a cycle or fabricating fresh content in TypeScript', async () => {
+    const f = recurring(); f.setWork('complete');
+    expect(await runPublicDataRefreshStep(f.dependencies, new AbortController().signal)).toEqual({ status: 'complete', providerRequests: 0 });
+    expect(f.intake.submit).not.toHaveBeenCalled(); expect(f.source.core).not.toHaveBeenCalled();
+    expect(f.refresh.configure).not.toHaveBeenCalled(); expect(f.refresh.recordSelectionFailure).not.toHaveBeenCalled();
   });
 });

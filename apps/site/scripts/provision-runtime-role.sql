@@ -408,3 +408,24 @@ DO $$ BEGIN
     END IF;
   END IF;
 END; $$;
+
+-- Optional036: bounded refresh authority/history remains SELECT-only. No new
+-- scheduler, worker identity, direct cursor DML or private admission bypass.
+DO $$ DECLARE refresh_table text; BEGIN
+  IF to_regclass('public.public_data_refresh_targets') IS NOT NULL THEN
+    FOREACH refresh_table IN ARRAY ARRAY['public_data_refresh_targets','public_data_refresh_configurations',
+      'public_data_refresh_cycles','public_data_refresh_cycle_outcomes','public_data_refresh_selection_failures'] LOOP
+      EXECUTE format('REVOKE ALL ON TABLE public.%I FROM league_one_runtime',refresh_table);
+      EXECUTE format('GRANT SELECT ON TABLE public.%I TO league_one_runtime',refresh_table);
+      IF has_table_privilege('league_one_runtime','public.'||refresh_table,'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+        OR NOT has_table_privilege('league_one_runtime','public.'||refresh_table,'SELECT')
+        OR EXISTS(SELECT 1 FROM pg_class object JOIN pg_namespace namespace ON namespace.oid=object.relnamespace
+          JOIN pg_roles owner ON owner.oid=object.relowner WHERE namespace.nspname='public'
+            AND object.relname=refresh_table AND owner.rolname='league_one_runtime') THEN
+        RAISE EXCEPTION 'league_one_runtime has incorrect public refresh privileges'; END IF;
+    END LOOP;
+    GRANT EXECUTE ON FUNCTION public.configure_public_data_refresh(jsonb),public.select_public_data_refresh(jsonb),
+      public.record_public_data_refresh_selection_failure(jsonb,jsonb,text) TO league_one_runtime;
+    REVOKE ALL ON FUNCTION public.assert_public_refresh_owner(jsonb),public.admit_public_data_dispatch_v34(jsonb,jsonb) FROM league_one_runtime;
+  END IF;
+END; $$;
