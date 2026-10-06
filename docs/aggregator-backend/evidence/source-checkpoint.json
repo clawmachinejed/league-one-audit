@@ -58,6 +58,22 @@
   ],
   "source_files": [
     {
+      "path": "AGENTS.md",
+      "sha256": "3d23e8ab66ae711744bf299f78d74277745ec0d1cade15c06785f9e805e1fb11"
+    },
+    {
+      "path": "README.md",
+      "sha256": "bf4ac026a054048951f8e3490ab85e0fe8e98ab91b46d8aa103db40434c2624a"
+    },
+    {
+      "path": "apps/site/integration/README.md",
+      "sha256": "f86969c7bde007031ec089aff3e4250c388c446231826e07e41733136be829b9"
+    },
+    {
+      "path": "apps/site/lib/accounts/auth-runtime.ts",
+      "sha256": "fa2c5d1a182da91f41c5e0f92e4d1aed35ea35848d07e83dce0a8bd726904c77"
+    },
+    {
       "path": "apps/site/lib/accounts/auth.ts",
       "sha256": "9ac6f1fbf1f36fdbf8b8de8689de2a4f007e4fe82a244323348904668a6d15c8"
     },
@@ -68,6 +84,10 @@
     {
       "path": "apps/site/lib/accounts/library.ts",
       "sha256": "d05cc0c71e87e94d374c60332518bebe599d0d8d42b58dc32789ba4e1efebbfb"
+    },
+    {
+      "path": "apps/site/lib/accounts/neon/database.ts",
+      "sha256": "71a3452217bdb16b0927ae1ef7e600ca28635f180efa2f62cc3b072dba2564df"
     },
     {
       "path": "apps/site/lib/accounts/neon/source-sql.ts",
@@ -138,6 +158,10 @@
       "sha256": "2447ffac523e1f5536e218887d5c29895c3a095385f89bd6beb55cb7c5e95814"
     },
     {
+      "path": "apps/site/migrations/016_portable_league_administration.sql",
+      "sha256": "d662d9e9709153a4e9a6cbc93522bdd4d14c5b0a0c74a7c7ea8648455896596c"
+    },
+    {
       "path": "apps/site/migrations/020_account_foundation.sql",
       "sha256": "10260342c3ea679b02f99df442c2b9e38d7a20d810b2c720744ef4a57755a918"
     },
@@ -166,8 +190,36 @@
       "sha256": "0e2ea29e60fe80bd28d8f275764276683585ce237a653e045b983d3b759f51bd"
     },
     {
+      "path": "apps/site/scripts/provision-account-role.sql",
+      "sha256": "1b7d1cac7ebab477640b370364ea8aa46e3e42f417b8e3732299f4288a922d61"
+    },
+    {
+      "path": "apps/site/scripts/provision-auth-role.sql",
+      "sha256": "a65e2df5165bc866fa32646ff9d8796ad83f1b3af6f4c00ed11c628a46c5e8b9"
+    },
+    {
       "path": "apps/site/vercel.json",
       "sha256": "9262dfac1aa681e374640c03eecd60a096c972a18f15dc546c6667203e914178"
+    },
+    {
+      "path": "docs/account-auth-foundation.md",
+      "sha256": "a8a643423027dd1a5e6b5c06aa18723a9be7ad6d647412533cb96a290215a731"
+    },
+    {
+      "path": "docs/account-foundation-database.md",
+      "sha256": "e4bbf36533f575feea8bfd7cbf4d44d4d1d908bdc2b2b2bb4a981deba27718c1"
+    },
+    {
+      "path": "docs/future-week-projections.md",
+      "sha256": "4657269f806fbd640db04411fb352cad1438fe2a2c7ed01172cba0cf39cbcc1e"
+    },
+    {
+      "path": "docs/lineup-freshness.md",
+      "sha256": "e782fbd3ef22380fedf96c8b12ad95fd786096a90c15e7bd1488a5c9ae082c3e"
+    },
+    {
+      "path": "docs/release-validation.md",
+      "sha256": "31522961858c2bd546192f1ecce4be557fd6af14679a0dfa0b78f05b1778bc6e"
     }
   ],
   "prior_checkpoint_recorded_at_utc": "2026-10-05T22:08:00.531729+00:00",
@@ -194,5 +246,22 @@
     "runtime_tests_executed": 0,
     "full_iso_clause_review": false,
     "formal_qaw_or_atam_workshop": false
+  },
+  "design_completion_checkpoint": {
+    "recorded_at_utc": "2026-10-06T01:09:26.766974+00:00",
+    "identity_observed_at_utc": "2026-10-06T01:05:50Z",
+    "design_revision": "first-slice-design-v1",
+    "documentation_input": "473e32ee36f4af5963a598d5a6f4867fe05f0b9a",
+    "local_main": "87da4d0cb909ee280e125e73ad10e1c3dbd7cd9f",
+    "github_main": "87da4d0cb909ee280e125e73ad10e1c3dbd7cd9f",
+    "production_sha": "87da4d0cb909ee280e125e73ad10e1c3dbd7cd9f",
+    "vercel_binding": "clawmachinejed/league-one-audit/main/apps/site",
+    "deployment": "8C3YSnXRCbmPETftQgRtirfyck5e",
+    "primary_checkout_clean": true,
+    "open_prs_at_checkpoint": 0,
+    "source_files_confirmed_equal_to_baseline": true,
+    "runtime_target_cases_executed": 0,
+    "database_or_worker_lease_audit": false,
+    "production_ownership_claimed": false
   }
 }

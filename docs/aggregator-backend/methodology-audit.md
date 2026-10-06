@@ -1,5 +1,7 @@
 # Methodology audit of the backend foundation
 
+**Historical audit of the input design.** The findings and then-open gates below are preserved as dated evidence. The follow-up [design completion and review](design-completion.md) supplies the missing G1–G5 artifacts; [current activity dispositions](methodology-steps.md) and [verification](verification.md) state current evidence. G6/G7 runtime/transition work remains open. Do not reuse this earlier verdict as the current design status.
+
 Audit date: 2026-10-06 UTC (2026-10-05 local). Reviewed input: reconciliation commit `3b4d63cbb4492827f573cf3ad5d301a8cea77acf`; application/source baseline `87da4d0cb909ee280e125e73ad10e1c3dbd7cd9f`. The sole normative entry remains [README](README.md). This report evaluates that design and records corrections; it does not authorize implementation or release.
 
 **Verdict: the reconciliation is a useful conceptual contract, but the applicable design process is incomplete. It must not be described as a completed logical database design, implementation-ready foundation, or industry-standard certification.** Several exact-contract defects were corrected in this audit. Requirements coverage, composed behavior, relational design, architecture tradeoffs and security/operational evidence still need the explicit design gate below. Subsequent implementation, verification, validation and transition remain unexecuted.

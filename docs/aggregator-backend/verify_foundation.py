@@ -27,7 +27,7 @@ def render(data: dict) -> str:
     traced = {name for item in data['capabilities'] for name in item['fields']}
     fields = sum(len(record['fields']) for record in data['records'])
     lines += ['', '## Capability trace', '',
-              f'This selective index names {len(traced)} of {fields} fields. It is not a complete requirements or invariant verification matrix; see [methodology audit](methodology-audit.md).', '',
+              f'This selective index names {len(traced)} of {fields} fields. Complete obligation, field and invariant allocation is in the [requirements matrix](requirements-traceability.md); this earlier capability index remains a summary.', '',
               '| Capability | Fields | Source facts | Acceptance |', '| --- | --- | --- | --- |']
     for item in data['capabilities']:
         lines.append(f"| {item['id']} | {safe(', '.join(item['fields']))} | {', '.join(item['sources'])} | {', '.join(item['cases'])} |")
@@ -162,7 +162,9 @@ def main() -> None:
         return anchors
 
     for name in ['README.md', 'contracts.md', 'migration.md', 'foundation-fields.md', 'reconciliation.md',
-                 'verification.md', 'methodology-audit.md', 'methodology-steps.md']:
+                 'verification.md', 'methodology-audit.md', 'methodology-steps.md', 'requirements-traceability.md',
+                 'relational-design.md', 'behavior-security-design.md', 'quality-operations.md',
+                 'design-completion.md', 'design-analysis.md']:
         path = HERE / name
         # --write may run before a new view/report is created during authoring.
         if args.write and not path.exists():
