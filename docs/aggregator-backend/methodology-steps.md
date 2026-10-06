@@ -1,8 +1,8 @@
 # Complete inventory for the selected audit profile
 
-The [dated audit](methodology-audit.md) preserves the original findings and defines G1–G7. This is the current disposition of the selected profile after the bounded design work; it supersedes stale artifact-missing statements in that historical audit, without rewriting its evidence. IDs refer to published activities; labels are short paraphrases. Each row is an assessment of this proposed backend slice, not an organization-wide conformity result. Every selected activity has a disposition; none is silently skipped. Status is **documented** (bounded artifact exists), **partial** (incomplete evidence), **gap** (required design artifact absent), **deferred** (later implementation/activation), or **unassessed** (evidence outside this review). No status means a runtime test passed.
+The [dated audit](methodology-audit.md) preserves the original findings and defines G1–G7. This is the current disposition of the selected profile after the bounded design work; it supersedes stale artifact-missing statements in that historical audit, without rewriting its evidence. NASA/SEI/SSDF IDs refer to published activities; TB IDs identify the explicitly located textbook activities, guidelines and stages below. DB-1 through DB-10 are local audit categories, not published step IDs. Labels are short paraphrases. Each row is an assessment of this proposed backend slice, not an organization-wide conformity result. Every selected activity has a disposition; none is silently skipped. Status is **documented** (bounded artifact exists), **partial** (incomplete evidence), **gap** (required design artifact absent), **deferred** (later implementation/activation), or **unassessed** (evidence outside this review). No status means a runtime test passed.
 
-G1–G7 are defined in the audit. Evidence abbreviations: **C** = [contracts](contracts.md), **F** = [field register](foundation-fields.md), **R** = [reconciliation](reconciliation.md), **V** = [verification](verification.md), **H** = [preserved handoff](evidence/backend-workspace-handoff.md), **P** = [policy register](evidence/backend-policy-register.json), **T** = [atomic requirements and bidirectional trace](requirements-traceability.md) and its [JSON ledger](design-requirements.json), **B** = [behavior/security design](behavior-security-design.md), **L** = [selected relational model](relational-design.json) and [relational rationale](relational-design.md), **Q** = [quality decisions and operating evidence](quality-operations.md). A citation supports only the specific statement in its row. Documented means that the bounded artifact exists; it does not mean a workshop, stakeholder vote, deployed control or executable test passed.
+G1–G7 are defined in the audit. Evidence abbreviations: **C** = [contracts](contracts.md), **F** = [field register](foundation-fields.md), **R** = [reconciliation](reconciliation.md), **V** = [verification](verification.md), **H** = [preserved handoff](evidence/backend-workspace-handoff.md), **P** = [policy register](evidence/backend-policy-register.json), **T** = [atomic requirements and bidirectional trace](requirements-traceability.md) and its [JSON ledger](design-requirements.json), **B** = [behavior/security design](behavior-security-design.md), **L** = [selected relational model](relational-design.json) and [relational rationale](relational-design.md), **Q** = [quality decisions and operating evidence](quality-operations.md). A citation supports only the specific statement in its row. Documented means that the bounded artifact exists; it does not establish that every action or output in the named source activity is satisfied. Where an activity requires unperformed stakeholder participation, missing design outputs or later execution, the row records that limitation explicitly. No aggregate is an activity-completion rate.
 
 ## NASA: 17 processes, 97 detailed activities
 
@@ -39,8 +39,8 @@ Published basis: [design processes §§4.1–4.4](https://www.nasa.gov/reference
 
 | Activity | Focus | Status | Evidence / remaining work |
 | --- | --- | --- | --- |
-| NASA-4.3.1.2.1 | Model behavior | documented | B specifies orthogonal states, five composed sequences, 18 transition contracts and BS-P01 final-delivery guards, failures and recovery. |
-| NASA-4.3.1.2.2 | Allocate and reconcile | documented | T links requirements to existing owners, fields, storage, transitions, controls and quality decisions in both directions; L and B reconcile transaction boundaries. |
+| NASA-4.3.1.2.1 | Model behavior | partial | B supplies state/sequence/transition models and the final-read protocol. Target command authorization lifetime on coordinator loss and discovery/recovery admission are still open G4/G5 behavior designs; nominal transitions are not complete guarded implementations. |
+| NASA-4.3.1.2.2 | Allocate and reconcile | partial | T allocates declared requirements/model elements in both directions. The shared admission owner/interface and DB-enforced command lifetime are not yet selected, so their exact behavior, storage and failure allocations remain incomplete. |
 | NASA-4.3.1.2.3 | Retain models | documented | Versioned B/L/T models and deterministic readable views retain the selected local model baseline; no installed implementation is inferred. |
 
 ### 4.4 — Design solution
@@ -49,20 +49,20 @@ Published basis: [design processes §§4.1–4.4](https://www.nasa.gov/reference
 | --- | --- | --- | --- |
 | NASA-4.4.1.2.1 | Frame alternatives | documented | Q identifies six quality drivers, 12 refined scenarios and explicit alternatives AD01–AD08 constrained by preserved product policy and owners. |
 | NASA-4.4.1.2.2 | Develop candidates | documented | Q compares actual alternatives for coherent reads, adverse evidence, recovery, sharing, storage adaptation, bounded retry and safe diagnostics. |
-| NASA-4.4.1.2.3 | Evaluate candidates | documented | Q selects and analyzes alternatives against measurable scenarios, sensitivities, consequences and residual risks; priorities are engineering-derived, not stakeholder votes. |
-| NASA-4.4.1.2.4 | Select solution | documented | Q/B/L record the selected bounded engineering solution and rejected alternatives. D03–D05 and later empirical acceptance remain explicit. |
-| NASA-4.4.1.2.5 | Resolve details | documented | L specifies candidate relations/keys/FDs, temporal constraints and selected transaction protocols; B fixes privilege and final-delivery boundaries. Actual DDL qualification is G6. |
-| NASA-4.4.1.2.6 | Describe design | documented | T/B/L/Q form the reviewable G1–G5 design package alongside C/F. It describes a selected logical design, not a deployed schema. |
-| NASA-4.4.1.2.7 | Verify design | partial | Bidirectional allocation, independent design challenge and paper interleavings support design consistency. Database concurrency/privilege enforcement and source completeness require G6 evidence. |
-| NASA-4.4.1.2.8 | Validate design | partial | B/Q cover manager/co-manager, expiry/recovery, operator failure and preservation scenarios on paper. Actual intended-use validation with real behavior remains G6/G7. |
+| NASA-4.4.1.2.3 | Evaluate candidates | partial | Q evaluates the recorded alternatives with scenario tradeoffs and residual risks. Shared aggregate admission and command lifetime on separate-connection loss still need candidate analysis and selection before design closure. |
+| NASA-4.4.1.2.4 | Select solution | partial | Q/B/L retain selected mechanisms, but no complete solution is selected for atomic aggregate acquisition admission, its durable account-to-worker interface or command auth lifetime. D03–D05 and later empirical acceptance remain separate gates. |
+| NASA-4.4.1.2.5 | Resolve details | partial | L/B specify candidate relations, constraints and final-read protocol. Exact proposed DDL/ER output, aggregate admission/interface and DB-enforced command auth lifetime remain missing design work before G6 execution. |
+| NASA-4.4.1.2.6 | Describe design | partial | T/B/L/Q form a reviewable candidate package. Missing ERD/DDL and unselected acquisition/command-lifetime mechanisms prevent a complete description of the selected first-slice solution. |
+| NASA-4.4.1.2.7 | Verify design | partial | Independent review and paper schedules exposed design contradictions and reopened G4/G5. Corrected artifacts need rereview; missing admission and command-lifetime designs cannot be verified yet. Real database/source qualification remains separately G6. |
+| NASA-4.4.1.2.8 | Validate design | partial | B/Q provide intended-use/degraded paper scenarios. Missing acquisition admission and command-lifetime behavior must be resolved before complete design validation; stakeholder and executable intended-use evidence remain absent. |
 | NASA-4.4.1.2.9 | Plan support | documented | Q specifies operating evidence, failure responses, restricted diagnostics, qualification, conflict-census and rollback plans; execution and operational effectiveness remain G6/G7. |
-| NASA-4.4.1.2.10 | Baseline solution | documented | Selected local design artifacts and their versions are identified; this baseline has no runtime, migration, release or public-launch authority. |
+| NASA-4.4.1.2.10 | Baseline solution | documented | Versioned local candidate artifacts are identified together with open design issues. This is a recorded review baseline, not acceptance of a complete solution or authority to implement, migrate or activate it. |
 
 ### 5.1 — Implementation
 
 | Activity | Focus | Status | Evidence / remaining work |
 | --- | --- | --- | --- |
-| NASA-5.1.1.2.1 | Prepare build | documented | R/T/B/L/Q define the bounded internal build, selected protocols and G6 prerequisites. Build qualification must use actual guarded roles and isolated source fixtures. |
+| NASA-5.1.1.2.1 | Prepare build | partial | R/T/B/L/Q bound the proposed build, but preparation cannot close while ERD/DDL, shared admission/interface and command lifetime remain unspecified. Resolve/review those design gates before separate implementation authorization and guarded G6 qualification. |
 | NASA-5.1.1.2.2 | Acquire or construct | deferred | Reuse choices documented; target runtime construction and integration are G6 work. |
 | NASA-5.1.1.2.3 | Retain build evidence | deferred | Future source changes, dependency provenance and actual checks must be captured at G6/G7. |
 
@@ -70,7 +70,7 @@ Published basis: [design processes §§4.1–4.4](https://www.nasa.gov/reference
 
 | Activity | Focus | Status | Evidence / remaining work |
 | --- | --- | --- | --- |
-| NASA-5.2.1.2.1 | Plan assembly | documented | B sequences and L protocols define composition order, interfaces, atomic boundaries and failure recovery; Q supplies staged qualification and transition checks. |
+| NASA-5.2.1.2.1 | Plan assembly | partial | B/L/Q describe existing-owner composition and candidate atomic boundaries. The durable account-to-worker admission interface and command/auth connection-lifetime boundary are still missing designs; assembly planning is incomplete. |
 | NASA-5.2.1.2.2 | Obtain components | deferred | Actual target implementation not built; retained source is reference evidence. G6. |
 | NASA-5.2.1.2.3 | Check components | deferred | Require qualified versions and service/SQL results, not source presence alone. G6. |
 | NASA-5.2.1.2.4 | Prepare environment | deferred | Existing isolated harness identified; no database provisioned or guard bypassed. G6. |
@@ -82,7 +82,7 @@ Published basis: [design processes §§4.1–4.4](https://www.nasa.gov/reference
 
 | Activity | Focus | Status | Evidence / remaining work |
 | --- | --- | --- | --- |
-| NASA-5.3.1.2.1 | Plan proof | documented | T specifies 108 cases covering FS01–FS22 and preservation/process invariants, with fixture, method, oracle and required evidence; B/Q add control and operating cases. |
+| NASA-5.3.1.2.1 | Plan proof | partial | T/B/Q specify requirement, control and operating cases, including corrected lock schedules. Exact aggregate-admission and coordinator-loss command oracles must be reconciled with the still-unselected mechanisms before the complete verification plan can be baselined. No case was executed. |
 | NASA-5.3.1.2.2 | Execute proof | deferred | Offline document checks ran; target runtime/SQL/race tests did not. G6. |
 | NASA-5.3.1.2.3 | Assess results | partial | V and T distinguish paper/document consistency from executable proof. Findings and corrections can be reviewed; runtime anomaly assessment awaits G6. |
 | NASA-5.3.1.2.4 | Retain proof | partial | Versioned specification and local design-check evidence are retained. Actual runtime receipts, deviations and coverage evidence remain G6/G7. |
@@ -113,7 +113,7 @@ Published basis: [design processes §§4.1–4.4](https://www.nasa.gov/reference
 | NASA-6.1.1.2.1 | Frame planning | documented | README/H bound the deliverable, owners and exclusions. |
 | NASA-6.1.1.2.2 | Define work | partial | R and Q allocate design/build/qualification deliverables to existing responsibilities. Named staffing, dates and execution commitments are not supplied by this design. |
 | NASA-6.1.1.2.3 | Resource the work | unassessed | No approved staffing, dates or implementation budget; do not infer commitments from proposed costs. |
-| NASA-6.1.1.2.4 | Prepare technical plans | documented | T/B/L/Q supply verification, security, operating and transition plans for this slice; G6/G7 are evidence-producing execution work, not missing design choices. |
+| NASA-6.1.1.2.4 | Prepare technical plans | partial | T/B/L/Q provide candidate verification/security/operation plans. Open ERD/DDL, aggregate admission/interface and command-lifetime design tasks must precede the separately unperformed G6/G7 execution work. |
 | NASA-6.1.1.2.5 | Secure commitments | partial | Documentation/design mandate and D02 are authorized. No implementation budget, public product decision or release authorization is inferred. |
 | NASA-6.1.1.2.6 | Direct work | documented | Repository rules, isolated worktree and assigned document ownership govern this design work; no runtime writer or production owner is claimed. |
 | NASA-6.1.1.2.7 | Retain planning | documented | R, T, Q, the historical audit and current inventory retain selected work, exclusions, constraints and remaining qualification. |
@@ -124,7 +124,7 @@ Published basis: [design processes §§4.1–4.4](https://www.nasa.gov/reference
 | --- | --- | --- | --- |
 | NASA-6.2.1.2.1 | Plan requirement control | documented | T defines stable obligation IDs and source-to-model-to-oracle change impact in both directions under the one normative README entry. |
 | NASA-6.2.1.2.2 | Manage obligations | documented | T retains all first-slice obligations, approved decision references and explicit excluded/deferred needs. D03–D05 remain unresolved at their named gates. |
-| NASA-6.2.1.2.3 | Maintain trace | documented | T records every field/constraint/type/FS-case allocation and both directions between requirements and selected model elements; count alone is not correctness. |
+| NASA-6.2.1.2.3 | Maintain trace | partial | T traces every declared field/constraint/type/FS case and selected model element. That finite allocation does not cover an interface or lifetime mechanism that has not been selected; extend and review those allocations when the open designs are supplied. |
 | NASA-6.2.1.2.4 | Control changes | documented | T defines synchronized source, obligation, model, case and evidence review on change; immutable approved policy/history remain protected. |
 | NASA-6.2.1.2.5 | Track issues | documented | Historical M01–M14, current design responses, residual Q/B risks and D03–D05 have explicit dispositions; no design issue is silently converted to a test pass. |
 | NASA-6.2.1.2.6 | Retain decisions | documented | P/H, reconciliation dispositions and audit findings preserved. |
@@ -134,7 +134,7 @@ Published basis: [design processes §§4.1–4.4](https://www.nasa.gov/reference
 | Activity | Focus | Status | Evidence / remaining work |
 | --- | --- | --- | --- |
 | NASA-6.3.1.2.1 | Plan interface control | documented | T impact links, B trust/action boundaries and L ownership/protocols specify interface control for the internal slice and preserved public callers. |
-| NASA-6.3.1.2.2 | Specify interfaces | documented | C/F ports are composed with B state/sequence/auth guards and L key/relationship/transaction models; coherence is explicitly selected, not a cache assumption. |
+| NASA-6.3.1.2.2 | Specify interfaces | partial | C/F/B/L describe candidate ports and the guarded read composition. Exact discovery/recovery account-to-worker admission and DB-enforced command/auth lifetime remain open interface designs; nominal receipts alone do not close them. |
 | NASA-6.3.1.2.3 | Qualify composition | deferred | Actual service/SQL and hostile-reference tests remain G6. |
 | NASA-6.3.1.2.4 | Control interfaces | documented | Preservation obligations and Q transition plan constrain target adoption; source, model, case and compatibility changes require synchronized review before cutover. |
 | NASA-6.3.1.2.5 | Retain interfaces | documented | C/F/B/L/T retain the conceptual interfaces and selected logical/behavioral adaptations with explicit local versions. |
@@ -146,7 +146,7 @@ Published basis: [design processes §§4.1–4.4](https://www.nasa.gov/reference
 | NASA-6.4.1.2.1 | Frame risk work | documented | Q assigns invariant-blocking priorities and response/stop conditions; B bounds trust/control coverage and separately identifies operational compromise assumptions. |
 | NASA-6.4.1.2.2 | Identify risks | documented | Q/BS residual risks and historical M findings identify concrete design/security/operation risks; broader application and organization-wide risk coverage are not claimed. |
 | NASA-6.4.1.2.3 | Assess risks | partial | Q records impact, engineering priorities, sensitivities and unmeasured likelihood. No fabricated empirical probability, stakeholder risk vote or operational risk result. |
-| NASA-6.4.1.2.4 | Plan mitigation | documented | Q/B/L select specific controls, ordered guards, evidence rules and safe failure responses with later tests and activation stop conditions. |
+| NASA-6.4.1.2.4 | Plan mitigation | partial | Q/B/L select many guards and safe failures. Atomic shared acquisition admission and command lifetime under coordinator loss lack selected mitigations; target activation is blocked until these G4/G5 designs are reviewed, before empirical qualification. |
 | NASA-6.4.1.2.5 | Reassess risks | partial | Independent design reviews and the scan-lifecycle correction reassess this design. Ongoing operational risk surveillance remains later; no recurring monitor was created. |
 | NASA-6.4.1.2.6 | Execute responses | partial | Design responses and trace corrections are incorporated. Implemented enforcement, recovery execution and rollback evidence remain G6/G7. |
 | NASA-6.4.1.2.7 | Retain risks | documented | Historical findings, selected decision rationale, residual risks, control allocation and later acceptance conditions are retained. |
@@ -177,7 +177,7 @@ The published web page labels the last two activities in §6.5 as `6.4.1.2.5` an
 | Activity | Focus | Status | Evidence / remaining work |
 | --- | --- | --- | --- |
 | NASA-6.7.1.2.1 | Plan assessments | documented | Published profile, independent requirements/data/security perspectives and explicit artifact-versus-execution status guide the assessment. |
-| NASA-6.7.1.2.2 | Assess progress | partial | Current G1–G5 artifacts and independent corrections demonstrate design progress; actual runtime quality, performance and operational acceptance are still absent. |
+| NASA-6.7.1.2.2 | Assess progress | partial | The fresh audit records corrections and reopened design gaps despite passing finite checks. ERD/DDL, acquisition admission/interface and command lifetime remain absent or unselected; runtime quality/performance/operation are separately unproved. |
 | NASA-6.7.1.2.3 | Retain assessments | documented | Historical audit, current inventory, requirement/model trace and V retain findings, corrections and bounded evidence claims. |
 
 ### 6.8 — Decision analysis
@@ -187,49 +187,80 @@ The published web page labels the last two activities in §6.5 as `6.4.1.2.5` an
 | NASA-6.8.1.2.1 | Set criteria | documented | Q states approved product drivers, P0/P1 engineering priorities, invariant measures and preserved policy constraints without stakeholder-vote claims. |
 | NASA-6.8.1.2.2 | Enumerate options | documented | Q AD01–AD08 enumerate candidate mechanisms and L/B describe the selected protocol/storage/privilege alternatives. |
 | NASA-6.8.1.2.3 | Choose analysis | documented | Published method profile and three independent perspectives explicitly selected. |
-| NASA-6.8.1.2.4 | Compare options | documented | Q supplies scenario-driven comparison, tradeoffs and sensitivities; L adds keys/FDs and paper transaction schedules for the selected solution. |
-| NASA-6.8.1.2.5 | Recommend choice | partial | Selected engineering choices are explicit and reviewable. Product D03–D05, measured operational suitability and relevant residual-risk acceptance remain at their gates. |
+| NASA-6.8.1.2.4 | Compare options | partial | Q/L compare the recorded approaches and paper schedules. Alternatives for aggregate acquisition admission and DB-enforced command lifetime still require analysis; existing comparisons do not constitute a complete first-slice choice. |
+| NASA-6.8.1.2.5 | Recommend choice | partial | Recorded engineering choices remain reviewable, but acquisition admission/interface and command-lifetime recommendations are still open. Product D03–D05 and measured operational/residual-risk acceptance remain distinct gates. |
 | NASA-6.8.1.2.6 | Report choice | documented | Q/R state selected and rejected choices, preservation boundaries and unresolved product policies without silently deciding D03–D05. |
 | NASA-6.8.1.2.7 | Retain rationale | documented | Q/B/L/T preserve rationale, controls, alternative consequences and uncertainty alongside the historical audit. |
 
 ## SEI: all 8 QAW and 9 ATAM steps
 
-Source step descriptions: [QAW third edition](https://www.sei.cmu.edu/asset_files/TechnicalNote/2003_004_001_14201.pdf), [ATAM method report](https://sei.cmu.edu/documents/629/2000_005_001_13706.pdf). The following rows assess the current selected design artifacts and unperformed process activities. They do not assert that a workshop occurred or all stakeholder interests were represented.
+Source step descriptions: [QAW third edition](https://www.sei.cmu.edu/documents/716/2003_005_001_14249.pdf), [ATAM method report](https://sei.cmu.edu/documents/629/2000_005_001_13706.pdf). The following rows assess the current selected design artifacts and unperformed process activities. They do not assert that a workshop occurred or all stakeholder interests were represented.
 
 | Activity | Focus | Status | Evidence / remaining work |
 | --- | --- | --- | --- |
-| QAW-1 | Explain process | documented | Selected-profile purpose, concern roles, artifact scope and limits are recorded; this does not assert a facilitated workshop occurred. |
+| QAW-1 | Explain process | partial | Selected-profile purpose and artifact limits are written. The source step also introduces facilitators/participants and the workshop process; that facilitated activity did not occur. |
 | QAW-2 | Present drivers | partial | H/R/Q present approved outcomes and six derived quality drivers. No stakeholder presentation attendance or new business-priority commitment is inferred. |
-| QAW-3 | Present architecture | documented | B/L/C present the selected architecture, ownership, state/sequence model and transaction boundaries for artifact review. |
-| QAW-4 | Identify drivers | documented | Q explicitly derives security, truthfulness, recovery, sharing, evolution and preservation drivers from the approved brief. |
+| QAW-3 | Present architecture | partial | B/L/C supply architecture and ownership artifacts. No stakeholder architecture presentation or resulting questions/clarifications are evidenced. |
+| QAW-4 | Identify drivers | partial | Q derives six quality drivers from the approved brief. The source step also seeks stakeholder agreement on the driver list; author derivation does not establish that agreement. |
 | QAW-5 | Generate scenarios | partial | Q supplies 12 refined scenarios covering the recorded concerns. Broader stakeholder elicitation and a live brainstorming workshop did not occur. |
-| QAW-6 | Consolidate scenarios | documented | Q consolidates related source-error scenarios, separates expiry recovery from genuine loss/regain, and explicitly defers scale concerns without dropping them. |
+| QAW-6 | Consolidate scenarios | partial | Q consolidates related scenarios and retains deferred concerns. The source step calls for proposer agreement and an attempt at majority stakeholder consensus before merging; neither is evidenced. |
 | QAW-7 | Prioritize scenarios | partial | Q assigns reasoned P0/P1/later engineering priorities. No stakeholder votes, consensus ranking or facilitated prioritization event is claimed. |
-| QAW-8 | Refine scenarios | documented | Each Q scenario specifies stimulus source, stimulus, environment, artifact, response and measurable acceptance outcome, with oracle and residual limitation. |
-| ATAM-1 | Explain evaluation | documented | Tailored evaluation purpose, selected methods, evidence limits and non-certification boundary are explicit. |
+| QAW-8 | Refine scenarios | partial | Q supplies six-field scenarios, goals, quality concerns and oracles. Refinement of stakeholder-prioritized scenarios and collection of participant questions/concerns were not performed. |
+| ATAM-1 | Explain evaluation | partial | Tailored evaluation purpose and limits are written; presentation of the method to the evaluation participants is not evidenced. |
 | ATAM-2 | Present drivers | partial | Q states six approved-brief drivers and engineering priorities. Direct stakeholder presentation/priority agreement is not established. |
-| ATAM-3 | Present architecture | documented | B/C/L present composed states, owners, interfaces, trust boundaries, relations and selected transaction design. |
+| ATAM-3 | Present architecture | partial | B/C/L provide architecture artifacts and boundaries. A formal architecture presentation to the ATAM participants is not evidenced. |
 | ATAM-4 | Identify approaches | documented | Q AD01–AD08 and B/L identify alternative approaches and selected mechanisms, including lock/clock, versioned adverse evidence and privacy choices. |
 | ATAM-5 | Rank quality scenarios | partial | Q provides an explicit driver-to-prioritized-scenario structure and acceptance measures. This is an engineering equivalent artifact, not a stakeholder-approved utility-tree workshop. |
-| ATAM-6 | Analyze approaches | documented | Q compares each scenario with selected approaches, sensitivities, tradeoffs and residual risk; L/B provide paper mechanisms and proof obligations. |
+| ATAM-6 | Analyze approaches | partial | Q/L/B provide scenario-based paper analysis, sensitivities, tradeoffs and proof obligations. Analysis against the formal participant-prioritized utility tree remains absent; runtime proof is also separate. |
 | ATAM-7 | Broaden scenarios | partial | Independent reviewers broadened adversarial cases and checked concern coverage. No stakeholder brainstorming/voting workshop occurred. |
-| ATAM-8 | Reanalyze approaches | documented | Independent design challenge exposed composed-state, privilege, normalization and scan-lifecycle issues; revised mechanisms and residual limits are retained. Runtime qualification remains later. |
-| ATAM-9 | Present findings | documented | Historical findings and current T/B/L/Q responses report selected choices, risks and unresolved qualification. This is not a completed formal ATAM engagement claim. |
+| ATAM-8 | Reanalyze approaches | partial | Independent design challenge revised mechanisms and identified residual limits. The source step reanalyzes approaches against scenarios from stakeholder brainstorming/prioritization; that formal input/activity did not occur. |
+| ATAM-9 | Present findings | partial | Historical and current findings are written and reported in this review. Presentation to and feedback from the full ATAM participant group are not evidenced; no formal engagement completion is claimed. |
 
-## Database lifecycle: all 10 declared audit categories
+## Textbook: literal lifecycle, ER guidelines and normalization stages
 
-These audit IDs decompose the [textbook lifecycle](https://opentextbc.ca/dbdesign01/chapter/chapter-13-database-development-process/), [conceptual/logical/physical progression](https://www.open.edu/openlearn/science-maths-technology/the-database-development-life-cycle/content-section-1.5), and [normalization analysis](https://bohr.wlu.ca/cp363/notes/theory/09_normalization.php). PostgreSQL details must match the version actually deployed; the current documentation explains [constraints](https://www.postgresql.org/docs/current/ddl-constraints.html) and [isolation](https://www.postgresql.org/docs/current/transaction-iso.html), but is not installed-version evidence.
+The [BCcampus Database Design, second edition, Chapter 13](https://opentextbc.ca/dbdesign01/chapter/chapter-13-database-development-process/) supplies six activities in the list under “Software Development Life Cycle – Waterfall” and five numbered items under “Guidelines for Developing an ER Diagram.” TB13 IDs below preserve those exact locations and order; they are our cross-reference labels, not invented publisher IDs. Section headings and database examples explain these activities, rather than adding another disjoint lifecycle. The crosswalk is iterative; it does not impose a waterfall delivery process.
+
+| Activity | Focus | Status | Evidence / remaining work |
+| --- | --- | --- | --- |
+| TB13-SDLC-1 | Establish requirements | partial | Chapter 13 lifecycle list item 1; Requirements Gathering. H/P/T preserve approved needs; broader user agreement remains unperformed. Local crosswalk: DB-1. |
+| TB13-SDLC-2 | Analyze requirements | partial | Lifecycle item 2; Analysis. C/F/T describe data meaning and constraints; the source-facing conceptual ER view and its review are missing. Local crosswalk: DB-1/2. |
+| TB13-SDLC-3 | Design the system | partial | Lifecycle item 3; Logical Design. L supplies candidate relations and constraints, but no exact proposed SQL DDL or ER diagram. Local crosswalk: DB-2 through DB-8. |
+| TB13-SDLC-4 | Implement the design | deferred | Lifecycle item 4; Implementation, Realizing the Design, Populating the Database. No target construction, schema installation or population occurred. Local crosswalk: DB-7/8/9. |
+| TB13-SDLC-5 | Test against requirements | deferred | Lifecycle item 5. T/B/Q specify future checks; no target acceptance or failure report exists from execution. Local crosswalk: DB-10. |
+| TB13-SDLC-6 | Maintain the system | deferred | Lifecycle item 6. Change/rollback plans exist; target operational maintenance has not occurred. Local crosswalk: DB-9/10. |
+| TB13-ERD-1 | Record entities | documented | ER guideline 1. F and L enumerate first-slice entities/storage responsibilities; deferred needs are retained in T. Local crosswalk: DB-1/2. |
+| TB13-ERD-2 | Record attributes, keys and dependencies | partial | ER guideline 2. L records attributes, candidate keys and declared FDs; semantic completeness and conceptual-entity review remain limited. Local crosswalk: DB-3/4/5. |
+| TB13-ERD-3 | Draw and review initial ER model | gap | ER guideline 3. No explicit target ER diagram or review of that diagram exists. Text tables do not satisfy this literal output. Local crosswalk: DB-2. |
+| TB13-ERD-4 | Separate repeating/multivalued groups | partial | ER guideline 4. L splits memberships, coverage and scan collections; incorporation into an ER diagram and its review are missing. Local crosswalk: DB-2/4. |
+| TB13-ERD-5 | Check ER model through normalization | partial | ER guideline 5. L and design analysis inspect declared dependencies; there is no ER diagram to reconcile with that normalized model. Local crosswalk: DB-4. |
+
+Chapter 13's Logical Design ending and [Open University's design section](https://www.open.edu/openlearn/science-maths-technology/the-database-development-life-cycle/content-section-1.5) require an end-design SQL DDL specification. A candidate schema table is not that output. Its absence is a present textbook-design incompleteness, distinct from later installation and empirical qualification. Authoring or executing migrations is outside this document correction. NASA's phase-appropriate paper design allowance does not erase a missing output required by this separately selected textbook profile.
+
+[Chapter 12](https://opentextbc.ca/dbdesign01/chapter/chapter-12-normalization/) supplies four named normalization stages: 1NF, 2NF, 3NF and BCNF. They are subordinate checks for the ER normalization guideline, counted separately for coverage rather than four additional project phases. Its worked School/Advisor examples and anomaly illustrations explain these stages; their example-specific bullets are not additional universal steps. No 4NF/5NF assessment is claimed by this profile.
+
+| Activity | Focus | Status | Evidence / remaining work |
+| --- | --- | --- | --- |
+| TB12-NF-1 | First normal form | partial | Chapter 12 First Normal Form / Process for 1NF. L separates repeating facts into child relations and states document exceptions. The complete conceptual-to-storage model still needs ER/DDL reconciliation. Local crosswalk: DB-4/5, TB13-ERD-4/5. |
+| TB12-NF-2 | Second normal form | partial | Second Normal Form / Process for 2NF. L declares composite-key dependencies and decompositions; finite-model checks do not establish that all business dependencies were discovered. Local crosswalk: DB-4, TB13-ERD-5. |
+| TB12-NF-3 | Third normal form | partial | Third Normal Form / Process for 3NF. L records transitive-dependency decomposition and owned redundancy exceptions. Exact intended semantics and ER/DDL agreement remain unqualified. Local crosswalk: DB-4, TB13-ERD-5. |
+| TB12-NF-4 | Boyce-Codd normal form | partial | Boyce-Codd Normal Form and its examples. L checks declared determinants and keys with explicit exceptions; universal semantic completeness is not established. Local crosswalk: DB-4, TB13-ERD-5. |
+
+The textbook's introductory normal-form summaries are not substituted for exact dependency definitions. In particular, the formal model tests every nontrivial FD determinant as a **superkey** for BCNF and tests candidate-key minimality separately; Chapter 12's candidate-key shorthand does not justify changing that rule. Normalization evidence is bounded to declared FDs and explicit storage/document exceptions. No checker can infer missing business dependencies from the same declarations it checks.
+
+## Database lifecycle: 10 locally derived audit categories
+
+These ten local categories organize this review; they are not the textbook's literal steps and cannot substitute for the TB crosswalk above. They group concerns from the [textbook lifecycle](https://opentextbc.ca/dbdesign01/chapter/chapter-13-database-development-process/), [conceptual/logical/physical progression](https://www.open.edu/openlearn/science-maths-technology/the-database-development-life-cycle/content-section-1.5), and [normalization analysis](https://bohr.wlu.ca/cp363/notes/theory/09_normalization.php). PostgreSQL details must match the version actually deployed; the current documentation explains [constraints](https://www.postgresql.org/docs/current/ddl-constraints.html) and [isolation](https://www.postgresql.org/docs/current/transaction-iso.html), but is not installed-version evidence.
 
 | Activity | Focus | Status | Evidence / remaining work |
 | --- | --- | --- | --- |
 | DB-1 | Requirements | documented | T supplies atomic approved/derived requirements, exclusions, owner allocation and independent verification specifications for all C/F fields and constraints. |
 | DB-2 | Conceptual relationships | documented | L specifies relation participation, optionality, stable identity, source alias, association, preference and provenance relationships; F remains the conceptual contract. |
-| DB-3 | Logical relations | documented | L declares logical relation attributes, candidate keys and functional dependencies, with exact top-level field allocation and same-league identity rules. |
+| DB-3 | Logical relations | partial | L declares candidate relations, attributes, keys and FDs for mapped fields. Exact shared-admission/durable command state and DB-enforced auth-lifetime relationships remain unselected; the logical model is not complete for the first slice. |
 | DB-4 | Normalize/decompose | documented | L records decomposition, lossless/dependency-preservation reasoning, declared normal forms and explicitly owned document/projection redundancy. Independent judgment remains necessary; declarations are not a runtime proof. |
 | DB-5 | Domains and unknowns | partial | F/T and L select domains, unknown/null/empty handling, tagged evidence and proposed constraint semantics. Actual parser/SQL enforcement and deployed-version behavior require G6. |
 | DB-6 | Temporal integrity | partial | L/B select timestamp authority, immutable history, D02 boundaries, generations and paper interleavings. Actual clock/lock behavior remains G6 qualification. |
-| DB-7 | Transactions and constraints | partial | L/B specify candidate uniqueness/FK/role/lock/isolation/retry design and independent race schedules. Actual database roles, triggers and interleavings are unexecuted. |
-| DB-8 | Physical design | partial | L selects candidate schema/index/guard/privilege adaptations and ownership. Installed-version catalog checks, query plans and performance qualification remain G6/G7. |
+| DB-7 | Transactions and constraints | partial | L/B specify candidate constraints, locks and supported-writer schedules. DB-enforced target command lifetime and atomic shared acquisition admission are open design decisions, in addition to the unexecuted real-role/trigger/interleaving qualification. |
+| DB-8 | Physical design | partial | L supplies candidate schema/index/helper/grant adaptations. Exact proposed DDL, shared admission/interface and command-lifetime enforcement are missing design outputs; installed-version/query-plan/performance qualification is separately G6/G7. |
 | DB-9 | Migration and population | partial | L/Q specify additive adoption, conflict census, abort criteria and rollback compatibility. No migration, population or isolated rehearsal was executed. |
 | DB-10 | Testing and operation | deferred | T/B/Q provide test and operating specifications; target runtime/SQL/capacity/recovery execution and live operational evidence remain G6/G7. |
 
@@ -240,7 +271,7 @@ Source: [SP 800-218 Table 1](https://nvlpubs.nist.gov/nistpubs/specialpublicatio
 | Activity | Focus | Status | Evidence / remaining work |
 | --- | --- | --- | --- |
 | SSDF-PO.1.1 | Development security requirements | partial | Repository isolation/secret/test rules and target design requirements are recorded; organization-wide security requirement governance remains unassessed. |
-| SSDF-PO.1.2 | Product security requirements | documented | T/B specify target trust/action/control requirements, threats, source authority, denial and freshness rules with independent oracle allocation. |
+| SSDF-PO.1.2 | Product security requirements | partial | T/B record source authority, freshness, denial and changed-surface requirements. Exact finite aggregate admission and command-lifetime obligations/allocation still need to be completed with their selected mechanisms; numeric quotas or coordinator guarantees are not invented. |
 | SSDF-PO.1.3 | Supplier requirements | unassessed | Existing provider/hosting roles identified; supplier security commitments not evaluated here. G5/G7. |
 | SSDF-PO.2.1 | Assign responsibilities | partial | R/B/Q assign responsibility to existing product, security, data and operational owners. Named implementation/release staffing and acceptance commitments remain later. |
 | SSDF-PO.2.2 | Train contributors | unassessed | This audit did not examine personnel training or competency records. |
@@ -257,9 +288,9 @@ Source: [SP 800-218 Table 1](https://nvlpubs.nist.gov/nistpubs/specialpublicatio
 | SSDF-PS.3.1 | Retain release artifacts | deferred | Local docs captured; actual application release archive/provenance remains G7. |
 | SSDF-PS.3.2 | Retain component provenance | partial | Pinned source anchors/hashes and selected component ownership are retained; full runtime dependency and provenance inventory remains unassessed. |
 | SSDF-PW.1.1 | Model threats | documented | B models changed-surface actors, assets, trust boundaries, state/actions and 13 threat/control allocations, with exact independent security-oracle methods. |
-| SSDF-PW.1.2 | Maintain security rationale | documented | B/Q retain selected controls, alternatives, residual risks, trusted-credential limits and activation stop conditions; T provides requirement/control trace. |
+| SSDF-PW.1.2 | Maintain security rationale | partial | B/Q retain control rationale, alternatives and residual risks, including reopened acquisition and coordinator-loss command risks. Their mitigations are not yet selected; documented risks/stop conditions do not constitute completed secure-design decisions. |
 | SSDF-PW.1.3 | Reuse security services | documented | Existing principal/session, restricted-role and audit owners retained; target enforcement unexecuted. |
-| SSDF-PW.2.1 | Review security design | partial | Independent design challenge and cross-artifact corrections are recorded; no human stakeholder workshop, full-application security audit or implemented-control qualification is claimed. |
+| SSDF-PW.2.1 | Review security design | partial | Fresh independent review exposed and reopened admission/interface and live-command lifetime gaps. Corrections and future selected mechanisms require rereview; no full-application security audit, stakeholder workshop or implemented-control qualification is claimed. |
 | SSDF-PW.4.1 | Qualify acquired components | unassessed | Runtime dependency/security inventory outside this document audit. G6/G7. |
 | SSDF-PW.4.2 | Maintain shared components | partial | Selected design preserves shared auth, normalizer, worker, reader and publication owners. Actual changes and regression evidence remain G6. |
 | SSDF-PW.4.4 | Verify supplier components | unassessed | No complete component vulnerability/license/provenance assessment performed. G7. |
@@ -268,9 +299,9 @@ Source: [SP 800-218 Table 1](https://nvlpubs.nist.gov/nistpubs/specialpublicatio
 | SSDF-PW.6.2 | Configure build protections | unassessed | No broad compiler/interpreter/build configuration assessment. G6/G7. |
 | SSDF-PW.7.1 | Plan code review | documented | T/B/L/Q identify risk-focused review surfaces: actual mutators, helper grants, fixed scope, connection fencing, failure atomicity and preserved callers before G6/G7 acceptance. |
 | SSDF-PW.7.2 | Analyze source | partial | Relevant existing source and proposed adapters were inspected; future implementation code and executable security analysis remain G6 work. |
-| SSDF-PW.8.1 | Plan executable testing | documented | T cases and B/Q oracle methods specify fixtures, deliberate schedules, independent expected outcomes, protected-output inspection and later role/catalog evidence. |
+| SSDF-PW.8.1 | Plan executable testing | partial | T/B/Q specify many fixtures, lock schedules and protected-output oracles. Complete aggregate-admission and coordinator-loss command cases depend on unresolved G4/G5 mechanisms and require synchronized independent review before executable qualification. |
 | SSDF-PW.8.2 | Execute security tests | deferred | Zero target runtime, SQL, race or adversarial tests executed. G6. |
-| SSDF-PW.9.1 | Define secure defaults | documented | B/L/Q select private/no-store target responses, closed safe failure variants, restricted helper signatures/grants, deadlines and minimal diagnostics. Actual defaults remain unimplemented. |
+| SSDF-PW.9.1 | Define secure defaults | partial | Private/no-store responses, closed failures, deadlines and minimal diagnostics are selected. Target acquisition/commands remain disabled because aggregate admission and DB-enforced command lifetime are unresolved; a complete secure-default configuration is not yet specified. |
 | SSDF-PW.9.2 | Implement secure defaults | deferred | No runtime changes deployed; exact enforcement and docs require G6/G7. |
 | SSDF-RV.1.1 | Receive vulnerability reports | unassessed | Organization-wide intake, component monitoring and investigation program not reviewed. |
 | SSDF-RV.1.2 | Find residual weaknesses | partial | Independent reviewers challenged the target design and expanded race/privilege/lifecycle cases. Ongoing assessment of released software remains unassessed. |
@@ -284,8 +315,8 @@ Source: [SP 800-218 Table 1](https://nvlpubs.nist.gov/nistpubs/specialpublicatio
 
 ## Coverage boundary and future re-audit
 
-Inventory: **97 NASA + 8 QAW + 9 ATAM + 10 database + 42 SSDF = 166 activity dispositions**. Many activities overlap; adding counts does not measure assurance. For this inventory, the checker detects missing/duplicate IDs and malformed statuses; companion checks validate artifact references and bidirectional allocation. A reviewer must still judge each disposition and its evidence.
+Inventory: **97 NASA + 8 QAW + 9 ATAM + 6 textbook lifecycle + 5 ER guidelines + 4 normalization stages + 42 SSDF = 171 source-linked dispositions**, plus **10 locally derived DB categories**, for **181 rows**. These are mixed levels of activity, subordinate guideline and audit category; overlap is intentional and the sum is not a process-completion or assurance score. The earlier 166-row inventory omitted the literal textbook crosswalk and counted the ten local categories alongside published steps.
 
-Current dispositions: **83 documented, 49 partial, 0 gap, 23 deferred, 11 unassessed**. This is evidence bookkeeping, not a maturity or compliance score. The G1 artifact is reviewable: atomic approved/derived requirements, explicit deferrals, complete contract and model allocation, and independent verification specifications are provided. Actual stakeholder validation, unresolved product approvals, organization-wide practices and G6/G7 execution remain bounded exactly as the rows state.
+For this inventory, the checker detects missing/duplicate IDs and malformed statuses; companion checks validate artifact references and bidirectional allocation. Those checks cannot establish stakeholder participation, semantic completeness, satisfaction of a named method activity, or successful implementation. A reviewer must judge each row's evidence and unmet output.
 
-The supplementary OWASP/PostgreSQL checks are intentionally focused, with their exact sources and findings in the audit. A full ASVS assessment, all clauses of paid ISO standards, every referenced standard, aerospace-specific governance, organizational staffing/training, broad supply-chain audit, installed database enforcement and live product validation are **not established**. These limits are explicit rather than converted into passes or silently omitted. Revisit relevant rows when G1–G7 artifacts, code, policy or service identity change; do not reuse this snapshot as future release evidence.
+Current dispositions: **55 documented, 88 partial, 1 gap, 26 deferred, 11 unassessed**. The corrected G1 artifact specifies atomic approved/derived requirements, explicit deferrals, contract/model allocation and independent verification procedures. It does not close the missing ER diagram, exact proposed DDL, shared aggregate admission/durable account-to-worker interface, DB-enforced command authorization lifetime, stakeholder activities, unresolved product approvals, organization-wide practices or G6/G7 execution. These limits apply even when an authored artifact is marked documented.

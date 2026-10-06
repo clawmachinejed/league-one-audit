@@ -134,7 +134,7 @@ def main() -> None:
         else f'NASA-6.5.activity{i}'
         for process, count in nasa_counts.items() for i in range(1, count + 1)
     }
-    for family, count in [('QAW', 8), ('ATAM', 9), ('DB', 10)]:
+    for family, count in [('QAW', 8), ('ATAM', 9), ('DB', 10), ('TB13-SDLC', 6), ('TB13-ERD', 5), ('TB12-NF', 4)]:
         expected_activities.update(f'{family}-{i}' for i in range(1, count + 1))
     ssdf = {'PO.1': [1, 2, 3], 'PO.2': [1, 2, 3], 'PO.3': [1, 2, 3],
             'PO.4': [1, 2], 'PO.5': [1, 2], 'PS.1': [1], 'PS.2': [1], 'PS.3': [1, 2],
@@ -142,7 +142,7 @@ def main() -> None:
             'PW.6': [1, 2], 'PW.7': [1, 2], 'PW.8': [1, 2], 'PW.9': [1, 2],
             'RV.1': [1, 2, 3], 'RV.2': [1, 2], 'RV.3': [1, 2, 3, 4]}
     expected_activities.update(f'SSDF-{practice}.{i}' for practice, tasks in ssdf.items() for i in tasks)
-    activity_rows = re.findall(r'^\| ((?:NASA|QAW|ATAM|DB|SSDF)-\S+) \| ([^|]+) \| ([^|]+) \| ([^|]+) \|$',
+    activity_rows = re.findall(r'^\| ((?:NASA|QAW|ATAM|DB|SSDF|TB13-SDLC|TB13-ERD|TB12-NF)-\S+) \| ([^|]+) \| ([^|]+) \| ([^|]+) \|$',
                                (HERE / 'methodology-steps.md').read_text(encoding='utf-8'), re.MULTILINE)
     activity_ids = [row[0] for row in activity_rows]
     check(len(activity_ids) == len(set(activity_ids)), 'Duplicate methodology activity')
@@ -164,7 +164,7 @@ def main() -> None:
     for name in ['README.md', 'contracts.md', 'migration.md', 'foundation-fields.md', 'reconciliation.md',
                  'verification.md', 'methodology-audit.md', 'methodology-steps.md', 'requirements-traceability.md',
                  'relational-design.md', 'behavior-security-design.md', 'quality-operations.md',
-                 'design-completion.md', 'design-analysis.md']:
+                 'design-completion.md', 'design-analysis.md', 'literal-method-audit.md']:
         path = HERE / name
         # --write may run before a new view/report is created during authoring.
         if args.write and not path.exists():

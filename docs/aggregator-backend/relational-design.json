@@ -1,6 +1,6 @@
 {
   "version": "relational-design-v1",
-  "status": "selected_design_not_implemented",
+  "status": "candidate_design_gate_open_not_implemented",
   "source_head": "473e32e",
   "foundation_version": "backend-foundation-v1",
   "scope": "First-slice design only; no executable migration or runtime modifications",
@@ -1406,7 +1406,9 @@
       19740517,
       1
     ],
-    "new_tables_are_proposed_not_mandatory_contract_records": true
+    "new_tables_are_proposed_not_mandatory_contract_records": true,
+    "shared_acquisition_admission": "open_design_G4_G5; existing per-operation limits are not a proved aggregate provider budget",
+    "command_authority_handoff": "open_design_G4_G5; client-held separate auth transaction and captured receipt do not prove crash-safe overlap through account commit"
   },
   "protocol_ids": [
     "TX01",
@@ -1415,7 +1417,8 @@
     "TX04",
     "TX05",
     "TX06",
-    "TX07"
+    "TX07",
+    "TX08"
   ],
   "proof_schedule_ids": [
     "PS01",
@@ -1444,7 +1447,8 @@
       ],
       "rules": [
         "Actor 1 : 0..N login identities; each identity belongs to exactly one actor; no reassignment/reactivation; account status and login authority remain independent of provider failure.",
-        "Add BEFORE STATEMENT actor-lock guard to existing account mutators for user transactions; preserve all current row guards, RLS, audit, request context and ReadCommitted-only rate checks."
+        "Add BEFORE STATEMENT actor-lock guard to existing account mutators for user transactions; preserve all current row guards, RLS, audit, request context and ReadCommitted-only rate checks.",
+        "Extend the existing audit subject enum/trigger owner narrowly for app_current_league_selections and app_league_renewals with the explicit TX08 subject/actor mapping. Keep old subject handling and the shared 60-event/60-second guard; do not claim unchanged triggers cover new tables."
       ],
       "owner": "Existing account store and migration-owned guards"
     },
@@ -1464,7 +1468,8 @@
         "User 1 : 0..N sessions; no account/runtime auth-table privileges. Admission hash covers sorted invited identities, issuer, application origin and credential-verification configuration version, without storing secret values.",
         "Auth handler configuration must match the active epoch; deployments that mismatch return unavailable. Operator activation under exclusive existing auth gate changes epoch; secret rotation/config rollout is separately authorized, not executed here.",
         "Auth and account database connections must prove the same database/clock domain for this selected first-slice protocol; otherwise stored target reads are indeterminate and sign-in remains independent.",
-        "Auth session/user/admission mutators take exclusive advisory (19740517,1) before row locks; triggers protect direct writes. Final auth bridge holds shared gate and exact rows until domain decision completes."
+        "Auth session/user/admission mutators take exclusive advisory (19740517,1) before row locks; triggers protect direct writes. Final auth bridge holds shared gate and exact rows until domain decision completes.",
+        "For target commands, the proposed client-held auth bridge is insufficient if its coordinator exits while the HTTP account transaction continues. G4-COMMAND-AUTHORITY-HANDOFF requires database-enforced live authority through commit before activation; no new broad cross-role grants are selected."
       ],
       "owner": "Existing Better Auth wrapper and restricted league_one_auth connection; epoch activation is operator-only"
     },
@@ -1491,12 +1496,13 @@
       "name": "Pre-enrollment request/evidence",
       "status": "new-extension",
       "storage": "proposed provider_request_attempts; provider_capture_receipts; provider_identity_evidence",
-      "columns": "attempts(id UUID PK,request_id UUID NOT NULL,access_context_id UUID NOT NULL FK,access_revision BIGINT NOT NULL,scope JSONB NOT NULL,ordinal BIGINT NOT NULL CHECK >0,reserved_at TIMESTAMPTZ NOT NULL,job_key TEXT NULL FK projection_jobs,lease_owner TEXT NULL,lease_until TIMESTAMPTZ NULL,job_attempt_count INT NULL,request_payload JSONB NOT NULL); UNIQUE(request_id,ordinal). captures(id UUID PK,attempt_id UUID UNIQUE NOT NULL FK,origin TEXT NOT NULL,outcome TEXT NOT NULL,raw_value JSONB NULL,normalized_value JSONB NULL,normalizer_version TEXT NOT NULL,validation_version TEXT NOT NULL,request_started_at TIMESTAMPTZ NULL,request_completed_at TIMESTAMPTZ NULL,source_observed_at TIMESTAMPTZ NULL,normalized_at TIMESTAMPTZ NULL,checked_at TIMESTAMPTZ NOT NULL,coverage JSONB NOT NULL,provider_account_id UUID NULL FK). identity_evidence(id UUID PK,manager_id UUID NOT NULL FK,kind TEXT CHECK IN('lookup','qualified-role'),lookup_capture_id UUID NULL FK captures,manager_acceptance_id UUID NULL FK league_roster_resource_acceptances,CHECK exactly one reference agrees with kind).",
+      "columns": "attempts(id UUID PK,request_id UUID NOT NULL,access_context_id UUID NOT NULL FK,access_revision BIGINT NOT NULL,scope JSONB NOT NULL,ordinal BIGINT NOT NULL CHECK >0,reserved_at TIMESTAMPTZ NOT NULL,job_key TEXT NULL FK projection_jobs,lease_owner TEXT NULL,lease_until TIMESTAMPTZ NULL,job_attempt_count INT NULL,request_payload JSONB NOT NULL,normalizer_version TEXT NOT NULL,validation_version TEXT NOT NULL); UNIQUE(request_id,ordinal). captures(id UUID PK,attempt_id UUID UNIQUE NOT NULL FK,origin TEXT NOT NULL,outcome TEXT NOT NULL,raw_value JSONB NULL,normalized_value JSONB NULL,normalizer_version TEXT NOT NULL,validation_version TEXT NOT NULL,request_started_at TIMESTAMPTZ NULL,request_completed_at TIMESTAMPTZ NULL,source_observed_at TIMESTAMPTZ NULL,normalized_at TIMESTAMPTZ NULL,checked_at TIMESTAMPTZ NOT NULL,coverage JSONB NOT NULL,provider_account_id UUID NULL FK). identity_evidence(id UUID PK,manager_id UUID NOT NULL FK,kind TEXT CHECK IN('lookup','qualified-role'),lookup_capture_id UUID NULL FK captures,manager_acceptance_id UUID NULL FK league_roster_resource_acceptances,CHECK exactly one reference agrees with kind).",
       "keys": [
         "attempt PK id; alternate(request_id,ordinal); capture PK id; alternate attempt_id; identity evidence PK id; partial unique(manager_id,lookup_capture_id) and (manager_id,manager_acceptance_id); qualified lookup identity evidence UNIQUE(lookup_capture_id) WHERE kind='lookup'"
       ],
       "functional_dependencies": [
-        "attempt.id -> request_id,scope,context,ordinal,reserved_at,fence; capture.id <-> attempt_id; capture.id -> all receipt values; identity_evidence.id -> manager_id,kind,typed source"
+        "attempt.id -> request_id,scope,context,ordinal,reserved_at,fence; capture.id <-> attempt_id; capture.id -> all receipt values; identity_evidence.id -> manager_id,kind,typed source",
+        "request_id -> reserved normalizer_version,validation_version as part of the immutable request policy; capture copies those intended versions even if no normalization ran"
       ],
       "rules": [
         "Context 1:0..N attempts; attempt 1:0..1 capture; manager 1:0..N identity evidence. Captures/identity evidence immutable; FK deletes RESTRICT.",
@@ -1504,7 +1510,9 @@
         "Definer writer validates matching provider/namespace/native ID from typed capture or qualified manager acceptance and compatible audience. JSON archives are immutable documents; target readers consume validated normalized projections, never provider paths.",
         "New relation responsibilities extend the existing provider request/administration writer and durable jobs. They are not a second provider collector or publication pipeline.",
         "All attempts sharing request_id have identical context ID/revision and exact scope; reserve under advisory lock over typed request_id, compare existing reservation, and reject any mismatch. A lookup capture resolves one manager only, enforced by partial unique lookup_capture_id.",
-        "Job fence columns are all null for foreground requests or all present with job_key and attempt_count>0 for scheduler work. They copy the actual projection_jobs claim and are compared on capture. Typed immutable request_payload holds purpose/lookup/association/scan/list identity, excludes per-attempt work fields, and must agree across request_id. No invented lease_generation exists."
+        "Job fence columns are all null for foreground requests or all present with job_key and attempt_count>0 for scheduler work. They copy the actual projection_jobs claim and are compared on capture. Typed immutable request_payload holds purpose/lookup/association/scan/list identity, excludes per-attempt work fields, and must agree across request_id. No invented lease_generation exists.",
+        "Every reservation pins an exact currently qualified intended normalization policy tuple for its purpose/scope in normalizer_version and validation_version. It is immutable across attempts for the same request ID and compared on idempotent reservation; another policy requires a new request ID. It describes intended interpretation, never proof that normalization occurred.",
+        "Qualified/unqualified response version fields must equal the reserved policy. Transport failure copies the reserved versions, stores NULL raw/normalized/source-observation/normalization values, and derives explicit observed-none coverage from the reserved coverageSpecId: unknown completeness/entity set/pagination, empty observed fields/periods/role groups, NULL interval/cursor/population reference and only the fixed transport reason. Failure never selects a later current policy or asserts an empty complete resource."
       ],
       "owner": "Existing onboarding/administration owner through proposed typed branches"
     },
@@ -1562,7 +1570,8 @@
         "Association 1:0..N scans; scan 1:1..N explicitly required seasons; season complete only with exact account/season list receipt; list completion never implies team-role completeness.",
         "Separate season relation removes mutable repeating arrays; requiredSeasons and completedSeasons are ordered projections, query hash recomputed over exact sorted set. Candidate references retain their originating list receipt.",
         "Private scan rows use actor RLS through association; worker sees only bounded job inputs and uses guarded owner completion function, never broad private-table grants. Association revision mismatch terminates continuation.",
-        "finished_at is NULL only while resumable work remains, including retryable failed work. Complete or explicit terminal failure records the actual DB completion time and retains history. A subsequent explicit refresh allocates a new scan UUID/request identity and fresh receipts even when association revision/strategy/query set are unchanged; retries of an unfinished run retain its ID. No automatic retry cadence or new polling is selected."
+        "finished_at is NULL only while resumable work remains, including retryable failed work. Complete or explicit terminal failure records the actual DB completion time and retains history. A subsequent explicit refresh allocates a new scan UUID/request identity and fresh receipts even when association revision/strategy/query set are unchanged; retries of an unfinished run retain its ID. No automatic retry cadence or new polling is selected.",
+        "The live guarded account-to-worker discovery/recovery admission command is an open G4/G5 design seam. Administration-only begin/record helpers do not define its private scan mutation, actor audit/rate or atomic durable-intent contract; target activation remains blocked until those exact boundaries are selected."
       ],
       "owner": "Existing discovery service and durable job owner"
     },
@@ -1602,7 +1611,8 @@
         "Every accepted qualified manager receipt, source remap, policy qualification change or serving binding promotion takes connection FOR UPDATE, appends an event and increments authorization_generation in the same transaction. Readers take FOR SHARE before querying any version/head set.",
         "Database-side trigger/function guards cover additions to qualified-head/removal sets; direct INSERT cannot bypass connection lock. Root-owner maintenance that disables guards requires offline target-serving suspension.",
         "Existing manager attempt reservations gain captured authorization_generation and observed authority event ref; generation is an actual persisted positive value, not a sentinel for missing evidence.",
-        "Connection creation locks stable league before inserting season/connection; readers enumerating initially absent connections share-lock that league. Qualification/binding/remap owners follow earlier policy/context and stable-league lock order before connection; no reverse-order bypass."
+        "Connection creation locks stable league before inserting season/connection; readers enumerating initially absent connections share-lock that league. Qualification/binding/remap owners follow earlier policy/context and stable-league lock order before connection; no reverse-order bypass.",
+        "The adverse set retains immutable removal events qualified when admitted across later policy suspension, binding reversion and head replacement. Current qualification filters positive allows; it must not erase historical adverse evidence. Only proved later fresh verification may supersede it; unresolved validity remains fail closed."
       ],
       "owner": "Existing mapping/administration/acceptance owner"
     },
@@ -1621,7 +1631,8 @@
       "rules": [
         "Association 1:0..N selections; stable league 1:0..N user selections; selection exactly one season of same league. Initial selection has NULL renewal and explicit qualified initial evidence retained through decision receipts; no made-up predecessor.",
         "Renewal has exactly one predecessor/successor, same stable league, strictly later season, no unresolved fork; references both mapping revisions and current successor membership. Renewal proof immutable; selection revision increments via CAS.",
-        "All user-specific rows actor-scoped RLS; no worker private grants. Reject stale association/selection/follow revisions under TX05; D04/D05 not inferred."
+        "All user-specific rows actor-scoped RLS; no worker private grants. Reject stale association/selection/follow revisions under TX05; D04/D05 not inferred.",
+        "Target initial/renewal commands have nominal TX08 receipt/timing contracts, but G4-COMMAND-AUTHORITY-HANDOFF remains open and target mutation activation is blocked. New selection and renewal writes require the selected explicit identity audit subject adapter and unchanged 60-events/60-seconds actor guard; unchanged old triggers are insufficient."
       ],
       "owner": "Existing account preference/selection composition and enrollment owner"
     },
@@ -1635,13 +1646,15 @@
         "team PK id; alternate(season,provider,external_league,external_roster); manager-entry PK(content,normalizer,team); membership PK(content,normalizer,team,manager,role)"
       ],
       "functional_dependencies": [
-        "team.id -> season-scoped alias; role-entry key -> primary/co-manager coverage states; membership key -> exact role fact; (acceptance,team)->qualified held-player resource"
+        "team.id -> season-scoped alias; role-entry key -> primary/co-manager coverage states; membership key -> exact role fact; (acceptance,team)->qualified held-player resource",
+        "(content,normalizer,team,manager) -> role under qualified disjoint owner/co-manager validation; retained physical role-including PK is a superkey, not the minimal logical key"
       ],
       "rules": [
         "Season 1:0..N teams; team 0..1 primary manager per accepted entry and 0..N co-managers; manager M:N teams through memberships. Enforce source provider/namespace equality and same season via composite FK and existing validators.",
         "Known-empty co-managers is separate from unknown; absence deletes nothing without exhaustive population/group proof. Effective dates remain NULL absent provider evidence.",
         "Read projections of players/canonicalEntityRefs preserve source-entity pairing and equal list lengths; unknown canonical mapping stays NULL and native identity remains. Arrays in immutable source evidence are document values; mutable memberships are relational existing rows.",
-        "Use normalized LR21/LR21S for season team identity. Physical existing team(league_season_id,provider,external_league_id,external_roster_id) derives connectionId via unique source connection(league_season_id,provider); add composite FK on that pair and retain parent history. Do not FK historical team external_league_id to current connection alias. Remap then reassignment of an old alias does not merge different season team identities."
+        "Use normalized LR21/LR21S for season team identity. Physical existing team(league_season_id,provider,external_league_id,external_roster_id) derives connectionId via unique source connection(league_season_id,provider); add composite FK on that pair and retain parent history. Do not FK historical team external_league_id to current connection alias. Remap then reassignment of an old alias does not merge different season team identities.",
+        "Preserve the physical membership PK and existing duplicate-role rejection. LR22 records the smaller semantic key; a new normalizer/policy must preserve this disjoint-role invariant or explicitly revise the logical model before qualification."
       ],
       "owner": "Existing team-manager/current-roster normalizer and writer"
     },
@@ -1660,7 +1673,8 @@
       "rules": [
         "Actor M:N leagues by independent preferences. Existing DELETE still removes app_user_leagues row; an AFTER DELETE trigger writes tombstone atomically using OLD.revision+1 before commit. A later explicit follow uses revision > greatest retained value.",
         "Same actor row lock serializes direct writes, carryover and tombstone updates; current+absence union is single logical relation with disjoint state discriminator. No preference created by discovery or eligibility.",
-        "Renewal carries only an existing follow and its expected revision. Genuine loss/regain remains D04; last-follower collection/retention remains D05."
+        "Renewal carries only an existing follow and its expected revision. Genuine loss/regain remains D04; last-follower collection/retention remains D05.",
+        "Target follow/unfollow remains blocked by the open TX08 database-enforced command authority handoff. The existing preference DELETE audit is the canonical user mutation event for its atomically derived tombstone; no extra tombstone event is charged and direct account/runtime tombstone DML is forbidden. Audit or tombstone failure rolls back the whole preference mutation."
       ],
       "owner": "Existing account preference/audit writer"
     },
@@ -1699,7 +1713,8 @@
       "rules": [
         "Each serving binding selects exactly one qualified head; acceptedRef is joined from that head, not duplicated into mutable selection storage. Validate all scope members, including nulls, audience and coverage, equal selected scope's logical scope.",
         "Qualification/binding changes lock connection and bump authority generation; immutable policy version never overwritten. Scope must resolve to same connection. Pre-enrollment binding remains absent until separately qualified; first slice uses captured discovery evidence without heads.",
-        "Registry is an additive responsibility of existing configuration/acceptance owner; no new publisher or automatic newest-version selection."
+        "Registry is an additive responsibility of existing configuration/acceptance owner; no new publisher or automatic newest-version selection.",
+        "Suspension/reversion cannot erase a removal admitted under a then-qualified policy. Enumerate adverse events independently of the current qualified-head set; see TX04. Do not restore an older positive by filtering its newer removal out."
       ],
       "owner": "Existing configuration/reader composition owner"
     },
@@ -1949,8 +1964,8 @@
       ],
       "declared_normal_form": "BCNF",
       "exceptions": [],
-      "redundancy_owner": "Sleeper namespace is functionally constant under implemented adapter; presentation names are separate evidence projections.",
-      "analysis_scope": "Logical first-slice attributes; source physical columns and proposed differences are separately specified by RD responsibilities."
+      "redundancy_owner": "Logical candidate keys assume independently possible provider values and exact provider/native identity. In the present Sleeper-only physical restriction, provider is constant and nativeAccountId alone determines identity; the existing physical composite UNIQUE is deliberately retained. No claim that the restricted physical instance has the same minimal keys or BCNF decomposition, and no second provider implementation is implied.",
+      "analysis_scope": "Provider-neutral logical identity abstraction across separately namespaced provider domains. Only the Sleeper physical instance is implemented; its existing CHECK(provider='sleeper') further restricts that instance and is not silently treated as the full abstraction."
     },
     {
       "id": "LR06",
@@ -2082,11 +2097,19 @@
             "endedAt",
             "revision"
           ]
+        },
+        {
+          "determinant": [],
+          "dependent": [
+            "assurance"
+          ]
         }
       ],
-      "declared_normal_form": "BCNF",
-      "exceptions": [],
-      "redundancy_owner": "Normalized association references one qualified subject lookup. Derive providerAccountId through LR06L and provider through LR05. Physical manager/provider values remain checked copies for exclusivity; DC04 and DN01 prove/own that repetition.",
+      "declared_normal_form": "projection",
+      "exceptions": [
+        "The retained assurance attribute has the enforced constant domain user_asserted, so the nontrivial FD empty set -> assurance has a non-superkey determinant. This existing checked representation is deliberately not labelled BCNF; remove the constant attribute when reasoning about a normalized variable association core."
+      ],
+      "redundancy_owner": "The existing account writer retains checked user_asserted assurance without a needless new constant table. Subject lookup supplies providerAccountId through LR06L and provider through LR05; physical manager/provider copies remain checked for exclusivity by DC04/DN01. Existing physical columns and constraints are preserved.",
       "analysis_scope": "Logical first-slice attributes; source physical columns and proposed differences are separately specified by RD responsibilities."
     },
     {
@@ -2144,7 +2167,9 @@
         "leaseOwner",
         "leaseUntil",
         "jobAttemptCount",
-        "requestPayload"
+        "requestPayload",
+        "normalizerVersion",
+        "validationVersion"
       ],
       "primary_key": [
         "id"
@@ -2174,7 +2199,9 @@
             "leaseOwner",
             "leaseUntil",
             "jobAttemptCount",
-            "requestPayload"
+            "requestPayload",
+            "normalizerVersion",
+            "validationVersion"
           ]
         },
         {
@@ -2192,7 +2219,9 @@
             "leaseOwner",
             "leaseUntil",
             "jobAttemptCount",
-            "requestPayload"
+            "requestPayload",
+            "normalizerVersion",
+            "validationVersion"
           ]
         },
         {
@@ -2203,14 +2232,17 @@
             "scope",
             "accessContextId",
             "accessRevision",
-            "requestPayload"
+            "requestPayload",
+            "normalizerVersion",
+            "validationVersion"
           ]
         }
       ],
       "declared_normal_form": "document",
       "exceptions": [
         "requestId determines immutable scope/context/revision; attempt document repeats them. Request-key reservation lock and equality validation enforce that FD for every attempt; no BCNF claim for the physical immutable document.",
-        "requestPayload excludes per-attempt work/lease fields; purpose/lookup/account/scan/list identity remains immutable per request, while a new attempt may capture a newly claimed job fence. Job fence uses existing attempt_count, lease_owner and lease_until, not a fictitious generation."
+        "requestPayload excludes per-attempt work/lease fields; purpose/lookup/account/scan/list identity remains immutable per request, while a new attempt may capture a newly claimed job fence. Job fence uses existing attempt_count, lease_owner and lease_until, not a fictitious generation.",
+        "The intended policy tuple is pinned before network I/O, request-ID determined and copied into every attempt/capture. A failed capture uses it as planned interpretation lineage without claiming an actual normalization event."
       ],
       "redundancy_owner": "Scope is an immutable validated document, not a claim that its internal JSON satisfies relational normal forms.",
       "analysis_scope": "Logical first-slice attributes; source physical columns and proposed differences are separately specified by RD responsibilities."
@@ -3087,7 +3119,7 @@
       "declared_normal_form": "BCNF",
       "exceptions": [],
       "redundancy_owner": "Logical stable projection of existing source connection. No new table or duplicate source owner; historical team joins exclude current externalLeagueId so remapping does not rewrite team identity.",
-      "analysis_scope": "Stable source identity across all retained mapping revisions; current external aliases are modeled separately in LR16/LR17."
+      "analysis_scope": "Provider-neutral stable source identity across retained mappings; the current physical implementation is restricted to Sleeper. The abstract alternate key contains provider, while under the physical Sleeper-only CHECK season alone determines the connection; existing physical keys remain unchanged."
     },
     {
       "id": "LR22",
@@ -3103,16 +3135,14 @@
         "contentId",
         "normalizerVersion",
         "teamId",
-        "managerId",
-        "role"
+        "managerId"
       ],
       "candidate_keys": [
         [
           "contentId",
           "normalizerVersion",
           "teamId",
-          "managerId",
-          "role"
+          "managerId"
         ]
       ],
       "functional_dependencies": [
@@ -3121,15 +3151,16 @@
             "contentId",
             "normalizerVersion",
             "teamId",
-            "managerId",
-            "role"
+            "managerId"
           ],
-          "dependent": []
+          "dependent": [
+            "role"
+          ]
         }
       ],
       "declared_normal_form": "BCNF",
       "exceptions": [],
-      "redundancy_owner": "No repeated non-key fact in this logical relation; physical timestamps/defaults are key-determined.",
+      "redundancy_owner": "Qualified manager entries make primary-owner and known co-manager sets disjoint; one manager therefore has exactly one recorded role per content/normalizer/team. The logical candidate key excludes role. Existing physical PRIMARY KEY(content,normalizer,team,manager,role) is retained as a superkey; existing normalization/SQL lineage guards enforce the smaller logical key. This is no instruction to rewrite an applied migration.",
       "analysis_scope": "Logical first-slice attributes; source physical columns and proposed differences are separately specified by RD responsibilities."
     },
     {
@@ -3675,20 +3706,15 @@
         "policyVersion",
         "revision"
       ],
-      "primary_key": [
-        "slot"
-      ],
+      "primary_key": [],
       "candidate_keys": [
-        [
-          "slot"
-        ]
+        []
       ],
       "functional_dependencies": [
         {
-          "determinant": [
-            "slot"
-          ],
+          "determinant": [],
           "dependent": [
+            "slot",
             "policyVersion",
             "revision"
           ]
@@ -3696,7 +3722,7 @@
       ],
       "declared_normal_form": "BCNF",
       "exceptions": [],
-      "redundancy_owner": "Only immutable approved v1 accepted in first slice. Future policy versions require explicit approval and distinct identity.",
+      "redundancy_owner": "The physical CHECK(slot='membership') plus PRIMARY KEY(slot) permits at most one current row. Its logical minimal key is the empty set, exactly as LR04; the fixed policyVersion is separately checked. Physical slot/PK are retained, not proposed as a minimal logical key.",
       "analysis_scope": "Logical first-slice attributes; source physical columns and proposed differences are separately specified by RD responsibilities."
     },
     {
@@ -4248,22 +4274,22 @@
       "closed": true
     },
     {
-      "signature": "public.activate_provider_account_v2(uuid,uuid,bigint,uuid)",
-      "input": "providerAccountId; lookupCaptureId; expectedActorRevision; transaction-local audited requestId",
-      "output": "ActivationResult",
+      "signature": "public.activate_provider_account_v2(uuid,uuid,bigint,uuid,jsonb)",
+      "input": "providerAccountId; lookupCaptureId; expectedActorRevision; transaction-local audited requestId; exact live seven-field AuthReceipt",
+      "output": "ActivationHelperResult",
       "contract": "relational-design.md#exact-helper-contracts",
       "closed": true
     },
     {
-      "signature": "public.select_account_league_season_v2(jsonb)",
-      "input": "SelectionTransition",
-      "output": "SelectionResult",
+      "signature": "public.select_account_league_season_v2(jsonb,jsonb)",
+      "input": "SelectionTransition; exact live seven-field AuthReceipt",
+      "output": "SelectionHelperResult",
       "contract": "relational-design.md#exact-helper-contracts",
       "closed": true
     },
     {
       "signature": "public.begin_provider_request_v2(jsonb)",
-      "input": "BeginProviderRequest",
+      "input": "BeginProviderRequest including exact immutable PlannedNormalizationPolicy",
       "output": "BeginProviderResult",
       "contract": "relational-design.md#exact-helper-contracts",
       "closed": true
@@ -4274,6 +4300,22 @@
       "output": "RecordProviderResult",
       "contract": "relational-design.md#exact-helper-contracts",
       "closed": true
+    }
+  ],
+  "open_design_gates": [
+    {
+      "id": "G4-SHARED-ADMISSION",
+      "status": "open_design",
+      "owner": "Existing account discovery and provider acquisition owners; no new scheduler or collector",
+      "missing": "Selected shared acquisition admission and guarded account-to-worker handoff: closed trusted input/audience/session/revision/audit/work-intent contract, atomic admission/receipt outputs, coexistence accounting across existing/new demand, atomic cross-request actual HTTP-start enforcement, abort/timeout/retry/dedup semantics and a qualified finite aggregate limit.",
+      "boundary": "Existing per-operation limits remain in force but are not a proved provider-wide mechanism. New target acquisition/command handoff activation is blocked until the missing design is selected and qualified; current runtime/configuration remain unchanged."
+    },
+    {
+      "id": "G4-COMMAND-AUTHORITY-HANDOFF",
+      "status": "open_design",
+      "owner": "Existing auth bridge and account transaction owners; no broader cross-role grants selected",
+      "missing": "A database-enforced live-authorization overlap or handoff through account commit, with exact authority/expiry/revocation/failure semantics and independent coordinator-death, timeout, transport-abort and unknown-commit schedules. Client-held auth transaction A plus a captured receipt does not prove authority while HTTP account transaction B continues.",
+      "boundary": "TX08 and explicit receipt signatures are nominal proposals only. Target activation, selection/renewal and follow/unfollow mutations remain disabled until the missing lifetime protocol is selected and independently qualified. A transport abort is not rollback proof; safe indeterminate acknowledgement cannot undo or authorize a late write."
     }
   ]
 }

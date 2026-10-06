@@ -4,10 +4,10 @@
   "source_baseline": "87da4d0cb909ee280e125e73ad10e1c3dbd7cd9f",
   "input_commit": "473e32e",
   "authority": "README.md",
-  "status": "design_specified_runtime_unexecuted",
+  "status": "candidate_design_gate_open_runtime_unexecuted",
   "design_review": {
-    "status": "selected_design_independently_reviewed",
-    "limits": "Bounded first-slice requirement/model allocation and paper design consistency were independently reviewed. No facilitated stakeholder workshop, new product-policy approval, implementation proof, runtime/SQL/race execution, operational effectiveness or standards certification is implied.",
+    "status": "candidate_reviewed_design_gate_open",
+    "limits": "Fresh adversarial review corrected additional procedures and semantic/protocol defects. ERD/DDL, shared acquisition admission/interface and failure-safe live command authority overlap remain open design gates. Artifact allocation is not activity completion, stakeholder consensus, target execution or certification.",
     "review_roles": [
       {
         "role": "method_requirements",
@@ -18,7 +18,7 @@
         "scope": "Accepted bounded G1 requirement/model allocation after independent checker and semantic review; retains later qualification limits."
       }
     ],
-    "evidence_ref": "design-completion.md"
+    "evidence_ref": "literal-method-audit.md"
   },
   "source_path_base": "docs/aggregator-backend",
   "sources": [
@@ -357,7 +357,7 @@
         "FS18.01"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -443,7 +443,7 @@
         "FS17.01"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -513,7 +513,7 @@
         "FS08.01"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -595,7 +595,7 @@
         "FS18.02"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -667,7 +667,7 @@
         "FS01.01"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -736,7 +736,7 @@
         "FS11.01"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -810,7 +810,7 @@
         "FS18.03"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -888,7 +888,7 @@
         "FS18.04"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -950,7 +950,7 @@
         "FS13.01"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -1016,7 +1016,7 @@
         "FS18.05"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -1080,7 +1080,7 @@
         "FS02.01"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -1143,7 +1143,7 @@
         "FS03.01"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -1205,7 +1205,7 @@
         "FS03.02"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -1273,7 +1273,7 @@
         "FS13.02"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -1336,7 +1336,7 @@
         "FS08.02"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -1398,7 +1398,7 @@
         "FS16.01"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -1467,7 +1467,7 @@
         "FS08.03"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -1542,7 +1542,7 @@
         "FS09.01"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -1612,7 +1612,7 @@
         "FS19.01"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -1679,7 +1679,7 @@
         "FS09.02"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -1763,7 +1763,7 @@
         "FS04.01"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -1827,7 +1827,7 @@
         "FS14.01"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -1902,7 +1902,7 @@
         "FS13.03"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -1969,7 +1969,7 @@
         "FS10.01"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -2044,7 +2044,7 @@
         "FS14.02"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -2108,7 +2108,7 @@
         "FS14.03"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -2174,7 +2174,7 @@
         "FS12.01"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -2252,7 +2252,7 @@
         "FS11.02"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -2320,7 +2320,7 @@
         "FS11.03"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -2399,7 +2399,7 @@
         "FS14.04"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -2476,7 +2476,7 @@
         "FS20.01"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -2541,7 +2541,7 @@
         "FS14.05"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -2597,7 +2597,7 @@
         "FS01.02"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -2664,7 +2664,7 @@
         "FS13.04"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -2731,7 +2731,7 @@
         "FS07.01"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -2799,7 +2799,7 @@
         "FS07.02"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -2864,7 +2864,7 @@
         "FS13.05"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -2923,7 +2923,7 @@
         "FS12.02"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -2989,7 +2989,7 @@
         "FS15.01"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -3046,7 +3046,7 @@
         "FS11.04"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -3113,7 +3113,7 @@
         "INV-R041"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -3170,7 +3170,7 @@
         "FS12.03"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -3241,7 +3241,7 @@
         "FS20.02"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -3309,7 +3309,7 @@
         "FS20.03"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -3372,7 +3372,7 @@
         "FS14.06"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -3442,7 +3442,7 @@
         "FS10.02"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -3511,7 +3511,7 @@
         "FS14.07"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -3598,7 +3598,7 @@
         "FS20.04"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -3665,7 +3665,7 @@
         "FS07.03"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -3772,7 +3772,7 @@
         "FS13.06"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -3849,7 +3849,7 @@
         "FS21.01"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -3936,7 +3936,7 @@
         "FS09.03"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -4017,7 +4017,7 @@
         "FS12.04"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -4098,7 +4098,7 @@
         "FS22.01"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -4206,7 +4206,7 @@
         "FS12.05"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -4273,7 +4273,7 @@
         "FS10.03"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -4355,7 +4355,7 @@
         "FS22.02"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -4422,7 +4422,7 @@
         "FS16.02"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -4508,7 +4508,7 @@
         "FS21.02"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -4583,7 +4583,7 @@
         "FS09.04"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -4667,7 +4667,7 @@
         "FS21.03"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -4759,7 +4759,7 @@
         "FS08.04"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -4843,7 +4843,7 @@
         "FS06.01"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -4948,7 +4948,7 @@
         "FS07.04"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -5041,7 +5041,7 @@
         "FS06.02"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -5131,7 +5131,7 @@
         "FS06.03"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -5236,7 +5236,7 @@
         "FS17.02"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -5338,7 +5338,7 @@
         "FS05.01"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -5417,7 +5417,7 @@
         "FS01.03"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -5504,7 +5504,7 @@
         "FS13.07"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -5570,7 +5570,7 @@
         "FS08.05"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -5679,7 +5679,7 @@
         "FS13.08"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -5770,7 +5770,7 @@
         "FS17.03"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -5872,7 +5872,7 @@
         "FS13.09"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -5944,7 +5944,7 @@
         "FS13.10"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -6015,7 +6015,7 @@
         "FS05.02"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -6087,7 +6087,7 @@
         "FS11.05"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -6152,7 +6152,7 @@
         "FS19.02"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -6224,7 +6224,7 @@
         "FS19.03"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -6295,7 +6295,7 @@
         "FS05.03"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -6363,7 +6363,7 @@
         "FS15.02"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -6456,7 +6456,7 @@
         "FS15.03"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [
@@ -6542,7 +6542,7 @@
         "INV-R083"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [],
@@ -6588,7 +6588,7 @@
         "INV-R084"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [],
@@ -6628,7 +6628,7 @@
         "INV-R085"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [],
@@ -6667,7 +6667,7 @@
         "INV-R086"
       ],
       "gate": "G7",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [],
@@ -6708,7 +6708,7 @@
         "INV-R087"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [],
@@ -6751,7 +6751,7 @@
         "INV-R088"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [],
@@ -6798,7 +6798,7 @@
         "INV-R089"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [],
@@ -6838,7 +6838,7 @@
         "INV-R090"
       ],
       "gate": "G1",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [],
@@ -6876,7 +6876,7 @@
         "INV-R091"
       ],
       "gate": "G1",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [],
@@ -6915,7 +6915,7 @@
         "INV-R092"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [],
@@ -6954,7 +6954,7 @@
         "INV-R093"
       ],
       "gate": "G7",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [],
@@ -6994,7 +6994,7 @@
         "INV-R094"
       ],
       "gate": "G1",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_allocations": {
         "storage_responsibilities": [],
@@ -7042,7 +7042,7 @@
         "FS08.06"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_refs": [
         "relational-design.json",
@@ -7118,7 +7118,7 @@
         "FS08.07"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_refs": [
         "relational-design.json",
@@ -7216,7 +7216,7 @@
         "FS08.08"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_refs": [
         "relational-design.json",
@@ -7333,7 +7333,7 @@
         "FS08.09"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_refs": [
         "relational-design.json",
@@ -7424,7 +7424,7 @@
         "INV-R099"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_refs": [
         "behavior-security-design.md#transition-contracts",
@@ -7483,7 +7483,7 @@
         "INV-R100"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_refs": [
         "relational-design.json",
@@ -7555,7 +7555,7 @@
         "INV-R101"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_refs": [
         "relational-design.json",
@@ -7631,7 +7631,7 @@
         "INV-R102"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_refs": [
         "relational-design.json",
@@ -7722,7 +7722,7 @@
         "INV-R103"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_refs": [
         "relational-design.json",
@@ -7811,7 +7811,7 @@
         "INV-R104"
       ],
       "gate": "G7",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_refs": [
         "behavior-security-design.md#threat-control-and-verification-allocation",
@@ -7864,7 +7864,7 @@
         "FS13.11"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_refs": [
         "behavior-security-design.md#transition-contracts",
@@ -7922,7 +7922,7 @@
         "FS05.04"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_refs": [
         "relational-design.json",
@@ -7980,7 +7980,7 @@
         "INV-R107"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_refs": [
         "behavior-security-design.md#transition-contracts",
@@ -8030,7 +8030,7 @@
         "INV-R108"
       ],
       "gate": "G6",
-      "design_status": "selected_design_independently_reviewed",
+      "design_status": "candidate_reviewed_design_gate_open",
       "runtime_status": "not_executed",
       "design_refs": [
         "behavior-security-design.md#transition-contracts",
@@ -8259,9 +8259,9 @@
       "method": [
         "test"
       ],
-      "fixture": "FX0/FX-race; A and B concurrently claim PA with valid subject lookup.",
-      "procedure": "Hold both transactions after checking; commit each order using real writer/constraints.",
-      "oracle": "Exactly one active link survives; loser receives private-safe conflict without rival identity; no silent winner replacement.",
+      "fixture": "FX0/FX-race; A and B concurrently claim PA with valid subject lookup; exercise both choices of first lock holder.",
+      "procedure": "Using the actual guarded writer, let A acquire the provider-account identity UPDATE lock and finish its authoritative claim check, then start B and prove it waits before that check. Commit A, release B, and observe B recheck the committed claim. Repeat with B as first lock holder. Do not place both transactions at a post-check barrier that the selected identity lock makes unreachable.",
+      "oracle": "Exactly one active link survives; the waiting claimant sees the committed claim and receives private-safe conflict without rival identity; no silent winner replacement. The observed lock order and wait are part of the result, not a skipped barrier. The selected writer schedule does not itself prove the independent unique constraint rejects bypassing inserts.",
       "evidence": [
         "Exact implementation SHA and sanitized fixture hash",
         "Declared clock/barrier schedule and actual execution receipt",
@@ -9228,9 +9228,9 @@
       "method": [
         "test"
       ],
-      "fixture": "FX0/FX-race; enumerate no removals, then commit removal under a different newly qualified version before delivery.",
-      "procedure": "Hold the final decision across the competing commit; include unqueried/unknown adverse set control.",
-      "oracle": "Generation/set-fence change forces retry/refusal; unknown set never allows; a proven complete empty set is valid only while its fence remains current.",
+      "fixture": "FX0/FX-race; qualified positive selected head, initially empty adverse set, and a qualified complete removal under a different compatible version. Include unknown/unqueried adverse-set controls.",
+      "procedure": "Run two actual guarded schedules. First commit removal before the reader acquires the connection SHARE lock, then perform the fresh complete evidence read. Second let the reader acquire all required locks and enumerate the complete empty set, start the removal writer, prove its connection UPDATE lock waits, and finish the reader transaction before releasing that writer. Record the final SQL authorization point and both transaction orders; do not demand a removal commit inside the held reader fence.",
+      "oracle": "Removal committed before reader locking is enumerated and denies the older positive. Reader-first can allow at its recorded authorization point only while all authority and expiry checks pass; the removal writer cannot commit inside its held connection fence and later reads see the removal. Unknown set completeness never allows. Timeout, conflict or abort emits no protected content and causes no automatic final-reader retry; a later ordinary request evaluates afresh.",
       "evidence": [
         "Exact implementation SHA and sanitized fixture hash",
         "Declared clock/barrier schedule and actual execution receipt",
@@ -9400,8 +9400,8 @@
         "test"
       ],
       "fixture": "FX0/FX-race; A valid before association switch, role valid only after switch; pause checks to create mixed-read opportunity.",
-      "procedure": "Exercise selected final-fence protocol with competing association/mapping/removal changes.",
-      "oracle": "No allow is produced from states that never coexisted; changed dependency causes documented retry/refusal; successful serialization has a single documented authorization point; already delivered bytes are not claimed recallable.",
+      "procedure": "Exercise the selected final-fence protocol in both legal lock orders with association, mapping and removal writers. Changes committed before the relevant reader guard are reread in the final coherent evaluation; writers started after that guard must wait. Separately force lock timeout or transaction abort and count final-reader attempts.",
+      "oracle": "No allow is produced from states that never coexisted. A prerequisite invalidated before its guard yields denial/indeterminate after the fresh evaluation; reader-first may allow before a blocked later mutation when all checks pass. Timeout/conflict/abort refuses protected output with exactly one final-reader attempt and no automatic retry. Successful serialization has the selected single authorization point and final expiry check; a later ordinary request evaluates afresh and already delivered bytes are not claimed recallable.",
       "evidence": [
         "Exact implementation SHA and sanitized fixture hash",
         "Declared clock/barrier schedule and actual execution receipt",
@@ -10001,9 +10001,9 @@
         "inspection",
         "test"
       ],
-      "fixture": "FX0; sink throws/unavailable for allow and deny outcomes.",
-      "procedure": "Inject failure after valid decision and attempt fallback event handling.",
-      "oracle": "Deny never becomes allow; completed valid decision stays correct; fallback is safe/local/nonrecursive and evidence loss is visible to operator.",
+      "fixture": "FX0; sink throws/unavailable for allow and deny outcomes; include repeated failures, counter saturation, restored sink, summary failure and process restart.",
+      "procedure": "Inject diagnostic failure after valid decisions and inspect only the process-local failure counter. Restore ordinary emission and exercise summary success/failure, then restart with an outstanding count. Qualify operational sink-failure detection separately at G7.",
+      "oracle": "Deny never becomes allow and completed valid decisions stay correct. The counter saturates at 9007199254740991, stores no event payload and never recursively logs through the failed sink. On a successful ordinary emission at most one summary is attempted; its count resets only after summary success. Restart may lose the counter, as explicitly permitted. This test makes no durable outage-observation claim; activation still requires the separate G7 operator-detection evidence.",
       "evidence": [
         "Selected protocol/version and exact implementation SHA",
         "Actual restricted-role clock/transaction/barrier trace or captured safe sink output",

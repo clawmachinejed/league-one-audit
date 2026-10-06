@@ -2,7 +2,7 @@
 
 Design specification under [README](README.md), derived from [design-requirements.json](design-requirements.json). The JSON ledger owns these stable obligation and case IDs; regenerate this readable view after deliberate ledger edits. It does not create a second product contract.
 
-Input design commit: 473e32e. Application baseline: 87da4d0cb909ee280e125e73ad10e1c3dbd7cd9f. 108 atomic requirements allocate all 135 top-level foundation fields, all 26 record constraints, all 25 named foundation types and all 22 grouped FS cases. These counts establish allocation only. Runtime/database/race/user-validation execution: **none**. Design status: **selected design independently reviewed**.
+Input design commit: 473e32e. Application baseline: 87da4d0cb909ee280e125e73ad10e1c3dbd7cd9f. 108 atomic requirements allocate all 135 top-level foundation fields, all 26 record constraints, all 25 named foundation types and all 22 grouped FS cases. These counts establish allocation only. Runtime/database/race/user-validation execution: **none**. Design status: **candidate reviewed design gate open**.
 
 Requirements are independently falsifiable obligations. Several fields can jointly implement one invariant; a field can support several requirements. Record constraint IDs use the record name and one-based position in the pinned foundation register; exact text in the JSON catalog detects drift. Source anchors are exact substrings, not invented original requirement numbers. Verification cases below are later executable specifications, not passing tests.
 
@@ -571,11 +571,11 @@ Parent: FS18. Method: test. Status: **specified, not executed**.
 
 Parent: FS02. Method: test. Status: **specified, not executed**.
 
-**Fixture:** FX0/FX-race; A and B concurrently claim PA with valid subject lookup.
+**Fixture:** FX0/FX-race; A and B concurrently claim PA with valid subject lookup; exercise both choices of first lock holder.
 
-**Procedure:** Hold both transactions after checking; commit each order using real writer/constraints.
+**Procedure:** Using the actual guarded writer, let A acquire the provider-account identity UPDATE lock and finish its authoritative claim check, then start B and prove it waits before that check. Commit A, release B, and observe B recheck the committed claim. Repeat with B as first lock holder. Do not place both transactions at a post-check barrier that the selected identity lock makes unreachable.
 
-**Independent oracle:** Exactly one active link survives; loser receives private-safe conflict without rival identity; no silent winner replacement.
+**Independent oracle:** Exactly one active link survives; the waiting claimant sees the committed claim and receives private-safe conflict without rival identity; no silent winner replacement. The observed lock order and wait are part of the result, not a skipped barrier. The selected writer schedule does not itself prove the independent unique constraint rejects bypassing inserts.
 
 **Required evidence:** Exact implementation SHA and sanitized fixture hash; Declared clock/barrier schedule and actual execution receipt; Independent expected-versus-actual committed state and response bytes, with failures/skips recorded.
 
@@ -1183,11 +1183,11 @@ Parent: FS21. Method: test. Status: **specified, not executed**.
 
 Parent: FS08. Method: test. Status: **specified, not executed**.
 
-**Fixture:** FX0/FX-race; enumerate no removals, then commit removal under a different newly qualified version before delivery.
+**Fixture:** FX0/FX-race; qualified positive selected head, initially empty adverse set, and a qualified complete removal under a different compatible version. Include unknown/unqueried adverse-set controls.
 
-**Procedure:** Hold the final decision across the competing commit; include unqueried/unknown adverse set control.
+**Procedure:** Run two actual guarded schedules. First commit removal before the reader acquires the connection SHARE lock, then perform the fresh complete evidence read. Second let the reader acquire all required locks and enumerate the complete empty set, start the removal writer, prove its connection UPDATE lock waits, and finish the reader transaction before releasing that writer. Record the final SQL authorization point and both transaction orders; do not demand a removal commit inside the held reader fence.
 
-**Independent oracle:** Generation/set-fence change forces retry/refusal; unknown set never allows; a proven complete empty set is valid only while its fence remains current.
+**Independent oracle:** Removal committed before reader locking is enumerated and denies the older positive. Reader-first can allow at its recorded authorization point only while all authority and expiry checks pass; the removal writer cannot commit inside its held connection fence and later reads see the removal. Unknown set completeness never allows. Timeout, conflict or abort emits no protected content and causes no automatic final-reader retry; a later ordinary request evaluates afresh.
 
 **Required evidence:** Exact implementation SHA and sanitized fixture hash; Declared clock/barrier schedule and actual execution receipt; Independent expected-versus-actual committed state and response bytes, with failures/skips recorded.
 
@@ -1293,9 +1293,9 @@ Parent: FS08. Method: test. Status: **specified, not executed**.
 
 **Fixture:** FX0/FX-race; A valid before association switch, role valid only after switch; pause checks to create mixed-read opportunity.
 
-**Procedure:** Exercise selected final-fence protocol with competing association/mapping/removal changes.
+**Procedure:** Exercise the selected final-fence protocol in both legal lock orders with association, mapping and removal writers. Changes committed before the relevant reader guard are reread in the final coherent evaluation; writers started after that guard must wait. Separately force lock timeout or transaction abort and count final-reader attempts.
 
-**Independent oracle:** No allow is produced from states that never coexisted; changed dependency causes documented retry/refusal; successful serialization has a single documented authorization point; already delivered bytes are not claimed recallable.
+**Independent oracle:** No allow is produced from states that never coexisted. A prerequisite invalidated before its guard yields denial/indeterminate after the fresh evaluation; reader-first may allow before a blocked later mutation when all checks pass. Timeout/conflict/abort refuses protected output with exactly one final-reader attempt and no automatic retry. Successful serialization has the selected single authorization point and final expiry check; a later ordinary request evaluates afresh and already delivered bytes are not claimed recallable.
 
 **Required evidence:** Exact implementation SHA and sanitized fixture hash; Declared clock/barrier schedule and actual execution receipt; Independent expected-versus-actual committed state and response bytes, with failures/skips recorded.
 
@@ -1663,11 +1663,11 @@ Parent: additional preservation/process invariant. Method: inspection, test. Sta
 
 Parent: additional preservation/process invariant. Method: inspection, test. Status: **specified, not executed**.
 
-**Fixture:** FX0; sink throws/unavailable for allow and deny outcomes.
+**Fixture:** FX0; sink throws/unavailable for allow and deny outcomes; include repeated failures, counter saturation, restored sink, summary failure and process restart.
 
-**Procedure:** Inject failure after valid decision and attempt fallback event handling.
+**Procedure:** Inject diagnostic failure after valid decisions and inspect only the process-local failure counter. Restore ordinary emission and exercise summary success/failure, then restart with an outstanding count. Qualify operational sink-failure detection separately at G7.
 
-**Independent oracle:** Deny never becomes allow; completed valid decision stays correct; fallback is safe/local/nonrecursive and evidence loss is visible to operator.
+**Independent oracle:** Deny never becomes allow and completed valid decisions stay correct. The counter saturates at 9007199254740991, stores no event payload and never recursively logs through the failed sink. On a successful ordinary emission at most one summary is attempted; its count resets only after summary success. Restart may lose the counter, as explicitly permitted. This test makes no durable outage-observation claim; activation still requires the separate G7 operator-detection evidence.
 
 **Required evidence:** Selected protocol/version and exact implementation SHA; Actual restricted-role clock/transaction/barrier trace or captured safe sink output; Independent committed-state/serialized-byte assertion and failure/skip receipt.
 

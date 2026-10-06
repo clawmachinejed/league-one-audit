@@ -263,5 +263,25 @@
     "runtime_target_cases_executed": 0,
     "database_or_worker_lease_audit": false,
     "production_ownership_claimed": false
+  },
+  "literal_method_audit_checkpoint": {
+    "recorded_at_utc": "2026-10-06T01:57:33.442504+00:00",
+    "documentation_input": "7694502ab5a70c6e858780515bef8c20ef5267f6",
+    "local_main": "87da4d0cb909ee280e125e73ad10e1c3dbd7cd9f",
+    "github_main": "87da4d0cb909ee280e125e73ad10e1c3dbd7cd9f",
+    "github_main_protected": true,
+    "production_sha": "87da4d0cb909ee280e125e73ad10e1c3dbd7cd9f",
+    "production_deployment": "8C3YSnXRCbmPETftQgRtirfyck5e",
+    "vercel_binding": "clawmachinejed/league-one-audit/main/apps/site",
+    "vercel_ui_observed_at_utc": "2026-10-06T01:59:00Z",
+    "primary_checkout_clean": true,
+    "open_pr_numbers": [
+      286
+    ],
+    "target_runtime_cases_executed": 0,
+    "database_or_worker_lease_audit": false,
+    "production_ownership_claimed": false,
+    "design_gate_status": "open",
+    "confirmed_findings": "literal-method-audit.md"
   }
 }
