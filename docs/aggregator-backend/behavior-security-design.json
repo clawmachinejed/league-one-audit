@@ -1,10 +1,10 @@
 {
   "version": "backend-behavior-security-design-v1",
-  "status": "design_reopened_not_implemented",
+  "status": "selected_design_not_implemented",
   "sourceBaseline": "87da4d0cb909ee280e125e73ad10e1c3dbd7cd9f",
   "inputCommit": "7694502",
   "normativeEntry": "README.md",
-  "scope": "G2 composed behavior and G5 changed-surface controls for internal Sleeper identification, exclusive associations, current teams and stored reads. No new public endpoint, authentication system, migration execution or provider. G4/G5 remain open for target command authorization lifetime, discovery/recovery admission and aggregate acquisition limits; no target command or acquisition activation is authorized by this design.",
+  "scope": "Selected G2/G4/G5 behavior and changed-surface security design for internal Sleeper identification, exclusive associations, current teams and stored reads, with transaction-bound command authority and shared acquisition admission. D03-D05 are selected in backend-decisions.md. No implementation, applied migration, live grant, provider call or deployment is claimed.",
   "sources": [
     {
       "path": "apps/site/lib/accounts/auth.ts",
@@ -73,7 +73,7 @@
     {
       "id": "BS-WORK",
       "owner": "Existing scheduler/jobs/leases",
-      "authority": "Deduplicated justified work and recovery through existing jobs; aggregate target-acquisition admission remains an open design obligation, not an existing budget guarantee.",
+      "authority": "Existing jobs/leases/continuous worker ownership, shared provider request admission and recovery; exact budget and account-to-worker interfaces in acquisition-admission-design.md.",
       "excluded": "No alternate collector; no target browser Tank01 call."
     },
     {
@@ -100,7 +100,7 @@
       "id": "BS-B02",
       "from": "BS-AUTH",
       "to": "BS-ACCOUNT",
-      "rule": "Server-only validated session receipt, exact issuer/subject and pinned admission configuration. Auth and account connections retain distinct restricted credentials."
+      "rule": "Ephemeral nine-field AuthReceiptV2 from maintained server cookie validation, with exact token/email digests and admission configuration; account B revalidates actual auth rows inside its own transaction through the narrow owner helper. No raw auth-table grant."
     },
     {
       "id": "BS-B03",
@@ -130,7 +130,7 @@
       "id": "BS-B07",
       "from": "Restricted account/auth role",
       "to": "Owner-controlled fixed-signature guard helpers",
-      "rule": "Explicit target privilege surface: only allowlisted helper EXECUTE; fixed search_path, fully qualified objects, typed request scope, no dynamic SQL or arbitrary relation/row keys, no PUBLIC EXECUTE, no direct source UPDATE or cross-schema auth grants. Deployment role-manifest checker must recognize exactly these additions; current provisioning forbids unlisted SECURITY DEFINER calls."
+      "rule": "Explicit target privilege surface: only allowlisted helper EXECUTE; fixed search_path, fully qualified objects, typed request scope, no dynamic SQL or arbitrary relation/row keys, no PUBLIC EXECUTE, no direct source UPDATE or cross-schema auth grants. Deployment role-manifest checker must recognize exactly these additions; current provisioning forbids unlisted SECURITY DEFINER calls. Exact acquisition and auth guard signatures are additionally fixed in acquisition-admission-design.md; no broad function-prefix allowlist."
     }
   ],
   "stateDimensions": [
@@ -191,7 +191,7 @@
         "following",
         "not_following"
       ],
-      "rule": "Preference independent from access. Tombstone persists; D04/D05 transition side effects remain gated."
+      "rule": "Explicit intention is independent of effective demand/access. Loss, expiry or disconnect suspends effectiveness without rewriting intention; fresh eligibility resumes only the latest intention. D04/D05 govern recovery and zero-demand collection."
     },
     {
       "id": "delivery",
@@ -207,31 +207,35 @@
   ],
   "protocol": {
     "id": "BS-P01",
-    "name": "Guarded final stored delivery",
+    "name": "Transaction-bound final stored delivery and command authority",
     "selected": true,
     "steps": [
-      "Resolve the trusted request and exact cookie/session through the existing auth owner; perform preliminary scope and authority checks before candidate composition. Compose only server-private candidate data and exact immutable source references. This preliminary decision is not a reusable allow; BS-P01 must authorize again after composition.",
-      "On the pinned auth-role connection, acquire shared advisory transaction lock (19740517,1), then active admission-epoch row FOR SHARE, then exact website_auth.user/session rows FOR SHARE in canonical key order. Validate the current request using maintained Better Auth with cookie cache/refresh off; prove exact subject/session, verified/invited admission and handler config hash equal to active epoch. All auth/session/admission mutations use the exclusive gate and guarded supported DB entry points. This is selected target adaptation, not shipped enforcement.",
-      "While auth guards remain held, enter the distinct account-role ReadCommitted transaction with transaction-local actor/request context. Lock in this total order: Actor, app_login_identity, ProviderAccount identity, Association (PK order); typed immutable request-ID advisory mutex when reserving work; provider-access/policy-binding; stable Leagues then SourceConnections (UUID order); CurrentSelection, Follow, ServingSelection (canonical tuple order), all FOR SHARE. Only operation-relevant rows are required: an absent preference is irrelevant to a read, but absence of any required authority denies or is indeterminate. Writers follow the compatible total order in relational-design.md. Distinct roles retain their privileges. Existing shared-source SELECT grants do not imply FOR SHARE privilege. The target uses a single fixed-signature, fixed-search-path read/lock SECURITY DEFINER helper in the existing account composition, scoped to exact validated request keys; no free-form SQL, direct shared-source UPDATE or auth-schema privilege is granted to the account role. Auth admission-epoch row locking similarly uses its narrow owner helper. Exact signatures, owners and allowlisted grants are fixed in relational-design.md; these are proposed provisioning changes, not current permissions.",
-      "After guards are held, reread the complete current dependency vector and complete applicable adverse-evidence set, then compare all candidate immutable references. Enumerate immutable removal events qualified when admitted, across all relevant versions, not merely currently qualified or selected heads. Suspending, replacing, reverting or unselecting a normalizer cannot erase an admitted removal. If validity becomes unknown, remain fail closed pending qualified resolution. Membership acceptance, remap, qualification and version-promotion writers lock/update the same connection authority and advance authorization_generation; guarded insertion prevents an invisible adverse-evidence phantom.",
-      "After locks are acquired, read the full accepted/adverse evidence set and final generations. In the final account SQL sample clock_timestamp once and evaluate all predicates using that instant: same exact session unexpired, now < T+3600, earlier context expiry, active actor/association/policy and qualified full adverse set. That guarded evaluation is the logical linearization point. Both role connections must address the same verified database/UTC clock domain; unproved clock/database identity returns indeterminate for target league serving without disabling L1 authentication. No guessed skew allowance.",
-      "Keep auth guards held until the account transaction completes and its result is validated; then finish the auth transaction. Discard protected candidate data on any commit/transport/abort uncertainty. The final database evaluation follows all slow work; immediately serialize only the exact selected result after both transactions end successfully, without asynchronous provider work, deliberate delay or alternate cached permission. An elapsed request/expiry deadline discards the candidate; never refresh T or extend authority to finish. Responses are private/no-store; already delivered bytes cannot be recalled."
+      "Resolve the exact request through maintained Better Auth with cookie cache and refresh disabled. Compose protected candidate data privately; this preliminary validation is not reusable permission. The trusted bridge constructs nine-field AuthReceiptV2 as specified in acquisition-admission-design.md; no client/cache/job may supply it.",
+      "Account transaction B itself calls public.lock_account_session_authority_v2. The migration-owned SECURITY DEFINER function acquires shared transaction advisory lock(19740517,1), then admission epoch FOR SHARE, user FOR SHARE and session FOR SHARE. It validates the closed receipt; exact epoch/config/issuer/database-clock identity; session id/userId/expiry; current emailVerified; and equality to SHA256(convert_to(current email or token,UTF8)). PostgreSQL pgcrypto is already requested by migration001; qualification verifies actual extension schema and fully qualifies digest/convert_to/encode functions. No raw auth row or token is returned.",
+      "After B acquires its own auth gate/epoch/user/session locks, lock Actor, login identity, ProviderAccount identity, Association; typed command/request-ID mutex as needed; provider policy/access; stable League then SourceConnection; CurrentSelection, Follow and ServingSelection, in canonical order within each class. Validate exact actor/login/receipt binding. Existing fixed-signature read/lock composition acquires necessary source locks internally without broad source UPDATE or raw auth grants. Registration alone has a mutex class between auth and Actor, and cannot be entered while holding Actor.",
+      "Reread the complete dependency vector and immutable adverse removals qualified when admitted across relevant versions, independent of current head/qualification/suspension. Unknown adverse validity remains fail closed until proved resolution. Connection creators lock stable League first; membership/remap/qualification/serving writers use the same connection fence and advance authorization_generation, preventing insertion phantoms.",
+      "After all locks and slow work, final SQL samples clock_timestamp once and checks the exact live session/actor/association/context/policy, now<T+3600 and every earlier deadline plus the full adverse set. This is the logical decision/mutation point; B retains its actual auth/domain locks through its own commit or rollback. Auth revocation before B guard is observed; later revocation waits. Time passage is not frozen, so protected output also requires the final response-lifetime check.",
+      "After confirmed B commit, validate the exact server-only result/timing envelope. Anchor monotonic time immediately before final SQL; deduct ceil elapsed through commit from DB-computed floor remaining lifetime and require positive lifetime/request budget before synchronous serialization with no intervening await. Serialize only result. Unknown commit/transport/expiry suppresses protected output; an already committed mutation is not falsely reported as rolled back. No asynchronous provider work or reusable cached permission at this boundary."
     ],
-    "ordering": "Auth gate and admission/user/session locks precede the account transaction. Account/domain order is Actor → login identity → ProviderAccount identity → Association → immutable request-ID mutex when reserving work → provider access/policy → stable League → SourceConnection → CurrentSelection → Follow → ServingSelection; PK/UUID/canonical tuple order within a class. Source-only writers begin at their first relevant class and never acquire an earlier class or auth gate while holding later locks. The relational design specifies write locks and guarded mutation paths. Privileged-owner bypass remains an operational boundary. Source-connection creators lock the stable League FOR UPDATE before inserting the season/connection; enumerating readers hold the League FOR SHARE. This parent fence covers an initially absent connection. Direct auth and user-account mutation guards acquire their auth gate/actor lock BEFORE STATEMENT or through the owner entry point, before tuple locks.",
+    "ordering": "B auth advisory gate -> admission epoch -> exact auth user/session -> registration mutex only for bootstrap -> Actor -> login identity -> ProviderAccount identity -> Association -> immutable command/request mutex -> policy/access -> stable League -> SourceConnection -> CurrentSelection -> Follow -> ServingSelection -> provider request gate -> demand/job/permit. Omit irrelevant classes; canonical key order within classes. Source-only writers start at their first required class and never acquire earlier classes afterward. Worker queue claim/completion may take only provider gate then demand/job; later dispatch is a separate transaction reentering the full applicable order. All direct auth mutators acquire exclusive auth gate BEFORE tuple locks; account DML guards acquire shared auth before Actor. Source-connection creators fence the parent League before insert.",
     "retry": "No automatic retry within a final-read request. Conflict, lock timeout, expired budget, unavailable authority or serialization failure discards composed protected data and returns indeterminate, except proved revocation/expiry returns denied. A later ordinary request evaluates from scratch. Explicit commands may retry the same idempotency identity; no freshness is inherited from failed attempts.",
-    "bounds": "Reuse guard maxima: lock 3000ms, per-statement 8000ms and total target request budget 12000ms; the selected combined budget must not stack auth/domain waits. Current source supplies an HTTP fetch timeout, not a demonstrated server-side total transaction deadline. Request abort requires cleanup and protected-result suppression, but does not prove account rollback or simultaneous release of two independent transactions. These are safety ceilings, not latency SLOs or new polling cadence.",
+    "bounds": "Existing account lock3000ms/statement8000ms/overall12000ms remain maxima; no stacked waits or automatic per-request retries. Provider transport has its separately selected5000ms deadline. HTTP cancellation is not database rollback proof. B server-owned auth locks survive a lost coordinator until B itself ends; SQL/connection limits and unknown-outcome reconciliation remain required. Acquisition permit accounting and quarantine are specified separately.",
     "configuration": "Target persisted admission epoch is changed only under exclusive auth gate. Handler config hash must match active epoch; old deployment/config denies instead of overriding it. No claim of global consistency among unrelated databases or unguarded operators. Mismatched environment/database identities fail before transaction entry. Distinct credentials must resolve the same intended Neon database/clock domain; current production configuration has not been proved by this design.",
-    "proof": "Read delivery requires actual guarded SQL under runtime roles and injected schedules BS-O05/06/07/11/12/13. The nominal target-command extension below is incomplete until DB-enforced auth/command lifetime is selected and proved; it is a G4/G5 design gap, not merely an unexecuted runtime test.",
-    "trustedReceipt": "The auth-to-account receipt is constructed only by the trusted in-process server bridge from the exact current request, maintained auth validation and pinned guarded auth rows. The shared closed type has exactly sessionId:string (opaque auth ID), subject:string (opaque auth subject), expiresAt:Instant, issuer:string, admissionEpochRevision:Revision (positive canonical decimal BIGINT string), configHash:string and clockDomain:string. Nonempty issuer/hash/clock strings must equal the active guarded configuration. HTTP bodies, browser fields, jobs, caches and stored diagnostics cannot supply it; unknown keys reject. Read and candidate command helpers validate issuer/subject/actor/login binding, common clock/config context and deadline. The receipt does not independently authenticate a bearer token or prove that the other database connection remains alive. No auth schema privilege is added to the account role. This boundary does not withstand compromise of the trusted account credential or arbitrary server code, which already controls SET LOCAL actor context; BS-R03 applies.",
-    "returnBoundary": "The account read helper returns exactly {result:ReadCurrentRosterResult, decisionTiming:{dbSampleAt,minimumAuthorityExpiresAt,remainingLifetimeMs}|null}. decisionTiming is required and non-null for available/pending/unavailable, because all three contain protected selection fields and require a successful allow. It is null for denied/indeterminate. The trusted bridge checks the conservative lifetime receipt specified in TX01 after both commits, then serializes only result. Never add the timing receipt to a public DTO, cache it as permission or retain it for another request. Extra envelope/receipt/result keys reject. Invalid timing discards protected content and produces an exact safe result.",
+    "proof": "AA-P01/P02 and BS-O05/O07/O13 specify the coordinator-loss and authority-change proofs. The selected same-B protocol resolves the previous architectural gap; actual helper/trigger/catalog and injected runtime schedules remain G6/G7 qualification, not executed evidence.",
+    "trustedReceipt": "AuthReceiptV2 is exactly the prior seven fields sessionId,subject,expiresAt,issuer,admissionEpochRevision,configHash,clockDomain plus admittedEmailDigest and sessionTokenDigest. Both digests are lowercase64hex SHA256 of the exact UTF8 bytes of returned user.email and session.token respectively, with no trimming, case folding or normalization before hashing. The bridge first applies the existing invitedEmails/emailVerified policy unchanged. Treat token digest and the entire receipt as sensitive authority material: ephemeral server memory/transaction parameter only, never public output/log/cache/job/audit metadata. Matching admittedEmailDigest plus unchanged admission config binds the current user to the same invitation decision made by the trusted bridge. Matching sessionTokenDigest prevents a recreated session ID with a different token from reusing the receipt. Missing/replaced/expired session, changed email, failed verification or changed admission epoch refuses. Hash comparison supplements maintained cookie validation; a digest is not a new bearer authentication protocol. Compromised trusted server/account credentials remain outside this guarantee.",
+    "returnBoundary": "The account read helper returns exactly {result:ReadCurrentRosterResult, decisionTiming:{dbSampleAt,minimumAuthorityExpiresAt,remainingLifetimeMs}|null}. decisionTiming is required and non-null for available/pending/unavailable, because all three contain protected selection fields and require a successful allow. It is null for denied/indeterminate. The trusted bridge checks the conservative lifetime receipt specified in TX01 after B commit, then serializes only result. Never add the timing receipt to a public DTO, cache it as permission or retain it for another request. Extra envelope/receipt/result keys reject. Invalid timing discards protected content and produces an exact safe result.",
     "commandBoundary": [
-      "Nominal target-command extension, not complete activation design: activation, initial/current selection and renewal, disconnect and explicit follow/unfollow require current maintained session/admission at the command authority boundary, plus their own actor/object/revision guards. Preserve existing auth and account owners and all origin/body/audit checks. Network/provider work occurs before or after the bounded transaction, never inside it. Discovery/recovery work admission still lacks its exact final command helper/boundary and remains an explicit G4 gap.",
-      "On the nominal successful path, acquire BS-P01 auth guards, validate the exact current request and seven-field receipt, then execute the account command with compatible write locks and one final trusted database time. Retain auth guards through account commit and result validation, finish auth, then validate the conservative timing envelope before acknowledgement. This sequence alone is insufficient on coordinator loss: a client-held auth transaction does not prove that a separate account HTTP transaction cannot outlive it.",
-      "Counterexample to the incomplete proposal: auth transaction A validates S and holds shared guards; the coordinator submits HTTP account batch B; timeout or coordinator death releases A while B has no confirmed outcome; logout/revocation R acquires the exclusive auth gate and commits; B continues using the earlier receipt and may commit. An 8000ms per-statement timeout plus a 12000ms HTTP timeout does not prove B completed before A ended. This is an unclosed design schedule, not a claimed production exploit. Before mutation activation, select a database-enforced protocol that keeps live auth authority stable through B commit even if the coordinator disappears. No broader auth grant or new validation helper is selected by this document.",
-      "Known command failure with confirmed rollback before account commit means no mutation. Unknown account commit outcome returns safe indeterminate without asserting rollback and without protected IDs. If account commit succeeded but auth completion, transport or response lifetime later fails, suppress the protected acknowledgement and return safe indeterminate; the committed mutation is not undone. No automatic per-request retry. A later explicit retry uses the retained command identity under fresh authorization to reconcile the durable result without duplication.",
-      "Candidate activation and selection helpers require p_session_receipt and return closed server-only {result:ActivationResult,decisionTiming:DecisionTiming|null} and {result:SelectionResult,decisionTiming:DecisionTiming|null} respectively. DecisionTiming has the exact read-side fields and conservative calculation; it is nonnull for protected successful variants and null for safe failures. Immediately before final SQL dispatch anchor the monotonic timer; subtract elapsed time through both completions from the database-computed remaining lifetime, check the request budget, and serialize only result with no intervening await. Invalid or expired timing suppresses the acknowledgement, not a committed effect. The signatures and shapes remain proposed until the lifetime gap is resolved."
+      "The auth-only guard returns only session_expires_at,admission_epoch_revision,db_sample_at,session_created_at. session_created_at is safe internal metadata for the separately trusted D03 admission policy; it adds no receipt field. Account command/read composition then locks Actor and login identity, proves exact issuer/subject/actor binding, and continues the existing domain order. B owns auth locks until B commits or rolls back; auth transaction A need not remain open. All supported auth mutations take exclusive(19740517,1) BEFORE STATEMENT or in their owner entrypoint, before row locks.",
+      "The trusted account bridge sets transaction-local app.session_receipt_v2 before private SQL. Existing direct account DML BEFORE STATEMENT guards invoke the auth-only guard before actor/domain locks and then validate actor/login. New user-scoped privileged helpers invoke it unconditionally using their typed receipt. Existing resolve_app_login_identity keeps its signature but consumes the same receipt, binds issuer/subject, and authenticates before its registration mutex. Its existing-actor path locks Actor then login; new-actor creation stays an owner-only authenticated bootstrap. A generic flag cannot skip checks. The registration mutex is a special class after auth and before Actor; callers already holding Actor cannot enter the resolver.",
+      "After all required locks, final SQL samples clock_timestamp once and evaluates expiry and operation predicates before mutation or delivery. Mutation linearizes there while its auth/domain state is protected through commit. Time passage is not frozen: an expired protected acknowledgement is suppressed. Confirmed rollback means no effects; unknown commit or confirmed commit followed by failed acknowledgement returns safe indeterminate without asserting rollback. Explicit same-command retry reauthorizes then reconciles retained command identity; no automatic request retry.",
+      "Activation and selection helpers receive AuthReceiptV2 and return closed ActivationHelperResult/SelectionHelperResult with DecisionTiming; all protected successful variants require nonnull timing, safe failures null. Discovery/recovery/identify use the exact durable admission and progress interfaces in acquisition-admission-design.md, returning an own pending handle instead of assuming a provider response completes synchronously. A failed acknowledgement does not cancel a committed durable command.",
+      "D03 own release checks actual locked session.createdAt against the guard db_sample_at at command admission: authentication age0..300seconds inclusive; future/nonfinite times refuse. Last activity never substitutes for creation time; an older session requires a new maintained login. The admitted command retains the ordinary12000ms maximum and live same-B authority through commit; the five-minute admission threshold is not a second final-commit age threshold. The auth-only helper returns session_created_at as safe internal timing; it never returns token/email/actor. Disputed takeover requires incumbent release or implemented reviewed independent provider-control proof; public Sleeper evidence/support discretion cannot substitute."
     ],
-    "auditBoundary": "Extend the existing audit subject CHECK and bounded trigger adapter for app_current_league_selections and app_league_renewals. For selection mutations derive subject_user_id from the association, subject_id from leagueId and metadata from the selection revision; for renewal proof mutations derive subject_user_id from the association, subject_id from the proof ID and metadata {}. Both participate in the existing actor/request, ReadCommitted and 60 audit events per rolling 60 seconds limit; a renewal that produces multiple auditable changes consumes all corresponding events. No direct tombstone DML: canonical app_user_leagues DELETE and its existing audit produce the derived tombstone atomically; any audit/rate/tombstone failure rolls back the whole account transaction. This is a proposed narrow audit adaptation, not present trigger coverage."
+    "auditBoundary": "Extend the existing audit subject CHECK and bounded trigger adapter for app_current_league_selections and app_league_renewals. For selection mutations derive subject_user_id from the association, subject_id from leagueId and metadata from the selection revision; for renewal proof mutations derive subject_user_id from the association, subject_id from the proof ID and metadata {}. Both participate in the existing actor/request, ReadCommitted and 60 audit events per rolling 60 seconds limit; a renewal that produces multiple auditable changes consumes all corresponding events. No direct tombstone DML: canonical app_user_leagues DELETE and its existing audit produce the derived tombstone atomically; any audit/rate/tombstone failure rolls back the whole account transaction. This is a proposed narrow audit adaptation, not present trigger coverage. Demand admission adds app_acquisition_demands with subject_id=demandId, subject_user_id=current actor and metadata {}; the first accepted command, audit and existing job intent commit together. Only exact actor+commandId replay joins without duplicate audit/work; a distinct-command same-scope collision is limited and unaccepted, so no unpersisted idempotency alias is acknowledged.",
+    "operatorBoundary": [
+      "Supported operator security revocation does not require the compromised user's receipt. public.disable_app_actor_v1(p_actor_id uuid,p_request_id uuid) RETURNS boolean and public.revoke_app_login_identity_v1(p_identity_id uuid,p_request_id uuid) RETURNS boolean are narrow migration-owner SECURITY DEFINER entrypoints with fixed safe search_path, fully qualified objects, and no EXECUTE grant to PUBLIC, account, auth or runtime. They require actual session_user to equal the catalog-pinned existing migration-owner role; SET ROLE or a caller GUC cannot establish this authority. From a fresh operator transaction, acquire exclusive auth gate(19740517,1), then Actor FOR UPDATE and sorted login rows. Resolve identity-to-actor without locking first, then lock/recheck the immutable actor link in canonical order. Only disable active actor or revoke the exact existing login; never reactivate, reassign, delete shared data or bypass D03 provider conflicts. Set transaction-local request UUID and clear user-actor context for the existing operator audit, restoring scoped context on return; transition and audit commit atomically. Exact already-disabled/revoked repeat returns true without another audit, absent or deleted invalid target returns false. Unknown commit is reconciled by explicit repeat, not called rollback.",
+      "G-ACTOR uses a role-authenticated migration-owner branch for supported operator maintenance and otherwise requires the same-B user guard; no boolean or receipt-free account bypass. app_login_identities UPDATE/DELETE acquire the exclusive auth gate before Actor and login locks. Login INSERT first acquires shared auth; the authenticated resolver holds its registration mutex, allocates/locks the Actor, and checks NEW issuer/subject against the exact receipt plus NEW app_user_id against that Actor. This insertion cannot require a preexisting login row. No direct account login INSERT/UPDATE/DELETE grant is introduced, and all other account mutation guards continue to require their ordinary actor/login binding. Existing schema-owner maintenance is an explicit trusted boundary, not an application credential capability."
+    ]
   },
   "transitions": [
     {
@@ -240,10 +244,10 @@
       "from": "lookup absent",
       "to": "identified or unavailable/invalid",
       "input": "Trusted actor; opaque submitted username; server request id",
-      "guard": "Existing admission/origin/input limits; adapter validates stable returned native account key; target acquisition remains disabled until aggregate per-actor/global admission is selected and qualified (BS-C03)",
+      "guard": "Existing admission/origin/input limits, closed command and qualified identity adapter; exact atomic demand admission, actor/global budgets and source policy before dispatch",
       "owner": "BS-ACCOUNT + BS-ADMIN",
-      "atomic": "Network outside transaction; append captured lookup evidence through existing evidence owner",
-      "output": "IdentifyProviderAccountResult; no association/follow/enrollment",
+      "atomic": "Same-B demand/idempotency/audit/existing-job commit; provider network outside transaction through shared transport; append lookup capture through existing evidence owner",
+      "output": "IdentifyProviderAccountResult including pending with lookupRequestId equal to own demandId; qualified completion returns exact public provider identity and own capture receipt only",
       "failure": "Malformed/unknown/network failure yields no fabricated account",
       "recovery": "Explicit repeat lookup retains new receipt; username rename never merges identity",
       "oracles": [
@@ -257,11 +261,11 @@
       "from": "identified/pending",
       "to": "active",
       "input": "Subject lookup receipt; trusted actor; idempotency identity",
-      "guard": "Same subject native key; both active uniqueness constraints; current actor/admission; nominal BS-P01 command admission and live-auth lifetime obligation; activation blocked while G4/G5 lifetime design is open",
+      "guard": "Same subject native key; both active uniqueness constraints; current actor/admission; mandatory same-B live auth and actor/login binding through the selected command boundary",
       "owner": "BS-ACCOUNT",
-      "atomic": "One account writer transaction enforces both constraints, audit and idempotency; confirmed conflict rolls back. An uncertain transport outcome does not prove rollback. Auth lifetime across commit remains open.",
+      "atomic": "Same-B auth-held account transaction enforces both exclusivity constraints, audit and command idempotency. Confirmed failure rolls back; uncertain commit is reconciled by explicit retained-identity retry.",
       "output": "One active association or private-safe conflict",
-      "failure": "No implicit replacement, no other actor identity; D03 blocks public launch",
+      "failure": "No implicit replacement or competing actor identity; D03 unsupported disputes stay locked until incumbent release or implemented qualified control proof.",
       "recovery": "Retry same command returns existing own result; fresh claim only after explicit disconnect",
       "oracles": [
         "BS-O02",
@@ -275,7 +279,7 @@
       "from": "active/not_started",
       "to": "pending/partial/complete",
       "input": "Association revision; explicit finite season query set and strategy; acquisition context",
-      "guard": "Current association/context; one unfinished work identity; bounded scheduler admission; target acquisition remains disabled until aggregate per-actor/global admission is selected and qualified (BS-C03); exact final discovery command-admission interface remains open",
+      "guard": "Current active association/revision, qualified finite active-retained-v1 season set, exact durable demand admission and shared budget; completion describes only declared scope",
       "owner": "BS-WORK + BS-ADMIN",
       "atomic": "Reserve/checkpoint under existing job fence; release transaction before network; commit per-scope receipts",
       "output": "DiscoveryScan with completed scopes and candidates; no follow",
@@ -310,7 +314,7 @@
       "from": "unresolved",
       "to": "selected",
       "input": "Qualified stable league identity; association; current eligible team evidence",
-      "guard": "No competing lineage/current choice; positive within D02; no selection by max year; nominal BS-P01 command admission and live-auth lifetime obligation; activation blocked while G4/G5 lifetime design is open",
+      "guard": "No competing lineage/current choice; positive within D02; no selection by max year; mandatory same-B live auth and actor/login binding through the selected command boundary",
       "owner": "BS-ACCOUNT",
       "atomic": "CAS current-selection key and authority with the explicit new selection audit/rate adapter in the same transaction; same-league references enforced.",
       "output": "Per-league CurrentSelection and all proven team IDs",
@@ -380,12 +384,12 @@
       "from": "active",
       "to": "ended",
       "input": "Trusted actor; expected association revision",
-      "guard": "Own active association; command current; audit limits; nominal BS-P01 command admission and live-auth lifetime obligation; activation blocked while G4/G5 lifetime design is open",
+      "guard": "Own active association; command current; audit limits; mandatory same-B live auth and actor/login binding through the selected command boundary; own release requires locked actual session creation age0..300seconds at command admission under D03",
       "owner": "BS-ACCOUNT",
       "atomic": "End and revision/audit in account transaction; no shared facts deleted",
       "output": "Immediate target deny; L1 sign-in and other actors intact",
       "failure": "Stale command conflict, no automatic reassignment",
-      "recovery": "New association requires explicit qualified claim; D03 applies to recovery",
+      "recovery": "New association requires explicit qualified claim; D03 forbids discretionary takeover or public-evidence ownership proof.",
       "oracles": [
         "BS-O02",
         "BS-O05",
@@ -399,7 +403,7 @@
       "from": "expired",
       "to": "revalidation pending",
       "input": "Authenticated actor; still active association; independently valid acquisition demand",
-      "guard": "Expiry not prerequisite allow; context not revoked; bounded deduped work; target acquisition remains disabled until aggregate per-actor/global admission is selected and qualified (BS-C03); exact final recovery command-admission interface remains open",
+      "guard": "Current active association and independent context; exact same-B demand admission and shared budget. Retained ineligible follows allow at most hourly recovery for7days since first loss; failures do not reset it, then explicit authenticated demand is required. Disconnect is not recovery authority.",
       "owner": "BS-WORK",
       "atomic": "One pending scope/purpose/input identity through existing jobs; no request-held DB transaction",
       "output": "Pending work; serving stays denied until qualification",
@@ -420,7 +424,7 @@
       "atomic": "Existing acceptance and connection authority commit; next BS-P01 evaluates new evidence",
       "output": "Eligibility can recover; D02 from actual qualified network time",
       "failure": "Unknown set or unsuperseded removal continues denying",
-      "recovery": "Ordinary fresh revalidation; D04 follow reaction remains unactivated",
+      "recovery": "Fresh qualified membership restores only still-current explicit follow intention under active association; newer unfollow wins. Ordinary revalidation uses the shared provider budget.",
       "oracles": [
         "BS-O06",
         "BS-O11"
@@ -432,7 +436,7 @@
       "from": "selected old season",
       "to": "selected successor",
       "input": "Both mapping revisions; fresh successor roles; expected selection and follow revisions",
-      "guard": "Same stable league; nonconflicting predecessor link; no merely later-year candidate; nominal BS-P01 command admission and live-auth lifetime obligation; activation blocked while G4/G5 lifetime design is open",
+      "guard": "Same stable league; nonconflicting predecessor link; no merely later-year candidate; mandatory same-B live auth and actor/login binding through the selected command boundary",
       "owner": "BS-ACCOUNT + BS-ADMIN",
       "atomic": "Ordered connection locks; current-selection CAS plus explicit selection/renewal audit/rate adapters; follow carryover guarded by exact current preference. All auditable changes count toward the unchanged event limit.",
       "output": "Only this league advances; existing follow preserved unless newer unfollow",
@@ -451,12 +455,12 @@
       "from": "following",
       "to": "not_following",
       "input": "Trusted actor; stable league; preference revision",
-      "guard": "Own preference, existing writer limits; nominal BS-P01 command admission and live-auth lifetime obligation; activation blocked while G4/G5 lifetime design is open",
+      "guard": "Own preference, existing writer limits; mandatory same-B live auth and actor/login binding through the selected command boundary",
       "owner": "BS-ACCOUNT",
       "atomic": "Canonical preference DELETE, existing audit and derived tombstone/new revision commit atomically; no direct tombstone DML. Any audit/rate or tombstone failure rolls back both.",
       "output": "Preference changes only; eligibility unchanged",
       "failure": "Stale command safe conflict",
-      "recovery": "Explicit subsequent follow command; D05 worker/retention effects remain gated",
+      "recovery": "Explicit subsequent follow remains an explicit command. D05 routine demand is only eligible follow, current authorized view or explicit registry obligation. Zero routine demand stops routine polling after30minutes. Bounded recovery/import never resets this cooldown or resurrects routine polling; shared accepted history is retained.",
       "oracles": [
         "BS-O12",
         "BS-O07",
@@ -469,11 +473,11 @@
       "from": "absent/not_following",
       "to": "following",
       "input": "Trusted actor; stable league; explicit command",
-      "guard": "Current eligibility and selected league; command is not discovery; nominal BS-P01 command admission and live-auth lifetime obligation; activation blocked while G4/G5 lifetime design is open",
+      "guard": "Current eligibility and selected league; command is not discovery; mandatory same-B live auth and actor/login binding through the selected command boundary",
       "owner": "BS-ACCOUNT",
       "atomic": "Preference writer/revision/audit; absent-key race constrained",
       "output": "Own follow only; no access grant",
-      "failure": "Ineligible/unknown denies preference activation; no new collection policy inferred",
+      "failure": "Ineligible/unknown cannot activate effective follow demand; retained intention grants neither access nor acquisition. D04/D05 select suspension, resumption and bounded recovery.",
       "recovery": "Retry idempotently after explicit user action and qualification",
       "oracles": [
         "BS-O12",
@@ -522,7 +526,7 @@
       "guard": "Exclusive existing auth gate; supported DB writes guarded; exact active config binding",
       "owner": "BS-AUTH",
       "atomic": "Auth transaction commits mutation/session invalidation/epoch; no app schema privileges",
-      "output": "New target reads and command admission deny after committed revocation; reads already linearized may finish within their timing receipt. Target command lifetime proof remains open.",
+      "output": "New target decisions/commands after committed revocation deny. An earlier B transaction retains its own auth gate through commit and orders before revocation; protected acknowledgement still obeys expiry.",
       "failure": "Failed auth mutation rolls back; no new session epoch or custom token",
       "recovery": "Existing auth recovery only; provider state irrelevant to L1 sign-in",
       "oracles": [
@@ -539,7 +543,7 @@
       "owner": "BS-ADMIN / BS-READER",
       "atomic": "Acceptance plus durable next work atomic; final-read no durable allow",
       "output": "Restart does not duplicate facts or lose pending work",
-      "failure": "Commit uncertainty forbids protected delivery or command acknowledgement; it does not prove account rollback. No replay freshness. Command auth-lock lifetime on coordinator loss is an open design gate.",
+      "failure": "Commit uncertainty suppresses protected output but never proves rollback; B retains its own auth fence until transaction end. No replay freshness.",
       "recovery": "Worker reclaims expired lease under current fences; reader starts fresh request. Explicit command retry retains its identity and reauthorizes before reconciling an unknown or already committed result.",
       "oracles": [
         "BS-O13"
@@ -566,7 +570,7 @@
       "actor": "Admitted L1 actor",
       "action": "Identify",
       "object": "Submitted Sleeper username",
-      "precondition": "Input/source validation plus current admission; target lookup acquisition disabled pending selected and qualified aggregate per-actor/global budget",
+      "precondition": "Current admission and validated source scope; same-B durable command plus exact shared acquisition budget",
       "allowedFields": "Public provider identity/display and opaque own lookup receipt",
       "prohibited": "No other L1 link status/actor; no association activation",
       "owner": "BS-ACCOUNT",
@@ -581,7 +585,7 @@
       "actor": "Admitted actor with qualified subject lookup",
       "action": "Claim or end own association",
       "object": "Association / ProviderAccount",
-      "precondition": "Atomic two-way uniqueness; trusted actor; expected revision; fresh command session/admission plus DB-enforced auth lifetime through commit (open, no target mutation activation)",
+      "precondition": "Atomic two-way uniqueness; trusted actor; expected revision; same-B live session/admission and actor/login binding; D03-D05 selected policy",
       "allowedFields": "Own association ID/state/revision or generic conflict",
       "prohibited": "No other actor identity; no reassignment; no ownership-proof claim",
       "owner": "BS-ACCOUNT",
@@ -595,7 +599,7 @@
       "actor": "Actor with active association",
       "action": "Discover/current-team list",
       "object": "Own association and candidate scans",
-      "precondition": "Qualified strategy, audience, same association revision; BS-P01 before target private delivery; discovery work admission and aggregate budget design remain open",
+      "precondition": "Qualified finite strategy/audience and exact active association revision; durable command admission and shared budget; BS-P01 before protected result delivery",
       "allowedFields": "Qualified own selections/team options and honest scope status; server-only unresolved refs remain server-side",
       "prohibited": "No auto-follow, unrelated protected candidates or arbitrary account scan",
       "owner": "BS-ACCOUNT",
@@ -641,7 +645,7 @@
       "actor": "Admitted actor with active association but expired membership",
       "action": "Schedule bounded recovery",
       "object": "Own membership source demand",
-      "precondition": "Independent acquisition context remains valid; one work identity; aggregate admission and exact recovery command boundary remain open; target acquisition disabled until selected and qualified",
+      "precondition": "Independent context and active association remain valid; exact demand admission/shared budget plus D05 recovery bounds; no unexpired membership needed merely to request recovery",
       "allowedFields": "Safe work pending/limited result; no league payload before requalification",
       "prohibited": "No revoked-context bypass, synchronous provider fetch in reader or duplicate storm",
       "owner": "BS-WORK",
@@ -655,9 +659,9 @@
       "actor": "Admitted eligible actor",
       "action": "Follow/unfollow",
       "object": "Own stable-league preference",
-      "precondition": "Explicit command and expected revision; applicable follow gate; fresh command session/admission plus DB-enforced auth lifetime through commit (open, no target mutation activation)",
+      "precondition": "Explicit command and expected revision; applicable follow gate; same-B live session/admission and actor/login binding; D03-D05 selected policy",
       "allowedFields": "Own preference revision/tombstone",
-      "prohibited": "No eligibility grant; no automatic D04 regain or D05 deletion/collection change",
+      "prohibited": "No eligibility grant, stale unfollow resurrection or deletion of shared history; D04/D05 govern effective demand",
       "owner": "BS-ACCOUNT",
       "controls": [
         "BS-C08"
@@ -715,7 +719,7 @@
     {
       "id": "BS-C01",
       "threat": "Forged actor/session/provider IDs; pooled context confusion",
-      "control": "Resolve identity only through auth owner; exact typed keys; SET LOCAL actor and request on pinned transaction; compare returned scope, not requested ID alone; preserve role separation; initial principal lookup is not final command authorization. Nominal command receipt adaptation remains gated pending DB-enforced auth lifetime through account commit",
+      "control": "Maintained cookie validation plus ephemeral AuthReceiptV2; actual session/user/admission locked by narrow owner helper inside account B before actor/login/domain locks. Mandatory direct-DML and bootstrap guards; SET LOCAL context never substitutes for live authority. No raw auth grant or receipt persisted.",
       "owner": "BS-AUTH / BS-ACCOUNT",
       "caseIds": [
         "FS08",
@@ -742,12 +746,12 @@
       "oracle": [
         "BS-O02"
       ],
-      "residual": "D03 must settle mistaken/malicious claim recovery before public launch; cannot prove external control."
+      "residual": "D03 selects own fresh-login release and no discretionary takeover; unsupported disputes stay locked. Public evidence cannot prove external control."
     },
     {
       "id": "BS-C03",
       "threat": "Lookup/discovery/recovery amplification and quota exhaustion",
-      "control": "Existing local request limits, one unfinished logical job and duplicate joining do not establish aggregate per-actor or global provider admission. Distinct usernames, scopes or completed-refresh identities bypass coalescing; telemetry counts starts but does not deny them. Preserve the existing acquisition owner and mutation rate guards, but keep target lookup/discovery/recovery acquisition disabled until a shared admission owner, exact per-actor/global budgets, accounting/atomic reservation, denial/retry behavior and fairness are selected and independently qualified. No provider rate value or parallel worker pipeline is invented.",
+      "control": "acquisition-admission-design.md selects atomic originator-scoped command/work admission, bounded queues, actor5/61s+60/3601s, global900 charged grants/61s with1s dispatch expiry, reserved lanes, no refunds, fair scheduling and circuit/backoff. Every owned Sleeper transport/cache refresh shares it; existing worker/jobs remain the owners. Numbers are application limits, not provider promises.",
       "owner": "BS-ACCOUNT / BS-WORK",
       "caseIds": [
         "FS09",
@@ -759,7 +763,7 @@
         "BS-O03",
         "BS-O09"
       ],
-      "residual": "OPEN G4/G5 design gate for the internal target slice, not only broad-public launch or later capacity measurement. Existing acquisition paths are unchanged; source budgets cannot be claimed from telemetry/local bounds."
+      "residual": "G6/G7 must prove complete transport convergence, strict charged-start accounting and full mixed-workload capacity before activation or watched-capacity expansion. Existing two named-league obligations and all future/import work count; no unbounded fallback."
     },
     {
       "id": "BS-C04",
@@ -797,7 +801,7 @@
     {
       "id": "BS-C06",
       "threat": "Incoherent final auth, hidden adverse evidence, missing-row phantoms",
-      "control": "BS-P01 locks actual read authorities and per-connection authorization_generation; guarded writers serialize membership insertion/remap/promotion. The complete adverse set enumerates immutable removals qualified when admitted across relevant versions, independent of current qualification, suspension or serving-head selection. Unknown validity/set forbids allow; only exact proved positive supersession clears removal. Target command auth lifetime remains an explicit open design obligation.",
+      "control": "Same-B auth and domain fences protect coherent decision through B commit; guarded writers serialize source changes. Adverse set includes immutable removals qualified when admitted regardless current policy suspension/head selection; unknown validity denies. Phantom insertion is fenced by parent League/connection guards.",
       "owner": "BS-ACCOUNT / BS-ADMIN",
       "caseIds": [
         "FS07",
@@ -809,7 +813,7 @@
         "BS-O05",
         "BS-O11"
       ],
-      "residual": "Read SQL/guard coverage requires implementation qualification. A client-held separate auth connection does not close the command crash schedule; DB-enforced lifetime design is required before mutation activation."
+      "residual": "Selected paper proof is not deployed SQL evidence; actual direct-writer coverage, role/trigger behavior and coordinator-loss schedules remain required."
     },
     {
       "id": "BS-C07",
@@ -831,7 +835,7 @@
     {
       "id": "BS-C08",
       "threat": "Renewal overwrites newer unfollow; discovery makes follow",
-      "control": "No automatic discovery follow. Renewal compares predecessor/successor mapping and current-selection revisions; preference absent/tombstoned/newer unfollow cannot be created/replaced by carryover.",
+      "control": "Explicit follow intention remains independent of effective eligibility. D04 suspends demand on loss/expiry/disconnect and resumes only current intention after fresh eligibility. Renewal compares mapping/selection/preference revisions; newer explicit unfollow always wins. D05 routine demand unions only eligible follows, current authorized views and explicit registry obligations. Recovery/import authorizes only its bounded purpose and never resets the30minute zero-routine-demand cooldown or resumes routine polling.",
       "owner": "BS-ACCOUNT",
       "caseIds": [
         "FS14",
@@ -841,7 +845,7 @@
         "BS-O08",
         "BS-O12"
       ],
-      "residual": "D04/D05 side effects stay gated; this control does not choose them."
+      "residual": "D03-D05 are selected in backend-decisions.md; timers, races, source proof and disposal qualification remain implementation obligations."
     },
     {
       "id": "BS-C09",
@@ -895,7 +899,7 @@
     {
       "id": "BS-C12",
       "threat": "Sensitive or forged diagnostics; unguarded privileged mutations",
-      "control": "Extend the existing audit subject CHECK and bounded trigger adapter for app_current_league_selections and app_league_renewals. For selection mutations derive subject_user_id from the association, subject_id from leagueId and metadata from the selection revision; for renewal proof mutations derive subject_user_id from the association, subject_id from the proof ID and metadata {}. Both participate in the existing actor/request, ReadCommitted and 60 audit events per rolling 60 seconds limit; a renewal that produces multiple auditable changes consumes all corresponding events. No direct tombstone DML: canonical app_user_leagues DELETE and its existing audit produce the derived tombstone atomically; any audit/rate/tombstone failure rolls back the whole account transaction. This is a proposed narrow audit adaptation, not present trigger coverage. Diagnostics use only safe structured enums and random correlation values. A read correlation groups that response and aggregate signal only; no durable actor/resource/dependency join is present or promised. All supported authority mutators use declared guards; schema-owner maintenance is separately controlled. Companion operations owns sink/access/retention.",
+      "control": "Extend the existing audit subject CHECK and bounded trigger adapter for app_current_league_selections and app_league_renewals. For selection mutations derive subject_user_id from the association, subject_id from leagueId and metadata from the selection revision; for renewal proof mutations derive subject_user_id from the association, subject_id from the proof ID and metadata {}. Both participate in the existing actor/request, ReadCommitted and 60 audit events per rolling 60 seconds limit; a renewal that produces multiple auditable changes consumes all corresponding events. No direct tombstone DML: canonical app_user_leagues DELETE and its existing audit produce the derived tombstone atomically; any audit/rate/tombstone failure rolls back the whole account transaction. This is a proposed narrow audit adaptation, not present trigger coverage. Demand admission adds app_acquisition_demands with subject_id=demandId, subject_user_id=current actor and metadata {}; the first accepted command, audit and existing job intent commit together. Only exact actor+commandId replay joins without duplicate audit/work; a distinct-command same-scope collision is limited and unaccepted, so no unpersisted idempotency alias is acknowledged. Diagnostics remain safe structured enums/random request-local correlation. No durable read correlation-to-actor/resource audit join is promised; operations owns sink/access/retention.",
       "owner": "BS-OPS",
       "caseIds": [
         "FS08",
@@ -910,7 +914,7 @@
     {
       "id": "BS-C13",
       "threat": "New guard helper becomes arbitrary privileged read/write, role escalation or row-lock denial of service",
-      "control": "One fixed-signature account read/lock composition helper and narrow auth epoch helper, with exact scope validation, fixed search_path, fully qualified names, bounded returned projection and declared transaction timeout. Explicit manifest allowlist only; revoke PUBLIC and unrelated-role EXECUTE. No dynamic SQL, direct caller-selected actor authority or broad source UPDATE. Existing owners retain mutation guards. Activation/selection signatures explicitly receive the same closed session receipt and return timing envelopes; these proposed interfaces do not close the command lifetime gap or the missing discovery/recovery admission interface.",
+      "control": "Exact migration-owned auth/read/command/acquisition guard helpers; closed inputs, fixed search_path, qualified objects, no PUBLIC/unrelated EXECUTE, no arbitrary SQL. Explicit manifest signatures only. Account receives no raw auth table/schema grant; worker receives bounded demand/fence and no receipt. Existing direct DML and bootstrap entrypoints receive mandatory same-B guards.",
       "owner": "BS-ACCOUNT / BS-AUTH / BS-OPS",
       "caseIds": [
         "FS08",
@@ -937,8 +941,8 @@
       "id": "BS-O02",
       "method": "Concurrent real writer transactions + serialized response inspection",
       "fixture": "A/B claim one native account; A claims two same-provider accounts",
-      "schedule": "Barrier after each precheck; commit both; rerun winning command idempotently; fill the audit window then attempt selection and renewal; fail the audit insert and derived tombstone write separately",
-      "expected": "Exactly one active relationship in each exclusive dimension; no displaced links; loser has generic conflict only; new subjects consume the unchanged audit limit and all command/tombstone effects roll back on a confirmed audit/rate failure",
+      "schedule": "Barrier after each precheck; commit both; rerun winning command idempotently; fill the audit window then attempt selection and renewal; fail the audit insert and derived tombstone write separately; release with actual session.createdAt ages299,300,301seconds at admission, then cross300seconds during an otherwise valid admitted command; submit public screenshots/usernames as supposed takeover proof",
+      "expected": "Exactly one active relationship in each exclusive dimension; no displaced links; loser has generic conflict only; new subjects consume the unchanged audit limit and all command/tombstone effects roll back on a confirmed audit/rate failure; only own release admitted atage0..300 proceeds within the ordinary command budget; unsupported disputed takeover remains locked",
       "proof": "Query active constraints/history/audit with guarded verifier; compare serialized key set and absence of competitor identifier.",
       "status": "specified_not_executed"
     },
@@ -947,7 +951,7 @@
       "method": "Fake provider fixture and job inspection",
       "fixture": "Declared seasons with older nonrenewed and new candidates, duplicate triggers",
       "schedule": "Fail one list scope; resume checkpoint; interleave association revision change; run multiple distinct usernames/scopes across separate invocations and start a fresh discovery after completed work",
-      "expected": "Partial not empty/complete on gap; one unfinished work identity; stale continuation cannot publish; coalescing alone is not a global limit; target acquisition stays disabled while aggregate admission is undefined; completed refresh does not reuse old capture freshness",
+      "expected": "Partial coverage on gaps; one unfinished semantic demand; completed refresh has new capture age only after fresh source proof. Distinct scopes still obey shared global/actor budgets; declared active-retained-v1 scope never becomes universal-history completeness.",
       "proof": "HTTP-start ledger and committed scan receipts compared to independently listed expected scope set.",
       "status": "specified_not_executed"
     },
@@ -982,8 +986,8 @@
       "id": "BS-O07",
       "method": "Maintained auth path + restricted roles",
       "fixture": "Same cookie/session; reset/logout/revoke/admission epoch switch; old deployment config",
-      "schedule": "Interleave BS-P01 with supported auth writers and direct guarded auth-role mutation; force abort; repeat around activation, initial/renewal selection and preference commands; terminate the coordinator after account HTTP dispatch while logout waits",
-      "expected": "Read ordering and old-config denial hold; account/worker cannot query auth; failed auth transaction has no partial commit. Target command activation is forbidden until a selected DB-enforced lifetime protocol prevents mutation using auth released before the account authority boundary/commit. A client-held auth lock alone is not a passing oracle.",
+      "schedule": "Interleave BS-P01 with supported auth writers and direct guarded auth-role mutation; force abort; repeat around activation, initial/renewal selection and preference commands; terminate the coordinator after account HTTP dispatch while logout waits; disable compromised actor and revoke exact login through owner-only helpers without a user receipt, race each against final B, and bootstrap a brand-new login",
+      "expected": "B holds its own shared auth gate/rows through commit regardless A/coordinator loss; revoke first denies, B first orders before revoke. Session-ID token replacement/email/config changes refuse. Account/runtime cannot SELECT raw auth; direct DML/bootstrap use the mandatory guard. Operator security actions remain available without the compromised session, serialize before/after B using the exclusive gate, and emit operator audit. New-login insertion proves NEW actor/issuer/subject without requiring a prior login.",
       "proof": "Real session/user/epoch state plus locked timeline and role-denial SQL; cookie never copied to logs.",
       "status": "specified_not_executed"
     },
@@ -1001,8 +1005,8 @@
       "method": "Bounded scheduling + acquisition ledger",
       "fixture": "Expired actor with active association; revoked context; many tabs/co-managers; N distinct admitted actors/usernames/scopes spread across independent invocations, each below every local cap",
       "schedule": "Submit duplicate recovery/view demands during failure and after context revocation",
-      "expected": "Duplicate compatible work joins once; distinct demands are bounded only by an explicitly selected aggregate admission policy, currently missing. Target acquisition remains disabled pending that design and its accounting proof. Once qualified, revoked demand stops and fresh independently authorized acquisition can recover expiry without disabling L1 login.",
-      "proof": "Compare actual HTTP starts against the selected aggregate reservation ledger across invocations, not telemetry presence or one-job cardinality alone. No numerical quota pass can be claimed before the policy/owner/accounting is defined.",
+      "expected": "Exact accepted-command replay joins without another HTTP start; a distinct-command unfinished-scope collision is limited without accepting a command alias; distinct demands obey exact shared window/actor/queue/lane caps. D05 hourly recovery stops7days after first loss without failure resets; explicit later demand needs fresh admission/active association. L1 authentication remains independent.",
+      "proof": "Run AA-P03..AA-P08 with real restricted roles across processes, comparing transport starts to charged permit ledger and exact window limits. Observe all caches/fallbacks/retries/hosts. Virtual-clock recovery/deadline tests establish D05, not telemetry presence alone.",
       "status": "specified_not_executed"
     },
     {
@@ -1027,8 +1031,8 @@
       "id": "BS-O12",
       "method": "Follow CAS/renewal concurrent writers",
       "fixture": "Following revision r; two mapping revisions; concurrent newer unfollow",
-      "schedule": "Pause renewal then commit unfollow; repeat absent follow; race two renewal selectors",
-      "expected": "Unfollow tombstone wins, no discovered/absent follow created; selection cannot use stale mapping; D04/D05 side effect count zero",
+      "schedule": "Pause renewal then commit unfollow; repeat absent follow; race two renewal selectors; cross120s view lease,30min zero-routine-demand, hourly recovery and7day first-loss boundaries; include failure/crash and later explicit recovery",
+      "expected": "Newer unfollow wins; renewal cannot use stale mapping; D04 loss suspends effective following without erasing intention, fresh eligible regain resumes only latest intention; D05 stops routine polling after30min zero routine demand while preserving shared history. Concurrent bounded recovery/import does not reset the cooldown or restore routine polling; recovery failures never restart the7day first-loss clock.",
       "proof": "Inspect preference history/current tuple and selection rows; explicit event list, not UI label only.",
       "status": "specified_not_executed"
     },
@@ -1037,7 +1041,7 @@
       "method": "Crash injection at commit boundaries",
       "fixture": "Accepted input, pending materialization, claim/lease, restart; separate pinned auth A and noninteractive HTTP account B plus concurrent revoker R",
       "schedule": "Crash before acceptance, before commit, after commit before acknowledge, during final read commit; release/lose A after B dispatch but before B outcome, permit R to proceed, then allow B to finish; repeat unknown commit and committed-account/failed-auth acknowledgement",
-      "expected": "Atomic acceptance/pending work and idempotent restart; uncertain reader sends no protected data. Commands never claim rollback from transport failure or failed acknowledgement; retained identity reconciles under fresh auth. Mutation activation remains blocked until the A/B/R lifetime schedule has a selected database-enforced proof and then passes runtime qualification.",
+      "expected": "Atomic accepted-work/demand audit/job commits and explicit idempotent reconciliation. Unknown commit is never called rollback. B own auth locks prevent the former A/B/R gap; unknown permit stays charged/quarantined. Runtime must confirm AA-P01/06, not merely suppress responses.",
       "proof": "Compare canonical identity/receipt counts, pending checkpoint and immutable hashes across restart.",
       "status": "specified_not_executed"
     },
@@ -1055,7 +1059,7 @@
       "method": "Adversarial helper privilege and scope matrix",
       "fixture": "Actual proposed helpers deployed only in isolated guarded harness, every restricted role and two actors/audiences; temporary shadow names and malicious tuple inputs",
       "schedule": "Call each helper as PUBLIC/unrelated worker/account/auth roles; probe ill-shaped and cross-actor/audience receipt values, extra keys, mismatched actor/login bindings, search_path shadowing, expired budget, direct source UPDATE and direct auth SELECT. Submit a forged receipt through every HTTP/queue entry to prove it cannot enter the trusted bridge. Concurrent legitimate read establishes denial-of-service budget.",
-      "expected": "Only exact allowlisted role/signature invocation operates on trusted server-resolved scope; forbidden direct grants remain absent; malformed or mismatched fields reject. No arbitrary query/read/write, helper privilege escalation or transaction-surviving actor context. Failed or timed-out call returns no protected data. Compromise of the trusted account credential is excluded by BS-R03, not falsely tested as prevented.",
+      "expected": "Only exact allowlisted role/signature invocation operates on trusted server-resolved scope; forbidden direct grants remain absent; malformed or mismatched fields reject. No arbitrary query/read/write, helper privilege escalation or transaction-surviving actor context. Failed or timed-out call returns no protected data. Compromise of the trusted account credential is excluded by BS-R03, not falsely tested as prevented. Every application role is denied the two operator helpers even with forged GUCs/SET ROLE attempts; authenticated migration-owner execution alone passes its role branch. No public-evidence dispute gets an operator takeover exception.",
       "proof": "Catalog privilege/owner/search_path evidence plus role-specific result and mutation inspection; do not infer security from application return status alone.",
       "status": "specified_not_executed"
     }
@@ -1083,11 +1087,11 @@
         "v5.0.0-2.3.2",
         "v5.0.0-2.4.1"
       ],
-      "decision": "open-design-gate",
+      "decision": "selected-design",
       "controls": [
         "BS-C03"
       ],
-      "reason": "No source-backed aggregate per-actor/global acquisition limit or reservation authority is established. Coalescing/local caps/telemetry do not satisfy the changed-surface business-limit requirements; target acquisition activation is blocked."
+      "reason": "Explicit peractor/global and lane budgets, durable admission, no-refund permit accounting and overload behavior are selected; actual effectiveness and full workload remain qualification."
     },
     {
       "ids": [
@@ -1108,12 +1112,12 @@
         "v5.0.0-7.2.1",
         "v5.0.0-7.4.1"
       ],
-      "decision": "partial-design-open",
+      "decision": "inherited-and-adapted",
       "controls": [
         "BS-C01",
         "BS-C06"
       ],
-      "reason": "Maintained verification and guarded read delivery are allocated. Target command live-auth lifetime through account commit remains open; the nominal receipt/client-held auth proposal does not prove safe coordinator-loss behavior."
+      "reason": "Maintained session validation plus same-B live user/session/admission locks and exact token/email digests; termination ordering survives coordinator loss by database ownership."
     },
     {
       "ids": [
@@ -1140,7 +1144,7 @@
         "v5.0.0-8.3.3",
         "v5.0.0-8.4.1"
       ],
-      "decision": "partial-design-open",
+      "decision": "selected-design",
       "controls": [
         "BS-C01",
         "BS-C04",
@@ -1149,7 +1153,7 @@
         "BS-C07",
         "BS-C13"
       ],
-      "reason": "Read consumer-specific decisions and immutable adverse dominance are specified. Command authority lifetime and discovery/recovery admission remain open G4/G5 obligations; shared worker permission cannot substitute for user authority."
+      "reason": "Originator-scoped durable commands and same-B final authority; independent worker credential cannot grant user permission. Historical adverse evidence survives policy suspension."
     },
     {
       "ids": [
@@ -1192,7 +1196,7 @@
     },
     {
       "scope": "ASVS v5.0.0-8.4.2 administrative interface, 2.3.5 multi-user approval and 2.4.2 human-timing challenges",
-      "disposition": "No new administrative UI or sensitive transfer operation. Do not invent MFA, multiple approval or CAPTCHA policy. Privileged operators remain separately authorized; first-slice aggregate anti-amplification design remains open under BS-C03."
+      "disposition": "No new administrative UI, multiple-approval or CAPTCHA requirement is inferred. D03 explicitly selects fresh-login own release and locked unsupported disputes. Shared acquisition limits and exact owner interfaces are selected; no full ASVS level/certification claim."
     },
     {
       "scope": "ASVS V16 inventory, sink, retention and alerting details",
@@ -1203,7 +1207,7 @@
     {
       "id": "BS-R01",
       "risk": "A public username claim does not prove real-world control; an admitted malicious claimant can squat an unclaimed account.",
-      "disposition": "Preserve approved user-asserted model. No automatic displacement or new ownership proof. D03 blocks public exclusive-claim launch; operator decisions cannot be invented by implementation."
+      "disposition": "D03 selects fresh-login own release; unsupported disputes remain locked without incumbent release or implemented independent control proof. Initial association stays explicitly user-asserted."
     },
     {
       "id": "BS-R02",
@@ -1217,18 +1221,18 @@
     },
     {
       "id": "BS-R04",
-      "risk": "Concurrent guard holders and layered auth/domain connections may exhaust the small pilot pool.",
-      "disposition": "No automatic retry; one bounded final-read attempt and existing deadlines. Pool saturation/failure yields indeterminate; measured contention qualification before activation. No new fleet SLO asserted."
+      "risk": "Same-B cross-schema guard introduces contention and migration-owned capability at a sensitive trust boundary.",
+      "disposition": "Bound locks/timeouts; no automatic final retry; qualify exact owner/search_path/grants, all writers and capacity before activation."
     },
     {
       "id": "BS-R05",
-      "risk": "A separate account HTTP batch may outlive the coordinator and auth transaction that validated its receipt.",
-      "disposition": "OPEN G4/G5: require selected database-enforced live-auth lifetime through account commit. No target mutations activate from the nominal client-held protocol; unknown commit yields safe indeterminate without rollback claim."
+      "risk": "An unknown account commit can leave a durable mutation whose acknowledgement was lost.",
+      "disposition": "Same-B auth locks close the earlier separate-connection authority gap. Keep explicit retained-command reconciliation and safe indeterminate output; actual crash schedules remain unexecuted."
     },
     {
       "id": "BS-R06",
-      "risk": "Distinct lookup/discovery/recovery demands have no demonstrated aggregate admission budget, and discovery/recovery lack exact final command admission interfaces.",
-      "disposition": "OPEN G4/G5: target acquisition stays disabled until existing-owner admission contracts, per-actor/global budgets and atomic accounting are selected and qualified. No invented provider limit or separate acquisition pipeline."
+      "risk": "Provider quota/licensing, full mixed-workload throughput and continuous-worker hosting cannot be guaranteed by plan arithmetic.",
+      "disposition": "Selected shared gate/interfaces/caps are in acquisition-admission-design.md. Qualify all transport sites, future/core coexistence and measured capacity/cost; reduce admitted capacity or revise licensed quota before expansion."
     }
   ],
   "standards": [
@@ -1326,13 +1330,13 @@
       "id": "BS-H03",
       "signature": "public.activate_provider_account_v2(p_provider_account_id uuid,p_lookup_capture_id uuid,p_expected_actor_revision bigint,p_request_id uuid,p_session_receipt jsonb) RETURNS jsonb",
       "caller": "Restricted account role only",
-      "rule": "Trusted actor/request, exact closed live-session receipt and own subject lookup; both exclusive constraints and explicit mutation/audit guards. Return server-only ActivationHelperResult with timing sidecar stripped before public result. No reassignment or ownership proof. Nominal interface; command auth lifetime remains open, so activation is blocked."
+      "rule": "Same-B auth guard and actor/login/request binding, exact nine-field receipt, own subject lookup and both exclusive constraints; audit/idempotency and closed ActivationHelperResult. Strip timing before public result; no implicit reassignment/control proof."
     },
     {
       "id": "BS-H04",
       "signature": "public.select_account_league_season_v2(p_transition jsonb,p_session_receipt jsonb) RETURNS jsonb",
       "caller": "Restricted account role only",
-      "rule": "Exact transition and shared closed live-session receipt, own association, current selection and both mapping revisions; renewal/follow CAS plus explicit new audit/rate adapters. Return server-only SelectionHelperResult, stripping timing before public result. No arbitrary SQL. Command auth lifetime remains open; activation is blocked."
+      "rule": "Same-B auth plus actor/login, closed transition/receipt, mapping/selection/follow CAS and explicit audit/rate participation. Closed SelectionHelperResult; no arbitrary SQL or stale preference resurrection."
     },
     {
       "id": "BS-H05",
@@ -1345,6 +1349,30 @@
       "signature": "public.record_provider_capture_v2(p_input jsonb) RETURNS jsonb",
       "caller": "Existing runtime/job owner only",
       "rule": "Strict exact shape, receipt/lease/purpose and authority-generation checks; capture/evidence acceptance uses existing owner and pending-work boundaries. Existing administration functions retain signatures and receive required guards."
+    },
+    {
+      "id": "BS-H07",
+      "signature": "public.lock_account_session_authority_v2(p_session_receipt jsonb) RETURNS TABLE(session_expires_at timestamptz,admission_epoch_revision bigint,db_sample_at timestamptz,session_created_at timestamptz)",
+      "caller": "league_one_account only",
+      "rule": "Auth-only migration-owned helper inside B. Locks/validates actual auth/epoch and digests, returns safe timing; account layer subsequently binds actor/login. No raw auth grants. See acquisition-admission-design.md for exact receipt and bootstrap treatment."
+    },
+    {
+      "id": "BS-H08",
+      "signature": "public.admit_account_acquisition_v1(p_command jsonb,p_session_receipt jsonb) RETURNS jsonb",
+      "caller": "league_one_account only",
+      "rule": "Closed durable command, same-B authority, own scope, atomic demand/audit/existing-job intent and idempotent result. Exact progress/worker/transport companion signatures are in acquisition-admission-design.md."
+    },
+    {
+      "id": "BS-H09",
+      "signature": "public.disable_app_actor_v1(p_actor_id uuid,p_request_id uuid) RETURNS boolean",
+      "caller": "Existing migration owner only; no application-role EXECUTE",
+      "rule": "Role-authenticated security maintenance; exclusive auth gate then Actor and sorted login locks; active to disabled only, existing operator audit; no user receipt or provider-claim override."
+    },
+    {
+      "id": "BS-H10",
+      "signature": "public.revoke_app_login_identity_v1(p_identity_id uuid,p_request_id uuid) RETURNS boolean",
+      "caller": "Existing migration owner only; no application-role EXECUTE",
+      "rule": "Role-authenticated exact login revocation; exclusive auth gate then Actor and login, immutable actor recheck, existing operator audit; never reassign/reactivate."
     }
   ]
 }

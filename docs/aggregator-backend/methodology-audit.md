@@ -1,5 +1,7 @@
 # Methodology audit of the backend foundation
 
+**Dated audit evidence:** findings below describe the reviewed earlier revision. Current dispositions, delegated decisions and full-build scope are in [backend-build-plan.md](backend-build-plan.md) and [design-completion.md](design-completion.md); this historical record is not the current open-gap list.
+
 **Historical audit of the input design.** The findings and then-open gates below are preserved as dated evidence. The follow-up [design completion and review](design-completion.md) supplies the missing G1–G5 artifacts; [current activity dispositions](methodology-steps.md) and [verification](verification.md) state current evidence. G6/G7 runtime/transition work remains open. Do not reuse this earlier verdict as the current design status.
 
 Audit date: 2026-10-06 UTC (2026-10-05 local). Reviewed input: reconciliation commit `3b4d63cbb4492827f573cf3ad5d301a8cea77acf`; application/source baseline `87da4d0cb909ee280e125e73ad10e1c3dbd7cd9f`. The sole normative entry remains [README](README.md). This report evaluates that design and records corrections; it does not authorize implementation or release.

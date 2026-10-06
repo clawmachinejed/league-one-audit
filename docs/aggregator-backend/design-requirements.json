@@ -4,10 +4,10 @@
   "source_baseline": "87da4d0cb909ee280e125e73ad10e1c3dbd7cd9f",
   "input_commit": "473e32e",
   "authority": "README.md",
-  "status": "candidate_design_gate_open_runtime_unexecuted",
+  "status": "full_build_planned_first_slice_design_reviewed_runtime_unexecuted",
   "design_review": {
-    "status": "candidate_reviewed_design_gate_open",
-    "limits": "Fresh adversarial review corrected additional procedures and semantic/protocol defects. ERD/DDL, shared acquisition admission/interface and failure-safe live command authority overlap remain open design gates. Artifact allocation is not activity completion, stakeholder consensus, target execution or certification.",
+    "status": "reviewed_first_slice_and_full_scope_plan",
+    "limits": "Independent scope, structural/security and adversarial reviews corrected the reported design gaps. Full69-obligation planning allocation and first-slice ERD/DDL/interface specifications are reviewed. Later official/analytics detailed schemas, executable helper bodies, actual SQL/runtime qualification and operations remain required milestone outputs. No certification or production result is claimed.",
     "review_roles": [
       {
         "role": "method_requirements",
@@ -18,7 +18,7 @@
         "scope": "Accepted bounded G1 requirement/model allocation after independent checker and semantic review; retains later qualification limits."
       }
     ],
-    "evidence_ref": "literal-method-audit.md"
+    "evidence_ref": "backend-build-plan.md"
   },
   "source_path_base": "docs/aggregator-backend",
   "sources": [
@@ -213,6 +213,13 @@
       "path": "behavior-security-design.md",
       "anchor": "## Context and ownership",
       "kind": "selected_engineering_design"
+    },
+    {
+      "id": "U01",
+      "path": "backend-decisions.json",
+      "anchor": "direct_user_delegation",
+      "fact": "User delegated full-backend engineering/product-policy decisions; selected D03-D05 and ENG01-ENG08 are not deployed.",
+      "kind": "direct_user_delegation"
     }
   ],
   "owners": [
@@ -10139,7 +10146,7 @@
         "H01"
       ],
       "need": "Private provider authorization and additional fantasy providers",
-      "milestone": "Later provider adapters/access qualification",
+      "milestone": "BC-M6",
       "gate": "Explicit provider-access/product scope plus G4-G7",
       "reason": "First slice uses Sleeper public read-only identification; it neither proves external ownership nor invents future provider behavior.",
       "preserved_by": [
@@ -10155,7 +10162,7 @@
         "H05"
       ],
       "need": "Prior-season browsing",
-      "milestone": "Outside first-slice required scope",
+      "milestone": "BC-M2 compatibility/history qualification; no new prior-season UI required by first slice",
       "gate": "Separate product scope",
       "reason": "The approved handoff explicitly says prior-season browsing is not required now; current completed seasons remain while eligible.",
       "preserved_by": [
@@ -10169,7 +10176,7 @@
         "H06"
       ],
       "need": "Recoverable current-season competitive history, current state and remaining provider-published schedule",
-      "milestone": "Later existing B1-B4/exact-period/transaction/settings import",
+      "milestone": "BC-M2",
       "gate": "Coverage manifest, source qualification and G6-G7",
       "reason": "Current shared teams/held reads form first slice; history must enumerate irrecoverable/unsupported detail rather than fabricate it.",
       "preserved_by": [
@@ -10185,7 +10192,7 @@
         "H07"
       ],
       "need": "League-specific projections, forecasts, win probabilities and projected standings over shared NFL inputs",
-      "milestone": "Later analytics applicability qualification",
+      "milestone": "BC-M3",
       "gate": "Actual rule/slot/competition interpretation and independent feature qualification",
       "reason": "First slice retains settings and official/derived separation; it does not demonstrate support for every scoring or competition rule.",
       "preserved_by": [
@@ -10202,9 +10209,9 @@
         "H09"
       ],
       "need": "500 distinct watched leagues per supported provider with imports/background/retries coexisting",
-      "milestone": "Later capacity qualification",
+      "milestone": "BC-M4",
       "gate": "Measured provider-wide workload, admission and cost criteria",
-      "reason": "No concurrency, cadence, quota or benchmark result is established by this design.",
+      "reason": "ENG02/ENG03 select admission, cadence and concurrency. No benchmark is established; mixed-workload capacity including future work remains required.",
       "preserved_by": [
         "R058",
         "R088"
@@ -10216,9 +10223,9 @@
         "H09"
       ],
       "need": "Approximately 60 seconds of additional L1 score delay",
-      "milestone": "Later end-to-end delay qualification",
-      "gate": "Explicitly accepted measurement criterion plus measured queue/source/acceptance/publication/read delay",
-      "reason": "No unapproved percentile is substituted; polling miss/source visibility uncertainty must be included.",
+      "milestone": "BC-M4",
+      "gate": "Selected ENG03 criterion plus empirical mixed-workload evidence",
+      "reason": "ENG03 selects p95<=60s and p99<=75s with end-to-end measurement including polling miss and unknown provider change time.",
       "preserved_by": [
         "R058",
         "R088"
@@ -10230,7 +10237,7 @@
         "H09"
       ],
       "need": "Approximately $50 monthly supporting-feed target",
-      "milestone": "Later acquisition/cost qualification",
+      "milestone": "BC-M4",
       "gate": "Current price, entitlement, provider terms and workload evidence",
       "reason": "Separate from compute/database/storage cost; no new cost or feed choice authorized.",
       "preserved_by": [
@@ -10245,9 +10252,9 @@
         "H14"
       ],
       "need": "Last-follower collection and retention behavior",
-      "milestone": "D05 affected activation",
-      "gate": "Explicit D05 decision before behavioral change",
-      "reason": "Preserve existing behavior and shared facts; infer neither deletion nor endless collection.",
+      "milestone": "BC-M1 then BC-M4 operation",
+      "gate": "D05 implementation and ENG08 disposal qualification before behavior change",
+      "reason": "D05 selected under direct delegation; zero-demand cooldown and bounded recovery need implementation and privacy/retention qualification.",
       "preserved_by": [
         "R049",
         "R088"
@@ -10261,7 +10268,7 @@
         "H15"
       ],
       "need": "Runtime implementation, migration execution, public website/API cutover and release",
-      "milestone": "Separately authorized implementation/transition",
+      "milestone": "BC-M1 through BC-M5",
       "gate": "Design review then G6/G7 and affected product decisions",
       "reason": "Current work specifies verifiable design; no execution or deployment result follows.",
       "preserved_by": [
@@ -10294,48 +10301,51 @@
     },
     {
       "id": "D03",
-      "status": "open",
+      "status": "selected_not_implemented",
       "source_ids": [
-        "H14"
+        "H14",
+        "U01"
       ],
-      "question": "Mistaken exclusive claim/replacement recovery",
-      "gate": "Before public exclusive-association activation",
-      "current_safe_boundary": "Private-safe conflict; no displacement or ownership-control claim.",
+      "gate": "Selected policy; actual implementation/qualification before activation",
+      "current_safe_boundary": "No automatic displacement; own fresh authenticated release or reviewed implemented provider-control proof; unsupported disputes stay locked.",
       "requirements": [
         "R010",
         "R011",
         "R012",
         "R014"
-      ]
+      ],
+      "decision_ref": "backend-decisions.json"
     },
     {
       "id": "D04",
-      "status": "open",
+      "status": "selected_not_implemented",
       "source_ids": [
-        "H14"
+        "H14",
+        "U01"
       ],
-      "question": "Follow behavior after genuine membership loss and regain",
-      "gate": "Before activating that follow transition",
-      "current_safe_boundary": "Eligibility may recover under qualified evidence; follow restoration is not inferred from recovery.",
+      "gate": "Selected policy; actual implementation/qualification before activation",
+      "current_safe_boundary": "Retained explicit intention; effective follow suspended while ineligible; unchanged intention can resume after fresh qualification; unfollow revision wins.",
       "requirements": [
         "R043",
         "R048",
         "R061"
-      ]
+      ],
+      "decision_ref": "backend-decisions.json"
     },
     {
       "id": "D05",
-      "status": "open",
+      "status": "selected_not_implemented",
       "source_ids": [
-        "H14"
+        "H14",
+        "U01"
       ],
-      "question": "Collection/retention after last follower leaves",
-      "gate": "Before changing that behavior",
-      "current_safe_boundary": "Preserve existing behavior and other users/shared facts; no deletion or unlimited collection inferred.",
+      "gate": "Selected policy; actual implementation/qualification before activation",
+      "current_safe_boundary": "Zero-demand30min cooldown; bounded hourly recovery7days; last follower never deletes shared history or baselines.",
       "requirements": [
         "R049",
         "R088"
-      ]
+      ],
+      "decision_ref": "backend-decisions.json"
     }
   ],
   "field_catalog": [

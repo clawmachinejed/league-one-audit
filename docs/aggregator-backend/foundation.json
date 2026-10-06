@@ -1,6 +1,6 @@
 {
   "version": "backend-foundation-v1",
-  "status": "reconciled_target_not_implemented",
+  "status": "selected_first_slice_design_full_build_planned_runtime_unexecuted",
   "date": "2026-10-05",
   "baseline": "87da4d0cb909ee280e125e73ad10e1c3dbd7cd9f",
   "authority": "README.md",
@@ -23,23 +23,7 @@
     ],
     "approval_evidence": "evidence/backend-policy-register.json"
   },
-  "open_decisions": [
-    {
-      "id": "D03",
-      "decision": "Mistaken exclusive claim/replacement recovery",
-      "gate": "Before public exclusive-association launch; conflict returns no competing identity; no automatic replacement"
-    },
-    {
-      "id": "D04",
-      "decision": "Follow behavior after genuine membership loss and regain",
-      "gate": "Before activating that transition; do not infer follow restoration from regained eligibility"
-    },
-    {
-      "id": "D05",
-      "decision": "Retention and collection after last follower leaves",
-      "gate": "Before activating last-follower collection/retention changes; do not infer deletion or endless collection"
-    }
-  ],
+  "open_decisions": [],
   "sources": [
     {
       "id": "identity",
@@ -433,7 +417,7 @@
           "requiredSeasons",
           "integer[]",
           "qualified discovery strategy + retained current selections",
-          "Explicit sorted unique query set, not universal current-year filter"
+          "Explicit sorted unique current provider NFL league_season plus prior2 and retained selection years; scope complete never universal"
         ],
         [
           "completedSeasons",
@@ -463,7 +447,7 @@
           "strategyVersion",
           "string",
           "qualified adapter discovery strategy",
-          "Cold-start coverage remains an explicit implementation qualification gate"
+          "ENG04 selected finite strategy; retained-source and unrelated-league qualification required before activation"
         ]
       ]
     },
@@ -766,7 +750,7 @@
           "carryoverRef",
           "Ref|null",
           "Renewal + captured preference revision",
-          "Only qualified renewal; D04 genuine loss/regain remains open"
+          "Only qualified renewal; D04 preserves explicit intention while effective following depends on current eligibility"
         ]
       ]
     },
@@ -1231,19 +1215,19 @@
           "lookupRequestId",
           "Id",
           "IdentityLookupScope.lookupRequestId",
-          "Idempotent scoped lookup request"
+          "Idempotent private status handle; every read binds originating actor and current authority"
         ],
         [
           "status",
-          "identified|unavailable|invalid",
+          "pending|identified|unavailable|invalid",
           "validated provider lookup",
-          "No empty/fabricated account on failure"
+          "Pending is durable queued work; no empty/fabricated account on failure"
         ],
         [
           "account",
           "ProviderAccount|null",
           "validated /user response",
-          "Required only when identified; stable native key survives username change"
+          "Required only when identified; null while pending; stable native key survives username change"
         ],
         [
           "evidenceRef",
@@ -1255,7 +1239,7 @@
           "reason",
           "string|null",
           "adapter validation",
-          "Stable reason; null on success; no conflicting L1 actor disclosed"
+          "Stable reason; queued while pending, null on success; no conflicting L1 actor disclosed"
         ]
       ]
     },
@@ -1525,6 +1509,23 @@
     {
       "id": "FS22",
       "pass": "Same-content fresh qualified network observation may advance verification; late older attempts cannot; accepted correction may decrease official value without altering frozen baselines"
+    }
+  ],
+  "selected_decisions": [
+    {
+      "id": "D03",
+      "status": "selected_not_implemented",
+      "evidence": "backend-decisions.json"
+    },
+    {
+      "id": "D04",
+      "status": "selected_not_implemented",
+      "evidence": "backend-decisions.json"
+    },
+    {
+      "id": "D05",
+      "status": "selected_not_implemented",
+      "evidence": "backend-decisions.json"
     }
   ]
 }

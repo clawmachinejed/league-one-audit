@@ -1,5 +1,7 @@
 # Literal-method audit and corrected readiness
 
+**Dated audit evidence:** findings below describe the reviewed earlier revision. Current dispositions, delegated decisions and full-build scope are in [backend-build-plan.md](backend-build-plan.md) and [design-completion.md](design-completion.md); this historical record is not the current open-gap list.
+
 Audit date: October 6, 2026 UTC. Audited documentation input: `7694502ab5a70c6e858780515bef8c20ef5267f6`. Application/source baseline: `87da4d0cb909ee280e125e73ad10e1c3dbd7cd9f`. This record supersedes the earlier G1–G5 completion claim. It is a documentation and design audit, not runtime qualification or certification.
 
 ## Verdict

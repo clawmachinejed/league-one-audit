@@ -1,25 +1,34 @@
-# Candidate design review and open completion gates
+# Backend planning and design gate evidence
 
-**Current verdict: design gate open.** The [fresh literal-method audit](literal-method-audit.md) supersedes the earlier G1–G5 closure claim in this record. Reviewed artifacts exist, but the ER diagram, end-design DDL specification, shared request admission, its guarded account-to-worker interface and failure-safe live command authority overlap remain missing selected design outputs. The corrections and open evidence are enumerated in the audit.
+**Current status: full planning allocation and first-slice design review complete at the stated scope.** Full planning scope is 69 obligations across 20 domains with 16 existing owner roles,16 need anchors,11 selected decisions and 7 implementation milestones. These are allocations of the known approved scope, not a certification that all future requirements or implementation defects are known.
 
-
-Design revision: **first-slice-design-v1**, 2026-10-06 UTC. Reviewed application baseline: `87da4d0cb909ee280e125e73ad10e1c3dbd7cd9f`; starting documentation commit: `473e32e`. The exact deliverable commit is recorded by its Git/PR and portable manifest, avoiding a self-referential commit identifier inside the commit. [README](README.md) remains the sole entry point.
-
-This record preserves the candidate design and earlier review history. The fresh audit corrected additional contradictions and reopened missing design outputs. The [181-row inventory](methodology-steps.md) now distinguishes literal source activities, authored evidence and remaining work. No installed enforcement, completed method or industry certification is implied.
+The earlier literal audit correctly identified missing first-slice ERD, structural DDL, provider admission, durable account-to-worker interface and safe command authority lifetime. Those design artifacts are now supplied. The user explicitly delegated outstanding policy decisions; D03-D05 are selected in [backend-decisions.md](backend-decisions.md), with original evidence preserved. [The full build plan](backend-build-plan.md) states exactly which later outputs and empirical evidence remain missing and why.
 
 ## Design gate evidence
 
-| Gate | Candidate artifact evidence | Remaining design / qualification |
+| Gate | Current planning/design evidence | Remaining work |
 | --- | --- | --- |
-| G1 — requirements and verification plan | [108 atomic obligations and independent procedures](requirements-traceability.md), approved-need anchors, existing owner allocation, concrete design elements and forward/reverse coverage of all 135 fields, 26 record constraints, 25 named types and 22 acceptance families; explicit later-need and product-decision dispositions | Procedures are specified, not executed. Product/user validation, empirical source completeness and implementation results remain G6/G7 |
-| G2 — composed behavior | [State, context, trust, interface and sequence models](behavior-security-design.md): independent state dimensions, 18 transitions, five composed scenarios, precise inputs/guards/commit boundaries/failures/recovery and the final stored-delivery protocol | Actual end-to-end service, competing transactions, role enforcement and request-byte behavior remain G6 |
-| G3 — architecture quality and decisions | [12 refined quality scenarios, eight alternative decisions and residual risk owners](quality-operations.md), including expiry, races, sharing, partial data, recovery and later capacity | Priorities derive from approved needs; no stakeholder workshop, voting, performance measurement or new SLO is represented as completed |
-| G4 — logical and physical design | [Relational design](relational-design.md) and [structured model](relational-design.json): logical keys/FDs/decompositions, explicit document/projection exceptions, cardinalities and scope integrity, all 135 storage/derivation mappings, candidate constraints/indexes/functions/grants, mutator inventory and lock schedules | **Open design:** ERD, exact DDL, shared acquisition admission/interface and server-enforced auth/account command overlap. Later real catalog, hostile-role/concurrency/crash, conflict, query-plan and migration evidence remains G6/G7 |
-| G5 — security and operating evidence | [13 changed-surface controls and 15 adversarial oracles](behavior-security-design.md), selected versioned ASVS references with exclusions and residual risks; [typed diagnostic contract, retention ceiling, six operating procedures and transition/rollback plan](quality-operations.md) | **Open design:** aggregate acquisition admission and failure-safe live command authority. Later effectiveness, sink permissions/expiry/detection, recovery, user journeys and release evidence remains G6/G7 |
-| G6 — implementation qualification | Test methods, fixtures, oracles, writer schedules and guarded-harness entry conditions are specified | **Open: target runtime implementation and execution have not occurred** |
-| G7 — transition and operation | Migration/cutover/rollback/observability/release plan is specified, with explicit stop conditions and authority boundaries | **Open: no target activation, migration execution or production release has occurred** |
+| G1 — needs and verification plan |108 detailed first-slice requirements/cases plus 69 full-build obligations; source, owner, data meaning, decision, phase, dependencies and acceptance allocation | Later slice detailed requirements/fields remain mandatory BC-M2/3 outputs; target procedures unexecuted |
+| G2 — behavior and interfaces | State/trust/transition models, private pending identification, same-transaction receipt guard, closed command/progress/worker interfaces | Implement and execute normal, hostile, crash and recovery paths |
+| G3 — quality and policy |12 first-slice scenarios; D03-D05 and ENG01-ENG08 chosen; measurable freshness/read/restore targets, bounded demand and retention, explicit capacity deficit and cost/source gates | Empirical capacity/cost, intended-use validation, staffing, source license and commercial quota |
+| G4 — data and transaction design | Four detailed ER diagrams;44 declared logical relations;22 proposed table definitions and 9 existing-table adaptations; exact helper/privilege/guard contracts and field mappings | Actual PostgreSQL parsing/install/role/constraint/NULL/lock proof and later family schemas |
+| G5 — security and operating plan | Same committing transaction owns authority; owner-authenticated operator disable/revoke; global admission and per-actor limits; threat/control/oracle/retention/observability plans | Implemented effectiveness, real-role hostile tests, all-callsite convergence and operating drills |
+| G6 — implementation qualification | Exact case plans and guarded isolated harness conditions | **Open: target runtime, executable helper bodies/migrations and execution results are absent** |
+| G7 — transition and operation | Full mixed-load, migration, rollback, backup/restore, privacy and release sequence | **Open: no target migration, production configuration, merge or release performed** |
 
-G1–G5 describe candidate artifacts with the current open gates above; they are not fully closed. G6/G7 cannot be closed by document checks, simulated SQL or a clean build of the unchanged application. D03 exclusive-claim recovery remains a public activation gate; D04 loss/regain follow behavior and D05 last-follower collection/retention remain gates for their affected behavior. Internal design/qualification does not silently resolve them.
+## Three-pass review and corrections
+
+| Pass | Independent comparison | Findings and disposition |
+| --- | --- | --- |
+|1 — scope/requirements | Approved mission, handoff, current consumers and lifecycle against full coverage | Added full official/analytics families, prior-season coverage, privacy export/deletion/disposal, visible latency and operating ownership;69 obligations now allocated |
+|2 — design/security | Foundation, relational model, baseline auth source, admission, policy and operating text | Replaced separate-transaction authority with same-B locks; durable scoped admission; restored seven-day diagnostic ceiling; recovery/import demand cannot keep routine polling alive; pending handle equals identify demand ID |
+|3 — adversarial structural review | Actual baseline migrations versus proposed SQL/ERD/helper privileges, plus failure schedules | Found final NOT NULL/scoring changes only in comments, ambiguous composite UK labels and blocked operator disable/revoke under a universal user-session guard. Final structural ALTER statements, composite annotations and owner-only operator helpers now replace those defects; independent correction review and offline checks confirm the saved specifications |
+
+Mechanical checks are a separate aid: declared key/FD/decomposition analysis, source/hash/link/field consistency and full planning allocation/budget/schema inventory. They cannot substitute for the independent findings above. No PostgreSQL parser was available in the current runtime; the design SQL was not executed. All target runtime cases remain unexecuted.
+
+## Historical earlier review record
+
+The following earlier review describes previous revisions. Its historical reopened-gap statements are superseded by the current table above, the selected decision register and the final full-build verification receipt. It is retained to preserve why the earlier completion claim was corrected.
 
 ## Review method and corrections
 
@@ -59,14 +68,17 @@ The method follows the [NASA logical-decomposition process](https://www.nasa.gov
 
 ## Verification and delivery boundary
 
-Run both offline checkers from the repository root:
+Run all three offline checkers from the repository root:
 
 ```text
 python docs/aggregator-backend/verify_foundation.py
 python docs/aggregator-backend/verify_design.py
+python docs/aggregator-backend/verify_backend_plan.py
 git diff --check
 ```
 
 The generated analysis states exact current counts. Key closure and lossless-decomposition checks are mathematical analyses of the declared finite model. Source anchors are literal evidence-location checks. Neither proves that an omitted real-world dependency is absent; the independent semantic review is separate evidence. No environment files, database credentials, production data or provider calls are needed.
 
 Publication/preview/CI status is recorded separately in [verification](verification.md) and the portable completion receipt. The ordinary application checks, if run by PR CI, validate the unchanged application; they do not execute the new target procedures. The original external Ground up folder stays preserved, and a new exact committed portable snapshot supersedes earlier review snapshots without rewriting them.
+
+Final protocol review also corrected cross-command join idempotency, duplicate send-capable permits, retry reconstruction from a hash, fresh source-attempt reservation and late429 feedback. Immutable typed request context and once-only feedback refinement now have matching contract, model, SQL and diagram fields. The remaining helper bodies and real interleaving proof belong to implementation; no target runtime case was executed.

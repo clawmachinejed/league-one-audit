@@ -1,9 +1,9 @@
 {
-  "version": "relational-design-v1",
-  "status": "candidate_design_gate_open_not_implemented",
-  "source_head": "473e32e",
+  "version": "relational-design-v2",
+  "status": "selected_design_not_implemented",
+  "source_head": "e2a37d9",
   "foundation_version": "backend-foundation-v1",
-  "scope": "First-slice design only; no executable migration or runtime modifications",
+  "scope": "Selected first-slice schema and whole-product ownership plan; design SQL is not a migration or runtime proof",
   "field_mapping": [
     {
       "field": "Actor.id",
@@ -729,7 +729,7 @@
         "RD12"
       ],
       "storage_or_derivation": "proposed app_user_leagues.carryover_renewal_id or NULL",
-      "null_unknown_rule": "Only qualified renewal; D04 genuine loss/regain remains open"
+      "null_unknown_rule": "Only qualified renewal; D04 resumes unchanged retained intent only after fresh eligibility"
     },
     {
       "field": "Renewal.id",
@@ -1283,8 +1283,8 @@
         "RD04",
         "RD17"
       ],
-      "storage_or_derivation": "provider_request_attempts.request_id for identity lookup",
-      "null_unknown_rule": "Idempotent scoped lookup request"
+      "storage_or_derivation": "app_acquisition_demands.id allocated atomically for identify; same logical ID in SourceRequestScope.lookupRequestId and provider_request_attempts.request_id across retries",
+      "null_unknown_rule": "Pending has a real own admitted demand ID before any worker attempt; no invented attempt or freshness"
     },
     {
       "field": "IdentifyProviderAccountResult.status",
@@ -1399,7 +1399,7 @@
   ],
   "policies": {
     "D02_seconds": 3600,
-    "D03_D04_D05": "open at existing activation gates",
+    "D03_D04_D05": "selected in backend-decisions.json; implementation and activation evidence remain required",
     "automatic_final_read_retry": false,
     "account_isolation": "ReadCommitted",
     "auth_lock": [
@@ -1407,8 +1407,19 @@
       1
     ],
     "new_tables_are_proposed_not_mandatory_contract_records": true,
-    "shared_acquisition_admission": "open_design_G4_G5; existing per-operation limits are not a proved aggregate provider budget",
-    "command_authority_handoff": "open_design_G4_G5; client-held separate auth transaction and captured receipt do not prove crash-safe overlap through account commit"
+    "shared_acquisition_admission": "selected ENG02: same existing provider/job owners, conservative 61-second charge window, fixed lane budgets, no refunds; G6/G7 unqualified",
+    "command_authority_handoff": "selected ENG01: account transaction owns database auth fence through its commit/rollback; nine-field v2 ephemeral receipt, no raw auth grants; G6/G7 unqualified",
+    "auth_receipt_fields": [
+      "sessionId",
+      "subject",
+      "expiresAt",
+      "issuer",
+      "admissionEpochRevision",
+      "configHash",
+      "clockDomain",
+      "admittedEmailDigest",
+      "sessionTokenDigest"
+    ]
   },
   "protocol_ids": [
     "TX01",
@@ -1448,7 +1459,8 @@
       "rules": [
         "Actor 1 : 0..N login identities; each identity belongs to exactly one actor; no reassignment/reactivation; account status and login authority remain independent of provider failure.",
         "Add BEFORE STATEMENT actor-lock guard to existing account mutators for user transactions; preserve all current row guards, RLS, audit, request context and ReadCommitted-only rate checks.",
-        "Extend the existing audit subject enum/trigger owner narrowly for app_current_league_selections and app_league_renewals with the explicit TX08 subject/actor mapping. Keep old subject handling and the shared 60-event/60-second guard; do not claim unchanged triggers cover new tables."
+        "Extend the existing audit subject enum/trigger owner narrowly for app_current_league_selections and app_league_renewals with the explicit TX08 subject/actor mapping. Keep old subject handling and the shared 60-event/60-second guard; do not claim unchanged triggers cover new tables.",
+        "Preserve owner-only disable/login revoke via purpose-specific helpers and authenticated migration-owner session branch: exclusive auth gate before Actor/login, required operator audit, no browser receipt or GUC skip. Authenticated resolver login INSERT has shared auth statement guard plus NEW row binding; operator UPDATE/DELETE participates explicitly."
       ],
       "owner": "Existing account store and migration-owned guards"
     },
@@ -1468,8 +1480,9 @@
         "User 1 : 0..N sessions; no account/runtime auth-table privileges. Admission hash covers sorted invited identities, issuer, application origin and credential-verification configuration version, without storing secret values.",
         "Auth handler configuration must match the active epoch; deployments that mismatch return unavailable. Operator activation under exclusive existing auth gate changes epoch; secret rotation/config rollout is separately authorized, not executed here.",
         "Auth and account database connections must prove the same database/clock domain for this selected first-slice protocol; otherwise stored target reads are indeterminate and sign-in remains independent.",
-        "Auth session/user/admission mutators take exclusive advisory (19740517,1) before row locks; triggers protect direct writes. Final auth bridge holds shared gate and exact rows until domain decision completes.",
-        "For target commands, the proposed client-held auth bridge is insufficient if its coordinator exits while the HTTP account transaction continues. G4-COMMAND-AUTHORITY-HANDOFF requires database-enforced live authority through commit before activation; no new broad cross-role grants are selected."
+        "The same account ReadCommitted transaction acquires shared auth gate and epoch/user/session row locks via public.lock_account_session_authority_v2(jsonb), before domain locks, and owns them through its own commit/rollback. No coordinator-held second transaction is needed.",
+        "Nine-field v2 receipt adds exact-email and exact-token SHA256 digests after existing Better Auth and invitation validation. Both remain ephemeral; database checks unchanged values, emailVerified and exact session/epoch/expiry. No raw auth table or schema grants to account/runtime.",
+        "The auth-only helper precedes actor/login binding. Every protected read/mutation, legacy direct-DML statement guard and unchanged login resolver joins the protocol; authenticated bootstrap binds identity after owner-only creation. See ENG01 and proposed-schema.sql."
       ],
       "owner": "Existing Better Auth wrapper and restricted league_one_auth connection; epoch activation is operator-only"
     },
@@ -1496,13 +1509,14 @@
       "name": "Pre-enrollment request/evidence",
       "status": "new-extension",
       "storage": "proposed provider_request_attempts; provider_capture_receipts; provider_identity_evidence",
-      "columns": "attempts(id UUID PK,request_id UUID NOT NULL,access_context_id UUID NOT NULL FK,access_revision BIGINT NOT NULL,scope JSONB NOT NULL,ordinal BIGINT NOT NULL CHECK >0,reserved_at TIMESTAMPTZ NOT NULL,job_key TEXT NULL FK projection_jobs,lease_owner TEXT NULL,lease_until TIMESTAMPTZ NULL,job_attempt_count INT NULL,request_payload JSONB NOT NULL,normalizer_version TEXT NOT NULL,validation_version TEXT NOT NULL); UNIQUE(request_id,ordinal). captures(id UUID PK,attempt_id UUID UNIQUE NOT NULL FK,origin TEXT NOT NULL,outcome TEXT NOT NULL,raw_value JSONB NULL,normalized_value JSONB NULL,normalizer_version TEXT NOT NULL,validation_version TEXT NOT NULL,request_started_at TIMESTAMPTZ NULL,request_completed_at TIMESTAMPTZ NULL,source_observed_at TIMESTAMPTZ NULL,normalized_at TIMESTAMPTZ NULL,checked_at TIMESTAMPTZ NOT NULL,coverage JSONB NOT NULL,provider_account_id UUID NULL FK). identity_evidence(id UUID PK,manager_id UUID NOT NULL FK,kind TEXT CHECK IN('lookup','qualified-role'),lookup_capture_id UUID NULL FK captures,manager_acceptance_id UUID NULL FK league_roster_resource_acceptances,CHECK exactly one reference agrees with kind).",
+      "columns": "attempts(id UUID PK,request_id UUID NOT NULL,access_context_id UUID NOT NULL FK,access_revision BIGINT NOT NULL,policy_qualification_id UUID NOT NULL FK,policy_qualification_revision BIGINT NOT NULL CHECK >0,scope JSONB NOT NULL,ordinal BIGINT NOT NULL CHECK >0,reserved_at TIMESTAMPTZ NOT NULL,job_key TEXT NULL captured reference projection_jobs,lease_owner TEXT NULL,lease_until TIMESTAMPTZ NULL,job_attempt_count INT NULL,request_payload JSONB NOT NULL,normalizer_version TEXT NOT NULL,validation_version TEXT NOT NULL); UNIQUE(request_id,ordinal). captures(id UUID PK,attempt_id UUID UNIQUE NOT NULL FK,origin TEXT NOT NULL,outcome TEXT NOT NULL,raw_value JSONB NULL,normalized_value JSONB NULL,normalizer_version TEXT NOT NULL,validation_version TEXT NOT NULL,request_started_at TIMESTAMPTZ NULL,request_completed_at TIMESTAMPTZ NULL,source_observed_at TIMESTAMPTZ NULL,normalized_at TIMESTAMPTZ NULL,checked_at TIMESTAMPTZ NOT NULL,coverage JSONB NOT NULL,provider_account_id UUID NULL FK). identity_evidence(id UUID PK,manager_id UUID NOT NULL FK,kind TEXT CHECK IN('lookup','qualified-role'),lookup_capture_id UUID NULL FK captures,manager_acceptance_id UUID NULL FK league_roster_resource_acceptances,CHECK exactly one reference agrees with kind).",
       "keys": [
         "attempt PK id; alternate(request_id,ordinal); capture PK id; alternate attempt_id; identity evidence PK id; partial unique(manager_id,lookup_capture_id) and (manager_id,manager_acceptance_id); qualified lookup identity evidence UNIQUE(lookup_capture_id) WHERE kind='lookup'"
       ],
       "functional_dependencies": [
         "attempt.id -> request_id,scope,context,ordinal,reserved_at,fence; capture.id <-> attempt_id; capture.id -> all receipt values; identity_evidence.id -> manager_id,kind,typed source",
-        "request_id -> reserved normalizer_version,validation_version as part of the immutable request policy; capture copies those intended versions even if no normalization ran"
+        "request_id -> reserved normalizer_version,validation_version as part of the immutable request policy; capture copies those intended versions even if no normalization ran",
+        "request_id -> policy_qualification_id,policy_qualification_revision; captured historical revision is not a foreign key to mutable registry revision"
       ],
       "rules": [
         "Context 1:0..N attempts; attempt 1:0..1 capture; manager 1:0..N identity evidence. Captures/identity evidence immutable; FK deletes RESTRICT.",
@@ -1512,7 +1526,10 @@
         "All attempts sharing request_id have identical context ID/revision and exact scope; reserve under advisory lock over typed request_id, compare existing reservation, and reject any mismatch. A lookup capture resolves one manager only, enforced by partial unique lookup_capture_id.",
         "Job fence columns are all null for foreground requests or all present with job_key and attempt_count>0 for scheduler work. They copy the actual projection_jobs claim and are compared on capture. Typed immutable request_payload holds purpose/lookup/association/scan/list identity, excludes per-attempt work fields, and must agree across request_id. No invented lease_generation exists.",
         "Every reservation pins an exact currently qualified intended normalization policy tuple for its purpose/scope in normalizer_version and validation_version. It is immutable across attempts for the same request ID and compared on idempotent reservation; another policy requires a new request ID. It describes intended interpretation, never proof that normalization occurred.",
-        "Qualified/unqualified response version fields must equal the reserved policy. Transport failure copies the reserved versions, stores NULL raw/normalized/source-observation/normalization values, and derives explicit observed-none coverage from the reserved coverageSpecId: unknown completeness/entity set/pagination, empty observed fields/periods/role groups, NULL interval/cursor/population reference and only the fixed transport reason. Failure never selects a later current policy or asserts an empty complete resource."
+        "Qualified/unqualified response version fields must equal the reserved policy. Transport failure copies the reserved versions, stores NULL raw/normalized/source-observation/normalization values, and derives explicit observed-none coverage from the reserved coverageSpecId: unknown completeness/entity set/pagination, empty observed fields/periods/role groups, NULL interval/cursor/population reference and only the fixed transport reason. Failure never selects a later current policy or asserts an empty complete resource.",
+        "Pre-enrollment policy qualification is pinned by ID/revision before reservation and rechecked at dispatch and acceptance; missing/suspended/revised policy fails closed without inferred enrolled scope IDs.",
+        "Historical job keys and lease values are validated live at use but carry no permanent FK to lifecycle projection_jobs rows; this preserves existing job cleanup without weakening immutable source evidence.",
+        "For identify, the admitted demand UUID is the logical lookupRequestId before worker reservation; identity attempts reuse that request_id across retries. Source attempt/capture UUIDs remain separate. No fabricated pending attempt is required."
       ],
       "owner": "Existing onboarding/administration owner through proposed typed branches"
     },
@@ -1540,7 +1557,7 @@
       "id": "RD06",
       "name": "Acquisition context",
       "status": "new-extension",
-      "storage": "proposed provider_access_contexts",
+      "storage": "proposed provider_access_contexts; proposed provider_request_gates; provider_request_lane_limits; provider_http_permits",
       "columns": "id UUID PK,provider TEXT NOT NULL,audience_id TEXT NOT NULL,state TEXT CHECK IN('active','revoked','unavailable'),revision BIGINT NOT NULL CHECK >0,authority_expires_at TIMESTAMPTZ NULL,kind TEXT CHECK IN('public','private').",
       "keys": [
         "PK id; unique(provider,audience_id,kind) for the single public context; private context uniqueness not inferred"
@@ -1550,7 +1567,10 @@
       ],
       "rules": [
         "Context 1:0..N attempts; acquisition does not grant serving. Public context may have NULL authority expiry; private active context requires evidenced non-null expiry or a separately qualified explicit lifetime policy, never NULL means unlimited.",
-        "No new credential store; future private credential references remain with the future provider grant owner. State/revision writes use context row lock and increment revision; no effect on app_users."
+        "No new credential store; future private credential references remain with the future provider grant owner. State/revision writes use context row lock and increment revision; no effect on app_users.",
+        "ENG02 adds exact provider/lane gate and immutable charge/dispatch permit with bounded mutable completion. Existing acquisition owner covers every actual HTTP start, including retries/redirects and legacy paths; no parallel queue/feed.",
+        "Selected Sleeper lane grants per conservative 61-second window: live-score 680, role-roster 55, transactions 100, metadata 20, interactive 15, import 15, retry 15; total 900, no borrowing. Global logical ownership 32, interactive 8, target actor 1; actor <=5/61s and60/3601s; allHTTP5s, dispatch1s, unknown quarantine60s, no refunds. These are design limits, not measured remote-provider concurrency.",
+        "Every permit stores closed immutable request_context with original target/existing origin, exact tagged pre-enrollment/enrolled source and resolved context/audience/mapping. Hash alone cannot reconstruct retry scope. Source-backed retry reserves a new attempt under the same logical source; response_observed_at records late HTTP feedback without changing original charge/deadlines/completed_at or accepting late source data. Duplicate requestId never returns a send-capable grant."
       ],
       "owner": "Existing source acquisition authority/configuration"
     },
@@ -1559,7 +1579,7 @@
       "name": "Discovery checkpoint and receipts",
       "status": "new-extension",
       "storage": "proposed app_discovery_scans; app_discovery_scan_seasons; app_discovery_candidates",
-      "columns": "scans(id UUID PK,association_id UUID NOT NULL FK,association_revision BIGINT NOT NULL,strategy_version TEXT NOT NULL,query_set_hash TEXT NOT NULL,status TEXT NOT NULL,continuation JSONB NULL,revision BIGINT NOT NULL CHECK >0,job_key TEXT NULL FK,finished_at TIMESTAMPTZ NULL). seasons(scan_id UUID FK,season SMALLINT CHECK 1920..2200,status TEXT NOT NULL,list_capture_id UUID NULL FK,PRIMARY KEY(scan_id,season)). candidates(scan_id UUID FK,source_season_namespace TEXT,native_league_id TEXT,season SMALLINT,sport TEXT CHECK='nfl',list_capture_id UUID FK,candidate_capture_id UUID NULL FK,PRIMARY KEY(scan_id,source_season_namespace,native_league_id,list_capture_id)).",
+      "columns": "scans(id UUID PK,association_id UUID NOT NULL FK,association_revision BIGINT NOT NULL,strategy_version TEXT NOT NULL,query_set_hash TEXT NOT NULL,status TEXT NOT NULL,continuation JSONB NULL,revision BIGINT NOT NULL CHECK >0,job_key TEXT NULL captured reference,finished_at TIMESTAMPTZ NULL). seasons(scan_id UUID FK,season SMALLINT CHECK 1920..2200,status TEXT NOT NULL,list_capture_id UUID NULL FK,PRIMARY KEY(scan_id,season)). candidates(scan_id UUID FK,source_season_namespace TEXT,native_league_id TEXT,season SMALLINT,sport TEXT CHECK='nfl',list_capture_id UUID FK,candidate_capture_id UUID NULL FK,PRIMARY KEY(scan_id,source_season_namespace,native_league_id,list_capture_id)).",
       "keys": [
         "scan PK id; partial UNIQUE(association_id,association_revision,strategy_version,query_set_hash) WHERE finished_at IS NULL; required seasons PK(scan_id,season); candidate PK includes list receipt"
       ],
@@ -1571,7 +1591,8 @@
         "Separate season relation removes mutable repeating arrays; requiredSeasons and completedSeasons are ordered projections, query hash recomputed over exact sorted set. Candidate references retain their originating list receipt.",
         "Private scan rows use actor RLS through association; worker sees only bounded job inputs and uses guarded owner completion function, never broad private-table grants. Association revision mismatch terminates continuation.",
         "finished_at is NULL only while resumable work remains, including retryable failed work. Complete or explicit terminal failure records the actual DB completion time and retains history. A subsequent explicit refresh allocates a new scan UUID/request identity and fresh receipts even when association revision/strategy/query set are unchanged; retries of an unfinished run retain its ID. No automatic retry cadence or new polling is selected.",
-        "The live guarded account-to-worker discovery/recovery admission command is an open G4/G5 design seam. Administration-only begin/record helpers do not define its private scan mutation, actor audit/rate or atomic durable-intent contract; target activation remains blocked until those exact boundaries are selected."
+        "Discovery/recovery uses the exact selected acquisition-admission-design.md command/work contract under same-transaction auth and actor/association guards. G6/G7 must qualify it before activation.",
+        "Historical job keys and lease values are validated live at use but carry no permanent FK to lifecycle projection_jobs rows; this preserves existing job cleanup without weakening immutable source evidence."
       ],
       "owner": "Existing discovery service and durable job owner"
     },
@@ -1632,7 +1653,7 @@
         "Association 1:0..N selections; stable league 1:0..N user selections; selection exactly one season of same league. Initial selection has NULL renewal and explicit qualified initial evidence retained through decision receipts; no made-up predecessor.",
         "Renewal has exactly one predecessor/successor, same stable league, strictly later season, no unresolved fork; references both mapping revisions and current successor membership. Renewal proof immutable; selection revision increments via CAS.",
         "All user-specific rows actor-scoped RLS; no worker private grants. Reject stale association/selection/follow revisions under TX05; D04/D05 not inferred.",
-        "Target initial/renewal commands have nominal TX08 receipt/timing contracts, but G4-COMMAND-AUTHORITY-HANDOFF remains open and target mutation activation is blocked. New selection and renewal writes require the selected explicit identity audit subject adapter and unchanged 60-events/60-seconds actor guard; unchanged old triggers are insufficient."
+        "Target initial/renewal commands use selected TX08 same-transaction database authority and v2 receipt; command timing stays server-only. Exact selection/renewal audit subjects preserve 60-events/60-seconds actor guard. Qualification/activation remain later."
       ],
       "owner": "Existing account preference/selection composition and enrollment owner"
     },
@@ -1673,8 +1694,8 @@
       "rules": [
         "Actor M:N leagues by independent preferences. Existing DELETE still removes app_user_leagues row; an AFTER DELETE trigger writes tombstone atomically using OLD.revision+1 before commit. A later explicit follow uses revision > greatest retained value.",
         "Same actor row lock serializes direct writes, carryover and tombstone updates; current+absence union is single logical relation with disjoint state discriminator. No preference created by discovery or eligibility.",
-        "Renewal carries only an existing follow and its expected revision. Genuine loss/regain remains D04; last-follower collection/retention remains D05.",
-        "Target follow/unfollow remains blocked by the open TX08 database-enforced command authority handoff. The existing preference DELETE audit is the canonical user mutation event for its atomically derived tombstone; no extra tombstone event is charged and direct account/runtime tombstone DML is forbidden. Audit or tombstone failure rolls back the whole preference mutation."
+        "Renewal carries only an existing follow and its expected revision. D04 retains explicit intent while suspending effective serving/collection; only unchanged intent plus fresh eligibility resumes. D05 stops zero-demand routine polling after30minutes, never deletes shared history/baselines; adopted decisions control recovery.",
+        "Target follow/unfollow uses selected TX08 database-owned auth authority and remains disabled until implementation qualification. The existing preference DELETE audit is the canonical user mutation event for its atomically derived tombstone; no extra tombstone event is charged and direct account/runtime tombstone DML is forbidden. Audit or tombstone failure rolls back the whole preference mutation."
       ],
       "owner": "Existing account preference/audit writer"
     },
@@ -1702,8 +1723,8 @@
       "id": "RD14",
       "name": "Policy qualification/serving selection",
       "status": "new-extension",
-      "storage": "proposed league_resource_policy_qualifications; league_resource_serving_selections; app_access_policy_binding",
-      "columns": "qualification(scope_id UUID PK FK,state TEXT CHECK IN('qualified','suspended'),revision BIGINT CHECK >0,evidence_ref TEXT NOT NULL); serving(logical_scope JSONB NOT NULL,reader_contract TEXT NOT NULL,connection_id UUID NOT NULL FK,selected_scope_id UUID NOT NULL FK,revision BIGINT NOT NULL CHECK >0,PRIMARY KEY(logical_scope,reader_contract)); access binding(slot TEXT PK CHECK slot='membership',policy_version TEXT NOT NULL CHECK='sleeper-membership-access-v1',revision BIGINT NOT NULL CHECK >0).",
+      "storage": "proposed league_resource_policy_qualifications; league_resource_serving_selections; app_access_policy_binding; proposed provider_request_policy_qualifications",
+      "columns": "qualification(scope_id UUID PK FK,state TEXT CHECK IN('qualified','suspended'),revision BIGINT CHECK >0,evidence_ref TEXT NOT NULL); serving(logical_scope JSONB NOT NULL,reader_contract TEXT NOT NULL,connection_id UUID NOT NULL FK,selected_scope_id UUID NOT NULL FK,revision BIGINT NOT NULL CHECK >0,PRIMARY KEY(logical_scope,reader_contract)); access binding(slot TEXT PK CHECK slot='membership',policy_version TEXT NOT NULL CHECK='sleeper-membership-access-v1',revision BIGINT NOT NULL CHECK >0). Pre-enrollment policy(id UUID PK,provider TEXT CHECK='sleeper',family TEXT IN identity-lookup/league-list/league-candidate,normalizer_version TEXT,validation_version TEXT,coverage_spec_id TEXT,state qualified/suspended,revision BIGINT CHECK>0,evidence_ref TEXT; unique(provider,family,normalizer_version,validation_version,coverage_spec_id)); all identity/state fields NOT NULL.",
       "keys": [
         "Qualification PK scope; serving PK(full logical_scope,reader_contract); access binding PK slot"
       ],
@@ -1712,9 +1733,10 @@
       ],
       "rules": [
         "Each serving binding selects exactly one qualified head; acceptedRef is joined from that head, not duplicated into mutable selection storage. Validate all scope members, including nulls, audience and coverage, equal selected scope's logical scope.",
-        "Qualification/binding changes lock connection and bump authority generation; immutable policy version never overwritten. Scope must resolve to same connection. Pre-enrollment binding remains absent until separately qualified; first slice uses captured discovery evidence without heads.",
+        "Qualification/binding changes lock connection and bump authority generation; immutable policy version never overwritten. Scope must resolve to same connection. Pre-enrollment qualification uses its own exact policy registry with ID/revision pinned by attempts, without inventing enrolled scopes or heads.",
         "Registry is an additive responsibility of existing configuration/acceptance owner; no new publisher or automatic newest-version selection.",
-        "Suspension/reversion cannot erase a removal admitted under a then-qualified policy. Enumerate adverse events independently of the current qualified-head set; see TX04. Do not restore an older positive by filtering its newer removal out."
+        "Suspension/reversion cannot erase a removal admitted under a then-qualified policy. Enumerate adverse events independently of the current qualified-head set; see TX04. Do not restore an older positive by filtering its newer removal out.",
+        "The pre-enrollment registry's identity tuple is immutable. Config owner qualifies/suspends exact versions with evidence; reservation/dispatch/acceptance recheck current state/revision under policy lock. R097/R105/R107 and pinned evidence lineage justify this scaffolding."
       ],
       "owner": "Existing configuration/reader composition owner"
     },
@@ -1740,7 +1762,7 @@
       "id": "RD16",
       "name": "Durable pending work",
       "status": "reuse-extension",
-      "storage": "projection_jobs; existing materialization/watch pending states",
+      "storage": "projection_jobs; existing materialization/watch pending states; proposed app_acquisition_demands",
       "columns": "Reuse job_key TEXT PK,job_type TEXT,payload JSONB,state,attempt_count,lease_owner,lease_until. Add no outbox table. Proposed handler identities are fixed allowlisted cases under existing dispatcher; payload contains exact source/selection revision refs.",
       "keys": [
         "job PK job_key; semantic idempotency key serialized exact tuple(purpose,scope,input refs,reader binding revision)"
@@ -1750,7 +1772,10 @@
       ],
       "rules": [
         "An acceptance/binding may require 0..N dependent jobs. First-slice direct stored reads require no invented rebuild. Where a real downstream rebuild is required, INSERT/UPSERT pending job or update existing pending marker in same transaction as accepted state; no after-commit fire-and-forget gap.",
-        "Leases/generations/deadlines remain existing fences. Job retry retains logical key; no new schedule/cadence. Internal shared worker reads bounded purpose arguments through existing owner, not private account tables."
+        "Leases/generations/deadlines remain existing fences. Job retry retains logical key; no new schedule/cadence. Internal shared worker reads bounded purpose arguments through existing owner, not private account tables.",
+        "ENG02 guarded account admission commits exact demand, one counted user audit event and existing projection_jobs intent atomically; fresh-auth demand reads are actor scoped. Worker consumes bounded purpose under job lease, never a queued session/serving allow.",
+        "Demand ID, actor/command identity, scope hash, association revision, expiry/not-before, state and unique job key provide recovery/idempotency; at most2unfinished/actor and128global. No raw private table or account table DML grants to worker; exact helper manifest only.",
+        "Historical job keys and lease values are validated live at use but carry no permanent FK to lifecycle projection_jobs rows; this preserves existing job cleanup without weakening immutable source evidence."
       ],
       "owner": "Existing durable job/materialization owner"
     },
@@ -2169,7 +2194,9 @@
         "jobAttemptCount",
         "requestPayload",
         "normalizerVersion",
-        "validationVersion"
+        "validationVersion",
+        "policyQualificationId",
+        "policyQualificationRevision"
       ],
       "primary_key": [
         "id"
@@ -2201,7 +2228,9 @@
             "jobAttemptCount",
             "requestPayload",
             "normalizerVersion",
-            "validationVersion"
+            "validationVersion",
+            "policyQualificationId",
+            "policyQualificationRevision"
           ]
         },
         {
@@ -2221,7 +2250,9 @@
             "jobAttemptCount",
             "requestPayload",
             "normalizerVersion",
-            "validationVersion"
+            "validationVersion",
+            "policyQualificationId",
+            "policyQualificationRevision"
           ]
         },
         {
@@ -2234,7 +2265,9 @@
             "accessRevision",
             "requestPayload",
             "normalizerVersion",
-            "validationVersion"
+            "validationVersion",
+            "policyQualificationId",
+            "policyQualificationRevision"
           ]
         }
       ],
@@ -2242,7 +2275,8 @@
       "exceptions": [
         "requestId determines immutable scope/context/revision; attempt document repeats them. Request-key reservation lock and equality validation enforce that FD for every attempt; no BCNF claim for the physical immutable document.",
         "requestPayload excludes per-attempt work/lease fields; purpose/lookup/account/scan/list identity remains immutable per request, while a new attempt may capture a newly claimed job fence. Job fence uses existing attempt_count, lease_owner and lease_until, not a fictitious generation.",
-        "The intended policy tuple is pinned before network I/O, request-ID determined and copied into every attempt/capture. A failed capture uses it as planned interpretation lineage without claiming an actual normalization event."
+        "The intended policy tuple is pinned before network I/O, request-ID determined and copied into every attempt/capture. A failed capture uses it as planned interpretation lineage without claiming an actual normalization event.",
+        "Pinned pre-enrollment qualification ID/revision is request-ID determined; current registry changes never rewrite captured history."
       ],
       "redundancy_owner": "Scope is an immutable validated document, not a claim that its internal JSON satisfies relational normal forms.",
       "analysis_scope": "Logical first-slice attributes; source physical columns and proposed differences are separately specified by RD responsibilities."
@@ -3855,6 +3889,394 @@
       "exceptions": [],
       "redundancy_owner": "Existing durable job payload is exact typed input revision tuple; job lease state changes atomically, no new queue.",
       "analysis_scope": "Logical first-slice attributes; source physical columns and proposed differences are separately specified by RD responsibilities."
+    },
+    {
+      "id": "LR37",
+      "name": "PreEnrollmentPolicyQualification",
+      "attributes": [
+        "id",
+        "provider",
+        "family",
+        "normalizerVersion",
+        "validationVersion",
+        "coverageSpecId",
+        "state",
+        "revision",
+        "evidenceRef"
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "candidate_keys": [
+        [
+          "id"
+        ],
+        [
+          "family",
+          "normalizerVersion",
+          "validationVersion",
+          "coverageSpecId"
+        ]
+      ],
+      "functional_dependencies": [
+        {
+          "determinant": [
+            "id"
+          ],
+          "dependent": [
+            "provider",
+            "family",
+            "normalizerVersion",
+            "validationVersion",
+            "coverageSpecId",
+            "state",
+            "revision",
+            "evidenceRef"
+          ]
+        },
+        {
+          "determinant": [
+            "family",
+            "normalizerVersion",
+            "validationVersion",
+            "coverageSpecId"
+          ],
+          "dependent": [
+            "id",
+            "provider",
+            "state",
+            "revision",
+            "evidenceRef"
+          ]
+        },
+        {
+          "determinant": [],
+          "dependent": [
+            "provider"
+          ]
+        }
+      ],
+      "declared_normal_form": "projection",
+      "exceptions": [
+        "Physical provider is checked constant sleeper, so the constant FD prevents a BCNF claim for this stored projection. Logical semantic alternate key omits that constant; SQL retains provider in its explicit composite unique target."
+      ],
+      "redundancy_owner": "Existing config/qualification owner; exact immutable policy identity plus evidence-backed mutable state/revision. No enrolled scope required.",
+      "analysis_scope": "Exact selected first-slice internal scaffold; see proposed-schema.sql and ENG01/ENG02. Not claimed deployed or qualified."
+    },
+    {
+      "id": "LR38",
+      "name": "ProviderRequestGate",
+      "attributes": [
+        "provider",
+        "policyVersion",
+        "enabled",
+        "cooldownUntil",
+        "circuitOpen",
+        "circuitReason",
+        "importDrrCursor"
+      ],
+      "primary_key": [],
+      "candidate_keys": [
+        []
+      ],
+      "functional_dependencies": [
+        {
+          "determinant": [],
+          "dependent": [
+            "provider",
+            "policyVersion",
+            "enabled",
+            "cooldownUntil",
+            "circuitOpen",
+            "circuitReason",
+            "importDrrCursor"
+          ]
+        }
+      ],
+      "declared_normal_form": "BCNF",
+      "exceptions": [],
+      "redundancy_owner": "First-slice checked Sleeper singleton: physical provider PK permits at most one row; empty logical key. Existing acquisition owner serializes all admission under this row.",
+      "analysis_scope": "Exact selected first-slice internal scaffold; see proposed-schema.sql and ENG01/ENG02. Not claimed deployed or qualified."
+    },
+    {
+      "id": "LR39",
+      "name": "ProviderLaneLimit",
+      "attributes": [
+        "provider",
+        "lane",
+        "limitPer60s",
+        "maxInFlight"
+      ],
+      "primary_key": [
+        "lane"
+      ],
+      "candidate_keys": [
+        [
+          "lane"
+        ]
+      ],
+      "functional_dependencies": [
+        {
+          "determinant": [
+            "lane"
+          ],
+          "dependent": [
+            "provider",
+            "limitPer60s",
+            "maxInFlight"
+          ]
+        },
+        {
+          "determinant": [],
+          "dependent": [
+            "provider"
+          ]
+        }
+      ],
+      "declared_normal_form": "projection",
+      "exceptions": [
+        "Checked constant provider is not a BCNF determinant across seven lane rows; SQL composite provider/lane key is a retained superkey."
+      ],
+      "redundancy_owner": "One finite no-borrow policy under existing provider owner; constraint maps exact selected lane limits, no inferred capacity qualification.",
+      "analysis_scope": "Exact selected first-slice internal scaffold; see proposed-schema.sql and ENG01/ENG02. Not claimed deployed or qualified."
+    },
+    {
+      "id": "LR40",
+      "name": "ProviderHttpPermit",
+      "attributes": [
+        "id",
+        "requestId",
+        "provider",
+        "lane",
+        "policyVersion",
+        "actorUserId",
+        "demandId",
+        "jobKey",
+        "jobAttemptCount",
+        "leaseOwner",
+        "leaseUntil",
+        "scopeHash",
+        "grantedAt",
+        "dispatchBefore",
+        "occupiedUntil",
+        "completedAt",
+        "outcome",
+        "retryOf",
+        "requestContext",
+        "responseObservedAt"
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "candidate_keys": [
+        [
+          "id"
+        ],
+        [
+          "requestId"
+        ]
+      ],
+      "functional_dependencies": [
+        {
+          "determinant": [
+            "id"
+          ],
+          "dependent": [
+            "requestId",
+            "provider",
+            "lane",
+            "policyVersion",
+            "actorUserId",
+            "demandId",
+            "jobKey",
+            "jobAttemptCount",
+            "leaseOwner",
+            "leaseUntil",
+            "scopeHash",
+            "grantedAt",
+            "dispatchBefore",
+            "occupiedUntil",
+            "completedAt",
+            "outcome",
+            "retryOf",
+            "requestContext",
+            "responseObservedAt"
+          ]
+        },
+        {
+          "determinant": [
+            "requestId"
+          ],
+          "dependent": [
+            "id",
+            "provider",
+            "lane",
+            "policyVersion",
+            "actorUserId",
+            "demandId",
+            "jobKey",
+            "jobAttemptCount",
+            "leaseOwner",
+            "leaseUntil",
+            "scopeHash",
+            "grantedAt",
+            "dispatchBefore",
+            "occupiedUntil",
+            "completedAt",
+            "outcome",
+            "retryOf",
+            "requestContext",
+            "responseObservedAt"
+          ]
+        },
+        {
+          "determinant": [
+            "grantedAt"
+          ],
+          "dependent": [
+            "dispatchBefore",
+            "occupiedUntil"
+          ]
+        }
+      ],
+      "declared_normal_form": "document",
+      "exceptions": [
+        "Immutable admission certificate repeats derived dispatch/quarantine deadlines; conditional nonnull demand determines actor/job, enforced by composite FK/guard. No universal FD asserted for nullable legacy demand IDs."
+      ],
+      "redundancy_owner": "Existing acquisition owner: immutable exact requestContext and charge/deadlines; completion once, with at most one later unknown-to-observed HTTP outcome refinement preserving completedAt and recording responseObservedAt; no refunds or remote-cancellation assertion.",
+      "analysis_scope": "Exact selected first-slice internal scaffold; see proposed-schema.sql and ENG01/ENG02. Not claimed deployed or qualified."
+    },
+    {
+      "id": "LR41",
+      "name": "AcquisitionDemand",
+      "attributes": [
+        "id",
+        "actorUserId",
+        "commandId",
+        "kind",
+        "associationId",
+        "associationRevision",
+        "scope",
+        "scopeHash",
+        "policyVersion",
+        "createdAt",
+        "expiresAt",
+        "notBefore",
+        "state",
+        "jobKey",
+        "commandInputHash",
+        "resultRef",
+        "terminalOutcome",
+        "terminalAt"
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "candidate_keys": [
+        [
+          "id"
+        ],
+        [
+          "actorUserId",
+          "commandId"
+        ],
+        [
+          "jobKey"
+        ]
+      ],
+      "functional_dependencies": [
+        {
+          "determinant": [
+            "id"
+          ],
+          "dependent": [
+            "actorUserId",
+            "commandId",
+            "kind",
+            "associationId",
+            "associationRevision",
+            "scope",
+            "scopeHash",
+            "policyVersion",
+            "createdAt",
+            "expiresAt",
+            "notBefore",
+            "state",
+            "jobKey",
+            "commandInputHash",
+            "resultRef",
+            "terminalOutcome",
+            "terminalAt"
+          ]
+        },
+        {
+          "determinant": [
+            "actorUserId",
+            "commandId"
+          ],
+          "dependent": [
+            "id",
+            "kind",
+            "associationId",
+            "associationRevision",
+            "scope",
+            "scopeHash",
+            "policyVersion",
+            "createdAt",
+            "expiresAt",
+            "notBefore",
+            "state",
+            "jobKey",
+            "commandInputHash",
+            "resultRef",
+            "terminalOutcome",
+            "terminalAt"
+          ]
+        },
+        {
+          "determinant": [
+            "jobKey"
+          ],
+          "dependent": [
+            "id",
+            "actorUserId",
+            "commandId",
+            "kind",
+            "associationId",
+            "associationRevision",
+            "scope",
+            "scopeHash",
+            "policyVersion",
+            "createdAt",
+            "expiresAt",
+            "notBefore",
+            "state",
+            "commandInputHash",
+            "resultRef",
+            "terminalOutcome",
+            "terminalAt"
+          ]
+        }
+      ],
+      "declared_normal_form": "document",
+      "exceptions": [
+        "Immutable command/scope certificate includes computed canonical scope hash and captured association authority; conditional unfinished uniqueness is not a historical key.",
+        "After terminal30-day compaction scope/resultRef may be NULL; the functional dependency from scope to its hash applies only to uncompacted typed details, so it is enforced as a conditional rule instead of a global FD."
+      ],
+      "redundancy_owner": "Existing account and job owners; no new queue, mutable serving allow or saved auth/session receipt.",
+      "analysis_scope": "Exact selected first-slice internal scaffold; see proposed-schema.sql and ENG01/ENG02. Not claimed deployed or qualified.",
+      "conditional_dependencies": [
+        {
+          "condition": "scope IS NOT NULL",
+          "determinant": [
+            "scope"
+          ],
+          "dependent": [
+            "scopeHash"
+          ],
+          "reason": "Canonical immutable scope hash; compact terminal row preserves hash while discarding detailed scope."
+        }
+      ]
     }
   ],
   "physical_denormalizations": [
@@ -4268,21 +4690,21 @@
     },
     {
       "signature": "public.read_account_current_roster_v2(uuid,text,jsonb)",
-      "input": "leagueId; registered reader contract; exact seven-field live AuthReceipt in TX01",
+      "input": "leagueId; registered reader contract; exact nine-field v2 live AuthReceipt in TX01",
       "output": "ReadHelperResult",
       "contract": "relational-design.md#exact-helper-contracts",
       "closed": true
     },
     {
       "signature": "public.activate_provider_account_v2(uuid,uuid,bigint,uuid,jsonb)",
-      "input": "providerAccountId; lookupCaptureId; expectedActorRevision; transaction-local audited requestId; exact live seven-field AuthReceipt",
+      "input": "providerAccountId; lookupCaptureId; expectedActorRevision; transaction-local audited requestId; exact live nine-field v2 AuthReceipt",
       "output": "ActivationHelperResult",
       "contract": "relational-design.md#exact-helper-contracts",
       "closed": true
     },
     {
       "signature": "public.select_account_league_season_v2(jsonb,jsonb)",
-      "input": "SelectionTransition; exact live seven-field AuthReceipt",
+      "input": "SelectionTransition; exact live nine-field v2 AuthReceipt",
       "output": "SelectionHelperResult",
       "contract": "relational-design.md#exact-helper-contracts",
       "closed": true
@@ -4300,22 +4722,565 @@
       "output": "RecordProviderResult",
       "contract": "relational-design.md#exact-helper-contracts",
       "closed": true
+    },
+    {
+      "signature": "public.lock_account_session_authority_v2(jsonb)",
+      "input": "exact closed nine-field v2 AuthReceipt; auth-only, followed by mandatory actor/login binding",
+      "output": "TABLE(session_expires_at timestamptz,admission_epoch_revision bigint,db_sample_at timestamptz,session_created_at timestamptz)",
+      "contract": "relational-design.md#selected-transaction-protocols",
+      "closed": true
+    },
+    {
+      "signature": "public.admit_account_acquisition_v1(jsonb,jsonb)",
+      "input": "closed AcquisitionCommand; nine-field v2 AuthReceipt",
+      "output": "AdmissionHelperResult",
+      "contract": "acquisition-admission-design.md",
+      "closed": true
+    },
+    {
+      "signature": "public.read_account_acquisition_v1(uuid,jsonb)",
+      "input": "demandId; nine-field v2 AuthReceipt",
+      "output": "DemandProgressHelperResult",
+      "contract": "acquisition-admission-design.md",
+      "closed": true
+    },
+    {
+      "signature": "public.claim_account_acquisition_v1(text)",
+      "input": "fixed workerId; existing job lease owner",
+      "output": "AcquisitionClaim",
+      "contract": "acquisition-admission-design.md",
+      "closed": true
+    },
+    {
+      "signature": "public.reserve_provider_http_v1(jsonb)",
+      "input": "closed PermitRequest with existing job fence/scope",
+      "output": "PermitResult",
+      "contract": "acquisition-admission-design.md",
+      "closed": true
+    },
+    {
+      "signature": "public.finish_provider_http_v1(uuid,text,integer)",
+      "input": "permitId; closed outcome enum; nullable bounded Retry-After seconds",
+      "output": "boolean",
+      "contract": "acquisition-admission-design.md",
+      "closed": true
+    },
+    {
+      "signature": "public.disable_app_actor_v1(uuid,uuid)",
+      "input": "exact target UUID and audit request UUID; session_user is catalog-pinned migration owner",
+      "output": "boolean",
+      "contract": "relational-design.md#selected-transaction-protocols",
+      "closed": true
+    },
+    {
+      "signature": "public.revoke_app_login_identity_v1(uuid,uuid)",
+      "input": "exact target UUID and audit request UUID; session_user is catalog-pinned migration owner",
+      "output": "boolean",
+      "contract": "relational-design.md#selected-transaction-protocols",
+      "closed": true
     }
   ],
-  "open_design_gates": [
+  "open_design_gates": [],
+  "artifacts": {
+    "logical_diagrams": "relational-erd.md",
+    "structural_ddl": "proposed-schema.sql",
+    "admission_contracts": "acquisition-admission-design.md",
+    "build_plan": "backend-build-plan.md",
+    "decisions": "backend-decisions.json"
+  },
+  "selected_design_resolutions": [
     {
       "id": "G4-SHARED-ADMISSION",
-      "status": "open_design",
-      "owner": "Existing account discovery and provider acquisition owners; no new scheduler or collector",
-      "missing": "Selected shared acquisition admission and guarded account-to-worker handoff: closed trusted input/audience/session/revision/audit/work-intent contract, atomic admission/receipt outputs, coexistence accounting across existing/new demand, atomic cross-request actual HTTP-start enforcement, abort/timeout/retry/dedup semantics and a qualified finite aggregate limit.",
-      "boundary": "Existing per-operation limits remain in force but are not a proved provider-wide mechanism. New target acquisition/command handoff activation is blocked until the missing design is selected and qualified; current runtime/configuration remain unchanged."
+      "status": "selected_design_pending_qualification",
+      "decision": "ENG02",
+      "evidence": "Exact guarded demand/job handoff and finite shared provider admission, lane/actor limits, no-refund permits, timeout/quarantine/circuit behavior under existing owners.",
+      "qualification": "G6/G7 isolated execution/catalog/provider/capacity/release evidence remains unperformed."
     },
     {
       "id": "G4-COMMAND-AUTHORITY-HANDOFF",
-      "status": "open_design",
-      "owner": "Existing auth bridge and account transaction owners; no broader cross-role grants selected",
-      "missing": "A database-enforced live-authorization overlap or handoff through account commit, with exact authority/expiry/revocation/failure semantics and independent coordinator-death, timeout, transport-abort and unknown-commit schedules. Client-held auth transaction A plus a captured receipt does not prove authority while HTTP account transaction B continues.",
-      "boundary": "TX08 and explicit receipt signatures are nominal proposals only. Target activation, selection/renewal and follow/unfollow mutations remain disabled until the missing lifetime protocol is selected and independently qualified. A transport abort is not rollback proof; safe indeterminate acknowledgement cannot undo or authorize a late write."
+      "status": "selected_design_pending_qualification",
+      "decision": "ENG01",
+      "evidence": "Same-transaction auth-only guard with nine-field receipt, mandatory actor binding and all-mutator participation; database holds locks through its own commit/rollback.",
+      "qualification": "G6/G7 isolated execution/catalog/provider/capacity/release evidence remains unperformed."
     }
-  ]
+  ],
+  "ddl_specification": {
+    "path": "proposed-schema.sql",
+    "erd_path": "relational-erd.md",
+    "status": "selected_structural_specification_not_executed",
+    "create_tables": [
+      {
+        "table": "public.provider_access_contexts",
+        "logical_relations": [
+          "LR08"
+        ],
+        "storage_responsibilities": [
+          "RD06"
+        ],
+        "erd_entity": "ACQUISITION_CONTEXT"
+      },
+      {
+        "table": "public.provider_request_policy_qualifications",
+        "logical_relations": [
+          "LR37"
+        ],
+        "storage_responsibilities": [
+          "RD14"
+        ],
+        "erd_entity": "PRE_ENROLLMENT_POLICY"
+      },
+      {
+        "table": "public.provider_request_attempts",
+        "logical_relations": [
+          "LR09"
+        ],
+        "storage_responsibilities": [
+          "RD04"
+        ],
+        "erd_entity": "PROVIDER_ATTEMPT"
+      },
+      {
+        "table": "public.provider_capture_receipts",
+        "logical_relations": [
+          "LR10"
+        ],
+        "storage_responsibilities": [
+          "RD04"
+        ],
+        "erd_entity": "PROVIDER_CAPTURE"
+      },
+      {
+        "table": "public.provider_identity_evidence",
+        "logical_relations": [
+          "LR06",
+          "LR06L",
+          "LR06R"
+        ],
+        "storage_responsibilities": [
+          "RD04"
+        ],
+        "erd_entity": "IDENTITY_EVIDENCE"
+      },
+      {
+        "table": "public.app_discovery_scans",
+        "logical_relations": [
+          "LR11"
+        ],
+        "storage_responsibilities": [
+          "RD07"
+        ],
+        "erd_entity": "DISCOVERY_SCAN"
+      },
+      {
+        "table": "public.app_discovery_scan_seasons",
+        "logical_relations": [
+          "LR12"
+        ],
+        "storage_responsibilities": [
+          "RD07"
+        ],
+        "erd_entity": "DISCOVERY_SEASON"
+      },
+      {
+        "table": "public.app_discovery_candidates",
+        "logical_relations": [
+          "LR13"
+        ],
+        "storage_responsibilities": [
+          "RD07"
+        ],
+        "erd_entity": "DISCOVERY_CANDIDATE"
+      },
+      {
+        "table": "public.league_membership_authority_events",
+        "logical_relations": [
+          "LR18"
+        ],
+        "storage_responsibilities": [
+          "RD09"
+        ],
+        "erd_entity": "AUTHORITY_EVENT"
+      },
+      {
+        "table": "public.app_league_renewals",
+        "logical_relations": [
+          "LR20"
+        ],
+        "storage_responsibilities": [
+          "RD10"
+        ],
+        "erd_entity": "RENEWAL_PROOF"
+      },
+      {
+        "table": "public.app_current_league_selections",
+        "logical_relations": [
+          "LR19"
+        ],
+        "storage_responsibilities": [
+          "RD10"
+        ],
+        "erd_entity": "CURRENT_SELECTION"
+      },
+      {
+        "table": "public.app_user_league_preference_tombstones",
+        "logical_relations": [
+          "LR25"
+        ],
+        "storage_responsibilities": [
+          "RD12"
+        ],
+        "erd_entity": "UNFOLLOW_TOMBSTONE"
+      },
+      {
+        "table": "public.league_resource_policy_qualifications",
+        "logical_relations": [
+          "LR32"
+        ],
+        "storage_responsibilities": [
+          "RD14"
+        ],
+        "erd_entity": "POLICY_QUALIFICATION"
+      },
+      {
+        "table": "public.league_resource_serving_selections",
+        "logical_relations": [
+          "LR33"
+        ],
+        "storage_responsibilities": [
+          "RD14"
+        ],
+        "erd_entity": "SERVING_BINDING"
+      },
+      {
+        "table": "public.app_access_policy_binding",
+        "logical_relations": [
+          "LR34"
+        ],
+        "storage_responsibilities": [
+          "RD14"
+        ],
+        "erd_entity": "ACCESS_POLICY_BINDING"
+      },
+      {
+        "table": "public.attempt_failure_receipts",
+        "logical_relations": [
+          "LR31"
+        ],
+        "storage_responsibilities": [
+          "RD13"
+        ],
+        "erd_entity": "FAILURE_RECEIPT"
+      },
+      {
+        "table": "public.league_configuration_analytics_applicability",
+        "logical_relations": [
+          "LR35"
+        ],
+        "storage_responsibilities": [
+          "RD15"
+        ],
+        "erd_entity": "ANALYTICS_APPLICABILITY"
+      },
+      {
+        "table": "website_auth.admission_epoch",
+        "logical_relations": [
+          "LR04"
+        ],
+        "storage_responsibilities": [
+          "RD02"
+        ],
+        "erd_entity": "ADMISSION_EPOCH"
+      },
+      {
+        "table": "public.provider_request_gates",
+        "logical_relations": [
+          "LR38"
+        ],
+        "storage_responsibilities": [
+          "RD06"
+        ],
+        "erd_entity": "PROVIDER_GATE"
+      },
+      {
+        "table": "public.provider_request_lane_limits",
+        "logical_relations": [
+          "LR39"
+        ],
+        "storage_responsibilities": [
+          "RD06"
+        ],
+        "erd_entity": "PROVIDER_LANE"
+      },
+      {
+        "table": "public.app_acquisition_demands",
+        "logical_relations": [
+          "LR41"
+        ],
+        "storage_responsibilities": [
+          "RD16"
+        ],
+        "erd_entity": "ACQUISITION_DEMAND"
+      },
+      {
+        "table": "public.provider_http_permits",
+        "logical_relations": [
+          "LR40"
+        ],
+        "storage_responsibilities": [
+          "RD06"
+        ],
+        "erd_entity": "HTTP_PERMIT"
+      }
+    ],
+    "alter_existing_tables": [
+      {
+        "table": "public.league_source_manager_accounts",
+        "logical_relations": [
+          "LR05"
+        ],
+        "storage_responsibilities": [
+          "RD03"
+        ],
+        "additions": [
+          "manager_id_provider_v2_unique"
+        ]
+      },
+      {
+        "table": "public.league_seasons",
+        "logical_relations": [
+          "LR15"
+        ],
+        "storage_responsibilities": [
+          "RD08"
+        ],
+        "additions": [
+          "season_id_league_v2_unique",
+          "official_only",
+          "official_only_profile_v2_ck"
+        ]
+      },
+      {
+        "table": "public.league_source_connections",
+        "logical_relations": [
+          "LR16"
+        ],
+        "storage_responsibilities": [
+          "RD09"
+        ],
+        "additions": [
+          "connection_id_season_v2_unique",
+          "authorization_generation",
+          "connection_authority_current_v2_fk"
+        ]
+      },
+      {
+        "table": "public.league_source_mapping_revisions",
+        "logical_relations": [
+          "LR17"
+        ],
+        "storage_responsibilities": [
+          "RD09"
+        ],
+        "additions": [
+          "mapping_id_connection_v2_unique",
+          "mapping_id_season_v2_unique"
+        ]
+      },
+      {
+        "table": "public.league_roster_resource_scopes",
+        "logical_relations": [
+          "LR26"
+        ],
+        "storage_responsibilities": [
+          "RD13"
+        ],
+        "additions": [
+          "scope_id_connection_v2_unique",
+          "scope_id_season_v2_unique"
+        ]
+      },
+      {
+        "table": "public.league_roster_resource_acceptances",
+        "logical_relations": [
+          "LR30"
+        ],
+        "storage_responsibilities": [
+          "RD13"
+        ],
+        "additions": [
+          "acceptance_id_scope_v2_unique"
+        ]
+      },
+      {
+        "table": "public.app_provider_account_links",
+        "logical_relations": [
+          "LR07"
+        ],
+        "storage_responsibilities": [
+          "RD05"
+        ],
+        "additions": [
+          "provider",
+          "subject_lookup_capture_id",
+          "association_manager_provider_v2_fk",
+          "association_lookup_subject_v2_fk"
+        ]
+      },
+      {
+        "table": "public.league_roster_resource_attempts",
+        "logical_relations": [
+          "LR28"
+        ],
+        "storage_responsibilities": [
+          "RD13"
+        ],
+        "additions": [
+          "reservation_authority_generation",
+          "authority_event_id",
+          "roster_attempt_authority_pair_v2_ck",
+          "roster_attempt_authority_event_v2_fk"
+        ]
+      },
+      {
+        "table": "public.app_user_leagues",
+        "logical_relations": [
+          "LR25"
+        ],
+        "storage_responsibilities": [
+          "RD12"
+        ],
+        "additions": [
+          "carryover_renewal_id"
+        ]
+      }
+    ],
+    "helper_privileges": [
+      {
+        "signature": "website_auth.read_admission_epoch_locked_v1(text,text)",
+        "execute_roles": [
+          "league_one_auth"
+        ],
+        "owner": "existing migration owner",
+        "public_execute": false,
+        "raw_auth_grants": false
+      },
+      {
+        "signature": "public.read_account_current_roster_v2(uuid,text,jsonb)",
+        "execute_roles": [
+          "league_one_account"
+        ],
+        "owner": "existing migration owner",
+        "public_execute": false,
+        "raw_auth_grants": false
+      },
+      {
+        "signature": "public.activate_provider_account_v2(uuid,uuid,bigint,uuid,jsonb)",
+        "execute_roles": [
+          "league_one_account"
+        ],
+        "owner": "existing migration owner",
+        "public_execute": false,
+        "raw_auth_grants": false
+      },
+      {
+        "signature": "public.select_account_league_season_v2(jsonb,jsonb)",
+        "execute_roles": [
+          "league_one_account"
+        ],
+        "owner": "existing migration owner",
+        "public_execute": false,
+        "raw_auth_grants": false
+      },
+      {
+        "signature": "public.begin_provider_request_v2(jsonb)",
+        "execute_roles": [
+          "league_one_runtime"
+        ],
+        "owner": "existing migration owner",
+        "public_execute": false,
+        "raw_auth_grants": false
+      },
+      {
+        "signature": "public.record_provider_capture_v2(jsonb)",
+        "execute_roles": [
+          "league_one_runtime"
+        ],
+        "owner": "existing migration owner",
+        "public_execute": false,
+        "raw_auth_grants": false
+      },
+      {
+        "signature": "public.lock_account_session_authority_v2(jsonb)",
+        "execute_roles": [
+          "league_one_account"
+        ],
+        "owner": "existing migration owner",
+        "public_execute": false,
+        "raw_auth_grants": false
+      },
+      {
+        "signature": "public.admit_account_acquisition_v1(jsonb,jsonb)",
+        "execute_roles": [
+          "league_one_account"
+        ],
+        "owner": "existing migration owner",
+        "public_execute": false,
+        "raw_auth_grants": false
+      },
+      {
+        "signature": "public.read_account_acquisition_v1(uuid,jsonb)",
+        "execute_roles": [
+          "league_one_account"
+        ],
+        "owner": "existing migration owner",
+        "public_execute": false,
+        "raw_auth_grants": false
+      },
+      {
+        "signature": "public.claim_account_acquisition_v1(text)",
+        "execute_roles": [
+          "league_one_runtime"
+        ],
+        "owner": "existing migration owner",
+        "public_execute": false,
+        "raw_auth_grants": false
+      },
+      {
+        "signature": "public.reserve_provider_http_v1(jsonb)",
+        "execute_roles": [
+          "league_one_runtime"
+        ],
+        "owner": "existing migration owner",
+        "public_execute": false,
+        "raw_auth_grants": false
+      },
+      {
+        "signature": "public.finish_provider_http_v1(uuid,text,integer)",
+        "execute_roles": [
+          "league_one_runtime"
+        ],
+        "owner": "existing migration owner",
+        "public_execute": false,
+        "raw_auth_grants": false
+      },
+      {
+        "signature": "public.disable_app_actor_v1(uuid,uuid)",
+        "execute_roles": [],
+        "owner": "existing migration owner",
+        "owner_session_only": true,
+        "public_execute": false,
+        "raw_auth_grants": false
+      },
+      {
+        "signature": "public.revoke_app_login_identity_v1(uuid,uuid)",
+        "execute_roles": [],
+        "owner": "existing migration owner",
+        "owner_session_only": true,
+        "public_execute": false,
+        "raw_auth_grants": false
+      }
+    ],
+    "trigger_specification": "S13 algorithms and S17 exact attachments; existing owner-entry participation is mandatory where a BEFORE ROW guard cannot establish early lock order",
+    "qualification": "No SQL execution or function body claim. G6 must parse/install real migrations/functions in guarded isolated harness and inspect catalog/ACL/constraints with independent fixtures."
+  }
 }

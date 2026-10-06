@@ -2,7 +2,7 @@
 
 Design specification under [README](README.md), derived from [design-requirements.json](design-requirements.json). The JSON ledger owns these stable obligation and case IDs; regenerate this readable view after deliberate ledger edits. It does not create a second product contract.
 
-Input design commit: 473e32e. Application baseline: 87da4d0cb909ee280e125e73ad10e1c3dbd7cd9f. 108 atomic requirements allocate all 135 top-level foundation fields, all 26 record constraints, all 25 named foundation types and all 22 grouped FS cases. These counts establish allocation only. Runtime/database/race/user-validation execution: **none**. Design status: **candidate reviewed design gate open**.
+Input design commit: 473e32e. Application baseline: 87da4d0cb909ee280e125e73ad10e1c3dbd7cd9f. 108 atomic requirements allocate all 135 top-level foundation fields, all 26 record constraints, all 25 named foundation types and all 22 grouped FS cases. These counts establish allocation only. Runtime/database/race/user-validation execution: **none**. Design status: **reviewed first slice and full scope plan**.
 
 Requirements are independently falsifiable obligations. Several fields can jointly implement one invariant; a field can support several requirements. Record constraint IDs use the record name and one-based position in the pinned foundation register; exact text in the JSON catalog detects drift. Source anchors are exact substrings, not invented original requirement numbers. Verification cases below are later executable specifications, not passing tests.
 
@@ -58,6 +58,7 @@ Requirements are independently falsifiable obligations. Several fields can joint
 | [QA](quality-operations.md) | selected_engineering_analysis | ## Refined scenarios and analysis |
 | [AD](quality-operations.md) | selected_engineering_design | ## Selected alternatives and decision record |
 | [BS](behavior-security-design.md) | selected_engineering_design | ## Context and ownership |
+| [U01](backend-decisions.json) | direct_user_delegation | direct_user_delegation |
 
 ## Forward obligations
 
@@ -2058,24 +2059,24 @@ QA/AD/OE IDs refer to [quality decisions and operating evidence](quality-operati
 
 | ID | Need / source | Milestone and gate | Disposition / retained obligations |
 | --- | --- | --- | --- |
-| DN01 | Private provider authorization and additional fantasy providers (H01) | Later provider adapters/access qualification; Explicit provider-access/product scope plus G4-G7 | First slice uses Sleeper public read-only identification; it neither proves external ownership nor invents future provider behavior. Retained by R004, R014, R016, R089. |
-| DN02 | Prior-season browsing (H05) | Outside first-slice required scope; Separate product scope | The approved handoff explicitly says prior-season browsing is not required now; current completed seasons remain while eligible. Retained by R030, R045. |
-| DN03 | Recoverable current-season competitive history, current state and remaining provider-published schedule (H06) | Later existing B1-B4/exact-period/transaction/settings import; Coverage manifest, source qualification and G6-G7 | Current shared teams/held reads form first slice; history must enumerate irrecoverable/unsupported detail rather than fabricate it. Retained by R028, R029, R041, R057. |
-| DN04 | League-specific projections, forecasts, win probabilities and projected standings over shared NFL inputs (H07) | Later analytics applicability qualification; Actual rule/slot/competition interpretation and independent feature qualification | First slice retains settings and official/derived separation; it does not demonstrate support for every scoring or competition rule. Retained by R028, R029, R077, R083, R085. |
-| DN05 | 500 distinct watched leagues per supported provider with imports/background/retries coexisting (H09) | Later capacity qualification; Measured provider-wide workload, admission and cost criteria | No concurrency, cadence, quota or benchmark result is established by this design. Retained by R058, R088. |
-| DN06 | Approximately 60 seconds of additional L1 score delay (H09) | Later end-to-end delay qualification; Explicitly accepted measurement criterion plus measured queue/source/acceptance/publication/read delay | No unapproved percentile is substituted; polling miss/source visibility uncertainty must be included. Retained by R058, R088. |
-| DN07 | Approximately $50 monthly supporting-feed target (H09) | Later acquisition/cost qualification; Current price, entitlement, provider terms and workload evidence | Separate from compute/database/storage cost; no new cost or feed choice authorized. Retained by R083, R089. |
-| DN08 | Last-follower collection and retention behavior (H08, H14) | D05 affected activation; Explicit D05 decision before behavioral change | Preserve existing behavior and shared facts; infer neither deletion nor endless collection. Retained by R049, R088. |
-| DN09 | Runtime implementation, migration execution, public website/API cutover and release (H12, H13, H15) | Separately authorized implementation/transition; Design review then G6/G7 and affected product decisions | Current work specifies verifiable design; no execution or deployment result follows. Retained by R087, R090, R092, R093. |
+| DN01 | Private provider authorization and additional fantasy providers (H01) | BC-M6; Explicit provider-access/product scope plus G4-G7 | First slice uses Sleeper public read-only identification; it neither proves external ownership nor invents future provider behavior. Retained by R004, R014, R016, R089. |
+| DN02 | Prior-season browsing (H05) | BC-M2 compatibility/history qualification; no new prior-season UI required by first slice; Separate product scope | The approved handoff explicitly says prior-season browsing is not required now; current completed seasons remain while eligible. Retained by R030, R045. |
+| DN03 | Recoverable current-season competitive history, current state and remaining provider-published schedule (H06) | BC-M2; Coverage manifest, source qualification and G6-G7 | Current shared teams/held reads form first slice; history must enumerate irrecoverable/unsupported detail rather than fabricate it. Retained by R028, R029, R041, R057. |
+| DN04 | League-specific projections, forecasts, win probabilities and projected standings over shared NFL inputs (H07) | BC-M3; Actual rule/slot/competition interpretation and independent feature qualification | First slice retains settings and official/derived separation; it does not demonstrate support for every scoring or competition rule. Retained by R028, R029, R077, R083, R085. |
+| DN05 | 500 distinct watched leagues per supported provider with imports/background/retries coexisting (H09) | BC-M4; Measured provider-wide workload, admission and cost criteria | ENG02/ENG03 select admission, cadence and concurrency. No benchmark is established; mixed-workload capacity including future work remains required. Retained by R058, R088. |
+| DN06 | Approximately 60 seconds of additional L1 score delay (H09) | BC-M4; Selected ENG03 criterion plus empirical mixed-workload evidence | ENG03 selects p95<=60s and p99<=75s with end-to-end measurement including polling miss and unknown provider change time. Retained by R058, R088. |
+| DN07 | Approximately $50 monthly supporting-feed target (H09) | BC-M4; Current price, entitlement, provider terms and workload evidence | Separate from compute/database/storage cost; no new cost or feed choice authorized. Retained by R083, R089. |
+| DN08 | Last-follower collection and retention behavior (H08, H14) | BC-M1 then BC-M4 operation; D05 implementation and ENG08 disposal qualification before behavior change | D05 selected under direct delegation; zero-demand cooldown and bounded recovery need implementation and privacy/retention qualification. Retained by R049, R088. |
+| DN09 | Runtime implementation, migration execution, public website/API cutover and release (H12, H13, H15) | BC-M1 through BC-M5; Design review then G6/G7 and affected product decisions | Current work specifies verifiable design; no execution or deployment result follows. Retained by R087, R090, R092, R093. |
 
 ## Product decisions
 
 | ID | Status | Boundary | Requirements |
 | --- | --- | --- | --- |
 | D02 | approved_not_deployed | Exactly 3,600 seconds; approved but not deployed. Gate: G6 implementation proof; G7 release. | R054, R063, R064, R065, R066, R067, R070 |
-| D03 | open | Private-safe conflict; no displacement or ownership-control claim. Gate: Before public exclusive-association activation. | R010, R011, R012, R014 |
-| D04 | open | Eligibility may recover under qualified evidence; follow restoration is not inferred from recovery. Gate: Before activating that follow transition. | R043, R048, R061 |
-| D05 | open | Preserve existing behavior and other users/shared facts; no deletion or unlimited collection inferred. Gate: Before changing that behavior. | R049, R088 |
+| D03 | selected_not_implemented | No automatic displacement; own fresh authenticated release or reviewed implemented provider-control proof; unsupported disputes stay locked. Gate: Selected policy; actual implementation/qualification before activation. | R010, R011, R012, R014 |
+| D04 | selected_not_implemented | Retained explicit intention; effective follow suspended while ineligible; unchanged intention can resume after fresh qualification; unfollow revision wins. Gate: Selected policy; actual implementation/qualification before activation. | R043, R048, R061 |
+| D05 | selected_not_implemented | Zero-demand30min cooldown; bounded hourly recovery7days; last follower never deletes shared history or baselines. Gate: Selected policy; actual implementation/qualification before activation. | R049, R088 |
 
 ## Design review and change control
 

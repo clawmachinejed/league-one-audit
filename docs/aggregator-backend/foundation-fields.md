@@ -2,7 +2,7 @@
 
 Generated from [foundation.json](foundation.json); do not edit this view independently.
 
-Version: **backend-foundation-v1**. Status: **reconciled_target_not_implemented**. Baseline: `87da4d0cb909ee280e125e73ad10e1c3dbd7cd9f`.
+Version: **backend-foundation-v1**. Status: **selected_first_slice_design_full_build_planned_runtime_unexecuted**. Baseline: `87da4d0cb909ee280e125e73ad10e1c3dbd7cd9f`.
 
 Logical records are not mandatory physical tables. Existing nested source/resource types are reused.
 
@@ -158,12 +158,12 @@ Constraints: Candidate list does not prove eligible teams or enroll/follow autom
 | id | Id | existing job/checkpoint extension | No new independent collector |
 | associationId | Id | Association.id | Capture active revision at reservation |
 | associationRevision | Revision | Association.revision | Mismatch invalidates continuation/delivery |
-| requiredSeasons | integer[] | qualified discovery strategy + retained current selections | Explicit sorted unique query set, not universal current-year filter |
+| requiredSeasons | integer[] | qualified discovery strategy + retained current selections | Explicit sorted unique current provider NFL league_season plus prior2 and retained selection years; scope complete never universal |
 | completedSeasons | integer[] | successful scoped candidate receipts | Subset of requiredSeasons; not proof of membership completeness |
 | candidateRefs | Ref[] | /user/{id}/leagues/nfl/{season} | Each candidate retains league_id, season, sport and receipt |
 | continuation | Json&#124;null | protected server checkpoint | Null only when finished or explicitly terminal, not on failure |
 | status | pending&#124;partial&#124;complete&#124;failed | scan coverage | Complete only for declared season-query set |
-| strategyVersion | string | qualified adapter discovery strategy | Cold-start coverage remains an explicit implementation qualification gate |
+| strategyVersion | string | qualified adapter discovery strategy | ENG04 selected finite strategy; retained-source and unrelated-league qualification required before activation |
 
 ## LeagueSeason
 
@@ -256,7 +256,7 @@ Constraints: Preference never grants eligibility; carryover compares revision so
 | leagueId | Id | stable league identity | No duplicate follow required for annual alias |
 | state | following&#124;not-following | explicit user choice or verified carryover | Newly discovered leagues never auto-follow |
 | revision | Revision | preference writer | Retain unfollow tombstone/revision to prevent resurrection |
-| carryoverRef | Ref&#124;null | Renewal + captured preference revision | Only qualified renewal; D04 genuine loss/regain remains open |
+| carryoverRef | Ref&#124;null | Renewal + captured preference revision | Only qualified renewal; D04 preserves explicit intention while effective following depends on current eligibility |
 
 ## Renewal
 
@@ -382,11 +382,11 @@ Constraints: Preview does not activate association, enroll or follow. Public loo
 
 | Field | Type | Source | Null, relationship and acceptance rule |
 | --- | --- | --- | --- |
-| lookupRequestId | Id | IdentityLookupScope.lookupRequestId | Idempotent scoped lookup request |
-| status | identified&#124;unavailable&#124;invalid | validated provider lookup | No empty/fabricated account on failure |
-| account | ProviderAccount&#124;null | validated /user response | Required only when identified; stable native key survives username change |
+| lookupRequestId | Id | IdentityLookupScope.lookupRequestId | Idempotent private status handle; every read binds originating actor and current authority |
+| status | pending&#124;identified&#124;unavailable&#124;invalid | validated provider lookup | Pending is durable queued work; no empty/fabricated account on failure |
+| account | ProviderAccount&#124;null | validated /user response | Required only when identified; null while pending; stable native key survives username change |
 | evidenceRef | Ref&#124;null | immutable lookup capture | Null only if no capture exists; preserve exact lookup scope and original age |
-| reason | string&#124;null | adapter validation | Stable reason; null on success; no conflicting L1 actor disclosed |
+| reason | string&#124;null | adapter validation | Stable reason; queued while pending, null on success; no conflicting L1 actor disclosed |
 
 ## DiscoverCurrentTeamsResult
 
@@ -406,13 +406,12 @@ Constraints: List completion and qualified current-team completeness are indepen
 | unresolvedCandidateRefs | Ref[] | candidate/lineage/role evidence | Opaque server refs; uncertainty preserved, not removal |
 | reasons | string[] | scope and role qualification | Explain partial/failed result; no fabricated defaults |
 
-## Open product decisions
+## Selected product decisions
+
+D03-D05 are selected under direct user delegation in [backend-decisions.md](backend-decisions.md); implementation remains unexecuted.
 
 | ID | Decision | Activation gate |
 | --- | --- | --- |
-| D03 | Mistaken exclusive claim/replacement recovery | Before public exclusive-association launch; conflict returns no competing identity; no automatic replacement |
-| D04 | Follow behavior after genuine membership loss and regain | Before activating that transition; do not infer follow restoration from regained eligibility |
-| D05 | Retention and collection after last follower leaves | Before activating last-follower collection/retention changes; do not infer deletion or endless collection |
 
 ## Acceptance cases (specified, not executed)
 

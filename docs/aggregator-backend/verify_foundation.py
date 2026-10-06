@@ -46,7 +46,7 @@ def render(data: dict) -> str:
                       '| Status | Required keys | Rules |', '| --- | --- | --- |']
             for status, variant in record['variants'].items():
                 lines.append(f"| {status} | {', '.join(variant['required'])} | {safe('; '.join(variant['rules']))} |")
-    lines += ['', '## Open product decisions', '', '| ID | Decision | Activation gate |', '| --- | --- | --- |']
+    lines += ['', '## Selected product decisions', '', 'D03-D05 are selected under direct user delegation in [backend-decisions.md](backend-decisions.md); implementation remains unexecuted.', '', '| ID | Decision | Activation gate |', '| --- | --- | --- |']
     for item in data['open_decisions']:
         lines.append(f"| {item['id']} | {item['decision']} | {item['gate']} |")
     lines += ['', '## Acceptance cases (specified, not executed)', '', '| ID | Observable pass condition |', '| --- | --- |']
@@ -104,7 +104,10 @@ def main() -> None:
         check(set(capability['cases']) <= set(cases), 'Unknown capability case')
         covered.update(capability['cases'])
     check(covered == set(cases), 'Untraced acceptance case')
-    check({x['id'] for x in data['open_decisions']} == {'D03', 'D04', 'D05'}, 'Open-decision drift')
+    check(data['open_decisions'] == [], 'Unexpected unresolved delegated decision')
+    selected = json.loads((HERE / 'backend-decisions.json').read_text(encoding='utf-8'))
+    check({x['id'] for x in data['selected_decisions']} == {'D03', 'D04', 'D05'}, 'Selected-decision drift')
+    check({'D03', 'D04', 'D05'} <= {x['id'] for x in selected['decisions']} and selected['authority']['kind'] == 'direct_user_delegation', 'Missing delegated policy evidence')
     policy = data['policy']
     historical = json.loads((HERE / policy['approval_evidence']).read_text(encoding='utf-8'))
     approved = historical['policies'][0]['versions'][0]
