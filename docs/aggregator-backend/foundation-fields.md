@@ -22,14 +22,29 @@ D02: `sleeper-membership-access-v1`, `max_membership_age_seconds = 3600`; approv
 | `IdentityLookupScope` | {kind:'identity-lookup', provider:string, lookupRequestId:Id, accessContextId:Id, audienceId:Id, coverageSpecId:Id}; capture-only before stable account resolution; no league or source mapping required; request ID prevents renamed/reassigned usernames merging evidence |
 | `AccountResourceScope` | {kind:'account-resource', provider:string, providerAccountId:Id, nativeAccountId:NativeId, family:'league-discovery', sport:'nfl', season:integer, accessContextId:Id, audienceId:Id, coverageSpecId:Id}; account IDs must agree; one exact season per list receipt; no invented league ID |
 | `EvidenceCoverage` | {coverageSpecId:Id, observed:ObservedCoverage, populationEvidenceRef:Ref&#124;null, roleGroups:{seasonTeamId:Id,primary:'known'&#124;'unknown',coManagers:'known'&#124;'unknown'}[]}; reuse ObservedCoverage from apps/site/lib/aggregator/contracts.ts; [] means not applicable or no qualified rows, never exhaustive removal without population and role qualification |
-| `DependencyRef` | {kind:'actor'&#124;'session'&#124;'association'&#124;'acquisition-context'&#124;'source-mapping'&#124;'current-selection'&#124;'membership'&#124;'policy'&#124;'preference'&#124;'serving-selection', id:Id, revision:Revision&#124;string}; exact relevant vector, not arbitrary free-form claims; evaluated against authoritative current dependencies |
-| `ProviderManagerIdentity` | Reuse apps/site/lib/aggregator/team-managers.ts: {providerManagerId:Id,sourceManager:ProviderReference}. providerManagerId resolves ProviderAccount.id; sourceManager.nativeId is the exact provider key, not the internal UUID; provider/namespace/native key must match that account. |
+| `DependencyRef` | ActorDependency &#124; SessionDependency &#124; AssociationDependency &#124; AcquisitionDependency &#124; MappingDependency &#124; CurrentSelectionDependency &#124; MembershipDependency &#124; PolicyDependency &#124; PreferenceDependency &#124; ServingSelectionDependency. A closed discriminated union: each variant has exactly its declared fields, with no generic id/revision substitution. Compare typed key components exactly, including null scope members; never concatenate identifiers without an unambiguous canonical encoding. At final delivery resolve each key through its existing authority and validate its exact revision or stated live check. |
+| `ProviderManagerIdentity` | Reuse apps/site/lib/aggregator/team-managers.ts: {providerManagerId:Id,sourceManager:ProviderReference}. providerManagerId resolves ProviderAccount.id; sourceManager.nativeId is the exact provider key, not the internal UUID; provider/namespace/native key must match that account. Qualified roster-role evidence can establish a shared manager identity without a username or per-manager lookup; association activation separately requires its subject lookup receipt. |
+| `ActorDependency` | {kind:'actor', actorId:Id, revision:Revision}; actorId = Actor.id; revision = Actor.revision; require the same active actor resolved from the trusted principal. |
+| `SessionDependency` | {kind:'session', issuer:string, subject:string, sessionId:Id, expiresAt:Instant}; issuer/subject are the verified AccountPrincipal key; sessionId is the existing opaque website_auth.session.id, subject equals session.userId, and expiresAt is that session's stored expiry. The existing auth owner must revalidate the same live request session, principal admission and expiry at delivery, with cookie cache/refresh disabled; a missing, replaced, revoked or expired session fails. This target server-only receipt extends the existing auth boundary, which currently exposes only issuer/subject/displayName; it creates no session ID, revision, credential store or client-visible token. |
+| `AssociationDependency` | {kind:'association', associationId:Id, revision:Revision}; associationId = Association.id; revision = Association.revision; require active state and matching actor/provider account. |
+| `AcquisitionDependency` | {kind:'acquisition-context', accessContextId:Id, revision:Revision}; accessContextId = AcquisitionContext.id; revision = AcquisitionContext.revision; require compatible provider/audience and live applicable authority. |
+| `MappingDependency` | {kind:'source-mapping', connectionId:Id, leagueSeasonId:Id, sourceMappingRevisionId:Id, mappingGeneration:Revision}; resolve existing AdministrationSourceMapping by connectionId; leagueSeasonId, revisionId and generation must equal the captured fields respectively. sourceMappingRevisionId references the existing immutable mapping revision; mappingGeneration is its existing generation, not a new counter. |
+| `CurrentSelectionDependency` | {kind:'current-selection', associationId:Id, leagueId:Id, selectionRevision:Revision}; key exactly CurrentSelection(associationId,leagueId), revision exactly CurrentSelection.selectionRevision; selected leagueSeasonId must belong to that league and match the authorized result. |
+| `MembershipDependency` | {kind:'membership', associationId:Id, scope:SourceScope, canonicalNormalizerVersion:string, validationVersion:string, acceptedRef:Ref, acceptedGeneration:Revision, adverseEvidence:AdverseMembershipEvidence}; associationId = Association.id. The selected evidence key is exactly the versioned accepted manager-resource head (scope,canonicalNormalizerVersion,validationVersion), with its immutable acceptance receipt/generation. Re-evaluate current role qualification, coverage and original age, then independently validate adverseEvidence for the same association, selected league season and compatible authority. At promotion and final delivery, the authoritative coherent check must validate the whole applicable cross-version set, including newly committed evidence or a changed set of qualified heads, not just the listed immutable refs. G4 must choose and prove that set-fence/transaction protocol through existing owners; no fence ID, revision zero, additional table or implemented proof is invented here. A changed dependency requires a new decision; never compare generations across heads. |
+| `PolicyDependency` | {kind:'policy', policyVersion:'sleeper-membership-access-v1'}; key is the exact immutable approved policy version, equal to LeagueAccessDecision.policyVersion; recheck the authoritative active binding. There is no invented policy ID or mutable revision of v1. |
+| `PreferenceDependency` | {kind:'preference', actorId:Id, leagueId:Id, revision:Revision}; key exactly Follow(actorId,leagueId), revision exactly Follow.revision, including retained unfollow tombstones. Include only when the operation depends on an existing preference; an absent follow cannot be represented by a fabricated ID or revision zero. |
+| `ServingSelectionDependency` | {kind:'serving-selection', scope:SourceScope&#124;DiscoveryScope, readerContract:string, selectionRevision:Revision}; key exactly ServingSelection(scope,readerContract), using every scope member and equal null values; revision exactly ServingSelection.selectionRevision. readerContract names one reader/cohort binding; no undeclared cohort key is implied. |
+| `MembershipEvidenceRef` | {scope:SourceScope, canonicalNormalizerVersion:string, validationVersion:string, acceptedRef:Ref, acceptedGeneration:Revision}; exact immutable accepted manager-evidence tuple. The reference resolves to that scope, versioned policy and generation; generations are compared only within the same head. A retained complete-removal receipt may remain relevant after its head or serving binding changes; it need not be the presently served receipt. |
+| `MembershipSupersession` | {removal:MembershipEvidenceRef, positive:MembershipEvidenceRef, orderingEvidenceRef:Ref}; explicit retained proof that a later independently qualified positive correction supersedes this exact complete-removal receipt for the same association and compatible current season/authority scope. orderingEvidenceRef resolves to the proved ordering/qualification evidence; local cross-head ordinals, response arrival, normalization time, version label and replay alone are insufficient. |
+| `AdverseMembershipEvidence` | {state:'complete'&#124;'unknown', removals:MembershipEvidenceRef[], supersessions:MembershipSupersession[]}; records the applicable qualified complete-removal evidence across compatible normalizer/validation versions, independently of the served version. complete means the existing acceptance/access authority established the entire applicable evidence set in the final coherent decision; complete with [] is proved absence, never omitted or unqueried evidence. unknown cannot allow even when arrays are empty. Every removal must remain denying unless an explicitly proved matching supersession applies; incomparable evidence retains denial. Reject duplicate/conflicting tuples or supersessions for unlisted removals. |
 
 ## Capability trace
 
+This selective index names 25 of 135 fields. It is not a complete requirements or invariant verification matrix; see [methodology audit](methodology-audit.md).
+
 | Capability | Fields | Source facts | Acceptance |
 | --- | --- | --- | --- |
-| identify | ProviderAccount.nativeAccountId, ProviderAccount.identityEvidenceRef, Association.assurance, IdentifyProviderAccountResult.status, IdentifyProviderAccountResult.evidenceRef | identity, account-reader | FS02, FS03, FS18 |
+| identify | ProviderAccount.nativeAccountId, ProviderAccount.identityEvidenceRef, Association.assurance, IdentifyProviderAccountResult.status, IdentifyProviderAccountResult.evidenceRef, ProviderAccount.identityEvidenceKind, Association.subjectLookupEvidenceRef | identity, account-reader | FS02, FS03, FS18 |
 | discover-current-teams | DiscoveryScan.requiredSeasons, CurrentSelection.leagueSeasonId, TeamEvidence.primaryOwner, TeamEvidence.coManagers, DiscoverCurrentTeamsResult.status, DiscoverCurrentTeamsResult.teams | discovery, teams, portfolio | FS04, FS05, FS14, FS19 |
 | shared-official-roster | LeagueSeason.settingsRef, HeldRoster.players, HeldRoster.acceptanceRef | roster, settings | FS01, FS11, FS12, FS13, FS15, FS16 |
 | authorized-stored-read | LeagueAccessDecision.expiresAt, LeagueAccessDecision.dependencyRefs, ResourceEvidence.qualifyingVerifiedAt | accounts, teams, acceptance | FS06, FS07, FS08, FS17 |
@@ -54,6 +69,10 @@ D02: `sleeper-membership-access-v1`, `max_membership_age_seconds = 3600`; approv
 | season | [apps/site/migrations/001_projection_foundation.sql](../../apps/site/migrations/001_projection_foundation.sql) — `league_seasons_scoring_profile_immutable` | Stable league-season identities exist; required immutable scoring-profile attachment needs additive official-only adoption |
 | portfolio | [apps/site/lib/accounts/fantasy.ts](../../apps/site/lib/accounts/fantasy.ts) — `String(league.season) === season` | Current portfolio global-year filtering conflicts with independently advancing current leagues |
 | workers | [apps/site/lib/projections/worker/lineup-watch-policy.ts](../../apps/site/lib/projections/worker/lineup-watch-policy.ts) — `LINEUP_MATCHUP_REQUEST_LIMIT = 20` | Current bounded scheduler is not evidence of 500 watched leagues at approximately 60-second delay |
+| session-authority | [apps/site/lib/accounts/auth.ts](../../apps/site/lib/accounts/auth.ts) — `disableCookieCache: true, disableRefresh: true` | Existing request principal validates live stored session/admission; current public internal return shape omits session receipt, so the proposed server-only receipt is an adaptation, not shipped behavior |
+| session-storage | [apps/site/migrations/021_website_auth.sql](../../apps/site/migrations/021_website_auth.sql) — `CREATE TABLE website_auth.session` | Existing session has opaque text id, userId and expiresAt; there is no invented session revision |
+| scope-types | [apps/site/lib/aggregator/contracts.ts](../../apps/site/lib/aggregator/contracts.ts) — `export type SourceScope` | Existing SourceScope, DiscoveryScope, ProviderReference and ObservedCoverage are reused with all declared identity components |
+| mapping-types | [apps/site/lib/league-administration/source-mapping.ts](../../apps/site/lib/league-administration/source-mapping.ts) — `AdministrationSourceMapping` | Existing mapping receipt distinguishes stable connection, exact immutable revision and generation |
 
 ## Actor
 
@@ -73,20 +92,21 @@ Constraints: Provider failures never change actor status or login identities
 
 Disposition: adapt. Key: `(provider, namespace, nativeAccountId)`.
 
-Sources: identity, accounts.
+Sources: identity, accounts, teams, normalizer.
 
-Constraints: Reuse league_source_manager_accounts identity where namespace is proven; separate identity lookup evidence from user-directory display
+Constraints: Reuse league_source_manager_accounts identity where namespace is proven; separate stable provider identity, optional display and association-subject lookup qualification. Qualified roster owner/co-manager IDs or a validated lookup can establish the stable provider key. Shared team normalization does not require a lookup for every manager. identityEvidenceKind determines the immutable identityEvidenceRef provenance; neither source proves provider-account control.
 
 | Field | Type | Source | Null, relationship and acceptance rule |
 | --- | --- | --- | --- |
 | id | Id | existing manager identity or shared identity resolver | Stable across username changes |
 | provider | string | adapter registry | Only sleeper implemented |
 | namespace | string | adapter identity rule | Sleeper user namespace is global within sleeper |
-| nativeAccountId | NativeId | /user.user_id | Lookup validates returned ID; preserve string |
-| username | Field<string> | /user.username | Mutable display/lookup label, not unique identity |
-| displayName | Field<string> | /user.display_name | Absent optional display does not invalidate known identity |
-| avatar | Field<string> | /user.avatar | Retain native token; adapter validates display URL |
-| identityEvidenceRef | Ref | lookup capture | Identification is not proof of provider-account control |
+| nativeAccountId | NativeId | /user.user_id or qualified /rosters[].owner_id/co_owners[] | Validate and preserve the exact provider/namespace/native key from its declared evidence kind; resolving roster roles does not require a per-manager /user request. |
+| username | Field<string> | /user.username | Mutable display/lookup label, not unique identity; absent is valid for a role-only identity. |
+| displayName | Field<string> | /user.display_name | Absent optional display does not invalidate known identity, including a role-only identity. |
+| avatar | Field<string> | /user.avatar | Retain native token when observed; absent is valid for a role-only identity; adapter validates display URL. |
+| identityEvidenceKind | lookup&#124;qualified-role | qualified immutable identity-bearing source evidence | lookup references the successful identity lookup capture; qualified-role references an accepted managers resource containing the same exact provider/namespace/native key. |
+| identityEvidenceRef | Ref | lookup capture or accepted managers-resource receipt, as selected by identityEvidenceKind | Must resolve to the declared evidence kind and same exact stable provider key within compatible audience/scope. Identity evidence is not external account-control proof and does not by itself satisfy association-subject lookup qualification. |
 
 ## Association
 
@@ -94,13 +114,14 @@ Disposition: adapt. Key: `id; active UNIQUE(actorId, provider); active UNIQUE(pr
 
 Sources: accounts, account-reader.
 
-Constraints: Atomic two-way uniqueness; provider agrees with referenced account; retained ended history; conflict never chooses a winner
+Constraints: Atomic two-way uniqueness; provider agrees with referenced account; retained ended history; conflict never chooses a winner Activation requires a retained successful subject lookup receipt matching providerAccountId; qualified roster-role evidence alone cannot activate an association.
 
 | Field | Type | Source | Null, relationship and acceptance rule |
 | --- | --- | --- | --- |
 | id | Id | app_provider_account_links or compatible extension | Idempotent activation retry returns same association |
 | actorId | Id | Actor.id | Private actor scope |
-| providerAccountId | Id | ProviderAccount.id | Qualified lookup identity exists before association |
+| providerAccountId | Id | ProviderAccount.id | Stable provider identity exists; subjectLookupEvidenceRef separately qualifies this association's lookup before activation. |
+| subjectLookupEvidenceRef | Ref | successful IdentifyProviderAccountResult.evidenceRef retained at activation | The server verifies a qualified lookup response for this exact ProviderAccount provider/namespace/nativeAccountId before activation; a different subject, failed lookup, role-only receipt or unrelated display evidence is rejected. Retain the activation evidence; it never refreshes membership verification. |
 | provider | string | referenced ProviderAccount.provider | Enforce equality rather than trusting submitted provider |
 | state | pending&#124;active&#124;ended | L1 association workflow | Only active participates in eligibility |
 | assurance | user-asserted | read-only username identification | Exclusive L1 association does not imply external ownership proof |
@@ -175,7 +196,7 @@ Disposition: adapt. Key: `(associationId, leagueId)`.
 
 Sources: account-reader, portfolio, settings.
 
-Constraints: Per-user per-league current choice; never max(year) or global NFL-year predicate; shared league facts remain independent
+Constraints: Per-user per-league current choice; never max(year) or global NFL-year predicate; shared league facts remain independent The dependency key is exactly (associationId,leagueId); referenced leagueSeasonId must belong to leagueId and its association must match the access actor/provider.
 
 | Field | Type | Source | Null, relationship and acceptance rule |
 | --- | --- | --- | --- |
@@ -191,12 +212,13 @@ Disposition: reuse-and-adapt. Key: `(leagueSeasonId, provider, nativeTeamId, acc
 
 Sources: teams, normalizer.
 
-Constraints: Shared season-team identity; multiple co-managers share it; manager absence requires exhaustive qualified group evidence
+Constraints: Shared season-team identity; multiple co-managers share it; manager absence requires exhaustive qualified group evidence Every declared key component is explicit; provider/nativeTeamId must agree with the reused sourceTeam reference and the captured mapping behind acceptanceRef, including its native league namespace.
 
 | Field | Type | Source | Null, relationship and acceptance rule |
 | --- | --- | --- | --- |
 | seasonTeamId | Id | league_season_teams.id | Stable within season; owner change does not recreate team |
 | leagueSeasonId | Id | LeagueSeason.id | Cross-season foreign references rejected |
+| provider | string | TeamManagerRelationships.sourceTeam.provider resolved through acceptanceRef and its captured source mapping | Derived from the qualified sourceTeam reference, never submitted independently; must equal the accepted scope's captured mapping provider, shared season-team alias provider and every applicable manager source provider. Only sleeper is implemented. |
 | nativeTeamId | NativeId | /rosters[].roster_id | Adapter converts validated integer to exact string scoped to source league |
 | primaryOwner | {state:'owned',manager:ProviderManagerIdentity}&#124;{state:'unowned'&#124;'unknown',manager:null} | /rosters[].owner_id | Resolve native owner_id through ProviderAccount key to internal providerManagerId; explicit null is unowned, absent/invalid unknown; never join a native string to an internal UUID; unowned alone cannot exclude co-management |
 | coManagers | {state:'known',managers:ProviderManagerIdentity[]}&#124;{state:'unknown',managers:null,reason:string} | /rosters[].co_owners | Resolve each native co_owners entry through ProviderAccount key; known [] proves empty for this row only; missing/null/invalid never means empty |
@@ -226,7 +248,7 @@ Disposition: adapt. Key: `(actorId, leagueId)`.
 
 Sources: accounts.
 
-Constraints: Preference never grants eligibility; carryover compares revision so a newer unfollow wins
+Constraints: Preference never grants eligibility; carryover compares revision so a newer unfollow wins The dependency key is exactly (actorId,leagueId); retain its revision through unfollow rather than inventing a surrogate dependency ID.
 
 | Field | Type | Source | Null, relationship and acceptance rule |
 | --- | --- | --- | --- |
@@ -261,9 +283,9 @@ Constraints: Pin both source mappings; predecessor link plus compatible league i
 
 Disposition: reuse-and-adapt. Key: `scope + policy identity; immutable receipt id; see contracts section 3`.
 
-Sources: acceptance, mapping, normalizer.
+Sources: acceptance, mapping, normalizer, scope-types.
 
-Constraints: All references resolve to compatible scope/audience; no freshness extension from replay; immutable captures may support several normalized versions Identity lookup is capture-only until resolution; no accepted-head or enrolled mapping fabricated. Failed capture has no normalized content or acceptance generation.
+Constraints: All references resolve to compatible scope/audience; no freshness extension from replay; immutable captures may support several normalized versions Identity lookup is capture-only until resolution; no accepted-head or enrolled mapping fabricated. Failed capture has no normalized content or acceptance generation. Capture-only or transport-failure evidence has normalizedAt null when no normalization event occurred; a failed normalization attempt may retain only its actual attempt time. No timestamp is manufactured to fill a required slot.
 
 | Field | Type | Source | Null, relationship and acceptance rule |
 | --- | --- | --- | --- |
@@ -276,7 +298,7 @@ Constraints: All references resolve to compatible scope/audience; no freshness e
 | sourceObservedAt | Instant&#124;null | validated source observation | Never replace unknown provider time with normalize time |
 | requestStartedAt | Instant&#124;null | network reservation/transport | Null for replay without a new request |
 | requestCompletedAt | Instant&#124;null | network transport receipt | Arrival does not prove provider event order |
-| normalizedAt | Instant | normalization event | Processing time only |
+| normalizedAt | Instant&#124;null | actual normalization attempt event, when one occurred | Processing time only; null when normalization was never attempted, including transport failure/capture-only evidence. A recorded failed normalization attempt may have its actual event time without content or acceptance. Never substitute request, receipt, checked, verification or delivery time. |
 | qualifyingVerifiedAt | Instant&#124;null | accepted qualifying network proof | Original evidence clock preserved through cache/replay; record exact qualification |
 | coverage | EvidenceCoverage | immutable requested spec + observed group coverage | Population, fields, roles, periods, pages and reasons; complete only within declared dimensions |
 | attemptOrdinal | Revision&#124;null | reservation before network | Higher admitted attempt fences late older completion; null only before applicable reservation/acceptance, never interpreted as generation zero |
@@ -285,16 +307,16 @@ Constraints: All references resolve to compatible scope/audience; no freshness e
 
 ## ServingSelection
 
-Disposition: adapt. Key: `(logical resource scope, reader contract/cohort)`.
+Disposition: adapt. Key: `(scope, readerContract)`.
 
-Sources: acceptance.
+Sources: acceptance, scope-types.
 
-Constraints: Logical selection responsibility, not mandatory new table; exactly one designated accepted policy head per serving contract
+Constraints: Logical selection responsibility, not mandatory new table; exactly one designated accepted policy head per serving contract The dependency key is exactly (scope,readerContract); compare all scope members including audience, coverage and equal nulls, and never collapse distinct reader/cohort bindings.
 
 | Field | Type | Source | Null, relationship and acceptance rule |
 | --- | --- | --- | --- |
 | scope | SourceScope&#124;DiscoveryScope | same logical resource identity | Audience/coverage cannot be weakened during promotion |
-| readerContract | string | internal reader binding | Legacy reader remains pinned until authorized qualified cutover |
+| readerContract | string | internal reader binding | Identifies exactly one reader/cohort binding; together with the complete scope it is the key. Legacy reader remains pinned until authorized qualified cutover. |
 | canonicalNormalizerVersion | string | selected qualified policy | No newest-semver or normalizedAt automatic promotion |
 | validationVersion | string | selected qualified policy | Policy tuple matches versioned head |
 | selectionRevision | Revision | existing config/authority revision or additive selector | Fence publication/materialization and cache invalidation |
@@ -304,9 +326,9 @@ Constraints: Logical selection responsibility, not mandatory new table; exactly 
 
 Disposition: new-service-over-existing-owners. Key: `actor + association + current league selection + policy + dependency revisions`.
 
-Sources: accounts, teams, acceptance.
+Sources: accounts, teams, acceptance, session-authority, session-storage, mapping-types.
 
-Constraints: Final read authorization is separate from acquisition; no grant from follow, commissioner, membership-only, name or historical ownership
+Constraints: Final read authorization is separate from acquisition; no grant from follow, commissioner, membership-only, name or historical ownership An allow requires a complete authoritative adverse-membership evidence set across compatible versions, with every applicable removal either denying or explicitly superseded by later qualified positive evidence. Unknown set completeness cannot allow. The coherent cross-version set fence remains an unimplemented G4 design/qualification obligation.
 
 | Field | Type | Source | Null, relationship and acceptance rule |
 | --- | --- | --- | --- |
@@ -319,7 +341,7 @@ Constraints: Final read authorization is separate from acquisition; no grant fro
 | qualifyingVerifiedAt | Instant&#124;null | ResourceEvidence qualifying role proof | Cannot move forward from failure, partial-unqualified, cache or replay |
 | expiresAt | Instant&#124;null | min(T+3600s, earlier authority expiry) | Allow requires now < expiresAt; deny/removal can precede expiry; expiry is not removal |
 | evaluatedAt | Instant | trusted evaluation clock | Re-evaluate immediately before delivery |
-| dependencyRefs | DependencyRef[] | actor/session, association, context, mapping, selection, membership, policy and preference where relevant | Typed revision vector; membership id references immutable acceptance; policy revision is explicit version; validate at final delivery |
+| dependencyRefs | DependencyRef[] | actor/session, association, context, mapping, selection, membership, policy and preference where relevant | Closed typed dependency vector with exact declared key tuples. Membership pins the full versioned head plus immutable acceptance/generation; policy pins its immutable version; session uses its existing stored identity and live auth check, not an invented revision. Resolve all relevant dependencies at final delivery; no lossy composite-key concatenation. Membership also carries the authoritative complete-or-unknown cross-version adverse evidence set; selected-head equality alone is insufficient, and newly committed removals must invalidate the decision through the G4 protocol. |
 
 ## ReadCurrentRosterResult
 
@@ -396,25 +418,25 @@ Constraints: List completion and qualified current-team completeness are indepen
 
 | ID | Observable pass condition |
 | --- | --- |
-| FS01 | Owner and co-manager in separate L1 accounts resolve the same season/team/roster evidence; independent associations/access/follows; one compatible shared acquisition; resolved internal providerManagerId matches ProviderAccount.id while sourceManager preserves distinct native owner/co-owner IDs |
+| FS01 | Owner and co-manager in separate L1 accounts resolve the same season/team/roster evidence; independent associations/access/follows; one compatible shared acquisition; resolved internal providerManagerId matches ProviderAccount.id while sourceManager preserves distinct native owner/co-owner IDs; only each associating subject needs a qualified lookup; other roster managers resolve from accepted role evidence with absent display fields and no per-manager lookup, and all resulting identity provenance remains truthful |
 | FS02 | Concurrent different actors claiming the same provider account produce exactly one active association and a private-safe conflict; no competing user disclosure |
 | FS03 | Concurrent same actor claiming two accounts of one provider yields at most one active association; retry is idempotent; no implicit replacement |
 | FS04 | An unrelated supported league and renamed team use ordinary discovery and existing owners without hardcoded league IDs or custom configuration |
 | FS05 | Member/commissioner without owned/co-managed team is denied; direct, aggregate and cached stored reads enforce the same result; denied/indeterminate serialization contains exactly status/reason, including before selection; no team IDs, revisions, field/source metadata, features or dependency IDs |
 | FS06 | At T+3599s qualified prior membership can allow, at T+3600s it cannot; failure, partial-unqualified, cache, replay, outage onset and same old selected head never extend expiry; unknown first-time denies |
 | FS07 | Complete accepted no-remaining-role evidence denies early; another qualifying role preserves eligibility; missing/null co-managers cannot prove removal; other users and shared facts survive |
-| FS08 | Disconnect, session/actor change, accepted removal or mapping/context change during slow composition invalidates final delivery; already delivered responses are not claimed recallable |
+| FS08 | Disconnect, session/actor change, accepted removal or mapping/context change during slow composition invalidates final delivery; already delivered responses are not claimed recallable; the session dependency uses the actual existing session ID and principal/expiry, revalidated through the auth owner; missing/revoked/changed session or changed actor/association dependency fails without invented revisions; a removal committed under another qualified version between adverse-set enumeration and final delivery invalidates the allow even if the served head is unchanged; an unknown adverse set cannot allow, and the protocol must detect a newly qualified head/removal rather than only reread listed refs |
 | FS09 | Restart and duplicate request reuse canonical identities and resume only unfinished work; replay retains original verification age |
 | FS10 | Delayed older request and A-B-A source remap cannot advance a newer head/selection; renewal pins both mappings and expected selection revision |
 | FS11 | Optional users/catalog/projection failure and unknown placement preserve valid official team/held-player access; official-only admission and later analytics association preserve frozen history |
-| FS12 | Partial/failed roster population retains accepted data with original age; invalid held players do not suppress independently complete manager removal; incomplete population prevents exhaustive exclusion |
-| FS13 | Cross-provider/season/team/audience injection rejected at write and read; policy versions immutable and policy changes cannot use stale cached authorization; all success/failure result variants enforce their nullable fields and scope kind |
+| FS12 | Partial/failed roster population retains accepted data with original age; invalid held players do not suppress independently complete manager removal; incomplete population prevents exhaustive exclusion; transport/capture failure before normalization retains normalizedAt=null and no invented normalized content/acceptance; a failed normalization attempt records only its actual event time when observed |
+| FS13 | Cross-provider/season/team/audience injection rejected at write and read; policy versions immutable and policy changes cannot use stale cached authorization; all success/failure result variants enforce their nullable fields and scope kind; every dependency variant rejects extra/missing/wrong-kind key fields, mismatched key component or revision, and composite-key collisions; TeamEvidence.provider is derived from and must agree with its sourceTeam/captured mapping; qualified-role evidence cannot masquerade as a lookup receipt |
 | FS14 | Two leagues with different current years both remain; completed current season persists while eligible; later-year candidate alone never advances selection |
 | FS15 | Native ID above safe integer stays exact; explicit empty held list differs from null/absent/error; no synthetic player fills a gap |
 | FS16 | Two co-managers/tabs/aggregate view coalesce compatible public requests; incompatible private scopes cannot share evidence or caches without qualification |
 | FS17 | Provider outage through expiry suspends only affected league reads; independent revalidation remains possible and fresh positive recovery restores access; L1 sign-in unchanged |
-| FS18 | Pre-enrollment username lookup establishes native identity without users-directory head; candidate preview remains read-only; activation requires trusted actor and atomic exclusive writer; lookup/list captures require no fabricated league/mapping and username rename/reassignment cannot merge provider accounts |
+| FS18 | Pre-enrollment username lookup establishes native identity without users-directory head; candidate preview remains read-only; activation requires trusted actor and atomic exclusive writer; lookup/list captures require no fabricated league/mapping and username rename/reassignment cannot merge provider accounts; a role-established ProviderAccount can be reused after a matching successful subject lookup, while role evidence alone or a lookup for another account cannot activate the association |
 | FS19 | Cold-start discovery strategy finds nonrenewed current leagues as well as new-season candidates; incomplete season-query set reports partial and cannot establish loss |
-| FS20 | Verified renewal carries an existing follow with captured revision; concurrent newer unfollow wins; no auto-follow on discovery; genuine loss/regain remains D04-gated |
-| FS21 | Same capture normalized under v1/v2 coexists in separate policy heads; replay cannot renew D02; explicit compatible promotion chooses one serving policy; legacy binding remains unchanged |
+| FS20 | Verified renewal carries an existing follow with captured revision; concurrent newer unfollow wins; no auto-follow on discovery; genuine loss/regain remains D04-gated; preference and current-selection dependencies resolve their full (actorId,leagueId) and (associationId,leagueId) keys, so equal revisions for different tuples cannot authorize carryover |
+| FS21 | Same capture normalized under v1/v2 coexists in separate policy heads; replay cannot renew D02; explicit compatible promotion chooses one serving policy; legacy binding remains unchanged; serving dependencies compare the entire scope/readerContract tuple and selectionRevision, with distinct audience/coverage/null/cohort components never aliased; v2 positive at T1 cannot clear a qualified v1 complete removal at T2 by promotion, rollback or replay before T1+3600s; retain denial for incomparable ordering, including a removal concurrent with binding change, until a later qualified positive has explicit supersession/ordering proof; complete empty adverse evidence requires a proved authoritative set check, never an assumed zero revision |
 | FS22 | Same-content fresh qualified network observation may advance verification; late older attempts cannot; accepted correction may decrease official value without altering frozen baselines |

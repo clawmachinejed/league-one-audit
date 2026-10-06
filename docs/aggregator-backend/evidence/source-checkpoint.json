@@ -58,6 +58,10 @@
   ],
   "source_files": [
     {
+      "path": "apps/site/lib/accounts/auth.ts",
+      "sha256": "9ac6f1fbf1f36fdbf8b8de8689de2a4f007e4fe82a244323348904668a6d15c8"
+    },
+    {
       "path": "apps/site/lib/accounts/fantasy.ts",
       "sha256": "0e64b852c2e7667ce04614de8589808ae5e3a892eb4e43b63fa6b20980a44fb2"
     },
@@ -86,6 +90,10 @@
       "sha256": "02a44dc32fd041d1c39702f7c7f975c9b17328a7b9ba514dcfef8d1e8526e2a1"
     },
     {
+      "path": "apps/site/lib/aggregator/contracts.ts",
+      "sha256": "f675d50cea3d56a4daba9c23e435f5e7056ddfacc2527b08b53c1236bf072b12"
+    },
+    {
       "path": "apps/site/lib/aggregator/current-roster.ts",
       "sha256": "618216dd952d50c665813843129b9bf8c05263d8592328721974d22096b8aced"
     },
@@ -110,6 +118,10 @@
       "sha256": "6e8a9bc0ac2b5a1b085862d646418e8a93f179f5ea8ac3e26cb6ad73538eb3f6"
     },
     {
+      "path": "apps/site/lib/league-administration/source-mapping.ts",
+      "sha256": "b10fa54bd8ffb787dbf738e437f2aa12c5030cf18fe5107bc7d794a814530741"
+    },
+    {
       "path": "apps/site/lib/projections/worker/lineup-watch-policy.ts",
       "sha256": "d3dd14ca37e7ed3c552d4a06c01ad4d6616f07607f40a2f51d0a7bf3bca49c6d"
     },
@@ -128,6 +140,10 @@
     {
       "path": "apps/site/migrations/020_account_foundation.sql",
       "sha256": "10260342c3ea679b02f99df442c2b9e38d7a20d810b2c720744ef4a57755a918"
+    },
+    {
+      "path": "apps/site/migrations/021_website_auth.sql",
+      "sha256": "ad13e3cb1d6f6b60fbbf08cb161f2f4128ae760b9522a568979b43cf5f34b1e9"
     },
     {
       "path": "apps/site/migrations/025_account_league_enrollment.sql",
@@ -164,5 +180,19 @@
   "github_evidence": "GitHub connector fetch_commit(main) resolved full SHA; open PR query returned none; protections not rechecked",
   "live_site_evidence": "Canonical domain rendered Sign in with League One, League Two and Dynasty public links; no authentication or data journey tested",
   "network_limitation": "Sandbox git ls-remote failed; authenticated GitHub connector supplied fresh main evidence",
-  "source_hash_algorithm": "sha256-lf-v1"
+  "source_hash_algorithm": "sha256-lf-v1",
+  "methodology_audit_recheck": {
+    "recorded_at_utc": "2026-10-06T00:30:05.883075+00:00",
+    "reviewed_document_commit": "3b4d63cbb4492827f573cf3ad5d301a8cea77acf",
+    "application_baseline_unchanged": true,
+    "local_main": "87da4d0cb909ee280e125e73ad10e1c3dbd7cd9f",
+    "github_main": "87da4d0cb909ee280e125e73ad10e1c3dbd7cd9f",
+    "production_sha": "87da4d0cb909ee280e125e73ad10e1c3dbd7cd9f",
+    "vercel_binding": "clawmachinejed/league-one-audit/main/apps/site",
+    "production_deployment": "8C3YSnXRCbmPETftQgRtirfyck5e",
+    "evidence": "Fresh local Git identity/status, authenticated GitHub fetch_commit(main), authenticated Vercel project overview exact SHA and Ready source binding during this audit; no new PR/cron/database/worker-lease census. Four added source references equal the application baseline.",
+    "runtime_tests_executed": 0,
+    "full_iso_clause_review": false,
+    "formal_qaw_or_atam_workshop": false
+  }
 }

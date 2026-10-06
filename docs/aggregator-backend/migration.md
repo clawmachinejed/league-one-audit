@@ -1,6 +1,6 @@
 # Backend identity and migration design
 
-Date: 2026-09-28. Scope: design only; no runtime, schema, credential, or database changes. Application evidence was inspected at `962d870`; current main and production at `92b8b0b` have the same application code and a documentation-only mission update. See the [verified baseline](README.md#baseline-and-scope). Names introduced below are proposed relations or contracts, not claims that they already exist. The [backend contracts](contracts.md) define the shared semantics, including immutable coverage specifications and captured mapping/normalizer versions.
+Original design date: 2026-09-28. Scope: design only; no runtime, schema, credential, or database changes. The historical inspection used application evidence at `962d870` and then-current main/production at `92b8b0b`; those are dated observations, not the current checkpoint. See the [reconciled authority and scope](README.md) and [current evidence checkpoint](reconciliation.md#evidence-checkpoint). Names introduced below are proposed relations or contracts, not claims that they already exist. The [backend contracts](contracts.md) define the current shared semantics, including immutable coverage specifications and captured mapping/normalizer versions. Broader multi-provider stages below apply only to a separately authorized later milestone; the bounded first implementation slice is Sleeper-only.
 
 ## Decisions
 
@@ -145,7 +145,7 @@ Gate: no unexplained differences for required official values or existing projec
 
 Switch pilot read services to canonical contracts while preserving route/payload compatibility. Source adapters remain the single acquisition path. Official fallback must run through the same provider adapter and permission boundary; no generic loader may independently call Sleeper. Accept analytics-independent imports only after all downstream code can represent unavailable calculations. Private provider enablement waits for access and cache isolation qualification.
 
-Gate: pilot screen dependency manifests resolve to accepted source revisions; source/request costs do not increase unexpectedly; normal polling still reads stored data only; old IDs/links and My Team choices work. A second provider completes the chosen read-only journey with explicit unavailable features.
+Gate for a separately authorized Sleeper reader cutover: pilot screen dependency manifests resolve to accepted source revisions; source/request costs do not increase unexpectedly; normal polling still reads stored data only; old IDs/links and My Team choices work. A second-provider read-only journey with explicit unavailable features is a separate future-provider qualification gate, not a prerequisite or a shipped claim for the current Sleeper slice. The internal first slice authorizes no screen or public reader cutover.
 
 ### 5. Rollback and later retirement
 
@@ -185,7 +185,7 @@ Rollback disables the new comparison/read or its bounded processing while retain
 
 - Two providers return external team ID `1`; two leagues within one provider also return `1`: all resolve to different season teams.
 - A next-year provider league has the same display name and roster IDs: it cannot silently become a previous season without renewal evidence.
-- A user associates a public manager username: no private grant is created. Two website users may make the same public association.
+- A user associates a public manager username: no private grant or proof of external ownership is created. Under the reconciled target, two actors concurrently claiming that provider account produce one active association and a private-safe conflict; a single actor cannot concurrently activate two accounts of the same provider. This replaces the historical nonexclusive example. D03 remains the public-launch gate for claim/replacement recovery.
 - A private authorization is revoked during an in-flight roster fetch: no new private head is published under the revoked generation and no private response remains accessible through its cache key.
 - A second valid account is still authorized to the league: its continued access does not revive the first account's access.
 - Roster page 2 fails: page 1 never becomes the complete roster and missing rows are not deleted.

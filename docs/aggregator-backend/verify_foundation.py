@@ -6,6 +6,7 @@ import hashlib
 import json
 import re
 from pathlib import Path
+from urllib.parse import unquote
 
 
 HERE = Path(__file__).resolve().parent
@@ -23,7 +24,11 @@ def render(data: dict) -> str:
              f"D02: `{data['policy']['version']}`, `max_membership_age_seconds = {data['policy']['max_membership_age_seconds']}`; approved, not deployed. L1 account access is unaffected.", '',
              '## Types', '', '| Type | Meaning |', '| --- | --- |']
     lines += [f'| `{name}` | {safe(value)} |' for name, value in data['types'].items()]
-    lines += ['', '## Capability trace', '', '| Capability | Fields | Source facts | Acceptance |', '| --- | --- | --- | --- |']
+    traced = {name for item in data['capabilities'] for name in item['fields']}
+    fields = sum(len(record['fields']) for record in data['records'])
+    lines += ['', '## Capability trace', '',
+              f'This selective index names {len(traced)} of {fields} fields. It is not a complete requirements or invariant verification matrix; see [methodology audit](methodology-audit.md).', '',
+              '| Capability | Fields | Source facts | Acceptance |', '| --- | --- | --- | --- |']
     for item in data['capabilities']:
         lines.append(f"| {item['id']} | {safe(', '.join(item['fields']))} | {', '.join(item['sources'])} | {', '.join(item['cases'])} |")
     lines += ['', '## Source facts', '', '| ID | Source at baseline | Observation |', '| --- | --- | --- |']
@@ -119,17 +124,59 @@ def main() -> None:
     for entry in checkpoint['source_files']:
         actual = hashlib.sha256((ROOT / entry['path']).read_bytes().replace(b'\r\n', b'\n')).hexdigest()
         check(actual == entry['sha256'], 'Source changed; revalidate evidence: ' + entry['path'])
-    for name in ['README.md', 'contracts.md', 'migration.md', 'foundation-fields.md', 'reconciliation.md', 'verification.md']:
+    # This closes inventory omissions, not the design or verification gates.
+    nasa_counts = {'4.1': 10, '4.2': 7, '4.3': 3, '4.4': 10,
+                   '5.1': 3, '5.2': 7, '5.3': 4, '5.4': 4, '5.5': 5,
+                   '6.1': 7, '6.2': 6, '6.3': 5, '6.4': 7, '6.5': 6,
+                   '6.6': 3, '6.7': 3, '6.8': 7}
+    expected_activities = {
+        f'NASA-{process}.1.2.{i}' if process != '6.5' or i < 5
+        else f'NASA-6.5.activity{i}'
+        for process, count in nasa_counts.items() for i in range(1, count + 1)
+    }
+    for family, count in [('QAW', 8), ('ATAM', 9), ('DB', 10)]:
+        expected_activities.update(f'{family}-{i}' for i in range(1, count + 1))
+    ssdf = {'PO.1': [1, 2, 3], 'PO.2': [1, 2, 3], 'PO.3': [1, 2, 3],
+            'PO.4': [1, 2], 'PO.5': [1, 2], 'PS.1': [1], 'PS.2': [1], 'PS.3': [1, 2],
+            'PW.1': [1, 2, 3], 'PW.2': [1], 'PW.4': [1, 2, 4], 'PW.5': [1],
+            'PW.6': [1, 2], 'PW.7': [1, 2], 'PW.8': [1, 2], 'PW.9': [1, 2],
+            'RV.1': [1, 2, 3], 'RV.2': [1, 2], 'RV.3': [1, 2, 3, 4]}
+    expected_activities.update(f'SSDF-{practice}.{i}' for practice, tasks in ssdf.items() for i in tasks)
+    activity_rows = re.findall(r'^\| ((?:NASA|QAW|ATAM|DB|SSDF)-\S+) \| ([^|]+) \| ([^|]+) \| ([^|]+) \|$',
+                               (HERE / 'methodology-steps.md').read_text(encoding='utf-8'), re.MULTILINE)
+    activity_ids = [row[0] for row in activity_rows]
+    check(len(activity_ids) == len(set(activity_ids)), 'Duplicate methodology activity')
+    check(set(activity_ids) == expected_activities, 'Missing or unexpected methodology activity')
+    for identity, focus, status, evidence in activity_rows:
+        check(status.strip() in {'documented', 'partial', 'gap', 'deferred', 'unassessed'}
+              and bool(focus.strip()) and bool(evidence.strip()), 'Missing methodology disposition: ' + identity)
+
+    def markdown_anchors(path: Path) -> set[str]:
+        counts: dict[str, int] = {}
+        anchors = set()
+        for heading in re.findall(r'^#{1,6}\s+(.+?)\s*#*$', path.read_text(encoding='utf-8'), re.MULTILINE):
+            base = re.sub(r'[^\w\- ]', '', heading.lower()).replace(' ', '-')
+            count = counts.get(base, 0)
+            counts[base] = count + 1
+            anchors.add(base if count == 0 else f'{base}-{count}')
+        return anchors
+
+    for name in ['README.md', 'contracts.md', 'migration.md', 'foundation-fields.md', 'reconciliation.md',
+                 'verification.md', 'methodology-audit.md', 'methodology-steps.md']:
         path = HERE / name
         # --write may run before a new view/report is created during authoring.
         if args.write and not path.exists():
             continue
         check(path.is_file(), 'Missing target document: ' + name)
         for target in re.findall(r'\]\(([^)]+)\)', path.read_text(encoding='utf-8')):
-            target = target.strip('<>').split('#', 1)[0]
-            if not target or '://' in target:
+            target = target.strip('<>')
+            if '://' in target:
                 continue
-            check((path.parent / target).exists(), 'Broken local link: ' + name + ' -> ' + target)
+            file_part, separator, fragment = target.partition('#')
+            destination = path.parent / unquote(file_part) if file_part else path
+            check(destination.exists(), 'Broken local link: ' + name + ' -> ' + target)
+            if separator and fragment and destination.suffix == '.md':
+                check(unquote(fragment) in markdown_anchors(destination), 'Broken local anchor: ' + name + ' -> ' + target)
     manifest = json.loads((HERE / 'evidence/backend-workspace-handoff-manifest.json').read_text(encoding='utf-8'))
     for name in ['backend-workspace-handoff.md', 'backend-policy-register.json']:
         expected = next(x['sha256'] for x in manifest['artifacts'] if x['path'] == name)
@@ -142,7 +189,9 @@ def main() -> None:
     check(view.read_text(encoding='utf-8') == expected_view, 'Generated view differs; review JSON and use --write')
     print(json.dumps({'status': 'passed', 'checks': checks, 'records': len(data['records']),
                       'fields': len(all_fields), 'capabilities': len(data['capabilities']),
-                      'specified_acceptance_cases': len(cases), 'runtime_cases_executed': 0}))
+                      'capability_index_fields': len({field for item in data['capabilities'] for field in item['fields']}),
+                      'specified_acceptance_cases': len(cases), 'methodology_activity_dispositions': len(activity_ids),
+                      'runtime_cases_executed': 0}))
 
 
 if __name__ == '__main__':

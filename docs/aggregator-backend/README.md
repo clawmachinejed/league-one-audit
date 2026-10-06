@@ -1,13 +1,13 @@
 # Aggregator backend foundation
 
-Reconciled target version **backend-foundation-v1**, October 5, 2026. This is the single target entry point for identification, discovery, shared current teams and authorized stored reads. The bounded reconciliation is documented; runtime implementation, SQL qualification and activation remain pending.
+Reconciled target version **backend-foundation-v1**, October 5, 2026. This is the single target entry point for identification, discovery, shared current teams and authorized stored reads. The bounded reconciliation is documented. This is a conceptual contract and field design, not a completed logical relational design or an implementation-ready baseline. The design-completeness gate below is open; runtime implementation, SQL qualification and activation remain pending.
 
 ## Authority and supersession
 
 1. Explicit approved product behavior and repository safety instructions take precedence.
 2. Current source, tests and migrations establish what exists. Fresh external evidence establishes only the observed deployed facts. Existing behavior is not automatic endorsement of target behavior.
 3. [Contracts](contracts.md) owns semantics. [foundation.json](foundation.json) owns the exact first-slice field register, D02 value, open decisions and acceptance IDs. [foundation-fields.md](foundation-fields.md) is its generated readable view. They are one definition with a consistency check, not independent contracts.
-4. [Reconciliation](reconciliation.md) records evidence, proposal dispositions, adoption responsibilities and the exact next slice. [Verification](verification.md) records checks and limitations.
+4. [Reconciliation](reconciliation.md) records evidence, proposal dispositions, adoption responsibilities and the gated next slice. [Methodology audit](methodology-audit.md) accounts for the selected published process steps and unresolved design work. [Verification](verification.md) records checks and limitations.
 5. Other files in this directory are source-era implementation notes, compatibility constraints or candidate designs. Their facts must be rechecked against their stated revision. They cannot override this target. In particular, the old nonexclusive-link sentence, unversioned-head proposal, global-year current selection, mandatory 36-object schema, old cadence proposals and earlier blanket readiness claims are superseded.
 
 The previous September 28 entry point's claim that the design gate was met is superseded by the explicit gates below. Git history preserves that dated record. The Ground up planning folder is a transition input, not a second source of authority. Its physical schema, mapping, refresh and readiness documents remain candidates/dated evidence wherever not explicitly retained in the disposition log. The [original handoff and manifest](evidence/backend-workspace-handoff-manifest.json) identify the inputs; [policy approval history](evidence/backend-policy-register.json) preserves D02. Physical storage names in that historical policy file are proposals, not mandatory runtime configuration.
@@ -20,7 +20,8 @@ A portable package must be a byte-checked copy of this repository documentation,
 | --- | --- |
 | [Contracts, sections 3, 8 and 11](contracts.md) | Versioned accepted heads, exclusive associations, per-league current selection, D02 and authorized delivery |
 | [Generated field and case register](foundation-fields.md) | Capability → source → exact field → identity/constraint → acceptance case |
-| [Reconciliation and next implementation slice](reconciliation.md) | Verified facts, retained/rejected proposals, adoption order and qualification gates |
+| [Reconciliation and gated next slice](reconciliation.md) | Verified facts, retained/rejected proposals, adoption order and qualification gates |
+| [Methodology audit](methodology-audit.md) | Applicable published process steps, evidence limits and open design obligations |
 | [Verification record](verification.md) | What was checked, independent review and what remains unverified |
 | [Step 2 checklist](step-2-checklist.md) | Historical/internal screen bundle evidence; does not certify this target or authorize reader cutover |
 
@@ -34,7 +35,9 @@ Each league advances after verified renewal and current membership; a portfolio 
 
 ## Gates and scope
 
-The first implementation slice is an internal shared service path from qualified pre-enrollment identification through shared current teams to an authorized stored current-roster read. It needs exact field/constraint implementation, same-path unit and guarded disposable SQL tests, unrelated-league source qualification and independent review. No website UX, public API cutover, migration execution, schedule change or release is authorized by this reconciliation.
+The immediate next step is to close the documented design-completeness gate before treating persistence or runtime contracts as a build baseline. Required evidence is: atomic requirements and invariants traced in both directions to approved needs, allocated design responsibilities and verification obligations; stakeholder concerns; function/interface and state/sequence models; a logical relational design with candidate keys, cardinalities, functional dependencies, normalization decisions and enforceable relationships; prioritized quality scenarios with alternatives and tradeoffs; and a threat/control/evidence plan. Each unresolved item needs a responsible role, disposition and gate. The field register and FS01-FS22 are inputs to this work, not proof that it is complete. See the [methodology audit](methodology-audit.md) and [design gate](reconciliation.md#design-completeness-gate).
+
+After that gate and separate implementation authorization, the first implementation slice remains an internal shared service path from qualified pre-enrollment identification through shared current teams to an authorized stored current-roster read. It then needs exact field/constraint implementation, same-path unit and guarded disposable SQL tests, unrelated-league source qualification and independent review. Those executable qualifications are later gates; a documentation review cannot close them. No website UX, public API cutover, migration execution, schedule change or release is authorized by this reconciliation.
 
 Current-season recoverable history, remaining published schedule and analytical coverage are later milestones. The 500-distinct-leagues-per-supported-provider and approximately 60-second additional L1 score-delay targets are not demonstrated. Proposed cadence, retry, concurrency, percentile and approximately $50 supporting-feed budget figures are not accepted performance results or deployed policy. No table count is mandated.
 

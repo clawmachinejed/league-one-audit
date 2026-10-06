@@ -124,6 +124,30 @@
       "path": "apps/site/lib/projections/worker/lineup-watch-policy.ts",
       "anchor": "LINEUP_MATCHUP_REQUEST_LIMIT = 20",
       "fact": "Current bounded scheduler is not evidence of 500 watched leagues at approximately 60-second delay"
+    },
+    {
+      "id": "session-authority",
+      "path": "apps/site/lib/accounts/auth.ts",
+      "anchor": "disableCookieCache: true, disableRefresh: true",
+      "fact": "Existing request principal validates live stored session/admission; current public internal return shape omits session receipt, so the proposed server-only receipt is an adaptation, not shipped behavior"
+    },
+    {
+      "id": "session-storage",
+      "path": "apps/site/migrations/021_website_auth.sql",
+      "anchor": "CREATE TABLE website_auth.session",
+      "fact": "Existing session has opaque text id, userId and expiresAt; there is no invented session revision"
+    },
+    {
+      "id": "scope-types",
+      "path": "apps/site/lib/aggregator/contracts.ts",
+      "anchor": "export type SourceScope",
+      "fact": "Existing SourceScope, DiscoveryScope, ProviderReference and ObservedCoverage are reused with all declared identity components"
+    },
+    {
+      "id": "mapping-types",
+      "path": "apps/site/lib/league-administration/source-mapping.ts",
+      "anchor": "AdministrationSourceMapping",
+      "fact": "Existing mapping receipt distinguishes stable connection, exact immutable revision and generation"
     }
   ],
   "types": {
@@ -137,8 +161,21 @@
     "IdentityLookupScope": "{kind:'identity-lookup', provider:string, lookupRequestId:Id, accessContextId:Id, audienceId:Id, coverageSpecId:Id}; capture-only before stable account resolution; no league or source mapping required; request ID prevents renamed/reassigned usernames merging evidence",
     "AccountResourceScope": "{kind:'account-resource', provider:string, providerAccountId:Id, nativeAccountId:NativeId, family:'league-discovery', sport:'nfl', season:integer, accessContextId:Id, audienceId:Id, coverageSpecId:Id}; account IDs must agree; one exact season per list receipt; no invented league ID",
     "EvidenceCoverage": "{coverageSpecId:Id, observed:ObservedCoverage, populationEvidenceRef:Ref|null, roleGroups:{seasonTeamId:Id,primary:'known'|'unknown',coManagers:'known'|'unknown'}[]}; reuse ObservedCoverage from apps/site/lib/aggregator/contracts.ts; [] means not applicable or no qualified rows, never exhaustive removal without population and role qualification",
-    "DependencyRef": "{kind:'actor'|'session'|'association'|'acquisition-context'|'source-mapping'|'current-selection'|'membership'|'policy'|'preference'|'serving-selection', id:Id, revision:Revision|string}; exact relevant vector, not arbitrary free-form claims; evaluated against authoritative current dependencies",
-    "ProviderManagerIdentity": "Reuse apps/site/lib/aggregator/team-managers.ts: {providerManagerId:Id,sourceManager:ProviderReference}. providerManagerId resolves ProviderAccount.id; sourceManager.nativeId is the exact provider key, not the internal UUID; provider/namespace/native key must match that account."
+    "DependencyRef": "ActorDependency | SessionDependency | AssociationDependency | AcquisitionDependency | MappingDependency | CurrentSelectionDependency | MembershipDependency | PolicyDependency | PreferenceDependency | ServingSelectionDependency. A closed discriminated union: each variant has exactly its declared fields, with no generic id/revision substitution. Compare typed key components exactly, including null scope members; never concatenate identifiers without an unambiguous canonical encoding. At final delivery resolve each key through its existing authority and validate its exact revision or stated live check.",
+    "ProviderManagerIdentity": "Reuse apps/site/lib/aggregator/team-managers.ts: {providerManagerId:Id,sourceManager:ProviderReference}. providerManagerId resolves ProviderAccount.id; sourceManager.nativeId is the exact provider key, not the internal UUID; provider/namespace/native key must match that account. Qualified roster-role evidence can establish a shared manager identity without a username or per-manager lookup; association activation separately requires its subject lookup receipt.",
+    "ActorDependency": "{kind:'actor', actorId:Id, revision:Revision}; actorId = Actor.id; revision = Actor.revision; require the same active actor resolved from the trusted principal.",
+    "SessionDependency": "{kind:'session', issuer:string, subject:string, sessionId:Id, expiresAt:Instant}; issuer/subject are the verified AccountPrincipal key; sessionId is the existing opaque website_auth.session.id, subject equals session.userId, and expiresAt is that session's stored expiry. The existing auth owner must revalidate the same live request session, principal admission and expiry at delivery, with cookie cache/refresh disabled; a missing, replaced, revoked or expired session fails. This target server-only receipt extends the existing auth boundary, which currently exposes only issuer/subject/displayName; it creates no session ID, revision, credential store or client-visible token.",
+    "AssociationDependency": "{kind:'association', associationId:Id, revision:Revision}; associationId = Association.id; revision = Association.revision; require active state and matching actor/provider account.",
+    "AcquisitionDependency": "{kind:'acquisition-context', accessContextId:Id, revision:Revision}; accessContextId = AcquisitionContext.id; revision = AcquisitionContext.revision; require compatible provider/audience and live applicable authority.",
+    "MappingDependency": "{kind:'source-mapping', connectionId:Id, leagueSeasonId:Id, sourceMappingRevisionId:Id, mappingGeneration:Revision}; resolve existing AdministrationSourceMapping by connectionId; leagueSeasonId, revisionId and generation must equal the captured fields respectively. sourceMappingRevisionId references the existing immutable mapping revision; mappingGeneration is its existing generation, not a new counter.",
+    "CurrentSelectionDependency": "{kind:'current-selection', associationId:Id, leagueId:Id, selectionRevision:Revision}; key exactly CurrentSelection(associationId,leagueId), revision exactly CurrentSelection.selectionRevision; selected leagueSeasonId must belong to that league and match the authorized result.",
+    "MembershipDependency": "{kind:'membership', associationId:Id, scope:SourceScope, canonicalNormalizerVersion:string, validationVersion:string, acceptedRef:Ref, acceptedGeneration:Revision, adverseEvidence:AdverseMembershipEvidence}; associationId = Association.id. The selected evidence key is exactly the versioned accepted manager-resource head (scope,canonicalNormalizerVersion,validationVersion), with its immutable acceptance receipt/generation. Re-evaluate current role qualification, coverage and original age, then independently validate adverseEvidence for the same association, selected league season and compatible authority. At promotion and final delivery, the authoritative coherent check must validate the whole applicable cross-version set, including newly committed evidence or a changed set of qualified heads, not just the listed immutable refs. G4 must choose and prove that set-fence/transaction protocol through existing owners; no fence ID, revision zero, additional table or implemented proof is invented here. A changed dependency requires a new decision; never compare generations across heads.",
+    "PolicyDependency": "{kind:'policy', policyVersion:'sleeper-membership-access-v1'}; key is the exact immutable approved policy version, equal to LeagueAccessDecision.policyVersion; recheck the authoritative active binding. There is no invented policy ID or mutable revision of v1.",
+    "PreferenceDependency": "{kind:'preference', actorId:Id, leagueId:Id, revision:Revision}; key exactly Follow(actorId,leagueId), revision exactly Follow.revision, including retained unfollow tombstones. Include only when the operation depends on an existing preference; an absent follow cannot be represented by a fabricated ID or revision zero.",
+    "ServingSelectionDependency": "{kind:'serving-selection', scope:SourceScope|DiscoveryScope, readerContract:string, selectionRevision:Revision}; key exactly ServingSelection(scope,readerContract), using every scope member and equal null values; revision exactly ServingSelection.selectionRevision. readerContract names one reader/cohort binding; no undeclared cohort key is implied.",
+    "MembershipEvidenceRef": "{scope:SourceScope, canonicalNormalizerVersion:string, validationVersion:string, acceptedRef:Ref, acceptedGeneration:Revision}; exact immutable accepted manager-evidence tuple. The reference resolves to that scope, versioned policy and generation; generations are compared only within the same head. A retained complete-removal receipt may remain relevant after its head or serving binding changes; it need not be the presently served receipt.",
+    "MembershipSupersession": "{removal:MembershipEvidenceRef, positive:MembershipEvidenceRef, orderingEvidenceRef:Ref}; explicit retained proof that a later independently qualified positive correction supersedes this exact complete-removal receipt for the same association and compatible current season/authority scope. orderingEvidenceRef resolves to the proved ordering/qualification evidence; local cross-head ordinals, response arrival, normalization time, version label and replay alone are insufficient.",
+    "AdverseMembershipEvidence": "{state:'complete'|'unknown', removals:MembershipEvidenceRef[], supersessions:MembershipSupersession[]}; records the applicable qualified complete-removal evidence across compatible normalizer/validation versions, independently of the served version. complete means the existing acceptance/access authority established the entire applicable evidence set in the final coherent decision; complete with [] is proved absence, never omitted or unqueried evidence. unknown cannot allow even when arrays are empty. Every removal must remain denying unless an explicitly proved matching supersession applies; incomparable evidence retains denial. Reject duplicate/conflicting tuples or supersessions for unlisted removals."
   },
   "records": [
     {
@@ -177,11 +214,14 @@
       "kind": "adapt",
       "sources": [
         "identity",
-        "accounts"
+        "accounts",
+        "teams",
+        "normalizer"
       ],
       "key": "(provider, namespace, nativeAccountId)",
       "constraints": [
-        "Reuse league_source_manager_accounts identity where namespace is proven; separate identity lookup evidence from user-directory display"
+        "Reuse league_source_manager_accounts identity where namespace is proven; separate stable provider identity, optional display and association-subject lookup qualification.",
+        "Qualified roster owner/co-manager IDs or a validated lookup can establish the stable provider key. Shared team normalization does not require a lookup for every manager. identityEvidenceKind determines the immutable identityEvidenceRef provenance; neither source proves provider-account control."
       ],
       "fields": [
         [
@@ -205,32 +245,38 @@
         [
           "nativeAccountId",
           "NativeId",
-          "/user.user_id",
-          "Lookup validates returned ID; preserve string"
+          "/user.user_id or qualified /rosters[].owner_id/co_owners[]",
+          "Validate and preserve the exact provider/namespace/native key from its declared evidence kind; resolving roster roles does not require a per-manager /user request."
         ],
         [
           "username",
           "Field<string>",
           "/user.username",
-          "Mutable display/lookup label, not unique identity"
+          "Mutable display/lookup label, not unique identity; absent is valid for a role-only identity."
         ],
         [
           "displayName",
           "Field<string>",
           "/user.display_name",
-          "Absent optional display does not invalidate known identity"
+          "Absent optional display does not invalidate known identity, including a role-only identity."
         ],
         [
           "avatar",
           "Field<string>",
           "/user.avatar",
-          "Retain native token; adapter validates display URL"
+          "Retain native token when observed; absent is valid for a role-only identity; adapter validates display URL."
+        ],
+        [
+          "identityEvidenceKind",
+          "lookup|qualified-role",
+          "qualified immutable identity-bearing source evidence",
+          "lookup references the successful identity lookup capture; qualified-role references an accepted managers resource containing the same exact provider/namespace/native key."
         ],
         [
           "identityEvidenceRef",
           "Ref",
-          "lookup capture",
-          "Identification is not proof of provider-account control"
+          "lookup capture or accepted managers-resource receipt, as selected by identityEvidenceKind",
+          "Must resolve to the declared evidence kind and same exact stable provider key within compatible audience/scope. Identity evidence is not external account-control proof and does not by itself satisfy association-subject lookup qualification."
         ]
       ]
     },
@@ -243,7 +289,8 @@
       ],
       "key": "id; active UNIQUE(actorId, provider); active UNIQUE(providerAccountId)",
       "constraints": [
-        "Atomic two-way uniqueness; provider agrees with referenced account; retained ended history; conflict never chooses a winner"
+        "Atomic two-way uniqueness; provider agrees with referenced account; retained ended history; conflict never chooses a winner",
+        "Activation requires a retained successful subject lookup receipt matching providerAccountId; qualified roster-role evidence alone cannot activate an association."
       ],
       "fields": [
         [
@@ -262,7 +309,13 @@
           "providerAccountId",
           "Id",
           "ProviderAccount.id",
-          "Qualified lookup identity exists before association"
+          "Stable provider identity exists; subjectLookupEvidenceRef separately qualifies this association's lookup before activation."
+        ],
+        [
+          "subjectLookupEvidenceRef",
+          "Ref",
+          "successful IdentifyProviderAccountResult.evidenceRef retained at activation",
+          "The server verifies a qualified lookup response for this exact ProviderAccount provider/namespace/nativeAccountId before activation; a different subject, failed lookup, role-only receipt or unrelated display evidence is rejected. Retain the activation evidence; it never refreshes membership verification."
         ],
         [
           "provider",
@@ -524,7 +577,8 @@
       ],
       "key": "(associationId, leagueId)",
       "constraints": [
-        "Per-user per-league current choice; never max(year) or global NFL-year predicate; shared league facts remain independent"
+        "Per-user per-league current choice; never max(year) or global NFL-year predicate; shared league facts remain independent",
+        "The dependency key is exactly (associationId,leagueId); referenced leagueSeasonId must belong to leagueId and its association must match the access actor/provider."
       ],
       "fields": [
         [
@@ -568,7 +622,8 @@
       ],
       "key": "(leagueSeasonId, provider, nativeTeamId, acceptanceRef)",
       "constraints": [
-        "Shared season-team identity; multiple co-managers share it; manager absence requires exhaustive qualified group evidence"
+        "Shared season-team identity; multiple co-managers share it; manager absence requires exhaustive qualified group evidence",
+        "Every declared key component is explicit; provider/nativeTeamId must agree with the reused sourceTeam reference and the captured mapping behind acceptanceRef, including its native league namespace."
       ],
       "fields": [
         [
@@ -582,6 +637,12 @@
           "Id",
           "LeagueSeason.id",
           "Cross-season foreign references rejected"
+        ],
+        [
+          "provider",
+          "string",
+          "TeamManagerRelationships.sourceTeam.provider resolved through acceptanceRef and its captured source mapping",
+          "Derived from the qualified sourceTeam reference, never submitted independently; must equal the accepted scope's captured mapping provider, shared season-team alias provider and every applicable manager source provider. Only sleeper is implemented."
         ],
         [
           "nativeTeamId",
@@ -673,7 +734,8 @@
       ],
       "key": "(actorId, leagueId)",
       "constraints": [
-        "Preference never grants eligibility; carryover compares revision so a newer unfollow wins"
+        "Preference never grants eligibility; carryover compares revision so a newer unfollow wins",
+        "The dependency key is exactly (actorId,leagueId); retain its revision through unfollow rather than inventing a surrogate dependency ID."
       ],
       "fields": [
         [
@@ -789,12 +851,14 @@
       "sources": [
         "acceptance",
         "mapping",
-        "normalizer"
+        "normalizer",
+        "scope-types"
       ],
       "key": "scope + policy identity; immutable receipt id; see contracts section 3",
       "constraints": [
         "All references resolve to compatible scope/audience; no freshness extension from replay; immutable captures may support several normalized versions",
-        "Identity lookup is capture-only until resolution; no accepted-head or enrolled mapping fabricated. Failed capture has no normalized content or acceptance generation."
+        "Identity lookup is capture-only until resolution; no accepted-head or enrolled mapping fabricated. Failed capture has no normalized content or acceptance generation.",
+        "Capture-only or transport-failure evidence has normalizedAt null when no normalization event occurred; a failed normalization attempt may retain only its actual attempt time. No timestamp is manufactured to fill a required slot."
       ],
       "fields": [
         [
@@ -853,9 +917,9 @@
         ],
         [
           "normalizedAt",
-          "Instant",
-          "normalization event",
-          "Processing time only"
+          "Instant|null",
+          "actual normalization attempt event, when one occurred",
+          "Processing time only; null when normalization was never attempted, including transport failure/capture-only evidence. A recorded failed normalization attempt may have its actual event time without content or acceptance. Never substitute request, receipt, checked, verification or delivery time."
         ],
         [
           "qualifyingVerifiedAt",
@@ -893,11 +957,13 @@
       "name": "ServingSelection",
       "kind": "adapt",
       "sources": [
-        "acceptance"
+        "acceptance",
+        "scope-types"
       ],
-      "key": "(logical resource scope, reader contract/cohort)",
+      "key": "(scope, readerContract)",
       "constraints": [
-        "Logical selection responsibility, not mandatory new table; exactly one designated accepted policy head per serving contract"
+        "Logical selection responsibility, not mandatory new table; exactly one designated accepted policy head per serving contract",
+        "The dependency key is exactly (scope,readerContract); compare all scope members including audience, coverage and equal nulls, and never collapse distinct reader/cohort bindings."
       ],
       "fields": [
         [
@@ -910,7 +976,7 @@
           "readerContract",
           "string",
           "internal reader binding",
-          "Legacy reader remains pinned until authorized qualified cutover"
+          "Identifies exactly one reader/cohort binding; together with the complete scope it is the key. Legacy reader remains pinned until authorized qualified cutover."
         ],
         [
           "canonicalNormalizerVersion",
@@ -944,11 +1010,15 @@
       "sources": [
         "accounts",
         "teams",
-        "acceptance"
+        "acceptance",
+        "session-authority",
+        "session-storage",
+        "mapping-types"
       ],
       "key": "actor + association + current league selection + policy + dependency revisions",
       "constraints": [
-        "Final read authorization is separate from acquisition; no grant from follow, commissioner, membership-only, name or historical ownership"
+        "Final read authorization is separate from acquisition; no grant from follow, commissioner, membership-only, name or historical ownership",
+        "An allow requires a complete authoritative adverse-membership evidence set across compatible versions, with every applicable removal either denying or explicitly superseded by later qualified positive evidence. Unknown set completeness cannot allow. The coherent cross-version set fence remains an unimplemented G4 design/qualification obligation."
       ],
       "fields": [
         [
@@ -1009,7 +1079,7 @@
           "dependencyRefs",
           "DependencyRef[]",
           "actor/session, association, context, mapping, selection, membership, policy and preference where relevant",
-          "Typed revision vector; membership id references immutable acceptance; policy revision is explicit version; validate at final delivery"
+          "Closed typed dependency vector with exact declared key tuples. Membership pins the full versioned head plus immutable acceptance/generation; policy pins its immutable version; session uses its existing stored identity and live auth check, not an invented revision. Resolve all relevant dependencies at final delivery; no lossy composite-key concatenation. Membership also carries the authoritative complete-or-unknown cross-version adverse evidence set; selected-head equality alone is insufficient, and newly committed removals must invalidate the decision through the G4 protocol."
         ]
       ]
     },
@@ -1255,7 +1325,9 @@
         "ProviderAccount.identityEvidenceRef",
         "Association.assurance",
         "IdentifyProviderAccountResult.status",
-        "IdentifyProviderAccountResult.evidenceRef"
+        "IdentifyProviderAccountResult.evidenceRef",
+        "ProviderAccount.identityEvidenceKind",
+        "Association.subjectLookupEvidenceRef"
       ],
       "sources": [
         "identity",
@@ -1368,7 +1440,7 @@
   "cases": [
     {
       "id": "FS01",
-      "pass": "Owner and co-manager in separate L1 accounts resolve the same season/team/roster evidence; independent associations/access/follows; one compatible shared acquisition; resolved internal providerManagerId matches ProviderAccount.id while sourceManager preserves distinct native owner/co-owner IDs"
+      "pass": "Owner and co-manager in separate L1 accounts resolve the same season/team/roster evidence; independent associations/access/follows; one compatible shared acquisition; resolved internal providerManagerId matches ProviderAccount.id while sourceManager preserves distinct native owner/co-owner IDs; only each associating subject needs a qualified lookup; other roster managers resolve from accepted role evidence with absent display fields and no per-manager lookup, and all resulting identity provenance remains truthful"
     },
     {
       "id": "FS02",
@@ -1396,7 +1468,7 @@
     },
     {
       "id": "FS08",
-      "pass": "Disconnect, session/actor change, accepted removal or mapping/context change during slow composition invalidates final delivery; already delivered responses are not claimed recallable"
+      "pass": "Disconnect, session/actor change, accepted removal or mapping/context change during slow composition invalidates final delivery; already delivered responses are not claimed recallable; the session dependency uses the actual existing session ID and principal/expiry, revalidated through the auth owner; missing/revoked/changed session or changed actor/association dependency fails without invented revisions; a removal committed under another qualified version between adverse-set enumeration and final delivery invalidates the allow even if the served head is unchanged; an unknown adverse set cannot allow, and the protocol must detect a newly qualified head/removal rather than only reread listed refs"
     },
     {
       "id": "FS09",
@@ -1412,11 +1484,11 @@
     },
     {
       "id": "FS12",
-      "pass": "Partial/failed roster population retains accepted data with original age; invalid held players do not suppress independently complete manager removal; incomplete population prevents exhaustive exclusion"
+      "pass": "Partial/failed roster population retains accepted data with original age; invalid held players do not suppress independently complete manager removal; incomplete population prevents exhaustive exclusion; transport/capture failure before normalization retains normalizedAt=null and no invented normalized content/acceptance; a failed normalization attempt records only its actual event time when observed"
     },
     {
       "id": "FS13",
-      "pass": "Cross-provider/season/team/audience injection rejected at write and read; policy versions immutable and policy changes cannot use stale cached authorization; all success/failure result variants enforce their nullable fields and scope kind"
+      "pass": "Cross-provider/season/team/audience injection rejected at write and read; policy versions immutable and policy changes cannot use stale cached authorization; all success/failure result variants enforce their nullable fields and scope kind; every dependency variant rejects extra/missing/wrong-kind key fields, mismatched key component or revision, and composite-key collisions; TeamEvidence.provider is derived from and must agree with its sourceTeam/captured mapping; qualified-role evidence cannot masquerade as a lookup receipt"
     },
     {
       "id": "FS14",
@@ -1436,7 +1508,7 @@
     },
     {
       "id": "FS18",
-      "pass": "Pre-enrollment username lookup establishes native identity without users-directory head; candidate preview remains read-only; activation requires trusted actor and atomic exclusive writer; lookup/list captures require no fabricated league/mapping and username rename/reassignment cannot merge provider accounts"
+      "pass": "Pre-enrollment username lookup establishes native identity without users-directory head; candidate preview remains read-only; activation requires trusted actor and atomic exclusive writer; lookup/list captures require no fabricated league/mapping and username rename/reassignment cannot merge provider accounts; a role-established ProviderAccount can be reused after a matching successful subject lookup, while role evidence alone or a lookup for another account cannot activate the association"
     },
     {
       "id": "FS19",
@@ -1444,11 +1516,11 @@
     },
     {
       "id": "FS20",
-      "pass": "Verified renewal carries an existing follow with captured revision; concurrent newer unfollow wins; no auto-follow on discovery; genuine loss/regain remains D04-gated"
+      "pass": "Verified renewal carries an existing follow with captured revision; concurrent newer unfollow wins; no auto-follow on discovery; genuine loss/regain remains D04-gated; preference and current-selection dependencies resolve their full (actorId,leagueId) and (associationId,leagueId) keys, so equal revisions for different tuples cannot authorize carryover"
     },
     {
       "id": "FS21",
-      "pass": "Same capture normalized under v1/v2 coexists in separate policy heads; replay cannot renew D02; explicit compatible promotion chooses one serving policy; legacy binding remains unchanged"
+      "pass": "Same capture normalized under v1/v2 coexists in separate policy heads; replay cannot renew D02; explicit compatible promotion chooses one serving policy; legacy binding remains unchanged; serving dependencies compare the entire scope/readerContract tuple and selectionRevision, with distinct audience/coverage/null/cohort components never aliased; v2 positive at T1 cannot clear a qualified v1 complete removal at T2 by promotion, rollback or replay before T1+3600s; retain denial for incomparable ordering, including a removal concurrent with binding change, until a later qualified positive has explicit supersession/ordering proof; complete empty adverse evidence requires a proved authoritative set check, never an assumed zero revision"
     },
     {
       "id": "FS22",
