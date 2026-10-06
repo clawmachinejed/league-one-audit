@@ -86,6 +86,7 @@ CREATE TABLE public.public_data_dispatches (
   max_requests integer NOT NULL CHECK (max_requests BETWEEN 1 AND 3),
   admitted_at timestamptz NOT NULL DEFAULT clock_timestamp()
 );
+CREATE INDEX public_data_dispatches_recent ON public.public_data_dispatches(admitted_at DESC);
 CREATE TRIGGER public_dispatch_history_immutable BEFORE UPDATE OR DELETE ON public.public_data_dispatches
   FOR EACH ROW EXECUTE FUNCTION public.prevent_league_administration_history_change();
 
