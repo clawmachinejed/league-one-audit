@@ -38,9 +38,11 @@ export type LeagueSeasonReference = Readonly<{
 export type LeagueSeasonRegistrationIdentity = Readonly<{
   leagueKey: string; leagueName: string; season: number; sleeperLeagueId: string;
 }>;
+/** Existing callers keep their canonical scoring hash and nonnullable profile result. */
 export type ConfiguredLeagueSeasonInput = LeagueSeasonRegistrationIdentity & Readonly<{
   mode?: 'configured'; scoringRules: Readonly<Record<string, number>>;
 }>;
+/** Only this explicit mode permits absent/null/empty scoring without a profile. */
 export type OfficialDataLeagueSeasonInput = LeagueSeasonRegistrationIdentity & Readonly<{
   mode: 'official-data'; scoringRules?: Readonly<Record<string, number>> | null;
 }>;
@@ -48,8 +50,9 @@ export type OfficialDataLeagueSeasonReference = Readonly<{
   leagueId: string; leagueSeasonId: string; scoringProfileId: string | null;
 }>;
 export type LeagueSeasonRegistrar = {
-  (input: ConfiguredLeagueSeasonInput): Promise<PersistenceOutcome<LeagueSeasonReference>>;
   (input: OfficialDataLeagueSeasonInput): Promise<PersistenceOutcome<OfficialDataLeagueSeasonReference>>;
+  // Keep last: existing ReturnType/Parameters consumers describe configured registration.
+  (input: ConfiguredLeagueSeasonInput): Promise<PersistenceOutcome<LeagueSeasonReference>>;
 };
 export type ExternalIdentity = Readonly<{
   provider: string;

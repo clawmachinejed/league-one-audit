@@ -81,4 +81,53 @@ export async function verifyEnrolledPublication(input: {
       }
     } finally { await query('ROLLBACK TO SAVEPOINT enrollment_case'); }
   }
+
+  // R037 AUTHORED / UNEXECUTED. These are rolled-back owner fixture checks;
+  // genuine restricted-LOGIN advancement is a separate case in the caller.
+  // Never alter immutable enrollment/profile evidence to manufacture a scenario.
+  for (const scenario of ['data-null', 'data-null-active-parent', 'data-null-adopted-parent',
+    'ordinary-null', 'near-match-data-marker', 'data-missing-season', 'data-missing-connection',
+    'data-wrong-provider', 'data-wrong-season-connection', 'data-nonnull-profile'] as const) {
+    await query('SAVEPOINT official_membership_case');
+    try {
+      const key = `official-publication-${scenario}`;
+      const [league] = await query('INSERT INTO leagues(league_key,name) VALUES($1,$1) RETURNING id', [key]);
+      let seasonId: unknown;
+      if (scenario !== 'data-missing-season') {
+        const [registered] = await query(`INSERT INTO league_seasons(league_id,season,scoring_profile_id)
+          VALUES($1,$2::smallint,$3::uuid) RETURNING id`, [league.id, season,
+          scenario === 'data-nonnull-profile' ? original.scoreSets[0].scoringProfileId : null]);
+        seasonId = registered.id;
+      }
+      if (scenario === 'data-wrong-season-connection') {
+        const [other] = await query(`INSERT INTO league_seasons(league_id,season,scoring_profile_id)
+          VALUES($1,$2::smallint,NULL) RETURNING id`, [league.id, season + 1]);
+        await query(`INSERT INTO league_source_connections(league_season_id,provider,external_league_id)
+          VALUES($1,'sleeper',$2)`, [other.id, key]);
+      } else if (!['data-missing-season', 'data-missing-connection'].includes(scenario)) {
+        await query(`INSERT INTO league_source_connections(league_season_id,provider,external_league_id)
+          VALUES($1,$2,$3)`, [seasonId, scenario === 'data-wrong-provider' ? 'synthetic-other-provider' : 'sleeper', key]);
+      }
+      // Deliberately conflicting mutable parent purpose/active/adoption state
+      // must not change the original exact-season classifier in either direction.
+      await query(`INSERT INTO league_administration_enrollments(league_id,provider,active,evidence,data_adopted_seasons)
+        VALUES($1,'sleeper',$2,$3,$4::integer[])`, [league.id,
+        scenario === 'data-null-active-parent' || scenario === 'data-null-adopted-parent',
+        scenario === 'data-null-adopted-parent' ? 'account-onboarding-v1' : 'public-data-intake-v1',
+        scenario === 'data-null-adopted-parent' ? [season] : []]);
+      await query(`INSERT INTO league_administration_enrollment_seasons(league_id,season,provider,evidence)
+        VALUES($1,$2::smallint,'sleeper',$3)`, [league.id, season,
+        scenario === 'ordinary-null' ? 'isolated fixture season approval'
+          : scenario === 'near-match-data-marker' ? 'public-data-intake-v1 ' : 'public-data-intake-v1']);
+      if (['data-null', 'data-null-active-parent', 'data-null-adopted-parent'].includes(scenario)) {
+        const before = await snapshot();
+        expect((await readiness()).every(row => row.ready)).toBe(true);
+        expect((await store.recordAllPlayerBatch(original)).kind).toBe('stored');
+        expect(await snapshot()).toEqual(before);
+      } else await rejectUnchanged();
+    } finally {
+      await query('ROLLBACK TO SAVEPOINT official_membership_case');
+      await query('RELEASE SAVEPOINT official_membership_case');
+    }
+  }
 }

@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { setTimeout as delay } from 'node:timers/promises';
 import { execFile } from 'node:child_process';
 import { readFile, readdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -16,6 +17,7 @@ import {
 } from '../lib/projection-store';
 import {
   createIndependentDatabase,
+  createPinnedIntegrationDatabase,
   integrationEnvironment,
   ownerQuery,
   runtimeQuery,
@@ -86,6 +88,17 @@ async function expectRolledBackRuntimeMutationDenied(
     } finally {
       await connection.close();
     }
+  }
+}
+
+/** R037 owner trigger proof: rollback even if an unexpectedly missing guard accepts the mutation. */
+async function expectRolledBackOwnerProfileMutationDenied(statement: string, parameters: readonly unknown[]) {
+  const owner = await createPinnedIntegrationDatabase('owner');
+  try {
+    await owner.database.query('BEGIN');
+    await expect(owner.database.query(statement, parameters)).rejects.toThrow(/immutable/iu);
+  } finally {
+    try { await owner.database.query('ROLLBACK'); } finally { await owner.close(); }
   }
 }
 
@@ -413,25 +426,47 @@ describe.sequential('projection store against an isolated Neon database', () => 
       await expect(store.registerLeagueSeason({ leagueKey: input.leagueKey, leagueName: input.leagueName, season: input.season,
         sleeperLeagueId: input.sleeperLeagueId, scoringRules: { pass_int: -2, pass_yd: 0.04, pass_td: 4 } }))
         .rejects.toThrow();
-      await expect(ownerQuery('UPDATE league_seasons SET scoring_profile_id=$2 WHERE id=$1',
-        [original.leagueSeasonId, league.scoringProfileId])).rejects.toThrow(/immutable/iu);
+      await expectRolledBackOwnerProfileMutationDenied('UPDATE league_seasons SET scoring_profile_id=$2 WHERE id=$1',
+        [original.leagueSeasonId, league.scoringProfileId]);
       expect((await ownerQuery('SELECT scoring_profile_id FROM league_seasons WHERE id=$1', [original.leagueSeasonId]))[0])
         .toEqual({ scoring_profile_id: null });
       expect(await ownerQuery('SELECT * FROM league_administration_enrollments WHERE league_id=$1', [original.leagueId])).toEqual([]);
     }
     expect(await profiles()).toEqual(before);
-    await expect(ownerQuery('UPDATE league_seasons SET scoring_profile_id=NULL WHERE id=$1', [league.leagueSeasonId]))
-      .rejects.toThrow(/immutable/iu);
+    await expectRolledBackOwnerProfileMutationDenied('UPDATE league_seasons SET scoring_profile_id=NULL WHERE id=$1', [league.leagueSeasonId]);
   });
 
   it('reconciles official-only concurrent registration and a committed response loss without new identity or profile', async () => {
-    const peer = createIndependentDatabase();
+    const peer = await createPinnedIntegrationDatabase('runtime');
+    const first = await createPinnedIntegrationDatabase('runtime');
+    const blocker = await createPinnedIntegrationDatabase('owner');
+    let pending: Promise<unknown>[] = [];
     const input = { mode: 'official-data' as const, leagueKey: `official-race-${randomUUID()}`,
       leagueName: 'Official registration race fixture', season: 2194, sleeperLeagueId: `official-race-${randomUUID()}` };
     const before = await ownerQuery('SELECT count(*)::integer AS count FROM scoring_profiles');
     try {
       expect((await peer.database.query('SELECT session_user AS role'))[0].role).toBe('league_one_runtime');
-      const values = await Promise.all([store.registerLeagueSeason(input), createProjectionStore(peer.database).registerLeagueSeason(input)]);
+      expect((await first.database.query('SELECT session_user AS role'))[0].role).toBe('league_one_runtime');
+      const pids = [Number((await first.database.query('SELECT pg_backend_pid() AS pid'))[0].pid),
+        Number((await peer.database.query('SELECT pg_backend_pid() AS pid'))[0].pid)];
+      await blocker.database.query('BEGIN');
+      // The uncommitted unique league key holds BOTH real registrar statements
+      // at the same contention boundary; this owner prerequisite is rolled back.
+      await blocker.database.query('INSERT INTO leagues(league_key,name) VALUES($1,$2)', [input.leagueKey, input.leagueName]);
+      const left = createProjectionStore(first.database).registerLeagueSeason(input);
+      const right = createProjectionStore(peer.database).registerLeagueSeason(input);
+      pending = [left, right];
+      const settled = Promise.allSettled(pending); // Always observe early rejection.
+      let waiting = 0; const until = Date.now() + 5_000;
+      while (waiting !== 2 && Date.now() < until) {
+        waiting = Number((await ownerQuery(`SELECT count(*)::integer AS count FROM pg_stat_activity
+          WHERE pid=ANY($1::integer[]) AND wait_event_type='Lock' AND cardinality(pg_blocking_pids(pid))>0`, [pids]))[0].count);
+        if (waiting !== 2) await delay(25);
+      }
+      expect(waiting, 'Both real registration statements must be observed waiting on the same unique-key contention.').toBe(2);
+      await blocker.database.query('ROLLBACK');
+      const values = await Promise.all([left, right]);
+      await settled;
       expect(storedValue(values[0])).toEqual(storedValue(values[1]));
       expect(storedValue(values[0]).scoringProfileId).toBeNull();
       let lose = true;
@@ -451,7 +486,13 @@ describe.sequential('projection store against an isolated Neon database', () => 
       expect(await ownerQuery('SELECT count(*)::integer AS count FROM scoring_profiles')).toEqual(before);
       await expect(store.registerLeagueSeason({ ...input, sleeperLeagueId: `${input.sleeperLeagueId}-wrong` })).rejects.toThrow();
       expect(storedValue(await store.registerLeagueSeason(input))).toEqual(identity);
-    } finally { await peer.close(); }
+    } finally {
+      try { await blocker.database.query('ROLLBACK'); }
+      finally {
+        await Promise.allSettled(pending);
+        await first.close(); await peer.close(); await blocker.close();
+      }
+    }
   });
 
   it('persists a future projection success, later retry, and recovered success', async () => {

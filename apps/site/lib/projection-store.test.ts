@@ -1,5 +1,7 @@
 import { readFile } from 'node:fs/promises';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, expectTypeOf, it, vi } from 'vitest';
+import type { ConfiguredLeagueSeasonInput, LeagueSeasonReference, OfficialDataLeagueSeasonReference,
+  PersistenceOutcome } from './projections/adapters/neon/contracts';
 
 vi.mock('server-only', () => ({}));
 
@@ -865,5 +867,100 @@ describe('projection migration', () => {
     expect(migration).toContain('DROP TRIGGER IF EXISTS projection_snapshots_immutable');
     expect(migration).toContain('CREATE TRIGGER projection_snapshots_immutable');
     expect(migration).toContain('prevent_projection_snapshot_update()');
+  });
+});
+
+
+describe('explicit official-data league registration', () => {
+  const identity = { leagueKey: 'sleeper-unrelated', leagueName: 'Official only', season: 2026,
+    sleeperLeagueId: '98765432109876543210' };
+  const registered = { league_id: 'league-id', league_season_id: 'season-id', scoring_profile_id: null };
+
+  it.each([undefined, null, {}])('does not invent or hash a profile for official scoring %s', async scoringRules => {
+    const fake = fakeDatabase(() => [registered]); const store = createProjectionStore(fake.database);
+    const result = store.registerLeagueSeason({ ...identity, mode: 'official-data', scoringRules });
+    expectTypeOf(result).toEqualTypeOf<Promise<PersistenceOutcome<OfficialDataLeagueSeasonReference>>>();
+    await expect(result).resolves.toEqual({ kind: 'stored', value: {
+      leagueId: 'league-id', leagueSeasonId: 'season-id', scoringProfileId: null } });
+    expect(fake.calls).toHaveLength(1);
+    expect(fake.calls[0].parameters).toEqual([null, null, identity.leagueKey, identity.leagueName, 2026, identity.sleeperLeagueId]);
+    // Source contract only: SQL execution/atomicity belongs to the authored restricted-role oracle.
+    expect(fake.calls[0].statement).toContain('existing_season AS MATERIALIZED');
+    expect(fake.calls[0].statement).toContain('CASE WHEN EXISTS(SELECT 1 FROM existing_season)');
+    expect(fake.calls[0].statement).toContain('THEN (SELECT scoring_profile_id FROM existing_season)');
+    expect(fake.calls[0].statement).toContain('WHEN $1::text IS NULL THEN NULL::uuid');
+    expect(fake.calls[0].statement).toContain('ON CONFLICT (league_id, season) DO UPDATE SET updated_at = now()');
+    expect(fake.calls[0].statement).not.toMatch(/SET scoring_profile_id/);
+  });
+
+  it('preserves configured empty-rules hashing and the nonnullable overload', async () => {
+    const fake = fakeDatabase(() => [{ ...registered, scoring_profile_id: 'profile-id' }]);
+    const store = createProjectionStore(fake.database);
+    const implicit = store.registerLeagueSeason({ ...identity, scoringRules: {} });
+    const explicit = store.registerLeagueSeason({ ...identity, mode: 'configured', scoringRules: {} });
+    expectTypeOf(implicit).toEqualTypeOf<Promise<PersistenceOutcome<LeagueSeasonReference>>>();
+    expectTypeOf<ReturnType<typeof store.registerLeagueSeason>>().toEqualTypeOf<Promise<PersistenceOutcome<LeagueSeasonReference>>>();
+    expectTypeOf<Parameters<typeof store.registerLeagueSeason>>().toEqualTypeOf<[input: ConfiguredLeagueSeasonInput]>();
+    expectTypeOf(explicit).toEqualTypeOf<Promise<PersistenceOutcome<LeagueSeasonReference>>>();
+    await expect(implicit).resolves.toMatchObject({ value: { scoringProfileId: 'profile-id' } });
+    await explicit;
+    expect(fake.calls[0].parameters.slice(0, 2)).toEqual([
+      '44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a', '{}']);
+    expect(fake.calls[1]).toEqual(fake.calls[0]);
+  });
+
+  it('retains finite zero/negative official weights and configured canonical hash parity', async () => {
+    const fake = fakeDatabase(() => [{ ...registered, scoring_profile_id: 'profile-id' }]);
+    const store = createProjectionStore(fake.database);
+    await store.registerLeagueSeason({ ...identity, scoringRules: { zero: 0, penalty: -2, unknown_bonus: 1.25 } });
+    await store.registerLeagueSeason({ ...identity, mode: 'official-data', scoringRules: { unknown_bonus: 1.25, penalty: -2, zero: 0 } });
+    expect(fake.calls[0].parameters).toEqual(fake.calls[1].parameters);
+    expect(fake.calls[1].parameters[1]).toBe('{"penalty":-2,"unknown_bonus":1.25,"zero":0}');
+  });
+
+  it.each([undefined, null])('never selects official mode from omitted/null configured scoring %s', async scoringRules => {
+    const fake = fakeDatabase(); const store = createProjectionStore(fake.database);
+    await expect(store.registerLeagueSeason({ ...identity, scoringRules } as unknown as ConfiguredLeagueSeasonInput))
+      .rejects.toThrow('requires scoring rules');
+    expect(fake.calls).toHaveLength(0);
+  });
+
+  it.each([[], 'bad', 0, false, { rec: '1' }, { rec: null }, { rec: Number.NaN }, { rec: Infinity }])(
+    'rejects malformed supplied scoring before any SQL: %s', async scoringRules => {
+      const fake = fakeDatabase(); const store = createProjectionStore(fake.database);
+      for (const mode of ['official-data', 'configured'] as const) {
+        await expect(store.registerLeagueSeason({ ...identity, mode, scoringRules } as unknown as ConfiguredLeagueSeasonInput))
+          .rejects.toThrow('finite numeric weights');
+      }
+      expect(fake.calls).toHaveLength(0);
+    });
+
+  it.each([undefined, '', 1])('requires an explicit nullable profile result, refusing corrupt %s', async scoring_profile_id => {
+    const fake = fakeDatabase(() => [{ ...registered, scoring_profile_id }]);
+    await expect(createProjectionStore(fake.database).registerLeagueSeason({ ...identity, mode: 'official-data' }))
+      .rejects.toThrow('explicit official scoring profile state');
+  });
+
+  it('refuses a NULL profile through the existing configured return contract', async () => {
+    const fake = fakeDatabase(() => [registered]);
+    await expect(createProjectionStore(fake.database).registerLeagueSeason({ ...identity, scoringRules: { rec: 1 } }))
+      .rejects.toThrow('scoring_profile_id');
+  });
+
+  it('replays an unknown registration acknowledgment and preserves returned NULL after later scoring', async () => {
+    let committed = false;
+    const fake = fakeDatabase(() => {
+      if (!committed) { committed = true; throw new Error('committed acknowledgment lost'); }
+      return [registered];
+    });
+    const store = createProjectionStore(fake.database);
+    const input = { ...identity, mode: 'official-data' as const };
+    await expect(store.registerLeagueSeason(input)).rejects.toThrow('acknowledgment lost');
+    const replay = await store.registerLeagueSeason(input);
+    expect(await store.registerLeagueSeason(input)).toEqual(replay);
+    expect(await store.registerLeagueSeason({ ...input, scoringRules: { rec: 1 } })).toEqual(replay);
+    expect(fake.calls[0]).toEqual(fake.calls[1]);
+    expect(fake.calls[3].statement.indexOf('THEN (SELECT scoring_profile_id FROM existing_season)'))
+      .toBeLessThan(fake.calls[3].statement.indexOf('ELSE public.get_or_create_scoring_profile'));
   });
 });

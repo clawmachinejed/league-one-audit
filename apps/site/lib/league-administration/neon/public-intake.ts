@@ -67,14 +67,10 @@ export function createPublicIntakeStore(client: DatabaseClient): PublicIntakeSto
       // are retained, and do not enroll or enable the calculation workers.
       if (normalized.status !== 'accepted' || payload.sport !== 'nfl'
         || typeof payload.name !== 'string' || !payload.name.trim()
-        || !payload.settings || typeof payload.settings !== 'object' || Array.isArray(payload.settings)
-        || !Array.isArray(payload.roster_positions) || !payload.roster_positions.length
-        || !Number.isInteger(payload.total_rosters) || Number(payload.total_rosters) < 1
-        || !payload.scoring_settings || typeof payload.scoring_settings !== 'object' || Array.isArray(payload.scoring_settings)) return reject();
-      const scoring = record(payload.scoring_settings);
-      if (!Object.keys(scoring).length || Object.values(scoring).some(value => typeof value !== 'number' || !Number.isFinite(value))) {
-        return reject();
-      }
+        || !Number.isInteger(payload.total_rosters) || Number(payload.total_rosters) < 1) return reject();
+      // The existing normalizer validates supplied shapes and finite weights.
+      // Absent, null and empty fields remain distinct official source evidence.
+      const scoring = payload.scoring_settings as Readonly<Record<string, number>> | null | undefined;
       if (Number(payload.total_rosters) > 20) {
         await checkpoint(work, { ...capture, capacity: 'roster-count-unqualified' }, fence);
         return;
@@ -95,8 +91,8 @@ export function createPublicIntakeStore(client: DatabaseClient): PublicIntakeSto
       } };
       const registered = rows.length ? { kind: 'stored' as const, value: { leagueId: String(rows[0].league_id),
         leagueSeasonId: String(rows[0].league_season_id) } }
-        : await createProjectionStore(guarded).registerLeagueSeason({ leagueKey, leagueName: payload.name,
-        season: work.season, sleeperLeagueId: work.externalLeagueId, scoringRules: scoring as Record<string, number> });
+        : await createProjectionStore(guarded).registerLeagueSeason({ mode: 'official-data', leagueKey, leagueName: payload.name,
+        season: work.season, sleeperLeagueId: work.externalLeagueId, scoringRules: scoring });
       if (registered.kind !== 'stored') throw new Error('Public registration unavailable.');
       await checkpoint(work, { ...capture, leagueId: registered.value.leagueId,
         leagueSeasonId: registered.value.leagueSeasonId }, fence);

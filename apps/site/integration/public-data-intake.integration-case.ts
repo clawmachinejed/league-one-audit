@@ -290,7 +290,7 @@ describe('public data source to typed PostgreSQL readback and recovery', () => {
     } finally { await blocker.close(); await runtime.close(); }
   });
 
-  it('rolls back canonical registration and its reservation when an identity-row wait outlives the postcondition fence', async () => {
+  it.each(['configured', 'official-only'] as const)('rolls back %s canonical registration and its reservation when an identity-row wait outlives the postcondition fence', async mode => {
     // This test needs one real slot in the isolated fleet. Saturation is an
     // explicit fixture failure, never a skip, owner bypass or capacity rewrite.
     const [capacity] = await connection.database.query(`SELECT
@@ -305,7 +305,7 @@ describe('public data source to typed PostgreSQL readback and recovery', () => {
     const season = 2184;
     const leagueKey = `sleeper-${native}`;
     const league = { league_id: native, season: String(season), sport: 'nfl', name: 'Identity lock fixture',
-      total_rosters: 1, settings: {}, scoring_settings: { rec: 1 }, roster_positions: ['QB'] };
+      total_rosters: 1, settings: {}, ...(mode === 'configured' ? { scoring_settings: { rec: 1 }, roster_positions: ['QB'] } : {}) };
     const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
       const url = String(input);
       if (url.endsWith('/user/identity_lock_fixture')) return new Response(JSON.stringify({ user_id: native, username: 'identity_lock_fixture' }));
@@ -1118,6 +1118,89 @@ describe('official preconfiguration source normalization to restricted typed sto
   let connection: IndependentDatabase;
   beforeAll(() => { connection = createIndependentDatabase(); });
   afterAll(async () => connection.close());
+  it('recovers the same NULL-profile identity after canonical registration commits before the bootstrap checkpoint [focused slow SQL]', async () => {
+    // Real identity/list/bootstrap/core/directory admissions plus one retry:
+    // at least five60-second gaps, possibly one initial interval. No fake clock,
+    // skipped admission, owner enrollment, or fabricated accepted resource.
+    const database = connection.database;
+    expect((await database.query('SELECT session_user AS role'))[0].role).toBe('league_one_runtime');
+    const [capacity] = await database.query(`SELECT (SELECT count(*) FROM league_administration_enrollments)
+      +(SELECT count(*) FROM public_data_collection_reservations reservation WHERE NOT EXISTS(
+        SELECT 1 FROM league_source_connections connection JOIN league_seasons season ON season.id=connection.league_season_id
+        JOIN league_administration_enrollments enrollment ON enrollment.league_id=season.league_id
+        WHERE connection.provider='sleeper' AND connection.external_league_id=reservation.external_league_id)) AS used`);
+    expect(Number(capacity.used), 'Fresh official registration requires one genuine isolated collection slot.').toBeLessThan(16);
+    const id = randomUUID();
+    const native = `4${BigInt(`0x${randomUUID().replaceAll('-', '').slice(0, 15)}`)}`;
+    const season = 2193;
+    const league = { league_id: native, season: String(season), sport: 'nfl', name: 'Fresh unconfigured DATA league', total_rosters: 1, settings: {} };
+    const roster = [{ roster_id: 1, owner_id: native, co_owners: [], players: [], starters: [], reserve: [], taxi: [] }];
+    const intake = createPublicIntakeStore(database);
+    const jobs = createProjectionStore(database);
+    const administration = createLeagueAdministrationStore(database);
+    const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      const url = String(input);
+      if (url.endsWith(`/user/official_recovery_${native}`)) return new Response(JSON.stringify({ user_id: native, username: `official_${native}` }));
+      if (url.endsWith(`/user/${native}/leagues/nfl/${season}`)) return new Response(JSON.stringify([league]));
+      if (url.endsWith(`/league/${native}`)) return new Response(JSON.stringify(league));
+      if (url.endsWith(`/league/${native}/rosters`)) return new Response(JSON.stringify(roster));
+      if (url.endsWith(`/league/${native}/users`)) return new Response(JSON.stringify([{ user_id: native, display_name: 'Official preconfiguration manager' }]));
+      throw new Error('Unexpected official registration recovery source scope.');
+    });
+    if (!database.queryAfterLock) throw new Error('Actual fenced registration transaction is required.');
+    const locked = database.queryAfterLock.bind(database);
+    let interrupted = false;
+    const interruptedDatabase: DatabaseClient = { ...database,
+      queryAfterLock: async <Row extends DatabaseRow = DatabaseRow>(...args: Parameters<NonNullable<DatabaseClient['queryAfterLock']>>) => {
+        const rows = await locked<Row>(...args);
+        if (!interrupted && args[0].includes('projection-store:register-league-season')) {
+          interrupted = true; throw new Error('canonical identity committed; bootstrap checkpoint not reached');
+        }
+        return rows;
+      } };
+    const dependencies = { intake, jobs, administration };
+    const progress = async (selected = dependencies) => {
+      const deadline = Date.now() + 155_000;
+      while (Date.now() < deadline) {
+        const result = await runPublicIntakeStep(id, selected, AbortSignal.timeout(20_000));
+        if (!['busy', 'backoff'].includes(result.status)) return result;
+        await delay(1_000);
+      }
+      throw new Error('Real official registration admission did not become due.');
+    };
+    const identity = () => database.query(`SELECT league.id AS league_id,season.id AS league_season_id,season.scoring_profile_id,
+      connection.id AS connection_id,connection.current_mapping_revision_id FROM leagues league
+      JOIN league_seasons season ON season.league_id=league.id
+      JOIN league_source_connections connection ON connection.league_season_id=season.id
+      WHERE league.league_key=$1 AND season.season=$2 AND connection.provider='sleeper'`, [`sleeper-${native}`, season]);
+    try {
+      await intake.submit({ id, username: `official_recovery_${native}`, seasons: [season] });
+      for (const resource of ['identity', 'leagues']) expect(await progress()).toMatchObject({ status: 'progress', resource });
+      expect(await progress({ ...dependencies, intake: createPublicIntakeStore(interruptedDatabase) }))
+        .toMatchObject({ status: 'unavailable', resource: 'bootstrap' });
+      expect(interrupted).toBe(true);
+      const committed = await identity();
+      expect(committed).toHaveLength(1);
+      expect(committed[0].scoring_profile_id).toBeNull();
+      expect(await database.query('SELECT * FROM public_data_collection_reservations WHERE external_league_id=$1', [native])).toHaveLength(1);
+      expect((await database.query('SELECT league_id,league_season_id,bootstrap_payload FROM public_data_league_candidates WHERE intake_id=$1', [id]))[0])
+        .toMatchObject({ league_id: null, league_season_id: null, bootstrap_payload: null });
+      for (const resource of ['bootstrap', 'core', 'users']) expect(await progress()).toMatchObject({ status: 'progress', resource });
+      expect(await identity()).toEqual(committed);
+      const read = await readPublicSleeperIntake(database, administration, id);
+      expect(read).toMatchObject({ status: 'available', leagues: [{ resources: {
+        settings: { status: 'available', value: { scoring: { rules: { state: 'absent', value: null } }, slots: { state: 'absent', value: null } } },
+        heldRoster: { status: 'available' }, teamManagers: { status: 'available' }, directory: { status: 'available' } } }] });
+      expect(await database.query(`SELECT active,evidence FROM league_administration_enrollments WHERE league_id=$1`, [committed[0].league_id]))
+        .toEqual([{ active: false, evidence: 'public-data-intake-v1' }]);
+      expect((await administration.listEnrollmentInventory(season)).entries.some(entry => entry.intended.leagueId === committed[0].league_id)).toBe(false);
+      expect(await database.query('SELECT * FROM league_period_authorities WHERE league_key=$1', [`sleeper-${native}`])).toEqual([]);
+      const [counts] = await database.query(`SELECT count(*)::integer AS attempts,count(DISTINCT worker_id||':'||generation)::integer AS owners
+        FROM public_data_dispatches WHERE intake_id=$1 AND resource='bootstrap'`, [id]);
+      expect(counts).toEqual({ attempts: 2, owners: 2 });
+    } finally { fetch.mockRestore(); }
+  }, 10 * 60_000);
+
   it('retains all nine missing/null/empty scoring and slot combinations, rejects malformed fields and versions later rules', async () => {
     const database = connection.database;
     expect((await database.query('SELECT session_user AS role'))[0].role).toBe('league_one_runtime');

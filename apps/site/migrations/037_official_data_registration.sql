@@ -1028,3 +1028,190 @@ $$;
 -- require the same valid job fence. PUBLIC receives no execution rights.
 REVOKE ALL ON FUNCTION public.all_player_score_set_is_publication_ready(uuid,jsonb,uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.advance_current_all_player_score_set(text,smallint,text,smallint,uuid,text,uuid,uuid,timestamptz) FROM PUBLIC;
+
+-- Effective R019 legacy completion compatibility only: the same exact immutable
+-- DATA/NULL/source classifier applies to eligible-nonempty and invalid-authority
+-- predicates. R023/R024 shared pregame completion, all other guards, accounting,
+-- function signature, fixed search_path, ownership and ACL remain unchanged.
+CREATE OR REPLACE FUNCTION public.finish_all_player_job(p_fence jsonb, p_outcome text, p_diagnostic jsonb)
+RETURNS boolean LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp AS $$
+DECLARE job public.projection_jobs%ROWTYPE; completed timestamptz; result jsonb; history jsonb; summary jsonb; prior_final jsonb; publication jsonb;
+  response jsonb; pregame jsonb; proof_at timestamptz; first_kickoff timestamptz; game_count integer;
+  stored_final boolean := false; stored_observed_at timestamptz; expected_count integer; actual_count integer;
+BEGIN
+  IF p_outcome IS NULL OR p_outcome NOT IN ('published','partial','no-statistics-yet','validation-failed','provider-failed','timeout','lease-lost')
+    OR jsonb_typeof(p_diagnostic) IS DISTINCT FROM 'object'
+    OR octet_length(p_diagnostic::text) > 16000 THEN
+    RAISE EXCEPTION 'all-player durable outcome is invalid';
+  END IF;
+  SELECT * INTO job FROM public.projection_jobs
+    WHERE job_key = 'all-player-ingestion:sleeper' FOR UPDATE;
+  -- Deadline expiry can be recorded during reserved handling time; ownership and
+  -- lease expiry are always enforced, including failed completion.
+  IF NOT FOUND OR job.payload->>'mode' IS NULL
+    OR job.payload->>'mode' NOT IN ('shadow','backfill','recurring')
+    OR jsonb_typeof(p_fence) IS DISTINCT FROM 'object'
+    OR NOT (p_fence ?& ARRAY['jobKey','workerId','generation','leaseUntil','deadlineAt'])
+    OR job.state IS DISTINCT FROM 'running'
+    OR job.lease_owner IS DISTINCT FROM p_fence->>'workerId'
+    OR job.attempt_count IS DISTINCT FROM (p_fence->>'generation')::integer
+    OR job.lease_until IS DISTINCT FROM (p_fence->>'leaseUntil')::timestamptz
+    OR (job.payload->>'deadlineAt')::timestamptz IS DISTINCT FROM (p_fence->>'deadlineAt')::timestamptz
+    OR job.lease_until <= clock_timestamp()
+    OR p_fence->>'jobKey' IS DISTINCT FROM job.job_key THEN RETURN false; END IF;
+  completed := clock_timestamp();
+  IF p_outcome IN ('published','no-statistics-yet') AND (job.payload->>'deadlineAt')::timestamptz <= completed
+    THEN RETURN false; END IF;
+  IF p_outcome = 'no-statistics-yet' THEN
+    BEGIN
+    response := p_diagnostic->'responseEvidence'; pregame := p_diagnostic->'pregameEvidence';
+    IF job.payload->>'mode' IS DISTINCT FROM 'recurring'
+      OR (job.payload->>'requestGeneration')::integer IS DISTINCT FROM job.attempt_count
+      OR (job.payload->'lastPublication'->>'generation')::integer = job.attempt_count
+      OR p_diagnostic->>'reason' IS DISTINCT FROM 'no-statistics-yet'
+      OR p_diagnostic->>'stage' IS DISTINCT FROM 'no-statistics-yet'
+      OR p_diagnostic->'period' IS DISTINCT FROM jsonb_build_object('season',job.payload->'period'->'season',
+        'seasonType','regular','week',job.payload->'period'->'week')
+      OR p_diagnostic->'finalCoverage' IS DISTINCT FROM 'false'::jsonb
+      OR p_diagnostic->>'retryDisposition' IS DISTINCT FROM 'global-budget'
+      OR jsonb_typeof(response) IS DISTINCT FROM 'object'
+      OR response->>'bodyShape' IS DISTINCT FROM 'object'
+      OR response->'topLevelCount' IS DISTINCT FROM '0'::jsonb
+      OR jsonb_typeof(response->'httpStatus') IS DISTINCT FROM 'number'
+      OR (response->>'httpStatus')::integer NOT BETWEEN 200 AND 299
+      OR COALESCE(response->>'bodyHash','') !~ '^sha256:[0-9a-f]{64}$'
+      OR jsonb_typeof(pregame) IS DISTINCT FROM 'object'
+      OR pregame->>'policy' IS DISTINCT FROM 'exact-period-pregame-v1'
+      OR jsonb_typeof(pregame->'scheduledGameCount') IS DISTINCT FROM 'number'
+      OR COALESCE(pregame->>'scheduleRevision','') !~ '^sha256:[0-9a-f]{64}$'
+      OR p_diagnostic->'entryCount' IS DISTINCT FROM '0'::jsonb
+      OR p_diagnostic->'scoringProfileCount' IS DISTINCT FROM '0'::jsonb
+      THEN RETURN false; END IF;
+      proof_at := (pregame->>'verifiedAt')::timestamptz;
+      IF proof_at IS NULL OR NOT isfinite(proof_at) OR proof_at > completed
+        OR proof_at < completed - interval '90 seconds'
+        OR (response->>'requestStartedAt')::timestamptz IS NULL
+        OR (response->>'requestCompletedAt')::timestamptz IS NULL
+        OR NOT isfinite((response->>'requestStartedAt')::timestamptz)
+        OR NOT isfinite((response->>'requestCompletedAt')::timestamptz)
+        OR (response->>'requestStartedAt')::timestamptz > (response->>'requestCompletedAt')::timestamptz
+        OR (response->>'requestCompletedAt')::timestamptz > proof_at
+        OR (response->>'requestCompletedAt')::timestamptz < completed - interval '90 seconds'
+        THEN RETURN false; END IF;
+      -- A healthy pregame result belongs only to the currently active period
+      -- of every enrolled league. Missing registration/authority fails closed.
+      IF NOT EXISTS (SELECT 1 FROM public.league_administration_enrollment_seasons enrollment
+          WHERE provider='sleeper' AND season=(job.payload->'period'->>'season')::integer AND NOT EXISTS (
+          SELECT 1 FROM public.league_seasons official_season
+          JOIN public.league_source_connections official_connection
+            ON official_connection.league_season_id = official_season.id
+            AND official_connection.provider = enrollment.provider
+          WHERE enrollment.evidence = 'public-data-intake-v1'
+            AND official_season.league_id = enrollment.league_id
+            AND official_season.season = enrollment.season
+            AND official_season.scoring_profile_id IS NULL
+        ))
+        OR EXISTS (
+          SELECT 1 FROM public.league_administration_enrollment_seasons enrollment
+          JOIN public.leagues league ON league.id=enrollment.league_id
+          LEFT JOIN public.league_seasons season ON season.league_id=enrollment.league_id
+            AND season.season=enrollment.season
+          LEFT JOIN public.league_source_connections connection ON connection.league_season_id=season.id
+            AND connection.provider='sleeper'
+          LEFT JOIN public.league_period_authorities authority ON authority.league_key=league.league_key
+          WHERE enrollment.provider='sleeper' AND enrollment.season=(job.payload->'period'->>'season')::integer AND NOT EXISTS (
+          SELECT 1 FROM public.league_seasons official_season
+          JOIN public.league_source_connections official_connection
+            ON official_connection.league_season_id = official_season.id
+            AND official_connection.provider = enrollment.provider
+          WHERE enrollment.evidence = 'public-data-intake-v1'
+            AND official_season.league_id = enrollment.league_id
+            AND official_season.season = enrollment.season
+            AND official_season.scoring_profile_id IS NULL
+        )
+            AND (authority.source_provider IS DISTINCT FROM 'sleeper'
+              OR connection.external_league_id IS NULL
+              OR authority.source_external_league_id IS DISTINCT FROM connection.external_league_id
+              OR authority.league_lifecycle IS DISTINCT FROM 'active'
+              OR authority.active_season IS DISTINCT FROM enrollment.season
+              OR authority.active_season_type IS DISTINCT FROM 'reg'
+              OR authority.active_week IS DISTINCT FROM (job.payload->'period'->>'week')::integer
+              OR authority.verified_at IS NULL OR authority.verified_at < completed-interval '10 minutes'
+              OR authority.verified_at > completed+interval '30 seconds'))
+        THEN RETURN false; END IF;
+      SELECT count(*),min(game.kickoff_at) INTO game_count,first_kickoff
+        FROM public.nfl_games game
+        WHERE game.season=(job.payload->'period'->>'season')::integer
+          AND game.season_type='reg' AND game.week=(job.payload->'period'->>'week')::integer;
+      IF game_count = 0 OR game_count IS DISTINCT FROM (pregame->>'scheduledGameCount')::integer
+        OR first_kickoff IS NULL OR first_kickoff <= completed
+        OR first_kickoff IS DISTINCT FROM (pregame->>'firstKickoffAt')::timestamptz
+        OR EXISTS (SELECT 1 FROM public.nfl_games game
+          WHERE game.season=(job.payload->'period'->>'season')::integer
+            AND game.season_type='reg' AND game.week=(job.payload->'period'->>'week')::integer
+            AND (game.kickoff_at IS NULL OR EXISTS (
+              SELECT 1 FROM public.game_state_observations state WHERE state.nfl_game_id=game.id
+                AND state.provider='tank01' AND state.status_code IN (1,2,4))))
+        THEN RETURN false; END IF;
+    EXCEPTION WHEN invalid_text_representation OR invalid_datetime_format OR datetime_field_overflow
+      OR numeric_value_out_of_range THEN RETURN false;
+    END;
+  END IF;
+  IF p_outcome = 'published' THEN
+    publication := job.payload->'lastPublication';
+    IF job.payload->>'mode' = 'shadow'
+      OR (publication->>'generation')::integer IS DISTINCT FROM job.attempt_count
+      OR publication->'period' IS DISTINCT FROM job.payload->'period'
+      OR jsonb_typeof(publication->'profileIds') IS DISTINCT FROM 'array' THEN RETURN false; END IF;
+    expected_count := jsonb_array_length(publication->'profileIds');
+    SELECT count(*), bool_and(COALESCE((content.coverage->>'scheduleFinalityComplete')::boolean,false)),
+      min(observation.observed_at)
+      INTO actual_count, stored_final, stored_observed_at
+      FROM public.current_all_player_score_sets pointer
+      JOIN public.all_player_stat_observations observation ON observation.id = pointer.all_player_stat_observation_id
+      JOIN public.all_player_stat_contents content ON content.id = observation.all_player_stat_content_id
+      WHERE pointer.provider = 'sleeper' AND pointer.season = (job.payload->'period'->>'season')::integer
+        AND pointer.season_type = 'reg' AND pointer.week = (job.payload->'period'->>'week')::integer
+        AND pointer.scorer_version = publication->>'scorerVersion'
+        AND pointer.all_player_stat_observation_id = (publication->>'observationId')::uuid
+        AND publication->'profileIds' ? pointer.scoring_profile_id::text
+        AND observation.quality = 'complete' AND content.quality = 'complete';
+    IF expected_count = 0 OR actual_count <> expected_count THEN RETURN false; END IF;
+  END IF;
+  result := jsonb_build_object('outcome', p_outcome, 'finishedAt', completed,
+    'period', job.payload->'period', 'generation', job.attempt_count, 'diagnostic', p_diagnostic,
+    'observedAt', COALESCE(stored_observed_at::text, p_diagnostic->>'observedAt', completed::text),
+    'finalCoverage', p_outcome = 'published' AND COALESCE(stored_final,false));
+  SELECT value INTO prior_final
+    FROM jsonb_array_elements(COALESCE(job.payload->'periodHistory','[]'::jsonb)) value
+    WHERE value->'period' = job.payload->'period'
+      AND value->>'outcome' = 'published' AND value->>'finalCoverage' = 'true'
+    ORDER BY value->>'observedAt' DESC LIMIT 1;
+  summary := CASE WHEN prior_final IS NOT NULL AND NOT
+      (p_outcome = 'published' AND COALESCE(stored_final,false))
+    THEN prior_final || jsonb_build_object('lastAttempt',result)
+    ELSE result END;
+  -- One summary per requested period for this season; a correction failure never
+  -- erases the successful final proof. At most 18 regular-season summaries.
+  SELECT COALESCE(jsonb_agg(value ORDER BY (value->'period'->>'week')::integer),'[]'::jsonb)
+    INTO history FROM (
+      SELECT value FROM jsonb_array_elements(COALESCE(job.payload->'periodHistory','[]'::jsonb)) value
+      WHERE value->'period' <> job.payload->'period'
+        AND value->'period'->>'season' = job.payload->'period'->>'season'
+      UNION ALL SELECT summary
+    ) periods;
+  UPDATE public.projection_jobs SET
+    state = CASE WHEN p_outcome IN ('published','partial','no-statistics-yet') THEN 'completed' ELSE 'failed' END,
+    completed_at = completed, lease_owner = NULL, lease_until = NULL, updated_at = completed,
+    last_error = CASE WHEN p_outcome IN ('published','partial','no-statistics-yet') THEN NULL ELSE p_outcome END,
+    payload = payload || jsonb_build_object('lastOutcome', result, 'periodHistory', history,
+      'nextAttemptAt', CASE WHEN (job.payload->>'requestGeneration')::integer IS DISTINCT FROM job.attempt_count
+        THEN completed + interval '1 hour' ELSE public.all_player_next_request_at(job.payload) END)
+    WHERE job_key = job.job_key
+      AND (p_outcome <> 'no-statistics-yet' OR (clock_timestamp() < first_kickoff
+        AND clock_timestamp() < (job.payload->>'deadlineAt')::timestamptz
+        AND clock_timestamp() < job.lease_until));
+  RETURN FOUND;
+END;
+$$;
