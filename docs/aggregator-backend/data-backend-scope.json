@@ -50,10 +50,10 @@
     {
       "path": "apps/site/integration/public-data-intake.integration-case.ts",
       "resource": "Provider identity/list/core source-to-stored-reader persistence",
-      "purpose": "Use existing guarded PostgreSQL harness for readback, replay, lost lease, rollback, capacity and no projection enrollment; source authoring only. Also author actual restricted-LOGIN recurrence, fair admission, shared limits, pause/expiry/configuration races, unknown commit and rollback cases through the existing guarded harness.",
+      "purpose": "Use existing guarded PostgreSQL harness for readback, replay, lost lease, rollback, capacity and no projection enrollment; source authoring only. Also author actual restricted-LOGIN recurrence, fair admission, shared limits, pause/expiry/configuration races, unknown commit and rollback cases through the existing guarded harness. Also author representable absent/null/empty official field states, invalid-present rejection, later scoring evidence and interrupted registration/checkpoint recovery with exact identity reuse.",
       "proof": "Authored oracle remains unexecuted until a separately authorized isolated database qualification run.",
       "reviewer": "Independent GPT-6 Astra ultra review in Review new backend end to end (01a0f411-7133-7491-b693-4c89af678ca6); independent database/security confirmation in Backend foundation reconciliation (01a10e85-7bde-74b1-8ad7-93d3d1838eab)",
-      "reviewReference": "DATA-SCOPE-2026-10-06-PUBLIC-INTAKE-01; DATA-SCOPE-2026-10-06-REFRESH-CYCLES-02"
+      "reviewReference": "DATA-SCOPE-2026-10-06-PUBLIC-INTAKE-01; DATA-SCOPE-2026-10-06-REFRESH-CYCLES-02; DATA-SCOPE-2026-10-06-OFFICIAL-DATA-REGISTRATION-01"
     },
     {
       "path": "apps/site/lib/database.ts",
@@ -193,10 +193,10 @@
     },
     {
       "reviewer": "Independent GPT-6 Astra ultra review in Review new backend end to end (01a0f411-7133-7491-b693-4c89af678ca6)",
-      "proof": "Existing callers, unchanged opaque native strings, requested provider propagation and conflicting-input refusal; future provider adapters remain unimplemented.",
-      "reviewReference": "DATA-SCOPE-2026-10-06-REFRESH-IDENTITY-01",
+      "proof": "Existing callers, unchanged opaque native strings, requested provider propagation and conflicting-input refusal; future provider adapters remain unimplemented. Independent OFFICIAL-DATA-REGISTRATION-01 design eligibility; changed frozen source still requires review.",
+      "reviewReference": "DATA-SCOPE-2026-10-06-REFRESH-IDENTITY-01; DATA-SCOPE-2026-10-06-OFFICIAL-DATA-REGISTRATION-01",
       "resource": "Provider-qualified canonical league registration",
-      "purpose": "Backward-compatible provider/native-ID registrar input; retain sleeperLeagueId callers and reject conflicting inputs without enabling unsupported provider collection.",
+      "purpose": "Backward-compatible provider/native-ID registrar input; retain sleeperLeagueId callers and reject conflicting inputs without enabling unsupported provider collection. Add only the explicit official-data registration overload and separate nullable-profile result; preserve strict configured callers and their nonnullable result.",
       "path": "apps/site/lib/projections/adapters/neon/contracts.ts"
     },
     {
@@ -262,6 +262,46 @@
       "proof": "Independent REFRESH-CYCLES-02 scope assessment; offline dispatch/recovery/fairness checks and authored restricted-LOGIN concurrency, limits, unknown acknowledgments, permissions and rollback oracles. Actual SQL and freshness/capacity qualification pending.",
       "reviewer": "Independent GPT-6 Astra ultra review in Backend foundation reconciliation (01a10e85-7bde-74b1-8ad7-93d3d1838eab) and Review new backend end to end (01a0f411-7133-7491-b693-4c89af678ca6)",
       "reviewReference": "DATA-SCOPE-2026-10-06-REFRESH-CYCLES-02"
+    },
+    {
+      "path": "apps/site/migrations/037_official_data_registration.sql",
+      "resource": "Representable official league data without invented calculation settings",
+      "purpose": "Permit nullable immutable season profile bindings; preserve the FK and existing immutable-profile guards. Replace only the effective026 writer profile join and the two effective017 intended-membership CTEs using immutable DATA season evidence plus exact NULL-profile season and matching source connection. Preserve all other wrappers, locks, parity, signatures, ACLs and zero-population refusal; no activation or backfill.",
+      "proof": "Independent design eligibility only at f904. Require frozen combined036+037 review, all field states, configured compatibility, mixed/malformed publication, immutable binding, interrupted registration recovery and genuine restricted-LOGIN oracles. Actual SQL remains unexecuted.",
+      "reviewer": "Independent GPT-6 Astra ultra design confirmation in Backend foundation reconciliation (01a10e85-7bde-74b1-8ad7-93d3d1838eab) and Review new backend end to end (01a0f411-7133-7491-b693-4c89af678ca6)",
+      "reviewReference": "DATA-SCOPE-2026-10-06-OFFICIAL-DATA-REGISTRATION-01"
+    },
+    {
+      "path": "apps/site/lib/projection-store.test.ts",
+      "resource": "Backward-compatible official-only canonical registration",
+      "purpose": "Verify the explicit official-data registrar overload, strict configured callers and hashes, source identity, transaction fencing and replay without fabricated or orphan calculation profiles.",
+      "proof": "Independent official-only scope assessment; executed local tests bind to their exact candidate. Mocked storage is not SQL qualification.",
+      "reviewer": "Independent GPT-6 Astra ultra design confirmation in Backend foundation reconciliation (01a10e85-7bde-74b1-8ad7-93d3d1838eab) and Review new backend end to end (01a0f411-7133-7491-b693-4c89af678ca6)",
+      "reviewReference": "DATA-SCOPE-2026-10-06-OFFICIAL-DATA-REGISTRATION-01"
+    },
+    {
+      "path": "apps/site/integration/projection-store.integration-case.ts",
+      "resource": "Canonical official-only identity and immutable season profile",
+      "purpose": "Author real restricted-LOGIN constraints, NULL/profile immutability, configured-caller parity, registration race and replay cases through the existing guarded integration harness.",
+      "proof": "Source-authored SQL cases remain unexecuted until separately authorized qualification.",
+      "reviewer": "Independent GPT-6 Astra ultra design confirmation in Backend foundation reconciliation (01a10e85-7bde-74b1-8ad7-93d3d1838eab) and Review new backend end to end (01a0f411-7133-7491-b693-4c89af678ca6)",
+      "reviewReference": "DATA-SCOPE-2026-10-06-OFFICIAL-DATA-REGISTRATION-01"
+    },
+    {
+      "path": "apps/site/integration/enrolled-publication-fixture.ts",
+      "resource": "Official-only NULL-profile compatibility with existing publication callers",
+      "purpose": "Extend only the existing rolled-back owner complete-batch/scorer fixture with paired readiness/advancement cases for configured, mixed, all-NULL and malformed exact DATA memberships. Owner setup/readiness is not restricted LOGIN proof.",
+      "proof": "Independent exact-path design eligibility from database/security reviewer; actual frozen diff requires review. Authored PostgreSQL remains unexecuted.",
+      "reviewer": "Independent GPT-6 Astra ultra design confirmation in Backend foundation reconciliation (01a10e85-7bde-74b1-8ad7-93d3d1838eab)",
+      "reviewReference": "DATA-SCOPE-2026-10-06-OFFICIAL-DATA-REGISTRATION-01"
+    },
+    {
+      "path": "apps/site/integration/all-player-statistics.integration-case.ts",
+      "resource": "Official-only NULL-profile compatibility with existing publication callers",
+      "purpose": "Reuse the existing complete-batch/scorer fixture for genuine runtime LOGIN recordAllPlayerBatch advancement and privilege-negative evidence for official-only membership compatibility. No SET ROLE substitute, new grant, cloned scorer or relaxed completeness assertions.",
+      "proof": "Independent exact-path design eligibility from database/security reviewer; actual frozen diff requires review. Authored PostgreSQL remains unexecuted.",
+      "reviewer": "Independent GPT-6 Astra ultra design confirmation in Backend foundation reconciliation (01a10e85-7bde-74b1-8ad7-93d3d1838eab)",
+      "reviewReference": "DATA-SCOPE-2026-10-06-OFFICIAL-DATA-REGISTRATION-01"
     }
   ],
   "governanceChanges": [

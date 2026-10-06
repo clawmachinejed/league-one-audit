@@ -35,6 +35,22 @@ export type LeagueSeasonReference = Readonly<{
   scoringProfileId: string;
 }>;
 
+export type LeagueSeasonRegistrationIdentity = Readonly<{
+  leagueKey: string; leagueName: string; season: number; sleeperLeagueId: string;
+}>;
+export type ConfiguredLeagueSeasonInput = LeagueSeasonRegistrationIdentity & Readonly<{
+  mode?: 'configured'; scoringRules: Readonly<Record<string, number>>;
+}>;
+export type OfficialDataLeagueSeasonInput = LeagueSeasonRegistrationIdentity & Readonly<{
+  mode: 'official-data'; scoringRules?: Readonly<Record<string, number>> | null;
+}>;
+export type OfficialDataLeagueSeasonReference = Readonly<{
+  leagueId: string; leagueSeasonId: string; scoringProfileId: string | null;
+}>;
+export type LeagueSeasonRegistrar = {
+  (input: ConfiguredLeagueSeasonInput): Promise<PersistenceOutcome<LeagueSeasonReference>>;
+  (input: OfficialDataLeagueSeasonInput): Promise<PersistenceOutcome<OfficialDataLeagueSeasonReference>>;
+};
 export type ExternalIdentity = Readonly<{
   provider: string;
   externalId: string;
@@ -601,13 +617,7 @@ export type ProjectionStore = LineupWatchMethods & LineupAcknowledgmentMethods &
     requestedWeek: number | undefined,
     projectionIdentity: MatchupProjectionIdentity,
   ) => Promise<StoredMatchupSnapshotContext | null>;
-  registerLeagueSeason: (input: Readonly<{
-    leagueKey: string;
-    leagueName: string;
-    season: number;
-    sleeperLeagueId: string;
-    scoringRules: Readonly<Record<string, number>>;
-  }>) => Promise<PersistenceOutcome<LeagueSeasonReference>>;
+  registerLeagueSeason: LeagueSeasonRegistrar;
   upsertScoringEntities: (
     inputs: readonly ScoringEntityIdentityInput[],
   ) => Promise<PersistenceOutcome<readonly ResolvedScoringEntity[]>>;

@@ -866,3 +866,97 @@ describe('bounded public DATA refresh cycles through the existing intake owner',
     expect((await connection.database.query('SELECT count(*)::integer AS count FROM public.public_data_refresh_targets'))[0].count).toBe(16);
   }, 90_000);
 });
+
+
+/** R037 AUTHORED / UNEXECUTED. The optional-field matrix uses one explicitly
+ * owner-enrolled synthetic NULL-profile identity; this is writer/reader proof,
+ * not a substitute for the separate genuinely admitted bootstrap recovery case. */
+describe('official preconfiguration source normalization to restricted typed storage', () => {
+  let connection: IndependentDatabase;
+  beforeAll(() => { connection = createIndependentDatabase(); });
+  afterAll(async () => connection.close());
+  it('retains all nine missing/null/empty scoring and slot combinations, rejects malformed fields and versions later rules', async () => {
+    const database = connection.database;
+    expect((await database.query('SELECT session_user AS role'))[0].role).toBe('league_one_runtime');
+    const store = createProjectionStore(database);
+    const administration = createLeagueAdministrationStore(database);
+    const native = `7${BigInt(`0x${randomUUID().replaceAll('-', '').slice(0, 15)}`)}`;
+    const season = 2194;
+    const registered = await store.registerLeagueSeason({ mode: 'official-data', leagueKey: `sleeper-${native}`,
+      leagueName: 'Official preconfiguration matrix', sleeperLeagueId: native, season });
+    if (registered.kind !== 'stored') throw new Error('Official registration unavailable.');
+    expect(registered.value.scoringProfileId).toBeNull();
+    // Explicit immutable metadata setup only. Neither accepted content nor
+    // capture/acceptance/dispatch rows are fabricated by the fixture owner.
+    await ownerQuery(`INSERT INTO league_administration_enrollments(league_id,provider,active,evidence)
+      VALUES($1,'sleeper',false,'public-data-intake-v1')`, [registered.value.leagueId]);
+    await ownerQuery(`INSERT INTO league_administration_enrollment_seasons(league_id,season,provider,evidence)
+      VALUES($1,$2,'sleeper','public-data-intake-v1')`, [registered.value.leagueId, season]);
+    const mapping = await administration.readSourceMapping(native);
+    if (!mapping) throw new Error('Missing official-only source mapping.');
+    let payload: Record<string, unknown> = { league_id: native, season: String(season), sport: 'nfl',
+      name: 'Official preconfiguration matrix', settings: {}, total_rosters: 1 };
+    const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      if (String(input).endsWith(`/league/${native}`)) return new Response(JSON.stringify(payload));
+      throw new Error('Unexpected preconfiguration matrix source scope.');
+    });
+    const write = async () => {
+      const attempt = await administration.beginLeagueSettingsAttempt(mapping, randomUUID());
+      const document = await capturePublicSleeperCore(native, 'league', new AbortController().signal);
+      return recordCapturedAdministration(mapping.scope, [document], { store: administration, mapping, leagueSettingsAttempt: attempt });
+    };
+    const profileSnapshot = () => database.query('SELECT id,rules_hash,rules FROM scoring_profiles ORDER BY id');
+    const profiles = await profileSnapshot();
+    const acceptedReceipts: string[] = [];
+    try {
+      for (const scoring of ['absent', 'null', 'empty'] as const) {
+        for (const slots of ['absent', 'null', 'empty'] as const) {
+          delete payload.scoring_settings; delete payload.roster_positions;
+          if (scoring !== 'absent') payload.scoring_settings = scoring === 'null' ? null : {};
+          if (slots !== 'absent') payload.roster_positions = slots === 'null' ? null : [];
+          const result = await write();
+          expect(result.results[0].result.leagueSettingsAcceptance?.status).toBe('accepted');
+          const read = await administration.readAcceptedLeagueSettings(mapping);
+          if (read.status !== 'available') throw new Error(`Missing official settings ${scoring}/${slots}.`);
+          expect(read.value.scoring.rules.state).toBe(scoring);
+          expect(read.value.slots.state).toBe(slots);
+          expect(read.value.scoring.rules.value).toEqual(scoring === 'empty' ? {} : null);
+          expect(read.value.slots.value).toEqual(slots === 'empty' ? [] : null);
+          acceptedReceipts.push(read.receipt.id);
+          expect(read.receipt.provenance.origin).toBe('network');
+          expect((await database.query('SELECT scoring_profile_id FROM league_seasons WHERE id=$1', [registered.value.leagueSeasonId]))[0])
+            .toEqual({ scoring_profile_id: null });
+        }
+      }
+      expect(new Set(acceptedReceipts).size).toBe(9);
+      expect(await profileSnapshot()).toEqual(profiles);
+      const immutableReceipts = await database.query('SELECT * FROM league_roster_capture_receipts WHERE id=ANY($1::uuid[]) ORDER BY id', [acceptedReceipts]);
+      const acceptedBeforeInvalid = await database.query(`SELECT head.scope_id,head.accepted_id FROM league_roster_resource_heads head
+        JOIN league_roster_resource_scopes scope ON scope.id=head.scope_id WHERE scope.league_season_id=$1 ORDER BY head.scope_id`, [registered.value.leagueSeasonId]);
+      for (const invalid of [{ scoring_settings: [] }, { scoring_settings: { pass_td: '4' } },
+        { roster_positions: {} }, { roster_positions: [null] }]) {
+        payload = { league_id: native, season: String(season), sport: 'nfl', name: 'Invalid preconfiguration',
+          settings: {}, total_rosters: 1, ...invalid };
+        const result = await write();
+        expect(result.results[0].result.leagueSettingsAcceptance?.status).not.toBe('accepted');
+        expect(await database.query(`SELECT head.scope_id,head.accepted_id FROM league_roster_resource_heads head
+          JOIN league_roster_resource_scopes scope ON scope.id=head.scope_id WHERE scope.league_season_id=$1 ORDER BY head.scope_id`, [registered.value.leagueSeasonId])).toEqual(acceptedBeforeInvalid);
+      }
+      payload = { league_id: native, season: String(season), sport: 'nfl', name: 'Configured later official evidence',
+        settings: {}, total_rosters: 1, scoring_settings: { pass_td: 7.037, rec: 0 }, roster_positions: ['QB', 'BN'] };
+      const later = await write();
+      expect(later.results[0].result.leagueSettingsAcceptance?.status).toBe('accepted');
+      const read = await administration.readAcceptedLeagueSettings(mapping);
+      expect(read).toMatchObject({ status: 'available', value: { scoring: { rules: { state: 'known', value: payload.scoring_settings } },
+        slots: { state: 'known' } }, comparison: { legacyConfiguration: 'rejected' } });
+      expect((await database.query('SELECT scoring_profile_id FROM league_seasons WHERE id=$1', [registered.value.leagueSeasonId]))[0])
+        .toEqual({ scoring_profile_id: null });
+      expect(await database.query(`SELECT version.scoring_profile_id FROM league_configuration_versions version
+        JOIN scoring_profiles profile ON profile.id=version.scoring_profile_id
+        WHERE version.league_season_id=$1 AND profile.rules=$2::jsonb`, [registered.value.leagueSeasonId, JSON.stringify(payload.scoring_settings)]))
+        .toHaveLength(1);
+      expect(await database.query('SELECT * FROM league_roster_capture_receipts WHERE id=ANY($1::uuid[]) ORDER BY id', [acceptedReceipts])).toEqual(immutableReceipts);
+      expect((await administration.listEnrollmentInventory(season)).entries.some(entry => entry.intended.leagueId === registered.value.leagueId)).toBe(false);
+    } finally { fetch.mockRestore(); }
+  });
+});

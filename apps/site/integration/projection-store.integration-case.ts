@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { snapshotFreshnessMetadata } from '../lib/projection-freshness';
+import type { DatabaseClient, DatabaseRow } from '../lib/database';
 import {
   createProjectionStore,
   InvalidStoredProjectionSnapshotError,
@@ -391,6 +392,66 @@ describe.sequential('projection store against an isolated Neon database', () => 
       sleeperLeagueId: 'integration-sleeper-league',
       scoringRules: { pass_td: 6, pass_yd: 0.04, pass_int: -2 },
     })).rejects.toThrow(/immutable/iu);
+  });
+
+  // R037 AUTHORED / UNEXECUTED: actual restricted LOGIN registration, no fake
+  // profile, no owner grants, no worker activation and no existing-season backfill.
+  it('registers explicit official-only missing/null/empty rules with one nullable immutable identity', async () => {
+    expect((await runtimeQuery('SELECT session_user AS role'))[0].role).toBe('league_one_runtime');
+    const profiles = () => ownerQuery('SELECT id,rules,rules_hash FROM scoring_profiles ORDER BY id');
+    const before = await profiles();
+    for (const [index, scoringRules] of [undefined, null, {}].entries()) {
+      const input = { mode: 'official-data' as const, leagueKey: `official-null-${index}`,
+        leagueName: 'Official preconfiguration fixture', season: 2194,
+        sleeperLeagueId: `official-null-${index}`, ...(scoringRules === undefined ? {} : { scoringRules }) };
+      const original = storedValue(await store.registerLeagueSeason(input));
+      expect(original.scoringProfileId).toBeNull();
+      expect(storedValue(await store.registerLeagueSeason(input))).toEqual(original);
+      // A later official rule is versioned by administration, not injected into
+      // the immutable season registration or an unused eagerly-created profile.
+      expect(storedValue(await store.registerLeagueSeason({ ...input, scoringRules: { pass_td: 7.031 } }))).toEqual(original);
+      await expect(store.registerLeagueSeason({ leagueKey: input.leagueKey, leagueName: input.leagueName, season: input.season,
+        sleeperLeagueId: input.sleeperLeagueId, scoringRules: { pass_int: -2, pass_yd: 0.04, pass_td: 4 } }))
+        .rejects.toThrow();
+      await expect(ownerQuery('UPDATE league_seasons SET scoring_profile_id=$2 WHERE id=$1',
+        [original.leagueSeasonId, league.scoringProfileId])).rejects.toThrow(/immutable/iu);
+      expect((await ownerQuery('SELECT scoring_profile_id FROM league_seasons WHERE id=$1', [original.leagueSeasonId]))[0])
+        .toEqual({ scoring_profile_id: null });
+      expect(await ownerQuery('SELECT * FROM league_administration_enrollments WHERE league_id=$1', [original.leagueId])).toEqual([]);
+    }
+    expect(await profiles()).toEqual(before);
+    await expect(ownerQuery('UPDATE league_seasons SET scoring_profile_id=NULL WHERE id=$1', [league.leagueSeasonId]))
+      .rejects.toThrow(/immutable/iu);
+  });
+
+  it('reconciles official-only concurrent registration and a committed response loss without new identity or profile', async () => {
+    const peer = createIndependentDatabase();
+    const input = { mode: 'official-data' as const, leagueKey: `official-race-${randomUUID()}`,
+      leagueName: 'Official registration race fixture', season: 2194, sleeperLeagueId: `official-race-${randomUUID()}` };
+    const before = await ownerQuery('SELECT count(*)::integer AS count FROM scoring_profiles');
+    try {
+      expect((await peer.database.query('SELECT session_user AS role'))[0].role).toBe('league_one_runtime');
+      const values = await Promise.all([store.registerLeagueSeason(input), createProjectionStore(peer.database).registerLeagueSeason(input)]);
+      expect(storedValue(values[0])).toEqual(storedValue(values[1]));
+      expect(storedValue(values[0]).scoringProfileId).toBeNull();
+      let lose = true;
+      const unknownAck: DatabaseClient = { ...peer.database,
+        query: async <Row extends DatabaseRow = DatabaseRow>(statement: string, parameters: readonly unknown[] = [], options?: Parameters<DatabaseClient['query']>[2]) => {
+          const rows = await peer.database.query<Row>(statement, parameters, options);
+          if (lose && statement.includes('projection-store:register-league-season')) {
+            lose = false; throw new Error('registration committed but response lost');
+          }
+          return rows;
+        } };
+      await expect(createProjectionStore(unknownAck).registerLeagueSeason(input)).rejects.toThrow('response lost');
+      expect(storedValue(await store.registerLeagueSeason(input))).toEqual(storedValue(values[0]));
+      const identity = storedValue(values[0]);
+      expect(await ownerQuery(`SELECT count(*)::integer AS count FROM league_seasons WHERE league_id=$1 AND season=$2`,
+        [identity.leagueId, input.season])).toEqual([{ count: 1 }]);
+      expect(await ownerQuery('SELECT count(*)::integer AS count FROM scoring_profiles')).toEqual(before);
+      await expect(store.registerLeagueSeason({ ...input, sleeperLeagueId: `${input.sleeperLeagueId}-wrong` })).rejects.toThrow();
+      expect(storedValue(await store.registerLeagueSeason(input))).toEqual(identity);
+    } finally { await peer.close(); }
   });
 
   it('persists a future projection success, later retry, and recovered success', async () => {

@@ -1,7 +1,8 @@
 import 'server-only';
 
 import type { DatabaseClient } from '../../../database';
-import type { ProjectionStore } from './contracts';
+import type { ProjectionStore, ConfiguredLeagueSeasonInput, OfficialDataLeagueSeasonInput,
+  LeagueSeasonReference, OfficialDataLeagueSeasonReference, PersistenceOutcome } from './contracts';
 import {
   deterministicUuid,
   json,
@@ -20,8 +21,59 @@ type IdentityMethods = Pick<ProjectionStore,
 >;
 
 export function createIdentityMethods(client: DatabaseClient): IdentityMethods {
-  return {
-    async registerLeagueSeason(input) {
+  async function registerLeagueSeason(input: ConfiguredLeagueSeasonInput): Promise<PersistenceOutcome<LeagueSeasonReference>>;
+  async function registerLeagueSeason(input: OfficialDataLeagueSeasonInput): Promise<PersistenceOutcome<OfficialDataLeagueSeasonReference>>;
+  async function registerLeagueSeason(input: ConfiguredLeagueSeasonInput | OfficialDataLeagueSeasonInput): Promise<PersistenceOutcome<OfficialDataLeagueSeasonReference>> {
+    if (input.mode !== undefined && input.mode !== 'configured' && input.mode !== 'official-data') throw new Error('Invalid league registration mode.');
+    const scoring = input.scoringRules;
+    if (scoring !== undefined && scoring !== null && (typeof scoring !== 'object' || Array.isArray(scoring)
+      || Object.values(scoring).some(weight => typeof weight !== 'number' || !Number.isFinite(weight)))) {
+      throw new Error('Scoring rules must be an object of finite numeric weights.');
+    }
+    if (input.mode === 'official-data') {
+      // Missing/null/empty are official presence states retained by the source
+      // observation. None is a calculation profile, even an empty hashed one.
+      const configured = scoring !== undefined && scoring !== null && Object.keys(scoring).length > 0;
+      const hash = configured ? rulesHash(scoring) : null;
+      const rows = await client.query(`/* projection-store:register-league-season */
+        WITH league AS (
+          INSERT INTO leagues (league_key, name) VALUES ($3, $4)
+          ON CONFLICT (league_key) DO UPDATE SET name = EXCLUDED.name, updated_at = now()
+          RETURNING id
+        ), existing_season AS MATERIALIZED (
+          SELECT stored.scoring_profile_id FROM league_seasons stored JOIN league ON league.id=stored.league_id
+          WHERE stored.season=$5
+        ), profile AS (
+          SELECT CASE WHEN EXISTS(SELECT 1 FROM existing_season)
+            THEN (SELECT scoring_profile_id FROM existing_season)
+            WHEN $1::text IS NULL THEN NULL::uuid
+            ELSE public.get_or_create_scoring_profile($1::text,$2::jsonb) END AS id
+        ), season AS (
+          INSERT INTO league_seasons (league_id, season, scoring_profile_id)
+          SELECT league.id,$5,profile.id FROM league CROSS JOIN profile
+          ON CONFLICT (league_id, season) DO UPDATE SET updated_at = now()
+          RETURNING id,league_id,scoring_profile_id
+        ), connection AS (
+          INSERT INTO league_source_connections (league_season_id,provider,external_league_id)
+          SELECT season.id,'sleeper',$6 FROM season
+          ON CONFLICT (league_season_id,provider) DO UPDATE
+          SET external_league_id=EXCLUDED.external_league_id,connected_at=now()
+          RETURNING league_season_id
+        )
+        SELECT season.league_id,season.id AS league_season_id,season.scoring_profile_id
+        FROM season JOIN connection ON connection.league_season_id=season.id`, [
+        hash, configured ? json(scoring) : null, requiredText(input.leagueKey, 'League key'),
+        requiredText(input.leagueName, 'League name'), input.season, requiredText(input.sleeperLeagueId, 'Sleeper league ID'),
+      ]);
+      if (rows.length !== 1) throw new Error('Official league season registration did not return one row.');
+      const row = rows[0];
+      if (row.scoring_profile_id !== null && (typeof row.scoring_profile_id !== 'string' || !row.scoring_profile_id)) {
+        throw new Error('Database did not return an explicit official scoring profile state.');
+      }
+      return { kind: 'stored', value: { leagueId: rowText(row, 'league_id'), leagueSeasonId: rowText(row, 'league_season_id'),
+        scoringProfileId: row.scoring_profile_id } };
+    }
+    if (!scoring || Object.keys(scoring).length === 0) throw new Error('Configured league registration requires nonempty scoring rules.');
       const scoringRulesHash = rulesHash(input.scoringRules);
       const rows = await client.query(`/* projection-store:register-league-season */
         WITH profile AS (
@@ -81,8 +133,10 @@ export function createIdentityMethods(client: DatabaseClient): IdentityMethods {
           scoringProfileId: rowText(row, 'scoring_profile_id'),
         },
       };
-    },
+  }
 
+  return {
+    registerLeagueSeason,
     async upsertScoringEntities(inputs) {
       if (inputs.length === 0) return { kind: 'stored', value: [] };
 
