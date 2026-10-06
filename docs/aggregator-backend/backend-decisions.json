@@ -1,0 +1,141 @@
+{
+  "version": "backend-decisions-v1",
+  "status": "selected_for_planning_not_deployed",
+  "recorded_at_utc": "2026-10-06T02:43:11.055908+00:00",
+  "authority": {
+    "kind": "direct_user_delegation",
+    "quote": "You are the lead engineer for an industry leading aggregator that is reliant on real time data. You make these decisions for me. You need to Ensure there is 100% coverage in planning our back end build. It is the most important part of what we do",
+    "scope": "Full backend planning and product-policy selection within the stated aggregator mission. No production release, contract purchase or destructive action.",
+    "historical_evidence_preserved": "evidence/backend-policy-register.json"
+  },
+  "decisions": [
+    {
+      "id": "D03",
+      "title": "Exclusive-claim conflict and recovery",
+      "owner": "Account/security owner",
+      "status": "selected_not_implemented",
+      "decision": "No automatic displacement. An authenticated actor may release their own association after fresh login (validated session creation age <= 5 minutes at command admission; ordinary activity does not refresh it). Conflicts expose no competing actor. A dispute creates a private operator case; reassignment requires incumbent authenticated release or independently verified provider-control proof through an implemented, reviewed provider-authentication mechanism. Sleeper username lookup, screenshots, public team details and commissioner status are not proof. Because the current adapter has no such proof mechanism, unsupported disputes remain locked; support cannot override based on discretion.",
+      "consequence": "Accept inconvenience in unsupported disputed cases to avoid account takeover. Initial Sleeper association remains explicitly user-asserted; this does not add provider authentication to the current slice.",
+      "acceptance": "Race two claims; stale recovery and release receipts; spoofed public evidence; operator attempts without approved proof; retry and incumbent-session revocation. Exactly one active association; no competing identity leaked.",
+      "milestone": "BC-M1"
+    },
+    {
+      "id": "D04",
+      "title": "Follow intention and effective demand",
+      "owner": "Account/domain owner",
+      "status": "selected_not_implemented",
+      "decision": "Store explicit actor/stable-league follow intention independently of access. Expiry, proven membership loss or disconnect suspends effective following, private serving and its ordinary collection demand; it does not rewrite the preference. Fresh qualified membership under an active association resumes only still-current explicit follow intention. Explicit unfollow wins by revision and never resurrects. Renewal carries intention only under the existing qualified predecessor/successor rules.",
+      "consequence": "A returning manager need not re-follow; retained intention alone grants neither access nor permission. Disconnect ends association authority; only separately valid shared demand may keep collection alive.",
+      "acceptance": "Exercise every commit order of loss, regain, disconnect, reassociation, renewal and unfollow, including A-B-A associations. Revalidate private output and effective demand independently.",
+      "milestone": "BC-M1"
+    },
+    {
+      "id": "D05",
+      "title": "Zero-demand collection and retention",
+      "owner": "Worker/data lifecycle owner",
+      "status": "selected_not_implemented",
+      "decision": "Routine demand is the union of eligible explicit follows, authorized visible-view leases and explicit existing registry obligations. Recovery/import jobs authorize only their bounded purpose; they never reset the zero-routine-demand cooldown or restart ordinary polling. View leases last120 seconds and are renewed by active authorized viewing. After30 minutes with zero effective demand stop routine league polling. Ineligible retained follows permit independently authorized recovery at most hourly for 7 days after first loss; failures do not restart the 7-day clock. Then pause until a new authenticated recovery demand. Disconnect is not a recovery credential. Last-follower departure never deletes shared accepted history or frozen baselines.",
+      "consequence": "Bounds cost without making user absence erase history. Existing named-league operational obligations remain until explicitly retired. Long-term shared storage has a measured cost and disposal policy under ENG08.",
+      "acceptance": "Virtual-clock tests at all boundaries; multiple managers and seeds; crash/retry; stale lease; failure resetting loss clock; no deletion or unauthorized recovery after disconnect.",
+      "milestone": "BC-M1"
+    },
+    {
+      "id": "ENG01",
+      "title": "One transaction owns command authority",
+      "owner": "Data/security owner",
+      "status": "selected_not_implemented",
+      "decision": "The account transaction that commits a mutation or final read acquires the auth advisory gate and actual admission/user/session row locks through public.lock_account_session_authority_v2(jsonb), before account/domain locks. Its nine-field ephemeral server receipt binds actual session token and admitted email by SHA-256 digests. Mandatory guards cover legacy direct DML and identity bootstrap as well as new commands. No receipt is logged, queued, cached or public.",
+      "consequence": "Coordinator death cannot release authority locks while a separate account transaction later commits. Exact helper, writer inventory, lock order and privileges are in the relational/security designs.",
+      "acceptance": "Kill coordinator/auth bridge; delete/recreate session IDs; change email/config/token; direct DML; bootstrap races; SQL role catalogue and deadlock tests in isolated harness.",
+      "milestone": "BC-M1"
+    },
+    {
+      "id": "ENG02",
+      "title": "Durable command admission and provider limits",
+      "owner": "Worker/platform owner",
+      "status": "selected_not_implemented",
+      "decision": "Admit authorized identify/discover/recover demands and idempotent receipts atomically into the existing job owner. Return private pending handles; workers receive scoped immutable demand, never session receipts. Aggregate actual HTTP starts across every process, host alias, fallback, retry and cache revalidation. Use conservative61-second charged permit windows with <= 1-second dispatch deadline for the 900-per-60-second policy; late permits cannot dispatch and are not refunded.",
+      "consequence": "Existing scheduler and shared transport remain owners. Per-actor abuse limits and fair reserved lanes prevent one actor/import from consuming live-score capacity. Pending is an honest result, not failed identity or a fabricated empty list.",
+      "acceptance": "Concurrent multi-instance starts and expired permits; crash before/after dispatch; rate-limit responses; retry waves; future/import coexistence and originator identity forgery.",
+      "milestone": "BC-M1"
+    },
+    {
+      "id": "ENG03",
+      "title": "Live freshness and capacity",
+      "owner": "Worker/SRE owner",
+      "status": "selected_not_implemented",
+      "decision": "Target500 distinct simultaneously watched Sleeper leagues. Live-score scheduling45 seconds; normal acceptance/publication <=5 seconds p95; visible stored-data observer10 seconds. Additional League One score delay target p95<=60 seconds and p99<=75 seconds, measured end to end.900 actual starts/rolling60 seconds; reserved grant lanes680 scores,55 roles/rosters,100 transactions,20 administration,15 interactive,15 import/future,15 retries. Roles600 seconds; transactions310 seconds; settings/directory3600 seconds. Global provider concurrency32; HTTP deadline5 seconds. Select Render Background Worker as the planning execution host, using the same Node worker and existing durable jobs; no new queue. Region, instance sizing, service authority, total cost and standby qualification precede provisioning.",
+      "consequence": "These are selected targets, not observed performance. Score throughput barely fits and is not a proof of total workload capacity. Existing minute-only scheduling cannot meet45 seconds; select a continuous run mode of the existing worker with one fenced owner per lane, preserving jobs/scoring/normalization/publication. No second acquisition pipeline.",
+      "acceptance": "Full mixed workload, actual start census, provider latency distribution, observer jitter, DB contention, cold starts, failover, overload, unfairness, both named-league cadences and all future work. Do not advertise500 until BC-M4 passes.",
+      "milestone": "BC-M4"
+    },
+    {
+      "id": "ENG04",
+      "title": "Season discovery, imports and corrections",
+      "owner": "Adapter/data owner",
+      "status": "selected_not_implemented",
+      "decision": "Discovery uses provider NFL league_season, its prior 2 seasons and retained current selections as an explicit finite set. Follow verified previous_league_id links with cycle detection, resumable checkpoints and explicit coverage; no universal-history assertion. For each enrolled current season import every published applicable competition period and remaining published schedule, not a fixed1-14/1-15 range. Preserve official/provider/local finality separately; corrected official results append new versions and re-evaluate dependent derived views without changing frozen pregame baselines.",
+      "consequence": "Unqueried, unavailable or unsupported periods remain visible coverage states. Year changes do not auto-select, auto-follow or establish renewal. Existing named-league historical boundaries are compatibility constraints, not global discovery truth.",
+      "acceptance": "Late renewals, different portfolio years, loops, missing predecessors, week0, postseason/multiweek periods, partial schedules, corrections after final, restart and replay.",
+      "milestone": "BC-M2"
+    },
+    {
+      "id": "ENG05",
+      "title": "Provider qualification and licensing",
+      "owner": "Adapter/product owner",
+      "status": "selected_not_implemented",
+      "decision": "Sleeper alone is implemented. Require source-family semantics, stable identities, exact scope/audience, completeness and permission evidence for each supported feature. Official-data support and analytics support are independent. Before commercial activation obtain documentary license/terms authority and qualified quota; Sleeper docs currently describe free non-commercial use and contacting them for commercial licensing. Future Yahoo/ESPN adapters are BC-M6 with their own permissions and qualification, not shipped capability.",
+      "consequence": "Public accessibility is not a license or a completeness guarantee. No outbound contact, contract, purchase or new provider credential is performed by this plan. Missing external authority is a release gate with a named owner.",
+      "acceptance": "Evidence receipt for license/quota, independently retained provider fixtures, schema-drift corpus, authorized acquisition and no-permission tests, official-score parity.",
+      "milestone": "BC-M4"
+    },
+    {
+      "id": "ENG06",
+      "title": "Reliability ownership and recovery",
+      "owner": "SRE/release owner",
+      "status": "selected_not_implemented",
+      "decision": "Select a rolling28-day99.9% valid authorized stored-read success objective, p95 server latency<=500ms and p99<=1500ms under the qualified workload. Track freshness separately; fail-closed authorization and truthful stale status remain invariant. Commit RPO0 for acknowledged commands under single-process failure; regional database disaster target RPO<= 5 minutes/RTO<=60 minutes, subject verified service capability and restore rehearsal. Worker-owner failover target<=30 seconds.",
+      "consequence": "Targets are engineering acceptance criteria, not purchased service guarantees. Keep overall and dependency-attributed error reports; never remove provider failures from the headline denominator to manufacture success. Error-budget exhaustion freezes ordinary rollout.",
+      "acceptance": "Restore to isolated environment, backup access/retention check, job replay, lost acknowledgement, connection exhaustion, deployment rollback, dead worker, stale authority, dependency outage and post-incident review.",
+      "milestone": "BC-M4"
+    },
+    {
+      "id": "ENG07",
+      "title": "Incremental coexistence and release",
+      "owner": "Release/data owner",
+      "status": "selected_not_implemented",
+      "decision": "Additive migration and internal service first; shadow interpretation reuses captured source and the same normalizer/scorer rather than duplicate acquisition. Migrate caller groups only after their contracts, source coverage, authorization and SQL tests pass. Preserve existing routes/fallbacks/caches and both named leagues until explicit qualified cutover. Every release checks main/source binding/exact production SHA and one observable release owner, with reversible flags and exact rollback artifact.",
+      "consequence": "No big-bang rewrite, arbitrary conflict winner or unattended destructive cleanup. Schema contraction and old-path removal require a separate proven compatibility window and explicit destructive authorization where applicable.",
+      "acceptance": "Duplicate-claim/identity census; old/new parity; forward/backward migration rehearsal; actual-role harness; complete repository verification; independent review; actual Vercel preview; exact merged-SHA production and both leagues.",
+      "milestone": "BC-M5"
+    },
+    {
+      "id": "ENG08",
+      "title": "Privacy, provenance retention and disposal",
+      "owner": "Data/security owner",
+      "status": "selected_not_implemented",
+      "decision": "Diagnostic events retain at most 7 days. New restricted security-case/operator records retain 90 days; existing append-only identity audit and immutable provenance are excluded from this generic timer and remain under their established reference/retention rules. Delete unreferenced raw captures after 30 days; keep referenced evidence, normalized official history, scoring versions and frozen lineage while any supported view/audit/reproduction obligation depends on it. Content-addressed unchanged payloads deduplicate; freshness receipts never fabricate new source time. Account deletion revokes sessions/associations immediately, removes personal preferences and direct identifiers within 30 days after applicable hold review, preserving pseudonymous shared competition facts where allowed.",
+      "consequence": "No production deletion is authorized here. Retention timers, holds, backup expiration and reference closure must be implemented and tested before sweeps. Provider terms and applicable privacy obligations must be documented before commercial launch; no legal compliance certification is asserted.",
+      "acceptance": "Reference-closure sweeper fixtures, legal/contract hold record, actor deletion/export across every store/cache/audit, backup expiry reconciliation, diagnostic redaction and malicious cross-actor export.",
+      "milestone": "BC-M4"
+    }
+  ],
+  "provider_budget": {
+    "provider": "sleeper",
+    "actual_starts_per_rolling_60_seconds": 900,
+    "permit_charge_window_seconds": 61,
+    "dispatch_deadline_seconds": 1,
+    "concurrency": 32,
+    "http_deadline_seconds": 5,
+    "lanes": {
+      "live_score": 680,
+      "roles_roster": 55,
+      "transactions": 100,
+      "administration": 20,
+      "interactive": 15,
+      "import_future": 15,
+      "retry": 15
+    }
+  },
+  "validation_status": "planning_independently_reviewed_runtime_unexecuted"
+}

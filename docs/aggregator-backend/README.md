@@ -1,127 +1,48 @@
-# Aggregator backend contracts and migration design
+# Aggregator backend foundation
 
-The [Step 2 implementation checklist](step-2-checklist.md) is the current screen-by-screen completion ledger. The [exact-period matchup shadow resource](exact-period-matchups.md) records the first Bundle 1 implementation boundary, its evidence and remaining qualification gates.
+Target contract **backend-foundation-v1**; full planning revision **backend-build-plan-v1**, October 6, 2026 UTC. Start with [the full backend build plan](backend-build-plan.md), [coverage matrix](backend-coverage.md) and [delegated decisions](backend-decisions.md). They cover the entire approved aggregator mission and resolve D03-D05. The detailed first slice now includes [ER diagrams](relational-erd.md), [proposed structural DDL](proposed-schema.sql), [shared admission](acquisition-admission-design.md) and a same-transaction authority protocol. Independent integration review and current evidence are recorded in [design-completion.md](design-completion.md). Later detailed designs, target implementation/SQL tests, capacity, source qualification, operations and release remain explicit milestone gates.
+## Authority and supersession
 
-[Shared league-season and settings](league-season-settings.md) adds an internal
-identity/settings resource over the same capture and scoped acceptance machinery.
-Identity coverage and optional setting interpretation stay separate; public readers
-and enrollment remain unchanged. SQL qualification and release are separate gates.
+1. Explicit approved product behavior and repository safety instructions take precedence.
+2. Current source, tests and migrations establish what exists. Fresh external evidence establishes only the observed deployed facts. Existing behavior is not automatic endorsement of target behavior.
+3. [Contracts](contracts.md) owns semantics. [foundation.json](foundation.json) owns the exact first-slice field register, D02 value, selected policy references and acceptance IDs. [foundation-fields.md](foundation-fields.md) is its generated readable view. They are one definition with a consistency check, not independent contracts.
+4. [Requirements](design-requirements.json), [relational design](relational-design.json), [behavior/security](behavior-security-design.json) and [quality/operations](quality-operations.md) refine those semantics into allocated design and verification obligations. Their readable views are linked below. [Design completion](design-completion.md) records the corrected G1–G7 status; [literal-method audit](literal-method-audit.md) records the latest findings; the [earlier audit](methodology-audit.md) remains dated evidence. [Reconciliation](reconciliation.md) records dispositions/adoption, [all methodology activities](methodology-steps.md) have current dispositions, and [verification](verification.md) records actual checks and delivery state.
+5. Other files in this directory are source-era implementation notes, compatibility constraints or candidate designs. Their facts must be rechecked against their stated revision. They cannot override this target. In particular, the old nonexclusive-link sentence, unversioned-head proposal, global-year current selection, mandatory 36-object schema, old cadence proposals and earlier blanket readiness claims are superseded.
 
-[Current primary ownership and optional co-manager evidence](team-manager-relationships.md)
-extends the same capture and scoped acceptance path with provider-qualified team
-relationships. Complete coverage names primary ownership only; optional co-manager
-groups preserve their own known/unknown state. Public/account readers remain unchanged.
+The previous September 28 entry point's claim that the design gate was met is superseded by the explicit gates below. Git history preserves that dated record. The Ground up planning folder is a transition input, not a second source of authority. Its physical schema, mapping, refresh and readiness documents remain candidates/dated evidence wherever not explicitly retained in the disposition log. The [original handoff and manifest](evidence/backend-workspace-handoff-manifest.json) identify the inputs; [policy approval history](evidence/backend-policy-register.json) preserves D02. Physical storage names in that historical policy file are proposals, not mandatory runtime configuration.
 
-Status: proposed implementation contract, 28 September 2026. This package defines the backend foundation; it does not implement a connector, alter enrollment, run a migration, change a calculation, or establish production capacity.
+A portable package must be a byte-checked copy of this repository documentation, marked with source SHA, artifact hashes and dirty-worktree status. It must direct readers here and may not acquire independent normative edits. If the original Ground up folder cannot be updated, prepare a verified synchronization package inside the isolated worktree and report its location. The original drafts then remain unsynchronized and must not be represented as corrected.
 
-The first package-2 code slice is recorded in [retained roster implementation](roster-implementation.md). It adds common contract validators and an internal roster comparison through the existing store/reader path; the broader migration and read-service cutover remain pending.
+## Read in this order
 
-The next bounded slice is [durable roster mapping revisions](mapping-revisions.md): additive connection identity, exact network observation linkage and an in-flight remap fence through that same writer. Its runbook separates implementation, SQL qualification, migration activation and release.
-
-[Scoped current held-player acceptance](current-roster-acceptance.md) adds shadow persisted acceptance for public Sleeper `players` membership through the existing administration writer. Its durable network reservations, exact receipts and internal readback preserve v1/public behavior. SQL qualification, migration activation and release remain separate gates; other resources and the shared reader cutover remain later work.
-
-## Purpose and completion gate
-
-League One collects a bounded set of league information, translates provider-specific representations into shared records, and serves a consistent portfolio and league-detail experience. Host providers remain authoritative for their own official records. League One adds presentation calculations and separately qualified forecasts.
-
-This design stage is complete when each required screen value has an identified source, internal representation, period, authority, and missing-data behavior, and representative second-provider differences fit the contract or have an explicit unavailable outcome. A documentation-based Yahoo probe satisfies early design comparison; a real authorized Yahoo account remains an implementation qualification gate.
-
-| Document | What it establishes |
+| Document | Purpose |
 | --- | --- |
-| [Contracts](contracts.md) | Collection scope, canonical records, timestamps, completeness, feature support, adapter and reader boundaries |
-| [Screen data map](screen-data-map.md) | Existing screen values, source paths, target read contracts, and continuity requirements |
-| [Provider comparison](provider-mapping.md) | Sleeper/Yahoo field mappings, representative examples, evidence, and unresolved live-provider questions |
-| [Migration design](migration.md) | Existing-table reuse, additive changes, backfill, comparison, cutover, rollback, and acceptance gates |
+| [Contracts, sections 3, 8 and 11](contracts.md) | Versioned accepted heads, exclusive associations, per-league current selection, D02 and authorized delivery |
+| [Generated field and case register](foundation-fields.md) | Capability → source → exact field → identity/constraint → acceptance case |
+| [Atomic requirements and verification matrix](requirements-traceability.md) | 108 obligations, concrete design allocation, independent procedures and complete forward/reverse coverage |
+| [Behavior and security design](behavior-security-design.md) | Context, trust, state/sequence/transition models, authorization, threat/control/oracle plan |
+| [Relational and physical responsibility design](relational-design.md) | Keys/FDs/decompositions, cardinality, all field storage mappings, constraints, privileges, writer order and proof schedules |
+| [Quality decisions and operating evidence](quality-operations.md) | Scenarios, alternatives, residual risks, diagnostic/retention rules, migration and transition plan |
+| [Design completion and analysis](design-completion.md) | Review findings/dispositions and precise design-versus-runtime gate status |
+| [Reconciliation and gated next slice](reconciliation.md) | Verified facts, retained/rejected proposals, adoption order and qualification gates |
+| [Current method activity inventory](methodology-steps.md) | 181 dispositions: 171 source-linked activities/stages/guidelines and 10 local audit categories; artifact evidence and unperformed work distinguished |
+| [Verification record](verification.md) | What was checked, independent review and what remains unverified |
+| [Step 2 checklist](step-2-checklist.md) | Historical/internal screen bundle evidence; does not certify this target or authorize reader cutover |
 
-## Design completion evidence
+## Binding product constraints
 
-| Requested outcome | Evidence in this package | Result |
-| --- | --- | --- |
-| Specify what we collect | Bounded resource catalogue and per-screen field groups, including official facts, sports inputs, preferences and derived values | Defined for current product screens |
-| Define identities and provider mappings | Internal IDs, opaque source aliases, seasonal continuity, unresolved entities, native periods and source-mapping revisions | Defined; existing IDs preserved |
-| Define timestamps and completeness | Observation envelope, immutable request coverage, ordering/fences, partial-read policy and per-field provenance | Defined; source age is separate from processing time |
-| Define feature support | Independent access, availability, completeness, freshness and per-feature support; official-only enrollment path | Defined; unsupported analytics do not hide reliable official facts |
-| Check a second provider early | Official Yahoo specimens compared with Sleeper, including composite keys, counted slots, points, settings and periods | Documentation comparison complete; authenticated current-season qualification pending |
-| Explain required screen values | Source functions, authority, scope, missing-data behavior and target read contracts in the screen map | Current screen value groups accounted for |
-| Design a safe migration | Reuse map, staged expansion/backfill/comparison/cutover, conditional rollback and acceptance gates | Defined; execution remains separate |
+Sleeper is the only implemented league provider. Username lookup is read-only identification, not external ownership proof. Active L1 associations become exclusive in both directions under the target. L1 identity, provider identity, acquisition permission, team eligibility and follow preference remain separate. Current owner/co-manager evidence is required; commissioner or league membership alone is insufficient. Shared league facts belong to neither one L1 user nor one follow.
 
-The design gate is met at the documented-contract level. It does not certify implemented DTOs, production schema compatibility, live Yahoo access, forecast coverage or load capacity. The implementation packages below require those separate proofs before activation.
+D02 is **sleeper-membership-access-v1**, maximum membership age **3,600 seconds**, approved but not deployed. Every allow expires from the latest successful qualifying verification; failed, partial/unqualified, cached or replayed evidence never restarts it. Complete removal denies sooner. Expiry suspends affected league serving, not L1 account/sign-in access, and cannot block independent revalidation. D03 claim recovery, D04 loss/regain follows and D05 last-follower collection/retention are selected in the delegated decision register; actual implementation and qualification remain required.
 
-## Baseline and scope
+Each league advances after verified renewal and current membership; a portfolio may span years. Carry an existing follow only through a verified transition and never override a newer unfollow. Official facts remain separate from derived coverage. Preserve native settings and each league's actual scoring/roster/competition rules. The existing shared NFL acquisition, scorer, normalizer, worker lanes, exact-week behavior, clock-v1, immutable baselines and publication remain the owners.
 
-- GitHub `main` and Vercel Production were checked at `92b8b0b191530cd6699e534fe66dbe95f60da16a`. Production was Ready, bound to `clawmachinejed/league-one-audit`, branch `main`, root `apps/site`.
-- The primary local checkout remained clean at `962d8708881c76a1bec9767cc659357b0206ad30`; the intervening commit changes only README/AGENTS. The isolated design worktree starts at current `main`.
-- Existing runtime contracts, `clock-v1`, exact-week behavior, frozen baselines, scoring hashes, snapshots, routes, guest preferences, and published history remain the compatibility baseline. This proposal does not silently replace them.
-- Keep the modular application and existing workers, readers, normalization, scoring, and publication ownership. An adapter is a module, not a requirement to introduce a microservice.
-- Initial scope remains NFL fantasy football. Provider-neutral storage does not imply support for every scoring event, competition format, or provider.
-- Commercial provider approval, credentials, real-account qualification, load measurement, forecast changes, and production migration execution remain later work with separate evidence.
+## Gates and scope
 
-## Intended flow
+The full-scope planning gate requires every enumerated need to have a chosen design direction, accountable role, milestone, dependencies and independent acceptance procedure. The first-slice detailed design adds exact structural and interface specifications. Later official/analytics milestones require their own reviewed field registers, ERDs, DDL and interfaces before implementation. This is not a claim that every later detailed schema or runtime case already exists.
 
-```mermaid
-flowchart TD
-  A[Authorized provider connection] --> B[Provider adapter: fetch and validate]
-  B --> C[Source observations and provider identifiers]
-  C --> D[Normalize and resolve identities]
-  D --> E[Accepted canonical official records]
-  S[Shared NFL statistics and game state] --> F[Existing projection and analytics pipeline]
-  E --> F
-  E --> R[Versioned read models]
-  F --> R
-  U[User membership and access policy] --> Q[Authorized read services]
-  R --> Q
-  Q --> P[My Fantasy and shared league pages]
-  J[Durable bounded work, budgets and fences] --> B
-  J --> F
-```
+The internal first slice remains qualified identification through shared current teams to authorized stored current-roster reads. The complete plan includes official current-season history/schedule, shared NFL analytics,500-league qualification, privacy, operations and staged cutover.45-second live-score scheduling and p95<=60-second additional score delay are selected targets, not demonstrated capacity. All existing pipeline owners, exact-week behavior, `clock-v1`, immutable baselines and both named leagues remain protected.
 
-Source evidence, official records, and calculated outputs have different authority and lifetimes. They may use the same Postgres database. Read models can reference existing snapshots; this design does not require a second copy of every underlying record or another publication pipeline.
+This is planning work. No target runtime, applied migration, production configuration, merge or deployment was performed. The prior audits remain dated evidence with current dispositions linked above.
 
-## Decisions
-
-1. Preserve stable internal IDs and provider-qualified external references. Names and roster numbers never identify global entities by themselves.
-2. Keep native settings and facts with versioned normalization. Unknown values remain explicit rather than receiving invented defaults.
-3. Separate access, availability, completeness, freshness, and feature support. A single league-wide supported/unsupported flag is insufficient.
-4. Permit reliable official data independently of scoring-profile compilation. Do not create a placeholder zero profile to satisfy legacy constraints.
-5. Distinguish official points, provider forecasts, League One forecasts, and presentation-derived ranks. Unknown is not zero; an empty collection is not a failed request.
-6. Scope source heads, materializations, and caches to the proven data audience. Check permission on deep links and stored reads as well as fetches.
-7. Migrate by resource/reader slice with a single authoritative writer. Compare transformations against the same capture instead of adding duplicate upstream collectors.
-8. Use Yahoo documentation to challenge the model now. Require approved live access and real NFL samples before connector activation.
-
-## Implementation packages
-
-| Package | Deliverable | Exit evidence |
-| --- | --- | --- |
-| A: domain contracts | Typed records, validators and mapping fixtures corresponding to this design | Screen-map coverage; identity/period/null semantics; retained native fields; contract versioning |
-| B: persistence and Sleeper translation | Additive schema/functions and compatibility views; replay accepted evidence into proposed records | Existing IDs/history unchanged; same-source comparison; safe replay and rollback |
-| C: shared readers and account context | Authorized summary/detail readers, consistent team identity, independent feature support | Existing feature journeys; official-only league exercise; grant revocation and cache isolation |
-| D: second-provider pilot | Approved Yahoo connection, real NFL samples, resource adapters, shared views | Documentation/live mapping reconciled; unsupported fields explicit; privacy qualification |
-| E: growth qualification | Bounded work/continuation and measured read/collection budgets | Outage/correction/replay recovery; capacity, freshness, latency, retention and cost targets |
-
-Begin access qualification and representative fixture work alongside A/B. Reconcile real second-provider feedback before broad schema/reader cutover; do not defer discovery of source differences until package D. If authorized access is not yet available, contract work may proceed using documented specimens, but that qualification gate stays open. Enrollment expansion waits for the applicable access and growth gates.
-
-## Decisions and evidence required during implementation
-
-The documented design accounts for current screen values; it does not establish every launch decision or prove a live integration. The following items remain open until an implementation task records the stated evidence. They do not all block starting package A.
-
-| Item | Required evidence or decision | Deadline |
-| --- | --- | --- |
-| Initial support boundaries | Provider/league-format/feature matrix covering official viewing separately from analytics; supported, limited, unavailable or unverified outcomes and their user-visible behavior. Preserve current Sleeper behavior. | Before implementing the affected new-provider feature/presenter; before admitting that format. |
-| Real second-provider data | Authorized, sanitized current-season examples covering account/team relationships, settings, current/past lineups, scores/results and transaction coverage; record differences from documentation. | Start alongside A/B; reconcile before broad schema/reader cutover and before connector activation. |
-| Freshness expectations | Resource-specific target age, stale-display limit, refresh priority and request budget for live scores, rosters, transactions and history. Record measured behavior and the user-visible stale/unavailable policy. | Before finalizing collection schedules or new-provider reader freshness policies; no existing cadence change is authorized here. |
-| Data evolution | Executable old/new fixtures for adding fields, provider format/meaning changes and official corrections, following [the change contract](contracts.md#9-adding-data-and-handling-provider-changes). | Package A, extended by each affected adapter and reader implementation. |
-| Migration comparison | Per-screen expected values and provenance for normal, partial, stale, corrected and rollover cases; stable reason codes for missing data. No unexplained official-value or existing-projection differences; any numeric tolerance must be field-specific and justified. | Before switching each resource/reader cohort. |
-| Access and retention | Established provider access authority and applicable storage/display conditions; tested audience isolation, revocation and retention handling. | Before collecting private pilot data under that authority; full activation qualification before enabling the provider. |
-
-Maintain these decisions and fixture references with the screen map as features change. Adding a new feature also requires checking whether its information needs extend the bounded collection catalogue; the current inventory is not a promise to cover every future feature.
-
-## Implementation review checklist
-
-- Every screen-map row has a typed contract, mapping fixture, and continuity test when implemented.
-- Incomplete identity, unknown scoring contribution, absent permission, empty roster, stale result, and provider failure remain distinguishable.
-- Official-only enrollment cannot reach legacy projection code that requires a compiled profile.
-- Materialization cannot mix an unrelated league, period, configuration, audience, or frozen baseline.
-- Each migration stage has a read/write owner, rollback boundary, and retained-history rule.
-- Yahoo gaps remain qualification items rather than claims of implemented capability.
-
-This package defines those gates. A design-only PR does not mark runtime gates complete.
+Run `python docs/aggregator-backend/verify_foundation.py`, `python docs/aggregator-backend/verify_design.py` and `python docs/aggregator-backend/verify_backend_plan.py` for documentation consistency and declared-model analysis. Use `--write` only after deliberate canonical edits to refresh generated views. They do not qualify runtime, installed database constraints, provider completeness or production capacity. Merge/release must follow the complete verification and fresh identity checks under separate release authorization.

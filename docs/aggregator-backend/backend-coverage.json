@@ -1,0 +1,4306 @@
+{
+  "schema_version": "backend-coverage-v1",
+  "owners": [
+    {
+      "id": "ACCOUNT",
+      "responsibility": "Account/auth owner",
+      "source_paths": [
+        "apps/site/lib/accounts/auth.ts",
+        "apps/site/lib/accounts/store.ts",
+        "apps/site/lib/accounts/http.ts"
+      ],
+      "design_artifacts": [
+        "contracts.md",
+        "relational-design.md",
+        "behavior-security-design.md"
+      ]
+    },
+    {
+      "id": "DISCOVERY",
+      "responsibility": "Existing account discovery/onboarding owner",
+      "source_paths": [
+        "apps/site/lib/accounts/sleeper-discovery.ts",
+        "apps/site/lib/accounts/sleeper-link-preview.ts",
+        "apps/site/lib/accounts/onboarding.ts"
+      ],
+      "design_artifacts": [
+        "contracts.md",
+        "relational-design.md"
+      ]
+    },
+    {
+      "id": "ADMIN",
+      "responsibility": "Shared administration acquisition/normalization/persistence owner",
+      "source_paths": [
+        "apps/site/lib/league-administration/runtime.ts",
+        "apps/site/lib/league-administration/normalize.ts",
+        "apps/site/lib/league-administration/maintenance.ts",
+        "apps/site/lib/league-administration/neon/administration.ts"
+      ],
+      "design_artifacts": [
+        "contracts.md",
+        "mapping-revisions.md",
+        "league-season-settings.md"
+      ]
+    },
+    {
+      "id": "PERIOD",
+      "responsibility": "Native period and calendar owner",
+      "source_paths": [
+        "apps/site/lib/league-administration/period-mapping.ts",
+        "apps/site/lib/site-calendar-authority.ts",
+        "apps/site/lib/matchup-period.ts"
+      ],
+      "design_artifacts": [
+        "exact-period-matchups.md",
+        "league-season-settings.md"
+      ]
+    },
+    {
+      "id": "ROSTER",
+      "responsibility": "Shared current-roster/team-manager owner",
+      "source_paths": [
+        "apps/site/lib/aggregator/current-roster.ts",
+        "apps/site/lib/aggregator/team-managers.ts",
+        "apps/site/lib/aggregator/current-roster-groups.ts"
+      ],
+      "design_artifacts": [
+        "current-roster-acceptance.md",
+        "team-manager-relationships.md",
+        "contracts.md"
+      ]
+    },
+    {
+      "id": "MATCHUP",
+      "responsibility": "Exact-matchup/B1 composition owner",
+      "source_paths": [
+        "apps/site/lib/aggregator/exact-matchups.ts",
+        "apps/site/lib/aggregator/bundle-one.ts",
+        "apps/site/lib/aggregator/exact-matchup-reader.ts"
+      ],
+      "design_artifacts": [
+        "exact-period-matchups.md",
+        "exact-matchup-compatibility.md"
+      ]
+    },
+    {
+      "id": "SEASON",
+      "responsibility": "Season-overview/B2 owner",
+      "source_paths": [
+        "apps/site/lib/aggregator/bundle-two.ts",
+        "apps/site/lib/aggregator/season-overview-source-contracts.ts",
+        "apps/site/lib/aggregator/season-overview-schedules.ts"
+      ],
+      "design_artifacts": [
+        "season-overview.md",
+        "screen-data-map.md"
+      ]
+    },
+    {
+      "id": "ACTIVITY",
+      "responsibility": "Transaction capture/B3 owner",
+      "source_paths": [
+        "apps/site/lib/aggregator/transaction-activity-contracts.ts",
+        "apps/site/lib/aggregator/transaction-activity.ts",
+        "apps/site/lib/league-administration/neon/transactions.ts"
+      ],
+      "design_artifacts": [
+        "transaction-activity.md"
+      ]
+    },
+    {
+      "id": "HISTORY",
+      "responsibility": "Historical-continuity/B4 owner",
+      "source_paths": [
+        "apps/site/lib/aggregator/bundle-four.ts",
+        "apps/site/lib/aggregator/historical-continuity.ts",
+        "apps/site/lib/manager-history.ts"
+      ],
+      "design_artifacts": [
+        "historical-continuity.md",
+        "retained-matchup-comparison.md"
+      ]
+    },
+    {
+      "id": "NFL",
+      "responsibility": "Shared NFL adapter/runtime owner",
+      "source_paths": [
+        "apps/site/lib/projections/runtime/shared-services.ts",
+        "apps/site/lib/projections/adapters/tank01/projection-feed.ts",
+        "apps/site/lib/projections/adapters/tank01/game-state-feed.ts",
+        "apps/site/lib/projections/adapters/sleeper/all-player-stats.ts"
+      ],
+      "design_artifacts": [
+        "../all-player-statistics.md",
+        "../lineup-freshness.md"
+      ]
+    },
+    {
+      "id": "ANALYTICS",
+      "responsibility": "Single scorer/forecast/snapshot owner",
+      "source_paths": [
+        "apps/site/lib/projections/domain/scoring.ts",
+        "apps/site/lib/projections/domain/live-calculation.ts",
+        "apps/site/lib/projections/domain/win-probability.ts",
+        "apps/site/lib/projected-standings.ts"
+      ],
+      "design_artifacts": [
+        "../lineup-freshness.md",
+        "../live-defense-projections.md",
+        "../matchup-win-probability.md"
+      ]
+    },
+    {
+      "id": "METRICS",
+      "responsibility": "Shared all-player statistics/eligibility owner",
+      "source_paths": [
+        "apps/site/lib/projections/domain/all-player-statistics.ts",
+        "apps/site/lib/projections/domain/all-player-eligibility.ts",
+        "apps/site/lib/projections/adapters/neon/all-player-metrics.ts"
+      ],
+      "design_artifacts": [
+        "../all-player-statistics.md",
+        "../weekly-roster-metrics.md",
+        "../all-player-eligibility.md"
+      ]
+    },
+    {
+      "id": "WORKER",
+      "responsibility": "Existing scheduled lanes/job repository/publication owner",
+      "source_paths": [
+        "apps/site/lib/projections/runtime/projection-composition.ts",
+        "apps/site/lib/projections/runtime/future-projection-composition.ts",
+        "apps/site/lib/projections/runtime/lineup-observation-composition.ts",
+        "apps/site/lib/projections/adapters/neon/job-repository.ts"
+      ],
+      "design_artifacts": [
+        "../lineup-freshness.md",
+        "../future-week-projections.md",
+        "calculation-source-history.md"
+      ]
+    },
+    {
+      "id": "READERS",
+      "responsibility": "Existing account/portfolio/shared read owner",
+      "source_paths": [
+        "apps/site/lib/accounts/fantasy.ts",
+        "apps/site/lib/accounts/library.ts",
+        "apps/site/lib/my-fantasy.ts",
+        "apps/site/lib/projection-reader.ts"
+      ],
+      "design_artifacts": [
+        "screen-data-map.md",
+        "step-2-checklist.md",
+        "contracts.md"
+      ]
+    },
+    {
+      "id": "OPERATIONS",
+      "responsibility": "Existing worker/account diagnostics and release operator",
+      "source_paths": [
+        "apps/site/lib/projections/ports/logger.ts",
+        "apps/site/lib/accounts/http.ts",
+        "apps/site/vercel.json"
+      ],
+      "design_artifacts": [
+        "quality-operations.md",
+        "../collection-capacity-validation.md",
+        "../release-validation.md"
+      ]
+    },
+    {
+      "id": "RELEASE",
+      "responsibility": "Repository/migration/harness/review owners",
+      "source_paths": [
+        "docs/release-validation.md",
+        "apps/site/integration/README.md",
+        "AGENTS.md"
+      ],
+      "design_artifacts": [
+        "migration.md",
+        "reconciliation.md",
+        "verification.md"
+      ]
+    }
+  ],
+  "needs": [
+    {
+      "id": "N01",
+      "path": "../../README.md",
+      "anchor": "Product mission",
+      "need": "One manager home across supported league providers, with shared official views and independent League One analytics.",
+      "authority": "approved_need_or_repository_constraint"
+    },
+    {
+      "id": "N02",
+      "path": "evidence/backend-workspace-handoff.md",
+      "anchor": "Sleeper first; other providers are future adapters.",
+      "need": "Sleeper read-only identification now; future provider adapters and authorization remain later qualified integrations.",
+      "authority": "approved_need_or_repository_constraint"
+    },
+    {
+      "id": "N03",
+      "path": "evidence/backend-workspace-handoff.md",
+      "anchor": "One active provider account per L1 user per provider",
+      "need": "Exclusive active associations; separate login, provider identity, acquisition, membership and preferences.",
+      "authority": "approved_need_or_repository_constraint"
+    },
+    {
+      "id": "N04",
+      "path": "evidence/backend-workspace-handoff.md",
+      "anchor": "Require a current owned or co-managed team.",
+      "need": "Owner/co-manager eligibility and independent multi-user effects; incomplete evidence cannot establish removal.",
+      "authority": "approved_need_or_repository_constraint"
+    },
+    {
+      "id": "N05",
+      "path": "evidence/backend-workspace-handoff.md",
+      "anchor": "Current teams advance per league",
+      "need": "Verified renewal, mixed years, completed current seasons and newer unfollow precedence; prior-season browsing not required now.",
+      "authority": "approved_need_or_repository_constraint"
+    },
+    {
+      "id": "N06",
+      "path": "evidence/backend-workspace-handoff.md",
+      "anchor": "Eventually import all recoverable current-season competitive history",
+      "need": "Official current/history/published future schedule with native settings/provenance and independent analytics coverage.",
+      "authority": "approved_need_or_repository_constraint"
+    },
+    {
+      "id": "N07",
+      "path": "evidence/backend-workspace-handoff.md",
+      "anchor": "Use each league's actual scoring, roster slots, eligibility and competition settings.",
+      "need": "Actual rule interpretation and shared NFL statistics/projections/game state/availability; preserve frozen/live distinction.",
+      "authority": "approved_need_or_repository_constraint"
+    },
+    {
+      "id": "N08",
+      "path": "evidence/backend-workspace-handoff.md",
+      "anchor": "Collect shared resources once wherever permissions permit",
+      "need": "Shared collection, offline followed maintenance, active aggregate promotion, truthful staleness and response ordering.",
+      "authority": "approved_need_or_repository_constraint"
+    },
+    {
+      "id": "N09",
+      "path": "evidence/backend-workspace-handoff.md",
+      "anchor": "Qualification target: 500 distinct leagues per supported provider",
+      "need": "500 all-watched coexistence workload, measured approximately 60-second additional score delay and separate supporting-feed cost target.",
+      "authority": "approved_need_or_repository_constraint"
+    },
+    {
+      "id": "N10",
+      "path": "evidence/backend-policy-register.json",
+      "anchor": "max_membership_age_seconds",
+      "need": "Approved strict D02=3600; no failed/cache/replay extension, earlier removal/expiry, independent revalidation and L1 sign-in.",
+      "authority": "approved_need_or_repository_constraint"
+    },
+    {
+      "id": "N11",
+      "path": "../../AGENTS.md",
+      "anchor": "Never duplicate an existing worker",
+      "need": "Reuse existing owner architecture, preserve routes/payloads/exact-week/clock-v1/immutable baselines and unrelated leagues.",
+      "authority": "approved_need_or_repository_constraint"
+    },
+    {
+      "id": "N12",
+      "path": "../../AGENTS.md",
+      "anchor": "Never run destructive integration tests against production.",
+      "need": "Isolated implementation/review, no secrets/production test writes, protected release with exact SHA and both-league evidence.",
+      "authority": "approved_need_or_repository_constraint"
+    },
+    {
+      "id": "N13",
+      "path": "screen-data-map.md",
+      "anchor": "Required canonical field categories beyond the visible cards",
+      "need": "Detailed existing field groups and backend dependencies; inventory is candidate design, revalidated against current source.",
+      "authority": "candidate_inventory_supported_by_current_source"
+    },
+    {
+      "id": "N14",
+      "path": "evidence/backend-workspace-handoff.md",
+      "anchor": "Open product decisions: D03",
+      "need": "Claim recovery, genuine loss/regain follows and last-follower lifecycle use the lead engineer's separately recorded delegated decisions.",
+      "authority": "approved_need_or_repository_constraint"
+    },
+    {
+      "id": "N15",
+      "path": "https://docs.sleeper.com/",
+      "anchor": "For commercial use of the Sleeper API",
+      "need": "Sleeper currently describes free non-commercial access and directs commercial users to discuss licensing; obtain applicable terms/permission before commercial activation.",
+      "authority": "official_provider_documentation_checked_2026-10-06"
+    },
+    {
+      "id": "N16",
+      "path": "backend-decisions.md",
+      "anchor": "ENG08 — Privacy, provenance retention and disposal",
+      "need": "Lead-selected reliability, actor export/deletion, reference-aware retention and operational accountability extend the product brief within delegated planning authority.",
+      "authority": "delegated_engineering_policy_not_deployed"
+    }
+  ],
+  "milestones": [
+    {
+      "id": "BC-M0",
+      "title": "Plan and design closure",
+      "depends_on": [],
+      "exit_intent": "Review full-scope coverage, delegated decisions, exact first-slice ERD/DDL/interfaces/security and validation plan. No runtime or production work is implied."
+    },
+    {
+      "id": "BC-M1",
+      "title": "Shared identity, current teams and authorized reads",
+      "depends_on": [
+        "BC-M0"
+      ],
+      "exit_intent": "Implement and qualify first-slice account, acquisition admission, discovery, current selection and guarded shared roster reads through existing owners."
+    },
+    {
+      "id": "BC-M2",
+      "title": "Complete official current-season resources",
+      "depends_on": [
+        "BC-M1"
+      ],
+      "exit_intent": "Generalize supported official family composition and resumable current-season import/remaining published schedule; keep legacy presenters isolated."
+    },
+    {
+      "id": "BC-M3",
+      "title": "Shared NFL and analytical feature composition",
+      "depends_on": [
+        "BC-M2"
+      ],
+      "exit_intent": "Join existing NFL facts, scorer, immutable baselines, forecasts, metrics and probabilities with capability-specific coverage."
+    },
+    {
+      "id": "BC-M4",
+      "title": "Coexistence, capacity, cost and operational qualification",
+      "depends_on": [
+        "BC-M1",
+        "BC-M2",
+        "BC-M3"
+      ],
+      "exit_intent": "Measure the selected workload and lead-defined objectives; prove fairness, failure handling, recovery, access and retention before launch claims."
+    },
+    {
+      "id": "BC-M5",
+      "title": "Incremental reader adoption and release",
+      "depends_on": [
+        "BC-M4"
+      ],
+      "exit_intent": "Qualify compatibility/shadow comparisons, authorized additive migration, guarded cutover, rollback and exact-release evidence."
+    },
+    {
+      "id": "BC-M6",
+      "title": "Future authorized provider adapter",
+      "depends_on": [
+        "BC-M5"
+      ],
+      "exit_intent": "Later separate provider authorization, adapter and real-data qualification; no Yahoo/ESPN delivery date or access entitlement is promised."
+    }
+  ],
+  "obligations": [
+    {
+      "id": "BC001",
+      "domain": "governance",
+      "title": "Canonical ownership and incremental composition",
+      "need_ids": [
+        "N01",
+        "N11",
+        "N12"
+      ],
+      "owner_id": "RELEASE",
+      "milestone_id": "BC-M0",
+      "contract_fields": [
+        "repository/source SHA",
+        "resource owner",
+        "reader/version binding"
+      ],
+      "selected_plan": "Keep the canonical repository and one administration/NFL/scoring/snapshot/publication composition. Extend owners by ports/adapters; keep legacy presenters during adoption.",
+      "decision_refs": [
+        "ENG07"
+      ],
+      "acceptance_id": "V-BC001",
+      "acceptance": "Dependency/route inspection finds one owner per acquisition/calculation/publication responsibility; baseline and target outputs compare on the same captures.",
+      "depends_on": [],
+      "exclusions": [
+        "Blank replacement repository",
+        "Parallel provider/scoring/publication pipeline"
+      ],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "migration.md",
+        "reconciliation.md",
+        "verification.md",
+        "backend-decisions.json"
+      ],
+      "current_source_paths": [
+        "docs/release-validation.md",
+        "apps/site/integration/README.md",
+        "AGENTS.md"
+      ],
+      "verification_methods": [
+        "inspection",
+        "compatibility test",
+        "guarded qualification as applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC001",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC002",
+      "domain": "identity",
+      "title": "Independent L1 session and account lifecycle",
+      "need_ids": [
+        "N03",
+        "N10"
+      ],
+      "owner_id": "ACCOUNT",
+      "milestone_id": "BC-M1",
+      "contract_fields": [
+        "Actor",
+        "login identity",
+        "exact session",
+        "admission epoch",
+        "UTC expiry"
+      ],
+      "selected_plan": "Reuse maintained auth and restricted account owner. Apply ENG01 command/read authority boundary; provider state never disables L1 login.",
+      "decision_refs": [
+        "ENG01"
+      ],
+      "acceptance_id": "V-BC002",
+      "acceptance": "Outage, link end, removal and D02 equality affect only the scoped league; revocation and coordinator-loss schedules produce no unauthorized command/read.",
+      "depends_on": [
+        "BC001"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "contracts.md",
+        "relational-design.md",
+        "behavior-security-design.md",
+        "backend-decisions.json"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/accounts/auth.ts",
+        "apps/site/lib/accounts/store.ts",
+        "apps/site/lib/accounts/http.ts"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC002",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC003",
+      "domain": "identity",
+      "title": "Read-only stable provider identification",
+      "need_ids": [
+        "N02",
+        "N03"
+      ],
+      "owner_id": "DISCOVERY",
+      "milestone_id": "BC-M1",
+      "contract_fields": [
+        "provider/namespace/native account ID",
+        "lookup receipt",
+        "username/displayName/avatar Field states"
+      ],
+      "selected_plan": "Resolve supplied username to stable opaque ID; optional display data is decoration. Identification cannot activate a link, enroll or prove external ownership.",
+      "decision_refs": [
+        "ENG02"
+      ],
+      "acceptance_id": "V-BC003",
+      "acceptance": "Renamed username keeps identity; missing/invalid optional fields do not discard a qualified ID; failed lookup causes zero identity/league/follow mutation.",
+      "depends_on": [
+        "BC002"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "contracts.md",
+        "relational-design.md",
+        "backend-decisions.json"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/accounts/sleeper-discovery.ts",
+        "apps/site/lib/accounts/sleeper-link-preview.ts",
+        "apps/site/lib/accounts/onboarding.ts"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC003",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC004",
+      "domain": "identity",
+      "title": "Exclusive provider association and mistaken claim",
+      "need_ids": [
+        "N03",
+        "N14"
+      ],
+      "owner_id": "ACCOUNT",
+      "milestone_id": "BC-M1",
+      "contract_fields": [
+        "association UUID/revision",
+        "subjectLookupEvidenceRef",
+        "actor/provider and provider-account active keys"
+      ],
+      "selected_plan": "Use both active uniqueness constraints and immutable history. D03 permits authenticated incumbent release or independently validated provider-control proof from an approved implemented mechanism; unsupported disputed proof remains locked as an accepted limitation. No automatic conflict displacement.",
+      "decision_refs": [
+        "D03",
+        "ENG01",
+        "ENG08"
+      ],
+      "acceptance_id": "V-BC004",
+      "acceptance": "Both claimant lock orders yield one active claim and private conflict; idempotent retries preserve identity; D03 recovery cases prove evidence, audit, revocation and no takeover by username alone.",
+      "depends_on": [
+        "BC003"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "contracts.md",
+        "relational-design.md",
+        "behavior-security-design.md",
+        "backend-decisions.json"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/accounts/auth.ts",
+        "apps/site/lib/accounts/store.ts",
+        "apps/site/lib/accounts/http.ts"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC004",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC005",
+      "domain": "identity",
+      "title": "Current owner/co-manager eligibility",
+      "need_ids": [
+        "N04"
+      ],
+      "owner_id": "ROSTER",
+      "milestone_id": "BC-M1",
+      "contract_fields": [
+        "team/season membership",
+        "primary/co-manager role",
+        "population/field coverage",
+        "positive/adverse receipts"
+      ],
+      "selected_plan": "Evaluate independently qualified manager evidence for every team. Commissioner/member status alone grants no participation; one co-manager's changes do not alter another's access.",
+      "decision_refs": [
+        "ENG01"
+      ],
+      "acceptance_id": "V-BC005",
+      "acceptance": "Multiple teams/co-managers, unknown co-manager lists, commissioner-only and complete exclusion fixtures yield exact independent eligibility; roster-player errors cannot erase valid manager evidence.",
+      "depends_on": [
+        "BC004"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "current-roster-acceptance.md",
+        "team-manager-relationships.md",
+        "contracts.md",
+        "backend-decisions.json"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/aggregator/current-roster.ts",
+        "apps/site/lib/aggregator/team-managers.ts",
+        "apps/site/lib/aggregator/current-roster-groups.ts"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC005",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC006",
+      "domain": "identity",
+      "title": "Strict D02 expiry and independent recovery",
+      "need_ids": [
+        "N10",
+        "N08"
+      ],
+      "owner_id": "ACCOUNT",
+      "milestone_id": "BC-M1",
+      "contract_fields": [
+        "verification time",
+        "policy version",
+        "earlier authority deadlines",
+        "revalidation intent"
+      ],
+      "selected_plan": "Retain approved 3600-second policy and original qualified clock. Recovery admission is independent of expired serving and uses the same bounded shared owner.",
+      "decision_refs": [
+        "ENG01",
+        "ENG02"
+      ],
+      "acceptance_id": "V-BC006",
+      "acceptance": "T+3599 can allow, T+3600/3601 cannot without fresh qualified proof; failed/partial/cache/replay never advance T; admitted recovery can restore access while expired.",
+      "depends_on": [
+        "BC005"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "contracts.md",
+        "relational-design.md",
+        "behavior-security-design.md",
+        "backend-decisions.json"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/accounts/auth.ts",
+        "apps/site/lib/accounts/store.ts",
+        "apps/site/lib/accounts/http.ts"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC006",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC007",
+      "domain": "identity",
+      "title": "Per-league current season and verified renewal",
+      "need_ids": [
+        "N05"
+      ],
+      "owner_id": "ACCOUNT",
+      "milestone_id": "BC-M1",
+      "contract_fields": [
+        "stable league",
+        "annual source mapping",
+        "selection revision",
+        "successor proof",
+        "follow revision"
+      ],
+      "selected_plan": "Select current season per stable league/association after qualified successor lineage and membership. Retain eligible completed current seasons and mixed-year portfolios.",
+      "decision_refs": [
+        "D04",
+        "ENG01"
+      ],
+      "acceptance_id": "V-BC007",
+      "acceptance": "Two leagues in different years remain visible; circular/forked/wrong-year lineage cannot advance; renewal versus newer unfollow in both orders never resurrects preference.",
+      "depends_on": [
+        "BC005",
+        "BC006"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "contracts.md",
+        "relational-design.md",
+        "behavior-security-design.md",
+        "backend-decisions.json"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/accounts/auth.ts",
+        "apps/site/lib/accounts/store.ts",
+        "apps/site/lib/accounts/http.ts"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC007",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC008",
+      "domain": "identity",
+      "title": "Preferences, disconnection and regained membership",
+      "need_ids": [
+        "N03",
+        "N04",
+        "N05",
+        "N14"
+      ],
+      "owner_id": "ACCOUNT",
+      "milestone_id": "BC-M1",
+      "contract_fields": [
+        "follow/tombstone",
+        "favorite/order/preferred team",
+        "association end",
+        "preference revision"
+      ],
+      "selected_plan": "Store explicit follow intent/revision separately from effective eligible following. D04 suspends effective access/collection on expiry/removal/disconnect; qualified recovery resumes only unchanged intent. Never auto-follow discovery or resurrect a newer unfollow. D03/D05 govern claim and zero-demand lifecycle.",
+      "decision_refs": [
+        "D03",
+        "D04",
+        "D05",
+        "ENG04"
+      ],
+      "acceptance_id": "V-BC008",
+      "acceptance": "Disconnect/unfollow/removal for A leaves B and shared facts intact; CAS retries cannot undo newer commands; loss/regain executes exactly the delegated policy.",
+      "depends_on": [
+        "BC004",
+        "BC007"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "contracts.md",
+        "relational-design.md",
+        "behavior-security-design.md",
+        "backend-decisions.json"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/accounts/auth.ts",
+        "apps/site/lib/accounts/store.ts",
+        "apps/site/lib/accounts/http.ts"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC008",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC009",
+      "domain": "discovery",
+      "title": "Resumable complete-scope current-team discovery",
+      "need_ids": [
+        "N02",
+        "N04",
+        "N05"
+      ],
+      "owner_id": "DISCOVERY",
+      "milestone_id": "BC-M1",
+      "contract_fields": [
+        "strategy version",
+        "declared season query set",
+        "candidate refs",
+        "continuation",
+        "list vs role coverage"
+      ],
+      "selected_plan": "Use the lead's current season/prior two seasons plus retained selections strategy; traverse qualified predecessor links through resumable bounded work. Persist explicit query/chain coverage and role qualification through the existing owner. Completion means the declared qualified scope, never all possible provider history.",
+      "decision_refs": [
+        "ENG02",
+        "ENG05"
+      ],
+      "acceptance_id": "V-BC009",
+      "acceptance": "Interrupted multi-year scan resumes without duplicates; failed/unqueried seasons stay partial; one unqualified candidate prevents complete current-teams claim without hiding proven results.",
+      "depends_on": [
+        "BC003",
+        "BC007"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "contracts.md",
+        "relational-design.md",
+        "backend-decisions.json"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/accounts/sleeper-discovery.ts",
+        "apps/site/lib/accounts/sleeper-link-preview.ts",
+        "apps/site/lib/accounts/onboarding.ts"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC009",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC010",
+      "domain": "acquisition",
+      "title": "Access context and permission-aware sharing",
+      "need_ids": [
+        "N02",
+        "N03",
+        "N08"
+      ],
+      "owner_id": "ADMIN",
+      "milestone_id": "BC-M1",
+      "contract_fields": [
+        "ProviderAccessContext",
+        "audience",
+        "credential capability reference",
+        "context revision/expiry"
+      ],
+      "selected_plan": "Share public facts once per compatible source scope; partition private data by actual authorization audience/context. Workers acquire from valid context, never from a user view's stale allow.",
+      "decision_refs": [
+        "ENG01",
+        "ENG02",
+        "ENG05"
+      ],
+      "acceptance_id": "V-BC010",
+      "acceptance": "Cross-audience/context references fail at capture/cache/read boundaries; expired acquisition context blocks fetch; one user's unfollow does not cancel another valid shared demand.",
+      "depends_on": [
+        "BC002"
+      ],
+      "exclusions": [
+        "Persisting secrets in evidence or logs"
+      ],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "contracts.md",
+        "mapping-revisions.md",
+        "league-season-settings.md",
+        "backend-decisions.json"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/league-administration/runtime.ts",
+        "apps/site/lib/league-administration/normalize.ts",
+        "apps/site/lib/league-administration/maintenance.ts",
+        "apps/site/lib/league-administration/neon/administration.ts"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC010",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC011",
+      "domain": "acquisition",
+      "title": "Atomic admission and durable account-to-worker commands",
+      "need_ids": [
+        "N08",
+        "N09"
+      ],
+      "owner_id": "ADMIN",
+      "milestone_id": "BC-M1",
+      "contract_fields": [
+        "command ID",
+        "scope/context/actor revisions",
+        "reservation/accounting",
+        "deadline",
+        "durable work intent"
+      ],
+      "selected_plan": "Use ENG02 finite shared admission and the exact guarded command interface; debit actual HTTP starts including retries and legacy lanes. Coalesce identical demand without treating dedup as a global budget.",
+      "decision_refs": [
+        "ENG01",
+        "ENG02",
+        "ENG03"
+      ],
+      "acceptance_id": "V-BC011",
+      "acceptance": "Concurrent unique usernames/scopes cannot exceed the chosen shared/actor budget; rejection is safe; crash/unknown commit reconciles the same command and leaves no orphan admitted request or double debit. Delay permits across reservation/start boundaries and synchronize independent workers: expired or abandoned permits cannot authorize a later start that violates the strict rolling actual-start limit.",
+      "depends_on": [
+        "BC010"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "contracts.md",
+        "mapping-revisions.md",
+        "league-season-settings.md",
+        "backend-decisions.json"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/league-administration/runtime.ts",
+        "apps/site/lib/league-administration/normalize.ts",
+        "apps/site/lib/league-administration/maintenance.ts",
+        "apps/site/lib/league-administration/neon/administration.ts"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC011",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC012",
+      "domain": "evidence",
+      "title": "Immutable evidence, versioned heads and corrections",
+      "need_ids": [
+        "N06",
+        "N08",
+        "N10"
+      ],
+      "owner_id": "ADMIN",
+      "milestone_id": "BC-M1",
+      "contract_fields": [
+        "scope/normalizer/validation head key",
+        "attempt ordinal",
+        "mapping generation",
+        "capture/acceptance refs",
+        "coverage clocks"
+      ],
+      "selected_plan": "Preserve captures/receipts and independent versioned heads; choose explicit reader binding. Keep historical adverse evidence through policy suspension until qualified supersession.",
+      "decision_refs": [
+        "ENG01",
+        "ENG07"
+      ],
+      "acceptance_id": "V-BC012",
+      "acceptance": "Late response, A-B-A mapping, shadow promotion/rollback and policy suspension cannot overwrite newer acceptance or revive removed access; replay preserves original evidence age.",
+      "depends_on": [
+        "BC010",
+        "BC011"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "contracts.md",
+        "mapping-revisions.md",
+        "league-season-settings.md",
+        "backend-decisions.json"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/league-administration/runtime.ts",
+        "apps/site/lib/league-administration/normalize.ts",
+        "apps/site/lib/league-administration/maintenance.ts",
+        "apps/site/lib/league-administration/neon/administration.ts"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC012",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC013",
+      "domain": "official",
+      "title": "League metadata, lifecycle and native settings",
+      "need_ids": [
+        "N06",
+        "N07",
+        "N13"
+      ],
+      "owner_id": "ADMIN",
+      "milestone_id": "BC-M2",
+      "contract_fields": [
+        "LeagueSettingsValue identity/name/artwork/lifecycle/visibility",
+        "nativeSettings",
+        "teamCount",
+        "scoring/roster/competition/waiver dialects"
+      ],
+      "selected_plan": "Reuse the settings shadow resource and source-path field states. Normalize supported concepts while retaining raw native settings; missing decoration never invents identity/lifecycle.",
+      "decision_refs": [
+        "ENG05"
+      ],
+      "acceptance_id": "V-BC013",
+      "acceptance": "Unknown settings survive round-trip provenance; malformed optional fields do not invalidate independently qualified league identity; zero/empty/null/absent remain distinct.",
+      "depends_on": [
+        "BC012"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "contracts.md",
+        "mapping-revisions.md",
+        "league-season-settings.md",
+        "backend-decisions.json"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/league-administration/runtime.ts",
+        "apps/site/lib/league-administration/normalize.ts",
+        "apps/site/lib/league-administration/maintenance.ts",
+        "apps/site/lib/league-administration/neon/administration.ts"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC013",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC014",
+      "domain": "official",
+      "title": "Stable leagues, annual team and manager references",
+      "need_ids": [
+        "N03",
+        "N05",
+        "N06"
+      ],
+      "owner_id": "ADMIN",
+      "milestone_id": "BC-M2",
+      "contract_fields": [
+        "stable league UUID",
+        "leagueSeason UUID",
+        "source mapping revision",
+        "seasonTeam ID",
+        "native manager alias"
+      ],
+      "selected_plan": "Reuse qualified annual mappings and provider/type/namespace-scoped aliases. Manager/team display or reused roster number cannot establish cross-season identity.",
+      "decision_refs": [
+        "ENG05"
+      ],
+      "acceptance_id": "V-BC014",
+      "acceptance": "Identical native IDs in different leagues/providers/kinds remain distinct; renewed native league IDs preserve verified stable lineage; cross-league FK/reference injection fails.",
+      "depends_on": [
+        "BC007",
+        "BC012"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "contracts.md",
+        "mapping-revisions.md",
+        "league-season-settings.md",
+        "backend-decisions.json"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/league-administration/runtime.ts",
+        "apps/site/lib/league-administration/normalize.ts",
+        "apps/site/lib/league-administration/maintenance.ts",
+        "apps/site/lib/league-administration/neon/administration.ts"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC014",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC015",
+      "domain": "official",
+      "title": "Native periods and separate NFL calendar mapping",
+      "need_ids": [
+        "N06",
+        "N07",
+        "N11"
+      ],
+      "owner_id": "PERIOD",
+      "milestone_id": "BC-M2",
+      "contract_fields": [
+        "native competition-period key",
+        "season type",
+        "period start/end/finality",
+        "NFL-period evidence refs"
+      ],
+      "selected_plan": "Keep native matchup/transaction periods separate from NFL weeks. Generalized service uses actual competition boundaries; legacy exact-week/noon-Eastern behavior remains in compatibility readers.",
+      "decision_refs": [
+        "ENG05"
+      ],
+      "acceptance_id": "V-BC015",
+      "acceptance": "Multiweek/median/unpaired/unknown mapping never becomes a fabricated week/opponent; exact requested period is never substituted by current/highest stored snapshot.",
+      "depends_on": [
+        "BC013",
+        "BC014"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "exact-period-matchups.md",
+        "league-season-settings.md",
+        "backend-decisions.json"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/league-administration/period-mapping.ts",
+        "apps/site/lib/site-calendar-authority.ts",
+        "apps/site/lib/matchup-period.ts"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC015",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC016",
+      "domain": "official",
+      "title": "Roster slots and eligibility rules",
+      "need_ids": [
+        "N07",
+        "N13"
+      ],
+      "owner_id": "ROSTER",
+      "milestone_id": "BC-M2",
+      "contract_fields": [
+        "ordered native slot/index",
+        "eligible positions",
+        "reserve/taxi/substitution rules",
+        "configuration revision"
+      ],
+      "selected_plan": "Reuse native roster settings and canonical eligibility adapters. Position metadata, placement and provider eligibility remain distinct; unsupported slot/rule limits only dependent features.",
+      "decision_refs": [],
+      "acceptance_id": "V-BC016",
+      "acceptance": "Repeated FLEX slots retain indexes; empty slot differs from absent lineup; ambiguous/unsupported eligibility is explicit without blocking independently reliable official totals.",
+      "depends_on": [
+        "BC013",
+        "BC015"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "current-roster-acceptance.md",
+        "team-manager-relationships.md",
+        "contracts.md"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/aggregator/current-roster.ts",
+        "apps/site/lib/aggregator/team-managers.ts",
+        "apps/site/lib/aggregator/current-roster-groups.ts"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC016",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC017",
+      "domain": "official",
+      "title": "Current held roster and groups",
+      "need_ids": [
+        "N06",
+        "N07"
+      ],
+      "owner_id": "ROSTER",
+      "milestone_id": "BC-M2",
+      "contract_fields": [
+        "HeldRoster",
+        "players",
+        "starter/bench/reserve/taxi applicability",
+        "metadataAsOf"
+      ],
+      "selected_plan": "Reuse accepted current roster/team manager ownership and independent field-group coverage; optional catalog failure does not delete held identities.",
+      "decision_refs": [],
+      "acceptance_id": "V-BC017",
+      "acceptance": "Known empty, null, absent and invalid groups remain distinct; duplicate/conflicting identities fail the affected group; current IR/taxi is not applied to historical lineups.",
+      "depends_on": [
+        "BC005",
+        "BC016"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "current-roster-acceptance.md",
+        "team-manager-relationships.md",
+        "contracts.md"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/aggregator/current-roster.ts",
+        "apps/site/lib/aggregator/team-managers.ts",
+        "apps/site/lib/aggregator/current-roster-groups.ts"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC017",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC018",
+      "domain": "official",
+      "title": "Exact-period ordered lineups and player scores",
+      "need_ids": [
+        "N06",
+        "N07",
+        "N13"
+      ],
+      "owner_id": "MATCHUP",
+      "milestone_id": "BC-M2",
+      "contract_fields": [
+        "ExactMatchupTeam.starters/nonstarters/bench",
+        "OfficialPoint",
+        "pointSource",
+        "lineup applicability refs"
+      ],
+      "selected_plan": "Reuse B1 same-capture projection and starter-index score precedence. Preserve native vacancy marker/index; classify historical bench only with matching period applicability evidence.",
+      "decision_refs": [],
+      "acceptance_id": "V-BC018",
+      "acceptance": "Custom zero/fractional/negative player points survive; starter-index zero outranks player map; unknown whole lineup/bench never becomes empty; no current roster backfill for past periods.",
+      "depends_on": [
+        "BC015",
+        "BC016",
+        "BC017"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "exact-period-matchups.md",
+        "exact-matchup-compatibility.md"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/aggregator/exact-matchups.ts",
+        "apps/site/lib/aggregator/bundle-one.ts",
+        "apps/site/lib/aggregator/exact-matchup-reader.ts"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC018",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC019",
+      "domain": "official",
+      "title": "Provider-authoritative team score and adjustments",
+      "need_ids": [
+        "N01",
+        "N06",
+        "N13"
+      ],
+      "owner_id": "MATCHUP",
+      "milestone_id": "BC-M2",
+      "contract_fields": [
+        "officialTeamPoints.raw/custom/effective",
+        "adjustment kind/reason state",
+        "source receipt"
+      ],
+      "selected_plan": "Use provider effective score with explicit custom override, never sum displayed players to replace official team totals. Keep parsed numeric precision/provenance honest.",
+      "decision_refs": [],
+      "acceptance_id": "V-BC019",
+      "acceptance": "Same-capture comparison proves custom_points=0 wins, negative/fractional values unchanged, missing totals null, and corrected immutable capture changes only current accepted selection.",
+      "depends_on": [
+        "BC018"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "exact-period-matchups.md",
+        "exact-matchup-compatibility.md"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/aggregator/exact-matchups.ts",
+        "apps/site/lib/aggregator/bundle-one.ts",
+        "apps/site/lib/aggregator/exact-matchup-reader.ts"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC019",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC020",
+      "domain": "official",
+      "title": "Matchup grouping, results and finality",
+      "need_ids": [
+        "N01",
+        "N06",
+        "N07"
+      ],
+      "owner_id": "MATCHUP",
+      "milestone_id": "BC-M2",
+      "contract_fields": [
+        "participant team IDs",
+        "native grouping",
+        "paired/unpaired/multiple format",
+        "provider vs local finality/outcome"
+      ],
+      "selected_plan": "Reuse B1 participants and exact official scores; retain source finality separately from calendar-completion inference. Unsupported competition stays represented with limited result interpretation.",
+      "decision_refs": [],
+      "acceptance_id": "V-BC020",
+      "acceptance": "Unpaired teams remain visible; no guessed winner/tie/final from absent score, kickoff time or unsupported multiple-opponent format; actual source corrections can revise accepted result without changing frozen history.",
+      "depends_on": [
+        "BC015",
+        "BC019"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "exact-period-matchups.md",
+        "exact-matchup-compatibility.md"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/aggregator/exact-matchups.ts",
+        "apps/site/lib/aggregator/bundle-one.ts",
+        "apps/site/lib/aggregator/exact-matchup-reader.ts"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC020",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC021",
+      "domain": "official",
+      "title": "Season-to-date standings and source rank",
+      "need_ids": [
+        "N01",
+        "N06"
+      ],
+      "owner_id": "SEASON",
+      "milestone_id": "BC-M2",
+      "contract_fields": [
+        "record W/L/T",
+        "exact PF/PA whole/fraction",
+        "provider rank/seed/division",
+        "local ordering version"
+      ],
+      "selected_plan": "Reuse SeasonOverviewTeamFacts and independent standings coverage. Keep source rank separate from local tiebreak/order; preserve legacy zero/rounding behavior solely in compatibility view.",
+      "decision_refs": [],
+      "acceptance_id": "V-BC021",
+      "acceptance": "Incomplete record remains unknown; PF/PA exact source components survive; source rank is never inferred from response order; same-capture legacy comparison accounts for deliberate presenter differences.",
+      "depends_on": [
+        "BC013",
+        "BC019"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "season-overview.md",
+        "screen-data-map.md"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/aggregator/bundle-two.ts",
+        "apps/site/lib/aggregator/season-overview-source-contracts.ts",
+        "apps/site/lib/aggregator/season-overview-schedules.ts"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC021",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC022",
+      "domain": "official",
+      "title": "Current waiver state and actual policy",
+      "need_ids": [
+        "N06",
+        "N07",
+        "N13"
+      ],
+      "owner_id": "SEASON",
+      "milestone_id": "BC-M2",
+      "contract_fields": [
+        "waiver priority",
+        "budget/budgetUsed",
+        "FAAB unit",
+        "native waiver rules"
+      ],
+      "selected_plan": "Reuse B2 current waiver facts and existing waiver calculation. Preserve native policy and missing states; FAAB is not currency and transaction history cannot reconstruct unknown prior balances.",
+      "decision_refs": [],
+      "acceptance_id": "V-BC022",
+      "acceptance": "Zero budget, negative used adjustments, missing priority and native waiver modes retain defined semantics; current remaining calculation agrees with the existing presenter on identical inputs.",
+      "depends_on": [
+        "BC013",
+        "BC021"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "season-overview.md",
+        "screen-data-map.md"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/aggregator/bundle-two.ts",
+        "apps/site/lib/aggregator/season-overview-source-contracts.ts",
+        "apps/site/lib/aggregator/season-overview-schedules.ts"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC022",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC023",
+      "domain": "official",
+      "title": "Transaction event and asset coverage",
+      "need_ids": [
+        "N01",
+        "N06",
+        "N13"
+      ],
+      "owner_id": "ACTIVITY",
+      "milestone_id": "BC-M2",
+      "contract_fields": [
+        "TransactionActivityEvent",
+        "players adds/drops",
+        "pick season/round/original/from/to",
+        "FAAB transfer",
+        "native status/type/time"
+      ],
+      "selected_plan": "Reuse B3 capture/normalizer/feed and typed player/pick/budget assets; retain unknown native extensions. Interpret only supplied claim/bid/outcome evidence.",
+      "decision_refs": [],
+      "acceptance_id": "V-BC023",
+      "acceptance": "Trades/waivers/free agents/multi-party events preserve participants and assets; missing timestamp/bid remains unknown; absence of losing claims never proves none existed.",
+      "depends_on": [
+        "BC014",
+        "BC015",
+        "BC022"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "transaction-activity.md"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/aggregator/transaction-activity-contracts.ts",
+        "apps/site/lib/aggregator/transaction-activity.ts",
+        "apps/site/lib/league-administration/neon/transactions.ts"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC023",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC024",
+      "domain": "official",
+      "title": "Transaction continuation, filters and corrections",
+      "need_ids": [
+        "N06",
+        "N08"
+      ],
+      "owner_id": "ACTIVITY",
+      "milestone_id": "BC-M2",
+      "contract_fields": [
+        "week 0/native range",
+        "retained selection revision",
+        "window/cursor",
+        "sourceCoverage/windowCoverage/conflicts"
+      ],
+      "selected_plan": "Keep bounded immutable feed selections and cursor revision; resume failed native scopes. Team filters use scoped participants, not names; equal-time conflicts remain explicit.",
+      "decision_refs": [],
+      "acceptance_id": "V-BC024",
+      "acceptance": "Concurrent correction cannot duplicate/skip events within a pinned page sequence; unknown-time events and failed weeks remain flagged; week0 and offseason events are not discarded as invalid NFL weeks.",
+      "depends_on": [
+        "BC023",
+        "BC012"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "transaction-activity.md"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/aggregator/transaction-activity-contracts.ts",
+        "apps/site/lib/aggregator/transaction-activity.ts",
+        "apps/site/lib/league-administration/neon/transactions.ts"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC024",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC025",
+      "domain": "official",
+      "title": "Draft and playoff administrative evidence",
+      "need_ids": [
+        "N06",
+        "N13"
+      ],
+      "owner_id": "ADMIN",
+      "milestone_id": "BC-M2",
+      "contract_fields": [
+        "draft identity/results/traded picks",
+        "bracket participants/progression/native outcome",
+        "capability/source coverage"
+      ],
+      "selected_plan": "Reuse existing administration capture where exposed; retain draft-pick provenance for transactions and provider playoff facts for supported competition. Supply typed backend interpretation only for qualified capabilities.",
+      "decision_refs": [
+        "ENG05"
+      ],
+      "acceptance_id": "V-BC025",
+      "acceptance": "Missing/unpublished bracket or draft data stays unavailable; native progression references stay scoped and never become fabricated playoff winners or ownership; pick transfer identities compare with B3.",
+      "depends_on": [
+        "BC013",
+        "BC020",
+        "BC023"
+      ],
+      "exclusions": [
+        "Draft-room or bracket website UX",
+        "Provider write operations"
+      ],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "contracts.md",
+        "mapping-revisions.md",
+        "league-season-settings.md",
+        "backend-decisions.json"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/league-administration/runtime.ts",
+        "apps/site/lib/league-administration/normalize.ts",
+        "apps/site/lib/league-administration/maintenance.ts",
+        "apps/site/lib/league-administration/neon/administration.ts"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC025",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC026",
+      "domain": "official",
+      "title": "Full recoverable current-season import",
+      "need_ids": [
+        "N06",
+        "N08"
+      ],
+      "owner_id": "ADMIN",
+      "milestone_id": "BC-M2",
+      "contract_fields": [
+        "SeasonCoverageManifest",
+        "required native units",
+        "capture refs",
+        "coverage reason",
+        "checkpoint/continuation"
+      ],
+      "selected_plan": "Extend existing administration durable job/checkpoint ownership. Derive finite current-season work from actual competition and exposed provider endpoints; retain explicit unavailable/unpublished/unsupported units instead of invented history.",
+      "decision_refs": [
+        "ENG02",
+        "ENG04",
+        "ENG05"
+      ],
+      "acceptance_id": "V-BC026",
+      "acceptance": "An unrelated league with different start/playoff/period settings imports all declared recoverable units, resumes interruption and reports exact omissions; no universal1–14 or named-league start-year assumption.",
+      "depends_on": [
+        "BC013",
+        "BC015",
+        "BC018",
+        "BC020",
+        "BC024",
+        "BC025"
+      ],
+      "exclusions": [
+        "Inventing historical lineups or unavailable source facts"
+      ],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "contracts.md",
+        "mapping-revisions.md",
+        "league-season-settings.md",
+        "backend-decisions.json"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/league-administration/runtime.ts",
+        "apps/site/lib/league-administration/normalize.ts",
+        "apps/site/lib/league-administration/maintenance.ts",
+        "apps/site/lib/league-administration/neon/administration.ts"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC026",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC027",
+      "domain": "official",
+      "title": "Remaining provider-published schedule",
+      "need_ids": [
+        "N06",
+        "N07"
+      ],
+      "owner_id": "SEASON",
+      "milestone_id": "BC-M2",
+      "contract_fields": [
+        "native future period",
+        "participants/opponent state",
+        "published source refs",
+        "unpublished/conditional status"
+      ],
+      "selected_plan": "Generalize B2 schedule composition using actual horizon and native schedule/bracket evidence. Preserve old MyTeam1–15/profile1–14 presentation ranges until separately authorized cutover.",
+      "decision_refs": [],
+      "acceptance_id": "V-BC027",
+      "acceptance": "Different horizon/byes/conditional playoff slots yield faithful published facts; unknown future opponent remains unknown and does not trigger fabricated pairing or finality.",
+      "depends_on": [
+        "BC015",
+        "BC020",
+        "BC025",
+        "BC026"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "season-overview.md",
+        "screen-data-map.md"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/aggregator/bundle-two.ts",
+        "apps/site/lib/aggregator/season-overview-source-contracts.ts",
+        "apps/site/lib/aggregator/season-overview-schedules.ts"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC027",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC028",
+      "domain": "history",
+      "title": "Historical continuity and curated attribution",
+      "need_ids": [
+        "N01",
+        "N05",
+        "N06"
+      ],
+      "owner_id": "HISTORY",
+      "milestone_id": "BC-M2",
+      "contract_fields": [
+        "qualified predecessor links",
+        "effective owner attribution",
+        "official completed results",
+        "curated honors/provenance",
+        "requested historical horizon",
+        "per-season/family import coverage",
+        "resumable predecessor checkpoint",
+        "temporal settings/identity attribution"
+      ],
+      "selected_plan": "Preserve B4/current manager-history compatibility and distinguish curated honors from provider outcomes. At BC-M2 generalize finite provider-recoverable current and prior-season competitive history using qualified predecessor links and retained explicit selections. Persist each requested season/family's available, missing, inaccessible and not-yet-imported coverage; resume traversal/import without arbitrary named-league start-year or fixed historical-week limits. The first vertical slice may serve current season before historical import completes.",
+      "decision_refs": [
+        "ENG04",
+        "ENG05"
+      ],
+      "acceptance_id": "V-BC028",
+      "acceptance": "Annual ID changes, transfers/co-managers, curated LeagueTwo attribution and official corrections never merge by name or relabel honors as provider results; missing historical ownership withholds aggregates. A league with a longer/shorter history than either named league traverses its evidenced finite predecessor chain, detects cycles/gaps, resumes interruption and serves only actually supported periods with time-applicable metadata. Missing old endpoints produce explicit partial coverage rather than a false complete-history claim.",
+      "depends_on": [
+        "BC014",
+        "BC020",
+        "BC026"
+      ],
+      "exclusions": [
+        "Universal retrospective prior-season browsing guarantee"
+      ],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "historical-continuity.md",
+        "retained-matchup-comparison.md",
+        "backend-decisions.json"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/aggregator/bundle-four.ts",
+        "apps/site/lib/aggregator/historical-continuity.ts",
+        "apps/site/lib/manager-history.ts"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC028",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC029",
+      "domain": "capability",
+      "title": "Official data independent of analytics support",
+      "need_ids": [
+        "N01",
+        "N06",
+        "N07"
+      ],
+      "owner_id": "ADMIN",
+      "milestone_id": "BC-M2",
+      "contract_fields": [
+        "FeatureAssessment",
+        "configuration/source/model revisions",
+        "supported/limited/unavailable reasons"
+      ],
+      "selected_plan": "Separate enrollment/official reading from each derived capability. Actual unsupported scoring/format gates only computations needing it; version capability decisions with supporting evidence.",
+      "decision_refs": [
+        "ENG05"
+      ],
+      "acceptance_id": "V-BC029",
+      "acceptance": "Official roster/score/standings remain accessible when forecasts/probability/metrics are unavailable; later analytics qualification adds support without mutating frozen profiles/history.",
+      "depends_on": [
+        "BC013",
+        "BC020",
+        "BC021"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "contracts.md",
+        "mapping-revisions.md",
+        "league-season-settings.md",
+        "backend-decisions.json"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/league-administration/runtime.ts",
+        "apps/site/lib/league-administration/normalize.ts",
+        "apps/site/lib/league-administration/maintenance.ts",
+        "apps/site/lib/league-administration/neon/administration.ts"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC029",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC030",
+      "domain": "nfl",
+      "title": "Shared football identities and catalog metadata",
+      "need_ids": [
+        "N07",
+        "N08"
+      ],
+      "owner_id": "NFL",
+      "milestone_id": "BC-M3",
+      "contract_fields": [
+        "player vs team-defense canonical ID",
+        "provider alias/crosswalk",
+        "position/team metadata",
+        "effective/as-of time"
+      ],
+      "selected_plan": "Reuse shared crosswalk/catalog owner; distinguish entity kind, provider namespace and effective metadata. Never match ambiguous identities by display name.",
+      "decision_refs": [],
+      "acceptance_id": "V-BC030",
+      "acceptance": "Player/defense string collision, traded player, duplicate aliases and roster-required missing identity are detected; current injury/team label is never asserted as historical fact.",
+      "depends_on": [
+        "BC014",
+        "BC029"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "../all-player-statistics.md",
+        "../lineup-freshness.md"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/projections/runtime/shared-services.ts",
+        "apps/site/lib/projections/adapters/tank01/projection-feed.ts",
+        "apps/site/lib/projections/adapters/tank01/game-state-feed.ts",
+        "apps/site/lib/projections/adapters/sleeper/all-player-stats.ts"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC030",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC031",
+      "domain": "nfl",
+      "title": "NFL schedules, assignment and bye evidence",
+      "need_ids": [
+        "N07",
+        "N11"
+      ],
+      "owner_id": "NFL",
+      "milestone_id": "BC-M3",
+      "contract_fields": [
+        "season/type/week",
+        "game ID",
+        "participants/kickoff",
+        "player game assignment",
+        "bye evidence"
+      ],
+      "selected_plan": "Reuse shared schedule/calendar; map native league periods only with evidence. Missing/ambiguous schedule is unavailable, not a bye.",
+      "decision_refs": [],
+      "acceptance_id": "V-BC031",
+      "acceptance": "Rescheduled games, cross-year weeks, missing starter game and actual bye maintain exact identities; no substitution of unrelated NFL week or kickoff date.",
+      "depends_on": [
+        "BC015",
+        "BC030"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "../all-player-statistics.md",
+        "../lineup-freshness.md"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/projections/runtime/shared-services.ts",
+        "apps/site/lib/projections/adapters/tank01/projection-feed.ts",
+        "apps/site/lib/projections/adapters/tank01/game-state-feed.ts",
+        "apps/site/lib/projections/adapters/sleeper/all-player-stats.ts"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC031",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC032",
+      "domain": "nfl",
+      "title": "Shared game state, clocks and plausibility",
+      "need_ids": [
+        "N07",
+        "N11"
+      ],
+      "owner_id": "NFL",
+      "milestone_id": "BC-M3",
+      "contract_fields": [
+        "game phase/period/clock",
+        "observedAt",
+        "provider raw state",
+        "source set/skew"
+      ],
+      "selected_plan": "Reuse Tank01 game-state normalization and existing monotonic/plausibility/publication rules; retain observed clock, not browser-invented countdown.",
+      "decision_refs": [],
+      "acceptance_id": "V-BC032",
+      "acceptance": "Clock regressions, interruption, overtime, stale/missing game and conflicting final status take existing safe fallback/rejection; source skew remains enforced against calculation time.",
+      "depends_on": [
+        "BC031"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "../all-player-statistics.md",
+        "../lineup-freshness.md"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/projections/runtime/shared-services.ts",
+        "apps/site/lib/projections/adapters/tank01/projection-feed.ts",
+        "apps/site/lib/projections/adapters/tank01/game-state-feed.ts",
+        "apps/site/lib/projections/adapters/sleeper/all-player-stats.ts"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC032",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC033",
+      "domain": "nfl",
+      "title": "Actual NFL statistics and box-score detail",
+      "need_ids": [
+        "N07",
+        "N13"
+      ],
+      "owner_id": "METRICS",
+      "milestone_id": "BC-M3",
+      "contract_fields": [
+        "immutable stat capture",
+        "sparse stat keys",
+        "entity/game/period",
+        "whole-capture selection",
+        "coverage"
+      ],
+      "selected_plan": "Reuse shared all-player/raw-stat evidence and exact box-score reader. Do not stitch missing fields from older captures or substitute NFL statistics for host fantasy official points.",
+      "decision_refs": [],
+      "acceptance_id": "V-BC033",
+      "acceptance": "Missing key differs from zero; current/final whole-capture selection and exact-game identity remain coherent; every exposed box-score field meets whitelist and no private/raw scoring fields leak.",
+      "depends_on": [
+        "BC018",
+        "BC030",
+        "BC032"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "../all-player-statistics.md",
+        "../weekly-roster-metrics.md",
+        "../all-player-eligibility.md"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/projections/domain/all-player-statistics.ts",
+        "apps/site/lib/projections/domain/all-player-eligibility.ts",
+        "apps/site/lib/projections/adapters/neon/all-player-metrics.ts"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC033",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC034",
+      "domain": "nfl",
+      "title": "Reliable availability and participation",
+      "need_ids": [
+        "N07",
+        "N13"
+      ],
+      "owner_id": "METRICS",
+      "milestone_id": "BC-M3",
+      "contract_fields": [
+        "availability reason/source/as-of",
+        "eligibility/appearance evidence",
+        "lineup attention coverage"
+      ],
+      "selected_plan": "Reuse versioned player availability and participation rules; preserve explicit assumption provenance. No observed issue is not verified clear when roster/schedule/status coverage is missing.",
+      "decision_refs": [],
+      "acceptance_id": "V-BC034",
+      "acceptance": "Pregame out/inactive/bye/empty/unknown scenarios produce exact issue plus coverage; historical injury is not inferred from current catalog; participation assumptions are separately labelled and bounded.",
+      "depends_on": [
+        "BC017",
+        "BC031",
+        "BC033"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "../all-player-statistics.md",
+        "../weekly-roster-metrics.md",
+        "../all-player-eligibility.md"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/projections/domain/all-player-statistics.ts",
+        "apps/site/lib/projections/domain/all-player-eligibility.ts",
+        "apps/site/lib/projections/adapters/neon/all-player-metrics.ts"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC034",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC035",
+      "domain": "nfl",
+      "title": "Shared projection-statistics slate",
+      "need_ids": [
+        "N07",
+        "N08"
+      ],
+      "owner_id": "NFL",
+      "milestone_id": "BC-M3",
+      "contract_fields": [
+        "ProjectionSlate",
+        "provider-period/raw-content hash",
+        "slate coverage",
+        "identity warnings",
+        "source time"
+      ],
+      "selected_plan": "Reuse one Tank01 projection feed/cache/slate validator per provider period. Keep raw forecast statistics independent of league scoring and future materialization.",
+      "decision_refs": [],
+      "acceptance_id": "V-BC035",
+      "acceptance": "Two leagues share one compatible acquisition; malformed/incomplete slate fails shared validation, isolated unmapped projection-only free agents remain explicit coverage limitations; no page-triggered feed.",
+      "depends_on": [
+        "BC030",
+        "BC031",
+        "BC011"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "../all-player-statistics.md",
+        "../lineup-freshness.md"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/projections/runtime/shared-services.ts",
+        "apps/site/lib/projections/adapters/tank01/projection-feed.ts",
+        "apps/site/lib/projections/adapters/tank01/game-state-feed.ts",
+        "apps/site/lib/projections/adapters/sleeper/all-player-stats.ts"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC035",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC036",
+      "domain": "analytics",
+      "title": "Actual league scoring and rules provenance",
+      "need_ids": [
+        "N07",
+        "N11"
+      ],
+      "owner_id": "ANALYTICS",
+      "milestone_id": "BC-M3",
+      "contract_fields": [
+        "raw settings/hash",
+        "canonical events",
+        "unsupported rules",
+        "scorer/profile revision"
+      ],
+      "selected_plan": "Reuse one provider-neutral scorer and adapter mapping. Score the same NFL statistics once per unique effective rule profile while retaining native hash/provenance and unsupported-key reasons.",
+      "decision_refs": [],
+      "acceptance_id": "V-BC036",
+      "acceptance": "Different supported league settings yield independently expected scores; unsupported rules never become silent zero support or alter official totals; legacy hashes and deterministic IDs remain stable.",
+      "depends_on": [
+        "BC013",
+        "BC029",
+        "BC033",
+        "BC035"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "../lineup-freshness.md",
+        "../live-defense-projections.md",
+        "../matchup-win-probability.md"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/projections/domain/scoring.ts",
+        "apps/site/lib/projections/domain/live-calculation.ts",
+        "apps/site/lib/projections/domain/win-probability.ts",
+        "apps/site/lib/projected-standings.ts"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC036",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC037",
+      "domain": "analytics",
+      "title": "Immutable pregame baseline and missing policy",
+      "need_ids": [
+        "N07",
+        "N11"
+      ],
+      "owner_id": "ANALYTICS",
+      "milestone_id": "BC-M3",
+      "contract_fields": [
+        "FrozenBaseline",
+        "source/model/profile refs",
+        "kickoff eligibility",
+        "missing baseline quality"
+      ],
+      "selected_plan": "Preserve last eligible pregame freeze and existing trusted-slate isolated zero calculation policy; do not fabricate persisted frozen rows for missing baselines.",
+      "decision_refs": [],
+      "acceptance_id": "V-BC037",
+      "acceptance": "Late arrivals cannot rewrite frozen baseline; invalid whole slate does not qualify isolated zero; final visible missing baseline remains unavailable while official final team contribution is exact.",
+      "depends_on": [
+        "BC031",
+        "BC035",
+        "BC036"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "../lineup-freshness.md",
+        "../live-defense-projections.md",
+        "../matchup-win-probability.md"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/projections/domain/scoring.ts",
+        "apps/site/lib/projections/domain/live-calculation.ts",
+        "apps/site/lib/projections/domain/win-probability.ts",
+        "apps/site/lib/projected-standings.ts"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC037",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC038",
+      "domain": "analytics",
+      "title": "Live projected finish and defensive model",
+      "need_ids": [
+        "N07",
+        "N11"
+      ],
+      "owner_id": "ANALYTICS",
+      "milestone_id": "BC-M3",
+      "contract_fields": [
+        "clock-v1",
+        "phase-appropriate player contribution",
+        "defense-components-v1",
+        "actual/frozen/source refs"
+      ],
+      "selected_plan": "Reuse existing offense/kicker clock-v1 and defensive component algorithm/fallback. Keep official earned values, frozen forecast and live finish distinct.",
+      "decision_refs": [],
+      "acceptance_id": "V-BC038",
+      "acceptance": "Offense/kicker formula and defensive points-allowed replacement match independent vectors; unsupported future bonuses not forecast; final player display uses baseline while team uses official final points.",
+      "depends_on": [
+        "BC019",
+        "BC032",
+        "BC037"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "../lineup-freshness.md",
+        "../live-defense-projections.md",
+        "../matchup-win-probability.md"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/projections/domain/scoring.ts",
+        "apps/site/lib/projections/domain/live-calculation.ts",
+        "apps/site/lib/projections/domain/win-probability.ts",
+        "apps/site/lib/projected-standings.ts"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC038",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC039",
+      "domain": "analytics",
+      "title": "Win probability with honest model status",
+      "need_ids": [
+        "N01",
+        "N07"
+      ],
+      "owner_id": "ANALYTICS",
+      "milestone_id": "BC-M3",
+      "contract_fields": [
+        "probability model/version",
+        "team identity",
+        "estimated/final/tie/unavailable",
+        "input evidence"
+      ],
+      "selected_plan": "Reuse current probability model and reader compatibility; do not equate deterministic output tests with calibration. Future coefficient changes require versioned held-out forecast/outcome evaluation.",
+      "decision_refs": [],
+      "acceptance_id": "V-BC039",
+      "acceptance": "Swapping display sides preserves each team's probability; missing/unsupported evidence yields unavailable; final/tie is correct; calibration receipt includes genuine pregame forecasts, held-out outcomes and Brier/log-loss before accuracy claims.",
+      "depends_on": [
+        "BC020",
+        "BC038"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "../lineup-freshness.md",
+        "../live-defense-projections.md",
+        "../matchup-win-probability.md"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/projections/domain/scoring.ts",
+        "apps/site/lib/projections/domain/live-calculation.ts",
+        "apps/site/lib/projections/domain/win-probability.ts",
+        "apps/site/lib/projected-standings.ts"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC039",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC040",
+      "domain": "analytics",
+      "title": "Projected standings separate from official baseline",
+      "need_ids": [
+        "N01",
+        "N07"
+      ],
+      "owner_id": "ANALYTICS",
+      "milestone_id": "BC-M3",
+      "contract_fields": [
+        "completed official baseline",
+        "active projected result",
+        "coverage denominator",
+        "current/projected rank"
+      ],
+      "selected_plan": "Reuse projected-standings owner; separate current record, exact viewed matchup period and locally projected order. No double counting of completed results.",
+      "decision_refs": [],
+      "acceptance_id": "V-BC040",
+      "acceptance": "Completed/custom-score/tie/partial fixtures preserve official table and exact counts; unsupported formats withhold affected projection; portfolio projected rank requires qualified full-league inputs.",
+      "depends_on": [
+        "BC020",
+        "BC021",
+        "BC038"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "../lineup-freshness.md",
+        "../live-defense-projections.md",
+        "../matchup-win-probability.md"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/projections/domain/scoring.ts",
+        "apps/site/lib/projections/domain/live-calculation.ts",
+        "apps/site/lib/projections/domain/win-probability.ts",
+        "apps/site/lib/projected-standings.ts"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC040",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC041",
+      "domain": "analytics",
+      "title": "Roster actual metrics, PPG and position ranks",
+      "need_ids": [
+        "N01",
+        "N07",
+        "N13"
+      ],
+      "owner_id": "METRICS",
+      "milestone_id": "BC-M3",
+      "contract_fields": [
+        "scored actual stats",
+        "eligible/appearance denominator",
+        "metric cutoff",
+        "position population coverage"
+      ],
+      "selected_plan": "Reuse all-player scorer/materialization and metric store. Label metrics as L1 derivations under actual league rules, independent of provider official totals/projections.",
+      "decision_refs": [],
+      "acceptance_id": "V-BC041",
+      "acceptance": "Missing eligibility or incomplete position population cannot claim complete rank; denominators follow existing qualified policy; exact cutoff/game corrections reproduce expected metric changes without counting byes as games.",
+      "depends_on": [
+        "BC033",
+        "BC034",
+        "BC036"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "../all-player-statistics.md",
+        "../weekly-roster-metrics.md",
+        "../all-player-eligibility.md"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/projections/domain/all-player-statistics.ts",
+        "apps/site/lib/projections/domain/all-player-eligibility.ts",
+        "apps/site/lib/projections/adapters/neon/all-player-metrics.ts"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC041",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC042",
+      "domain": "readers",
+      "title": "Account library and selected team continuity",
+      "need_ids": [
+        "N01",
+        "N03",
+        "N05"
+      ],
+      "owner_id": "READERS",
+      "milestone_id": "BC-M1",
+      "contract_fields": [
+        "participating/followed/last-known relationship",
+        "seasonTeam selection",
+        "favorite/order",
+        "route mapping"
+      ],
+      "selected_plan": "Compose account-scoped library and current-team cards from stored eligibility/preferences; keep guest browser MyTeam compatibility outside target account authority.",
+      "decision_refs": [
+        "ENG01"
+      ],
+      "acceptance_id": "V-BC042",
+      "acceptance": "Card team and destination team remain identical; affiliation/favorite is not access; disconnected sessions cannot adopt old response; partial one-league failure leaves other eligible cards.",
+      "depends_on": [
+        "BC007",
+        "BC008"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "screen-data-map.md",
+        "step-2-checklist.md",
+        "contracts.md",
+        "backend-decisions.json"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/accounts/fantasy.ts",
+        "apps/site/lib/accounts/library.ts",
+        "apps/site/lib/my-fantasy.ts",
+        "apps/site/lib/projection-reader.ts"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC042",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC043",
+      "domain": "readers",
+      "title": "Portfolio aggregate and partial analytical coverage",
+      "need_ids": [
+        "N01",
+        "N05",
+        "N07"
+      ],
+      "owner_id": "READERS",
+      "milestone_id": "BC-M3",
+      "contract_fields": [
+        "per-card native period",
+        "covered/expected count",
+        "projected W/L/T",
+        "oldest qualified update"
+      ],
+      "selected_plan": "Reuse My Fantasy aggregation over canonical authorized cards. Aggregate only comparable supported periods and expose denominator; one global year/week cannot override per-league authority.",
+      "decision_refs": [],
+      "acceptance_id": "V-BC043",
+      "acceptance": "Mixed-year/native-period and missing-projection cards remain represented; aggregate does not imply all clear/all complete/oldest update without every required input; no invented forecast for excluded card.",
+      "depends_on": [
+        "BC039",
+        "BC040",
+        "BC042"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "screen-data-map.md",
+        "step-2-checklist.md",
+        "contracts.md"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/accounts/fantasy.ts",
+        "apps/site/lib/accounts/library.ts",
+        "apps/site/lib/my-fantasy.ts",
+        "apps/site/lib/projection-reader.ts"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC043",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC044",
+      "domain": "readers",
+      "title": "Resource freshness and versioned reader envelopes",
+      "need_ids": [
+        "N06",
+        "N08"
+      ],
+      "owner_id": "READERS",
+      "milestone_id": "BC-M2",
+      "contract_fields": [
+        "observed/verified/persisted/calculated/published times",
+        "resource receipt/revision",
+        "freshness/support/coverage"
+      ],
+      "selected_plan": "Compose per-field-group evidence instead of one misleading page timestamp. Preserve valid stale data where authority permits, while D02 independently limits protected serving.",
+      "decision_refs": [],
+      "acceptance_id": "V-BC044",
+      "acceptance": "One stale or missing resource cannot restamp peers; unchanged network verification advances only its allowed clocks; assembly time does not become provider update time; access expiry suppresses protected data.",
+      "depends_on": [
+        "BC006",
+        "BC012",
+        "BC029"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "screen-data-map.md",
+        "step-2-checklist.md",
+        "contracts.md"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/accounts/fantasy.ts",
+        "apps/site/lib/accounts/library.ts",
+        "apps/site/lib/my-fantasy.ts",
+        "apps/site/lib/projection-reader.ts"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC044",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC045",
+      "domain": "readers",
+      "title": "Compatibility presenters and revision adoption",
+      "need_ids": [
+        "N11",
+        "N13"
+      ],
+      "owner_id": "READERS",
+      "milestone_id": "BC-M5",
+      "contract_fields": [
+        "legacy payload schema",
+        "reader binding",
+        "revision/content lineage",
+        "fallback/selection context"
+      ],
+      "selected_plan": "Retain current public routes/payloads/fallbacks/polling and presentations until the explicit cutover milestone. Adapt once at reader boundary, not in every page.",
+      "decision_refs": [
+        "ENG07"
+      ],
+      "acceptance_id": "V-BC045",
+      "acceptance": "Frozen-input golden comparison covers all existing screen field groups; delayed old actor/league/week/revision response rejected; current/future/completed fallback behavior preserved without browser provider calls.",
+      "depends_on": [
+        "BC042",
+        "BC043",
+        "BC044"
+      ],
+      "exclusions": [
+        "Unrequested website redesign"
+      ],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "screen-data-map.md",
+        "step-2-checklist.md",
+        "contracts.md",
+        "backend-decisions.json"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/accounts/fantasy.ts",
+        "apps/site/lib/accounts/library.ts",
+        "apps/site/lib/my-fantasy.ts",
+        "apps/site/lib/projection-reader.ts"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC045",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC046",
+      "domain": "freshness",
+      "title": "Followed maintenance and active-view promotion",
+      "need_ids": [
+        "N08",
+        "N09"
+      ],
+      "owner_id": "WORKER",
+      "milestone_id": "BC-M4",
+      "contract_fields": [
+        "demand source",
+        "follow count/valid contexts",
+        "watched cohort",
+        "aggregate-view participation",
+        "due bucket"
+      ],
+      "selected_plan": "Reuse one owner of existing scheduled lanes plus the selected continuous worker run mode; register eligible follows and active aggregate-view demand under ENG02/ENG03. D04 suspension and D05 recovery/zero-demand rules remain separate from user intent.",
+      "decision_refs": [
+        "ENG02",
+        "ENG03",
+        "D05"
+      ],
+      "acceptance_id": "V-BC046",
+      "acceptance": "Offline followers still generate bounded maintenance; multi-user/aggregate views share compatible collection; hiding/leaving views releases priority without deleting shared facts or skipping starvation checks.",
+      "depends_on": [
+        "BC008",
+        "BC011"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "../lineup-freshness.md",
+        "../future-week-projections.md",
+        "calculation-source-history.md",
+        "backend-decisions.json"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/projections/runtime/projection-composition.ts",
+        "apps/site/lib/projections/runtime/future-projection-composition.ts",
+        "apps/site/lib/projections/runtime/lineup-observation-composition.ts",
+        "apps/site/lib/projections/adapters/neon/job-repository.ts"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC046",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC047",
+      "domain": "freshness",
+      "title": "Exact-current-future scheduling and ownership",
+      "need_ids": [
+        "N07",
+        "N08",
+        "N11"
+      ],
+      "owner_id": "WORKER",
+      "milestone_id": "BC-M4",
+      "contract_fields": [
+        "period authority",
+        "stable cadence offset",
+        "observation/ingestion/materialization policies",
+        "pending lineage"
+      ],
+      "selected_plan": "Preserve exact-period and existing calculation/publication ownership while adapting dispatch to the sole existing-worker continuous run mode under ENG03. Observation, ingestion and materialization remain separate actions; compatible stored slates avoid projection refetch. Legacy paths change only at reviewed cutover.",
+      "decision_refs": [
+        "ENG03"
+      ],
+      "acceptance_id": "V-BC047",
+      "acceptance": "Preseason default/current rollover, week+1 canary and pending future change keep correct owner; stale/missing authority blocks unsafe work; no highest-snapshot current-week inference.",
+      "depends_on": [
+        "BC015",
+        "BC031",
+        "BC035",
+        "BC046"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "../lineup-freshness.md",
+        "../future-week-projections.md",
+        "calculation-source-history.md",
+        "backend-decisions.json"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/projections/runtime/projection-composition.ts",
+        "apps/site/lib/projections/runtime/future-projection-composition.ts",
+        "apps/site/lib/projections/runtime/lineup-observation-composition.ts",
+        "apps/site/lib/projections/adapters/neon/job-repository.ts"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC047",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC048",
+      "domain": "reliability",
+      "title": "Leases, idempotency, crash recovery and fairness",
+      "need_ids": [
+        "N08",
+        "N09"
+      ],
+      "owner_id": "WORKER",
+      "milestone_id": "BC-M4",
+      "contract_fields": [
+        "job semantic key",
+        "lease owner/attempt/deadline",
+        "mapping generation",
+        "checkpoint",
+        "pending acknowledgment"
+      ],
+      "selected_plan": "Reuse durable jobs, fenced claims and atomic acceptance/required-work writes. Continuous run mode retains bounded stages, deadlines, lease fencing and lane accounting; cancellation/worker replacement cannot create a second lane owner or starve maintenance.",
+      "decision_refs": [
+        "ENG01",
+        "ENG02",
+        "ENG03"
+      ],
+      "acceptance_id": "V-BC048",
+      "acceptance": "Old/expired worker cannot publish/ack; crash before/after commit leaves coherent source/work state; repeated retry reconciles command; adversarial high-demand actor cannot starve eligible maintenance.",
+      "depends_on": [
+        "BC011",
+        "BC012",
+        "BC026",
+        "BC047"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "../lineup-freshness.md",
+        "../future-week-projections.md",
+        "calculation-source-history.md",
+        "backend-decisions.json"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/projections/runtime/projection-composition.ts",
+        "apps/site/lib/projections/runtime/future-projection-composition.ts",
+        "apps/site/lib/projections/runtime/lineup-observation-composition.ts",
+        "apps/site/lib/projections/adapters/neon/job-repository.ts"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC048",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC049",
+      "domain": "capacity",
+      "title": "All-HTTP-start workload and 500-league qualification",
+      "need_ids": [
+        "N09"
+      ],
+      "owner_id": "OPERATIONS",
+      "milestone_id": "BC-M4",
+      "contract_fields": [
+        "distinct leagues/accounts/profiles",
+        "actual request starts",
+        "lane/period/context",
+        "queue age",
+        "failure/partial rates"
+      ],
+      "selected_plan": "Qualify ENG03 at up to 500 distinct all-watched Sleeper leagues while bounded imports, background work and retries coexist. Include legacy fallbacks, catalogs, future periods and probes. The selected future/import lane cannot support unchanged full future cadence for all 500: preserve the two named-league obligations and qualify deduplicated headroom, a lower admitted workload, or a separately authorized larger licensed allowance/budget revision before claiming combined service. Future providers require their own workload and budget qualification; today's 20/min guard is baseline, not proof.",
+      "decision_refs": [
+        "ENG03"
+      ],
+      "acceptance_id": "V-BC049",
+      "acceptance": "Retained measurement traces reconcile requested/admitted/started/completed/deferred counts under cold/warm/steady/failure loads and all lane coexistence; a synthetic fixture alone cannot certify throughput. The 61-second permit accounting must prove its reservation-to-actual-start bound, including cancellation, process pauses and retry; totals must match real socket/request starts.",
+      "depends_on": [
+        "BC011",
+        "BC026",
+        "BC047",
+        "BC048"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "quality-operations.md",
+        "../collection-capacity-validation.md",
+        "../release-validation.md",
+        "backend-decisions.json"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/projections/ports/logger.ts",
+        "apps/site/lib/accounts/http.ts",
+        "apps/site/vercel.json"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC049",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC050",
+      "domain": "capacity",
+      "title": "Measured additional visible score-delay objective",
+      "need_ids": [
+        "N09",
+        "N08",
+        "N16"
+      ],
+      "owner_id": "OPERATIONS",
+      "milestone_id": "BC-M4",
+      "contract_fields": [
+        "provider-visible interval",
+        "capture/accept/commit/materialize/read/render timestamps",
+        "poll uncertainty",
+        "percentiles",
+        "unknown and failed sample classification"
+      ],
+      "selected_plan": "ENG03 selects 45-second live score observation, normal acceptance/publication p95<=5s and a 10-second visible stored-data observer, with 500-all-watched end-to-end additional score-delay targets p95<=60s/p99<=75s subject to empirical qualification. Measure source visibility uncertainty, queue, acquisition, acceptance, publication, authorized read and visible render together and separately; backend publication alone cannot satisfy the visible target.",
+      "decision_refs": [
+        "ENG03"
+      ],
+      "acceptance_id": "V-BC050",
+      "acceptance": "Controlled changing-source fixtures and independent visible-render timestamps measure end-to-end p50/p95/p99/max and loss/staleness at the admitted mixed workload. Real provider-visible probes bracket rather than invent event time; unknown first observations, failed samples and stale user-minutes remain visible. Stage percentiles are not added to claim an end-to-end percentile. Breach triggers selected admission/degradation response.",
+      "depends_on": [
+        "BC019",
+        "BC044",
+        "BC049"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "quality-operations.md",
+        "../collection-capacity-validation.md",
+        "../release-validation.md",
+        "backend-decisions.json"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/projections/ports/logger.ts",
+        "apps/site/lib/accounts/http.ts",
+        "apps/site/vercel.json"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC050",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC051",
+      "domain": "capacity",
+      "title": "Supporting-feed cost and provider entitlement",
+      "need_ids": [
+        "N09",
+        "N15"
+      ],
+      "owner_id": "OPERATIONS",
+      "milestone_id": "BC-M4",
+      "contract_fields": [
+        "plan/terms/license evidence",
+        "billable request volume",
+        "feed cost",
+        "infrastructure/storage/egress costs"
+      ],
+      "selected_plan": "Use ENG05 commercial license/access gate and ENG03 cost evaluation. Keep approximately$50 supporting feed separate from infrastructure; compare measured workload to actual quoted terms, not assumed free commercial access.",
+      "decision_refs": [
+        "ENG03",
+        "ENG05"
+      ],
+      "acceptance_id": "V-BC051",
+      "acceptance": "Dated provider entitlement and full request census support cost projection; unknown licensing/price or over-budget capacity blocks commercial/cost claim. No purchase or contract is authorized by this plan.",
+      "depends_on": [
+        "BC049"
+      ],
+      "exclusions": [
+        "Automatic provider subscription purchase"
+      ],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "quality-operations.md",
+        "../collection-capacity-validation.md",
+        "../release-validation.md",
+        "backend-decisions.json"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/projections/ports/logger.ts",
+        "apps/site/lib/accounts/http.ts",
+        "apps/site/vercel.json"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC051",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC052",
+      "domain": "security",
+      "title": "Authorization on every private resource read/action",
+      "need_ids": [
+        "N03",
+        "N04",
+        "N10"
+      ],
+      "owner_id": "ACCOUNT",
+      "milestone_id": "BC-M1",
+      "contract_fields": [
+        "actor/object/field matrix",
+        "live session/association/authority",
+        "reader capability",
+        "safe denial variants"
+      ],
+      "selected_plan": "Extend the selected ENG01 guard and BS authorization matrix from roster to all current/period/history/activity/analytics compositions; safe references/caches cannot bypass final authority.",
+      "decision_refs": [
+        "ENG01",
+        "ENG08"
+      ],
+      "acceptance_id": "V-BC052",
+      "acceptance": "Cross-actor/resource/audience/season requests, revoked session, unknown membership and expiry expose zero protected fields across every backend family; public route compatibility remains separately scoped.",
+      "depends_on": [
+        "BC002",
+        "BC005",
+        "BC006",
+        "BC010"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "contracts.md",
+        "relational-design.md",
+        "behavior-security-design.md",
+        "backend-decisions.json"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/accounts/auth.ts",
+        "apps/site/lib/accounts/store.ts",
+        "apps/site/lib/accounts/http.ts"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC052",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC053",
+      "domain": "security",
+      "title": "Private cache keys and forged references",
+      "need_ids": [
+        "N03",
+        "N08",
+        "N11"
+      ],
+      "owner_id": "READERS",
+      "milestone_id": "BC-M2",
+      "contract_fields": [
+        "audience/context/actor scope",
+        "exact tuple keys",
+        "server-only opaque refs",
+        "cache control"
+      ],
+      "selected_plan": "Cache shared facts only under compatible source permission; compose user-specific allow/results privately/no-store. Validate all refs against caller scope, not possession of an opaque ID.",
+      "decision_refs": [],
+      "acceptance_id": "V-BC053",
+      "acceptance": "Same native ID across providers/kinds/leagues or foreign acceptance/transition cursor cannot fetch another scope; CDN/browser/shared cache shows no previous actor's data; deny payloads contain only allowlisted keys.",
+      "depends_on": [
+        "BC010",
+        "BC012",
+        "BC052"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "screen-data-map.md",
+        "step-2-checklist.md",
+        "contracts.md"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/accounts/fantasy.ts",
+        "apps/site/lib/accounts/library.ts",
+        "apps/site/lib/my-fantasy.ts",
+        "apps/site/lib/projection-reader.ts"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC053",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC054",
+      "domain": "security",
+      "title": "Least privilege, input/origin and optional-data safety",
+      "need_ids": [
+        "N11",
+        "N12"
+      ],
+      "owner_id": "ACCOUNT",
+      "milestone_id": "BC-M1",
+      "contract_fields": [
+        "helper signature/ACL/search_path",
+        "body/origin schema",
+        "request actor context",
+        "allowed source/image identifiers"
+      ],
+      "selected_plan": "Retain separate auth/account/runtime owners, exact closed helpers and existing HTTP origin/rate/audit guards. Treat provider strings/URLs and optional data as untrusted; never route arbitrary client URLs or SQL.",
+      "decision_refs": [
+        "ENG01",
+        "ENG08"
+      ],
+      "acceptance_id": "V-BC054",
+      "acceptance": "Real restricted-role grants reject unrelated SELECT/UPDATE/EXECUTE; search-path shadowing, pooled context, extra JSON keys, hostile avatar/name and oversize bodies cannot gain authority or leak secrets.",
+      "depends_on": [
+        "BC002",
+        "BC011"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "contracts.md",
+        "relational-design.md",
+        "behavior-security-design.md",
+        "backend-decisions.json"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/accounts/auth.ts",
+        "apps/site/lib/accounts/store.ts",
+        "apps/site/lib/accounts/http.ts"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC054",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC055",
+      "domain": "privacy",
+      "title": "Data minimization, diagnostic access and retention",
+      "need_ids": [
+        "N03",
+        "N11",
+        "N12"
+      ],
+      "owner_id": "OPERATIONS",
+      "milestone_id": "BC-M4",
+      "contract_fields": [
+        "typed safe event envelope",
+        "request-local correlation",
+        "mutation audit mapping",
+        "retention/deletion evidence"
+      ],
+      "selected_plan": "Apply ENG08/ENG06 privacy and existing immutable identity audit rules; keep bounded diagnostics without raw subject/session/cookie/provider payload. No invented durable join for random read correlations.",
+      "decision_refs": [
+        "ENG06",
+        "ENG08",
+        "D05"
+      ],
+      "acceptance_id": "V-BC055",
+      "acceptance": "Serialization fixtures reject identifiers/secrets; actual sink ACL/expiry meets selected ceiling; process-local failure counters and restart loss match policy; no runtime claim from documented log shapes alone.",
+      "depends_on": [
+        "BC052",
+        "BC054"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "quality-operations.md",
+        "../collection-capacity-validation.md",
+        "../release-validation.md",
+        "backend-decisions.json"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/projections/ports/logger.ts",
+        "apps/site/lib/accounts/http.ts",
+        "apps/site/vercel.json"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC055",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC056",
+      "domain": "lifecycle",
+      "title": "Last-follower collection, retention and reactivation",
+      "need_ids": [
+        "N04",
+        "N08",
+        "N14"
+      ],
+      "owner_id": "WORKER",
+      "milestone_id": "BC-M4",
+      "contract_fields": [
+        "aggregate demand",
+        "retirement/tombstone",
+        "retention class",
+        "referenced immutable evidence",
+        "reactivation state"
+      ],
+      "selected_plan": "Apply D05: stop ordinary polling after 30 minutes with no eligible-follow, authorized-view or registry demand. Bounded recovery/import demands authorize only their own scope and cannot reset that cooldown or reactivate ordinary polling for an ineligible follow. Ineligible recovery is at most hourly for seven days from first loss, then requires fresh authenticated user demand; failed attempts never restart the window and disconnect supplies no recovery credential. Last-follower departure never deletes shared history/frozen baselines. Preserve D04, D02 and referenced adverse/audit evidence.",
+      "decision_refs": [
+        "D05",
+        "ENG04",
+        "ENG08"
+      ],
+      "acceptance_id": "V-BC056",
+      "acceptance": "Final-follower leave/rejoin, other-user active demand, retained removal refs and pending worker races follow exact policy; no accidental deletion of referenced/frozen/audit history or silent continued prohibited collection. Virtual-clock cases prove hourly recovery/import does not extend routine polling, failure does not reset seven days, and disconnected actors cannot use retained intent as credentials.",
+      "depends_on": [
+        "BC008",
+        "BC012",
+        "BC046",
+        "BC048"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "../lineup-freshness.md",
+        "../future-week-projections.md",
+        "calculation-source-history.md",
+        "backend-decisions.json"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/projections/runtime/projection-composition.ts",
+        "apps/site/lib/projections/runtime/future-projection-composition.ts",
+        "apps/site/lib/projections/runtime/lineup-observation-composition.ts",
+        "apps/site/lib/projections/adapters/neon/job-repository.ts"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC056",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC057",
+      "domain": "reliability",
+      "title": "Failure isolation and stale official service",
+      "need_ids": [
+        "N06",
+        "N08",
+        "N11"
+      ],
+      "owner_id": "WORKER",
+      "milestone_id": "BC-M4",
+      "contract_fields": [
+        "per-resource failure/age",
+        "last complete snapshot",
+        "source-group failure",
+        "pending recovery status"
+      ],
+      "selected_plan": "Keep existing league/resource failure isolation, shared-group validation and last-good preservation. Derivative outage must not overwrite official facts; protected stale serving still obeys authority/D02.",
+      "decision_refs": [],
+      "acceptance_id": "V-BC057",
+      "acceptance": "One league error preserves other completions; shared invalid slate rejects affected group; no incomplete publication replaces last good; zero-completion/partial fleet responses and retry lineage remain truthful.",
+      "depends_on": [
+        "BC029",
+        "BC044",
+        "BC048"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "../lineup-freshness.md",
+        "../future-week-projections.md",
+        "calculation-source-history.md"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/projections/runtime/projection-composition.ts",
+        "apps/site/lib/projections/runtime/future-projection-composition.ts",
+        "apps/site/lib/projections/runtime/lineup-observation-composition.ts",
+        "apps/site/lib/projections/adapters/neon/job-repository.ts"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC057",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC058",
+      "domain": "operations",
+      "title": "Observability, diagnosis and operational exercises",
+      "need_ids": [
+        "N08",
+        "N09",
+        "N12"
+      ],
+      "owner_id": "OPERATIONS",
+      "milestone_id": "BC-M4",
+      "contract_fields": [
+        "safe reason counts",
+        "oldest pending age",
+        "accepted/published lag",
+        "failure/loss counters",
+        "operator runbook"
+      ],
+      "selected_plan": "Use ENG06 existing sinks/job/evidence inspection and typed operational events. Assign stop conditions and recovery actions for forbidden payload, unfenced writer, backlog, source outage and sink failure without a new telemetry service.",
+      "decision_refs": [
+        "ENG06"
+      ],
+      "acceptance_id": "V-BC058",
+      "acceptance": "Fault injection demonstrates operator can locate aggregate failure class and execute safe recovery; mandatory audit failure rolls back mutation; diagnostic failure never authorizes and cannot promise durable observation without evidence.",
+      "depends_on": [
+        "BC048",
+        "BC050",
+        "BC055",
+        "BC057"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "quality-operations.md",
+        "../collection-capacity-validation.md",
+        "../release-validation.md",
+        "backend-decisions.json"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/projections/ports/logger.ts",
+        "apps/site/lib/accounts/http.ts",
+        "apps/site/vercel.json"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC058",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC059",
+      "domain": "delivery",
+      "title": "Additive migrations and conflict census",
+      "need_ids": [
+        "N11",
+        "N12"
+      ],
+      "owner_id": "RELEASE",
+      "milestone_id": "BC-M5",
+      "contract_fields": [
+        "proposed DDL/checksums",
+        "conflict census",
+        "role/function manifests",
+        "compatibility/data counts"
+      ],
+      "selected_plan": "Apply ENG07 reviewed additive changes through existing migration runner; keep historical migrations immutable. Reconcile active identity conflicts and unqualified legacy evidence before enforcing target constraints.",
+      "decision_refs": [
+        "ENG07"
+      ],
+      "acceptance_id": "V-BC059",
+      "acceptance": "Isolated migration runs validate old/new callers, constraints/triggers/grants and pre/post invariants; unresolved conflict stops rather than selecting a user; migration receipt names exact SHA and sanitized identities.",
+      "depends_on": [
+        "BC001",
+        "BC004",
+        "BC012",
+        "BC054"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "migration.md",
+        "reconciliation.md",
+        "verification.md",
+        "backend-decisions.json"
+      ],
+      "current_source_paths": [
+        "docs/release-validation.md",
+        "apps/site/integration/README.md",
+        "AGENTS.md"
+      ],
+      "verification_methods": [
+        "inspection",
+        "compatibility test",
+        "guarded qualification as applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC059",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC060",
+      "domain": "delivery",
+      "title": "Shadow comparisons and staged reader cutover",
+      "need_ids": [
+        "N11",
+        "N12"
+      ],
+      "owner_id": "READERS",
+      "milestone_id": "BC-M5",
+      "contract_fields": [
+        "reader/cohort binding",
+        "same-capture diff",
+        "capability coverage",
+        "public payload compatibility"
+      ],
+      "selected_plan": "Adopt each internal bundle behind explicit version/cohort selection after field-group qualification; preserve existing routes and fallback behavior until authorized cutover. No global latest-head switch.",
+      "decision_refs": [
+        "ENG07"
+      ],
+      "acceptance_id": "V-BC060",
+      "acceptance": "All current screen field groups have frozen-input comparisons and negative/missing/unsupported controls; unrelated supported league qualifies; one reader rollback cannot change another cohort's accepted source history.",
+      "depends_on": [
+        "BC026",
+        "BC029",
+        "BC045",
+        "BC049",
+        "BC052",
+        "BC059"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "screen-data-map.md",
+        "step-2-checklist.md",
+        "contracts.md",
+        "backend-decisions.json"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/accounts/fantasy.ts",
+        "apps/site/lib/accounts/library.ts",
+        "apps/site/lib/my-fantasy.ts",
+        "apps/site/lib/projection-reader.ts"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC060",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC061",
+      "domain": "delivery",
+      "title": "Rollback, restore and incident containment",
+      "need_ids": [
+        "N11",
+        "N12"
+      ],
+      "owner_id": "RELEASE",
+      "milestone_id": "BC-M5",
+      "contract_fields": [
+        "compatible application/source binding",
+        "snapshot/model support",
+        "forward fix",
+        "restore integrity/RPO/RTO evidence"
+      ],
+      "selected_plan": "Apply ENG07/ENG06 rollback and restore plan; keep immutable observations/baselines and reader support for produced model versions. Stop unsafe publication before any separately authorized forward schema repair.",
+      "decision_refs": [
+        "ENG06",
+        "ENG07"
+      ],
+      "acceptance_id": "V-BC061",
+      "acceptance": "Old-compatible reader runs against additive schema; probability/model versions remain readable; restore rehearsal preserves exact identities/refs and reports measured recovery loss/time rather than assumed guarantees.",
+      "depends_on": [
+        "BC056",
+        "BC058",
+        "BC059",
+        "BC060"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "migration.md",
+        "reconciliation.md",
+        "verification.md",
+        "backend-decisions.json"
+      ],
+      "current_source_paths": [
+        "docs/release-validation.md",
+        "apps/site/integration/README.md",
+        "AGENTS.md"
+      ],
+      "verification_methods": [
+        "inspection",
+        "compatibility test",
+        "guarded qualification as applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC061",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC062",
+      "domain": "delivery",
+      "title": "Independent verification and safe isolated execution",
+      "need_ids": [
+        "N12"
+      ],
+      "owner_id": "RELEASE",
+      "milestone_id": "BC-M5",
+      "contract_fields": [
+        "fixture/implementation SHA",
+        "method/oracle",
+        "restricted role identity",
+        "harness lifecycle receipt",
+        "failures/skips"
+      ],
+      "selected_plan": "Use independent expected outcomes, real multi-connection/role/SQL tests and existing guarded disposable harness; document/model/unit/preview evidence cannot substitute for each other.",
+      "decision_refs": [
+        "ENG07"
+      ],
+      "acceptance_id": "V-BC062",
+      "acceptance": "Every implemented obligation maps to actual case/evidence or explicit unverified result; branch identity, authorization, sentinel,TLS,role,denylist and cleanup all pass before SQL qualification; no retained/production destructive test.",
+      "depends_on": [
+        "BC059"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "migration.md",
+        "reconciliation.md",
+        "verification.md",
+        "backend-decisions.json"
+      ],
+      "current_source_paths": [
+        "docs/release-validation.md",
+        "apps/site/integration/README.md",
+        "AGENTS.md"
+      ],
+      "verification_methods": [
+        "inspection",
+        "compatibility test",
+        "guarded qualification as applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC062",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC063",
+      "domain": "delivery",
+      "title": "Publication, release ownership and exact production evidence",
+      "need_ids": [
+        "N12"
+      ],
+      "owner_id": "RELEASE",
+      "milestone_id": "BC-M5",
+      "contract_fields": [
+        "canonical main/remote/Vercel binding",
+        "PR/preview SHA",
+        "production SHA",
+        "both-league checks"
+      ],
+      "selected_plan": "Revalidate identity and observable release ownership before implementation/deployment; use protected PR/full verification/actual preview and separate release authorization. Report local/published/preview/merged/deployed states independently.",
+      "decision_refs": [
+        "ENG07"
+      ],
+      "acceptance_id": "V-BC063",
+      "acceptance": "Exact merged SHA reaches canonical Ready production and both LeagueOne/Two validate; source disagreement or missing authority stops; no competing owner observed is limited to inspected evidence.",
+      "depends_on": [
+        "BC060",
+        "BC061",
+        "BC062"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "migration.md",
+        "reconciliation.md",
+        "verification.md",
+        "backend-decisions.json"
+      ],
+      "current_source_paths": [
+        "docs/release-validation.md",
+        "apps/site/integration/README.md",
+        "AGENTS.md"
+      ],
+      "verification_methods": [
+        "inspection",
+        "compatibility test",
+        "guarded qualification as applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC063",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC064",
+      "domain": "providers",
+      "title": "Future adapter, authorization and licensing boundary",
+      "need_ids": [
+        "N01",
+        "N02",
+        "N07",
+        "N15"
+      ],
+      "owner_id": "ADMIN",
+      "milestone_id": "BC-M6",
+      "contract_fields": [
+        "provider capability matrix",
+        "OAuth/grant expiry/revocation",
+        "scoped aliases/native periods",
+        "source fixtures/terms"
+      ],
+      "selected_plan": "Add future Yahoo/ESPN adapters, mappings and tests behind existing ports only after separately authorized access/terms. Provider-native rules remain in dialect extensions; no undocumented parity assumption.",
+      "decision_refs": [
+        "ENG05"
+      ],
+      "acceptance_id": "V-BC064",
+      "acceptance": "Authorized real fixtures qualify identity/co-managers/lineup/scores/status/standings/transactions/pagination/grants; unsupported/not-provided facts remain explicit. Shared feature stack and NFL pipeline need no provider fork.",
+      "depends_on": [
+        "BC010",
+        "BC014",
+        "BC015",
+        "BC029",
+        "BC051"
+      ],
+      "exclusions": [
+        "Claiming Yahoo/ESPN shipped",
+        "Assuming access to private provider data",
+        "Non-NFL expansion"
+      ],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "contracts.md",
+        "mapping-revisions.md",
+        "league-season-settings.md",
+        "backend-decisions.json",
+        "provider-mapping.md"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/league-administration/runtime.ts",
+        "apps/site/lib/league-administration/normalize.ts",
+        "apps/site/lib/league-administration/maintenance.ts",
+        "apps/site/lib/league-administration/neon/administration.ts"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC064",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC065",
+      "domain": "governance",
+      "title": "Phase-entry design detail and change impact",
+      "need_ids": [
+        "N01",
+        "N11",
+        "N12"
+      ],
+      "owner_id": "RELEASE",
+      "milestone_id": "BC-M0",
+      "contract_fields": [
+        "stable obligation IDs",
+        "source/decision/model/acceptance links",
+        "phase-entry deliverables",
+        "review disposition"
+      ],
+      "selected_plan": "Freeze this full-scope allocation now. Produce exact schema/interface/migration/test detail for each milestone at its entry through named current owners; rerun bidirectional review when a dependency or policy changes.",
+      "decision_refs": [
+        "ENG07"
+      ],
+      "acceptance_id": "V-BC065",
+      "acceptance": "No known need or source field family lacks owner/milestone/oracle/dependency/exclusion; each implementation phase has reviewed detail before coding. Coverage counts do not certify correctness or all181 method activities.",
+      "depends_on": [
+        "BC001"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "migration.md",
+        "reconciliation.md",
+        "verification.md",
+        "backend-decisions.json"
+      ],
+      "current_source_paths": [
+        "docs/release-validation.md",
+        "apps/site/integration/README.md",
+        "AGENTS.md"
+      ],
+      "verification_methods": [
+        "inspection",
+        "compatibility test",
+        "guarded qualification as applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC065",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC066",
+      "domain": "operations",
+      "title": "Commercial activation and unresolved external facts",
+      "need_ids": [
+        "N09",
+        "N15",
+        "N12"
+      ],
+      "owner_id": "OPERATIONS",
+      "milestone_id": "BC-M4",
+      "contract_fields": [
+        "license/terms approval evidence",
+        "measured provider completeness",
+        "capacity results",
+        "operating authorization"
+      ],
+      "selected_plan": "Gate commercial activation on ENG05 access/license confirmation, empirical adapter completeness and capacity/cost evidence; engineering delegation does not sign contracts, buy feeds or establish upstream data availability.",
+      "decision_refs": [
+        "ENG03",
+        "ENG05",
+        "ENG06"
+      ],
+      "acceptance_id": "V-BC066",
+      "acceptance": "Unverified source licensing/price/entitlement or missing qualification is recorded as external evidence needed; internal implementation can proceed only within allowed data access and never represent blocked commercial activation as passed.",
+      "depends_on": [
+        "BC051",
+        "BC058"
+      ],
+      "exclusions": [
+        "Purchasing access or contacting providers without authorization"
+      ],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "quality-operations.md",
+        "../collection-capacity-validation.md",
+        "../release-validation.md",
+        "backend-decisions.json"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/projections/ports/logger.ts",
+        "apps/site/lib/accounts/http.ts",
+        "apps/site/vercel.json"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Exact reviewed implementation SHA and sanitized versioned fixture/capture hash for V-BC066",
+        "Recorded expected-versus-actual values, denied fields and committed effects for the case-specific oracle",
+        "Applicable restricted-role/SQL/source/load/compatibility receipt; failures, skips and external limitations remain explicit"
+      ]
+    },
+    {
+      "id": "BC067",
+      "domain": "privacy",
+      "title": "Actor export and account deletion",
+      "need_ids": [
+        "N16",
+        "N03",
+        "N12"
+      ],
+      "owner_id": "ACCOUNT",
+      "milestone_id": "BC-M4",
+      "contract_fields": [
+        "actor-scoped export manifest",
+        "reauthorized delivery handle/expiry",
+        "session/association revocation",
+        "personal identifiers/preferences disposal state",
+        "shared-fact pseudonymization",
+        "hold/retry/completion audit"
+      ],
+      "selected_plan": "Implement actor-scoped export with current authorization again at delivery; disclose only that actor's authorized personal records and distinguish shared competition facts. ENG08 deletion revokes sessions and associations immediately and removes direct identifiers/preferences within the selected 30-day disposal obligation after applicable hold review. Separate personal scrubbing from preservation of referenced shared official facts; do not revive access through queued work or restored backups.",
+      "decision_refs": [
+        "ENG01",
+        "ENG08"
+      ],
+      "acceptance_id": "V-BC067",
+      "acceptance": "Two-actor export fixtures cannot expose the other actor, private association or raw source payload. Revoke between export request and delivery and require denial. Delete amid in-flight commands, jobs and cache reads; verify immediate authority loss, eventual personal removal, idempotent retries, failure reporting, hold release, and no collateral deletion of another manager's history. A store-by-store manifest includes backup expiry/restoration safeguards and accepted remaining pseudonymous facts.",
+      "depends_on": [
+        "BC004",
+        "BC052",
+        "BC053",
+        "BC054"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "backend-decisions.json",
+        "relational-design.md",
+        "behavior-security-design.md"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/accounts/auth.ts",
+        "apps/site/lib/accounts/store.ts",
+        "apps/site/lib/accounts/http.ts"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Reviewed implementation SHA, actor/data-store manifest and sanitized fixture or workload hash for V-BC067",
+        "Independent expected-versus-actual effects across primary data, queued work, cache, audit, evidence references and backups as applicable",
+        "Recorded restricted-role, expiry, failure and operational rehearsal results; unperformed procedures and external dependencies remain explicit"
+      ]
+    },
+    {
+      "id": "BC068",
+      "domain": "privacy",
+      "title": "Reference-aware disposal and backup lifecycle",
+      "need_ids": [
+        "N16",
+        "N03",
+        "N12"
+      ],
+      "owner_id": "OPERATIONS",
+      "milestone_id": "BC-M4",
+      "contract_fields": [
+        "retention class and clock origin",
+        "immutable reference closure",
+        "hold scope/reason/expiry",
+        "raw-payload deduplication",
+        "disposal job/tombstone/checkpoint",
+        "backup expiry/restore suppression"
+      ],
+      "selected_plan": "Apply ENG08 retention by data class with explicit ownership. Unreferenced raw captures expire after the selected 30-day interval; referenced source evidence, normalized official history, scorer/model versions and frozen lineage survive while required by supported views, audit or reproduction. Existing immutable identity-audit restrictions are a distinct class, excluded from the new restricted case-audit retention limit. Last-follower changes never directly delete shared history. Before activation, qualify privacy holds, contractual exceptions, sink expiry and backups against actual service capabilities.",
+      "decision_refs": [
+        "ENG08",
+        "D05"
+      ],
+      "acceptance_id": "V-BC068",
+      "acceptance": "A synthetic reference graph with multiple actors, historical baselines, corrected captures and shared content hashes proves collection deletes only eligible unreferenced material. Add/remove a reference concurrently with disposal and verify atomic protection. Exercise hold addition/release, interrupted sweeps, missing backup expiry capability and restoration of deleted personal data; fail qualification when promised class retention or suppression cannot be enforced.",
+      "depends_on": [
+        "BC012",
+        "BC037",
+        "BC055",
+        "BC056",
+        "BC067"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "backend-decisions.json",
+        "quality-operations.md",
+        "relational-design.md"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/projections/ports/logger.ts",
+        "apps/site/lib/accounts/http.ts",
+        "apps/site/vercel.json"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Reviewed implementation SHA, actor/data-store manifest and sanitized fixture or workload hash for V-BC068",
+        "Independent expected-versus-actual effects across primary data, queued work, cache, audit, evidence references and backups as applicable",
+        "Recorded restricted-role, expiry, failure and operational rehearsal results; unperformed procedures and external dependencies remain explicit"
+      ]
+    },
+    {
+      "id": "BC069",
+      "domain": "operations",
+      "title": "Stored-read service objectives and accountable response",
+      "need_ids": [
+        "N16",
+        "N03",
+        "N12"
+      ],
+      "owner_id": "OPERATIONS",
+      "milestone_id": "BC-M4",
+      "contract_fields": [
+        "eligible-read SLI numerator/denominator",
+        "rolling 28-day availability",
+        "server latency histogram",
+        "dependency attribution",
+        "freshness SLI independent",
+        "error-budget state",
+        "duty receiver/escalation/runbook"
+      ],
+      "selected_plan": "ENG06 selects 99.9% successful eligible stored reads over 28 days, server p95<=500ms and p99<=1500ms, with freshness tracked independently. Correct unauthorized denials are successful security decisions; unavailable/indeterminate legitimate reads are service failures. Qualify selected paging thresholds, real duty receiver and escalation, error-budget release restraint, and process failover separately from disaster recovery.",
+      "decision_refs": [
+        "ENG03",
+        "ENG06"
+      ],
+      "acceptance_id": "V-BC069",
+      "acceptance": "An independently classified mixed request corpus verifies denominator inclusion, legitimate failures, unauthorized denials and latency boundaries without silently excluding overload or dependency outages. Inject threshold crossings and prove routed acknowledgement/escalation and runbook stop/recovery actions. Exhaust error budget and confirm ordinary rollout restraint while approved risk fixes remain possible; freshness breaches block expansion even if read availability passes.",
+      "depends_on": [
+        "BC044",
+        "BC050",
+        "BC057",
+        "BC058"
+      ],
+      "exclusions": [],
+      "evidence_status": "specified_not_executed_for_target",
+      "design_artifact_refs": [
+        "backend-build-plan.md",
+        "backend-decisions.json",
+        "quality-operations.md",
+        "verification.md"
+      ],
+      "current_source_paths": [
+        "apps/site/lib/projections/ports/logger.ts",
+        "apps/site/lib/accounts/http.ts",
+        "apps/site/vercel.json"
+      ],
+      "verification_methods": [
+        "independent fixture/oracle test",
+        "scope/negative/failure cases",
+        "real SQL/source/load qualification where applicable"
+      ],
+      "required_evidence": [
+        "Reviewed implementation SHA, actor/data-store manifest and sanitized fixture or workload hash for V-BC069",
+        "Independent expected-versus-actual effects across primary data, queued work, cache, audit, evidence references and backups as applicable",
+        "Recorded restricted-role, expiry, failure and operational rehearsal results; unperformed procedures and external dependencies remain explicit"
+      ]
+    }
+  ],
+  "title": "Full aggregator backend planning coverage",
+  "status": "known_scope_allocated_runtime_unimplemented",
+  "created_on": "2026-10-06",
+  "application_baseline": "87da4d0cb909ee280e125e73ad10e1c3dbd7cd9f",
+  "documentation_input": "e2a37d99d637baf80f1f29db597d75a69d3a78bd",
+  "readable_view": "backend-coverage.md",
+  "plan_ref": "backend-build-plan.md",
+  "decision_ref": "backend-decisions.json",
+  "scope_statement": "Allocates every known approved aggregator domain and current backend compatibility dependency to an owner, selected approach, milestone and falsifiable acceptance. This is full build planning, not completed implementation, complete physical design for every later phase, universal provider support, or proof that all 181 method-inventory entries are mandatory or performed.",
+  "authority": "README.md remains the target entry point. Approved user behavior and explicitly delegated lead decisions take precedence. backend-decisions.json owns D03-D05 and ENG01-ENG08 choices; this allocation neither changes D02 nor duplicates runtime DTO authority. Existing source owners are reuse evidence, not proof that the target behavior is installed.",
+  "status_semantics": {
+    "source_paths": "Current source owner was inspected or its contract/module boundary located; no baseline test or production result is implied by presence.",
+    "selected_plan": "Chosen direction and bounded reuse/adaptation. Exact later-phase interface/DDL/fixtures are produced and reviewed at that phase entry, not silently deferred until after implementation.",
+    "verification": "Every V-BC case is specified acceptance, not executed target evidence.",
+    "completion": "Every known need has allocation. Numeric coverage never proves unknown needs absent, SQL enforceability, upstream completeness, licensing, capacity or user utility."
+  },
+  "global_exclusions": [
+    "No runtime code, migrations, environment/secret/database reads, provider writes, production activation or purchase in this planning task.",
+    "Website redesign/new page UX is excluded; backend contract compatibility and release/browser regression evidence remain necessary.",
+    "Yahoo/ESPN and non-NFL sources are not shipped; BC-M6 is a separately authorized later adapter milestone.",
+    "Universal recovery of unavailable prior-season source data is excluded; recoverable historical browsing and its explicit coverage limits are allocated to BC028/BC-M2.",
+    "No requirement for all scoring/competition edge cases to support analytics before reliably represented official data is available.",
+    "No blanket NASA/SEI/SSDF/ASVS/ISO conformance or claim that every inventoried method activity must be executed for every milestone."
+  ],
+  "phase_entry_contract": {
+    "owner": "Each obligation's current owner plus independent reviewer; lead engineer controls decision changes.",
+    "required_outputs": [
+      "Exact closed runtime fields, scalar/null/unknown domains, key/relationship and source/effective-time semantics for the affected family.",
+      "Existing-column/JSON/derived-view mapping or justified additive DDL/functions/indexes/grants with constraints and rollback; no table created solely to mirror this matrix.",
+      "Independent fixture bytes and expected values, actual writer/reader call paths, adversarial/unknown/failure schedules, and safe executable evidence protocol.",
+      "Dependency review against D02, delegated D/ENG decisions, resource audience, existing capacity lanes and preservation/compatibility gates."
+    ],
+    "rule": "A milestone cannot enter implementation until its detailed outputs and dependencies are reviewed. The plan allocates that design work now; it does not call absent physical artifacts completed."
+  },
+  "contract_surface_register": [
+    {
+      "id": "CF01",
+      "domain": "Evidence and scope",
+      "existing_types": [
+        "apps/site/lib/aggregator/contracts.ts:SourceScope, ProviderReference, FieldGroup<T>",
+        "foundation.json:ResourceEvidence, DependencyRef"
+      ],
+      "target_fields": [
+        "provider/kind/namespace/native ID",
+        "leagueSeason/sourceConnection/audience/access-context/mapping revision",
+        "immutable attempt/capture/acceptance/version refs",
+        "source event time nullable; request/observation/verification/persistence/calculation/publication times distinct",
+        "per-resource coverage, availability, freshness and feature support"
+      ],
+      "representation": "Reuse existing receipt/head/immutable-source owners. Preserve each qualified field type's exact state union; do not collapse unknown/absent/null/empty/zero into one default.",
+      "obligations": [
+        "BC010",
+        "BC012",
+        "BC044",
+        "BC053"
+      ]
+    },
+    {
+      "id": "CF02",
+      "domain": "Official settings and periods",
+      "existing_types": [
+        "apps/site/lib/aggregator/league-settings.ts:LeagueSettingsValue",
+        "apps/site/lib/aggregator/exact-matchups.ts:NativeMatchupPeriod"
+      ],
+      "target_fields": [
+        "native scoring/roster/competition/waiver dialect and raw settings",
+        "ordered slot identity/count/eligibility",
+        "native period and separately evidenced NFL mapping",
+        "source lifecycle/finality distinct from local completion"
+      ],
+      "representation": "Extend existing typed B1/settings projections and compatibility adapters; no universal week1-14 or current global year assumption.",
+      "obligations": [
+        "BC013",
+        "BC015",
+        "BC016",
+        "BC020",
+        "BC027"
+      ]
+    },
+    {
+      "id": "CF03",
+      "domain": "Official roster, scores and standings",
+      "existing_types": [
+        "apps/site/lib/aggregator/exact-matchups.ts:ExactMatchupTeam",
+        "apps/site/lib/aggregator/season-overview-source-contracts.ts:SeasonOverviewTeamFacts"
+      ],
+      "target_fields": [
+        "ordered slots/vacancies/point-source",
+        "exact-period nonstarter vs bench applicability; current reserve/taxi",
+        "raw/custom/effective team score and adjustment evidence",
+        "W/L/T/PF/PA/provider rank/seed/division versus local ordering",
+        "metadata effective/as-of time"
+      ],
+      "representation": "Project qualified facts from the same immutable capture; keep current metadata and legacy formatting separate. Do not assert recovered lexical precision beyond parsed source values.",
+      "obligations": [
+        "BC017",
+        "BC018",
+        "BC019",
+        "BC021"
+      ]
+    },
+    {
+      "id": "CF04",
+      "domain": "Activity and administrative assets",
+      "existing_types": [
+        "apps/site/lib/aggregator/transaction-activity-contracts.ts:TransactionActivityEvent, TransactionActivityPage"
+      ],
+      "target_fields": [
+        "event/participant native and canonical IDs",
+        "player/pick/FAAB movements",
+        "source timestamps/status/type/claim visibility",
+        "native week/window/page cursor/revision/coverage",
+        "draft/bracket source refs and supported typed capability"
+      ],
+      "representation": "Reuse B3 retained selections and administration evidence. Preserve supplied-only claims, unknown times and week0; qualify typed draft/bracket fields at BC-M2 entry.",
+      "obligations": [
+        "BC022",
+        "BC023",
+        "BC024",
+        "BC025"
+      ]
+    },
+    {
+      "id": "CF05",
+      "domain": "Season import coverage and resume",
+      "existing_types": [
+        "apps/site/lib/league-administration/contracts.ts:existing source/capture/job owner",
+        "apps/site/lib/aggregator/transaction-activity-contracts.ts:sourceCoverage"
+      ],
+      "target_fields": [
+        "run/request identity and plan version",
+        "leagueSeason/sourceConnection/mapping/audience binding",
+        "declared resource/native-period/page unit set",
+        "per-unit pending/complete/partial/unavailable/unpublished/unsupported/conflict disposition and evidence refs",
+        "continuation/checkpoint and terminal state",
+        "current-season coverage versus broader history limitation"
+      ],
+      "representation": "Selected SeasonCoverageManifest is a projection of immutable receipts plus a durable checkpoint in the existing administration job system. Phase BC-M2 must specify exact closed job-payload schema, idempotency/size bounds, storage constraints and reader shape; no new acquisition pipeline is selected.",
+      "obligations": [
+        "BC024",
+        "BC026",
+        "BC027",
+        "BC028"
+      ]
+    },
+    {
+      "id": "CF06",
+      "domain": "Shared NFL source facts",
+      "existing_types": [
+        "apps/site/lib/projections/domain/contracts.ts:ProjectionSlate, GameStateObservation, NflWeekSchedule",
+        "apps/site/lib/projections/domain/all-player-observation-evidence.ts:AllPlayerStatObservation"
+      ],
+      "target_fields": [
+        "player/defense identity and crosswalk revisions",
+        "game/season/type/week and assignment/bye evidence",
+        "sparse statistics/whole capture and source coverage",
+        "projection raw statistics/slate checks",
+        "availability/participation/effective metadata"
+      ],
+      "representation": "One shared NFL layer through existing providers and ports; source-specific provenance never becomes host-fantasy official authority.",
+      "obligations": [
+        "BC030",
+        "BC031",
+        "BC032",
+        "BC033",
+        "BC034",
+        "BC035"
+      ]
+    },
+    {
+      "id": "CF07",
+      "domain": "Analytical outputs",
+      "existing_types": [
+        "apps/site/lib/projections/domain/contracts.ts:CanonicalScoringProfile, ProjectedMatchupSnapshot",
+        "apps/site/lib/projections/domain/all-player-statistics.ts:AllPlayerScoreSet"
+      ],
+      "target_fields": [
+        "scorer/profile/model revisions",
+        "immutable baseline versus live phase contribution",
+        "official actuals vs computed actual statistics",
+        "probability status/team identity",
+        "projected standings/metric cutoff/denominator/population coverage",
+        "exact source refs and calculation/publication time"
+      ],
+      "representation": "Reuse single scorer, clock-v1, defensive model, probability/metric owners and publication path. Version outputs and retain reader support during rollback.",
+      "obligations": [
+        "BC036",
+        "BC037",
+        "BC038",
+        "BC039",
+        "BC040",
+        "BC041"
+      ]
+    },
+    {
+      "id": "CF08",
+      "domain": "Portfolio/private serving",
+      "existing_types": [
+        "foundation.json:DiscoverCurrentTeamsResult, ReadCurrentRosterResult",
+        "apps/site/lib/accounts/contracts.ts:existing account view contracts"
+      ],
+      "target_fields": [
+        "account/library relationship and per-league current team",
+        "explicit preference revision versus effective eligible demand",
+        "per-card period/coverage and aggregate denominator",
+        "safe public response and server-only authority envelope"
+      ],
+      "representation": "Compose server-side from shared facts with final actor/audience checks. New reader contracts are qualified before public/website adoption.",
+      "obligations": [
+        "BC002",
+        "BC006",
+        "BC007",
+        "BC008",
+        "BC042",
+        "BC043",
+        "BC052"
+      ]
+    },
+    {
+      "id": "CF09",
+      "domain": "Demand, permits and operational evidence",
+      "existing_types": [
+        "apps/site/lib/projections/adapters/neon/job-repository.ts:existing durable job owner",
+        "backend-decisions.json:ENG01-ENG08",
+        "quality-operations.md:typed diagnostic contract"
+      ],
+      "target_fields": [
+        "demand/cohort/intent and admission ownership",
+        "actual-start permit accounting and expiry",
+        "job lease/deadline/continuation/pending acknowledgment",
+        "queue/capture/publication latency with uncertainty",
+        "safe counters/reasons and restricted retention"
+      ],
+      "representation": "Selected continuous mode remains the same worker pipeline and sole lane ownership; exact admission and auth lifetime schemas come from the companion first-slice design. Measurements and licensing remain qualification evidence.",
+      "obligations": [
+        "BC011",
+        "BC046",
+        "BC047",
+        "BC048",
+        "BC049",
+        "BC050",
+        "BC051",
+        "BC055",
+        "BC056",
+        "BC058"
+      ]
+    },
+    {
+      "id": "CF10",
+      "domain": "Privacy and operational lifecycle",
+      "existing_types": [
+        "apps/site/lib/accounts/store.ts: account-owned records",
+        "apps/site/lib/projections/ports/logger.ts: operational logging port"
+      ],
+      "target_fields": [
+        "actor export/delete operation scope, state, delivery authorization and expiry",
+        "retention class/time origin, reference closure, hold disposition, sweep checkpoint and backup restoration disposition",
+        "eligible-read SLI/error-budget classification, visible-render freshness and accountable escalation"
+      ],
+      "representation": "BC-M4 phase entry must supply exact types, ownership, storage and privilege contracts for these new operations; this matrix selects scope and independent acceptance without claiming existing implementation.",
+      "obligations": [
+        "BC055",
+        "BC058",
+        "BC067",
+        "BC068",
+        "BC069"
+      ]
+    }
+  ],
+  "known_design_boundaries": [
+    {
+      "issue": "Detailed first-slice ERD/DDL/admission/auth lifetime",
+      "owner": "Data/security owners",
+      "resolution_ref": "backend-build-plan.md; relational-design.md; behavior-security-design.md",
+      "allocation": [
+        "BC-M0",
+        "BC002",
+        "BC011",
+        "BC054",
+        "BC059"
+      ],
+      "disposition": "Companion work selects/reviews these details; coverage does not certify completion."
+    },
+    {
+      "issue": "Generalized current-season import and full-family joins",
+      "owner": "ADMIN, PERIOD, MATCHUP, SEASON, ACTIVITY, HISTORY",
+      "resolution_ref": "CF02-CF05; BC-M2 entry",
+      "allocation": [
+        "BC015",
+        "BC026",
+        "BC027",
+        "BC028"
+      ],
+      "disposition": "Chosen reuse/coverage architecture; exact closed schemas and executable fixtures produced at phase entry. Existing named-league/week limits are compatibility constraints only."
+    },
+    {
+      "issue": "External source completeness, licenses, feed price, capacity and calibration",
+      "owner": "OPERATIONS, NFL, ANALYTICS",
+      "resolution_ref": "backend-decisions.json ENG03/ENG05; BC-M3/4 acceptance",
+      "allocation": [
+        "BC009",
+        "BC039",
+        "BC049",
+        "BC050",
+        "BC051",
+        "BC066"
+      ],
+      "disposition": "Known qualification work with explicit evidence and activation limits; no fabricated source support, contractual entitlement, performance or model accuracy."
+    }
+  ]
+}

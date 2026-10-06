@@ -1,0 +1,218 @@
+{
+  "version": "acquisition-admission-design-v1",
+  "status": "selected_design_not_implemented",
+  "scope": "Planning only. Existing account/auth, administration, projection_jobs and worker owners implement these adapters. No database migration, provider request, role grant, new collector or deployment has occurred.",
+  "authority": [
+    "Before a target command, the maintained Better Auth1.6.23 server API validates the exact request cookie with disableCookieCache and disableRefresh. The trusted bridge computes AuthReceiptV2 from that returned session/user and the configured admission policy. HTTP input, job payload, caches and diagnostics cannot supply a receipt.",
+    "AuthReceiptV2 is exactly the prior seven fields sessionId,subject,expiresAt,issuer,admissionEpochRevision,configHash,clockDomain plus admittedEmailDigest and sessionTokenDigest. Both digests are lowercase64hex SHA256 of the exact UTF8 bytes of returned user.email and session.token respectively, with no trimming, case folding or normalization before hashing. The bridge first applies the existing invitedEmails/emailVerified policy unchanged. Treat token digest and the entire receipt as sensitive authority material: ephemeral server memory/transaction parameter only, never public output/log/cache/job/audit metadata.",
+    "Account transaction B itself calls public.lock_account_session_authority_v2. The migration-owned SECURITY DEFINER function acquires shared transaction advisory lock(19740517,1), then admission epoch FOR SHARE, user FOR SHARE and session FOR SHARE. It validates the closed receipt; exact epoch/config/issuer/database-clock identity; session id/userId/expiry; current emailVerified; and equality to SHA256(convert_to(current email or token,UTF8)). PostgreSQL pgcrypto is already requested by migration001; qualification verifies actual extension schema and fully qualifies digest/convert_to/encode functions. No raw auth row or token is returned.",
+    "Matching admittedEmailDigest plus unchanged admission config binds the current user to the same invitation decision made by the trusted bridge. Matching sessionTokenDigest prevents a recreated session ID with a different token from reusing the receipt. Missing/replaced/expired session, changed email, failed verification or changed admission epoch refuses. Hash comparison supplements maintained cookie validation; a digest is not a new bearer authentication protocol. Compromised trusted server/account credentials remain outside this guarantee.",
+    "The auth-only guard returns only session_expires_at,admission_epoch_revision,db_sample_at,session_created_at. session_created_at is safe internal metadata for the separately trusted D03 admission policy; it adds no receipt field. Account command/read composition then locks Actor and login identity, proves exact issuer/subject/actor binding, and continues the existing domain order. B owns auth locks until B commits or rolls back; auth transaction A need not remain open. All supported auth mutations take exclusive(19740517,1) BEFORE STATEMENT or in their owner entrypoint, before row locks.",
+    "The trusted account bridge sets transaction-local app.session_receipt_v2 before private SQL. Existing direct account DML BEFORE STATEMENT guards invoke the auth-only guard before actor/domain locks and then validate actor/login. New user-scoped privileged helpers invoke it unconditionally using their typed receipt. Existing resolve_app_login_identity keeps its signature but consumes the same receipt, binds issuer/subject, and authenticates before its registration mutex. Its existing-actor path locks Actor then login; new-actor creation stays an owner-only authenticated bootstrap. A generic flag cannot skip checks. The registration mutex is a special class after auth and before Actor; callers already holding Actor cannot enter the resolver.",
+    "After all required locks, final SQL samples clock_timestamp once and evaluates expiry and operation predicates before mutation or delivery. Mutation linearizes there while its auth/domain state is protected through commit. Time passage is not frozen: an expired protected acknowledgement is suppressed. Confirmed rollback means no effects; unknown commit or confirmed commit followed by failed acknowledgement returns safe indeterminate without asserting rollback. Explicit same-command retry reauthorizes then reconciles retained command identity; no automatic request retry.",
+    "The same transaction-bound guard replaces dual-connection lifetime assumptions for stored delivery as well. Candidate composition stays private, final decisions reread complete authority and immutable historical adverse evidence, and the server-only DecisionTiming receipt is checked after B commit. Anchor monotonic time immediately before final SQL, subtract ceil elapsed from the DB-computed floor remaining lifetime, require positive lifetime and request budget, serialize exact public result synchronously with no intervening await. No timing sidecar or receipt reaches the client."
+  ],
+  "policy": {
+    "id": "sleeper-admission-v1",
+    "provider": "sleeper",
+    "hosts": [
+      "api.sleeper.app",
+      "api.sleeper.com"
+    ],
+    "global_starts_per_rolling_60s": 900,
+    "reservation_accounting_window_seconds": 61,
+    "dispatch_validity_ms": 1000,
+    "global_local_transport_slots": 32,
+    "interactive_local_transport_slots": 8,
+    "actor_local_transport_slots": 1,
+    "provider_http_deadline_ms": 5000,
+    "lanes": [
+      {
+        "id": "live-score",
+        "limit": 680
+      },
+      {
+        "id": "role-roster",
+        "limit": 55
+      },
+      {
+        "id": "transactions",
+        "limit": 100
+      },
+      {
+        "id": "metadata",
+        "limit": 20
+      },
+      {
+        "id": "interactive",
+        "limit": 15
+      },
+      {
+        "id": "import",
+        "limit": 15
+      },
+      {
+        "id": "retry",
+        "limit": 15
+      }
+    ],
+    "per_actor_target_charges_per_61s": 5,
+    "per_actor_target_charges_per_3601s": 60,
+    "unfinished_demands_per_actor": 2,
+    "unfinished_target_demands_global": 128,
+    "demand_lifetime_seconds": 900,
+    "worker_lease_seconds": 30,
+    "unknown_local_slot_quarantine_seconds": 60,
+    "maximum_attempts_per_request": 3,
+    "retry_delays_seconds": [
+      2,
+      8
+    ],
+    "rationale": "Sleeper publishes guidance to remain below1000 calls/minute, not a capacity guarantee.900 is an application ceiling with reserved lane caps summing900, no initial borrowing. Counters are database-global across both hosts/deployments/worker and server reader paths. Capacity and latency must be qualified; the numbers are selected defaults, not measured results.",
+    "capacity": "ENG03 selects up to500 watched leagues, live scheduling45s, role/current-roster600s, transactions310s and settings/users3600s.500 leagues at45s require677.78 grants per61s, narrowly below680. Jitter, retries and service time consume margin; measure end-to-end p95<=60s/p99<=75s and reduce admitted watched capacity when qualification fails. Neither that arithmetic nor summing stage percentiles proves the end-to-end percentile. Existing League One/League Two cadence and exact-week semantics remain; admitting500 watched current-score leagues does not grant500 leagues the existing15m/60m/360m future-period tiers. Future observations/import/preparation share the15 import lane. Each feature records its requested deadline, next eligible budget time and actual coverage; delayed/unqualified future data stays pending/limited rather than fabricated fresh. All legacy/fallback/cache/background/catalog/NFL-state/secondary-host traffic counts. Do not increase watched capacity or future tier coverage until the full workload meets queue and freshness targets under this ceiling or a separately licensed and qualified larger allocation.",
+    "fairness": "Existing worker continuous run mode is the sole scheduler/lease/publication owner. Within interactive/import/retry lanes choose an eligible actor with the oldest last-dispatched target permit (actors with none first), then its oldest due demand, tie-break UUID. Claim/dispatch are serialized by the provider gate. One in-flight actor and per-actor charges prevent monopoly; ineligible/cooldown actors do not block others. No promises of service during provider outage. Core lanes reserve their allocation independently; no opportunistic borrowing in v1. The import lane uses deficit round-robin across future-observation/preparation, historical-import and target-discovery, quantum1 HTTP request per nonempty class per round, persisted cursor0..2 under provider gate. Within each class use earliest deadline then the actor fairness rule. Unused quanta are skipped, not converted into cross-lane borrowing.",
+    "cooldown": "A429 installs a provider-wide cooldown of max(60s,valid Retry-After);503 uses max(5s,valid Retry-After). Retry-After date is converted conservatively using trusted DB sample plus monotonic elapsed; no application wall-clock authorization. Three429 responses in10minutes latch provider circuit open until reviewed operator reset. Malformed/unrepresentable or >86400s Retry-After is passed as explicit sentinel -1 and latches circuit instead of shortening it. Ordinary network/5xx retries use2s then8s plus deterministic0..999ms request-hash jitter, at most3 attempts total; each needs a new permit in retry lane and repeats all source fences.4xx other than429, malformed source and expired/revoked demand are terminal for that request.",
+    "retention": "Keep immutable permit charges for at least24h and until24h after any response_observed_at (covers one-hour actor and ten-minute429 windows); cleanup uses DB time and never deletes a live/quarantined charge. Closed acquisition demand source details may compact after30days; existing protected diagnostics retain their existing maximum7days. The separately selected90day security-case audit does not change existing append-only identity audit or immutable accepted lineage. Keep compact actor+command ID+input digest+terminal outcome for the actor lifetime so explicit old retries cannot create new work. No token, token digest or full auth receipt is persisted. Source captures retain their independent policy; this ledger is not a new source archive.",
+    "dispatch_boundary": "The32 global local-transport slots are one database-global cap on outstanding owned local dispatches across every process, deployment and both Sleeper hosts; the8 interactive and1 actor caps are subordinate subsets, never per-process allowances. Actual start means the owned observable synchronous HTTP dispatch/fetch boundary. Network transit, hidden transport buffering and provider receipt times are distinct; this plan does not prove an absolute provider-observed arrival quota. The qualified shared transport must reserve a free local connection/dispatch capacity before requesting a permit, avoid hidden application/client queues after grant, and synchronously dispatch before the conservative deadline. If that boundary cannot be observed or guaranteed, activation fails qualification. Unknown remote processing remains unknown."
+  },
+  "contracts": "type AuthReceiptV2 = {\n  sessionId: string; subject: string; expiresAt: Instant; issuer: string;\n  admissionEpochRevision: Revision; configHash: string; clockDomain: string;\n  admittedEmailDigest: string; sessionTokenDigest: string;\n}; // exact nine fields; digests /^[0-9a-f]{64}$/; positive BIGINT Revision string\n\ntype AcquisitionCommand =\n  | { kind: 'identify'; commandId: Id; username: string }\n  | { kind: 'discover'; commandId: Id; associationId: Id; associationRevision: Revision }\n  | { kind: 'recover'; commandId: Id; associationId: Id; associationRevision: Revision; leagueId: Id };\n// username exactly existing [a-zA-Z0-9_]{1,100}; command/association IDs are UUID.\n// Shared Id preserves the referenced opaque identity domain. No actor/provider,\n// context/audience/coverage, budget lane, source URL or policy supplied by caller.\n// Same actor+commandId with a different canonical input digest is conflict.\n\ntype AdmissionResult =\n  | { status: 'pending' | 'joined'; demandId: Id; retryAfterSeconds: number }\n  | { status: 'denied' | 'limited' | 'conflict' | 'indeterminate'; reason:\n      'admission_unavailable' | 'scope_invalid' | 'budget_exhausted' |\n      'command_conflict' | 'authority_unavailable' };\ntype AdmissionHelperResult = { result: AdmissionResult; decisionTiming: DecisionTiming | null };\n// retryAfterSeconds integer1..60; own protected demandId requires nonnull timing.\n\ntype DemandProgress =\n  | { status: 'pending'; demandId: Id; retryAfterSeconds: number }\n  | { status: 'identified'; demandId: Id; lookupCaptureId: Id; providerAccount: ProviderAccount }\n  | { status: 'discovery-progress'; demandId: Id; scanId: Id;\n      requiredSeasons: number[]; completedSeasons: number[];\n      coverage: 'pending' | 'partial' | 'complete' | 'failed' }\n  | { status: 'recovery-complete'; demandId: Id }\n  | { status: 'denied' | 'unavailable' | 'indeterminate'; reason:\n      'admission_unavailable' | 'scope_invalid' | 'demand_expired' | 'source_unavailable' | 'authority_unavailable' };\ntype DemandProgressHelperResult = { result: DemandProgress; decisionTiming: DecisionTiming | null };\n// ProviderAccount is the exact foundation type, no private owner/link status.\n// Progress does not contain league/team payload. Those still require BS-P01.\n\ntype JobFence = { jobKey: string; workerId: string; attemptCount: number; leaseUntil: Instant };\ntype AcquisitionClaim =\n  | { status: 'idle' | 'limited'; retryAfterSeconds: number }\n  | { status: 'claimed'; demandId: Id; fence: JobFence;\n      work: { kind: 'calendar-state' } |\n            { kind: 'identify'; username: string } |\n            { kind: 'discover'; nativeAccountId: NativeId; scanId: Id; requiredSeasons: number[] } |\n            { kind: 'recover'; scope: SourceScope; sourceMappingRevisionId: Id } };\n// Worker receives only bounded work. Actor/session/digests remain private.\n// Missing fresh qualified NFL state starts a bounded existing calendar-state\n// step before requiredSeasons is fixed; that step also needs a permit.\n\ntype SleeperEndpoint =\n  | { family: 'identity'; username: string }\n  | { family: 'account-leagues'; nativeAccountId: NativeId; season: number }\n  | { family: 'league' | 'rosters' | 'users'; externalLeagueId: NativeId }\n  | { family: 'matchups' | 'transactions'; externalLeagueId: NativeId; week: number }\n  | { family: 'nfl-state' | 'players' }\n  | { family: 'schedule'; season: number }\n  | { family: 'scores' | 'weekly-stats'; season: number; week: number };\n// Only existing qualified GET routes are encoded server-side. No arbitrary URL,\n// method, host, header, account identity or lane. Missing required route denies.\n\ntype PermitSource =\n  | { kind: 'pre-enrollment'; attemptId: Id; policyQualificationId: Id; policyRevision: Revision }\n  | { kind: 'enrolled'; attemptId: Id; scopeId: Id; policyRevision: Revision };\n// Pre-enrollment addresses provider_request_attempts and\n// provider_request_policy_qualifications.id. Enrolled addresses\n// league_roster_resource_attempts and league_resource_policy_qualifications.scope_id.\n// The exact tagged branch must match demand purpose and persisted attempt scope;\n// no ambiguous OR-join or nonexistent pre-enrollment rosters qualifier.\n\ntype PermitRequest =\n  | { kind: 'target'; requestId: Id; demandId: Id; source: PermitSource;\n      fence: JobFence; endpoint: SleeperEndpoint }\n  | { kind: 'existing'; requestId: Id; endpoint: SleeperEndpoint;\n      purpose: 'live-score' | 'role-roster' | 'transactions' | 'metadata' | 'historical-import' | 'future-observation' | 'future-preparation';\n      connectionId: Id | null; source: PermitSource | null; fence: JobFence | null }\n  | { kind: 'retry'; requestId: Id; previousPermitId: Id; source: PermitSource | null; fence: JobFence | null };\n// Existing server page reads may have null job fence, but only a source-resolved\n// registered scope and allowed family/purpose. No caller-controlled routing.\n// Target tagged policy/attempt/scope must exactly match persisted reservation.\n// JobFence.attemptCount is a positive integer matching actual job attempt_count;\n// no fabricated generation. A null source is only a registered unpersisted read.\n// Retry endpoint/scope/actor derive from immutable previous request_context.\n// Source-backed retry requires a NEW reserved source.attemptId in the same tagged branch under the same logical\n// request/scope/context/policy/mapping and current job lease; never reuse a failed\n// attempt. Unpersisted server/global read retry requires source:null.\n\ntype PermitResult =\n  | { status: 'granted'; permitId: Id; dbSampleAt: Instant; dispatchBefore: Instant;\n      remainingDispatchMs: number; httpDeadlineMs: 5000 }\n  | { status: 'limited' | 'denied' | 'indeterminate'; reason:\n      'cooldown' | 'budget_exhausted' | 'authority_unavailable' | 'scope_invalid' | 'deadline' };\n// remainingDispatchMs integer1..1000 computed in DB; no public DTO.\n// The transport performs exactly one no-store, redirect-manual fetch after\n// conservative monotonic expiry check and confirmed permit commit.\n\ntype DemandResultRef = null\n  | { kind: 'identity'; captureId: Id }\n  | { kind: 'discovery'; scanId: Id }\n  | { kind: 'recovery'; status: 'complete' };\ntype DemandTerminalOutcome = null | 'completed' | 'failed' | 'cancelled' | 'expired';\n// Persist command_input_hash separately from semantic scope_hash. Exact actor+\n// command identity, input digest and terminal outcome survive source-detail compaction.\n// Terminal state is completed|failed|cancelled; expired maps to failed+expired.\n// terminal_at is nonnull exactly for terminal demands. After terminal30days,\n// compact scope and result_ref to null; never compact live demand details.\n// An old compacted retry returns unavailable/demand_expired, never enqueues anew.\n\ntype PermitOrigin =\n  | { kind: 'target'; demandId: Id; source: PermitSource;\n      fence: JobFence; endpoint: SleeperEndpoint }\n  | { kind: 'existing'; endpoint: SleeperEndpoint;\n      purpose: 'live-score' | 'role-roster' | 'transactions' | 'metadata' | 'historical-import' | 'future-observation' | 'future-preparation';\n      connectionId: Id | null; source: PermitSource | null; fence: JobFence | null };\ntype PermitRequestContext = {\n  version: 'sleeper-permit-context-v1'; origin: PermitOrigin;\n  resolved: { accessContextId: Id; accessRevision: Revision; audienceId: Id;\n              connectionId: Id | null; sourceMappingRevisionId: Id | null };\n};\n// Exact immutable request_context; origin omits transport requestId. Resolved\n// context and mapping come from qualified persisted attempt/source registry,\n// never caller authority. Connection/mapping are both present or both null.\n// Target and persisted existing-source origin requires the exact tagged source;\n// existing unpersisted server/global read has source:null. Retry captures\n// its newly reserved attempt/fence after proving the same logical source scope.\n// No actor/session/token/email digest or raw provider result is included.\n",
+  "interfaces": [
+    {
+      "signature": "public.lock_account_session_authority_v2(p_session_receipt jsonb) RETURNS TABLE(session_expires_at timestamptz,admission_epoch_revision bigint,db_sample_at timestamptz,session_created_at timestamptz)",
+      "caller": "league_one_account",
+      "input": "AuthReceiptV2",
+      "output": "Auth-only safe timing tuple; failure throws fixed safe SQLSTATE, no user/token fields."
+    },
+    {
+      "signature": "public.admit_account_acquisition_v1(p_command jsonb,p_session_receipt jsonb) RETURNS jsonb",
+      "caller": "league_one_account",
+      "input": "AcquisitionCommand + AuthReceiptV2",
+      "output": "AdmissionHelperResult"
+    },
+    {
+      "signature": "public.read_account_acquisition_v1(p_demand_id uuid,p_session_receipt jsonb) RETURNS jsonb",
+      "caller": "league_one_account",
+      "input": "Own demand UUID + AuthReceiptV2",
+      "output": "DemandProgressHelperResult"
+    },
+    {
+      "signature": "public.claim_account_acquisition_v1(p_worker_id text) RETURNS jsonb",
+      "caller": "league_one_runtime",
+      "input": "Trusted worker identity, nonempty bounded100-character opaque string",
+      "output": "AcquisitionClaim"
+    },
+    {
+      "signature": "public.reserve_provider_http_v1(p_request jsonb) RETURNS jsonb",
+      "caller": "league_one_runtime",
+      "input": "PermitRequest",
+      "output": "PermitResult"
+    },
+    {
+      "signature": "public.finish_provider_http_v1(p_permit_id uuid,p_outcome text,p_retry_after_seconds integer) RETURNS boolean",
+      "caller": "league_one_runtime",
+      "input": "Permit UUID; success|invalid|http429|http503|http5xx|http4xx|network|cancelled|unknown; nullable integer0..86400 or sentinel -1 for invalid/unrepresentable/long Retry-After, which latches circuit rather than shortening provider cooldown.",
+      "output": "True for recorded outcome or exact idempotent repeat. A terminal unknown may refine once to an actually observed response with response_observed_at, preserving original completion/charge/quarantine; conflicting observed outcomes reject. Late429/503 tightens cooldown/circuit even after lease expiry, never accepts data or authorizes later work."
+    }
+  ],
+  "protocol": [
+    "Admission: after same-B auth and actor/login locks, resolve association/native account, stable league/current selection where applicable, qualified acquisition policy and provider context. Identify needs admitted actor but no association; discover needs own active exact association revision; recover additionally needs own selected stable league and independently valid acquisition context, not an unexpired membership grant. Provider is fixed Sleeper; audience/coverage/strategy come from owner registry. No session receipt is stored.",
+    "Lock typed command-ID mutex then provider gate after operation-relevant domain locks. Resolve same actor+command ID first: exact input digest returns its existing own result without new audit/work; mismatched payload conflicts. Only exact actor+commandId replay returns joined. A different commandId colliding with the same unfinished semantic scope returns limited/budget_exhausted without accepting a command, audit or job; it may be explicitly retried later as a previously unaccepted command. Do not acknowledge an unpersisted command alias. Enforce2 unexpired unfinished demands peractor and128 globally under the gate. Create demand, audit admission and existing projection_jobs intent in one transaction; job_type account-acquisition, payload exactly {demandId}. Audit adds subject app_acquisition_demands, subject_id demandId, subject_user_id actor, metadata {} and counts the unchanged60 events/60seconds. Any failure rolls back all.",
+    "Discovery strategy active-retained-v1 fixes sorted unique {qualified NFL league_season, previous2 seasons, all retained current-selection seasons}. Only documented valid NFL years are queried; no invented universal first year. previous_league_id traversal is a separate bounded resumable import: at most32 ancestor steps per demand, preserve checkpoint and disclose incomplete chain. Query-set completeness means only this explicit set; current-season competition-period coverage is separately qualified. No automatic enrollment/follow from discovery.",
+    "Worker claim takes provider gate then due demand/job locks only; it does not hold an earlier domain lock afterward. Select fair eligible actor and oldest due demand, allocate existing projection_jobs lease30s and increment actual attempt_count. Return the bounded work/fence, release transaction, then reserve each source attempt through existing begin_provider_request_v2 or enrolled writer. Pin qualified provider request policy ID/revision before any network; suspended/mismatched policy cannot be invented after failure. Before dispatch, revalidate actor/association/context/source mapping/lease in domain lock order, then provider gate. Independent source acquisition does not require the initiating browser session still alive; explicit demand was authorized at admission, while actor/association/context revocation cancels unstarted work.",
+    "Permit grant: under the same provider gate, sample DB time, derive lane from validated endpoint/purpose/demand or prior retry, enforce circuit/cooldown, exact rolling counts over61s, actor hour over3601s, applicable peractor/window/concurrency and source fences. Insert unique requestId permit with granted_at, dispatch_before=now+1s and occupied_until=now+60s. Return granted only for the permit inserted by this invocation; any repeated requestId returns indeterminate without redisclosing a send-capable grant. This prevents two callers dispatching from one permit. Count all granted permits regardless outcome, including uncertain/not-dispatched grants. Store actual projection job attempt_count/lease_owner/lease_until where present. Global and lane constraints are atomic; no refund. If grant commit is unknown, do not fetch.",
+    "Before sending, the existing shared Sleeper transport anchors monotonic time before grant SQL, validates returned lifetime using ceil elapsed and synchronously calls fetch once with no await between final check and dispatch. Expired grant never dispatches. Every actual transport call must have one unique consumed permit; HTTP redirects are manual/refused and fetch performs no automatic application retries. Framework caches sit OUTSIDE this no-store transport, so cache hits need no permit and every background refresh/miss enters the same gate. Converge all Sleeper clients, including catalog, schedule, scores, weekly stats, raw matchups, operator/maintenance and server-page fallback, without duplicating collectors or caches. Response bytes and normalized source provenance follow existing owner paths.",
+    "Budget proof: an owned local dispatch no later than1s after its grant means any60s local-dispatch interval draws grants from a61s interval. At most900 charged grants in every61s interval therefore bounds participating local starts to900/60s; lane caps and actor limits use the same conservative rule. This is not a proof about network-delayed or reordered provider arrival times. This relies on the trusted transport enforcing the deadline at the synchronous send boundary; unknown or backward timers refuse. Runtime qualification must exercise event-loop stalls and all direct transport sites. No claim controls calls from unrelated third-party systems or an uninstrumented deployment; target activation requires complete owned-callsite convergence and single production worker lane ownership.",
+    "Completion uses finish helper to record a bounded outcome and cooldown, release local transport slot on observed completion/confirmed local teardown, and never refund charge. If completion is unknown, retain slot for60s quarantine, then mark unknown-completion terminal locally. This bounds local dispatch ownership; it cannot prove remote provider computation was cancelled. A retry requires a new permit and preserved source attempt provenance under the existing writer, never replay-created freshness. Completed capture/acceptance and next required work remain atomic in the existing acceptance owner. A late429/503 is still allowed to tighten the global cooldown even if its source lease expired; finishing transport never accepts source facts or grants future authority.",
+    "Demand expires15min after admission; progress remains honest pending/partial/unavailable. A stopped/expired lease cannot start new requests or accept stale results; persisted checkpoints permit a new explicitly admitted demand to continue proven completed scopes without renewing their timestamps. Completion/audit/idempotency exceptions do not lose existing accepted facts. Progress polling reauthorizes same-B actor and ownership and exposes only the exact closed progress variant. Protected league data still uses final roster authorization.",
+    "Provider overload: shared429/503 cooldown applies across lanes/hosts. Retries have their own15 cap and still count global/actor budgets. Third429/10min opens the circuit; operator reviews provider guidance, visibility and demand before resetting. No immediate retry loop, new cron, browser Tank01 request or uncapped worker fallback. Admission database unavailable, unknown scope/policy/clock, unmigrated deployment or unsupported privilege manifest fails closed for acquisition; stored official data may retain existing honest fallback/coverage behavior."
+  ],
+  "storage_refs": [
+    "website_auth admission epoch (existing proposed singleton; no duplicate invite list)",
+    "app_acquisition_demands: actor-scoped command identity/durable job intent, protected owner helper only",
+    "provider_request_gates and provider_request_lane_limits: serialized shared policy/circuit and lane allocation",
+    "provider_http_permits: immutable charged grants, retained outcomes and local dispatch slots",
+    "provider_request_policy_qualifications: qualified identity/account-discovery/source policy and revision",
+    "existing projection_jobs: real job_key/attempt_count/lease_owner/lease_until; no parallel queue"
+  ],
+  "schedules": [
+    {
+      "id": "AA-P01",
+      "schedule": "A validates receipt; coordinator dispatches B; A/coordinator disappears; logout R attempts exclusive auth gate.",
+      "expected": "If B guard acquired first, B retains its own shared gate and R waits through B commit/rollback. If R acquired first, B sees missing/changed live session and refuses. No auth depends on A staying alive."
+    },
+    {
+      "id": "AA-P02",
+      "schedule": "Session ID is deleted/recreated with a new token, or email changes between preliminary validation and B.",
+      "expected": "Exact digest mismatch refuses, even if subject/id/config match. Equal restored email with still valid token/config is admissible; no stale invitation decision is imported."
+    },
+    {
+      "id": "AA-P03",
+      "schedule": "Two actors reserve the final global/lane permit concurrently; two commands race on same command identity.",
+      "expected": "Provider gate serializes counts; at most one last permit. Command mutex plus actor/command uniqueness gives one job/audit or exact own replay; mismatched input conflicts. Different-command same-scope collision is limited and remains unaccepted. Repeated permit requestId is indeterminate, never another granted response."
+    },
+    {
+      "id": "AA-P04",
+      "schedule": "Issue900 grants spanning61s; delay each send to its1s boundary; stall another caller past expiry.",
+      "expected": "No participating60s interval exceeds900 observable local dispatches; remote provider arrival timing is not inferred. An expired caller dispatches none and its charge remains. Every retry/redirect attempt must obtain its own admissible permit; automatic redirects are disabled."
+    },
+    {
+      "id": "AA-P05",
+      "schedule": "Flood distinct usernames from one actor, then128 actors; replay IDs and join duplicate scope while worker is blocked.",
+      "expected": "Peractor5/61s+60/3601s,2 pending, global128, actor1 in-flight and fair selection hold. Only exact accepted-command replay joins; distinct-command same-scope collision remains unaccepted/limited. Replay after completion cannot mint fresh work or evade ownership. Rejected demand creates no job/audit."
+    },
+    {
+      "id": "AA-P06",
+      "schedule": "Crash after demand insertion, after atomic commit before acknowledgement, after permit commit before fetch, or after HTTP before completion.; record terminal unknown then deliver late429 twice and a conflicting later response",
+      "expected": "Before commit nothing survives; after commit explicit retry reconciles one job; unused/unknown permits remain charged; unknown local slot quarantines60s. Never claim rollback from transport abort or provider cancellation from local timeout. First actual response may refine unknown once while retaining local completion; response_observed_at counts late429 for circuit, exact repeat is idempotent and conflicting response rejects. Late transport outcome never accepts source facts."
+    },
+    {
+      "id": "AA-P07",
+      "schedule": "Suspend pinned request policy or revoke association between reservation and dispatch/acceptance; replay older positive after admitted removal.; retry a pre-enrollment and enrolled request with old versus fresh attempts and a wrong source tag",
+      "expected": "Unstarted work refuses changed policy/scope/lease; stale results cannot accept. Historical admitted removal remains denying until exact proved supersession, regardless current normalizer qualification. Retry derives immutable request_context and requires the correct source-owner tag/fresh reserved attempt; stale attempt, missing context or wrong policy-table branch rejects."
+    },
+    {
+      "id": "AA-P08",
+      "schedule": "Two deployments and continuous worker plus server fallback hit cached and uncached endpoints; inject429 Retry-After and503.",
+      "expected": "All real sends share one gate, including background cache refresh. Circuit/cooldown and lane/actor budgets hold globally; no old deployment/alternate route bypass. Core latency/capacity measured before activation; reduce watched admission if required."
+    }
+  ],
+  "qualification": [
+    "G6 executes all eight schedules using isolated real roles and injected clocks; no tests executed here.",
+    "Verify exact definer owner/search_path/EXECUTE manifest, pgcrypto schema/function, same database/UTC clock and no account raw auth SELECT/USAGE.",
+    "Test maintained auth token output and digest matching for pinned BetterAuth1.6.23; require review on auth library/schema change.",
+    "Converge every owned Sleeper transport/cache miss/background path before activation; prove global/local slot accounting with cross-process load.",
+    "Qualify continuous mode hosting, exclusive lane handoff, cost and scheduler timing before deployment. Existing Vercel web stays; no second publication/scoring path.",
+    "Confirm provider commercial permission where applicable; current public documentation is not a commercial license."
+  ],
+  "sources": [
+    {
+      "title": "Sleeper API introduction",
+      "url": "https://docs.sleeper.com/#introduction"
+    },
+    {
+      "title": "BetterAuth1.6.23 getSession",
+      "url": "https://github.com/better-auth/better-auth/blob/v1.6.23/packages/better-auth/src/api/routes/session.ts"
+    },
+    {
+      "title": "BetterAuth1.6.23 session output/schema",
+      "url": "https://github.com/better-auth/better-auth/blob/v1.6.23/packages/core/src/db/get-tables.ts"
+    },
+    {
+      "title": "PostgreSQL explicit locking",
+      "url": "https://www.postgresql.org/docs/current/explicit-locking.html"
+    },
+    {
+      "title": "PostgreSQL safe SECURITY DEFINER",
+      "url": "https://www.postgresql.org/docs/current/sql-createfunction.html#SQL-CREATEFUNCTION-SECURITY"
+    },
+    {
+      "title": "PostgreSQL pgcrypto digest",
+      "url": "https://www.postgresql.org/docs/current/pgcrypto.html#PGCRYPTO-HASH-FUNCS"
+    }
+  ],
+  "storage_contract": "Demand durability: retain a separate command_input_hash for exact actor/command idempotency and scope_hash for semantic unfinished-work joins. result_ref is exactly null, identity captureId, discovery scanId or recovery complete as declared above. terminal_outcome is null|completed|failed|cancelled|expired and terminal_at is nonnull exactly for terminal demand; expiry maps state failed/outcome expired. Only after terminal30days may scope and result_ref compact to null. Retain actor/command/input hash/scope hash/state/outcome/terminal time for actor lifetime; explicit compacted replay returns unavailable/demand_expired and cannot create work. Historical job_key/attempt_count/lease_owner/lease_until are captured references validated against a live job when used, not permanent foreign keys to lifecycle projection_jobs; evidence retention cannot prevent ordinary job cleanup. The provider gate also persists import_drr_cursor in0..2 for the selected class round-robin.",
+  "identify_handle": "Identify handle identity: foundation IdentifyProviderAccountResult.lookupRequestId equals AdmissionResult.demandId for an identify demand, allocated in the atomic account admission transaction before any pending response. Worker source attempts/captures retain distinct attempt/capture IDs; provider_request_attempts.request_id is the same logical demand ID, while each HTTP permit requestId is separately unique per dispatch; their IdentityLookupScope.lookupRequestId is that same stable logical demand UUID across retries. No worker-only later ID is required to interpret the pending handle. The account helper envelope is server-internal; its presenter maps demandId to the exact public lookupRequestId field and strips DecisionTiming. No second public DTO is introduced.",
+  "retry_context": "Retry persistence: provider_http_permits.request_context is the exact immutable PermitRequestContext, not only a noninvertible scope_hash. It retains the endpoint/original purpose and resolved context/mapping references needed to revalidate retries. Each source-backed retry reserves a fresh attempt under the same logical request and immutable scope; changed association/context/policy/mapping denies. Known failed attempts are not reused and replay never changes verified time. All attempts still require a new single-use HTTP permit; existing plain reads carry no invented source attempt.",
+  "late_response": "Late response refinement: completion normally records a single outcome. After local terminal unknown, a first actually observed response may refine unknown to success|invalid|http429|http503|http5xx|http4xx and set the previously null response_observed_at to DB time. Preserve original completed_at, charge, dispatch deadline and quarantine; never reopen a slot or accept source facts through finish. A conflicting subsequent response rejects; exact repeat is idempotent. Actual response observations, including late429, count in the ten-minute circuit window by response_observed_at. Late metadata can only tighten cooldown/circuit. Retain the permit for24hours after the later of grant or response observation, and longer while live/quarantined; unknown remote processing is still not proved cancelled.",
+  "source_route": "Source table identity is explicit: PermitSource.pre-enrollment addresses provider_request_attempts and provider_request_policy_qualifications.id; PermitSource.enrolled addresses league_roster_resource_attempts and league_resource_policy_qualifications.scope_id. Demand purpose, endpoint and actual persisted attempt choose the branch, with no ambiguous OR-join. Recovery of an enrolled roster therefore uses its enrolled scope qualifier, never an invented pre-enrollment roster family. Retry preserves branch and immutable scope/policy identity, with a fresh attempt ordinal/current fence; a null source is permitted only for an existing registered read that does not create a persisted source attempt."
+}
