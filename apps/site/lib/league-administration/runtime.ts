@@ -46,6 +46,8 @@ export async function recordCapturedAdministration(
     signal?: AbortSignal; expectedRosterCount?: number; mapping?: AdministrationSourceMapping | null;
     rosterAttempt?: RosterAttempt;
     managerAttempt?: RosterAttempt;
+    /** Explicit latest-evidence capture; the default still reserves complete-primary v1. */
+    managerEvidenceVersion?: 'v2';
     leagueSettingsAttempt?: RosterAttempt;
     matchupAttempt?: Readonly<{ week: number; attempt: RosterAttempt }>;
     transactionAttempt?: Readonly<{ week: number; attempt: RosterAttempt }>;
@@ -94,7 +96,8 @@ export async function recordCapturedAdministration(
         checkedAt: now().toISOString(),
       },
       completeness: document.completeness ?? 'complete', payload: document.payload as JsonValue,
-    }, expectedRosterCount === undefined ? undefined : { expectedRosterCount });
+    }, { ...(expectedRosterCount === undefined ? {} : { expectedRosterCount }),
+      ...(options.managerEvidenceVersion === 'v2' ? { managerEvidenceVersion: 'v2' as const } : {}) });
     let mapping = ['rosters', 'league'].includes(document.family)
       || document.family === 'transactions' && options.transactionAttempt?.week === document.week
       || (document.family === 'matchups' && (options.matchupAttempt?.week === document.week
@@ -153,7 +156,9 @@ export async function recordCapturedAdministration(
       if (mapping && document.family === 'league') {
         leagueSettingsAttempt = await store.beginLeagueSettingsAttempt(mapping, randomUUID(), options.fence);
       } else if (mapping && document.family === 'rosters') {
-        const attempts = await store.beginRosterCapture(mapping, randomUUID(), randomUUID(), options.fence);
+        const beginCapture = options.managerEvidenceVersion === 'v2' ? store.beginRosterEvidenceCapture : store.beginRosterCapture;
+        if (!beginCapture) throw new Error('Manager evidence v2 capture is unsupported by this store.');
+        const attempts = await beginCapture(mapping, randomUUID(), randomUUID(), options.fence);
         attempt = attempts.players; managerAttempt = attempts.managers;
       } else if (document.family === 'matchups' && options.mapping && document.week !== null) {
         mapping = options.mapping;
@@ -186,7 +191,8 @@ export async function recordCapturedAdministration(
         provenance: { origin: 'network', requestStartedAt: verified.requestStartedAt,
           requestCompletedAt: verified.requestCompletedAt, sourceObservedAt: verified.sourceObservedAt !== undefined
             ? verified.sourceObservedAt : verified.requestCompletedAt,
-          checkedAt: now().toISOString() } }, expectedRosterCount === undefined ? undefined : { expectedRosterCount });
+          checkedAt: now().toISOString() } }, { ...(expectedRosterCount === undefined ? {} : { expectedRosterCount }),
+      ...(options.managerEvidenceVersion === 'v2' ? { managerEvidenceVersion: 'v2' as const } : {}) });
       // Retain the pre-acquisition token through verification. A remap never
       // authorizes this older capture by substituting today's revision.
       result = await write();

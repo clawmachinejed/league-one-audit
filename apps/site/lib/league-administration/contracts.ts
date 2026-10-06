@@ -167,12 +167,15 @@ export type NormalizedAdministrationObservation = Readonly<{
   value: NormalizedAdministrationValue | null;
   /** Independently qualified projection of the same raw roster; never changes v1 values/hashes. */
   teamManagers?: import('../aggregator/team-managers').TeamManagersNormalization;
+  /** Separately opted-in field evidence; never changes complete-primary v1 normalization. */
+  teamManagerEvidence?: import('../aggregator/team-managers').TeamManagerEvidenceNormalization;
   leagueSettings?: import('../aggregator/league-settings').LeagueSettingsNormalization;
 }>;
 
 export type AdministrationNormalizationExpectations = Readonly<{
   /** Use only a separately validated complete league observation. */
   expectedRosterCount?: number;
+  managerEvidenceVersion?: 'v2';
 }>;
 
 /** An explicit component binding is separate from when its source document was checked. */

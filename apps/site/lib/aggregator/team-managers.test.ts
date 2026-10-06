@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { AdministrationEnvelope, JsonObject } from '../league-administration/contracts';
 import { normalizeAdministrationObservation } from '../league-administration/normalize';
 import { CURRENT_ROSTER_POLICY, currentRosterScope } from './current-roster';
-import { TEAM_MANAGERS_POLICY, teamManagersScope } from './team-managers';
+import { TEAM_MANAGERS_POLICY, teamManagersScope, TEAM_MANAGER_EVIDENCE_POLICY, teamManagerEvidenceScope, teamManagerEvidenceCoverage } from './team-managers';
 
 const scope = { leagueKey: 'league1', provider: 'sleeper' as const, externalLeagueId: 'fixture-source', season: 2026 };
 const provenance: AdministrationEnvelope['provenance'] = {
@@ -133,5 +133,105 @@ describe('current team manager resource normalization', () => {
       coverageSpecId: 'sleeper-current-all-teams-primary-owners-v1' });
     expect(teamManagersScope(mapping)).not.toEqual(currentRosterScope(mapping));
     expect(TEAM_MANAGERS_POLICY.coverageSpecId).not.toBe(CURRENT_ROSTER_POLICY.coverageSpecId);
+  });
+});
+
+function normalizeEvidence(payload: AdministrationEnvelope['payload'], expectedRosterCount = 1) {
+  return normalizeAdministrationObservation({ schemaVersion: 'league-administration-v1',
+    normalizerVersion: 'sleeper-administration-v1', dialect: 'sleeper-nfl-v1', scope,
+    family: 'rosters', week: null, completeness: 'complete', provenance, payload }, { expectedRosterCount, managerEvidenceVersion: 'v2' });
+}
+
+describe('opt-in manager field evidence v2', () => {
+  it('reproduces the v1 invalid-primary loss and retains independent co-managers only in v2', () => {
+    const payload = [{ ...owned, owner_id: 123 }];
+    const historical = normalize(payload);
+    const evidence = normalizeEvidence(payload);
+    expect(historical.teamManagers).toMatchObject({ status: 'invalid', teams: null });
+    expect(evidence.teamManagerEvidence).toMatchObject({ version: TEAM_MANAGER_EVIDENCE_POLICY.canonicalNormalizerVersion,
+      status: 'partial', teams: [{ primaryOwner: { state: 'unknown', externalManagerId: null, reason: 'primary_owner_invalid' },
+        coManagers: { state: 'known', externalManagerIds: ['manager-002'] } }] });
+    const { teamManagerEvidence: projection, ...preserved } = evidence;
+    expect(projection).toBeDefined();
+    expect(preserved).toEqual(historical);
+    expect(historical).not.toHaveProperty('teamManagerEvidence');
+  });
+
+  it.each(['', ' owner', 'owner ', 'owner\u0000', 123, [], {}])('preserves valid co-manager evidence for malformed primary %j', owner_id => {
+    const result = normalizeEvidence([{ ...owned, owner_id }]);
+    expect(result.teamManagerEvidence).toMatchObject({ status: 'partial', teams: [{
+      primaryOwner: { state: 'unknown', externalManagerId: null, reason: 'primary_owner_invalid' },
+      coManagers: { state: 'known', externalManagerIds: ['manager-002'] } }] });
+    expect(result.status).toBe('rejected');
+  });
+
+  it('distinguishes absence, explicit vacancy and malformed primary without primary promotion', () => {
+    const absent = normalizeEvidence([{ roster_id: 7, co_owners: ['manager-002'] }]);
+    const vacancy = normalizeEvidence([{ roster_id: 7, owner_id: null, co_owners: ['manager-002'] }]);
+    const invalid = normalizeEvidence([{ roster_id: 7, owner_id: '', co_owners: ['manager-002'] }]);
+    expect(absent.teamManagerEvidence?.teams?.[0].primaryOwner).toEqual({ state: 'unknown', externalManagerId: null, reason: 'primary_owner_absent' });
+    expect(vacancy.teamManagerEvidence?.teams?.[0].primaryOwner).toEqual({ state: 'unowned', externalManagerId: null });
+    expect(invalid.teamManagerEvidence?.teams?.[0].primaryOwner).toEqual({ state: 'unknown', externalManagerId: null, reason: 'primary_owner_invalid' });
+    expect(vacancy.teamManagerEvidence?.status).toBe('complete');
+    expect(new Set([absent.contentHash, vacancy.contentHash, invalid.contentHash]).size).toBe(3);
+  });
+
+  it.each([
+    ['mixed malformed', ['co-first', null, '', 7, {}, [], ' co-invalid', 'co-second'], ['co-first', 'co-second']],
+    ['duplicates', ['co-first', 'co-first', 'co-second'], ['co-first', 'co-second']],
+    ['owner collision', ['co-first', 'manager-001', 'co-second'], ['co-first', 'co-second']],
+    ['all invalid', [null, 7, '', 'manager-001'], []],
+  ] as const)('retains source-ordered independent IDs for %s with explicit incomplete inventory', (_label, co_owners, ids) => {
+    const result = normalizeEvidence([{ ...owned, co_owners }]);
+    expect(result.teamManagerEvidence).toMatchObject({ status: 'partial', teams: [{
+      primaryOwner: { state: 'owned', externalManagerId: 'manager-001' },
+      coManagers: { state: 'partial', externalManagerIds: ids, reason: 'co_managers_invalid_members' } }] });
+    expect(result.teamManagers?.teams?.[0].coManagers).toMatchObject({ state: 'unknown', externalManagerIds: null });
+  });
+
+  it.each([
+    ['missing', {}, 'co_managers_absent'], ['null', { co_owners: null }, 'co_managers_null'],
+    ['scalar', { co_owners: 'manager-002' }, 'co_managers_invalid'], ['object', { co_owners: {} }, 'co_managers_invalid'],
+  ] as const)('retains %s co-manager evidence as unknown, never an empty complete list', (_label, co, reason) => {
+    const result = normalizeEvidence([{ roster_id: 7, owner_id: 'manager-001', ...co }]);
+    expect(result.teamManagerEvidence?.teams?.[0].coManagers).toEqual({ state: 'unknown', externalManagerIds: null, reason });
+    expect(result.teamManagerEvidence?.status).toBe('partial');
+  });
+
+  it('retains opaque provider IDs and never treats case differences or unicode interior whitespace as aliases', () => {
+    const result = normalizeEvidence([{ roster_id: 7, owner_id: [], co_owners: ['Co/0007', 'co/0007', 'co\u00a0manager', 'co\u0085manager'] }]);
+    expect(result.teamManagerEvidence?.teams?.[0].coManagers).toEqual({ state: 'known',
+      externalManagerIds: ['Co/0007', 'co/0007', 'co\u00a0manager', 'co\u0085manager'] });
+  });
+
+  it.each([
+    ['foreign league', [{ ...owned, league_id: 'foreign' }], 1], ['duplicate roster', [owned, owned], 2],
+    ['partial population', [owned], 2], ['no teams', [], 1], ['invalid roster', [{ ...owned, roster_id: '7' }], 1],
+    ['invalid row', [null], 1], ['invalid shape', {}, 1],
+  ] as const)('refuses a %s resource instead of presenting a partial team population', (_label, raw, count) => {
+    expect(normalizeEvidence(raw, count).teamManagerEvidence).toMatchObject({ status: 'invalid', teams: null });
+  });
+
+  it('has a separate acceptance identity and reports deduplicated adverse reasons', () => {
+    const mapping = { connectionId: 'connection', leagueSeasonId: 'season', revisionId: 'revision', generation: 1, scope };
+    expect(teamManagerEvidenceScope(mapping)).not.toEqual(teamManagersScope(mapping));
+    expect(TEAM_MANAGERS_POLICY).toEqual({ audienceId: 'public', coverageSpecId: 'sleeper-current-all-teams-primary-owners-v1',
+      canonicalNormalizerVersion: 'sleeper-current-team-managers-v1', validationVersion: 'latest-network-attempt-v1' });
+    const projection = normalizeEvidence([{ roster_id: 7, owner_id: 0, co_owners: ['co', 0] },
+      { roster_id: 8, owner_id: 0, co_owners: null }], 2).teamManagerEvidence!;
+    expect(teamManagerEvidenceCoverage(projection)).toEqual({ periodIds: [], interval: null, entitySet: 'full',
+      fields: ['owner_id', 'co_owners'], pagination: 'complete', nextCursor: null, completeness: 'partial',
+      reasons: ['co_managers_invalid_members', 'co_managers_null', 'primary_owner_invalid'] });
+  });
+
+  it('freezes independent evidence and does not carry forward older complete ownership', () => {
+    const raw = [{ ...owned, co_owners: ['co-old'] }];
+    const before = normalizeEvidence(raw); raw[0].co_owners.push('co-later');
+    const after = normalizeEvidence([{ roster_id: 7, owner_id: {}, co_owners: ['co-new', null] }]);
+    expect(before.teamManagerEvidence?.teams?.[0].coManagers).toEqual({ state: 'known', externalManagerIds: ['co-old'] });
+    expect(Object.isFrozen(before.teamManagerEvidence?.teams?.[0])).toBe(true);
+    expect(after.teamManagerEvidence?.teams?.[0]).toEqual({ externalRosterId: '7',
+      primaryOwner: { state: 'unknown', externalManagerId: null, reason: 'primary_owner_invalid' },
+      coManagers: { state: 'partial', externalManagerIds: ['co-new'], reason: 'co_managers_invalid_members' } });
   });
 });

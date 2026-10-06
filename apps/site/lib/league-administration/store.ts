@@ -33,6 +33,8 @@ export function createLeagueAdministrationStore(database: Database): LeagueAdmin
     beginRosterAttempt: async () => { throw new Error('Administration persistence disabled.'); },
     beginRosterCapture: async () => { throw new Error('Administration persistence disabled.'); },
     readAcceptedTeamManagers: async () => ({ status: 'disabled' }),
+    beginRosterEvidenceCapture: async () => { throw new Error('Administration persistence disabled.'); },
+    readAcceptedTeamManagerEvidence: async () => ({ status: 'disabled' }),
     readAcceptedCurrentRoster: async () => ({ status: 'disabled' }),
     readSource: async () => ({ status: 'disabled' }),
     readSourceByConnection: async () => ({ status: 'disabled' }),

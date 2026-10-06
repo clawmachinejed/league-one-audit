@@ -4,7 +4,7 @@ import type { AdministrationEnvelope, AdministrationFamily, AdministrationScope,
   NormalizedAdministrationObservation } from './contracts';
 import type { RetainedRosterProjection } from '../aggregator/roster-bridge';
 import type { AdministrationSourceMapping } from './source-mapping';
-import type { AcceptedTeamManagersRead, RosterCaptureAttempts } from '../aggregator/team-managers';
+import type { AcceptedTeamManagersRead, AcceptedTeamManagerEvidenceRead, RosterCaptureAttempts } from '../aggregator/team-managers';
 import type { AcceptedLeagueSettingsRead } from '../aggregator/league-settings';
 import type { AcceptedExactMatchupsRead } from '../aggregator/exact-matchups';
 import type { AcceptedCurrentRosterRead, CurrentRosterPolicy, RosterAcceptanceInput,
@@ -77,6 +77,10 @@ export type LeagueAdministrationStore = Readonly<{
   beginRosterCapture: (mapping: AdministrationSourceMapping, playersId: string, managersId: string,
     fence?: AdministrationWriteFence) => Promise<RosterCaptureAttempts>;
   readAcceptedTeamManagers: (mapping: AdministrationSourceMapping) => Promise<AcceptedTeamManagersRead>;
+  /** Optional capability for older store implementations; Neon and disabled stores provide both. */
+  beginRosterEvidenceCapture?: (mapping: AdministrationSourceMapping, playersId: string, managersId: string,
+    fence?: AdministrationWriteFence) => Promise<RosterCaptureAttempts>;
+  readAcceptedTeamManagerEvidence?: (mapping: AdministrationSourceMapping) => Promise<AcceptedTeamManagerEvidenceRead>;
   beginRosterAttempt: (mapping: AdministrationSourceMapping, attemptId: string, policy?: CurrentRosterPolicy,
     fence?: AdministrationWriteFence) => Promise<RosterAttempt>;
   readAcceptedCurrentRoster: (mapping: AdministrationSourceMapping, options?: CurrentRosterReadOptions) => Promise<AcceptedCurrentRosterRead>;

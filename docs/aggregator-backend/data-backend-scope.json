@@ -198,6 +198,38 @@
       "resource": "Provider-qualified canonical league registration",
       "purpose": "Backward-compatible provider/native-ID registrar input; retain sleeperLeagueId callers and reject conflicting inputs without enabling unsupported provider collection.",
       "path": "apps/site/lib/projections/adapters/neon/contracts.ts"
+    },
+    {
+      "path": "apps/site/lib/aggregator/team-managers.ts",
+      "resource": "Versioned independent co-manager evidence with explicit primary-owner uncertainty",
+      "purpose": "Add separate v2 evidence acceptance and readback through existing storage; preserve v1 default contracts, immutable hashes and primary-complete heads, effective 028-033 writer wrappers, mapping fences and absence of website entitlement.",
+      "proof": "Offline malformed/missing/null primary and valid co-manager, version/replay/old-readback tests; authored actual restricted LOGIN atomicity, fencing, ordering and privilege oracle, SQL execution pending.",
+      "reviewer": "Independent GPT-6 Astra ultra review in Review new backend end to end (01a0f411-7133-7491-b693-4c89af678ca6)",
+      "reviewReference": "DATA-SCOPE-2026-10-06-MANAGER-EVIDENCE-V2-01"
+    },
+    {
+      "path": "apps/site/lib/aggregator/team-managers.test.ts",
+      "resource": "Versioned independent co-manager evidence with explicit primary-owner uncertainty",
+      "purpose": "Add separate v2 evidence acceptance and readback through existing storage; preserve v1 default contracts, immutable hashes and primary-complete heads, effective 028-033 writer wrappers, mapping fences and absence of website entitlement.",
+      "proof": "Offline malformed/missing/null primary and valid co-manager, version/replay/old-readback tests; authored actual restricted LOGIN atomicity, fencing, ordering and privilege oracle, SQL execution pending.",
+      "reviewer": "Independent GPT-6 Astra ultra review in Review new backend end to end (01a0f411-7133-7491-b693-4c89af678ca6)",
+      "reviewReference": "DATA-SCOPE-2026-10-06-MANAGER-EVIDENCE-V2-01"
+    },
+    {
+      "path": "apps/site/integration/team-manager-relationships.integration-case.ts",
+      "resource": "Versioned independent co-manager evidence with explicit primary-owner uncertainty",
+      "purpose": "Add separate v2 evidence acceptance and readback through existing storage; preserve v1 default contracts, immutable hashes and primary-complete heads, effective 028-033 writer wrappers, mapping fences and absence of website entitlement.",
+      "proof": "Offline malformed/missing/null primary and valid co-manager, version/replay/old-readback tests; authored actual restricted LOGIN atomicity, fencing, ordering and privilege oracle, SQL execution pending.",
+      "reviewer": "Independent GPT-6 Astra ultra review in Review new backend end to end (01a0f411-7133-7491-b693-4c89af678ca6)",
+      "reviewReference": "DATA-SCOPE-2026-10-06-MANAGER-EVIDENCE-V2-01"
+    },
+    {
+      "path": "apps/site/migrations/035_team_manager_evidence_v2.sql",
+      "resource": "Versioned independent co-manager evidence with explicit primary-owner uncertainty",
+      "purpose": "Add separate v2 evidence acceptance and readback through existing storage; preserve v1 default contracts, immutable hashes and primary-complete heads, effective 028-033 writer wrappers, mapping fences and absence of website entitlement.",
+      "proof": "Offline malformed/missing/null primary and valid co-manager, version/replay/old-readback tests; authored actual restricted LOGIN atomicity, fencing, ordering and privilege oracle, SQL execution pending.",
+      "reviewer": "Independent GPT-6 Astra ultra review in Review new backend end to end (01a0f411-7133-7491-b693-4c89af678ca6)",
+      "reviewReference": "DATA-SCOPE-2026-10-06-MANAGER-EVIDENCE-V2-01"
     }
   ],
   "governanceChanges": [
