@@ -198,6 +198,22 @@
       "resource": "Provider-qualified canonical league registration",
       "purpose": "Backward-compatible provider/native-ID registrar input; retain sleeperLeagueId callers and reject conflicting inputs without enabling unsupported provider collection.",
       "path": "apps/site/lib/projections/adapters/neon/contracts.ts"
+    },
+    {
+      "path": "apps/site/integration/integration-database-ownership.ts",
+      "resource": "Deadline-safe isolated ingestion qualification ownership",
+      "purpose": "Carry optional operation cancellation to the actual owner-session dispatch boundary; fence after internal verification/acquisition and before issuing later SQL, while preserving legacy callers and separately bounded rollback/release.",
+      "proof": "Offline deferred verification/acquisition race with actual helper composition, legacy ownership/refusal/release regressions; actual SQL cancellation and locking remain unexecuted.",
+      "reviewer": "Independent GPT-6 Astra ultra review in Backend foundation reconciliation (01a10e85-7bde-74b1-8ad7-93d3d1838eab)",
+      "reviewReference": "DATA-SCOPE-2026-10-06-OWNERSHIP-CANCELLATION-03"
+    },
+    {
+      "path": "apps/site/integration/integration-database-ownership.test.ts",
+      "resource": "Deadline-safe isolated ingestion qualification ownership",
+      "purpose": "Carry optional operation cancellation to the actual owner-session dispatch boundary; fence after internal verification/acquisition and before issuing later SQL, while preserving legacy callers and separately bounded rollback/release.",
+      "proof": "Offline deferred verification/acquisition race with actual helper composition, legacy ownership/refusal/release regressions; actual SQL cancellation and locking remain unexecuted.",
+      "reviewer": "Independent GPT-6 Astra ultra review in Backend foundation reconciliation (01a10e85-7bde-74b1-8ad7-93d3d1838eab)",
+      "reviewReference": "DATA-SCOPE-2026-10-06-OWNERSHIP-CANCELLATION-03"
     }
   ],
   "governanceChanges": [
