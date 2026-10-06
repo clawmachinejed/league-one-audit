@@ -266,10 +266,10 @@
     {
       "path": "apps/site/migrations/037_official_data_registration.sql",
       "resource": "Representable official league data without invented calculation settings",
-      "purpose": "Permit nullable immutable season profile bindings; preserve the FK and existing immutable-profile guards. Replace only the effective026 writer profile join and the two effective017 intended-membership CTEs using immutable DATA season evidence plus exact NULL-profile season and matching source connection. Preserve all other wrappers, locks, parity, signatures, ACLs and zero-population refusal; no activation or backfill.",
-      "proof": "Independent design eligibility only at f904. Require frozen combined036+037 review, all field states, configured compatibility, mixed/malformed publication, immutable binding, interrupted registration recovery and genuine restricted-LOGIN oracles. Actual SQL remains unexecuted.",
+      "purpose": "Permit nullable immutable season profile bindings; preserve the FK and existing immutable-profile guards. Replace only the effective026 writer profile join and the two effective017 intended-membership CTEs using immutable DATA season evidence plus exact NULL-profile season and matching source connection. Preserve all other wrappers, locks, parity, signatures, ACLs and zero-population refusal; no activation or backfill. Preserve the effective019 legacy no-statistics completion body except its two related population predicates, applying the same exact immutable DATA/NULL and matching-provider-source exclusion to nonempty and invalid-authority populations. Current024 sharedPregame composition, all fences/evidence/time/kickoff/history/budget/ACL remain unchanged.",
+      "proof": "Independent design eligibility only at f904. Require frozen combined036+037 review, all field states, configured compatibility, mixed/malformed publication, immutable binding, interrupted registration recovery and genuine restricted-LOGIN oracles. Actual SQL remains unexecuted. Legacy mixed/zero-eligible/malformed source and authority oracles are authored only; inherited owner-reset fixture does not prove uninterrupted request budgeting.",
       "reviewer": "Independent GPT-6 Astra ultra design confirmation in Backend foundation reconciliation (01a10e85-7bde-74b1-8ad7-93d3d1838eab) and Review new backend end to end (01a0f411-7133-7491-b693-4c89af678ca6)",
-      "reviewReference": "DATA-SCOPE-2026-10-06-OFFICIAL-DATA-REGISTRATION-01"
+      "reviewReference": "DATA-SCOPE-2026-10-06-OFFICIAL-DATA-REGISTRATION-01; DATA-SCOPE-2026-10-06-OFFICIAL-NULL-LEGACY-PREGAME-01"
     },
     {
       "path": "apps/site/lib/projection-store.test.ts",
@@ -302,6 +302,30 @@
       "proof": "Independent exact-path design eligibility from database/security reviewer; actual frozen diff requires review. Authored PostgreSQL remains unexecuted.",
       "reviewer": "Independent GPT-6 Astra ultra design confirmation in Backend foundation reconciliation (01a10e85-7bde-74b1-8ad7-93d3d1838eab)",
       "reviewReference": "DATA-SCOPE-2026-10-06-OFFICIAL-DATA-REGISTRATION-01"
+    },
+    {
+      "path": "package.json",
+      "resource": "DATA implementation scope enforcement in the existing verification entrypoint",
+      "purpose": "Run the existing fixed-baseline DATA scope checker before existing dependency, lint, type, unit and build stages; no new workflow or broad scope allowance.",
+      "proof": "Existing checker self-tests plus disposable-repository execution of the actual verify entrypoint must reject out-of-scope work before downstream stages. Hosted CI execution and required branch protection remain unverified.",
+      "reviewer": "Independent GPT-6 Astra ultra scope design in Backend foundation reconciliation (01a10e85-7bde-74b1-8ad7-93d3d1838eab)",
+      "reviewReference": "DATA-SCOPE-2026-10-06-VERIFY-GUARDRAIL-01"
+    },
+    {
+      "path": ".github/workflows/verify.yml",
+      "resource": "DATA implementation scope enforcement in the existing verification job",
+      "purpose": "Make the unchanged fixed comparison baseline available to the existing verify job checkout. Reuse its existing pnpm verify command and browser dependency; no new pipeline or deployment change.",
+      "proof": "Inspect exact checkout change and verify command reachability; offline actual-entrypoint negative and checker self-tests. This does not configure or prove required GitHub branch protection.",
+      "reviewer": "Independent GPT-6 Astra ultra scope design in Backend foundation reconciliation (01a10e85-7bde-74b1-8ad7-93d3d1838eab)",
+      "reviewReference": "DATA-SCOPE-2026-10-06-VERIFY-GUARDRAIL-01"
+    },
+    {
+      "path": "apps/site/integration/all-player-pregame-empty.integration-case.ts",
+      "resource": "Legacy configured pregame completion alongside official DATA-only leagues",
+      "purpose": "Extend only the existing legacy no-statistics completion fixture for mixed configured/exact DATA-NULL, zero remaining eligible, ordinary missing authority and malformed marker/source negatives using real restricted LOGIN; keep current sharedPregame path unchanged.",
+      "proof": "Authored same-period guarded SQL oracles only; execution pending. Existing owner beforeEach job reset means these isolated cases do not prove uninterrupted global hourly budgeting or natural fleet acquisition.",
+      "reviewer": "Independent GPT-6 Astra ultra scope design in Backend foundation reconciliation (01a10e85-7bde-74b1-8ad7-93d3d1838eab)",
+      "reviewReference": "DATA-SCOPE-2026-10-06-OFFICIAL-NULL-LEGACY-PREGAME-01"
     }
   ],
   "governanceChanges": [
