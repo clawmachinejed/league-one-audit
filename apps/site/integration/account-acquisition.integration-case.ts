@@ -392,7 +392,11 @@ describe.sequential('BC-M1 durable acquisition through actual restricted LOGINs'
     await ownerQuery("UPDATE public.provider_request_policy_qualifications SET revision=revision+1 WHERE family='identity-lookup'");
     const newDemand=await admit(actor,{kind:'identify',commandId:randomUUID(),username});
     expect(await f.step()).toEqual({status:'captured',kind:'identify'});
-    const fresh=(await actor.port.read(newDemand,randomUUID(),'identify')).result;
+    const olderQualified=(await actor.port.read(newDemand,randomUUID(),'identify')).result;
+    if(olderQualified.status!=='identified')throw new Error('Older qualified lookup missing.');
+    const newestDemand=await admit(actor,{kind:'identify',commandId:randomUUID(),username});
+    expect(await f.step()).toEqual({status:'captured',kind:'identify'});
+    const fresh=(await actor.port.read(newestDemand,randomUUID(),'identify')).result;
     if(fresh.status!=='identified')throw new Error('Fresh own-subject lookup missing.');
     expect(fresh.providerAccount.id).toBe(first.providerAccount.id);expect(fresh.lookupCaptureId).not.toBe(first.lookupCaptureId);
     const revision=(await actor.store.readFinal(actor.id)).value.profile.revision;
@@ -405,10 +409,22 @@ describe.sequential('BC-M1 durable acquisition through actual restricted LOGINs'
     expect(renewed).toMatchObject({status:'already_active',associationId:initial.associationId,assurance:'user_asserted'});
     if(renewed.status!=='already_active')throw new Error('Evidence refresh not acknowledged.');
     expect(BigInt(renewed.associationRevision)).toBeGreaterThan(BigInt(initial.associationRevision));
-    expect((await actor.store.readFinal(actor.id)).value.profile.revision).toBeGreaterThan(revision);
+    const afterRefreshRevision=(await actor.store.readFinal(actor.id)).value.profile.revision;
+    expect(afterRefreshRevision).toBe(revision+1);
     expect(await ownerQuery('SELECT subject_lookup_capture_id::text FROM public.app_provider_account_links WHERE id=$1',[initial.associationId]))
       .toEqual([{subject_lookup_capture_id:fresh.lookupCaptureId}]);
     expect((await actor.port.activate(freshCommand)).result).toEqual(renewed);
+    const refreshedActor=(await actor.store.readFinal(actor.id)).value.profile.revision;
+    expect(refreshedActor).toBe(afterRefreshRevision);
+    const refreshedLink=await ownerQuery('SELECT to_jsonb(l) AS retained FROM public.app_provider_account_links l WHERE id=$1',[initial.associationId]);
+    const refreshedAudit=await ownerQuery('SELECT count(*)::int AS count FROM public.app_identity_audit_events WHERE actor_user_id=$1',[actor.id]);
+    // Both lookups have the current qualified policy. The different command
+    // must fail the stale client revision, not merely old-source qualification.
+    expect((await actor.port.read(newDemand,randomUUID(),'identify')).result.status).toBe('identified');
+    expect((await actor.port.activate({...freshCommand,lookupCaptureId:olderQualified.lookupCaptureId,commandId:randomUUID()})).result.status).toBe('conflict');
+    expect((await actor.store.readFinal(actor.id)).value.profile.revision).toBe(refreshedActor);
+    expect(await ownerQuery('SELECT to_jsonb(l) AS retained FROM public.app_provider_account_links l WHERE id=$1',[initial.associationId])).toEqual(refreshedLink);
+    expect(await ownerQuery('SELECT count(*)::int AS count FROM public.app_identity_audit_events WHERE actor_user_id=$1',[actor.id])).toEqual(refreshedAudit);
     expect((await actor.port.activate(firstCommand)).result.status).toBe('denied');
     expect(await ownerQuery('SELECT count(*)::int AS count FROM public.provider_capture_receipts WHERE id=ANY($1::uuid[])',
       [[first.lookupCaptureId,fresh.lookupCaptureId]])).toEqual([{count:2}]);

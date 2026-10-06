@@ -439,7 +439,7 @@ LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,public,pg_
 DECLARE actor uuid; capture public.provider_capture_receipts; attempt public.provider_request_attempts;
  context public.provider_access_contexts; policy public.provider_request_policy_qualifications;
  linked public.app_provider_account_links; admitted public.app_acquisition_demands; result jsonb;
- retained public.app_association_commands; input_hash_value text;
+ retained public.app_association_commands; input_hash_value text; association_changed boolean:=false;
 BEGIN
  PERFORM public.lock_account_actor_authority_v2(p_session_receipt,true); actor:=public.current_app_actor();
  IF p_request_id IS DISTINCT FROM nullif(current_setting('app.request_id',true),'')::uuid THEN
@@ -477,17 +477,28 @@ BEGIN
    IF linked.subject_lookup_capture_id IS DISTINCT FROM capture.id THEN
      -- Explicit own-subject activation refreshes qualified lookup evidence.
      -- Actor CAS was checked above under its lock; preserve a second exact
-     -- association CAS. Existing guard/audit advances both revisions, fencing
-     -- all work admitted against the former evidence without deleting history.
+     -- association revision under the same lock. Its guard advances the link;
+     -- the explicit actor update below advances the client-checked generation.
      UPDATE public.app_provider_account_links SET subject_lookup_capture_id=capture.id
        WHERE id=linked.id AND revision=linked.revision RETURNING * INTO linked;
      IF NOT FOUND THEN RAISE EXCEPTION USING ERRCODE='P4090',MESSAGE='Account state changed'; END IF;
+     association_changed:=true;
    END IF;
    result:=jsonb_build_object('status','already_active','associationId',linked.id,'associationRevision',linked.revision::text,'assurance','user_asserted');
  ELSE
    INSERT INTO public.app_provider_account_links(app_user_id,source_manager_account_id,subject_lookup_capture_id)
    VALUES(actor,p_provider_account_id,capture.id) RETURNING * INTO linked;
+   association_changed:=true;
    result:=jsonb_build_object('status','active','associationId',linked.id,'associationRevision',linked.revision::text,'assurance','user_asserted');
+ END IF;
+ IF association_changed THEN
+   -- A link trigger does not advance its actor. Advance that generation in this
+   -- same transaction so a different command carrying the old client revision
+   -- cannot replace newer qualified evidence. Existing account revision/audit
+   -- and rate guards apply; failure rolls back both mutations and their audits.
+   -- Exact retained-command replay and same-capture no-ops never enter here.
+   UPDATE public.app_users SET revision=revision WHERE id=actor AND revision=p_expected_actor_revision;
+   IF NOT FOUND THEN RAISE EXCEPTION USING ERRCODE='P4090',MESSAGE='Account state changed'; END IF;
  END IF;
  IF retained.command_id IS NULL THEN
    INSERT INTO public.app_association_commands(actor_user_id,command_id,input_hash,association_id,association_revision)

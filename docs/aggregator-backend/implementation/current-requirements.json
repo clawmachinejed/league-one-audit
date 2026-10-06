@@ -66,7 +66,7 @@
       "code": [
         {
           "path": "apps/site/migrations/037_account_acquisition.sql",
-          "line": 505
+          "line": 516
         },
         {
           "path": "apps/site/lib/accounts/discovery-http.ts",
@@ -161,7 +161,7 @@
       "code": [
         {
           "path": "apps/site/migrations/037_account_acquisition.sql",
-          "line": 970
+          "line": 981
         },
         {
           "path": "apps/site/lib/accounts/discovery-http.ts",
@@ -246,7 +246,7 @@
       "code": [
         {
           "path": "apps/site/migrations/037_account_acquisition.sql",
-          "line": 750
+          "line": 761
         },
         {
           "path": "apps/site/lib/accounts/discovery-http.ts",
@@ -281,7 +281,7 @@
       "code": [
         {
           "path": "apps/site/migrations/037_account_acquisition.sql",
-          "line": 505
+          "line": 516
         },
         {
           "path": "apps/site/lib/accounts/discovery-http.ts",
@@ -316,7 +316,7 @@
       "code": [
         {
           "path": "apps/site/migrations/037_account_acquisition.sql",
-          "line": 1199
+          "line": 1210
         },
         {
           "path": "apps/site/lib/accounts/discovery-http.ts",
@@ -591,7 +591,7 @@
       "code": [
         {
           "path": "apps/site/migrations/037_account_acquisition.sql",
-          "line": 686
+          "line": 697
         },
         {
           "path": "apps/site/lib/accounts/discovery-http.ts",
@@ -626,7 +626,7 @@
       "code": [
         {
           "path": "apps/site/migrations/037_account_acquisition.sql",
-          "line": 1087
+          "line": 1098
         },
         {
           "path": "apps/site/lib/accounts/discovery-http.ts",
@@ -661,7 +661,7 @@
       "code": [
         {
           "path": "apps/site/migrations/037_account_acquisition.sql",
-          "line": 1087
+          "line": 1098
         },
         {
           "path": "apps/site/lib/accounts/discovery-http.ts",
@@ -696,7 +696,7 @@
       "code": [
         {
           "path": "apps/site/migrations/037_account_acquisition.sql",
-          "line": 1233
+          "line": 1244
         },
         {
           "path": "apps/site/lib/accounts/discovery-http.ts",
@@ -2135,7 +2135,7 @@
       "code": [
         {
           "path": "apps/site/migrations/037_account_acquisition.sql",
-          "line": 649
+          "line": 660
         },
         {
           "path": "apps/site/lib/accounts/discovery-http.ts",
@@ -2800,7 +2800,7 @@
       "code": [
         {
           "path": "apps/site/migrations/037_account_acquisition.sql",
-          "line": 871
+          "line": 882
         },
         {
           "path": "apps/site/lib/accounts/discovery-http.ts",
