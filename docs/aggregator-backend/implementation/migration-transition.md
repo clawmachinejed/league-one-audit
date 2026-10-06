@@ -41,6 +41,33 @@ Before a release-ready candidate exists, rehearse one reviewed coordinated trans
 
 An additive staged-install alternative is acceptable only after its exact intermediate schemas and caller compatibility are designed and independently qualified. It must not admit ordinary account operations without the required authority. Moving a mandatory guard behind a generic feature flag is not an acceptable alternative.
 
+## Migration 037 installation hold
+
+Migration 037 implements target D03 exclusivity on the existing account-link
+owner. This is a behavior-changing schema step: 020 and the existing site store
+permit nonexclusive/multiple provider profiles, while 037's active-link unique
+indexes prevent both a second active provider account for one actor and a second
+actor claiming the same account. A clean pre-install census does not preserve
+those callers' future behavior. A disabled target does not protect them.
+
+Independent source-model reproduction showed both previously accepted insert
+patterns becoming zero-row `ON CONFLICT DO NOTHING` outcomes, and that automatic
+discovery originally placed 037 outside the 034–036 coordinated batch. The normal
+`migrate.mjs` entry now **refuses installation before constructing a driver when
+037 is present**. There is no feature-flag or environment override. Explicit
+read-only reconciliation reports the held migration without applying anything.
+The existing guarded disposable harness may install it only during a separately
+authorized qualification invocation; no invocation has occurred here.
+
+Before lifting this hold, implement and independently review the compatible
+existing connection/onboarding callers, including durable qualified lookup,
+exclusive activation, conflict/release handling and their existing UI contracts.
+Reconcile all legacy claims without invented lookup receipts, arbitrary conflict
+winners or weakened D03 indexes. Extend the coordinated schema/caller/drain and
+recovery rehearsal to include 037, both application's actual canaries, and exact
+new SHA/checksums. Until then, this is an internal source increment, not an
+installable foundation checkpoint. R087 and F1 remain open.
+
 ## Recovery and rollback boundary
 
 Before a schema transaction commits, confirmed rollback may restore the prior state. After 034 or an epoch transition commits, an old receiptless application is not a safe rollback artifact. Retain a reviewed compatible application artifact and use forward repair or keep private access denied while resolving the fault. Do not drop guards, rewrite the migration ledger/checksums, delete epoch history, restore revoked sessions, or reset a production schema to make a rollback appear successful.

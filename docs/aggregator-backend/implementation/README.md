@@ -16,6 +16,13 @@ BC-M1 is **in progress / unqualified**. Target public activation remains disable
 
 **Migration compatibility remains unqualified:** the current source increment supplies request-owned receipt composition and a coordinated 034–036 installation/epoch transition. No real database installation, server identity, old/new caller coexistence or recovery rehearsal has run. Migration 034's mandatory guards remain unchanged. A disabled target route does not establish installation safety. Do not merge or apply these migrations without the separately authorized qualification and release gates.
 
+The connected acquisition increment adds migration 037, whose D03 unique indexes
+would change existing legacy multi-profile link behavior. Normal installation is
+therefore held before driver construction, with no environment override, until
+the compatible caller cutover and expanded transition are reviewed. See the
+[037 hold](migration-transition.md#migration-037-installation-hold). Internal
+composition and authored disposable fixtures do not authorize lifting it.
+
 See [backlog](backlog.md), [preflight evidence](preflight.md) and [decisions and evidence](evidence.md). Historical B1/B2/B4 completion does not complete any BC-M milestone.
 
 ## Independent audit and authorized remediation

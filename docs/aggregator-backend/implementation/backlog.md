@@ -27,4 +27,22 @@ The October 6 independent audit is bound to `c907584571052cfbea6957e8bad08066fe1
 
 The resumed increment supplies private-caller composition, independent server-identity checks, owner-only epoch activation/history, coordinated 034–036 installation/reconciliation, R035 partial-v2 co-manager retention, and bounded discovery through the existing adapter. These source changes do not qualify actual SQL. The [current 108-row ledger](current-requirements.json) records component evidence separately; whole-obligation counts remain 3 verified, 5 unverified and 100 pending.
 
-The next executable implementation increment is the existing shared job owner's durable scan reservation/capture/checkpoint and global SQL admission boundary, then qualified association/current-selection and D02 authorized stored-roster composition. No provider network operation may run inside a database transaction, and no parallel scheduler, worker or publication pipeline is authorized. The discovery factory remains dormant until those concrete ports and access prerequisites exist. Independent whole-chain credential review and exact-SHA evidence precede any new request for one paid isolated qualification attempt. That run is not authorized by this backlog.
+The connected increment now supplies concrete internal job admission/claim,
+lookup/calendar/list acquisition, retained scan capture/checkpoint and protected
+candidate-reader composition. Its SQL and concurrency behavior remain
+unexecuted; the public route/scheduler remains dormant. The requirement ledger
+will bind the final reviewed source and keep partial component evidence separate.
+
+The next executable increment is compatible legacy connection/onboarding and
+release composition around qualified lookup and D03 activation, followed by D02
+membership expiry/adverse evidence, current selection, follow/renewal, resource
+recovery and authorized stored-roster delivery. Migration 037 is held before
+normal driver construction until its legacy multi-profile behavior change is
+covered by the coordinated transition and canaries. Existing provider callsites
+must converge on the shared permit gate before any universal budget or capacity
+claim; import scheduling and cross-actor shared-resource coalescing remain open.
+No provider network operation may run inside a database transaction, and no
+parallel scheduler, worker or publication pipeline is authorized. Independent
+whole-chain credential review and exact-SHA evidence precede any separately
+approved prerequisite inspection or one bounded isolated qualification attempt.
+Neither operation is authorized by this backlog.

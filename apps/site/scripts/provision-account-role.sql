@@ -110,7 +110,11 @@ DO $$ DECLARE object record; BEGIN
       AND p.oid IS DISTINCT FROM to_regprocedure('public.lock_account_actor_authority_v2(jsonb,boolean)')
       AND p.oid IS DISTINCT FROM to_regprocedure('public.read_account_authority_timing_v2(jsonb)')
       AND p.oid IS DISTINCT FROM to_regprocedure('public.require_account_infrastructure_v1(jsonb)')
-      AND p.oid IS DISTINCT FROM to_regprocedure('public.require_account_revision_v2(bigint,jsonb)') LOOP
+      AND p.oid IS DISTINCT FROM to_regprocedure('public.require_account_revision_v2(bigint,jsonb)')
+      AND p.oid IS DISTINCT FROM to_regprocedure('public.admit_account_acquisition_v1(jsonb,jsonb)')
+      AND p.oid IS DISTINCT FROM to_regprocedure('public.read_account_acquisition_v1(uuid,jsonb,text)')
+      AND p.oid IS DISTINCT FROM to_regprocedure('public.read_account_discovery_v1(uuid,jsonb)')
+      AND p.oid IS DISTINCT FROM to_regprocedure('public.activate_provider_account_v2(uuid,uuid,bigint,uuid,jsonb)') LOOP
     IF has_function_privilege('league_one_account',object.oid,'EXECUTE') THEN
       RAISE EXCEPTION 'account role can execute another privileged function: %',object.proname; END IF;
   END LOOP;
@@ -120,6 +124,13 @@ DO $$ DECLARE object record; BEGIN
       OR has_function_privilege('league_one_runtime','public.resolve_app_login_identity(text,text,text,uuid)','EXECUTE') THEN
       RAISE EXCEPTION 'worker can assume the account role or execute private identity functions'; END IF;
   END IF;
+END; $$;
+
+DO $$ BEGIN
+ IF to_regprocedure('public.admit_account_acquisition_v1(jsonb,jsonb)') IS NOT NULL THEN
+   GRANT EXECUTE ON FUNCTION public.admit_account_acquisition_v1(jsonb,jsonb),public.read_account_acquisition_v1(uuid,jsonb,text),
+     public.read_account_discovery_v1(uuid,jsonb),public.activate_provider_account_v2(uuid,uuid,bigint,uuid,jsonb) TO league_one_account;
+ END IF;
 END; $$;
 
 -- Auth credentials remain a separate runtime boundary even when this script is

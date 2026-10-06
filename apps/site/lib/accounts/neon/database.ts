@@ -4,6 +4,7 @@ import type { DatabaseRow, DatabaseStatement } from '../../database';
 import { accountUuid } from '../validation';
 import { readAuthReceiptV2, type AuthReceiptV2 } from '../session-authority';
 import { accountInfrastructureIdentity } from '../infrastructure-identity';
+import { restrictedNeonUrl } from './connection-url';
 
 export class AccountStoreUnavailableError extends Error {
   constructor() { super('Account storage is unavailable.'); this.name = 'AccountStoreUnavailableError'; }
@@ -48,21 +49,7 @@ export function accountDatabaseUrl(environment: Readonly<Record<string, string |
   // The existing projection preview guard is untouched. This independent private
   // credential is also never used in previews, even if production env was copied.
   if (environment.ACCOUNTS_ENABLED !== 'true' || environment.VERCEL_ENV === 'preview') return null;
-  try {
-    const url = new URL(environment.ACCOUNT_DATABASE_URL ?? '');
-    const database = decodeURIComponent(url.pathname.slice(1));
-    if (!['postgres:', 'postgresql:'].includes(url.protocol)
-      || !url.hostname.endsWith('.neon.tech') || !url.hostname.startsWith('ep-') || !url.password
-      || decodeURIComponent(url.username) !== 'league_one_account'
-      || !database || database.length > 63 || /[\/\\\u0000-\u001f]/u.test(database)
-      || url.hash || (url.port && url.port !== '5432')
-      || !['require', 'verify-full'].includes(url.searchParams.get('sslmode') ?? '')
-      || url.searchParams.getAll('sslmode').length !== 1
-      || [...url.searchParams.keys()].some(key => !['sslmode', 'channel_binding'].includes(key))
-      || url.searchParams.getAll('channel_binding').length > 1
-      || (url.searchParams.has('channel_binding') && url.searchParams.get('channel_binding') !== 'require')) return null;
-    return url.toString();
-  } catch { return null; }
+  return restrictedNeonUrl(environment.ACCOUNT_DATABASE_URL, 'league_one_account');
 }
 
 export function createAccountDatabase(environment: Readonly<Record<string, string | undefined>> = process.env): AccountDatabase {

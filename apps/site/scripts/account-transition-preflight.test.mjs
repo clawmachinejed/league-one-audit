@@ -26,8 +26,8 @@ describe('strict owner URL parsing before connection',()=>{
 });
 
 describe('migration command pinned-connection preflight',()=>{
-  async function runCommand({wrongIdentity=false,reconcile=false,disconnect=false}={}) {
-    const names=Array.from({length:36},(_,index)=>`${String(index+1).padStart(3,'0')}_synthetic.sql`);
+  async function runCommand({wrongIdentity=false,reconcile=false,disconnect=false,heldAcquisition=false}={}) {
+    const names=Array.from({length:heldAcquisition?37:36},(_,index)=>`${String(index+1).padStart(3,'0')}_synthetic.sql`);
     const rows=names.map(name=>({name,checksum:migrationChecksum(`-- ${name}`)}));
     const query=vi.fn(async(statement,parameters=[])=>{
       if (statement.includes('FROM pg_catalog.pg_settings')) return {rows:[wrongIdentity?{...rawIdentity,databaseOid:'999'}:rawIdentity]};
@@ -40,7 +40,8 @@ describe('migration command pinned-connection preflight',()=>{
     const client={query,on:vi.fn(),release:vi.fn()};
     const connect=vi.fn(async()=>client), pooledQuery=vi.fn(()=>{throw new Error('Unpinned query forbidden');});
     vi.resetModules();
-    vi.doMock('@neondatabase/serverless',()=>({Pool:class { connect=connect; query=pooledQuery; on(){} async end(){} }}));
+    const constructed=vi.fn();
+    vi.doMock('@neondatabase/serverless',()=>({Pool:class { constructor(){constructed();} connect=connect; query=pooledQuery; on(){} async end(){} }}));
     vi.doMock('node:fs/promises',()=>({readdir:async()=>names,readFile:async path=>`-- ${String(path).split(/[\\/]/u).at(-1)}`}));
     const originalArgv=process.argv,originalExitCode=process.exitCode;
     vi.stubEnv('MIGRATION_DATABASE_URL','postgresql://owner:synthetic@ep-synthetic.example.neon.tech/integration_test?sslmode=require');
@@ -50,8 +51,9 @@ describe('migration command pinned-connection preflight',()=>{
     const stderr=vi.spyOn(process.stderr,'write').mockReturnValue(true);
     try {
       process.exitCode=0;
-      await import('./migrate.mjs');
-      return {client,connect,pooledQuery,exitCode:process.exitCode};
+      let importError;
+      try { await import('./migrate.mjs'); } catch(error) { if(!heldAcquisition) throw error; importError=error; }
+      return {client,connect,pooledQuery,constructed,importError,output:stdout.mock.calls.map(([value])=>value).join(''),exitCode:process.exitCode};
     } finally {
       process.argv=originalArgv;process.exitCode=originalExitCode;
       stdout.mockRestore();stderr.mockRestore();vi.unstubAllEnvs();
@@ -64,6 +66,18 @@ describe('migration command pinned-connection preflight',()=>{
     expect(result.connect).toHaveBeenCalledOnce();expect(result.pooledQuery).not.toHaveBeenCalled();
     expect(result.client.query.mock.calls[0][0]).toContain('FROM pg_catalog.pg_settings');
     expect(result.client.release).toHaveBeenCalledExactlyOnceWith(true);
+  });
+  it('blocks automatically discovered037 before constructing a driver or connecting, even with valid034–036 identity configuration',async()=>{
+    const result=await runCommand({heldAcquisition:true});
+    expect(result.importError?.message).toContain('Migration 037 installation is held');
+    expect(result.constructed).not.toHaveBeenCalled(); expect(result.connect).not.toHaveBeenCalled();
+    expect(result.client.query).not.toHaveBeenCalled();
+  });
+  it('reports the037 hold during explicit read-only reconciliation without installing it',async()=>{
+    const result=await runCommand({heldAcquisition:true,reconcile:true});
+    expect(result.importError).toBeUndefined(); expect(result.exitCode).toBe(0);
+    expect(JSON.parse(result.output)).toMatchObject({heldMigrations:['037_synthetic.sql'],installationAuthorized:false});
+    expect(result.client.query.mock.calls.some(([statement])=>/CREATE|INSERT|ALTER|DROP/u.test(statement))).toBe(false);
   });
   it.each([{wrongIdentity:true},{disconnect:true}])('fails without any DDL or reconnect on destination failure %#',async options=>{
     const result=await runCommand(options);

@@ -28,6 +28,20 @@ function setup() {
 afterEach(() => vi.useRealTimers());
 
 describe('permit-bound Sleeper HTTP boundary', () => {
+  it('records dispatch/body chronology separately from permit accounting and delayed closure', async () => {
+    vi.useFakeTimers(); vi.setSystemTime('2026-10-06T12:00:00.000Z');
+    const s = setup();
+    s.dispatch.mockImplementationOnce(async () => {
+      vi.setSystemTime('2026-10-06T12:00:00.250Z');
+      return new Response('{"season":"2026"}');
+    });
+    s.terminateLocal.mockImplementationOnce(async () => {
+      vi.setSystemTime('2026-10-06T12:00:00.500Z'); return 'terminated';
+    });
+    expect(await s.send(request)).toMatchObject({ status: 'received',
+      requestStartedAt: '2026-10-06T12:00:00.000Z', requestCompletedAt: '2026-10-06T12:00:00.250Z' });
+    expect(s.dispatch).toHaveBeenCalledTimes(1);
+  });
   it.each(['dispatch', 'body'])('terminates a never-settling %s after exactly 60 seconds of quarantine', async (kind) => {
     vi.useFakeTimers();
     const s = setup();
@@ -174,7 +188,8 @@ describe('permit-bound Sleeper HTTP boundary', () => {
 
   it('reserves local capacity before SQL and makes exactly one uncached manual-redirect GET', async () => {
     const s = setup();
-    expect(await s.send(request)).toEqual({ status: 'received', permitId: id, httpStatus: 200, body: '{"season":"2026"}' });
+    expect(await s.send(request)).toEqual({ status: 'received', permitId: id, httpStatus: 200, body: '{"season":"2026"}',
+      requestStartedAt: expect.any(String), requestCompletedAt: expect.any(String) });
     expect(s.reserveLocalCapacity.mock.invocationCallOrder[0]).toBeLessThan(s.reserveCommitted.mock.invocationCallOrder[0]);
     expect(s.dispatch).toHaveBeenCalledExactlyOnceWith('https://api.sleeper.app/v1/state/nfl', {
       method: 'GET', cache: 'no-store', redirect: 'manual', headers: { Accept: 'application/json' }, signal: expect.any(AbortSignal),

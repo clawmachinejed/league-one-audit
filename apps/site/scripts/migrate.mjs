@@ -26,6 +26,16 @@ if (migrationNames.length === 0) {
   throw new Error('No database migrations were found.');
 }
 
+// 037 makes the existing nonexclusive account-link table exclusive. Its
+// internal acquisition implementation is reviewable, but the existing site
+// callers have not completed that D03 cutover. Do not let automatic discovery
+// turn a disabled target into an unreviewed legacy behavior change. This hold
+// has no environment override; lifting it requires a reviewed source change.
+const heldMigrations = migrationNames.filter(name => name.startsWith('037_'));
+if (heldMigrations.length && process.argv[2] !== '--reconcile-account-transition') {
+  throw new Error('Migration 037 installation is held pending the reviewed legacy association cutover and coordinated transition.');
+}
+
 const pool = new Pool({ connectionString: databaseUrl, max: 1, connectionTimeoutMillis: 5000,
   query_timeout: 60000, statement_timeout: 55000 });
 pool.on('error', () => { /* Never print credential-bearing driver errors. */ });
@@ -54,7 +64,7 @@ try {
     process.stdout.write(JSON.stringify({ status: transitionState,
       migrations: transitionMigrations.map(({ name, checksum }) => ({ name, expectedChecksum: checksum,
         observedChecksum: appliedRows.find(row => row.name === name)?.checksum ?? null })),
-      catalogQualified: false, privateMaintenanceRequired: true }) + '\n');
+      heldMigrations, installationAuthorized: false, catalogQualified: false, privateMaintenanceRequired: true }) + '\n');
   } else {
   if (transitionState === 'partial' || transitionState === 'drift') {
     throw new Error('Partial or drifted account transition requires independent catalog reconciliation.');

@@ -29,19 +29,20 @@ export type DiscoveryScanProgress = Readonly<{
   reason: 'queued' | 'admission' | 'transport' | 'invalid_source' | 'capture_unconfirmed' | null;
 }> | Readonly<{ status: 'unavailable'; reason: 'authority_unavailable' }>;
 
-/** Required SQL/job-owner boundary, intentionally without a default adapter.
+/** Required SQL/job-owner boundary, implemented by accounts/neon/discovery.
  * load must reauthorize the retained demand and exact association/context.
  * reserve must commit an immutable attempt for this exact scope and validate
  * the existing job lease/demand before returning its target transport request.
  * recordCapture must recheck those fences, derive timing from the permit's
  * actual network capture, and commit immutable source+normalized evidence and
  * the scan checkpoint atomically. Unknown commit is never completed coverage.
- * SQL implementation/qualification of this port remains a separate gate. */
+ * Real SQL qualification of this port remains a separate gate. */
 export interface DiscoveryScanPort {
   load(scanId: string): Promise<DiscoveryScanWork | null>;
   reserve(scope: DiscoveryScopeWork): Promise<TargetRequest | null>;
   recordCapture(input: DiscoveryScopeWork & Readonly<{
     request: TargetRequest; permitId: string; rawValue: unknown; candidates: Candidates;
+    requestStartedAt: string; requestCompletedAt: string;
   }>): Promise<{ commit: 'confirmed'; captureId: string } | { commit: 'unknown' }>;
 }
 
@@ -130,6 +131,9 @@ export function createSleeperDiscoveryScan(dependencies: {
     try { received = await dependencies.transport(request); }
     catch { signal?.throwIfAborted(); return progress(scan, scan.completed, 'transport'); }
     signal?.throwIfAborted();
+    if (received.status === 'unavailable' && received.reason === 'admission') {
+      return progress(scan, scan.completed, 'admission');
+    }
     if (received.status !== 'received' || received.httpStatus < 200 || received.httpStatus >= 300 || !uuid(received.permitId)) {
       return progress(scan, scan.completed, 'transport');
     }
@@ -140,7 +144,8 @@ export function createSleeperDiscoveryScan(dependencies: {
     } catch { signal?.throwIfAborted(); return progress(scan, scan.completed, 'invalid_source'); }
     try {
       const captured = await dependencies.scans.recordCapture({ ...structuredClone(scope), request,
-        permitId: received.permitId, rawValue, candidates });
+        permitId: received.permitId, rawValue, candidates,
+        requestStartedAt: received.requestStartedAt, requestCompletedAt: received.requestCompletedAt });
       signal?.throwIfAborted();
       if (captured.commit !== 'confirmed' || !uuid(captured.captureId)
         || scan.completed.some(previous => previous.captureId === captured.captureId)) {

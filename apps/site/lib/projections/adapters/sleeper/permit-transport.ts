@@ -55,7 +55,8 @@ export interface SleeperDispatchSlot {
   release(): void;
 }
 export type PermitTransportResult =
-  | { status: 'received'; permitId: string; httpStatus: number; body: string }
+  | { status: 'received'; permitId: string; httpStatus: number; body: string;
+    requestStartedAt: string; requestCompletedAt: string }
   | { status: 'unavailable'; reason: 'admission' | 'scope' | 'deadline' | 'transport' | 'completion' };
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -237,6 +238,9 @@ export function createSleeperPermitTransport(dependencies: {
     });
     const init: RequestInit = { method: 'GET', cache: 'no-store', redirect: 'manual',
       headers: { Accept: 'application/json' }, signal: controller.signal };
+    // Host wall-clock samples record observed network chronology only. They do
+    // not authorize acquisition, extend leases or establish source freshness.
+    const requestStartedAt = new Date().toISOString();
     const now = dependencies.monotonicNow();
     // No await, logging, user callback or wall-clock read between check and send.
     if (!Number.isFinite(now) || now < anchor || permit.remainingDispatchMs - Math.ceil(now - anchor) <= 0) {
@@ -261,10 +265,11 @@ export function createSleeperPermitTransport(dependencies: {
       }
       try {
         const body = await response.text();
+        const requestCompletedAt = new Date().toISOString();
         await terminate();
         if (retired) { await finish(permit.permitId, outcome === 'success' ? 'network' : outcome, retry); return null; }
         if (timedOut) { await finish(permit.permitId, outcome, retry); return null; }
-        return { response, body, outcome, retry };
+        return { response, body, outcome, retry, requestCompletedAt };
       } catch {
         await terminate();
         await finish(permit.permitId, outcome === 'success' ? 'network' : outcome, retry);
@@ -286,6 +291,7 @@ export function createSleeperPermitTransport(dependencies: {
     const completedAt = dependencies.monotonicNow();
     if (!Number.isFinite(completedAt) || completedAt < now || completedAt - now >= permit.httpDeadlineMs) return unavailable('deadline');
     if (observed.outcome === 'invalid') return unavailable('transport');
-    return { status: 'received', permitId: permit.permitId, httpStatus: observed.response.status, body: observed.body };
+    return { status: 'received', permitId: permit.permitId, httpStatus: observed.response.status, body: observed.body,
+      requestStartedAt, requestCompletedAt: observed.requestCompletedAt };
   };
 }
