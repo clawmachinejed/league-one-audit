@@ -4,7 +4,7 @@ import type { DatabaseRow, DatabaseStatement } from '../../database';
 import { accountUuid } from '../validation';
 import { readAuthReceiptV2, type AuthReceiptV2 } from '../session-authority';
 import { accountInfrastructureIdentity } from '../infrastructure-identity';
-import { restrictedNeonUrl } from './connection-url';
+import { restrictedNeonUrl } from '../../restricted-neon-url';
 
 export class AccountStoreUnavailableError extends Error {
   constructor() { super('Account storage is unavailable.'); this.name = 'AccountStoreUnavailableError'; }

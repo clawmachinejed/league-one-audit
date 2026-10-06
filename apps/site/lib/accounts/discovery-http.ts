@@ -5,7 +5,7 @@ import { createAccountDiscoveryService } from './discovery-service';
 import { accountErrorResponse, readAccountJson, requireAccountOrigin } from './http';
 import { AccountInputError, accountUuid } from './validation';
 import { createDecisionDelivery } from './decision-timing';
-import type { AcquisitionCommand } from './neon/discovery';
+import type { AcquisitionCommand } from './discovery-contracts';
 import { storedSleeperDiscovery } from './stored-discovery';
 
 type Operation = 'admit' | 'activate' | 'progress' | 'identify-result' | 'stored-discovery';

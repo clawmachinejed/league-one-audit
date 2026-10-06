@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('server-only', () => ({}));
 const mocks = vi.hoisted(() => ({ neon: vi.fn(), transaction: vi.fn(), query: vi.fn() }));
 vi.mock('@neondatabase/serverless', () => ({ neon: mocks.neon }));
-import { createAcquisitionDatabase } from './acquisition-database';
+import { createAcquisitionDatabase } from './acquisition-runtime-database';
 const url = 'postgresql://league_one_runtime:synthetic@ep-test.us-east-2.aws.neon.tech/test?sslmode=require';
 const identity = { projectId: 'synthetic-project-123', branchId: 'br-test', tenantId: 'd'.repeat(32), timelineId: 'e'.repeat(32),
   databaseName: 'test', databaseOid: '123', clockDomain: `neon:${'d'.repeat(32)}:${'e'.repeat(32)}:123` };

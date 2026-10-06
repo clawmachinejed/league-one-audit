@@ -1,6 +1,6 @@
 import 'server-only';
 import type { SleeperLeagueDiscovery } from './contracts';
-import type { StoredDiscoveryResult } from './neon/discovery';
+import type { StoredDiscoveryResult } from './discovery-contracts';
 import { AccountStoreUnavailableError } from './database';
 import { unverifiedLeagueCapabilities } from '../league-capabilities';
 

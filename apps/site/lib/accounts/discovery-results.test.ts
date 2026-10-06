@@ -23,17 +23,20 @@ describe('closed acquisition result decoding', () => {
     { status: 'denied', reason: 'database connection password detail' }, { status: 'active', associationId: id, associationRevision: '1' }])(
     'rejects malformed or cross-operation admission data: %j', value => expect(() => decodeAcquisitionAdmission(value)).toThrow());
   it('preserves canonical absent/null/invalid identity display distinctions without fallback', () => {
-    const providerAccount = { id, provider: 'sleeper', namespace: 'user', nativeAccountId: '123',
+    const providerAccount = { id, provider: 'sleeper', namespace: 'sleeper:user', nativeAccountId: '123',
       username: { state: 'absent', value: null }, displayName: { state: 'null', value: null }, avatar: { state: 'invalid', value: null },
       identityEvidenceKind: 'lookup', identityEvidenceRef: id };
     expect(decodeAcquisitionProgress({ status: 'identified', demandId: id, lookupCaptureId: id, providerAccount }))
       .toEqual({ status: 'identified', demandId: id, lookupCaptureId: id, providerAccount });
     expect(() => decodeAcquisitionProgress({ status: 'identified', demandId: id, lookupCaptureId: id,
       providerAccount: { ...providerAccount, sessionToken: 'must-not-leak' } })).toThrow();
+    expect(() => decodeAcquisitionProgress({ status: 'identified', demandId: id, lookupCaptureId: id,
+      providerAccount: { ...providerAccount, namespace: 'another-provider:user' } })).toThrow();
   });
   it('accepts the existing normalizer display domain without suppressing independently valid identity', () => {
     const normalized = normalizeSleeperAccountIdentity({ user_id: '123', username: 'alice', display_name: 'A\nmanager', avatar: 123 }, 'alice');
-    const { kind: _kind, ...display } = normalized;
+    const display = { nativeAccountId: normalized.nativeAccountId, username: normalized.username,
+      displayName: normalized.displayName, avatar: normalized.avatar };
     const providerAccount = { ...display, id, provider: 'sleeper', namespace: 'sleeper:user', identityEvidenceKind: 'lookup', identityEvidenceRef: id };
     const result = decodeAcquisitionProgress({ status: 'identified', demandId: id, lookupCaptureId: id, providerAccount });
     expect(result).toMatchObject({ status: 'identified', providerAccount: { nativeAccountId: '123',

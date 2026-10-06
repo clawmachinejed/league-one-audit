@@ -1,14 +1,14 @@
 import 'server-only';
 import { neon } from '@neondatabase/serverless';
-import { accountInfrastructureIdentity } from '../../../accounts/infrastructure-identity';
-import { restrictedNeonUrl } from '../../../accounts/neon/connection-url';
-import type { Database, DatabaseRow, DatabaseQueryOptions } from '../../../database';
+import { accountInfrastructureIdentity } from '../infrastructure-identity';
+import { restrictedNeonUrl } from '../../restricted-neon-url';
+import type { Database, DatabaseRow, DatabaseQueryOptions } from '../../database';
 
 /** Reuses the restricted runtime credential and Neon transaction owner. This
  * narrow acquisition view refuses URL/manifest errors before creating a driver
  * and pins actual server identity plus genuine runtime LOGIN on every operation.
  * It does not alter legacy projection storage configuration or enable a job. */
-export function createAcquisitionDatabase(environment: Readonly<Record<string, string | undefined>> = process.env): Database {
+export function createAcquisitionDatabase(environment: Readonly<Record<string, string | undefined>>): Database {
   if (environment.VERCEL_ENV === 'preview') return { enabled: false, reason: 'preview-persistence-disabled' };
   if (environment.ACCOUNTS_ENABLED !== 'true' || !environment.DATABASE_URL) return { enabled: false, reason: 'missing-database-url' };
   const url = restrictedNeonUrl(environment.DATABASE_URL, 'league_one_runtime');

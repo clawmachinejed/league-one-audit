@@ -24,3 +24,18 @@ Before this iteration's repairs, authenticated GitHub reads confirmed PR287 OPEN
 Fresh authenticated Vercel overview showed the same canonical repository, main/apps/site and Ready production `8C3YSnXRCbmPETftQgRtirfyck5e` at that exact main SHA. Fresh live sign-in retained the expected League One, League Two and Dynasty links. No source/service disagreement was observed. Available worktree/PR/deployment evidence showed no competing owner; database/worker leases were not inspected and no production ownership is claimed.
 
 The implementation user authorization supersedes the preceding read-only audit only for local implementation, bounded checks, independent review/correction and continuation of draft PR287. It expressly excludes database connections, real SQL, provisioning, credentials, migrations, qualification dispatch, merge and deployment/activation. Neither the environment metadata nor this preflight supplies a new paid-test approval.
+
+## Connected acquisition continuation
+
+Fresh GitHub reads established the actual published starting point as
+`1305e1c4855c86e25035a7faf4cdcc46a8c6b1f3`; the checkout was not reset to an
+older observed head. PR287 remained OPEN/draft on `codex/bc-m1-account-roster`,
+stacked on the unchanged planning head above. Main remained the same full
+`87da4d0cb909ee280e125e73ad10e1c3dbd7cd9f` locally and on GitHub. A fresh
+read before publication again showed the same heads. Vercel's authenticated
+overview still identified the canonical repository, `main/apps/site`, and
+Ready production `8C3YSnXRCbmPETftQgRtirfyck5e` at that exact main SHA.
+The read-only source/worktree/PR census found no competing owner; database
+leases remain uninspected. Active contributors' changes were preserved and
+file ownership coordinated before each correction. No production or database
+operation followed from these identity checks.

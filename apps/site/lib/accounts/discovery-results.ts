@@ -1,5 +1,5 @@
 import 'server-only';
-import type { AcquisitionAdmission, AcquisitionProgress, ProviderActivation, StoredDiscoveryResult } from './neon/discovery';
+import type { AcquisitionAdmission, AcquisitionProgress, ProviderActivation, StoredDiscoveryResult } from './discovery-contracts';
 import { accountUuid } from './validation';
 
 function invalid(): never { throw new Error('Acquisition unavailable.'); }
@@ -71,7 +71,7 @@ function field(value: unknown, avatar = false) {
 }
 function account(value: unknown) {
   const r = record(value, ['id', 'provider', 'namespace', 'nativeAccountId', 'username', 'displayName', 'avatar', 'identityEvidenceKind', 'identityEvidenceRef']);
-  if (r.provider !== 'sleeper' || r.identityEvidenceKind !== 'lookup'
+  if (r.provider !== 'sleeper' || r.namespace !== 'sleeper:user' || r.identityEvidenceKind !== 'lookup'
     || typeof r.nativeAccountId !== 'string' || !/^[1-9]\d{0,31}$/.test(r.nativeAccountId)) invalid();
   return { id: uuid(r.id), provider: r.provider, namespace: text(r.namespace, 100), nativeAccountId: r.nativeAccountId,
     username: field(r.username), displayName: field(r.displayName), avatar: field(r.avatar, true), identityEvidenceKind: r.identityEvidenceKind,

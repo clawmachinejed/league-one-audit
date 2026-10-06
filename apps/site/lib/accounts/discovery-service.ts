@@ -2,7 +2,7 @@ import 'server-only';
 import { accountPrincipalAuthority, type AccountPrincipal } from './auth';
 import { createAccountDatabaseForPrincipal } from './database';
 import { createAccountStore } from './store';
-import { createNeonAccountAcquisitionPort } from './neon/discovery';
+import { createNeonAccountAcquisitionPort } from './store';
 
 /** Internal composition root. Resolution and acquisition use the same
  * request-owned authority database; the receipt never leaves this boundary.

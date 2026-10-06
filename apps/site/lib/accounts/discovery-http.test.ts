@@ -3,7 +3,7 @@ vi.mock('server-only', () => ({}));
 import { accountAcquisitionResponse, acquisitionCommand } from './discovery-http';
 import type { createAccountDiscoveryService } from './discovery-service';
 import { storedSleeperDiscovery } from './stored-discovery';
-import type { StoredDiscoveryResult } from './neon/discovery';
+import type { StoredDiscoveryResult } from './discovery-contracts';
 
 const actor = '10000000-0000-4000-8000-000000000001';
 const commandId = '20000000-0000-4000-8000-000000000002';

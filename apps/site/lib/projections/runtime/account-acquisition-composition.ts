@@ -2,10 +2,10 @@ import 'server-only';
 import { performance } from 'node:perf_hooks';
 import { withDatabaseAbortSignal, type Database } from '../../database';
 import { createSleeperDiscoveryScan, type DiscoveryScanPort, type DiscoveryScanProgress } from '../../accounts/discovery-scan';
-import { createNeonDiscoveryScanPort, createNeonSleeperPermitPort, createNeonAcquisitionSourcePort } from '../../accounts/neon/discovery';
+import { createNeonDiscoveryScanPort, createNeonSleeperPermitPort, createNeonAcquisitionSourcePort } from '../../accounts/store';
 import { normalizeSleeperAccountIdentity, normalizeSleeperDiscoverySeason } from '../../sleeper';
 import { createAcquisitionJobMethods } from '../adapters/neon/jobs';
-import { createAcquisitionDatabase } from '../adapters/neon/acquisition-database';
+import { createAcquisitionDatabase } from '../../accounts/database';
 import { createNeonAcquisitionJobRepository } from '../adapters/neon/job-repository';
 import { createSleeperPermitTransport, type SleeperDispatchSlot, type SleeperPermitRequest } from '../adapters/sleeper/permit-transport';
 import { reserveSleeperDispatchCapacity } from '../adapters/sleeper/dispatch-capacity';
@@ -30,7 +30,7 @@ export async function runAccountAcquisitionStep(workerId: string, options: {
 } = {}): Promise<AccountAcquisitionStep> {
   options.signal?.throwIfAborted();
   const signal = options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(25_000)]) : AbortSignal.timeout(25_000);
-  const database = withDatabaseAbortSignal(options.database ?? createAcquisitionDatabase(), signal);
+  const database = withDatabaseAbortSignal(options.database ?? createAcquisitionDatabase(process.env), signal);
   if (!database.enabled) return { status: 'unavailable', reason: 'persistence' };
   const repository = createNeonAcquisitionJobRepository(createAcquisitionJobMethods(database));
   let claim: Awaited<ReturnType<typeof repository.claimAccountAcquisition>>;
@@ -40,6 +40,7 @@ export async function runAccountAcquisitionStep(workerId: string, options: {
   if (claim.status !== 'claimed') return claim;
   const claimed = claim;
   const transport = createSleeperPermitTransport({ permits: createNeonSleeperPermitPort(database),
+    wallClockNow: () => new Date().toISOString(),
     reserveLocalCapacity: options.reserveLocalCapacity ?? reserveSleeperDispatchCapacity,
     monotonicNow: options.monotonicNow ?? (() => performance.now()) });
   const source = createNeonAcquisitionSourcePort(database, claim.fence);

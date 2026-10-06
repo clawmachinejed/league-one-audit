@@ -168,6 +168,7 @@ export function createSleeperPermitTransport(dependencies: {
   permits: SleeperPermitPort;
   reserveLocalCapacity(): Promise<SleeperDispatchSlot | null>;
   monotonicNow(): number;
+  wallClockNow(): string;
 }) {
   const unavailable = (reason: Extract<PermitTransportResult, { status: 'unavailable' }>['reason']): PermitTransportResult => ({ status: 'unavailable', reason });
   const finish = async (id: string, outcome: PermitOutcome, retry: number | null) => {
@@ -240,7 +241,11 @@ export function createSleeperPermitTransport(dependencies: {
       headers: { Accept: 'application/json' }, signal: controller.signal };
     // Host wall-clock samples record observed network chronology only. They do
     // not authorize acquisition, extend leases or establish source freshness.
-    const requestStartedAt = new Date().toISOString();
+    let requestStartedAt: string;
+    try {
+      requestStartedAt = dependencies.wallClockNow();
+      if (!instant(requestStartedAt)) throw new Error('Invalid source chronology');
+    } catch { clearTimeout(timeout); release(); await finish(permit.permitId, 'cancelled', null); return unavailable('transport'); }
     const now = dependencies.monotonicNow();
     // No await, logging, user callback or wall-clock read between check and send.
     if (!Number.isFinite(now) || now < anchor || permit.remainingDispatchMs - Math.ceil(now - anchor) <= 0) {
@@ -265,7 +270,10 @@ export function createSleeperPermitTransport(dependencies: {
       }
       try {
         const body = await response.text();
-        const requestCompletedAt = new Date().toISOString();
+        const requestCompletedAt = dependencies.wallClockNow();
+        if (!instant(requestCompletedAt) || Date.parse(requestCompletedAt) < Date.parse(requestStartedAt)) {
+          throw new Error('Invalid source chronology');
+        }
         await terminate();
         if (retired) { await finish(permit.permitId, outcome === 'success' ? 'network' : outcome, retry); return null; }
         if (timedOut) { await finish(permit.permitId, outcome, retry); return null; }

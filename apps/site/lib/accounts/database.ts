@@ -9,3 +9,4 @@ export function createAccountDatabaseForPrincipal(principal: AccountPrincipal) {
 // Composition facade: private role/transport details stay in the Neon adapter.
 export { ACCOUNT_DATABASE_GUARD, AccountStoreUnavailableError, AccountWriteRateLimitError, AccountRevisionConflictError,
   accountDatabaseUrl, createAccountDatabase, createAccountAuthorityDatabase, type AccountDatabase, type AccountAuthorityDatabase } from './neon/database';
+export { createAcquisitionDatabase } from './neon/acquisition-runtime-database';

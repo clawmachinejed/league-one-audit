@@ -38,7 +38,8 @@ function fixture() {
     }),
   };
   const transport = createSleeperPermitTransport({ permits, reserveLocalCapacity: async () => ({ dispatch,
-    terminateLocal: async () => 'terminated', release: () => undefined }), monotonicNow: () => 1 });
+    terminateLocal: async () => 'terminated', release: () => undefined }), monotonicNow: () => 1,
+    wallClockNow: () => '2026-10-06T10:00:00.000Z' });
   return { scans, permits, dispatch, finish, run: createSleeperDiscoveryScan({ scans, transport }),
     setWork: (value: DiscoveryScanWork) => { persisted = value; } };
 }

@@ -1,16 +1,16 @@
 {
   "schemaVersion": "bc-m1-current-requirements-v1",
-  "status": "reviewed-partial-implementation-SQL-unqualified",
+  "status": "candidate-source-awaiting-frozen-review-and-verification",
   "canonicalRequirements": "docs/aggregator-backend/design-requirements.json",
-  "parentBaselineSha": "ffa7bd0d16bdc34c1578e2a2e77690cb6c756381",
-  "reviewedCandidateSha": "fe3d983e062e766aec77b2bff67ee04b2fb19fde",
-  "sourceBinding": "Clean implementation SHA reviewed independently and tested by verify:full. This ledger binding is an evidence-only follow-up; no application, migration, workflow, dependency or test source changed afterward.",
+  "parentBaselineSha": "1305e1c4855c86e25035a7faf4cdcc46a8c6b1f3",
+  "reviewedCandidateSha": null,
+  "sourceBinding": "The connected candidate is awaiting exact-SHA independent review and full verification. Prior evidence below remains bound to its recorded historical SHA; no new verified credit is claimed.",
   "scope": "Current execution ledger only; original c907584 and ffa7bd0 independent audits remain immutable.",
   "classificationRule": "Whole-obligation status includes its allocated canonical oracle. Tested helpers do not promote incomplete workflows. Inherited bounded baseline verification is distinct from new candidate proof. Counts are not completion percentages.",
   "counts": {
     "implemented-and-verified": 3,
-    "implemented-but-unverified": 5,
-    "still-pending": 100,
+    "implemented-but-unverified": 21,
+    "still-pending": 84,
     "total": 108
   },
   "componentEvidence": {
@@ -31,7 +31,7 @@
     },
     "infrastructure-transition": {
       "state": "authored-source-and-tests; SQL-unexecuted",
-      "scope": "036 server identity, actual LOGIN guards, epoch activation/history, revision check, coordinated install/recovery. No live server/epoch/install/drain proof."
+      "scope": "036 identity/LOGIN/owner epoch and coordinated installation/recovery source plus authored genuine LOGIN transition rehearsal. SQL and actual deployed service-boundary drain/recovery unexecuted. 037 legacy cutover remains held."
     },
     "r035-normalizer": {
       "state": "normalizer-component-repaired; whole-oracle-pending",
@@ -42,14 +42,18 @@
       "scope": "Local guards/lifecycle do not prove saved key binding, parent emptiness, cloud deletion or SQL qualification."
     },
     "finite-discovery": {
-      "state": "dormant-composition-and-unit-tests; durable-port-unimplemented",
-      "scope": "Finite current+prior-two+retained season set; one admitted scope per step; acknowledged capture checkpoint; resume reloads storage. Reuses existing permit transport and extracted existing Sleeper normalization. No Neon/job adapter, worker/route activation, membership or enrollment.",
+      "state": "internal-concrete-composition-authored; SQL-unexecuted; public-mounting-off",
+      "scope": "Finite frozen scan through concrete existing job/permit/Neon ports, atomic capture/checkpoint and protected stored reader adapted to existing consumer DTO. Public route/cron mounting, membership, enrollment, selection, follows and authorized roster composition remain pending.",
       "reportedDevelopmentEvidence": {
         "passed": 69,
         "files": 3,
         "sql": 0,
         "source": "Historical implementer development total only. The same source was independently reviewed in the 350-test architecture run and included in the current frozen full unit pass; totals overlap."
       }
+    },
+    "connected-acquisition": {
+      "state": "concrete-internal-source; frozen-review-and-SQL-qualification-pending",
+      "scope": "Trusted account request → existing durable job → admitted Sleeper HTTP outside SQL → retained normalized captures/checkpoint → protected reader → existing consumer DTO. Policy/context recovery corrections authored; migration037 installation held; no public activation."
     }
   },
   "rows": [
@@ -58,31 +62,35 @@
       "caseIds": [
         "FS18.01"
       ],
-      "status": "still-pending",
+      "status": "implemented-but-unverified",
       "code": [
         {
-          "path": "apps/site/lib/accounts/auth.ts",
-          "line": 170
+          "path": "apps/site/migrations/037_account_acquisition.sql",
+          "line": 505
         },
         {
-          "path": "apps/site/lib/accounts/http.ts",
-          "line": 56
+          "path": "apps/site/lib/accounts/discovery-http.ts",
+          "line": 48
         },
         {
-          "path": "apps/site/lib/accounts/neon/store.ts",
-          "line": 80
+          "path": "apps/site/lib/projections/runtime/account-acquisition-composition.ts",
+          "line": 25
         }
       ],
       "tests": [
         {
-          "path": "apps/site/lib/accounts/response-authority.test.ts",
-          "line": 7
+          "path": "apps/site/lib/accounts/discovery-http.test.ts",
+          "line": 33
+        },
+        {
+          "path": "apps/site/integration/account-acquisition.integration-case.ts",
+          "line": 46
         }
       ],
       "componentEvidence": [
-        "account-composition"
+        "connected-acquisition"
       ],
-      "missing": "Request-owned authority is wired into existing private account callers. Complete target identification/association/stored-roster commands, full actor/domain dependency validation and real SQL revocation/delivery schedules remain pending."
+      "missing": "Trusted-principal resolution and actor-bound internal commands are composed. FS18.01 actual-role forged-actor/reference and revocation schedules remain unexecuted."
     },
     {
       "id": "R002",
@@ -142,32 +150,42 @@
       "componentEvidence": [
         "account-composition"
       ],
-      "missing": "Request-owned authority is wired into existing private account callers. Complete target identification/association/stored-roster commands, full actor/domain dependency validation and real SQL revocation/delivery schedules remain pending."
+      "missing": "Legacy and new internal discovery callers resolve request-owned authority. Complete membership/roster domain dependency validation and real SQL revocation/delivery schedules remain pending."
     },
     {
       "id": "R004",
       "caseIds": [
         "FS18.02"
       ],
-      "status": "still-pending",
+      "status": "implemented-but-unverified",
       "code": [
         {
-          "path": "apps/site/lib/league-administration/normalize.ts",
-          "line": 363
+          "path": "apps/site/migrations/037_account_acquisition.sql",
+          "line": 970
         },
         {
-          "path": "apps/site/lib/accounts/sleeper-link-preview.ts",
-          "line": 42
+          "path": "apps/site/lib/accounts/discovery-http.ts",
+          "line": 48
+        },
+        {
+          "path": "apps/site/lib/projections/runtime/account-acquisition-composition.ts",
+          "line": 25
         }
       ],
       "tests": [
         {
-          "path": "apps/site/lib/aggregator/team-managers.test.ts",
-          "line": 126
+          "path": "apps/site/lib/accounts/discovery-http.test.ts",
+          "line": 33
+        },
+        {
+          "path": "apps/site/integration/account-acquisition.integration-case.ts",
+          "line": 46
         }
       ],
-      "componentEvidence": [],
-      "missing": "Add qualified stable provider-account capture/resolution across username rename and reassignment."
+      "componentEvidence": [
+        "connected-acquisition"
+      ],
+      "missing": "Stable provider/native identity uses the shared manager identity owner. FS18.02 rename/reassignment persistence and independent real source evidence remain unexecuted."
     },
     {
       "id": "R005",
@@ -192,7 +210,7 @@
         }
       ],
       "componentEvidence": [],
-      "missing": "Persist lookup or qualified-role provenance matching the exact manager/provider account key."
+      "missing": "Lookup provenance is retained against the shared exact provider/native identity. Qualified-role-only identity provenance and the full cross-source oracle remain pending."
     },
     {
       "id": "R006",
@@ -217,207 +235,287 @@
         }
       ],
       "componentEvidence": [],
-      "missing": "Implement lookup field-state preservation independently of missing optional display fields."
+      "missing": "Lookup normalization, persistence and closed decoding retain optional display field states without losing stable identity. Complete qualified-role-only identity/display behavior and the allocated real persistence oracle remain pending."
     },
     {
       "id": "R007",
       "caseIds": [
         "FS18.03"
       ],
-      "status": "still-pending",
+      "status": "implemented-but-unverified",
       "code": [
         {
-          "path": "apps/site/lib/league-administration/normalize.ts",
-          "line": 363
+          "path": "apps/site/migrations/037_account_acquisition.sql",
+          "line": 750
         },
         {
-          "path": "apps/site/lib/accounts/sleeper-link-preview.ts",
-          "line": 42
+          "path": "apps/site/lib/accounts/discovery-http.ts",
+          "line": 48
+        },
+        {
+          "path": "apps/site/lib/projections/runtime/account-acquisition-composition.ts",
+          "line": 25
         }
       ],
       "tests": [
         {
-          "path": "apps/site/lib/aggregator/team-managers.test.ts",
-          "line": 126
+          "path": "apps/site/lib/accounts/discovery-http.test.ts",
+          "line": 33
+        },
+        {
+          "path": "apps/site/integration/account-acquisition.integration-case.ts",
+          "line": 46
         }
       ],
-      "componentEvidence": [],
-      "missing": "Implement immutable pre-enrollment lookup request/capture/context/audience storage without fabricated enrollment."
+      "componentEvidence": [
+        "connected-acquisition"
+      ],
+      "missing": "Immutable pre-enrollment attempt/capture/context storage is authored. FS18.03 actual committed-state and replay inspection remain unexecuted."
     },
     {
       "id": "R008",
       "caseIds": [
         "FS18.04"
       ],
-      "status": "still-pending",
+      "status": "implemented-but-unverified",
       "code": [
         {
-          "path": "apps/site/lib/accounts/neon/store.ts",
-          "line": 61
+          "path": "apps/site/migrations/037_account_acquisition.sql",
+          "line": 505
         },
         {
-          "path": "apps/site/migrations/035_account_follow_intent.sql",
-          "line": 4
+          "path": "apps/site/lib/accounts/discovery-http.ts",
+          "line": 48
+        },
+        {
+          "path": "apps/site/lib/projections/runtime/account-acquisition-composition.ts",
+          "line": 25
         }
       ],
       "tests": [
         {
-          "path": "apps/site/integration/account-store.integration-case.ts",
-          "line": 323
+          "path": "apps/site/lib/accounts/discovery-http.test.ts",
+          "line": 33
+        },
+        {
+          "path": "apps/site/integration/account-acquisition.integration-case.ts",
+          "line": 46
         }
       ],
-      "componentEvidence": [],
-      "missing": "Implement target identification preview and prove no association, enrollment or follow writes."
+      "componentEvidence": [
+        "connected-acquisition"
+      ],
+      "missing": "Identification does not activate, enroll or follow. FS18.04 actual committed-state inspection remains unexecuted."
     },
     {
       "id": "R009",
       "caseIds": [
         "FS13.01"
       ],
-      "status": "still-pending",
+      "status": "implemented-but-unverified",
       "code": [
         {
-          "path": "apps/site/lib/league-administration/normalize.ts",
-          "line": 363
+          "path": "apps/site/migrations/037_account_acquisition.sql",
+          "line": 1199
         },
         {
-          "path": "apps/site/lib/accounts/sleeper-link-preview.ts",
-          "line": 42
+          "path": "apps/site/lib/accounts/discovery-http.ts",
+          "line": 48
+        },
+        {
+          "path": "apps/site/lib/projections/runtime/account-acquisition-composition.ts",
+          "line": 25
         }
       ],
       "tests": [
         {
-          "path": "apps/site/lib/aggregator/team-managers.test.ts",
-          "line": 126
+          "path": "apps/site/lib/accounts/discovery-http.test.ts",
+          "line": 33
+        },
+        {
+          "path": "apps/site/integration/account-acquisition.integration-case.ts",
+          "line": 46
         }
       ],
-      "componentEvidence": [],
-      "missing": "Implement durable target identification result with qualified successful lookup and closed non-success reasons."
+      "componentEvidence": [
+        "connected-acquisition"
+      ],
+      "missing": "Canonical identification output and safe pre-admission failure are composed. FS13.01 complete real capture/status variants remain unexecuted."
     },
     {
       "id": "R010",
       "caseIds": [
         "FS18.05"
       ],
-      "status": "still-pending",
+      "status": "implemented-but-unverified",
       "code": [
         {
-          "path": "apps/site/lib/accounts/neon/store.ts",
-          "line": 61
+          "path": "apps/site/migrations/037_account_acquisition.sql",
+          "line": 436
         },
         {
-          "path": "apps/site/migrations/035_account_follow_intent.sql",
-          "line": 4
+          "path": "apps/site/lib/accounts/discovery-http.ts",
+          "line": 48
+        },
+        {
+          "path": "apps/site/lib/projections/runtime/account-acquisition-composition.ts",
+          "line": 25
         }
       ],
       "tests": [
         {
-          "path": "apps/site/integration/account-store.integration-case.ts",
-          "line": 323
+          "path": "apps/site/lib/accounts/discovery-http.test.ts",
+          "line": 33
+        },
+        {
+          "path": "apps/site/integration/account-acquisition.integration-case.ts",
+          "line": 46
         }
       ],
-      "componentEvidence": [],
-      "missing": "Implement association activation helper binding own successful lookup receipt to the resolved account."
+      "componentEvidence": [
+        "connected-acquisition"
+      ],
+      "missing": "Activation pins a matching qualified own lookup. FS18.05 wrong-subject/failed/role-only receipt schedules remain unexecuted."
     },
     {
       "id": "R011",
       "caseIds": [
         "FS02.01"
       ],
-      "status": "still-pending",
+      "status": "implemented-but-unverified",
       "code": [
         {
-          "path": "apps/site/lib/accounts/neon/store.ts",
-          "line": 61
+          "path": "apps/site/migrations/037_account_acquisition.sql",
+          "line": 334
         },
         {
-          "path": "apps/site/migrations/035_account_follow_intent.sql",
-          "line": 4
+          "path": "apps/site/lib/accounts/discovery-http.ts",
+          "line": 48
+        },
+        {
+          "path": "apps/site/lib/projections/runtime/account-acquisition-composition.ts",
+          "line": 25
         }
       ],
       "tests": [
         {
-          "path": "apps/site/integration/account-store.integration-case.ts",
-          "line": 323
+          "path": "apps/site/lib/accounts/discovery-http.test.ts",
+          "line": 33
+        },
+        {
+          "path": "apps/site/integration/account-acquisition.integration-case.ts",
+          "line": 46
         }
       ],
-      "componentEvidence": [],
-      "missing": "Implement and race the target exclusive active provider-account claim constraint and conflict response."
+      "componentEvidence": [
+        "connected-acquisition"
+      ],
+      "missing": "Exclusive active provider-account claim constraint and helper are authored. FS02.01 genuine LOGIN concurrency and bypass constraints remain unexecuted. Legacy cutover is held under R087."
     },
     {
       "id": "R012",
       "caseIds": [
         "FS03.01"
       ],
-      "status": "still-pending",
+      "status": "implemented-but-unverified",
       "code": [
         {
-          "path": "apps/site/lib/accounts/neon/store.ts",
-          "line": 61
+          "path": "apps/site/migrations/037_account_acquisition.sql",
+          "line": 338
         },
         {
-          "path": "apps/site/migrations/035_account_follow_intent.sql",
-          "line": 4
+          "path": "apps/site/lib/accounts/discovery-http.ts",
+          "line": 48
+        },
+        {
+          "path": "apps/site/lib/projections/runtime/account-acquisition-composition.ts",
+          "line": 25
         }
       ],
       "tests": [
         {
-          "path": "apps/site/integration/account-store.integration-case.ts",
-          "line": 323
+          "path": "apps/site/lib/accounts/discovery-http.test.ts",
+          "line": 33
+        },
+        {
+          "path": "apps/site/integration/account-acquisition.integration-case.ts",
+          "line": 46
         }
       ],
-      "componentEvidence": [],
-      "missing": "Implement and race one-active-account-per-actor/provider uniqueness; legacy account links allow multiple."
+      "componentEvidence": [
+        "connected-acquisition"
+      ],
+      "missing": "One active provider account per actor/provider is authored. FS03.01 actual concurrency and direct bypass constraints remain unexecuted. Legacy compatibility remains held under R087."
     },
     {
       "id": "R013",
       "caseIds": [
         "FS03.02"
       ],
-      "status": "still-pending",
+      "status": "implemented-but-unverified",
       "code": [
         {
-          "path": "apps/site/lib/accounts/neon/store.ts",
-          "line": 61
+          "path": "apps/site/migrations/037_account_acquisition.sql",
+          "line": 436
         },
         {
-          "path": "apps/site/migrations/035_account_follow_intent.sql",
-          "line": 4
+          "path": "apps/site/lib/accounts/discovery-http.ts",
+          "line": 48
+        },
+        {
+          "path": "apps/site/lib/projections/runtime/account-acquisition-composition.ts",
+          "line": 25
         }
       ],
       "tests": [
         {
-          "path": "apps/site/integration/account-store.integration-case.ts",
-          "line": 323
+          "path": "apps/site/lib/accounts/discovery-http.test.ts",
+          "line": 33
+        },
+        {
+          "path": "apps/site/integration/account-acquisition.integration-case.ts",
+          "line": 46
         }
       ],
-      "componentEvidence": [],
-      "missing": "Implement idempotent target activation returning the existing association identity."
+      "componentEvidence": [
+        "connected-acquisition"
+      ],
+      "missing": "Activation command identity and retained outcome are authored. FS03.02 real lost acknowledgement/restart and revision-checked replay remain unexecuted."
     },
     {
       "id": "R014",
       "caseIds": [
         "FS13.02"
       ],
-      "status": "still-pending",
+      "status": "implemented-but-unverified",
       "code": [
         {
-          "path": "apps/site/lib/accounts/neon/store.ts",
-          "line": 61
+          "path": "apps/site/migrations/037_account_acquisition.sql",
+          "line": 436
         },
         {
-          "path": "apps/site/migrations/035_account_follow_intent.sql",
-          "line": 4
+          "path": "apps/site/lib/accounts/discovery-http.ts",
+          "line": 48
+        },
+        {
+          "path": "apps/site/lib/projections/runtime/account-acquisition-composition.ts",
+          "line": 25
         }
       ],
       "tests": [
         {
-          "path": "apps/site/integration/account-store.integration-case.ts",
-          "line": 323
+          "path": "apps/site/lib/accounts/discovery-http.test.ts",
+          "line": 33
+        },
+        {
+          "path": "apps/site/integration/account-acquisition.integration-case.ts",
+          "line": 46
         }
       ],
-      "componentEvidence": [],
-      "missing": "Expose user-asserted assurance in the target association result without claiming provider authentication."
+      "componentEvidence": [
+        "connected-acquisition"
+      ],
+      "missing": "Stored and returned association assurance is user_asserted. FS13.02 actual stored/result inspection remains unexecuted."
     },
     {
       "id": "R015",
@@ -462,7 +560,7 @@
       ],
       "tests": [],
       "componentEvidence": [],
-      "missing": "Implement server-resolved provider/audience context and actual SQL permit authority independently of serving eligibility."
+      "missing": "Target public-context identity/calendar/list acquisition is server-resolved and permit-checked in source. Private/other context compatibility, complete acquisition paths and real SQL authority qualification remain pending."
     },
     {
       "id": "R017",
@@ -482,135 +580,147 @@
       ],
       "tests": [],
       "componentEvidence": [],
-      "missing": "Persist/revalidate context revision/expiry at admission, dispatch, acceptance and publication."
+      "missing": "Implemented acquisition paths revalidate current context/policy revision and expiry. Complete resource/publication paths and real SQL pending-work fences remain pending."
     },
     {
       "id": "R018",
       "caseIds": [
         "FS09.01"
       ],
-      "status": "still-pending",
+      "status": "implemented-but-unverified",
       "code": [
         {
-          "path": "apps/site/lib/accounts/discovery-scan.ts",
-          "line": 40
+          "path": "apps/site/migrations/037_account_acquisition.sql",
+          "line": 686
         },
         {
-          "path": "apps/site/lib/accounts/discovery-scan.ts",
-          "line": 102
+          "path": "apps/site/lib/accounts/discovery-http.ts",
+          "line": 48
         },
         {
-          "path": "apps/site/lib/sleeper.ts",
-          "line": 263
+          "path": "apps/site/lib/projections/runtime/account-acquisition-composition.ts",
+          "line": 25
         }
       ],
       "tests": [
         {
-          "path": "apps/site/lib/accounts/discovery-scan.test.ts",
-          "line": 47
+          "path": "apps/site/lib/accounts/discovery-http.test.ts",
+          "line": 33
+        },
+        {
+          "path": "apps/site/integration/account-acquisition.integration-case.ts",
+          "line": 46
         }
       ],
       "componentEvidence": [
-        "finite-discovery"
+        "connected-acquisition"
       ],
-      "missing": "Dormant scan pins association revision and reloads retained state through a required port. Implement real authoritative Neon/job load, reserve and commit fences, association-change rejection and retained durable work identity."
+      "missing": "Revision-bound durable scan reservation, source/job fences and protected reads are composed. FS09.01 persisted association-change and worker-fence schedules remain unexecuted."
     },
     {
       "id": "R019",
       "caseIds": [
         "FS19.01"
       ],
-      "status": "still-pending",
+      "status": "implemented-but-unverified",
       "code": [
         {
-          "path": "apps/site/lib/accounts/discovery-scan.ts",
-          "line": 62
+          "path": "apps/site/migrations/037_account_acquisition.sql",
+          "line": 1087
         },
         {
-          "path": "apps/site/lib/accounts/discovery-scan.ts",
-          "line": 40
+          "path": "apps/site/lib/accounts/discovery-http.ts",
+          "line": 48
         },
         {
-          "path": "apps/site/lib/accounts/discovery-scan.ts",
-          "line": 102
-        },
-        {
-          "path": "apps/site/lib/sleeper.ts",
-          "line": 263
+          "path": "apps/site/lib/projections/runtime/account-acquisition-composition.ts",
+          "line": 25
         }
       ],
       "tests": [
         {
-          "path": "apps/site/lib/accounts/discovery-scan.test.ts",
-          "line": 47
+          "path": "apps/site/lib/accounts/discovery-http.test.ts",
+          "line": 33
+        },
+        {
+          "path": "apps/site/integration/account-acquisition.integration-case.ts",
+          "line": 46
         }
       ],
       "componentEvidence": [
-        "finite-discovery"
+        "connected-acquisition"
       ],
-      "missing": "Finite sorted unique current/prior-two/retained-season helper and scan validation exist. Qualify actual retained selection/strategy inputs and durable scan creation under trusted authority; mock-loaded state does not establish complete discovery."
+      "missing": "Qualified calendar capture freezes the current/prior-two/retained-selection set. FS19.01 independently qualified strategy/input and persisted plan schedules remain unexecuted."
     },
     {
       "id": "R020",
       "caseIds": [
         "FS09.02"
       ],
-      "status": "still-pending",
+      "status": "implemented-but-unverified",
       "code": [
         {
-          "path": "apps/site/lib/accounts/discovery-scan.ts",
-          "line": 40
+          "path": "apps/site/migrations/037_account_acquisition.sql",
+          "line": 1087
         },
         {
-          "path": "apps/site/lib/accounts/discovery-scan.ts",
-          "line": 102
+          "path": "apps/site/lib/accounts/discovery-http.ts",
+          "line": 48
         },
         {
-          "path": "apps/site/lib/sleeper.ts",
-          "line": 263
+          "path": "apps/site/lib/projections/runtime/account-acquisition-composition.ts",
+          "line": 25
         }
       ],
       "tests": [
         {
-          "path": "apps/site/lib/accounts/discovery-scan.test.ts",
-          "line": 47
+          "path": "apps/site/lib/accounts/discovery-http.test.ts",
+          "line": 33
+        },
+        {
+          "path": "apps/site/integration/account-acquisition.integration-case.ts",
+          "line": 46
         }
       ],
       "componentEvidence": [
-        "finite-discovery"
+        "connected-acquisition"
       ],
-      "missing": "Dormant scan retains acknowledged completed scopes and distinguishes failure/unknown commit. Implement atomic real SQL capture/checkpoint storage, unfinished-scan uniqueness, crash/restart and independent source receipt evidence."
+      "missing": "Atomic capture/checkpoint, retained completion, bounded fresh execution and stale-evidence retirement are authored. FS09.02 real crash/restart, expiry, policy/context change, immutable history and independent receipt oracles remain unexecuted; source review must confirm latest recovery corrections."
     },
     {
       "id": "R021",
       "caseIds": [
         "FS04.01"
       ],
-      "status": "still-pending",
+      "status": "implemented-but-unverified",
       "code": [
         {
-          "path": "apps/site/lib/accounts/discovery-scan.ts",
-          "line": 40
+          "path": "apps/site/migrations/037_account_acquisition.sql",
+          "line": 1233
         },
         {
-          "path": "apps/site/lib/accounts/discovery-scan.ts",
-          "line": 102
+          "path": "apps/site/lib/accounts/discovery-http.ts",
+          "line": 48
         },
         {
-          "path": "apps/site/lib/sleeper.ts",
-          "line": 263
+          "path": "apps/site/lib/projections/runtime/account-acquisition-composition.ts",
+          "line": 25
         }
       ],
       "tests": [
         {
-          "path": "apps/site/lib/accounts/discovery-scan.test.ts",
-          "line": 47
+          "path": "apps/site/lib/accounts/discovery-http.test.ts",
+          "line": 33
+        },
+        {
+          "path": "apps/site/integration/account-acquisition.integration-case.ts",
+          "line": 46
         }
       ],
       "componentEvidence": [
-        "finite-discovery"
+        "connected-acquisition"
       ],
-      "missing": "Dormant scan returns no membership/enrollment/follow grant. Qualify actual candidate persistence through existing owners and target discovery command with zero authorization/enrollment/follow side effects."
+      "missing": "Persisted candidates confer no membership, enrollment, selection or follow. FS04.01 committed-state and authorization oracle remain unexecuted."
     },
     {
       "id": "R022",
@@ -1290,7 +1400,7 @@
       ],
       "tests": [],
       "componentEvidence": [],
-      "missing": "Implement target lookup/discovery/capture timestamps with distinct network/cache/replay/processing meanings."
+      "missing": "Target HTTP chronology, attempt reservation and capture timestamps are composed. Full cache/replay provenance and independent real source-clock oracles remain pending."
     },
     {
       "id": "R053",
@@ -2021,20 +2131,35 @@
       "caseIds": [
         "INV-R083"
       ],
-      "status": "still-pending",
+      "status": "implemented-but-unverified",
       "code": [
         {
-          "path": "docs/aggregator-backend/implementation/README.md",
-          "line": 15
+          "path": "apps/site/migrations/037_account_acquisition.sql",
+          "line": 649
         },
         {
-          "path": "docs/aggregator-backend/backend-build-plan.md",
-          "line": 1
+          "path": "apps/site/lib/accounts/discovery-http.ts",
+          "line": 48
+        },
+        {
+          "path": "apps/site/lib/projections/runtime/account-acquisition-composition.ts",
+          "line": 25
         }
       ],
-      "tests": [],
-      "componentEvidence": [],
-      "missing": "Complete target existing-owner composition; no parallel pipeline is observed, but new transport and policy are presently unwired."
+      "tests": [
+        {
+          "path": "apps/site/lib/accounts/discovery-http.test.ts",
+          "line": 33
+        },
+        {
+          "path": "apps/site/integration/account-acquisition.integration-case.ts",
+          "line": 46
+        }
+      ],
+      "componentEvidence": [
+        "connected-acquisition"
+      ],
+      "missing": "Internal composition reuses existing job, adapter, normalization, storage and reader owners. INV-R083 instrumented complete service journey and public cutover remain unexecuted; architecture correction review pending."
     },
     {
       "id": "R084",
@@ -2147,7 +2272,7 @@
         "account-composition",
         "infrastructure-transition"
       ],
-      "missing": "Receipt-aware caller composition and passing unit/browser regressions address the source defect and covered public behavior. Actual coordinated installation/drain, old/new restricted LOGIN compatibility, epoch/server identity and recovery remain unexecuted; retain explicit route/payload/fallback/cache/selection comparison before installation/release."
+      "missing": "Receipt-aware callers and a real-SQL transition rehearsal are authored. Actual installation/drain, old/new LOGIN compatibility, epoch identity and recovery are unexecuted. Migration037 changes legacy nonexclusive associations and is held before driver construction until compatible callers and coordinated034–037cutover are qualified."
     },
     {
       "id": "R088",
@@ -2399,7 +2524,7 @@
       ],
       "tests": [],
       "componentEvidence": [],
-      "missing": "Implement complete ordered domain lock inventory and per-connection authorization_generation protocol; only auth/account locks exist."
+      "missing": "Account/acquisition source includes ordered locks and context/policy revision checks. Complete membership/selection/follow/resource lock inventory and authorization-generation protocol remain pending; real SQL concurrency is unexecuted."
     },
     {
       "id": "R098",
@@ -2430,7 +2555,7 @@
       "componentEvidence": [
         "account-composition"
       ],
-      "missing": "Legacy private responses require final SQL timing and a single guarded handoff. Complete target closed-result decoder, full authority deadline intersection, no-retry final reader and revoked cached-result schedules remain pending."
+      "missing": "Legacy and internal discovery responses use final timing, closed results and guarded handoff. Complete target roster/domain deadline intersection and actual revocation/expiry/cache delivery schedules remain pending."
     },
     {
       "id": "R099",
@@ -2606,7 +2731,7 @@
       "componentEvidence": [
         "infrastructure-transition"
       ],
-      "missing": "Additional infrastructure/epoch/revision helpers and restrictive grants are authored. Execute actual role/catalog/search_path/hostile-input tests and implement the remaining domain-helper allowlist; owner SET ROLE is insufficient."
+      "missing": "Infrastructure/epoch/acquisition helpers and closed grants are authored. Remaining domain helpers plus actual LOGIN/catalog/search_path/hostile-input qualification remain pending; owner SET ROLE is insufficient."
     },
     {
       "id": "R106",
@@ -2637,7 +2762,7 @@
       "componentEvidence": [
         "account-composition"
       ],
-      "missing": "Legacy private responses require final SQL timing and a single guarded handoff. Complete target closed-result decoder, full authority deadline intersection, no-retry final reader and revoked cached-result schedules remain pending."
+      "missing": "Legacy and internal discovery responses use final timing, closed results and guarded handoff. Complete target roster/domain deadline intersection and actual revocation/expiry/cache delivery schedules remain pending."
     },
     {
       "id": "R107",
@@ -2664,38 +2789,42 @@
       "componentEvidence": [
         "account-composition"
       ],
-      "missing": "Existing origin/body/mutation controls remain in composed legacy paths. Durable target identify/discover/recover admission, shared job/idempotency budgets and actual SQL rollback tests remain pending."
+      "missing": "Durable identify/discover admission, canonical command idempotency and shared jobs are composed. Resource recovery, remaining mutations/actor buckets and actual rollback/rate/concurrency qualification remain pending. Distinct live same-scope intent is LIMITED under AA-P05, not silently coalesced."
     },
     {
       "id": "R108",
       "caseIds": [
         "INV-R108"
       ],
-      "status": "still-pending",
+      "status": "implemented-but-unverified",
       "code": [
         {
-          "path": "apps/site/lib/accounts/discovery-scan.ts",
-          "line": 40
+          "path": "apps/site/migrations/037_account_acquisition.sql",
+          "line": 871
         },
         {
-          "path": "apps/site/lib/accounts/discovery-scan.ts",
-          "line": 102
+          "path": "apps/site/lib/accounts/discovery-http.ts",
+          "line": 48
         },
         {
-          "path": "apps/site/lib/sleeper.ts",
-          "line": 263
+          "path": "apps/site/lib/projections/runtime/account-acquisition-composition.ts",
+          "line": 25
         }
       ],
       "tests": [
         {
-          "path": "apps/site/lib/accounts/discovery-scan.test.ts",
-          "line": 47
+          "path": "apps/site/lib/accounts/discovery-http.test.ts",
+          "line": 33
+        },
+        {
+          "path": "apps/site/integration/account-acquisition.integration-case.ts",
+          "line": 46
         }
       ],
       "componentEvidence": [
-        "finite-discovery"
+        "connected-acquisition"
       ],
-      "missing": "Dormant discovery now composes the closed admitted transport and shared normalizer. Real SQL permit/admission implementation, immutable persisted request contexts and every owned provider-callsite convergence remain pending; no global budget or actual acquisition qualification is claimed."
+      "missing": "Closed provider routes and bound SQL arguments are composed. INV-R108 hostile-key/native-key fixtures across real boundaries remain unexecuted. Universal existing callsite gate convergence remains pending and is not claimed here."
     }
   ],
   "frozenVerification": {

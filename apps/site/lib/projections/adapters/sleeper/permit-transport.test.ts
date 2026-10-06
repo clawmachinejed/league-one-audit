@@ -22,12 +22,26 @@ function setup() {
   const terminateLocal = vi.fn<() => Promise<'terminated' | 'unconfirmed'>>().mockResolvedValue('terminated');
   const reserveLocalCapacity = vi.fn().mockResolvedValue({ dispatch, release, terminateLocal });
   const monotonicNow = vi.fn().mockReturnValue(100);
-  const send = createSleeperPermitTransport({ permits: { reserveCommitted, finish }, reserveLocalCapacity, monotonicNow });
-  return { send, reserveCommitted, finish, dispatch, release, terminateLocal, reserveLocalCapacity, monotonicNow };
+  const wallClockNow = vi.fn(() => new Date().toISOString());
+  const send = createSleeperPermitTransport({ permits: { reserveCommitted, finish }, reserveLocalCapacity, monotonicNow,
+    wallClockNow });
+  return { send, reserveCommitted, finish, dispatch, release, terminateLocal, reserveLocalCapacity, monotonicNow, wallClockNow };
 }
 afterEach(() => vi.useRealTimers());
 
 describe('permit-bound Sleeper HTTP boundary', () => {
+  it('releases predispatch capacity when the injected provenance clock is invalid', async () => {
+    const s = setup(); s.wallClockNow.mockReturnValueOnce('unknown');
+    expect(await s.send(request)).toEqual({ status: 'unavailable', reason: 'transport' });
+    expect(s.dispatch).not.toHaveBeenCalled(); expect(s.release).toHaveBeenCalledOnce();
+    expect(s.finish).toHaveBeenCalledWith(id, 'cancelled', null);
+  });
+  it('refuses backward provenance chronology without accepting a capture or leaking owned resources', async () => {
+    const s = setup(); s.wallClockNow.mockReturnValueOnce('2026-10-06T12:00:01.000Z').mockReturnValueOnce('2026-10-06T12:00:00.000Z');
+    expect(await s.send(request)).toEqual({ status: 'unavailable', reason: 'transport' });
+    expect(s.terminateLocal).toHaveBeenCalledOnce(); expect(s.release).toHaveBeenCalledOnce();
+    expect(s.finish).toHaveBeenCalledWith(id, 'network', null);
+  });
   it('records dispatch/body chronology separately from permit accounting and delayed closure', async () => {
     vi.useFakeTimers(); vi.setSystemTime('2026-10-06T12:00:00.000Z');
     const s = setup();

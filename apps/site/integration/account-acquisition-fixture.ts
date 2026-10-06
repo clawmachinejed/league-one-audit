@@ -8,7 +8,7 @@ import { readAuthReceiptV2 } from '../lib/accounts/session-authority';
 import { createAccountAuthorityDatabase, type AccountAuthorityDatabase } from '../lib/accounts/neon/database';
 import { createAccountStore } from '../lib/accounts/neon/store';
 import { createNeonAccountAcquisitionPort } from '../lib/accounts/neon/discovery';
-import { createAcquisitionDatabase } from '../lib/projections/adapters/neon/acquisition-database';
+import { createAcquisitionDatabase } from '../lib/accounts/database';
 import { runAccountAcquisitionStep } from '../lib/projections/runtime/account-acquisition-composition';
 import type { DatabaseClient } from '../lib/database';
 

@@ -474,8 +474,14 @@ BEGIN
    OR context.authority_expires_at<=clock_timestamp() OR policy.state<>'qualified' OR policy.revision<>attempt.policy_qualification_revision
    OR policy.family<>'identity-lookup' THEN RAISE EXCEPTION USING ERRCODE='P4101',MESSAGE='Lookup authority unavailable'; END IF;
  IF linked.id IS NOT NULL THEN
-   IF linked.subject_lookup_capture_id IS NULL THEN
-     UPDATE public.app_provider_account_links SET subject_lookup_capture_id=capture.id WHERE id=linked.id RETURNING * INTO linked;
+   IF linked.subject_lookup_capture_id IS DISTINCT FROM capture.id THEN
+     -- Explicit own-subject activation refreshes qualified lookup evidence.
+     -- Actor CAS was checked above under its lock; preserve a second exact
+     -- association CAS. Existing guard/audit advances both revisions, fencing
+     -- all work admitted against the former evidence without deleting history.
+     UPDATE public.app_provider_account_links SET subject_lookup_capture_id=capture.id
+       WHERE id=linked.id AND revision=linked.revision RETURNING * INTO linked;
+     IF NOT FOUND THEN RAISE EXCEPTION USING ERRCODE='P4090',MESSAGE='Account state changed'; END IF;
    END IF;
    result:=jsonb_build_object('status','already_active','associationId',linked.id,'associationRevision',linked.revision::text,'assurance','user_asserted');
  ELSE
@@ -1082,7 +1088,7 @@ CREATE FUNCTION public.capture_account_acquisition_v1(p_input jsonb) RETURNS jso
 LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
 DECLARE attempt public.provider_request_attempts; demand public.app_acquisition_demands; permit public.provider_http_permits;
  value jsonb; coverage jsonb; recorded jsonb; capture_uuid uuid; scan_uuid uuid; season_value integer; retained integer[];
- required integer[]; completed boolean; item jsonb; sampled timestamptz;
+ required integer[]; completed boolean; item jsonb; sampled timestamptz; retained_scan public.app_discovery_scans; resume_current boolean; capture_ids uuid[];
 BEGIN
  PERFORM public.acquisition_runtime_v1();
  IF NOT public.acquisition_keys_v1(p_input,ARRAY['kind','request','permitId','rawValue','normalizedValue','requestStartedAt','requestCompletedAt','normalizedAt']) THEN
@@ -1091,6 +1097,21 @@ BEGIN
  IF NOT FOUND OR permit.request_context IS DISTINCT FROM p_input->'request' THEN RAISE EXCEPTION 'Capture permit changed'; END IF;
  SELECT * INTO attempt FROM public.provider_request_attempts WHERE id=(permit.request_context->'source'->>'attemptId')::uuid;
  IF NOT FOUND OR attempt.request_payload->>'kind' IS DISTINCT FROM p_input->>'kind' THEN RAISE EXCEPTION 'Capture purpose changed'; END IF;
+ -- Reauthorize and classify retained continuation before the provider gate.
+ -- The request mutex precedes all access/policy locks, including historical
+ -- dependencies; those locks stay held through capture and checkpoint commit.
+ IF p_input->>'kind'='nfl-state' THEN
+   demand:=public.acquisition_authority_v1(attempt.demand_id);
+   PERFORM pg_advisory_xact_lock(hashtextextended('provider-request:'||attempt.request_id::text,0));
+   SELECT s.* INTO retained_scan FROM public.app_discovery_scans s
+     WHERE s.association_id=demand.association_id AND s.association_revision=demand.association_revision
+       AND s.strategy_version='sleeper-current-prior-two-retained-v1' AND s.finished_at IS NULL ORDER BY s.id LIMIT 1;
+   IF FOUND THEN
+     SELECT array_prepend(retained_scan.calendar_capture_id,coalesce(array_agg(s.list_capture_id ORDER BY s.season),'{}')) INTO capture_ids
+       FROM public.app_discovery_scan_seasons s WHERE s.scan_id=retained_scan.id AND s.status='complete';
+     resume_current:=public.lock_acquisition_resume_evidence_v1(capture_ids,attempt.id);
+   END IF;
+ END IF;
  value:=p_input->'normalizedValue';
  IF p_input->>'kind'='nfl-state' THEN value:=value||jsonb_build_object('kind','calendar');
  ELSIF p_input->>'kind'='league-list' THEN
@@ -1129,6 +1150,13 @@ BEGIN
      WHERE s.association_id=demand.association_id AND s.association_revision=demand.association_revision
        AND s.strategy_version='sleeper-current-prior-two-retained-v1' AND s.finished_at IS NULL
      ORDER BY s.id LIMIT 1 FOR UPDATE;
+   IF scan_uuid IS NOT NULL AND (scan_uuid IS DISTINCT FROM retained_scan.id OR resume_current IS NOT TRUE) THEN
+     -- Revoked or superseded qualification cannot be resumed. Retire only the
+     -- execution, preserving its frozen calendar/query set and every receipt;
+     -- the new accepted demand builds a fresh scan from its qualified calendar.
+     UPDATE public.app_discovery_scans SET status='failed',finished_at=sampled,continuation=NULL,revision=revision+1 WHERE id=scan_uuid;
+     scan_uuid:=NULL;
+   END IF;
    IF scan_uuid IS NOT NULL THEN
      -- The frozen scan is retained discovery identity, not an inexhaustible
      -- retry budget. A NEW accepted demand starts a new bounded execution only
@@ -1314,3 +1342,29 @@ LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp
  SELECT public.reserve_account_provider_http_v1(p_request)->'result';
 $$;
 REVOKE ALL ON FUNCTION public.reserve_provider_http_v1(jsonb) FROM PUBLIC;
+
+
+-- Classification is not an authorization fallback: false forbids resumption,
+-- leaving history untouched and requiring a newly qualified scan. Include the
+-- current attempt in the sorted lock set to avoid historical-policy inversion.
+CREATE FUNCTION public.lock_acquisition_resume_evidence_v1(p_captures uuid[],p_new_attempt uuid) RETURNS boolean
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
+DECLARE expected_count integer;
+BEGIN
+ PERFORM 1 FROM public.provider_access_contexts context WHERE context.id IN (
+   SELECT a.access_context_id FROM public.provider_request_attempts a WHERE a.id=p_new_attempt OR a.id IN
+     (SELECT c.attempt_id FROM public.provider_capture_receipts c WHERE c.id=ANY(p_captures))) ORDER BY context.id FOR SHARE;
+ PERFORM 1 FROM public.provider_request_policy_qualifications policy WHERE policy.id IN (
+   SELECT a.policy_qualification_id FROM public.provider_request_attempts a WHERE a.id=p_new_attempt OR a.id IN
+     (SELECT c.attempt_id FROM public.provider_capture_receipts c WHERE c.id=ANY(p_captures))) ORDER BY policy.id FOR SHARE;
+ expected_count:=cardinality(p_captures);
+ IF expected_count IS NULL OR expected_count=0 OR array_position(p_captures,NULL) IS NOT NULL THEN RETURN false; END IF;
+ RETURN expected_count=(SELECT count(*) FROM public.provider_capture_receipts c
+   JOIN public.provider_request_attempts a ON a.id=c.attempt_id
+   JOIN public.provider_access_contexts context ON context.id=a.access_context_id
+   JOIN public.provider_request_policy_qualifications policy ON policy.id=a.policy_qualification_id
+   WHERE c.id=ANY(p_captures) AND c.outcome='normalized' AND context.state='active' AND context.revision=a.access_revision
+     AND (context.authority_expires_at IS NULL OR context.authority_expires_at>clock_timestamp())
+     AND policy.state='qualified' AND policy.revision=a.policy_qualification_revision);
+END; $$;
+REVOKE ALL ON FUNCTION public.lock_acquisition_resume_evidence_v1(uuid[],uuid) FROM PUBLIC;
