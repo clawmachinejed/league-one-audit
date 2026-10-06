@@ -33,9 +33,9 @@ function attempt(value: unknown): RosterAttempt {
 
 export function teamManagerMethods(client: DatabaseClient) {
   async function beginCapture(mapping: AdministrationSourceMapping, playersId: string, managersId: string,
-      fence: AdministrationWriteFence | undefined, evidence: boolean) {
-      const managerPolicy = evidence ? TEAM_MANAGER_EVIDENCE_POLICY : TEAM_MANAGERS_POLICY;
-      const managerScope = evidence ? teamManagerEvidenceScope(mapping) : teamManagersScope(mapping);
+      fence: AdministrationWriteFence | undefined) {
+      const managerPolicy = TEAM_MANAGERS_POLICY;
+      const managerScope = teamManagersScope(mapping);
       if (!isAdministrationSourceMapping(mapping) || playersId === managersId) throw new Error('Invalid roster capture identity.');
       // One transaction reserves both policies before the same existing HTTP call.
       const rows = await client.query(`/* league-administration:begin-roster-capture */
@@ -183,9 +183,19 @@ export function teamManagerMethods(client: DatabaseClient) {
     }
   return {
     beginRosterCapture: (mapping: AdministrationSourceMapping, playersId: string, managersId: string, fence?: AdministrationWriteFence) =>
-      beginCapture(mapping, playersId, managersId, fence, false),
-    beginRosterEvidenceCapture: (mapping: AdministrationSourceMapping, playersId: string, managersId: string, fence?: AdministrationWriteFence) =>
-      beginCapture(mapping, playersId, managersId, fence, true),
+      beginCapture(mapping, playersId, managersId, fence),
+    async beginTeamManagerEvidenceAttempt(mapping: AdministrationSourceMapping, evidenceId: string, fence?: AdministrationWriteFence) {
+      if (!isAdministrationSourceMapping(mapping)) throw new Error('Invalid manager evidence mapping.');
+      id(evidenceId);
+      const rows = await client.query(`/* league-administration:begin-team-manager-evidence */
+        SELECT public.begin_current_roster_attempt($1::jsonb,$2::uuid,$3::jsonb,$4::jsonb,$5::jsonb) AS evidence`,
+      [JSON.stringify(mapping), evidenceId, JSON.stringify(teamManagerEvidenceScope(mapping)),
+        JSON.stringify(TEAM_MANAGER_EVIDENCE_POLICY), fence ? JSON.stringify(fence) : null]);
+      if (rows.length !== 1) throw new Error('Missing manager evidence reservation.');
+      const reserved = attempt(rows[0].evidence);
+      if (reserved.id !== evidenceId) throw new Error('Invalid manager evidence reservation.');
+      return reserved;
+    },
     readAcceptedTeamManagers: (mapping: AdministrationSourceMapping) => readManagers(mapping, false),
     readAcceptedTeamManagerEvidence: (mapping: AdministrationSourceMapping) => readManagers(mapping, true),
   };

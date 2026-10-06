@@ -12,7 +12,8 @@ function receiptBound<T extends { status: string }>(resource: T, expected: unkno
 
 /** Backend-only stored read. No provider call, registration, calculation or write.
  * Discovery membership is public source evidence, never an ownership entitlement. */
-export async function readPublicSleeperIntake(client: DatabaseClient, administration: LeagueAdministrationStore, requestId: string) {
+export async function readPublicSleeperIntake(client: DatabaseClient, administration: LeagueAdministrationStore, requestId: string,
+  options: Readonly<{ managerEvidenceVersion?: 'v2' }> = {}) {
   if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu.test(requestId)) throw new Error('Invalid public intake identity.');
   const requests = await client.query(`/* public-data-intake:read-request */
     SELECT request.id,request.username AS requested_username,request.seasons,request.revision,request.terminal,
@@ -55,11 +56,14 @@ export async function readPublicSleeperIntake(client: DatabaseClient, administra
       if (!mapping || mapping.leagueSeasonId !== candidate.league_season_id || mapping.scope.season !== identity.season) {
         throw new Error('Stored source mapping changed.');
       }
-      const [settings, teamManagers, heldRoster, directory] = await Promise.all([
+      const [settings, teamManagers, heldRoster, directory, teamManagerEvidence] = await Promise.all([
         administration.readAcceptedLeagueSettings(mapping).catch(() => ({ status: 'unavailable' as const, reason: 'settings-read-failed' })),
         administration.readAcceptedTeamManagers(mapping).catch(() => ({ status: 'unavailable' as const, reason: 'team-managers-read-failed' })),
         administration.readAcceptedCurrentRoster(mapping, { includeSeasonOverview: true }).catch(() => ({ status: 'unavailable' as const, reason: 'held-roster-read-failed' })),
         administration.readSource({ ...mapping.scope, family: 'users', week: null }).catch(() => ({ status: 'unavailable' as const, reason: 'directory-read-failed' })),
+        options.managerEvidenceVersion === 'v2'
+          ? administration.readAcceptedTeamManagerEvidence?.(mapping).catch(() => ({ status: 'unavailable' as const, reason: 'team-manager-evidence-read-failed' }))
+            ?? { status: 'unavailable' as const, reason: 'team-manager-evidence-unsupported' } : undefined,
       ]);
       const acquisition = candidate.directory_capture && typeof candidate.directory_capture === 'object'
         ? candidate.directory_capture as Record<string, unknown> : null;
@@ -68,6 +72,10 @@ export async function readPublicSleeperIntake(client: DatabaseClient, administra
         leagueKey: mapping.scope.leagueKey, collection: String(candidate.stage),
         resources: { settings: receiptBound(settings, candidate.settings_receipt_id),
           teamManagers: receiptBound(teamManagers, candidate.managers_receipt_id),
+          // Latest scoped provider evidence may outlive a failed intake step. It is
+          // explicitly not a receipt-bound completion claim for this request.
+          ...(teamManagerEvidence ? { teamManagerEvidence: { ...teamManagerEvidence,
+            captureBinding: 'latest-for-current-source-mapping' as const } } : {}),
           heldRoster: receiptBound(heldRoster, candidate.players_receipt_id),
           directory: directory.status === 'available'
             ? directory.observationId !== candidate.users_observation_id || !directoryCurrent
@@ -87,7 +95,8 @@ export async function readPublicSleeperIntake(client: DatabaseClient, administra
     : completeResources ? 'available' : header.terminal ? 'partial' : 'pending';
   return { status, readAt: new Date().toISOString(), request: header, lists, leagues, rejected,
     freshness: 'Use each resource acceptance verifiedAt and each directory acquisition sourceObservedAt and list request_completed_at; this read does not refresh them.',
-    coverage: { requested: ['identity', 'season-league-lists', 'league-settings', 'team-managers', 'held-rosters', 'manager-directory'],
+    coverage: { requested: ['identity', 'season-league-lists', 'league-settings', 'team-managers', 'held-rosters', 'manager-directory',
+      ...(options.managerEvidenceVersion === 'v2' ? ['team-manager-evidence-v2'] : [])],
       notRequested: ['exact-matchups', 'official-results', 'transactions', 'drafts', 'playoff-brackets', 'annual-history'],
       note: 'Provider standings fields are retained with the roster; no derived rank or calculation is produced.' } } as const;
 }

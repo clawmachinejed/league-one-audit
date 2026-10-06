@@ -125,3 +125,24 @@ describe('administration Neon adapter boundaries', () => {
     expect(captured?.writeFence).toEqual(fence);
   });
 });
+
+
+it('serializes sibling v2 evidence into the same atomic writer while preserving the v1 input', async () => {
+  const input = normalizeAdministrationObservation({ schemaVersion: 'league-administration-v1',
+    normalizerVersion: 'sleeper-administration-v1', dialect: 'sleeper-nfl-v1', scope, family: 'rosters', week: null,
+    completeness: 'complete', payload: [{ roster_id: 1, owner_id: 0, co_owners: ['co'] }],
+    provenance: { origin: 'network', requestStartedAt: row.request_started_at, requestCompletedAt: row.request_completed_at,
+      sourceObservedAt: row.source_observed_at, checkedAt: row.checked_at } }, { expectedRosterCount: 1, managerEvidenceVersion: 'v2' });
+  const players = { attempt: { id: 'players', scopeId: 'players', ordinal: 1, expectedGeneration: 0 } };
+  const managers = { attempt: { id: 'managers', scopeId: 'managers', ordinal: 1, expectedGeneration: 0 } };
+  const evidence = { attempt: { id: 'evidence', scopeId: 'evidence', ordinal: 1, expectedGeneration: 0 } };
+  const query = vi.fn((_sql: string, parameters: readonly unknown[]) => {
+    expect(JSON.parse(String(parameters[0]))).toEqual({ ...input, rosterAcceptance: players,
+      teamManagerAcceptance: managers, teamManagerEvidenceAcceptance: evidence });
+    return [{ result: { status: 'rejected', teamManagerEvidenceAcceptance: { status: 'accepted', receiptId: 'receipt', acceptedGeneration: 1 } } }];
+  });
+  const result = await createLeagueAdministrationMethods(database(query)).recordObservation(input, undefined, undefined,
+    players, managers, undefined, undefined, undefined, undefined, undefined, evidence);
+  expect(query).toHaveBeenCalledOnce();
+  expect(result.teamManagerEvidenceAcceptance).toMatchObject({ status: 'accepted' });
+});

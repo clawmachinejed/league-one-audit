@@ -46,8 +46,9 @@ export async function recordCapturedAdministration(
     signal?: AbortSignal; expectedRosterCount?: number; mapping?: AdministrationSourceMapping | null;
     rosterAttempt?: RosterAttempt;
     managerAttempt?: RosterAttempt;
-    /** Explicit latest-evidence capture; the default still reserves complete-primary v1. */
+    /** Explicit sibling evidence; primary-complete v1 remains independently reserved. */
     managerEvidenceVersion?: 'v2';
+    managerEvidenceAttempt?: RosterAttempt;
     leagueSettingsAttempt?: RosterAttempt;
     matchupAttempt?: Readonly<{ week: number; attempt: RosterAttempt }>;
     transactionAttempt?: Readonly<{ week: number; attempt: RosterAttempt }>;
@@ -105,6 +106,8 @@ export async function recordCapturedAdministration(
       ? options.mapping ?? undefined : undefined;
     let attempt = origin === 'network' && mapping && document.family === 'rosters' ? options.rosterAttempt : undefined;
     let managerAttempt = origin === 'network' && mapping && document.family === 'rosters' ? options.managerAttempt : undefined;
+    let managerEvidenceAttempt = options.managerEvidenceVersion === 'v2' && origin === 'network' && mapping
+      && document.family === 'rosters' ? options.managerEvidenceAttempt : undefined;
     let leagueSettingsAttempt = origin === 'network' && mapping && document.family === 'league' ? options.leagueSettingsAttempt : undefined;
     let matchupAttempt = origin === 'network' && mapping && document.family === 'matchups'
       && options.matchupAttempt?.week === document.week ? options.matchupAttempt.attempt : undefined;
@@ -124,7 +127,13 @@ export async function recordCapturedAdministration(
       && normalized.envelope.completeness === 'complete' && leaguePayload
       && leaguePayload.sport === 'nfl' && leaguePayload.season_type === 'regular'
       ? validateSleeperCalendarEvidence(options.calendarEvidence, String(scope.season)) ?? undefined : undefined;
-    const write = () => transactionAttempt
+    const write = () => managerEvidenceAttempt
+      ? store.recordObservation(normalized, options.fence, mapping,
+        attempt ? { attempt, ...(population ? { population } : {}) } : undefined,
+        managerAttempt ? { attempt: managerAttempt, ...(population ? { population } : {}) } : undefined,
+        undefined, undefined, undefined, undefined, undefined,
+        { attempt: managerEvidenceAttempt, ...(population ? { population } : {}) })
+      : transactionAttempt
       ? store.recordObservation(normalized, options.fence, mapping, undefined, undefined, undefined,
         undefined, undefined, undefined, { attempt: transactionAttempt })
       : calculationCapture
@@ -156,10 +165,12 @@ export async function recordCapturedAdministration(
       if (mapping && document.family === 'league') {
         leagueSettingsAttempt = await store.beginLeagueSettingsAttempt(mapping, randomUUID(), options.fence);
       } else if (mapping && document.family === 'rosters') {
-        const beginCapture = options.managerEvidenceVersion === 'v2' ? store.beginRosterEvidenceCapture : store.beginRosterCapture;
-        if (!beginCapture) throw new Error('Manager evidence v2 capture is unsupported by this store.');
-        const attempts = await beginCapture(mapping, randomUUID(), randomUUID(), options.fence);
+        const attempts = await store.beginRosterCapture(mapping, randomUUID(), randomUUID(), options.fence);
         attempt = attempts.players; managerAttempt = attempts.managers;
+        if (options.managerEvidenceVersion === 'v2') {
+          if (!store.beginTeamManagerEvidenceAttempt) throw new Error('Manager evidence v2 capture is unsupported by this store.');
+          managerEvidenceAttempt = await store.beginTeamManagerEvidenceAttempt(mapping, randomUUID(), options.fence);
+        }
       } else if (document.family === 'matchups' && options.mapping && document.week !== null) {
         mapping = options.mapping;
         matchupAttempt = await store.beginExactMatchupAttempt(mapping, document.week, randomUUID(), options.fence);
@@ -192,7 +203,7 @@ export async function recordCapturedAdministration(
           requestCompletedAt: verified.requestCompletedAt, sourceObservedAt: verified.sourceObservedAt !== undefined
             ? verified.sourceObservedAt : verified.requestCompletedAt,
           checkedAt: now().toISOString() } }, { ...(expectedRosterCount === undefined ? {} : { expectedRosterCount }),
-      ...(options.managerEvidenceVersion === 'v2' ? { managerEvidenceVersion: 'v2' as const } : {}) });
+        ...(options.managerEvidenceVersion === 'v2' ? { managerEvidenceVersion: 'v2' as const } : {}) });
       // Retain the pre-acquisition token through verification. A remap never
       // authorizes this older capture by substituting today's revision.
       result = await write();

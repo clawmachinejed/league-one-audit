@@ -13,6 +13,8 @@ export type PublicIntakeDependencies = Readonly<{
   source?: Readonly<{ identity: typeof capturePublicSleeperIdentity; leagues: typeof capturePublicSleeperLeagueList;
     core: typeof capturePublicSleeperCore }>;
   now?: () => Date;
+  /** Requires installed R035; adds evidence without replacing either v1 reservation. */
+  managerEvidenceVersion?: 'v2';
   cleanup?: () => Readonly<{ intake: Pick<PublicIntakeStore, 'fail'>; jobs: Pick<ProjectionStore, 'failJob'> }>;
 }>;
 
@@ -63,7 +65,12 @@ export async function runPublicIntakeStep(requestId: string, dependencies: Publi
       if (work.kind === 'core') {
         const attempts = await administration.beginRosterCapture(mapping, randomUUID(), randomUUID(), fence);
         const settings = await administration.beginLeagueSettingsAttempt(mapping, randomUUID(), fence);
-        // The league request follows both reservations; its independently accepted
+        let managerEvidenceAttempt;
+        if (dependencies.managerEvidenceVersion === 'v2') {
+          if (!administration.beginTeamManagerEvidenceAttempt) throw new Error('Manager evidence v2 capture is unsupported by this store.');
+          managerEvidenceAttempt = await administration.beginTeamManagerEvidenceAttempt(mapping, randomUUID(), fence);
+        }
+        // The league request follows all resource reservations; its independently accepted
         // population proof belongs to this exact roster acquisition and mapping.
         requests += 2;
         const results = await Promise.allSettled([
@@ -72,7 +79,8 @@ export async function runPublicIntakeStep(requestId: string, dependencies: Publi
         const documents = results.flatMap(result => result.status === 'fulfilled' ? [result.value] : []);
         const captured = await recordCapturedAdministration(mapping.scope, documents, { store: administration,
           signal, fence, mapping, rosterAttempt: attempts.players, managerAttempt: attempts.managers,
-          leagueSettingsAttempt: settings, now });
+          leagueSettingsAttempt: settings, now,
+          ...(managerEvidenceAttempt ? { managerEvidenceVersion: 'v2', managerEvidenceAttempt } : {}) });
         const league = captured.results.find(entry => entry.family === 'league')?.result;
         const roster = captured.results.find(entry => entry.family === 'rosters')?.result;
         if (!league?.observationId || !roster?.observationId

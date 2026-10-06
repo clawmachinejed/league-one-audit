@@ -456,3 +456,34 @@ describe('calculation input source history', () => {
     expect(store.recordObservation).not.toHaveBeenCalled();
   });
 });
+
+
+it('reserves sibling v2 before changed-cache verification while retaining both v1 attempts', async () => {
+  const store = fakeStore();
+  const mapping = { connectionId: '11111111-1111-4111-8111-111111111111', leagueSeasonId: '22222222-2222-4222-8222-222222222222',
+    revisionId: '33333333-3333-4333-8333-333333333333', generation: 1, scope };
+  const players = { id: 'players', scopeId: 'players', ordinal: 1, expectedGeneration: 0 };
+  const managers = { id: 'managers', scopeId: 'managers', ordinal: 1, expectedGeneration: 0 };
+  const evidence = { id: 'evidence', scopeId: 'evidence', ordinal: 1, expectedGeneration: 0 };
+  const reserve = vi.fn(async () => evidence);
+  vi.mocked(store.beginRosterCapture).mockResolvedValue({ players, managers });
+  vi.mocked(store.recordObservation).mockResolvedValueOnce({ status: 'stale', reason: 'unproven_cache_change' })
+    .mockResolvedValueOnce({ status: 'rejected', teamManagerEvidenceAcceptance: { status: 'accepted', receiptId: 'evidence-receipt', acceptedGeneration: 1 } });
+  const source = { family: 'rosters' as const, week: null, requestStartedAt: time, requestCompletedAt: time,
+    payload: [{ roster_id: 1, owner_id: 0, co_owners: ['co'] }] };
+  const verify = vi.fn(async () => {
+    expect(store.beginRosterCapture).toHaveBeenCalledOnce(); expect(reserve).toHaveBeenCalledOnce();
+    return { ...source, origin: 'network' as const, sourceObservedAt: time };
+  });
+  const result = await recordCapturedAdministration(scope, [source], { store: { ...store, beginTeamManagerEvidenceAttempt: reserve },
+    mapping, managerEvidenceVersion: 'v2', expectedRosterCount: 1, verify });
+  expect(verify).toHaveBeenCalledOnce();
+  expect(vi.mocked(store.recordObservation).mock.calls[0]).toHaveLength(3);
+  const call = vi.mocked(store.recordObservation).mock.calls[1];
+  expect(call[3]).toEqual({ attempt: players }); expect(call[4]).toEqual({ attempt: managers });
+  expect(call[10]).toEqual({ attempt: evidence });
+  expect(call[0].teamManagers).toMatchObject({ status: 'invalid', teams: null });
+  expect(call[0].teamManagerEvidence).toMatchObject({ status: 'partial', teams: [{
+    primaryOwner: { state: 'unknown', reason: 'primary_owner_invalid' }, coManagers: { state: 'known', externalManagerIds: ['co'] } }] });
+  expect(result.results[0].result.teamManagerEvidenceAcceptance?.status).toBe('accepted');
+});

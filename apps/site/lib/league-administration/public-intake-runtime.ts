@@ -6,8 +6,9 @@ import { validatePublicIntake, type PublicIntakeInput } from './public-intake-co
 import { runPublicIntakeStep } from './public-intake';
 
 /** Operator/backend composition only. No current route supplies this selection.
- * Explicit enablement, installed 034 and its runtime grants are release prerequisites. */
-export type PublicIntakeSelection = Readonly<{ enabled: true; requestId: string }>;
+ * Explicit enablement, installed 034 and its runtime grants are release prerequisites.
+ * The sibling manager evidence option additionally requires installed 035. */
+export type PublicIntakeSelection = Readonly<{ enabled: true; requestId: string; managerEvidenceVersion?: 'v2' }>;
 export async function submitPublicSleeperIntake(input: PublicIntakeInput, selection: PublicIntakeSelection) {
   const validated = validatePublicIntake(input);
   if (selection.enabled !== true || validated.id !== selection.requestId) throw new Error('Public intake admission is not enabled.');
@@ -30,6 +31,7 @@ export async function runSelectedPublicIntake(selection: PublicIntakeSelection, 
   if (!bounded.enabled) return { status: 'disabled' } as const;
   return runPublicIntakeStep(selection.requestId, { intake: createPublicIntakeStore(bounded),
     administration: createLeagueAdministrationStore(bounded), jobs: createProjectionStore(bounded),
+    ...(selection.managerEvidenceVersion ? { managerEvidenceVersion: selection.managerEvidenceVersion } : {}),
     cleanup: () => {
       const cleanup = withDatabaseAbortSignal(database, AbortSignal.timeout(2_000));
       if (!cleanup.enabled) throw new Error('Intake cleanup storage unavailable.');

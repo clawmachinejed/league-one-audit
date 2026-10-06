@@ -4,8 +4,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { JsonValue, NormalizedAdministrationObservation } from '../lib/league-administration/contracts';
 import { normalizeAdministrationObservation } from '../lib/league-administration/normalize';
 import { createLeagueAdministrationMethods } from '../lib/league-administration/neon/administration';
-import { TEAM_MANAGERS_POLICY, teamManagersScope, type RosterCaptureAttempts } from '../lib/aggregator/team-managers';
-import type { RosterPopulationEvidence } from '../lib/aggregator/current-roster';
+import { TEAM_MANAGERS_POLICY, TEAM_MANAGER_EVIDENCE_POLICY, teamManagersScope, teamManagerEvidenceScope, type RosterCaptureAttempts } from '../lib/aggregator/team-managers';
+import type { RosterAttempt, RosterPopulationEvidence } from '../lib/aggregator/current-roster';
 import type { AdministrationWriteFence } from '../lib/league-administration/store-contracts';
 import { createProjectionStore } from '../lib/projection-store';
 import { compatibleScoringRulesHash } from '../lib/projections/shared/revision-compatibility';
@@ -367,4 +367,270 @@ describe.sequential('current primary ownership and independent optional co-manag
     } finally { await owner.database.query('ROLLBACK'); await owner.close(); }
     expect(await read(f)).toEqual(current);
   });
+  // AUTHORED ONLY: genuine restricted-LOGIN SQL coverage; not an offline unit test.
+  type EvidenceAttempts = RosterCaptureAttempts & { evidence: RosterAttempt };
+  const completeEvidenceRows: JsonValue = [{ ...initial[0] }, { ...initial[1], co_owners: [] }];
+  async function reserveEvidence(f: Fixture, fence?: AdministrationWriteFence): Promise<EvidenceAttempts> {
+    const paired = await reserve(f, fence);
+    if (!store.beginTeamManagerEvidenceAttempt) throw new Error('Missing v2 reservation capability.');
+    return { ...paired, evidence: await store.beginTeamManagerEvidenceAttempt(f.mapping, randomUUID(), fence) };
+  }
+  async function captureEvidence(f: Fixture, payload: JsonValue = completeEvidenceRows,
+    options: { completeness?: 'complete' | 'partial'; origin?: 'network' | 'cache' } = {}) {
+    const original = await capture(f, payload, 'rosters', options);
+    return normalizeAdministrationObservation(original.envelope, { expectedRosterCount: 2, managerEvidenceVersion: 'v2' });
+  }
+  const writeEvidence = (f: Fixture, input: NormalizedAdministrationObservation, attempts: EvidenceAttempts,
+    proof?: RosterPopulationEvidence, fence?: AdministrationWriteFence, selected = store) => selected.recordObservation(input, fence, f.mapping,
+    { attempt: attempts.players, ...(proof ? { population: proof } : {}) },
+    { attempt: attempts.managers, ...(proof ? { population: proof } : {}) },
+    undefined, undefined, undefined, undefined, undefined,
+    { attempt: attempts.evidence, ...(proof ? { population: proof } : {}) });
+  async function readEvidence(f: Fixture) {
+    if (!store.readAcceptedTeamManagerEvidence) throw new Error('Missing v2 reader capability.');
+    const result = await store.readAcceptedTeamManagerEvidence(f.mapping);
+    expect(result.status).toBe('available');
+    if (result.status !== 'available') throw new Error('Missing v2 manager evidence.');
+    return result;
+  }
+  async function seedEvidence() {
+    const f = await fixture(); const proof = await population(f); const attempts = await reserveEvidence(f);
+    const input = await captureEvidence(f); const result = await writeEvidence(f, input, attempts, proof);
+    expect(result.rosterAcceptance?.status).toBe('accepted'); expect(result.teamManagerAcceptance?.status).toBe('accepted');
+    expect(result.teamManagerEvidenceAcceptance?.status).toBe('accepted');
+    return { f, proof, attempts, input, result, current: await readEvidence(f), primary: await read(f) };
+  }
+
+  it('keeps v1 identities while v2 advances complete to adverse partial and back without merging prior fields', async () => {
+    expect((await connection.database.query('SELECT session_user AS role'))[0]?.role).toBe('league_one_runtime');
+    const { f, proof, input, attempts, current, primary } = await seedEvidence();
+    const original = normalizeAdministrationObservation(input.envelope, { expectedRosterCount: 2 });
+    const oldShape = { ...input }; delete oldShape.teamManagerEvidence;
+    expect(oldShape).toEqual(original);
+    const delegatedInput = { ...oldShape, sourceMapping: f.mapping,
+      rosterAcceptance: { attempt: attempts.players, population: proof }, teamManagerAcceptance: { attempt: attempts.managers, population: proof } };
+    expect(await ownerQuery(`SELECT evidence_hash=encode(digest(convert_to($1::jsonb::text,'UTF8'),'sha256'),'hex') AS same_hash
+      FROM league_roster_capture_receipts WHERE attempt_id=ANY($2::uuid[]) ORDER BY attempt_id`,
+    [JSON.stringify(delegatedInput), [attempts.players.id, attempts.managers.id]])).toEqual([{ same_hash: true }, { same_hash: true }]);
+    expect(current).toMatchObject({ evidenceCompleteness: 'complete', evidenceReasons: [],
+      accepted: { scope: teamManagerEvidenceScope(f.mapping), canonicalNormalizerVersion: TEAM_MANAGER_EVIDENCE_POLICY.canonicalNormalizerVersion } });
+    expect(current.receipt.id).not.toBe(primary.receipt.id);
+    const immutableV1 = await ownerQuery('SELECT * FROM league_administration_contents WHERE id=$1', [primary.accepted.contentId]);
+    const immutableV2 = await ownerQuery(`SELECT * FROM league_team_manager_entries WHERE content_id=$1
+      AND normalizer_version=$2 ORDER BY team_id`, [current.accepted.contentId, TEAM_MANAGER_EVIDENCE_POLICY.canonicalNormalizerVersion]);
+    const adverseAttempts = await reserveEvidence(f);
+    const adverse = await captureEvidence(f, [
+      { ...initial[0], owner_id: 42, co_owners: ['co-new', 'co-new', null, '', ' padded ', 'co-last'] },
+      { ...initial[1], co_owners: ['manager-b', 'co-independent'] },
+    ]);
+    expect(adverse.status).toBe('rejected');
+    const changed = await writeEvidence(f, adverse, adverseAttempts, proof);
+    expect(changed.teamManagerAcceptance?.status).toBe('preserved');
+    expect(changed.teamManagerEvidenceAcceptance?.status).toBe('accepted');
+    const partial = await readEvidence(f);
+    expect(partial).toMatchObject({ evidenceCompleteness: 'partial',
+      evidenceReasons: ['co_managers_invalid_members', 'primary_owner_invalid'],
+      accepted: { acceptedGeneration: current.accepted.acceptedGeneration + 1 } });
+    expect(partial.teams[0]).toMatchObject({ primaryOwner: { state: 'unknown', manager: null, reason: 'primary_owner_invalid' },
+      coManagers: { state: 'partial', completeness: 'partial', reason: 'co_managers_invalid_members',
+        managers: [{ sourceManager: { nativeId: 'co-new' } }, { sourceManager: { nativeId: 'co-last' } }] } });
+    expect(partial.teams[1].coManagers).toMatchObject({ state: 'partial', managers: [{ sourceManager: { nativeId: 'co-independent' } }] });
+    expect(await read(f)).toEqual(primary);
+    expect(await ownerQuery('SELECT accepted,normalized_value FROM league_administration_contents WHERE id=$1', [partial.accepted.contentId]))
+      .toEqual([{ accepted: false, normalized_value: null }]);
+    expect(await ownerQuery('SELECT * FROM league_administration_contents WHERE id=$1', [primary.accepted.contentId])).toEqual(immutableV1);
+    const restoredAttempts = await reserveEvidence(f);
+    expect((await writeEvidence(f, await captureEvidence(f, [
+      { ...initial[0], owner_id: 'manager-new', co_owners: [] }, { ...initial[1], owner_id: null, co_owners: [] },
+    ]), restoredAttempts, proof)).teamManagerEvidenceAcceptance?.status).toBe('accepted');
+    const restored = await readEvidence(f);
+    expect(restored).toMatchObject({ evidenceCompleteness: 'complete', evidenceReasons: [],
+      accepted: { acceptedGeneration: current.accepted.acceptedGeneration + 2 } });
+    expect(restored.teams[0]).toMatchObject({ primaryOwner: { state: 'owned', manager: { sourceManager: { nativeId: 'manager-new' } } },
+      coManagers: { state: 'known', managers: [] } });
+    expect(restored.teams[1].primaryOwner).toEqual({ state: 'unowned', manager: null });
+    expect(await ownerQuery(`SELECT * FROM league_team_manager_entries WHERE content_id=$1
+      AND normalizer_version=$2 ORDER BY team_id`, [current.accepted.contentId, TEAM_MANAGER_EVIDENCE_POLICY.canonicalNormalizerVersion])).toEqual(immutableV2);
+  });
+
+  it.each([
+    { label: 'absent', owner: {}, state: 'unknown', reason: 'primary_owner_absent' },
+    { label: 'empty', owner: { owner_id: '' }, state: 'unknown', reason: 'primary_owner_invalid' },
+    { label: 'null', owner: { owner_id: null }, state: 'unowned', reason: undefined },
+  ] as const)('distinguishes $label primary from vacancy and retains independently valid co-manager identity', async ({ owner, state, reason }) => {
+    const { f, proof } = await seedEvidence(); const attempts = await reserveEvidence(f);
+    const primaryRow: Record<string, JsonValue> = { roster_id: 1, players: [], co_owners: ['co-only'] };
+    if ('owner_id' in owner && owner.owner_id !== undefined) primaryRow.owner_id = owner.owner_id;
+    const input = await captureEvidence(f, [primaryRow, { ...initial[1], co_owners: [] }]);
+    expect((await writeEvidence(f, input, attempts, proof)).teamManagerEvidenceAcceptance?.status).toBe('accepted');
+    const read = await readEvidence(f);
+    expect(read.teams[0].primaryOwner).toEqual({ state, manager: null, ...(reason ? { reason } : {}) });
+    expect(read.teams[0].coManagers).toMatchObject({ state: 'known', managers: [{ sourceManager: { nativeId: 'co-only' } }] });
+    expect(read.evidenceCompleteness).toBe(reason ? 'partial' : 'complete');
+    expect(await ownerQuery(`SELECT member.role,manager.external_manager_id FROM league_team_manager_memberships member
+      JOIN league_source_manager_accounts manager ON manager.id=member.manager_id
+      WHERE member.content_id=$1 AND member.normalizer_version=$2 AND member.team_id=$3`,
+    [read.accepted.contentId, TEAM_MANAGER_EVIDENCE_POLICY.canonicalNormalizerVersion, read.teams[0].seasonTeamId]))
+      .toEqual([{ role: 'co_owner', external_manager_id: 'co-only' }]);
+  });
+
+  it.each([
+    ['missing team', [initial[0]], 'complete'], ['duplicate team', [initial[0], initial[0]], 'complete'],
+    ['foreign team', [{ ...initial[0], league_id: 'foreign' }, initial[1]], 'complete'],
+    ['partial response', completeEvidenceRows, 'partial'],
+  ] as const)('preserves v2 accepted evidence for %s without fabricating full team coverage', async (_label, rows, completeness) => {
+    const { f, proof, current } = await seedEvidence(); const attempts = await reserveEvidence(f);
+    const result = await writeEvidence(f, await captureEvidence(f, rows as JsonValue, { completeness }), attempts, proof);
+    expect(result.teamManagerEvidenceAcceptance).toMatchObject({ status: 'preserved', reason: 'complete_manager_evidence_population_unproved' });
+    expect(await readEvidence(f)).toEqual(current);
+  });
+
+  it('binds the sibling policy and exact retry bytes while original callers leave v2 heads alone', async () => {
+    const { f, proof, attempts, input, current, primary } = await seedEvidence(); const saved = await history(f);
+    expect((await writeEvidence(f, input, attempts, proof)).teamManagerEvidenceAcceptance)
+      .toMatchObject({ status: 'accepted', reason: 'exact_receipt_replay', receiptId: current.receipt.id });
+    const changed = structuredClone(input);
+    if (!changed.teamManagerEvidence?.teams) throw new Error('Missing v2 projection.');
+    const forged = changed.teamManagerEvidence as unknown as { teams: { coManagers: unknown }[] };
+    forged.teams[0].coManagers = { state: 'known', externalManagerIds: ['invented-co-manager'] };
+    await expect(writeEvidence(f, changed, attempts, proof)).rejects.toThrow(/receipt conflict/);
+    expect(await history(f)).toEqual(saved); expect(await readEvidence(f)).toEqual(current);
+    const fresh = await reserveEvidence(f); const freshInput = await captureEvidence(f);
+    await expect(store.recordObservation(freshInput, undefined, f.mapping, undefined,
+      { attempt: fresh.evidence, population: proof })).rejects.toThrow(/policy mismatch/);
+    await expect(store.recordObservation(freshInput, undefined, f.mapping, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, { attempt: fresh.managers, population: proof })).rejects.toThrow(/policy mismatch/);
+    expect(await read(f)).toEqual(primary); expect(await readEvidence(f)).toEqual(current);
+    const legacyOnly = await reserve(f); const legacyInput = await capture(f, completeEvidenceRows);
+    expect((await write(f, legacyInput, legacyOnly, proof)).teamManagerEvidenceAcceptance).toBeUndefined();
+    expect(await readEvidence(f)).toEqual(current);
+  });
+
+  it.each(['older-first', 'newer-first'] as const)('orders v2 field evidence independently under %s completion', async order => {
+    const { f, proof, current } = await seedEvidence();
+    const older = await reserveEvidence(f); const olderInput = await captureEvidence(f, [{ ...initial[0], co_owners: ['older-co'] }, { ...initial[1], co_owners: [] }]);
+    const newer = await reserveEvidence(f); const newerInput = await captureEvidence(f, [{ roster_id: 1, players: [], co_owners: ['newer-co'] }, { ...initial[1], co_owners: [] }]);
+    let oldResult;
+    if (order === 'older-first') {
+      oldResult = await writeEvidence(f, olderInput, older, proof); expect(await readEvidence(f)).toEqual(current);
+      await writeEvidence(f, newerInput, newer, proof);
+    } else { await writeEvidence(f, newerInput, newer, proof); oldResult = await writeEvidence(f, olderInput, older, proof); }
+    expect(oldResult.teamManagerEvidenceAcceptance?.reason).toBe('newer_network_attempt_reserved');
+    const latest = await readEvidence(f);
+    expect(latest.teams[0]).toMatchObject({ primaryOwner: { state: 'unknown', reason: 'primary_owner_absent' },
+      coManagers: { state: 'known', managers: [{ sourceManager: { nativeId: 'newer-co' } }] } });
+    expect(latest.evidenceCompleteness).toBe('partial');
+  });
+
+  it('does not turn pre-reservation or cache bytes into a fresh v2 acquisition', async () => {
+    const { f, proof, current } = await seedEvidence();
+    const old = await captureEvidence(f); const attempts = await reserveEvidence(f);
+    expect((await writeEvidence(f, old, attempts, proof)).teamManagerEvidenceAcceptance?.status).toBe('preserved');
+    expect(await readEvidence(f)).toEqual(current);
+    const cached = await captureEvidence(f, completeEvidenceRows, { origin: 'cache' });
+    await expect(writeEvidence(f, cached, await reserveEvidence(f), proof)).rejects.toThrow(/network capture/);
+    expect(await readEvidence(f)).toEqual(current);
+  });
+
+  it('keeps v2 mapping revisions distinct through A-B-A remaps and permits only new-revision acquisition', async () => {
+    const { f, proof, current } = await seedEvidence(); const pending = await reserveEvidence(f); const input = await captureEvidence(f);
+    await ownerQuery("SELECT revise_league_source_connection($1,'sleeper',$2,$3,'synthetic v2 remap')", [f.leagueSeasonId, f.mapping.revisionId, 'v2-remap-b']);
+    const middle = await store.readSourceMapping('v2-remap-b');
+    await ownerQuery("SELECT revise_league_source_connection($1,'sleeper',$2,$3,'synthetic v2 return')", [f.leagueSeasonId, middle!.revisionId, f.externalLeagueId]);
+    const latest = await store.readSourceMapping(f.externalLeagueId);
+    if (!latest || !store.readAcceptedTeamManagerEvidence) throw new Error('Missing remapped v2 fixture.');
+    expect(await store.readAcceptedTeamManagerEvidence(latest)).toEqual({ status: 'missing' });
+    await expect(writeEvidence(f, input, pending, proof)).rejects.toThrow(/mapping.*(?:stale|mismatch)|source mapping/);
+    expect(await ownerQuery('SELECT source_mapping_revision_id FROM league_roster_resource_acceptances WHERE receipt_id=$1', [current.receipt.id]))
+      .toEqual([{ source_mapping_revision_id: f.mapping.revisionId }]);
+    const next = { ...f, mapping: latest }; const nextProof = await population(next); const attempts = await reserveEvidence(next);
+    expect((await writeEvidence(next, await captureEvidence(next), attempts, nextProof)).teamManagerEvidenceAcceptance?.status).toBe('accepted');
+    expect((await readEvidence(next)).teams[0].seasonTeamId).toBe(current.teams[0].seasonTeamId);
+    const reused = await reserveEvidence(next);
+    expect((await writeEvidence(next, await captureEvidence(next), reused)).teamManagerEvidenceAcceptance?.status).toBe('accepted');
+  });
+
+  it('rolls back both earlier v1 publications when the v2 sibling head waits past the same worker deadline', async () => {
+    const { f, proof, current, primary } = await seedEvidence();
+    const owner = await createPinnedIntegrationDatabase('owner'); const writer = await createPinnedIntegrationDatabase('runtime');
+    let completion: Promise<{ error?: unknown }> | undefined;
+    try {
+      const [ownerPid] = await owner.database.query('SELECT pg_backend_pid() AS pid');
+      const [writerPid] = await writer.database.query('SELECT pg_backend_pid() AS pid,session_user AS role');
+      expect(writerPid.role).toBe('league_one_runtime');
+      const jobKey = `manager-v2-block:${randomUUID()}`; const workerId = randomUUID();
+      await ownerQuery(`INSERT INTO projection_jobs(job_key,job_type,scheduled_for,state,lease_owner,lease_until,attempt_count)
+        VALUES($1,'league-administration',clock_timestamp(),'running',$2,clock_timestamp()+interval '5 minutes',1)`, [jobKey, workerId]);
+      const [clock] = await ownerQuery("SELECT clock_timestamp()+interval '8 seconds' AS at");
+      const fence = { jobKey, workerId, generation: 1, deadlineAt: instant(clock.at) };
+      const attempts = await reserveEvidence(f, fence);
+      const input = await captureEvidence(f, [{ ...initial[0], owner_id: 'blocked-v2', players: ['blocked-player'] }, { ...initial[1], co_owners: [] }]);
+      const previousPlayers = await store.readAcceptedCurrentRoster(f.mapping); const previousHistory = await history(f);
+      await owner.database.query('BEGIN');
+      await owner.database.query('SELECT scope_id FROM league_roster_resource_heads WHERE scope_id=$1 FOR UPDATE', [attempts.evidence.scopeId]);
+      let settled = false;
+      completion = writeEvidence(f, input, attempts, proof, fence, createLeagueAdministrationMethods(writer.database))
+        .then(() => ({}), error => ({ error })).finally(() => { settled = true; });
+      let blocked = false;
+      for (let poll = 0; poll < 50; poll++) {
+        const [row] = await owner.database.query('SELECT $1::integer=ANY(pg_blocking_pids($2::integer)) AS blocked', [ownerPid.pid, writerPid.pid]);
+        if (row.blocked) { blocked = true; break; }
+        await new Promise(resolve => setTimeout(resolve, 20));
+      }
+      expect(blocked).toBe(true); expect(settled).toBe(false);
+      await owner.database.query('SELECT pg_sleep(GREATEST(0,EXTRACT(EPOCH FROM ($1::timestamptz-clock_timestamp())))+0.025)', [fence.deadlineAt]);
+      await owner.database.query('COMMIT');
+      expect(String((await completion).error)).toMatch(/writer fence.*(?:stale|expired)/);
+      expect(await read(f)).toEqual(primary); expect(await readEvidence(f)).toEqual(current);
+      expect(await store.readAcceptedCurrentRoster(f.mapping)).toEqual(previousPlayers);
+      expect(await history(f)).toEqual(previousHistory);
+      expect(await ownerQuery('SELECT id FROM league_roster_capture_receipts WHERE attempt_id=ANY($1::uuid[])',
+        [[attempts.players.id, attempts.managers.id, attempts.evidence.id]])).toEqual([]);
+    } finally {
+      await owner.database.query('ROLLBACK').catch(() => undefined); await completion; await writer.close(); await owner.close();
+    }
+  });
+
+  it('rejects missing and changed v2 worker fences and forged field evidence without replacing its accepted head', async () => {
+    const { f, proof, current } = await seedEvidence(); const jobKey = `manager-v2-fence:${randomUUID()}`; const workerId = randomUUID();
+    await ownerQuery(`INSERT INTO projection_jobs(job_key,job_type,scheduled_for,state,lease_owner,lease_until,attempt_count)
+      VALUES($1,'league-administration',clock_timestamp(),'running',$2,clock_timestamp()+interval '5 minutes',1)`, [jobKey, workerId]);
+    const [clock] = await ownerQuery("SELECT clock_timestamp()+interval '5 minutes' AS at");
+    const fence = { jobKey, workerId, generation: 1, deadlineAt: instant(clock.at) };
+    const attempts = await reserveEvidence(f, fence); const input = await captureEvidence(f);
+    await expect(writeEvidence(f, input, attempts, proof)).rejects.toThrow(/scope mismatch/);
+    await expect(writeEvidence(f, input, attempts, proof, { ...fence, generation: 2 })).rejects.toThrow(/fence.*(?:stale|expired)|scope mismatch/);
+    await ownerQuery("UPDATE projection_jobs SET lease_until=clock_timestamp()-interval '1 second' WHERE job_key=$1", [jobKey]);
+    await expect(writeEvidence(f, input, attempts, proof, fence)).rejects.toThrow(/fence.*(?:stale|expired)/);
+    const fresh = await reserveEvidence(f); const forged = structuredClone(await captureEvidence(f));
+    const projection = forged.teamManagerEvidence as unknown as { teams: { primaryOwner: unknown }[] };
+    projection.teams[0].primaryOwner = { state: 'unknown', externalManagerId: null, reason: 'primary_owner_absent' };
+    expect((await writeEvidence(f, forged, fresh, proof)).teamManagerEvidenceAcceptance?.status).toBe('preserved');
+    expect(await readEvidence(f)).toEqual(current);
+  });
+
+  it('keeps the new projection helpers and delegated writer owner-only and v2 history immutable after late role provisioning', async () => {
+    const { f, current } = await seedEvidence();
+    await expect(runtimeQuery('SELECT public.project_team_manager_evidence_fields(NULL,NULL)')).rejects.toThrow(/permission denied/);
+    await expect(runtimeQuery('SELECT public.qualify_team_manager_evidence_projection(NULL,NULL,NULL,NULL)')).rejects.toThrow(/permission denied/);
+    await expect(runtimeQuery('SELECT public.record_league_administration_observation_v34(NULL)')).rejects.toThrow(/permission denied/);
+    for (const table of ['league_team_manager_entries', 'league_team_manager_memberships']) {
+      await expect(runtimeQuery(`DELETE FROM public.${table} WHERE content_id=$1 AND normalizer_version=$2`,
+        [current.accepted.contentId, TEAM_MANAGER_EVIDENCE_POLICY.canonicalNormalizerVersion])).rejects.toThrow(/permission denied/);
+      await expect(ownerQuery(`DELETE FROM public.${table} WHERE content_id=$1 AND normalizer_version=$2`,
+        [current.accepted.contentId, TEAM_MANAGER_EVIDENCE_POLICY.canonicalNormalizerVersion])).rejects.toThrow(/immutable/);
+    }
+    const owner = await createPinnedIntegrationDatabase('owner');
+    try {
+      await owner.database.query('BEGIN');
+      await owner.database.query(await readFile(new URL('../scripts/provision-runtime-role.sql', import.meta.url), 'utf8'));
+      for (const helper of ['public.project_team_manager_evidence_fields(jsonb,text)',
+        'public.qualify_team_manager_evidence_projection(jsonb,jsonb,text,integer)', 'public.record_league_administration_observation_v34(jsonb)']) {
+        expect(await owner.database.query(`SELECT has_function_privilege('league_one_runtime',$1,'EXECUTE') AS runtime,
+          has_function_privilege('league_one_auth',$1,'EXECUTE') AS auth`, [helper])).toEqual([{ runtime: false, auth: false }]);
+      }
+    } finally { await owner.database.query('ROLLBACK'); await owner.close(); }
+    expect(await readEvidence(f)).toEqual(current);
+  });
+
 });

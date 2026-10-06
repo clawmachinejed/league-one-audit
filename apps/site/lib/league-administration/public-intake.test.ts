@@ -334,3 +334,76 @@ describe('bounded shared Sleeper transport captures', () => {
 
   });
 });
+
+
+describe('opt-in manager evidence through public DATA intake', () => {
+  it.each([false, true])('retains v1 reservations and same GETs with an invalid primary: %s', async malformed => {
+    const f = fixture();
+    const evidenceAttempt = { id: 'evidence', scopeId: 'evidence-scope', ordinal: 1, expectedGeneration: 0 };
+    const reserve = vi.fn(async () => evidenceAttempt);
+    const administration = { ...f.administration, beginTeamManagerEvidenceAttempt: reserve };
+    const write = vi.mocked((administration as typeof f.dependencies.administration).recordObservation);
+    const original = f.administration.recordObservation.getMockImplementation()!;
+    write.mockImplementation(async input => ({ ...await original(input),
+      ...(input.envelope.family === 'rosters' ? {
+        teamManagerAcceptance: malformed ? { status: 'preserved' as const, reason: 'invalid-primary', receiptId: 'preserved-receipt', acceptedGeneration: 0 }
+          : { status: 'accepted' as const, receiptId: 'managers-receipt', acceptedGeneration: 1 },
+        teamManagerEvidenceAcceptance: { status: 'accepted' as const, receiptId: 'evidence-receipt', acceptedGeneration: 1 },
+      } : {}) }));
+    f.source.core.mockImplementation(async (_native, family) => {
+      expect(reserve).toHaveBeenCalledOnce();
+      expect(f.administration.beginRosterCapture).toHaveBeenCalledOnce();
+      return family === 'rosters' && malformed
+        ? { ...document(family), payload: [{ roster_id: 1, owner_id: 0, co_owners: ['66'], players: ['123'] }] }
+        : document(family);
+    });
+    const outcome = await runPublicIntakeStep(id, { ...f.dependencies, administration, managerEvidenceVersion: 'v2' }, new AbortController().signal);
+    expect(outcome).toMatchObject({ status: malformed ? 'unavailable' : 'progress', resource: 'core', providerRequests: 2 });
+    expect(f.source.core.mock.calls.map(call => call[1])).toEqual(['league', 'rosters']);
+    const call = vi.mocked((administration as typeof f.dependencies.administration).recordObservation).mock.calls[1];
+    expect(call[3]?.attempt.id).toBe('players');
+    expect(call[4]?.attempt.id).toBe('managers');
+    expect(call[10]).toMatchObject({ attempt: evidenceAttempt, population: { observationId: 'observation-league' } });
+    expect(call[0].teamManagerEvidence).toMatchObject({ status: malformed ? 'partial' : 'complete', teams: [{
+      primaryOwner: { state: malformed ? 'unknown' : 'owned' }, coManagers: { state: 'known', externalManagerIds: ['66'] } }] });
+    if (malformed) {
+      expect(f.intake.completeCore).not.toHaveBeenCalled();
+      expect(f.intake.fail).toHaveBeenCalledOnce();
+    } else expect(f.intake.completeCore).toHaveBeenCalledWith(expect.anything(), mapping,
+      expect.objectContaining({ receipts: { settings: 'settings-receipt', players: 'players-receipt', managers: 'managers-receipt' } }), expect.anything());
+  });
+
+  it('makes no v2 reservation or projection without explicit selection', async () => {
+    const f = fixture(); const reserve = vi.fn();
+    await runPublicIntakeStep(id, { ...f.dependencies, administration: { ...f.administration, beginTeamManagerEvidenceAttempt: reserve } }, new AbortController().signal);
+    expect(reserve).not.toHaveBeenCalled();
+    for (const call of f.administration.recordObservation.mock.calls) expect(call[0]).not.toHaveProperty('teamManagerEvidence');
+  });
+
+  it('performs no source request when the selected evidence reservation cannot be obtained', async () => {
+    const f = fixture();
+    const result = await runPublicIntakeStep(id, { ...f.dependencies, managerEvidenceVersion: 'v2',
+      administration: { ...f.administration, beginTeamManagerEvidenceAttempt: undefined } }, new AbortController().signal);
+    expect(result).toMatchObject({ status: 'unavailable', providerRequests: 0 });
+    expect(f.source.core).not.toHaveBeenCalled(); expect(f.intake.completeCore).not.toHaveBeenCalled();
+  });
+
+  it('exposes stored partial evidence for an incomplete core without promoting it to intake completion', async () => {
+    const f = fixture();
+    const rows = [[{ id, seasons: [2026], terminal: true, external_manager_id: '55' }], [{ season: 2026 }],
+      [{ season: 2026, external_league_id: native, name: league.name, stage: 'pending', league_season_id: mapping.leagueSeasonId }], []];
+    const client = { enabled: true, query: vi.fn(async () => rows.shift() ?? []) } as unknown as DatabaseClient;
+    const evidence = { status: 'available', evidenceCompleteness: 'partial', evidenceReasons: ['primary_owner_invalid'],
+      accepted: { observationIds: ['evidence-receipt'] }, teams: [{ primaryOwner: { state: 'unknown', manager: null, reason: 'primary_owner_invalid' },
+        coManagers: { state: 'known', managers: [{ providerManagerId: 'canonical-co', sourceManager: { nativeId: '66' } }] }, assurance: 'provider-observed' }] };
+    const read = vi.fn(async () => evidence);
+    const administration = { ...f.administration, readAcceptedTeamManagerEvidence: read } as unknown as typeof f.dependencies.administration;
+    const result = await readPublicSleeperIntake(client, administration, id, { managerEvidenceVersion: 'v2' });
+    expect(result.status).toBe('partial');
+    if (result.status === 'missing') throw new Error('Missing fixture.');
+    expect(result.leagues[0].resources?.teamManagerEvidence).toEqual({ ...evidence, captureBinding: 'latest-for-current-source-mapping' });
+    expect(result.leagues[0].resources?.teamManagers.status).not.toBe('available');
+    expect(read).toHaveBeenCalledExactlyOnceWith(mapping);
+    expect(f.source.core).not.toHaveBeenCalled(); expect(f.intake.completeCore).not.toHaveBeenCalled();
+  });
+});

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { DatabaseClient, DatabaseRow } from '../../database';
 import { CURRENT_ROSTER_POLICY, currentRosterScope } from '../../aggregator/current-roster';
-import { TEAM_MANAGERS_POLICY, teamManagersScope } from '../../aggregator/team-managers';
+import { TEAM_MANAGERS_POLICY, teamManagersScope, TEAM_MANAGER_EVIDENCE_POLICY, teamManagerEvidenceScope, teamManagerEvidenceCoverage } from '../../aggregator/team-managers';
 import type { AdministrationEnvelope, JsonObject } from '../contracts';
 import type { AdministrationSourceMapping } from '../source-mapping';
 import { normalizeAdministrationObservation } from '../normalize';
@@ -289,5 +289,95 @@ describe('batched roster capture reservation', () => {
     const store = createLeagueAdministrationStore({ enabled: false, reason: 'preview-persistence-disabled' });
     expect(await store.readAcceptedTeamManagers(unreadable)).toEqual({ status: 'disabled' });
     await expect(store.beginRosterCapture(unreadable, ids.playersAttempt, ids.managersAttempt)).rejects.toThrow('Administration persistence disabled');
+  });
+});
+
+function evidenceRow(raw: AdministrationEnvelope['payload'] = payload): DatabaseRow {
+  const normalized = normalizeAdministrationObservation({ schemaVersion: 'league-administration-v1',
+    normalizerVersion: 'sleeper-administration-v1', dialect: 'sleeper-nfl-v1', scope: mapping.scope,
+    family: 'rosters', week: null, completeness: 'complete', provenance, payload: raw },
+  { expectedRosterCount: 2, managerEvidenceVersion: 'v2' });
+  const projection = normalized.teamManagerEvidence!;
+  return { ...storedRow(raw), identity: { scope: teamManagerEvidenceScope(mapping), policy: TEAM_MANAGER_EVIDENCE_POLICY },
+    coverage: teamManagerEvidenceCoverage(projection),
+    identities: projection.teams?.map(team => ({ seasonTeamId: team.externalRosterId === '7' ? ids.teamOne : ids.teamTwo,
+      externalRosterId: team.externalRosterId, sourceValue: team })),
+    managers: projection.teams?.flatMap(team => [
+      ...(team.primaryOwner.state === 'owned' ? [{ ...ownerMembership, externalManagerId: team.primaryOwner.externalManagerId }] : []),
+      ...(team.coManagers.externalManagerIds ?? []).map(externalManagerId => ({ ...coMembership, externalManagerId })),
+    ]) ?? [] };
+}
+function readEvidence(row: DatabaseRow, requestedMapping = mapping) {
+  return teamManagerMethods(database(() => [row])).readAcceptedTeamManagerEvidence(requestedMapping);
+}
+
+describe('separate latest observed manager evidence reader', () => {
+  it.each([['complete', 'owner-001', ['co-002']], ['partial', 17, ['co-002', null]]] as const)
+  ('reads %s evidence with canonical independent co-manager identities', async (completeness, owner_id, co_owners) => {
+    const row = evidenceRow([{ ...payload[0], owner_id, co_owners }, payload[1]]);
+    const result = await readEvidence(row);
+    expect(result).toMatchObject({ status: 'available', evidenceCompleteness: completeness,
+      accepted: { canonicalNormalizerVersion: TEAM_MANAGER_EVIDENCE_POLICY.canonicalNormalizerVersion },
+      teams: [{ coManagers: { managers: [{ providerManagerId: ids.coOwner, sourceManager: { nativeId: 'co-002' } }] },
+        assurance: 'provider-observed', effectiveEvidence: 'unknown' }, {}] });
+    if (result.status !== 'available') throw new Error('Missing fixture read.');
+    expect(result.teams[0].primaryOwner).toEqual(completeness === 'complete'
+      ? { state: 'owned', manager: { providerManagerId: ids.owner, sourceManager: { provider: 'sleeper', resourceKind: 'manager', nativeNamespace: 'account', nativeId: 'owner-001' } } }
+      : { state: 'unknown', manager: null, reason: 'primary_owner_invalid' });
+    expect(result.evidenceReasons).toEqual(completeness === 'complete' ? [] : ['co_managers_invalid_members', 'primary_owner_invalid']);
+    expect(JSON.stringify(result)).not.toMatch(/website|entitlement|claim|session|membership_authority/);
+    expect(await read(row)).toMatchObject({ status: 'unavailable' });
+  });
+
+  it('exposes adverse current evidence without carrying forward an older primary or co-manager', async () => {
+    const original = await readEvidence(evidenceRow());
+    const adverse = await readEvidence(evidenceRow([{ roster_id: 7, owner_id: 0, co_owners: null }, payload[1]]));
+    expect(original).toMatchObject({ status: 'available', evidenceCompleteness: 'complete' });
+    expect(adverse).toMatchObject({ status: 'available', evidenceCompleteness: 'partial', teams: [{
+      primaryOwner: { state: 'unknown', manager: null, reason: 'primary_owner_invalid' },
+      coManagers: { state: 'unknown', managers: null, reason: 'co_managers_null' } }, {}] });
+    expect(await read(storedRow())).toMatchObject({ status: 'available', teams: [{ primaryOwner: { state: 'owned' } }, {}] });
+  });
+
+  it.each([
+    ['v1 policy', (row: DatabaseRow) => ({ ...row, identity: storedRow().identity })],
+    ['upgraded completeness', (row: DatabaseRow) => ({ ...row, coverage: { ...(row.coverage as object), completeness: 'complete' } })],
+    ['hidden adverse reasons', (row: DatabaseRow) => ({ ...row, coverage: { ...(row.coverage as object), reasons: [] } })],
+    ['promoted owner', (row: DatabaseRow) => ({ ...row, managers: [coMembership, { ...coMembership, role: 'owner' }] })],
+    ['removed valid co-manager', (row: DatabaseRow) => ({ ...row, managers: [] })],
+    ['foreign source', (row: DatabaseRow) => ({ ...row, external_league_id: 'other-source' })],
+    ['foreign season', (row: DatabaseRow) => ({ ...row, league_season_id: ids.different })],
+    ['changed revision', (row: DatabaseRow) => ({ ...row, source_mapping_revision_id: ids.different })],
+    ['partial population', (row: DatabaseRow) => ({ ...row, expected_team_count: 3 })],
+    ['wrong stored field', (row: DatabaseRow) => ({ ...row, identities: storedRow().identities })],
+  ] as const)('fails closed for %s in stored v2 evidence', async (_label, mutate) => {
+    const row = evidenceRow([{ ...payload[0], owner_id: 0 }, payload[1]]);
+    expect(await readEvidence(mutate(row))).toEqual({ status: 'unavailable', reason: 'team_manager_evidence_unavailable' });
+  });
+
+  it('reserves only the evidence scope and leaves the existing two-attempt API intact', async () => {
+    const query = vi.fn(() => [{ evidence: reservations().managers }]);
+    const methods = teamManagerMethods(database(query));
+    expect(await methods.beginTeamManagerEvidenceAttempt(mapping, ids.managersAttempt)).toEqual({
+      id: ids.managersAttempt, scopeId: ids.managersScope, ordinal: 3, expectedGeneration: 0 });
+    const [sql, parameters] = query.mock.calls[0] as unknown as [string, unknown[]];
+    expect(sql.match(/begin_current_roster_attempt/g)).toHaveLength(1);
+    expect(JSON.parse(String(parameters[2]))).toEqual(teamManagerEvidenceScope(mapping));
+    expect(JSON.parse(String(parameters[3]))).toEqual(TEAM_MANAGER_EVIDENCE_POLICY);
+    expect(parameters[4]).toBeNull();
+    expect(await teamManagerMethods(database(() => [reservations()])).beginRosterCapture(mapping, ids.playersAttempt, ids.managersAttempt))
+      .toEqual({ players: { id: ids.playersAttempt, scopeId: ids.playersScope, ordinal: 5, expectedGeneration: 2 },
+        managers: { id: ids.managersAttempt, scopeId: ids.managersScope, ordinal: 3, expectedGeneration: 0 } });
+  });
+
+  it('rejects corrupt reservations and disables v2 without querying', async () => {
+    await expect(teamManagerMethods(database(() => [{ evidence: { ...reservations().managers, id: ids.different } }]))
+      .beginTeamManagerEvidenceAttempt(mapping, ids.managersAttempt)).rejects.toThrow();
+    const query = vi.fn(() => []);
+    await expect(teamManagerMethods(database(query)).beginTeamManagerEvidenceAttempt({ ...mapping, generation: 0 }, ids.managersAttempt)).rejects.toThrow();
+    expect(query).not.toHaveBeenCalled();
+    const disabled = createLeagueAdministrationStore({ enabled: false, reason: 'missing-database-url' });
+    expect(await disabled.readAcceptedTeamManagerEvidence!(mapping)).toEqual({ status: 'disabled' });
+    await expect(disabled.beginTeamManagerEvidenceAttempt!(mapping, ids.managersAttempt)).rejects.toThrow('disabled');
   });
 });

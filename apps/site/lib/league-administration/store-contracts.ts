@@ -31,6 +31,7 @@ export type AdministrationWriteResult = Readonly<{
   reason?: string;
   rosterAcceptance?: RosterAcceptanceResult;
   teamManagerAcceptance?: RosterAcceptanceResult;
+  teamManagerEvidenceAcceptance?: RosterAcceptanceResult;
   leagueSettingsAcceptance?: RosterAcceptanceResult;
   matchupAcceptance?: RosterAcceptanceResult;
   transactionAcceptance?: RosterAcceptanceResult;
@@ -61,7 +62,8 @@ export type LeagueAdministrationStore = Readonly<{
     mapping?: AdministrationSourceMapping, acceptance?: RosterAcceptanceInput,
     managerAcceptance?: RosterAcceptanceInput, leagueSettingsAcceptance?: Readonly<{ attempt: RosterAttempt }>,
     matchupAcceptance?: RosterAcceptanceInput, calendarEvidence?: SleeperCalendarEvidence,
-    calculationCapture?: CalculationSourceCapture, transactionAcceptance?: Readonly<{ attempt: RosterAttempt }>) => Promise<AdministrationWriteResult>;
+    calculationCapture?: CalculationSourceCapture, transactionAcceptance?: Readonly<{ attempt: RosterAttempt }>,
+    managerEvidenceAcceptance?: RosterAcceptanceInput) => Promise<AdministrationWriteResult>;
   beginTransactionAttempt: (mapping: AdministrationSourceMapping, week: number, id: string,
     fence?: AdministrationWriteFence) => Promise<RosterAttempt>;
   readAcceptedTransactions: (mapping: AdministrationSourceMapping, week: number) => Promise<AcceptedTransactionsRead>;
@@ -78,8 +80,8 @@ export type LeagueAdministrationStore = Readonly<{
     fence?: AdministrationWriteFence) => Promise<RosterCaptureAttempts>;
   readAcceptedTeamManagers: (mapping: AdministrationSourceMapping) => Promise<AcceptedTeamManagersRead>;
   /** Optional capability for older store implementations; Neon and disabled stores provide both. */
-  beginRosterEvidenceCapture?: (mapping: AdministrationSourceMapping, playersId: string, managersId: string,
-    fence?: AdministrationWriteFence) => Promise<RosterCaptureAttempts>;
+  beginTeamManagerEvidenceAttempt?: (mapping: AdministrationSourceMapping, id: string,
+    fence?: AdministrationWriteFence) => Promise<RosterAttempt>;
   readAcceptedTeamManagerEvidence?: (mapping: AdministrationSourceMapping) => Promise<AcceptedTeamManagerEvidenceRead>;
   beginRosterAttempt: (mapping: AdministrationSourceMapping, attemptId: string, policy?: CurrentRosterPolicy,
     fence?: AdministrationWriteFence) => Promise<RosterAttempt>;
