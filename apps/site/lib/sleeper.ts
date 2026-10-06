@@ -255,6 +255,15 @@ export async function getSleeperUserLeagues(
   if (!/^[1-9]\d{0,31}$/u.test(userId) || !/^\d{4}$/u.test(season)) throw new Error('Invalid discovery source.');
   signal?.throwIfAborted();
   const rows = await fetchJson(`/user/${userId}/leagues/nfl/${season}`, CORE_CACHE_SECONDS, signal);
+  return normalizeSleeperUserLeagues(rows, season, signal);
+}
+
+/** Shared list interpretation for the legacy adapter and admitted internal work.
+ * Parsing establishes candidate identity, never membership or account control. */
+export function normalizeSleeperUserLeagues(rows: unknown, season: string, signal?: AbortSignal):
+  { id: string; name: string; season: string; avatar?: string | null; capabilities?: LeagueCapabilityReport }[] {
+  if (!/^\d{4}$/u.test(season)) throw new Error('Invalid discovery source.');
+  signal?.throwIfAborted();
   if (!Array.isArray(rows) || rows.length > 1_000) throw new Error('Sleeper league discovery is unavailable.');
   const leagues = new Map<string, { id: string; name: string; season: string; avatar?: string | null; capabilities?: LeagueCapabilityReport }>();
   const settingsConflicts = new Set<string>();

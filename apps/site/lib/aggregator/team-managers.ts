@@ -8,6 +8,10 @@ export const TEAM_MANAGERS_POLICY = Object.freeze({
   canonicalNormalizerVersion: 'sleeper-current-team-managers-v1',
   validationVersion: 'latest-network-attempt-v1',
 });
+/** Enriched unqualified evidence, not an accepted policy or a membership grant.
+ * The v1 complete-primary-owner policy and all of its accepted values are unchanged.
+ */
+export const TEAM_MANAGERS_PARTIAL_VERSION = 'sleeper-current-team-managers-partial-v2' as const;
 export type SourceTeamManagers = Readonly<{
   externalRosterId: string;
   primaryOwner: Readonly<{ state: 'owned'; externalManagerId: string }>
@@ -16,7 +20,7 @@ export type SourceTeamManagers = Readonly<{
     | Readonly<{ state: 'unknown'; externalManagerIds: null; reason: string }>;
 }>;
 export type TeamManagersNormalization = Readonly<{
-  version: typeof TEAM_MANAGERS_POLICY.canonicalNormalizerVersion;
+  version: typeof TEAM_MANAGERS_POLICY.canonicalNormalizerVersion | typeof TEAM_MANAGERS_PARTIAL_VERSION;
   status: 'complete' | 'partial' | 'invalid';
   teams: readonly SourceTeamManagers[] | null;
   diagnostics: readonly AdministrationDiagnostic[];

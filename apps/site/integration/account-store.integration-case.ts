@@ -4,7 +4,7 @@ import type { DatabaseRow } from '../lib/database';
 import type { AdministrationEnvelope, AdministrationFamily, JsonValue } from '../lib/league-administration/contracts';
 import { createLeagueAdministrationMethods } from '../lib/league-administration/neon/administration';
 import { normalizeAdministrationObservation } from '../lib/league-administration/normalize';
-import type { AccountDatabase } from '../lib/accounts/database';
+import type { AccountDatabase, AccountAuthorityDatabase } from '../lib/accounts/database';
 import { accountTeams } from '../lib/accounts/library';
 import { ACCOUNT_VIEW_SQL } from '../lib/accounts/neon/source-sql';
 import { AccountConflictError, createAccountStore } from '../lib/accounts/store';
@@ -32,29 +32,32 @@ async function rollbackFixture(run: (fixture: Fixture) => Promise<void>, prepare
 }
 
 async function createFixture(query: AccountIntegrationQuery) {
-  const database: AccountDatabase = {
-    async transaction(statements, context) {
-      await query('SAVEPOINT account_adapter_request');
-      try {
-        if (context?.actorUserId) await setSyntheticActorReceipt(query, context.actorUserId);
-        await query('SET LOCAL ROLE league_one_account');
-        await query("SELECT set_config('app.actor_user_id',$1,true),set_config('app.request_id',$2,true)",
-          [context?.actorUserId ?? '', context?.requestId ?? '']);
-        const results: (readonly DatabaseRow[])[] = [];
-        if (context?.actorUserId) await query(`SELECT public.lock_account_actor_authority_v2(
-          current_setting('app.session_receipt_v2')::jsonb,$1::boolean)`, [context.access === 'write']);
-        else await query(`SELECT public.lock_account_session_authority_v2(current_setting('app.session_receipt_v2')::jsonb)`);
-        for (const statement of statements) results.push(await query(statement.statement, statement.parameters));
-        await query('RESET ROLE');
-        await query("SELECT set_config('app.actor_user_id','',true),set_config('app.request_id','',true)");
-        await query('RELEASE SAVEPOINT account_adapter_request');
-        return results;
-      } catch (error) {
-        await query('ROLLBACK TO SAVEPOINT account_adapter_request');
-        await query('RELEASE SAVEPOINT account_adapter_request');
-        throw error;
-      }
-    },
+  const execute = async (statements: Parameters<AccountDatabase['transaction']>[0], context: Parameters<AccountDatabase['transaction']>[1], final: boolean) => {
+    await query('SAVEPOINT account_adapter_request');
+    try {
+      if (context?.actorUserId) await setSyntheticActorReceipt(query, context.actorUserId);
+      await query('SET LOCAL ROLE league_one_account');
+      await query("SELECT set_config('app.actor_user_id',$1,true),set_config('app.request_id',$2,true)",
+        [context?.actorUserId ?? '', context?.requestId ?? '']);
+      const results: (readonly DatabaseRow[])[] = [];
+      if (context?.actorUserId) await query(`SELECT public.lock_account_actor_authority_v2(
+        current_setting('app.session_receipt_v2')::jsonb,$1::boolean)`, [context.access === 'write']);
+      else await query(`SELECT public.lock_account_session_authority_v2(current_setting('app.session_receipt_v2')::jsonb)`);
+      for (const statement of statements) results.push(await query(statement.statement, statement.parameters));
+      const timing = final ? await query<{ timing: unknown }>(`SELECT public.read_account_authority_timing_v2(current_setting('app.session_receipt_v2')::jsonb) AS timing`) : null;
+      await query('RESET ROLE');
+      await query("SELECT set_config('app.actor_user_id','',true),set_config('app.request_id','',true)");
+      await query('RELEASE SAVEPOINT account_adapter_request');
+      return { results, decisionTiming: timing?.[0]?.timing ?? null };
+    } catch (error) {
+      await query('ROLLBACK TO SAVEPOINT account_adapter_request');
+      await query('RELEASE SAVEPOINT account_adapter_request');
+      throw error;
+    }
+  };
+  const database: AccountAuthorityDatabase = {
+    transaction: async (statements, context) => (await execute(statements, context, false)).results,
+    finalTransaction: (statements, context) => execute(statements, context, true),
   };
   const store = createAccountStore(database);
   const latest = await query<{ season: number }>(`SELECT coalesce(max(enrollment.season),2149)::integer AS season

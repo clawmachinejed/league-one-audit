@@ -8,9 +8,27 @@ const actor = '10000000-0000-4000-8000-000000000001';
 const other = '20000000-0000-4000-8000-000000000002';
 function fixture() {
   const transaction = vi.fn<AccountDatabase['transaction']>();
-  return { transaction, store: createAccountStore({ transaction }) };
+  return { transaction, store: createAccountStore({ transaction,
+    finalTransaction: async (statements, context) => ({ results: await transaction(statements, context), decisionTiming: {} }),
+  } as AccountDatabase & import('./database').AccountAuthorityDatabase) };
 }
 describe('account store boundary', () => {
+  it('never falls back to receiptless transactions for final reads or mutations', async () => {
+    const transaction = vi.fn<AccountDatabase['transaction']>();
+    const store = createAccountStore({ transaction });
+    await expect(store.readFinal(actor)).rejects.toBeInstanceOf(AccountStoreUnavailableError);
+    await expect(store.mutate(actor, { kind: 'profile', body: { displayName: 'New', revision: 1 } })).rejects.toBeInstanceOf(AccountStoreUnavailableError);
+    expect(transaction).not.toHaveBeenCalled();
+  });
+  it('places the slow-import revision assertion before the write inside the final transaction', async () => {
+    const { store, transaction } = fixture();
+    transaction.mockResolvedValue([[{ id: actor }], [{}], [{ id: other }]]);
+    await store.mutate(actor, { kind: 'link', body: { sourceManagerAccountId: other } }, { profileRevision: 4, links: [] });
+    const [statements, context] = transaction.mock.calls[0];
+    expect(statements[1]).toEqual({ statement: 'SELECT public.require_account_revision_v2($1::bigint,$2::jsonb)', parameters: [4, '[]'] });
+    expect(statements[2].statement).toContain('INSERT INTO public.app_provider_account_links');
+    expect(context?.access).toBe('write');
+  });
   it('resolves only the verified identity pair, with a new request ID and no inherited actor context', async () => {
     const { store, transaction } = fixture();
     transaction.mockResolvedValue([[{ id: actor }]]);

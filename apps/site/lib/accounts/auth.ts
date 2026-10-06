@@ -20,6 +20,12 @@ export function accountPrincipalAuthority(principal: AccountPrincipal): AuthRece
   return receipt;
 }
 
+export function sameAccountAuthority(left: AccountPrincipal, right: AccountPrincipal): boolean {
+  const before = principalAuthorities.get(left), after = principalAuthorities.get(right);
+  return !!before && !!after && left.issuer === right.issuer && left.subject === right.subject
+    && Object.keys(before).every(key => before[key as keyof AuthReceiptV2] === after[key as keyof AuthReceiptV2]);
+}
+
 export class AccountAuthUnavailableError extends Error {
   constructor(readonly reason: 'disabled' | 'configuration' | 'provider') {
     super('Account authentication is unavailable.');
@@ -137,9 +143,9 @@ export async function getAccountPrincipal(): Promise<AccountPrincipal | null> {
   return result ? principalFor(result.user, config.issuer) : null;
 }
 
-/** Internal BC-M1 bridge, deliberately unused by public account callers until
- * qualification. An absent or changed operator-owned epoch fails closed. */
+/** An absent or changed operator-owned epoch fails closed. */
 export async function getAccountAuthorityV2(): Promise<{ principal: AccountPrincipal; receipt: AuthReceiptV2 } | null> {
+  if (process.env.ACCOUNTS_PRIVATE_MAINTENANCE === 'true') throw new AccountAuthUnavailableError('provider');
   const config = accountAuthConfiguration();
   const result = await readAdmittedSession(config);
   if (!result) return null;
@@ -248,6 +254,9 @@ function allowedAuthCallback(value: unknown, appOrigin: string): boolean {
 export async function handleAccountAuthRequest(request: Request, context: AuthRouteContext): Promise<Response> {
   try {
     const config = accountAuthConfiguration();
+    if (request.method === 'POST' && process.env.ACCOUNTS_PRIVATE_MAINTENANCE === 'true') {
+      throw new AccountAuthUnavailableError('provider');
+    }
     const path = (await context.params).path.join('/');
     if (request.method !== 'GET' && request.method !== 'POST') return authFailure(405, 'method_not_allowed');
     if (!(request.method === 'GET' ? AUTH_GET_PATHS : AUTH_POST_PATHS).has(path)) {

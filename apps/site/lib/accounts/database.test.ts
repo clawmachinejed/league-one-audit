@@ -5,10 +5,11 @@ vi.mock('@neondatabase/serverless', () => ({ neon: mock.neon }));
 import { ACCOUNT_DATABASE_GUARD, AccountWriteRateLimitError, accountDatabaseUrl, createAccountDatabase, createAccountAuthorityDatabase } from './database';
 
 const url = 'postgresql://league_one_account:test-secret@ep-isolated.example.neon.tech/test?sslmode=require';
-const environment = { ACCOUNTS_ENABLED: 'true', ACCOUNT_DATABASE_URL: url };
+const identity = { projectId: 'synthetic-project-123', branchId: 'br-synthetic', tenantId: 'd'.repeat(32), timelineId: 'e'.repeat(32), databaseName: 'test', databaseOid: '123', clockDomain: 'neon:'+ 'd'.repeat(32)+':'+ 'e'.repeat(32)+':123' };
+const environment = { ACCOUNTS_ENABLED: 'true', ACCOUNT_DATABASE_URL: url, ACCOUNTS_DATABASE_IDENTITY: JSON.stringify(identity) };
 const receipt = { sessionId: 'session', subject: 'subject', expiresAt: '2030-01-01T00:00:00.000Z',
   issuer: 'https://example.test/api/auth', admissionEpochRevision: '1', configHash: 'a'.repeat(64),
-  clockDomain: 'synthetic-db-clock', admittedEmailDigest: 'b'.repeat(64), sessionTokenDigest: 'c'.repeat(64) };
+  clockDomain: identity.clockDomain, admittedEmailDigest: 'b'.repeat(64), sessionTokenDigest: 'c'.repeat(64) };
 afterEach(() => vi.clearAllMocks());
 describe('private database composition', () => {
   it('samples final SQL authority after domain work in the same committing transaction', async () => {
@@ -17,14 +18,14 @@ describe('private database composition', () => {
     mock.neon.mockReturnValue({ transaction: mock.transaction });
     mock.transaction.mockImplementation(async callback => {
       callback({ query: mock.query });
-      return [[], [], [], [{}], [{ value: 7 }], [{ timing }]];
+      return [[], [], [], [], [{}], [{ value: 7 }], [{ timing }]];
     });
     const result = await createAccountAuthorityDatabase(receipt, environment).finalTransaction([
       { statement: 'SELECT private_value', parameters: [] },
     ], { actorUserId: '10000000-0000-4000-8000-000000000001', requestId: '20000000-0000-4000-8000-000000000001' });
     expect(result).toEqual({ results: [[{ value: 7 }]], decisionTiming: timing });
-    expect(mock.query.mock.calls[4][0]).toBe('SELECT private_value');
-    expect(mock.query.mock.calls[5][0]).toBe('SELECT public.read_account_authority_timing_v2($1::jsonb) AS timing');
+    expect(mock.query.mock.calls[5][0]).toBe('SELECT private_value');
+    expect(mock.query.mock.calls[6][0]).toBe('SELECT public.read_account_authority_timing_v2($1::jsonb) AS timing');
     expect(mock.transaction).toHaveBeenCalledOnce();
   });
   it('does not release an apparent result when final authority fails or timing is missing', async () => {
@@ -33,7 +34,7 @@ describe('private database composition', () => {
     const context = { actorUserId: '10000000-0000-4000-8000-000000000001', requestId: '20000000-0000-4000-8000-000000000001' };
     mock.transaction.mockRejectedValueOnce(new Error('expired final authority'));
     await expect(database.finalTransaction([{ statement: 'SELECT private_value', parameters: [] }], context)).rejects.toThrow('unavailable');
-    mock.transaction.mockResolvedValueOnce([[], [], [], [{}], [{ sensitive: true }], []]);
+    mock.transaction.mockResolvedValueOnce([[], [], [], [], [{}], [{ sensitive: true }], []]);
     await expect(database.finalTransaction([{ statement: 'SELECT private_value', parameters: [] }], context)).rejects.toThrow('unavailable');
   });
   it('owns session locks in the same transaction as target SQL and strips authority sidecars', async () => {
@@ -41,18 +42,18 @@ describe('private database composition', () => {
     mock.query.mockImplementation((statement, parameters) => ({ statement, parameters }));
     mock.transaction.mockImplementation(async callback => {
       callback({ query: mock.query });
-      return [[], [], [], [{ session_expires_at: receipt.expiresAt }], [{ value: 7 }]];
+      return [[], [], [], [], [{ session_expires_at: receipt.expiresAt }], [{ value: 7 }]];
     });
     const database = createAccountAuthorityDatabase(receipt, environment);
     expect(await database.transaction([{ statement: 'SELECT target_helper()', parameters: [] }])).toEqual([[{ value: 7 }]]);
     expect(mock.transaction).toHaveBeenCalledOnce();
-    expect(mock.query.mock.calls[2][0]).toContain("set_config('app.session_receipt_v2',$1,true)");
-    expect(mock.query.mock.calls[3]).toEqual(['SELECT * FROM public.lock_account_session_authority_v2($1::jsonb)', [JSON.stringify(receipt)]]);
-    expect(mock.query.mock.calls[4][0]).toBe('SELECT target_helper()');
+    expect(mock.query.mock.calls[3][0]).toContain("set_config('app.session_receipt_v2',$1,true)");
+    expect(mock.query.mock.calls[4]).toEqual(['SELECT * FROM public.lock_account_session_authority_v2($1::jsonb)', [JSON.stringify(receipt)]]);
+    expect(mock.query.mock.calls[5][0]).toBe('SELECT target_helper()');
   });
   it('does not return target data after failed or absent authority validation', async () => {
     mock.neon.mockReturnValue({ transaction: mock.transaction });
-    mock.transaction.mockResolvedValue([[], [], [], [], [{ sensitive: true }]]);
+    mock.transaction.mockResolvedValue([[], [], [], [], [], [{ sensitive: true }]]);
     await expect(createAccountAuthorityDatabase(receipt, environment).transaction([
       { statement: 'SELECT target_helper()', parameters: [] },
     ])).rejects.toThrow('Account storage is unavailable.');
@@ -65,24 +66,24 @@ describe('private database composition', () => {
     mock.neon.mockReturnValue({ transaction: mock.transaction });
     mock.transaction.mockImplementation(async callback => {
       callback({ query: mock.query });
-      return [[], [], [], [{}], [{ value: 7 }]];
+      return [[], [], [], [], [{}], [{ value: 7 }]];
     });
     await createAccountAuthorityDatabase(receipt, environment).transaction([
       { statement: 'SELECT private_value', parameters: [] },
     ], { actorUserId: '10000000-0000-4000-8000-000000000001', requestId: '20000000-0000-4000-8000-000000000001' });
-    expect(mock.query.mock.calls[3]).toEqual(['SELECT public.lock_account_actor_authority_v2($1::jsonb,$2::boolean)', [JSON.stringify(receipt), false]]);
-    expect(mock.query.mock.calls[4][0]).toBe('SELECT private_value');
+    expect(mock.query.mock.calls[4]).toEqual(['SELECT public.lock_account_actor_authority_v2($1::jsonb,$2::boolean)', [JSON.stringify(receipt), false]]);
+    expect(mock.query.mock.calls[5][0]).toBe('SELECT private_value');
   });
   it('requests actor write ownership before a mutation instead of upgrading a shared actor lock', async () => {
     mock.neon.mockReturnValue({ transaction: mock.transaction });
     mock.transaction.mockImplementation(async callback => {
       callback({ query: mock.query });
-      return [[], [], [], [{}], [{ value: 7 }]];
+      return [[], [], [], [], [{}], [{ value: 7 }]];
     });
     await createAccountAuthorityDatabase(receipt, environment).transaction([
       { statement: 'UPDATE private_value', parameters: [] },
     ], { actorUserId: '10000000-0000-4000-8000-000000000001', requestId: '20000000-0000-4000-8000-000000000001', access: 'write' });
-    expect(mock.query.mock.calls[3]).toEqual(['SELECT public.lock_account_actor_authority_v2($1::jsonb,$2::boolean)', [JSON.stringify(receipt), true]]);
+    expect(mock.query.mock.calls[4]).toEqual(['SELECT public.lock_account_actor_authority_v2($1::jsonb,$2::boolean)', [JSON.stringify(receipt), true]]);
   });
   it('rejects an extra receipt field before connecting', () => {
     expect(() => createAccountAuthorityDatabase({ ...receipt, leakedToken: 'synthetic' } as typeof receipt, environment)).toThrow('unavailable');

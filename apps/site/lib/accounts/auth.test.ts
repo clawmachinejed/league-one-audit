@@ -34,6 +34,7 @@ import {
   getAccountAuthorityV2,
   getAccountAuthorizedPrincipalV2,
   accountPrincipalAuthority,
+  sameAccountAuthority,
   handleAccountAuthRequest,
 } from './auth';
 import { accountAdmissionConfigHash, authorityDigest } from './session-authority';
@@ -82,6 +83,29 @@ afterEach(() => {
 });
 
 describe('account authentication admission', () => {
+  it('compares only genuine request-owned authority and denies an epoch or session change', async () => {
+    const epoch = { revision:'1',config_hash:accountAdmissionConfigHash(issuer,new Set(['invited@example.test'])),issuer,clock_domain:'test' };
+    requestContext.epoch.mockResolvedValue(epoch);
+    fetchMock.mockImplementation(async()=>Response.json(sessionFixture()));
+    const initial = (await getAccountAuthorizedPrincipalV2())!;
+    const fresh = (await getAccountAuthorizedPrincipalV2())!;
+    expect(sameAccountAuthority(initial,fresh)).toBe(true);
+    expect(sameAccountAuthority(initial,{...fresh})).toBe(false);
+    requestContext.epoch.mockResolvedValue({...epoch,revision:'2'});
+    expect(sameAccountAuthority(initial,(await getAccountAuthorizedPrincipalV2())!)).toBe(false);
+    requestContext.epoch.mockResolvedValue(epoch);
+    fetchMock.mockResolvedValue(Response.json({...sessionFixture(),session:{...sessionFixture().session,token:'replaced'}}));
+    expect(sameAccountAuthority(initial,(await getAccountAuthorizedPrincipalV2())!)).toBe(false);
+  });
+  it('denies private work and auth writes during explicit maintenance but permits session display', async () => {
+    vi.stubEnv('ACCOUNTS_PRIVATE_MAINTENANCE','true');
+    await expect(getAccountAuthorizedPrincipalV2()).rejects.toThrow('unavailable');
+    const response = await handleAccountAuthRequest(new Request(issuer+'/sign-out',{method:'POST'}),{params:Promise.resolve({path:['sign-out']})});
+    expect(response.status).toBe(503);
+    expect(fetchMock).not.toHaveBeenCalled();
+    fetchMock.mockResolvedValue(Response.json(sessionFixture()));
+    await expect(getAccountPrincipal()).resolves.toMatchObject({subject:'synthetic-user'});
+  });
   it('binds private storage authority to the original principal without serializable receipt fields', async () => {
     fetchMock.mockResolvedValueOnce(Response.json(sessionFixture()));
     requestContext.epoch.mockResolvedValue({ revision: '1',

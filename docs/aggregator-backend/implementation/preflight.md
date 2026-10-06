@@ -16,3 +16,11 @@ Owner: current implementation lead. Requirement: AGENTS.md identity/ownership ga
 | Worktree/PR/deployment census | Existing historical worktrees retained; only open PR286; active production remains baseline; planning preview ready | No competing owner observed within this census. Live database/worker lease inventory unavailable without additional authorized access. No production ownership claimed |
 
 No unexplained source/service disagreement was found. Production DB secrets were not fetched. Local SQL qualification configuration was absent in this worktree; control-file presence and process-variable names were inspected without logging secrets. See evidence.md for the resulting test gate.
+
+## Resumed implementation preflight — October 6, 2026
+
+Before this iteration's repairs, authenticated GitHub reads confirmed PR287 OPEN/draft at `ffa7bd0d16bdc34c1578e2a2e77690cb6c756381`, still based on unmerged PR286 at `cef7f49243509da738ff9efc950538b5bd2ae3da`. Local main, origin/main and fresh GitHub main all remained `87da4d0cb909ee280e125e73ad10e1c3dbd7cd9f`. The isolated implementation checkout already contained F1/R035 work; it was preserved and divided among explicit file owners rather than reset. The primary checkout remained untouched.
+
+Fresh authenticated Vercel overview showed the same canonical repository, main/apps/site and Ready production `8C3YSnXRCbmPETftQgRtirfyck5e` at that exact main SHA. Fresh live sign-in retained the expected League One, League Two and Dynasty links. No source/service disagreement was observed. Available worktree/PR/deployment evidence showed no competing owner; database/worker leases were not inspected and no production ownership is claimed.
+
+The implementation user authorization supersedes the preceding read-only audit only for local implementation, bounded checks, independent review/correction and continuation of draft PR287. It expressly excludes database connections, real SQL, provisioning, credentials, migrations, qualification dispatch, merge and deployment/activation. Neither the environment metadata nor this preflight supplies a new paid-test approval.

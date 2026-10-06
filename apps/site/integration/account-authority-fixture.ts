@@ -74,12 +74,14 @@ export async function createRealAccountLoginFixture() {
  * real auth rows and exact receipt evidence instead of disabling SQL guards. */
 export async function installSyntheticAccountSession(query: AccountIntegrationQuery, issuer: string, subject: string) {
   const configHash = digest(`isolated-admission:${issuer}`);
+  const infrastructure = await query<{identity: {clockDomain:string}}>('SELECT website_auth.account_server_identity_v1() AS identity');
   await query(`INSERT INTO website_auth.admission_epoch(slot,revision,config_hash,issuer,clock_domain)
-    VALUES(1,1,$1,$2,'isolated-postgresql') ON CONFLICT(slot) DO UPDATE
+    VALUES(1,1,$1,$2,$3) ON CONFLICT(slot) DO UPDATE
     SET revision=website_auth.admission_epoch.revision+1,config_hash=excluded.config_hash,
-      issuer=excluded.issuer,activated_at=clock_timestamp()
-    WHERE website_auth.admission_epoch.issuer<>excluded.issuer OR website_auth.admission_epoch.config_hash<>excluded.config_hash`,
-  [configHash, issuer]);
+      issuer=excluded.issuer,clock_domain=excluded.clock_domain,activated_at=clock_timestamp()
+    WHERE website_auth.admission_epoch.issuer<>excluded.issuer OR website_auth.admission_epoch.config_hash<>excluded.config_hash
+      OR website_auth.admission_epoch.clock_domain<>excluded.clock_domain`,
+  [configHash, issuer, infrastructure[0].identity.clockDomain]);
   const email = `${digest(subject)}@example.test`;
   await query(`INSERT INTO website_auth."user"(id,name,email,"emailVerified") VALUES($1,'Synthetic account',$2,true)
     ON CONFLICT(id) DO NOTHING`, [subject, email]);

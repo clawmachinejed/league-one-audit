@@ -102,7 +102,8 @@ export function teamManagerMethods(client: DatabaseClient) {
           family: 'rosters', week: null, completeness: 'complete', provenance,
           payload: row.payload as AdministrationEnvelope['payload'] }, { expectedRosterCount: integer(row.expected_team_count) });
         const projection = normalized.teamManagers;
-        if (!projection?.teams || projection.status === 'invalid' || normalized.contentHash !== row.content_hash
+        if (!projection?.teams || projection.version !== TEAM_MANAGERS_POLICY.canonicalNormalizerVersion
+          || projection.status === 'invalid' || normalized.contentHash !== row.content_hash
           || provenance.origin !== 'network' || !provenance.requestStartedAt || !provenance.requestCompletedAt || !provenance.sourceObservedAt
           || !Array.isArray(row.identities)) throw new Error('Invalid manager content.');
         const identities = new Map<string, { id: string; sourceValue: unknown }>();

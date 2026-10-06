@@ -1,6 +1,6 @@
 # BC-M1 account authority transition plan
 
-Status: design for the next qualified implementation increment, not an executable release runbook or migration authorization. Migration 034 remains a merge/application blocker until this plan is implemented and its evidence passes. Source review starts at `c907584571052cfbea6957e8bad08066fe11f432`; requirements remain ENG01, ENG07, R087, BS-O07/13/15 and the canonical relational/security designs.
+Status: implemented source transition, **not database-qualified or authorized for execution**. Migration 034 remains a merge/application blocker until the real installation, caller, role and recovery evidence below passes. The design originated at `c907584571052cfbea6957e8bad08066fe11f432`; this increment continues published parent `ffa7bd0d16bdc34c1578e2a2e77690cb6c756381`. Requirements remain ENG01, ENG07, R087, BS-O07/13/15 and the canonical relational/security designs. Exact frozen verification belongs in [evidence](evidence.md).
 
 ## Existing caller inventory and required composition
 
@@ -17,7 +17,7 @@ The inventory must be regenerated before cutover, including application routes, 
 ## Database and epoch authority
 
 1. Prove schema owner, restricted auth/account/runtime LOGIN identities and grants using the actual roles. A matching URL string, owner `SET ROLE`, or matching database name alone is insufficient.
-2. Establish a server-reported identity manifest that binds auth and account credentials to the same intended Neon project/branch/database and clock domain. Compare the approved manifest before authority-bearing work. This proof is not implemented by the current configuration hash; do not treat the receipt's echoed `clockDomain` as independent infrastructure identity.
+2. Establish a server-reported identity manifest that binds auth and account credentials to the same intended Neon project/branch/database and clock domain. The new 036 helpers compare independently obtained `pg_settings` postmaster values for Neon project, branch, tenant and timeline, plus current database name/OID, to the approved `ACCOUNTS_DATABASE_IDENTITY`. Auth checks and maintained auth operations use the same pinned connection; account checks run inside the protected transaction. Availability and privileges for these values on the actual intended Neon service remain unverified. Missing/mismatching values deny access. Neither a URL nor the receipt's echoed `clockDomain` is independent identity proof; no fallback is provided.
 3. Keep `accountAdmissionConfigHash` as the canonical admission configuration digest, computed from the exact issuer and existing normalized invitation set. Keep exact UTF-8 token/email digest behavior. Never log the receipt, token, token digest or email digest.
 4. Provide an explicit schema-owner-only epoch activation operation. It must use actual `session_user`/catalog owner authority, the exclusive auth advisory gate before row locks, a checked prior revision, strictly advancing positive revision, exact issuer/configuration/clock-domain binding and atomic evidence. No automatic epoch seeding, request-triggered initialization or caller-chosen activation is permitted.
 5. The auth role may use only its bounded epoch reader; account role only the approved authority helpers. Neither receives raw epoch mutation or raw auth-table privileges. Account-domain access remains in the existing account transaction, whose locks survive coordinator loss.
@@ -25,7 +25,9 @@ The inventory must be regenerated before cutover, including application routes, 
 
 ## Installation and application sequencing
 
-Current 034 is automatically discovered by `scripts/migrate.mjs`, replaces the existing resolver, and installs mandatory existing-table guards in the same migration. Its comments and an inactive target route do not make it safe to apply. This remediation checkpoint does not alter or apply that migration.
+Migration 034 replaces the existing resolver and installs mandatory existing-table guards. Its bytes and 035's bytes remain unchanged. The updated `scripts/migrate.mjs` recognizes 034–036 as one coordinated transaction with their ledger entries, rather than applying them as three independently committed migrations. It refuses absent-transition installation unless the source is clean at the reviewed full SHA, all three checksums match the explicit approval, a compatible recovery SHA and maintenance/drain evidence hashes are supplied, and private maintenance is enabled. Partial or drifted ledger state stops installation for independent reconciliation. An evidence hash is an attestation reference, not proof that old traffic has drained.
+
+The installer takes the exclusive auth gate and checks for remaining auth/account backends before the transition. Pre-034 writers do not obey the new gate: an independently verified service-boundary drain is still mandatory. The atomic installer also checks actual schema-owner LOGIN authority. A lost COMMIT acknowledgement is reported as unknown, never rollback; it does not retry. The strict shared owner URL parser rejects duplicate parameters, driver overrides and TLS downgrades before constructing a driver. None of these commands has been executed against a database in this iteration.
 
 Before a release-ready candidate exists, rehearse one reviewed coordinated transition in a disposable database with representative legacy fixtures and both application versions:
 
@@ -43,6 +45,10 @@ Before a schema transaction commits, confirmed rollback may restore the prior st
 
 Explicit recovery must cover interrupted install, grant verification failure, absent/incorrect epoch, old deployment traffic, database identity mismatch, unknown migration/activation acknowledgement, dead coordinator, and failed private canary. Reconcile actual catalog/epoch and transaction outcome before repeating an operation. Repeat only a specified idempotent administrative operation with independent authority; no automatic destructive retry.
 
+`migrate.mjs --reconcile-account-transition` is an authored read-only ledger inspection mode. Its `applied` result explicitly does **not** qualify the catalog or authorize reopening private access. A separately authorized owner must compare the actual helpers, triggers, grants, RLS and restricted LOGIN canaries. This read-only database command is also outside the current no-database-connection authorization.
+
+`activate-account-epoch.mjs --activate-reviewed-epoch <operation-file>` is an explicit, separately authorized owner action, never part of application startup or automatic migration. The operation records previous/next revision, issuer/configuration, identity, request ID and release evidence hash. The SQL procedure verifies actual owner LOGIN, takes the exclusive auth gate, compares the previous revision, and atomically appends activation evidence. UPDATE, DELETE and TRUNCATE of retained history are guarded; a reset epoch cannot reuse a retained revision. The command requires private maintenance and sanitizes uncertain outcomes. An unknown acknowledgement requires reconciliation by request ID before another operation. The source implementation is not an activation authorization or a successful recovery rehearsal.
+
 ## Required evidence before closing F1
 
 - Every inventory row has implemented request-owned receipt composition and production-callsite census evidence.
@@ -52,4 +58,4 @@ Explicit recovery must cover interrupted install, grant verification failure, ab
 - Same-input legacy account behavior is preserved through the selected transition, and compatible rollback/recovery is rehearsed without bypassing guards.
 - Full repository and browser evidence, the exact candidate SHA, independent review and separately authorized release/installation gates are recorded. No isolated SQL pass alone closes BC-M1 or authorizes production.
 
-The preserved independent audit remains authoritative evidence for its reviewed SHA. F1 stays open until these implementation and qualification conditions are met; this plan alone does not change its verdict.
+The preserved independent audits remain authoritative evidence for their reviewed SHAs. F1 source corrections are reviewable, but F1 qualification stays open until the installation, actual identity/role, old/new compatibility and recovery conditions pass. Local mocks and source review cannot close that qualification gap.

@@ -1,6 +1,7 @@
 import 'server-only';
-import { getAccountPrincipal } from './auth';
-import { createAccountDatabase } from './database';
+import { createAccountResponseDelivery } from './response-authority';
+import { getAccountAuthorizedPrincipalV2, sameAccountAuthority, type AccountPrincipal } from './auth';
+import { createAccountDatabaseForPrincipal } from './database';
 import { createAccountStore } from './store';
 import { accountErrorResponse, requireAccountOrigin } from './http';
 import { accountUuid, AccountInputError } from './validation';
@@ -32,7 +33,8 @@ export async function loadAccountFantasy(account: AccountView, requestedWeek?: n
 }
 
 const headers = { 'Cache-Control': 'private, no-store, max-age=0', Vary: 'Cookie' };
-const defaults = { principal: getAccountPrincipal, store: () => createAccountStore(createAccountDatabase()), load: loadAccountFantasy };
+const defaults = { principal: getAccountAuthorizedPrincipalV2, sameAuthority: sameAccountAuthority,
+  store: (principal: AccountPrincipal) => createAccountStore(createAccountDatabaseForPrincipal(principal)), load: loadAccountFantasy };
 export async function accountFantasyResponse(request: Request, dependencies = defaults): Promise<Response> {
   try {
     const expected = accountUuid(request.headers.get('x-expected-account-id'));
@@ -43,17 +45,24 @@ export async function accountFantasyResponse(request: Request, dependencies = de
     if (week === null) throw new AccountInputError();
     const principal = await dependencies.principal();
     if (!principal) return Response.json({ error: 'unauthenticated' }, { status: 401, headers });
-    const store = dependencies.store();
+    const store = dependencies.store(principal);
     const actor = await store.resolve(principal);
     if (actor !== expected) return Response.json({ error: 'account_changed' }, { status: 409, headers });
     const account = await store.read(actor);
     const members = await dependencies.load(account, week);
     request.signal.throwIfAborted();
+    const delivery = createAccountResponseDelivery(request.signal);
     const latest = await dependencies.principal();
-    if (!latest || latest.issuer !== principal.issuer || latest.subject !== principal.subject
-      || JSON.stringify((await store.read(actor)).links) !== JSON.stringify(account.links)) {
+    if (!latest || !dependencies.sameAuthority(principal, latest)) {
       return Response.json({ error: 'account_changed' }, { status: 409, headers });
     }
-    return Response.json({ accountId: actor, memberships: members, evaluatedAt: new Date().toISOString() }, { headers });
+    const latestStore = dependencies.store(latest);
+    if (await latestStore.resolve(latest) !== actor) return Response.json({ error: 'account_changed' }, { status: 409, headers });
+    const final = delivery.beginFinalSql();
+    const checked = await latestStore.readFinal(actor);
+    if (JSON.stringify(checked.value) !== JSON.stringify(account)) {
+      return Response.json({ error: 'account_changed' }, { status: 409, headers });
+    }
+    return final.deliver({ accountId: actor, memberships: members, evaluatedAt: new Date().toISOString() }, checked.decisionTiming);
   } catch (error) { return accountErrorResponse(error); }
 }

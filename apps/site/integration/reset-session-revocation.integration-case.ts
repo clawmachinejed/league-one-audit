@@ -4,6 +4,7 @@ import { Pool, type PoolClient } from '@neondatabase/serverless';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { handleAccountAuth, type AccountAuthConfiguration } from '../lib/accounts/auth-runtime';
 import { sendAccountEmail } from '../lib/accounts/auth-email';
+import { readAccountInfrastructureIdentity } from '../lib/accounts/infrastructure-identity';
 import { assertSafeIntegrationDatabase, integrationEnvironment, ownerQuery } from './neon-integration-harness';
 
 vi.mock('../lib/accounts/auth-email', () => ({ sendAccountEmail: vi.fn() }));
@@ -172,6 +173,9 @@ async function withRowBarrier<T>(table: 'user' | 'session', id: string,
 
 beforeAll(async () => {
   databaseUrl = await guardedAuthUrl();
+  const identity = await ownerQuery<{identity:unknown}>('SELECT website_auth.account_server_identity_v1() AS identity');
+  // Synthetic, guarded disposable identity; not production approval evidence.
+  vi.stubEnv('ACCOUNTS_DATABASE_IDENTITY', JSON.stringify(readAccountInfrastructureIdentity(identity[0]?.identity)));
   vi.stubEnv('VERCEL', '1');
   deliver.mockResolvedValue(undefined);
 }, 30_000);

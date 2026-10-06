@@ -1,6 +1,6 @@
 import 'server-only';
-import { AccountAdmissionDeniedError, AccountAuthUnavailableError, getAccountPrincipal } from './auth';
-import { AccountStoreUnavailableError, AccountWriteRateLimitError, createAccountDatabase } from './database';
+import { AccountAdmissionDeniedError, AccountAuthUnavailableError, getAccountAuthorizedPrincipalV2, sameAccountAuthority, type AccountPrincipal } from './auth';
+import { AccountStoreUnavailableError, AccountWriteRateLimitError, AccountRevisionConflictError, createAccountDatabaseForPrincipal } from './database';
 import { accountTeams } from './library';
 import { AccountConflictError, createAccountStore, type AccountMutation } from './store';
 import { AccountInputError, accountUuid } from './validation';
@@ -8,6 +8,7 @@ import type { AccountView, LinkedSleeperProfile, SleeperLinkPreview } from './co
 import { discoverSleeperLeagues } from './sleeper-discovery';
 import { previewSleeperLink } from './sleeper-link-preview';
 import { getLeagueSite } from '../league-sites';
+import { createAccountResponseDelivery } from './response-authority';
 
 const PRIVATE_HEADERS = { 'Cache-Control': 'private, no-store, max-age=0', Vary: 'Cookie', 'X-Content-Type-Options': 'nosniff' };
 class AccountRequestError extends Error {
@@ -49,24 +50,24 @@ export async function readAccountJson(request: Request): Promise<unknown> {
 }
 
 type Operation = { kind: 'read' | 'teams' } | { kind: AccountMutation['kind']; id?: string };
-type AccountHttpStore = Pick<ReturnType<typeof createAccountStore>, 'resolve' | 'read' | 'mutate'>;
-const defaultDependencies: { principal: typeof getAccountPrincipal; store: () => AccountHttpStore;
+type AccountHttpStore = Pick<ReturnType<typeof createAccountStore>, 'resolve' | 'read' | 'readFinal' | 'mutate'>;
+const defaultDependencies: { principal: typeof getAccountAuthorizedPrincipalV2; sameAuthority: typeof sameAccountAuthority; store: (principal: AccountPrincipal) => AccountHttpStore;
   present?: (view: AccountView) => Promise<AccountView> } = {
-  principal: getAccountPrincipal, store: () => createAccountStore(createAccountDatabase()),
+  principal: getAccountAuthorizedPrincipalV2, sameAuthority: sameAccountAuthority, store: (principal: AccountPrincipal) => createAccountStore(createAccountDatabaseForPrincipal(principal)),
   present: async view => ({ ...view, library: { ...view.library, leagues: await Promise.all(view.library.leagues.map(async league => {
     const site = await getLeagueSite(league.key).catch(() => null);
     return site ? { ...league, logo: site.logo, name: site.name } : league;
   })) } }),
 };
-const discoveryDependencies = { principal: getAccountPrincipal,
-  store: () => createAccountStore(createAccountDatabase()), discover: discoverSleeperLeagues };
-const previewDependencies = { principal: getAccountPrincipal,
-  store: () => createAccountStore(createAccountDatabase()), preview: previewSleeperLink };
+const discoveryDependencies = { principal: getAccountAuthorizedPrincipalV2,
+  sameAuthority: sameAccountAuthority, store: (principal: AccountPrincipal) => createAccountStore(createAccountDatabaseForPrincipal(principal)), discover: discoverSleeperLeagues };
+const previewDependencies = { principal: getAccountAuthorizedPrincipalV2,
+  sameAuthority: sameAccountAuthority, store: (principal: AccountPrincipal) => createAccountStore(createAccountDatabaseForPrincipal(principal)), preview: previewSleeperLink };
 type PreviewDependencies = Omit<typeof previewDependencies, 'store'> & {
-  store: () => Pick<ReturnType<typeof createAccountStore>, 'resolve' | 'read'>;
+  store: (principal: AccountPrincipal) => Pick<ReturnType<typeof createAccountStore>, 'resolve' | 'read' | 'readFinal'>;
 };
 type DiscoveryDependencies = Omit<typeof discoveryDependencies, 'store'> & {
-  store: () => Pick<ReturnType<typeof createAccountStore>, 'resolve' | 'readDiscoveryProfiles'>;
+  store: (principal: AccountPrincipal) => Pick<ReturnType<typeof createAccountStore>, 'resolve' | 'readDiscoveryProfiles' | 'readDiscoveryProfilesFinal'>;
 };
 
 function associationFingerprint(profiles: readonly LinkedSleeperProfile[]): string {
@@ -90,19 +91,23 @@ export async function sleeperLinkPreviewResponse(request: Request, dependencies:
     if (request.headers.get('origin') || request.headers.get('sec-fetch-site') === 'cross-site') requireAccountOrigin(request);
     const principal = await dependencies.principal();
     if (!principal) return Response.json({ error: 'unauthenticated' }, { status: 401, headers: PRIVATE_HEADERS });
-    const store = dependencies.store();
+    const store = dependencies.store(principal);
     const actor = await store.resolve(principal);
     if (actor !== expectedActor) throw new AccountRequestError(409, 'account_changed');
     const account = availablePreviewAccount(await store.read(actor), sourceManagerAccountId);
     if (!account) throw new AccountInputError();
     const preview: SleeperLinkPreview = await dependencies.preview(account, request.signal);
     request.signal.throwIfAborted();
+    const delivery = createAccountResponseDelivery(request.signal);
     const latestPrincipal = await dependencies.principal();
-    if (!latestPrincipal || latestPrincipal.issuer !== principal.issuer || latestPrincipal.subject !== principal.subject
-      || await store.resolve(latestPrincipal) !== actor) throw new AccountRequestError(409, 'account_changed');
-    const latestAccount = availablePreviewAccount(await store.read(actor), sourceManagerAccountId);
+    if (!latestPrincipal || !dependencies.sameAuthority(principal, latestPrincipal)) throw new AccountRequestError(409, 'account_changed');
+    const latestStore = dependencies.store(latestPrincipal);
+    if (await latestStore.resolve(latestPrincipal) !== actor) throw new AccountRequestError(409, 'account_changed');
+    const final = delivery.beginFinalSql();
+    const checked = await latestStore.readFinal(actor);
+    const latestAccount = availablePreviewAccount(checked.value, sourceManagerAccountId);
     if (!latestAccount || latestAccount.externalId !== account.externalId) throw new AccountRequestError(409, 'associations_changed');
-    return Response.json(preview, { headers: PRIVATE_HEADERS });
+    return final.deliver(preview, checked.decisionTiming);
   } catch (error) { return accountErrorResponse(error); }
 }
 
@@ -117,7 +122,7 @@ export async function sleeperLeagueDiscoveryResponse(
     if (request.headers.get('origin') || request.headers.get('sec-fetch-site') === 'cross-site') requireAccountOrigin(request);
     const principal = await dependencies.principal();
     if (!principal) return Response.json({ error: 'unauthenticated' }, { status: 401, headers: PRIVATE_HEADERS });
-    const store = dependencies.store();
+    const store = dependencies.store(principal);
     const actor = await store.resolve(principal);
     if (expectedActor !== actor) throw new AccountRequestError(409, 'account_changed');
     const profiles = await store.readDiscoveryProfiles(actor);
@@ -125,14 +130,18 @@ export async function sleeperLeagueDiscoveryResponse(
     request.signal.throwIfAborted();
     // Public provider requests may be slow. Recheck revocation and associations
     // before returning any private association-to-league mapping.
+    const delivery = createAccountResponseDelivery(request.signal);
     const latestPrincipal = await dependencies.principal();
     if (!latestPrincipal) return Response.json({ error: 'unauthenticated' }, { status: 401, headers: PRIVATE_HEADERS });
-    if (latestPrincipal.issuer !== principal.issuer || latestPrincipal.subject !== principal.subject
-      || await store.resolve(latestPrincipal) !== actor) throw new AccountRequestError(409, 'account_changed');
-    if (associationFingerprint(await store.readDiscoveryProfiles(actor)) !== associationFingerprint(profiles)) {
+    if (!dependencies.sameAuthority(principal, latestPrincipal)) throw new AccountRequestError(409, 'account_changed');
+    const latestStore = dependencies.store(latestPrincipal);
+    if (await latestStore.resolve(latestPrincipal) !== actor) throw new AccountRequestError(409, 'account_changed');
+    const final = delivery.beginFinalSql();
+    const checked = await latestStore.readDiscoveryProfilesFinal(actor);
+    if (associationFingerprint(checked.value) !== associationFingerprint(profiles)) {
       throw new AccountRequestError(409, 'associations_changed');
     }
-    return Response.json({ ...discovery, accountId: actor }, { headers: PRIVATE_HEADERS });
+    return final.deliver({ ...discovery, accountId: actor }, checked.decisionTiming);
   } catch (error) { return accountErrorResponse(error); }
 }
 
@@ -142,7 +151,7 @@ export function accountErrorResponse(error: unknown): Response {
   if (error instanceof AccountAuthUnavailableError && error.reason === 'disabled') code = 'accounts_disabled';
   else if (error instanceof AccountAdmissionDeniedError) { status = 403; code = 'admission_denied'; }
   else if (error instanceof AccountInputError) { status = 400; code = 'invalid_request'; }
-  else if (error instanceof AccountConflictError) { status = 409; code = 'revision_conflict'; }
+  else if (error instanceof AccountConflictError || error instanceof AccountRevisionConflictError) { status = 409; code = 'revision_conflict'; }
   else if (error instanceof AccountWriteRateLimitError) { status = 429; code = 'too_many_changes'; }
   else if (error instanceof AccountRequestError) { status = error.status; code = error.code; }
   else if (!(error instanceof AccountAuthUnavailableError || error instanceof AccountStoreUnavailableError)
@@ -154,6 +163,7 @@ export function accountErrorResponse(error: unknown): Response {
 
 /** Actor identity only comes from the verified session, never from the request body/path. */
 export async function accountResponse(request: Request, operation: Operation, dependencies = defaultDependencies): Promise<Response> {
+  const delivery = createAccountResponseDelivery(request.signal);
   try {
     let body: unknown;
     let expectedActor: string | undefined;
@@ -164,28 +174,38 @@ export async function accountResponse(request: Request, operation: Operation, de
     }
     const principal = await dependencies.principal();
     if (!principal) return Response.json({ error: 'unauthenticated' }, { status: 401, headers: PRIVATE_HEADERS });
-    const store = dependencies.store();
+    const store = dependencies.store(principal);
     const actor = await store.resolve(principal);
     // A form rendered for a prior session cannot mutate the newly signed-in
     // account even if both rows happen to have the same revision. This header is
     // a precondition only; it never selects or authorizes the actor.
     if (expectedActor && expectedActor !== actor) throw new AccountRequestError(409, 'account_changed');
     if (operation.kind === 'read' || operation.kind === 'teams') {
-      const storedView = await store.read(actor);
-      const view = operation.kind === 'read' && dependencies.present ? await dependencies.present(storedView) : storedView;
-      if (dependencies.present) {
+      if (operation.kind === 'read' && dependencies.present) {
+        const storedView = await store.read(actor);
+        const view = await dependencies.present(storedView);
         request.signal.throwIfAborted();
+        const finalDelivery = createAccountResponseDelivery(request.signal);
         const latest = await dependencies.principal();
-        if (!latest || latest.issuer !== principal.issuer || latest.subject !== principal.subject) {
-          throw new AccountRequestError(409, 'account_changed');
-        }
+        if (!latest || !dependencies.sameAuthority(principal, latest)) throw new AccountRequestError(409, 'account_changed');
+        const latestStore = dependencies.store(latest);
+        if (await latestStore.resolve(latest) !== actor) throw new AccountRequestError(409, 'account_changed');
+        const final = finalDelivery.beginFinalSql();
+        const checked = await latestStore.readFinal(actor);
+        // Artwork enrichment cannot carry an earlier account/association/source
+        // selection across the final coherent database read.
+        if (JSON.stringify(checked.value) !== JSON.stringify(storedView)) throw new AccountRequestError(409, 'account_changed');
+        return final.deliver(view, checked.decisionTiming);
       }
-      return Response.json(operation.kind === 'teams' ? { teams: accountTeams(view) } : view, { headers: PRIVATE_HEADERS });
+      const final = delivery.beginFinalSql();
+      const checked = await store.readFinal(actor);
+      return final.deliver(operation.kind === 'teams' ? { teams: accountTeams(checked.value) } : checked.value, checked.decisionTiming);
     }
     let mutation: AccountMutation;
     if (operation.kind === 'profile' || operation.kind === 'link') mutation = { kind: operation.kind, body };
     else mutation = { kind: operation.kind, id: ('id' in operation ? operation.id : '') ?? '', body };
-    await store.mutate(actor, mutation);
-    return Response.json({ ok: true }, { headers: PRIVATE_HEADERS });
+    const final = delivery.beginFinalSql();
+    const decisionTiming = await store.mutate(actor, mutation);
+    return final.deliver({ ok: true }, decisionTiming);
   } catch (error) { return accountErrorResponse(error); }
 }

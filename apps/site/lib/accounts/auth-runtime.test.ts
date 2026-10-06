@@ -21,6 +21,8 @@ const request = (path: string) => new Request(`${config.issuer}/${path}`, { meth
 const statements = () => mocks.query.mock.calls.map(([statement]) => String(statement));
 
 beforeEach(() => {
+  vi.stubEnv('ACCOUNTS_PRIVATE_MAINTENANCE', undefined);
+  vi.stubEnv('ACCOUNTS_DATABASE_IDENTITY', JSON.stringify({projectId:'synthetic-project-123',branchId:'br-synthetic',tenantId:'d'.repeat(32),timelineId:'e'.repeat(32),databaseName:'test',databaseOid:'123',clockDomain:'neon:'+ 'd'.repeat(32)+':'+ 'e'.repeat(32)+':123'}));
   mocks.handler.mockReset(); mocks.query.mockReset(); mocks.end.mockReset(); mocks.release.mockReset();
   mocks.query.mockResolvedValue({ rows: [], rowCount: 0, command: 'SELECT' });
   mocks.end.mockResolvedValue(undefined);
@@ -29,12 +31,26 @@ beforeEach(() => {
 // These tests prove request/transaction orchestration and cleanup only. The
 // isolated PostgreSQL suite proves lock concurrency and real atomic rollback.
 describe('auth request transaction boundary', () => {
+  it('denies maintained GET work during maintenance because it may refresh session state', async () => {
+    vi.stubEnv('ACCOUNTS_PRIVATE_MAINTENANCE', 'true');
+    await expect(handleAccountAuth(config,new Request(`${config.issuer}/get-session`))).rejects.toThrow('unavailable');
+    expect(mocks.query).not.toHaveBeenCalled();
+    expect(mocks.handler).not.toHaveBeenCalled();
+  });
+  it('refuses an infrastructure mismatch before entering the maintained auth handler', async () => {
+    mocks.query.mockRejectedValueOnce(new Error('wrong server identity'));
+    await expect(handleAccountAuth(config,request('sign-in/email'))).rejects.toThrow('wrong server identity');
+    expect(mocks.handler).not.toHaveBeenCalled();
+    expect(statements()).toHaveLength(1);
+    expect(statements()[0]).toContain('website_auth.require_auth_infrastructure_v1');
+    expect(mocks.end).toHaveBeenCalledOnce();
+  });
   it('reads only the narrow admission helper and closes its auth connection', async () => {
-    const epoch = { revision: '1', config_hash: 'a'.repeat(64), issuer: config.issuer, clock_domain: 'test' };
-    mocks.query.mockResolvedValueOnce({ rows: [epoch], rowCount: 1, command: 'SELECT' });
+    const epoch = { revision: '1', config_hash: 'a'.repeat(64), issuer: config.issuer, clock_domain: 'neon:'+ 'd'.repeat(32)+':'+ 'e'.repeat(32)+':123' };
+    mocks.query.mockResolvedValueOnce({rows:[],rowCount:0,command:'SELECT'}).mockResolvedValueOnce({ rows: [epoch], rowCount: 1, command: 'SELECT' });
     await expect(readAccountAdmissionEpoch(config, epoch.config_hash)).resolves.toEqual(epoch);
-    expect(statements()[0]).toContain('website_auth.read_admission_epoch_locked_v1($1,$2)');
-    expect(mocks.query.mock.calls[0][1]).toEqual([epoch.config_hash, config.issuer]);
+    expect(statements()[1]).toContain('website_auth.read_admission_epoch_locked_v1($1,$2)');
+    expect(mocks.query.mock.calls[1][1]).toEqual([epoch.config_hash, config.issuer]);
     expect(mocks.end).toHaveBeenCalledOnce();
   });
   it('rejects missing admission epoch without substituting a local configuration', async () => {
@@ -47,10 +63,10 @@ describe('auth request transaction boundary', () => {
       return Response.json({ status: true });
     });
     expect((await handleAccountAuth(config, request(path))).status).toBe(200);
-    expect(statements()[0]).toBe('begin');
+    expect(statements()[1]).toBe('begin');
     expect(statements().slice(-2)).toEqual(['select 1', 'commit']);
     expect(mocks.end).toHaveBeenCalledOnce();
-    expect(mocks.release).toHaveBeenCalledOnce();
+    expect(mocks.release).toHaveBeenCalledTimes(1);
   });
   it('rolls back a maintained 500 response and releases the request connection', async () => {
     mocks.handler.mockResolvedValueOnce(Response.json({ code: 'INTERNAL_SERVER_ERROR' }, { status: 500 }));

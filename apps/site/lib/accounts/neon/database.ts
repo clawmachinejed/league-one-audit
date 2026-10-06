@@ -3,12 +3,16 @@ import { neon } from '@neondatabase/serverless';
 import type { DatabaseRow, DatabaseStatement } from '../../database';
 import { accountUuid } from '../validation';
 import { readAuthReceiptV2, type AuthReceiptV2 } from '../session-authority';
+import { accountInfrastructureIdentity } from '../infrastructure-identity';
 
 export class AccountStoreUnavailableError extends Error {
   constructor() { super('Account storage is unavailable.'); this.name = 'AccountStoreUnavailableError'; }
 }
 export class AccountWriteRateLimitError extends Error {
   constructor() { super('Too many account changes.'); this.name = 'AccountWriteRateLimitError'; }
+}
+export class AccountRevisionConflictError extends Error {
+  constructor() { super('Account state changed.'); this.name = 'AccountRevisionConflictError'; }
 }
 type AccountContext = { actorUserId: string; requestId: string; access?: 'read' | 'write' };
 type AccountResults = readonly (readonly DatabaseRow[])[];
@@ -69,6 +73,13 @@ export function createAccountAuthorityDatabase(receipt: AuthReceiptV2,
 function buildAccountDatabase(environment: Readonly<Record<string, string | undefined>>, receipt?: AuthReceiptV2): AccountAuthorityDatabase {
   const url = accountDatabaseUrl(environment);
   if (!url) throw new AccountStoreUnavailableError();
+  let identity: ReturnType<typeof accountInfrastructureIdentity> | undefined;
+  if (receipt) {
+    try {
+      identity = accountInfrastructureIdentity(environment);
+      if (identity.clockDomain !== receipt.clockDomain) throw new Error('Wrong receipt database.');
+    } catch { throw new AccountStoreUnavailableError(); }
+  }
   const sql = neon(url);
   async function execute(statements: readonly DatabaseStatement[], context: AccountContext | undefined, final: boolean) {
       const actor = context ? accountUuid(context.actorUserId) : '';
@@ -81,6 +92,7 @@ function buildAccountDatabase(environment: Readonly<Record<string, string | unde
           tx.query(`SELECT set_config('app.actor_user_id',$1,true),set_config('app.request_id',$2,true),
             set_config('statement_timeout','8000',true),set_config('lock_timeout','3000',true)`, [actor, requestId]),
           ...(receipt ? [
+            tx.query('SELECT public.require_account_infrastructure_v1($1::jsonb)', [JSON.stringify(identity)]),
             tx.query(`SELECT set_config('app.session_receipt_v2',$1,true)`, [JSON.stringify(receipt)]),
             context ? tx.query('SELECT public.lock_account_actor_authority_v2($1::jsonb,$2::boolean)',
               [JSON.stringify(receipt), context.access === 'write'])
@@ -89,13 +101,14 @@ function buildAccountDatabase(environment: Readonly<Record<string, string | unde
           ...statements.map(query => tx.query(query.statement, [...query.parameters])),
           ...(final ? [tx.query('SELECT public.read_account_authority_timing_v2($1::jsonb) AS timing', [JSON.stringify(receipt)])] : []),
         ], { isolationLevel: 'ReadCommitted', fetchOptions: { signal: AbortSignal.timeout(12_000) } });
-        const prefix = receipt ? 4 : 2;
-        if (results.length !== statements.length + prefix + Number(final) || (receipt && results[3]?.length !== 1)) throw new AccountStoreUnavailableError();
+        const prefix = receipt ? 5 : 2;
+        if (results.length !== statements.length + prefix + Number(final) || (receipt && results[4]?.length !== 1)) throw new AccountStoreUnavailableError();
         const finalRows = final ? results.at(-1) as readonly DatabaseRow[] : undefined;
         if (final && (finalRows?.length !== 1 || !finalRows[0].timing)) throw new AccountStoreUnavailableError();
         return { results: results.slice(prefix, prefix + statements.length) as AccountResults,
           decisionTiming: finalRows?.[0].timing ?? null };
       } catch (error) {
+        if (error && typeof error === 'object' && 'code' in error && error.code === 'P4090') throw new AccountRevisionConflictError();
         if (error && typeof error === 'object' && 'code' in error && error.code === 'P4290') throw new AccountWriteRateLimitError();
         // Driver errors can contain SQL/connection metadata. They must never reach
         // response bodies or routine logs; durable database constraints still apply.
