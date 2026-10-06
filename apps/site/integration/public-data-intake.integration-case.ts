@@ -1074,6 +1074,52 @@ describe('bounded public DATA refresh cycles through the existing intake owner',
     }
   }, 150_000);
 
+  it('copies explicit periods into a new ordinary cycle and preserves original scope across replay and configuration CAS [R038 metadata only]', async () => {
+    // Existing genuinely captured identity; all new configuration/cycle rows in
+    // this metadata oracle roll back. No dispatch or provider credit is invented.
+    const database = connection.database;
+    const settlement = await claim();
+    try { await createPublicDataRefreshStore(database).select(settlement.fence); }
+    finally { await settlement.jobs.failJob(PUBLIC_INTAKE_JOB, settlement.fence.workerId, 'period metadata cadence observation'); }
+    const [due] = await database.query('SELECT greatest(0,extract(epoch FROM next_due_at-clock_timestamp())) AS seconds FROM public.public_data_refresh_targets WHERE id=$1', [targetId]);
+    await delay(Number(due.seconds) * 1_000 + 100);
+    const runtime = await createPinnedIntegrationDatabase('runtime');
+    const owner = await claim(runtime.database); let open = false;
+    try {
+      expect((await runtime.database.query('SELECT session_user AS role'))[0].role).toBe('league_one_runtime');
+      await runtime.database.query('BEGIN'); open = true;
+      const refresh = createPublicDataRefreshStore(runtime.database);
+      const scoped = { ...configuration, expectedRevision: revision, exactPeriods: [{ season: 2181, nativeWeek: 7 }], paused: false };
+      const ambiguous: DatabaseClient = { ...runtime.database, async query<Row extends DatabaseRow = DatabaseRow>(statement: string, parameters: readonly unknown[] = []) {
+        const rows = await runtime.database.query<Row>(statement, parameters);
+        if (statement.includes('configure_public_data_refresh')) throw new Error('period configuration acknowledgment lost');
+        return rows;
+      } };
+      await expect(createPublicDataRefreshStore(ambiguous).configure(scoped)).rejects.toThrow('acknowledgment lost');
+      expect(await refresh.configure(scoped)).toMatchObject({ status: 'replayed', configurationRevision: revision + 1 });
+      const selected = await refresh.select(owner.fence);
+      expect(selected).toMatchObject({ status: 'selected', targetId, configurationRevision: revision + 1, cycleConfigurationRevision: revision + 1 });
+      if (selected.status !== 'selected') throw new Error('Missing period-scoped metadata selection.');
+      expect(await refresh.select(owner.fence)).toEqual(selected);
+      const [request] = await runtime.database.query('SELECT exact_periods FROM public.public_data_intakes WHERE id=$1', [selected.requestId]);
+      expect(request.exact_periods).toEqual(scoped.exactPeriods);
+      await runtime.database.query('SAVEPOINT period_scope_change');
+      try { await expect(refresh.configure({ ...scoped, expectedRevision: revision + 1, exactPeriods: [{ season: 2181, nativeWeek: 8 }] })).rejects.toThrow('unfinished refresh cycle'); }
+      finally { await runtime.database.query('ROLLBACK TO SAVEPOINT period_scope_change'); await runtime.database.query('RELEASE SAVEPOINT period_scope_change'); }
+      await refresh.configure({ ...scoped, expectedRevision: revision + 1, paused: true });
+      expect(await readPublicDataRefresh(runtime.database, createLeagueAdministrationStore(runtime.database), targetId))
+        .toMatchObject({ status: 'available', target: { configurationRevision: revision + 2 },
+          cycle: { requestId: selected.requestId, configurationRevision: revision + 1, exactPeriods: scoped.exactPeriods },
+          intake: { request: { exactPeriods: scoped.exactPeriods } } });
+      expect(await runtime.database.query('SELECT * FROM public.public_data_dispatches WHERE worker_id=$1 AND generation=$2', [owner.fence.workerId, owner.fence.generation])).toHaveLength(0);
+      await runtime.database.query('ROLLBACK'); open = false;
+    } finally {
+      if (open) await runtime.database.query('ROLLBACK');
+      await owner.jobs.failJob(PUBLIC_INTAKE_JOB, owner.fence.workerId, 'rolled back exact period selection metadata');
+      await runtime.close();
+    }
+  }, 150_000);
+
   it('counts paused synthetic metadata targets toward the total16 bound using a genuine restricted configure call', async () => {
     // OWNER SETUP ONLY: synthetic identity and paused-target metadata isolates
     // this negative count boundary. It is NOT ingestion, admission or resource
@@ -1285,4 +1331,273 @@ describe('official preconfiguration source normalization to restricted typed sto
       expect((await administration.listEnrollmentInventory(season)).entries.some(entry => entry.intended.leagueId === registered.value.leagueId)).toBe(false);
     } finally { fetch.mockRestore(); }
   });
+});
+
+
+/** R038 AUTHORED / UNEXECUTED. Real LOGIN and real minute-spaced admissions;
+ * HTTP responses alone are synthetic. The recovery case needs at least eight
+ * minutes plus inherited backoff; the exhaustion case needs at least twenty
+ * minutes. Bounds below are test timeouts, never measured qualification times.
+ * This does not establish a full-suite fit within the 30/40-minute lifecycle. */
+describe('explicit public native-period intake through retained typed receipts', () => {
+  let connection: IndependentDatabase;
+  beforeAll(() => { connection = createIndependentDatabase(); });
+  afterAll(async () => connection.close());
+
+  async function fixture() {
+    const database = connection.database;
+    expect((await database.query('SELECT session_user AS role'))[0].role).toBe('league_one_runtime');
+    const jobs = createProjectionStore(database); const intake = createPublicIntakeStore(database);
+    const administration = createLeagueAdministrationStore(database);
+    const native = `6${BigInt(`0x${randomUUID().replaceAll('-', '').slice(0, 15)}`)}`;
+    const id = randomUUID(); const season = 2179; const nativeWeek = 7;
+    const league = { league_id: native, season: String(season), sport: 'nfl', name: 'Explicit period fixture', total_rosters: 2,
+      settings: {}, scoring_settings: { rec: 1 }, roster_positions: ['QB', 'BN'] };
+    const rosters = [{ roster_id: 1, owner_id: native, co_owners: [], players: ['123'], starters: ['123'], reserve: [], taxi: [] },
+      { roster_id: 2, owner_id: '556', co_owners: [], players: ['124'], starters: ['124'], reserve: [], taxi: [] }];
+    const matchups = [{ roster_id: 1, matchup_id: 4, players: ['123'], starters: ['123'], starters_points: [8], players_points: { '123': 8 }, points: 8, custom_points: 0 },
+      { roster_id: 2, matchup_id: 4, players: ['124'], starters: ['124'], starters_points: [4], players_points: { '124': 4 }, points: 4 }];
+    const registered = await jobs.registerLeagueSeason({ leagueKey: `sleeper-${native}`, leagueName: league.name,
+      sleeperLeagueId: native, season, scoringRules: league.scoring_settings });
+    if (registered.kind !== 'stored') throw new Error('Missing isolated period identity.');
+    // Owner prerequisite only: reuse canonical registration, mark this synthetic
+    // customer inactive DATA. This is not fresh-fleet registration/capacity proof.
+    await ownerQuery("INSERT INTO public.league_administration_enrollments(league_id,provider,active,evidence) VALUES($1,'sleeper',false,'public-data-intake-v1')", [registered.value.leagueId]);
+    await ownerQuery("INSERT INTO public.league_administration_enrollment_seasons(league_id,season,provider,evidence) VALUES($1,$2,'sleeper','public-data-intake-v1')", [registered.value.leagueId, season]);
+    const fault = { managers: false, directory: false, matchups: false };
+    const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      const url = String(input);
+      if (url.endsWith(`/user/${native}`)) return new Response(JSON.stringify({ user_id: native, username: native }));
+      if (url.endsWith(`/user/${native}/leagues/nfl/${season}`)) return new Response(JSON.stringify([league]));
+      if (url.endsWith(`/league/${native}`)) return new Response(JSON.stringify(league));
+      if (url.endsWith(`/league/${native}/matchups/${nativeWeek}`)) {
+        if (fault.matchups) throw new Error('Synthetic exact-period outage');
+        return new Response(JSON.stringify(matchups));
+      }
+      if (url.endsWith(`/league/${native}/rosters`)) return new Response(JSON.stringify(fault.managers
+        ? rosters.map(roster => ({ ...roster, owner_id: {} })) : rosters));
+      if (url.endsWith(`/league/${native}/users`)) {
+        if (fault.directory) throw new Error('Synthetic directory outage');
+        return new Response(JSON.stringify([{ user_id: native, display_name: 'Period manager' }, { user_id: '556', display_name: 'Other' }]));
+      }
+      throw new Error('Unexpected exact-period provider scope.');
+    });
+    const dependencies: PublicIntakeDependencies = { intake, administration, jobs };
+    const progress = async (selected = dependencies, workBudget = 20_000) => {
+      const until = Date.now() + 10 * 60_000;
+      while (Date.now() < until) {
+        const result = await runPublicIntakeStep(id, { ...selected, deadlineAt: new Date(Date.now() + workBudget).toISOString() }, new AbortController().signal);
+        if (!['busy', 'backoff'].includes(result.status)) return result;
+        await delay(1_000);
+      }
+      throw new Error('Real exact-period admission/backoff did not become due.');
+    };
+    await intake.submit({ id, username: native, seasons: [season], exactPeriods: [{ season, nativeWeek }] });
+    return { database, jobs, intake, administration, native, id, season, nativeWeek, league, rosters, matchups, registered, fault, fetch, dependencies, progress };
+  }
+
+  it('enforces SQL selector validation and identical omitted/empty replay before mutation', async () => {
+    const runtime = await createPinnedIntegrationDatabase('runtime'); let open = false;
+    try {
+      expect((await runtime.database.query('SELECT session_user AS role'))[0].role).toBe('league_one_runtime');
+      await runtime.database.query('BEGIN'); open = true;
+      const id = randomUUID(); const input = { id, username: 'period_scope_contract', seasons: [2179, 2180] };
+      const submit = (value: unknown) => runtime.database.query('SELECT public.submit_public_data_intake($1::jsonb)', [JSON.stringify(value)]);
+      for (const exactPeriods of [null, {}, [{ season: 2179, nativeWeek: 0 }], [{ season: 2179, nativeWeek: 19 }],
+        [{ season: 2179, nativeWeek: 1.5 }], [{ season: 2179, nativeWeek: '7' }], [{ season: 2181, nativeWeek: 7 }],
+        [{ season: 2179, nativeWeek: 7, extra: true }], [{ season: 2179, nativeWeek: 7 }, { season: 2179, nativeWeek: 8 }],
+        [2177, 2178, 2179, 2180].map(season => ({ season, nativeWeek: 7 }))]) {
+        await runtime.database.query('SAVEPOINT invalid_period_scope');
+        try { await expect(submit({ ...input, exactPeriods })).rejects.toThrow(); }
+        finally { await runtime.database.query('ROLLBACK TO SAVEPOINT invalid_period_scope'); await runtime.database.query('RELEASE SAVEPOINT invalid_period_scope'); }
+        expect(await runtime.database.query('SELECT id FROM public.public_data_intakes WHERE id=$1', [id])).toHaveLength(0);
+      }
+      await submit(input); await submit({ ...input, exactPeriods: [] });
+      expect((await runtime.database.query('SELECT exact_periods FROM public.public_data_intakes WHERE id=$1', [id]))[0].exact_periods).toEqual([]);
+      const scoped = { ...input, id: randomUUID(), exactPeriods: [{ season: 2180, nativeWeek: 8 }, { season: 2179, nativeWeek: 7 }] };
+      await submit(scoped); await submit({ ...scoped, exactPeriods: [...scoped.exactPeriods].reverse() });
+      expect((await runtime.database.query('SELECT exact_periods FROM public.public_data_intakes WHERE id=$1', [scoped.id]))[0].exact_periods).toEqual([...scoped.exactPeriods].reverse());
+      await runtime.database.query('SAVEPOINT mismatched_period_replay');
+      try { await expect(submit({ ...scoped, exactPeriods: [] })).rejects.toThrow('replay mismatch'); }
+      finally { await runtime.database.query('ROLLBACK TO SAVEPOINT mismatched_period_replay'); await runtime.database.query('RELEASE SAVEPOINT mismatched_period_replay'); }
+      await runtime.database.query('ROLLBACK'); open = false;
+    } finally { if (open) await runtime.database.query('ROLLBACK'); await runtime.close(); }
+  });
+
+  it('enforces twenty task ordinals, candidate lineage and immutable scope with rolled-back owner-only negative prerequisites', async () => {
+    // Structural negative fixture ONLY. These synthetic discovery rows cannot
+    // prove ingestion, admission, accepted resources or checkpoint completion.
+    const owner = await createPinnedIntegrationDatabase('owner'); let open = false;
+    try {
+      await owner.database.query('BEGIN'); open = true;
+      const id = randomUUID(); const manager = randomUUID(); const season = 2178;
+      await owner.database.query("INSERT INTO public.league_source_manager_accounts(id,provider,external_manager_id) VALUES($1,'sleeper',$2)", [manager, `5${BigInt(`0x${randomUUID().replaceAll('-', '').slice(0, 15)}`)}`]);
+      await owner.database.query(`INSERT INTO public.public_data_intakes(id,username,seasons,exact_periods) VALUES($1,'structural_period_fixture',ARRAY[$2]::integer[],jsonb_build_array(jsonb_build_object('season',$2::integer,'nativeWeek',7)))`, [id, season]);
+      await owner.database.query(`INSERT INTO public.public_data_identity_observations(intake_id,source_manager_account_id,username,display_name,payload,request_started_at,request_completed_at)
+        VALUES($1,$2,'structural_period_fixture','Fixture','{}',clock_timestamp(),clock_timestamp())`, [id, manager]);
+      await owner.database.query("INSERT INTO public.public_data_league_lists(intake_id,season,payload,request_started_at,request_completed_at) VALUES($1,$2,'[]',clock_timestamp(),clock_timestamp())", [id, season]);
+      for (let ordinal = 1; ordinal <= 21; ordinal++) {
+        await owner.database.query("INSERT INTO public.public_data_league_candidates(intake_id,season,external_league_id,name) VALUES($1,$2,$3,'Structural negative fixture')", [id, season, String(ordinal)]);
+      }
+      const insert = (ordinal: number, native: string, week = 7, status = 'pending') => owner.database.query(`INSERT INTO public.public_data_exact_period_tasks(intake_id,ordinal,season,external_league_id,native_week,status) VALUES($1,$2,$3,$4,$5,$6)`, [id, ordinal, season, native, week, status]);
+      await insert(1, '1');
+      for (const negative of [() => insert(2, '999'), () => insert(2, '2', 8), () => insert(2, '1'),
+        () => insert(2, '2', 7, 'complete'), () => insert(0, '2'), () => insert(21, '21')]) {
+        await owner.database.query('SAVEPOINT invalid_period_task');
+        try { await expect(negative()).rejects.toThrow(); }
+        finally { await owner.database.query('ROLLBACK TO SAVEPOINT invalid_period_task'); await owner.database.query('RELEASE SAVEPOINT invalid_period_task'); }
+      }
+      for (let ordinal = 2; ordinal <= 20; ordinal++) await insert(ordinal, String(ordinal));
+      expect((await owner.database.query('SELECT count(*)::integer AS count FROM public.public_data_exact_period_tasks WHERE intake_id=$1', [id]))[0].count).toBe(20);
+      await owner.database.query('SAVEPOINT immutable_period_scope');
+      try { await expect(owner.database.query("UPDATE public.public_data_intakes SET exact_periods='[]' WHERE id=$1", [id])).rejects.toThrow(); }
+      finally { await owner.database.query('ROLLBACK TO SAVEPOINT immutable_period_scope'); await owner.database.query('RELEASE SAVEPOINT immutable_period_scope'); }
+      await owner.database.query('ROLLBACK'); open = false;
+    } finally { if (open) await owner.database.query('ROLLBACK'); await owner.close(); }
+  });
+
+  it('binds both reservations, rejects stale/fenced receipts, recovers an observed lock expiry and lost acknowledgments, and preserves periods through core failure [focused slow SQL]', async () => {
+    const f = await fixture(); const { database, intake, administration, id } = f;
+    const owner = await createPinnedIntegrationDatabase('owner');
+    const pinned = await createPinnedIntegrationDatabase('runtime');
+    let blockerOpen = false; let pending: Promise<{ ok: boolean; error?: Error }> | undefined;
+    let blockedDeadline = 0; let negativesProved = false; let expiryProved = false; let acknowledgmentProved = false;
+    try {
+      const mapping = await administration.readSourceMapping(f.native);
+      if (!mapping) throw new Error('Missing period source mapping.');
+      const cached = await recordCapturedAdministration(mapping.scope,
+        (await Promise.all([capturePublicSleeperCore(f.native, 'league', new AbortController().signal),
+          capturePublicSleeperCore(f.native, 'matchups', new AbortController().signal, f.nativeWeek)]))
+          .map(document => ({ ...document, origin: 'cache' as const })), { store: administration, mapping });
+      const cachedIds = cached.results.map(entry => entry.result.observationId);
+      const originalRows = await database.query('SELECT * FROM public.league_administration_observations WHERE id=ANY($1::uuid[]) ORDER BY id', [cachedIds]);
+      for (const resource of ['identity', 'leagues', 'bootstrap']) expect(await f.progress()).toMatchObject({ status: 'progress', resource });
+      expect(await intake.next(id)).toMatchObject({ kind: 'exact-matchups', nativeWeek: f.nativeWeek });
+      expect((await database.query('SELECT ordinal,status FROM public.public_data_exact_period_tasks WHERE intake_id=$1', [id]))).toEqual([{ ordinal: 1, status: 'pending' }]);
+      f.league.scoring_settings.rec = 2; // official correction, immutable calculation profile remains 1
+      f.fault.managers = true; f.fault.directory = true;
+      expect(await f.progress({ ...f.dependencies, intake: { ...intake, completeExactPeriod: async (work, source, capture, fence) => {
+        const [timing] = await database.query(`SELECT bool_and(attempt.reserved_at>=dispatch.admitted_at) AS after_admission,
+          max(attempt.reserved_at)<=min((receipt.provenance->>'requestStartedAt')::timestamptz) AS both_before_both,
+          count(*)::integer AS count FROM public.league_roster_capture_receipts receipt
+          JOIN public.league_roster_resource_attempts attempt ON attempt.id=receipt.attempt_id
+          JOIN public.public_data_dispatches dispatch ON dispatch.worker_id=attempt.write_fence->>'workerId'
+            AND dispatch.generation=(attempt.write_fence->>'generation')::integer WHERE receipt.id=ANY($1::uuid[])`, [Object.values(capture.receipts)]);
+        expect(timing).toEqual({ after_admission: true, both_before_both: true, count: 2 });
+        await expect(intake.completeExactPeriod({ ...work, nativeWeek: f.nativeWeek + 1 }, source, capture, fence)).rejects.toThrow();
+        await expect(intake.completeExactPeriod(work, { ...source, revisionId: randomUUID() }, capture, fence)).rejects.toThrow();
+        await expect(intake.completeExactPeriod(work, source, { ...capture, receipts: { ...capture.receipts, matchups: randomUUID() } }, fence)).rejects.toThrow();
+        await expect(intake.completeExactPeriod(work, source, capture, { ...fence, deadlineAt: new Date(Date.parse(fence.deadlineAt) - 1).toISOString() })).rejects.toThrow('observation mismatch');
+        await administration.beginLeagueSettingsAttempt(source, randomUUID(), fence);
+        await expect(intake.completeExactPeriod(work, source, capture, fence)).rejects.toThrow('current dispatch-bound exact period receipt');
+        expect(await database.query('SELECT * FROM public.public_data_exact_period_checkpoints WHERE intake_id=$1', [id])).toHaveLength(0);
+        negativesProved = true;
+        throw new Error('Lost checkpoint after typed writes; newer pending settings reservation retained');
+      } } })).toMatchObject({ status: 'unavailable', resource: 'exact-matchups' });
+      expect(negativesProved).toBe(true); // callback assertions cannot hide in coordinator catch
+      expect((await database.query('SELECT status,failure_count FROM public.public_data_exact_period_tasks WHERE intake_id=$1', [id]))[0]).toEqual({ status: 'pending', failure_count: 1 });
+      const [runtimeSession] = await pinned.database.query('SELECT session_user AS role,pg_backend_pid() AS pid');
+      const [ownerSession] = await owner.database.query('SELECT pg_backend_pid() AS pid');
+      expect(runtimeSession.role).toBe('league_one_runtime');
+      expect(await f.progress({ ...f.dependencies, intake: { ...intake, completeExactPeriod: async (work, source, capture, fence) => {
+        blockedDeadline = Date.parse(fence.deadlineAt);
+        await owner.database.query('BEGIN'); blockerOpen = true;
+        await owner.database.query("SELECT pg_advisory_xact_lock(hashtextextended('league-configuration:'||$1::text,0))", [source.leagueSeasonId]);
+        pending = createPublicIntakeStore(pinned.database).completeExactPeriod(work, source, capture, fence)
+          .then(() => ({ ok: true }), error => ({ ok: false, error }));
+        let observed = false; const until = Math.min(Date.now() + 4_000, blockedDeadline);
+        while (Date.now() < until) {
+          const [state] = await ownerQuery('SELECT $2::integer=ANY(pg_blocking_pids($1::integer)) AS blocked', [runtimeSession.pid, ownerSession.pid]);
+          if (state.blocked === true) { observed = true; break; }
+          await delay(25);
+        }
+        expect(observed, 'Checkpoint must reach the real source advisory lock before its original deadline.').toBe(true);
+        await delay(Math.max(0, blockedDeadline - Date.now()) + 100);
+        await owner.database.query('ROLLBACK'); blockerOpen = false;
+        const result = await pending;
+        expect(result.ok).toBe(false); expect(result.error?.message).toContain('lease lost');
+        expect(await database.query('SELECT * FROM public.public_data_exact_period_checkpoints WHERE intake_id=$1', [id])).toHaveLength(0);
+        expiryProved = true;
+        throw result.error;
+      } } }, 8_000)).toMatchObject({ status: 'unavailable', resource: 'exact-matchups' });
+      expect(expiryProved).toBe(true);
+      // New real owner recovers precisely one failed dispatch, waits inherited
+      // backoff, then obtains fresh receipts. The successful checkpoint commits
+      // before its caller loses acknowledgment; stale replay cannot append again.
+      expect(await f.progress({ ...f.dependencies, intake: { ...intake, completeExactPeriod: async (work, source, capture, fence) => {
+        await intake.completeExactPeriod(work, source, capture, fence);
+        await expect(intake.completeExactPeriod(work, source, capture, fence)).rejects.toThrow();
+        acknowledgmentProved = true;
+        throw new Error('Checkpoint committed; acknowledgment lost');
+      } } })).toMatchObject({ status: 'unavailable', resource: 'exact-matchups' });
+      expect(acknowledgmentProved).toBe(true);
+      const checkpoint = await database.query('SELECT * FROM public.public_data_exact_period_checkpoints WHERE intake_id=$1', [id]);
+      expect(checkpoint).toHaveLength(1);
+      const task = await database.query('SELECT * FROM public.public_data_exact_period_tasks WHERE intake_id=$1', [id]);
+      expect(task[0]).toMatchObject({ status: 'complete', failure_count: 2 });
+      const read = await readPublicSleeperIntake(database, administration, id);
+      expect(read).toMatchObject({ status: 'pending', exactPeriods: [{ nativeWeek: f.nativeWeek, collection: 'complete', resource: { status: 'available' } }] });
+      expect(await administration.readSource({ ...mapping.scope, family: 'league', week: null }))
+        .toMatchObject({ status: 'conflict', reason: 'scoring_profile_change_requires_explicit_compatibility_and_period_review' });
+      expect(await f.progress()).toMatchObject({ status: 'unavailable', resource: 'core' });
+      expect(await database.query('SELECT * FROM public.public_data_exact_period_checkpoints WHERE intake_id=$1', [id])).toEqual(checkpoint);
+      expect(await database.query('SELECT * FROM public.public_data_exact_period_tasks WHERE intake_id=$1', [id])).toEqual(task);
+      f.fault.managers = false;
+      expect(await f.progress()).toMatchObject({ status: 'progress', resource: 'core' });
+      const currentSettings = await administration.readAcceptedLeagueSettings(mapping);
+      if (currentSettings.status !== 'available') throw new Error('Missing later core settings receipt.');
+      expect(currentSettings.receipt.id).not.toBe(checkpoint[0].settings_receipt_id);
+      expect(await readPublicSleeperIntake(database, administration, id)).toMatchObject({ exactPeriods: [{ resource: { status: 'available' } }] });
+      expect(await f.progress()).toMatchObject({ status: 'unavailable', resource: 'users' });
+      f.fault.directory = false;
+      expect(await f.progress()).toMatchObject({ status: 'progress', resource: 'users' });
+      expect(await readPublicSleeperIntake(database, administration, id)).toMatchObject({ status: 'available', exactPeriods: [{ resource: { status: 'available' } }] });
+      expect(await database.query('SELECT * FROM public.league_administration_observations WHERE id=ANY($1::uuid[]) ORDER BY id', [cachedIds])).toEqual(originalRows);
+      expect(await database.query('SELECT * FROM public.public_data_exact_period_checkpoints WHERE intake_id=$1', [id])).toEqual(checkpoint);
+      expect(f.fetch.mock.calls.filter(([url]) => String(url).includes('/matchups/'))).toHaveLength(4); // one cache seed plus three admitted pairs
+      expect((await database.query('SELECT scoring_profile_id FROM public.league_seasons WHERE id=$1', [mapping.leagueSeasonId]))[0].scoring_profile_id).toBe(f.registered.value.scoringProfileId);
+      for (const table of ['public_data_exact_period_tasks', 'public_data_exact_period_checkpoints']) {
+        await expect(database.query(`DELETE FROM public.${table} WHERE intake_id=$1`, [id])).rejects.toMatchObject({ code: '42501' });
+        await owner.database.query('BEGIN'); blockerOpen = true;
+        for (const mutation of [table === 'public_data_exact_period_tasks'
+          ? `UPDATE public.${table} SET native_week=native_week+1 WHERE intake_id=$1`
+          : `UPDATE public.${table} SET recorded_at=recorded_at+interval '1 second' WHERE intake_id=$1`, `DELETE FROM public.${table} WHERE intake_id=$1`]) {
+          await owner.database.query('SAVEPOINT period_history');
+          try { await expect(owner.database.query(mutation, [id])).rejects.toThrow('immutable'); }
+          finally { await owner.database.query('ROLLBACK TO SAVEPOINT period_history'); await owner.database.query('RELEASE SAVEPOINT period_history'); }
+        }
+        await owner.database.query('ROLLBACK'); blockerOpen = false;
+      }
+      await expect(database.query("SELECT public.canonical_public_data_exact_periods('[]'::jsonb,ARRAY[2179])")).rejects.toMatchObject({ code: '42501' });
+    } finally {
+      if (blockerOpen) { await delay(Math.max(0, blockedDeadline - Date.now()) + 100); await owner.database.query('ROLLBACK'); }
+      await pending; f.fetch.mockRestore(); await pinned.close(); await owner.close();
+    }
+  }, 18 * 60_000);
+
+  it('exhausts five real exact-period retries without closing core or fabricating a period checkpoint [focused slow SQL]', async () => {
+    const f = await fixture();
+    try {
+      f.fault.matchups = true;
+      for (const resource of ['identity', 'leagues', 'bootstrap']) expect(await f.progress()).toMatchObject({ status: 'progress', resource });
+      for (let attempt = 1; attempt <= 5; attempt++) {
+        expect(await f.progress()).toMatchObject({ status: 'unavailable', resource: 'exact-matchups', providerRequests: 2 });
+        expect((await f.database.query('SELECT status,failure_count,reason FROM public.public_data_exact_period_tasks WHERE intake_id=$1', [f.id]))[0])
+          .toEqual({ status: attempt < 5 ? 'pending' : 'unavailable', failure_count: attempt, reason: attempt < 5 ? null : 'period-capture-exhausted' });
+        expect(await f.database.query('SELECT * FROM public.public_data_exact_period_checkpoints WHERE intake_id=$1', [f.id])).toHaveLength(0);
+      }
+      expect(await f.intake.next(f.id)).toMatchObject({ kind: 'core' });
+      for (const resource of ['core', 'users']) expect(await f.progress()).toMatchObject({ status: 'progress', resource });
+      expect(await f.intake.next(f.id)).toBe('partial');
+      expect(await readPublicSleeperIntake(f.database, f.administration, f.id)).toMatchObject({ status: 'partial',
+        exactPeriods: [{ collection: 'unavailable', failureCount: 5, resource: { status: 'unavailable' }, acquisition: null }],
+        leagues: [{ collection: 'complete', resources: { settings: { status: 'available' }, heldRoster: { status: 'available' } } }] });
+      const dispatches = await f.database.query(`SELECT resource,max_requests,admitted_at FROM public.public_data_dispatches WHERE intake_id=$1 ORDER BY admitted_at`, [f.id]);
+      expect(dispatches.filter(row => row.resource === 'exact-matchups')).toHaveLength(5);
+      expect(dispatches.filter(row => row.resource === 'exact-matchups').every(row => row.max_requests === 2)).toBe(true);
+      for (let index = 1; index < dispatches.length; index++) {
+        expect(new Date(String(dispatches[index].admitted_at)).getTime() - new Date(String(dispatches[index - 1].admitted_at)).getTime()).toBeGreaterThanOrEqual(60_000);
+      }
+    } finally { f.fetch.mockRestore(); }
+  }, 27 * 60_000);
 });

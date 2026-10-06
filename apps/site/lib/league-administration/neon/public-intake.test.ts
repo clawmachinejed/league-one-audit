@@ -135,3 +135,42 @@ it.each([
     .rejects.toThrow('Ambiguous public source identity');
   expect(queryAfterLock).not.toHaveBeenCalled(); expect(query).toHaveBeenCalledOnce();
 });
+
+describe('exact-period capability and checkpoint transport', () => {
+  const selected = { id: requestId, username: 'Any_Manager', seasons: [2026], exactPeriods: [{ season: 2026, nativeWeek: 18 }] };
+  it.each([undefined, []])('keeps old submit wire with no capability query when selection is %j', async exactPeriods => {
+    const query = vi.fn(async () => []);
+    await createPublicIntakeStore({ enabled: true, query } as unknown as DatabaseClient).submit({ ...selected, exactPeriods });
+    expect(query).toHaveBeenCalledExactlyOnceWith(expect.stringContaining('submit_public_data_intake'),
+      [JSON.stringify({ id: requestId, username: 'Any_Manager', seasons: [2026] })]);
+  });
+  it.each([false, undefined, 'true'])('refuses a nonempty selector before old SQL can ignore it (capability %s)', async supported => {
+    const query = vi.fn(async () => [{ supported }]);
+    await expect(createPublicIntakeStore({ enabled: true, query } as unknown as DatabaseClient).submit(selected)).rejects.toThrow('R038');
+    expect(query).toHaveBeenCalledOnce(); expect(query.mock.calls[0]).toEqual([expect.stringContaining('exact-period-capability')]);
+  });
+  it('checks both request/config scope columns and task/checkpoint tables before submitting selected scope unchanged', async () => {
+    const query = vi.fn(async () => [{ supported: true }]);
+    await createPublicIntakeStore({ enabled: true, query } as unknown as DatabaseClient).submit(selected);
+    expect(query.mock.calls[0]).toEqual([expect.stringContaining('public_data_exact_period_checkpoints')]);
+    expect(query).toHaveBeenLastCalledWith(expect.stringContaining('submit_public_data_intake'), [JSON.stringify(selected)]);
+    expect(query).toHaveBeenCalledTimes(2);
+  });
+  it.each([{ nativeWeek: 0 }, { nativeWeek: '3' }, { nativeWeek: 19 }, { season: '2026' }, { externalLeagueId: 'x' }])('rejects malformed persisted period work before admission: %j', async patch => {
+    const result = { requestId, revision: 3, kind: 'exact-matchups', externalLeagueId: work.externalLeagueId, season: 2026, nativeWeek: 18, ...patch };
+    const query = vi.fn(async () => [{ result }]);
+    await expect(createPublicIntakeStore({ enabled: true, query } as unknown as DatabaseClient).next(requestId)).rejects.toThrow();
+  });
+  it('uses the existing atomic checkpoint with exact work, mapping and both fresh receipts', async () => {
+    const query = vi.fn(async () => []);
+    const store = createPublicIntakeStore({ enabled: true, query } as unknown as DatabaseClient);
+    const exactWork = { requestId, revision: 3, kind: 'exact-matchups' as const, externalLeagueId: work.externalLeagueId, season: 2026, nativeWeek: 18 };
+    const mapping = { connectionId: requestId, leagueSeasonId: requestId, revisionId: requestId, generation: 1,
+      scope: { leagueKey: 'generic', provider: 'sleeper' as const, externalLeagueId: work.externalLeagueId, season: 2026 } };
+    const captured = { observations: { league: 'league-observation', matchups: 'matchup-observation' },
+      receipts: { settings: 'settings-receipt', matchups: 'matchups-receipt' } };
+    await store.completeExactPeriod(exactWork, mapping, captured, fence);
+    expect(query).toHaveBeenCalledExactlyOnceWith(expect.stringContaining('checkpoint_public_data_intake'),
+      [JSON.stringify(exactWork), JSON.stringify({ mapping, ...captured }), JSON.stringify(fence)]);
+  });
+});

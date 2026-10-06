@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { capturePublicSleeperCore, capturePublicSleeperIdentity, capturePublicSleeperLeagueList } from '../sleeper';
 import type { ProjectionStore } from '../projection-store';
 import type { LeagueAdministrationStore } from './store-contracts';
+import type { CapturedAdministrationDocument } from './contracts';
 import { recordCapturedAdministration } from './runtime';
 import type { PublicDataRefreshOutcome, PublicDataRefreshSelected, PublicDataRefreshSelectionFailure, PublicDataRefreshStore } from './public-refresh-contracts';
 import { PUBLIC_INTAKE_JOB, type PublicIntakeOutcome, type PublicIntakeStore } from './public-intake-contracts';
@@ -14,7 +15,8 @@ export type PublicIntakeDependencies = Readonly<{
   administration: LeagueAdministrationStore;
   jobs: Pick<ProjectionStore, 'acquireJob' | 'completeJob' | 'failJob'>;
   source?: Readonly<{ identity: typeof capturePublicSleeperIdentity; leagues: typeof capturePublicSleeperLeagueList;
-    core: typeof capturePublicSleeperCore }>;
+    core: (leagueId: string, family: 'league' | 'rosters' | 'users', signal: AbortSignal) => Promise<CapturedAdministrationDocument>;
+    exactPeriod?: (leagueId: string, nativeWeek: number, signal: AbortSignal) => Promise<CapturedAdministrationDocument> }>;
   now?: () => Date;
   /** Requires installed R035; adds evidence without replacing either v1 reservation. */
   managerEvidenceVersion?: 'v2';
@@ -50,7 +52,9 @@ async function runOwnedPublicIntakeStep(requestId: string | undefined,
   const phaseIntake = phase?.intake ?? intake;
   const now = dependencies.now ?? (() => new Date());
   const source = dependencies.source ?? { identity: capturePublicSleeperIdentity,
-    leagues: capturePublicSleeperLeagueList, core: capturePublicSleeperCore };
+    leagues: capturePublicSleeperLeagueList, core: capturePublicSleeperCore,
+    exactPeriod: (leagueId: string, nativeWeek: number, captureSignal: AbortSignal) =>
+      capturePublicSleeperCore(leagueId, 'matchups', captureSignal, nativeWeek) };
   signal.throwIfAborted();
   phaseSignal.throwIfAborted();
   const workerId = randomUUID();
@@ -116,9 +120,39 @@ async function runOwnedPublicIntakeStep(requestId: string | undefined,
       await intake.register(work, await source.core(work.externalLeagueId, 'league', signal), fence);
     } else {
       const mapping = await administration.readSourceMapping(work.externalLeagueId);
-      if (!mapping || mapping.scope.season !== work.season) throw new Error('Intake mapping unavailable.');
+      if (!mapping || mapping.scope.season !== work.season || mapping.scope.externalLeagueId !== work.externalLeagueId) {
+        throw new Error('Intake mapping unavailable.');
+      }
       const observations: { league?: string; rosters?: string; users?: string } = {};
-      if (work.kind === 'core') {
+      if (work.kind === 'exact-matchups') {
+        const nativeWeek = work.nativeWeek;
+        if (!source.exactPeriod) throw new Error('Exact-period capture is unsupported by this source.');
+        const settings = await administration.beginLeagueSettingsAttempt(mapping, randomUUID(), fence);
+        const matchups = await administration.beginExactMatchupAttempt(mapping, work.nativeWeek, randomUUID(), fence);
+        // Both reservations precede both requests. No HTTP occurs inside a transaction.
+        signal.throwIfAborted();
+        requests += 2;
+        const results = await Promise.allSettled([
+          source.core(work.externalLeagueId, 'league', signal), source.exactPeriod(work.externalLeagueId, work.nativeWeek, signal),
+        ]);
+        const documents = results.flatMap((result, index) => {
+          if (result.status !== 'fulfilled') return [];
+          const document = result.value;
+          if (document.family !== (index === 0 ? 'league' : 'matchups') || document.week !== (index === 0 ? null : nativeWeek)
+            || document.origin !== 'network' || document.sourceObservedAt !== document.requestCompletedAt) {
+            throw new Error('Exact-period source returned a different capture.');
+          }
+          return [document];
+        });
+        const captured = await recordCapturedAdministration(mapping.scope, documents, { store: administration,
+          signal, fence, mapping, leagueSettingsAttempt: settings, matchupAttempt: { week: work.nativeWeek, attempt: matchups }, now });
+        const league = captured.results.find(entry => entry.family === 'league')?.result;
+        const matchup = captured.results.find(entry => entry.family === 'matchups')?.result;
+        if (!league?.observationId || !matchup?.observationId || league.leagueSettingsAcceptance?.status !== 'accepted'
+          || matchup.matchupAcceptance?.status !== 'accepted') throw new Error('Exact-period typed capture remains incomplete.');
+        await intake.completeExactPeriod(work, mapping, { observations: { league: league.observationId, matchups: matchup.observationId },
+          receipts: { settings: league.leagueSettingsAcceptance.receiptId, matchups: matchup.matchupAcceptance.receiptId } }, fence);
+      } else if (work.kind === 'core') {
         const attempts = await administration.beginRosterCapture(mapping, randomUUID(), randomUUID(), fence);
         const settings = await administration.beginLeagueSettingsAttempt(mapping, randomUUID(), fence);
         let managerEvidenceAttempt;

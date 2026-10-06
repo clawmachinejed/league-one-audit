@@ -12,6 +12,18 @@ function record(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
+/** Older JSON functions ignore unknown keys. Refuse explicit period scope before any mutation. */
+async function requireExactPeriodCapability(client: DatabaseClient): Promise<void> {
+  const rows = await client.query(`/* public-data-intake:exact-period-capability */
+    SELECT to_regclass('public.public_data_exact_period_tasks') IS NOT NULL
+      AND to_regclass('public.public_data_exact_period_checkpoints') IS NOT NULL
+      AND EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.public_data_intakes')
+        AND attname='exact_periods' AND NOT attisdropped)
+      AND EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.public_data_refresh_configurations')
+        AND attname='exact_periods' AND NOT attisdropped) AS supported`);
+  if (rows.length !== 1 || rows[0].supported !== true) throw new Error('Public exact-period intake requires installed R038.');
+}
+
 export function createPublicIntakeStore(client: DatabaseClient): PublicIntakeStore {
   async function checkpoint(work: PublicIntakeWork, capture: unknown, fence: unknown) {
     await client.query(`/* public-data-intake:checkpoint */
@@ -20,8 +32,10 @@ export function createPublicIntakeStore(client: DatabaseClient): PublicIntakeSto
   }
   return {
     async submit(input) {
+      const validated = validatePublicIntake(input);
+      if (validated.exactPeriods?.length) await requireExactPeriodCapability(client);
       await client.query(`/* public-data-intake:submit */ SELECT public.submit_public_data_intake($1::jsonb)`,
-        [JSON.stringify(validatePublicIntake(input))]);
+        [JSON.stringify(validated)]);
     },
     async recover(requestId, fence) {
       await client.query(`/* public-data-intake:recover */
@@ -33,9 +47,13 @@ export function createPublicIntakeStore(client: DatabaseClient): PublicIntakeSto
       if (result === 'complete' || result === 'partial' || result === 'unavailable' || result === 'backoff') return result;
       const work = record(result);
       if (work.requestId !== requestId || !Number.isSafeInteger(work.revision) || Number(work.revision) < 0
-        || !['identity', 'leagues', 'bootstrap', 'core', 'users'].includes(String(work.kind))) {
+        || !['identity', 'leagues', 'bootstrap', 'core', 'users', 'exact-matchups'].includes(String(work.kind))) {
         throw new Error('Invalid public intake work.');
       }
+      if (work.kind === 'exact-matchups' && (typeof work.externalLeagueId !== 'string'
+        || !/^[1-9][0-9]{0,31}$/u.test(work.externalLeagueId) || !Number.isInteger(work.season)
+        || Number(work.season) < 1920 || Number(work.season) > 2200 || !Number.isInteger(work.nativeWeek)
+        || Number(work.nativeWeek) < 1 || Number(work.nativeWeek) > 18)) throw new Error('Invalid public exact-period work.');
       return work as PublicIntakeWork;
     },
     recordIdentity: checkpoint,
@@ -98,6 +116,7 @@ export function createPublicIntakeStore(client: DatabaseClient): PublicIntakeSto
         leagueSeasonId: registered.value.leagueSeasonId }, fence);
     },
     completeCore: (work, mapping, captured, fence) => checkpoint(work, { mapping, ...captured }, fence),
+    completeExactPeriod: (work, mapping, captured, fence) => checkpoint(work, { mapping, ...captured }, fence),
     fail: (work, fence) => checkpoint(work, { failed: true }, fence),
   };
 }
@@ -110,6 +129,7 @@ export function createPublicDataRefreshStore(client: DatabaseClient): PublicData
   return {
     async configure(input) {
       const validated = validatePublicDataRefresh(input);
+      if (validated.exactPeriods?.length) await requireExactPeriodCapability(client);
       const rows = await client.query('/* public-data-refresh:configure */ SELECT public.configure_public_data_refresh($1::jsonb) AS result',
         [JSON.stringify(validated)]);
       if (rows.length !== 1) throw new Error('Missing refresh configuration result.');

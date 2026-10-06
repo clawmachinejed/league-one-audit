@@ -314,13 +314,20 @@ export async function capturePublicSleeperLeagueList(userId: string, season: num
   catch { return { payload, value: null, diagnostic: 'invalid-source' as const, requestStartedAt, requestCompletedAt }; }
 }
 
-export async function capturePublicSleeperCore(leagueId: string, family: 'league' | 'rosters' | 'users',
-  signal: AbortSignal): Promise<CapturedAdministrationDocument> {
+export function capturePublicSleeperCore(leagueId: string, family: 'matchups', signal: AbortSignal,
+  nativeWeek: number): Promise<CapturedAdministrationDocument>;
+export function capturePublicSleeperCore(leagueId: string, family: 'league' | 'rosters' | 'users',
+  signal: AbortSignal): Promise<CapturedAdministrationDocument>;
+export async function capturePublicSleeperCore(leagueId: string, family: 'league' | 'rosters' | 'users' | 'matchups',
+  signal: AbortSignal, nativeWeek?: number): Promise<CapturedAdministrationDocument> {
   if (!/^[1-9]\d{0,31}$/u.test(leagueId)) throw new Error('Invalid Sleeper league identity.');
+  if (family === 'matchups' ? !Number.isInteger(nativeWeek) || Number(nativeWeek) < 1 || Number(nativeWeek) > 18
+    : !['league', 'rosters', 'users'].includes(family) || nativeWeek !== undefined) throw new Error('Invalid public capture period.');
+  signal.throwIfAborted();
   const requestStartedAt = new Date().toISOString();
-  const payload = await fetchJson(administrationPath(leagueId, family, null), 0, signal, { redirect: 'error' });
+  const payload = await fetchJson(administrationPath(leagueId, family, nativeWeek ?? null), 0, signal, { redirect: 'error' });
   const requestCompletedAt = new Date().toISOString();
-  return { family, week: null, payload, requestStartedAt, requestCompletedAt,
+  return { family, week: nativeWeek ?? null, payload, requestStartedAt, requestCompletedAt,
     origin: 'network', sourceObservedAt: requestCompletedAt };
 }
 

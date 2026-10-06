@@ -429,3 +429,25 @@ DO $$ DECLARE refresh_table text; BEGIN
     REVOKE ALL ON FUNCTION public.assert_public_refresh_owner(jsonb),public.admit_public_data_dispatch_v34(jsonb,jsonb) FROM league_one_runtime;
   END IF;
 END; $$;
+
+-- Optional038 exact-period tasks/checkpoints extend existing public intake only.
+-- Their validators remain owner-only; SECURITY DEFINER intake functions evaluate
+-- the scope CHECK as their owner. Runtime cannot insert or mutate either table.
+DO $$ DECLARE period_table text; BEGIN
+  IF to_regclass('public.public_data_exact_period_tasks') IS NOT NULL THEN
+    FOREACH period_table IN ARRAY ARRAY['public_data_exact_period_tasks','public_data_exact_period_checkpoints'] LOOP
+      EXECUTE format('REVOKE ALL ON TABLE public.%I FROM league_one_runtime',period_table);
+      EXECUTE format('GRANT SELECT ON TABLE public.%I TO league_one_runtime',period_table);
+      IF has_table_privilege('league_one_runtime','public.'||period_table,'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN')
+        OR NOT has_table_privilege('league_one_runtime','public.'||period_table,'SELECT')
+        OR EXISTS(SELECT 1 FROM pg_class object JOIN pg_namespace namespace ON namespace.oid=object.relnamespace
+          JOIN pg_roles owner ON owner.oid=object.relowner WHERE namespace.nspname='public'
+            AND object.relname=period_table AND owner.rolname='league_one_runtime') THEN
+        RAISE EXCEPTION 'league_one_runtime has incorrect public exact period privileges'; END IF;
+    END LOOP;
+    REVOKE ALL ON FUNCTION public.canonical_public_data_exact_periods(jsonb,integer[]),
+      public.validate_public_data_exact_period_task(),public.validate_public_data_exact_period_checkpoint(),
+      public.admit_public_data_dispatch_v34(jsonb,jsonb),public.fail_public_data_work(jsonb),
+      public.record_league_administration_observation_v30(jsonb) FROM league_one_runtime;
+  END IF;
+END; $$;

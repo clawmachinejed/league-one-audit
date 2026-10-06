@@ -105,3 +105,48 @@ describe('stored recurring DATA reader', () => {
     expect(query).toHaveBeenCalledOnce();
   });
 });
+
+describe('explicit period recurrence scope', () => {
+  const periods = [{ season: 2026, nativeWeek: 18 }, { season: 2025, nativeWeek: 1 }];
+  it('normalizes periods in stable order and omits empty selection from the old configuration wire', () => {
+    expect(validatePublicDataRefresh({ ...input, exactPeriods: periods }, new Date(time)).exactPeriods).toEqual([...periods].reverse());
+    expect(JSON.stringify(validatePublicDataRefresh({ ...input, exactPeriods: [] }, new Date(time))))
+      .toBe(JSON.stringify(validatePublicDataRefresh(input, new Date(time))));
+    expect(() => validatePublicDataRefresh({ ...input, exactPeriods: [{ season: 2024, nativeWeek: 1 }] }, new Date(time))).toThrow();
+  });
+  it.each([false, true])('capability-gates explicit configure before mutation while preserving CAS/replay scope: %s', async supported => {
+    vi.useFakeTimers(); vi.setSystemTime(new Date(time));
+    const query = vi.fn(async (sql: string) => sql.includes('capability') ? [{ supported }]
+      : [{ result: { status: 'replayed', targetId, configurationRevision: 1 } }]);
+    const store = createPublicDataRefreshStore({ enabled: true, query } as unknown as DatabaseClient);
+    const configured = store.configure({ ...input, exactPeriods: periods });
+    if (!supported) { await expect(configured).rejects.toThrow('R038'); expect(query).toHaveBeenCalledOnce(); }
+    else {
+      await expect(configured).resolves.toEqual({ status: 'replayed', targetId, configurationRevision: 1 });
+      expect(query).toHaveBeenCalledTimes(2);
+      expect(query).toHaveBeenLastCalledWith(expect.stringContaining('configure_public_data_refresh'),
+        [JSON.stringify({ ...validatePublicDataRefresh(input, new Date(time)), exactPeriods: [...periods].reverse() })]);
+    }
+  });
+  it('keeps empty configure on the old single-query path', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(new Date(time));
+    const f = database({ status: 'configured', targetId, configurationRevision: 1 });
+    await createPublicDataRefreshStore(f.client).configure({ ...input, exactPeriods: [] });
+    expect(f.query).toHaveBeenCalledExactlyOnceWith(expect.stringContaining('configure_public_data_refresh'),
+      [JSON.stringify(validatePublicDataRefresh(input, new Date(time)))]);
+  });
+  it.each([false, true])('keeps current configuration separate from cycle period scope and rejects request mismatch=%s', async mismatch => {
+    const current = [{ season: 2026, nativeWeek: 1 }]; const original = [{ season: 2026, nativeWeek: 18 }];
+    const row = { ...targetRow(), current_cycle: '4', cycle_configuration_revision: '2', intake_id: requestId,
+      cycle_created_at: time, due_at: time, selected_exact_periods: current, cycle_exact_periods: original, cycle_seasons: [2025, 2026] };
+    const query = vi.fn(async (sql: string) => sql.includes('public-data-refresh:read') ? [row]
+      : sql.includes('read-request') ? [{ id: requestId, seasons: [2025, 2026], terminal: true, selected_exact_periods: mismatch ? current : original }]
+        : []);
+    const read = readPublicDataRefresh({ enabled: true, query } as unknown as DatabaseClient,
+      createLeagueAdministrationStore({ enabled: false, reason: 'missing-database-url' }), targetId);
+    if (mismatch) await expect(read).rejects.toThrow('period scope differs');
+    else await expect(read).resolves.toMatchObject({ target: { exactPeriods: current }, cycle: { exactPeriods: original },
+      intake: { request: { exactPeriods: original }, exactPeriods: [] } });
+    expect(query).toHaveBeenCalledTimes(6);
+  });
+});

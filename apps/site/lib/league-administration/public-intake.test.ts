@@ -9,6 +9,8 @@ import { capturePublicSleeperIdentity, capturePublicSleeperLeagueList, capturePu
 import type { DatabaseClient } from '../database';
 import type { CapturedAdministrationDocument } from './runtime';
 import type { NormalizedAdministrationObservation } from './contracts';
+import { readAcceptedExactMatchupsRows } from './neon/exact-matchups';
+import { EXACT_MATCHUPS_POLICY, exactMatchupsScope } from '../aggregator/exact-matchups';
 
 vi.mock('server-only', () => ({}));
 vi.mock('next/cache', () => ({ unstable_cache: (fn: unknown) => fn }));
@@ -34,6 +36,7 @@ function fixture(kind: 'identity' | 'leagues' | 'bootstrap' | 'core' | 'users' =
     recordIdentity: vi.fn(async () => { work = { requestId: id, revision: 1, kind: 'leagues', userId: '55', season: 2026 }; }),
     recordLeagues: vi.fn(async () => { work = { requestId: id, revision: 2, kind: 'bootstrap', externalLeagueId: native, season: 2026 }; }),
     register: vi.fn(async () => { work = { requestId: id, revision: 3, kind: 'core', externalLeagueId: native, season: 2026 }; }),
+    completeExactPeriod: vi.fn(async () => undefined),
     completeCore: vi.fn(async (_work, _mapping, checkpoint) => { work = checkpoint.observations.users ? 'complete'
       : { requestId: id, revision: 4, kind: 'users', externalLeagueId: native, season: 2026 }; }), fail: vi.fn(async () => undefined) };
   const administration = { ...createLeagueAdministrationStore({ enabled: false, reason: 'missing-database-url' }), enabled: true,
@@ -602,4 +605,293 @@ describe('early recurring admission phase and owner reconciliation', () => {
     expect(order).toEqual(['A', 'B', 'A', 'B', 'B', 'A']);
     expect(healthyCalls).toBe(3); expect(failureCredits).toBe(3); expect(targets[0].served).toBeNull();
   });
+});
+
+const exactSelection = [{ season: 2026, nativeWeek: 18 }];
+const periodWork = { requestId: id, revision: 3, kind: 'exact-matchups' as const, externalLeagueId: native, season: 2026, nativeWeek: 18 };
+const periodReceipt = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const settingsReceipt = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+const configurationContent = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+const periodPayload = [{ roster_id: 1, matchup_id: null, players: ['123'], starters: ['123', '0'],
+  starters_points: [-2, null], players_points: { '123': -2 }, points: -2, custom_points: 0 }];
+function periodFixture() {
+  const f = fixture(); f.setWork(periodWork);
+  const events: string[] = [];
+  const source = { ...f.source, exactPeriod: vi.fn(async (_native: string, week: number): Promise<CapturedAdministrationDocument> => {
+    events.push('get-matchups'); return { family: 'matchups', week, origin: 'network', payload: periodPayload,
+      requestStartedAt: time, requestCompletedAt: time, sourceObservedAt: time };
+  }) };
+  source.core.mockImplementation(async (_native, family) => { events.push('get-' + family); return document(family); });
+  f.administration.beginLeagueSettingsAttempt.mockImplementation(async () => {
+    events.push('reserve-settings'); return { id: settingsReceipt, scopeId: settingsReceipt, ordinal: 1, expectedGeneration: 0 };
+  });
+  const administration = { ...f.dependencies.administration,
+    beginExactMatchupAttempt: vi.fn(async () => { events.push('reserve-matchups');
+      return { id: periodReceipt, scopeId: periodReceipt, ordinal: 1, expectedGeneration: 0 }; }) };
+  vi.mocked(administration.recordObservation).mockImplementation(async input => {
+    events.push('write-' + input.envelope.family);
+    return { status: 'changed', observationId: input.envelope.family === 'league' ? settingsReceipt : periodReceipt,
+      ...(input.envelope.family === 'league'
+        ? { leagueSettingsAcceptance: { status: 'accepted' as const, receiptId: settingsReceipt, acceptedGeneration: 1 } }
+        : { matchupAcceptance: { status: input.status === 'accepted' ? 'accepted' as const : 'preserved' as const,
+          receiptId: periodReceipt, acceptedGeneration: 1 } }) };
+  });
+  return { ...f, administration, source, events, dependencies: { ...f.dependencies, source, administration } };
+}
+
+describe('explicit exact-period intake composition', () => {
+  it('canonically selects at most one native period in each declared season and leaves old wire identity unchanged', () => {
+    const old = { id, username: 'Manager', seasons: [2026, 2025, 2024] };
+    expect(JSON.stringify(validatePublicIntake({ ...old, exactPeriods: [] }))).toBe(JSON.stringify(validatePublicIntake(old)));
+    expect(validatePublicIntake({ ...old, exactPeriods: [{ season: 2026, nativeWeek: 18 }, { season: 2024, nativeWeek: 1 }] }))
+      .toEqual({ ...old, seasons: [2024, 2025, 2026], exactPeriods: [{ season: 2024, nativeWeek: 1 }, { season: 2026, nativeWeek: 18 }] });
+  });
+  it.each([null, {}, [null], [{ season: 2026 }], [{ season: '2026', nativeWeek: 1 }], [{ season: 2026, nativeWeek: '1' }],
+    [{ season: 2026, nativeWeek: 0 }], [{ season: 2026, nativeWeek: 19 }], [{ season: 2026, nativeWeek: 1.5 }],
+    [{ season: 2025, nativeWeek: 1 }], [{ season: 2026, nativeWeek: 1, extra: true }],
+    [{ season: 2026, nativeWeek: 1 }, { season: 2026, nativeWeek: 2 }],
+    [1, 2, 3, 4].map(nativeWeek => ({ season: 2026, nativeWeek }))])('rejects an invalid explicit period selection: %j', exactPeriods => {
+    expect(() => validatePublicIntake({ id, username: 'Manager', seasons: [2026], exactPeriods } as unknown as Parameters<typeof validatePublicIntake>[0])).toThrow();
+  });
+  it('reserves settings and matchups before both GETs and writes same-capture population without managers or directory', async () => {
+    const f = periodFixture();
+    expect(await runPublicIntakeStep(id, f.dependencies, new AbortController().signal))
+      .toEqual({ status: 'progress', resource: 'exact-matchups', providerRequests: 2 });
+    expect(f.events).toEqual(['reserve-settings', 'reserve-matchups', 'get-league', 'get-matchups', 'write-league', 'write-matchups']);
+    expect(f.administration.beginExactMatchupAttempt).toHaveBeenCalledWith(mapping, 18, expect.any(String), expect.objectContaining({ generation: 1 }));
+    const calls = vi.mocked(f.administration.recordObservation).mock.calls;
+    expect(calls[1][6]).toMatchObject({ attempt: { id: periodReceipt }, population: {
+      observationId: settingsReceipt, contentHash: calls[0][0].contentHash, envelope: calls[0][0].envelope } });
+    expect(f.intake.completeExactPeriod).toHaveBeenCalledWith(periodWork, mapping,
+      { observations: { league: settingsReceipt, matchups: periodReceipt }, receipts: { settings: settingsReceipt, matchups: periodReceipt } },
+      expect.objectContaining({ generation: 1 }));
+    expect(f.administration.beginRosterCapture).not.toHaveBeenCalled(); expect(f.intake.completeCore).not.toHaveBeenCalled();
+    expect(f.source.core).toHaveBeenCalledOnce(); expect(f.source.exactPeriod).toHaveBeenCalledOnce();
+  });
+  it('retains fresh typed settings population after legacy scoring incompatibility, including absent official scoring', async () => {
+    const f = periodFixture();
+    f.source.core.mockResolvedValue({ ...document('league'), payload: { ...league, scoring_settings: null } });
+    const write = vi.mocked(f.administration.recordObservation).getMockImplementation()!;
+    vi.mocked(f.administration.recordObservation).mockImplementation(async (...args) => ({ ...await write(...args),
+      ...(args[0].envelope.family === 'league' ? { status: 'rejected' as const } : {}) }));
+    expect((await runPublicIntakeStep(id, f.dependencies, new AbortController().signal)).status).toBe('progress');
+    expect(vi.mocked(f.administration.recordObservation).mock.calls[1][6]?.population?.envelope.payload)
+      .toMatchObject({ scoring_settings: null });
+  });
+  it.each(['settings', 'matchups'] as const)('never completes from a preserved %s head', async family => {
+    const f = periodFixture(); const write = vi.mocked(f.administration.recordObservation).getMockImplementation()!;
+    vi.mocked(f.administration.recordObservation).mockImplementation(async (...args) => ({ ...await write(...args),
+      ...(args[0].envelope.family === (family === 'settings' ? 'league' : 'matchups')
+        ? { [family === 'settings' ? 'leagueSettingsAcceptance' : 'matchupAcceptance']: { status: 'preserved', receiptId: 'older', acceptedGeneration: 1 } } : {}) }));
+    expect((await runPublicIntakeStep(id, f.dependencies, new AbortController().signal)).status).toBe('unavailable');
+    expect(f.intake.completeExactPeriod).not.toHaveBeenCalled(); expect(f.intake.fail).toHaveBeenCalledOnce();
+  });
+  it('keeps independently accepted settings when the period response fails and retries through the same work identity', async () => {
+    const f = periodFixture(); f.source.exactPeriod.mockRejectedValueOnce(new Error('source unavailable'));
+    expect((await runPublicIntakeStep(id, f.dependencies, new AbortController().signal)).status).toBe('unavailable');
+    expect(f.administration.recordObservation).toHaveBeenCalledOnce(); expect(f.intake.completeExactPeriod).not.toHaveBeenCalled();
+    expect((await runPublicIntakeStep(id, f.dependencies, new AbortController().signal)).status).toBe('progress');
+    expect(f.intake.completeExactPeriod).toHaveBeenCalledOnce(); expect(f.source.exactPeriod).toHaveBeenCalledTimes(2);
+  });
+  it.each([{ family: 'rosters' }, { week: 17 }, { origin: 'cache' }, { sourceObservedAt: '2026-01-01T00:00:00Z' }])('rejects mismatched returned period capture without fallback GET: %j', patch => {
+    return (async () => {
+      const f = periodFixture(); const get = f.source.exactPeriod.getMockImplementation()!;
+      f.source.exactPeriod.mockImplementation(async (...args) => ({ ...await get(...args), ...patch } as CapturedAdministrationDocument));
+      expect((await runPublicIntakeStep(id, f.dependencies, new AbortController().signal)).status).toBe('unavailable');
+      expect(f.source.exactPeriod).toHaveBeenCalledOnce(); expect(f.intake.completeExactPeriod).not.toHaveBeenCalled();
+      expect(f.administration.recordObservation).not.toHaveBeenCalled();
+    })();
+  });
+  it('makes no provider request when the second reservation fails or admission is refused', async () => {
+    const f = periodFixture(); f.administration.beginExactMatchupAttempt.mockRejectedValue(new Error('mapping superseded'));
+    expect((await runPublicIntakeStep(id, f.dependencies, new AbortController().signal)).providerRequests).toBe(0);
+    expect(f.source.core).not.toHaveBeenCalled(); expect(f.source.exactPeriod).not.toHaveBeenCalled();
+    const g = periodFixture(); vi.mocked(g.intake.admit).mockResolvedValue(false);
+    expect((await runPublicIntakeStep(id, g.dependencies, new AbortController().signal)).status).toBe('backoff');
+    expect(g.administration.beginExactMatchupAttempt).not.toHaveBeenCalled();
+  });
+});
+
+describe('bounded exact-period Sleeper transport', () => {
+  it('uses the exact native endpoint without cache or redirect, retaining raw partial fields and custom zero', async () => {
+    const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify(periodPayload)));
+    try {
+      const captured = await capturePublicSleeperCore(native, 'matchups', new AbortController().signal, 18);
+      expect(captured).toMatchObject({ family: 'matchups', week: 18, origin: 'network', payload: periodPayload });
+      expect(captured.sourceObservedAt).toBe(captured.requestCompletedAt);
+      expect(fetch).toHaveBeenCalledExactlyOnceWith('https://api.sleeper.app/v1/league/' + native + '/matchups/18',
+        expect.objectContaining({ cache: 'no-store', redirect: 'error' }));
+    } finally { fetch.mockRestore(); }
+  });
+  it.each([0, 19, 1.5, NaN, null, undefined, '3'])('refuses malformed native week %s before HTTP', async week => {
+    const fetch = vi.spyOn(globalThis, 'fetch');
+    try { await expect(capturePublicSleeperCore(native, 'matchups', new AbortController().signal, week as number)).rejects.toThrow();
+      expect(fetch).not.toHaveBeenCalled(); } finally { fetch.mockRestore(); }
+  });
+  it('has no redirect retry and rejects an already-aborted request before dispatch', async () => {
+    const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('', { status: 302 }));
+    try {
+      await expect(capturePublicSleeperCore(native, 'matchups', new AbortController().signal, 1)).rejects.toThrow('302');
+      expect(fetch).toHaveBeenCalledOnce(); fetch.mockClear();
+      await expect(capturePublicSleeperCore(native, 'matchups', AbortSignal.abort(), 1)).rejects.toThrow();
+      expect(fetch).not.toHaveBeenCalled();
+    } finally { fetch.mockRestore(); }
+  });
+});
+
+async function storedPeriodFixture() {
+  const f = periodFixture();
+  expect((await runPublicIntakeStep(id, f.dependencies, new AbortController().signal)).status).toBe('progress');
+  const [settings, matchup] = vi.mocked(f.administration.recordObservation).mock.calls;
+  const normalized = matchup[0];
+  const exactRow = {
+    identity: { scope: exactMatchupsScope(mapping, 18), policy: EXACT_MATCHUPS_POLICY }, generation: 1,
+    source_mapping_revision_id: mapping.revisionId, receipt_id: periodReceipt, attempt_id: periodReceipt,
+    provenance: normalized.envelope.provenance, coverage: { periodIds: ['sleeper:matchup-week:18'], interval: null,
+      entitySet: 'full', fields: ['roster_id', 'matchup_id'], pagination: 'complete', nextCursor: null, completeness: 'complete', reasons: [] },
+    configuration_content_id: configurationContent, population_evidence: matchup[6]?.population,
+    expected_team_count: 1, legacy_observation_id: periodReceipt, ordinal: 1, source_mapping: mapping,
+    configuration_payload: settings[0].envelope.payload, configuration_hash: settings[0].contentHash,
+    content_id: id, content_hash: normalized.contentHash, semantic_hash: normalized.semanticHash,
+    payload: normalized.envelope.payload, normalized_value: normalized.value, normalizer_version: normalized.envelope.normalizerVersion,
+    completeness: 'complete', league_season_id: mapping.leagueSeasonId, provider: 'sleeper', external_league_id: native,
+    family: 'matchups', week: 18, teams: [{ seasonTeamId: mapping.leagueSeasonId, externalRosterId: '1' }],
+  };
+  const task = { ordinal: 1, season: 2026, external_league_id: native, native_week: 18, status: 'complete',
+    failure_count: 0, reason: null, worker_id: 'recorded-worker', generation: 1, league_season_id: mapping.leagueSeasonId,
+    source_mapping: mapping, settings_receipt_id: settingsReceipt, matchups_receipt_id: periodReceipt,
+    recorded_at: time, configuration_content_id: configurationContent, settings_provenance: settings[0].envelope.provenance };
+  const tasks = [task];
+  const header: Record<string, unknown> = { id, seasons: [2026], terminal: true, external_manager_id: '55', selected_exact_periods: exactSelection };
+  const candidate: Record<string, unknown> = { season: 2026, external_league_id: native, name: league.name,
+    stage: 'unavailable', league_season_id: mapping.leagueSeasonId };
+  const query = vi.fn(async (sql: string) => {
+    if (sql.includes('read-request')) return [header];
+    if (sql.includes('read-lists')) return [{ season: 2026 }];
+    if (sql.includes('read-candidates')) return [candidate];
+    if (sql.includes('read-exact-periods')) return tasks;
+    if (sql.includes('read-rejections')) return [];
+    throw new Error('Unexpected reader query');
+  });
+  const administration = { ...f.dependencies.administration,
+    readAcceptedExactMatchups: vi.fn(async (source: typeof mapping, week: number) => readAcceptedExactMatchupsRows([exactRow], source, week)),
+    readAcceptedLeagueSettings: vi.fn(async () => { throw new Error('Current settings head superseded or unavailable'); }),
+    readSource: vi.fn(async () => { throw new Error('Optional directory invalid'); }),
+  };
+  const read = () => readPublicSleeperIntake({ enabled: true, query } as unknown as DatabaseClient, administration, id);
+  return { f, exactRow, task, tasks, header, candidate, query, administration, read };
+}
+
+describe('exact-period worker to typed stored reader with storage mocked', () => {
+  it('returns the captured exact period despite incomplete core/invalid directory, with honest unknown phase, slots and finality', async () => {
+    const f = await storedPeriodFixture(); const result = await f.read();
+    expect(result.status).toBe('partial');
+    if (result.status === 'missing') throw new Error('Missing fixture');
+    expect(result.request).toMatchObject({ exactPeriods: exactSelection });
+    expect(result.request).not.toHaveProperty('selected_exact_periods');
+    const period = result.exactPeriods?.[0];
+    expect(period?.phase).toEqual({ status: 'unknown', reason: 'native-period-phase-not-evidenced' });
+    expect(period?.resource.status).toBe('available');
+    if (period?.resource.status !== 'available') throw new Error('Missing exact resource');
+    expect(period.resource.value.period).toMatchObject({ nativeWeek: 18, nflWeekMappings: [] });
+    expect(period.resource.value.state.reason).toBe('no_matchup_finality_evidence');
+    expect(period.resource.value.teams[0].officialTeamPoints).toEqual({ raw: '-2', custom: '0', effective: '0', adjustment: 'custom-override', adjustmentReason: null });
+    expect(period.resource.value.teams[0].starters?.[1]).toMatchObject({ index: 1, nativeSlot: null, empty: true, playerExternalId: null });
+    expect(period.resource.value.groups[0]).toMatchObject({ nativeMatchupId: null, format: 'unpaired', resultSupport: 'limited' });
+    expect(period.acquisition?.settingsReceiptId).toBe(settingsReceipt);
+    expect(f.administration.readAcceptedLeagueSettings).toHaveBeenCalledOnce(); // Core only; no current-settings gate on period.
+    expect(f.administration.readAcceptedExactMatchups).toHaveBeenCalledExactlyOnceWith(mapping, 18);
+    expect(result.coverage.requested).toContain('exact-matchups'); expect(result.coverage.notRequested).toContain('official-results');
+    expect(f.query).toHaveBeenCalledTimes(5); expect(f.f.source.exactPeriod).toHaveBeenCalledOnce(); // Read never refreshes.
+  });
+  it.each(['head', 'configuration'] as const)('exposes another capture as retained, never completion for this request: %s', async mismatch => {
+    const f = await storedPeriodFixture();
+    if (mismatch === 'head') f.exactRow.receipt_id = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+    else f.exactRow.configuration_content_id = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+    const result = await f.read(); if (result.status === 'missing') throw new Error('Missing fixture');
+    expect(result.exactPeriods?.[0].resource).toMatchObject({ status: 'unavailable', reason: 'intake-capture-not-current-head', retained: { status: 'available' } });
+  });
+  it('rejects a remapped source without replacing the stored capture mapping', async () => {
+    const f = await storedPeriodFixture();
+    vi.mocked(f.administration.readSourceMapping).mockResolvedValue({ ...mapping, generation: 2 });
+    const result = await f.read(); if (result.status === 'missing') throw new Error('Missing fixture');
+    expect(result.exactPeriods?.[0].resource).toMatchObject({ status: 'unavailable', reason: 'stored-period-source-unavailable' });
+    expect(f.administration.readAcceptedExactMatchups).not.toHaveBeenCalled(); expect(f.task.source_mapping).toEqual(mapping);
+  });
+  it.each(['pending', 'unavailable'])('never borrows a shared head for a %s task', async status => {
+    const f = await storedPeriodFixture(); f.task.status = status; f.task.failure_count = status === 'unavailable' ? 5 : 0;
+    const result = await f.read(); if (result.status === 'missing') throw new Error('Missing fixture');
+    expect(result.exactPeriods?.[0]).toMatchObject({ collection: status, acquisition: null, resource: { status: 'unavailable' } });
+    expect(f.administration.readAcceptedExactMatchups).not.toHaveBeenCalled();
+  });
+  it.each(['missing-column', 'empty'] as const)('performs no new-schema period read and preserves old shape for %s', async version => {
+    const f = await storedPeriodFixture();
+    if (version === 'empty') f.header.selected_exact_periods = []; else delete f.header.selected_exact_periods;
+    const result = await f.read(); if (result.status === 'missing') throw new Error('Missing fixture');
+    expect(result).not.toHaveProperty('exactPeriods'); expect(result.request).not.toHaveProperty('exactPeriods');
+    expect(f.query).toHaveBeenCalledTimes(4); expect(f.administration.readAcceptedExactMatchups).not.toHaveBeenCalled();
+    expect(result.coverage.notRequested).toContain('exact-matchups');
+  });
+  it.each(['duplicate', 'wrong-period', 'oversize'] as const)('rejects corrupt retained task scope: %s', async kind => {
+    const f = await storedPeriodFixture();
+    if (kind === 'wrong-period') f.task.native_week = 17;
+    else if (kind === 'duplicate') f.tasks.push({ ...f.task, ordinal: 2 });
+    else f.tasks.push(...Array.from({ length: 20 }, (_, index) => ({ ...f.task, ordinal: index + 2 })));
+    await expect(f.read()).rejects.toThrow(/Stored exact-period|Invalid stored exact-period/);
+  });
+});
+
+it('does not call a missing requested task complete even when every old core resource is available', async () => {
+  const f = await storedPeriodFixture(); f.tasks.length = 0;
+  Object.assign(f.candidate, { stage: 'complete', settings_receipt_id: settingsReceipt, players_receipt_id: settingsReceipt,
+    managers_receipt_id: settingsReceipt, users_observation_id: 'users', directory_capture: { sourceMapping: mapping } });
+  const available = { status: 'available' as const, accepted: { observationIds: [settingsReceipt] } };
+  vi.mocked(f.administration.readAcceptedLeagueSettings).mockResolvedValue(available as never);
+  vi.mocked(f.administration.readSource).mockResolvedValue({ status: 'available', observationId: 'users' } as never);
+  const result = await readPublicSleeperIntake({ enabled: true, query: f.query } as unknown as DatabaseClient,
+    { ...f.administration, readAcceptedCurrentRoster: vi.fn(async () => available), readAcceptedTeamManagers: vi.fn(async () => available) } as unknown as typeof f.administration, id);
+  expect(result.status).toBe('partial'); if (result.status === 'missing') throw new Error('Missing fixture');
+  expect(result.leagues[0].resources).toMatchObject({ settings: { status: 'available' }, teamManagers: { status: 'available' },
+    heldRoster: { status: 'available' }, directory: { status: 'available' } });
+  expect(result.exactPeriods).toEqual([]);
+});
+
+it('routes a selected recurring request through the same exact-period worker and original fence', async () => {
+  const f = periodFixture();
+  const refresh: PublicDataRefreshStore = { configure: vi.fn(), recordSelectionFailure: vi.fn(), select: vi.fn(async () => ({
+    status: 'selected' as const, targetId: mapping.connectionId, configurationRevision: 2, cycleConfigurationRevision: 1, cycle: 3, requestId: id })) };
+  expect(await runPublicDataRefreshStep({ ...f.dependencies, refresh }, new AbortController().signal))
+    .toEqual({ status: 'progress', resource: 'exact-matchups', providerRequests: 2 });
+  expect(refresh.select).toHaveBeenCalledOnce(); expect(refresh.recordSelectionFailure).not.toHaveBeenCalled();
+  expect(f.intake.completeExactPeriod).toHaveBeenCalledWith(periodWork, mapping, expect.anything(), expect.objectContaining({ generation: 1 }));
+});
+
+it('uses only two bounded existing adapter GETs for an actual period worker with HTTP stubbed', async () => {
+  const f = periodFixture(); const requested: string[] = [];
+  const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+    requested.push(String(url)); expect(f.events.slice(0, 2)).toEqual(['reserve-settings', 'reserve-matchups']);
+    expect(init).toMatchObject({ cache: 'no-store', redirect: 'error' });
+    return new Response(JSON.stringify(String(url).endsWith('/matchups/18') ? periodPayload : league));
+  });
+  try {
+    expect((await runPublicIntakeStep(id, { ...f.dependencies, source: undefined, now: () => new Date() }, new AbortController().signal)).status).toBe('progress');
+    expect(requested).toEqual(['https://api.sleeper.app/v1/league/' + native, 'https://api.sleeper.app/v1/league/' + native + '/matchups/18']);
+    expect(f.intake.completeExactPeriod).toHaveBeenCalledOnce();
+  } finally { fetch.mockRestore(); }
+});
+
+it('keeps the accepted historical matchup readable after a different settings head becomes current', async () => {
+  const f = await storedPeriodFixture();
+  vi.mocked(f.administration.readAcceptedLeagueSettings).mockResolvedValue({ status: 'available',
+    accepted: { observationIds: ['newer-core-settings-receipt'] } } as never);
+  const result = await f.read(); if (result.status === 'missing') throw new Error('Missing fixture');
+  expect(result.leagues[0].resources?.settings).toMatchObject({ status: 'unavailable', retained: { status: 'available' } });
+  expect(result.exactPeriods?.[0]).toMatchObject({ resource: { status: 'available' }, acquisition: { settingsReceiptId: settingsReceipt } });
+});
+
+it('cannot checkpoint the period when its settings response fails, even if a matchup write returns acceptance', async () => {
+  const f = periodFixture(); f.source.core.mockRejectedValueOnce(new Error('settings response unavailable'));
+  expect((await runPublicIntakeStep(id, f.dependencies, new AbortController().signal)).status).toBe('unavailable');
+  expect(f.intake.completeExactPeriod).not.toHaveBeenCalled(); expect(f.intake.fail).toHaveBeenCalledOnce();
+  expect(f.source.core).toHaveBeenCalledOnce(); expect(f.source.exactPeriod).toHaveBeenCalledOnce();
 });
