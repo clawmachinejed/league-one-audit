@@ -194,7 +194,8 @@ const readAdministration = cache(async (
   return readOfficialAdministration(leagueId, family, week, revalidate);
 });
 
-async function fetchJson(path: string, revalidate = CORE_CACHE_SECONDS, signal?: AbortSignal): Promise<unknown> {
+async function fetchJson(path: string, revalidate = CORE_CACHE_SECONDS, signal?: AbortSignal,
+  requestPolicy?: Readonly<{ redirect: 'error' }>): Promise<unknown> {
   const timeout = AbortSignal.timeout(path.startsWith('/players/nfl') ? 20_000 : 12_000);
   const family = sleeperEndpointFamily(path);
   if (revalidate > 0) recordProviderCache('sleeper', family, 'framework-managed');
@@ -205,6 +206,7 @@ async function fetchJson(path: string, revalidate = CORE_CACHE_SECONDS, signal?:
       ...(revalidate > 0 ? { next: { revalidate } } : { cache: 'no-store' as const }),
       signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
       headers: { Accept: 'application/json' },
+      ...(requestPolicy ? { redirect: requestPolicy.redirect } : {}),
     });
   } catch (error) {
     finished('unavailable');
@@ -239,6 +241,11 @@ export async function getSleeperUserIdentity(userId: string, signal?: AbortSigna
 }> {
   if (!/^[a-zA-Z0-9_]{1,100}$/u.test(userId)) throw new Error('Invalid Sleeper username.');
   const value = await fetchJson(`/user/${encodeURIComponent(userId)}`, CORE_CACHE_SECONDS, signal);
+  return normalizeSleeperUserIdentity(value, userId);
+}
+
+/** One identity parser shared by existing callers and retained backend acquisition. */
+export function normalizeSleeperUserIdentity(value: unknown, userId: string) {
   if (!isRecord(value) || typeof value.user_id !== 'string' || !/^[1-9]\d{0,31}$/u.test(value.user_id)
     || (/^[1-9]\d{0,31}$/u.test(userId) && value.user_id !== userId) || typeof value.username !== 'string'
     || !value.username.trim() || value.username.length > 100) throw new Error('Sleeper identity is unavailable.');
@@ -255,10 +262,14 @@ export async function getSleeperUserLeagues(
   if (!/^[1-9]\d{0,31}$/u.test(userId) || !/^\d{4}$/u.test(season)) throw new Error('Invalid discovery source.');
   signal?.throwIfAborted();
   const rows = await fetchJson(`/user/${userId}/leagues/nfl/${season}`, CORE_CACHE_SECONDS, signal);
+  return normalizeSleeperUserLeagues(rows, season, new Date().toISOString(), signal);
+}
+
+/** Preserve the complete requested season scope; derived coverage never filters official leagues. */
+export function normalizeSleeperUserLeagues(rows: unknown, season: string, assessedAt: string, signal?: AbortSignal) {
   if (!Array.isArray(rows) || rows.length > 1_000) throw new Error('Sleeper league discovery is unavailable.');
   const leagues = new Map<string, { id: string; name: string; season: string; avatar?: string | null; capabilities?: LeagueCapabilityReport }>();
   const settingsConflicts = new Set<string>();
-  const assessedAt = new Date().toISOString();
   for (const row of rows) {
     signal?.throwIfAborted();
     if (!isRecord(row) || typeof row.league_id !== 'string' || !/^[1-9]\d{0,31}$/u.test(row.league_id)
@@ -278,6 +289,39 @@ export async function getSleeperUserLeagues(
     leagues.set(league.id, league);
   }
   return [...leagues.values()];
+}
+
+/** Explicit backend collection uses the same transport without cache age ambiguity,
+ * redirects or implicit retry. Each invocation makes at most one upstream GET. */
+export async function capturePublicSleeperIdentity(username: string, signal: AbortSignal) {
+  if (!/^[a-zA-Z0-9_]{1,100}$/u.test(username)) throw new Error('Invalid Sleeper username.');
+  const requestStartedAt = new Date().toISOString();
+  const payload = await fetchJson(`/user/${encodeURIComponent(username)}`, 0, signal, { redirect: 'error' });
+  const requestCompletedAt = new Date().toISOString();
+  try { return { payload, value: normalizeSleeperUserIdentity(payload, username), requestStartedAt, requestCompletedAt }; }
+  catch { return { payload, value: null, diagnostic: 'invalid-source' as const, requestStartedAt, requestCompletedAt }; }
+}
+
+export async function capturePublicSleeperLeagueList(userId: string, season: number, signal: AbortSignal) {
+  if (!/^[1-9]\d{0,31}$/u.test(userId) || !Number.isInteger(season) || season < 1920 || season > 2200) {
+    throw new Error('Invalid discovery source.');
+  }
+  const requestStartedAt = new Date().toISOString();
+  const payload = await fetchJson(`/user/${userId}/leagues/nfl/${season}`, 0, signal, { redirect: 'error' });
+  const requestCompletedAt = new Date().toISOString();
+  try { return { payload, value: normalizeSleeperUserLeagues(payload, String(season), requestCompletedAt, signal),
+    requestStartedAt, requestCompletedAt }; }
+  catch { return { payload, value: null, diagnostic: 'invalid-source' as const, requestStartedAt, requestCompletedAt }; }
+}
+
+export async function capturePublicSleeperCore(leagueId: string, family: 'league' | 'rosters' | 'users',
+  signal: AbortSignal): Promise<CapturedAdministrationDocument> {
+  if (!/^[1-9]\d{0,31}$/u.test(leagueId)) throw new Error('Invalid Sleeper league identity.');
+  const requestStartedAt = new Date().toISOString();
+  const payload = await fetchJson(administrationPath(leagueId, family, null), 0, signal, { redirect: 'error' });
+  const requestCompletedAt = new Date().toISOString();
+  return { family, week: null, payload, requestStartedAt, requestCompletedAt,
+    origin: 'network', sourceObservedAt: requestCompletedAt };
 }
 
 async function fetchExternalJson(url: string, revalidate = SCHEDULE_CACHE_SECONDS): Promise<unknown> {

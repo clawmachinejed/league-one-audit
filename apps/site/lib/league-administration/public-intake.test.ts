@@ -1,0 +1,183 @@
+import { describe, expect, it, vi } from 'vitest';
+import { readFile } from 'node:fs/promises';
+import { runPublicIntakeStep, type PublicIntakeDependencies } from './public-intake';
+import { validatePublicIntake, type PublicIntakeStore, type PublicIntakeWork } from './public-intake-contracts';
+import { createLeagueAdministrationStore } from './store';
+import { readPublicSleeperIntake } from './public-intake-reader';
+import { capturePublicSleeperIdentity, capturePublicSleeperLeagueList, capturePublicSleeperCore } from '../sleeper';
+import type { DatabaseClient } from '../database';
+import type { CapturedAdministrationDocument } from './runtime';
+import type { NormalizedAdministrationObservation } from './contracts';
+
+vi.mock('server-only', () => ({}));
+vi.mock('next/cache', () => ({ unstable_cache: (fn: unknown) => fn }));
+const id = '11111111-1111-4111-8111-111111111111';
+const native = '98765432109876543210';
+const time = '2026-10-06T12:00:00.000Z';
+const scope = { leagueKey: `sleeper-${native}`, provider: 'sleeper' as const, externalLeagueId: native, season: 2026 };
+const mapping = { connectionId: '22222222-2222-4222-8222-222222222222', leagueSeasonId: '33333333-3333-4333-8333-333333333333',
+  revisionId: '44444444-4444-4444-8444-444444444444', generation: 1, scope };
+const league = { league_id: native, name: 'Unrelated unusual league', season: '2026', sport: 'nfl', total_rosters: 1,
+  roster_positions: ['QB', 'BN'], scoring_settings: { rec_yd: 0.1, unsupported_bonus: 2 }, settings: { divisions: 3 } };
+function document(family: 'league' | 'rosters' | 'users'): CapturedAdministrationDocument & { origin: 'network'; sourceObservedAt: string } {
+  return { family, week: null, origin: 'network', requestStartedAt: time, requestCompletedAt: time,
+    sourceObservedAt: time, payload: family === 'league' ? league : family === 'rosters'
+      ? [{ roster_id: 1, owner_id: '55', co_owners: ['66'], players: ['123'], starters: ['123'], reserve: [], taxi: [] }]
+      : [{ user_id: '55', display_name: 'Manager' }] };
+}
+function fixture(kind: 'identity' | 'leagues' | 'bootstrap' | 'core' | 'users' = 'core') {
+  let work: PublicIntakeWork | 'complete' = kind === 'identity' ? { requestId: id, revision: 0, kind, username: 'public_manager' }
+    : kind === 'leagues' ? { requestId: id, revision: 1, kind, userId: '55', season: 2026 }
+      : { requestId: id, revision: 2, kind, externalLeagueId: native, season: 2026 };
+  const intake: PublicIntakeStore = { submit: vi.fn(), next: vi.fn(async () => work), admit: vi.fn(async () => true),
+    recordIdentity: vi.fn(async () => { work = { requestId: id, revision: 1, kind: 'leagues', userId: '55', season: 2026 }; }),
+    recordLeagues: vi.fn(async () => { work = { requestId: id, revision: 2, kind: 'bootstrap', externalLeagueId: native, season: 2026 }; }),
+    register: vi.fn(async () => { work = { requestId: id, revision: 3, kind: 'core', externalLeagueId: native, season: 2026 }; }),
+    completeCore: vi.fn(async (_work, _mapping, observations) => { work = observations.users ? 'complete'
+      : { requestId: id, revision: 4, kind: 'users', externalLeagueId: native, season: 2026 }; }), fail: vi.fn(async () => undefined) };
+  const administration = { ...createLeagueAdministrationStore({ enabled: false, reason: 'missing-database-url' }), enabled: true,
+    readSourceMapping: vi.fn(async () => mapping),
+    beginRosterCapture: vi.fn(async () => ({ players: { id: 'players', scopeId: 'players', ordinal: 1, expectedGeneration: 0 },
+      managers: { id: 'managers', scopeId: 'managers', ordinal: 1, expectedGeneration: 0 } })),
+    beginLeagueSettingsAttempt: vi.fn(async () => ({ id: 'settings', scopeId: 'settings', ordinal: 1, expectedGeneration: 0 })),
+    recordObservation: vi.fn(async (input: NormalizedAdministrationObservation) => ({ status: 'changed' as const,
+      observationId: `observation-${input.envelope.family}`, versionId: 'version', generation: 1 })) };
+  const source = { identity: vi.fn(async () => ({ value: { userId: '55', username: 'public_manager', displayName: 'Manager', avatarUrl: null },
+    payload: { user_id: '55', username: 'public_manager' }, requestStartedAt: time, requestCompletedAt: time })),
+  leagues: vi.fn(async () => ({ value: [{ id: native, name: league.name, season: '2026' }], payload: [league],
+    requestStartedAt: time, requestCompletedAt: time })), core: vi.fn(async (_native: string, family: 'league' | 'rosters' | 'users') => document(family)) };
+  const dependencies: PublicIntakeDependencies = { intake, administration, source, now: () => new Date(time),
+    jobs: { acquireJob: vi.fn(async () => ({ kind: 'acquired' as const, attempt: 1, leaseUntil: '2026-10-06T12:00:25.000Z' })),
+      completeJob: vi.fn(async () => true), failJob: vi.fn(async () => true) } };
+  return { dependencies, intake, administration, source, setWork: (value: typeof work) => { work = value; } };
+}
+
+describe('public official data intake through the existing worker/writer', () => {
+  it('retains explicit distinct seasons and stable request identity', () => {
+    expect(validatePublicIntake({ id, username: 'Any_Manager', seasons: [2026, 2025] }).seasons).toEqual([2025, 2026]);
+    for (const seasons of [[], [2026, 2026], [2023, 2024, 2025, 2026], [2026.5]]) {
+      expect(() => validatePublicIntake({ id, username: 'Any_Manager', seasons })).toThrow();
+    }
+  });
+  it('collects unrelated official formats using real normalization and same-capture proof without analytics gating', async () => {
+    const f = fixture();
+    const outcome = await runPublicIntakeStep(id, f.dependencies, new AbortController().signal);
+    expect(outcome).toEqual({ status: 'progress', resource: 'core', providerRequests: 3 });
+    expect(f.administration.recordObservation).toHaveBeenCalledTimes(3);
+    const calls = f.administration.recordObservation.mock.calls;
+    expect(calls[0][0]).toMatchObject({ status: 'accepted', envelope: { payload: { scoring_settings: league.scoring_settings } } });
+    const rosterCall = vi.mocked(f.dependencies.administration.recordObservation).mock.calls[1];
+    expect(rosterCall[2]).toEqual(mapping);
+    expect(rosterCall[3]?.population?.observationId).toBe('observation-league');
+    expect(rosterCall[4]?.population?.observationId).toBe('observation-league');
+    expect(f.intake.completeCore).toHaveBeenCalledWith(expect.anything(), mapping,
+      { league: 'observation-league', rosters: 'observation-rosters', users: 'observation-users' }, expect.objectContaining({ generation: 1 }));
+  });
+  it('preserves the core checkpoint after optional directory outage and resumes only that resource', async () => {
+    const f = fixture();
+    f.source.core.mockImplementation(async (_native, family) => {
+      if (family === 'users') throw new Error('directory unavailable');
+      return document(family);
+    });
+    expect((await runPublicIntakeStep(id, f.dependencies, new AbortController().signal)).status).toBe('progress');
+    expect(f.intake.completeCore).toHaveBeenLastCalledWith(expect.anything(), mapping,
+      { league: 'observation-league', rosters: 'observation-rosters' }, expect.anything());
+    f.source.core.mockImplementation(async (_native, family) => document(family));
+    const before = f.administration.beginRosterCapture.mock.calls.length;
+    expect(await runPublicIntakeStep(id, f.dependencies, new AbortController().signal)).toEqual({ status: 'progress', resource: 'users', providerRequests: 1 });
+    expect(f.administration.beginRosterCapture).toHaveBeenCalledTimes(before);
+  });
+  it('resumes an acknowledged identity/list checkpoint after a lost completion acknowledgment', async () => {
+    const f = fixture('identity');
+    vi.mocked(f.dependencies.jobs.completeJob).mockRejectedValueOnce(new Error('unknown acknowledgment'));
+    expect((await runPublicIntakeStep(id, f.dependencies, new AbortController().signal)).status).toBe('unavailable');
+    expect((await runPublicIntakeStep(id, f.dependencies, new AbortController().signal)).resource).toBe('leagues');
+    expect((await runPublicIntakeStep(id, f.dependencies, new AbortController().signal)).resource).toBe('bootstrap');
+    expect(f.source.identity).toHaveBeenCalledTimes(1);
+    expect(f.source.leagues).toHaveBeenCalledExactlyOnceWith('55', 2026, expect.any(AbortSignal));
+  });
+  it('does not dispatch after duplicate claim, failed-attempt cooldown, or stored terminal failure', async () => {
+    const f = fixture();
+    vi.mocked(f.dependencies.jobs.acquireJob).mockResolvedValueOnce({ kind: 'busy' });
+    expect((await runPublicIntakeStep(id, f.dependencies, new AbortController().signal)).status).toBe('busy');
+    vi.mocked(f.intake.admit).mockResolvedValueOnce(false);
+    expect((await runPublicIntakeStep(id, f.dependencies, new AbortController().signal)).status).toBe('backoff');
+    for (const status of ['partial', 'unavailable', 'complete'] as const) {
+      vi.mocked(f.intake.next).mockResolvedValueOnce(status);
+      expect((await runPublicIntakeStep(id, f.dependencies, new AbortController().signal)).status).toBe(status);
+    }
+    expect(f.source.core).not.toHaveBeenCalled();
+  });
+  it('does not advance a checkpoint after lease loss or season mismatch', async () => {
+    const f = fixture();
+    f.administration.recordObservation.mockRejectedValue(new Error('lease lost after response'));
+    expect((await runPublicIntakeStep(id, f.dependencies, new AbortController().signal)).status).toBe('unavailable');
+    expect(f.intake.completeCore).not.toHaveBeenCalled();
+    const g = fixture();
+    g.administration.readSourceMapping.mockResolvedValue({ ...mapping, scope: { ...scope, season: 2025 } });
+    expect((await runPublicIntakeStep(id, g.dependencies, new AbortController().signal)).status).toBe('unavailable');
+    expect(g.source.core).not.toHaveBeenCalled();
+  });
+  it('reports stored core resources independently and never invokes a source during readback', async () => {
+    const f = fixture();
+    const rows = [[{ id, seasons: [2026], terminal: true, external_manager_id: '55' }], [{ season: 2026 }],
+      [{ season: 2026, external_league_id: native, name: league.name, stage: 'unavailable', league_season_id: mapping.leagueSeasonId }], []];
+    const client = { enabled: true as const, query: vi.fn(async () => rows.shift() ?? []) } as unknown as DatabaseClient;
+    const result = await readPublicSleeperIntake(client, f.dependencies.administration, id);
+    expect(result.status).toBe('partial');
+    if (result.status === 'missing') throw new Error('Missing fixture result.');
+    expect(result.leagues[0].resources?.heldRoster.status).toBe('disabled');
+    expect(result.coverage.notRequested).toContain('exact-matchups');
+    expect(f.source.core).not.toHaveBeenCalled();
+  });
+  it('preserves available typed resources when the optional directory reader throws', async () => {
+    const f = fixture();
+    const rows = [[{ id, seasons: [2026], terminal: true, external_manager_id: '55' }], [{ season: 2026 }],
+      [{ season: 2026, external_league_id: native, name: league.name, stage: 'complete', league_season_id: mapping.leagueSeasonId }], []];
+    const client = { enabled: true as const, query: vi.fn(async () => rows.shift() ?? []) } as unknown as DatabaseClient;
+    const administration = { ...f.dependencies.administration,
+      readAcceptedLeagueSettings: vi.fn(async () => ({ status: 'available', fixture: 'settings' })),
+      readAcceptedTeamManagers: vi.fn(async () => ({ status: 'available', fixture: 'managers' })),
+      readAcceptedCurrentRoster: vi.fn(async () => ({ status: 'available', fixture: 'roster' })),
+      readSource: vi.fn(async () => { throw new Error('optional directory read failed'); }),
+    } as unknown as typeof f.dependencies.administration;
+    const result = await readPublicSleeperIntake(client, administration, id);
+    expect(result.status).toBe('partial');
+    if (result.status === 'missing') throw new Error('Missing fixture result.');
+    expect(result.leagues[0].resources).toMatchObject({ settings: { status: 'available' },
+      teamManagers: { status: 'available' }, heldRoster: { status: 'available' }, directory: { status: 'unavailable' } });
+  });
+});
+
+describe('bounded shared Sleeper transport captures', () => {
+  it('retains invalid raw lists without describing them as a complete filtered list', async () => {
+    const payload = [league, { ...league, league_id: 'broken' }];
+    const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify(payload)));
+    try {
+      const captured = await capturePublicSleeperLeagueList('55', 2026, new AbortController().signal);
+      expect(captured).toMatchObject({ value: null, diagnostic: 'invalid-source', payload });
+      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(fetch.mock.calls[0][1]).toMatchObject({ redirect: 'error', cache: 'no-store' });
+    } finally { fetch.mockRestore(); }
+  });
+  it('keeps numeric stable identity mismatches as invalid evidence, and performs no redirect retry', async () => {
+    const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({ user_id: '66', username: 'Other' })))
+      .mockResolvedValueOnce(new Response('', { status: 302 }));
+    try {
+      expect(await capturePublicSleeperIdentity('55', new AbortController().signal)).toMatchObject({ value: null, diagnostic: 'invalid-source' });
+      await expect(capturePublicSleeperCore(native, 'league', new AbortController().signal)).rejects.toThrow('HTTP 302');
+      expect(fetch).toHaveBeenCalledTimes(2);
+    } finally { fetch.mockRestore(); }
+  });
+  it('keeps the additive installer/role and registry boundary explicit in source', async () => {
+    const sql = await readFile(new URL('../../migrations/034_public_data_intake.sql', import.meta.url), 'utf8');
+    expect(sql).not.toContain('website_auth');
+    expect(sql).not.toContain('app_acquisition_demands');
+    expect(sql).toContain("admitted_at>clock_timestamp()-interval '60 seconds'");
+    expect(sql).toContain('FOR UPDATE');
+    expect(sql).toContain("VALUES(v_league_id,'sleeper',false,'public-data-intake-v1') ON CONFLICT DO NOTHING");
+    const enrollment = await readFile(new URL('./neon/enrollment.ts', import.meta.url), 'utf8');
+    expect(enrollment).toContain("membership.evidence<>'public-data-intake-v1'");
+    expect(enrollment).not.toContain('public_data_intakes');
+  });
+});

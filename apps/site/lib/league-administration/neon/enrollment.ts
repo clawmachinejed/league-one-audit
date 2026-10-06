@@ -65,6 +65,7 @@ export async function readEnrollmentInventory(client: DatabaseClient, season?: n
     LEFT JOIN public.league_seasons season ON season.league_id=membership.league_id AND season.season=membership.season
     LEFT JOIN public.league_source_connections connection ON connection.league_season_id=season.id AND connection.provider=membership.provider
     WHERE membership.season=$1
+      AND membership.evidence<>'public-data-intake-v1'
       AND (membership.evidence<>'account-onboarding-v1' OR EXISTS (
         SELECT 1 FROM public.league_administration_enrollments active
         WHERE active.league_id=membership.league_id AND active.active))
