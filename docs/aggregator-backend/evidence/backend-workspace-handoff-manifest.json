@@ -1,0 +1,54 @@
+{
+  "schema_version": "backend-workspace-handoff-v1",
+  "recorded_at_utc": "2026-10-05T21:55:49.2290433Z",
+  "status": "source_baseline_verified_reconciliation_pending",
+  "repository": "clawmachinejed/league-one-audit",
+  "verified_main_and_production_sha": "87da4d0cb909ee280e125e73ad10e1c3dbd7cd9f",
+  "vercel_project_id": "prj_ltHyQzM7bZfSlTNd2CTalJDLKpVG",
+  "vercel_production_deployment_id": "8C3YSnXRCbmPETftQgRtirfyck5e",
+  "production_branch": "main",
+  "evidence_scope": "Local git, GitHub main and open pull requests, authenticated Vercel project production page; no fresh database, runtime correctness, worker lease or capacity validation",
+  "artifacts": [
+    {
+      "path": "README.md",
+      "sha256": "4d9dd546838d9c40b1093ee19b426050cd4ca581ea264ae2bcc81419fca4fcd8",
+      "bytes": 7012
+    },
+    {
+      "path": "backend-workspace-handoff.md",
+      "sha256": "e7954346a20951b328a7c7b85b242db9f83ee8c290c9f30ae972de9837b64383",
+      "bytes": 11306
+    },
+    {
+      "path": "backend-policy-register.json",
+      "sha256": "327682cf81f0e79298fff5392c1c525b0993e2b6165abcd90d4dc5cecd9e6eeb",
+      "bytes": 5853
+    },
+    {
+      "path": "backend-foundation-model.md",
+      "sha256": "9323f8deefc0cba81795ddd25e20f2224948f4571da52ab5677137828dc3f60d",
+      "bytes": 22683
+    },
+    {
+      "path": "first-build-physical-schema.json",
+      "sha256": "63c8bdddaa89c55cd38a4cadbe32da7509a63c242b9e8ae977fec3e9e4684416",
+      "bytes": 121976
+    },
+    {
+      "path": "first-build-field-mapping.json",
+      "sha256": "eadcc08d62e7ef77dcc47a273dd2f40a7926ba0695b3b8941219f817e30198f7",
+      "bytes": 70689
+    },
+    {
+      "path": "first-build-refresh-policy.md",
+      "sha256": "b358d02ffdcfdb51173fe268795376f20e733667382fab66d32f099b5a49cd21",
+      "bytes": 30346
+    },
+    {
+      "path": "first-build-catalog-reconciliation.md",
+      "sha256": "265aca85885b70fa884ac65378f04cf54b2a4c2e60769fabcf2a1f8cb7f38071",
+      "bytes": 10412
+    }
+  ],
+  "note": "Hashes identify transition inputs; they do not certify draft designs. New workspace setup receipt is recorded separately."
+}

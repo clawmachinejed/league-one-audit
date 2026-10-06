@@ -55,7 +55,7 @@ Season-team continuity across years is a separate optional relationship with evi
 
 ## Permission and connection model
 
-Keep `app_provider_account_links` for existing nonexclusive public Sleeper associations. New private integration records are separate, conceptually:
+The existing `app_provider_account_links` stores nonexclusive public Sleeper associations. That is baseline behavior, not the current target. The [October 5 reconciliation](reconciliation.md) supersedes this section's old retention proposal: adapt the existing owner to exclusive active associations in both directions, retaining user-asserted assurance and historical links. Qualify conflicts and constraints before activation, and resolve D03 before public exclusive-claim launch. Future private integration records remain separate acquisition authority, conceptually:
 
 - `provider_authorizations`: UUID, app user, provider, authenticated provider subject (when supplied), secret reference, granted scopes, access state, expiry, token/authorization generation, connected/checked/revoked timestamps. Secrets are encrypted by a dedicated server mechanism and never embedded in canonical payloads, URLs, logs or browser state. Physical secret storage and key management must be chosen before an OAuth pilot.
 - `provider_resource_grants`: authorization, league/season/source scope, allowed resource families and visibility audience, source evidence and validation time. A known provider identity or a followed league cannot substitute for a grant. A grant is evidence of access checked by the server, not a promise that remote permission persists forever.

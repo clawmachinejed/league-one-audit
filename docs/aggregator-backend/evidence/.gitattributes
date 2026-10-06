@@ -1,0 +1,4 @@
+# Preserve original transition evidence byte hashes across Git checkouts.
+backend-workspace-handoff.md -text !eol whitespace=cr-at-eol
+backend-policy-register.json -text !eol whitespace=cr-at-eol
+backend-workspace-handoff-manifest.json -text !eol whitespace=cr-at-eol

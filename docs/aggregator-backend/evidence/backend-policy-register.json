@@ -1,0 +1,93 @@
+{
+  "schema_version": "backend-policy-register-v1",
+  "updated_on": "2026-10-05",
+  "timezone": "America/Indianapolis",
+  "purpose": "Visible, versioned source of approved backend policy values. Documentation and planned configuration reference this record; it is not runtime configuration or a deployed setting.",
+  "authority": {
+    "numeric_policy_source": "backend-policy-register.json",
+    "readable_view": "backend-policy-register.md",
+    "broader_decision_and_gap_register": "backend-foundation-register.json"
+  },
+  "policies": [
+    {
+      "decision_id": "D02",
+      "policy_key": "sleeper_league_membership_access",
+      "provider_code": "sleeper",
+      "current_approved_version": "sleeper-membership-access-v1",
+      "deployment_status": "not_deployed",
+      "versions": [
+        {
+          "policy_version": "sleeper-membership-access-v1",
+          "decision_status": "approved",
+          "implementation_status": "approved_for_implementation_not_deployed",
+          "approved_on": "2026-10-05",
+          "approval_source": {
+            "kind": "human_user_message",
+            "quote": "I agree with the 60 minute duration at this time. Mark these decisions down in a place that is easily seen and can potentially be adjusted. okay to move forward with next stps."
+          },
+          "parameters": {
+            "max_membership_age_seconds": 3600
+          },
+          "clock_origin": "latest_successful_qualifying_membership_verification_at",
+          "expiry_expression": "qualifying_membership_verified_at + 3600 seconds, or an earlier applicable authority expiry",
+          "scope": "Each previously verified user's affected Sleeper league access; never L1 sign-in or account lifecycle",
+          "semantics": [
+            "Every allow decision is bounded by this age, including when an old positive observation remains selected and no newer failure has been recorded.",
+            "Unknown first-time membership does not grant access.",
+            "A successful qualified network verification can advance membership verification time; failure, unknown/partial unqualified coverage, cache reads, replay and outage onset cannot reset the clock.",
+            "Complete confirmed loss of all qualifying roles ends affected league access as soon as accepted/detected, without waiting for the 60-minute bound.",
+            "At the expiry timestamp suspend affected league-data serving until qualifying verification returns; expiry is not a recorded membership removal.",
+            "L1 login/account access and other eligible leagues remain available independently; do not delete shared league records.",
+            "Connection end and actual permission revocation remain independent deny conditions. Outage grace cannot override them."
+          ],
+          "runtime_configuration": {
+            "table": "access_policies",
+            "version_column": "policy_version",
+            "value_column": "max_membership_age_seconds",
+            "approval_column": "approval_reference",
+            "hardcoded_default_allowed": false
+          },
+          "acceptance_requirements": [
+            "Positive role verified at T can qualify access before T+3600 only while other dependencies remain valid.",
+            "At T+3600, no fresh qualifying evidence means affected league serving expires; no automatic clock extension.",
+            "Unknown/failed/cache/replay results preserve original expiry.",
+            "Complete confirmed removal accepted before expiry denies immediately.",
+            "L1 sign-in and other eligible leagues survive outage, expiry and removal.",
+            "Version change recomputes access validity from qualifying evidence under the explicit approved version, with no stale cached-policy bypass."
+          ],
+          "supersedes": null
+        }
+      ]
+    }
+  ],
+  "decision_history": [
+    {
+      "date": "2026-10-03",
+      "decision_id": "D01",
+      "status": "approved",
+      "event": "Brief retained league access approved; L1 account independence confirmed; numerical duration still open at that time."
+    },
+    {
+      "date": "2026-10-05",
+      "decision_id": "D02",
+      "status": "approved_for_implementation_not_deployed",
+      "event": "User approved 60 minutes and requested a visible adjustable decision record.",
+      "policy_version": "sleeper-membership-access-v1",
+      "max_membership_age_seconds": 3600,
+      "source_quote": "I agree with the 60 minute duration at this time. Mark these decisions down in a place that is easily seen and can potentially be adjusted. okay to move forward with next stps."
+    }
+  ],
+  "change_process": [
+    "Record an explicit approved replacement value and reason as a new immutable policy version; retain prior versions and human decision evidence.",
+    "Move current_approved_version only after the new decision is recorded; do not rewrite the previous version or approval quote.",
+    "Update readable summaries and implementation configuration references together, with structural consistency checks.",
+    "Implement, test and deploy the chosen version through the normal authorized release path; document approval alone never changes runtime.",
+    "Preserve a separate deployment record/version so approved policy and deployed policy are never conflated."
+  ],
+  "not_approved_by_this_decision": [
+    "Watched/background refresh cadences, retry intervals, rate budgets and scheduling limits remain engineering proposals.",
+    "The percentile definition and measurement method for approximately 60-second additional score delay remain proposals requiring qualification.",
+    "D03 mistaken-claim recovery remains open before public exclusive-association launch.",
+    "D04 following after membership regain and D05 last-follower retention/collection remain separate activation gates."
+  ]
+}
