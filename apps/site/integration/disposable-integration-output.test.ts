@@ -62,6 +62,46 @@ beforeEach(() => {
 });
 
 describe('disposable runner owner credential redaction', () => {
+  it.each([false, true])('creates/redacts child account login and checks failed revocation=%s before completion', async accountStillActive => {
+    const query = mocks.query.getMockImplementation()!;
+    mocks.query.mockImplementation(async (statement: string, ...parameters: unknown[]) => statement.includes('AND rolcanlogin')
+      ? { rows: [{ count: accountStillActive ? 1 : 0 }] } : query(statement, ...parameters));
+    mocks.api.getOwnerConnectionUri.mockResolvedValue(ownerUri('fictional-owner-password'));
+    let accountCredential = '';
+    let accountPassword = '';
+    mocks.spawn.mockImplementation((_command, _args, options) => {
+      accountCredential = options.env.ACCOUNT_AUTHORITY_INTEGRATION_DATABASE_URL;
+      const account = new URL(accountCredential);
+      accountPassword = account.password;
+      expect(account.username).toBe('league_one_account');
+      expect(account.hostname).toBe('ep-fictional.neon.tech');
+      expect(account.pathname).toBe('/integration_test');
+      expect(account.searchParams.get('sslmode')).toBe('require');
+      expect(accountPassword).toMatch(/^[a-f0-9]{64}$/u);
+      const stdout = Object.assign(new EventEmitter(), { setEncoding: vi.fn() });
+      const stderr = Object.assign(new EventEmitter(), { setEncoding: vi.fn() });
+      const child = Object.assign(new EventEmitter(), { pid: 12345, stdout, stderr });
+      setImmediate(() => {
+        stdout.emit('data', `${accountCredential} ${accountPassword}\n`);
+        stdout.emit('end'); stderr.emit('end'); child.emit('close', 0, null);
+      });
+      return child;
+    });
+    const output = vi.fn();
+    const result = await run(output);
+    expect(result.passed).toBe(!accountStillActive);
+    const statements = mocks.query.mock.calls.map(([statement]) => String(statement));
+    expect(statements.some(statement => statement.startsWith('CREATE ROLE league_one_account LOGIN NOSUPERUSER'))).toBe(true);
+    expect(statements.some(statement => statement.includes('ALTER ROLE league_one_account NOLOGIN PASSWORD NULL'))).toBe(true);
+    expect(statements.some(statement => statement.includes("'league_one_account') AND rolcanlogin"))).toBe(true);
+    expect(result.receipt.credentialsRevoked).toBe(!accountStillActive);
+    expect(result.receipt.failures).toEqual(accountStillActive ? ['credential-revocation'] : []);
+    expect(result.receipt.branchDeletionVerified).toBe(true);
+    expect(JSON.stringify(result.receipt)).not.toContain(accountCredential);
+    expect(JSON.stringify(result.receipt)).not.toContain(accountPassword);
+    expect(output.mock.calls.flat().join('')).toBe('[REDACTED_DATABASE_URL] [REDACTED]\n');
+    expect(process.env.ACCOUNT_AUTHORITY_INTEGRATION_DATABASE_URL).not.toBe(accountCredential);
+  });
   it.each(['fictional-owner-password', 'fictional@/:plus+percent%2Ftail'])
   ('registers the API owner password before forwarding child diagnostics: %s', async password => {
     const encoded = encodeURIComponent(password);

@@ -27,6 +27,7 @@ import {
 const ownerUrl = 'postgresql://fixture_owner:fixture_password@ep-integration-fixture.example.test/projection_test?sslmode=require';
 const runtimeUrl = ownerUrl.replace('fixture_owner', 'league_one_runtime').replace('ep-integration-fixture.', 'ep-integration-fixture-pooler.');
 const authUrl = runtimeUrl.replace('league_one_runtime', 'league_one_auth');
+const accountUrl = runtimeUrl.replace('league_one_runtime', 'league_one_account');
 const fixture: IntegrationEnvironment = {
   ownerDatabaseUrl: ownerUrl,
   runtimeDatabaseUrl: runtimeUrl,
@@ -57,6 +58,7 @@ beforeEach(() => {
   vi.stubEnv('PROJECTION_INTEGRATION_OWNER_PROOF', undefined);
   vi.stubEnv('COLLECTION_CAPACITY_OWNER_PROOF', undefined);
   vi.stubEnv('AUTH_RESET_INTEGRATION_DATABASE_URL', undefined);
+  vi.stubEnv('ACCOUNT_AUTHORITY_INTEGRATION_DATABASE_URL', undefined);
   for (const name of ['DATABASE_URL', 'MIGRATION_DATABASE_URL', 'PRODUCTION_DATABASE_URL',
     'ACCOUNT_DATABASE_URL', 'ACCOUNTS_AUTH_DATABASE_URL']) {
     vi.stubEnv(name, undefined);
@@ -432,6 +434,100 @@ describe('isolated maintained-auth database boundaries', () => {
   });
 });
 
+describe('configured account credential preflight', () => {
+  const noReset = () => {
+    expect(mocked.acquireOwnership).not.toHaveBeenCalled();
+    expect(mocked.query.mock.calls.some(([statement]) => /^(?:DROP|CREATE|GRANT|REVOKE) /u.test(statement))).toBe(false);
+    expect(mocked.sessionQuery).not.toHaveBeenCalled();
+  };
+  it('proves actual restricted login alongside owner/runtime/auth before schema work', async () => {
+    vi.stubEnv('ACCOUNT_AUTHORITY_INTEGRATION_DATABASE_URL', accountUrl);
+    vi.stubEnv('AUTH_RESET_INTEGRATION_DATABASE_URL', authUrl);
+    await assertSafeIntegrationDatabase();
+    expect(mocked.pool).toHaveBeenCalledTimes(4);
+    expect(mocked.query.mock.calls.filter(([, user]) => user === 'league_one_account')).toHaveLength(2);
+    expect(mocked.end).toHaveBeenCalledTimes(4);
+    noReset();
+  });
+  it.each([
+    'not-a-url', accountUrl.replace('projection_test', 'other_test'),
+    accountUrl.replace('ep-integration-fixture', 'ep-other'), accountUrl.replace('league_one_account', 'fixture_owner'),
+    accountUrl.replace('league_one_account', 'league_one_auth'), accountUrl.replace(':fixture_password', ''),
+    accountUrl.replace('sslmode=require', 'sslmode=disable'), `${accountUrl}#fragment`,
+    accountUrl.replace('.test/', '.test:5433/'),
+  ])('rejects unsafe account URL %# before connections/reset', async value => {
+    vi.stubEnv('ACCOUNT_AUTHORITY_INTEGRATION_DATABASE_URL', value);
+    await expect(prepareIntegrationDatabase()).rejects.toThrow();
+    expect(mocked.pool).not.toHaveBeenCalled();
+    noReset();
+  });
+  it.each(['owner','runtime','auth','account'] as const)(
+    'rejects ambiguous driver options for %s before creating clients', async role => {
+      for (const suffix of ['&sslmode=disable','&sslmode=require','&host=ep-other.example.test',
+        '&port=5433','&user=fixture_owner','&database=retained_test','&ssl=false','&sslcert=path',
+        '&sslrootcert=path','&options=-c%20search_path%3Dpublic','&channel_binding=disable',
+        '&channel_binding=require&channel_binding=require']) {
+        configureEnvironment();
+        vi.stubEnv('AUTH_RESET_INTEGRATION_DATABASE_URL', undefined);
+        vi.stubEnv('ACCOUNT_AUTHORITY_INTEGRATION_DATABASE_URL', undefined);
+        const [name, url] = role === 'owner' ? ['PROJECTION_INTEGRATION_OWNER_DATABASE_URL', ownerUrl]
+          : role === 'runtime' ? ['PROJECTION_INTEGRATION_RUNTIME_DATABASE_URL', runtimeUrl]
+          : role === 'auth' ? ['AUTH_RESET_INTEGRATION_DATABASE_URL', authUrl]
+          : ['ACCOUNT_AUTHORITY_INTEGRATION_DATABASE_URL', accountUrl];
+        vi.stubEnv(name, url + suffix);
+        await expect(prepareIntegrationDatabase()).rejects.toThrow('unsupported or ambiguous connection options');
+        expect(mocked.pool).not.toHaveBeenCalled();
+        noReset();
+      }
+    });
+  it.each([
+    { database_name: 'retained_test' }, { branch_id: 'br-retained' }, { branch_id: null },
+    { database_user: 'fixture_owner' }, { session_user: 'fixture_owner' },
+    { database_comment: null }, { database_comment: JSON.stringify({ purpose: 'league-one-projection-store-integration',
+      sentinel: 'wrong', branchId: fixture.expectedBranchId, branchName: fixture.expectedBranchName }) },
+  ])('rejects account server identity or sentinel %# before reset', async overrides => {
+    vi.stubEnv('ACCOUNT_AUTHORITY_INTEGRATION_DATABASE_URL', accountUrl);
+    const query = mocked.query.getMockImplementation()!;
+    mocked.query.mockImplementation(async (statement: string, user: string) => {
+      const result = await query(statement, user);
+      return user === 'league_one_account' && statement.includes('shobj_description')
+        ? { rows: [{ ...result.rows[0], ...overrides }] } : result;
+    });
+    await expect(prepareIntegrationDatabase()).rejects.toThrow();
+    noReset();
+  });
+  it.each(['rolcanlogin','rolsuper','rolcreatedb','rolcreaterole','rolreplication','rolinherit','rolbypassrls','has_memberships'])(
+    'rejects account privilege %s before reset', async flag => {
+      vi.stubEnv('ACCOUNT_AUTHORITY_INTEGRATION_DATABASE_URL', accountUrl);
+      const query = mocked.query.getMockImplementation()!;
+      mocked.query.mockImplementation(async (statement: string, user: string) => {
+        const result = await query(statement, user);
+        return user === 'league_one_account' && statement.includes('AS has_memberships')
+          ? { rows: [{ ...result.rows[0], [flag]: flag !== 'rolcanlogin' }] } : result;
+      });
+      await expect(prepareIntegrationDatabase()).rejects.toThrow('unprivileged standalone LOGIN role');
+      noReset();
+    });
+  it.each(['identity','privileges'])('sanitizes account %s failure and closes probe clients', async stage => {
+    vi.stubEnv('ACCOUNT_AUTHORITY_INTEGRATION_DATABASE_URL', accountUrl);
+    const query = mocked.query.getMockImplementation()!;
+    mocked.query.mockImplementation(async (statement: string, user: string) => {
+      if (user === 'league_one_account' && (stage === 'identity' || statement.includes('AS has_memberships'))) throw new Error(accountUrl);
+      return query(statement, user);
+    });
+    const error = await prepareIntegrationDatabase().catch(value => value);
+    expect(error.message).toContain('The account connection could not verify');
+    expect(error.message).not.toContain(accountUrl);
+    expect(mocked.end).toHaveBeenCalledTimes(4);
+    noReset();
+  });
+  it('refuses cleanup against a configured invalid account target', async () => {
+    vi.stubEnv('ACCOUNT_AUTHORITY_INTEGRATION_DATABASE_URL', accountUrl.replace('league_one_account','fixture_owner'));
+    await expect(cleanIntegrationDatabase()).rejects.toThrow('restricted role');
+    noReset();
+  });
+});
+
 describe('configured auth credential preflight', () => {
   const expectNoReset = () => {
     expect(mocked.acquireOwnership).not.toHaveBeenCalled();
@@ -766,5 +862,16 @@ describe('existing isolated integration harness safety', () => {
   it('keeps the original configured authorization and production identities in the parsed contract', () => {
     expect(integrationEnvironment()).toEqual(fixture);
     expect(mocked.pool).not.toHaveBeenCalled();
+  });
+  it.each(['postgresql://fixture:fake@ep-danger.example/neondb?sslmode=require&application_name=test',
+    'postgresql://fixture:fake@ep-danger.example/neondb?sslmode=require&sslmode=disable',
+    'postgresql:malformed', 'https://ep-danger.example/neondb'])('refuses unparseable denylist URL %# instead of weakening it to a raw token', async value => {
+    vi.stubEnv('PROJECTION_INTEGRATION_PRODUCTION_DENYLIST', value);
+    expect(() => integrationEnvironment()).toThrow('Production denylist URL');
+    await expect(prepareIntegrationDatabase()).rejects.toThrow('Production denylist URL');
+    expect(mocked.pool).not.toHaveBeenCalled();
+    expect(mocked.acquireOwnership).not.toHaveBeenCalled();
+    expect(mocked.query).not.toHaveBeenCalled();
+    expect(mocked.sessionQuery).not.toHaveBeenCalled();
   });
 });

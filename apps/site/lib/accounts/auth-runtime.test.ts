@@ -10,7 +10,7 @@ vi.mock('@neondatabase/serverless', () => ({ Pool: class {
 } }));
 vi.mock('better-auth', () => ({ betterAuth: () => ({ handler: mocks.handler }) }));
 
-import { handleAccountAuth, type AccountAuthConfiguration } from './auth-runtime';
+import { handleAccountAuth, readAccountAdmissionEpoch, type AccountAuthConfiguration } from './auth-runtime';
 
 const config: AccountAuthConfiguration = {
   issuer: 'https://app.example.test/api/auth', appOrigin: 'https://app.example.test',
@@ -29,6 +29,18 @@ beforeEach(() => {
 // These tests prove request/transaction orchestration and cleanup only. The
 // isolated PostgreSQL suite proves lock concurrency and real atomic rollback.
 describe('auth request transaction boundary', () => {
+  it('reads only the narrow admission helper and closes its auth connection', async () => {
+    const epoch = { revision: '1', config_hash: 'a'.repeat(64), issuer: config.issuer, clock_domain: 'test' };
+    mocks.query.mockResolvedValueOnce({ rows: [epoch], rowCount: 1, command: 'SELECT' });
+    await expect(readAccountAdmissionEpoch(config, epoch.config_hash)).resolves.toEqual(epoch);
+    expect(statements()[0]).toContain('website_auth.read_admission_epoch_locked_v1($1,$2)');
+    expect(mocks.query.mock.calls[0][1]).toEqual([epoch.config_hash, config.issuer]);
+    expect(mocks.end).toHaveBeenCalledOnce();
+  });
+  it('rejects missing admission epoch without substituting a local configuration', async () => {
+    await expect(readAccountAdmissionEpoch(config, 'a'.repeat(64))).rejects.toThrow('unavailable');
+    expect(mocks.end).toHaveBeenCalledOnce();
+  });
   it.each(['sign-in/email', 'reset-password'])('locks %s before entering the maintained handler and commits before returning success', async path => {
     mocks.handler.mockImplementation(async () => {
       expect(statements().some(value => value.includes('pg_advisory_xact_lock'))).toBe(true);

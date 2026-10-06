@@ -121,7 +121,7 @@ export function createAccountStore(database: AccountDatabase) {
       const results = await database.transaction([
         { statement: 'SELECT id FROM public.app_users WHERE id=public.current_app_actor() FOR UPDATE', parameters: [] },
         { statement, parameters },
-      ], { actorUserId: actor, requestId: randomUUID() });
+      ], { actorUserId: actor, requestId: randomUUID(), access: 'write' });
       if (results[0]?.length !== 1 || results[1]?.length !== 1) throw new AccountConflictError();
     },
   };

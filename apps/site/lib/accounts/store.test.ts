@@ -59,7 +59,7 @@ describe('account store boundary', () => {
     expect(statements).toHaveLength(2);
     expect(statements[0].statement).toContain('FOR UPDATE');
     expect(statements[1].parameters).toEqual(['New name', 4]);
-    expect(context).toMatchObject({ actorUserId: actor });
+    expect(context).toMatchObject({ actorUserId: actor, access: 'write' });
   });
   it('makes removal revisioned and scopes unlink IDs through the authenticated transaction', async () => {
     const { store, transaction } = fixture();

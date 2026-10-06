@@ -123,6 +123,18 @@ export async function withAccountAuth<T>(config: AccountAuthConfiguration, opera
   return withAuthDatabase(config, database => operation(createAccountAuth(config, { db: database, type: 'postgres', transaction: true })));
 }
 
+/** Reads configuration admission only; the account transaction must revalidate
+ * and own actual session authority locks through its own commit. */
+export async function readAccountAdmissionEpoch(config: AccountAuthConfiguration, expectedHash: string) {
+  return withAuthDatabase(config, async database => {
+    const result = await sql<{ revision: string; config_hash: string; issuer: string; clock_domain: string }>`
+      select revision::text,config_hash,issuer,clock_domain
+      from website_auth.read_admission_epoch_locked_v1(${expectedHash},${config.issuer})`.execute(database);
+    if (result.rows.length !== 1) throw new Error('Account authority is unavailable.');
+    return result.rows[0];
+  });
+}
+
 const SECURITY_MUTATIONS = new Set([
   '/api/auth/sign-up/email', '/api/auth/sign-in/email', '/api/auth/reset-password',
   '/api/auth/change-password', '/api/auth/sign-out', '/api/auth/email-otp/verify-email',

@@ -224,11 +224,13 @@ export async function runDisposableIntegration(options: { environment: NodeJS.Pr
       await query("SELECT set_config('application_name',$1::text,false)", [applicationName]);
       const identity = (await query('SELECT pid,backend_start::text AS "backendStart" FROM pg_stat_activity WHERE pid=pg_backend_pid()')).rows[0];
       const runtimePassword = randomBytes(32).toString('hex'), authPassword = randomBytes(32).toString('hex');
-      const sentinel = randomBytes(32).toString('hex'); secrets.push(runtimePassword, authPassword, sentinel);
+      const accountPassword = randomBytes(32).toString('hex');
+      const sentinel = randomBytes(32).toString('hex'); secrets.push(runtimePassword, authPassword, accountPassword, sentinel);
       receipt.provisionStep = 'restricted-role-bootstrap';
       // Constants and random hex only. SQL parameter placeholders are not allowed in CREATE ROLE PASSWORD.
       await query(`CREATE ROLE league_one_runtime LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS PASSWORD '${runtimePassword}'`);
       await query(`CREATE ROLE league_one_auth LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS PASSWORD '${authPassword}'`);
+      await query(`CREATE ROLE league_one_account LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS PASSWORD '${accountPassword}'`);
       const comment = JSON.stringify({ purpose: 'league-one-projection-store-integration', sentinel,
         branchId: branch.branchId, branchName: branch.branchName });
       await query(`COMMENT ON DATABASE "${config.databaseName}" IS '${comment.replaceAll("'", "''")}'`);
@@ -239,15 +241,17 @@ export async function runDisposableIntegration(options: { environment: NodeJS.Pr
         PROJECTION_INTEGRATION_OWNER_DATABASE_URL: ownerUrl,
         PROJECTION_INTEGRATION_RUNTIME_DATABASE_URL: roleUrl('league_one_runtime', runtimePassword),
         AUTH_RESET_INTEGRATION_DATABASE_URL: roleUrl('league_one_auth', authPassword),
+        ACCOUNT_AUTHORITY_INTEGRATION_DATABASE_URL: roleUrl('league_one_account', accountPassword),
         PROJECTION_INTEGRATION_EXPECTED_DATABASE: config.databaseName,
         PROJECTION_INTEGRATION_EXPECTED_BRANCH_ID: branch.branchId,
         PROJECTION_INTEGRATION_EXPECTED_BRANCH_NAME: branch.branchName,
         PROJECTION_INTEGRATION_DATABASE_SENTINEL: sentinel,
         PROJECTION_INTEGRATION_PRODUCTION_DENYLIST: [...protectedIdentities, config.parentBranchId, config.parentBranchName].join(','),
       };
-      secrets.push(generated.PROJECTION_INTEGRATION_RUNTIME_DATABASE_URL, generated.AUTH_RESET_INTEGRATION_DATABASE_URL);
+      secrets.push(generated.PROJECTION_INTEGRATION_RUNTIME_DATABASE_URL, generated.AUTH_RESET_INTEGRATION_DATABASE_URL,
+        generated.ACCOUNT_AUTHORITY_INTEGRATION_DATABASE_URL);
       Object.assign(process.env, generated);
-      receipt.provisionStep = 'guarded-auth-preflight';
+      receipt.provisionStep = 'guarded-private-role-preflight';
       await assertSafeIntegrationDatabase(integrationEnvironment());
       controller.signal.throwIfAborted();
       receipt.provisionStep = 'shared-ownership-transfer';
@@ -289,8 +293,8 @@ export async function runDisposableIntegration(options: { environment: NodeJS.Pr
     },
     async revoke() {
       await verifyOwner();
-      await query('ALTER ROLE league_one_runtime NOLOGIN PASSWORD NULL; ALTER ROLE league_one_auth NOLOGIN PASSWORD NULL');
-      const result = await query("SELECT count(*)::int AS count FROM pg_roles WHERE rolname IN ('league_one_runtime','league_one_auth') AND rolcanlogin");
+      await query('ALTER ROLE league_one_runtime NOLOGIN PASSWORD NULL; ALTER ROLE league_one_auth NOLOGIN PASSWORD NULL; ALTER ROLE league_one_account NOLOGIN PASSWORD NULL');
+      const result = await query("SELECT count(*)::int AS count FROM pg_roles WHERE rolname IN ('league_one_runtime','league_one_auth','league_one_account') AND rolcanlogin");
       assert.equal(result.rows[0].count, 0);
     },
     async close() {

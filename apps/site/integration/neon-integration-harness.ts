@@ -97,6 +97,16 @@ function parseDatabaseUrl(value: string, label: string): UrlIdentity {
   if (!['postgres:', 'postgresql:'].includes(parsed.protocol) || !parsed.hostname) {
     throw new Error(`${label} must be a valid PostgreSQL URL.`);
   }
+  // The driver consumes connection-string query parameters independently of
+  // URL.hostname and may take the last duplicate. Reject every override so the
+  // safety proof identifies the same endpoint and TLS mode the driver uses.
+  const queryNames = [...parsed.searchParams.keys()];
+  if (parsed.hash || (parsed.port && parsed.port !== '5432')
+    || queryNames.some(name => !['sslmode', 'channel_binding'].includes(name))
+    || new Set(queryNames).size !== queryNames.length
+    || (parsed.searchParams.has('channel_binding') && parsed.searchParams.get('channel_binding') !== 'require')) {
+    throw new Error(`${label} has unsupported or ambiguous connection options.`);
+  }
   const sslMode = parsed.searchParams.get('sslmode')?.toLowerCase();
   const hostname = parsed.hostname.toLowerCase();
   const isLocal = ['localhost', '127.0.0.1', '[::1]'].includes(hostname);
@@ -125,6 +135,11 @@ function denylistTokens(value: string): ReadonlySet<string> {
       tokens.add(identity.host);
       tokens.add(identity.target);
     } catch {
+      // A URL which failed canonical parsing must not become a raw token: that
+      // would silently remove its endpoint/database from the protection set.
+      if (/^[a-z][a-z0-9+.-]*:/iu.test(item) || item.includes('://')) {
+        throw new Error('Production denylist URL is invalid or has unsupported connection options.');
+      }
       tokens.add(item.toLowerCase());
     }
   }
@@ -235,7 +250,7 @@ function assertComment(env: IntegrationEnvironment, identity: ConnectionIdentity
   }
 }
 
-async function assertRestrictedAuthRole(pool: Pool): Promise<void> {
+async function assertRestrictedPrivateRole(pool: Pool, label: 'auth' | 'account'): Promise<void> {
   let rows: readonly QueryRow[];
   try {
     const result = await pool.query(`
@@ -246,13 +261,13 @@ async function assertRestrictedAuthRole(pool: Pool): Promise<void> {
     `);
     rows = result.rows as QueryRow[];
   } catch {
-    throw new Error('The auth connection could not verify its restricted role privileges.');
+    throw new Error(`The ${label} connection could not verify its restricted role privileges.`);
   }
   const role = rows[0];
   if (rows.length !== 1 || role?.rolcanlogin !== true
     || ['rolsuper', 'rolcreatedb', 'rolcreaterole', 'rolreplication', 'rolinherit',
       'rolbypassrls', 'has_memberships'].some(flag => role[flag] !== false)) {
-    throw new Error('Integration auth must be an unprivileged standalone LOGIN role.');
+    throw new Error(`Integration ${label} must be an unprivileged standalone LOGIN role.`);
   }
 }
 
@@ -275,6 +290,7 @@ export async function assertSafeIntegrationDatabase(
   // capacity callers may omit it, but a configured credential must always pass
   // the same pre-reset identity checks, even before migration 021 creates tables.
   const authDatabaseUrl = process.env.AUTH_RESET_INTEGRATION_DATABASE_URL?.trim();
+  const accountDatabaseUrl = process.env.ACCOUNT_AUTHORITY_INTEGRATION_DATABASE_URL?.trim();
   if (authDatabaseUrl) {
     const authUrl = parseDatabaseUrl(authDatabaseUrl, 'Integration auth URL');
     const parsed = new URL(authDatabaseUrl);
@@ -282,6 +298,15 @@ export async function assertSafeIntegrationDatabase(
       || !parsed.password || parsed.hash || (parsed.port && parsed.port !== '5432')
       || !['require', 'verify-ca', 'verify-full'].includes(parsed.searchParams.get('sslmode')?.toLowerCase() ?? '')) {
       throw new Error('Integration auth URL must use the restricted role on the same guarded database.');
+    }
+  }
+  if (accountDatabaseUrl) {
+    const accountUrl = parseDatabaseUrl(accountDatabaseUrl, 'Integration account URL');
+    const parsed = new URL(accountDatabaseUrl);
+    if (accountUrl.target !== ownerUrl.target || accountUrl.user !== 'league_one_account'
+      || !parsed.password || parsed.hash || (parsed.port && parsed.port !== '5432')
+      || !['require', 'verify-ca', 'verify-full'].includes(parsed.searchParams.get('sslmode')?.toLowerCase() ?? '')) {
+      throw new Error('Integration account URL must use the restricted role on the same guarded database.');
     }
   }
   const expectedDatabase = env.expectedDatabase.toLowerCase();
@@ -320,13 +345,15 @@ export async function assertSafeIntegrationDatabase(
   const ownerPool = new Pool({ connectionString: env.ownerDatabaseUrl, ...preflightLimits });
   const runtimePool = new Pool({ connectionString: env.runtimeDatabaseUrl, ...preflightLimits });
   const authPool = authDatabaseUrl ? new Pool({ connectionString: authDatabaseUrl, ...preflightLimits }) : undefined;
+  const accountPool = accountDatabaseUrl ? new Pool({ connectionString: accountDatabaseUrl, ...preflightLimits }) : undefined;
   try {
-    const [ownerIdentity, runtimeIdentity, authIdentity] = await Promise.all([
+    const [ownerIdentity, runtimeIdentity, authIdentity, accountIdentity] = await Promise.all([
       connectionIdentity(ownerPool, 'The owner connection'),
       connectionIdentity(runtimePool, 'The runtime connection'),
       authPool ? connectionIdentity(authPool, 'The auth connection') : undefined,
+      accountPool ? connectionIdentity(accountPool, 'The account connection') : undefined,
     ]);
-    for (const identity of [ownerIdentity, runtimeIdentity, authIdentity]) {
+    for (const identity of [ownerIdentity, runtimeIdentity, authIdentity, accountIdentity]) {
       if (identity) assertNotDenied(env, [identity.database, identity.branch,
         identity.comment.branchId, identity.comment.branchName]);
     }
@@ -344,10 +371,17 @@ export async function assertSafeIntegrationDatabase(
       if (authIdentity.user !== 'league_one_auth' || authIdentity.sessionUser !== 'league_one_auth') {
         throw new Error('The auth connection did not authenticate as the restricted league_one_auth role.');
       }
-      await assertRestrictedAuthRole(authPool);
+      await assertRestrictedPrivateRole(authPool, 'auth');
+    }
+    if (accountIdentity && accountPool) {
+      assertComment(env, accountIdentity);
+      if (accountIdentity.user !== 'league_one_account' || accountIdentity.sessionUser !== 'league_one_account') {
+        throw new Error('The account connection did not authenticate as the restricted league_one_account role.');
+      }
+      await assertRestrictedPrivateRole(accountPool, 'account');
     }
   } finally {
-    await Promise.allSettled([ownerPool.end(), runtimePool.end(), authPool?.end()]);
+    await Promise.allSettled([ownerPool.end(), runtimePool.end(), authPool?.end(), accountPool?.end()]);
   }
 }
 

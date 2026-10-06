@@ -21,7 +21,7 @@ describe.sequential('maintained auth schema in the guarded disposable database',
     ]).sort((a, b) => `${a.table_name}.${a.column_name}`.localeCompare(`${b.table_name}.${b.column_name}`));
     const actual = await ownerQuery<{ table_name: string; column_name: string; data_type: string; is_nullable: string }>(`
       SELECT table_name,column_name,data_type,is_nullable FROM information_schema.columns
-      WHERE table_schema='website_auth'
+      WHERE table_schema='website_auth' AND table_name<>'admission_epoch'
     `);
     expect([...actual].sort((a, b) => `${a.table_name}.${a.column_name}`.localeCompare(`${b.table_name}.${b.column_name}`)))
       .toEqual(expected);

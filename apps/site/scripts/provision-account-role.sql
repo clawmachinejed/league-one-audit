@@ -46,6 +46,11 @@ GRANT INSERT (app_user_id,league_id,favorite,sort_position,preferred_season_team
 GRANT UPDATE (favorite,sort_position,preferred_season_team_id) ON public.app_user_leagues TO league_one_account;
 GRANT DELETE ON public.app_user_leagues TO league_one_account;
 GRANT EXECUTE ON FUNCTION public.current_app_actor(),public.resolve_app_login_identity(text,text,text,uuid) TO league_one_account;
+DO $$ BEGIN
+  IF to_regprocedure('public.lock_account_session_authority_v2(jsonb)') IS NOT NULL THEN
+    GRANT EXECUTE ON FUNCTION public.lock_account_session_authority_v2(jsonb),public.lock_account_actor_authority_v2(jsonb,boolean),public.read_account_authority_timing_v2(jsonb) TO league_one_account;
+  END IF;
+END; $$;
 
 -- Read only the accepted-source lineage needed for personal participation and
 -- display. No raw roster/content payload, normalized writer input or diagnostics.
@@ -97,7 +102,10 @@ DO $$ DECLARE object record; BEGIN
   -- ACLs. Refuse the composition instead of silently exposing any such writer.
   FOR object IN SELECT p.oid,p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
     WHERE n.nspname='public' AND p.prosecdef AND p.oid NOT IN
-      ('public.current_app_actor()'::regprocedure,'public.resolve_app_login_identity(text,text,text,uuid)'::regprocedure) LOOP
+      ('public.current_app_actor()'::regprocedure,'public.resolve_app_login_identity(text,text,text,uuid)'::regprocedure)
+      AND p.oid IS DISTINCT FROM to_regprocedure('public.lock_account_session_authority_v2(jsonb)')
+      AND p.oid IS DISTINCT FROM to_regprocedure('public.lock_account_actor_authority_v2(jsonb,boolean)')
+      AND p.oid IS DISTINCT FROM to_regprocedure('public.read_account_authority_timing_v2(jsonb)') LOOP
     IF has_function_privilege('league_one_account',object.oid,'EXECUTE') THEN
       RAISE EXCEPTION 'account role can execute another privileged function: %',object.proname; END IF;
   END LOOP;

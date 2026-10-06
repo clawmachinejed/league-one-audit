@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const requestContext = vi.hoisted(() => ({ headers: new Headers(), setCookie: vi.fn() }));
+const requestContext = vi.hoisted(() => ({ headers: new Headers(), setCookie: vi.fn(), epoch: vi.fn() }));
 vi.mock('server-only', () => ({}));
 vi.mock('next/headers', () => ({
   headers: async () => requestContext.headers,
@@ -10,6 +10,7 @@ vi.mock('next/headers', () => ({
 // The principal/route boundary is isolated from connections here. The real
 // maintained adapter reset and cookie behavior has separate regression coverage.
 vi.mock('./auth-runtime', () => ({
+  readAccountAdmissionEpoch: requestContext.epoch,
   withAccountAuth: async (config: { issuer: string }, operation: (auth: unknown) => Promise<unknown>) => operation({
     api: { getSession: async (options: unknown) => {
       expect(options).toEqual({ headers: requestContext.headers, query: { disableCookieCache: true, disableRefresh: true } });
@@ -30,8 +31,12 @@ import {
   accountsEnabled,
   getAccountAuthAvailability,
   getAccountPrincipal,
+  getAccountAuthorityV2,
+  getAccountAuthorizedPrincipalV2,
+  accountPrincipalAuthority,
   handleAccountAuthRequest,
 } from './auth';
+import { accountAdmissionConfigHash, authorityDigest } from './session-authority';
 
 const issuer = 'https://app.example.test/api/auth';
 const secret = 'synthetic-test-secret-not-used-in-any-environment';
@@ -66,6 +71,7 @@ beforeEach(() => {
   vi.stubEnv('ACCOUNTS_APP_ORIGIN', 'https://app.example.test');
   requestContext.headers = new Headers({ cookie: tokenCookie, origin: 'https://app.example.test' });
   requestContext.setCookie.mockReset();
+  requestContext.epoch.mockReset();
   fetchMock.mockReset();
   vi.stubGlobal('fetch', fetchMock);
 });
@@ -76,6 +82,45 @@ afterEach(() => {
 });
 
 describe('account authentication admission', () => {
+  it('binds private storage authority to the original principal without serializable receipt fields', async () => {
+    fetchMock.mockResolvedValueOnce(Response.json(sessionFixture()));
+    requestContext.epoch.mockResolvedValue({ revision: '1',
+      config_hash: accountAdmissionConfigHash(issuer, new Set(['invited@example.test'])), issuer, clock_domain: 'test' });
+    const principal = await getAccountAuthorizedPrincipalV2();
+    expect(principal).not.toBeNull();
+    expect(Object.keys(principal!)).toEqual(['issuer', 'subject', 'displayName']);
+    expect(Object.isFrozen(principal)).toBe(true);
+    expect(accountPrincipalAuthority(principal!).sessionId).toBe('synthetic-session-id');
+    expect(() => accountPrincipalAuthority({ ...principal! })).toThrow('unavailable');
+    expect(JSON.stringify(principal)).not.toContain('Digest');
+  });
+  it('creates exact ephemeral receipt only after maintained session and current epoch admission', async () => {
+    fetchMock.mockResolvedValueOnce(Response.json(sessionFixture({ email: ' INVITED@example.test ' })));
+    const configHash = accountAdmissionConfigHash(issuer, new Set(['invited@example.test']));
+    requestContext.epoch.mockResolvedValue({ revision: '9223372036854775807', config_hash: configHash,
+      issuer, clock_domain: 'synthetic-database-clock' });
+    const result = await getAccountAuthorityV2();
+    expect(result?.receipt).toEqual({ sessionId: 'synthetic-session-id', subject: 'synthetic-user',
+      expiresAt: '2030-01-01T00:00:00.000Z', issuer, admissionEpochRevision: '9223372036854775807',
+      configHash, clockDomain: 'synthetic-database-clock', admittedEmailDigest: authorityDigest(' INVITED@example.test '),
+      sessionTokenDigest: authorityDigest('synthetic-session') });
+    expect(result?.principal).toEqual({ issuer, subject: 'synthetic-user', displayName: 'Invited member' });
+    expect(JSON.stringify(result)).not.toContain(' INVITED@example.test ');
+  });
+  it('fails closed on changed epoch and sanitizes database errors', async () => {
+    for (const epoch of [{ revision: '1', config_hash: '0'.repeat(64), issuer, clock_domain: 'test' }, null]) {
+      fetchMock.mockResolvedValueOnce(Response.json(sessionFixture()));
+      requestContext.epoch.mockResolvedValueOnce(epoch);
+      await expect(getAccountAuthorityV2()).rejects.toMatchObject({ reason: 'provider', message: 'Account authentication is unavailable.' });
+    }
+  });
+  it('never queries the epoch for absent or uninvited sessions', async () => {
+    fetchMock.mockResolvedValueOnce(Response.json(null));
+    await expect(getAccountAuthorityV2()).resolves.toBeNull();
+    fetchMock.mockResolvedValueOnce(Response.json(sessionFixture({ email: 'other@example.test' })));
+    await expect(getAccountAuthorityV2()).rejects.toBeInstanceOf(AccountAdmissionDeniedError);
+    expect(requestContext.epoch).not.toHaveBeenCalled();
+  });
   it.each([undefined, 'false', 'TRUE', '1'])('requires explicit true feature configuration (%s)', async flag => {
     vi.stubEnv('ACCOUNTS_ENABLED', flag);
     expect(accountsEnabled()).toBe(false);

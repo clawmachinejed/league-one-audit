@@ -1,13 +1,24 @@
 import 'server-only';
 
 import { headers } from 'next/headers';
-import { handleAccountAuth, withAccountAuth, type AccountAuthConfiguration } from './auth-runtime';
+import { handleAccountAuth, readAccountAdmissionEpoch, withAccountAuth, type AccountAuthConfiguration } from './auth-runtime';
+import { accountAdmissionConfigHash, authorityDigest, readAuthReceiptV2, type AuthReceiptV2 } from './session-authority';
 
 export type AccountPrincipal = {
   issuer: string;
   subject: string;
   displayName: string;
 };
+
+// Object identity, never a serialized actor ID, binds private composition to its
+// freshly validated receipt. Entries vanish with their request-owned principal.
+const principalAuthorities = new WeakMap<AccountPrincipal, AuthReceiptV2>();
+
+export function accountPrincipalAuthority(principal: AccountPrincipal): AuthReceiptV2 {
+  const receipt = principalAuthorities.get(principal);
+  if (!receipt) throw new AccountAuthUnavailableError('provider');
+  return receipt;
+}
 
 export class AccountAuthUnavailableError extends Error {
   constructor(readonly reason: 'disabled' | 'configuration' | 'provider') {
@@ -87,8 +98,7 @@ export function getAccountAuthAvailability(): 'disabled' | 'unavailable' | 'avai
   }
 }
 
-export async function getAccountPrincipal(): Promise<AccountPrincipal | null> {
-  const config = accountAuthConfiguration();
+async function readAdmittedSession(config: AccountAuthConfiguration) {
   let result;
   try {
     // Every private request checks stored sessions. No signed cookie cache can
@@ -110,11 +120,53 @@ export async function getAccountPrincipal(): Promise<AccountPrincipal | null> {
   if (typeof user.email !== 'string' || !config.invitedEmails.has(user.email.trim().toLowerCase())) {
     throw new AccountAdmissionDeniedError('not_invited');
   }
+  return { user, session };
+}
+
+function principalFor(user: { id: string; name: string }, issuer: string): AccountPrincipal {
   return {
-    issuer: config.issuer,
+    issuer,
     subject: user.id,
     displayName: typeof user.name === 'string' ? user.name.trim().slice(0, 100) || 'Member' : 'Member',
   };
+}
+
+export async function getAccountPrincipal(): Promise<AccountPrincipal | null> {
+  const config = accountAuthConfiguration();
+  const result = await readAdmittedSession(config);
+  return result ? principalFor(result.user, config.issuer) : null;
+}
+
+/** Internal BC-M1 bridge, deliberately unused by public account callers until
+ * qualification. An absent or changed operator-owned epoch fails closed. */
+export async function getAccountAuthorityV2(): Promise<{ principal: AccountPrincipal; receipt: AuthReceiptV2 } | null> {
+  const config = accountAuthConfiguration();
+  const result = await readAdmittedSession(config);
+  if (!result) return null;
+  try {
+    const configHash = accountAdmissionConfigHash(config.issuer, config.invitedEmails);
+    const epoch = await readAccountAdmissionEpoch(config, configHash);
+    if (epoch.config_hash !== configHash || epoch.issuer !== config.issuer) throw new Error('Admission changed.');
+    const { user, session } = result;
+    if (typeof session.token !== 'string' || !session.token || typeof session.id !== 'string' || !session.id) {
+      throw new Error('Session authority missing.');
+    }
+    const receipt = readAuthReceiptV2({ sessionId: session.id, subject: user.id,
+      expiresAt: new Date(session.expiresAt).toISOString(), issuer: config.issuer,
+      admissionEpochRevision: epoch.revision, configHash, clockDomain: epoch.clock_domain,
+      admittedEmailDigest: authorityDigest(user.email), sessionTokenDigest: authorityDigest(session.token) });
+    return { principal: principalFor(user, config.issuer), receipt };
+  } catch { throw new AccountAuthUnavailableError('provider'); }
+}
+
+/** Private storage entry point; sign-in/session display uses the independent
+ * getAccountPrincipal and never depends on provider membership or this epoch. */
+export async function getAccountAuthorizedPrincipalV2(): Promise<AccountPrincipal | null> {
+  const authority = await getAccountAuthorityV2();
+  if (!authority) return null;
+  const principal = Object.freeze(authority.principal);
+  principalAuthorities.set(principal, authority.receipt);
+  return principal;
 }
 
 type AuthRouteContext = { params: Promise<{ path: string[] }> };
