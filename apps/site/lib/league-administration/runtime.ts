@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { validateSleeperCalendarEvidence, type SleeperCalendarEvidence } from './period-mapping';
 
 import { ADMINISTRATION_SCHEMA_VERSION, ADMINISTRATION_NORMALIZER_VERSION, ADMINISTRATION_DIALECT,
-  type AdministrationScope, type AdministrationFamily, type JsonValue } from './contracts';
+  type AdministrationScope, type AdministrationFamily, type JsonValue, type CapturedAdministrationDocument } from './contracts';
 import { normalizeAdministrationObservation } from './normalize';
 import { createLeagueAdministrationStore } from './store';
 import { getDatabase, withDatabaseAbortSignal } from '../database';
@@ -25,13 +25,7 @@ export async function beginCalculationSourceCapture(mapping: AdministrationSourc
 }
 
 /** These documents come from the existing official loaders, never from page reads. */
-export type CapturedAdministrationDocument = Readonly<{
-  family: AdministrationFamily; week: number | null; payload: unknown;
-  requestStartedAt: string; requestCompletedAt: string;
-  completeness?: 'complete' | 'partial';
-  origin?: 'network' | 'cache' | 'bootstrap';
-  sourceObservedAt?: string | null;
-}>;
+export type { CapturedAdministrationDocument } from './contracts';
 export type AdministrationCalculationContext = Readonly<{
   observationId: string; configurationVersionId: string; generation: number;
   sourceCapture?: CalculationSourceAssociation;

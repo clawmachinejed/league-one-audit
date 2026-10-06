@@ -54,6 +54,150 @@
       "proof": "Authored oracle remains unexecuted until a separately authorized isolated database qualification run.",
       "reviewer": "Independent GPT-6 Astra ultra review in Review new backend end to end (01a0f411-7133-7491-b693-4c89af678ca6)",
       "reviewReference": "DATA-SCOPE-2026-10-06-PUBLIC-INTAKE-01"
+    },
+    {
+      "path": "apps/site/lib/database.ts",
+      "resource": "Canonical provider league and season identity registration",
+      "purpose": "Optional same-transaction SQL postcondition after canonical registration rolls back expired ingestion fences after lock waits; preserve existing two-rowset callers, abort forwarding and harness transaction ownership.",
+      "proof": "Offline old/new statement ordering, option forwarding and rollback contracts; authored actual restricted-runtime LOGIN lock-wait expiry oracle, PostgreSQL execution pending.",
+      "reviewer": "Independent GPT-6 Astra ultra review in Backend foundation reconciliation (01a10e85-7bde-74b1-8ad7-93d3d1838eab)",
+      "reviewReference": "DATA-SCOPE-2026-10-06-REGISTRATION-POSTCONDITION-01"
+    },
+    {
+      "path": "apps/site/lib/database.test.ts",
+      "resource": "Canonical provider league and season identity registration",
+      "purpose": "Optional same-transaction SQL postcondition after canonical registration rolls back expired ingestion fences after lock waits; preserve existing two-rowset callers, abort forwarding and harness transaction ownership.",
+      "proof": "Offline old/new statement ordering, option forwarding and rollback contracts; authored actual restricted-runtime LOGIN lock-wait expiry oracle, PostgreSQL execution pending.",
+      "reviewer": "Independent GPT-6 Astra ultra review in Backend foundation reconciliation (01a10e85-7bde-74b1-8ad7-93d3d1838eab)",
+      "reviewReference": "DATA-SCOPE-2026-10-06-REGISTRATION-POSTCONDITION-01"
+    },
+    {
+      "path": "apps/site/integration/neon-integration-harness.ts",
+      "resource": "Canonical provider league and season identity registration",
+      "purpose": "Optional same-transaction SQL postcondition after canonical registration rolls back expired ingestion fences after lock waits; preserve existing two-rowset callers, abort forwarding and harness transaction ownership. Also forward optional lifecycle cancellation before/after identity and ownership probes and each reset statement; preserve omitted-signal behavior and cleanup release.",
+      "proof": "Offline old/new statement ordering, option forwarding and rollback contracts; authored actual restricted-runtime LOGIN lock-wait expiry oracle, PostgreSQL execution pending. Offline pre-aborted/no-connect, interrupted probes/ownership/reset continuation and release-on-failure cases; continuation fences do not prove issued SQL cancellation.",
+      "reviewer": "Independent GPT-6 Astra ultra review in Backend foundation reconciliation (01a10e85-7bde-74b1-8ad7-93d3d1838eab)",
+      "reviewReference": "DATA-SCOPE-2026-10-06-REGISTRATION-POSTCONDITION-01; DATA-SCOPE-2026-10-06-QUALIFICATION-CANCELLATION-02"
+    },
+    {
+      "path": "apps/site/integration/neon-integration-harness.test.ts",
+      "resource": "Canonical provider league and season identity registration",
+      "purpose": "Optional same-transaction SQL postcondition after canonical registration rolls back expired ingestion fences after lock waits; preserve existing two-rowset callers, abort forwarding and harness transaction ownership. Also forward optional lifecycle cancellation before/after identity and ownership probes and each reset statement; preserve omitted-signal behavior and cleanup release.",
+      "proof": "Offline old/new statement ordering, option forwarding and rollback contracts; authored actual restricted-runtime LOGIN lock-wait expiry oracle, PostgreSQL execution pending. Offline pre-aborted/no-connect, interrupted probes/ownership/reset continuation and release-on-failure cases; continuation fences do not prove issued SQL cancellation.",
+      "reviewer": "Independent GPT-6 Astra ultra review in Backend foundation reconciliation (01a10e85-7bde-74b1-8ad7-93d3d1838eab)",
+      "reviewReference": "DATA-SCOPE-2026-10-06-REGISTRATION-POSTCONDITION-01; DATA-SCOPE-2026-10-06-QUALIFICATION-CANCELLATION-02"
+    },
+    {
+      "path": "apps/site/scripts/run-disposable-integration.ts",
+      "resource": "Bounded isolated qualification of normalized provider ingestion and stored readers",
+      "purpose": "Shared monotonic 30-minute work and 40-minute total lifecycle budget, independent cleanup cancellation, late-result fencing and sanitized terminal receipts; preserve all source, identity, role, TLS, sentinel, ownership and denylist guards, no account stages or automatic retry.",
+      "proof": "Offline virtual-clock actual lifecycle/API tests for blocked work and cleanup, ambiguous creation, child closure, exhausted budget, final journaling and late success; real SQL, remote cleanup and monetary ceiling unverified.",
+      "reviewer": "Independent GPT-6 Astra ultra review in Backend foundation reconciliation (01a10e85-7bde-74b1-8ad7-93d3d1838eab)",
+      "reviewReference": "DATA-SCOPE-2026-10-06-QUALIFICATION-LIFECYCLE-01"
+    },
+    {
+      "path": "apps/site/scripts/run-disposable-integration.test.ts",
+      "resource": "Bounded isolated qualification of normalized provider ingestion and stored readers",
+      "purpose": "Shared monotonic 30-minute work and 40-minute total lifecycle budget, independent cleanup cancellation, late-result fencing and sanitized terminal receipts; preserve all source, identity, role, TLS, sentinel, ownership and denylist guards, no account stages or automatic retry.",
+      "proof": "Offline virtual-clock actual lifecycle/API tests for blocked work and cleanup, ambiguous creation, child closure, exhausted budget, final journaling and late success; real SQL, remote cleanup and monetary ceiling unverified.",
+      "reviewer": "Independent GPT-6 Astra ultra review in Backend foundation reconciliation (01a10e85-7bde-74b1-8ad7-93d3d1838eab)",
+      "reviewReference": "DATA-SCOPE-2026-10-06-QUALIFICATION-LIFECYCLE-01"
+    },
+    {
+      "path": "apps/site/integration/disposable-integration.ts",
+      "resource": "Bounded isolated qualification of normalized provider ingestion and stored readers",
+      "purpose": "Shared monotonic 30-minute work and 40-minute total lifecycle budget, independent cleanup cancellation, late-result fencing and sanitized terminal receipts; preserve all source, identity, role, TLS, sentinel, ownership and denylist guards, no account stages or automatic retry.",
+      "proof": "Offline virtual-clock actual lifecycle/API tests for blocked work and cleanup, ambiguous creation, child closure, exhausted budget, final journaling and late success; real SQL, remote cleanup and monetary ceiling unverified.",
+      "reviewer": "Independent GPT-6 Astra ultra review in Backend foundation reconciliation (01a10e85-7bde-74b1-8ad7-93d3d1838eab)",
+      "reviewReference": "DATA-SCOPE-2026-10-06-QUALIFICATION-LIFECYCLE-01"
+    },
+    {
+      "path": "apps/site/integration/disposable-integration.test.ts",
+      "resource": "Bounded isolated qualification of normalized provider ingestion and stored readers",
+      "purpose": "Shared monotonic 30-minute work and 40-minute total lifecycle budget, independent cleanup cancellation, late-result fencing and sanitized terminal receipts; preserve all source, identity, role, TLS, sentinel, ownership and denylist guards, no account stages or automatic retry.",
+      "proof": "Offline virtual-clock actual lifecycle/API tests for blocked work and cleanup, ambiguous creation, child closure, exhausted budget, final journaling and late success; real SQL, remote cleanup and monetary ceiling unverified.",
+      "reviewer": "Independent GPT-6 Astra ultra review in Backend foundation reconciliation (01a10e85-7bde-74b1-8ad7-93d3d1838eab)",
+      "reviewReference": "DATA-SCOPE-2026-10-06-QUALIFICATION-LIFECYCLE-01"
+    },
+    {
+      "path": "apps/site/integration/disposable-neon-api.ts",
+      "resource": "Bounded isolated qualification of normalized provider ingestion and stored readers",
+      "purpose": "Shared monotonic 30-minute work and 40-minute total lifecycle budget, independent cleanup cancellation, late-result fencing and sanitized terminal receipts; preserve all source, identity, role, TLS, sentinel, ownership and denylist guards, no account stages or automatic retry.",
+      "proof": "Offline virtual-clock actual lifecycle/API tests for blocked work and cleanup, ambiguous creation, child closure, exhausted budget, final journaling and late success; real SQL, remote cleanup and monetary ceiling unverified.",
+      "reviewer": "Independent GPT-6 Astra ultra review in Backend foundation reconciliation (01a10e85-7bde-74b1-8ad7-93d3d1838eab)",
+      "reviewReference": "DATA-SCOPE-2026-10-06-QUALIFICATION-LIFECYCLE-01"
+    },
+    {
+      "path": "apps/site/integration/disposable-neon-api.test.ts",
+      "resource": "Bounded isolated qualification of normalized provider ingestion and stored readers",
+      "purpose": "Shared monotonic 30-minute work and 40-minute total lifecycle budget, independent cleanup cancellation, late-result fencing and sanitized terminal receipts; preserve all source, identity, role, TLS, sentinel, ownership and denylist guards, no account stages or automatic retry.",
+      "proof": "Offline virtual-clock actual lifecycle/API tests for blocked work and cleanup, ambiguous creation, child closure, exhausted budget, final journaling and late success; real SQL, remote cleanup and monetary ceiling unverified.",
+      "reviewer": "Independent GPT-6 Astra ultra review in Backend foundation reconciliation (01a10e85-7bde-74b1-8ad7-93d3d1838eab)",
+      "reviewReference": "DATA-SCOPE-2026-10-06-QUALIFICATION-LIFECYCLE-01"
+    },
+    {
+      "path": "apps/site/integration/integration-lifecycle-budget.ts",
+      "resource": "Bounded isolated qualification of normalized provider ingestion and stored readers",
+      "purpose": "Shared monotonic 30-minute work and 40-minute total lifecycle budget, independent cleanup cancellation, late-result fencing and sanitized terminal receipts; preserve all source, identity, role, TLS, sentinel, ownership and denylist guards, no account stages or automatic retry.",
+      "proof": "Offline virtual-clock actual lifecycle/API tests for blocked work and cleanup, ambiguous creation, child closure, exhausted budget, final journaling and late success; real SQL, remote cleanup and monetary ceiling unverified.",
+      "reviewer": "Independent GPT-6 Astra ultra review in Backend foundation reconciliation (01a10e85-7bde-74b1-8ad7-93d3d1838eab)",
+      "reviewReference": "DATA-SCOPE-2026-10-06-QUALIFICATION-LIFECYCLE-01"
+    },
+    {
+      "path": "apps/site/integration/integration-lifecycle-budget.test.ts",
+      "resource": "Bounded isolated qualification of normalized provider ingestion and stored readers",
+      "purpose": "Shared monotonic 30-minute work and 40-minute total lifecycle budget, independent cleanup cancellation, late-result fencing and sanitized terminal receipts; preserve all source, identity, role, TLS, sentinel, ownership and denylist guards, no account stages or automatic retry.",
+      "proof": "Offline virtual-clock actual lifecycle/API tests for blocked work and cleanup, ambiguous creation, child closure, exhausted budget, final journaling and late success; real SQL, remote cleanup and monetary ceiling unverified.",
+      "reviewer": "Independent GPT-6 Astra ultra review in Backend foundation reconciliation (01a10e85-7bde-74b1-8ad7-93d3d1838eab)",
+      "reviewReference": "DATA-SCOPE-2026-10-06-QUALIFICATION-LIFECYCLE-01"
+    },
+    {
+      "path": "apps/site/integration/integration-receipt-journal.ts",
+      "resource": "Bounded isolated qualification of normalized provider ingestion and stored readers",
+      "purpose": "Shared monotonic 30-minute work and 40-minute total lifecycle budget, independent cleanup cancellation, late-result fencing and sanitized terminal receipts; preserve all source, identity, role, TLS, sentinel, ownership and denylist guards, no account stages or automatic retry.",
+      "proof": "Offline virtual-clock actual lifecycle/API tests for blocked work and cleanup, ambiguous creation, child closure, exhausted budget, final journaling and late success; real SQL, remote cleanup and monetary ceiling unverified.",
+      "reviewer": "Independent GPT-6 Astra ultra review in Backend foundation reconciliation (01a10e85-7bde-74b1-8ad7-93d3d1838eab)",
+      "reviewReference": "DATA-SCOPE-2026-10-06-QUALIFICATION-LIFECYCLE-01"
+    },
+    {
+      "path": "apps/site/integration/README.md",
+      "resource": "Bounded isolated qualification of normalized provider ingestion and stored readers",
+      "purpose": "Shared monotonic 30-minute work and 40-minute total lifecycle budget, independent cleanup cancellation, late-result fencing and sanitized terminal receipts; preserve all source, identity, role, TLS, sentinel, ownership and denylist guards, no account stages or automatic retry.",
+      "proof": "Offline virtual-clock actual lifecycle/API tests for blocked work and cleanup, ambiguous creation, child closure, exhausted budget, final journaling and late success; real SQL, remote cleanup and monetary ceiling unverified.",
+      "reviewer": "Independent GPT-6 Astra ultra review in Backend foundation reconciliation (01a10e85-7bde-74b1-8ad7-93d3d1838eab)",
+      "reviewReference": "DATA-SCOPE-2026-10-06-QUALIFICATION-LIFECYCLE-01"
+    },
+    {
+      "path": "apps/site/integration/disposable-integration-output.test.ts",
+      "resource": "Sanitized isolated-ingestion qualification evidence",
+      "purpose": "Adapt existing reconcileCreation API mock for bounded cleanup, retaining credential redaction, malformed URI refusal, cleanup assertions and negative outcomes.",
+      "proof": "Existing encoded, decoded and chunked credential redaction and refusal regressions; no real credential or SQL execution.",
+      "reviewer": "Independent GPT-6 Astra ultra review in Backend foundation reconciliation (01a10e85-7bde-74b1-8ad7-93d3d1838eab)",
+      "reviewReference": "DATA-SCOPE-2026-10-06-QUALIFICATION-CANCELLATION-02"
+    },
+    {
+      "reviewer": "Independent GPT-6 Astra ultra review in Review new backend end to end (01a0f411-7133-7491-b693-4c89af678ca6)",
+      "proof": "Offline due/not-due/disabled, remaining-budget, projection failure isolation, repeated generations, fairness, pause/resume and unknown-completion tests; live freshness unmeasured.",
+      "reviewReference": "DATA-SCOPE-2026-10-06-REFRESH-IDENTITY-01",
+      "resource": "Recurring official DATA freshness",
+      "purpose": "Bounded durable due-work selection through existing authenticated dispatch, independent of projection-registry success; preserve schedules, scoring, force semantics and disabled-schema compatibility.",
+      "path": "apps/site/lib/projections/runtime/projection-dispatch.ts"
+    },
+    {
+      "reviewer": "Independent GPT-6 Astra ultra review in Review new backend end to end (01a0f411-7133-7491-b693-4c89af678ca6)",
+      "proof": "Due-work and remaining-budget tests plus registry/projection failure isolation; actual provider/database qualification pending.",
+      "reviewReference": "DATA-SCOPE-2026-10-06-REFRESH-IDENTITY-01",
+      "resource": "Recurring official DATA freshness",
+      "purpose": "Verify existing dispatch compatibility and bounded DATA invocation without provider calls or projection activation.",
+      "path": "apps/site/lib/projections/runtime/projection-dispatch.test.ts"
+    },
+    {
+      "reviewer": "Independent GPT-6 Astra ultra review in Review new backend end to end (01a0f411-7133-7491-b693-4c89af678ca6)",
+      "proof": "Existing callers, unchanged opaque native strings, requested provider propagation and conflicting-input refusal; future provider adapters remain unimplemented.",
+      "reviewReference": "DATA-SCOPE-2026-10-06-REFRESH-IDENTITY-01",
+      "resource": "Provider-qualified canonical league registration",
+      "purpose": "Backward-compatible provider/native-ID registrar input; retain sleeperLeagueId callers and reject conflicting inputs without enabling unsupported provider collection.",
+      "path": "apps/site/lib/projections/adapters/neon/contracts.ts"
     }
   ],
   "governanceChanges": [

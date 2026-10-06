@@ -29,11 +29,11 @@ function fixture(kind: 'identity' | 'leagues' | 'bootstrap' | 'core' | 'users' =
   let work: PublicIntakeWork | 'complete' = kind === 'identity' ? { requestId: id, revision: 0, kind, username: 'public_manager' }
     : kind === 'leagues' ? { requestId: id, revision: 1, kind, userId: '55', season: 2026 }
       : { requestId: id, revision: 2, kind, externalLeagueId: native, season: 2026 };
-  const intake: PublicIntakeStore = { submit: vi.fn(), next: vi.fn(async () => work), admit: vi.fn(async () => true),
+  const intake: PublicIntakeStore = { submit: vi.fn(), recover: vi.fn(async () => undefined), next: vi.fn(async () => work), admit: vi.fn(async () => true),
     recordIdentity: vi.fn(async () => { work = { requestId: id, revision: 1, kind: 'leagues', userId: '55', season: 2026 }; }),
     recordLeagues: vi.fn(async () => { work = { requestId: id, revision: 2, kind: 'bootstrap', externalLeagueId: native, season: 2026 }; }),
     register: vi.fn(async () => { work = { requestId: id, revision: 3, kind: 'core', externalLeagueId: native, season: 2026 }; }),
-    completeCore: vi.fn(async (_work, _mapping, observations) => { work = observations.users ? 'complete'
+    completeCore: vi.fn(async (_work, _mapping, checkpoint) => { work = checkpoint.observations.users ? 'complete'
       : { requestId: id, revision: 4, kind: 'users', externalLeagueId: native, season: 2026 }; }), fail: vi.fn(async () => undefined) };
   const administration = { ...createLeagueAdministrationStore({ enabled: false, reason: 'missing-database-url' }), enabled: true,
     readSourceMapping: vi.fn(async () => mapping),
@@ -41,7 +41,10 @@ function fixture(kind: 'identity' | 'leagues' | 'bootstrap' | 'core' | 'users' =
       managers: { id: 'managers', scopeId: 'managers', ordinal: 1, expectedGeneration: 0 } })),
     beginLeagueSettingsAttempt: vi.fn(async () => ({ id: 'settings', scopeId: 'settings', ordinal: 1, expectedGeneration: 0 })),
     recordObservation: vi.fn(async (input: NormalizedAdministrationObservation) => ({ status: 'changed' as const,
-      observationId: `observation-${input.envelope.family}`, versionId: 'version', generation: 1 })) };
+      observationId: `observation-${input.envelope.family}`, versionId: 'version', generation: 1,
+      ...(input.envelope.family === 'league' ? { leagueSettingsAcceptance: { status: 'accepted' as const, receiptId: 'settings-receipt', acceptedGeneration: 1 } }
+        : input.envelope.family === 'rosters' ? { rosterAcceptance: { status: 'accepted' as const, receiptId: 'players-receipt', acceptedGeneration: 1 },
+          teamManagerAcceptance: { status: 'accepted' as const, receiptId: 'managers-receipt', acceptedGeneration: 1 } } : {}) })) };
   const source = { identity: vi.fn(async () => ({ value: { userId: '55', username: 'public_manager', displayName: 'Manager', avatarUrl: null },
     payload: { user_id: '55', username: 'public_manager' }, requestStartedAt: time, requestCompletedAt: time })),
   leagues: vi.fn(async () => ({ value: [{ id: native, name: league.name, season: '2026' }], payload: [league],
@@ -62,8 +65,8 @@ describe('public official data intake through the existing worker/writer', () =>
   it('collects unrelated official formats using real normalization and same-capture proof without analytics gating', async () => {
     const f = fixture();
     const outcome = await runPublicIntakeStep(id, f.dependencies, new AbortController().signal);
-    expect(outcome).toEqual({ status: 'progress', resource: 'core', providerRequests: 3 });
-    expect(f.administration.recordObservation).toHaveBeenCalledTimes(3);
+    expect(outcome).toEqual({ status: 'progress', resource: 'core', providerRequests: 2 });
+    expect(f.administration.recordObservation).toHaveBeenCalledTimes(2);
     const calls = f.administration.recordObservation.mock.calls;
     expect(calls[0][0]).toMatchObject({ status: 'accepted', envelope: { payload: { scoring_settings: league.scoring_settings } } });
     const rosterCall = vi.mocked(f.dependencies.administration.recordObservation).mock.calls[1];
@@ -71,7 +74,8 @@ describe('public official data intake through the existing worker/writer', () =>
     expect(rosterCall[3]?.population?.observationId).toBe('observation-league');
     expect(rosterCall[4]?.population?.observationId).toBe('observation-league');
     expect(f.intake.completeCore).toHaveBeenCalledWith(expect.anything(), mapping,
-      { league: 'observation-league', rosters: 'observation-rosters', users: 'observation-users' }, expect.objectContaining({ generation: 1 }));
+      { observations: { league: 'observation-league', rosters: 'observation-rosters' },
+        receipts: { settings: 'settings-receipt', players: 'players-receipt', managers: 'managers-receipt' } }, expect.objectContaining({ generation: 1 }));
   });
   it('preserves the core checkpoint after optional directory outage and resumes only that resource', async () => {
     const f = fixture();
@@ -81,7 +85,9 @@ describe('public official data intake through the existing worker/writer', () =>
     });
     expect((await runPublicIntakeStep(id, f.dependencies, new AbortController().signal)).status).toBe('progress');
     expect(f.intake.completeCore).toHaveBeenLastCalledWith(expect.anything(), mapping,
-      { league: 'observation-league', rosters: 'observation-rosters' }, expect.anything());
+      { observations: { league: 'observation-league', rosters: 'observation-rosters' },
+        receipts: { settings: 'settings-receipt', players: 'players-receipt', managers: 'managers-receipt' } }, expect.anything());
+    expect((await runPublicIntakeStep(id, f.dependencies, new AbortController().signal)).status).toBe('unavailable');
     f.source.core.mockImplementation(async (_native, family) => document(family));
     const before = f.administration.beginRosterCapture.mock.calls.length;
     expect(await runPublicIntakeStep(id, f.dependencies, new AbortController().signal)).toEqual({ status: 'progress', resource: 'users', providerRequests: 1 });
@@ -95,6 +101,58 @@ describe('public official data intake through the existing worker/writer', () =>
     expect((await runPublicIntakeStep(id, f.dependencies, new AbortController().signal)).resource).toBe('bootstrap');
     expect(f.source.identity).toHaveBeenCalledTimes(1);
     expect(f.source.leagues).toHaveBeenCalledExactlyOnceWith('55', 2026, expect.any(AbortSignal));
+  });
+  it.each(['leagueSettingsAcceptance', 'rosterAcceptance', 'teamManagerAcceptance'] as const)(
+    'does not complete a core capture when %s preserves a previous head', async field => {
+      const f = fixture();
+      const record = f.administration.recordObservation.getMockImplementation()!;
+      f.administration.recordObservation.mockImplementation(async input => {
+        const result = await record(input);
+        return { ...result, ...(field in result ? { [field]: { status: 'preserved', receiptId: 'new-rejected-receipt',
+          acceptedGeneration: 1, reason: 'incomplete-source' } } : {}) };
+      });
+      if (field === 'rosterAcceptance') f.source.core.mockImplementation(async (_native, family) => family === 'rosters'
+        ? { ...document(family), payload: [{ roster_id: 1, owner_id: '55', players: null, starters: [] }] } : document(family));
+      expect((await runPublicIntakeStep(id, f.dependencies, new AbortController().signal)).status).toBe('unavailable');
+      expect(f.intake.completeCore).not.toHaveBeenCalled();
+      expect(f.intake.fail).toHaveBeenCalledOnce();
+    });
+  it('recovers an admitted interrupted step under a different live owner exactly once, even after job generation resets', async () => {
+    const f = fixture('users');
+    let revision = 2;
+    let failures = 0;
+    let dispatch: { owner: string; generation: number; revision: number; outcome: boolean } | undefined;
+    const retainedKeys = new Set<string>();
+    vi.mocked(f.intake.recover).mockImplementation(async (_id, fence) => {
+      if (dispatch && !dispatch.outcome) {
+        expect(fence.workerId).not.toBe(dispatch.owner);
+        if (revision === dispatch.revision) { revision++; failures++; }
+        dispatch.outcome = true;
+        f.setWork({ requestId: id, revision, kind: 'users', externalLeagueId: native, season: 2026 });
+      }
+    });
+    vi.mocked(f.intake.admit).mockImplementation(async (work, fence) => {
+      const key = `${fence.workerId}:${fence.generation}`;
+      expect(retainedKeys.has(key)).toBe(false);
+      retainedKeys.add(key);
+      dispatch = { owner: fence.workerId, generation: fence.generation, revision: work.revision, outcome: false };
+      return true;
+    });
+    // Both the old scoped database and cleanup are unavailable after a deadline.
+    vi.mocked(f.intake.fail).mockRejectedValue(new Error('expired database signal'));
+    f.source.core.mockRejectedValueOnce(new Error('directory timeout'));
+    expect((await runPublicIntakeStep(id, f.dependencies, new AbortController().signal)).status).toBe('unavailable');
+    expect(failures).toBe(0);
+    // A new job lifecycle starts at generation 1; the retained worker UUID makes
+    // its dispatch distinct from history that outlived normal job pruning.
+    expect((await runPublicIntakeStep(id, f.dependencies, new AbortController().signal)).status).toBe('progress');
+    expect(failures).toBe(1);
+    expect(retainedKeys.size).toBe(2);
+    dispatch!.outcome = true;
+    expect((await runPublicIntakeStep(id, f.dependencies, new AbortController().signal)).status).toBe('complete');
+    expect(failures).toBe(1);
+    expect(f.source.identity).not.toHaveBeenCalled();
+    expect(f.source.leagues).not.toHaveBeenCalled();
   });
   it('does not dispatch after duplicate claim, failed-attempt cooldown, or stored terminal failure', async () => {
     const f = fixture();
@@ -133,12 +191,13 @@ describe('public official data intake through the existing worker/writer', () =>
   it('preserves available typed resources when the optional directory reader throws', async () => {
     const f = fixture();
     const rows = [[{ id, seasons: [2026], terminal: true, external_manager_id: '55' }], [{ season: 2026 }],
-      [{ season: 2026, external_league_id: native, name: league.name, stage: 'complete', league_season_id: mapping.leagueSeasonId }], []];
+      [{ season: 2026, external_league_id: native, name: league.name, stage: 'complete', league_season_id: mapping.leagueSeasonId,
+        settings_receipt_id: 'settings', managers_receipt_id: 'managers', players_receipt_id: 'roster' }], []];
     const client = { enabled: true as const, query: vi.fn(async () => rows.shift() ?? []) } as unknown as DatabaseClient;
     const administration = { ...f.dependencies.administration,
-      readAcceptedLeagueSettings: vi.fn(async () => ({ status: 'available', fixture: 'settings' })),
-      readAcceptedTeamManagers: vi.fn(async () => ({ status: 'available', fixture: 'managers' })),
-      readAcceptedCurrentRoster: vi.fn(async () => ({ status: 'available', fixture: 'roster' })),
+      readAcceptedLeagueSettings: vi.fn(async () => ({ status: 'available', accepted: { observationIds: ['settings'] } })),
+      readAcceptedTeamManagers: vi.fn(async () => ({ status: 'available', accepted: { observationIds: ['managers'] } })),
+      readAcceptedCurrentRoster: vi.fn(async () => ({ status: 'available', accepted: { observationIds: ['roster'] } })),
       readSource: vi.fn(async () => { throw new Error('optional directory read failed'); }),
     } as unknown as typeof f.dependencies.administration;
     const result = await readPublicSleeperIntake(client, administration, id);
@@ -146,6 +205,22 @@ describe('public official data intake through the existing worker/writer', () =>
     if (result.status === 'missing') throw new Error('Missing fixture result.');
     expect(result.leagues[0].resources).toMatchObject({ settings: { status: 'available' },
       teamManagers: { status: 'available' }, heldRoster: { status: 'available' }, directory: { status: 'unavailable' } });
+  });
+  it('keeps a different retained typed head visible without calling it the completed intake capture', async () => {
+    const f = fixture();
+    const rows = [[{ id, seasons: [2026], terminal: true, external_manager_id: '55' }], [{ season: 2026 }],
+      [{ season: 2026, external_league_id: native, name: league.name, stage: 'complete', league_season_id: mapping.leagueSeasonId,
+        settings_receipt_id: 'current-settings', managers_receipt_id: 'current-managers', players_receipt_id: 'current-roster' }], []];
+    const client = { enabled: true, query: vi.fn(async () => rows.shift() ?? []) } as unknown as DatabaseClient;
+    const retained = { status: 'available', accepted: { observationIds: ['different-capture'] } };
+    const administration = { ...f.dependencies.administration, readAcceptedLeagueSettings: vi.fn(async () => retained),
+      readAcceptedTeamManagers: vi.fn(async () => retained), readAcceptedCurrentRoster: vi.fn(async () => retained) } as unknown as typeof f.dependencies.administration;
+    const result = await readPublicSleeperIntake(client, administration, id);
+    expect(result.status).toBe('partial');
+    if (result.status === 'missing') throw new Error('Missing fixture result.');
+    for (const resource of ['settings', 'teamManagers', 'heldRoster'] as const) {
+      expect(result.leagues[0].resources?.[resource]).toEqual({ status: 'unavailable', reason: 'intake-capture-not-current-head', retained });
+    }
   });
 });
 
@@ -175,6 +250,16 @@ describe('bounded shared Sleeper transport captures', () => {
     expect(sql).not.toContain('app_acquisition_demands');
     expect(sql).toContain("admitted_at>clock_timestamp()-interval '60 seconds'");
     expect(sql).toContain('FOR UPDATE');
+    expect(sql).toContain('PRIMARY KEY(worker_id,generation)');
+    expect(sql).toContain('CREATE FUNCTION public.recover_public_data_dispatch');
+    expect(sql).toContain('attempt.source_mapping=mapping AND attempt.write_fence=p_fence');
+    expect(sql).toContain('head.accepted_id=accepted.id');
+    expect(sql).toContain("FOREACH receipt_key IN ARRAY ARRAY['settings','players','managers']");
+    expect(sql).toContain("evidence='public-data-intake-v1' AND NOT active");
+    const original = await readFile(new URL('../../migrations/025_account_league_enrollment.sql', import.meta.url), 'utf8');
+    const originalRegistrationGuard = original.slice(original.indexOf('  IF NOT EXISTS ('), original.indexOf("  IF EXISTS (SELECT 1 FROM public.league_administration_enrollments"));
+    expect(sql).toContain(originalRegistrationGuard);
+    expect(sql).not.toContain('CREATE OR REPLACE FUNCTION public.activate_account_league_enrollment');
     expect(sql).toContain("VALUES(v_league_id,'sleeper',false,'public-data-intake-v1') ON CONFLICT DO NOTHING");
     const enrollment = await readFile(new URL('./neon/enrollment.ts', import.meta.url), 'utf8');
     expect(enrollment).toContain("membership.evidence<>'public-data-intake-v1'");

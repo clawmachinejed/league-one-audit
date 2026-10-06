@@ -616,6 +616,70 @@ describe('built-in protection for retained integration targets', () => {
 });
 
 describe('existing isolated integration harness safety', () => {
+  it('does not connect for an already cancelled identity probe or cleanup', async () => {
+    const signal = AbortSignal.abort(new Error('qualification cancelled'));
+    await expect(assertSafeIntegrationDatabase(fixture, signal)).rejects.toThrow('qualification cancelled');
+    await expect(cleanIntegrationDatabase({ signal })).rejects.toThrow('qualification cancelled');
+    expect(mocked.pool).not.toHaveBeenCalled();
+    expect(mocked.acquireOwnership).not.toHaveBeenCalled();
+    expect(mocked.query).not.toHaveBeenCalled();
+  });
+  it('releases probe pools without reaching reset after cancellation during an identity query', async () => {
+    const controller = new AbortController();
+    const original = mocked.query.getMockImplementation()!;
+    mocked.query.mockImplementation(async (statement: string, user: string) => {
+      const result = await original(statement, user);
+      controller.abort(new Error('probe deadline'));
+      return result;
+    });
+    await expect(cleanIntegrationDatabase({ signal: controller.signal })).rejects.toThrow('probe deadline');
+    expect(mocked.acquireOwnership).not.toHaveBeenCalled();
+    expect(mocked.end).toHaveBeenCalled();
+    expect(mocked.query.mock.calls.every(([statement]) => statement.includes('shobj_description'))).toBe(true);
+  });
+  it('releases late ownership without starting a reset after cancellation during acquisition', async () => {
+    const controller = new AbortController();
+    const original = mocked.acquireOwnership.getMockImplementation()!;
+    mocked.acquireOwnership.mockImplementation(async environment => {
+      const session = await original(environment);
+      controller.abort(new Error('ownership deadline'));
+      return session;
+    });
+    await expect(cleanIntegrationDatabase({ signal: controller.signal })).rejects.toThrow('ownership deadline');
+    expect(mocked.releaseOwnership).toHaveBeenCalledOnce();
+    expect(mocked.query.mock.calls.every(([statement]) => statement.includes('shobj_description'))).toBe(true);
+  });
+  it('does not issue the next reset statement after an already-issued statement exceeds the deadline', async () => {
+    const controller = new AbortController();
+    const original = mocked.query.getMockImplementation()!;
+    mocked.query.mockImplementation(async (statement: string, user: string) => {
+      const result = await original(statement, user);
+      if (statement === 'DROP SCHEMA IF EXISTS website_auth CASCADE') controller.abort(new Error('cleanup deadline'));
+      return result;
+    });
+    await expect(cleanIntegrationDatabase({ signal: controller.signal })).rejects.toThrow('cleanup deadline');
+    expect(mocked.query.mock.calls.filter(([statement]) => !statement.includes('shobj_description')).map(([statement]) => statement))
+      .toEqual(['DROP SCHEMA IF EXISTS website_auth CASCADE']);
+    expect(mocked.releaseOwnership).toHaveBeenCalledOnce();
+  });
+  it.each([false, true])('rolls back a rejected postcondition with caller transaction=%s', async nested => {
+    const session = nested ? await createPinnedIntegrationDatabase('runtime') : createIndependentDatabase();
+    if (nested) await session.database.query('BEGIN');
+    const original = mocked.sessionQuery.getMockImplementation()!;
+    mocked.sessionQuery.mockImplementation(async (statement: string, parameters: unknown[]) => {
+      if (statement === 'assert-live') throw new Error('expired fence after identity wait');
+      return original(statement, parameters);
+    });
+    await expect(session.database.queryAfterLock!('identity', [2], { statement: 'guard', parameters: [1],
+      verifyAfter: { statement: 'assert-live', parameters: [3] } })).rejects.toThrow('expired fence');
+    const statements = mocked.sessionQuery.mock.calls.map(([statement]) => statement);
+    expect(statements).toEqual(nested ? ['BEGIN', 'SHOW transaction_isolation', 'SAVEPOINT all_player_locked_batch_1',
+      'guard', 'identity', 'assert-live', 'ROLLBACK TO SAVEPOINT all_player_locked_batch_1', 'RELEASE SAVEPOINT all_player_locked_batch_1']
+      : ['BEGIN ISOLATION LEVEL READ COMMITTED', 'guard', 'identity', 'assert-live', 'ROLLBACK']);
+    expect(mocked.sessionQuery).toHaveBeenCalledWith('assert-live', [3]);
+    if (nested) await session.database.query('ROLLBACK');
+    await session.close();
+  });
   it.each([false, true])('pins an independent locked transaction through completion (failure=%s)', async (failure) => {
     const session = createIndependentDatabase();
     const statements: string[] = [];

@@ -1,8 +1,7 @@
 import 'server-only';
 import { getDatabase, withDatabaseAbortSignal } from '../database';
 import { createProjectionStore } from '../projection-store';
-import { createLeagueAdministrationStore } from './store';
-import { createPublicIntakeStore } from './neon/public-intake';
+import { createLeagueAdministrationStore, createPublicIntakeStore } from './store';
 import { validatePublicIntake, type PublicIntakeInput } from './public-intake-contracts';
 import { runPublicIntakeStep } from './public-intake';
 
@@ -30,5 +29,10 @@ export async function runSelectedPublicIntake(selection: PublicIntakeSelection, 
   const bounded = withDatabaseAbortSignal(database, signal);
   if (!bounded.enabled) return { status: 'disabled' } as const;
   return runPublicIntakeStep(selection.requestId, { intake: createPublicIntakeStore(bounded),
-    administration: createLeagueAdministrationStore(bounded), jobs: createProjectionStore(bounded) }, signal);
+    administration: createLeagueAdministrationStore(bounded), jobs: createProjectionStore(bounded),
+    cleanup: () => {
+      const cleanup = withDatabaseAbortSignal(database, AbortSignal.timeout(2_000));
+      if (!cleanup.enabled) throw new Error('Intake cleanup storage unavailable.');
+      return { intake: createPublicIntakeStore(cleanup), jobs: createProjectionStore(cleanup) };
+    } }, signal);
 }

@@ -1,7 +1,7 @@
 import 'server-only';
 import { randomUUID } from 'node:crypto';
 import { capturePublicSleeperCore, capturePublicSleeperIdentity, capturePublicSleeperLeagueList } from '../sleeper';
-import type { ProjectionStore } from '../projections/adapters/neon/contracts';
+import type { ProjectionStore } from '../projection-store';
 import type { LeagueAdministrationStore } from './store-contracts';
 import { recordCapturedAdministration } from './runtime';
 import { PUBLIC_INTAKE_JOB, type PublicIntakeOutcome, type PublicIntakeStore } from './public-intake-contracts';
@@ -13,6 +13,7 @@ export type PublicIntakeDependencies = Readonly<{
   source?: Readonly<{ identity: typeof capturePublicSleeperIdentity; leagues: typeof capturePublicSleeperLeagueList;
     core: typeof capturePublicSleeperCore }>;
   now?: () => Date;
+  cleanup?: () => Readonly<{ intake: Pick<PublicIntakeStore, 'fail'>; jobs: Pick<ProjectionStore, 'failJob'> }>;
 }>;
 
 /** One bounded selection owned by the existing administration worker and jobs table.
@@ -36,6 +37,7 @@ export async function runPublicIntakeStep(requestId: string, dependencies: Publi
   let work: Awaited<ReturnType<PublicIntakeStore['next']>> | undefined;
   let requests = 0;
   try {
+    await intake.recover(requestId, fence);
     work = await intake.next(requestId);
     if (typeof work === 'string') {
       if (!await jobs.completeJob(PUBLIC_INTAKE_JOB, workerId)) throw new Error('Intake lease lost.');
@@ -71,33 +73,35 @@ export async function runPublicIntakeStep(requestId: string, dependencies: Publi
         const captured = await recordCapturedAdministration(mapping.scope, documents, { store: administration,
           signal, fence, mapping, rosterAttempt: attempts.players, managerAttempt: attempts.managers,
           leagueSettingsAttempt: settings, now });
-        for (const entry of captured.results) {
-          if (['changed', 'unchanged', 'replayed'].includes(entry.result.status) && entry.result.observationId) {
-            if (entry.family === 'league') observations.league = entry.result.observationId;
-            if (entry.family === 'rosters') observations.rosters = entry.result.observationId;
-          }
+        const league = captured.results.find(entry => entry.family === 'league')?.result;
+        const roster = captured.results.find(entry => entry.family === 'rosters')?.result;
+        if (!league?.observationId || !roster?.observationId
+          || league.leagueSettingsAcceptance?.status !== 'accepted'
+          || roster.rosterAcceptance?.status !== 'accepted' || roster.teamManagerAcceptance?.status !== 'accepted') {
+          throw new Error('Current typed core capture remains incomplete.');
         }
-        if (!observations.league || !observations.rosters) throw new Error('Core evidence remains incomplete.');
-      }
-      // Directory outage never discards the successful core checkpoint. A separate
-      // durable users step retries it, without recollecting settings or roster data.
-      try {
-        signal.throwIfAborted();
+        // Commit core before any optional work. Receipt IDs bind this request to
+        // actual typed acceptance; a preserved older head cannot complete it.
+        await intake.completeCore(work, mapping, { observations: { league: league.observationId, rosters: roster.observationId },
+          receipts: { settings: league.leagueSettingsAcceptance.receiptId, players: roster.rosterAcceptance.receiptId,
+            managers: roster.teamManagerAcceptance.receiptId } }, fence);
+      } else {
         requests++;
         const captured = await recordCapturedAdministration(mapping.scope,
           [await source.core(work.externalLeagueId, 'users', signal)], { store: administration, signal, fence, now });
         const entry = captured.results[0]?.result;
         if (entry && ['changed', 'unchanged', 'replayed'].includes(entry.status)) observations.users = entry.observationId;
-      } catch { /* Independent resource failure is retained by completeCore below. */ }
-      if (work.kind === 'users' && !observations.users) throw new Error('Directory evidence remains unavailable.');
-      await intake.completeCore(work, mapping, observations, fence);
+        if (!observations.users) throw new Error('Directory evidence remains unavailable.');
+        await intake.completeCore(work, mapping, { observations }, fence);
+      }
     }
     signal.throwIfAborted();
     if (!await jobs.completeJob(PUBLIC_INTAKE_JOB, workerId)) throw new Error('Intake lease lost.');
     return { status: 'progress', resource: work.kind, providerRequests: requests };
   } catch {
-    if (work && typeof work === 'object') await intake.fail(work, fence).catch(() => undefined);
-    await jobs.failJob(PUBLIC_INTAKE_JOB, workerId, 'public-data-intake-step-failed').catch(() => false);
+    const cleanup = dependencies.cleanup?.() ?? { intake, jobs };
+    if (work && typeof work === 'object') await cleanup.intake.fail(work, fence).catch(() => undefined);
+    await cleanup.jobs.failJob(PUBLIC_INTAKE_JOB, workerId, 'public-data-intake-step-failed').catch(() => false);
     return { status: 'unavailable', ...(work && typeof work === 'object' ? { resource: work.kind } : {}), providerRequests: requests };
   }
 }

@@ -202,3 +202,11 @@ export type CanonicalSeasonSourceIdentity = Readonly<{
   provider: 'sleeper';
   externalLeagueId: string;
 }>;
+/** A retained official document from an existing collector, never a page read. */
+export type CapturedAdministrationDocument = Readonly<{
+  family: AdministrationFamily; week: number | null; payload: unknown;
+  requestStartedAt: string; requestCompletedAt: string;
+  completeness?: 'complete' | 'partial';
+  origin?: 'network' | 'cache' | 'bootstrap';
+  sourceObservedAt?: string | null;
+}>;

@@ -182,9 +182,10 @@ function parseDatabaseComment(value: unknown): DatabaseComment {
   };
 }
 
-async function connectionIdentity(pool: Pool, label: string): Promise<ConnectionIdentity> {
+async function connectionIdentity(pool: Pool, label: string, signal?: AbortSignal): Promise<ConnectionIdentity> {
   let rows: readonly QueryRow[];
   try {
+    signal?.throwIfAborted();
     const result = await pool.query(`
       SELECT current_database() AS database_name,
         current_user AS database_user,
@@ -194,8 +195,10 @@ async function connectionIdentity(pool: Pool, label: string): Promise<Connection
       FROM pg_database database
       WHERE database.datname = current_database()
     `);
+    signal?.throwIfAborted();
     rows = result.rows as QueryRow[];
   } catch {
+    signal?.throwIfAborted();
     throw new Error(`${label} could not verify the isolated database identity.`);
   }
   const row = rows[0];
@@ -235,17 +238,20 @@ function assertComment(env: IntegrationEnvironment, identity: ConnectionIdentity
   }
 }
 
-async function assertRestrictedAuthRole(pool: Pool): Promise<void> {
+async function assertRestrictedAuthRole(pool: Pool, signal?: AbortSignal): Promise<void> {
   let rows: readonly QueryRow[];
   try {
+    signal?.throwIfAborted();
     const result = await pool.query(`
       SELECT role.rolcanlogin, role.rolsuper, role.rolcreatedb, role.rolcreaterole,
         role.rolreplication, role.rolinherit, role.rolbypassrls,
         EXISTS (SELECT 1 FROM pg_auth_members WHERE member = role.oid) AS has_memberships
       FROM pg_roles role WHERE role.rolname = current_user
     `);
+    signal?.throwIfAborted();
     rows = result.rows as QueryRow[];
   } catch {
+    signal?.throwIfAborted();
     throw new Error('The auth connection could not verify its restricted role privileges.');
   }
   const role = rows[0];
@@ -268,7 +274,9 @@ function productionUrlIdentities(): readonly UrlIdentity[] {
 
 export async function assertSafeIntegrationDatabase(
   env = integrationEnvironment(),
+  signal?: AbortSignal,
 ): Promise<void> {
+  signal?.throwIfAborted();
   const ownerUrl = parseDatabaseUrl(env.ownerDatabaseUrl, 'Integration owner URL');
   const runtimeUrl = parseDatabaseUrl(env.runtimeDatabaseUrl, 'Integration runtime URL');
   // The standard runner requires this credential. Historical migration and
@@ -317,15 +325,17 @@ export async function assertSafeIntegrationDatabase(
   // branch-deletion fallback. The server deadline precedes the client deadline.
   const preflightLimits = { max: 1, connectionTimeoutMillis: 10_000,
     statement_timeout: 15_000, query_timeout: 20_000 };
+  signal?.throwIfAborted();
   const ownerPool = new Pool({ connectionString: env.ownerDatabaseUrl, ...preflightLimits });
   const runtimePool = new Pool({ connectionString: env.runtimeDatabaseUrl, ...preflightLimits });
   const authPool = authDatabaseUrl ? new Pool({ connectionString: authDatabaseUrl, ...preflightLimits }) : undefined;
   try {
     const [ownerIdentity, runtimeIdentity, authIdentity] = await Promise.all([
-      connectionIdentity(ownerPool, 'The owner connection'),
-      connectionIdentity(runtimePool, 'The runtime connection'),
-      authPool ? connectionIdentity(authPool, 'The auth connection') : undefined,
+      connectionIdentity(ownerPool, 'The owner connection', signal),
+      connectionIdentity(runtimePool, 'The runtime connection', signal),
+      authPool ? connectionIdentity(authPool, 'The auth connection', signal) : undefined,
     ]);
+    signal?.throwIfAborted();
     for (const identity of [ownerIdentity, runtimeIdentity, authIdentity]) {
       if (identity) assertNotDenied(env, [identity.database, identity.branch,
         identity.comment.branchId, identity.comment.branchName]);
@@ -344,20 +354,23 @@ export async function assertSafeIntegrationDatabase(
       if (authIdentity.user !== 'league_one_auth' || authIdentity.sessionUser !== 'league_one_auth') {
         throw new Error('The auth connection did not authenticate as the restricted league_one_auth role.');
       }
-      await assertRestrictedAuthRole(authPool);
+      await assertRestrictedAuthRole(authPool, signal);
     }
   } finally {
     await Promise.allSettled([ownerPool.end(), runtimePool.end(), authPool?.end()]);
   }
+  signal?.throwIfAborted();
 }
 
-async function resetIntegrationSchemas(pool: IntegrationSession): Promise<void> {
+async function resetIntegrationSchemas(pool: IntegrationSession, signal?: AbortSignal): Promise<void> {
   // Fixed application-owned schemas only, after the full existing target guards.
   // Never enumerate/drop other schemas (in particular managed neon_auth).
-  await pool.query('DROP SCHEMA IF EXISTS website_auth CASCADE');
-  await pool.query('DROP SCHEMA IF EXISTS public CASCADE');
-  await pool.query('CREATE SCHEMA public');
-  await pool.query('REVOKE CREATE ON SCHEMA public FROM PUBLIC');
+  for (const statement of ['DROP SCHEMA IF EXISTS website_auth CASCADE', 'DROP SCHEMA IF EXISTS public CASCADE',
+    'CREATE SCHEMA public', 'REVOKE CREATE ON SCHEMA public FROM PUBLIC']) {
+    signal?.throwIfAborted();
+    await pool.query(statement);
+    signal?.throwIfAborted();
+  }
 }
 
 async function applyMigrations(
@@ -491,13 +504,16 @@ export async function prepareIntegrationDatabase(options: Readonly<{
   }
 }
 
-export async function cleanIntegrationDatabase(options: Readonly<{ ownerProof?: string }> = {}): Promise<void> {
+export async function cleanIntegrationDatabase(options: Readonly<{ ownerProof?: string; signal?: AbortSignal }> = {}): Promise<void> {
   try {
+    options.signal?.throwIfAborted();
     const env = integrationEnvironment();
-    await assertSafeIntegrationDatabase(env);
+    await assertSafeIntegrationDatabase(env, options.signal);
+    options.signal?.throwIfAborted();
     const ownerPool = await databaseOwnership.acquire({ ownerDatabaseUrl: env.ownerDatabaseUrl,
       expectedDatabase: env.expectedDatabase, expectedBranchId: env.expectedBranchId }, delegatedOwner(options.ownerProof));
-    await resetIntegrationSchemas(ownerPool);
+    options.signal?.throwIfAborted();
+    await resetIntegrationSchemas(ownerPool, options.signal);
   } finally {
     await databaseOwnership.release();
   }
@@ -525,6 +541,10 @@ async function queryAfterLock<Row extends DatabaseRow>(
     options.signal?.throwIfAborted();
     const result = await client.query(statement, [...parameters]);
     options.signal?.throwIfAborted();
+    if (lock.verifyAfter) {
+      await client.query(lock.verifyAfter.statement, [...lock.verifyAfter.parameters]);
+      options.signal?.throwIfAborted();
+    }
     await client.query(savepoint ? `RELEASE SAVEPOINT ${savepoint}` : 'COMMIT');
     return [locked.rows, result.rows] as DatabaseLockedQueryResult<Row>;
   } catch (error) {

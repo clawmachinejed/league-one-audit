@@ -1,6 +1,6 @@
 import 'server-only';
 import type { DatabaseClient, DatabaseRow, DatabaseQueryOptions } from '../../database';
-import { createIdentityMethods } from '../../projections/adapters/neon/identities';
+import { createProjectionStore } from '../../projection-store';
 import { normalizeAdministrationObservation } from '../normalize';
 import { ADMINISTRATION_DIALECT, ADMINISTRATION_NORMALIZER_VERSION, ADMINISTRATION_SCHEMA_VERSION, type JsonValue } from '../contracts';
 import { validatePublicIntake, type PublicIntakeStore, type PublicIntakeWork } from '../public-intake-contracts';
@@ -20,6 +20,10 @@ export function createPublicIntakeStore(client: DatabaseClient): PublicIntakeSto
     async submit(input) {
       await client.query(`/* public-data-intake:submit */ SELECT public.submit_public_data_intake($1::jsonb)`,
         [JSON.stringify(validatePublicIntake(input))]);
+    },
+    async recover(requestId, fence) {
+      await client.query(`/* public-data-intake:recover */
+        SELECT public.recover_public_data_dispatch($1::uuid,$2::jsonb)`, [requestId, JSON.stringify(fence)]);
     },
     async next(requestId) {
       const rows = await client.query(`/* public-data-intake:next */ SELECT public.next_public_data_intake($1::uuid) AS result`, [requestId]);
@@ -82,18 +86,20 @@ export function createPublicIntakeStore(client: DatabaseClient): PublicIntakeSto
         const result = await lockedQuery<Row>(statement, parameters, {
           statement: 'SELECT public.guard_public_data_intake($1::jsonb,$2::jsonb)',
           parameters: [JSON.stringify(work), JSON.stringify({ ...fence, reserveCollection: true })],
+          verifyAfter: { statement: 'SELECT public.guard_public_data_intake($1::jsonb,$2::jsonb)',
+            parameters: [JSON.stringify(work), JSON.stringify(fence)] },
         }, options);
         return result[1];
       } };
       const registered = rows.length ? { kind: 'stored' as const, value: { leagueId: String(rows[0].league_id),
         leagueSeasonId: String(rows[0].league_season_id) } }
-        : await createIdentityMethods(guarded).registerLeagueSeason({ leagueKey, leagueName: payload.name,
+        : await createProjectionStore(guarded).registerLeagueSeason({ leagueKey, leagueName: payload.name,
         season: work.season, sleeperLeagueId: work.externalLeagueId, scoringRules: scoring as Record<string, number> });
       if (registered.kind !== 'stored') throw new Error('Public registration unavailable.');
       await checkpoint(work, { ...capture, leagueId: registered.value.leagueId,
         leagueSeasonId: registered.value.leagueSeasonId }, fence);
     },
-    completeCore: (work, mapping, observations, fence) => checkpoint(work, { mapping, observations }, fence),
+    completeCore: (work, mapping, captured, fence) => checkpoint(work, { mapping, ...captured }, fence),
     fail: (work, fence) => checkpoint(work, { failed: true }, fence),
   };
 }

@@ -47,6 +47,9 @@ CREATE TABLE public.public_data_league_candidates (
   league_observation_id uuid REFERENCES public.league_administration_observations(id),
   roster_observation_id uuid REFERENCES public.league_administration_observations(id),
   users_observation_id uuid REFERENCES public.league_administration_observations(id),
+  settings_receipt_id uuid REFERENCES public.league_roster_capture_receipts(id),
+  players_receipt_id uuid REFERENCES public.league_roster_capture_receipts(id),
+  managers_receipt_id uuid REFERENCES public.league_roster_capture_receipts(id),
   PRIMARY KEY (intake_id,season,external_league_id),
   FOREIGN KEY (intake_id,season) REFERENCES public.public_data_league_lists(intake_id,season),
   CHECK ((bootstrap_started_at IS NULL)=(bootstrap_completed_at IS NULL)),
@@ -79,15 +82,28 @@ CREATE TABLE public.public_data_collection_reservations (
   reserved_at timestamptz NOT NULL DEFAULT clock_timestamp()
 );
 CREATE TABLE public.public_data_dispatches (
-  generation integer PRIMARY KEY CHECK (generation>0),
+  worker_id text NOT NULL CHECK (btrim(worker_id)<>''),
+  generation integer NOT NULL CHECK (generation>0),
   intake_id uuid NOT NULL REFERENCES public.public_data_intakes(id),
   revision integer NOT NULL,
   resource text NOT NULL,
-  max_requests integer NOT NULL CHECK (max_requests BETWEEN 1 AND 3),
-  admitted_at timestamptz NOT NULL DEFAULT clock_timestamp()
+  work jsonb NOT NULL,
+  max_requests integer NOT NULL CHECK (max_requests BETWEEN 1 AND 2),
+  admitted_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  PRIMARY KEY(worker_id,generation)
 );
 CREATE INDEX public_data_dispatches_recent ON public.public_data_dispatches(admitted_at DESC);
 CREATE TRIGGER public_dispatch_history_immutable BEFORE UPDATE OR DELETE ON public.public_data_dispatches
+  FOR EACH ROW EXECUTE FUNCTION public.prevent_league_administration_history_change();
+CREATE TABLE public.public_data_dispatch_outcomes (
+  worker_id text NOT NULL,
+  generation integer NOT NULL,
+  outcome text NOT NULL CHECK (outcome IN ('checkpoint-committed','failed','recovered')),
+  recorded_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  PRIMARY KEY(worker_id,generation),
+  FOREIGN KEY(worker_id,generation) REFERENCES public.public_data_dispatches(worker_id,generation)
+);
+CREATE TRIGGER public_dispatch_outcome_immutable BEFORE UPDATE OR DELETE ON public.public_data_dispatch_outcomes
   FOR EACH ROW EXECUTE FUNCTION public.prevent_league_administration_history_change();
 
 CREATE FUNCTION public.submit_public_data_intake(p_input jsonb) RETURNS void
@@ -154,43 +170,66 @@ BEGIN
   RETURN base||jsonb_build_object('kind',candidate.stage,'externalLeagueId',candidate.external_league_id,'season',candidate.season);
 END; $$;
 
+-- Every caller uses this same lock and counts outstanding DATA reservations.
+-- A reservation for the exact source can be consumed by its existing import path.
+CREATE FUNCTION public.assert_league_collection_capacity(p_external text) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
+BEGIN
+  PERFORM pg_advisory_xact_lock(hashtextextended('account-league-enrollment',0));
+  IF EXISTS(SELECT 1 FROM public.public_data_collection_reservations WHERE external_league_id=p_external)
+    OR EXISTS(SELECT 1 FROM public.league_source_connections connection
+      JOIN public.league_seasons season ON season.id=connection.league_season_id
+      JOIN public.league_administration_enrollments enrollment ON enrollment.league_id=season.league_id
+      WHERE connection.provider='sleeper' AND connection.external_league_id=p_external) THEN RETURN; END IF;
+  IF (SELECT count(*) FROM public.league_administration_enrollments)
+    +(SELECT count(*) FROM public.public_data_collection_reservations reservation WHERE NOT EXISTS(
+      SELECT 1 FROM public.league_source_connections connection JOIN public.league_seasons season ON season.id=connection.league_season_id
+      JOIN public.league_administration_enrollments enrollment ON enrollment.league_id=season.league_id
+      WHERE connection.provider='sleeper' AND connection.external_league_id=reservation.external_league_id))>=16 THEN
+    RAISE EXCEPTION 'league collection capacity reached';
+  END IF;
+END; $$;
+
+CREATE FUNCTION public.assert_public_data_owner(p_request uuid,p_fence jsonb) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
+BEGIN
+  IF p_fence->>'jobKey' IS DISTINCT FROM 'league-administration-public-intake' THEN RAISE EXCEPTION 'wrong public intake owner'; END IF;
+  PERFORM 1 FROM public.projection_jobs WHERE job_key=p_fence->>'jobKey' AND state='running'
+    AND lease_owner=p_fence->>'workerId' AND attempt_count=(p_fence->>'generation')::integer
+    AND lease_until>clock_timestamp() AND (p_fence->>'deadlineAt')::timestamptz>clock_timestamp()
+    AND payload->>'requestId'=p_request::text FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'public intake lease lost'; END IF;
+  IF (p_fence->>'deadlineAt')::timestamptz<=clock_timestamp() OR NOT EXISTS(
+    SELECT 1 FROM public.projection_jobs WHERE job_key=p_fence->>'jobKey' AND lease_until>clock_timestamp()) THEN
+    RAISE EXCEPTION 'public intake lease lost';
+  END IF;
+END; $$;
+
 -- This guard is also the lock statement around the EXISTING identity writer.
 -- Job and request locks live only for a database transaction, never a provider GET.
 CREATE FUNCTION public.guard_public_data_intake(p_work jsonb,p_fence jsonb) RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
 DECLARE request public.public_data_intakes%ROWTYPE; native text:=p_work->>'externalLeagueId';
 BEGIN
-  IF p_fence->>'jobKey' IS DISTINCT FROM 'league-administration-public-intake' THEN RAISE EXCEPTION 'wrong public intake owner'; END IF;
-  PERFORM 1 FROM public.projection_jobs WHERE job_key=p_fence->>'jobKey' AND state='running'
-    AND lease_owner=p_fence->>'workerId' AND attempt_count=(p_fence->>'generation')::integer
-    AND lease_until>clock_timestamp() AND (p_fence->>'deadlineAt')::timestamptz>clock_timestamp()
-    AND payload->>'requestId'=p_work->>'requestId' FOR UPDATE;
-  IF NOT FOUND THEN RAISE EXCEPTION 'public intake lease lost'; END IF;
+  PERFORM public.assert_public_data_owner((p_work->>'requestId')::uuid,p_fence);
   SELECT * INTO STRICT request FROM public.public_data_intakes WHERE id=(p_work->>'requestId')::uuid FOR UPDATE;
-  -- Lock acquisition can wait. Recheck wall-clock authority after both locks.
-  IF (p_fence->>'deadlineAt')::timestamptz<=clock_timestamp() OR NOT EXISTS(
-    SELECT 1 FROM public.projection_jobs WHERE job_key=p_fence->>'jobKey' AND lease_until>clock_timestamp()) THEN
-    RAISE EXCEPTION 'public intake lease lost';
-  END IF;
+  PERFORM public.assert_public_data_owner(request.id,p_fence);
   IF public.next_public_data_intake(request.id) IS DISTINCT FROM p_work THEN RAISE EXCEPTION 'public intake checkpoint changed'; END IF;
   IF p_work->>'kind'='bootstrap' THEN
     PERFORM pg_advisory_xact_lock(hashtextextended('account-league-enrollment',0));
+    PERFORM public.assert_public_data_owner(request.id,p_fence);
     IF p_fence->'reserveCollection'='true'::jsonb
       AND NOT EXISTS(SELECT 1 FROM public.public_data_collection_reservations WHERE external_league_id=native)
       AND NOT EXISTS(SELECT 1 FROM public.league_source_connections connection
         JOIN public.league_seasons season ON season.id=connection.league_season_id
         JOIN public.league_administration_enrollments enrollment ON enrollment.league_id=season.league_id
         WHERE connection.provider='sleeper' AND connection.external_league_id=native) THEN
-      IF (SELECT count(*) FROM public.league_administration_enrollments)
-        +(SELECT count(*) FROM public.public_data_collection_reservations reservation WHERE NOT EXISTS(
-          SELECT 1 FROM public.league_source_connections connection JOIN public.league_seasons season ON season.id=connection.league_season_id
-          JOIN public.league_administration_enrollments enrollment ON enrollment.league_id=season.league_id
-          WHERE connection.provider='sleeper' AND connection.external_league_id=reservation.external_league_id))>=16 THEN
-        RAISE EXCEPTION 'public collection capacity reached';
-      END IF;
+      PERFORM public.assert_league_collection_capacity(native);
+      PERFORM public.assert_public_data_owner(request.id,p_fence);
       INSERT INTO public.public_data_collection_reservations(external_league_id,intake_id) VALUES(native,request.id);
     END IF;
   END IF;
+  PERFORM public.assert_public_data_owner(request.id,p_fence);
 END; $$;
 
 CREATE FUNCTION public.admit_public_data_dispatch(p_work jsonb,p_fence jsonb) RETURNS boolean
@@ -200,34 +239,78 @@ BEGIN
   -- The shared job lock serializes this check even after another request failed.
   -- A crash consumes its admitted interval; reclaim cannot multiply HTTP work.
   IF EXISTS(SELECT 1 FROM public.public_data_dispatches WHERE admitted_at>clock_timestamp()-interval '60 seconds') THEN RETURN false; END IF;
-  INSERT INTO public.public_data_dispatches(generation,intake_id,revision,resource,max_requests)
-    VALUES((p_fence->>'generation')::integer,(p_work->>'requestId')::uuid,(p_work->>'revision')::integer,
-      p_work->>'kind',CASE WHEN p_work->>'kind'='core' THEN 3 ELSE 1 END);
+  IF EXISTS(SELECT 1 FROM public.public_data_dispatches dispatch WHERE NOT EXISTS(
+    SELECT 1 FROM public.public_data_dispatch_outcomes outcome WHERE outcome.worker_id=dispatch.worker_id AND outcome.generation=dispatch.generation)) THEN
+    RAISE EXCEPTION 'public dispatch recovery required';
+  END IF;
+  INSERT INTO public.public_data_dispatches(worker_id,generation,intake_id,revision,resource,work,max_requests)
+    VALUES(p_fence->>'workerId',(p_fence->>'generation')::integer,(p_work->>'requestId')::uuid,(p_work->>'revision')::integer,
+      p_work->>'kind',p_work,CASE WHEN p_work->>'kind'='core' THEN 2 ELSE 1 END);
   RETURN true;
+END; $$;
+
+-- Private transition shared by explicit failure and a replacement live owner's
+-- recovery. The caller locks the request and supplies retained exact work.
+CREATE FUNCTION public.fail_public_data_work(p_work jsonb) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
+DECLARE request_id uuid:=(p_work->>'requestId')::uuid; failures integer;
+BEGIN
+  UPDATE public.public_data_intakes SET failure_count=failure_count+1,revision=revision+1,
+    next_attempt_at=clock_timestamp()+make_interval(secs=>least(3600,60*(2^least(failure_count,5))::integer))
+    WHERE id=request_id AND revision=(p_work->>'revision')::integer RETURNING failure_count INTO failures;
+  IF NOT FOUND THEN RAISE EXCEPTION 'public intake checkpoint changed'; END IF;
+  IF failures>=5 THEN
+    IF p_work->>'kind' IN ('bootstrap','core','users') THEN
+      UPDATE public.public_data_league_candidates SET stage='unavailable' WHERE intake_id=request_id
+        AND season=(p_work->>'season')::integer AND external_league_id=p_work->>'externalLeagueId';
+      UPDATE public.public_data_intakes SET failure_count=0,next_attempt_at=clock_timestamp() WHERE id=request_id;
+      IF public.next_public_data_intake(request_id) IN ('"complete"'::jsonb,'"partial"'::jsonb) THEN
+        UPDATE public.public_data_intakes SET terminal=true WHERE id=request_id;
+      END IF;
+    ELSE UPDATE public.public_data_intakes SET terminal=true WHERE id=request_id; END IF;
+  END IF;
+END; $$;
+
+CREATE FUNCTION public.recover_public_data_dispatch(p_selected uuid,p_fence jsonb) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
+DECLARE prior public.public_data_dispatches%ROWTYPE; retained_revision integer; disposition text;
+BEGIN
+  PERFORM public.assert_public_data_owner(p_selected,p_fence);
+  SELECT dispatch.* INTO prior FROM public.public_data_dispatches dispatch WHERE NOT EXISTS(
+    SELECT 1 FROM public.public_data_dispatch_outcomes outcome WHERE outcome.worker_id=dispatch.worker_id AND outcome.generation=dispatch.generation)
+    ORDER BY dispatch.admitted_at LIMIT 1 FOR UPDATE;
+  IF NOT FOUND THEN RETURN; END IF;
+  IF prior.worker_id=p_fence->>'workerId' AND prior.generation=(p_fence->>'generation')::integer THEN
+    RAISE EXCEPTION 'current public dispatch cannot recover itself';
+  END IF;
+  SELECT revision INTO STRICT retained_revision FROM public.public_data_intakes WHERE id=prior.intake_id FOR UPDATE;
+  PERFORM public.assert_public_data_owner(p_selected,p_fence);
+  IF retained_revision=prior.revision THEN
+    PERFORM public.fail_public_data_work(prior.work); disposition:='recovered';
+  ELSIF retained_revision>prior.revision THEN disposition:='checkpoint-committed';
+  ELSE RAISE EXCEPTION 'public dispatch revision regressed'; END IF;
+  PERFORM public.assert_public_data_owner(p_selected,p_fence);
+  INSERT INTO public.public_data_dispatch_outcomes(worker_id,generation,outcome) VALUES(prior.worker_id,prior.generation,disposition);
 END; $$;
 
 CREATE FUNCTION public.checkpoint_public_data_intake(p_work jsonb,p_capture jsonb,p_fence jsonb) RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
 DECLARE request_id uuid:=(p_work->>'requestId')::uuid; kind text:=p_work->>'kind';
   value jsonb:=p_capture->'value'; native text; manager_id uuid; started timestamptz; completed timestamptz;
-  failures integer; v_league_id uuid; season_id uuid; connection_id uuid; item jsonb; count_selected integer;
-  observation uuid; v_family text; mapping jsonb;
+  v_league_id uuid; season_id uuid; connection_id uuid; item jsonb; count_selected integer;
+  observation uuid; v_family text; mapping jsonb; receipt_key text; wanted_receipt_id uuid;
 BEGIN
   PERFORM public.guard_public_data_intake(p_work,p_fence);
+  IF NOT EXISTS(SELECT 1 FROM public.public_data_dispatches dispatch WHERE dispatch.worker_id=p_fence->>'workerId'
+    AND dispatch.generation=(p_fence->>'generation')::integer AND dispatch.work=p_work AND NOT EXISTS(
+      SELECT 1 FROM public.public_data_dispatch_outcomes outcome WHERE outcome.worker_id=dispatch.worker_id AND outcome.generation=dispatch.generation)) THEN
+    RAISE EXCEPTION 'matching admitted public dispatch required';
+  END IF;
   IF p_capture->'failed'='true'::jsonb THEN
-    UPDATE public.public_data_intakes SET failure_count=failure_count+1,revision=revision+1,
-      next_attempt_at=clock_timestamp()+make_interval(secs=>least(3600,60*(2^least(failure_count,5))::integer))
-      WHERE id=request_id RETURNING failure_count INTO failures;
-    IF failures>=5 THEN
-      IF kind IN ('bootstrap','core','users') THEN
-        UPDATE public.public_data_league_candidates SET stage='unavailable' WHERE intake_id=request_id
-          AND season=(p_work->>'season')::integer AND external_league_id=p_work->>'externalLeagueId';
-        UPDATE public.public_data_intakes SET failure_count=0,next_attempt_at=clock_timestamp() WHERE id=request_id;
-        IF public.next_public_data_intake(request_id) IN ('"complete"'::jsonb,'"partial"'::jsonb) THEN
-          UPDATE public.public_data_intakes SET terminal=true WHERE id=request_id;
-        END IF;
-      ELSE UPDATE public.public_data_intakes SET terminal=true WHERE id=request_id; END IF;
-    END IF;
+    PERFORM public.fail_public_data_work(p_work);
+    PERFORM public.assert_public_data_owner(request_id,p_fence);
+    INSERT INTO public.public_data_dispatch_outcomes(worker_id,generation,outcome)
+      VALUES(p_fence->>'workerId',(p_fence->>'generation')::integer,'failed');
     RETURN;
   END IF;
   IF kind IN ('identity','leagues','bootstrap') THEN
@@ -281,6 +364,9 @@ BEGIN
       IF public.next_public_data_intake(request_id) IN ('"complete"'::jsonb,'"partial"'::jsonb) THEN
         UPDATE public.public_data_intakes SET terminal=true WHERE id=request_id;
       END IF;
+      PERFORM public.assert_public_data_owner(request_id,p_fence);
+      INSERT INTO public.public_data_dispatch_outcomes(worker_id,generation,outcome)
+        VALUES(p_fence->>'workerId',(p_fence->>'generation')::integer,'checkpoint-committed');
       RETURN;
     END IF;
     season_id:=(p_capture->>'leagueSeasonId')::uuid; v_league_id:=(p_capture->>'leagueId')::uuid;
@@ -290,8 +376,8 @@ BEGIN
       OR p_capture->'payload'->>'league_id' IS DISTINCT FROM p_work->>'externalLeagueId'
       OR p_capture->'payload'->>'season' IS DISTINCT FROM p_work->>'season'
       OR p_capture->'payload'->>'sport' IS DISTINCT FROM 'nfl' THEN RAISE EXCEPTION 'public registration mismatch'; END IF;
-    IF NOT EXISTS(SELECT 1 FROM public.league_administration_enrollments WHERE league_id=v_league_id)
-      AND (SELECT count(*) FROM public.league_administration_enrollments)>=16 THEN RAISE EXCEPTION 'public collection capacity reached'; END IF;
+    PERFORM public.assert_league_collection_capacity(p_work->>'externalLeagueId');
+    PERFORM public.assert_public_data_owner(request_id,p_fence);
     INSERT INTO public.league_administration_enrollments(league_id,provider,active,evidence)
       VALUES(v_league_id,'sleeper',false,'public-data-intake-v1') ON CONFLICT DO NOTHING;
     INSERT INTO public.league_administration_enrollment_seasons(league_id,season,provider,evidence)
@@ -320,28 +406,90 @@ BEGIN
           AND observed.request_started_at>=clock_timestamp()-interval '30 seconds'
           AND content.external_league_id=p_work->>'externalLeagueId') THEN RAISE EXCEPTION 'public resource lineage mismatch'; END IF;
     END LOOP;
+    IF kind='core' THEN
+      FOREACH receipt_key IN ARRAY ARRAY['settings','players','managers'] LOOP
+        wanted_receipt_id:=(p_capture->'receipts'->>receipt_key)::uuid;
+        IF wanted_receipt_id IS NULL OR NOT EXISTS(SELECT 1 FROM public.league_roster_resource_acceptances accepted
+          JOIN public.league_roster_capture_receipts receipt ON receipt.id=accepted.receipt_id
+          JOIN public.league_roster_resource_attempts attempt ON attempt.id=receipt.attempt_id
+          JOIN public.league_roster_resource_scopes resource ON resource.id=attempt.scope_id
+          JOIN public.league_roster_resource_heads head ON head.scope_id=resource.id AND head.accepted_id=accepted.id
+          WHERE receipt.id=wanted_receipt_id AND accepted.source_mapping_revision_id=(mapping->>'revisionId')::uuid
+            AND attempt.source_mapping=mapping AND attempt.write_fence=p_fence
+            AND receipt.legacy_observation_id=(p_capture->'observations'->>CASE WHEN receipt_key='settings' THEN 'league' ELSE 'rosters' END)::uuid
+            AND resource.identity->'policy'->>'canonicalNormalizerVersion'=CASE receipt_key
+              WHEN 'settings' THEN 'sleeper-league-settings-v1' WHEN 'players' THEN 'sleeper-current-players-v1'
+              ELSE 'sleeper-current-team-managers-v1' END) THEN
+          RAISE EXCEPTION 'current typed public resource receipt required';
+        END IF;
+      END LOOP;
+    END IF;
     UPDATE public.public_data_league_candidates SET
       league_observation_id=coalesce((p_capture->'observations'->>'league')::uuid,league_observation_id),
       roster_observation_id=coalesce((p_capture->'observations'->>'rosters')::uuid,roster_observation_id),
       users_observation_id=coalesce((p_capture->'observations'->>'users')::uuid,users_observation_id),
+      settings_receipt_id=coalesce((p_capture->'receipts'->>'settings')::uuid,settings_receipt_id),
+      players_receipt_id=coalesce((p_capture->'receipts'->>'players')::uuid,players_receipt_id),
+      managers_receipt_id=coalesce((p_capture->'receipts'->>'managers')::uuid,managers_receipt_id),
       stage=CASE WHEN p_capture->'observations'->>'users' IS NULL THEN 'users' ELSE 'complete' END
       WHERE intake_id=request_id AND season=(p_work->>'season')::integer AND external_league_id=p_work->>'externalLeagueId';
   ELSE RAISE EXCEPTION 'invalid public checkpoint kind'; END IF;
+  PERFORM public.assert_public_data_owner(request_id,p_fence);
   UPDATE public.public_data_intakes SET revision=revision+1,failure_count=0,next_attempt_at=clock_timestamp() WHERE id=request_id;
   IF public.next_public_data_intake(request_id) IN ('"complete"'::jsonb,'"partial"'::jsonb) THEN
     UPDATE public.public_data_intakes SET terminal=true WHERE id=request_id;
   END IF;
+  INSERT INTO public.public_data_dispatch_outcomes(worker_id,generation,outcome)
+    VALUES(p_fence->>'workerId',(p_fence->>'generation')::integer,'checkpoint-committed');
+END; $$;
+
+-- Additive compatibility for the already-shipped import caller. Installed 025 is
+-- immutable. Only explicit preparation adopts an inactive DATA membership; its
+-- existing activation still requires all three fresh official heads. No DATA
+-- intake request calls these account-named legacy entry points or activates work.
+CREATE OR REPLACE FUNCTION public.prepare_account_league_enrollment(p_league uuid,p_season integer,p_external text)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
+BEGIN
+  PERFORM pg_advisory_xact_lock(hashtextextended('account-league-enrollment',0));
+  IF NOT EXISTS (
+    SELECT 1 FROM public.leagues league
+    JOIN public.league_seasons season ON season.league_id=league.id AND season.season=p_season
+    JOIN public.league_source_connections connection ON connection.league_season_id=season.id
+    WHERE league.id=p_league AND league.league_key='sleeper-'||p_external
+      AND p_external ~ '^[1-9][0-9]{0,31}$' AND connection.provider='sleeper'
+      AND connection.external_league_id=p_external
+  ) THEN RAISE EXCEPTION 'onboarding registration mismatch'; END IF;
+  IF EXISTS (SELECT 1 FROM public.league_administration_enrollments WHERE league_id=p_league
+    AND evidence<>'account-onboarding-v1' AND NOT(evidence='public-data-intake-v1' AND NOT active)) THEN
+    RAISE EXCEPTION 'enrollment is operator managed'; END IF;
+  PERFORM public.assert_league_collection_capacity(p_external);
+  INSERT INTO public.league_administration_enrollments(league_id,provider,active,evidence)
+    VALUES(p_league,'sleeper',false,'account-onboarding-v1') ON CONFLICT DO NOTHING;
+  INSERT INTO public.league_administration_enrollment_seasons(league_id,season,provider,evidence)
+    VALUES(p_league,p_season,'sleeper','account-onboarding-v1') ON CONFLICT DO NOTHING;
+  UPDATE public.league_administration_enrollments SET evidence='account-onboarding-v1'
+    WHERE league_id=p_league AND evidence='public-data-intake-v1' AND NOT active;
+  UPDATE public.league_administration_enrollment_seasons SET evidence='account-onboarding-v1'
+    WHERE league_id=p_league AND season=p_season AND provider='sleeper' AND evidence='public-data-intake-v1';
 END; $$;
 
 REVOKE ALL ON public.public_data_intakes,public.public_data_identity_observations,public.public_data_league_lists,
-  public.public_data_league_candidates,public.public_data_collection_reservations,public.public_data_rejections,public.public_data_dispatches FROM PUBLIC;
+  public.public_data_league_candidates,public.public_data_collection_reservations,public.public_data_rejections,public.public_data_dispatches,
+  public.public_data_dispatch_outcomes FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.assert_public_data_owner(uuid,jsonb),public.fail_public_data_work(jsonb),
+  public.assert_league_collection_capacity(text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.submit_public_data_intake(jsonb),public.next_public_data_intake(uuid),
-  public.guard_public_data_intake(jsonb,jsonb),public.admit_public_data_dispatch(jsonb,jsonb),public.checkpoint_public_data_intake(jsonb,jsonb,jsonb) FROM PUBLIC;
+  public.guard_public_data_intake(jsonb,jsonb),public.recover_public_data_dispatch(uuid,jsonb),
+  public.admit_public_data_dispatch(jsonb,jsonb),public.checkpoint_public_data_intake(jsonb,jsonb,jsonb) FROM PUBLIC;
 DO $$ BEGIN
   IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='league_one_runtime') THEN
+    REVOKE ALL ON FUNCTION public.assert_public_data_owner(uuid,jsonb),public.fail_public_data_work(jsonb),
+      public.assert_league_collection_capacity(text) FROM league_one_runtime;
     GRANT SELECT ON public.public_data_intakes,public.public_data_identity_observations,public.public_data_league_lists,
-      public.public_data_league_candidates,public.public_data_collection_reservations,public.public_data_rejections,public.public_data_dispatches TO league_one_runtime;
+      public.public_data_league_candidates,public.public_data_collection_reservations,public.public_data_rejections,public.public_data_dispatches,
+      public.public_data_dispatch_outcomes TO league_one_runtime;
     GRANT EXECUTE ON FUNCTION public.submit_public_data_intake(jsonb),public.next_public_data_intake(uuid),
-      public.guard_public_data_intake(jsonb,jsonb),public.admit_public_data_dispatch(jsonb,jsonb),public.checkpoint_public_data_intake(jsonb,jsonb,jsonb) TO league_one_runtime;
+      public.guard_public_data_intake(jsonb,jsonb),public.recover_public_data_dispatch(uuid,jsonb),
+      public.admit_public_data_dispatch(jsonb,jsonb),public.checkpoint_public_data_intake(jsonb,jsonb,jsonb) TO league_one_runtime;
   END IF;
 END; $$;

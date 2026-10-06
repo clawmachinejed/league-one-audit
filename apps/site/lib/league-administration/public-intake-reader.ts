@@ -2,6 +2,12 @@ import 'server-only';
 import type { DatabaseClient } from '../database';
 import type { LeagueAdministrationStore } from './store-contracts';
 
+function receiptBound<T extends { status: string }>(resource: T, expected: unknown) {
+  const accepted = 'accepted' in resource ? resource.accepted as { observationIds?: readonly string[] } : undefined;
+  return resource.status !== 'available' ? resource : typeof expected === 'string' && accepted?.observationIds?.includes(expected)
+    ? resource : { status: 'unavailable' as const, reason: 'intake-capture-not-current-head', retained: resource };
+}
+
 /** Backend-only stored read. No provider call, registration, calculation or write.
  * Discovery membership is public source evidence, never an ownership entitlement. */
 export async function readPublicSleeperIntake(client: DatabaseClient, administration: LeagueAdministrationStore, requestId: string) {
@@ -18,7 +24,8 @@ export async function readPublicSleeperIntake(client: DatabaseClient, administra
   const lists = await client.query(`/* public-data-intake:read-lists */
     SELECT season,request_started_at,request_completed_at FROM public.public_data_league_lists WHERE intake_id=$1::uuid ORDER BY season`, [requestId]);
   const candidates = await client.query(`/* public-data-intake:read-candidates */
-    SELECT season,external_league_id,name,stage,league_season_id,league_observation_id,roster_observation_id,users_observation_id
+    SELECT season,external_league_id,name,stage,league_season_id,league_observation_id,roster_observation_id,users_observation_id,
+      settings_receipt_id,players_receipt_id,managers_receipt_id
     FROM public.public_data_league_candidates WHERE intake_id=$1::uuid ORDER BY season,external_league_id`, [requestId]);
   const rejected = await client.query(`/* public-data-intake:read-rejections */
     SELECT revision,resource,source_scope,request_started_at,request_completed_at,reason
@@ -45,7 +52,11 @@ export async function readPublicSleeperIntake(client: DatabaseClient, administra
       ]);
       leagues.push({ ...identity, name: String(candidate.name), leagueSeasonId: mapping.leagueSeasonId,
         leagueKey: mapping.scope.leagueKey, collection: String(candidate.stage),
-        resources: { settings, teamManagers, heldRoster, directory } });
+        resources: { settings: receiptBound(settings, candidate.settings_receipt_id),
+          teamManagers: receiptBound(teamManagers, candidate.managers_receipt_id),
+          heldRoster: receiptBound(heldRoster, candidate.players_receipt_id),
+          directory: directory.status === 'available' && directory.observationId !== candidate.users_observation_id
+            ? { status: 'unavailable' as const, reason: 'intake-capture-not-current-head', retained: directory } : directory } });
     } catch {
       leagues.push({ ...identity, name: String(candidate.name), collection: String(candidate.stage),
         resources: null, reason: 'stored-source-unavailable' });

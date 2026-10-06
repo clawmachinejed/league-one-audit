@@ -6,7 +6,7 @@ import { DISPOSABLE_AUTHORIZATION, runDisposableIntegration } from './disposable
 const mocks = vi.hoisted(() => ({
   pool: vi.fn(), query: vi.fn(), spawn: vi.fn(),
   api: { validateTarget: vi.fn(), createBranch: vi.fn(), rotateOwnerCredentials: vi.fn(),
-    getOwnerConnectionUri: vi.fn(), ownedReceipts: vi.fn(), deleteBranch: vi.fn() },
+    getOwnerConnectionUri: vi.fn(), ownedReceipts: vi.fn(), reconcileCreation: vi.fn(), deleteBranch: vi.fn() },
 }));
 vi.mock('@neondatabase/serverless', () => ({ Pool: mocks.pool }));
 vi.mock('./disposable-neon-api', async importOriginal => ({
@@ -91,7 +91,7 @@ describe('disposable runner owner credential redaction', () => {
     expect(mocks.spawn).toHaveBeenCalledOnce();
     expect(output.mock.calls.flat().join('')).toBe(
       'safe stdout decoded=[REDACTED] url=[REDACTED_DATABASE_URL]\nsafe stderr encoded=[REDACTED]');
-    expect(mocks.api.deleteBranch).toHaveBeenCalledWith(expect.anything(), branch);
+    expect(mocks.api.deleteBranch).toHaveBeenCalledWith(expect.anything(), branch, expect.any(AbortSignal));
   });
 
   it.each(['fictional%ZZpassword', 'fictional%E0%A4password'])
@@ -104,7 +104,7 @@ describe('disposable runner owner credential redaction', () => {
     expect(result.receipt).toMatchObject({ tests: 'not-run', failures: ['provision'], branchDeletionVerified: true });
     expect(mocks.pool).not.toHaveBeenCalled();
     expect(mocks.spawn).not.toHaveBeenCalled();
-    expect(mocks.api.deleteBranch).toHaveBeenCalledWith(expect.anything(), branch);
+    expect(mocks.api.deleteBranch).toHaveBeenCalledWith(expect.anything(), branch, expect.any(AbortSignal));
     expect(output).not.toHaveBeenCalled();
     expect(JSON.stringify(result.receipt)).not.toContain(password);
     expect(JSON.stringify(result.receipt)).not.toContain(uri);

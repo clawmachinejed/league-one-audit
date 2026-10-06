@@ -62,13 +62,18 @@ END; $$;
 DO $$ DECLARE intake_table text; BEGIN
   IF to_regclass('public.public_data_intakes') IS NOT NULL THEN
     REVOKE ALL ON public.public_data_intakes,public.public_data_identity_observations,public.public_data_league_lists,
-      public.public_data_league_candidates,public.public_data_collection_reservations,public.public_data_rejections,public.public_data_dispatches FROM league_one_runtime;
+      public.public_data_league_candidates,public.public_data_collection_reservations,public.public_data_rejections,public.public_data_dispatches,
+      public.public_data_dispatch_outcomes FROM league_one_runtime;
     GRANT SELECT ON public.public_data_intakes,public.public_data_identity_observations,public.public_data_league_lists,
-      public.public_data_league_candidates,public.public_data_collection_reservations,public.public_data_rejections,public.public_data_dispatches TO league_one_runtime;
+      public.public_data_league_candidates,public.public_data_collection_reservations,public.public_data_rejections,public.public_data_dispatches,
+      public.public_data_dispatch_outcomes TO league_one_runtime;
     GRANT EXECUTE ON FUNCTION public.submit_public_data_intake(jsonb),public.next_public_data_intake(uuid),
-      public.guard_public_data_intake(jsonb,jsonb),public.admit_public_data_dispatch(jsonb,jsonb),public.checkpoint_public_data_intake(jsonb,jsonb,jsonb) TO league_one_runtime;
+      public.guard_public_data_intake(jsonb,jsonb),public.recover_public_data_dispatch(uuid,jsonb),
+      public.admit_public_data_dispatch(jsonb,jsonb),public.checkpoint_public_data_intake(jsonb,jsonb,jsonb) TO league_one_runtime;
+    REVOKE ALL ON FUNCTION public.assert_public_data_owner(uuid,jsonb),public.fail_public_data_work(jsonb),
+      public.assert_league_collection_capacity(text) FROM league_one_runtime;
     FOREACH intake_table IN ARRAY ARRAY['public_data_intakes','public_data_identity_observations','public_data_league_lists',
-      'public_data_league_candidates','public_data_collection_reservations','public_data_rejections','public_data_dispatches'] LOOP
+      'public_data_league_candidates','public_data_collection_reservations','public_data_rejections','public_data_dispatches','public_data_dispatch_outcomes'] LOOP
       IF has_table_privilege('league_one_runtime','public.'||intake_table,'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
         OR NOT has_table_privilege('league_one_runtime','public.'||intake_table,'SELECT') THEN
         RAISE EXCEPTION 'league_one_runtime has incorrect public intake privileges';

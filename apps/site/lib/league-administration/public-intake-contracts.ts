@@ -1,6 +1,6 @@
 import type { AdministrationSourceMapping } from './source-mapping';
 import type { AdministrationWriteFence } from './store-contracts';
-import type { CapturedAdministrationDocument } from './runtime';
+import type { CapturedAdministrationDocument } from './contracts';
 
 export const PUBLIC_INTAKE_JOB = 'league-administration-public-intake';
 export const PUBLIC_INTAKE_VERSION = 'sleeper-public-intake-v1';
@@ -17,8 +17,13 @@ export type PublicIntakeWork = Readonly<{ requestId: string; revision: number }>
 export type PublicIntakeDisposition = 'complete' | 'partial' | 'unavailable' | 'backoff';
 export type PublicIntakeOutcome = Readonly<{ status: 'progress' | 'busy' | PublicIntakeDisposition;
   resource?: PublicIntakeWork['kind']; providerRequests: number }>;
+export type PublicCoreCheckpoint = Readonly<{
+  observations: Readonly<{ league?: string; rosters?: string; users?: string }>;
+  receipts?: Readonly<{ settings: string; players: string; managers: string }>;
+}>;
 export type PublicIntakeStore = Readonly<{
   submit: (input: PublicIntakeInput) => Promise<void>;
+  recover: (requestId: string, fence: AdministrationWriteFence) => Promise<void>;
   next: (requestId: string) => Promise<PublicIntakeWork | PublicIntakeDisposition>;
   admit: (work: PublicIntakeWork, fence: AdministrationWriteFence) => Promise<boolean>;
   recordIdentity: (work: Extract<PublicIntakeWork, { kind: 'identity' }>, capture: PublicCapture<PublicIdentity>, fence: AdministrationWriteFence) => Promise<void>;
@@ -26,7 +31,7 @@ export type PublicIntakeStore = Readonly<{
   register: (work: Extract<PublicIntakeWork, { kind: 'bootstrap' | 'core' | 'users' }>, capture: CapturedAdministrationDocument,
     fence: AdministrationWriteFence) => Promise<void>;
   completeCore: (work: Extract<PublicIntakeWork, { kind: 'bootstrap' | 'core' | 'users' }>, mapping: AdministrationSourceMapping,
-    observations: Readonly<{ league?: string; rosters?: string; users?: string }>, fence: AdministrationWriteFence) => Promise<void>;
+    checkpoint: PublicCoreCheckpoint, fence: AdministrationWriteFence) => Promise<void>;
   fail: (work: PublicIntakeWork, fence: AdministrationWriteFence) => Promise<void>;
 }>;
 

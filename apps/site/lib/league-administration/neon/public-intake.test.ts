@@ -25,7 +25,9 @@ describe('public-data registration through the existing identity writer', () => 
     expect(f.queryAfterLock).toHaveBeenCalledWith(expect.stringContaining('projection-store:register-league-season'),
       expect.arrayContaining([JSON.stringify(league.scoring_settings), `sleeper-${work.externalLeagueId}`]),
       expect.objectContaining({ statement: 'SELECT public.guard_public_data_intake($1::jsonb,$2::jsonb)',
-        parameters: [JSON.stringify(work), JSON.stringify({ ...fence, reserveCollection: true })] }), undefined);
+        parameters: [JSON.stringify(work), JSON.stringify({ ...fence, reserveCollection: true })],
+        verifyAfter: { statement: 'SELECT public.guard_public_data_intake($1::jsonb,$2::jsonb)',
+          parameters: [JSON.stringify(work), JSON.stringify(fence)] } }), undefined);
     expect(f.query).toHaveBeenLastCalledWith(expect.stringContaining('checkpoint'),
       [JSON.stringify(work), expect.stringContaining('"leagueSeasonId":"season-id"'), JSON.stringify(fence)]);
   });
