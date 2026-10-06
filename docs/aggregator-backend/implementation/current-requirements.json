@@ -1,10 +1,10 @@
 {
   "schemaVersion": "bc-m1-current-requirements-v1",
-  "status": "preliminary-unfrozen-source-reconciliation",
+  "status": "reviewed-partial-implementation-SQL-unqualified",
   "canonicalRequirements": "docs/aggregator-backend/design-requirements.json",
   "parentBaselineSha": "ffa7bd0d16bdc34c1578e2a2e77690cb6c756381",
-  "reviewedCandidateSha": null,
-  "sourceBinding": "Uncommitted candidate; final exact-SHA independent review and evidence binding pending.",
+  "reviewedCandidateSha": "fe3d983e062e766aec77b2bff67ee04b2fb19fde",
+  "sourceBinding": "Clean implementation SHA reviewed independently and tested by verify:full. This ledger binding is an evidence-only follow-up; no application, migration, workflow, dependency or test source changed afterward.",
   "scope": "Current execution ledger only; original c907584 and ffa7bd0 independent audits remain immutable.",
   "classificationRule": "Whole-obligation status includes its allocated canonical oracle. Tested helpers do not promote incomplete workflows. Inherited bounded baseline verification is distinct from new candidate proof. Counts are not completion percentages.",
   "counts": {
@@ -23,7 +23,7 @@
         "skipped": 0,
         "sql": 0
       },
-      "receipt": "Preserved isolated audit test-results/current-audit/architecture-tests.log; candidate freeze and independent revalidation pending."
+      "receipt": "Preserved historical audit proof remains unchanged. Current adapter/architecture review verified source-equivalent blobs and the full current unit run passed; see evidence.md."
     },
     "account-composition": {
       "state": "implemented-in-source; candidate-qualification-pending",
@@ -35,7 +35,7 @@
     },
     "r035-normalizer": {
       "state": "normalizer-component-repaired; whole-oracle-pending",
-      "scope": "Invalid primary becomes unknown while known co-managers survive under partial-v2; canonical v1 registry/accepted readers remain strict. Reported unit results need frozen-candidate binding; SQL authored/unexecuted."
+      "scope": "Invalid primary becomes unknown while known co-managers survive under partial-v2; canonical v1 registry/accepted readers remain strict. Current frozen unit and independent source evidence pass; whole SQL identity/access oracle remains unexecuted."
     },
     "isolated-test-safety": {
       "state": "baseline-local-repairs-reviewed; candidate-SQL-unexecuted",
@@ -48,7 +48,7 @@
         "passed": 69,
         "files": 3,
         "sql": 0,
-        "source": "Implementer report; not independently rerun or frozen-SHA evidence."
+        "source": "Historical implementer development total only. The same source was independently reviewed in the 350-test architecture run and included in the current frozen full unit pass; totals overlap."
       }
     }
   },
@@ -738,7 +738,7 @@
       "code": [
         {
           "path": "apps/site/lib/accounts/neon/database.ts",
-          "line": 88
+          "line": 96
         },
         {
           "path": "apps/site/lib/accounts/decision-timing.ts",
@@ -763,7 +763,7 @@
       "code": [
         {
           "path": "apps/site/lib/accounts/neon/database.ts",
-          "line": 88
+          "line": 96
         },
         {
           "path": "apps/site/lib/accounts/decision-timing.ts",
@@ -788,7 +788,7 @@
       "code": [
         {
           "path": "apps/site/lib/accounts/neon/database.ts",
-          "line": 88
+          "line": 96
         },
         {
           "path": "apps/site/lib/accounts/decision-timing.ts",
@@ -1024,7 +1024,7 @@
       "componentEvidence": [
         "baseline-bounded-proof"
       ],
-      "missing": "None for this bounded unit-level obligation. Real SQL acceptance, protected target service composition and production qualification remain separately open and are not implied by this status."
+      "missing": "None for the bounded reader/normalizer oracle: current exact-source unit checks preserve held identity, unknown placement, same-capture group evidence and independent metadata age. This does not qualify real SQL acceptance or the protected target service."
     },
     {
       "id": "R041",
@@ -1166,7 +1166,7 @@
       "code": [
         {
           "path": "apps/site/lib/accounts/neon/database.ts",
-          "line": 88
+          "line": 96
         },
         {
           "path": "apps/site/lib/accounts/decision-timing.ts",
@@ -1430,7 +1430,7 @@
       "code": [
         {
           "path": "apps/site/lib/accounts/neon/database.ts",
-          "line": 88
+          "line": 96
         },
         {
           "path": "apps/site/lib/accounts/decision-timing.ts",
@@ -1475,7 +1475,7 @@
       "code": [
         {
           "path": "apps/site/lib/accounts/neon/database.ts",
-          "line": 88
+          "line": 96
         },
         {
           "path": "apps/site/lib/accounts/decision-timing.ts",
@@ -1500,7 +1500,7 @@
       "code": [
         {
           "path": "apps/site/lib/accounts/neon/database.ts",
-          "line": 88
+          "line": 96
         },
         {
           "path": "apps/site/lib/accounts/decision-timing.ts",
@@ -1525,7 +1525,7 @@
       "code": [
         {
           "path": "apps/site/lib/accounts/neon/database.ts",
-          "line": 88
+          "line": 96
         },
         {
           "path": "apps/site/lib/accounts/decision-timing.ts",
@@ -1554,7 +1554,7 @@
       "code": [
         {
           "path": "apps/site/lib/accounts/neon/database.ts",
-          "line": 88
+          "line": 96
         },
         {
           "path": "apps/site/lib/accounts/decision-timing.ts",
@@ -1579,7 +1579,7 @@
       "code": [
         {
           "path": "apps/site/lib/accounts/neon/database.ts",
-          "line": 88
+          "line": 96
         },
         {
           "path": "apps/site/lib/accounts/decision-timing.ts",
@@ -1604,7 +1604,7 @@
       "code": [
         {
           "path": "apps/site/lib/accounts/neon/database.ts",
-          "line": 88
+          "line": 96
         },
         {
           "path": "apps/site/lib/accounts/decision-timing.ts",
@@ -1658,7 +1658,7 @@
       "code": [
         {
           "path": "apps/site/lib/accounts/neon/database.ts",
-          "line": 88
+          "line": 96
         },
         {
           "path": "apps/site/lib/accounts/decision-timing.ts",
@@ -1704,7 +1704,7 @@
       "code": [
         {
           "path": "apps/site/lib/accounts/neon/database.ts",
-          "line": 88
+          "line": 96
         },
         {
           "path": "apps/site/lib/accounts/decision-timing.ts",
@@ -1729,7 +1729,7 @@
       "code": [
         {
           "path": "apps/site/lib/accounts/neon/database.ts",
-          "line": 88
+          "line": 96
         },
         {
           "path": "apps/site/lib/accounts/decision-timing.ts",
@@ -1754,7 +1754,7 @@
       "code": [
         {
           "path": "apps/site/lib/accounts/neon/database.ts",
-          "line": 88
+          "line": 96
         },
         {
           "path": "apps/site/lib/accounts/decision-timing.ts",
@@ -1779,7 +1779,7 @@
       "code": [
         {
           "path": "apps/site/lib/accounts/neon/database.ts",
-          "line": 88
+          "line": 96
         },
         {
           "path": "apps/site/lib/accounts/decision-timing.ts",
@@ -1846,7 +1846,7 @@
       "code": [
         {
           "path": "apps/site/lib/accounts/neon/database.ts",
-          "line": 88
+          "line": 96
         },
         {
           "path": "apps/site/lib/accounts/decision-timing.ts",
@@ -2063,7 +2063,7 @@
         }
       ],
       "componentEvidence": [],
-      "missing": "Run instrumented browser/observer journeys proving zero Tank01 starts; candidate does not change those paths."
+      "missing": "Passing browser fixtures verify zero direct browser provider requests for covered journeys, and unit/source checks preserve observer ownership. Complete the allocated browser/server-observer provider-start census; client request listeners and mocked observer dependencies do not prove zero Tank01 starts across all server-side paths."
     },
     {
       "id": "R085",
@@ -2087,7 +2087,7 @@
       ],
       "tests": [],
       "componentEvidence": [],
-      "missing": "Run same-input exact-week, clock-v1, baseline and bye/missing-projection parity; source paths are unchanged."
+      "missing": "Passing unit/browser regressions cover existing exact-week, clock-v1, bye/missing and baseline behavior. Retain the allocated before/after comparison using identical fixture/source manifests and immutable baseline/snapshot hashes; a green aggregate run alone is not that parity receipt."
     },
     {
       "id": "R086",
@@ -2111,7 +2111,7 @@
       ],
       "tests": [],
       "componentEvidence": [],
-      "missing": "Run exact-SHA two-league state-isolation regression; candidate does not change official/scoring/manager selectors."
+      "missing": "Passing browser/unit journeys cover both named leagues and scoped selections. Complete the allocated collision/cross-reference fixture proof across stored source/settings/score/selection/snapshot state; visual separation and mocked responses do not qualify actual SQL isolation."
     },
     {
       "id": "R087",
@@ -2130,7 +2130,7 @@
         },
         {
           "path": "apps/site/scripts/migrate.mjs",
-          "line": 54
+          "line": 64
         }
       ],
       "tests": [
@@ -2140,14 +2140,14 @@
         },
         {
           "path": "apps/site/scripts/account-transition-preflight.test.mjs",
-          "line": 45
+          "line": 108
         }
       ],
       "componentEvidence": [
         "account-composition",
         "infrastructure-transition"
       ],
-      "missing": "Prior receiptless caller defect is addressed in source. Qualify coordinated installation/drain, actual old/new restricted LOGIN behavior, epoch/server identity, recovery and full route/payload/cache/selection parity before declaring migration034 safe to install or release."
+      "missing": "Receipt-aware caller composition and passing unit/browser regressions address the source defect and covered public behavior. Actual coordinated installation/drain, old/new restricted LOGIN compatibility, epoch/server identity and recovery remain unexecuted; retain explicit route/payload/fallback/cache/selection comparison before installation/release."
     },
     {
       "id": "R088",
@@ -2441,7 +2441,7 @@
       "code": [
         {
           "path": "apps/site/lib/accounts/neon/database.ts",
-          "line": 88
+          "line": 96
         },
         {
           "path": "apps/site/lib/accounts/decision-timing.ts",
@@ -2466,7 +2466,7 @@
       "code": [
         {
           "path": "apps/site/lib/accounts/neon/database.ts",
-          "line": 88
+          "line": 96
         },
         {
           "path": "apps/site/lib/accounts/decision-timing.ts",
@@ -2520,7 +2520,7 @@
       "code": [
         {
           "path": "apps/site/lib/accounts/neon/database.ts",
-          "line": 88
+          "line": 96
         },
         {
           "path": "apps/site/lib/accounts/decision-timing.ts",
@@ -2697,5 +2697,20 @@
       ],
       "missing": "Dormant discovery now composes the closed admitted transport and shared normalizer. Real SQL permit/admission implementation, immutable persisted request contexts and every owned provider-callsite convergence remain pending; no global budget or actual acquisition qualification is claimed."
     }
-  ]
+  ],
+  "frozenVerification": {
+    "sha": "fe3d983e062e766aec77b2bff67ee04b2fb19fde",
+    "command": "pnpm verify:full",
+    "unitPassed": 5871,
+    "unitSkipped": 1,
+    "unitFiles": 284,
+    "publicBrowserPassed": 121,
+    "publicBrowserSkipped": 20,
+    "syntheticAccountBrowserPassed": 20,
+    "syntheticAccountBrowserSkipped": 0,
+    "failed": 0,
+    "SQL": "SKIPPED / UNVERIFIED; no database command",
+    "log": "test-results/bcm1-gap-fe3d983-verify.log",
+    "scope": "Offline/unit and mocked browser regression evidence, not completed target workflow or SQL qualification."
+  }
 }
