@@ -12,6 +12,9 @@ import { createIntegrationArtifactDirectory, INTEGRATION_ARTIFACT_DIRECTORY_ENV 
 import { IntegrationDeadlineError, IntegrationLifecycleBudget, INTEGRATION_LIFECYCLE_MS,
   INTEGRATION_TEARDOWN_RESERVE_MS } from './integration-lifecycle-budget';
 
+import { createQualificationContext, qualificationArguments, validateQualificationArtifacts, QUALIFICATION_CONTEXT_ENV,
+  type QualificationBinding, type QualificationContext, type QualificationProfile } from './qualification-profile';
+
 export const DISPOSABLE_AUTHORIZATION = 'I_AUTHORIZE_DISPOSABLE_TEST_BRANCHES';
 const protectedIdentities = ['solitary-base-99261075', 'br-rapid-boat-avgeevye', 'br-still-breeze-avaibago',
   'main', 'production', 'neondb', 'projection_refactor_test', 'account_reset_integration_test'];
@@ -92,6 +95,9 @@ export type IntegrationRunReceipt = {
   childClosureEvidence?: string;
   artifactDirectory?: string;
   qualification?: 'unverified' | 'passed' | 'failed';
+  testContext?: QualificationContext;
+  testEvidence?: Awaited<ReturnType<typeof validateQualificationArtifacts>>;
+  testEvidenceFailure?: 'missing-or-invalid';
   cancellationReason?: 'deadline' | 'sigint' | 'sigterm' | 'requested' | 'ownership-lost';
   lifecycle?: { limitMs: number; teardownReserveMs: number; elapsedMs: number };
   unresolvedResources?: string[];
@@ -189,7 +195,7 @@ export async function runIntegrationLifecycle(runtime: Runtime, receipt: Integra
 
 export async function runDisposableIntegration(options: { environment: NodeJS.ProcessEnv; gitSha: string;
   journal: (receipt: IntegrationRunReceipt, signal: AbortSignal) => Promise<void>; signal: AbortSignal;
-  output: (text: string) => void; budget?: IntegrationLifecycleBudget }) {
+  output: (text: string) => void; budget?: IntegrationLifecycleBudget; profile?: QualificationProfile }) {
   const budget = options.budget ?? new IntegrationLifecycleBudget();
   const config = disposableConfiguration(options.environment);
   const controller = new AbortController();
@@ -213,6 +219,7 @@ export async function runDisposableIntegration(options: { environment: NodeJS.Pr
   let client: PoolClient | undefined;
   let proof: string | undefined;
   let childEnvironment: NodeJS.ProcessEnv | undefined;
+  let qualification: QualificationBinding;
   const savedEnvironment = { ...process.env };
   const secrets = [options.environment.NEON_TEST_API_KEY!];
   const safeOutput = (value: string) => options.output(redactIntegrationOutput(value, secrets));
@@ -241,6 +248,10 @@ export async function runDisposableIntegration(options: { environment: NodeJS.Pr
       const artifactDirectory = await createIntegrationArtifactDirectory();
       signal.throwIfAborted();
       receipt.artifactDirectory = artifactDirectory;
+      qualification = { directory: artifactDirectory, context: await createQualificationContext(
+        fileURLToPath(new URL('..', import.meta.url)), options.gitSha, runId, options.profile) };
+      receipt.testContext = qualification.context;
+      signal.throwIfAborted();
       await save();
       controller.signal.throwIfAborted();
       receipt.provisionStep = 'api-target-validation';
@@ -313,13 +324,16 @@ export async function runDisposableIntegration(options: { environment: NodeJS.Pr
       assert.equal((await query('SELECT pg_advisory_unlock(hashtextextended($1::text,0)) AS unlocked', [INTEGRATION_MUTEX])).rows[0].unlocked, true);
       proof = JSON.stringify({ database: config.databaseName, branch: branch.branchId, ...identity, applicationName, lockMode: 'ShareLock' });
       await verifyOwner(signal);
-      childEnvironment = { ...integrationChildEnvironment(options.environment, receipt.artifactDirectory), ...generated, [INTEGRATION_OWNER_ENV]: proof };
+      childEnvironment = { ...integrationChildEnvironment(options.environment, receipt.artifactDirectory), ...generated, [INTEGRATION_OWNER_ENV]: proof,
+        [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(qualification.context) };
       receipt.provisionStep = 'complete';
     },
     async execute(signal) {
       controller.signal.throwIfAborted(); signal.throwIfAborted(); await verifyOwner(signal); signal.throwIfAborted();
       const child = spawnIntegrationChild(process.execPath, [fileURLToPath(new URL('../node_modules/vitest/vitest.mjs', import.meta.url)),
-        'run', '--config', fileURLToPath(new URL('../vitest.integration.config.ts', import.meta.url))],
+        'run', '--config', fileURLToPath(new URL('../vitest.integration.config.ts', import.meta.url)),
+        ...qualificationArguments(qualification.context.profile,
+          fileURLToPath(new URL('./qualification-reporter.ts', import.meta.url)))],
       { cwd: fileURLToPath(new URL('..', import.meta.url)), env: childEnvironment!, stdio: ['ignore', 'pipe', 'pipe'] });
       const childSignal = AbortSignal.any([signal, controller.signal]);
       const supervisor = superviseCapacityChild(child, childSignal, pid => stopIntegrationChildTree(child, pid));
@@ -339,7 +353,13 @@ export async function runDisposableIntegration(options: { environment: NodeJS.Pr
         const outcome = await supervisor.completion;
         let closed = outcome.closed;
         if (closed) { try { childClosureEvidence = await verifyIntegrationChildTreeClosed(child); } catch { closed = false; } }
-        return { passed: outcome.code === 0 && !outcome.childError && !childSignal.aborted && !ownerLost, closed };
+        let evidenceValid = false;
+        // Reports precede close/timeout failures; validate only after tree closure.
+        if (closed) {
+          try { receipt.testEvidence = await validateQualificationArtifacts(qualification); evidenceValid = true; }
+          catch { receipt.testEvidenceFailure = 'missing-or-invalid'; }
+        }
+        return { passed: evidenceValid && outcome.code === 0 && !outcome.childError && !childSignal.aborted && !ownerLost, closed };
       })();
       return childCompletion;
     },

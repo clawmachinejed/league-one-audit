@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createIndependentDatabase, createPinnedIntegrationDatabase, ownerQuery, type IndependentDatabase } from './neon-integration-harness';
@@ -864,24 +865,53 @@ describe('bounded public DATA refresh cycles through the existing intake owner',
 
   it('refreshes two typed core cycles with real admission spacing, a correction and lost-checkpoint replay [focused slow SQL]', async () => {
     const database = connection.database;
+    expect((await database.query('SELECT session_user AS role,current_user AS effective_role'))[0])
+      .toEqual({ role: 'league_one_runtime', effective_role: 'league_one_runtime' });
     const administration = createLeagueAdministrationStore(database);
     const intake = createPublicIntakeStore(database);
     const jobs = createProjectionStore(database);
     const refresh = createPublicDataRefreshStore(database);
     if (!revision) revision = (await refresh.configure(configuration)).configurationRevision;
+    const uuid = (value: unknown): string => {
+      if (typeof value !== 'string') throw new Error('Required retained identity is absent.');
+      expect(value).toMatch(/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu);
+      return value;
+    };
     const native = String(retainedLeague.league_id);
+    const canonicalRows = await database.query(`SELECT league.id AS league_id,season.id AS league_season_id,connection.id AS connection_id
+      FROM public.league_source_connections connection JOIN public.league_seasons season ON season.id=connection.league_season_id
+      JOIN public.leagues league ON league.id=season.league_id WHERE connection.provider='sleeper'
+        AND connection.external_league_id=$1 AND season.season=2181`, [native]);
+    expect(canonicalRows).toHaveLength(1);
+    const canonical = canonicalRows[0];
+    for (const value of Object.values(canonical)) uuid(value);
+    expect(new Set(Object.values(canonical)).size).toBe(3);
     const originalLeague = retainedLeague;
     const originalRefreshHistory = await retainedRefreshHistory();
+    const priorTerminal = new Set((await database.query(`SELECT cycle.intake_id FROM public.public_data_refresh_cycles cycle
+      JOIN public.public_data_intakes request ON request.id=cycle.intake_id WHERE cycle.target_id=$1 AND request.terminal`, [targetId])).map(row => uuid(row.intake_id)));
+    const selectedRequests = new Set<string>();
+    let selectedThisStep: string | undefined;
+    let activeResource: string | undefined;
+    const acquisitions: { requestId: string; resource: string; url: string }[] = [];
     let cycleNumber = 1;
     let lostCheckpoint = false;
     let lostAdmissionAck = false;
     let pausedDuringCapture = false;
     let restoreApproval = false;
+    let cleanupSuppressed = false;
+    let pendingDispatchProved = false;
+    let recoveryProved = false;
+    let recoveryAttemptedThisStep = false;
+    let callbackError: unknown;
+    let unfinished: { work: PublicIntakeWork; fence: Parameters<typeof intake.completeCore>[3]; receipts: string[]; before: DatabaseRow } | undefined;
     const rawLeague = () => ({ ...originalLeague, scoring_settings: { rec_yd: cycleNumber === 1 ? 0.13 : 0.17, unsupported_bonus: 2 } });
     const rawRoster = () => [{ roster_id: 1, owner_id: cycleNumber === 1 ? '555' : '558', co_owners: [cycleNumber === 1 ? '556' : '557'],
       players: [cycleNumber === 1 ? '123' : '456'], starters: [cycleNumber === 1 ? '123' : '456'], reserve: [], taxi: [] }];
     const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
       const url = String(input);
+      if (!selectedThisStep || !activeResource) throw new Error('Provider acquisition has no selected request/admitted work.');
+      acquisitions.push({ requestId: selectedThisStep, resource: activeResource, url });
       if (url.endsWith(`/user/${nativeManager}`)) return new Response(JSON.stringify({ user_id: nativeManager, username: `refresh_manager_${cycleNumber}` }));
       if (url.endsWith(`/user/${nativeManager}/leagues/nfl/2181`)) return new Response(JSON.stringify([rawLeague()]));
       if (url.endsWith(`/league/${native}`)) return new Response(JSON.stringify(rawLeague()));
@@ -892,54 +922,228 @@ describe('bounded public DATA refresh cycles through the existing intake owner',
     const receiptIds: string[][] = [];
     const immutableReceipts: DatabaseRow[][] = [];
     const seenRequests: string[] = [];
+    let firstCycleHistory: Awaited<ReturnType<typeof retainedRefreshHistory>> | undefined;
+    let firstCycleEvidence: { statement: string; parameters: readonly unknown[]; rows: readonly DatabaseRow[] }[] | undefined;
+    let canonicalTeam: string | undefined;
+    const noPeriodAccess = new Set<string>();
+    const checkpointWithoutPeriodAccess = async (...args: Parameters<typeof intake.completeCore>) => {
+      const reader = await createPinnedIntegrationDatabase('runtime');
+      const blocker = await createPinnedIntegrationDatabase('owner'); let open = false;
+      try {
+        expect((await reader.database.query('SELECT session_user AS role'))[0].role).toBe('league_one_runtime');
+        // Warm rowtype/function binding outside the lock; neither call can mutate.
+        await createPublicIntakeStore(reader.database).next(args[0].requestId);
+        await expect(reader.database.query("SELECT public.checkpoint_public_data_intake('{}'::jsonb,'{}'::jsonb,'{}'::jsonb)")).rejects.toThrow('wrong public intake owner');
+        await reader.database.query("SET statement_timeout='5s'");
+        await blocker.database.query('BEGIN'); open = true;
+        await blocker.database.query('LOCK TABLE public.public_data_exact_period_tasks,public.public_data_exact_period_checkpoints IN ACCESS EXCLUSIVE MODE');
+        const locks = await blocker.database.query(`SELECT relation::regclass::text AS relation FROM pg_locks WHERE pid=pg_backend_pid()
+          AND mode='AccessExclusiveLock' AND granted AND relation IN ('public.public_data_exact_period_tasks'::regclass,'public.public_data_exact_period_checkpoints'::regclass)`);
+        expect(locks).toHaveLength(2);
+        // Real default-directory completion executes the no-candidate and terminal
+        // next-work branches. A task-table SELECT/UPDATE would block and time out.
+        await createPublicIntakeStore(reader.database).completeCore(...args);
+        expect(await createPublicIntakeStore(reader.database).next(args[0].requestId)).toBe('complete');
+        noPeriodAccess.add(args[0].requestId);
+      } catch (error) { callbackError = error; throw error; }
+      finally { if (open) await blocker.database.query('ROLLBACK'); await reader.close(); await blocker.close(); }
+    };
+    const snapshotFirstCycle = async () => {
+      const requestId = seenRequests[0]; const ids = receiptIds[0];
+      firstCycleHistory = await retainedRefreshHistory();
+      for (const table of ['public_data_refresh_configurations', 'public_data_refresh_cycles', 'public_data_refresh_cycle_outcomes']) {
+        expect(firstCycleHistory.find(entry => entry.table === table)?.rows.length).toBeGreaterThan(0);
+      }
+      const requestTables = ['public_data_identity_observations','public_data_league_lists','public_data_league_candidates',
+        'public_data_directory_captures','public_data_dispatches'] as const;
+      const definitions: { statement: string; parameters: readonly unknown[] }[] = requestTables.map(table => ({
+        statement: `SELECT * FROM public.${table} WHERE intake_id=$1 ORDER BY to_jsonb(${table})::text`, parameters: [requestId] }));
+      definitions.push({ statement: 'SELECT * FROM public.public_data_intakes WHERE id=$1', parameters: [requestId] },
+        { statement: `SELECT outcome.* FROM public.public_data_dispatch_outcomes outcome JOIN public.public_data_dispatches dispatch
+          USING(worker_id,generation) WHERE dispatch.intake_id=$1 ORDER BY outcome.worker_id,outcome.generation`, parameters: [requestId] });
+      for (const [table, predicate] of [
+        ['league_roster_capture_receipts', 'id=ANY($1::uuid[])'],
+        ['league_roster_resource_attempts', 'id IN (SELECT attempt_id FROM public.league_roster_capture_receipts WHERE id=ANY($1::uuid[]))'],
+        ['league_roster_resource_acceptances', 'receipt_id=ANY($1::uuid[])'],
+        ['league_administration_contents', 'id IN (SELECT content_id FROM public.league_roster_capture_receipts WHERE id=ANY($1::uuid[]))'],
+        ['league_administration_observations', 'id IN (SELECT legacy_observation_id FROM public.league_roster_capture_receipts WHERE id=ANY($1::uuid[]))'],
+        ['league_administration_team_entries', 'content_id IN (SELECT content_id FROM public.league_roster_capture_receipts WHERE id=ANY($1::uuid[]))'],
+        ['league_team_manager_entries', 'content_id IN (SELECT content_id FROM public.league_roster_capture_receipts WHERE id=ANY($1::uuid[]))'],
+        ['league_team_manager_memberships', 'content_id IN (SELECT content_id FROM public.league_roster_capture_receipts WHERE id=ANY($1::uuid[]))'],
+      ]) definitions.push({ statement: `SELECT * FROM public.${table} WHERE ${predicate} ORDER BY to_jsonb(${table})::text`, parameters: [ids] });
+      firstCycleEvidence = [];
+      for (const definition of definitions) {
+        const rows = await database.query(definition.statement, definition.parameters);
+        expect(rows.length, `First completed cycle must populate ${definition.statement}`).toBeGreaterThan(0);
+        firstCycleEvidence.push({ ...definition, rows });
+      }
+    };
     try {
+      // The two source cycles retain the original 18-minute loop / 19-minute test
+      // limits. No hook, admission, retry or qualification deadline is enlarged.
       const until = Date.now() + 18 * 60_000;
       while (Date.now() < until && seenRequests.length < 2) {
         if (restoreApproval) { await reconfigure({ paused: false }); restoreApproval = false; }
-        const outcome = await runPublicDataRefreshStep({ refresh, administration, jobs, managerEvidenceVersion: 'v2',
+        selectedThisStep = undefined; activeResource = undefined; recoveryAttemptedThisStep = false;
+        const acquisitionCount = acquisitions.length;
+        const outcome = await runPublicDataRefreshStep({
+          refresh: { ...refresh, select: async fence => {
+            const selected = await refresh.select(fence);
+            try {
+              if (selected.status === 'selected') {
+                expect(selected.targetId).toBe(targetId);
+                selectedThisStep = uuid(selected.requestId); selectedRequests.add(selectedThisStep);
+                expect(priorTerminal.has(selectedThisStep)).toBe(false);
+              }
+              // Selection records the first terminal outcome before any second
+              // cycle acquisition. Snapshot actual full populated history here.
+              if (seenRequests.length === 1 && !firstCycleEvidence) await snapshotFirstCycle();
+            } catch (error) { callbackError = error; throw error; }
+            return selected;
+          } }, administration, jobs, managerEvidenceVersion: 'v2',
           intake: { ...intake,
+            recover: async (requestId, fence) => {
+              if (!unfinished || recoveryProved) return intake.recover(requestId, fence);
+              recoveryAttemptedThisStep = true;
+              try {
+                expect(requestId).toBe(unfinished.work.requestId);
+                expect(fence.workerId).not.toBe(unfinished.fence.workerId);
+                const before = await database.query('SELECT revision,failure_count FROM public.public_data_intakes WHERE id=$1', [requestId]);
+                expect(before).toEqual([unfinished.before]);
+                const dispatches = await database.query('SELECT * FROM public.public_data_dispatches WHERE intake_id=$1 ORDER BY admitted_at', [requestId]);
+                await intake.recover(requestId, fence);
+                const after = await database.query('SELECT revision,failure_count FROM public.public_data_intakes WHERE id=$1', [requestId]);
+                expect(after).toEqual([{ revision: Number(unfinished.before.revision) + 1, failure_count: Number(unfinished.before.failure_count) + 1 }]);
+                expect(await database.query('SELECT outcome FROM public.public_data_dispatch_outcomes WHERE worker_id=$1 AND generation=$2',
+                  [unfinished.fence.workerId, unfinished.fence.generation])).toEqual([{ outcome: 'recovered' }]);
+                await intake.recover(requestId, fence);
+                expect(await database.query('SELECT revision,failure_count FROM public.public_data_intakes WHERE id=$1', [requestId])).toEqual(after);
+                expect(await database.query('SELECT * FROM public.public_data_dispatches WHERE intake_id=$1 ORDER BY admitted_at', [requestId])).toEqual(dispatches);
+                expect(await intake.next(requestId)).toBe('backoff');
+                recoveryProved = true;
+              } catch (error) { callbackError = error; throw error; }
+            },
             admit: async (work, fence) => {
+              if (work.requestId !== selectedThisStep) { callbackError = new Error('Admitted work differs from selected request.'); throw callbackError; }
               const admitted = await intake.admit(work, fence);
+              if (admitted) activeResource = work.kind;
               if (admitted && !lostAdmissionAck) { lostAdmissionAck = true; throw new Error('synthetic admission acknowledgement lost after commit'); }
               if (admitted && !pausedDuringCapture) { await reconfigure({ paused: true }); pausedDuringCapture = true; restoreApproval = true; }
               return admitted;
             },
             completeCore: async (work, mapping, captured, fence) => {
-              if (cycleNumber === 2 && work.kind === 'core' && !lostCheckpoint) { lostCheckpoint = true; throw new Error('synthetic recurring core checkpoint lost'); }
-              await intake.completeCore(work, mapping, captured, fence);
+              if (cycleNumber === 2 && work.kind === 'core' && !lostCheckpoint) {
+                lostCheckpoint = true;
+                const [before] = await database.query('SELECT revision,failure_count FROM public.public_data_intakes WHERE id=$1', [work.requestId]);
+                unfinished = { work, fence, before, receipts: [captured.receipts?.settings, captured.receipts?.players, captured.receipts?.managers].map(uuid) };
+                throw new Error('synthetic recurring core checkpoint lost');
+              }
+              if (work.kind === 'users') await checkpointWithoutPeriodAccess(work, mapping, captured, fence);
+              else await intake.completeCore(work, mapping, captured, fence);
+            },
+            fail: async (work, fence) => {
+              if (unfinished && !cleanupSuppressed && fence.workerId === unfinished.fence.workerId
+                && fence.generation === unfinished.fence.generation && work.requestId === unfinished.work.requestId
+                && work.revision === unfinished.work.revision) {
+                cleanupSuppressed = true; // one exact failed dispatch only; every later cleanup delegates normally
+                throw new Error('synthetic failure-checkpoint database unavailable');
+              }
+              await intake.fail(work, fence);
             } },
         }, AbortSignal.timeout(20_000));
+        if (callbackError) throw callbackError;
         expect(['progress','busy','backoff','idle','unavailable','complete','partial']).toContain(outcome.status);
-        const cycles = await database.query(`SELECT cycle.cycle,cycle.intake_id,request.terminal
-          FROM public.public_data_refresh_cycles cycle JOIN public.public_data_intakes request ON request.id=cycle.intake_id
-          WHERE cycle.target_id=$1 ORDER BY cycle.cycle`, [targetId]);
+        if (unfinished && !pendingDispatchProved) {
+          expect(cleanupSuppressed).toBe(true);
+          expect(outcome).toMatchObject({ status: 'unavailable', resource: 'core', providerRequests: 2 });
+          expect(await database.query(`SELECT dispatch.resource,dispatch.max_requests,outcome.outcome FROM public.public_data_dispatches dispatch
+            LEFT JOIN public.public_data_dispatch_outcomes outcome USING(worker_id,generation)
+            WHERE dispatch.worker_id=$1 AND dispatch.generation=$2 AND dispatch.intake_id=$3`,
+          [unfinished.fence.workerId, unfinished.fence.generation, unfinished.work.requestId]))
+            .toEqual([{ resource: 'core', max_requests: 2, outcome: null }]);
+          expect(await database.query('SELECT revision,failure_count FROM public.public_data_intakes WHERE id=$1', [unfinished.work.requestId])).toEqual([unfinished.before]);
+          expect(await database.query('SELECT id FROM public.league_roster_capture_receipts WHERE id=ANY($1::uuid[])', [unfinished.receipts])).toHaveLength(3);
+          expect(await database.query('SELECT stage,settings_receipt_id,players_receipt_id,managers_receipt_id FROM public.public_data_league_candidates WHERE intake_id=$1', [unfinished.work.requestId]))
+            .toEqual([{ stage: 'core', settings_receipt_id: null, players_receipt_id: null, managers_receipt_id: null }]);
+          pendingDispatchProved = true;
+        }
+        if (recoveryAttemptedThisStep) {
+          expect(recoveryProved).toBe(true);
+          expect(outcome).toMatchObject({ status: 'backoff', providerRequests: 0 });
+          expect(acquisitions).toHaveLength(acquisitionCount);
+        }
+        const cycles = await database.query(`SELECT cycle.cycle,cycle.intake_id,request.terminal FROM public.public_data_refresh_cycles cycle
+          JOIN public.public_data_intakes request ON request.id=cycle.intake_id JOIN public.public_data_refresh_targets target
+            ON target.id=cycle.target_id AND target.current_cycle=cycle.cycle WHERE target.id=$1`, [targetId]);
         for (const cycle of cycles) {
-          const requestId = String(cycle.intake_id);
-          if (!cycle.terminal || seenRequests.includes(requestId)) continue;
-          const read = await readPublicSleeperIntake(database, administration, requestId, { managerEvidenceVersion: 'v2' });
-          expect(read.status).toBe('available');
-          if (read.status === 'missing') throw new Error('Missing recurring readback.');
-          expect(read.leagues[0].resources).toMatchObject({ settings: { status: 'available' }, heldRoster: { status: 'available',
-            teams: [{ players: [{ sourceEntity: { nativeId: cycleNumber === 1 ? '123' : '456' } }] }] },
-            teamManagers: { status: 'available', teams: [{ primaryOwner: { manager: { sourceManager: { nativeId: cycleNumber === 1 ? '555' : '558' } } } }] },
-            teamManagerEvidence: { status: 'available' }, directory: { status: 'available' } });
-          const [captured] = await database.query('SELECT settings_receipt_id,players_receipt_id,managers_receipt_id FROM public.public_data_league_candidates WHERE intake_id=$1', [requestId]);
-          const ids = Object.values(captured).map(String);
-          receiptIds.push(ids);
-          immutableReceipts.push([...await database.query('SELECT * FROM public.league_roster_capture_receipts WHERE id=ANY($1::uuid[]) ORDER BY id', [ids])]);
-          seenRequests.push(requestId);
-          cycleNumber = 2;
+          const requestId = uuid(cycle.intake_id);
+          if (!cycle.terminal || seenRequests.includes(requestId) || priorTerminal.has(requestId)) continue;
+          expect(selectedRequests.has(requestId)).toBe(true);
+          const composed = await readPublicDataRefresh(database, administration, targetId, { managerEvidenceVersion: 'v2' });
+          expect(composed).toMatchObject({ status: 'available', target: { id: targetId, externalManagerId: nativeManager },
+            cycle: { requestId, number: Number(cycle.cycle) }, intake: { status: 'available' } });
+          if (composed.status !== 'available' || !composed.intake || composed.intake.status === 'missing') throw new Error('Missing composed recurring readback.');
+          expect(composed.intake.leagues).toHaveLength(1);
+          const expectedOwner = cycleNumber === 1 ? '555' : '558';
+          const expectedCo = cycleNumber === 1 ? '556' : '557';
+          const expectedPlayer = cycleNumber === 1 ? '123' : '456';
+          expect(composed.intake.leagues[0]).toMatchObject({ leagueSeasonId: canonical.league_season_id, externalLeagueId: native,
+            resources: { settings: { status: 'available', value: { scoring: { rules: { state: 'known', value: { rec_yd: cycleNumber === 1 ? 0.13 : 0.17 } } } } },
+              heldRoster: { status: 'available', teams: [{ externalRosterId: '1', players: [{ sourceEntity: { provider: 'sleeper', nativeId: expectedPlayer } }] }] },
+              teamManagers: { status: 'available', teams: [{ sourceTeam: { nativeId: '1' }, primaryOwner: { state: 'owned', manager: { sourceManager: { nativeId: expectedOwner } } },
+                coManagers: { state: 'known', completeness: 'complete', managers: [{ sourceManager: { nativeId: expectedCo } }] } }] },
+              teamManagerEvidence: { status: 'available', evidenceCompleteness: 'complete', teams: [{ primaryOwner: { state: 'owned', manager: { sourceManager: { nativeId: expectedOwner } } },
+                coManagers: { state: 'known', completeness: 'complete', managers: [{ sourceManager: { nativeId: expectedCo } }] } }] }, directory: { status: 'available' } } });
+          const mapping = await administration.readSourceMapping(native);
+          if (!mapping) throw new Error('Missing retained canonical source mapping.');
+          expect(mapping).toMatchObject({ leagueSeasonId: canonical.league_season_id, connectionId: canonical.connection_id });
+          const evidence = await administration.readAcceptedTeamManagerEvidence?.(mapping);
+          const managers = await administration.readAcceptedTeamManagers(mapping);
+          const players = await administration.readAcceptedCurrentRoster(mapping);
+          if (!evidence || evidence.status !== 'available' || managers.status !== 'available' || players.status !== 'available') throw new Error('Missing typed identities.');
+          expect(managers.teams).toHaveLength(1); expect(evidence.teams).toHaveLength(1); expect(players.teams).toHaveLength(1);
+          const teamId = uuid(managers.teams[0].seasonTeamId);
+          if (canonicalTeam) expect(teamId).toBe(canonicalTeam); else canonicalTeam = teamId;
+          expect([players.teams[0].seasonTeamId, evidence.teams[0].seasonTeamId]).toEqual([teamId, teamId]);
+          expect(new Set([...Object.values(canonical), teamId]).size).toBe(4);
+          const primary = managers.teams[0].primaryOwner; const co = managers.teams[0].coManagers;
+          if (primary.state !== 'owned' || co.state !== 'known') throw new Error('Missing primary/co-manager identity.');
+          expect(co.managers).toHaveLength(1);
+          const managerIds = [uuid(primary.manager.providerManagerId), uuid(co.managers[0].providerManagerId)];
+          expect(new Set(managerIds).size).toBe(2);
+          expect(await database.query('SELECT id,external_manager_id FROM public.league_source_manager_accounts WHERE id=ANY($1::uuid[]) ORDER BY external_manager_id', [managerIds]))
+            .toEqual([{ id: managerIds[0], external_manager_id: expectedOwner }, { id: managerIds[1], external_manager_id: expectedCo }].sort((a, b) => a.external_manager_id.localeCompare(b.external_manager_id)));
+          const candidates = await database.query('SELECT * FROM public.public_data_league_candidates WHERE intake_id=$1', [requestId]);
+          expect(candidates).toHaveLength(1); const captured = candidates[0];
+          expect(captured).toMatchObject({ intake_id: requestId, season: 2181, external_league_id: native, league_season_id: canonical.league_season_id, stage: 'complete' });
+          for (const field of ['league_season_id','league_observation_id','roster_observation_id','users_observation_id','users_capture_id']) uuid(captured[field]);
+          const ids = [captured.settings_receipt_id, captured.players_receipt_id, captured.managers_receipt_id, evidence.receipt.id].map(uuid);
+          expect(new Set(ids).size).toBe(4);
+          expect([players.receipt.id, managers.receipt.id]).toEqual([ids[1], ids[2]]);
+          const receipts = await database.query('SELECT * FROM public.league_roster_capture_receipts WHERE id=ANY($1::uuid[]) ORDER BY id', [ids]);
+          expect(receipts).toHaveLength(4);
+          const accepted = await database.query('SELECT id,receipt_id,source_mapping_revision_id FROM public.league_roster_resource_acceptances WHERE receipt_id=ANY($1::uuid[])', [ids]);
+          expect(accepted).toHaveLength(4); expect(new Set(accepted.map(row => uuid(row.id))).size).toBe(4);
+          expect(new Set(accepted.map(row => row.source_mapping_revision_id))).toEqual(new Set([mapping.revisionId]));
+          receiptIds.push(ids); immutableReceipts.push([...receipts]); seenRequests.push(requestId); cycleNumber = 2;
         }
         if (seenRequests.length < 2) await delay(1_000);
       }
-      expect(seenRequests).toHaveLength(2);
-      expect(new Set(seenRequests).size).toBe(2);
-      expect(lostAdmissionAck).toBe(true);
-      expect(pausedDuringCapture).toBe(true);
-      expect(lostCheckpoint).toBe(true);
-      await expectRetainedRefreshHistory(originalRefreshHistory);
+      expect(seenRequests).toHaveLength(2); expect(new Set(seenRequests).size).toBe(2);
+      expect(selectedRequests).toEqual(new Set(seenRequests));
+      expect(noPeriodAccess).toEqual(new Set(seenRequests));
+      expect(lostAdmissionAck).toBe(true); expect(pausedDuringCapture).toBe(true); expect(lostCheckpoint).toBe(true);
+      expect(cleanupSuppressed).toBe(true); expect(pendingDispatchProved).toBe(true); expect(recoveryProved).toBe(true);
+      if (!firstCycleHistory || !firstCycleEvidence) throw new Error('First-cycle retained history was not captured before the second acquisition.');
+      await expectRetainedRefreshHistory(originalRefreshHistory); await expectRetainedRefreshHistory(firstCycleHistory);
+      for (const evidence of firstCycleEvidence) expect(await database.query(evidence.statement, evidence.parameters)).toEqual(evidence.rows);
       expect(receiptIds[1].some(id => receiptIds[0].includes(id))).toBe(false);
       expect(await database.query('SELECT * FROM public.league_roster_capture_receipts WHERE id=ANY($1::uuid[]) ORDER BY id', [receiptIds[0]])).toEqual(immutableReceipts[0]);
+      expect(acquisitions.filter(capture => capture.requestId === seenRequests[0] && capture.resource === 'core')).toHaveLength(2);
+      expect(acquisitions.filter(capture => capture.requestId === seenRequests[1] && capture.resource === 'core')).toHaveLength(4);
+      expect(acquisitions.every(capture => seenRequests.includes(capture.requestId))).toBe(true);
+      expect(await database.query(`SELECT dispatch.worker_id FROM public.public_data_dispatches dispatch LEFT JOIN public.public_data_dispatch_outcomes outcome
+        USING(worker_id,generation) WHERE dispatch.intake_id=ANY($1::uuid[]) AND outcome.worker_id IS NULL`, [seenRequests])).toHaveLength(0);
       const [spacing] = await database.query(`SELECT bool_and(gap>=interval '60 seconds') AS bounded FROM (
         SELECT admitted_at-lag(admitted_at) OVER (ORDER BY admitted_at) AS gap FROM public.public_data_dispatches) spacing`);
       expect(spacing.bounded).toBe(true);
@@ -948,7 +1152,8 @@ describe('bounded public DATA refresh cycles through the existing intake owner',
         FROM public.public_data_refresh_targets target WHERE target.id=$1`, [targetId]);
       expect(cursor.exact_admission).toBe(true);
       expect(await database.query(`SELECT failure.* FROM public.public_data_refresh_selection_failures failure
-        JOIN public.public_data_dispatches dispatch USING(worker_id,generation) WHERE failure.reason='admission-unconfirmed'`)).toHaveLength(0);
+        JOIN public.public_data_dispatches dispatch USING(worker_id,generation) WHERE failure.reason='admission-unconfirmed'
+          AND failure.target_id=$1`, [targetId])).toHaveLength(0);
     } finally { fetch.mockRestore(); }
   }, 19 * 60_000);
 
@@ -1398,7 +1603,24 @@ describe('explicit public native-period intake through retained typed receipts',
 
   it('enforces SQL selector validation and identical omitted/empty replay before mutation', async () => {
     const runtime = await createPinnedIntegrationDatabase('runtime'); let open = false;
+    // Late-role equivalent, NOT a freshly created role: the normal harness creates
+    // runtime before030. Remove only this exact grant, prove absence, then execute
+    // the maintained provisioner's exact optional block and restore it in finally.
+    const provision = await readFile(new URL('../scripts/provision-runtime-role.sql', import.meta.url), 'utf8');
+    const grantBlock = provision.match(/-- BEGIN OPTIONAL EXACT MATCHUP RESERVATION GRANT([\s\S]*?)-- END OPTIONAL EXACT MATCHUP RESERVATION GRANT/u)?.[1];
+    if (!grantBlock) throw new Error('Missing maintained exact-matchup provisioner block.');
     try {
+      await ownerQuery('REVOKE EXECUTE ON FUNCTION public.begin_exact_matchup_attempt(jsonb,uuid,integer,jsonb) FROM league_one_runtime');
+      expect((await runtime.database.query("SELECT has_function_privilege(current_user,'public.begin_exact_matchup_attempt(jsonb,uuid,integer,jsonb)','EXECUTE') AS allowed"))[0].allowed).toBe(false);
+      await expect(runtime.database.query("SELECT public.begin_exact_matchup_attempt('{}'::jsonb,$1::uuid,0,NULL)", [randomUUID()])).rejects.toMatchObject({ code: '42501' });
+      await ownerQuery(grantBlock);
+      expect((await runtime.database.query("SELECT has_function_privilege(current_user,'public.begin_exact_matchup_attempt(jsonb,uuid,integer,jsonb)','EXECUTE') AS allowed"))[0].allowed).toBe(true);
+      await expect(runtime.database.query("SELECT public.begin_exact_matchup_attempt('{}'::jsonb,$1::uuid,0,NULL)", [randomUUID()])).rejects.toThrow('invalid native matchup week');
+      for (const signature of ['public.record_league_administration_observation_v30(jsonb)',
+        'public.canonical_public_data_exact_periods(jsonb,integer[])', 'public.admit_public_data_dispatch_v34(jsonb,jsonb)']) {
+        expect((await runtime.database.query("SELECT has_function_privilege(current_user,$1,'EXECUTE') AS allowed", [signature]))[0].allowed).toBe(false);
+      }
+
       expect((await runtime.database.query('SELECT session_user AS role'))[0].role).toBe('league_one_runtime');
       await runtime.database.query('BEGIN'); open = true;
       const id = randomUUID(); const input = { id, username: 'period_scope_contract', seasons: [2179, 2180] };
@@ -1421,7 +1643,10 @@ describe('explicit public native-period intake through retained typed receipts',
       try { await expect(submit({ ...scoped, exactPeriods: [] })).rejects.toThrow('replay mismatch'); }
       finally { await runtime.database.query('ROLLBACK TO SAVEPOINT mismatched_period_replay'); await runtime.database.query('RELEASE SAVEPOINT mismatched_period_replay'); }
       await runtime.database.query('ROLLBACK'); open = false;
-    } finally { if (open) await runtime.database.query('ROLLBACK'); await runtime.close(); }
+    } finally {
+      if (open) await runtime.database.query('ROLLBACK');
+      try { await ownerQuery(grantBlock); } finally { await runtime.close(); }
+    }
   });
 
   it('enforces twenty task ordinals, candidate lineage and immutable scope with rolled-back owner-only negative prerequisites', async () => {

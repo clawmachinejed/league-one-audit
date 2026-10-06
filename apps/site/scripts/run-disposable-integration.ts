@@ -7,7 +7,9 @@ import { runDisposableIntegration, type IntegrationRunReceipt } from '../integra
 import { IntegrationLifecycleBudget } from '../integration/integration-lifecycle-budget';
 import { createIntegrationReceiptJournal } from '../integration/integration-receipt-journal';
 
-if (process.argv.length !== 2) throw new Error('Disposable integration accepts configuration through its secured environment only.');
+import { parseQualificationArguments } from '../integration/qualification-profile';
+
+const profile = parseQualificationArguments(process.argv.slice(2));
 const budget = new IntegrationLifecycleBudget();
 const root = fileURLToPath(new URL('../../..', import.meta.url));
 const gitOptions = { cwd: root, encoding: 'utf8' as const, windowsHide: true, timeout: 2_000 };
@@ -36,7 +38,7 @@ const timeout = setTimeout(() => {
 let finalReceipt: IntegrationRunReceipt | undefined;
 let finalizationStarted = false;
 try {
-  const { passed, receipt } = await runDisposableIntegration({ environment: process.env, gitSha, budget,
+  const { passed, receipt } = await runDisposableIntegration({ environment: process.env, gitSha, budget, profile,
     signal: controller.signal, output: value => process.stdout.write(value),
     journal: (receipt, signal) => {
       // Work is complete once teardown is admitted. Cleanup can use its reserve

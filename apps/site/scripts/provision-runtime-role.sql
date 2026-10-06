@@ -430,6 +430,18 @@ DO $$ DECLARE refresh_table text; BEGIN
   END IF;
 END; $$;
 
+-- BEGIN OPTIONAL EXACT MATCHUP RESERVATION GRANT
+-- Exact signature gating keeps late provisioning safe for schemas001..029.
+DO $$ BEGIN
+  IF to_regprocedure('public.begin_exact_matchup_attempt(jsonb,uuid,integer,jsonb)') IS NOT NULL THEN
+    GRANT EXECUTE ON FUNCTION public.begin_exact_matchup_attempt(jsonb,uuid,integer,jsonb) TO league_one_runtime;
+    IF NOT has_function_privilege('league_one_runtime','public.begin_exact_matchup_attempt(jsonb,uuid,integer,jsonb)','EXECUTE') THEN
+      RAISE EXCEPTION 'league_one_runtime lacks exact matchup reservation privilege';
+    END IF;
+  END IF;
+END; $$;
+-- END OPTIONAL EXACT MATCHUP RESERVATION GRANT
+
 -- Optional038 exact-period tasks/checkpoints extend existing public intake only.
 -- Their validators remain owner-only; SECURITY DEFINER intake functions evaluate
 -- the scope CHECK as their owner. Runtime cannot insert or mutate either table.

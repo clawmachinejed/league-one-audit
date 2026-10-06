@@ -42,18 +42,18 @@
     {
       "path": "apps/site/scripts/provision-runtime-role.sql",
       "resource": "Restricted infrastructure access to retained public intake data",
-      "purpose": "Explicit narrow intake function/read grants without direct history mutation; conditional catalog guards preserve 001-033 provisioning compatibility. Also permit only narrow refresh-function execution and retained refresh-table reads; private helpers remain owner-only and no direct history writes are granted. For038 permit SELECT only on exact-period task/checkpoint tables, conditional on installed schema; no direct mutations or private-helper execution.",
+      "purpose": "Explicit narrow intake function/read grants without direct history mutation; conditional catalog guards preserve 001-033 provisioning compatibility. Also permit only narrow refresh-function execution and retained refresh-table reads; private helpers remain owner-only and no direct history writes are granted. For038 permit SELECT only on exact-period task/checkpoint tables, conditional on installed schema; no direct mutations or private-helper execution. Correct independently confirmed R038 late-role omission: conditionally grant only existing public.begin_exact_matchup_attempt(jsonb,uuid,integer,jsonb) and assert effective EXECUTE; retain private delegates/validators revoked and new tables SELECT-only.",
       "proof": "Offline grant assertions and authored privilege-negative integration cases; actual restricted-role SQL execution pending.",
       "reviewer": "Independent GPT-6 Astra ultra review in Review new backend end to end (01a0f411-7133-7491-b693-4c89af678ca6); independent database/security confirmation in Backend foundation reconciliation (01a10e85-7bde-74b1-8ad7-93d3d1838eab)",
-      "reviewReference": "DATA-SCOPE-2026-10-06-PUBLIC-INTAKE-01; DATA-SCOPE-2026-10-06-REFRESH-CYCLES-02; DATA-SCOPE-2026-10-06-EXACT-PERIOD-INTAKE-01"
+      "reviewReference": "DATA-SCOPE-2026-10-06-PUBLIC-INTAKE-01; DATA-SCOPE-2026-10-06-REFRESH-CYCLES-02; DATA-SCOPE-2026-10-06-EXACT-PERIOD-INTAKE-01; DATA-SCOPE-2026-10-06-EXACT-PERIOD-REVIEW-CORRECTIONS-01"
     },
     {
       "path": "apps/site/integration/public-data-intake.integration-case.ts",
       "resource": "Provider identity/list/core source-to-stored-reader persistence",
-      "purpose": "Use existing guarded PostgreSQL harness for readback, replay, lost lease, rollback, capacity and no projection enrollment; source authoring only. Also author actual restricted-LOGIN recurrence, fair admission, shared limits, pause/expiry/configuration races, unknown commit and rollback cases through the existing guarded harness. Also author representable absent/null/empty official field states, invalid-present rejection, later scoring evidence and interrupted registration/checkpoint recovery with exact identity reuse. For038 author bounded explicit-week request/cycle, genuine restricted-LOGIN accepted-head/provenance/mapping fences, dual reserved attempts, recovery and immutable history tests. Preserve existing oracles and no owner SET ROLE substitute.",
+      "purpose": "Use existing guarded PostgreSQL harness for readback, replay, lost lease, rollback, capacity and no projection enrollment; source authoring only. Also author actual restricted-LOGIN recurrence, fair admission, shared limits, pause/expiry/configuration races, unknown commit and rollback cases through the existing guarded harness. Also author representable absent/null/empty official field states, invalid-present rejection, later scoring evidence and interrupted registration/checkpoint recovery with exact identity reuse. For038 author bounded explicit-week request/cycle, genuine restricted-LOGIN accepted-head/provenance/mapping fences, dual reserved attempts, recovery and immutable history tests. Preserve existing oracles and no owner SET ROLE substitute. Strengthen only the existing selected two-core-cycle oracle with explicit distinct typed/canonical identity, actual scoring/manager/player readback, before-second-cycle history snapshot and a real unfinished-dispatch recovery; no new SQL execution or shortened real admission waits. Add narrow existing-case late-role EXECUTE restoration/private-helper denial and legacy empty-selector no-task-access assertions for confirmed R038 review corrections.",
       "proof": "Authored oracle remains unexecuted until a separately authorized isolated database qualification run.",
       "reviewer": "Independent GPT-6 Astra ultra review in Review new backend end to end (01a0f411-7133-7491-b693-4c89af678ca6); independent database/security confirmation in Backend foundation reconciliation (01a10e85-7bde-74b1-8ad7-93d3d1838eab)",
-      "reviewReference": "DATA-SCOPE-2026-10-06-PUBLIC-INTAKE-01; DATA-SCOPE-2026-10-06-REFRESH-CYCLES-02; DATA-SCOPE-2026-10-06-OFFICIAL-DATA-REGISTRATION-01; DATA-SCOPE-2026-10-06-EXACT-PERIOD-INTAKE-01"
+      "reviewReference": "DATA-SCOPE-2026-10-06-PUBLIC-INTAKE-01; DATA-SCOPE-2026-10-06-REFRESH-CYCLES-02; DATA-SCOPE-2026-10-06-OFFICIAL-DATA-REGISTRATION-01; DATA-SCOPE-2026-10-06-EXACT-PERIOD-INTAKE-01; DATA-SCOPE-2026-10-06-QUALIFICATION-EVIDENCE-01"
     },
     {
       "path": "apps/site/lib/database.ts",
@@ -90,34 +90,34 @@
     {
       "path": "apps/site/scripts/run-disposable-integration.ts",
       "resource": "Bounded isolated qualification of normalized provider ingestion and stored readers",
-      "purpose": "Shared monotonic 30-minute work and 40-minute total lifecycle budget, independent cleanup cancellation, late-result fencing and sanitized terminal receipts; preserve all source, identity, role, TLS, sentinel, ownership and denylist guards, no account stages or automatic retry.",
-      "proof": "Offline virtual-clock actual lifecycle/API tests for blocked work and cleanup, ambiguous creation, child closure, exhausted budget, final journaling and late success; real SQL, remote cleanup and monetary ceiling unverified.",
+      "purpose": "Shared monotonic 30-minute work and 40-minute total lifecycle budget, independent cleanup cancellation, late-result fencing and sanitized terminal receipts; preserve all source, identity, role, TLS, sentinel, ownership and denylist guards, no account stages or automatic retry. Require fresh exact-run structured test evidence and a post-successful-global-cleanup acknowledgment, including a sticky late-timeout failure marker, through the existing supervisor. Add one closed versioned core-refresh profile with fixed module/name inventory and no arbitrary filters; preserve default full-suite selection, unchanged Vitest config, 30-minute work/40-minute lifecycle, real LOGIN, identity/ownership/secret/cleanup/revocation/deletion/source and terminal-journal gates. Use public reporter APIs and fixed supervisor arguments, not another harness or pipeline.",
+      "proof": "Offline virtual-clock actual lifecycle/API tests for blocked work and cleanup, ambiguous creation, child closure, exhausted budget, final journaling and late success; real SQL, remote cleanup and monetary ceiling unverified. Independently reproduced Vitest4.1.11 teardown failure with exit0; require offline real-runner adverse cases and frozen-SHA review. This is source evidence, not PostgreSQL qualification.",
       "reviewer": "Independent GPT-6 Astra ultra review in Backend foundation reconciliation (01a10e85-7bde-74b1-8ad7-93d3d1838eab)",
-      "reviewReference": "DATA-SCOPE-2026-10-06-QUALIFICATION-LIFECYCLE-01"
+      "reviewReference": "DATA-SCOPE-2026-10-06-QUALIFICATION-LIFECYCLE-01; DATA-SCOPE-2026-10-06-QUALIFICATION-EVIDENCE-01"
     },
     {
       "path": "apps/site/scripts/run-disposable-integration.test.ts",
       "resource": "Bounded isolated qualification of normalized provider ingestion and stored readers",
-      "purpose": "Shared monotonic 30-minute work and 40-minute total lifecycle budget, independent cleanup cancellation, late-result fencing and sanitized terminal receipts; preserve all source, identity, role, TLS, sentinel, ownership and denylist guards, no account stages or automatic retry.",
-      "proof": "Offline virtual-clock actual lifecycle/API tests for blocked work and cleanup, ambiguous creation, child closure, exhausted budget, final journaling and late success; real SQL, remote cleanup and monetary ceiling unverified.",
+      "purpose": "Shared monotonic 30-minute work and 40-minute total lifecycle budget, independent cleanup cancellation, late-result fencing and sanitized terminal receipts; preserve all source, identity, role, TLS, sentinel, ownership and denylist guards, no account stages or automatic retry. Require fresh exact-run structured test evidence and a post-successful-global-cleanup acknowledgment, including a sticky late-timeout failure marker, through the existing supervisor. Add one closed versioned core-refresh profile with fixed module/name inventory and no arbitrary filters; preserve default full-suite selection, unchanged Vitest config, 30-minute work/40-minute lifecycle, real LOGIN, identity/ownership/secret/cleanup/revocation/deletion/source and terminal-journal gates. Use public reporter APIs and fixed supervisor arguments, not another harness or pipeline.",
+      "proof": "Offline virtual-clock actual lifecycle/API tests for blocked work and cleanup, ambiguous creation, child closure, exhausted budget, final journaling and late success; real SQL, remote cleanup and monetary ceiling unverified. Independently reproduced Vitest4.1.11 teardown failure with exit0; require offline real-runner adverse cases and frozen-SHA review. This is source evidence, not PostgreSQL qualification.",
       "reviewer": "Independent GPT-6 Astra ultra review in Backend foundation reconciliation (01a10e85-7bde-74b1-8ad7-93d3d1838eab)",
-      "reviewReference": "DATA-SCOPE-2026-10-06-QUALIFICATION-LIFECYCLE-01"
+      "reviewReference": "DATA-SCOPE-2026-10-06-QUALIFICATION-LIFECYCLE-01; DATA-SCOPE-2026-10-06-QUALIFICATION-EVIDENCE-01"
     },
     {
       "path": "apps/site/integration/disposable-integration.ts",
       "resource": "Bounded isolated qualification of normalized provider ingestion and stored readers",
-      "purpose": "Shared monotonic 30-minute work and 40-minute total lifecycle budget, independent cleanup cancellation, late-result fencing and sanitized terminal receipts; preserve all source, identity, role, TLS, sentinel, ownership and denylist guards, no account stages or automatic retry.",
-      "proof": "Offline virtual-clock actual lifecycle/API tests for blocked work and cleanup, ambiguous creation, child closure, exhausted budget, final journaling and late success; real SQL, remote cleanup and monetary ceiling unverified.",
+      "purpose": "Shared monotonic 30-minute work and 40-minute total lifecycle budget, independent cleanup cancellation, late-result fencing and sanitized terminal receipts; preserve all source, identity, role, TLS, sentinel, ownership and denylist guards, no account stages or automatic retry. Require fresh exact-run structured test evidence and a post-successful-global-cleanup acknowledgment, including a sticky late-timeout failure marker, through the existing supervisor. Add one closed versioned core-refresh profile with fixed module/name inventory and no arbitrary filters; preserve default full-suite selection, unchanged Vitest config, 30-minute work/40-minute lifecycle, real LOGIN, identity/ownership/secret/cleanup/revocation/deletion/source and terminal-journal gates. Use public reporter APIs and fixed supervisor arguments, not another harness or pipeline.",
+      "proof": "Offline virtual-clock actual lifecycle/API tests for blocked work and cleanup, ambiguous creation, child closure, exhausted budget, final journaling and late success; real SQL, remote cleanup and monetary ceiling unverified. Independently reproduced Vitest4.1.11 teardown failure with exit0; require offline real-runner adverse cases and frozen-SHA review. This is source evidence, not PostgreSQL qualification.",
       "reviewer": "Independent GPT-6 Astra ultra review in Backend foundation reconciliation (01a10e85-7bde-74b1-8ad7-93d3d1838eab)",
-      "reviewReference": "DATA-SCOPE-2026-10-06-QUALIFICATION-LIFECYCLE-01"
+      "reviewReference": "DATA-SCOPE-2026-10-06-QUALIFICATION-LIFECYCLE-01; DATA-SCOPE-2026-10-06-QUALIFICATION-EVIDENCE-01"
     },
     {
       "path": "apps/site/integration/disposable-integration.test.ts",
       "resource": "Bounded isolated qualification of normalized provider ingestion and stored readers",
-      "purpose": "Shared monotonic 30-minute work and 40-minute total lifecycle budget, independent cleanup cancellation, late-result fencing and sanitized terminal receipts; preserve all source, identity, role, TLS, sentinel, ownership and denylist guards, no account stages or automatic retry.",
-      "proof": "Offline virtual-clock actual lifecycle/API tests for blocked work and cleanup, ambiguous creation, child closure, exhausted budget, final journaling and late success; real SQL, remote cleanup and monetary ceiling unverified.",
+      "purpose": "Shared monotonic 30-minute work and 40-minute total lifecycle budget, independent cleanup cancellation, late-result fencing and sanitized terminal receipts; preserve all source, identity, role, TLS, sentinel, ownership and denylist guards, no account stages or automatic retry. Require fresh exact-run structured test evidence and a post-successful-global-cleanup acknowledgment, including a sticky late-timeout failure marker, through the existing supervisor. Add one closed versioned core-refresh profile with fixed module/name inventory and no arbitrary filters; preserve default full-suite selection, unchanged Vitest config, 30-minute work/40-minute lifecycle, real LOGIN, identity/ownership/secret/cleanup/revocation/deletion/source and terminal-journal gates. Use public reporter APIs and fixed supervisor arguments, not another harness or pipeline.",
+      "proof": "Offline virtual-clock actual lifecycle/API tests for blocked work and cleanup, ambiguous creation, child closure, exhausted budget, final journaling and late success; real SQL, remote cleanup and monetary ceiling unverified. Independently reproduced Vitest4.1.11 teardown failure with exit0; require offline real-runner adverse cases and frozen-SHA review. This is source evidence, not PostgreSQL qualification.",
       "reviewer": "Independent GPT-6 Astra ultra review in Backend foundation reconciliation (01a10e85-7bde-74b1-8ad7-93d3d1838eab)",
-      "reviewReference": "DATA-SCOPE-2026-10-06-QUALIFICATION-LIFECYCLE-01"
+      "reviewReference": "DATA-SCOPE-2026-10-06-QUALIFICATION-LIFECYCLE-01; DATA-SCOPE-2026-10-06-QUALIFICATION-EVIDENCE-01"
     },
     {
       "path": "apps/site/integration/disposable-neon-api.ts",
@@ -162,18 +162,18 @@
     {
       "path": "apps/site/integration/README.md",
       "resource": "Bounded isolated qualification of normalized provider ingestion and stored readers",
-      "purpose": "Shared monotonic 30-minute work and 40-minute total lifecycle budget, independent cleanup cancellation, late-result fencing and sanitized terminal receipts; preserve all source, identity, role, TLS, sentinel, ownership and denylist guards, no account stages or automatic retry.",
-      "proof": "Offline virtual-clock actual lifecycle/API tests for blocked work and cleanup, ambiguous creation, child closure, exhausted budget, final journaling and late success; real SQL, remote cleanup and monetary ceiling unverified.",
+      "purpose": "Shared monotonic 30-minute work and 40-minute total lifecycle budget, independent cleanup cancellation, late-result fencing and sanitized terminal receipts; preserve all source, identity, role, TLS, sentinel, ownership and denylist guards, no account stages or automatic retry. Require fresh exact-run structured test evidence and a post-successful-global-cleanup acknowledgment, including a sticky late-timeout failure marker, through the existing supervisor. Add one closed versioned core-refresh profile with fixed module/name inventory and no arbitrary filters; preserve default full-suite selection, unchanged Vitest config, 30-minute work/40-minute lifecycle, real LOGIN, identity/ownership/secret/cleanup/revocation/deletion/source and terminal-journal gates. Use public reporter APIs and fixed supervisor arguments, not another harness or pipeline.",
+      "proof": "Offline virtual-clock actual lifecycle/API tests for blocked work and cleanup, ambiguous creation, child closure, exhausted budget, final journaling and late success; real SQL, remote cleanup and monetary ceiling unverified. Independently reproduced Vitest4.1.11 teardown failure with exit0; require offline real-runner adverse cases and frozen-SHA review. This is source evidence, not PostgreSQL qualification.",
       "reviewer": "Independent GPT-6 Astra ultra review in Backend foundation reconciliation (01a10e85-7bde-74b1-8ad7-93d3d1838eab)",
-      "reviewReference": "DATA-SCOPE-2026-10-06-QUALIFICATION-LIFECYCLE-01"
+      "reviewReference": "DATA-SCOPE-2026-10-06-QUALIFICATION-LIFECYCLE-01; DATA-SCOPE-2026-10-06-QUALIFICATION-EVIDENCE-01"
     },
     {
       "path": "apps/site/integration/disposable-integration-output.test.ts",
       "resource": "Sanitized isolated-ingestion qualification evidence",
-      "purpose": "Adapt existing reconcileCreation API mock for bounded cleanup, retaining credential redaction, malformed URI refusal, cleanup assertions and negative outcomes.",
-      "proof": "Existing encoded, decoded and chunked credential redaction and refusal regressions; no real credential or SQL execution.",
+      "purpose": "Adapt existing reconcileCreation API mock for bounded cleanup, retaining credential redaction, malformed URI refusal, cleanup assertions and negative outcomes. Require fresh exact-run structured test evidence and a post-successful-global-cleanup acknowledgment, including a sticky late-timeout failure marker, through the existing supervisor. Add one closed versioned core-refresh profile with fixed module/name inventory and no arbitrary filters; preserve default full-suite selection, unchanged Vitest config, 30-minute work/40-minute lifecycle, real LOGIN, identity/ownership/secret/cleanup/revocation/deletion/source and terminal-journal gates. Use public reporter APIs and fixed supervisor arguments, not another harness or pipeline.",
+      "proof": "Existing encoded, decoded and chunked credential redaction and refusal regressions; no real credential or SQL execution. Independently reproduced Vitest4.1.11 teardown failure with exit0; require offline real-runner adverse cases and frozen-SHA review. This is source evidence, not PostgreSQL qualification.",
       "reviewer": "Independent GPT-6 Astra ultra review in Backend foundation reconciliation (01a10e85-7bde-74b1-8ad7-93d3d1838eab)",
-      "reviewReference": "DATA-SCOPE-2026-10-06-QUALIFICATION-CANCELLATION-02"
+      "reviewReference": "DATA-SCOPE-2026-10-06-QUALIFICATION-CANCELLATION-02; DATA-SCOPE-2026-10-06-QUALIFICATION-EVIDENCE-01"
     },
     {
       "reviewer": "Independent GPT-6 Astra ultra review in Review new backend end to end (01a0f411-7133-7491-b693-4c89af678ca6)",
@@ -346,10 +346,58 @@
     {
       "path": "apps/site/migrations/038_public_data_exact_periods.sql",
       "resource": "Explicit native-period official lineup and score observations through existing public intake",
-      "purpose": "Add immutable optional exact-period selection, at most20 candidate-bound period tasks per request and immutable checkpoint links. Extend only existing intake and recurrence functions plus the effective030 population-evidence compatibility predicate using the exact034 scoring-conflict alternate. Preserve old omitted/empty scope, job and request budgets, owner fences, typed acceptance, wrapper chain, role restrictions and dormant production composition. No new queue, scheduler, scorer or inferred finality.",
+      "purpose": "Add immutable optional exact-period selection, at most20 candidate-bound period tasks per request and immutable checkpoint links. Extend only existing intake and recurrence functions plus the effective030 population-evidence compatibility predicate using the exact034 scoring-conflict alternate. Preserve old omitted/empty scope, job and request budgets, owner fences, typed acceptance, wrapper chain, role restrictions and dormant production composition. No new queue, scheduler, scorer or inferred finality. Correct independently confirmed compatibility drift by procedural nonempty-selection branches around period-task reads/writes for omitted/empty legacy callers; no weaker typed acceptance, owners or recovery guards.",
       "proof": "Independent design eligibility only. Exact implementation diff, targeted checks and review required; authored restricted-LOGIN oracles remain unexecuted.",
       "reviewer": "Independent GPT-6 Astra ultra design confirmation in Backend foundation reconciliation (01a10e85-7bde-74b1-8ad7-93d3d1838eab) and Review new backend end to end (01a0f411-7133-7491-b693-4c89af678ca6)",
-      "reviewReference": "DATA-SCOPE-2026-10-06-EXACT-PERIOD-INTAKE-01"
+      "reviewReference": "DATA-SCOPE-2026-10-06-EXACT-PERIOD-INTAKE-01; DATA-SCOPE-2026-10-06-EXACT-PERIOD-REVIEW-CORRECTIONS-01"
+    },
+    {
+      "path": "apps/site/integration/qualification-profile.ts",
+      "resource": "Trustworthy bounded DATA qualification result and cleanup evidence",
+      "purpose": "Require fresh exact-run structured test evidence and a post-successful-global-cleanup acknowledgment, including a sticky late-timeout failure marker, through the existing supervisor. Add one closed versioned core-refresh profile with fixed module/name inventory and no arbitrary filters; preserve default full-suite selection, unchanged Vitest config, 30-minute work/40-minute lifecycle, real LOGIN, identity/ownership/secret/cleanup/revocation/deletion/source and terminal-journal gates. Use public reporter APIs and fixed supervisor arguments, not another harness or pipeline.",
+      "proof": "Root and independent reviewer reproduced installed Vitest teardown failure with exit0; offline actual-runner adverse cases and exact-SHA review required. SQL, live source, paid execution and remote cleanup remain unqualified.",
+      "reviewer": "Independent GPT-6 Astra ultra reporter/teardown design in Backend foundation reconciliation (01a10e85-7bde-74b1-8ad7-93d3d1838eab)",
+      "reviewReference": "DATA-SCOPE-2026-10-06-QUALIFICATION-EVIDENCE-01"
+    },
+    {
+      "path": "apps/site/integration/qualification-profile.test.ts",
+      "resource": "Trustworthy bounded DATA qualification result and cleanup evidence",
+      "purpose": "Require fresh exact-run structured test evidence and a post-successful-global-cleanup acknowledgment, including a sticky late-timeout failure marker, through the existing supervisor. Add one closed versioned core-refresh profile with fixed module/name inventory and no arbitrary filters; preserve default full-suite selection, unchanged Vitest config, 30-minute work/40-minute lifecycle, real LOGIN, identity/ownership/secret/cleanup/revocation/deletion/source and terminal-journal gates. Use public reporter APIs and fixed supervisor arguments, not another harness or pipeline.",
+      "proof": "Root and independent reviewer reproduced installed Vitest teardown failure with exit0; offline actual-runner adverse cases and exact-SHA review required. SQL, live source, paid execution and remote cleanup remain unqualified.",
+      "reviewer": "Independent GPT-6 Astra ultra reporter/teardown design in Backend foundation reconciliation (01a10e85-7bde-74b1-8ad7-93d3d1838eab)",
+      "reviewReference": "DATA-SCOPE-2026-10-06-QUALIFICATION-EVIDENCE-01"
+    },
+    {
+      "path": "apps/site/integration/qualification-reporter.ts",
+      "resource": "Trustworthy bounded DATA qualification result and cleanup evidence",
+      "purpose": "Require fresh exact-run structured test evidence and a post-successful-global-cleanup acknowledgment, including a sticky late-timeout failure marker, through the existing supervisor. Add one closed versioned core-refresh profile with fixed module/name inventory and no arbitrary filters; preserve default full-suite selection, unchanged Vitest config, 30-minute work/40-minute lifecycle, real LOGIN, identity/ownership/secret/cleanup/revocation/deletion/source and terminal-journal gates. Use public reporter APIs and fixed supervisor arguments, not another harness or pipeline.",
+      "proof": "Root and independent reviewer reproduced installed Vitest teardown failure with exit0; offline actual-runner adverse cases and exact-SHA review required. SQL, live source, paid execution and remote cleanup remain unqualified.",
+      "reviewer": "Independent GPT-6 Astra ultra reporter/teardown design in Backend foundation reconciliation (01a10e85-7bde-74b1-8ad7-93d3d1838eab)",
+      "reviewReference": "DATA-SCOPE-2026-10-06-QUALIFICATION-EVIDENCE-01"
+    },
+    {
+      "path": "apps/site/integration/qualification-reporter.test.ts",
+      "resource": "Trustworthy bounded DATA qualification result and cleanup evidence",
+      "purpose": "Require fresh exact-run structured test evidence and a post-successful-global-cleanup acknowledgment, including a sticky late-timeout failure marker, through the existing supervisor. Add one closed versioned core-refresh profile with fixed module/name inventory and no arbitrary filters; preserve default full-suite selection, unchanged Vitest config, 30-minute work/40-minute lifecycle, real LOGIN, identity/ownership/secret/cleanup/revocation/deletion/source and terminal-journal gates. Use public reporter APIs and fixed supervisor arguments, not another harness or pipeline.",
+      "proof": "Root and independent reviewer reproduced installed Vitest teardown failure with exit0; offline actual-runner adverse cases and exact-SHA review required. SQL, live source, paid execution and remote cleanup remain unqualified.",
+      "reviewer": "Independent GPT-6 Astra ultra reporter/teardown design in Backend foundation reconciliation (01a10e85-7bde-74b1-8ad7-93d3d1838eab)",
+      "reviewReference": "DATA-SCOPE-2026-10-06-QUALIFICATION-EVIDENCE-01"
+    },
+    {
+      "path": "apps/site/integration/global-setup.ts",
+      "resource": "Trustworthy bounded DATA qualification result and cleanup evidence",
+      "purpose": "Require fresh exact-run structured test evidence and a post-successful-global-cleanup acknowledgment, including a sticky late-timeout failure marker, through the existing supervisor. Add one closed versioned core-refresh profile with fixed module/name inventory and no arbitrary filters; preserve default full-suite selection, unchanged Vitest config, 30-minute work/40-minute lifecycle, real LOGIN, identity/ownership/secret/cleanup/revocation/deletion/source and terminal-journal gates. Use public reporter APIs and fixed supervisor arguments, not another harness or pipeline.",
+      "proof": "Root and independent reviewer reproduced installed Vitest teardown failure with exit0; offline actual-runner adverse cases and exact-SHA review required. SQL, live source, paid execution and remote cleanup remain unqualified.",
+      "reviewer": "Independent GPT-6 Astra ultra reporter/teardown design in Backend foundation reconciliation (01a10e85-7bde-74b1-8ad7-93d3d1838eab)",
+      "reviewReference": "DATA-SCOPE-2026-10-06-QUALIFICATION-EVIDENCE-01"
+    },
+    {
+      "path": "apps/site/integration/global-setup.test.ts",
+      "resource": "Trustworthy bounded DATA qualification result and cleanup evidence",
+      "purpose": "Require fresh exact-run structured test evidence and a post-successful-global-cleanup acknowledgment, including a sticky late-timeout failure marker, through the existing supervisor. Add one closed versioned core-refresh profile with fixed module/name inventory and no arbitrary filters; preserve default full-suite selection, unchanged Vitest config, 30-minute work/40-minute lifecycle, real LOGIN, identity/ownership/secret/cleanup/revocation/deletion/source and terminal-journal gates. Use public reporter APIs and fixed supervisor arguments, not another harness or pipeline.",
+      "proof": "Root and independent reviewer reproduced installed Vitest teardown failure with exit0; offline actual-runner adverse cases and exact-SHA review required. SQL, live source, paid execution and remote cleanup remain unqualified.",
+      "reviewer": "Independent GPT-6 Astra ultra reporter/teardown design in Backend foundation reconciliation (01a10e85-7bde-74b1-8ad7-93d3d1838eab)",
+      "reviewReference": "DATA-SCOPE-2026-10-06-QUALIFICATION-EVIDENCE-01"
     }
   ],
   "governanceChanges": [

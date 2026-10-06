@@ -1,0 +1,107 @@
+import { spawnSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { afterEach, expect, it } from 'vitest';
+import QualificationReporter from './qualification-reporter';
+import { createQualificationContext, qualificationArguments, qualificationDigest, qualificationSourceDigest, QUALIFICATION_CONTEXT_ENV,
+  QUALIFICATION_FILES, SELECTED_FULL_NAME, SELECTED_INVENTORY, SELECTED_MODULE, SELECTED_PROFILE,
+  validateQualificationArtifacts, type QualificationReport } from './qualification-profile';
+
+const directories: string[] = [];
+const site = fileURLToPath(new URL('..', import.meta.url));
+const reporterPath = join(site, 'integration/qualification-reporter.ts');
+const helperPath = join(site, 'integration/qualification-profile.ts').replace(/\\/gu, '/');
+const evidenceDirectory = fileURLToPath(new URL('../../../test-results/qualification', import.meta.url));
+const originalExit = process.exitCode;
+afterEach(async () => { process.exitCode = originalExit; await Promise.all(directories.splice(0).map(path => rm(path, { recursive: true, force: true }))); });
+
+/** Actual installed runner, synthetic modules only. No application or SQL imports;
+ * outbound fetch/http/net are blocked before configuration and worker startup. */
+async function runFixture(kind: 'selected' | 'teardown' | 'hook' | 'retry' | 'repeat' | 'unhandled' | 'timeout') {
+  const directory = await mkdtemp(join(tmpdir(), 'qualification-runner-')); directories.push(directory);
+  await mkdir(join(directory, 'integration')); await mkdir(join(directory, 'artifacts'));
+  const vitestImport = pathToFileURL(join(site, 'node_modules/vitest/dist/index.js')).href;
+  let body = "import {it,expect,describe,beforeAll} from " + JSON.stringify(vitestImport) + ";\n";
+  if (kind === 'selected') {
+    for (const name of SELECTED_INVENTORY) {
+      const parts = name.split(' > ');
+      body += 'describe(' + JSON.stringify(parts[0]) + ',()=>{it(' + JSON.stringify(parts[1]) + ',()=>{' +
+        (name === SELECTED_FULL_NAME ? 'expect(1).toBe(1)' : "throw Error('filtered case unexpectedly ran')") + '})});\n';
+    }
+  } else {
+    if (kind === 'hook') body += "beforeAll(()=>{throw Error('fixture hook failure')});\n";
+    if (kind === 'retry') body += "let attempts=0;it('fixture',{retry:1},()=>{expect(++attempts).toBe(2)});\n";
+    else if (kind === 'repeat') body += "it('fixture',{repeats:1},()=>{expect(1).toBe(1)});\n";
+    else if (kind === 'unhandled') body += "it('fixture',async()=>{void Promise.reject(Error('fixture unhandled'));await new Promise(r=>setTimeout(r,20));});\n";
+    else body += "it('fixture',()=>{expect(1).toBe(1)});\n";
+  }
+  await writeFile(join(directory, SELECTED_MODULE), body);
+  await writeFile(join(directory, 'setup.ts'), 'import {qualificationBinding,qualificationCleanup} from ' + JSON.stringify(helperPath) +
+    ';\nexport default function(){const binding=qualificationBinding();return async()=>{await qualificationCleanup(async()=>{' +
+    (kind === 'teardown' ? "throw Error('DELIBERATE_TEARDOWN_FAILURE');" : '') +
+    '},binding);' + (kind === 'timeout' ? 'setInterval(()=>{},1000);' : '') + '};}\n');
+  await writeFile(join(directory, 'config.mjs'), 'export default {test:{environment:"node",include:["integration/*.integration-case.ts"],' +
+    'globalSetup:["./setup.ts"],fileParallelism:false,maxWorkers:1,teardownTimeout:350}};\n');
+  const guard = join(directory, 'network-block.mjs');
+  await writeFile(guard, "import {createRequire} from 'node:module';const require=createRequire(import.meta.url);" +
+    "const deny=()=>{throw Error('NETWORK_BLOCKED_FIXTURE')};for(const m of ['http','https']){require(m).request=deny;require(m).get=deny;}" +
+    "require('net').Socket.prototype.connect=deny;globalThis.fetch=deny;\n");
+  const context = await createQualificationContext(kind === 'selected' ? site : directory, 'a'.repeat(40), randomUUID(),
+    kind === 'selected' ? SELECTED_PROFILE : 'full');
+  // Only this no-SQL fixture substitutes synthetic source beneath the same closed case inventory.
+  context.modules[0].sourceDigest = qualificationSourceDigest(body);
+  const allow = new Set(['path','systemroot','windir','comspec','temp','tmp','tmpdir','home','userprofile','localappdata','appdata','pathext']);
+  const environment = { ...Object.fromEntries(Object.entries(process.env).filter(([key]) => allow.has(key.toLowerCase()))),
+    NODE_ENV: 'test' as const, [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(context),
+    PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY: join(directory, 'artifacts') };
+  const child = spawnSync(process.execPath, ['--import', pathToFileURL(guard).href, join(site, 'node_modules/vitest/vitest.mjs'),
+    'run', '--config', join(directory, 'config.mjs'), ...qualificationArguments(context.profile, reporterPath)],
+  { cwd: directory, env: environment, encoding: 'utf8', timeout: 20_000, windowsHide: true, maxBuffer: 2_000_000 });
+  await mkdir(evidenceDirectory, { recursive: true });
+  await writeFile(join(evidenceDirectory, 'runner-' + kind + '.log'), (child.stdout ?? '') + (child.stderr ?? ''));
+  const binding = { directory: join(directory, 'artifacts'), context };
+  const raw = await readFile(join(binding.directory, QUALIFICATION_FILES.report), 'utf8').catch(() => undefined);
+  const report: QualificationReport | undefined = raw ? JSON.parse(raw) : undefined;
+  await writeFile(join(evidenceDirectory, 'runner-' + kind + '.json'), JSON.stringify({
+    kind, exitCode: child.status, childError: child.error?.message, report, sqlExecuted: false, networkBlocked: true,
+  }, null, 2));
+  expect(child.error, child.stderr).toBeUndefined();
+  expect(report, child.stderr).toBeDefined();
+  expect(report!.contextDigest).toBe(qualificationDigest(context));
+  return { child, binding, report: report! };
+}
+it('executes the closed selected case once and accounts for every filtered case using public reporter APIs', { timeout: 30_000 }, async () => {
+  const { child, binding, report } = await runFixture('selected');
+  expect(child.status).toBe(0);
+  expect(report.modules[0].cases.filter(test => test.state === 'passed')).toHaveLength(1);
+  expect(report.modules[0].cases.filter(test => test.state === 'skipped')).toHaveLength(23);
+  await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({ profile: SELECTED_PROFILE });
+});
+it('rejects the reproduced zero-exit teardown gap after the actual installed runner closes', { timeout: 30_000 }, async () => {
+  const { child, binding, report } = await runFixture('teardown');
+  expect(report.reason).toBe('passed'); expect(child.status).toBe(1);
+  await expect(readFile(join(binding.directory, QUALIFICATION_FILES.cleanup))).rejects.toThrow();
+  await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
+});
+it.each(['hook', 'retry', 'repeat', 'unhandled'] as const)(
+  'rejects actual runner %s evidence even if tests later appear passed', { timeout: 30_000 }, async kind => {
+    const { binding, report } = await runFixture(kind);
+    if (kind === 'retry') expect(report.modules[0].cases[0].diagnostic).toMatchObject({ retryCount: 1, flaky: true });
+    if (kind === 'repeat') expect(report.modules[0].cases[0].diagnostic?.repeatCount).toBeGreaterThan(0);
+    if (kind === 'unhandled') expect(report.unhandledErrors).toBeGreaterThan(0);
+    await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
+  });
+it('lets a late process timeout override an earlier passing report and cleanup acknowledgment', { timeout: 30_000 }, async () => {
+  const { child, binding, report } = await runFixture('timeout');
+  expect(report.reason).toBe('passed'); expect(child.status).toBe(1);
+  expect(JSON.parse(await readFile(join(binding.directory, QUALIFICATION_FILES.cleanup), 'utf8')).globalDatabaseCleanup).toBe('complete');
+  expect(JSON.parse(await readFile(join(binding.directory, QUALIFICATION_FILES.failure), 'utf8')).reason).toBe('process-timeout');
+  await expect(validateQualificationArtifacts(binding)).rejects.toThrow('Sticky');
+});
+it('fails synchronously before attempting a timeout marker write, even without initialized context', async () => {
+  const reporting = new QualificationReporter().onProcessTimeout();
+  expect(process.exitCode).toBe(1); await reporting;
+});

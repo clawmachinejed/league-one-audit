@@ -192,9 +192,13 @@ BEGIN
         SELECT 1 FROM public.public_data_league_lists list WHERE list.intake_id=p_id AND list.season=wanted.season)) THEN
       RETURN '"unavailable"'::jsonb;
     END IF;
-    IF EXISTS(SELECT 1 FROM public.public_data_league_candidates WHERE intake_id=p_id AND stage IN ('unavailable','capacity'))
-      OR EXISTS(SELECT 1 FROM public.public_data_exact_period_tasks WHERE intake_id=p_id AND status<>'complete') THEN
+    IF EXISTS(SELECT 1 FROM public.public_data_league_candidates WHERE intake_id=p_id AND stage IN ('unavailable','capacity')) THEN
       RETURN '"partial"'::jsonb;
+    END IF;
+    IF request.exact_periods<>'[]'::jsonb THEN
+      IF EXISTS(SELECT 1 FROM public.public_data_exact_period_tasks WHERE intake_id=p_id AND status<>'complete') THEN
+        RETURN '"partial"'::jsonb;
+      END IF;
     END IF;
     RETURN '"complete"'::jsonb;
   END IF;
@@ -220,9 +224,13 @@ BEGIN
   SELECT * INTO candidate FROM public.public_data_league_candidates WHERE intake_id=p_id AND stage IN ('bootstrap','core','users')
     ORDER BY CASE stage WHEN 'users' THEN 1 ELSE 0 END,season,external_league_id LIMIT 1;
   IF NOT FOUND THEN
-    IF EXISTS(SELECT 1 FROM public.public_data_league_candidates WHERE intake_id=p_id AND stage IN ('unavailable','capacity'))
-      OR EXISTS(SELECT 1 FROM public.public_data_exact_period_tasks WHERE intake_id=p_id AND status<>'complete') THEN
+    IF EXISTS(SELECT 1 FROM public.public_data_league_candidates WHERE intake_id=p_id AND stage IN ('unavailable','capacity')) THEN
       RETURN '"partial"'::jsonb;
+    END IF;
+    IF request.exact_periods<>'[]'::jsonb THEN
+      IF EXISTS(SELECT 1 FROM public.public_data_exact_period_tasks WHERE intake_id=p_id AND status<>'complete') THEN
+        RETURN '"partial"'::jsonb;
+      END IF;
     END IF;
     RETURN '"complete"'::jsonb;
   END IF;
@@ -231,19 +239,25 @@ END; $$;
 
 CREATE OR REPLACE FUNCTION public.fail_public_data_work(p_work jsonb) RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
-DECLARE request_id uuid:=(p_work->>'requestId')::uuid; failures integer;
+DECLARE request_id uuid:=(p_work->>'requestId')::uuid; failures integer; periods_selected boolean;
 BEGIN
   UPDATE public.public_data_intakes SET failure_count=failure_count+1,revision=revision+1,
     next_attempt_at=clock_timestamp()+make_interval(secs=>least(3600,60*(2^least(failure_count,5))::integer))
-    WHERE id=request_id AND revision=(p_work->>'revision')::integer RETURNING failure_count INTO failures;
+    WHERE id=request_id AND revision=(p_work->>'revision')::integer
+    RETURNING failure_count,exact_periods<>'[]'::jsonb INTO failures,periods_selected;
   IF NOT FOUND THEN RAISE EXCEPTION 'public intake checkpoint changed'; END IF;
-  IF p_work->>'kind'='exact-matchups' THEN
-    UPDATE public.public_data_exact_period_tasks SET failure_count=failures,
+  IF NOT periods_selected THEN
+    IF p_work->>'kind'='exact-matchups' THEN RAISE EXCEPTION 'explicit public period scope required'; END IF;
+  END IF;
+  IF periods_selected THEN
+    IF p_work->>'kind'='exact-matchups' THEN
+      UPDATE public.public_data_exact_period_tasks SET failure_count=failures,
       status=CASE WHEN failures>=5 THEN 'unavailable' ELSE 'pending' END,
       reason=CASE WHEN failures>=5 THEN 'period-capture-exhausted' ELSE NULL END
       WHERE intake_id=request_id AND season=(p_work->>'season')::integer AND external_league_id=p_work->>'externalLeagueId'
         AND native_week=(p_work->>'nativeWeek')::integer AND status='pending';
-    IF NOT FOUND THEN RAISE EXCEPTION 'public period task changed'; END IF;
+      IF NOT FOUND THEN RAISE EXCEPTION 'public period task changed'; END IF;
+    END IF;
   END IF;
   IF failures>=5 THEN
     IF p_work->>'kind'='exact-matchups' THEN
@@ -253,14 +267,20 @@ BEGIN
     ELSIF p_work->>'kind' IN ('bootstrap','core','users') THEN
       UPDATE public.public_data_league_candidates SET stage='unavailable' WHERE intake_id=request_id
         AND season=(p_work->>'season')::integer AND external_league_id=p_work->>'externalLeagueId';
-      UPDATE public.public_data_exact_period_tasks SET status='unavailable',reason='bootstrap-unavailable' WHERE intake_id=request_id
-        AND season=(p_work->>'season')::integer AND external_league_id=p_work->>'externalLeagueId' AND status='pending' AND p_work->>'kind'='bootstrap';
+      IF periods_selected THEN
+        IF p_work->>'kind'='bootstrap' THEN
+          UPDATE public.public_data_exact_period_tasks SET status='unavailable',reason='bootstrap-unavailable' WHERE intake_id=request_id
+            AND season=(p_work->>'season')::integer AND external_league_id=p_work->>'externalLeagueId' AND status='pending';
+        END IF;
+      END IF;
       UPDATE public.public_data_intakes SET failure_count=0,next_attempt_at=clock_timestamp() WHERE id=request_id;
       IF public.next_public_data_intake(request_id) IN ('"complete"'::jsonb,'"partial"'::jsonb) THEN
         UPDATE public.public_data_intakes SET terminal=true WHERE id=request_id;
       END IF;
     ELSE
-      UPDATE public.public_data_exact_period_tasks SET status='unavailable',reason='discovery-unavailable' WHERE intake_id=request_id AND status='pending';
+      IF periods_selected THEN
+        UPDATE public.public_data_exact_period_tasks SET status='unavailable',reason='discovery-unavailable' WHERE intake_id=request_id AND status='pending';
+      END IF;
       UPDATE public.public_data_intakes SET terminal=true WHERE id=request_id; END IF;
   END IF;
 END; $$;
@@ -288,9 +308,10 @@ DECLARE request_id uuid:=(p_work->>'requestId')::uuid; kind text:=p_work->>'kind
   value jsonb:=p_capture->'value'; native text; manager_id uuid; started timestamptz; completed timestamptz;
   v_league_id uuid; season_id uuid; connection_id uuid; item jsonb; count_selected integer;
   observation uuid; v_family text; mapping jsonb; receipt_key text; wanted_receipt_id uuid;
-  dispatch_row public.public_data_dispatches%ROWTYPE; directory jsonb; directory_content uuid; directory_capture_id uuid; task public.public_data_exact_period_tasks%ROWTYPE;
+  dispatch_row public.public_data_dispatches%ROWTYPE; directory jsonb; directory_content uuid; directory_capture_id uuid; task public.public_data_exact_period_tasks%ROWTYPE; period_scope jsonb;
 BEGIN
   PERFORM public.guard_public_data_intake(p_work,p_fence);
+  SELECT exact_periods INTO STRICT period_scope FROM public.public_data_intakes WHERE id=request_id;
   IF NOT EXISTS(SELECT 1 FROM public.public_data_dispatches dispatch WHERE dispatch.worker_id=p_fence->>'workerId'
     AND dispatch.generation=(p_fence->>'generation')::integer AND dispatch.work=p_work AND NOT EXISTS(
       SELECT 1 FROM public.public_data_dispatch_outcomes outcome WHERE outcome.worker_id=dispatch.worker_id AND outcome.generation=dispatch.generation)) THEN
@@ -347,20 +368,24 @@ BEGIN
       SELECT 1 FROM public.public_data_league_candidates candidate WHERE candidate.intake_id=request_id
         AND candidate.season=(p_work->>'season')::integer AND candidate.external_league_id=raw->>'league_id')) THEN
       RAISE EXCEPTION 'public list silently omitted a source member'; END IF;
-    INSERT INTO public.public_data_exact_period_tasks(intake_id,ordinal,season,external_league_id,native_week)
+    IF period_scope<>'[]'::jsonb THEN
+      INSERT INTO public.public_data_exact_period_tasks(intake_id,ordinal,season,external_league_id,native_week)
       SELECT request_id,(SELECT count(*) FROM public.public_data_exact_period_tasks WHERE intake_id=request_id)
         +row_number() OVER(ORDER BY candidate.season,candidate.external_league_id),candidate.season,candidate.external_league_id,(period->>'nativeWeek')::integer
       FROM public.public_data_league_candidates candidate JOIN public.public_data_intakes request ON request.id=candidate.intake_id
       CROSS JOIN LATERAL jsonb_array_elements(request.exact_periods) period
       WHERE candidate.intake_id=request_id AND candidate.season=(p_work->>'season')::integer AND candidate.stage<>'capacity'
         AND (period->>'season')::integer=candidate.season;
+    END IF;
   ELSIF kind='bootstrap' THEN
     IF p_capture->>'capacity'='roster-count-unqualified' THEN
       UPDATE public.public_data_league_candidates SET stage='capacity',bootstrap_payload=p_capture->'payload',
         bootstrap_started_at=started,bootstrap_completed_at=completed WHERE intake_id=request_id
         AND season=(p_work->>'season')::integer AND external_league_id=p_work->>'externalLeagueId';
-      UPDATE public.public_data_exact_period_tasks SET status='unavailable',reason='bootstrap-capacity' WHERE intake_id=request_id
-        AND season=(p_work->>'season')::integer AND external_league_id=p_work->>'externalLeagueId' AND status='pending';
+      IF period_scope<>'[]'::jsonb THEN
+        UPDATE public.public_data_exact_period_tasks SET status='unavailable',reason='bootstrap-capacity' WHERE intake_id=request_id
+          AND season=(p_work->>'season')::integer AND external_league_id=p_work->>'externalLeagueId' AND status='pending';
+      END IF;
       UPDATE public.public_data_intakes SET revision=revision+1,failure_count=0 WHERE id=request_id;
       IF public.next_public_data_intake(request_id) IN ('"complete"'::jsonb,'"partial"'::jsonb) THEN
         UPDATE public.public_data_intakes SET terminal=true WHERE id=request_id;
@@ -387,6 +412,7 @@ BEGIN
       bootstrap_started_at=started,bootstrap_completed_at=completed,stage='core'
       WHERE intake_id=request_id AND season=(p_work->>'season')::integer AND external_league_id=p_work->>'externalLeagueId';
   ELSIF kind='exact-matchups' THEN
+    IF period_scope='[]'::jsonb THEN RAISE EXCEPTION 'explicit public period scope required'; END IF;
     IF jsonb_typeof(p_capture->'observations') IS DISTINCT FROM 'object' OR jsonb_typeof(p_capture->'receipts') IS DISTINCT FROM 'object' THEN
       RAISE EXCEPTION 'exact period checkpoint incomplete'; END IF;
     IF (SELECT count(*) FROM jsonb_object_keys(p_capture->'observations'))<>2

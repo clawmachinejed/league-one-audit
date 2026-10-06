@@ -3,8 +3,8 @@ import type { IntegrationRunReceipt, runDisposableIntegration } from '../integra
 
 const mocked = vi.hoisted(() => ({ git: vi.fn(), uuid: vi.fn(), mkdir: vi.fn(), writeFile: vi.fn(), run: vi.fn() }));
 vi.mock('node:child_process', () => ({ execFileSync: mocked.git }));
-vi.mock('node:crypto', () => ({ randomUUID: mocked.uuid }));
-vi.mock('node:fs/promises', () => ({ mkdir: mocked.mkdir, writeFile: mocked.writeFile }));
+vi.mock('node:crypto', async original => ({ ...await original<typeof import('node:crypto')>(), randomUUID: mocked.uuid }));
+vi.mock('node:fs/promises', async original => ({ ...await original<typeof import('node:fs/promises')>(), mkdir: mocked.mkdir, writeFile: mocked.writeFile }));
 vi.mock('../integration/disposable-integration', () => ({ runDisposableIntegration: mocked.run }));
 
 type RunOptions = Parameters<typeof runDisposableIntegration>[0];
@@ -297,4 +297,13 @@ describe('disposable integration receipt ownership', () => {
     expect(messages).toEqual([]);
     expect(vi.getTimerCount()).toBe(0);
   });
+});
+
+it('forwards only the closed profile selector without changing lifecycle safeguards', async () => {
+  process.argv.push('--profile=data-core-refresh-v1'); await import('./run-disposable-integration');
+  expect(mocked.run.mock.calls[0][0].profile).toBe('data-core-refresh-v1'); expect(process.exitCode).toBe(0);
+});
+it.each(['--config=custom', '--testNamePattern=anything', '--profile=full'])('rejects arbitrary selector %s before source or provisioning work', async arg => {
+  process.argv.push(arg); await expect(import('./run-disposable-integration')).rejects.toThrow('closed');
+  expect(mocked.git).not.toHaveBeenCalled(); expect(mocked.run).not.toHaveBeenCalled();
 });
