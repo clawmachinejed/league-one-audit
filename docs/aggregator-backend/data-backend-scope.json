@@ -1,0 +1,336 @@
+{
+  "version": 1,
+  "scope": "fantasy-football-data-backend-v1",
+  "baselines": [
+    {
+      "name": "data-backend",
+      "sha": "87da4d0cb909ee280e125e73ad10e1c3dbd7cd9f"
+    },
+    {
+      "name": "preserved-account-checkpoint",
+      "sha": "682f6bbf8158e1c3494d85f31cd0e83856536ebe"
+    }
+  ],
+  "allowedDataPaths": [
+    "apps/site/lib/sleeper.ts",
+    "apps/site/lib/sleeper.test.ts",
+    "apps/site/lib/sleeper-discovery.test.ts",
+    "apps/site/lib/sleeper-account-identity.test.ts",
+    "apps/site/lib/sleeper-history-validation.ts",
+    "apps/site/lib/sleeper-catalog-types.ts",
+    "apps/site/lib/league-capabilities.ts",
+    "apps/site/lib/league-capabilities.test.ts",
+    "apps/site/lib/league-capability-contracts.ts",
+    "apps/site/lib/provider-request-telemetry.ts",
+    "apps/site/lib/provider-request-telemetry.test.ts"
+  ],
+  "allowedDataPatterns": [
+    "^apps/site/lib/league-administration/(?:[a-z0-9-]+/)*[a-z0-9.-]+\\.(?:ts|json)$",
+    "^apps/site/lib/projections/adapters/sleeper/(?:league-source|raw-matchups|lineup-source|lineup-observation|schedule|permit-transport|dispatch-capacity|owned-dispatch-slot)(?:\\.test)?\\.ts$",
+    "^apps/site/lib/projections/adapters/neon/(?:identities|identity-crosswalk|source-history|lineup-watch-contracts|lineup-watch-read|lineup-watch-observations|period-authority-reader)(?:\\.test)?\\.ts$",
+    "^docs/aggregator-backend/data-backend-[a-z0-9-]+\\.(?:md|json)$"
+  ],
+  "reviewedExtensions": [
+    {
+      "path": "apps/site/migrations/034_public_data_intake.sql",
+      "resource": "Provider identity, season league discovery and official core intake",
+      "purpose": "Add immutable acquisition evidence and durable bounded intake checkpoints using existing job fencing; clean 001-033 DATA lineage only, no account prerequisites or projection activation.",
+      "proof": "Offline SQL contract checks and authored restricted-role persistence/replay/lease/rollback/capacity oracle; actual PostgreSQL qualification pending.",
+      "reviewer": "Independent GPT-6 Astra ultra review in Review new backend end to end (01a0f411-7133-7491-b693-4c89af678ca6)",
+      "reviewReference": "DATA-SCOPE-2026-10-06-PUBLIC-INTAKE-01"
+    },
+    {
+      "path": "apps/site/scripts/provision-runtime-role.sql",
+      "resource": "Restricted infrastructure access to retained public intake data",
+      "purpose": "Explicit narrow intake function/read grants without direct history mutation; conditional catalog guards preserve 001-033 provisioning compatibility.",
+      "proof": "Offline grant assertions and authored privilege-negative integration cases; actual restricted-role SQL execution pending.",
+      "reviewer": "Independent GPT-6 Astra ultra review in Review new backend end to end (01a0f411-7133-7491-b693-4c89af678ca6)",
+      "reviewReference": "DATA-SCOPE-2026-10-06-PUBLIC-INTAKE-01"
+    },
+    {
+      "path": "apps/site/integration/public-data-intake.integration-case.ts",
+      "resource": "Provider identity/list/core source-to-stored-reader persistence",
+      "purpose": "Use existing guarded PostgreSQL harness for readback, replay, lost lease, rollback, capacity and no projection enrollment; source authoring only.",
+      "proof": "Authored oracle remains unexecuted until a separately authorized isolated database qualification run.",
+      "reviewer": "Independent GPT-6 Astra ultra review in Review new backend end to end (01a0f411-7133-7491-b693-4c89af678ca6)",
+      "reviewReference": "DATA-SCOPE-2026-10-06-PUBLIC-INTAKE-01"
+    }
+  ],
+  "governanceChanges": [
+    {
+      "id": "data-backend-scope-v1",
+      "purpose": "Introduce the human-requested data-only scope guardrail; review policy changes independently, not as backend qualification.",
+      "paths": [
+        "AGENTS.md",
+        "docs/aggregator-backend/data-backend-scope.md",
+        "docs/aggregator-backend/data-backend-scope.json",
+        "scripts/check-data-backend-scope.mjs",
+        "docs/aggregator-backend/README.md",
+        "docs/aggregator-backend/backend-build-plan.md",
+        "docs/aggregator-backend/implementation/README.md",
+        "docs/aggregator-backend/implementation/backlog.md"
+      ]
+    }
+  ],
+  "preservedCheckpoint": {
+    "base": "682f6bbf8158e1c3494d85f31cd0e83856536ebe",
+    "meaning": "Exact existing application WIP bytes, preserved without acceptance or qualification. Applies only to this account checkpoint base; grants no exception in the clean data-backend profile. sha256 hashes raw working file bytes; gitBlobOid binds the corresponding clean-filtered Git content if staged.",
+    "files": [
+      {
+        "path": "apps/site/app/api/cron/live-projections/route.ts",
+        "sha256": "655ac69546def5b2c8f3eab5b45e66e860a57e793118b72a27396e73f8c8d75c",
+        "gitBlobOid": "32feec5a18f29e2fd6af70c550995859e6657b05"
+      },
+      {
+        "path": "apps/site/components/account-command.test.ts",
+        "sha256": "398d3f70ac8fcdb3162d788ca953aa2b084883f232565a34e3e528c815284052",
+        "gitBlobOid": "f38ae28156b8e9d0391146fc8c0f095c8e3c1ccb"
+      },
+      {
+        "path": "apps/site/components/account-command.ts",
+        "sha256": "9cd5585bfe5f3a2bf4ac798cd964181a133af83190f07d2bd9ce597070ec4c8e",
+        "gitBlobOid": "fcb88f16df66c13ab624bff48ef0b0aeadbca623"
+      },
+      {
+        "path": "apps/site/components/account-library.tsx",
+        "sha256": "8eb096b6e912dc286147559db10e1a19b9f3b6e24ee6b27ca37de08f965ce378",
+        "gitBlobOid": "9b97ae24f30d447fec093a2460cc94bcb31f30d3"
+      },
+      {
+        "path": "apps/site/components/account-profile.tsx",
+        "sha256": "fb7b2c8519a3669999cf82775542f4fd3068a29f477e4c002b88d3a935e050f0",
+        "gitBlobOid": "ffd878d1f8768b79d33eceec31f151dd10f1ced5"
+      },
+      {
+        "path": "apps/site/components/account-workspace.tsx",
+        "sha256": "b417db32d0cdb05c56063a1044d76781886c3c0e40fc175e5cb88aee6bf6d6aa",
+        "gitBlobOid": "b02cce26b8a24beb6193aec2510de8d98c764b53"
+      },
+      {
+        "path": "apps/site/components/sleeper-onboarding.tsx",
+        "sha256": "8d452aa8726cbb92b22686a66f85191781762b64cb27c006d7203310979aec1c",
+        "gitBlobOid": "8cfedaf81549972cf81bf1ed056df1dae89ba605"
+      },
+      {
+        "path": "apps/site/integration/account-acquisition.integration-case.ts",
+        "sha256": "bfbfb90986b402260743a611ea48b02385ee7e690e39edd6964d5f17282b7766",
+        "gitBlobOid": "2a5e26e3ff164963f391b7d50132a284cbc7ad64"
+      },
+      {
+        "path": "apps/site/integration/account-foundation.integration-case.ts",
+        "sha256": "e46ba1db2ad8e8af4841109852e2353be8bd964791ec1d365995088e92663cfc",
+        "gitBlobOid": "b1d2ca259664878ecff4213abe119bfb38cf85c6"
+      },
+      {
+        "path": "apps/site/integration/account-legacy-association-rehearsal.ts",
+        "sha256": "42a35a796a8733f80d3d61a39bae2f1ea6cd94121704a4ec564032761e65a887",
+        "gitBlobOid": "6ef8f386974cad276cfaf50230641739cb551e04"
+      },
+      {
+        "path": "apps/site/integration/account-transition-stages.test.ts",
+        "sha256": "f7310009d742b0512e34e13fe5d913d8dae4fc77313564a99788e6467a2c4f58",
+        "gitBlobOid": "83e3972a2c85d7758694c2a495640d507821f03b"
+      },
+      {
+        "path": "apps/site/integration/disposable-integration.ts",
+        "sha256": "3f1aa82bad2d04688fa205230e288c6425ec76a86d246b92234016c877071e3d",
+        "gitBlobOid": "c929ecc457a0eac81950982f3d48bce353fc715d"
+      },
+      {
+        "path": "apps/site/integration/global-setup.test.ts",
+        "sha256": "ca1279ad7d8d26870463c0a06f1feaf35ec3b57c3f284e516af698942bb3e032",
+        "gitBlobOid": "fd802353c6cf9fe44f0a827874daf0c7b366e175"
+      },
+      {
+        "path": "apps/site/integration/global-setup.ts",
+        "sha256": "fb022954a83061644a8201d42e5db84c1ae6643970dc9f5c048a9b4f25b22fec",
+        "gitBlobOid": "6fdd20da23ca30e5e41d78c8b7de05ce062e0d68"
+      },
+      {
+        "path": "apps/site/integration/legacy-account.global-setup.ts",
+        "sha256": "ee19b1af57a90a6dd7473db45cf14d225f16177b3f1acfb5ccaa2f306567717e",
+        "gitBlobOid": "e44bc504bc6971047ef70e9e8dc524e0023ed198"
+      },
+      {
+        "path": "apps/site/lib/accounts/association-service.test.ts",
+        "sha256": "7133f2bf9b8a3c59ed821261bd9bc7436c041fbe7b841069a42e88cf3f4ec118",
+        "gitBlobOid": "2fc3745f042d93296aa188f73e0bd051b0519220"
+      },
+      {
+        "path": "apps/site/lib/accounts/association-service.ts",
+        "sha256": "64589e4491868cdc3a48e87f7d753f5de104fe75c67abea8c0470c0b26396a58",
+        "gitBlobOid": "6786adffd366f70e5b62fa4477bf23f9a5c5613f"
+      },
+      {
+        "path": "apps/site/lib/accounts/discovery-contracts.ts",
+        "sha256": "57dbb6999de0706309cf466c623709c304a239f61bcc6f19f49a4d808872be60",
+        "gitBlobOid": "dae5b6262b9eb529c00afa2c58a411cb4213c379"
+      },
+      {
+        "path": "apps/site/lib/accounts/discovery-results.ts",
+        "sha256": "7a354fad31a8143792d94d9d3c3a277bae20f2f7f95ef77b86dd7fcad070ad02",
+        "gitBlobOid": "5ca63a13e03cf3f1c1742abf77ba7a3fb72cadfb"
+      },
+      {
+        "path": "apps/site/lib/accounts/http.test.ts",
+        "sha256": "7f8e61e84f56f2e276560c0adb317d06b174e2496612f71b301f7f73dcd548db",
+        "gitBlobOid": "56b43a2e41c9d085f559e2f0b109bd1cad3cf9bb"
+      },
+      {
+        "path": "apps/site/lib/accounts/http.ts",
+        "sha256": "9e13cb6233a77ce701dd0b011032534383eec72f9de3637ac96d745bc36992be",
+        "gitBlobOid": "bdc6400b70b1d09ef14fcca7bc4eaa8c6b5ce3f3"
+      },
+      {
+        "path": "apps/site/lib/accounts/neon/discovery.ts",
+        "sha256": "299bbd79c321705c625d83d39d0ad5c25ad5c139b95b6e5a51b642e2162d339d",
+        "gitBlobOid": "5902bd5659d9bd42f502f5f167b8b87e01e9e278"
+      },
+      {
+        "path": "apps/site/lib/accounts/neon/store.ts",
+        "sha256": "0c221354a3677c38c43a87061e6431e4a4976a7062007158ceaa5669381bcfc6",
+        "gitBlobOid": "67bdaed71b37ecbd3346ad09e29f00c5c3f690c7"
+      },
+      {
+        "path": "apps/site/lib/accounts/onboarding-http.test.ts",
+        "sha256": "45eb5f5255c98f0d3ead1f84e15c7848d39f55afe90df5a1146ca60691a6be90",
+        "gitBlobOid": "260eb73cd19392bd26b7cf1280fccfd7d273c5b7"
+      },
+      {
+        "path": "apps/site/lib/accounts/onboarding-http.ts",
+        "sha256": "9ab9afae8e9c6e98a49ac2c086b85c8d9f895fdddad7e212ec8b724194fb1a53",
+        "gitBlobOid": "ccfcffa0f3e599bc5b0471916f36b043c6dec08f"
+      },
+      {
+        "path": "apps/site/lib/accounts/onboarding.test.ts",
+        "sha256": "54314941e6f4a6c1dfa28f75feac785921a99e5fb94ebbfb5a354dce25ab560f",
+        "gitBlobOid": "1ee5d00881e982ce7b950911900bd89fed6f1f0b"
+      },
+      {
+        "path": "apps/site/lib/accounts/onboarding.ts",
+        "sha256": "cbf4e381042f6555ce6a171981bd53a6f06947bd318083c720732c7b3f42c9a0",
+        "gitBlobOid": "1bd5677815b5fbc47f8f376d98dab55476b31986"
+      },
+      {
+        "path": "apps/site/lib/accounts/store.test.ts",
+        "sha256": "c2948b2271ef577486aa13aa4906e939d690ce3956c7daffb4c8c962c91a5bcb",
+        "gitBlobOid": "f3d473a59b906b0b1e35684fe4d55539d02d1e54"
+      },
+      {
+        "path": "apps/site/lib/league-capabilities.ts",
+        "sha256": "2e892fa3cfb69668cd035d1e7958006a6ab3d7f98c6d7b50689c4c172300c68b",
+        "gitBlobOid": "594f8dfb5bab2e624b6428d848c1f5c4090bd003"
+      },
+      {
+        "path": "apps/site/lib/projection-store-test-support.ts",
+        "sha256": "4d7101537a939769717129bbdf41ea661644881e1bc40d9f33eef03c214dc6b7",
+        "gitBlobOid": "f99d12047e3b1cb41b4ca956a52a6b340fa0c98c"
+      },
+      {
+        "path": "apps/site/lib/projections/adapters/neon/matchup-selection-sql.ts",
+        "sha256": "089b04245c737ebb96ab83bfcaa775ac29146bc4a6ac36794e6351973093151e",
+        "gitBlobOid": "44e0b7858b0c0a70640397107e8b2bd13aa24e8c"
+      },
+      {
+        "path": "apps/site/lib/projections/adapters/neon/periods.ts",
+        "sha256": "6bcdcb243621207c64cacca8bf9cedd9ae5c20debf809e05349b8b68e74e0a12",
+        "gitBlobOid": "af3061013a9b6eeb84b64639fe7a17acb589528e"
+      },
+      {
+        "path": "apps/site/lib/projections/adapters/neon/snapshot-coverage.ts",
+        "sha256": "5a9a76befcb9741499182a6c2b17c596fd9202cf4116e71862e6bd31fe0f83a4",
+        "gitBlobOid": "b097c39d0cf6504c199fb0924ca70dab503fdefb"
+      },
+      {
+        "path": "apps/site/lib/projections/adapters/neon/snapshot-revision.test.ts",
+        "sha256": "c1f48f2219b5721e26cd39cc3492407df9e372d6f137445cd6a925a633b991ea",
+        "gitBlobOid": "4b2ffcc72e69d0aacf959b4f490d58d80e19756e"
+      },
+      {
+        "path": "apps/site/lib/projections/adapters/neon/snapshot-revision.ts",
+        "sha256": "5736d1b91579e6a976d1f6cc8a1a061e823b9e0f4a823ea4b83293a52616227f",
+        "gitBlobOid": "f482322dfae1b3005e7268fbb866f1cf979e1cbb"
+      },
+      {
+        "path": "apps/site/lib/projections/domain/projection-coverage.ts",
+        "sha256": "55787ce4e8ab01abb30a044f7307c89f99088092aa9b3063bc906afbc1bc6609",
+        "gitBlobOid": "1f624dd6fc6c46aa6aaac475a78d6458b6b35b96"
+      },
+      {
+        "path": "apps/site/lib/projections/runtime/account-acquisition-composition.test.ts",
+        "sha256": "3d6ef28eb62063fd87b34abba1892282c5e83fd31200e36ce9e79ec0477c1ffd",
+        "gitBlobOid": "55387ae490a642670e76a1d81d5b8ddf788658f5"
+      },
+      {
+        "path": "apps/site/lib/projections/runtime/account-acquisition-composition.ts",
+        "sha256": "710a39479aaf80dd051583a7787528ad105204e2749156df29de665928bd13a6",
+        "gitBlobOid": "902214c68fc9239c09b194c57a7bdb523f2f5df5"
+      },
+      {
+        "path": "apps/site/lib/projections/worker/league-stage.ts",
+        "sha256": "056168d0a595050636b47c4e190acfc5a990c9e5fd4f3017979c8f2be2cf0c63",
+        "gitBlobOid": "94a3a12623b1d8e8b8708343885b973ac5159dbf"
+      },
+      {
+        "path": "apps/site/lib/projections/worker/scoring-cache.test.ts",
+        "sha256": "9ff1de3689563fd9da0df0f157325a577a4121a915b3cfd0f17239d84cde71d6",
+        "gitBlobOid": "4429002018b40491a170a0ad759d990fe0cf1386"
+      },
+      {
+        "path": "apps/site/lib/projections/worker/scoring-cache.ts",
+        "sha256": "60dddb5bc7681b23cb51800cb2ace0dfaffd0570e8496fc997f4de12d69b4447",
+        "gitBlobOid": "46fa22052a15241c0052654f60393d23dbd1a59d"
+      },
+      {
+        "path": "apps/site/migrations/036_account_infrastructure_transition.sql",
+        "sha256": "3ba297a2af562126b6a75751d431296295a80e8f0d9bac2ff67378a74d041723",
+        "gitBlobOid": "fb7ec531cae4b0f236d3463aa6c0329ef226d4dc"
+      },
+      {
+        "path": "apps/site/migrations/037_account_acquisition.sql",
+        "sha256": "d9d0a434127e6b51ec3a42cb68fd81668c0b40fb8ea4cc34a45824714d622bf8",
+        "gitBlobOid": "6ec0dbf3e4c5b83f70e36224fbc4ebe3b0809f5f"
+      },
+      {
+        "path": "apps/site/scripts/account-transition-preflight.test.mjs",
+        "sha256": "69a7e4d527f2cdbab785388d8acc9941d81abdeafb25872e4372df0e7f3829f9",
+        "gitBlobOid": "43d753b1063acfb987eaf6ebefed8dbddf37f9ff"
+      },
+      {
+        "path": "apps/site/scripts/integration-stages.mjs",
+        "sha256": "f4706b8f0d2882b5ebb0299c5e1c97d73873a12a287eebd950e73a5e7b0eae90",
+        "gitBlobOid": "f730b69084d02190f9003b1f4470d780b2443cf4"
+      },
+      {
+        "path": "apps/site/scripts/integration-stages.test.mjs",
+        "sha256": "c659f0039724a2c420da9e12d24eeb9a68be9b9512b595830816382d86193310",
+        "gitBlobOid": "3d5863ff6f7c94040feba2a75fcc53ce6042ba10"
+      },
+      {
+        "path": "apps/site/scripts/migrate.mjs",
+        "sha256": "8f0cef74e86aa9d7c675e9d32384299048ea2660541d15a2bbadde70626ccf97",
+        "gitBlobOid": "9cad635085e52eaf9c8ca0084d213c2767dbafc9"
+      },
+      {
+        "path": "apps/site/scripts/provision-account-role.sql",
+        "sha256": "15ee99340ad769b02f4e08afab3a8eb06a8147d5d652d1ed19ad53b5d33f1941",
+        "gitBlobOid": "cd3458c97318a0b4453cb64fdcbb1957d0f10ca3"
+      },
+      {
+        "path": "apps/site/scripts/run-projection-store-integration.mjs",
+        "sha256": "8fef0b537b9f4ae605c0a0f99c9e306f52d5ff9aeaae40a4d7c4be91e83e6776",
+        "gitBlobOid": "bc75e3e9277b78f1a1a3057b6144ef69ca40ec3f"
+      },
+      {
+        "path": "apps/site/vitest.integration-legacy.config.ts",
+        "sha256": "65e9c26662d66321e1d7c70455febba53eb3feb1e21a2a464f66d31e68202681",
+        "gitBlobOid": "40465e1e8b802285d5f7d87d5eb2919839de5c30"
+      },
+      {
+        "path": "apps/site/vitest.integration.config.ts",
+        "sha256": "7420bf440b7fa313a37281ae9077b9cd4f7ce0c39705281f0806a23378b275b1",
+        "gitBlobOid": "d4708c323f7ebbc14cc1b75fa8de727a75b36b83"
+      }
+    ]
+  }
+}

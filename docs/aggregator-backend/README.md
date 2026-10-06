@@ -1,5 +1,7 @@
 # Aggregator backend contracts and migration design
 
+> **Current implementation scope:** [The data-backend contract](data-backend-scope.md) governs current work: official fantasy data acquisition, typed relational storage, refresh/recovery and backend readers. Website accounts/login, exclusive claims, onboarding/follows/membership entitlements, UX and new analytics/projections are deferred, not prerequisites. Earlier broader plans and the separate 108-obligation account ledger remain historical/deferred with their recorded pending statuses. This notice does not establish acceptance, SQL qualification or release authority.
+
 The [Step 2 implementation checklist](step-2-checklist.md) is the current screen-by-screen completion ledger. The [exact-period matchup shadow resource](exact-period-matchups.md) records the first Bundle 1 implementation boundary, its evidence and remaining qualification gates.
 
 [Shared league-season and settings](league-season-settings.md) adds an internal
