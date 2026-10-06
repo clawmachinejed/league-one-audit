@@ -200,6 +200,49 @@ describe('disposable integration command cancellation and source evidence', () =
     expect(JSON.parse(mocked.writeFile.mock.calls.at(-1)![1])).toMatchObject({ qualification: 'failed', stage: 'failed' });
   });
 
+  it.each(['timeout', 'rejection'] as const)('supersedes persisted but unacknowledged pass bytes after final receipt %s', async failure => {
+    const written: { path: string; value: IntegrationRunReceipt }[] = [];
+    const ready = Promise.withResolvers<void>();
+    const late = Promise.withResolvers<void>();
+    mocked.writeFile.mockImplementation(async (path, text) => {
+      if (!text) return;
+      const value = JSON.parse(String(text)) as IntegrationRunReceipt;
+      written.push({ path: String(path), value }); // Bytes persisted before acknowledgment fails.
+      if (value.qualification === 'passed') {
+        ready.resolve();
+        if (failure === 'rejection') throw new Error('simulated final receipt acknowledgment failure');
+        await late.promise;
+      }
+    });
+    const executing = import('./run-disposable-integration');
+    await ready.promise;
+    if (failure === 'timeout') await vi.advanceTimersByTimeAsync(2_000);
+    await executing;
+    expect(process.exitCode).toBe(1);
+    expect(written[0].value.qualification).toBe('passed');
+    expect(written.at(-1)!.value).toMatchObject({ qualification: 'failed', stage: 'failed', failures: ['receipt'] });
+    expect(written.at(-1)!.path).not.toBe(written[0].path);
+    expect(messages.join(' ')).toContain('receipt finalization failed');
+    expect(messages.join(' ')).not.toContain('preflight failed');
+    late.resolve(); await Promise.resolve();
+    expect(process.exit).not.toHaveBeenCalled();
+  });
+
+  it('stays unqualified when both final pass acknowledgment and the later failure snapshot fail', async () => {
+    const written: IntegrationRunReceipt[] = [];
+    mocked.writeFile.mockImplementation(async (_path, text) => {
+      if (!text) return;
+      written.push(JSON.parse(String(text)) as IntegrationRunReceipt);
+      throw new Error('simulated filesystem acknowledgment loss');
+    });
+    await import('./run-disposable-integration');
+    expect(process.exitCode).toBe(1);
+    expect(written.map(value => value.qualification)).toEqual(['passed', 'failed']);
+    expect(JSON.parse(messages.at(-1)!)).toMatchObject({ outcome: 'failed',
+      finalReceiptAcknowledged: false, failures: ['receipt'] });
+    expect(process.exit).not.toHaveBeenCalled();
+  });
+
   it('exits failed at the absolute minute40 boundary when cleanup never returns', async () => {
     const { ready, finishCleanup } = waitForCancellation();
     const executing = import('./run-disposable-integration');

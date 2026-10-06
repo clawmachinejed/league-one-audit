@@ -35,20 +35,26 @@ describe('public data source to typed PostgreSQL readback and recovery', () => {
     if (registration.kind !== 'stored') throw new Error('Integration persistence disabled.');
     await ownerQuery(`INSERT INTO public.league_administration_enrollments(league_id,provider,active,evidence)
       VALUES($1,'sleeper',false,'public-data-intake-v1')`, [registration.value.leagueId]);
+    await ownerQuery(`INSERT INTO public.league_administration_enrollment_seasons(league_id,season,provider,evidence)
+      VALUES($1,$2,'sleeper','public-data-intake-v1')`, [registration.value.leagueId, season]);
+    let directoryOutage = false;
     const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
       const url = String(input);
       if (url.endsWith('/user/synthetic_manager')) return new Response(JSON.stringify({ user_id: '555', username: 'synthetic_manager' }));
       if (url.endsWith(`/user/555/leagues/nfl/${season}`)) return new Response(JSON.stringify([league]));
       if (url.endsWith(`/league/${native}`)) return new Response(JSON.stringify(league));
       if (url.endsWith(`/league/${native}/rosters`)) return new Response(JSON.stringify(roster));
-      if (url.endsWith(`/league/${native}/users`)) throw new Error('synthetic directory interruption');
+      if (url.endsWith(`/league/${native}/users`)) {
+        if (directoryOutage) throw new Error('synthetic directory interruption');
+        return new Response(JSON.stringify([{ user_id: '555', display_name: 'Synthetic Manager' }]));
+      }
       throw new Error('Unexpected fixture provider scope.');
     });
     const dependencies: PublicIntakeDependencies = { intake, jobs, administration };
-    const progress = async (selected = dependencies) => {
+    const progress = async (selected = dependencies, requestId = id) => {
       const deadline = Date.now() + 150_000;
       while (Date.now() < deadline) {
-        const result = await runPublicIntakeStep(id, selected, new AbortController().signal);
+        const result = await runPublicIntakeStep(requestId, selected, new AbortController().signal);
         if (!['busy', 'backoff'].includes(result.status)) return result;
         await delay(1_000);
       }
@@ -56,16 +62,51 @@ describe('public data source to typed PostgreSQL readback and recovery', () => {
     };
     try {
       expect((await database.query('SELECT session_user AS role'))[0]?.role).toBe('league_one_runtime');
+      // Initial synthetic HTTP captures use the real clock. The unchanged rows
+      // naturally age during the unchanged, real 60-second intake admissions.
+      const originalMapping = await administration.readSourceMapping(native);
+      if (!originalMapping) throw new Error('Missing original source mapping.');
+      const cachedDocuments = await Promise.all((['league', 'rosters', 'users'] as const)
+        .map(family => capturePublicSleeperCore(native, family, new AbortController().signal)));
+      // Persist a cache read of those exact fixtures, retaining their real source
+      // timestamps. A network refresh must not relabel this original row's origin.
+      const originals = await recordCapturedAdministration(originalMapping.scope, cachedDocuments.map(document => ({ ...document, origin: 'cache' as const })),
+        { store: administration, mapping: originalMapping });
+      const originalIds = originals.results.map(entry => entry.result.observationId);
+      const immutableOriginals = await database.query('SELECT * FROM public.league_administration_observations WHERE id=ANY($1::uuid[]) ORDER BY id', [originalIds]);
+      directoryOutage = true;
       await intake.submit({ id, username: 'synthetic_manager', seasons: [season] });
       await intake.submit({ id, username: 'synthetic_manager', seasons: [season] });
       await expect(intake.submit({ id, username: 'different_manager', seasons: [season] })).rejects.toThrow('replay mismatch');
-      for (const resource of ['identity', 'leagues', 'bootstrap', 'core']) expect(await progress()).toMatchObject({ status: 'progress', resource });
+      for (const resource of ['identity', 'leagues', 'bootstrap']) expect(await progress()).toMatchObject({ status: 'progress', resource });
+      // All typed writes commit, then process death/lost checkpoint leaves this
+      // request at core. Retry must acquire fresh receipts for identical content.
+      expect(await progress({ ...dependencies, intake: { ...intake, completeCore: async () => { throw new Error('lost core checkpoint'); } } }))
+        .toMatchObject({ status: 'unavailable', resource: 'core' });
+      const beforeRetry = await administration.readAcceptedLeagueSettings(originalMapping);
+      const beforeRetryRoster = await administration.readAcceptedCurrentRoster(originalMapping);
+      expect(beforeRetry.status).toBe('available');
+      expect(await progress()).toMatchObject({ status: 'progress', resource: 'core' });
       const read = await readPublicSleeperIntake(database, administration, id);
       if (read.status === 'missing') throw new Error('Missing public fixture readback.');
       expect(read.leagues[0].resources).toMatchObject({ settings: { status: 'available' }, heldRoster: { status: 'available' },
-        teamManagers: { status: 'available' }, directory: { status: 'missing' } });
+        teamManagers: { status: 'available' }, directory: { status: 'unavailable' } });
       const [candidate] = await database.query('SELECT * FROM public.public_data_league_candidates WHERE intake_id=$1', [id]);
       for (const key of ['settings_receipt_id', 'players_receipt_id', 'managers_receipt_id']) expect(candidate[key]).toBeTruthy();
+      expect(candidate.league_observation_id).toBe(originals.results.find(entry => entry.family === 'league')?.result.observationId);
+      if (beforeRetryRoster.status !== 'available') throw new Error('Missing first mapped network roster capture.');
+      expect(candidate.roster_observation_id).toBe(beforeRetryRoster.receipt.legacyObservationId);
+      if (beforeRetry.status !== 'available') throw new Error('Missing interrupted typed capture.');
+      expect(candidate.settings_receipt_id).not.toBe(beforeRetry.receipt.id);
+      const [freshness] = await database.query(`SELECT observed.origin AS original_origin,observed.request_started_at<clock_timestamp()-interval '30 seconds' AS original_old,
+        (receipt.provenance->>'requestStartedAt')::timestamptz>=dispatch.admitted_at AS fresh_dispatch
+        FROM public.league_roster_capture_receipts receipt
+        JOIN public.league_roster_resource_attempts attempt ON attempt.id=receipt.attempt_id
+        JOIN public.public_data_dispatches dispatch ON dispatch.worker_id=attempt.write_fence->>'workerId'
+          AND dispatch.generation=(attempt.write_fence->>'generation')::integer
+        JOIN public.league_administration_observations observed ON observed.id=receipt.legacy_observation_id
+        WHERE receipt.id=$1`, [candidate.settings_receipt_id]);
+      expect(freshness).toEqual({ original_origin: 'cache', original_old: true, fresh_dispatch: true });
       expect((await administration.listEnrollmentInventory(season)).entries.some(entry => entry.intended.leagueId === registration.value.leagueId)).toBe(false);
       await expect(database.query('UPDATE public.public_data_intakes SET revision=revision+1 WHERE id=$1', [id])).rejects.toMatchObject({ code: '42501' });
       expect(await progress({ ...dependencies, intake: { ...intake, fail: async () => { throw new Error('old operation database deadline'); } } }))
@@ -88,7 +129,12 @@ describe('public data source to typed PostgreSQL readback and recovery', () => {
       await jobs.completeJob(PUBLIC_INTAKE_JOB, workerId);
       // Explicit legacy preparation adopts DATA purpose; installed025 activation
       // still requires three fresh official heads, including the missing directory.
+      const seasonHistory = await database.query('SELECT * FROM public.league_administration_enrollment_seasons WHERE league_id=$1 ORDER BY season', [registration.value.leagueId]);
       await database.query('SELECT public.prepare_account_league_enrollment($1::uuid,$2::integer,$3::text)', [registration.value.leagueId, season, native]);
+      await database.query('SELECT public.prepare_account_league_enrollment($1::uuid,$2::integer,$3::text)', [registration.value.leagueId, season, native]);
+      expect(await database.query('SELECT * FROM public.league_administration_enrollment_seasons WHERE league_id=$1 ORDER BY season', [registration.value.leagueId])).toEqual(seasonHistory);
+      await expect(database.query('UPDATE public.league_administration_enrollments SET data_adopted_seasons=ARRAY[$2]::integer[] WHERE league_id=$1',
+        [registration.value.leagueId, season + 1])).rejects.toMatchObject({ code: '42501' });
       expect((await database.query('SELECT active,evidence FROM public.league_administration_enrollments WHERE league_id=$1', [registration.value.leagueId]))[0])
         .toMatchObject({ active: false, evidence: 'account-onboarding-v1' });
       await expect(database.query('SELECT public.activate_account_league_enrollment($1,$2,$3)', [`sleeper-${native}`, season, native]))
@@ -96,6 +142,19 @@ describe('public data source to typed PostgreSQL readback and recovery', () => {
       expect((await administration.listEnrollmentInventory(season)).entries.some(entry => entry.intended.leagueId === registration.value.leagueId)).toBe(false);
       const mapping = await administration.readSourceMapping(native);
       if (!mapping) throw new Error('Missing adoption source mapping.');
+      directoryOutage = false;
+      expect(await progress()).toMatchObject({ status: 'progress', resource: 'users' });
+      const [directoryReceipt] = await database.query(`SELECT capture.*,observed.request_started_at AS original_request_started_at
+        FROM public.public_data_directory_captures capture JOIN public.league_administration_observations observed
+          ON observed.id=capture.legacy_observation_id WHERE capture.intake_id=$1`, [id]);
+      expect(directoryReceipt.legacy_observation_id).toBe(originals.results.find(entry => entry.family === 'users')?.result.observationId);
+      expect(new Date(String(directoryReceipt.request_started_at)).getTime()).toBeGreaterThan(new Date(String(directoryReceipt.original_request_started_at)).getTime());
+      await expect(database.query('DELETE FROM public.public_data_directory_captures WHERE id=$1', [directoryReceipt.id])).rejects.toMatchObject({ code: '42501' });
+      await expect(ownerQuery('DELETE FROM public.public_data_directory_captures WHERE id=$1', [directoryReceipt.id])).rejects.toThrow('immutable');
+      const finished = await readPublicSleeperIntake(database, administration, id);
+      if (finished.status === 'missing') throw new Error('Missing completed intake.');
+      expect(finished.leagues[0].resources?.directory).toMatchObject({ status: 'available', acquisition: { id: directoryReceipt.id } });
+      expect(await database.query('SELECT * FROM public.league_administration_observations WHERE id=ANY($1::uuid[]) ORDER BY id', [originalIds])).toEqual(immutableOriginals);
       const at = new Date().toISOString();
       await recordCapturedAdministration(mapping.scope, [
         { family: 'league', payload: league }, { family: 'rosters', payload: roster },
@@ -104,7 +163,58 @@ describe('public data source to typed PostgreSQL readback and recovery', () => {
         origin: 'network' as const, requestStartedAt: at, requestCompletedAt: at })), { store: administration });
       await database.query('SELECT public.activate_account_league_enrollment($1,$2,$3)', [`sleeper-${native}`, season, native]);
       expect((await administration.listEnrollmentInventory(season)).entries.some(entry => entry.intended.leagueId === registration.value.leagueId)).toBe(true);
+      // A later DATA-only history row is not adopted by activating this season.
+      await ownerQuery(`INSERT INTO public.league_administration_enrollment_seasons(league_id,season,provider,evidence)
+        VALUES($1,$2,'sleeper','public-data-intake-v1')`, [registration.value.leagueId, season + 1]);
+      expect((await administration.listEnrollmentInventory(season + 1)).entries.some(entry => entry.intended.leagueId === registration.value.leagueId)).toBe(false);
+      const defaultEntry = (await administration.listEnrollmentInventory()).entries.find(entry => entry.intended.leagueId === registration.value.leagueId);
+      expect(defaultEntry?.intended.season).toBe(season);
       expect(fetch.mock.calls.filter(([url]) => String(url).includes('/user/'))).toHaveLength(2);
+      const originalProfile = await database.query('SELECT scoring_profile_id FROM public.league_seasons WHERE id=$1', [mapping.leagueSeasonId]);
+      const correctionId = randomUUID();
+      league.scoring_settings.rec_yd = 0.2;
+      await intake.submit({ id: correctionId, username: 'synthetic_manager', seasons: [season] });
+      // Repeat the whole actual intake path, with normal admission waits, after
+      // an official scoring correction that must not rewrite calculation rules.
+      for (const resource of ['identity', 'leagues', 'bootstrap', 'core']) {
+        expect(await progress(dependencies, correctionId)).toMatchObject({ status: 'progress', resource });
+      }
+      const corrected = await administration.readAcceptedLeagueSettings(mapping);
+      if (corrected.status !== 'available') throw new Error('Missing official correction.');
+      expect(corrected.value.scoring.rules).toMatchObject({ value: { rec_yd: 0.2 } });
+      expect(await administration.readSource({ ...mapping.scope, family: 'league', week: null }))
+        .toMatchObject({ status: 'conflict', reason: 'scoring_profile_change_requires_explicit_compatibility_and_period_review' });
+      expect(await database.query('SELECT scoring_profile_id FROM public.league_seasons WHERE id=$1', [mapping.leagueSeasonId])).toEqual(originalProfile);
+      const correctedRead = await readPublicSleeperIntake(database, administration, correctionId);
+      if (correctedRead.status === 'missing') throw new Error('Missing correction checkpoint.');
+      expect(correctedRead.leagues[0].resources).toMatchObject({ settings: { status: 'available' },
+        heldRoster: { status: 'available' }, teamManagers: { status: 'available' } });
+      const currentRoster = await administration.readAcceptedCurrentRoster(mapping);
+      const currentManagers = await administration.readAcceptedTeamManagers(mapping);
+      const retainedPopulation = { observationId: corrected.receipt.legacyObservationId, contentHash: corrected.receipt.rawContentHash,
+        envelope: { schemaVersion: 'league-administration-v1' as const, normalizerVersion: 'sleeper-administration-v1' as const,
+          dialect: 'sleeper-nfl-v1' as const, scope: mapping.scope, family: 'league' as const, week: null, completeness: 'complete' as const,
+          provenance: corrected.receipt.provenance, payload: league } };
+      // A receipt from the former PUBLIC worker cannot authorize a new unfenced
+      // writer's claimed same-batch population, even for identical official rules.
+      const wrongOwner = await administration.beginRosterCapture(mapping, randomUUID(), randomUUID());
+      const rejectedOwner = await recordCapturedAdministration(mapping.scope,
+        [await capturePublicSleeperCore(native, 'rosters', new AbortController().signal)], { store: administration, mapping,
+          rosterAttempt: wrongOwner.players, managerAttempt: wrongOwner.managers, populationEvidence: retainedPopulation });
+      expect(rejectedOwner.results[0].result.rosterAcceptance?.status).toBe('preserved');
+      expect(rejectedOwner.results[0].result.teamManagerAcceptance?.status).toBe('preserved');
+      // The no-population recovery path is also fenced by the latest settings
+      // reservation; a pending newer settings acquisition cannot reuse old proof.
+      await administration.beginLeagueSettingsAttempt(mapping, randomUUID());
+      const superseded = await administration.beginRosterCapture(mapping, randomUUID(), randomUUID());
+      const rejectedLatest = await recordCapturedAdministration(mapping.scope,
+        [await capturePublicSleeperCore(native, 'rosters', new AbortController().signal)], { store: administration, mapping,
+          rosterAttempt: superseded.players, managerAttempt: superseded.managers });
+      expect(rejectedLatest.results[0].result.rosterAcceptance?.status).toBe('preserved');
+      expect(rejectedLatest.results[0].result.teamManagerAcceptance?.status).toBe('preserved');
+      expect(await administration.readAcceptedCurrentRoster(mapping)).toEqual(currentRoster);
+      expect(await administration.readAcceptedTeamManagers(mapping)).toEqual(currentManagers);
+
     } finally { fetch.mockRestore(); }
   }, 750_000);
 

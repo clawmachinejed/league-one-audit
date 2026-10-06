@@ -511,7 +511,7 @@ export async function cleanIntegrationDatabase(options: Readonly<{ ownerProof?: 
     await assertSafeIntegrationDatabase(env, options.signal);
     options.signal?.throwIfAborted();
     const ownerPool = await databaseOwnership.acquire({ ownerDatabaseUrl: env.ownerDatabaseUrl,
-      expectedDatabase: env.expectedDatabase, expectedBranchId: env.expectedBranchId }, delegatedOwner(options.ownerProof));
+      expectedDatabase: env.expectedDatabase, expectedBranchId: env.expectedBranchId }, delegatedOwner(options.ownerProof), options.signal);
     options.signal?.throwIfAborted();
     await resetIntegrationSchemas(ownerPool, options.signal);
   } finally {

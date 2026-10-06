@@ -53,6 +53,8 @@ export async function readEnrollmentInventory(client: DatabaseClient, season?: n
     JOIN public.leagues league ON league.id=enrollment.league_id
     LEFT JOIN LATERAL (SELECT candidate.season FROM public.league_administration_enrollment_seasons candidate
       WHERE candidate.league_id=league.id AND candidate.provider=enrollment.provider
+        AND (candidate.evidence<>'public-data-intake-v1' OR (enrollment.evidence='account-onboarding-v1'
+          AND (to_jsonb(enrollment)->'data_adopted_seasons') @> jsonb_build_array(candidate.season)))
       ORDER BY candidate.season DESC LIMIT 1) intended ON true
     LEFT JOIN public.league_seasons season ON season.league_id=league.id AND season.season=intended.season
     LEFT JOIN public.league_source_connections connection ON connection.league_season_id=season.id AND connection.provider=enrollment.provider
@@ -65,7 +67,10 @@ export async function readEnrollmentInventory(client: DatabaseClient, season?: n
     LEFT JOIN public.league_seasons season ON season.league_id=membership.league_id AND season.season=membership.season
     LEFT JOIN public.league_source_connections connection ON connection.league_season_id=season.id AND connection.provider=membership.provider
     WHERE membership.season=$1
-      AND membership.evidence<>'public-data-intake-v1'
+      AND (membership.evidence<>'public-data-intake-v1' OR EXISTS (
+        SELECT 1 FROM public.league_administration_enrollments adopted
+        WHERE adopted.league_id=membership.league_id AND adopted.active AND adopted.evidence='account-onboarding-v1'
+          AND (to_jsonb(adopted)->'data_adopted_seasons') @> jsonb_build_array(membership.season)))
       AND (membership.evidence<>'account-onboarding-v1' OR EXISTS (
         SELECT 1 FROM public.league_administration_enrollments active
         WHERE active.league_id=membership.league_id AND active.active))

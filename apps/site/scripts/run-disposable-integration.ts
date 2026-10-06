@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runDisposableIntegration } from '../integration/disposable-integration';
+import { runDisposableIntegration, type IntegrationRunReceipt } from '../integration/disposable-integration';
 import { IntegrationLifecycleBudget } from '../integration/integration-lifecycle-budget';
 import { createIntegrationReceiptJournal } from '../integration/integration-receipt-journal';
 
@@ -33,6 +33,8 @@ const timeout = setTimeout(() => {
   process.stderr.write(`Local lifecycle budget exhausted; qualification failed. Inspect unresolved resources in ${journal.latestPath}. Expiry is not verified cleanup.\n`);
   process.exit(1);
 }, Math.max(1, budget.remaining(true)));
+let finalReceipt: IntegrationRunReceipt | undefined;
+let finalizationStarted = false;
 try {
   const { passed, receipt } = await runDisposableIntegration({ environment: process.env, gitSha, budget,
     signal: controller.signal, output: value => process.stdout.write(value),
@@ -44,6 +46,7 @@ try {
       }
       return journal.save(receipt, signal);
     } });
+  finalReceipt = receipt;
   const sourceUnchanged = budget.remaining(true) > 4_000
     && execFileSync('git', ['rev-parse', 'HEAD'], gitOptions).trim() === gitSha
     && !execFileSync('git', ['status', '--porcelain'], gitOptions).trim();
@@ -57,6 +60,7 @@ try {
   let qualificationPassed = passed && sourceUnchanged && !cancelled;
   receipt.qualification = qualificationPassed ? 'passed' : 'failed';
   receipt.stage = qualificationPassed ? 'complete' : 'failed';
+  finalizationStarted = true;
   await budget.run(signal => journal.save(receipt, signal), { finalization: true, capMs: 2_000 });
   // Signals can arrive during the asynchronous final write. Never reuse its
   // pre-write pass decision for the command result; append a failure snapshot.
@@ -75,8 +79,27 @@ try {
     credentialsRevoked: receipt.credentialsRevoked, branchDeletionVerified: receipt.branchDeletionVerified,
     cancellationReason: receipt.cancellationReason, unresolvedResources: receipt.unresolvedResources, failures: receipt.failures })}\n`);
 } catch {
-  process.stderr.write('Disposable integration preflight failed. Check required test-only configuration in integration/README.md. No SQL test pass is claimed.\n');
   process.exitCode = 1;
+  if (finalizationStarted && finalReceipt) {
+    finalReceipt.qualification = 'failed'; finalReceipt.stage = 'failed';
+    if (!finalReceipt.failures.includes('receipt')) finalReceipt.failures.push('receipt');
+    // A write can persist every byte then lose its acknowledgment. Append one
+    // later failure snapshot within the original reserve, never retry the run.
+    let failureAcknowledged = false;
+    try {
+      await budget.run(signal => journal.save(finalReceipt!, signal), { finalization: true, capMs: 2_000 });
+      failureAcknowledged = true;
+    } catch { /* Exit remains failed even when no terminal snapshot can be acknowledged. */ }
+    process.stderr.write(`Disposable integration receipt finalization failed. No qualification is claimed; a passed snapshot alone is insufficient. Latest acknowledged receipt: ${journal.latestPath}.\n`);
+    process.stdout.write(`${JSON.stringify({ outcome: 'failed', receipt: journal.latestPath,
+      finalReceiptAcknowledged: failureAcknowledged, tests: finalReceipt.tests,
+      childClosed: finalReceipt.childClosed, schemaCleanupVerified: finalReceipt.schemaCleanupVerified,
+      credentialsRevoked: finalReceipt.credentialsRevoked, branchDeletionVerified: finalReceipt.branchDeletionVerified,
+      cancellationReason: finalReceipt.cancellationReason, unresolvedResources: finalReceipt.unresolvedResources,
+      failures: finalReceipt.failures })}\n`);
+  } else {
+    process.stderr.write('Disposable integration preflight failed. Check required test-only configuration in integration/README.md. No SQL test pass is claimed.\n');
+  }
 } finally {
   // Keep the final local exit armed if a failed driver/child left live handles.
   clearTimeout(workTimeout);

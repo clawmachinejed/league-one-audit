@@ -106,6 +106,30 @@ CREATE TABLE public.public_data_dispatch_outcomes (
 CREATE TRIGGER public_dispatch_outcome_immutable BEFORE UPDATE OR DELETE ON public.public_data_dispatch_outcomes
   FOR EACH ROW EXECUTE FUNCTION public.prevent_league_administration_history_change();
 
+-- Fresh directory acquisition is separate from the deduplicated legacy observation.
+CREATE TABLE public.public_data_directory_captures (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  intake_id uuid NOT NULL REFERENCES public.public_data_intakes(id),
+  worker_id text NOT NULL, generation integer NOT NULL,
+  league_season_id uuid NOT NULL REFERENCES public.league_seasons(id),
+  source_mapping jsonb NOT NULL,
+  content_id uuid NOT NULL REFERENCES public.league_administration_contents(id),
+  legacy_observation_id uuid NOT NULL REFERENCES public.league_administration_observations(id),
+  request_started_at timestamptz NOT NULL, request_completed_at timestamptz NOT NULL,
+  source_observed_at timestamptz NOT NULL,
+  recorded_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  UNIQUE(worker_id,generation),
+  FOREIGN KEY(worker_id,generation) REFERENCES public.public_data_dispatches(worker_id,generation),
+  CHECK(request_started_at<=request_completed_at AND source_observed_at=request_completed_at)
+);
+CREATE TRIGGER public_directory_capture_immutable BEFORE UPDATE OR DELETE ON public.public_data_directory_captures
+  FOR EACH ROW EXECUTE FUNCTION public.prevent_league_administration_history_change();
+ALTER TABLE public.public_data_league_candidates ADD COLUMN users_capture_id uuid REFERENCES public.public_data_directory_captures(id);
+-- The original season membership remains immutable. Explicit adoption is mutable
+-- authorization on the existing enrollment, bounded to individually selected seasons.
+ALTER TABLE public.league_administration_enrollments ADD COLUMN data_adopted_seasons integer[] NOT NULL DEFAULT '{}'
+  CHECK (1920<=ALL(data_adopted_seasons) AND 2200>=ALL(data_adopted_seasons) AND array_position(data_adopted_seasons,NULL) IS NULL);
+
 CREATE FUNCTION public.submit_public_data_intake(p_input jsonb) RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
 DECLARE wanted integer[]; retained public.public_data_intakes%ROWTYPE;
@@ -299,6 +323,7 @@ DECLARE request_id uuid:=(p_work->>'requestId')::uuid; kind text:=p_work->>'kind
   value jsonb:=p_capture->'value'; native text; manager_id uuid; started timestamptz; completed timestamptz;
   v_league_id uuid; season_id uuid; connection_id uuid; item jsonb; count_selected integer;
   observation uuid; v_family text; mapping jsonb; receipt_key text; wanted_receipt_id uuid;
+  dispatch_row public.public_data_dispatches%ROWTYPE; directory jsonb; directory_content uuid; directory_capture_id uuid;
 BEGIN
   PERFORM public.guard_public_data_intake(p_work,p_fence);
   IF NOT EXISTS(SELECT 1 FROM public.public_data_dispatches dispatch WHERE dispatch.worker_id=p_fence->>'workerId'
@@ -306,6 +331,8 @@ BEGIN
       SELECT 1 FROM public.public_data_dispatch_outcomes outcome WHERE outcome.worker_id=dispatch.worker_id AND outcome.generation=dispatch.generation)) THEN
     RAISE EXCEPTION 'matching admitted public dispatch required';
   END IF;
+  SELECT * INTO STRICT dispatch_row FROM public.public_data_dispatches
+    WHERE worker_id=p_fence->>'workerId' AND generation=(p_fence->>'generation')::integer;
   IF p_capture->'failed'='true'::jsonb THEN
     PERFORM public.fail_public_data_work(p_work);
     PERFORM public.assert_public_data_owner(request_id,p_fence);
@@ -387,6 +414,7 @@ BEGIN
       WHERE intake_id=request_id AND season=(p_work->>'season')::integer AND external_league_id=p_work->>'externalLeagueId';
   ELSIF kind IN ('core','users') THEN
     mapping:=p_capture->'mapping'; season_id:=(mapping->>'leagueSeasonId')::uuid; connection_id:=(mapping->>'connectionId')::uuid;
+    PERFORM public.validate_current_roster_mapping(mapping);
     IF NOT EXISTS(SELECT 1 FROM public.league_source_connections connection
       JOIN public.public_data_league_candidates candidate ON candidate.league_season_id=connection.league_season_id
       WHERE candidate.intake_id=request_id AND candidate.season=(p_work->>'season')::integer
@@ -395,15 +423,18 @@ BEGIN
         AND connection.external_league_id=candidate.external_league_id
         AND connection.current_mapping_revision_id=(mapping->>'revisionId')::uuid
         AND connection.mapping_generation=(mapping->>'generation')::integer) THEN RAISE EXCEPTION 'public source mapping changed'; END IF;
-    IF kind='core' AND (p_capture->'observations'->>'league' IS NULL OR p_capture->'observations'->>'rosters' IS NULL)
-      OR kind='users' AND p_capture->'observations'->>'users' IS NULL THEN RAISE EXCEPTION 'public resource checkpoint incomplete'; END IF;
+    IF jsonb_typeof(p_capture->'observations') IS DISTINCT FROM 'object'
+      OR (kind='core' AND (p_capture->'observations'->>'league' IS NULL OR p_capture->'observations'->>'rosters' IS NULL
+        OR (SELECT count(*) FROM jsonb_object_keys(p_capture->'observations'))<>2))
+      OR (kind='users' AND (p_capture->'observations'->>'users' IS NULL
+        OR (SELECT count(*) FROM jsonb_object_keys(p_capture->'observations'))<>1 OR p_capture ? 'receipts')) THEN
+      RAISE EXCEPTION 'public resource checkpoint incomplete'; END IF;
     FOR v_family,observation IN SELECT entries.key,entries.value::uuid FROM jsonb_each_text(p_capture->'observations') entries LOOP
       IF v_family NOT IN ('league','rosters','users') OR NOT EXISTS(SELECT 1 FROM public.league_administration_observations observed
         JOIN public.league_administration_contents content ON content.id=observed.content_id
         WHERE observed.id=observation AND observed.league_season_id=season_id AND observed.family=v_family AND observed.week=0
-          AND observed.origin='network' AND observed.outcome IN ('changed','unchanged')
+          AND (v_family='league' OR observed.outcome IN ('changed','unchanged'))
           AND content.accepted AND content.completeness='complete' AND content.provider='sleeper'
-          AND observed.request_started_at>=clock_timestamp()-interval '30 seconds'
           AND content.external_league_id=p_work->>'externalLeagueId') THEN RAISE EXCEPTION 'public resource lineage mismatch'; END IF;
     END LOOP;
     IF kind='core' THEN
@@ -416,6 +447,14 @@ BEGIN
           JOIN public.league_roster_resource_heads head ON head.scope_id=resource.id AND head.accepted_id=accepted.id
           WHERE receipt.id=wanted_receipt_id AND accepted.source_mapping_revision_id=(mapping->>'revisionId')::uuid
             AND attempt.source_mapping=mapping AND attempt.write_fence=p_fence
+            AND attempt.ordinal=head.latest_ordinal AND attempt.reserved_at>=dispatch_row.admitted_at
+            AND receipt.provenance->>'origin'='network'
+            AND (receipt.provenance->>'requestStartedAt')::timestamptz>=dispatch_row.admitted_at
+            AND (receipt.provenance->>'requestStartedAt')::timestamptz>=clock_timestamp()-interval '30 seconds'
+            AND (receipt.provenance->>'requestCompletedAt')::timestamptz BETWEEN
+              (receipt.provenance->>'requestStartedAt')::timestamptz AND clock_timestamp()
+            AND (receipt.provenance->>'sourceObservedAt')::timestamptz=(receipt.provenance->>'requestCompletedAt')::timestamptz
+            AND receipt.coverage->>'completeness'='complete'
             AND receipt.legacy_observation_id=(p_capture->'observations'->>CASE WHEN receipt_key='settings' THEN 'league' ELSE 'rosters' END)::uuid
             AND resource.identity->'policy'->>'canonicalNormalizerVersion'=CASE receipt_key
               WHEN 'settings' THEN 'sleeper-league-settings-v1' WHEN 'players' THEN 'sleeper-current-players-v1'
@@ -424,14 +463,43 @@ BEGIN
         END IF;
       END LOOP;
     END IF;
+    IF kind='users' THEN
+      directory:=p_capture->'directoryCapture';
+      started:=(directory->>'requestStartedAt')::timestamptz;
+      completed:=(directory->>'requestCompletedAt')::timestamptz;
+      IF directory->>'family' IS DISTINCT FROM 'users' OR directory->'week' IS DISTINCT FROM 'null'::jsonb
+        OR directory->>'origin' IS DISTINCT FROM 'network'
+        OR COALESCE(directory->>'completeness','complete')<>'complete'
+        OR started IS NULL OR completed IS NULL OR started>completed OR completed>clock_timestamp()
+        OR started<dispatch_row.admitted_at OR started<clock_timestamp()-interval '30 seconds'
+        OR COALESCE(directory->>'sourceObservedAt',directory->>'requestCompletedAt')::timestamptz IS DISTINCT FROM completed THEN
+        RAISE EXCEPTION 'fresh dispatch-bound directory capture required';
+      END IF;
+      SELECT content.id INTO directory_content FROM public.league_administration_observations observed
+        JOIN public.league_administration_contents content ON content.id=observed.content_id
+        JOIN public.league_administration_heads head ON head.league_season_id=observed.league_season_id
+          AND head.family='users' AND head.week=0 AND head.accepted_observation_id=observed.id
+        WHERE observed.id=(p_capture->'observations'->>'users')::uuid AND observed.league_season_id=season_id
+          AND observed.family='users' AND observed.week=0
+          AND observed.outcome IN ('changed','unchanged') AND content.accepted AND content.completeness='complete'
+          AND content.provider='sleeper' AND content.external_league_id=p_work->>'externalLeagueId'
+          AND content.payload=directory->'payload' AND content.normalizer_version='sleeper-administration-v1'
+          AND head.read_conflict IS NULL AND head.verified_at=completed AND head.ordering_at=completed;
+      IF directory_content IS NULL THEN RAISE EXCEPTION 'directory capture content or freshness mismatch'; END IF;
+      INSERT INTO public.public_data_directory_captures(intake_id,worker_id,generation,league_season_id,source_mapping,
+        content_id,legacy_observation_id,request_started_at,request_completed_at,source_observed_at)
+        VALUES(request_id,p_fence->>'workerId',(p_fence->>'generation')::integer,season_id,mapping,directory_content,
+          (p_capture->'observations'->>'users')::uuid,started,completed,completed) RETURNING id INTO directory_capture_id;
+    END IF;
     UPDATE public.public_data_league_candidates SET
       league_observation_id=coalesce((p_capture->'observations'->>'league')::uuid,league_observation_id),
       roster_observation_id=coalesce((p_capture->'observations'->>'rosters')::uuid,roster_observation_id),
       users_observation_id=coalesce((p_capture->'observations'->>'users')::uuid,users_observation_id),
+      users_capture_id=coalesce(directory_capture_id,users_capture_id),
       settings_receipt_id=coalesce((p_capture->'receipts'->>'settings')::uuid,settings_receipt_id),
       players_receipt_id=coalesce((p_capture->'receipts'->>'players')::uuid,players_receipt_id),
       managers_receipt_id=coalesce((p_capture->'receipts'->>'managers')::uuid,managers_receipt_id),
-      stage=CASE WHEN p_capture->'observations'->>'users' IS NULL THEN 'users' ELSE 'complete' END
+      stage=CASE WHEN kind='core' THEN 'users' ELSE 'complete' END
       WHERE intake_id=request_id AND season=(p_work->>'season')::integer AND external_league_id=p_work->>'externalLeagueId';
   ELSE RAISE EXCEPTION 'invalid public checkpoint kind'; END IF;
   PERFORM public.assert_public_data_owner(request_id,p_fence);
@@ -467,15 +535,271 @@ BEGIN
     VALUES(p_league,'sleeper',false,'account-onboarding-v1') ON CONFLICT DO NOTHING;
   INSERT INTO public.league_administration_enrollment_seasons(league_id,season,provider,evidence)
     VALUES(p_league,p_season,'sleeper','account-onboarding-v1') ON CONFLICT DO NOTHING;
-  UPDATE public.league_administration_enrollments SET evidence='account-onboarding-v1'
-    WHERE league_id=p_league AND evidence='public-data-intake-v1' AND NOT active;
-  UPDATE public.league_administration_enrollment_seasons SET evidence='account-onboarding-v1'
-    WHERE league_id=p_league AND season=p_season AND provider='sleeper' AND evidence='public-data-intake-v1';
+  UPDATE public.league_administration_enrollments SET evidence='account-onboarding-v1',
+    data_adopted_seasons=CASE WHEN p_season=ANY(data_adopted_seasons) THEN data_adopted_seasons
+      ELSE array_append(data_adopted_seasons,p_season) END
+    WHERE league_id=p_league AND evidence IN ('public-data-intake-v1','account-onboarding-v1');
+END; $$;
+
+-- Effective029 lives behind the existing030-033 wrappers. Replace only that
+-- installed inner function; applied migration files and outer wrappers stay intact.
+CREATE OR REPLACE FUNCTION public.record_league_administration_observation_v29(p_input jsonb)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
+DECLARE result jsonb; addition jsonb; token jsonb; resource_key text;
+  fields_value jsonb; coverage_reason text; manager_resource boolean; league_resource boolean;
+  projected_team jsonb; team_identity uuid; manager_key text; manager_identity uuid;
+  attempt public.league_roster_resource_attempts%ROWTYPE; head public.league_roster_resource_heads%ROWTYPE;
+  content public.league_administration_contents%ROWTYPE;
+  configuration public.league_administration_contents%ROWTYPE;
+  receipt public.league_roster_capture_receipts%ROWTYPE;
+  population jsonb; provenance jsonb:=p_input->'envelope'->'provenance';
+  population_proof jsonb; evidence_hash_value text; reason_value text; acceptance_id uuid;
+  expected_count integer; covered boolean:=false; observed_count integer; teams jsonb;
+BEGIN
+  -- Acquire the original job/source locks in their original order. Any subsequent
+  -- qualification error rolls this call back, including its v1 effects.
+  result:=public.record_league_administration_observation_v1(
+    (p_input-'rosterAcceptance'-'teamManagerAcceptance'-'teamManagers'-'leagueSettingsAcceptance'-'leagueSettings')
+      - CASE WHEN p_input->'envelope'->>'family'='league' THEN 'sourceMapping' ELSE '__no_removed_field__' END);
+  FOREACH resource_key IN ARRAY ARRAY['rosterAcceptance','teamManagerAcceptance','leagueSettingsAcceptance'] LOOP
+  addition:=p_input->resource_key;
+  IF addition IS NULL THEN CONTINUE; END IF;
+  token:=addition->'attempt';
+  manager_resource:=resource_key='teamManagerAcceptance';
+  league_resource:=resource_key='leagueSettingsAcceptance';
+  fields_value:=CASE WHEN league_resource THEN '["league_id","season","sport"]'::jsonb WHEN manager_resource THEN '["owner_id"]'::jsonb ELSE '["players"]'::jsonb END;
+  coverage_reason:=CASE WHEN league_resource THEN 'complete_league_identity_unproved' WHEN manager_resource THEN 'complete_primary_owner_population_unproved' ELSE 'complete_players_population_unproved' END;
+  population:=addition->'population'; population_proof:=NULL; configuration:=NULL;
+  covered:=false; expected_count:=NULL; observed_count:=NULL; reason_value:=NULL;
+  IF p_input->'envelope'->>'family' IS DISTINCT FROM (CASE WHEN league_resource THEN 'league' ELSE 'rosters' END)
+    OR p_input->'envelope'->'week' IS DISTINCT FROM 'null'::jsonb
+    OR provenance->>'origin' IS DISTINCT FROM 'network'
+    OR p_input->'sourceMapping' IS NULL THEN RAISE EXCEPTION 'current roster requires mapped network capture'; END IF;
+  IF p_input->'envelope'->'scope' IS DISTINCT FROM p_input->'sourceMapping'->'scope' THEN
+    RAISE EXCEPTION 'resource envelope mapping mismatch'; END IF;
+  PERFORM public.validate_current_roster_mapping(p_input->'sourceMapping');
+  SELECT * INTO STRICT attempt FROM public.league_roster_resource_attempts WHERE id=(token->>'id')::uuid;
+  IF attempt.source_mapping IS DISTINCT FROM p_input->'sourceMapping'
+    OR attempt.write_fence IS DISTINCT FROM p_input->'writeFence'
+    OR token IS DISTINCT FROM jsonb_build_object('id',attempt.id,'scopeId',attempt.scope_id,
+      'ordinal',attempt.ordinal,'expectedGeneration',attempt.expected_generation) THEN
+    RAISE EXCEPTION 'current roster attempt scope mismatch';
+  END IF;
+  IF NOT EXISTS(SELECT 1 FROM public.league_roster_resource_scopes scope WHERE scope.id=attempt.scope_id
+    AND scope.identity->'scope'->>'coverageSpecId'=CASE WHEN league_resource THEN 'sleeper-league-identity-settings-v1' WHEN manager_resource
+      THEN 'sleeper-current-all-teams-primary-owners-v1' ELSE 'sleeper-current-all-teams-players-v1' END) THEN
+    RAISE EXCEPTION 'current roster resource attempt policy mismatch';
+  END IF;
+  SELECT * INTO STRICT head FROM public.league_roster_resource_heads WHERE scope_id=attempt.scope_id FOR UPDATE;
+  -- v1 can replay before its final fence check. Recheck after every blocking lock.
+  IF p_input->'writeFence' IS NOT NULL AND NOT EXISTS(SELECT 1 FROM public.projection_jobs job
+    WHERE job.job_key=p_input->'writeFence'->>'jobKey' AND job.state='running'
+      AND job.lease_owner=p_input->'writeFence'->>'workerId'
+      AND job.attempt_count=(p_input->'writeFence'->>'generation')::integer
+      AND job.lease_until>clock_timestamp()
+      AND (p_input->'writeFence'->>'deadlineAt')::timestamptz>clock_timestamp()) THEN
+    RAISE EXCEPTION 'current roster writer fence expired';
+  END IF;
+  evidence_hash_value:=encode(digest(convert_to(p_input::text,'UTF8'),'sha256'),'hex');
+  SELECT * INTO receipt FROM public.league_roster_capture_receipts WHERE attempt_id=attempt.id;
+  IF FOUND THEN
+    IF receipt.evidence_hash<>evidence_hash_value THEN RAISE EXCEPTION 'current roster attempt receipt conflict'; END IF;
+    result:=result||jsonb_build_object(resource_key,jsonb_build_object('status',
+      CASE WHEN EXISTS(SELECT 1 FROM public.league_roster_resource_acceptances accepted
+        WHERE accepted.id=head.accepted_id AND accepted.receipt_id=receipt.id)
+        AND attempt.ordinal=head.latest_ordinal THEN 'accepted' ELSE 'preserved' END,
+      'reason','exact_receipt_replay','receiptId',receipt.id,'acceptedGeneration',head.generation));
+    CONTINUE;
+  END IF;
+  -- Bind exact content, never the possibly OLD observation ID returned by v1.
+  SELECT * INTO STRICT content FROM public.league_administration_contents stored
+    WHERE stored.league_season_id=(attempt.source_mapping->>'leagueSeasonId')::uuid
+      AND stored.provider='sleeper' AND stored.external_league_id=attempt.source_mapping->'scope'->>'externalLeagueId'
+      AND stored.family=CASE WHEN league_resource THEN 'league' ELSE 'rosters' END AND stored.week=0 AND stored.normalizer_version='sleeper-administration-v1'
+      AND stored.content_hash=p_input->>'contentHash'
+      AND stored.completeness=p_input->'envelope'->>'completeness'
+      AND stored.accepted=(p_input->>'status'='accepted' AND p_input->'envelope'->>'completeness'='complete')
+      AND stored.payload=p_input->'envelope'->'payload' AND stored.normalized_value IS NOT DISTINCT FROM p_input->'value';
+  -- Prefer the independently captured network league document from this batch.
+  -- Its mapping token was captured before that batch; retain its real provenance.
+  IF league_resource THEN
+    IF population IS NOT NULL THEN RAISE EXCEPTION 'league resource cannot borrow population'; END IF;
+    configuration:=content;
+    covered:=content.completeness='complete' AND jsonb_typeof(content.payload)='object'
+      AND content.payload->'league_id'=to_jsonb(content.external_league_id)
+      AND content.payload->'season'=to_jsonb(attempt.source_mapping->'scope'->>'season')
+      AND content.payload->'sport'='"nfl"'::jsonb
+      AND (provenance->>'sourceObservedAt')::timestamptz IS NOT NULL
+      AND (provenance->>'requestStartedAt')::timestamptz>=attempt.reserved_at;
+  ELSE
+  IF population IS NOT NULL THEN
+    IF population->'envelope'->'scope' IS DISTINCT FROM attempt.source_mapping->'scope'
+      OR population->'envelope'->>'family' IS DISTINCT FROM 'league'
+      OR population->'envelope'->>'completeness' IS DISTINCT FROM 'complete'
+      OR population->'envelope'->'provenance'->>'origin' IS DISTINCT FROM 'network'
+      OR population->'envelope'->>'normalizerVersion' IS DISTINCT FROM 'sleeper-administration-v1'
+      OR population->'envelope'->>'schemaVersion' IS DISTINCT FROM 'league-administration-v1'
+      OR population->'envelope'->>'dialect' IS DISTINCT FROM 'sleeper-nfl-v1'
+      OR population->'envelope'->'week' IS DISTINCT FROM 'null'::jsonb
+      OR (population->'envelope'->'provenance'->>'requestStartedAt')::timestamptz IS NULL
+      OR (population->'envelope'->'provenance'->>'requestCompletedAt')::timestamptz IS NULL
+      OR (population->'envelope'->'provenance'->>'sourceObservedAt')::timestamptz IS NULL
+      OR (population->'envelope'->'provenance'->>'checkedAt')::timestamptz IS NULL
+      OR (population->'envelope'->'provenance'->>'requestStartedAt')::timestamptz>(population->'envelope'->'provenance'->>'requestCompletedAt')::timestamptz
+      OR (population->'envelope'->'provenance'->>'requestCompletedAt')::timestamptz>(population->'envelope'->'provenance'->>'checkedAt')::timestamptz
+      OR (population->'envelope'->'provenance'->>'sourceObservedAt')::timestamptz>(population->'envelope'->'provenance'->>'checkedAt')::timestamptz
+      OR (population->'envelope'->'provenance'->>'checkedAt')::timestamptz>clock_timestamp()+interval '5 minutes' THEN
+      RAISE EXCEPTION 'current roster population evidence scope mismatch';
+    END IF;
+    SELECT * INTO configuration FROM public.league_administration_contents stored
+      WHERE stored.league_season_id=content.league_season_id AND stored.provider=content.provider
+        AND stored.external_league_id=content.external_league_id AND stored.family='league' AND stored.week=0
+        AND stored.normalizer_version='sleeper-administration-v1' AND stored.accepted AND stored.completeness='complete'
+        AND stored.content_hash=population->>'contentHash' AND stored.payload=population->'envelope'->'payload'
+        AND EXISTS(SELECT 1 FROM public.league_administration_observations observed
+          WHERE observed.id=(population->>'observationId')::uuid AND observed.content_id=stored.id
+            AND observed.league_season_id=stored.league_season_id AND observed.family='league' AND observed.week=0);
+    population_proof:=jsonb_build_object('observationId',population->>'observationId',
+      'contentHash',population->>'contentHash','provenance',population->'envelope'->'provenance');
+  ELSE
+    -- Existing changed-cache network verification may reuse independently retained
+    -- count evidence only from an earlier exact receipt for this SAME revision.
+    SELECT stored.* INTO configuration
+      FROM public.league_roster_resource_acceptances accepted
+      JOIN public.league_roster_capture_receipts prior ON prior.id=accepted.receipt_id
+      JOIN public.league_administration_contents stored ON stored.id=prior.configuration_content_id
+      WHERE accepted.id=head.accepted_id AND accepted.source_mapping_revision_id=(attempt.source_mapping->>'revisionId')::uuid;
+    SELECT prior.population_evidence INTO population_proof FROM public.league_roster_resource_acceptances accepted
+      JOIN public.league_roster_capture_receipts prior ON prior.id=accepted.receipt_id WHERE accepted.id=head.accepted_id
+        AND accepted.source_mapping_revision_id=(attempt.source_mapping->>'revisionId')::uuid;
+  END IF;
+  expected_count:=(configuration.normalized_value->>'totalRosters')::integer;
+  IF configuration.payload->>'total_rosters' IS DISTINCT FROM expected_count::text THEN expected_count:=NULL; END IF;
+  -- Preserve existing calculation-compatible population. An independently accepted
+  -- official settings receipt also qualifies a current scoring correction without
+  -- changing the immutable calculation profile or clearing its legacy conflict.
+  -- Other source conflicts, stale captures and remaps never gain this exception.
+  IF configuration.id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM public.league_administration_heads configuration_head
+    JOIN public.league_administration_observations observed ON observed.id=configuration_head.accepted_observation_id
+    WHERE configuration_head.league_season_id=content.league_season_id AND configuration_head.family='league'
+      AND configuration_head.week=0 AND configuration_head.read_conflict IS NULL AND observed.content_id=configuration.id)
+    AND NOT EXISTS(SELECT 1 FROM public.league_roster_resource_scopes settings_scope
+      JOIN public.league_roster_resource_heads settings_head ON settings_head.scope_id=settings_scope.id
+      JOIN public.league_roster_resource_acceptances settings_accepted ON settings_accepted.id=settings_head.accepted_id
+        AND settings_accepted.scope_id=settings_scope.id AND settings_accepted.generation=settings_head.generation
+      JOIN public.league_roster_capture_receipts settings_receipt ON settings_receipt.id=settings_accepted.receipt_id
+      JOIN public.league_roster_resource_attempts settings_attempt ON settings_attempt.id=settings_receipt.attempt_id
+        AND settings_attempt.scope_id=settings_scope.id AND settings_attempt.ordinal=settings_head.latest_ordinal
+      JOIN public.league_administration_heads official_head ON official_head.league_season_id=content.league_season_id
+        AND official_head.family='league' AND official_head.week=0
+        AND official_head.latest_observation_id=settings_receipt.legacy_observation_id
+      JOIN public.league_administration_observations official_observation ON official_observation.id=official_head.latest_observation_id
+        AND official_observation.content_id=configuration.id
+      WHERE settings_scope.league_season_id=content.league_season_id
+        AND settings_scope.connection_id=(attempt.source_mapping->>'connectionId')::uuid
+        AND settings_scope.identity->'scope'->>'family'='league-season'
+        AND settings_scope.identity->'policy'->>'canonicalNormalizerVersion'='sleeper-league-settings-v1'
+        AND settings_accepted.source_mapping_revision_id=(attempt.source_mapping->>'revisionId')::uuid
+        AND settings_attempt.source_mapping=attempt.source_mapping
+        AND settings_receipt.content_id=configuration.id AND settings_receipt.coverage->>'completeness'='complete'
+        AND official_head.read_conflict='scoring_profile_change_requires_explicit_compatibility_and_period_review'
+        AND (population IS NULL OR (settings_receipt.provenance=population_proof->'provenance'
+          AND settings_attempt.write_fence IS NOT DISTINCT FROM attempt.write_fence
+          AND settings_receipt.legacy_observation_id=(population_proof->>'observationId')::uuid))) THEN
+    expected_count:=NULL;
+  END IF;
+  IF manager_resource THEN
+    teams:=p_input->'teamManagers'->'teams';
+    covered:=content.completeness='complete' AND expected_count>0
+      AND public.qualify_team_manager_projection(content.payload,p_input->'teamManagers',
+        content.external_league_id,expected_count);
+    IF covered THEN
+      -- Reuse canonical identities and immutable membership history, including when
+      -- unrelated v1 player fields rejected this exact raw capture.
+      FOR projected_team IN SELECT value FROM jsonb_array_elements(teams) LOOP
+        INSERT INTO public.league_season_teams(league_season_id,provider,external_league_id,external_roster_id)
+          VALUES(content.league_season_id,content.provider,content.external_league_id,projected_team->>'externalRosterId')
+          ON CONFLICT DO NOTHING;
+        SELECT id INTO STRICT team_identity FROM public.league_season_teams
+          WHERE league_season_id=content.league_season_id AND provider=content.provider
+            AND external_league_id=content.external_league_id AND external_roster_id=projected_team->>'externalRosterId';
+        INSERT INTO public.league_team_manager_entries(content_id,normalizer_version,league_season_id,team_id,source_value)
+          VALUES(content.id,'sleeper-current-team-managers-v1',content.league_season_id,team_identity,projected_team) ON CONFLICT DO NOTHING;
+        IF NOT EXISTS(SELECT 1 FROM public.league_team_manager_entries WHERE content_id=content.id
+          AND normalizer_version='sleeper-current-team-managers-v1' AND team_id=team_identity AND source_value=projected_team) THEN
+          RAISE EXCEPTION 'team manager projection content conflict';
+        END IF;
+        FOR manager_key IN SELECT value FROM (
+          SELECT projected_team->'primaryOwner'->>'externalManagerId' AS value
+          WHERE projected_team->'primaryOwner'->>'state'='owned'
+          UNION ALL SELECT jsonb_array_elements_text(projected_team->'coManagers'->'externalManagerIds')
+          WHERE projected_team->'coManagers'->>'state'='known'
+        ) managers LOOP
+          INSERT INTO public.league_source_manager_accounts(provider,external_manager_id)
+            VALUES(content.provider,manager_key) ON CONFLICT DO NOTHING;
+          SELECT id INTO STRICT manager_identity FROM public.league_source_manager_accounts
+            WHERE provider=content.provider AND external_manager_id=manager_key;
+          INSERT INTO public.league_team_manager_memberships(content_id,normalizer_version,league_season_id,team_id,manager_id,role)
+            VALUES(content.id,'sleeper-current-team-managers-v1',content.league_season_id,team_identity,manager_identity,
+              CASE WHEN manager_key=projected_team->'primaryOwner'->>'externalManagerId' THEN 'owner' ELSE 'co_owner' END)
+            ON CONFLICT DO NOTHING;
+        END LOOP;
+      END LOOP;
+    END IF;
+  ELSE
+  teams:=content.normalized_value->'teams';
+  IF content.accepted AND content.completeness='complete' AND expected_count>0 AND jsonb_typeof(teams)='array'
+    AND jsonb_typeof(content.payload)='array' THEN
+    observed_count:=jsonb_array_length(teams);
+    covered:=observed_count=expected_count AND jsonb_array_length(content.payload)=expected_count
+      AND (SELECT count(DISTINCT team->>'externalRosterId') FROM jsonb_array_elements(teams) team)=expected_count
+      AND NOT EXISTS(SELECT 1 FROM jsonb_array_elements(teams) team
+        WHERE jsonb_typeof(team->'playerExternalIds') IS DISTINCT FROM 'array'
+          OR NOT EXISTS(SELECT 1 FROM jsonb_array_elements(content.payload) raw
+            WHERE raw->>'roster_id'=team->>'externalRosterId' AND jsonb_typeof(raw->'players')='array'
+              AND raw->'players'=team->'playerExternalIds'))
+      AND (SELECT count(*) FROM public.league_administration_team_entries entry
+        JOIN public.league_season_teams team ON team.id=entry.team_id AND team.league_season_id=entry.league_season_id
+        WHERE entry.content_id=content.id AND entry.league_season_id=content.league_season_id
+          AND team.provider=content.provider AND team.external_league_id=content.external_league_id
+          AND entry.source_value=ANY(ARRAY(SELECT value FROM jsonb_array_elements(teams))))=expected_count;
+  END IF;
+  END IF;
+  END IF; -- population qualification remains exclusive to roster policies
+  reason_value:=CASE WHEN attempt.ordinal<>head.latest_ordinal THEN 'newer_network_attempt_reserved'
+    WHEN attempt.expected_generation<>head.generation THEN 'accepted_generation_changed'
+    WHEN NOT COALESCE(covered,false) THEN coverage_reason ELSE NULL END;
+  INSERT INTO public.league_roster_capture_receipts(attempt_id,content_id,legacy_observation_id,evidence_hash,
+    provenance,configuration_content_id,population_evidence,expected_team_count,coverage)
+  VALUES(attempt.id,content.id,(result->>'observationId')::uuid,evidence_hash_value,provenance,
+    configuration.id,population_proof,expected_count,
+    jsonb_build_object('periodIds','[]'::jsonb,'interval',NULL,'entitySet',CASE WHEN covered THEN 'full' ELSE 'unknown' END,
+      'fields',fields_value,'pagination','complete','nextCursor',NULL,
+      'completeness',CASE WHEN covered THEN 'complete' ELSE 'unknown' END,
+      'reasons',CASE WHEN covered THEN '[]'::jsonb ELSE jsonb_build_array(coverage_reason) END))
+    RETURNING * INTO receipt;
+  IF reason_value IS NULL THEN
+    IF attempt.write_fence IS NOT NULL AND NOT EXISTS(SELECT 1 FROM public.projection_jobs job
+      WHERE job.job_key=attempt.write_fence->>'jobKey' AND job.lease_until>clock_timestamp()
+        AND (attempt.write_fence->>'deadlineAt')::timestamptz>clock_timestamp()) THEN
+      RAISE EXCEPTION 'current roster writer fence expired';
+    END IF;
+    INSERT INTO public.league_roster_resource_acceptances(scope_id,receipt_id,source_mapping_revision_id,generation)
+      VALUES(attempt.scope_id,receipt.id,(attempt.source_mapping->>'revisionId')::uuid,head.generation+1)
+      RETURNING id INTO acceptance_id;
+    UPDATE public.league_roster_resource_heads SET accepted_id=acceptance_id,generation=generation+1
+      WHERE scope_id=attempt.scope_id RETURNING * INTO head;
+  END IF;
+  result:=result||jsonb_build_object(resource_key,jsonb_build_object('status',
+    CASE WHEN reason_value IS NULL THEN 'accepted' ELSE 'preserved' END,'reason',reason_value,
+    'receiptId',receipt.id,'acceptedGeneration',head.generation));
+  END LOOP;
+  RETURN result;
 END; $$;
 
 REVOKE ALL ON public.public_data_intakes,public.public_data_identity_observations,public.public_data_league_lists,
   public.public_data_league_candidates,public.public_data_collection_reservations,public.public_data_rejections,public.public_data_dispatches,
-  public.public_data_dispatch_outcomes FROM PUBLIC;
+  public.public_data_dispatch_outcomes,public.public_data_directory_captures FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.assert_public_data_owner(uuid,jsonb),public.fail_public_data_work(jsonb),
   public.assert_league_collection_capacity(text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.submit_public_data_intake(jsonb),public.next_public_data_intake(uuid),
@@ -487,7 +811,7 @@ DO $$ BEGIN
       public.assert_league_collection_capacity(text) FROM league_one_runtime;
     GRANT SELECT ON public.public_data_intakes,public.public_data_identity_observations,public.public_data_league_lists,
       public.public_data_league_candidates,public.public_data_collection_reservations,public.public_data_rejections,public.public_data_dispatches,
-      public.public_data_dispatch_outcomes TO league_one_runtime;
+      public.public_data_dispatch_outcomes,public.public_data_directory_captures TO league_one_runtime;
     GRANT EXECUTE ON FUNCTION public.submit_public_data_intake(jsonb),public.next_public_data_intake(uuid),
       public.guard_public_data_intake(jsonb,jsonb),public.recover_public_data_dispatch(uuid,jsonb),
       public.admit_public_data_dispatch(jsonb,jsonb),public.checkpoint_public_data_intake(jsonb,jsonb,jsonb) TO league_one_runtime;

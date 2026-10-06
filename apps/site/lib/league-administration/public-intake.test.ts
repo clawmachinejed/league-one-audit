@@ -77,6 +77,34 @@ describe('public official data intake through the existing worker/writer', () =>
       { observations: { league: 'observation-league', rosters: 'observation-rosters' },
         receipts: { settings: 'settings-receipt', players: 'players-receipt', managers: 'managers-receipt' } }, expect.objectContaining({ generation: 1 }));
   });
+  it('checkpoints new typed receipts when an unchanged capture reuses older immutable observation identities', async () => {
+    const f = fixture();
+    const record = f.administration.recordObservation.getMockImplementation()!;
+    vi.mocked(f.dependencies.administration.recordObservation).mockImplementation(async input => ({ ...await record(input), status: 'unchanged' as const,
+      observationId: 'retained-' + input.envelope.family }));
+    expect(await runPublicIntakeStep(id, f.dependencies, new AbortController().signal)).toMatchObject({ status: 'progress' });
+    expect(f.intake.completeCore).toHaveBeenCalledWith(expect.anything(), mapping,
+      { observations: { league: 'retained-league', rosters: 'retained-rosters' },
+        receipts: { settings: 'settings-receipt', players: 'players-receipt', managers: 'managers-receipt' } }, expect.anything());
+    expect(vi.mocked(f.dependencies.administration.recordObservation).mock.calls[1][3]?.population)
+      .toMatchObject({ observationId: 'retained-league', envelope: { provenance: { requestStartedAt: time } } });
+  });
+  it('finishes official core after a scoring correction while preserving the legacy calculation rejection', async () => {
+    const f = fixture(); const record = f.administration.recordObservation.getMockImplementation()!;
+    vi.mocked(f.dependencies.administration.recordObservation).mockImplementation(async input => ({ ...await record(input),
+      status: input.envelope.family === 'league' ? 'rejected' as const : 'changed' as const }));
+    expect(await runPublicIntakeStep(id, f.dependencies, new AbortController().signal)).toMatchObject({ status: 'progress' });
+    expect(vi.mocked(f.dependencies.administration.recordObservation).mock.calls[1][3]?.population)
+      .toMatchObject({ observationId: 'observation-league', envelope: { payload: { scoring_settings: league.scoring_settings } } });
+    expect(f.intake.completeCore).toHaveBeenCalledOnce();
+  });
+  it('retains the fresh directory request alongside a deduplicated older observation ID', async () => {
+    const f = fixture('users');
+    vi.mocked(f.dependencies.administration.recordObservation).mockResolvedValue({ status: 'unchanged', observationId: 'older-directory', versionId: 'v', generation: 1 });
+    expect(await runPublicIntakeStep(id, f.dependencies, new AbortController().signal)).toEqual({ status: 'progress', resource: 'users', providerRequests: 1 });
+    expect(f.intake.completeCore).toHaveBeenCalledWith(expect.anything(), mapping,
+      { observations: { users: 'older-directory' }, directoryCapture: document('users') }, expect.anything());
+  });
   it('preserves the core checkpoint after optional directory outage and resumes only that resource', async () => {
     const f = fixture();
     f.source.core.mockImplementation(async (_native, family) => {
@@ -188,6 +216,25 @@ describe('public official data intake through the existing worker/writer', () =>
     expect(result.coverage.notRequested).toContain('exact-matchups');
     expect(f.source.core).not.toHaveBeenCalled();
   });
+  it.each([false, true])('binds fresh directory acquisition separately from its old observation (foreign mapping: %s)', async foreign => {
+    const f = fixture();
+    const acquisition = { id: 'directory-capture', contentId: 'retained-content', legacyObservationId: 'retained-users',
+      sourceMapping: foreign ? { ...mapping, generation: 2 } : mapping,
+      requestStartedAt: time, requestCompletedAt: time, sourceObservedAt: time };
+    const rows = [[{ id, seasons: [2026], terminal: true, external_manager_id: '55' }], [{ season: 2026 }],
+      [{ season: 2026, external_league_id: native, name: league.name, stage: 'complete', league_season_id: mapping.leagueSeasonId,
+        users_observation_id: 'retained-users', directory_capture: acquisition }], []];
+    const client = { enabled: true, query: vi.fn(async () => rows.shift() ?? []) } as unknown as DatabaseClient;
+    const retained = { status: 'available', observationId: 'retained-users', envelope: { provenance: {
+      origin: 'cache', requestStartedAt: '2026-10-01T00:00:00.000Z', requestCompletedAt: '2026-10-01T00:00:00.000Z' } } };
+    const administration = { ...f.dependencies.administration, readSource: vi.fn(async () => retained) } as unknown as typeof f.dependencies.administration;
+    const result = await readPublicSleeperIntake(client, administration, id);
+    if (result.status === 'missing') throw new Error('Missing read fixture.');
+    expect(result.leagues[0].resources?.directory).toEqual(foreign
+      ? { status: 'unavailable', reason: 'intake-capture-not-current-head', retained }
+      : { ...retained, acquisition });
+    expect(f.source.core).not.toHaveBeenCalled();
+  });
   it('preserves available typed resources when the optional directory reader throws', async () => {
     const f = fixture();
     const rows = [[{ id, seasons: [2026], terminal: true, external_manager_id: '55' }], [{ season: 2026 }],
@@ -264,5 +311,26 @@ describe('bounded shared Sleeper transport captures', () => {
     const enrollment = await readFile(new URL('./neon/enrollment.ts', import.meta.url), 'utf8');
     expect(enrollment).toContain("membership.evidence<>'public-data-intake-v1'");
     expect(enrollment).not.toContain('public_data_intakes');
+    expect(enrollment).toContain("(to_jsonb(enrollment)->'data_adopted_seasons') @> jsonb_build_array(candidate.season)");
+    expect(enrollment).toContain("(to_jsonb(adopted)->'data_adopted_seasons') @> jsonb_build_array(membership.season)");
+    expect(sql).not.toContain('UPDATE public.league_administration_enrollment_seasons');
+    expect(sql).not.toContain("observed.request_started_at>=clock_timestamp()-interval '30 seconds'");
+    expect(sql).toContain('attempt.reserved_at>=dispatch_row.admitted_at');
+    expect(sql).toContain("(receipt.provenance->>'requestStartedAt')::timestamptz>=dispatch_row.admitted_at");
+    expect(sql).toContain('head.verified_at=completed AND head.ordering_at=completed');
+    expect(sql).toContain("stage=CASE WHEN kind='core' THEN 'users' ELSE 'complete' END");
+    expect(sql).toContain("CREATE TRIGGER public_directory_capture_immutable BEFORE UPDATE OR DELETE");
+    expect(sql).toContain('PERFORM public.validate_current_roster_mapping(mapping)');
+    expect(sql.split('\n').some(line => line.endsWith('AS $'))).toBe(false);
+    expect(sql).not.toContain('CREATE OR REPLACE FUNCTION public.validate_current_roster_lineage');
+    for (const version of ['v30', 'v31', 'v32']) expect(sql).not.toContain('FUNCTION public.record_league_administration_observation_' + version + '(');
+    const v29 = await readFile(new URL('../../migrations/029_league_season_settings.sql', import.meta.url), 'utf8');
+    const originalWriter = v29.slice(v29.indexOf('CREATE OR REPLACE FUNCTION public.record_league_administration_observation(p_input jsonb)'));
+    const rewritten = sql.slice(sql.indexOf('CREATE OR REPLACE FUNCTION public.record_league_administration_observation_v29(p_input jsonb)'), sql.indexOf('REVOKE ALL ON public.public_data_intakes')).trim();
+    expect(rewritten.slice(rewritten.indexOf('  IF manager_resource THEN')).trim()).toBe(originalWriter.slice(originalWriter.indexOf('  IF manager_resource THEN')).trim());
+    expect(rewritten).toContain("official_head.read_conflict='scoring_profile_change_requires_explicit_compatibility_and_period_review'");
+    expect(rewritten).toContain('settings_attempt.write_fence IS NOT DISTINCT FROM attempt.write_fence');
+    expect(rewritten).toContain('settings_attempt.ordinal=settings_head.latest_ordinal');
+
   });
 });

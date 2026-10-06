@@ -1,0 +1,68 @@
+# DATA backend evidence and remaining qualification
+
+This ledger follows [the current data-only scope](data-backend-scope.md). It records source-bound evidence, not production acceptance. The [resource path and coverage record](data-backend-ingestion.md) remains the implementation map. The older account/access 108-obligation ledger is preserved in the separate PR287 lineage at `682f6bbf8158e1c3494d85f31cd0e83856536ebe`: 3 implemented-and-verified, 21 implemented-but-unverified, 84 pending. Those totals are historical/deferred, not the denominator for this DATA outcome.
+
+## Source and service baseline
+
+The DATA branch is `codex/data-backend-ingestion`, based directly on canonical `clawmachinejed/league-one-audit` main `87da4d0cb909ee280e125e73ad10e1c3dbd7cd9f`. Rechecks on October 6, 2026 found local main, GitHub main and the Vercel production commit equal to that full SHA. The primary checkout was clean. Vercel project `league_one_fantasy`, team `robert-finchums-projects`, remained bound to the canonical repository, production branch `main`, root `apps/site`, ready deployment `8C3YSnXRCbmPETftQgRtirfyck5e`, and `www.league1fantasy.com`.
+
+Draft PR287 remained at `682f6bbf8158e1c3494d85f31cd0e83856536ebe`, based on draft planning PR286 at `cef7f49243509da738ff9efc950538b5bd2ae3da`. DATA changes are local and have not been published to that PR. The account worktree's 51 application changes remain preserved. Its 034-037 migrations are not installed or imported into this clean DATA lineage. The two lineages must not be combined by merging migration filenames or overwriting preserved work. No competing release owner was observed in the inspected worktree, PR and deployment evidence; database leases were not inspected.
+
+## Executed evidence by frozen source
+
+| Frozen source | Executed evidence | Result and limit |
+| --- | --- | --- |
+| `b14834b137f6739216644d22e9b9294ce5bb7736` | Corrected Node 24 full offline verification | Dependencies/lint/types passed; unit 5,530 passed, 1 failed, 1 skipped. Mandatory architecture failure found three facade imports. Build/browser not reached. A preceding Node 20 invocation failed at startup and supplies no verification credit. SQL unexecuted. |
+| `5852d1677918d2140fef0abaaf7e341be6dea536` | Node 24 complete repository verification, command exit 0 | Dependencies, lint, types and build passed. Unit: 5,571 passed, 0 failed, 1 skipped. Public browser: 120 passed, 0 failed, 21 skipped. Separate synthetic-account browser regression: 20 passed, 0 failed, 0 skipped. SQL explicitly skipped/unexecuted; exit 0 is not database qualification. |
+| `5852d1677918d2140fef0abaaf7e341be6dea536` | Independent GPT-6 Astra Ultra architecture and database/security reviews | Request changes: five unique findings listed below. Passing offline verification did not establish acceptance. Reviewer targeted test totals overlap the full workflow and are not added to it. |
+| `925eadf1e3b0443f29f4f66b2f28b5696cfb8062` | Independent Astra Ultra lifecycle-only closure review using a frozen Git archive with network entrypoints blocked | 317 passed, 0 failed, 0 skipped across 9 lifecycle files; 11 separate in-memory adversarial replay scenarios passed. The P1 late-dispatch and P2 final-receipt findings are closed at source/offline level only. The three intake findings remain open for the next full SHA. No SQL, credentials, provider/API calls or run/release approval. Preliminary launcher failures occurred before test execution and carry no test credit. |
+
+The single skipped unit case depends on available host network interfaces. Twenty public-browser skips are synthetic-account cases run separately; the remaining conditional My Team cross-league choice case did not have the required manager cards, and stays unverified for that run. Synthetic-account checks protect existing consumers; they do not implement new accounts. A local manual inspection of `/matchups` at the frozen candidate showed the existing League One presentation. The temporary server stopped before manual League Two navigation, so that navigation supplies no proof. The hosted preview at PR287's older SHA is not DATA preview evidence. No DATA hosted preview has been published.
+
+Ignored local artifacts retain raw output rather than inflate source claims:
+
+- `test-results/data-backend/full-verify-b14834b-node24.log`, SHA-256 `f47089dec874ddd1d2e4c8b2832ef3b904a94fdcfbba7ba8bf701520c513bb2a`.
+- `test-results/data-backend/full-verify-5852d167.log`, SHA-256 `6eda76588f96de80f811897e9a3488b24a966e306956b599e2a8077841a99bde`.
+- `test-results/data-backend/verification-5852d167.json` and `review-5852d167.json` preserve exact test categories and both reviews, including the architecture amendment.
+
+## Findings at 5852 and required closure evidence
+
+| Finding and affected path | Consequence | Required closure |
+| --- | --- | --- |
+| P1: ownership verification yields before cleanup DDL dispatch (`integration/integration-database-ownership.ts`) | Cleanup can begin a previously unsent destructive statement after its phase expires. Outer harness cancellation checks alone do not close the inner await. | Reproduce through actual ownership + harness modules with only the driver mocked; guard immediately at dispatch, preserve independently bounded own-session rollback/release, and verify fresh phases can reuse a healthy lease. Actual SQL cancellation remains unproved. |
+| P2: failed acknowledgment of a final passed receipt (`scripts/run-disposable-integration.ts`) | A complete passed JSON file may exist after final-write failure, although command exit remains 1. A scanner must not accept an orphan snapshot as qualification. | Retain finalization context, append a later failed snapshot inside the original lifecycle reserve where possible, and require exit 0 plus the referenced acknowledged receipt for acceptance. Reproduce full bytes persisted followed by both a hang and a rejection. |
+| P1: fresh identical captures reuse old immutable observation time (`migrations/034_public_data_intake.sql`) | Repeat collection and recovery after committed observations but a lost checkpoint cannot complete. | Bind fresh typed receipts to the exact admitted dispatch/current mapping/current typed heads. Give the optional directory its own append-only fresh acquisition receipt; never rewrite immutable request times. Test repeats and lost-checkpoint retry. |
+| P2: adoption updates immutable enrollment-season evidence (`migrations/034_public_data_intake.sql`) | The existing unconditional immutability trigger rolls the transaction back. | Preserve enrollment-season history byte-for-byte. Keep mutable explicit season eligibility separate, and apply it to both exact-season and latest-season registry reads. Test eligible/ineligible seasons and old-schema compatibility. |
+| P2: official scoring correction blocked by legacy calculation-profile conflict (`league-administration/runtime.ts`, effective database population validator) | Valid official settings can be accepted but cannot provide the population proof needed to accept core records. | Use only the exact accepted current typed settings and matching source evidence for the narrow conflict case; preserve immutable calculation profiles, legacy callers, lineage/mapping, acquisition order, job lease and accepted-head guards. Test source composition and author real SQL positive/negative cases. |
+
+This commit's repairs are a new source candidate. They require their own full SHA, executed checks and fresh independent review. Failed-before/fixed-after offline checks can close the local regression only; authored SQL cases remain unexecuted. Neither the previous review nor its test totals transfer automatically to changed code.
+
+## Resource qualification state
+
+No resource currently has complete actual Sleeper-to-isolated-PostgreSQL-to-reader qualification in this DATA lineage. This is deliberately distinct from its implemented offline contracts.
+
+| Resource or operational obligation | Source implementation | Remaining evidence/work |
+| --- | --- | --- |
+| Public identity and declared-season league discovery | Existing Sleeper transport/parser, stable provider identities, immutable observations and bounded durable candidates are composed with a stored backend reader. | Real source/SQL parity, retained rejection cases, actual role privileges and bounded live discovery. |
+| Official settings, teams/managers and held rosters | Shared normalizer, typed accepted resources and receipt-bound backend read composition are present. | R035 independent co-manager evidence is a separate unfinished increment; actual SQL constraints/atomicity/ordering and diverse official formats remain unqualified. |
+| Optional manager directory | Existing source/storage reader with independent failure/retry after core acceptance. | Fresh acquisition receipt, remap and repeated content cases require new-candidate review and actual SQL proof. |
+| Restart/replay/fencing/capacity | Shared `projection_jobs`, dispatch admission, durable checkpoints and bounded recovery are implemented. | Real concurrent locks, process death, unknown commit, fresh-fleet contention, measured capacity/query plans and restore evidence. |
+| Recurring refresh and freshness | Explicit bounded backend selection exists; normal production callers remain dormant. | Durable recurring selection, fairness, pause/resume, measured cadence/lag and recovery through the existing worker. One step per minute is an admission limit, not a completed freshness guarantee. |
+| Exact matchups, lineups and official results | Existing exact-period adapters/storage/readers preserved. | Generic intake selection and declared native period/phase/history/finality coverage. |
+| Transactions, waivers and FAAB | Existing exact-period typed adapter/storage/readers preserved. | Generic intake selection, declared historical scope and correction qualification. |
+| Drafts, picks, schedules, playoffs and annual chains | Existing retained administration and continuity infrastructure preserved. | Typed collection/read coverage for obtainable families, bounded evidence-based traversal and unavailable-state reporting. |
+| Provider player catalog/crosswalk | Held-roster provider namespace is retained. | Catalog acquisition and evidenced crosswalks; never infer identity from names. |
+| Official-only / not-yet-configured leagues | The existing normalizer represents absent/null/empty settings, but intake registration still requires nonempty scoring and roster positions. | Staged registration limitation: empty settings are currently retained as a generic rejection; that does not prove invalid provider data. Reuse the shared registrar with an explicit official-only state, preserve calculation guards, and qualify compatible readers. |
+| Future provider reuse | Canonical relational identities and shared resource boundaries remain the architecture. | Native-period/provider constraints need deliberate extension with an actual future adapter. No Yahoo or other provider is implemented here. |
+
+## Database run and release boundaries
+
+No credentials, database connections, SQL execution, migrations, paid resources or qualification dispatch have been used in this DATA iteration. No merge, deployment or feature activation is authorized. The one-hour branch expiry is only a fallback.
+
+The proposed one-run boundary remains project `steep-glitter-44680287`, parent `br-plain-bread-b7sgfdl8`, compute 0.25 CU, one attempt with no automatic retries, a 30-minute work cutoff plus 10-minute cleanup reserve, credential revocation and verified child deletion. This is a proposed bound, not a current approval or a guaranteed billing maximum if remote cleanup fails.
+
+Read-only GitHub metadata showed an `integration-test` environment with reviewer `clawmachinejed`, self-review prevention disabled, and custom `codex/*` / `main` branch policies. That does not prove an independent reviewer approved a run. The last observed six repository runs were older completed verification runs; this limited listing cannot establish global absence of other work.
+
+Still required before a concrete request: fresh exact-SHA whole-chain review; approved test-key scope and project/parent/child identity; empty and quiescent intended parent evidence; production denylist, URL/TLS/sentinel checks and real restricted LOGINs; PostgreSQL version; a selected source/SQL workload demonstrably fitting the budget; exact live Sleeper scope/request cap; and fail-closed teardown evidence. The historical full SQL suite approached the former timeout and is not assumed to fit the proposed 30-minute work phase. Retained HTTP fixtures are not live Sleeper proof. Owner `SET ROLE` cannot substitute for LOGIN tests where `session_user` matters.
+
+The minimum next implementation steps are: close and re-review the five current findings; complete versioned manager evidence; add recurring shared-worker refresh and remaining official resource families; then qualify the composed workflow when separately authorized. Whole backend completion and production release remain unapproved.
