@@ -1,10 +1,10 @@
 {
   "schemaVersion": "bc-m1-current-requirements-v1",
-  "status": "candidate-source-awaiting-frozen-review-and-verification",
+  "status": "reviewed-partial-source-qualification-blocked",
   "canonicalRequirements": "docs/aggregator-backend/design-requirements.json",
   "parentBaselineSha": "1305e1c4855c86e25035a7faf4cdcc46a8c6b1f3",
-  "reviewedCandidateSha": null,
-  "sourceBinding": "The connected candidate is awaiting exact-SHA independent review and full verification. Prior evidence below remains bound to its recorded historical SHA; no new verified credit is claimed.",
+  "reviewedCandidateSha": "a4b0f5274a3886db7a50f20377e5911dfef6a28c",
+  "sourceBinding": "Full offline verification and separate security/architecture review bind to the clean implementation SHA above. This evidence-only follow-up changes no application, migration, workflow, dependency or test source. Qualification is blocked by the explicit old/new SQL oracle conflict and environment prerequisites; no SQL pass is implied.",
   "scope": "Current execution ledger only; original c907584 and ffa7bd0 independent audits remain immutable.",
   "classificationRule": "Whole-obligation status includes its allocated canonical oracle. Tested helpers do not promote incomplete workflows. Inherited bounded baseline verification is distinct from new candidate proof. Counts are not completion percentages.",
   "counts": {
@@ -39,7 +39,7 @@
     },
     "isolated-test-safety": {
       "state": "baseline-local-repairs-reviewed; candidate-SQL-unexecuted",
-      "scope": "Local guards/lifecycle do not prove saved key binding, parent emptiness, cloud deletion or SQL qualification."
+      "scope": "Reviewed local guards/lifecycle and prepared rehearsal/preflight do not prove saved key binding, parent emptiness or cleanup. Latest-schema suite has a known pre037/post037 association oracle conflict; database-run readiness is withheld."
     },
     "finite-discovery": {
       "state": "internal-concrete-composition-authored; SQL-unexecuted; public-mounting-off",
@@ -52,8 +52,8 @@
       }
     },
     "connected-acquisition": {
-      "state": "concrete-internal-source; frozen-review-and-SQL-qualification-pending",
-      "scope": "Trusted account request → existing durable job → admitted Sleeper HTTP outside SQL → retained normalized captures/checkpoint → protected reader → existing consumer DTO. Policy/context recovery corrections authored; migration037 installation held; no public activation."
+      "state": "concrete-internal-source-independently-reviewed; SQL-unexecuted; public-mounting-off",
+      "scope": "Trusted account request → existing durable job → admitted Sleeper HTTP outside SQL → retained normalized captures/checkpoint → protected reader → existing consumer DTO. Policy/context recovery and actor-CAS corrections reviewed at the bound SHA; migration037 installation remains held."
     }
   },
   "rows": [
@@ -685,7 +685,7 @@
       "componentEvidence": [
         "connected-acquisition"
       ],
-      "missing": "Atomic capture/checkpoint, retained completion, bounded fresh execution and stale-evidence retirement are authored. FS09.02 real crash/restart, expiry, policy/context change, immutable history and independent receipt oracles remain unexecuted; source review must confirm latest recovery corrections."
+      "missing": "Atomic capture/checkpoint, retained completion, bounded fresh execution and stale-evidence retirement are authored. FS09.02 real crash/restart, expiry, policy/context change, immutable history and independent receipt oracles remain unexecuted. Latest recovery corrections have independent source review; no SQL result is claimed."
     },
     {
       "id": "R021",
@@ -2159,7 +2159,7 @@
       "componentEvidence": [
         "connected-acquisition"
       ],
-      "missing": "Internal composition reuses existing job, adapter, normalization, storage and reader owners. INV-R083 instrumented complete service journey and public cutover remain unexecuted; architecture correction review pending."
+      "missing": "Internal composition reuses existing job, adapter, normalization, storage and reader owners. INV-R083 instrumented complete service journey and public cutover remain unexecuted. Architecture corrections passed unchanged guards and independent review."
     },
     {
       "id": "R084",
@@ -2272,7 +2272,7 @@
         "account-composition",
         "infrastructure-transition"
       ],
-      "missing": "Receipt-aware callers and a real-SQL transition rehearsal are authored. Actual installation/drain, old/new LOGIN compatibility, epoch identity and recovery are unexecuted. Migration037 changes legacy nonexclusive associations and is held before driver construction until compatible callers and coordinated034–037cutover are qualified."
+      "missing": "Receipt-aware callers and a real-SQL transition rehearsal are authored. Actual installation/drain, old/new LOGIN compatibility, epoch identity and recovery are unexecuted. Migration037 changes legacy nonexclusive associations and is held before driver construction until compatible callers and coordinated034–037cutover are qualified. Latest-schema setup also contradicts the retained foundation duplicate-association oracle. Preserve explicit pre037 and post-transition stages; do not weaken the test."
     },
     {
       "id": "R088",
@@ -2828,18 +2828,96 @@
     }
   ],
   "frozenVerification": {
-    "sha": "fe3d983e062e766aec77b2bff67ee04b2fb19fde",
+    "sha": "a4b0f5274a3886db7a50f20377e5911dfef6a28c",
     "command": "pnpm verify:full",
-    "unitPassed": 5871,
+    "unitPassed": 6024,
     "unitSkipped": 1,
-    "unitFiles": 284,
+    "unitFiles": 295,
     "publicBrowserPassed": 121,
     "publicBrowserSkipped": 20,
     "syntheticAccountBrowserPassed": 20,
     "syntheticAccountBrowserSkipped": 0,
     "failed": 0,
     "SQL": "SKIPPED / UNVERIFIED; no database command",
-    "log": "test-results/bcm1-gap-fe3d983-verify.log",
-    "scope": "Offline/unit and mocked browser regression evidence, not completed target workflow or SQL qualification."
+    "authoredAcquisitionSqlCases": 17,
+    "executedAcquisitionSqlCases": 0,
+    "log": "test-results/bcm1-connected-a4b0f52-verify.log",
+    "logSha256": "b1cdb09e3b36624dbe35b135cd1dddade4f99c42d5fa17ad2990f87a3d481e17",
+    "scope": "Offline/unit and mocked browser regression evidence. One host-interface unit skip; 20 public skips run by the separate synthetic account gate. Known SQL oracle conflict remains unexecuted."
+  },
+  "historicalVerification": [
+    {
+      "sha": "fe3d983e062e766aec77b2bff67ee04b2fb19fde",
+      "command": "pnpm verify:full",
+      "unitPassed": 5871,
+      "unitSkipped": 1,
+      "unitFiles": 284,
+      "publicBrowserPassed": 121,
+      "publicBrowserSkipped": 20,
+      "syntheticAccountBrowserPassed": 20,
+      "syntheticAccountBrowserSkipped": 0,
+      "failed": 0,
+      "SQL": "SKIPPED / UNVERIFIED; no database command",
+      "log": "test-results/bcm1-gap-fe3d983-verify.log",
+      "scope": "Offline/unit and mocked browser regression evidence, not completed target workflow or SQL qualification."
+    }
+  ],
+  "independentReviews": {
+    "security": {
+      "sha": "a4b0f5274a3886db7a50f20377e5911dfef6a28c",
+      "report": "test-results/connected-acquisition/security-a4b0f52.json",
+      "reportSha256": "94c2f88257ee6f0489f77154b6a7a89bc86122c5a219568c6acdefcaa646c08a",
+      "passed": 451,
+      "files": 20,
+      "skipped": 0,
+      "scope": "Bounded offline checks; actual SQL and complete workflow not qualified."
+    },
+    "architecture": {
+      "sha": "a4b0f5274a3886db7a50f20377e5911dfef6a28c",
+      "report": "test-results/connected-acquisition/architecture-a4b0f52.json",
+      "reportSha256": "281f83e2607a69670a0a68e81d2d2c4e05493e4684a1456553556044ae43ce11",
+      "carriedForwardTests": {
+        "sha": "7fbffa73b9d517f0a2900b2e3c2a81ebde08d024",
+        "passed": 285,
+        "files": 13,
+        "skipped": 0,
+        "basis": "Tested TypeScript/library/scripts tree blobs unchanged; no additional test count."
+      },
+      "scope": "Changed SQL/fixture source review and all108 mappings; actual SQL unexecuted."
+    }
+  },
+  "blockingFindings": [
+    {
+      "id": "R087-037-qualification-oracle-conflict",
+      "priority": 2,
+      "sha": "a4b0f5274a3886db7a50f20377e5911dfef6a28c",
+      "requirements": [
+        "R087",
+        "D03",
+        "F1"
+      ],
+      "evidence": [
+        {
+          "path": "apps/site/integration/account-foundation.integration-case.ts",
+          "line": 161
+        },
+        {
+          "path": "apps/site/integration/global-setup.ts",
+          "line": 13
+        },
+        {
+          "path": "apps/site/migrations/037_account_acquisition.sql",
+          "line": 334
+        }
+      ],
+      "result": "Source contradiction independently confirmed, not SQL-executed: latest setup imposes exclusive active manager while retained legacy case expects a second active actor claim to succeed.",
+      "correction": "Preserve pre037 legacy oracle; implement the approved staged transition and compatible callers; qualify post-transition exclusivity. Keep normal installation held."
+    }
+  ],
+  "verdicts": {
+    "databaseQualification": "WITHHOLD: source oracle/cutover conflict, key provenance, parent/quiescence, billing/runtime/cleanup conditions and explicit exact-SHA authority remain. Passing SQL is required afterward for acceptance, not before the first authorized experiment.",
+    "partialCheckpoint": "Reviewed substantive source increment only; not F1 closure or a qualified foundation.",
+    "BCM1Complete": "NO",
+    "releaseReady": "NO"
   }
 }

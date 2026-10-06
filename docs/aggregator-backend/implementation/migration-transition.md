@@ -43,6 +43,18 @@ An additive staged-install alternative is acceptable only after its exact interm
 
 ## Migration 037 installation hold
 
+The current qualification suite also has an explicit pre/post-transition
+contradiction. `integration/global-setup.ts` prepares every migration, including
+037, but `integration/account-foundation.integration-case.ts` still requires a
+second actor's active association with the same manager to succeed (line161 at
+`a4b0f5274a3886db7a50f20377e5911dfef6a28c`). Migration037's active-manager unique
+index rejects it. Both independent reviewers confirmed this from source; no SQL
+was executed. Preserve that assertion as an explicit pre037 legacy oracle, then
+implement and qualify the approved transition plus post-transition exclusivity
+and compatible callers. Do not remove, skip or weaken the test to turn the
+latest-schema suite green. This is a database-run readiness blocker, separate
+from secret/parent prerequisites and separate from passing the eventual run.
+
 Migration 037 implements target D03 exclusivity on the existing account-link
 owner. This is a behavior-changing schema step: 020 and the existing site store
 permit nonexclusive/multiple provider profiles, while 037's active-link unique

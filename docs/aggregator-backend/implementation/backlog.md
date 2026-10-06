@@ -25,7 +25,7 @@ The October 6 independent audit is bound to `c907584571052cfbea6957e8bad08066fe1
 5. R035/FS07.01: correct invalid-primary-owner handling in the existing single normalizer while retaining independently known co-manager evidence. Reconcile policy/version, accepted-reader completeness and adverse-evidence rules before using that output for membership; a changed normalizer assertion alone is not the full access qualification.
 6. Complete the existing BC-M1 association, membership, follow/renewal, durable demand/recovery, global SQL admission and worker integration, discovery and authorized stored-roster composition. No missing obligation is removed or reassigned merely to close this checkpoint.
 
-The resumed increment supplies private-caller composition, independent server-identity checks, owner-only epoch activation/history, coordinated 034–036 installation/reconciliation, R035 partial-v2 co-manager retention, and bounded discovery through the existing adapter. These source changes do not qualify actual SQL. The [current 108-row ledger](current-requirements.json) records component evidence separately; whole-obligation counts remain 3 verified, 5 unverified and 100 pending.
+The previous published increment supplied private-caller composition, independent server-identity checks, owner-only epoch activation/history, coordinated 034–036 installation/reconciliation, R035 partial-v2 co-manager retention, and bounded discovery through the existing adapter. Its whole-obligation counts were 3 verified, 5 unverified and 100 pending. The connected increment's [current 108-row ledger](current-requirements.json) records **3 verified, 21 unverified and 84 pending**, with no new verified credit and no SQL execution.
 
 The connected increment now supplies concrete internal job admission/claim,
 lookup/calendar/list acquisition, retained scan capture/checkpoint and protected
@@ -46,3 +46,11 @@ parallel scheduler, worker or publication pipeline is authorized. Independent
 whole-chain credential review and exact-SHA evidence precede any separately
 approved prerequisite inspection or one bounded isolated qualification attempt.
 Neither operation is authorized by this backlog.
+
+Before requesting either qualification dispatch or a qualified checkpoint,
+resolve the concrete old/new SQL oracle conflict: the retained foundation case
+expects shared legacy associations after global setup has installed037's
+exclusive constraint. Preserve an explicit pre037 legacy stage, implement the
+approved transition, and exercise post-transition exclusivity and callers.
+Do not weaken the existing assertion or treat the normal-installation hold as
+proof that the separately invoked disposable suite can pass.

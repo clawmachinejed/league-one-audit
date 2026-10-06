@@ -6,6 +6,16 @@ or recorded here. Freeze the exact full candidate SHA and independently review
 the complete execution chain before requesting execution approval. This proposal
 does not supersede the existing integration harness safety rules.
 
+**Current source blocker:** the latest-schema setup installs037 but the retained
+foundation SQL oracle still expects duplicate legacy active associations. Both
+independent reviews of `a4b0f5274a3886db7a50f20377e5911dfef6a28c` confirmed this
+contradiction without SQL execution. First reconcile explicit pre037/post037
+transition stages and compatible callers while preserving the legacy assertion
+and D03 exclusivity. No qualification dispatch or spending request is ready on
+this candidate. The commands and scope below are prepared prerequisites, not an
+approval. Passing SQL is required afterward for acceptance, not before the first
+experiment; removing this known source contradiction is a prerequisite.
+
 ## Prepared transition rehearsal
 
 The existing integration global setup now invokes
