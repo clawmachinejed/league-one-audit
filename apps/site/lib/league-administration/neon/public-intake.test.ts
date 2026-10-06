@@ -29,7 +29,7 @@ describe('public-data registration through the existing identity writer', () => 
   it('keeps official unknown scoring/slots and fences shared registration after the response', async () => {
     const f = fixture();
     await f.store.register(work, f.capture(league), fence);
-    expect(f.queryAfterLock).toHaveBeenCalledWith(expect.stringContaining('projection-store:register-league-season'),
+    expect(f.queryAfterLock).toHaveBeenCalledWith(expect.stringContaining('/* projection-store:register-league-season-official-data */'),
       expect.arrayContaining([JSON.stringify(league.scoring_settings), `sleeper-${work.externalLeagueId}`]),
       expect.objectContaining({ statement: 'SELECT public.guard_public_data_intake($1::jsonb,$2::jsonb)',
         parameters: [JSON.stringify(work), JSON.stringify({ ...fence, reserveCollection: true })],

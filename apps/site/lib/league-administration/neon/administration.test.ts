@@ -226,7 +226,7 @@ describe('official-only bootstrap and typed settings through the existing worker
     const queryAfterLock = vi.fn(async (sql: string, parameters: readonly unknown[], lock: {
       statement: string; parameters?: readonly unknown[]; verifyAfter?: { statement: string };
     }) => {
-      expect(sql).toContain('projection-store:register-league-season');
+      expect(sql).toContain('/* projection-store:register-league-season-official-data */');
       expect(parameters.slice(0, 2)).toEqual([null, null]);
       expect(lock.statement).toContain('guard_public_data_intake');
       expect(JSON.parse(String(lock.parameters?.[1]))).toMatchObject({ reserveCollection: true });

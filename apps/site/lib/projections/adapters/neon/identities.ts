@@ -37,7 +37,7 @@ export function createIdentityMethods(client: DatabaseClient): IdentityMethods {
       // observation. None is a calculation profile, even an empty hashed one.
       const configured = scoring !== undefined && scoring !== null && Object.keys(scoring).length > 0;
       const hash = configured ? rulesHash(scoring) : null;
-      const rows = await client.query(`/* projection-store:register-league-season */
+      const rows = await client.query(`/* projection-store:register-league-season-official-data */
         WITH league AS (
           INSERT INTO leagues (league_key, name) VALUES ($3, $4)
           ON CONFLICT (league_key) DO UPDATE SET name = EXCLUDED.name, updated_at = now()

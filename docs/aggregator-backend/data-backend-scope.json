@@ -326,6 +326,22 @@
       "proof": "Authored same-period guarded SQL oracles only; execution pending. Existing owner beforeEach job reset means these isolated cases do not prove uninterrupted global hourly budgeting or natural fleet acquisition.",
       "reviewer": "Independent GPT-6 Astra ultra scope design in Backend foundation reconciliation (01a10e85-7bde-74b1-8ad7-93d3d1838eab)",
       "reviewReference": "DATA-SCOPE-2026-10-06-OFFICIAL-NULL-LEGACY-PREGAME-01"
+    },
+    {
+      "path": "apps/site/lib/projection-store-characterization.test.ts",
+      "resource": "Official-data registrar SQL operation identity and characterization",
+      "purpose": "Record the distinct official-registration SQL marker and exact78-operation inventory while preserving configured marker/API, query-call extraction parity, exactly one marker, uniqueness and exact sorted inventory assertions.",
+      "proof": "Reproduced frozen e6 full-run and independent focused failures; focused fixed-after characterization and registrar tests plus changed-SHA review and full workflow required.",
+      "reviewer": "Independent GPT-6 Astra ultra scope confirmation in Backend foundation reconciliation (01a10e85-7bde-74b1-8ad7-93d3d1838eab)",
+      "reviewReference": "DATA-SCOPE-2026-10-06-OFFICIAL-REGISTRATION-SQL-INVENTORY-01"
+    },
+    {
+      "path": "apps/site/lib/projection-store-test-support.ts",
+      "resource": "Official-data registrar SQL operation identity and characterization",
+      "purpose": "Record the distinct official-registration SQL marker and exact78-operation inventory while preserving configured marker/API, query-call extraction parity, exactly one marker, uniqueness and exact sorted inventory assertions.",
+      "proof": "Reproduced frozen e6 full-run and independent focused failures; focused fixed-after characterization and registrar tests plus changed-SHA review and full workflow required.",
+      "reviewer": "Independent GPT-6 Astra ultra scope confirmation in Backend foundation reconciliation (01a10e85-7bde-74b1-8ad7-93d3d1838eab)",
+      "reviewReference": "DATA-SCOPE-2026-10-06-OFFICIAL-REGISTRATION-SQL-INVENTORY-01"
     }
   ],
   "governanceChanges": [

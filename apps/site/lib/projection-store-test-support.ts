@@ -268,6 +268,7 @@ export const projectionStoreSqlMarkers = [
   'record-projection-candidates',
   'record-projection-slate',
   'register-league-season',
+  'register-league-season-official-data',
   'reserve-full-lineup-observation',
   'resolve-nfl-games',
   'resolve-scoring-entities',
