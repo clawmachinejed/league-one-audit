@@ -70,18 +70,29 @@ export async function runSelectedPublicDataRefresh(selection: PublicDataRefreshS
   const workRemaining = workDeadline - Date.now();
   if (workRemaining <= 0) return { status: 'deadline', providerRequests: 0 } as const;
   const signal = AbortSignal.timeout(workRemaining);
+  const phaseRemaining = invocationStartedAt + 10_000 - Date.now();
+  if (phaseRemaining <= 0) return { status: 'deadline', providerRequests: 0 } as const;
+  const phaseSignal = AbortSignal.any([signal, AbortSignal.timeout(phaseRemaining)]);
   const bounded = withDatabaseAbortSignal(database, signal);
-  if (!bounded.enabled) return { status: 'disabled', providerRequests: 0 } as const;
+  const phaseDatabase = withDatabaseAbortSignal(database, phaseSignal);
+  if (!bounded.enabled || !phaseDatabase.enabled) return { status: 'disabled', providerRequests: 0 } as const;
+  const cleanup = (expiresAt: number) => {
+    const remainingCleanup = Math.max(0, Math.min(2_000, expiresAt - Date.now()));
+    const cleanupSignal = remainingCleanup > 0 ? AbortSignal.timeout(remainingCleanup)
+      : AbortSignal.abort(new Error('Public DATA refresh budget exhausted.'));
+    const cleanupDatabase = withDatabaseAbortSignal(database, cleanupSignal);
+    if (!cleanupDatabase.enabled) throw new Error('Refresh cleanup storage unavailable.');
+    return { refresh: createPublicDataRefreshStore(cleanupDatabase), intake: createPublicIntakeStore(cleanupDatabase),
+      jobs: createProjectionStore(cleanupDatabase) };
+  };
   return runPublicDataRefreshStep({ refresh: createPublicDataRefreshStore(bounded), intake: createPublicIntakeStore(bounded),
     administration: createLeagueAdministrationStore(bounded), jobs: createProjectionStore(bounded),
     deadlineAt: new Date(workDeadline).toISOString(),
     ...(selection.managerEvidenceVersion ? { managerEvidenceVersion: selection.managerEvidenceVersion } : {}),
-    cleanup: () => {
-      const remainingCleanup = Math.max(0, Math.min(2_000, deadline - Date.now()));
-      const cleanupSignal = remainingCleanup > 0 ? AbortSignal.timeout(remainingCleanup)
-        : AbortSignal.abort(new Error('Public DATA refresh budget exhausted.'));
-      const cleanup = withDatabaseAbortSignal(database, cleanupSignal);
-      if (!cleanup.enabled) throw new Error('Refresh cleanup storage unavailable.');
-      return { refresh: createPublicDataRefreshStore(cleanup), intake: createPublicIntakeStore(cleanup), jobs: createProjectionStore(cleanup) };
-    } }, signal);
+    preAdmission: { signal: phaseSignal, refresh: createPublicDataRefreshStore(phaseDatabase),
+      intake: createPublicIntakeStore(phaseDatabase), jobs: createProjectionStore(phaseDatabase),
+      // Reconcile only while the ORIGINAL work fence is still valid. The short
+      // phase signal cannot cancel a successful later provider acquisition.
+      cleanup: () => cleanup(workDeadline) },
+    cleanup: () => cleanup(deadline) }, signal);
 }

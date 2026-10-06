@@ -7,6 +7,8 @@ import { recordCapturedAdministration } from './runtime';
 import type { PublicDataRefreshOutcome, PublicDataRefreshSelected, PublicDataRefreshSelectionFailure, PublicDataRefreshStore } from './public-refresh-contracts';
 import { PUBLIC_INTAKE_JOB, type PublicIntakeOutcome, type PublicIntakeStore } from './public-intake-contracts';
 
+type PublicIntakeCleanup = Readonly<{ intake: Pick<PublicIntakeStore, 'fail'>; jobs: Pick<ProjectionStore, 'failJob'>;
+  refresh?: Pick<PublicDataRefreshStore, 'recordSelectionFailure'> }>;
 export type PublicIntakeDependencies = Readonly<{
   intake: PublicIntakeStore;
   administration: LeagueAdministrationStore;
@@ -18,8 +20,11 @@ export type PublicIntakeDependencies = Readonly<{
   managerEvidenceVersion?: 'v2';
   /** Absolute work deadline, including time already spent obtaining the owner. */
   deadlineAt?: string;
-  cleanup?: () => Readonly<{ intake: Pick<PublicIntakeStore, 'fail'>; jobs: Pick<ProjectionStore, 'failJob'>;
-    refresh?: Pick<PublicDataRefreshStore, 'recordSelectionFailure'> }>;
+  /** Optional early abort-aware database phase; manual intake does not use it. */
+  preAdmission?: Readonly<{ signal: AbortSignal; jobs: Pick<ProjectionStore, 'acquireJob'>;
+    intake: Pick<PublicIntakeStore, 'recover' | 'next' | 'admit'>; refresh: Pick<PublicDataRefreshStore, 'select'>;
+    cleanup: () => PublicIntakeCleanup }>;
+  cleanup?: () => PublicIntakeCleanup;
 }>;
 
 /** One bounded selection owned by the existing administration worker and jobs table.
@@ -40,13 +45,17 @@ async function runOwnedPublicIntakeStep(requestId: string | undefined,
   signal: AbortSignal): Promise<PublicDataRefreshOutcome> {
   const { intake, jobs, administration } = dependencies;
   const refresh = requestId === undefined ? dependencies.refresh : undefined;
+  const phase = refresh ? dependencies.preAdmission : undefined;
+  const phaseSignal = phase?.signal ?? signal;
+  const phaseIntake = phase?.intake ?? intake;
   const now = dependencies.now ?? (() => new Date());
   const source = dependencies.source ?? { identity: capturePublicSleeperIdentity,
     leagues: capturePublicSleeperLeagueList, core: capturePublicSleeperCore };
   signal.throwIfAborted();
+  phaseSignal.throwIfAborted();
   const workerId = randomUUID();
   // All public intakes share one owner and a minimum minute between successful steps.
-  const claim = await jobs.acquireJob({ jobKey: PUBLIC_INTAKE_JOB, jobType: PUBLIC_INTAKE_JOB, workerId,
+  const claim = await (phase?.jobs ?? jobs).acquireJob({ jobKey: PUBLIC_INTAKE_JOB, jobType: PUBLIC_INTAKE_JOB, workerId,
     scheduledFor: new Date(Math.floor(now().getTime() / 60_000) * 60_000).toISOString(),
     leaseSeconds: 25, minimumIntervalSeconds: 60, payload: refresh
       ? { policy: 'public-data-refresh-v1', mode: 'recurring' } : { requestId, policy: 'public-data-intake-v1' } });
@@ -57,11 +66,15 @@ async function runOwnedPublicIntakeStep(requestId: string | undefined,
   let work: Awaited<ReturnType<PublicIntakeStore['next']>> | undefined;
   let requests = 0;
   let selected: PublicDataRefreshSelected | null = null;
-  let selectionFailure: PublicDataRefreshSelectionFailure | undefined = refresh ? 'selection-failed' : undefined;
+  let selectionFailure: PublicDataRefreshSelectionFailure | undefined;
   try {
     signal.throwIfAborted();
+    phaseSignal.throwIfAborted();
     if (refresh) {
-      const selection = await refresh.select(fence);
+      // No target failure can be attributed to setup/claim exhaustion. Once this
+      // call starts, a null acknowledgment may still have a durable owner binding.
+      selectionFailure = 'selection-failed';
+      const selection = await (phase?.refresh ?? refresh).select(fence);
       if (selection.status !== 'selected') {
         selectionFailure = undefined;
         if (!await jobs.completeJob(PUBLIC_INTAKE_JOB, workerId)) throw new Error('Intake lease lost.');
@@ -73,16 +86,19 @@ async function runOwnedPublicIntakeStep(requestId: string | undefined,
     }
     if (!requestId) throw new Error('Intake request binding unavailable.');
     signal.throwIfAborted();
-    await intake.recover(requestId, fence);
-    work = await intake.next(requestId);
+    phaseSignal.throwIfAborted();
+    await phaseIntake.recover(requestId, fence);
+    phaseSignal.throwIfAborted();
+    work = await phaseIntake.next(requestId);
     if (typeof work === 'string') {
       selectionFailure = undefined;
       if (!await jobs.completeJob(PUBLIC_INTAKE_JOB, workerId)) throw new Error('Intake lease lost.');
       return { status: work, providerRequests: 0 };
     }
     signal.throwIfAborted();
+    phaseSignal.throwIfAborted();
     if (refresh) selectionFailure = 'admission-unconfirmed';
-    if (!await intake.admit(work, fence)) {
+    if (!await phaseIntake.admit(work, fence)) {
       selectionFailure = undefined;
       if (!await jobs.completeJob(PUBLIC_INTAKE_JOB, workerId)) throw new Error('Intake lease lost.');
       return { status: 'backoff', providerRequests: 0 };
@@ -148,7 +164,7 @@ async function runOwnedPublicIntakeStep(requestId: string | undefined,
     if (!await jobs.completeJob(PUBLIC_INTAKE_JOB, workerId)) throw new Error('Intake lease lost.');
     return { status: 'progress', resource: work.kind, providerRequests: requests };
   } catch {
-    const cleanup = dependencies.cleanup?.() ?? { intake, jobs, refresh };
+    const cleanup = phase && selectionFailure ? phase.cleanup() : dependencies.cleanup?.() ?? { intake, jobs, refresh };
     if (refresh && selectionFailure && !signal.aborted) {
       // SQL first reconciles this exact owner's persisted selection/dispatch. An
       // unknown acknowledgment must never create another cycle or double credit.

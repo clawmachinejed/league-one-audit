@@ -47,7 +47,7 @@ describe('explicit DATA recurrence runtime budget', () => {
       return { status: 'unavailable', providerRequests: 0 };
     });
     expect((await runSelectedPublicDataRefresh(enabled, start)).status).toBe('unavailable');
-    expect(mocks.bounded).toHaveBeenCalledTimes(2);
+    expect(mocks.bounded).toHaveBeenCalledTimes(3);
   });
   it('does not configure an explicit disabled runtime or query a disabled database', async () => {
     const input = { id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', expectedRevision: 0,
@@ -68,4 +68,53 @@ describe('malformed recurrence runtime selection', () => {
       expect(await configurePublicSleeperRefresh(null as never, selection as PublicDataRefreshSelection | null | undefined)).toEqual({ status: 'disabled' });
       expect(mocks.database).not.toHaveBeenCalled(); expect(mocks.refresh).not.toHaveBeenCalled(); expect(mocks.run).not.toHaveBeenCalled();
     });
+});
+
+describe('actual abort-aware admission database routing', () => {
+  it('uses the early signal for claim/selection/state/admission and a separate live signal for later work', async () => {
+    const actual = await vi.importActual<typeof import('../database')>('../database');
+    const controllers: AbortController[] = [];
+    vi.spyOn(AbortSignal, 'timeout').mockImplementation(() => { const controller = new AbortController(); controllers.push(controller); return controller.signal; });
+    let acceptedQueries = 0;
+    const query = vi.fn(async (_statement: string, _parameters: readonly unknown[], options: { signal: AbortSignal }) => {
+      options.signal.throwIfAborted(); acceptedQueries++; return [];
+    });
+    const base = { enabled: true, query };
+    mocks.database.mockReturnValue(base); mocks.bounded.mockImplementation(actual.withDatabaseAbortSignal);
+    mocks.intake.mockImplementation(client => ({ recover: () => client.query('recover'), next: () => client.query('next'), admit: () => client.query('admit') }));
+    mocks.refresh.mockImplementation(client => ({ select: () => client.query('select'), recordSelectionFailure: () => client.query('reconcile') }));
+    mocks.jobs.mockImplementation(client => ({ acquireJob: () => client.query('claim'), failJob: () => client.query('cleanup') }));
+    mocks.run.mockImplementation(async (dependencies, signal) => {
+      const phase = dependencies.preAdmission;
+      await phase.jobs.acquireJob(); await phase.refresh.select(); await phase.intake.recover(); await phase.intake.next(); await phase.intake.admit();
+      for (const call of query.mock.calls as unknown as [string, unknown[], { signal: AbortSignal }][]) expect(call[2].signal).toBe(phase.signal);
+      expect(signal).not.toBe(phase.signal); expect(controllers).toHaveLength(2);
+      controllers[1].abort(new Error('phase deadline'));
+      const accepted = acceptedQueries;
+      await expect(phase.intake.next()).rejects.toThrow('phase deadline'); expect(acceptedQueries).toBe(accepted);
+      expect(signal.aborted).toBe(false);
+      await dependencies.intake.next(); expect(acceptedQueries).toBe(accepted + 1);
+      vi.setSystemTime(start + 10_000); await phase.cleanup().refresh.recordSelectionFailure();
+      expect(controllers).toHaveLength(3); expect(controllers[2].signal.aborted).toBe(false);
+      expect((query.mock.calls.at(-1) as unknown as [string, unknown[], { signal: AbortSignal }])[2].signal).toBe(controllers[2].signal);
+      return { status: 'unavailable', providerRequests: 0 };
+    });
+    expect((await runSelectedPublicDataRefresh(enabled, start)).status).toBe('unavailable');
+  });
+  it.each([10_000, 19_500, 21_000])('clips admission reconciliation to the original work fence at elapsed %i', async elapsed => {
+    const timeout = vi.spyOn(AbortSignal, 'timeout');
+    mocks.run.mockImplementation(async dependencies => {
+      vi.setSystemTime(start + elapsed); dependencies.preAdmission.cleanup();
+      const cleanupSignal = mocks.bounded.mock.calls.at(-1)![1] as AbortSignal;
+      if (elapsed >= 20_000) expect(cleanupSignal.aborted).toBe(true);
+      else expect(timeout).toHaveBeenLastCalledWith(Math.min(2000, 20_000 - elapsed));
+      return { status: 'unavailable', providerRequests: 0 };
+    });
+    await runSelectedPublicDataRefresh(enabled, start);
+  });
+  it('does not select any target when setup has already consumed the early phase', async () => {
+    mocks.database.mockImplementation(() => { vi.setSystemTime(start + 10_001); return { enabled: true }; });
+    expect(await runSelectedPublicDataRefresh(enabled, start)).toEqual({ status: 'deadline', providerRequests: 0 });
+    expect(mocks.bounded).not.toHaveBeenCalled(); expect(mocks.run).not.toHaveBeenCalled(); expect(mocks.refresh).not.toHaveBeenCalled();
+  });
 });

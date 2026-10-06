@@ -9,7 +9,7 @@ import { readPublicSleeperIntake } from '../lib/league-administration/public-int
 import { readPublicDataRefresh } from '../lib/league-administration/public-refresh-reader';
 import { recordCapturedAdministration } from '../lib/league-administration/runtime';
 import { PUBLIC_INTAKE_JOB, type PublicIntakeWork } from '../lib/league-administration/public-intake-contracts';
-import { capturePublicSleeperCore } from '../lib/sleeper';
+import { capturePublicSleeperCore, capturePublicSleeperIdentity } from '../lib/sleeper';
 import type { DatabaseClient, DatabaseRow } from '../lib/database';
 import type { PublicDataRefreshConfiguration } from '../lib/league-administration/public-refresh-contracts';
 
@@ -493,7 +493,7 @@ describe('bounded public DATA refresh cycles through the existing intake owner',
     return result;
   }
 
-  it('retains one cycle through concurrent selectors, unknown acknowledgements, poisoned selection and CAS pause/expiry races', async () => {
+  it('retains one cycle through concurrent selectors, unknown acknowledgements, poisoned selection and sequential approval checks', async () => {
     const database = connection.database;
     const refresh = createPublicDataRefreshStore(database);
     const configured = await refresh.configure(configuration);
@@ -657,6 +657,211 @@ describe('bounded public DATA refresh cycles through the existing intake owner',
     }
   }, 15_000);
 
+  /** AUTHORED / UNEXECUTED: observed PostgreSQL lock waits, not simultaneous
+   * Promise creation alone, establish each competing transaction's barrier.
+   * The admission-first case may wait the real remaining 61-second interval;
+   * the expiry case waits five real seconds. These add runtime beyond metadata
+   * checks. No full-suite fit in the 30/40-minute lifecycle has been measured. */
+  async function expectBlocked(waiterPid: unknown, blockerPid: unknown) {
+    const until = Date.now() + 2_500;
+    let blocked = false;
+    while (Date.now() < until) {
+      const [state] = await ownerQuery('SELECT $2::integer=ANY(pg_blocking_pids($1::integer)) AS blocked', [waiterPid, blockerPid]);
+      if (state.blocked) { blocked = true; break; }
+      await delay(20);
+    }
+    expect(blocked, 'Competing SQL statement must reach the observed lock barrier.').toBe(true);
+  }
+
+  it('serializes competing configuration CAS calls behind one observed lock and retains only the winning revision', async () => {
+    const blocker = await createPinnedIntegrationDatabase('owner');
+    const left = await createPinnedIntegrationDatabase('runtime');
+    const right = await createPinnedIntegrationDatabase('runtime');
+    let open = false;
+    const pending: Promise<PromiseSettledResult<Awaited<ReturnType<ReturnType<typeof createPublicDataRefreshStore>['configure']>>>>[] = [];
+    const inputs = [61, 62].map(cadenceSeconds => ({ ...configuration, expectedRevision: revision, cadenceSeconds }));
+    const before = await connection.database.query('SELECT * FROM public.public_data_refresh_configurations WHERE target_id=$1 ORDER BY revision', [targetId]);
+    try {
+      const [ownerSession] = await blocker.database.query('SELECT pg_backend_pid() AS pid');
+      const sessions = [];
+      for (const client of [left, right]) {
+        await client.database.query("SET statement_timeout='8s'");
+        const [session] = await client.database.query('SELECT pg_backend_pid() AS pid,session_user AS role');
+        expect(session.role).toBe('league_one_runtime'); sessions.push(session);
+      }
+      await blocker.database.query('BEGIN'); open = true;
+      await blocker.database.query("SELECT pg_advisory_xact_lock(hashtextextended('public-data-refresh-configuration',0))");
+      for (const [index, client] of [left, right].entries()) {
+        pending.push(createPublicDataRefreshStore(client.database).configure(inputs[index])
+          .then(value => ({ status: 'fulfilled' as const, value }), reason => ({ status: 'rejected' as const, reason })));
+        await expectBlocked(sessions[index].pid, ownerSession.pid);
+      }
+      await blocker.database.query('COMMIT'); open = false;
+      const outcomes = await Promise.all(pending);
+      expect(outcomes.filter(outcome => outcome.status === 'fulfilled')).toHaveLength(1);
+      expect(outcomes.filter(outcome => outcome.status === 'rejected')).toHaveLength(1);
+      const winner = outcomes.findIndex(outcome => outcome.status === 'fulfilled');
+      const winning = outcomes[winner];
+      if (winning.status !== 'fulfilled') throw new Error('Missing CAS winner.');
+      expect(outcomes[1 - winner]).toMatchObject({ status: 'rejected', reason: { message: expect.stringContaining('revision changed') } });
+      expect(winning.value.configurationRevision).toBe(revision + 1);
+      revision = winning.value.configurationRevision; configuration = inputs[winner];
+      const after = await connection.database.query('SELECT * FROM public.public_data_refresh_configurations WHERE target_id=$1 ORDER BY revision', [targetId]);
+      expect(after.slice(0, -1)).toEqual(before);
+      expect(after).toHaveLength(before.length + 1);
+    } finally {
+      if (open) await blocker.database.query('ROLLBACK');
+      await Promise.all(pending);
+      await left.close(); await right.close(); await blocker.close();
+    }
+    await reconfigure({ cadenceSeconds: 60 });
+  });
+
+  it('observes a pause commit win against an admission already waiting on the target row', async () => {
+    const pauser = await createPinnedIntegrationDatabase('runtime');
+    const admitting = await createPinnedIntegrationDatabase('runtime');
+    const owner = await claim();
+    let open = false;
+    let pending: Promise<boolean> | undefined;
+    try {
+      const selected = await createPublicDataRefreshStore(connection.database).select(owner.fence);
+      if (selected.status !== 'selected') throw new Error('Missing pause race selection.');
+      const intake = createPublicIntakeStore(admitting.database);
+      const work = await intake.next(selected.requestId);
+      if (typeof work === 'string') throw new Error('Missing pause race work.');
+      await admitting.database.query("SET statement_timeout='8s'");
+      const [pauseSession] = await pauser.database.query('SELECT pg_backend_pid() AS pid,session_user AS role');
+      const [admitSession] = await admitting.database.query('SELECT pg_backend_pid() AS pid,session_user AS role');
+      expect([pauseSession.role, admitSession.role]).toEqual(['league_one_runtime', 'league_one_runtime']);
+      await pauser.database.query('BEGIN'); open = true;
+      const input = { ...configuration, expectedRevision: revision, paused: true };
+      const configured = await createPublicDataRefreshStore(pauser.database).configure(input);
+      pending = intake.admit(work, owner.fence);
+      // Attach a handler immediately while the assertion inspects the live wait.
+      const settled = pending.then(value => ({ value }), error => ({ error }));
+      await expectBlocked(admitSession.pid, pauseSession.pid);
+      await pauser.database.query('COMMIT'); open = false;
+      revision = configured.configurationRevision; configuration = input;
+      expect(await settled).toEqual({ value: false });
+      expect(await connection.database.query('SELECT * FROM public.public_data_dispatches WHERE worker_id=$1 AND generation=$2',
+        [owner.fence.workerId, owner.fence.generation])).toEqual([]);
+      expect(await connection.database.query('SELECT * FROM public.public_data_refresh_selection_failures WHERE worker_id=$1 AND generation=$2',
+        [owner.fence.workerId, owner.fence.generation])).toEqual([]);
+    } finally {
+      if (open) await pauser.database.query('ROLLBACK');
+      await pending?.catch(() => undefined);
+      await owner.jobs.failJob(PUBLIC_INTAKE_JOB, owner.fence.workerId, 'observed pause-before-admission barrier');
+      await admitting.close(); await pauser.close();
+      await reconfigure({ paused: false });
+    }
+  });
+
+  it('rejects approval that expires during an observed target-row admission wait under the original live fence', async () => {
+    const blocker = await createPinnedIntegrationDatabase('owner');
+    const admitting = await createPinnedIntegrationDatabase('runtime');
+    await admitting.database.query("SET statement_timeout='10s'");
+    const [ownerSession] = await blocker.database.query('SELECT pg_backend_pid() AS pid');
+    const [admitSession] = await admitting.database.query('SELECT pg_backend_pid() AS pid,session_user AS role');
+    const owner = await claim();
+    let open = false;
+    let pending: Promise<boolean> | undefined;
+    try {
+      expect(admitSession.role).toBe('league_one_runtime');
+      // Start the short approval only after connection setup has finished.
+      await reconfigure({ expiresAt: new Date(Date.now() + 5_000).toISOString() });
+      const selected = await createPublicDataRefreshStore(connection.database).select(owner.fence);
+      if (selected.status !== 'selected') throw new Error('Missing expiring race selection.');
+      const intake = createPublicIntakeStore(admitting.database);
+      const work = await intake.next(selected.requestId);
+      if (typeof work === 'string') throw new Error('Missing expiring race work.');
+      await blocker.database.query('BEGIN'); open = true;
+      await blocker.database.query('SELECT id FROM public.public_data_refresh_targets WHERE id=$1 FOR UPDATE', [targetId]);
+      pending = intake.admit(work, owner.fence);
+      const settled = pending.then(value => ({ value }), error => ({ error }));
+      await expectBlocked(admitSession.pid, ownerSession.pid);
+      await delay(Math.max(0, Date.parse(configuration.expiresAt) - Date.now()) + 100);
+      expect((await ownerQuery('SELECT clock_timestamp()<$1::timestamptz AS live', [owner.fence.deadlineAt]))[0].live).toBe(true);
+      await blocker.database.query('ROLLBACK'); open = false;
+      expect(await settled).toEqual({ value: false });
+      expect(await connection.database.query('SELECT * FROM public.public_data_dispatches WHERE worker_id=$1 AND generation=$2',
+        [owner.fence.workerId, owner.fence.generation])).toEqual([]);
+    } finally {
+      if (open) await blocker.database.query('ROLLBACK');
+      await pending?.catch(() => undefined);
+      await owner.jobs.failJob(PUBLIC_INTAKE_JOB, owner.fence.workerId, 'observed approval expiry at admission lock');
+      await admitting.close(); await blocker.close();
+      await reconfigure({ expiresAt: new Date(Date.now() + 60 * 60_000).toISOString() });
+    }
+  });
+
+  it('retains a real admitted capture when a competing pause waits for that admission to commit', async () => {
+    // The interval is the real durable admission interval, outside any job claim.
+    const [due] = await connection.database.query("SELECT greatest(0,extract(epoch FROM max(admitted_at)+interval '61 seconds'-clock_timestamp())) AS seconds FROM public.public_data_dispatches");
+    if (Number(due.seconds) > 0) await delay(Number(due.seconds) * 1_000);
+    const admitting = await createPinnedIntegrationDatabase('runtime');
+    const pauser = await createPinnedIntegrationDatabase('runtime');
+    const owner = await claim();
+    let open = false;
+    let pending: ReturnType<ReturnType<typeof createPublicDataRefreshStore>['configure']> | undefined;
+    const capture = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      if (String(input).endsWith(`/user/${nativeManager}`)) return new Response(JSON.stringify({ user_id: nativeManager, username: 'admission_race_manager' }));
+      throw new Error('Unexpected admission race fixture source scope.');
+    });
+    try {
+      const selected = await createPublicDataRefreshStore(connection.database).select(owner.fence);
+      if (selected.status !== 'selected') throw new Error('Missing admission-first selection.');
+      const intake = createPublicIntakeStore(admitting.database);
+      const work = await intake.next(selected.requestId);
+      if (typeof work === 'string' || work.kind !== 'identity') throw new Error('Admission race requires the untouched first-cycle identity step.');
+      await pauser.database.query("SET statement_timeout='8s'");
+      await admitting.database.query("SET statement_timeout='8s'");
+      const [admitSession] = await admitting.database.query('SELECT pg_backend_pid() AS pid,session_user AS role');
+      const [pauseSession] = await pauser.database.query('SELECT pg_backend_pid() AS pid,session_user AS role');
+      expect([admitSession.role, pauseSession.role]).toEqual(['league_one_runtime', 'league_one_runtime']);
+      await admitting.database.query('BEGIN'); open = true;
+      expect(await intake.admit(work, owner.fence)).toBe(true);
+      const input = { ...configuration, expectedRevision: revision, paused: true };
+      pending = createPublicDataRefreshStore(pauser.database).configure(input);
+      const settled = pending.then(value => ({ value }), error => ({ error }));
+      await expectBlocked(pauseSession.pid, admitSession.pid);
+      await admitting.database.query('COMMIT'); open = false;
+      const configured = await settled;
+      if (!('value' in configured)) throw configured.error;
+      revision = configured.value.configurationRevision; configuration = input;
+      // Acquisition and checkpoint remain bound to the already admitted owner;
+      // pausing prevents new admission but cannot rewrite this original fence.
+      const document = await capturePublicSleeperIdentity(work.username, AbortSignal.timeout(Math.max(1, Date.parse(owner.fence.deadlineAt) - Date.now())));
+      await intake.recordIdentity(work, document, owner.fence);
+      expect(await intake.next(selected.requestId)).toMatchObject({ kind: 'leagues' });
+      expect(await connection.database.query('SELECT outcome FROM public.public_data_dispatch_outcomes WHERE worker_id=$1 AND generation=$2',
+        [owner.fence.workerId, owner.fence.generation])).toEqual([{ outcome: 'checkpoint-committed' }]);
+      expect(await connection.database.query('SELECT * FROM public.public_data_refresh_selection_failures WHERE worker_id=$1 AND generation=$2',
+        [owner.fence.workerId, owner.fence.generation])).toEqual([]);
+    } finally {
+      if (open) await admitting.database.query('ROLLBACK');
+      await pending?.catch(() => undefined);
+      capture.mockRestore();
+      await owner.jobs.failJob(PUBLIC_INTAKE_JOB, owner.fence.workerId, 'observed admission-before-pause barrier');
+      await pauser.close(); await admitting.close();
+      await reconfigure({ paused: false });
+    }
+  }, 100_000);
+
+  const refreshHistoryTables = ['public_data_refresh_configurations', 'public_data_refresh_cycles',
+    'public_data_refresh_cycle_outcomes', 'public_data_refresh_selection_failures'] as const;
+  async function retainedRefreshHistory() {
+    return Promise.all(refreshHistoryTables.map(async table => ({ table,
+      rows: await connection.database.query(`SELECT * FROM public.${table} WHERE target_id=$1 ORDER BY to_jsonb(${table})::text`, [targetId]) })));
+  }
+  async function expectRetainedRefreshHistory(previous: Awaited<ReturnType<typeof retainedRefreshHistory>>) {
+    for (const { table, rows } of previous) {
+      const current = await connection.database.query(`SELECT * FROM public.${table} WHERE target_id=$1`, [targetId]);
+      // New cycles/configurations may append rows; every original full row,
+      // including source revision, times and disposition, must remain identical.
+      expect(current).toEqual(expect.arrayContaining([...rows]));
+    }
+  }
+
   it('refreshes two typed core cycles with real admission spacing, a correction and lost-checkpoint replay [focused slow SQL]', async () => {
     const database = connection.database;
     const administration = createLeagueAdministrationStore(database);
@@ -666,6 +871,7 @@ describe('bounded public DATA refresh cycles through the existing intake owner',
     if (!revision) revision = (await refresh.configure(configuration)).configurationRevision;
     const native = String(retainedLeague.league_id);
     const originalLeague = retainedLeague;
+    const originalRefreshHistory = await retainedRefreshHistory();
     let cycleNumber = 1;
     let lostCheckpoint = false;
     let lostAdmissionAck = false;
@@ -731,6 +937,7 @@ describe('bounded public DATA refresh cycles through the existing intake owner',
       expect(lostAdmissionAck).toBe(true);
       expect(pausedDuringCapture).toBe(true);
       expect(lostCheckpoint).toBe(true);
+      await expectRetainedRefreshHistory(originalRefreshHistory);
       expect(receiptIds[1].some(id => receiptIds[0].includes(id))).toBe(false);
       expect(await database.query('SELECT * FROM public.league_roster_capture_receipts WHERE id=ANY($1::uuid[]) ORDER BY id', [receiptIds[0]])).toEqual(immutableReceipts[0]);
       const [spacing] = await database.query(`SELECT bool_and(gap>=interval '60 seconds') AS bounded FROM (
@@ -752,6 +959,7 @@ describe('bounded public DATA refresh cycles through the existing intake owner',
     const administration = createLeagueAdministrationStore(database);
     const prior = await database.query(`SELECT cycle.intake_id FROM public.public_data_refresh_cycles cycle
       JOIN public.public_data_intakes request ON request.id=cycle.intake_id WHERE cycle.target_id=$1 AND request.terminal`, [targetId]);
+    const priorRefreshHistory = await retainedRefreshHistory();
     const completed = new Set(prior.map(row => String(row.intake_id)));
     const newCycles: string[] = [];
     const capture = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
@@ -778,6 +986,7 @@ describe('bounded public DATA refresh cycles through the existing intake owner',
       }
       expect(newCycles).toHaveLength(2);
       expect(new Set(newCycles).size).toBe(2);
+      await expectRetainedRefreshHistory(priorRefreshHistory);
       const [cadence] = await database.query(`SELECT bool_and(outcome.next_due_at>outcome.recorded_at
         AND outcome.next_due_at<=outcome.recorded_at+interval '60 seconds') AS skips_missed
         FROM public.public_data_refresh_cycle_outcomes outcome WHERE outcome.target_id=$1`, [targetId]);
@@ -786,6 +995,40 @@ describe('bounded public DATA refresh cycles through the existing intake owner',
       expect(read).toMatchObject({ status: 'available', cycle: { requestId: newCycles[1] }, intake: { status: 'available', leagues: [] } });
     } finally { capture.mockRestore(); }
   }, 9 * 60_000);
+  it('refuses owner UPDATE and DELETE of existing immutable refresh history and preserves later-cycle rows', async () => {
+    // This intentionally uses the owner LOGIN so an ACL rejection cannot stand
+    // in for the immutable-history trigger. All attempts are rolled back even
+    // if an absent guard unexpectedly permits a mutation.
+    const owner = await createPinnedIntegrationDatabase('owner');
+    let open = false;
+    try {
+      const [role] = await owner.database.query('SELECT session_user AS role,current_user AS effective_role');
+      expect(role.role).toBe(role.effective_role);
+      expect(role.role).not.toBe('league_one_runtime');
+      await owner.database.query('BEGIN'); open = true;
+      for (const table of refreshHistoryTables) {
+        const before = await owner.database.query(`SELECT * FROM public.${table} WHERE target_id=$1 ORDER BY to_jsonb(${table})::text`, [targetId]);
+        expect(before.length, `${table} requires an actual retained row from the preceding SQL cases.`).toBeGreaterThan(0);
+        const column = table === 'public_data_refresh_configurations' ? 'configured_at'
+          : table === 'public_data_refresh_cycles' ? 'created_at' : 'recorded_at';
+        for (const statement of [`UPDATE public.${table} SET ${column}=${column}+interval '1 second' WHERE target_id=$1`,
+          `DELETE FROM public.${table} WHERE target_id=$1`]) {
+          await owner.database.query('SAVEPOINT immutable_refresh_attempt');
+          try { await expect(owner.database.query(statement, [targetId])).rejects.toThrow('league administration history is immutable'); }
+          finally {
+            await owner.database.query('ROLLBACK TO SAVEPOINT immutable_refresh_attempt');
+            await owner.database.query('RELEASE SAVEPOINT immutable_refresh_attempt');
+          }
+          expect(await owner.database.query(`SELECT * FROM public.${table} WHERE target_id=$1 ORDER BY to_jsonb(${table})::text`, [targetId])).toEqual(before);
+        }
+        expect(await connection.database.query(`SELECT * FROM public.${table} WHERE target_id=$1 ORDER BY to_jsonb(${table})::text`, [targetId])).toEqual(before);
+      }
+    } finally {
+      if (open) await owner.database.query('ROLLBACK');
+      await owner.close();
+    }
+  });
+
   it('shares the existing sixteen-pending-request limit with manual submissions without spending admission credit', async () => {
     const database = connection.database;
     const refresh = createPublicDataRefreshStore(database);

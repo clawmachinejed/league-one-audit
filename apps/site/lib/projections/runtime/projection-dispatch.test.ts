@@ -211,14 +211,15 @@ describe('explicit DATA composition preserves projection and ordinary maintenanc
       await vi.waitFor(() => expect(runtime.data).toHaveBeenCalledOnce()); return [];
     });
     const original = { status: 'failed' } as const; runtime.runCurrent.mockResolvedValue(original);
-    const call = runProductionProjectionSync({ publicDataRefresh: selection, invocationStartedAt: 123 });
+    const invocationStartedAt = Date.now();
+    const call = runProductionProjectionSync({ publicDataRefresh: selection, invocationStartedAt });
     await vi.waitFor(() => expect(runtime.runCurrent).toHaveBeenCalledOnce());
     expect(runtime.maintenance).not.toHaveBeenCalled();
     data.resolve({ status: 'unavailable', providerRequests: 2 });
     expect(await call).toBe(original);
-    expect(runtime.data).toHaveBeenCalledExactlyOnceWith(selection, 123);
-    expect(runtime.maintenance).toHaveBeenCalledExactlyOnceWith([], 123);
-    expect(runtime.runCurrent).toHaveBeenCalledExactlyOnceWith(current, { invocationStartedAt: 123 });
+    expect(runtime.data).toHaveBeenCalledExactlyOnceWith(selection, invocationStartedAt);
+    expect(runtime.maintenance).toHaveBeenCalledExactlyOnceWith([], invocationStartedAt);
+    expect(runtime.runCurrent).toHaveBeenCalledExactlyOnceWith(current, { invocationStartedAt });
   });
   it.each(['registry', 'projection'] as const)('drains DATA while preserving an original %s exception', async stage => {
     const data = pending(); runtime.data.mockReturnValue(data.promise);
@@ -273,5 +274,48 @@ describe('DATA failure observability remains sanitized and nonthrowing', () => {
     const original = { status: 'disabled' }; runtime.runCurrent.mockResolvedValue(original);
     expect(await runProductionProjectionSync({ publicDataRefresh: { enabled: true } })).toBe(original);
     expect(runtime.maintenance).toHaveBeenCalledOnce();
+  });
+});
+
+describe('bounded optional DATA module loading', () => {
+  it('settles dispatch and ordinary maintenance while the loader hangs, and suppresses startup after a late resolution', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+    const invocationStartedAt = Date.now(); let release!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    vi.doMock('../../league-administration/public-intake-runtime', async () => {
+      await held; return { runSelectedPublicDataRefresh: runtime.data };
+    });
+    vi.resetModules();
+    try {
+      const isolated = await import('./projection-dispatch');
+      const original = { status: 'failed' }; runtime.runCurrent.mockResolvedValue(original);
+      const call = isolated.runProductionProjectionSync({ invocationStartedAt, publicDataRefresh: { enabled: true } });
+      await vi.advanceTimersByTimeAsync(5_001);
+      expect(await call).toBe(original); expect(runtime.maintenance).toHaveBeenCalledExactlyOnceWith([], invocationStartedAt);
+      expect(runtime.data).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(18_000); release(); await vi.dynamicImportSettled();
+      expect(Date.now() - invocationStartedAt).toBeGreaterThan(22_000);
+      expect(runtime.data).not.toHaveBeenCalled(); expect(runtime.maintenance).toHaveBeenCalledOnce();
+      expect(current.logger.write).toHaveBeenCalledExactlyOnceWith('warn', { stage: 'public-data-refresh', outcome: 'failed' });
+    } finally {
+      release(); vi.useRealTimers();
+      vi.doMock('../../league-administration/public-intake-runtime', () => ({ runSelectedPublicDataRefresh: runtime.data }));
+      vi.resetModules();
+    }
+  });
+  it('does not race away an actual worker after its module has loaded', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+    const invocationStartedAt = Date.now(); let release!: (value: unknown) => void;
+    runtime.data.mockReturnValue(new Promise(resolve => { release = resolve; }));
+    try {
+      const isolated = await import('./projection-dispatch'); let settled = false;
+      const call = isolated.runProductionProjectionSync({ invocationStartedAt, publicDataRefresh: { enabled: true } }).then(result => { settled = true; return result; });
+      await vi.advanceTimersByTimeAsync(1);
+      expect(runtime.data).toHaveBeenCalledOnce();
+      await vi.advanceTimersByTimeAsync(23_000);
+      expect(settled).toBe(false); expect(runtime.maintenance).not.toHaveBeenCalled();
+      release({ status: 'unavailable', providerRequests: 0 }); await call;
+      expect(runtime.maintenance).toHaveBeenCalledOnce();
+    } finally { release?.({ status: 'unavailable', providerRequests: 0 }); vi.useRealTimers(); }
   });
 });

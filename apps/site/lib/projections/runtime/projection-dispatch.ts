@@ -31,12 +31,30 @@ export async function runProductionProjectionSync(
       try { console.warn(JSON.stringify({ service: 'league-administration', ...entry })); } catch { /* Logging cannot replace projection results. */ }
     }
   };
-  // Attach a nonthrowing handler immediately: DATA runs even if registry or
-  // projection setup rejects, without becoming an unhandled background promise.
+  // Loading has no acquisition side effects. Bound ONLY this lazy import; a
+  // late module resolution must never start work after its admission window.
+  const loadDataRuntime = () => new Promise<typeof import('../../league-administration/public-intake-runtime') | null>((resolve, reject) => {
+    const loadDeadline = invocationStartedAt + 5_000;
+    const remaining = loadDeadline - Date.now();
+    if (!Number.isFinite(remaining) || remaining <= 0) { resolve(null); return; }
+    let settled = false;
+    const timer = setTimeout(() => { settled = true; resolve(null); }, remaining);
+    import('../../league-administration/public-intake-runtime').then(runtime => {
+      if (settled) return;
+      settled = true; clearTimeout(timer);
+      resolve(Date.now() < loadDeadline ? runtime : null);
+    }, error => {
+      if (settled) return;
+      settled = true; clearTimeout(timer); reject(error);
+    });
+  });
+  // Attach handlers immediately. After loading, the actual abort-aware worker
+  // remains fully awaited, including reconciliation; it is never raced away.
   const data = !options.force && publicDataRefresh?.enabled === true
-    ? import('../../league-administration/public-intake-runtime')
-      .then(runtime => runtime.runSelectedPublicDataRefresh(publicDataRefresh, invocationStartedAt))
-      .then(outcome => { if (outcome.status === 'unavailable') warnDataFailure(); return outcome; })
+    ? loadDataRuntime().then(runtime => {
+      if (!runtime) { warnDataFailure(); return undefined; }
+      return runtime.runSelectedPublicDataRefresh(publicDataRefresh, invocationStartedAt);
+    }).then(outcome => { if (outcome?.status === 'unavailable') warnDataFailure(); return outcome; })
       .catch(() => { warnDataFailure(); })
     : Promise.resolve(undefined);
   try {

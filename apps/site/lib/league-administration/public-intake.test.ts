@@ -512,3 +512,94 @@ describe('recurring DATA uses the same owned intake step', () => {
     expect(f.refresh.configure).not.toHaveBeenCalled(); expect(f.refresh.recordSelectionFailure).not.toHaveBeenCalled();
   });
 });
+
+describe('early recurring admission phase and owner reconciliation', () => {
+  const selected = { status: 'selected' as const, targetId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    configurationRevision: 1, cycleConfigurationRevision: 1, cycle: 1, requestId: id };
+  function phaseFixture() {
+    const f = fixture('identity'); const phase = new AbortController(); const outer = new AbortController();
+    const refresh: PublicDataRefreshStore = { configure: vi.fn(), select: vi.fn(async () => selected),
+      recordSelectionFailure: vi.fn(async () => ({ status: 'recorded' as const })) };
+    const phaseIntake = { recover: vi.fn(async () => undefined), next: vi.fn((...args: Parameters<typeof f.intake.next>) => f.intake.next(...args)), admit: vi.fn(async () => true) };
+    const phaseJobs = { acquireJob: vi.fn((...args: Parameters<typeof f.dependencies.jobs.acquireJob>) => f.dependencies.jobs.acquireJob(...args)) };
+    const phaseRefresh = { select: vi.fn((...args: Parameters<typeof refresh.select>) => refresh.select(...args)) };
+    const cleanup = { intake: { fail: vi.fn(async () => undefined) }, jobs: { failJob: vi.fn(async () => true) },
+      refresh: { recordSelectionFailure: vi.fn((...args: Parameters<typeof refresh.recordSelectionFailure>) => refresh.recordSelectionFailure(...args)) } };
+    return { ...f, phase, outer, refresh, phaseIntake, phaseJobs, phaseRefresh, cleanup,
+      dependencies: { ...f.dependencies, refresh, preAdmission: { signal: phase.signal, intake: phaseIntake,
+        jobs: phaseJobs, refresh: phaseRefresh, cleanup: () => cleanup } } };
+  }
+  it('routes every pre-admission database operation through the phase and keeps HTTP on the outer signal', async () => {
+    const f = phaseFixture(); const capture = f.source.identity.getMockImplementation()!;
+    vi.mocked(f.dependencies.source!.identity).mockImplementation(async (_username, signal) => {
+      f.phase.abort(); expect(signal).toBe(f.outer.signal); expect(f.outer.signal.aborted).toBe(false);
+      return capture();
+    });
+    expect((await runPublicDataRefreshStep(f.dependencies, f.outer.signal)).status).toBe('progress');
+    expect(f.phaseJobs.acquireJob).toHaveBeenCalledOnce(); expect(f.phaseRefresh.select).toHaveBeenCalledOnce();
+    expect(f.phaseIntake.recover).toHaveBeenCalledOnce(); expect(f.phaseIntake.next).toHaveBeenCalledOnce();
+    expect(f.phaseIntake.admit).toHaveBeenCalledOnce(); expect(f.intake.admit).not.toHaveBeenCalled();
+    expect(f.refresh.select).toHaveBeenCalledOnce(); // phase mock delegates only to its injected storage double.
+    expect(f.cleanup.refresh.recordSelectionFailure).not.toHaveBeenCalled();
+  });
+  it('keeps manual intake on its original signal and client even when supplied an incidental recurring phase', async () => {
+    const f = phaseFixture(); f.phase.abort();
+    expect((await runPublicIntakeStep(id, f.dependencies, f.outer.signal)).status).toBe('progress');
+    expect(f.phaseJobs.acquireJob).not.toHaveBeenCalled(); expect(f.phaseRefresh.select).not.toHaveBeenCalled();
+    expect(f.dependencies.jobs.acquireJob).toHaveBeenCalledOnce(); expect(f.source.identity).toHaveBeenCalledOnce();
+  });
+  it('does not attribute setup or claim exhaustion to a target that was never selected', async () => {
+    const f = phaseFixture();
+    f.phaseJobs.acquireJob.mockImplementation(async () => { f.phase.abort(); return { kind: 'acquired', attempt: 1, leaseUntil: time }; });
+    expect((await runPublicDataRefreshStep(f.dependencies, f.outer.signal)).status).toBe('unavailable');
+    expect(f.phaseRefresh.select).not.toHaveBeenCalled(); expect(f.refresh.recordSelectionFailure).not.toHaveBeenCalled();
+    expect(f.cleanup.refresh.recordSelectionFailure).not.toHaveBeenCalled(); expect(f.source.identity).not.toHaveBeenCalled();
+    expect(f.dependencies.jobs.failJob).toHaveBeenCalledOnce();
+  });
+  it('reconciles an unknown selection acknowledgment using only the exact owner binding', async () => {
+    const f = phaseFixture();
+    f.phaseRefresh.select.mockImplementation(async () => { f.phase.abort(); throw new Error('selection ACK lost'); });
+    expect((await runPublicDataRefreshStep(f.dependencies, f.outer.signal)).status).toBe('unavailable');
+    expect(f.cleanup.refresh.recordSelectionFailure).toHaveBeenCalledExactlyOnceWith(null,
+      expect.objectContaining({ jobKey: 'league-administration-public-intake', generation: 1 }), 'selection-failed');
+    expect(f.outer.signal.aborted).toBe(false); expect(f.source.identity).not.toHaveBeenCalled();
+  });
+  it('lets a committed admission win over a timed-out acknowledgment without a second HTTP or failure debit', async () => {
+    const f = phaseFixture(); let admitted = false; let failureCredits = 0;
+    f.phaseIntake.admit.mockImplementation(async () => { admitted = true; f.phase.abort(); throw new Error('admission ACK lost'); });
+    f.cleanup.refresh.recordSelectionFailure.mockImplementation(async () => {
+      if (admitted) return { status: 'admitted' }; failureCredits++; return { status: 'recorded' };
+    });
+    expect((await runPublicDataRefreshStep(f.dependencies, f.outer.signal)).status).toBe('unavailable');
+    expect(f.cleanup.refresh.recordSelectionFailure).toHaveBeenCalledWith(selected, expect.anything(), 'admission-unconfirmed');
+    expect(f.phaseIntake.admit).toHaveBeenCalledOnce(); expect(failureCredits).toBe(0);
+    expect(f.source.identity).not.toHaveBeenCalled(); expect(f.cleanup.intake.fail).toHaveBeenCalledOnce();
+  });
+  it('does not let repeated early next-state timeouts monopolize six minute-spaced selections', async () => {
+    const targets = [{ requestId: id, name: 'A', served: null as number | null, eligible: 0, failures: 0 },
+      { requestId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', name: 'B', served: null as number | null, eligible: 0, failures: 0 }];
+    const order: string[] = []; let clock = 0; let selectedTarget = targets[0]; let healthyCalls = 0; let failureCredits = 0;
+    for (let turn = 0; turn < 6; turn++) {
+      clock = turn * 60_000; const f = phaseFixture();
+      f.phaseRefresh.select.mockImplementation(async () => {
+        selectedTarget = targets.filter(target => target.eligible <= clock)
+          .sort((left, right) => (left.served ?? -1) - (right.served ?? -1) || left.name.localeCompare(right.name))[0];
+        order.push(selectedTarget.name); return { ...selected, requestId: selectedTarget.requestId };
+      });
+      f.phaseIntake.next.mockImplementation(async requestId => {
+        if (selectedTarget.name === 'A') { clock += 10_000; f.phase.abort(); throw new Error('actual phase aborted storage call'); }
+        return { kind: 'identity', requestId, revision: 0, username: 'stable-manager' };
+      });
+      f.phaseIntake.admit.mockImplementation(async () => { selectedTarget.served = clock; return true; });
+      f.cleanup.refresh.recordSelectionFailure.mockImplementation(async () => {
+        expect(f.outer.signal.aborted).toBe(false); failureCredits++; selectedTarget.failures++;
+        selectedTarget.eligible = clock + 60_000 * 2 ** (selectedTarget.failures - 1); return { status: 'recorded' };
+      });
+      const capture = f.source.identity.getMockImplementation()!;
+      f.source.identity.mockImplementation(async () => { healthyCalls++; return capture(); });
+      await runPublicDataRefreshStep(f.dependencies, f.outer.signal);
+    }
+    expect(order).toEqual(['A', 'B', 'A', 'B', 'B', 'A']);
+    expect(healthyCalls).toBe(3); expect(failureCredits).toBe(3); expect(targets[0].served).toBeNull();
+  });
+});
