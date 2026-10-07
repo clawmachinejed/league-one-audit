@@ -299,9 +299,9 @@ describe('disposable integration receipt ownership', () => {
   });
 });
 
-it('forwards only the closed profile selector without changing lifecycle safeguards', async () => {
-  process.argv.push('--profile=data-core-refresh-v1'); await import('./run-disposable-integration');
-  expect(mocked.run.mock.calls[0][0].profile).toBe('data-core-refresh-v1'); expect(process.exitCode).toBe(0);
+it.each(['data-core-refresh-v1','data-core-ingestion-v1'])('forwards only closed profile %s without changing lifecycle safeguards', async profile => {
+  process.argv.push('--profile=' + profile); await import('./run-disposable-integration');
+  expect(mocked.run.mock.calls[0][0].profile).toBe(profile); expect(process.exitCode).toBe(0);
 });
 it.each(['--config=custom', '--testNamePattern=anything', '--profile=full'])('rejects arbitrary selector %s before source or provisioning work', async arg => {
   process.argv.push(arg); await expect(import('./run-disposable-integration')).rejects.toThrow('closed');

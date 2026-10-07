@@ -9,17 +9,29 @@ export const QUALIFICATION_FILES = { report: 'qualification-report.json', cleanu
   failure: 'qualification-failure.json' } as const;
 export const QUALIFICATION_MAX_BYTES = 4 * 1024 * 1024;
 export const SELECTED_PROFILE = 'data-core-refresh-v1';
-export type QualificationProfile = 'full' | typeof SELECTED_PROFILE;
-export const SELECTED_SOURCE_DIGEST = 'f981eacbb6883106a57e5eff55237f2a575b559a477bc7cb4db921308757fced';
+export const INGESTION_PROFILE = 'data-core-ingestion-v1';
+export type QualificationProfile = 'full' | typeof SELECTED_PROFILE | typeof INGESTION_PROFILE;
+export const SELECTED_SOURCE_DIGEST = '3ce0cb8d9dfefa803c08c0b94a3339cb960a80f03a9dca9d38861d20da43352e';
 export const SELECTED_MODULE = 'integration/public-data-intake.integration-case.ts';
 export const SELECTED_SUITE = 'bounded public DATA refresh cycles through the existing intake owner';
 export const SELECTED_TEST = 'refreshes two typed core cycles with real admission spacing, a correction and lost-checkpoint replay [focused slow SQL]';
 export const SELECTED_FULL_NAME = SELECTED_SUITE + ' > ' + SELECTED_TEST;
 export const SELECTED_PATTERN = '^' + (SELECTED_SUITE + ' ' + SELECTED_TEST).replace(/[.*+?^{}$()|[\]\\]/gu, '\\$&') + '$';
 
+export const INGESTION_SUITE = 'ordinary public DATA ingestion through the existing intake owner';
+export const INGESTION_TEST = 'stores one public manager league through canonical bootstrap and typed backend readers [focused slow SQL]';
+export const INGESTION_FULL_NAME = INGESTION_SUITE + ' > ' + INGESTION_TEST;
+export const INGESTION_PATTERN = '^' + (INGESTION_SUITE + ' ' + INGESTION_TEST).replace(/[.*+?^{}$()|[\]\\]/gu, '\\$&') + '$';
+function selectedCase(profile: QualificationProfile) {
+  assert(profile === SELECTED_PROFILE || profile === INGESTION_PROFILE, 'Unknown closed qualification profile.');
+  return profile === SELECTED_PROFILE ? { name: SELECTED_FULL_NAME, pattern: SELECTED_PATTERN }
+    : { name: INGESTION_FULL_NAME, pattern: INGESTION_PATTERN };
+}
+
 // Closed collected-case inventory, including the two-value it.each expansion.
 // Source changes require renewed review of both the inventory and source digest.
 export const SELECTED_INVENTORY = [
+  INGESTION_FULL_NAME,
   ...[
     'binds typed receipts, preserves core through interruption, recovers once and permits explicit existing-consumer adoption',
     'admits generation one after normal completed-job retention while preserving older dispatch history',
@@ -80,17 +92,18 @@ export function qualificationSourceDigest(source: string): string {
 }
 function profileDigest(profile: QualificationProfile) {
   return qualificationDigest({ version: 1, profile, module: profile === 'full' ? null : SELECTED_MODULE,
-    pattern: profile === 'full' ? null : SELECTED_PATTERN, sourceDigest: profile === 'full' ? null : SELECTED_SOURCE_DIGEST, inventory: profile === 'full' ? null : SELECTED_INVENTORY });
+    pattern: profile === 'full' ? null : selectedCase(profile).pattern, sourceDigest: profile === 'full' ? null : SELECTED_SOURCE_DIGEST, inventory: profile === 'full' ? null : SELECTED_INVENTORY });
 }
 export function parseQualificationArguments(args: readonly string[]): QualificationProfile {
   if (!args.length) return 'full';
   if (args.length === 1 && args[0] === '--profile=' + SELECTED_PROFILE) return SELECTED_PROFILE;
-  throw new Error('Only the closed --profile=data-core-refresh-v1 qualification selector is accepted.');
+  if (args.length === 1 && args[0] === '--profile=' + INGESTION_PROFILE) return INGESTION_PROFILE;
+  throw new Error('Only the closed data-core-refresh-v1 and data-core-ingestion-v1 qualification selectors are accepted.');
 }
 export function qualificationArguments(profile: QualificationProfile, reporter: string): string[] {
-  assert(profile === 'full' || profile === SELECTED_PROFILE, 'Unknown qualification profile.');
+  assert(profile === 'full' || profile === SELECTED_PROFILE || profile === INGESTION_PROFILE, 'Unknown qualification profile.');
   return ['--reporter', 'verbose', '--reporter', reporter,
-    ...(profile === 'full' ? [] : [SELECTED_MODULE, '--testNamePattern', SELECTED_PATTERN])];
+    ...(profile === 'full' ? [] : [SELECTED_MODULE, '--testNamePattern', selectedCase(profile).pattern])];
 }
 function exactKeys(value: object, keys: string[]) {
   assert.deepEqual(Object.keys(value).sort(), keys.sort(), 'Malformed qualification evidence keys.');
@@ -101,7 +114,7 @@ function validateContext(value: QualificationContext): QualificationContext {
   assert.equal(value.kind, 'integration-qualification-context-v1');
   for (const id of [value.runId, value.nonce]) assert.match(id, /^[0-9a-f]{8}-[0-9a-f-]{27}$/u);
   assert.match(value.gitSha, /^[0-9a-f]{40}$/u);
-  assert(value.profile === 'full' || value.profile === SELECTED_PROFILE);
+  assert(value.profile === 'full' || value.profile === SELECTED_PROFILE || value.profile === INGESTION_PROFILE);
   assert.equal(value.profileDigest, profileDigest(value.profile));
   assert(Array.isArray(value.modules) && value.modules.length > 0 && value.modules.length <= 128);
   for (const entry of value.modules) {
@@ -110,7 +123,7 @@ function validateContext(value: QualificationContext): QualificationContext {
     assert.match(entry.sourceDigest, /^[0-9a-f]{64}$/u);
   }
   unique(value.modules.map(module => module.path));
-  if (value.profile === SELECTED_PROFILE) assert.deepEqual(value.modules.map(module => module.path), [SELECTED_MODULE]);
+  if (value.profile !== 'full') assert.deepEqual(value.modules.map(module => module.path), [SELECTED_MODULE]);
   return value;
 }
 export async function createQualificationContext(siteRoot: string, gitSha: string, runId: string,
@@ -123,12 +136,12 @@ export async function createQualificationContext(siteRoot: string, gitSha: strin
       else if (entry.isFile() && entry.name.endsWith('.integration-case.ts')) modules.push(path);
     }
   };
-  if (profile === 'full') await walk('integration'); else { assert.equal(profile, SELECTED_PROFILE); modules.push(SELECTED_MODULE); }
+  if (profile === 'full') await walk('integration'); else { selectedCase(profile); modules.push(SELECTED_MODULE); }
   const context = validateContext({ kind: 'integration-qualification-context-v1', gitSha, runId, nonce: randomUUID(), profile,
     profileDigest: profileDigest(profile), modules: await Promise.all(modules.sort().map(async path => ({
       path, sourceDigest: qualificationSourceDigest(await readFile(join(siteRoot, path), 'utf8')),
     }))) });
-  if (profile === SELECTED_PROFILE) assert.equal(context.modules[0].sourceDigest, SELECTED_SOURCE_DIGEST,
+  if (profile !== 'full') assert.equal(context.modules[0].sourceDigest, SELECTED_SOURCE_DIGEST,
     'Selected qualification source differs from the reviewed LF digest.');
   return context;
 }
@@ -196,7 +209,7 @@ export function validateQualificationReport(context: QualificationContext, repor
   for (const spec of report.specifications) {
     exactKeys(spec, ['path', 'pattern', 'otherFilters']);
     assert.equal(spec.otherFilters, false);
-    assert.equal(spec.pattern, context.profile === 'full' ? null : SELECTED_PATTERN);
+    assert.equal(spec.pattern, context.profile === 'full' ? null : selectedCase(context.profile).pattern);
   }
   unique(report.hooks.map(hook => hook.key));
   for (const hook of report.hooks) {
@@ -211,17 +224,17 @@ export function validateQualificationReport(context: QualificationContext, repor
     for (const suite of entry.suites) {
       exactKeys(suite, ['id', 'name', 'mode', 'errors']);
       ids.push(suite.id); zero(suite.errors);
-      assert(suite.mode === 'run' || (context.profile === SELECTED_PROFILE && suite.mode === 'skip'));
+      assert(suite.mode === 'run' || (context.profile !== 'full' && suite.mode === 'skip'));
     }
     unique(entry.cases.map(test => test.name));
-    if (context.profile === SELECTED_PROFILE) sameInventory(entry.cases.map(test => test.name), SELECTED_INVENTORY);
+    if (context.profile !== 'full') sameInventory(entry.cases.map(test => test.name), SELECTED_INVENTORY);
     for (const test of entry.cases) {
       exactKeys(test, ['id', 'name', 'state', 'mode', 'expectedFailure', 'configuredRetries', 'configuredRepeats',
         'errors', 'readyEvents', 'resultEvents', 'diagnostic']);
       ids.push(test.id); assert(typeof test.id === 'string' && test.id.length > 0);
       assert.equal(test.expectedFailure, false); zero(test.errors);
       assert.equal(test.configuredRetries, false); zero(test.configuredRepeats);
-      const selected = context.profile === 'full' || test.name === SELECTED_FULL_NAME;
+      const selected = context.profile === 'full' || test.name === selectedCase(context.profile).name;
       if (selected) {
         assert.equal(test.state, 'passed'); assert.equal(test.mode, 'run');
         assert.equal(test.readyEvents, 1); assert.equal(test.resultEvents, 1);

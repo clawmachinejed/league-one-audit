@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterEach, expect, it } from 'vitest';
 import QualificationReporter from './qualification-reporter';
 import { createQualificationContext, qualificationArguments, qualificationDigest, qualificationSourceDigest, QUALIFICATION_CONTEXT_ENV,
-  QUALIFICATION_FILES, SELECTED_FULL_NAME, SELECTED_INVENTORY, SELECTED_MODULE, SELECTED_PROFILE,
+  QUALIFICATION_FILES, INGESTION_PROFILE, INGESTION_FULL_NAME, SELECTED_FULL_NAME, SELECTED_INVENTORY, SELECTED_MODULE, SELECTED_PROFILE,
   validateQualificationArtifacts, type QualificationReport } from './qualification-profile';
 
 const directories: string[] = [];
@@ -20,16 +20,16 @@ afterEach(async () => { process.exitCode = originalExit; await Promise.all(direc
 
 /** Actual installed runner, synthetic modules only. No application or SQL imports;
  * outbound fetch/http/net are blocked before configuration and worker startup. */
-async function runFixture(kind: 'selected' | 'teardown' | 'hook' | 'retry' | 'repeat' | 'unhandled' | 'timeout') {
+async function runFixture(kind: 'ordinary' | 'selected' | 'teardown' | 'hook' | 'retry' | 'repeat' | 'unhandled' | 'timeout') {
   const directory = await mkdtemp(join(tmpdir(), 'qualification-runner-')); directories.push(directory);
   await mkdir(join(directory, 'integration')); await mkdir(join(directory, 'artifacts'));
   const vitestImport = pathToFileURL(join(site, 'node_modules/vitest/dist/index.js')).href;
   let body = "import {it,expect,describe,beforeAll} from " + JSON.stringify(vitestImport) + ";\n";
-  if (kind === 'selected') {
+  if (kind === 'selected' || kind === 'ordinary') {
     for (const name of SELECTED_INVENTORY) {
       const parts = name.split(' > ');
       body += 'describe(' + JSON.stringify(parts[0]) + ',()=>{it(' + JSON.stringify(parts[1]) + ',()=>{' +
-        (name === SELECTED_FULL_NAME ? 'expect(1).toBe(1)' : "throw Error('filtered case unexpectedly ran')") + '})});\n';
+        (name === (kind === 'ordinary' ? INGESTION_FULL_NAME : SELECTED_FULL_NAME) ? 'expect(1).toBe(1)' : "throw Error('filtered case unexpectedly ran')") + '})});\n';
     }
   } else {
     if (kind === 'hook') body += "beforeAll(()=>{throw Error('fixture hook failure')});\n";
@@ -49,8 +49,8 @@ async function runFixture(kind: 'selected' | 'teardown' | 'hook' | 'retry' | 're
   await writeFile(guard, "import {createRequire} from 'node:module';const require=createRequire(import.meta.url);" +
     "const deny=()=>{throw Error('NETWORK_BLOCKED_FIXTURE')};for(const m of ['http','https']){require(m).request=deny;require(m).get=deny;}" +
     "require('net').Socket.prototype.connect=deny;globalThis.fetch=deny;\n");
-  const context = await createQualificationContext(kind === 'selected' ? site : directory, 'a'.repeat(40), randomUUID(),
-    kind === 'selected' ? SELECTED_PROFILE : 'full');
+  const context = await createQualificationContext(kind === 'selected' || kind === 'ordinary' ? site : directory, 'a'.repeat(40), randomUUID(),
+    kind === 'ordinary' ? INGESTION_PROFILE : kind === 'selected' ? SELECTED_PROFILE : 'full');
   // Only this no-SQL fixture substitutes synthetic source beneath the same closed case inventory.
   context.modules[0].sourceDigest = qualificationSourceDigest(body);
   const allow = new Set(['path','systemroot','windir','comspec','temp','tmp','tmpdir','home','userprofile','localappdata','appdata','pathext']);
@@ -77,7 +77,7 @@ it('executes the closed selected case once and accounts for every filtered case 
   const { child, binding, report } = await runFixture('selected');
   expect(child.status).toBe(0);
   expect(report.modules[0].cases.filter(test => test.state === 'passed')).toHaveLength(1);
-  expect(report.modules[0].cases.filter(test => test.state === 'skipped')).toHaveLength(23);
+  expect(report.modules[0].cases.filter(test => test.state === 'skipped')).toHaveLength(24);
   await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({ profile: SELECTED_PROFILE });
 });
 it('rejects the reproduced zero-exit teardown gap after the actual installed runner closes', { timeout: 30_000 }, async () => {
@@ -104,4 +104,14 @@ it('lets a late process timeout override an earlier passing report and cleanup a
 it('fails synchronously before attempting a timeout marker write, even without initialized context', async () => {
   const reporting = new QualificationReporter().onProcessTimeout();
   expect(process.exitCode).toBe(1); await reporting;
+});
+
+it('executes only the ordinary case among25 and rejects that report under the refresh profile', { timeout: 30_000 }, async () => {
+  const { child, binding, report } = await runFixture('ordinary');
+  expect(child.status).toBe(0);
+  expect(report.modules[0].cases.filter(test => test.state === 'passed').map(test => test.name)).toEqual([INGESTION_FULL_NAME]);
+  await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({ profile: INGESTION_PROFILE,
+    collected: 25, executed: 1, passed: 1, filtered: 24 });
+  const other = await createQualificationContext(site, binding.context.gitSha, binding.context.runId, SELECTED_PROFILE);
+  await expect(validateQualificationArtifacts({ ...binding, context: other })).rejects.toThrow();
 });

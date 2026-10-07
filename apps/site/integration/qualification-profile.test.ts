@@ -7,31 +7,32 @@ import ts from 'typescript';
 import { afterEach, expect, it } from 'vitest';
 import { createQualificationContext, markQualificationFailure, parseQualificationArguments, qualificationArguments,
   qualificationBinding, qualificationCleanup, qualificationDigest, qualificationSourceDigest, QUALIFICATION_CONTEXT_ENV,
-  QUALIFICATION_FILES, SELECTED_SOURCE_DIGEST, SELECTED_FULL_NAME, SELECTED_INVENTORY, SELECTED_MODULE, SELECTED_PATTERN, SELECTED_PROFILE,
+  QUALIFICATION_FILES, INGESTION_PROFILE, INGESTION_FULL_NAME, INGESTION_PATTERN, SELECTED_SOURCE_DIGEST, SELECTED_FULL_NAME, SELECTED_INVENTORY, SELECTED_MODULE, SELECTED_PATTERN, SELECTED_PROFILE,
   validateQualificationArtifacts, validateQualificationReport, writeQualificationArtifact,
   type QualificationBinding, type QualificationCase, type QualificationReport } from './qualification-profile';
 
 const directories: string[] = [];
 const exitCode = process.exitCode;
 afterEach(async () => { process.exitCode = exitCode; await Promise.all(directories.splice(0).map(path => rm(path, { recursive: true, force: true }))); });
-async function fixture(selected = false): Promise<QualificationBinding> {
+async function fixture(selected: boolean | typeof INGESTION_PROFILE = false): Promise<QualificationBinding> {
   const directory = await mkdtemp(join(tmpdir(), 'qualification-profile-')); directories.push(directory);
   await mkdir(join(directory, 'integration'));
   await writeFile(join(directory, SELECTED_MODULE), 'fixture\r\nsource\r\n');
   const context = await createQualificationContext(selected ? fileURLToPath(new URL('..', import.meta.url)) : directory,
-    'a'.repeat(40), randomUUID(), selected ? SELECTED_PROFILE : 'full');
+    'a'.repeat(40), randomUUID(), selected === INGESTION_PROFILE ? INGESTION_PROFILE : selected ? SELECTED_PROFILE : 'full');
   // Synthetic fixture context only; production creation verifies the pinned source digest.
   context.modules[0].sourceDigest = qualificationSourceDigest('fixture\nsource\n');
   return { directory, context };
 }
 function report(binding: QualificationBinding): QualificationReport {
-  const selected = binding.context.profile === SELECTED_PROFILE;
+  const selected = binding.context.profile !== 'full';
+  const ingestion = binding.context.profile === INGESTION_PROFILE;
   return { kind: 'integration-qualification-report-v1', contextDigest: qualificationDigest(binding.context), starts: 1, ends: 1,
-    reason: 'passed', unhandledErrors: 0, specifications: [{ path: SELECTED_MODULE, pattern: selected ? SELECTED_PATTERN : null,
+    reason: 'passed', unhandledErrors: 0, specifications: [{ path: SELECTED_MODULE, pattern: selected ? ingestion ? INGESTION_PATTERN : SELECTED_PATTERN : null,
       otherFilters: false }], collected: [SELECTED_MODULE], hooks: [{ key: 'suite:beforeAll', starts: 1, ends: 1 }],
     modules: [{ path: SELECTED_MODULE, state: 'passed', errors: 0, suites: [],
       cases: (selected ? SELECTED_INVENTORY : ['fixture']).map((name, index) => {
-        const runs = !selected || name === SELECTED_FULL_NAME;
+        const runs = !selected || name === (ingestion ? INGESTION_FULL_NAME : SELECTED_FULL_NAME);
         return { id: 'case-' + index, name, state: runs ? 'passed' : 'skipped', mode: runs ? 'run' : 'skip',
           expectedFailure: false, configuredRetries: false, configuredRepeats: 0, errors: 0,
           readyEvents: 1, resultEvents: 1, diagnostic: runs ? {
@@ -68,7 +69,7 @@ it('requires an exclusive post-cleanup acknowledgment bound to this report and i
   const completing = qualificationCleanup(() => deferred.promise, binding);
   await expect(readFile(join(binding.directory, QUALIFICATION_FILES.cleanup))).rejects.toThrow();
   deferred.resolve(); await completing;
-  expect(await validateQualificationArtifacts(binding)).toMatchObject({ profile: SELECTED_PROFILE, collected: 24, executed: 1, passed: 1, filtered: 23 });
+  expect(await validateQualificationArtifacts(binding)).toMatchObject({ profile: SELECTED_PROFILE, collected: 25, executed: 1, passed: 1, filtered: 24 });
   await expect(writeQualificationArtifact(binding, 'report', evidence)).rejects.toThrow();
   await expect(validateQualificationArtifacts({ ...binding, context: { ...binding.context, nonce: randomUUID() } })).rejects.toThrow();
   await markQualificationFailure(binding, 'process-timeout');
@@ -154,4 +155,17 @@ it('accepts the unchanged full selection only when every collected case passed a
   expect(await validateQualificationArtifacts(binding)).toMatchObject({
     profile: 'full', collected: 1, executed: 1, passed: 1, skipped: 0, filtered: 0,
   });
+});
+
+it('keeps the ordinary selector closed and refuses cross-profile case evidence', async () => {
+  expect(parseQualificationArguments(['--profile=' + INGESTION_PROFILE])).toBe(INGESTION_PROFILE);
+  expect(qualificationArguments(INGESTION_PROFILE, '/reporter').slice(4)).toEqual([SELECTED_MODULE, '--testNamePattern', INGESTION_PATTERN]);
+  expect(() => parseQualificationArguments(['--profile=' + INGESTION_PROFILE, '--retry=1'])).toThrow();
+  const ordinary = await fixture(INGESTION_PROFILE), refresh = await fixture(true);
+  expect(ordinary.context.profileDigest).not.toBe(refresh.context.profileDigest);
+  const evidence = report(ordinary);
+  expect(() => validateQualificationReport(ordinary.context, evidence)).not.toThrow();
+  expect(() => validateQualificationReport(refresh.context, evidence)).toThrow();
+  evidence.contextDigest = qualificationDigest(refresh.context);
+  expect(() => validateQualificationReport(refresh.context, evidence)).toThrow();
 });

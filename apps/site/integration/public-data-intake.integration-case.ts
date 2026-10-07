@@ -10,9 +10,157 @@ import { readPublicSleeperIntake } from '../lib/league-administration/public-int
 import { readPublicDataRefresh } from '../lib/league-administration/public-refresh-reader';
 import { recordCapturedAdministration } from '../lib/league-administration/runtime';
 import { PUBLIC_INTAKE_JOB, type PublicIntakeWork } from '../lib/league-administration/public-intake-contracts';
-import { capturePublicSleeperCore, capturePublicSleeperIdentity } from '../lib/sleeper';
+import { capturePublicSleeperCore, capturePublicSleeperIdentity, capturePublicSleeperLeagueList } from '../lib/sleeper';
 import type { DatabaseClient, DatabaseRow } from '../lib/database';
 import type { PublicDataRefreshConfiguration } from '../lib/league-administration/public-refresh-contracts';
+import { createPublicDataDiagnostics, observePublicDataDependencies } from './public-data-refresh-diagnostics';
+
+
+/** AUTHORED / UNEXECUTED ordinary journey. Only source responses are fixtures;
+ * every admission, bootstrap, typed write and read uses the existing runtime LOGIN path. */
+describe('ordinary public DATA ingestion through the existing intake owner', () => {
+  let ordinaryConnection: IndependentDatabase;
+  beforeAll(() => { ordinaryConnection = createIndependentDatabase(); });
+  afterAll(async () => ordinaryConnection.close());
+  it('stores one public manager league through canonical bootstrap and typed backend readers [focused slow SQL]', async () => {
+    const diagnostics = createPublicDataDiagnostics('ordinary');
+    let restoreFetch: (() => void) | undefined;
+    try {
+      const database = ordinaryConnection.database;
+      expect((await database.query('SELECT session_user AS role,current_user AS effective_role'))[0])
+        .toEqual({ role: 'league_one_runtime', effective_role: 'league_one_runtime' });
+      const id = randomUUID();
+      const native = '8' + BigInt('0x' + randomUUID().replaceAll('-', '').slice(0, 15));
+      const manager = '9' + BigInt('0x' + randomUUID().replaceAll('-', '').slice(0, 15));
+      const coManager = '7' + BigInt('0x' + randomUUID().replaceAll('-', '').slice(0, 15));
+      const username = 'ordinary_manager_' + manager, season = 2195;
+      const league = { league_id: native, season: String(season), sport: 'nfl', name: 'Ordinary unrelated DATA league',
+        total_rosters: 1, settings: { divisions: 3 }, scoring_settings: {}, roster_positions: ['QB', 'BN'] };
+      const roster = [{ roster_id: 1, owner_id: manager, co_owners: [coManager],
+        players: ['123'], starters: ['123'], reserve: [], taxi: [] }];
+      const base = 'https://api.sleeper.app/v1';
+      const expectedUrls = [base + '/user/' + username, base + '/user/' + manager + '/leagues/nfl/' + season,
+        base + '/league/' + native, base + '/league/' + native, base + '/league/' + native + '/rosters',
+        base + '/league/' + native + '/users'];
+      const requested: string[] = [];
+      const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+        const url = String(input); requested.push(url);
+        if (url === expectedUrls[0]) return new Response(JSON.stringify({ user_id: manager, username, display_name: 'Ordinary manager' }));
+        if (url === expectedUrls[1]) return new Response(JSON.stringify([league]));
+        if (url === expectedUrls[2]) return new Response(JSON.stringify(league));
+        if (url === expectedUrls[4]) return new Response(JSON.stringify(roster));
+        if (url === expectedUrls[5]) return new Response(JSON.stringify([
+          { user_id: manager, display_name: 'Ordinary manager' }, { user_id: coManager, display_name: 'Ordinary co-manager' }]));
+        throw new Error('Unexpected ordinary fixture source scope.');
+      });
+      restoreFetch = () => fetch.mockRestore();
+      const intake = createPublicIntakeStore(database), administration = createLeagueAdministrationStore(database);
+      const dependencies = observePublicDataDependencies(diagnostics, {
+        intake, administration, jobs: createProjectionStore(database), managerEvidenceVersion: 'v2',
+        source: { identity: capturePublicSleeperIdentity, leagues: capturePublicSleeperLeagueList, core: capturePublicSleeperCore },
+      });
+      await intake.submit({ id, username, seasons: [season] });
+      const stages = ['identity', 'leagues', 'bootstrap', 'core', 'users'];
+      let completed = 0;
+      const until = Date.now() + 9 * 60_000;
+      while (completed < stages.length && Date.now() < until) {
+        diagnostics.beginStep(1);
+        const outcome = await runPublicIntakeStep(id, dependencies, AbortSignal.timeout(20_000));
+        diagnostics.checkOutcome(outcome);
+        if (outcome.status === 'busy' || outcome.status === 'backoff') { await delay(1_000); continue; }
+        expect(outcome).toMatchObject({ status: 'progress', resource: stages[completed], providerRequests: stages[completed] === 'core' ? 2 : 1 });
+        completed++;
+      }
+      expect(completed).toBe(stages.length);
+      expect(await intake.next(id)).toBe('complete');
+      expect(requested).toEqual(expectedUrls);
+      const read = await diagnostics.observe('reader.intake', () => readPublicSleeperIntake(database, administration, id, { managerEvidenceVersion: 'v2' }));
+      expect(read).toMatchObject({ status: 'available', request: { requested_username: username, external_manager_id: manager,
+        username, seasons: [season], terminal: true, failure_count: 0 },
+        lists: [{ season }], rejected: [], leagues: [{ externalLeagueId: native, season, collection: 'complete' }] });
+      if (read.status === 'missing') throw new Error('Ordinary stored request missing.');
+      expect(read.leagues).toHaveLength(1); expect(read.lists).toHaveLength(1);
+      const mapping = await administration.readSourceMapping(native);
+      if (!mapping) throw new Error('Ordinary canonical mapping missing.');
+      const [canonical] = await database.query(
+        'SELECT league.id AS league_id,season.id AS league_season_id,season.scoring_profile_id,connection.id AS connection_id,' +
+        'connection.current_mapping_revision_id,enrollment.active,enrollment.evidence FROM public.leagues league ' +
+        'JOIN public.league_seasons season ON season.league_id=league.id ' +
+        'JOIN public.league_source_connections connection ON connection.league_season_id=season.id ' +
+        'JOIN public.league_administration_enrollments enrollment ON enrollment.league_id=league.id ' +
+        'WHERE connection.provider=$1 AND connection.external_league_id=$2 AND season.season=$3', ['sleeper', native, season]);
+      expect(canonical).toMatchObject({ league_season_id: mapping.leagueSeasonId, connection_id: mapping.connectionId,
+        current_mapping_revision_id: mapping.revisionId, scoring_profile_id: null, active: false, evidence: 'public-data-intake-v1' });
+      const uuid = (value: unknown): string => {
+        expect(value).toEqual(expect.stringMatching(/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu));
+        return value as string;
+      };
+      expect(new Set([canonical.league_id, canonical.league_season_id, canonical.connection_id].map(uuid)).size).toBe(3);
+      expect((await administration.listEnrollmentInventory(season)).entries.some(entry => entry.intended.leagueId === canonical.league_id)).toBe(false);
+      const settings = await diagnostics.observe('reader.settings', () => administration.readAcceptedLeagueSettings(mapping));
+      const players = await diagnostics.observe('reader.players', () => administration.readAcceptedCurrentRoster(mapping));
+      const managers = await diagnostics.observe('reader.managers', () => administration.readAcceptedTeamManagers(mapping));
+      const coowners = await diagnostics.observe('reader.manager-evidence', async () => administration.readAcceptedTeamManagerEvidence?.(mapping));
+      if (settings.status !== 'available' || players.status !== 'available' || managers.status !== 'available'
+        || coowners?.status !== 'available') throw new Error('Ordinary typed stored resources missing.');
+      expect(settings.value).toMatchObject({ sourceLeague: { provider: 'sleeper', nativeId: native }, season,
+        scoring: { rules: { state: 'empty', value: {} } }, nativeSettings: { fields: { state: 'known', value: league.settings } },
+        slots: { state: 'known', value: [{ nativeCode: 'QB', count: 1 }, { nativeCode: 'BN', count: 1 }] } });
+      expect(players.teams).toHaveLength(1); expect(managers.teams).toHaveLength(1); expect(coowners.teams).toHaveLength(1);
+      expect(players.teams[0]).toMatchObject({ externalRosterId: '1', players: [{ sourceEntity: { provider: 'sleeper', nativeId: '123' } }] });
+      expect(managers.teams[0]).toMatchObject({ sourceTeam: { nativeId: '1' },
+        primaryOwner: { state: 'owned', manager: { sourceManager: { nativeId: manager } } },
+        coManagers: { state: 'known', completeness: 'complete', managers: [{ sourceManager: { nativeId: coManager } }] } });
+      expect(managers.teams[0].coManagers.sourceRefs).toEqual([managers.receipt.id]);
+      expect(coowners.teams[0].coManagers.sourceRefs).toEqual([coowners.receipt.id]);
+      expect(coowners.evidenceCompleteness).toBe('complete');
+      expect(coowners.teams[0]).toMatchObject({ sourceTeam: managers.teams[0].sourceTeam, primaryOwner: managers.teams[0].primaryOwner,
+        coManagers: { state: 'known', completeness: 'complete', managers: managers.teams[0].coManagers.managers } });
+      const teamId = uuid(players.teams[0].seasonTeamId);
+      expect([managers.teams[0].seasonTeamId, coowners.teams[0].seasonTeamId]).toEqual([teamId, teamId]);
+      const primary = managers.teams[0].primaryOwner, co = managers.teams[0].coManagers;
+      if (primary.state !== 'owned' || co.state !== 'known') throw new Error('Ordinary manager relationships missing.');
+      expect(co.managers).toHaveLength(1);
+      expect(new Set([uuid(primary.manager.providerManagerId), uuid(co.managers[0].providerManagerId)]).size).toBe(2);
+      const [candidate] = await database.query('SELECT * FROM public.public_data_league_candidates WHERE intake_id=$1', [id]);
+      expect(candidate).toMatchObject({ stage: 'complete', season, external_league_id: native, league_season_id: mapping.leagueSeasonId,
+        settings_receipt_id: settings.receipt.id, players_receipt_id: players.receipt.id, managers_receipt_id: managers.receipt.id,
+        league_observation_id: settings.receipt.legacyObservationId, roster_observation_id: players.receipt.legacyObservationId });
+      const receipts = [settings.receipt, players.receipt, managers.receipt, coowners.receipt];
+      expect(new Set(receipts.map(receipt => uuid(receipt.id))).size).toBe(4);
+      // v2 is latest-for-mapping evidence, not a fourth receipt stored on the candidate.
+      // Its retained attempt must independently name this exact admitted core dispatch.
+      const lineage = await database.query('SELECT receipt.id,receipt.provenance,attempt.source_mapping,' +
+        'dispatch.intake_id,dispatch.resource,(receipt.provenance->>$2)::timestamptz>=dispatch.admitted_at AS fresh_dispatch ' +
+        'FROM public.league_roster_capture_receipts receipt ' +
+        'JOIN public.league_roster_resource_attempts attempt ON attempt.id=receipt.attempt_id ' +
+        'JOIN public.public_data_dispatches dispatch ON dispatch.worker_id=attempt.write_fence->>$3 ' +
+        'AND dispatch.generation=(attempt.write_fence->>$4)::integer WHERE receipt.id=ANY($1::uuid[])',
+      [receipts.map(receipt => receipt.id), 'requestStartedAt', 'workerId', 'generation']);
+      expect(lineage).toHaveLength(4);
+      for (const receipt of receipts) expect(lineage.find(row => row.id === receipt.id)).toMatchObject({
+        intake_id: id, resource: 'core', source_mapping: mapping, provenance: receipt.provenance, fresh_dispatch: true });
+      const storedResources = read.leagues[0].resources;
+      expect(storedResources).toMatchObject({
+        settings: { status: 'available', receipt: settings.receipt }, heldRoster: { status: 'available', receipt: players.receipt },
+        teamManagers: { status: 'available', receipt: managers.receipt },
+        teamManagerEvidence: { status: 'available', receipt: coowners.receipt, captureBinding: 'latest-for-current-source-mapping' },
+        directory: { status: 'available', observationId: candidate.users_observation_id,
+          acquisition: { id: candidate.users_capture_id, legacyObservationId: candidate.users_observation_id, sourceMapping: mapping } },
+      });
+      const [directory] = await database.query('SELECT capture.id,capture.legacy_observation_id,capture.source_mapping,' +
+        'capture.request_started_at::text,capture.request_completed_at::text,capture.source_observed_at::text ' +
+        'FROM public.public_data_directory_captures capture WHERE capture.id=$1 AND capture.intake_id=$2', [candidate.users_capture_id, id]);
+      expect(directory).toMatchObject({ id: candidate.users_capture_id, legacy_observation_id: candidate.users_observation_id, source_mapping: mapping });
+      expect(Date.parse(String(directory.request_started_at))).toBeLessThanOrEqual(Date.parse(String(directory.request_completed_at)));
+      expect(directory.source_observed_at).toBe(directory.request_completed_at);
+      expect((await database.query('SELECT scoring_profile_id FROM public.league_seasons WHERE id=$1', [mapping.leagueSeasonId]))[0].scoring_profile_id).toBeNull();
+      expect(await database.query('SELECT resource FROM public.public_data_dispatches WHERE intake_id=$1 ORDER BY admitted_at', [id]))
+        .toEqual(stages.map(resource => ({ resource })));
+    } catch (error) { throw diagnostics.failure('case', error); }
+    finally { restoreFetch?.(); await diagnostics.save(); }
+  }, 10 * 60_000);
+});
 
 /** AUTHORED, NOT EXECUTED. Real restricted LOGIN, coordinator, parsers,
  * normalizer and PostgreSQL writer/readers; only HTTP responses are fixtures.
@@ -864,6 +1012,11 @@ describe('bounded public DATA refresh cycles through the existing intake owner',
   }
 
   it('refreshes two typed core cycles with real admission spacing, a correction and lost-checkpoint replay [focused slow SQL]', async () => {
+    const diagnostics = createPublicDataDiagnostics('refresh');
+    const admissionAckFault = diagnostics.expectedFault('admission-ack-loss');
+    const coreCheckpointFault = diagnostics.expectedFault('core-checkpoint-loss');
+    const pairedCleanupFault = diagnostics.expectedFault('paired-cleanup-loss');
+    try {
     const database = connection.database;
     expect((await database.query('SELECT session_user AS role,current_user AS effective_role'))[0])
       .toEqual({ role: 'league_one_runtime', effective_role: 'league_one_runtime' });
@@ -933,7 +1086,9 @@ describe('bounded public DATA refresh cycles through the existing intake owner',
         expect((await reader.database.query('SELECT session_user AS role'))[0].role).toBe('league_one_runtime');
         // Warm rowtype/function binding outside the lock; neither call can mutate.
         await createPublicIntakeStore(reader.database).next(args[0].requestId);
-        await expect(reader.database.query("SELECT public.checkpoint_public_data_intake('{}'::jsonb,'{}'::jsonb,'{}'::jsonb)")).rejects.toThrow('wrong public intake owner');
+        await diagnostics.observe('case.wrong-owner-negative', async () => {
+          await expect(reader.database.query("SELECT public.checkpoint_public_data_intake('{}'::jsonb,'{}'::jsonb,'{}'::jsonb)")).rejects.toThrow('wrong public intake owner');
+        });
         await reader.database.query("SET statement_timeout='5s'");
         await blocker.database.query('BEGIN'); open = true;
         await blocker.database.query('LOCK TABLE public.public_data_exact_period_tasks,public.public_data_exact_period_checkpoints IN ACCESS EXCLUSIVE MODE');
@@ -986,7 +1141,8 @@ describe('bounded public DATA refresh cycles through the existing intake owner',
         if (restoreApproval) { await reconfigure({ paused: false }); restoreApproval = false; }
         selectedThisStep = undefined; activeResource = undefined; recoveryAttemptedThisStep = false;
         const acquisitionCount = acquisitions.length;
-        const outcome = await runPublicDataRefreshStep({
+        diagnostics.beginStep(cycleNumber);
+        const outcome = await runPublicDataRefreshStep(observePublicDataDependencies(diagnostics, {
           refresh: { ...refresh, select: async fence => {
             const selected = await refresh.select(fence);
             try {
@@ -1001,6 +1157,7 @@ describe('bounded public DATA refresh cycles through the existing intake owner',
             } catch (error) { callbackError = error; throw error; }
             return selected;
           } }, administration, jobs, managerEvidenceVersion: 'v2',
+          source: { identity: capturePublicSleeperIdentity, leagues: capturePublicSleeperLeagueList, core: capturePublicSleeperCore },
           intake: { ...intake,
             recover: async (requestId, fence) => {
               if (!unfinished || recoveryProved) return intake.recover(requestId, fence);
@@ -1027,7 +1184,7 @@ describe('bounded public DATA refresh cycles through the existing intake owner',
               if (work.requestId !== selectedThisStep) { callbackError = new Error('Admitted work differs from selected request.'); throw callbackError; }
               const admitted = await intake.admit(work, fence);
               if (admitted) activeResource = work.kind;
-              if (admitted && !lostAdmissionAck) { lostAdmissionAck = true; throw new Error('synthetic admission acknowledgement lost after commit'); }
+              if (admitted && !lostAdmissionAck) { lostAdmissionAck = true; throw admissionAckFault; }
               if (admitted && !pausedDuringCapture) { await reconfigure({ paused: true }); pausedDuringCapture = true; restoreApproval = true; }
               return admitted;
             },
@@ -1036,7 +1193,7 @@ describe('bounded public DATA refresh cycles through the existing intake owner',
                 lostCheckpoint = true;
                 const [before] = await database.query('SELECT revision,failure_count FROM public.public_data_intakes WHERE id=$1', [work.requestId]);
                 unfinished = { work, fence, before, receipts: [captured.receipts?.settings, captured.receipts?.players, captured.receipts?.managers].map(uuid) };
-                throw new Error('synthetic recurring core checkpoint lost');
+                throw coreCheckpointFault;
               }
               if (work.kind === 'users') await checkpointWithoutPeriodAccess(work, mapping, captured, fence);
               else await intake.completeCore(work, mapping, captured, fence);
@@ -1046,12 +1203,13 @@ describe('bounded public DATA refresh cycles through the existing intake owner',
                 && fence.generation === unfinished.fence.generation && work.requestId === unfinished.work.requestId
                 && work.revision === unfinished.work.revision) {
                 cleanupSuppressed = true; // one exact failed dispatch only; every later cleanup delegates normally
-                throw new Error('synthetic failure-checkpoint database unavailable');
+                throw pairedCleanupFault;
               }
               await intake.fail(work, fence);
             } },
-        }, AbortSignal.timeout(20_000));
-        if (callbackError) throw callbackError;
+        }), AbortSignal.timeout(20_000));
+        diagnostics.checkOutcome(outcome); // Unexpected swallowed boundary failures stop before waiting or reading later state.
+        if (callbackError) throw diagnostics.failure('case.assertion', callbackError);
         expect(['progress','busy','backoff','idle','unavailable','complete','partial']).toContain(outcome.status);
         if (unfinished && !pendingDispatchProved) {
           expect(cleanupSuppressed).toBe(true);
@@ -1079,7 +1237,7 @@ describe('bounded public DATA refresh cycles through the existing intake owner',
           const requestId = uuid(cycle.intake_id);
           if (!cycle.terminal || seenRequests.includes(requestId) || priorTerminal.has(requestId)) continue;
           expect(selectedRequests.has(requestId)).toBe(true);
-          const composed = await readPublicDataRefresh(database, administration, targetId, { managerEvidenceVersion: 'v2' });
+          const composed = await diagnostics.observe('reader.refresh', () => readPublicDataRefresh(database, administration, targetId, { managerEvidenceVersion: 'v2' }));
           expect(composed).toMatchObject({ status: 'available', target: { id: targetId, externalManagerId: nativeManager },
             cycle: { requestId, number: Number(cycle.cycle) }, intake: { status: 'available' } });
           if (composed.status !== 'available' || !composed.intake || composed.intake.status === 'missing') throw new Error('Missing composed recurring readback.');
@@ -1155,6 +1313,8 @@ describe('bounded public DATA refresh cycles through the existing intake owner',
         JOIN public.public_data_dispatches dispatch USING(worker_id,generation) WHERE failure.reason='admission-unconfirmed'
           AND failure.target_id=$1`, [targetId])).toHaveLength(0);
     } finally { fetch.mockRestore(); }
+    } catch (error) { throw diagnostics.failure('case', error); }
+    finally { await diagnostics.save(); }
   }, 19 * 60_000);
 
   it('retains two empty-list cycles without relabeling previous typed data or replaying missed cadence slots [focused slow SQL]', async () => {
