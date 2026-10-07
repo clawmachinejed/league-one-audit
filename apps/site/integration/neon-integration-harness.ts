@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Pool, type PoolClient } from '@neondatabase/serverless';
+import { Pool, neon, type PoolClient } from '@neondatabase/serverless';
 import { createIntegrationDatabaseOwnership, INTEGRATION_OWNER_ENV, type IntegrationSession } from './integration-database-ownership';
 import type { DatabaseClient, DatabaseQueryOptions, DatabaseRow, DatabaseStatement,
   DatabaseLockedQueryResult } from '../lib/database';
@@ -552,6 +552,64 @@ async function queryAfterLock<Row extends DatabaseRow>(
     if (savepoint) await client.query(`RELEASE SAVEPOINT ${savepoint}`);
     throw error;
   }
+}
+
+export type ReceiptDiagnosticParameters = readonly [receiptId: string, attemptId: string, scopeId: string,
+  mapping: string, identity: string, ordinal: number, expectedGeneration: number];
+export type ReceiptDiagnosticReader = (parameters: ReceiptDiagnosticParameters, signal: AbortSignal) => Promise<readonly DatabaseRow[]>;
+// Same immutable tables cover all four fixed core resources. PostgreSQL >= retains microsecond precision.
+// This clamped difference is request start minus reservation, not measured clock skew.
+const RECEIPT_QUERY = `WITH bound_receipt AS (
+  SELECT (receipt.provenance->>'requestStartedAt')::timestamptz AS requested_at, attempt.reserved_at
+  FROM public.league_roster_capture_receipts receipt
+  JOIN public.league_roster_resource_attempts attempt ON attempt.id=receipt.attempt_id
+  JOIN public.league_roster_resource_scopes scope ON scope.id=attempt.scope_id
+  WHERE receipt.id=$1::uuid AND attempt.id=$2::uuid AND attempt.scope_id=$3::uuid
+    AND attempt.source_mapping=$4::jsonb AND scope.identity=$5::jsonb
+    AND scope.connection_id=($4::jsonb->>'connectionId')::uuid
+    AND scope.league_season_id=($4::jsonb->>'leagueSeasonId')::uuid
+    AND attempt.ordinal=$6::bigint AND attempt.expected_generation=$7::bigint
+  LIMIT 1
+), difference AS (
+  SELECT requested_at>=reserved_at AS request_started_after_reservation,
+    extract(epoch FROM (requested_at-reserved_at))*1000 AS milliseconds FROM bound_receipt
+)
+SELECT request_started_after_reservation,
+  CASE WHEN milliseconds IS NULL THEN NULL ELSE greatest(-60000,least(60000,milliseconds))::double precision END AS request_start_minus_reservation_ms,
+  abs(milliseconds)>60000 AS request_start_minus_reservation_clamped FROM difference`;
+/** Captured only by the two selected cases after guarded setup and their runtime-role check.
+ * No network until failed-case save; no URL or statement override, owned pool or WebSocket.
+ * Local abort bounds caller wait. The server timeout bounds an executing SELECT, not service
+ * queue time or remote cancellation. The existing supervisor still owns final cleanup. */
+export function createReceiptDiagnosticReader(): ReceiptDiagnosticReader {
+  const env = integrationEnvironment();
+  const runtime = parseDatabaseUrl(env.runtimeDatabaseUrl, 'Diagnostic runtime URL');
+  const owner = parseDatabaseUrl(env.ownerDatabaseUrl, 'Diagnostic owner URL');
+  const expectedDatabase = env.expectedDatabase.toLowerCase(), branchName = env.expectedBranchName.toLowerCase();
+  if (runtime.user !== 'league_one_runtime' || owner.user === runtime.user || runtime.target !== owner.target
+    || runtime.database !== expectedDatabase || !SAFE_NAME_PATTERN.test(expectedDatabase) || !SAFE_NAME_PATTERN.test(branchName)
+    || FORBIDDEN_NAMES.has(expectedDatabase) || FORBIDDEN_NAMES.has(branchName)) {
+    throw new Error('Diagnostic read requires the guarded isolated runtime identity.');
+  }
+  assertNotDenied(env, [expectedDatabase, env.expectedBranchId, branchName, runtime.endpoint, runtime.host, runtime.target]);
+  if (productionUrlIdentities().some(production => production.target === runtime.target)) {
+    throw new Error('Diagnostic runtime target matches a configured production identity.');
+  }
+  return async (parameters, signal) => {
+    signal.throwIfAborted();
+    const sql = neon(env.runtimeDatabaseUrl);
+    // Both lazy query objects are submitted in ONE read-only HTTP transaction.
+    const results = await sql.transaction([
+      sql.query("SELECT pg_catalog.set_config('statement_timeout','1000',true) AS diagnostic_statement_timeout"),
+      sql.query(RECEIPT_QUERY, [...parameters]),
+    ], { readOnly: true, fetchOptions: { signal } });
+    signal.throwIfAborted();
+    if (!Array.isArray(results) || results.length !== 2 || !Array.isArray(results[0]) || results[0].length !== 1
+      || results[0][0]?.diagnostic_statement_timeout !== '1000' || !Array.isArray(results[1]) || results[1].length > 1) {
+      throw new Error('Invalid bounded diagnostic transaction result.');
+    }
+    return results[1];
+  };
 }
 
 export function createIndependentDatabase(

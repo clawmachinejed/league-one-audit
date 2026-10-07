@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { createIndependentDatabase, createPinnedIntegrationDatabase, ownerQuery, type IndependentDatabase } from './neon-integration-harness';
+import { createIndependentDatabase, createPinnedIntegrationDatabase, createReceiptDiagnosticReader, ownerQuery, type IndependentDatabase } from './neon-integration-harness';
 import { createProjectionStore } from '../lib/projection-store';
 import { createPublicIntakeStore, createPublicDataRefreshStore, createLeagueAdministrationStore } from '../lib/league-administration/store';
 import { runPublicIntakeStep, runPublicDataRefreshStep, type PublicIntakeDependencies } from '../lib/league-administration/public-intake';
@@ -29,6 +29,7 @@ describe('ordinary public DATA ingestion through the existing intake owner', () 
       const database = ordinaryConnection.database;
       expect((await database.query('SELECT session_user AS role,current_user AS effective_role'))[0])
         .toEqual({ role: 'league_one_runtime', effective_role: 'league_one_runtime' });
+      const receiptReader = createReceiptDiagnosticReader();
       const id = randomUUID();
       const native = '8' + BigInt('0x' + randomUUID().replaceAll('-', '').slice(0, 15));
       const manager = '9' + BigInt('0x' + randomUUID().replaceAll('-', '').slice(0, 15));
@@ -58,7 +59,7 @@ describe('ordinary public DATA ingestion through the existing intake owner', () 
       const dependencies = observePublicDataDependencies(diagnostics, {
         intake, administration, jobs: createProjectionStore(database), managerEvidenceVersion: 'v2',
         source: { identity: capturePublicSleeperIdentity, leagues: capturePublicSleeperLeagueList, core: capturePublicSleeperCore },
-      });
+      }, receiptReader);
       await intake.submit({ id, username, seasons: [season] });
       const stages = ['identity', 'leagues', 'bootstrap', 'core', 'users'];
       let completed = 0;
@@ -1020,6 +1021,7 @@ describe('bounded public DATA refresh cycles through the existing intake owner',
     const database = connection.database;
     expect((await database.query('SELECT session_user AS role,current_user AS effective_role'))[0])
       .toEqual({ role: 'league_one_runtime', effective_role: 'league_one_runtime' });
+    const receiptReader = createReceiptDiagnosticReader();
     const administration = createLeagueAdministrationStore(database);
     const intake = createPublicIntakeStore(database);
     const jobs = createProjectionStore(database);
@@ -1207,7 +1209,7 @@ describe('bounded public DATA refresh cycles through the existing intake owner',
               }
               await intake.fail(work, fence);
             } },
-        }), AbortSignal.timeout(20_000));
+        }, receiptReader), AbortSignal.timeout(20_000));
         diagnostics.checkOutcome(outcome); // Unexpected swallowed boundary failures stop before waiting or reading later state.
         if (callbackError) throw diagnostics.failure('case.assertion', callbackError);
         expect(['progress','busy','backoff','idle','unavailable','complete','partial']).toContain(outcome.status);

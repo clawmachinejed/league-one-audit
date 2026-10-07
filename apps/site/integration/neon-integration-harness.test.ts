@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mocked = vi.hoisted(() => ({ pool: vi.fn(), query: vi.fn(), end: vi.fn(),
+const mocked = vi.hoisted(() => ({ neon: vi.fn(), httpQuery: vi.fn(), transaction: vi.fn(), pool: vi.fn(), query: vi.fn(), end: vi.fn(),
   connect: vi.fn(), sessionQuery: vi.fn(), release: vi.fn(), readdir: vi.fn(), readFile: vi.fn(),
   acquireOwnership: vi.fn(), releaseOwnership: vi.fn() }));
-vi.mock('@neondatabase/serverless', () => ({ Pool: mocked.pool }));
+vi.mock('@neondatabase/serverless', () => ({ Pool: mocked.pool, neon: mocked.neon }));
 vi.mock('node:fs/promises', () => ({ readdir: mocked.readdir, readFile: mocked.readFile }));
 vi.mock('./integration-database-ownership', () => ({
   INTEGRATION_OWNER_ENV: 'PROJECTION_INTEGRATION_OWNER_PROOF',
@@ -15,12 +15,14 @@ import {
   assertSafeIntegrationDatabase,
   cleanIntegrationDatabase,
   createIndependentDatabase,
+  createReceiptDiagnosticReader,
   createPinnedIntegrationDatabase,
   integrationEnvironment,
   prepareIntegrationDatabase,
   withAccountActor,
   withAuthRole,
   type IntegrationEnvironment,
+  type ReceiptDiagnosticParameters,
 } from './neon-integration-harness';
 
 // Fictional targets only. This suite must never instantiate a real database client.
@@ -97,7 +99,7 @@ beforeEach(() => {
   }] }));
 });
 
-afterEach(() => vi.unstubAllEnvs());
+afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 function mockAccountProvisioning(options: { ownerRole?: string; canSetRole?: boolean; includeAuth?: boolean } = {}) {
   mocked.readdir.mockResolvedValue(['001_fixture.sql', '020_account_foundation.sql',
@@ -831,4 +833,96 @@ describe('existing isolated integration harness safety', () => {
     expect(integrationEnvironment()).toEqual(fixture);
     expect(mocked.pool).not.toHaveBeenCalled();
   });
+});
+
+const receiptParameters: ReceiptDiagnosticParameters = ['11111111-1111-4111-8111-111111111111',
+  '22222222-2222-4222-8222-222222222222', '33333333-3333-4333-8333-333333333333', '{}', '{}', 1, 0];
+const receiptRow = { request_started_after_reservation: false, request_start_minus_reservation_ms: -0.001,
+  request_start_minus_reservation_clamped: false };
+function mockedReceiptHttp() {
+  mocked.httpQuery.mockImplementation((query, params) => ({ query, params }));
+  mocked.transaction.mockResolvedValue([[{ diagnostic_statement_timeout: '1000' }], [receiptRow]]);
+  mocked.neon.mockReturnValue({ query: mocked.httpQuery, transaction: mocked.transaction });
+}
+it('lazily binds the fixed receipt HTTP read to one guarded runtime target and a read-only transaction', async () => {
+  mockedReceiptHttp(); const reader = createReceiptDiagnosticReader();
+  expect(mocked.neon).not.toHaveBeenCalled();
+  vi.stubEnv('PROJECTION_INTEGRATION_RUNTIME_DATABASE_URL', ownerUrl);
+  const signal = new AbortController().signal;
+  expect(await reader(receiptParameters, signal)).toEqual([receiptRow]);
+  expect(mocked.neon).toHaveBeenCalledExactlyOnceWith(runtimeUrl);
+  expect(mocked.pool).not.toHaveBeenCalled();
+  expect(mocked.httpQuery).toHaveBeenCalledTimes(2);
+  expect(mocked.httpQuery.mock.calls[0]).toEqual(["SELECT pg_catalog.set_config('statement_timeout','1000',true) AS diagnostic_statement_timeout"]);
+  const [query, parameters] = mocked.httpQuery.mock.calls[1];
+  expect(parameters).toEqual(receiptParameters);
+  expect(query).toContain('receipt.id=$1::uuid AND attempt.id=$2::uuid AND attempt.scope_id=$3::uuid');
+  expect(query).toContain('attempt.source_mapping=$4::jsonb AND scope.identity=$5::jsonb');
+  expect(query).toContain('LIMIT 1'); expect(query).toContain('requested_at>=reserved_at');
+  expect(query).toContain('extract(epoch FROM (requested_at-reserved_at))*1000');
+  expect(query).toContain('greatest(-60000,least(60000,milliseconds))::double precision');
+  expect(query).not.toMatch(/(?:UPDATE|INSERT|DELETE|FOR UPDATE|clock_timestamp)/u);
+  expect(mocked.transaction).toHaveBeenCalledWith(mocked.httpQuery.mock.results.map(result => result.value),
+    { readOnly: true, fetchOptions: { signal } });
+});
+it('refuses wrong role, wrong target, unsafe names, TLS and denylisted diagnostic identities before HTTP', () => {
+  mockedReceiptHttp();
+  for (const url of [ownerUrl, runtimeUrl.replace('/projection_test?', '/another_test?'), runtimeUrl.replace('sslmode=require', 'sslmode=disable')]) {
+    vi.stubEnv('PROJECTION_INTEGRATION_RUNTIME_DATABASE_URL', url);
+    expect(() => createReceiptDiagnosticReader()).toThrow();
+  }
+  vi.stubEnv('PROJECTION_INTEGRATION_RUNTIME_DATABASE_URL', runtimeUrl);
+  vi.stubEnv('PROJECTION_INTEGRATION_PRODUCTION_DENYLIST', 'projection_test');
+  expect(() => createReceiptDiagnosticReader()).toThrow();
+  configureEnvironment(); vi.stubEnv('PRODUCTION_DATABASE_URL', runtimeUrl);
+  expect(() => createReceiptDiagnosticReader()).toThrow();
+  expect(mocked.neon).not.toHaveBeenCalled(); expect(mocked.pool).not.toHaveBeenCalled();
+});
+it('performs no HTTP for an already aborted read and rejects malformed or oversized batch results', async () => {
+  mockedReceiptHttp(); const reader = createReceiptDiagnosticReader();
+  await expect(reader(receiptParameters, AbortSignal.abort())).rejects.toThrow();
+  expect(mocked.neon).not.toHaveBeenCalled();
+  for (const results of [[], [[]], [[], []], [[{ diagnostic_statement_timeout: 'wrong' }], []],
+    [[{ diagnostic_statement_timeout: '1000' }], [receiptRow, receiptRow]], [[{ diagnostic_statement_timeout: '1000' }], {}]]) {
+    mocked.transaction.mockResolvedValueOnce(results);
+    await expect(reader(receiptParameters, new AbortController().signal)).rejects.toThrow('Invalid bounded diagnostic');
+  }
+});
+it('uses installed Neon HTTP driver read-only headers, bound parameters and shared signal with no real transport', async () => {
+  const actual = await vi.importActual<typeof import('@neondatabase/serverless')>('@neondatabase/serverless');
+  mocked.neon.mockImplementation(actual.neon);
+  const fetch = vi.fn(async () => new Response(JSON.stringify({ results: [
+    { fields: [{ name: 'diagnostic_statement_timeout', dataTypeID: 25 }], rows: [['1000']], command: 'SELECT', rowCount: 1 },
+    { fields: [{ name: 'request_started_after_reservation', dataTypeID: 16 },
+      { name: 'request_start_minus_reservation_ms', dataTypeID: 701 },
+      { name: 'request_start_minus_reservation_clamped', dataTypeID: 16 }], rows: [['f','-0.001','f']], command: 'SELECT', rowCount: 1 },
+  ] })));
+  vi.stubGlobal('fetch', fetch);
+  const signal = new AbortController().signal;
+  expect(await createReceiptDiagnosticReader()(receiptParameters, signal)).toEqual([receiptRow]);
+  expect(fetch).toHaveBeenCalledOnce();
+  const [, request] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+  expect(request.signal).toBe(signal);
+  expect(request.headers).toMatchObject({ 'Neon-Batch-Read-Only': 'true', 'Neon-Connection-String': runtimeUrl });
+  const queries = JSON.parse(request.body as string).queries;
+  expect(queries).toHaveLength(2);
+  expect(queries[0].query).toBe("SELECT pg_catalog.set_config('statement_timeout','1000',true) AS diagnostic_statement_timeout");
+  expect(queries[1].query).toContain('WHERE receipt.id=$1::uuid');
+  expect(queries[1].params).toEqual(receiptParameters.map(String));
+  expect(mocked.pool).not.toHaveBeenCalled();
+});
+it.each(['fetch', 'body'] as const)('consumes late installed-driver %s rejection after shared cancellation without claiming remote cancellation', async stage => {
+  const actual = await vi.importActual<typeof import('@neondatabase/serverless')>('@neondatabase/serverless');
+  mocked.neon.mockImplementation(actual.neon);
+  const pending = Promise.withResolvers<never>(), controller = new AbortController();
+  const fetch = vi.fn(() => stage === 'fetch' ? pending.promise : Promise.resolve({ ok: true, json: () => pending.promise }));
+  vi.stubGlobal('fetch', fetch);
+  const outcome = createReceiptDiagnosticReader()(receiptParameters, controller.signal).then(() => 'complete', () => 'failed');
+  await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+  controller.abort();
+  const [, request] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+  expect(request.signal?.aborted).toBe(true);
+  pending.reject(new Error('fictional late transport failure'));
+  expect(await outcome).toBe('failed');
+  expect(mocked.pool).not.toHaveBeenCalled();
 });

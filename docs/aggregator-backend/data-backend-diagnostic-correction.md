@@ -1,5 +1,7 @@
 # Ordinary ingestion proof and diagnostic correction
 
+Current status: the single approved ordinary database run at e44b24c failed and was fully cleaned up. The later sections preserve the earlier proposal and source-only evidence as history; the approved-run section at the end is current.
+
 This correction follows the resumed user direction: first prove one ordinary journey through the existing backend, then qualify recurrence and recovery. It does not add a second ingestion pipeline or remove requirements. The current [data-only contract](data-backend-scope.md) remains authoritative.
 
 ## Resource and path
@@ -75,3 +77,42 @@ The security checkout is `C:/Users/Robert Finchum/AppData/Local/Temp/league-one-
 - **Pending:** successful ordinary SQL execution, repair of any confirmed underlying failure, repeated correction/recovery and concurrency evidence, bounded live Sleeper-to-database proof, remaining official resource families, performance/freshness measurements and production release qualification. No DATA resource obligation was promoted to fully verified. The historical 108-account ledger remains unchanged and deferred.
 
 The next executable increment is one separately approved `data-core-ingestion-v1` run of the final reviewed SHA. Approval must include a new temporary key scoped only to the dedicated test project, necessary test-only identity and empty/quiescent-parent preflight, exactly one new child, child-only migrations and restricted LOGIN execution, schema cleanup, generated database credential revocation, verified child deletion and separate API-key revocation. Revalidate the documented provider-managed maintenance-object exception; it is not permission to accept application objects or inherited application roles. Record the actual PostgreSQL version. Success requires 25 collected / exactly 1 executed and passed / 24 filtered, exact source/report/cleanup binding and an acknowledged successful terminal receipt with every cleanup condition verified. The earlier run approval was consumed. A failure requires diagnosis and review of any changed SHA, never an automatic retry.
+
+## Approved ordinary run at e44b24c: failed, cleanup verified
+
+The user approved exactly one ordinary run at full SHA `e44b24c00bd0247a1961db7b5c9eca27223995e7`, whose only changes from tested `cdcce4cd53a3a4495cff02f72b983949becc5cbb` were three reviewed Markdown files. It ran on October 7, 2026 UTC (October 6 local), profile `data-core-ingestion-v1`, run `66ef663b-d0db-4810-9421-07ce2ec10721`. The supervisor completed in 214,403 ms: **25 collected, 1 executed and failed, 0 passed, 24 filtered**. No automatic retry or second run occurred. That one-run authorization is consumed.
+
+The retained core boundary shows league settings **preserved**, held-player roster **accepted**, primary-manager v1 **accepted**, and manager-evidence v2 **preserved**. The coordinator correctly refused the incomplete core. Failure preceded the completed-core checkpoint, optional directory and final stored-reader assertions. Accepted sub-writes do not establish the composed journey. The bounded diagnostic buffer retained the final 128 of 578 events; 450 earlier events were dropped. The supervisor's `testEvidenceFailure=missing-or-invalid` is the pass validator rejecting a failed report, not evidence that the report or cleanup file was absent.
+
+The terminal receipt acknowledges child closure, schema cleanup, restricted database credential revocation and exact child deletion, with no unresolved resources and no production writes. A separate provider check returned 404 for `br-odd-brook-b79kll13` and found only the intended parent; the temporary project-only key `codex-data-e44b24c-one-run-20261007` was revoked and independently returned 401. Both local control-file copies were removed. Cleanup was verified; one-hour expiry was not used as proof.
+
+Fresh authorized read-only preflight confirmed intended project `steep-glitter-44680287`, parent `br-plain-bread-b7sgfdl8`, fixed 0.25 CU, no application objects in `integration_test` or `neondb`, and the exact preserved 90 provider-owned maintenance-object exception in `postgres`. Roles/memberships matched the retained inventory; no competing application owner was observed. Parent PostgreSQL version was **18.6 (4e955f5)**. A separate bounded, read-only child-version probe failed with a generic diagnostic and proves no child patch version; it is not the selected-case failure. No version is inferred from the parent. The authorized $1 budget was not a provider-enforced billing cap; actual invoice cost was not measured.
+
+| Retained evidence | SHA-256 |
+| --- | --- |
+| `test-results/integration/run-1791335405978-d31539a5-c972-44ac-8185-2cfb653e1097-0012.json` | `385f71ee3d58e426d2fa08e1c3eb60a15724a2dbb231f02bfdf16c64dee0cc17` |
+| `test-results/integration/artifacts/run-tty8ch/qualification-report.json` | `b033a393454f9e4b8b3582107fe3fc3a65630ec7c2aae6a059819b641bf8b219` |
+| `test-results/integration/artifacts/run-tty8ch/qualification-cleanup.json` | `b88a79131d155800b36c5a0aab83c572c98873bab35b9e15f26db3d69eff3060` |
+| `test-results/integration/artifacts/run-tty8ch/public-data-ingestion-diagnostics.json` | `16a7372e8edd693278e72795ba07978e0b80318e6de1b4f466e60303642fe063` |
+| `test-results/data-backend/approved-sql-e44b24c-20261007.log` | `a56e5d1bc1c5016db703efadb8bbdfe434064874a3356ef1822f7d21d835d4b2` |
+| `test-results/data-backend/run-child-absence-e44b24c.json` | `a446b3408cb2c478619049e49525a2519618e83f9bffd099a3d11b0221f6aa50` |
+| `test-results/data-backend/run-key-revoked-e44b24c.json` | `ec41675399774990d25b183d6ef8b85963bf602df65c4f16eb7c028fb4efccb5` |
+| `test-results/data-backend/independent-ordinary-run-e44b24c-review.json` | `632cd9ae6a430a711f84450f18af6c44b437c796c566f6b73697bd193ac8ace4` |
+
+An independent Astra Ultra reviewer recomputed context, selected-module, profile and report digests, checked the complete case inventory and all 12 supervisor receipts, and accepted these as genuine **failed** SQL evidence with verified cleanup. No DATA resource was promoted to fully verified.
+
+## Confirmed reason-loss defect; underlying rejection still unproved
+
+The diagnostic allowlist used hyphenated placeholders while the SQL writers return fixed underscore-separated reasons. It replaced the actual preservation reasons with `other`; successful null reasons also became `other`. An executed offline red test reproduced this on the unchanged helper. This is a confirmed defect in test diagnostics, not proof of the cause of settings preservation.
+
+An independent offline reproduction passed the retained fixture through the real Sleeper captures, normalizer and coordinator with networking blocked and **modeled SQL acceptance predicates**. Advancing the modeled database reservation clock by one second reproduced preserved settings/v2 evidence, accepted players/v1 evidence and no core checkpoint; the opposite control accepted all four resources and checkpointed. This identifies a plausible ordering cause, not measured database clock skew. No actual PostgreSQL was executed by that reproduction. The executed-via-stdin script and after-execution tool transcript are preserved under `test-results/data-backend/ordinary-ingestion-diagnosis-e44b24c/`; the metadata explicitly marks unavailable execution timestamp/exit code as unknown.
+
+The correction remains integration-only: retain the exact seven fixed SQL reason values, omit null reasons, and collect only bounded, receipt-bound comparison evidence after the original operation finishes. Production acceptance predicates, provenance requirements, migrations and original case assertions remain unchanged. Source tests and independent review of the changed full SHA are required before another concrete qualification request. No retry, additional credentials, SQL execution, source publication, merge, deployment or activation is authorized by this correction.
+
+## Local reason/receipt correction evidence before frozen review
+
+The six-file executable/test correction passed **192 tests in five files, zero failures/skips**, complete generated types/TypeScript, owned-file lint, the required scope check and diff check. The failed-before reason-loss reproduction and initial type-check failure remain preserved; the final successful checks are separately recorded. Actual logs, exit codes, file hashes and the owned diff are in `test-results/local-diagnostic-correction/frozen-evidence.json`. The owned diff SHA-256 is `9b9df8ecaf4dbb0dc26eb1ca2dfd7266ebaff0ec99f5d2bca20163728915ab7f`; the selected module's LF digest is `b035809394f301e9429a2592eb284a84478af503c6c0d487f9ec44397696ebf4`.
+
+The correction reuses the installed Neon HTTP read-only transaction with a fixed `pg_catalog.set_config` statement and fixed receipt SELECT. The runtime target is captured after existing guarded setup and the case's actual role assertion; it cannot be overridden at diagnostic dispatch. Installed-driver tests use fake fetch, not a real connection. No new pool, WebSocket lifecycle, provider call, schema, migration, grant, acceptance rule or assertion relaxation was added. The five-second limit bounds the complete diagnostic read drain, including response parsing; the one-second server setting bounds the receipt SELECT when executing, not service queueing or proven remote cancellation. Secondary diagnostic errors preserve the original failed outcome and existing cleanup path.
+
+Independent architecture/security reviewers confirmed this exact file/purpose boundary before implementation. Frozen full-SHA review and complete non-SQL verification follow; these targeted results alone are not source acceptance or PostgreSQL qualification. No DATA resource obligation or historical account obligation has been promoted.
