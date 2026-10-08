@@ -1,7 +1,7 @@
 import type { AdministrationSourceMapping } from './source-mapping';
 import type { AdministrationWriteFence } from './store-contracts';
-import type { CapturedAdministrationDocument } from './contracts';
-import type { PublicCaptureWitness } from './public-capture-witness';
+import type { CapturedAdministrationDocument, PublicCaptureWitness, PublicIntakeWork } from './contracts';
+export type { PublicIntakeWork } from './contracts';
 
 export const PUBLIC_INTAKE_JOB = 'league-administration-public-intake';
 export const PUBLIC_INTAKE_VERSION = 'sleeper-public-intake-v1';
@@ -12,12 +12,6 @@ export type PublicIdentity = Readonly<{ userId: string; username: string; displa
 export type PublicLeague = Readonly<{ id: string; name: string; season: string }>;
 export type PublicCapture<T> = Readonly<{ payload: unknown; requestStartedAt: string; requestCompletedAt: string; acquisition?: PublicCaptureWitness }>
   & (Readonly<{ value: T; diagnostic?: never }> | Readonly<{ value: null; diagnostic: 'invalid-source' }>);
-export type PublicIntakeWork = Readonly<{ requestId: string; revision: number }> & (
-  | Readonly<{ kind: 'identity'; username: string }>
-  | Readonly<{ kind: 'leagues'; userId: string; season: number }>
-  | Readonly<{ kind: 'bootstrap' | 'core' | 'users'; externalLeagueId: string; season: number }>
-  | Readonly<{ kind: 'exact-matchups'; externalLeagueId: string; season: number; nativeWeek: number }>
-);
 export type PublicIntakeDisposition = 'complete' | 'partial' | 'unavailable' | 'backoff';
 export type PublicIntakeOutcome = Readonly<{ status: 'progress' | 'busy' | PublicIntakeDisposition;
   resource?: PublicIntakeWork['kind']; providerRequests: number }>;

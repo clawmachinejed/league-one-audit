@@ -4,7 +4,7 @@ import { runPublicIntakeStep } from '../public-intake';
 import { createPublicIntakeStore } from './public-intake';
 import { createLeagueAdministrationStore } from '../store';
 import { LEAGUE_SETTINGS_POLICY, LEAGUE_SETTINGS_FIELDS, leagueSettingsScope } from '../../aggregator/league-settings';
-import type { NormalizedAdministrationObservation } from '../contracts';
+import type { AdministrationWriteFence, NormalizedAdministrationObservation, PublicCaptureWitness } from '../contracts';
 import type { PublicIntakeWork } from '../public-intake-contracts';
 import type { DatabaseClient, DatabaseRow } from '../../database';
 import { normalizeAdministrationObservation } from '../normalize';
@@ -173,15 +173,36 @@ describe('official-only bootstrap and typed settings through the existing worker
     const events: string[] = [];
     const receipt = () => ({ status: 'accepted', receiptId: randomUUID(), acceptedGeneration: 1 });
     let settingsRow: DatabaseRow | undefined;
+    let admittedFence: AdministrationWriteFence | undefined;
+    let dispatchNonce = '';
+    let reserved: Record<string, { id: string; nonce: string }> = {};
+    let issuedWitness: PublicCaptureWitness | undefined;
     const query = vi.fn(async (sql: string, parameters: readonly unknown[] = []): Promise<readonly DatabaseRow[]> => {
       if (sql.includes('public-data-intake:next')) return [{ result: work }];
-      if (sql.includes('public-data-intake:admit-dispatch')) return [{ admitted: true }];
+      if (sql.includes('public-data-intake:admit-dispatch')) {
+        expect(JSON.parse(String(parameters[0]))).toEqual(work);
+        admittedFence = JSON.parse(String(parameters[1])) as AdministrationWriteFence;
+        dispatchNonce = randomUUID(); reserved = {}; issuedWitness = undefined;
+        return [{ admitted: true }];
+      }
+      if (sql.includes('public-data-intake:capture-witness')) {
+        expect(JSON.parse(String(parameters[0]))).toEqual(work);
+        expect(JSON.parse(String(parameters[2]))).toEqual(admittedFence);
+        expect(parameters[1] === null ? null : JSON.parse(String(parameters[1])))
+          .toEqual(work.kind === 'bootstrap' ? null : mapping);
+        expect(Object.keys(reserved).sort()).toEqual(work.kind === 'bootstrap' ? [] : ['managers', 'players', 'settings']);
+        events.push('capture-witness');
+        issuedWitness = { version: 'public-network-capture-v1', work: { ...work }, fence: admittedFence!,
+          dispatchNonce, mapping: work.kind === 'bootstrap' ? null : mapping, attempts: structuredClone(reserved) };
+        return [{ witness: issuedWitness }];
+      }
       if (sql.includes('public-data-intake:recover')) return [];
       if (sql.includes('public-data-intake:resolve-registration')) return registered ? [{
         league_key: mapping.scope.leagueKey, season: 2026, league_id: leagueId, league_season_id: mapping.leagueSeasonId }] : [];
       if (sql.includes('public-data-intake:checkpoint')) {
         const checkpoint = JSON.parse(String(parameters[1])) as Record<string, unknown>; checkpoints.push(checkpoint);
         expect(checkpoint).not.toHaveProperty('failed'); expect(checkpoint).not.toHaveProperty('diagnostic');
+        if (work.kind === 'bootstrap') expect(checkpoint.acquisition).toEqual(issuedWitness);
         work = { requestId, revision: work.revision + 1, kind: 'core', externalLeagueId: native, season: 2026 }; return [];
       }
       if (sql.includes('read-source-mapping')) return [{ connection_id: mapping.connectionId, league_season_id: mapping.leagueSeasonId,
@@ -189,16 +210,22 @@ describe('official-only bootstrap and typed settings through the existing worker
         season: 2026, provider: 'sleeper', external_league_id: native }];
       if (sql.includes('begin-roster-capture')) {
         events.push('reserve-rosters');
+        reserved.players = { id: String(parameters[1]), nonce: randomUUID() };
+        reserved.managers = { id: String(parameters[5]), nonce: randomUUID() };
         return [{ players: { id: parameters[1], scopeId: randomUUID(), ordinal: 1, expectedGeneration: 0 },
           managers: { id: parameters[5], scopeId: randomUUID(), ordinal: 1, expectedGeneration: 0 } }];
       }
       if (sql.includes('begin-league-settings')) {
         events.push('reserve-settings');
+        reserved.settings = { id: String(parameters[1]), nonce: randomUUID() };
         return [{ result: { id: parameters[1], scopeId: randomUUID(), ordinal: 1, expectedGeneration: 0 } }];
       }
       if (sql.includes('record-observation')) {
         const input = JSON.parse(String(parameters[0])) as NormalizedAdministrationObservation & Record<string, unknown>;
         writes.push(input); expect(input.status).toBe('accepted'); expect(input.sourceMapping).toEqual(mapping);
+        expect(issuedWitness).toBeDefined();
+        expect(input.envelope.provenance.acquisition).toEqual(issuedWitness);
+        expect(input.writeFence).toEqual(admittedFence);
         const observationId = randomUUID();
         if (input.envelope.family === 'league') {
           const accepted = receipt(); const contentId = randomUUID();
@@ -240,6 +267,7 @@ describe('official-only bootstrap and typed settings through the existing worker
     const jobs = { acquireJob: vi.fn(async () => ({ kind: 'acquired' as const, attempt: 1,
       leaseUntil: new Date(Date.now() + 25_000).toISOString() })), completeJob: vi.fn(async () => true), failJob: vi.fn(async () => true) };
     const fetcher = vi.fn(async (url: string | URL | Request) => {
+      expect(issuedWitness).toBeDefined();
       const path = String(url); events.push(path.endsWith('/rosters') ? 'fetch-rosters' : 'fetch-league');
       expect(path).toMatch(new RegExp('/league/' + native + '(/rosters)?$'));
       return new Response(JSON.stringify(path.endsWith('/rosters')
@@ -252,10 +280,11 @@ describe('official-only bootstrap and typed settings through the existing worker
         .toMatchObject({ status: 'progress', resource: 'bootstrap', providerRequests: 1 });
       expect(queryAfterLock).toHaveBeenCalledOnce();
       expect(checkpoints[0]).toMatchObject({ leagueId, leagueSeasonId: mapping.leagueSeasonId, payload: originalPayload });
+      expect(events).toEqual(['capture-witness', 'fetch-league']);
       events.length = 0;
       expect(await runPublicIntakeStep(requestId, { intake, administration, jobs }, new AbortController().signal))
         .toMatchObject({ status: 'progress', resource: 'core', providerRequests: 2 });
-      expect(events).toEqual(['reserve-rosters', 'reserve-settings', 'fetch-league', 'fetch-rosters']);
+      expect(events).toEqual(['reserve-rosters', 'reserve-settings', 'capture-witness', 'fetch-league', 'fetch-rosters']);
       const read = await administration.readAcceptedLeagueSettings(mapping);
       expect(read).toMatchObject({ status: 'available', leagueId, leagueSeasonId: mapping.leagueSeasonId,
         value: { nativeSettings: { fields: { state } }, scoring: { rules: { state } }, slots: { state } } });

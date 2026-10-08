@@ -1,20 +1,7 @@
-import type { AdministrationSourceMapping } from './source-mapping';
+import type { AdministrationSourceMapping, AdministrationWriteFence, PublicCaptureWitness, PublicIntakeWork } from './contracts';
 import { isAdministrationSourceMapping } from './source-mapping';
-import type { AdministrationWriteFence } from './store-contracts';
-import type { PublicIntakeWork } from './public-intake-contracts';
 import { compatibleRevision } from '../projections/shared/revision-compatibility';
-
-/** DB-issued causality evidence, separate from the provider document and its clocks.
- * The maintained transport receives this before HTTP; writers never add it later.
- * It attests the trusted collector's ordering, not a malicious SQL writer's HTTP. */
-export type PublicCaptureWitness = Readonly<{
-  version: 'public-network-capture-v1';
-  work: PublicIntakeWork;
-  fence: AdministrationWriteFence;
-  dispatchNonce: string;
-  mapping: AdministrationSourceMapping | null;
-  attempts: Readonly<Record<string, Readonly<{ id: string; nonce: string }>>>;
-}>;
+export type { PublicCaptureWitness } from './contracts';
 const originalCaptures = new WeakMap<object, Readonly<{ witness: string; capture: string }>>();
 function freezeCapture(value: object): void {
   const pending: object[] = [value], seen = new Set<object>();

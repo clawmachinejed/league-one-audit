@@ -1,6 +1,6 @@
 import type { SleeperCalendarEvidence } from './period-mapping';
 import type { CalculationSourceCapture } from './calculation-capture';
-import type { AdministrationEnvelope, AdministrationFamily, AdministrationScope,
+import type { AdministrationEnvelope, AdministrationFamily, AdministrationScope, AdministrationWriteFence,
   NormalizedAdministrationObservation } from './contracts';
 import type { RetainedRosterProjection } from '../aggregator/roster-bridge';
 import type { AdministrationSourceMapping } from './source-mapping';
@@ -53,9 +53,7 @@ export type AdministrationEnrollmentResolution =
 export type AdministrationEnrollmentInventory = Readonly<{ entries: readonly AdministrationEnrollmentResolution[] }>;
 export type AdministrationEnrollmentSelector = Readonly<{ leagueKey: string }>
   | Readonly<{ provider: 'sleeper'; externalLeagueId: string }>;
-export type AdministrationWriteFence = Readonly<{
-  jobKey: string; workerId: string; generation: number; deadlineAt: string;
-}>;
+export type { AdministrationWriteFence } from './contracts';
 export type LeagueAdministrationStore = Readonly<{
   enabled: boolean;
   recordObservation: (input: NormalizedAdministrationObservation, fence?: AdministrationWriteFence,

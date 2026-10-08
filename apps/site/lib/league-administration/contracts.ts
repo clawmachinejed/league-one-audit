@@ -1,5 +1,3 @@
-import type { PublicCaptureWitness } from './public-capture-witness';
-
 /** Source evidence is independent of the internal league/season UUID and app accounts. */
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | readonly JsonValue[] | { readonly [key: string]: JsonValue };
@@ -18,6 +16,35 @@ export type AdministrationScope = Readonly<{
   provider: 'sleeper';
   externalLeagueId: string;
   season: number;
+}>;
+
+/** An enrolled mapping read before acquisition, never reconstructed after fetch. */
+export type AdministrationSourceMapping = Readonly<{
+  connectionId: string;
+  leagueSeasonId: string;
+  revisionId: string;
+  generation: number;
+  scope: AdministrationScope;
+}>;
+export type AdministrationWriteFence = Readonly<{
+  jobKey: string; workerId: string; generation: number; deadlineAt: string;
+}>;
+export type PublicIntakeWork = Readonly<{ requestId: string; revision: number }> & (
+  | Readonly<{ kind: 'identity'; username: string }>
+  | Readonly<{ kind: 'leagues'; userId: string; season: number }>
+  | Readonly<{ kind: 'bootstrap' | 'core' | 'users'; externalLeagueId: string; season: number }>
+  | Readonly<{ kind: 'exact-matchups'; externalLeagueId: string; season: number; nativeWeek: number }>
+);
+/** DB-issued causality evidence, separate from the provider document and its clocks.
+ * The maintained transport receives this before HTTP; writers never add it later.
+ * It attests the trusted collector's ordering, not a malicious SQL writer's HTTP. */
+export type PublicCaptureWitness = Readonly<{
+  version: 'public-network-capture-v1';
+  work: PublicIntakeWork;
+  fence: AdministrationWriteFence;
+  dispatchNonce: string;
+  mapping: AdministrationSourceMapping | null;
+  attempts: Readonly<Record<string, Readonly<{ id: string; nonce: string }>>>;
 }>;
 
 export type AdministrationProvenance = Readonly<{
