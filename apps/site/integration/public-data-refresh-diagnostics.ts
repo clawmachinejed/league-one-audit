@@ -35,10 +35,22 @@ const assertionCheckpoints = ['runtime-role', 'capture-witness', 'step-progress'
   'receipt-identities', 'lineage-count', 'receipt-provenance', 'receipt-witness', 'population-witness',
   'dispatch-order', 'dispatch-witness', 'discovery-count', 'discovery-times', 'stored-resources',
   'directory-lineage', 'directory-times', 'journey-next', 'fixture-requests', 'intake-population',
-  'enrollment-inventory', 'final-profile', 'final-dispatch-order'] as const;
+  'enrollment-inventory', 'final-profile', 'final-dispatch-order', 'live-core'] as const;
 type AssertionCheckpoint = typeof assertionCheckpoints[number];
 // Closed identifiers describe existing matchers; Vitest alone decides whether they pass.
 const comparisons = {
+  'live.writer.input': 'toEqual',
+  'live.identity.distinct-teams': 'toEqual', 'live.identity.reference': 'toEqual', 'live.identity.manager': 'toEqual',
+  'live.json.type': 'toEqual', 'live.json.length': 'toEqual', 'live.json.key': 'toEqual', 'live.json.value': 'toEqual',
+  'live.roles': 'toEqual', 'live.registration': 'toEqual', 'live.mapping': 'toEqual', 'live.metadata': 'toEqual',
+  'live.normalized': 'toEqual', 'live.write': 'toEqual', 'live.availability': 'toEqual', 'live.capture-count': 'toEqual',
+  'live.settings.canonical': 'toEqual', 'live.settings.identity': 'toEqual', 'live.settings.scoring-keys': 'toEqual',
+  'live.settings.scoring-value': 'toEqual', 'live.settings.slots': 'toEqual', 'live.players.roster-ids': 'toEqual',
+  'live.players.ids': 'toEqual', 'live.managers.roster-ids': 'toEqual', 'live.managers.primary': 'toEqual',
+  'live.managers.coowners': 'toEqual', 'live.manager-evidence.canonical': 'toEqual', 'live.directory.ids': 'toEqual', 'live.directory.capture': 'toEqual',
+  'live.receipt.provenance': 'toEqual', 'live.receipt.hash': 'toEqual', 'live.receipt.mapping': 'toEqual',
+  'live.receipt.population': 'toEqual', 'live.payload.unchanged': 'toEqual', 'live.enrollment.inactive': 'toEqual',
+
   'runtime.roles': 'toEqual', 'capture.version': 'toBe', 'step.progress': 'toMatchObject',
   'journey.stage-count': 'toBe', 'journey.next': 'toBe', 'fixture.urls': 'toEqual', 'fixture.capture-count': 'toHaveLength',
   'intake.readback': 'toMatchObject', 'intake.league-count': 'toHaveLength', 'intake.list-count': 'toHaveLength',
@@ -62,8 +74,8 @@ type ComparisonEvidence = { id: ComparisonId; matcher: typeof comparisons[Compar
   actual: SafeValue; expected: SafeValue; truncated: boolean; redacted: boolean };
 // Field names come from the ordinary fixture, typed readers and retained capture contracts.
 // Unknown keys/strings never become output. Aliases are shared across both operands of one comparison.
-const comparisonFields = new Set(('role effective_role status resource providerRequests request requested_username external_manager_id username seasons terminal failure_count lists rejected leagues externalLeagueId season collection league_id league_season_id connection_id current_mapping_revision_id scoring_profile_id active evidence sourceLeague provider nativeId scoring rules state value nativeSettings fields divisions slots nativeCode count externalRosterId players sourceEntity sourceTeam primaryOwner manager sourceManager coManagers completeness managers sourceRefs seasonTeamId providerManagerId stage external_league_id settings_receipt_id players_receipt_id managers_receipt_id league_observation_id roster_observation_id acquisition requestStartedAt requestCompletedAt sourceObservedAt intake_id source_mapping provenance exact_witness server_window current_head version work fence dispatchNonce mapping attempts requestId revision kind userId jobKey workerId generation deadlineAt connectionId leagueSeasonId revisionId scope leagueKey settings managersV2 id nonce receipt heldRoster teamManagers teamManagerEvidence captureBinding directory observationId legacyObservationId sourceMapping legacy_observation_id request_started_at request_completed_at source_observed_at recordedAt observedAt origin family week policy canonicalNormalizerVersion sourceAdapterVersion sport period ordinal scopeId attemptId acceptedGeneration normalizerVersion source sourceUpdatedAt rawContentHash configurationVersionId configurationSemanticHash configurationContentId expectedTeamCount checkedAt resourceKind nativeNamespace').split(' '));
-const comparisonLiterals = new Set(('league_one_runtime public-network-capture-v1 progress complete available missing known unknown empty owned unowned sleeper nfl QB BN identity leagues bootstrap core users settings players managers managers-v1 managers-v2 league rosters network public-data-intake-v1 latest-for-current-source-mapping league-administration-public-intake sleeper-league-settings-v1 sleeper-current-players-v1 sleeper-current-team-managers-v1 sleeper-current-team-manager-evidence-v2 accepted preserved rejected team manager account scoring-entity').split(' '));
+const comparisonFields = new Set(('role effective_role status resource providerRequests request requested_username external_manager_id username seasons terminal failure_count lists rejected leagues externalLeagueId season collection league_id league_season_id connection_id current_mapping_revision_id scoring_profile_id active evidence sourceLeague provider nativeId scoring rules state value nativeSettings fields divisions slots nativeCode count externalRosterId players sourceEntity sourceTeam primaryOwner manager sourceManager coManagers completeness managers sourceRefs seasonTeamId providerManagerId stage external_league_id settings_receipt_id players_receipt_id managers_receipt_id league_observation_id roster_observation_id acquisition requestStartedAt requestCompletedAt sourceObservedAt intake_id source_mapping provenance exact_witness server_window current_head version work fence dispatchNonce mapping attempts requestId revision kind userId jobKey workerId generation deadlineAt connectionId leagueSeasonId revisionId scope leagueKey settings managersV2 id nonce receipt heldRoster teamManagers teamManagerEvidence captureBinding directory observationId legacyObservationId sourceMapping legacy_observation_id request_started_at request_completed_at source_observed_at recordedAt observedAt origin family week policy canonicalNormalizerVersion sourceAdapterVersion sport period ordinal scopeId attemptId acceptedGeneration normalizerVersion source sourceUpdatedAt rawContentHash configurationVersionId configurationSemanticHash configurationContentId expectedTeamCount checkedAt resourceKind nativeNamespace name artwork predecessor lifecycle seasonType visibility sourceAccess native grantsPrivateAccess teamCount dialect format statCatalog competition startPeriod playoffStartPeriod playoffTeamCount playoffFormat playoffRoundFormat playoffSeeding additionalMatch bestBall divisionCount leagueType rosterRules reserveSlotCount taxiSlotCount taxiYears taxiVeterans taxiDeadline reserveOut reserveSuspended reserveDoubtful maxSubstitutions substitutionLockWhenStarterActive substitutionStartTimeEligibility waivers budget type clearDays dailyEnabled dailyHour dailyDays tradeDeadline periods nflWeekMappings interpretation unsupportedScoringRules unknownSlots reasons sourcePath raw ordinal semantics externalManagerId externalManagerIds teams owner coOwners reason ids observationIds contentId contentHash envelope payload schemaVersion dialect completeness path length semanticHash').split(' '));
+const comparisonLiterals = new Set(('league_one_runtime public-network-capture-v1 progress complete available missing known unknown empty owned unowned sleeper nfl QB BN identity leagues bootstrap core users settings players managers managers-v1 managers-v2 league rosters network public-data-intake-v1 latest-for-current-source-mapping league-administration-public-intake sleeper-league-settings-v1 sleeper-current-players-v1 sleeper-current-team-managers-v1 sleeper-current-team-manager-evidence-v2 accepted preserved rejected team manager account scoring-entity absent null invalid partial co_managers_null co_managers_absent co_managers_invalid primary_owner_absent primary_owner_invalid ordered-occurrence public-endpoint flat-weights unverified limited regular in_season DEF RB WR TE FLEX SUPER_FLEX').split(' '));
 function comparisonEvidence(id: ComparisonId, occurrence: number, actual: unknown, expected: unknown): ComparisonEvidence {
   const aliases = new Map<string, number>();
   let truncated = false, redacted = false;
@@ -77,7 +89,7 @@ function comparisonEvidence(id: ComparisonId, occurrence: number, actual: unknow
       if (value === undefined) return { state: 'undefined' };
       if (typeof value === 'number') return Number.isFinite(value) && Math.abs(value) <= 10 ** 13 ? value : hidden('number-out-of-range');
       if (typeof value === 'string') {
-        if (comparisonLiterals.has(value)) return value;
+        if (comparisonLiterals.has(value) || (id.startsWith('live.json.') && comparisonFields.has(value))) return value;
         if (value.length <= 40 && /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}(?::\d{2})?)$/u.test(value)
           && Number.isFinite(Date.parse(value))) return { timestamp: value };
         if (value.length > 512) return hidden('string-over-limit');
@@ -158,8 +170,8 @@ type Event = { sequence: number; step: number; cycle: number; phase: Phase; even
   acceptance?: Record<string, string>; receipt?: ReceiptEvidence; category?: Category; sqlState?: string | null; fault?: ExpectedFault };
 const MAX_EVENTS = 128;
 const MAX_BYTES = 64 * 1024;
-const artifactNames = { ordinary: 'public-data-ingestion-diagnostics.json', refresh: 'public-data-refresh-diagnostics.json' } as const;
-const caseProfiles = { ordinary: 'data-core-ingestion-v1', refresh: 'data-core-refresh-v1' } as const;
+const artifactNames = { live: 'live-league-two-diagnostics.json', ordinary: 'public-data-ingestion-diagnostics.json', refresh: 'public-data-refresh-diagnostics.json' } as const;
+const caseProfiles = { live: 'data-live-league-two-v1', ordinary: 'data-core-ingestion-v1', refresh: 'data-core-refresh-v1' } as const;
 
 const receiptResources = [
   { key: 'leagueSettingsAcceptance', argument: 5, resource: 'settings', family: 'league', policy: LEAGUE_SETTINGS_POLICY, scope: leagueSettingsScope },
@@ -241,8 +253,8 @@ function summary(value: unknown): Pick<Event, 'status' | 'resource' | 'reason' |
 
 /** Selected integration cases only. Serializes fixed classifications, bounded receipt predicates and
  * owned comparison projections; no raw errors, identities, SQL, provider payloads or URLs. */
-export function createPublicDataDiagnostics(kind: 'ordinary' | 'refresh') {
-  if (kind !== 'ordinary' && kind !== 'refresh') throw new Error('Public DATA diagnostic failure: invalid case kind.');
+export function createPublicDataDiagnostics(kind: 'ordinary' | 'refresh' | 'live') {
+  if (kind !== 'ordinary' && kind !== 'refresh' && kind !== 'live') throw new Error('Public DATA diagnostic failure: invalid case kind.');
   const started = performance.now();
   const events: Event[] = [];
   const pendingReceipts = new Map<ReceiptResource['resource'], PendingReceipt>();
@@ -362,7 +374,7 @@ export function createPublicDataDiagnostics(kind: 'ordinary' | 'refresh') {
       finally { activeCheckpoint = previous; }
     },
     comparison<A, E>(id: ComparisonId, actual: A, expected: E, assertion: (actual: A, expected: E) => void): void {
-      if (kind !== 'ordinary' || !activeCheckpoint || typeof id !== 'string' || !Object.hasOwn(comparisons, id)) throw fail('case', undefined);
+      if ((kind !== 'ordinary' && kind !== 'live') || !activeCheckpoint || typeof id !== 'string' || !Object.hasOwn(comparisons, id)) throw fail('case', undefined);
       const occurrence = (comparisonCounts.get(id) ?? 0) + 1; comparisonCounts.set(id, occurrence);
       try { assertion(actual, expected); }
       catch (error) {
@@ -398,7 +410,7 @@ export function createPublicDataDiagnostics(kind: 'ordinary' | 'refresh') {
     async save() {
       try {
         const binding = qualificationBinding();
-        if (!binding || (binding.context.profile !== 'full' && binding.context.profile !== caseProfiles[kind])) {
+        if (!binding || (kind === 'live' && binding.context.profile !== caseProfiles.live) || (binding.context.profile !== 'full' && binding.context.profile !== caseProfiles[kind])) {
           throw new Error('Matching bound qualification context required.');
         }
         await captureReceipts();

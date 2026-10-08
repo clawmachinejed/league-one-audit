@@ -9,6 +9,7 @@ import { createQualificationContext, markQualificationFailure, parseQualificatio
   qualificationBinding, qualificationCleanup, qualificationDigest, qualificationSourceDigest, QUALIFICATION_CONTEXT_ENV,
   QUALIFICATION_FILES, INGESTION_PROFILE, INGESTION_FULL_NAME, INGESTION_PATTERN, SELECTED_SOURCE_DIGEST, SELECTED_FULL_NAME, SELECTED_INVENTORY, SELECTED_MODULE, SELECTED_PATTERN, SELECTED_PROFILE,
   validateQualificationArtifacts, validateQualificationReport, writeQualificationArtifact,
+  LIVE_PROFILE, LIVE_MODULE, LIVE_FULL_NAME, LIVE_PATTERN, LIVE_SOURCE_DIGEST, qualificationIncludes, requireLiveQualification,
   type QualificationBinding, type QualificationCase, type QualificationReport } from './qualification-profile';
 
 const directories: string[] = [];
@@ -168,4 +169,47 @@ it('keeps the ordinary selector closed and refuses cross-profile case evidence',
   expect(() => validateQualificationReport(refresh.context, evidence)).toThrow();
   evidence.contextDigest = qualificationDigest(refresh.context);
   expect(() => validateQualificationReport(refresh.context, evidence)).toThrow();
+});
+it('excludes live source from generated full inventory and default discovery, requiring the exact bound opt-in', async () => {
+  const binding = await fixture();
+  await writeFile(join(binding.directory, LIVE_MODULE), 'not a default integration case');
+  const full = await createQualificationContext(binding.directory, 'a'.repeat(40), randomUUID());
+  expect(full.modules.map(entry => entry.path)).toEqual([SELECTED_MODULE]);
+  expect(qualificationIncludes({})).toEqual(['integration/**/*.integration-case.ts']);
+  expect(() => requireLiveQualification({})).toThrow();
+  const env = { [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(full), PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY: binding.directory };
+  expect(() => requireLiveQualification(env)).toThrow();
+  expect(qualificationIncludes(env)).not.toContain(LIVE_MODULE);
+  const tampered = { ...full, modules: [{ path: LIVE_MODULE, sourceDigest: LIVE_SOURCE_DIGEST }] };
+  expect(() => qualificationIncludes({ ...env, [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(tampered) })).toThrow();
+});
+it('binds one live test and rejects source drift, mixed inventory, skip/retry and cross-profile evidence', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'qualification-live-')); directories.push(directory);
+  const context = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)), 'a'.repeat(40), randomUUID(), LIVE_PROFILE);
+  const binding = { directory, context };
+  const env = { [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(context), PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY: directory };
+  expect(context.modules).toEqual([{ path: LIVE_MODULE, sourceDigest: LIVE_SOURCE_DIGEST }]);
+  expect(qualificationIncludes(env)).toEqual([LIVE_MODULE]); expect(requireLiveQualification(env)).toEqual(binding);
+  expect(parseQualificationArguments(['--profile=' + LIVE_PROFILE])).toBe(LIVE_PROFILE);
+  expect(() => parseQualificationArguments(['--profile=' + LIVE_PROFILE, '--retry=1'])).toThrow();
+  expect(qualificationArguments(LIVE_PROFILE, '/reporter').slice(4)).toEqual([LIVE_MODULE, '--testNamePattern', LIVE_PATTERN]);
+  const evidence: QualificationReport = { kind: 'integration-qualification-report-v1', contextDigest: qualificationDigest(context), starts: 1, ends: 1,
+    reason: 'passed', unhandledErrors: 0, specifications: [{ path: LIVE_MODULE, pattern: LIVE_PATTERN, otherFilters: false }], collected: [LIVE_MODULE], hooks: [],
+    modules: [{ path: LIVE_MODULE, state: 'passed', errors: 0, suites: [], cases: [{ id: 'live', name: LIVE_FULL_NAME, state: 'passed', mode: 'run',
+      expectedFailure: false, configuredRetries: false, configuredRepeats: 0, errors: 0, readyEvents: 1, resultEvents: 1,
+      diagnostic: { retryCount: 0, repeatCount: 0, flaky: false, duration: 1, startTime: 1 } }] }] };
+  validateQualificationReport(context, evidence);
+  for (const mutate of [(r: QualificationReport) => { r.modules[0].cases[0].state = 'skipped'; },
+    (r: QualificationReport) => { r.modules[0].cases[0].configuredRetries = true; },
+    (r: QualificationReport) => { r.modules[0].cases.push({ ...r.modules[0].cases[0], id: 'extra', name: INGESTION_FULL_NAME }); },
+    (r: QualificationReport) => { r.modules[0].path = SELECTED_MODULE; },
+    (r: QualificationReport) => { r.specifications[0].pattern = INGESTION_PATTERN; }]) {
+    const changed = structuredClone(evidence); mutate(changed); expect(() => validateQualificationReport(context, changed)).toThrow();
+  }
+  const changed = { ...context, modules: [{ path: LIVE_MODULE, sourceDigest: '0'.repeat(64) }] };
+  expect(() => qualificationBinding({ ...env, [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(changed) })).toThrow();
+  await writeQualificationArtifact(binding, 'report', evidence);
+  await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
+  await qualificationCleanup(async () => undefined, binding);
+  expect(await validateQualificationArtifacts(binding)).toMatchObject({ collected: 1, executed: 1, passed: 1, filtered: 0 });
 });

@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto';
 import http from 'node:http';
 import ts from 'typescript';
 import { types } from '@neondatabase/serverless';
+import { assertLiveJson } from './live-league-two';
 import { exactMatchupClockInstant } from './exact-matchup-clock';
 import type { AcceptedLeagueSettingsRead } from '../lib/aggregator/league-settings';
 import type { CurrentRosterCaptureReceipt } from '../lib/aggregator/season-overview-source-contracts';
@@ -21,7 +22,7 @@ import type { PublicIntakeStore } from '../lib/league-administration/public-inta
 import type { PublicDataRefreshStore } from '../lib/league-administration/public-refresh-contracts';
 import type { NormalizedAdministrationObservation } from '../lib/league-administration/contracts';
 import { createPublicDataDiagnostics, observePublicDataDependencies } from './public-data-refresh-diagnostics';
-import { createQualificationContext, INGESTION_PROFILE, QUALIFICATION_CONTEXT_ENV } from './qualification-profile';
+import { createQualificationContext, LIVE_PROFILE, INGESTION_PROFILE, QUALIFICATION_CONTEXT_ENV } from './qualification-profile';
 vi.mock('server-only', () => ({}));
 vi.mock('next/cache', () => ({ unstable_cache: (fn: unknown) => fn }));
 
@@ -696,5 +697,28 @@ it('marks unknown object and array field presence without serializing their name
     const d = createPublicDataDiagnostics('ordinary');
     expect(() => d.assertion('receipt-provenance', () => d.comparison('receipt.acquisition', actual, null, (a, e) => expect(a).toEqual(e)))).toThrow();
     await d.save(); expect((await comparisonArtifact()).comparison.actual.$redactedFieldCount).toBe(1);
+  }
+});
+it('keeps live diagnostics out of full-profile evidence and saves a safe exact dynamic-field/tail failure under its own context', async () => {
+  await expect(createPublicDataDiagnostics('live').save()).rejects.toThrow('artifact.write');
+  const context = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)), 'a'.repeat(40), randomUUID(), LIVE_PROFILE);
+  vi.stubEnv(QUALIFICATION_CONTEXT_ENV, JSON.stringify(context));
+  const expected = { nativeSettings: { fields: { arbitrary_private_key: 3 } }, players: Array.from({ length: 25 }, (_, i) => i) };
+  for (const target of ['field', 'tail'] as const) {
+    const actual = structuredClone(expected);
+    if (target === 'field') actual.nativeSettings.fields.arbitrary_private_key = -7; else actual.players[24] = 123;
+    const diagnostics = createPublicDataDiagnostics('live');
+    expect(() => diagnostics.assertion('live-core', () => assertLiveJson(actual, expected,
+      (id, a, e) => diagnostics.comparison(id, a, e, (left, right) => expect(left).toEqual(right)), 'settings'))).toThrow('comparison=live.json.value');
+    await diagnostics.save();
+    const path = join(directory, 'live-league-two-diagnostics.json'), serialized = await readFile(path, 'utf8');
+    const report = JSON.parse(serialized), comparison = report.firstFailure.comparison;
+    expect(report).toMatchObject({ caseKind: 'live', profile: LIVE_PROFILE, firstFailure: { assertionCheckpoint: 'live-core', comparison: { id: 'live.json.value', matcher: 'toEqual', truncated: false } } });
+    expect(comparison.actual.value).toBe(target === 'field' ? -7 : 123);
+    expect(comparison.expected.value).toBe(target === 'field' ? 3 : 24);
+    expect(serialized).not.toContain('arbitrary_private_key');
+    expect(serialized).toContain(target === 'field' ? 'nativeSettings' : 'players');
+    if (target === 'tail') expect(comparison.actual.path.items).toContain(24);
+    await rm(path);
   }
 });
