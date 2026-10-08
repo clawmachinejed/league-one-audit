@@ -17,7 +17,14 @@ export const LIVE_SUITE = 'live League Two registered core through existing capt
 export const LIVE_TEST = 'retains four bounded public captures and exact official core readback [live slow SQL]';
 export const LIVE_FULL_NAME = LIVE_SUITE + ' > ' + LIVE_TEST;
 export const LIVE_PATTERN = '^' + (LIVE_SUITE + ' ' + LIVE_TEST).replace(/[.*+?^{}$()|[\]\\]/gu, '\\$&') + '$';
-export type QualificationProfile = 'full' | typeof SELECTED_PROFILE | typeof INGESTION_PROFILE | typeof LIVE_PROFILE;
+export const JOURNEY_PROFILE = 'data-live-public-intake-v1';
+export const JOURNEY_MODULE = 'integration/public-data.live-integration-case.ts';
+export const JOURNEY_SOURCE_DIGEST = '4e643a60de5dcda9f1fc558d386b64395f1f2af0c8580e39f8e3014f676ac585';
+export const JOURNEY_SUITE = 'live public DATA intake and refresh through the existing owner';
+export const JOURNEY_TEST = 'retains DannyPak discovery, all associated leagues and one complete refresh [live slow SQL]';
+export const JOURNEY_FULL_NAME = JOURNEY_SUITE + ' > ' + JOURNEY_TEST;
+export const JOURNEY_PATTERN = '^' + (JOURNEY_SUITE + ' ' + JOURNEY_TEST).replace(/[.*+?^{}$()|[\]\\]/gu, '\\$&') + '$';
+export type QualificationProfile = 'full' | typeof SELECTED_PROFILE | typeof INGESTION_PROFILE | typeof LIVE_PROFILE | typeof JOURNEY_PROFILE;
 export const SELECTED_SOURCE_DIGEST = 'afb857bf98a17a82196433f3f684491e7671df6a1cdc5b96432c95efb2444f99';
 export const SELECTED_MODULE = 'integration/public-data-intake.integration-case.ts';
 export const SELECTED_SUITE = 'bounded public DATA refresh cycles through the existing intake owner';
@@ -31,6 +38,7 @@ export const INGESTION_FULL_NAME = INGESTION_SUITE + ' > ' + INGESTION_TEST;
 export const INGESTION_PATTERN = '^' + (INGESTION_SUITE + ' ' + INGESTION_TEST).replace(/[.*+?^{}$()|[\]\\]/gu, '\\$&') + '$';
 function selectedCase(profile: QualificationProfile) {
   if (profile === LIVE_PROFILE) return { name: LIVE_FULL_NAME, pattern: LIVE_PATTERN };
+  if (profile === JOURNEY_PROFILE) return { name: JOURNEY_FULL_NAME, pattern: JOURNEY_PATTERN };
   assert(profile === SELECTED_PROFILE || profile === INGESTION_PROFILE, 'Unknown closed qualification profile.');
   return profile === SELECTED_PROFILE ? { name: SELECTED_FULL_NAME, pattern: SELECTED_PATTERN }
     : { name: INGESTION_FULL_NAME, pattern: INGESTION_PATTERN };
@@ -98,9 +106,15 @@ export function qualificationDigest(value: unknown): string {
 export function qualificationSourceDigest(source: string): string {
   return createHash('sha256').update(source.replace(/\r\n?/gu, '\n'), 'utf8').digest('hex');
 }
-function selectedModule(profile: QualificationProfile) { return profile === LIVE_PROFILE ? LIVE_MODULE : SELECTED_MODULE; }
-function selectedDigest(profile: QualificationProfile) { return profile === LIVE_PROFILE ? LIVE_SOURCE_DIGEST : SELECTED_SOURCE_DIGEST; }
-function selectedInventory(profile: QualificationProfile) { return profile === LIVE_PROFILE ? [LIVE_FULL_NAME] : SELECTED_INVENTORY; }
+function selectedModule(profile: QualificationProfile) {
+  return profile === JOURNEY_PROFILE ? JOURNEY_MODULE : profile === LIVE_PROFILE ? LIVE_MODULE : SELECTED_MODULE;
+}
+function selectedDigest(profile: QualificationProfile) {
+  return profile === JOURNEY_PROFILE ? JOURNEY_SOURCE_DIGEST : profile === LIVE_PROFILE ? LIVE_SOURCE_DIGEST : SELECTED_SOURCE_DIGEST;
+}
+function selectedInventory(profile: QualificationProfile) {
+  return profile === JOURNEY_PROFILE ? [JOURNEY_FULL_NAME] : profile === LIVE_PROFILE ? [LIVE_FULL_NAME] : SELECTED_INVENTORY;
+}
 function profileDigest(profile: QualificationProfile) {
   return qualificationDigest({ version: 1, profile, module: profile === 'full' ? null : selectedModule(profile),
     pattern: profile === 'full' ? null : selectedCase(profile).pattern, sourceDigest: profile === 'full' ? null : selectedDigest(profile), inventory: profile === 'full' ? null : selectedInventory(profile) });
@@ -110,10 +124,11 @@ export function parseQualificationArguments(args: readonly string[]): Qualificat
   if (args.length === 1 && args[0] === '--profile=' + SELECTED_PROFILE) return SELECTED_PROFILE;
   if (args.length === 1 && args[0] === '--profile=' + INGESTION_PROFILE) return INGESTION_PROFILE;
   if (args.length === 1 && args[0] === '--profile=' + LIVE_PROFILE) return LIVE_PROFILE;
-  throw new Error('Only the closed data-live-league-two-v1, data-core-refresh-v1 and data-core-ingestion-v1 qualification selectors are accepted.');
+  if (args.length === 1 && args[0] === '--profile=' + JOURNEY_PROFILE) return JOURNEY_PROFILE;
+  throw new Error('Only the closed data-live-public-intake-v1, data-live-league-two-v1, data-core-refresh-v1 and data-core-ingestion-v1 qualification selectors are accepted.');
 }
 export function qualificationArguments(profile: QualificationProfile, reporter: string): string[] {
-  assert(profile === 'full' || profile === SELECTED_PROFILE || profile === INGESTION_PROFILE || profile === LIVE_PROFILE, 'Unknown qualification profile.');
+  assert(profile === 'full' || profile === SELECTED_PROFILE || profile === INGESTION_PROFILE || profile === LIVE_PROFILE || profile === JOURNEY_PROFILE, 'Unknown qualification profile.');
   return ['--reporter', 'verbose', '--reporter', reporter,
     ...(profile === 'full' ? [] : [selectedModule(profile), '--testNamePattern', selectedCase(profile).pattern])];
 }
@@ -126,7 +141,7 @@ function validateContext(value: QualificationContext): QualificationContext {
   assert.equal(value.kind, 'integration-qualification-context-v1');
   for (const id of [value.runId, value.nonce]) assert.match(id, /^[0-9a-f]{8}-[0-9a-f-]{27}$/u);
   assert.match(value.gitSha, /^[0-9a-f]{40}$/u);
-  assert(value.profile === 'full' || value.profile === SELECTED_PROFILE || value.profile === INGESTION_PROFILE || value.profile === LIVE_PROFILE);
+  assert(value.profile === 'full' || value.profile === SELECTED_PROFILE || value.profile === INGESTION_PROFILE || value.profile === LIVE_PROFILE || value.profile === JOURNEY_PROFILE);
   assert.equal(value.profileDigest, profileDigest(value.profile));
   assert(Array.isArray(value.modules) && value.modules.length > 0 && value.modules.length <= 128);
   for (const entry of value.modules) {
@@ -135,7 +150,7 @@ function validateContext(value: QualificationContext): QualificationContext {
     assert.match(entry.sourceDigest, /^[0-9a-f]{64}$/u);
   }
   unique(value.modules.map(module => module.path));
-  if (value.profile === LIVE_PROFILE) assert.equal(value.modules[0].sourceDigest, LIVE_SOURCE_DIGEST);
+  if (value.profile === LIVE_PROFILE || value.profile === JOURNEY_PROFILE) assert.equal(value.modules[0].sourceDigest, selectedDigest(value.profile));
   if (value.profile === 'full') assert(value.modules.every(module => !module.path.endsWith('.live-integration-case.ts')));
   if (value.profile !== 'full') assert.deepEqual(value.modules.map(module => module.path), [selectedModule(value.profile)]);
   return value;
@@ -287,11 +302,16 @@ export async function validateQualificationArtifacts(binding: QualificationBindi
 
 /** The distinct live suffix never matches default full discovery. Only a validated bound profile opts in. */
 export function qualificationIncludes(environment: Record<string, string | undefined> = process.env): string[] {
-  return qualificationBinding(environment)?.context.profile === LIVE_PROFILE
-    ? [LIVE_MODULE] : ['integration/**/*.integration-case.ts'];
+  const profile = qualificationBinding(environment)?.context.profile;
+  return profile === LIVE_PROFILE ? [LIVE_MODULE] : profile === JOURNEY_PROFILE ? [JOURNEY_MODULE] : ['integration/**/*.integration-case.ts'];
 }
 export function requireLiveQualification(environment: Record<string, string | undefined> = process.env): QualificationBinding {
   const binding = qualificationBinding(environment);
   assert(binding?.context.profile === LIVE_PROFILE, 'Explicit bound live League Two profile required.');
+  return binding;
+}
+export function requireJourneyQualification(environment: Record<string, string | undefined> = process.env): QualificationBinding {
+  const binding = qualificationBinding(environment);
+  assert(binding?.context.profile === JOURNEY_PROFILE, 'Explicit bound live public DATA intake profile required.');
   return binding;
 }

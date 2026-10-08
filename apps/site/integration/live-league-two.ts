@@ -82,11 +82,12 @@ export function createLiveCaptures(transport: typeof fetch = globalThis.fetch) {
     },
   };
 }
-export function liveLeagueMetadata(payload: unknown) {
+export type LiveLeagueExpectation = Readonly<{ leagueId: string; season: number }>;
+export function liveLeagueMetadata(payload: unknown, expected: LiveLeagueExpectation = { leagueId: LIVE_LEAGUE_ID, season: 2026 }) {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw invalid();
   const league = payload as Record<string, unknown>;
-  if (league.league_id !== LIVE_LEAGUE_ID) throw invalid('source-id');
-  if (league.season !== '2026') throw invalid('source-season');
+  if (league.league_id !== expected.leagueId) throw invalid('source-id');
+  if (league.season !== String(expected.season)) throw invalid('source-season');
   if (!Number.isSafeInteger(league.total_rosters) || Number(league.total_rosters) < 1 || Number(league.total_rosters) > 32) throw invalid('source-population');
   if (league.sport !== 'nfl' || typeof league.name !== 'string' || !league.name.length || league.name.length > 256
     || !Number.isSafeInteger(league.total_rosters) || Number(league.total_rosters) < 1 || Number(league.total_rosters) > 32) throw invalid();
@@ -98,12 +99,13 @@ export function normalizeLiveCapture(scope: AdministrationScope, document: Captu
   return normalizeAdministrationObservation({ schemaVersion: ADMINISTRATION_SCHEMA_VERSION, normalizerVersion: ADMINISTRATION_NORMALIZER_VERSION,
     dialect: ADMINISTRATION_DIALECT, scope, family: document.family, week: null, payload: document.payload as JsonValue,
     completeness: 'complete', provenance: { origin: 'network', requestStartedAt: document.requestStartedAt,
-      requestCompletedAt: document.requestCompletedAt, sourceObservedAt: document.sourceObservedAt ?? null, checkedAt } },
+      requestCompletedAt: document.requestCompletedAt, sourceObservedAt: document.sourceObservedAt ?? null, checkedAt,
+      ...(document.acquisition ? { acquisition: document.acquisition } : {}) } },
   { expectedRosterCount, managerEvidenceVersion: 'v2' });
 }
 /** Small independent raw-field oracle. It does not recreate the canonical normalizer. */
-export function liveRawOracle(leaguePayload: unknown, rosterPayload: unknown, usersPayload: unknown) {
-  const metadata = liveLeagueMetadata(leaguePayload);
+export function liveRawOracle(leaguePayload: unknown, rosterPayload: unknown, usersPayload: unknown, expected?: LiveLeagueExpectation) {
+  const metadata = liveLeagueMetadata(leaguePayload, expected);
   const league = leaguePayload as Record<string, unknown>;
   if (!league.scoring_settings || typeof league.scoring_settings !== 'object' || Array.isArray(league.scoring_settings)
     || !Object.values(league.scoring_settings).every(value => typeof value === 'number' && Number.isFinite(value))

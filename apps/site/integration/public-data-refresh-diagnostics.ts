@@ -170,8 +170,8 @@ type Event = { sequence: number; step: number; cycle: number; phase: Phase; even
   acceptance?: Record<string, string>; receipt?: ReceiptEvidence; category?: Category; sqlState?: string | null; fault?: ExpectedFault };
 const MAX_EVENTS = 128;
 const MAX_BYTES = 64 * 1024;
-const artifactNames = { live: 'live-league-two-diagnostics.json', ordinary: 'public-data-ingestion-diagnostics.json', refresh: 'public-data-refresh-diagnostics.json' } as const;
-const caseProfiles = { live: 'data-live-league-two-v1', ordinary: 'data-core-ingestion-v1', refresh: 'data-core-refresh-v1' } as const;
+const artifactNames = { journey: 'public-data-live-diagnostics.json', live: 'live-league-two-diagnostics.json', ordinary: 'public-data-ingestion-diagnostics.json', refresh: 'public-data-refresh-diagnostics.json' } as const;
+const caseProfiles = { journey: 'data-live-public-intake-v1', live: 'data-live-league-two-v1', ordinary: 'data-core-ingestion-v1', refresh: 'data-core-refresh-v1' } as const;
 
 const receiptResources = [
   { key: 'leagueSettingsAcceptance', argument: 5, resource: 'settings', family: 'league', policy: LEAGUE_SETTINGS_POLICY, scope: leagueSettingsScope },
@@ -253,8 +253,8 @@ function summary(value: unknown): Pick<Event, 'status' | 'resource' | 'reason' |
 
 /** Selected integration cases only. Serializes fixed classifications, bounded receipt predicates and
  * owned comparison projections; no raw errors, identities, SQL, provider payloads or URLs. */
-export function createPublicDataDiagnostics(kind: 'ordinary' | 'refresh' | 'live') {
-  if (kind !== 'ordinary' && kind !== 'refresh' && kind !== 'live') throw new Error('Public DATA diagnostic failure: invalid case kind.');
+export function createPublicDataDiagnostics(kind: 'ordinary' | 'refresh' | 'live' | 'journey') {
+  if (kind !== 'ordinary' && kind !== 'refresh' && kind !== 'live' && kind !== 'journey') throw new Error('Public DATA diagnostic failure: invalid case kind.');
   const started = performance.now();
   const events: Event[] = [];
   const pendingReceipts = new Map<ReceiptResource['resource'], PendingReceipt>();
@@ -374,7 +374,7 @@ export function createPublicDataDiagnostics(kind: 'ordinary' | 'refresh' | 'live
       finally { activeCheckpoint = previous; }
     },
     comparison<A, E>(id: ComparisonId, actual: A, expected: E, assertion: (actual: A, expected: E) => void): void {
-      if ((kind !== 'ordinary' && kind !== 'live') || !activeCheckpoint || typeof id !== 'string' || !Object.hasOwn(comparisons, id)) throw fail('case', undefined);
+      if ((kind !== 'ordinary' && kind !== 'live' && kind !== 'journey') || !activeCheckpoint || typeof id !== 'string' || !Object.hasOwn(comparisons, id)) throw fail('case', undefined);
       const occurrence = (comparisonCounts.get(id) ?? 0) + 1; comparisonCounts.set(id, occurrence);
       try { assertion(actual, expected); }
       catch (error) {
@@ -410,7 +410,7 @@ export function createPublicDataDiagnostics(kind: 'ordinary' | 'refresh' | 'live
     async save() {
       try {
         const binding = qualificationBinding();
-        if (!binding || (kind === 'live' && binding.context.profile !== caseProfiles.live) || (binding.context.profile !== 'full' && binding.context.profile !== caseProfiles[kind])) {
+        if (!binding || ((kind === 'live' || kind === 'journey') && binding.context.profile !== caseProfiles[kind]) || (binding.context.profile !== 'full' && binding.context.profile !== caseProfiles[kind])) {
           throw new Error('Matching bound qualification context required.');
         }
         await captureReceipts();

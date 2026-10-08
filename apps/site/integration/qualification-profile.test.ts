@@ -10,6 +10,7 @@ import { createQualificationContext, markQualificationFailure, parseQualificatio
   QUALIFICATION_FILES, INGESTION_PROFILE, INGESTION_FULL_NAME, INGESTION_PATTERN, SELECTED_SOURCE_DIGEST, SELECTED_FULL_NAME, SELECTED_INVENTORY, SELECTED_MODULE, SELECTED_PATTERN, SELECTED_PROFILE,
   validateQualificationArtifacts, validateQualificationReport, writeQualificationArtifact,
   LIVE_PROFILE, LIVE_MODULE, LIVE_FULL_NAME, LIVE_PATTERN, LIVE_SOURCE_DIGEST, qualificationIncludes, requireLiveQualification,
+  JOURNEY_PROFILE, JOURNEY_MODULE, JOURNEY_FULL_NAME, JOURNEY_PATTERN, JOURNEY_SOURCE_DIGEST, requireJourneyQualification,
   type QualificationBinding, type QualificationCase, type QualificationReport } from './qualification-profile';
 
 const directories: string[] = [];
@@ -40,7 +41,7 @@ function report(binding: QualificationBinding): QualificationReport {
             retryCount: 0, repeatCount: 0, flaky: false, duration: 1, startTime: 1234 } : null };
       }) }] };
 }
-it('keeps default selection and accepts only the one fixed CLI selector', () => {
+it('keeps default selection and accepts only fixed CLI selectors', () => {
   expect(parseQualificationArguments([])).toBe('full');
   expect(parseQualificationArguments(['--profile=' + SELECTED_PROFILE])).toBe(SELECTED_PROFILE);
   expect(qualificationArguments('full', '/reporter')).toEqual(['--reporter', 'verbose', '--reporter', '/reporter']);
@@ -172,30 +173,40 @@ it('keeps the ordinary selector closed and refuses cross-profile case evidence',
 });
 it('excludes live source from generated full inventory and default discovery, requiring the exact bound opt-in', async () => {
   const binding = await fixture();
-  await writeFile(join(binding.directory, LIVE_MODULE), 'not a default integration case');
+  for (const modulePath of [LIVE_MODULE, JOURNEY_MODULE]) await writeFile(join(binding.directory, modulePath), 'not a default integration case');
   const full = await createQualificationContext(binding.directory, 'a'.repeat(40), randomUUID());
   expect(full.modules.map(entry => entry.path)).toEqual([SELECTED_MODULE]);
   expect(qualificationIncludes({})).toEqual(['integration/**/*.integration-case.ts']);
   expect(() => requireLiveQualification({})).toThrow();
+  expect(() => requireJourneyQualification({})).toThrow();
   const env = { [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(full), PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY: binding.directory };
   expect(() => requireLiveQualification(env)).toThrow();
-  expect(qualificationIncludes(env)).not.toContain(LIVE_MODULE);
-  const tampered = { ...full, modules: [{ path: LIVE_MODULE, sourceDigest: LIVE_SOURCE_DIGEST }] };
-  expect(() => qualificationIncludes({ ...env, [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(tampered) })).toThrow();
+  expect(() => requireJourneyQualification(env)).toThrow();
+  for (const [path, sourceDigest] of [[LIVE_MODULE, LIVE_SOURCE_DIGEST], [JOURNEY_MODULE, JOURNEY_SOURCE_DIGEST]]) {
+    expect(qualificationIncludes(env)).not.toContain(path);
+    const tampered = { ...full, modules: [{ path, sourceDigest }] };
+    expect(() => qualificationIncludes({ ...env, [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(tampered) })).toThrow();
+  }
 });
-it('binds one live test and rejects source drift, mixed inventory, skip/retry and cross-profile evidence', async () => {
+it.each([
+  { profile: LIVE_PROFILE, module: LIVE_MODULE, name: LIVE_FULL_NAME, pattern: LIVE_PATTERN, digest: LIVE_SOURCE_DIGEST,
+    require: requireLiveQualification, otherGuard: requireJourneyQualification },
+  { profile: JOURNEY_PROFILE, module: JOURNEY_MODULE, name: JOURNEY_FULL_NAME, pattern: JOURNEY_PATTERN, digest: JOURNEY_SOURCE_DIGEST,
+    require: requireJourneyQualification, otherGuard: requireLiveQualification },
+] as const)('binds $profile and rejects source drift, mixed inventory, skip/retry and cross-profile evidence', async spec => {
   const directory = await mkdtemp(join(tmpdir(), 'qualification-live-')); directories.push(directory);
-  const context = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)), 'a'.repeat(40), randomUUID(), LIVE_PROFILE);
+  const context = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)), 'a'.repeat(40), randomUUID(), spec.profile);
   const binding = { directory, context };
   const env = { [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(context), PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY: directory };
-  expect(context.modules).toEqual([{ path: LIVE_MODULE, sourceDigest: LIVE_SOURCE_DIGEST }]);
-  expect(qualificationIncludes(env)).toEqual([LIVE_MODULE]); expect(requireLiveQualification(env)).toEqual(binding);
-  expect(parseQualificationArguments(['--profile=' + LIVE_PROFILE])).toBe(LIVE_PROFILE);
-  expect(() => parseQualificationArguments(['--profile=' + LIVE_PROFILE, '--retry=1'])).toThrow();
-  expect(qualificationArguments(LIVE_PROFILE, '/reporter').slice(4)).toEqual([LIVE_MODULE, '--testNamePattern', LIVE_PATTERN]);
+  expect(context.modules).toEqual([{ path: spec.module, sourceDigest: spec.digest }]);
+  expect(qualificationIncludes(env)).toEqual([spec.module]); expect(spec.require(env)).toEqual(binding);
+  expect(() => spec.otherGuard(env)).toThrow();
+  expect(parseQualificationArguments(['--profile=' + spec.profile])).toBe(spec.profile);
+  expect(() => parseQualificationArguments(['--profile=' + spec.profile, '--retry=1'])).toThrow();
+  expect(qualificationArguments(spec.profile, '/reporter').slice(4)).toEqual([spec.module, '--testNamePattern', spec.pattern]);
   const evidence: QualificationReport = { kind: 'integration-qualification-report-v1', contextDigest: qualificationDigest(context), starts: 1, ends: 1,
-    reason: 'passed', unhandledErrors: 0, specifications: [{ path: LIVE_MODULE, pattern: LIVE_PATTERN, otherFilters: false }], collected: [LIVE_MODULE], hooks: [],
-    modules: [{ path: LIVE_MODULE, state: 'passed', errors: 0, suites: [], cases: [{ id: 'live', name: LIVE_FULL_NAME, state: 'passed', mode: 'run',
+    reason: 'passed', unhandledErrors: 0, specifications: [{ path: spec.module, pattern: spec.pattern, otherFilters: false }], collected: [spec.module], hooks: [],
+    modules: [{ path: spec.module, state: 'passed', errors: 0, suites: [], cases: [{ id: 'live', name: spec.name, state: 'passed', mode: 'run',
       expectedFailure: false, configuredRetries: false, configuredRepeats: 0, errors: 0, readyEvents: 1, resultEvents: 1,
       diagnostic: { retryCount: 0, repeatCount: 0, flaky: false, duration: 1, startTime: 1 } }] }] };
   validateQualificationReport(context, evidence);
@@ -206,8 +217,17 @@ it('binds one live test and rejects source drift, mixed inventory, skip/retry an
     (r: QualificationReport) => { r.specifications[0].pattern = INGESTION_PATTERN; }]) {
     const changed = structuredClone(evidence); mutate(changed); expect(() => validateQualificationReport(context, changed)).toThrow();
   }
-  const changed = { ...context, modules: [{ path: LIVE_MODULE, sourceDigest: '0'.repeat(64) }] };
+  const changed = { ...context, modules: [{ path: spec.module, sourceDigest: '0'.repeat(64) }] };
   expect(() => qualificationBinding({ ...env, [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(changed) })).toThrow();
+  const otherModule = spec.profile === LIVE_PROFILE ? JOURNEY_MODULE : LIVE_MODULE;
+  const mixed = { ...context, modules: [...context.modules, { path: otherModule, sourceDigest: spec.digest }] };
+  expect(() => qualificationBinding({ ...env, [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(mixed) })).toThrow();
+  const otherProfile = spec.profile === LIVE_PROFILE ? JOURNEY_PROFILE : LIVE_PROFILE;
+  const other = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)), 'a'.repeat(40), randomUUID(), otherProfile);
+  expect(() => validateQualificationReport(other, { ...evidence, contextDigest: qualificationDigest(other) })).toThrow();
+  await mkdir(join(directory, 'integration'));
+  await writeFile(join(directory, spec.module), await readFile(fileURLToPath(new URL('../' + spec.module, import.meta.url)), 'utf8') + '\n// drift\n');
+  await expect(createQualificationContext(directory, 'a'.repeat(40), randomUUID(), spec.profile)).rejects.toThrow();
   await writeQualificationArtifact(binding, 'report', evidence);
   await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
   await qualificationCleanup(async () => undefined, binding);
