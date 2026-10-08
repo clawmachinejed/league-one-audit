@@ -45,8 +45,8 @@ describe(LIVE_SUITE, () => {
       const mapping = await diagnostics.observe('administration.readSourceMapping', () => administration.readSourceMapping(LIVE_LEAGUE_ID));
       equal('live.mapping', mapping?.scope, { provider: 'sleeper', leagueKey: 'sleeper-' + LIVE_LEAGUE_ID, externalLeagueId: LIVE_LEAGUE_ID, season: metadata.season });
       if (!mapping) throw new Error('Live mapping unavailable.');
-      const inventory = await administration.listEnrollmentInventory(metadata.season);
-      equal('live.enrollment.inactive', inventory.entries.some(entry => entry.intended.leagueId === registered.value.leagueId), false);
+      const enrollment = await database.query("SELECT enrollment.active,season.scoring_profile_id FROM public.league_administration_enrollments enrollment JOIN public.league_seasons season ON season.league_id=enrollment.league_id WHERE enrollment.league_id=$1 AND enrollment.provider='sleeper' AND season.season=$2", [registered.value.leagueId, metadata.season]);
+      equal('live.enrollment.inactive', enrollment, [{ active: false, scoring_profile_id: null }]);
       const settingsAttempt = await diagnostics.observe('administration.beginLeagueSettingsAttempt', () => administration.beginLeagueSettingsAttempt(mapping, randomUUID()));
       const rosterAttempts = await diagnostics.observe('administration.beginRosterCapture', () => administration.beginRosterCapture(mapping, randomUUID(), randomUUID()));
       const managerAttempt = await diagnostics.observe('administration.beginTeamManagerEvidenceAttempt', () => administration.beginTeamManagerEvidenceAttempt!(mapping, randomUUID()));
@@ -71,10 +71,15 @@ describe(LIVE_SUITE, () => {
         expectedRosterCount: raw.metadata.totalRosters, now: () => new Date(checkedAt), signal: AbortSignal.timeout(30_000),
         verify: async () => { throw new Error('Live unexpected verification request.'); },
       }));
-      equal('live.write', { status: written.status, settings: written.results[0]?.result.leagueSettingsAcceptance?.status,
+      // Official-only registration keeps the calculation profile NULL. Typed official resources still must accept.
+      equal('live.write', { status: written.status, source: written.results.map(({ family, result }) => ({ family,
+        status: result.status, reason: result.reason ?? null })), settings: written.results[0]?.result.leagueSettingsAcceptance?.status,
         players: written.results[1]?.result.rosterAcceptance?.status, managers: written.results[1]?.result.teamManagerAcceptance?.status,
         managersV2: written.results[1]?.result.teamManagerEvidenceAcceptance?.status },
-      { status: 'stored', settings: 'accepted', players: 'accepted', managers: 'accepted', managersV2: 'accepted' });
+      { status: 'unavailable', source: [
+        { family: 'league', status: 'rejected', reason: 'scoring_profile_change_requires_explicit_compatibility_and_period_review' },
+        { family: 'rosters', status: 'changed', reason: null }, { family: 'users', status: 'changed', reason: null },
+      ], settings: 'accepted', players: 'accepted', managers: 'accepted', managersV2: 'accepted' });
       const settings = await diagnostics.observe('reader.settings', () => administration.readAcceptedLeagueSettings(mapping));
       const players = await diagnostics.observe('reader.players', () => administration.readAcceptedCurrentRoster(mapping));
       const managers = await diagnostics.observe('reader.managers', () => administration.readAcceptedTeamManagers(mapping));

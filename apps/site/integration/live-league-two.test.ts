@@ -1,5 +1,11 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { readFile } from 'node:fs/promises';
+import ts from 'typescript';
+import { createIdentityMethods } from '../lib/projections/adapters/neon/identities';
+import { recordCapturedAdministration } from '../lib/league-administration/runtime';
+import type { LeagueAdministrationStore } from '../lib/league-administration/store-contracts';
+import { readEnrollmentInventory } from '../lib/league-administration/neon/enrollment';
+import type { DatabaseClient, DatabaseRow } from '../lib/database';
 import { assertLiveJson, createLiveCaptures, LIVE_CAPTURE_FAMILIES, LIVE_LEAGUE_ID, LIVE_RESPONSE_BYTES, liveRawOracle, normalizeLiveCapture } from './live-league-two';
 vi.mock('server-only', () => ({}));
 vi.mock('next/cache', () => ({ unstable_cache: (fn: unknown) => fn }));
@@ -126,4 +132,96 @@ it('blocks overlap and makes its source session unusable even if the first respo
   const source = createLiveCaptures(transport), first = source.capture('league');
   await expect(source.capture('league')).rejects.toThrow(); pending.resolve(new Response('{}')); await first;
   await expect(source.capture('league')).rejects.toThrow(); expect(transport).toHaveBeenCalledTimes(1);
+});
+
+it('reproduces why season inventory membership is not an inactive-enrollment oracle', async () => {
+  const query = vi.fn(async (sql: string, parameters?: readonly unknown[]) => {
+    expect(sql).toContain('list-season-enrollments'); expect(parameters).toEqual([2026]); return [{ league_id: 'offline-league-id', league_key: 'offline-league', name: 'Offline',
+    league_season_id: 'offline-season', intended_season: 2026, season: 2026, scoring_profile_id: null,
+    provider: 'sleeper', external_league_id: '123' }]; });
+  const inventory = await readEnrollmentInventory({ enabled: true, query } as unknown as DatabaseClient, 2026);
+  expect(query).toHaveBeenCalledTimes(1);
+  expect(query.mock.calls[0]).toEqual([expect.stringContaining('list-season-enrollments'), [2026]]);
+  expect(inventory.entries[0]).toMatchObject({ status: 'unavailable', reason: 'missing-scoring-profile' });
+  expect(inventory.entries.some(entry => entry.intended.leagueId === 'offline-league-id')).toBe(true);
+});
+it('executes the exact-row setup assertion: inactive NULL profile passes; active, configured, missing and duplicate rows fail', async () => {
+  const source = await readFile(new URL('./league-two.live-integration-case.ts', import.meta.url), 'utf8');
+  const tree = ts.createSourceFile('live.ts', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const sites: string[] = [];
+  const visit = (node: ts.Node) => {
+    if (ts.isBlock(node)) {
+      const index = node.statements.findIndex(statement => ts.isVariableStatement(statement)
+        && statement.declarationList.declarations.some(declaration => ts.isIdentifier(declaration.name) && declaration.name.text === 'enrollment'));
+      if (index !== -1) sites.push(node.statements[index].getText(tree) + '\n' + node.statements[index + 1].getText(tree));
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(tree); expect(sites).toHaveLength(1);
+  expect(sites[0]).toContain("equal('live.enrollment.inactive', enrollment, [{ active: false, scoring_profile_id: null }])");
+  const execute = new Function('database', 'registered', 'metadata', 'equal', 'return (async () => {' + sites[0] + '})()') as
+    (database: { query: (sql: string, parameters: unknown[]) => Promise<DatabaseRow[]> }, registered: { value: { leagueId: string } }, metadata: { season: number }, equal: (id: string, actual: unknown, expected: unknown) => void) => Promise<void>;
+  const valid = { active: false, scoring_profile_id: null };
+  for (const rows of [[valid], [{ ...valid, active: true }], [{ ...valid, scoring_profile_id: 'configured' }], [], [valid, valid]]) {
+    const query = vi.fn(async (sql: string, parameters: unknown[]) => {
+      expect(sql).toBe("SELECT enrollment.active,season.scoring_profile_id FROM public.league_administration_enrollments enrollment JOIN public.league_seasons season ON season.league_id=enrollment.league_id WHERE enrollment.league_id=$1 AND enrollment.provider='sleeper' AND season.season=$2");
+      expect(parameters).toEqual(['exact-registered-league', 2026]); return rows;
+    });
+    const result = execute({ query }, { value: { leagueId: 'exact-registered-league' } }, { season: 2026 }, (id, actual, expected) => {
+      expect(id).toBe('live.enrollment.inactive'); expect(actual).toEqual(expected);
+    });
+    if (rows.length === 1 && rows[0].active === false && rows[0].scoring_profile_id === null) await expect(result).resolves.toBeUndefined();
+    else await expect(result).rejects.toThrow();
+    expect(query).toHaveBeenCalledTimes(1);
+  }
+});
+
+it('requires only the exact NULL-profile legacy conflict while retaining every typed acceptance and other stored result', async () => {
+  const source = await readFile(new URL('./league-two.live-integration-case.ts', import.meta.url), 'utf8');
+  const tree = ts.createSourceFile('live.ts', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const matches: string[] = [];
+  const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node) && node.expression.getText(tree) === 'equal'
+      && node.arguments[0]?.getText(tree) === "'live.write'") matches.push(node.getText(tree));
+    ts.forEachChild(node, visit);
+  };
+  visit(tree); expect(matches).toHaveLength(1);
+  const check = new Function('written', 'equal', ts.transpile(matches[0], { target: ts.ScriptTarget.ES2022 })) as
+    (written: unknown, equal: (id: string, actual: unknown, expected: unknown) => void) => void;
+  const verify = (written: unknown) => check(written, (id, actual, expected) => { expect(id).toBe('live.write'); expect(actual).toEqual(expected); });
+  const query = vi.fn(async () => [{ league_id: 'offline-league', league_season_id: 'offline-season', scoring_profile_id: null }]);
+  await createIdentityMethods({ enabled: true, query } as unknown as DatabaseClient).registerLeagueSeason({ mode: 'official-data',
+    leagueKey: scope.leagueKey, leagueName: league.name, sleeperLeagueId: LIVE_LEAGUE_ID, season: 2026 });
+  expect((query.mock.calls as unknown as [string, unknown[]][])[0][1].slice(0, 2)).toEqual([null, null]);
+  const at = '2026-10-08T20:00:00.123Z';
+  const recordObservation = vi.fn(async (input: Parameters<LeagueAdministrationStore['recordObservation']>[0]) => {
+    if (input.envelope.family === 'league') {
+      expect(input.status).toBe('accepted'); expect(input.value?.family === 'league' && input.value.rawScoringRulesHash).toEqual(expect.any(String));
+      return { status: 'rejected', reason: 'scoring_profile_change_requires_explicit_compatibility_and_period_review', observationId: 'offline-observation', leagueSettingsAcceptance: { status: 'accepted' } };
+    }
+    return input.envelope.family === 'rosters' ? { status: 'changed', rosterAcceptance: { status: 'accepted' },
+      teamManagerAcceptance: { status: 'accepted' }, teamManagerEvidenceAcceptance: { status: 'accepted' } } : { status: 'changed' };
+  });
+  const documents = [league, rosters, users].map((payload, index) => ({ family: (['league', 'rosters', 'users'] as const)[index],
+    week: null, payload, origin: 'network' as const, requestStartedAt: at, requestCompletedAt: at, sourceObservedAt: at }));
+  const result = await recordCapturedAdministration(scope, documents, { store: { enabled: true, recordObservation } as unknown as LeagueAdministrationStore, now: () => new Date(at) });
+  expect(recordObservation).toHaveBeenCalledTimes(3); expect(result.population).toBeDefined();
+  expect(result.status).toBe('unavailable'); verify(result);
+  const mutate = (change: (copy: Record<string, unknown>) => void) => {
+    const copy = structuredClone(result); change(copy as unknown as Record<string, unknown>); expect(() => verify(copy)).toThrow();
+  };
+  mutate(copy => { copy.status = 'stored'; });
+  for (const index of [0, 1, 2]) {
+    for (const status of ['changed', 'unchanged', 'replayed', 'rejected', 'stale', 'disabled']) {
+      if (index === 0 && status === 'rejected' || index !== 0 && status === 'changed') continue;
+      const copy = structuredClone(result); Object.assign(copy.results[index].result, { status }); expect(() => verify(copy)).toThrow();
+    }
+  }
+  for (const key of ['leagueSettingsAcceptance', 'rosterAcceptance', 'teamManagerAcceptance', 'teamManagerEvidenceAcceptance'] as const) {
+    const copy = structuredClone(result); Object.assign(copy.results[key === 'leagueSettingsAcceptance' ? 0 : 1].result, { [key]: { status: 'preserved' } }); expect(() => verify(copy)).toThrow();
+  }
+  const wrongReason = structuredClone(result); Object.assign(wrongReason.results[0].result, { reason: 'another-reason' }); expect(() => verify(wrongReason)).toThrow();
+  expect(() => verify({ ...result, results: result.results.slice(0, 2) })).toThrow();
+  expect(() => verify({ ...result, results: [...result.results, result.results[2]] })).toThrow();
+  expect(() => verify({ ...result, results: [...result.results].reverse() })).toThrow();
 });
