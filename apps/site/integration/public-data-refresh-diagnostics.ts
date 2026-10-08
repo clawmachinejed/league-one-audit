@@ -37,10 +37,122 @@ const assertionCheckpoints = ['runtime-role', 'capture-witness', 'step-progress'
   'directory-lineage', 'directory-times', 'journey-next', 'fixture-requests', 'intake-population',
   'enrollment-inventory', 'final-profile', 'final-dispatch-order'] as const;
 type AssertionCheckpoint = typeof assertionCheckpoints[number];
+// Closed identifiers describe existing matchers; Vitest alone decides whether they pass.
+const comparisons = {
+  'runtime.roles': 'toEqual', 'capture.version': 'toBe', 'step.progress': 'toMatchObject',
+  'journey.stage-count': 'toBe', 'journey.next': 'toBe', 'fixture.urls': 'toEqual', 'fixture.capture-count': 'toHaveLength',
+  'intake.readback': 'toMatchObject', 'intake.league-count': 'toHaveLength', 'intake.list-count': 'toHaveLength',
+  'canonical.identity': 'toMatchObject', 'uuid.shape': 'toEqual', 'canonical.distinct-ids': 'toBe',
+  'enrollment.inactive': 'toBe', 'settings.value': 'toMatchObject', 'players.team-count': 'toHaveLength',
+  'managers.team-count': 'toHaveLength', 'manager-evidence.team-count': 'toHaveLength', 'players.value': 'toMatchObject',
+  'managers.value': 'toMatchObject', 'managers.receipt-refs': 'toEqual', 'manager-evidence.receipt-refs': 'toEqual',
+  'manager-evidence.completeness': 'toBe', 'manager-evidence.parity': 'toMatchObject', 'teams.identity-parity': 'toEqual',
+  'co-managers.count': 'toHaveLength', 'managers.distinct-ids': 'toBe', 'candidate.fields': 'toMatchObject',
+  'receipts.distinct-ids': 'toBe', 'lineage.count': 'toHaveLength', 'receipt.provenance': 'toMatchObject',
+  'receipt.acquisition': 'toEqual', 'lineage.witness': 'toMatchObject', 'population.acquisition': 'toEqual',
+  'dispatch.resources': 'toEqual', 'dispatch.flags': 'toMatchObject', 'dispatch.acquisition': 'toEqual',
+  'discovery.count': 'toHaveLength', 'discovery.started': 'toBe', 'discovery.completed': 'toBe',
+  'stored-resources.composition': 'toMatchObject', 'directory.lineage': 'toMatchObject',
+  'directory.time-order': 'toBeLessThanOrEqual', 'directory.time-equality': 'toBe',
+  'directory.started': 'toBe', 'directory.completed': 'toBe', 'final.profile': 'toBeNull', 'final.dispatch-order': 'toEqual',
+} as const;
+type ComparisonId = keyof typeof comparisons;
+type SafeValue = null | boolean | number | string | SafeValue[] | { [key: string]: SafeValue };
+type ComparisonEvidence = { id: ComparisonId; matcher: typeof comparisons[ComparisonId]; occurrence: number;
+  actual: SafeValue; expected: SafeValue; truncated: boolean; redacted: boolean };
+// Field names come from the ordinary fixture, typed readers and retained capture contracts.
+// Unknown keys/strings never become output. Aliases are shared across both operands of one comparison.
+const comparisonFields = new Set(('role effective_role status resource providerRequests request requested_username external_manager_id username seasons terminal failure_count lists rejected leagues externalLeagueId season collection league_id league_season_id connection_id current_mapping_revision_id scoring_profile_id active evidence sourceLeague provider nativeId scoring rules state value nativeSettings fields divisions slots nativeCode count externalRosterId players sourceEntity sourceTeam primaryOwner manager sourceManager coManagers completeness managers sourceRefs seasonTeamId providerManagerId stage external_league_id settings_receipt_id players_receipt_id managers_receipt_id league_observation_id roster_observation_id acquisition requestStartedAt requestCompletedAt sourceObservedAt intake_id source_mapping provenance exact_witness server_window current_head version work fence dispatchNonce mapping attempts requestId revision kind userId jobKey workerId generation deadlineAt connectionId leagueSeasonId revisionId scope leagueKey settings managersV2 id nonce receipt heldRoster teamManagers teamManagerEvidence captureBinding directory observationId legacyObservationId sourceMapping legacy_observation_id request_started_at request_completed_at source_observed_at recordedAt observedAt origin family week policy canonicalNormalizerVersion sourceAdapterVersion sport period ordinal scopeId attemptId acceptedGeneration normalizerVersion source sourceUpdatedAt rawContentHash configurationVersionId configurationSemanticHash configurationContentId expectedTeamCount checkedAt resourceKind nativeNamespace').split(' '));
+const comparisonLiterals = new Set(('league_one_runtime public-network-capture-v1 progress complete available missing known unknown empty owned unowned sleeper nfl QB BN identity leagues bootstrap core users settings players managers managers-v1 managers-v2 league rosters network public-data-intake-v1 latest-for-current-source-mapping league-administration-public-intake sleeper-league-settings-v1 sleeper-current-players-v1 sleeper-current-team-managers-v1 sleeper-current-team-manager-evidence-v2 accepted preserved rejected team manager account scoring-entity').split(' '));
+function comparisonEvidence(id: ComparisonId, occurrence: number, actual: unknown, expected: unknown): ComparisonEvidence {
+  const aliases = new Map<string, number>();
+  let truncated = false, redacted = false;
+  const hidden = (reason: string): SafeValue => { redacted = true; return { redacted: reason }; };
+  const limit = (): SafeValue => { truncated = true; return { truncated: true }; };
+  const project = (root: unknown, shape?: unknown): SafeValue => {
+    let nodes = 0;
+    const visit = (value: unknown, depth: number, subset?: unknown): SafeValue => {
+      if (++nodes > 1_024 || depth > 16) return limit();
+      if (value === null || typeof value === 'boolean') return value;
+      if (value === undefined) return { state: 'undefined' };
+      if (typeof value === 'number') return Number.isFinite(value) && Math.abs(value) <= 10 ** 13 ? value : hidden('number-out-of-range');
+      if (typeof value === 'string') {
+        if (comparisonLiterals.has(value)) return value;
+        if (value.length <= 40 && /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}(?::\d{2})?)$/u.test(value)
+          && Number.isFinite(Date.parse(value))) return { timestamp: value };
+        if (value.length > 512) return hidden('string-over-limit');
+        if (!aliases.has(value)) aliases.set(value, aliases.size + 1);
+        redacted = true;
+        return { alias: aliases.get(value)!, kind: /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu.test(value) ? 'uuid'
+          : /^[0-9]{1,32}$/u.test(value) ? 'native-id' : 'string' };
+      }
+      if (typeof value !== 'object') return hidden(typeof value);
+      try {
+        // Built-in brand check cannot invoke an operand's toJSON/valueOf/getters.
+        let time: number | undefined;
+        try { time = Date.prototype.getTime.call(value); } catch { /* Ordinary object. */ }
+        if (time !== undefined) return Number.isFinite(time) ? { timestamp: new Date(time).toISOString(), kind: 'Date' } : hidden('invalid-date');
+        const fields = Object.getOwnPropertyDescriptors(value);
+        if (Array.isArray(value)) {
+          const length = fields.length?.value;
+          if (!Number.isSafeInteger(length) || length < 0) return hidden('invalid-array');
+          if (length > 16) truncated = true;
+          const subsetFields = subset && typeof subset === 'object' ? Object.getOwnPropertyDescriptors(subset) : undefined;
+          const items: SafeValue[] = [];
+          for (let i = 0; i < Math.min(length, 16); i++) {
+            const field = fields[String(i)], hint = subsetFields?.[String(i)];
+            items.push(!field ? { state: 'missing' } : !Object.hasOwn(field, 'value') ? hidden('accessor')
+              : visit(field.value, depth + 1, hint && Object.hasOwn(hint, 'value') ? hint.value : undefined));
+          }
+          const extraFields = Reflect.ownKeys(fields).filter(key => key !== 'length'
+            && (typeof key !== 'string' || !/^(0|[1-9][0-9]*)$/u.test(key) || Number(key) >= length)).length;
+          if (extraFields) redacted = true;
+          return { length, items, ...(length > 16 ? { truncated: true } : {}), ...(extraFields ? { $redactedFieldCount: extraFields } : {}) };
+        }
+        const keys = Reflect.ownKeys(fields);
+        const unknownFields = keys.filter(key => typeof key !== 'string' || !comparisonFields.has(key)).length;
+        const hint = subset && typeof subset === 'object' && !Array.isArray(subset) ? Object.getOwnPropertyDescriptors(subset) : undefined;
+        const selected = (hint ? Object.keys(hint) : Object.keys(fields)).filter(key => comparisonFields.has(key)).sort();
+        const result: { [key: string]: SafeValue } = {};
+        for (const key of selected) {
+          const field = fields[key], childHint = hint?.[key];
+          result[key] = !field ? { state: 'missing' } : !Object.hasOwn(field, 'value') ? hidden('accessor')
+            : visit(field.value, depth + 1, childHint && Object.hasOwn(childHint, 'value') ? childHint.value : undefined);
+        }
+        if (unknownFields) { redacted = true; result.$redactedFieldCount = unknownFields; }
+        if (hint) result.$omittedFieldCount = Object.keys(fields).filter(key => comparisonFields.has(key) && !selected.includes(key)).length;
+        return result;
+      } catch { return hidden('uninspectable'); }
+    };
+    return visit(root, 0, shape);
+  };
+  const matcher = comparisons[id];
+  // A length assertion needs the observed length, not the entire population.
+  const length = (value: unknown): SafeValue => {
+    try {
+      if (typeof value === 'string') return { length: value.length };
+      if (value && typeof value === 'object') {
+        const field = Object.getOwnPropertyDescriptor(value, 'length');
+        if (field && Object.hasOwn(field, 'value')) return { length: project(field.value) };
+        return field ? hidden('accessor') : { length: { state: 'missing' } };
+      }
+    } catch { return hidden('uninspectable'); }
+    return hidden('no-length');
+  };
+  const evidence: ComparisonEvidence = { id, matcher, occurrence,
+    actual: matcher === 'toHaveLength' ? length(actual) : project(actual, matcher === 'toMatchObject' ? expected : undefined),
+    expected: id === 'uuid.shape' ? { pattern: 'uuid' } : project(expected), truncated, redacted };
+  // Preserve explicit incompleteness rather than silently dropping fields to satisfy the artifact bound.
+  if (Buffer.byteLength(JSON.stringify(evidence, null, 2), 'utf8') > 48 * 1_024) {
+    return { id, matcher, occurrence, actual: { truncated: true }, expected: { truncated: true }, truncated: true, redacted };
+  }
+  return evidence;
+}
+
 type DatabaseVersion = Readonly<{ serverVersion: string; serverVersionNum: number }>;
 type Failure = { phase: Phase; category: Category; sqlState: string | null; step: number; cycle: number;
   /** The owned synchronous assertion group, never an exception-derived label or source line. */
-  assertionCheckpoint?: AssertionCheckpoint };
+  assertionCheckpoint?: AssertionCheckpoint; comparison?: ComparisonEvidence };
 type Event = { sequence: number; step: number; cycle: number; phase: Phase; event: 'start' | 'return' | 'error' | 'expected-error';
   elapsedMs: number; durationMs?: number; status?: string; resource?: string; reason?: string;
   acceptance?: Record<string, string>; receipt?: ReceiptEvidence; category?: Category; sqlState?: string | null; fault?: ExpectedFault };
@@ -127,8 +239,8 @@ function summary(value: unknown): Pick<Event, 'status' | 'resource' | 'reason' |
     ...(Object.keys(acceptance).length ? { acceptance } : {}) };
 }
 
-/** Selected integration cases only. Serializes fixed classifications and bounded receipt predicates,
- * never arguments, raw errors, SQL, identities, provider payloads or URLs. No persistence/worker behavior changes. */
+/** Selected integration cases only. Serializes fixed classifications, bounded receipt predicates and
+ * owned comparison projections; no raw errors, identities, SQL, provider payloads or URLs. */
 export function createPublicDataDiagnostics(kind: 'ordinary' | 'refresh') {
   if (kind !== 'ordinary' && kind !== 'refresh') throw new Error('Public DATA diagnostic failure: invalid case kind.');
   const started = performance.now();
@@ -142,6 +254,8 @@ export function createPublicDataDiagnostics(kind: 'ordinary' | 'refresh') {
   let firstFailure: Failure | undefined;
   let firstError: Error | undefined;
   let databaseVersion: DatabaseVersion | undefined;
+  let activeCheckpoint: AssertionCheckpoint | undefined;
+  const comparisonCounts = new Map<ComparisonId, number>();
   const append = (event: Omit<Event, 'sequence' | 'step' | 'cycle' | 'elapsedMs'>) => {
     if (events.length === MAX_EVENTS) { events.shift(); droppedEvents++; }
     const entry = { sequence: ++sequence, step, cycle, elapsedMs: Math.max(0, Math.round(performance.now() - started)), ...event };
@@ -149,7 +263,7 @@ export function createPublicDataDiagnostics(kind: 'ordinary' | 'refresh') {
     if (event.event === 'return' && !event.phase.startsWith('jobs.') && event.phase !== 'refresh.select'
       && event.phase !== 'administration.receipt' && !['busy','backoff','idle'].includes(event.status ?? '')) lastCompletedBoundary = entry;
   };
-  const fail = (phase: Phase, error: unknown, category?: Category, checkpoint?: AssertionCheckpoint): Error => {
+  const fail = (phase: Phase, error: unknown, category?: Category, checkpoint?: AssertionCheckpoint, comparison?: ComparisonEvidence): Error => {
     if (firstError) return firstError;
     if (!(phases as readonly unknown[]).includes(phase)) phase = 'case';
     if (category !== undefined && !['sql','abort','assertion','unexpected','incomplete'].includes(category)) category = 'unexpected';
@@ -157,10 +271,11 @@ export function createPublicDataDiagnostics(kind: 'ordinary' | 'refresh') {
     const assertionCheckpoint = phase === 'case.assertion' && detail.category === 'assertion'
       && typeof checkpoint === 'string' && (assertionCheckpoints as readonly string[]).includes(checkpoint) ? checkpoint : undefined;
     firstFailure = { phase, ...detail, ...(category ? { category } : {}), step, cycle,
-      ...(assertionCheckpoint ? { assertionCheckpoint } : {}) };
+      ...(assertionCheckpoint ? { assertionCheckpoint, ...(comparison ? { comparison } : {}) } : {}) };
     firstError = new Error('Public DATA diagnostic failure: boundary=' + phase + '; category=' + firstFailure.category
       + '; sqlState=' + (firstFailure.sqlState ?? 'unknown') + '; step=' + step + '; cycle=' + cycle
-      + (assertionCheckpoint ? '; assertionCheckpoint=' + assertionCheckpoint : '') + '.');
+      + (assertionCheckpoint ? '; assertionCheckpoint=' + assertionCheckpoint : '')
+      + (comparison && assertionCheckpoint ? '; comparison=' + comparison.id + '; matcher=' + comparison.matcher : '') + '.');
     sanitized.set(firstError, firstError);
     return firstError;
   };
@@ -241,8 +356,20 @@ export function createPublicDataDiagnostics(kind: 'ordinary' | 'refresh') {
     observe,
     assertion<T>(checkpoint: AssertionCheckpoint, action: () => T): T {
       if (typeof checkpoint !== 'string' || !(assertionCheckpoints as readonly string[]).includes(checkpoint)) throw fail('case', undefined);
+      const previous = activeCheckpoint; activeCheckpoint = checkpoint;
       try { return action(); }
       catch (error) { throw fail('case.assertion', error, undefined, checkpoint); }
+      finally { activeCheckpoint = previous; }
+    },
+    comparison<A, E>(id: ComparisonId, actual: A, expected: E, assertion: (actual: A, expected: E) => void): void {
+      if (kind !== 'ordinary' || !activeCheckpoint || typeof id !== 'string' || !Object.hasOwn(comparisons, id)) throw fail('case', undefined);
+      const occurrence = (comparisonCounts.get(id) ?? 0) + 1; comparisonCounts.set(id, occurrence);
+      try { assertion(actual, expected); }
+      catch (error) {
+        if (firstError) throw firstError;
+        const evidence = classification(error).category === 'assertion' ? comparisonEvidence(id, occurrence, actual, expected) : undefined;
+        throw fail('case.assertion', error, undefined, activeCheckpoint, evidence);
+      }
     },
     recordDatabaseVersion(row: unknown) {
       // Inspect own data descriptors only: no getters, prototype methods, raw errors or serialization hooks.
@@ -267,7 +394,7 @@ export function createPublicDataDiagnostics(kind: 'ordinary' | 'refresh') {
       if (read(outcome, 'status') === 'unavailable' && expectedThisStep === 0) throw fail('coordinator', undefined, 'incomplete');
     },
     snapshot() { return { kind: 'public-data-ingestion-diagnostics-v1', step, cycle, droppedEvents,
-      ...(databaseVersion ? { databaseVersion: { ...databaseVersion } } : {}), lastCompletedBoundary: lastCompletedBoundary ?? null, firstFailure: firstFailure ?? null, events: [...events] }; },
+      ...(databaseVersion ? { databaseVersion: { ...databaseVersion } } : {}), lastCompletedBoundary: lastCompletedBoundary ?? null, firstFailure: firstFailure ? JSON.parse(JSON.stringify(firstFailure)) as Failure : null, events: [...events] }; },
     async save() {
       try {
         const binding = qualificationBinding();

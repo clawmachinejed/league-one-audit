@@ -5,6 +5,13 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import http from 'node:http';
+import ts from 'typescript';
+import { types } from '@neondatabase/serverless';
+import { exactMatchupClockInstant } from './exact-matchup-clock';
+import type { AcceptedLeagueSettingsRead } from '../lib/aggregator/league-settings';
+import type { CurrentRosterCaptureReceipt } from '../lib/aggregator/season-overview-source-contracts';
+import type { PublicCaptureWitness } from '../lib/league-administration/contracts';
+import type { TeamManagerRelationships } from '../lib/aggregator/team-managers';
 import https from 'node:https';
 import net from 'node:net';
 import { ReceiptDiagnosticReadError, type ReceiptDiagnosticReader } from './neon-integration-harness';
@@ -482,4 +489,212 @@ it('keeps the first database version immutable and preserves an earlier failure 
   const other = createPublicDataDiagnostics('ordinary'), first = other.failure('intake.register', sqlError());
   expect(() => other.recordDatabaseVersion({ server_version: secret })).toThrow(first);
   expect(other.snapshot().firstFailure).toMatchObject({ phase: 'intake.register', sqlState: '42501' });
+});
+
+// These tests fail real Vitest assertions and inspect the same saved artifact as the SQL case.
+async function comparisonArtifact() {
+  const raw = await readFile(join(directory, 'public-data-ingestion-diagnostics.json'), 'utf8');
+  expect(raw).not.toContain(secret);
+  expect(Buffer.byteLength(raw)).toBeLessThanOrEqual(64 * 1024);
+  // The writer is intentionally immutable (wx); each later fixture save needs a new owned file.
+  await rm(join(directory, 'public-data-ingestion-diagnostics.json'));
+  return JSON.parse(raw).firstFailure;
+}
+it('names the exact failed settings field with bounded actual and expected values', async () => {
+  const d = createPublicDataDiagnostics('ordinary');
+  const actual = { nativeSettings: { fields: { state: 'known', value: { divisions: 2 } } } };
+  const expected = { nativeSettings: { fields: { state: 'known', value: { divisions: 3 } } } };
+  expect(() => d.assertion('settings-value', () => d.comparison('settings.value', actual, expected,
+    (a, e) => expect(a).toMatchObject(e)))).toThrow('comparison=settings.value; matcher=toMatchObject');
+  await d.save();
+  const failure = await comparisonArtifact();
+  expect(failure).toMatchObject({ assertionCheckpoint: 'settings-value', comparison: { id: 'settings.value', matcher: 'toMatchObject',
+    actual: { nativeSettings: { fields: { value: { divisions: 2 } } } },
+    expected: { nativeSettings: { fields: { value: { divisions: 3 } } } }, truncated: false } });
+});
+it('shares synthetic identity aliases across both operands while preserving positions and equality', async () => {
+  const d = createPublicDataDiagnostics('ordinary'), other = '22222222-2222-4222-8222-222222222222';
+  expect(() => d.assertion('team-identities', () => d.comparison('teams.identity-parity', [id, other], [id, id],
+    (a, e) => expect(a).toEqual(e)))).toThrow('comparison=teams.identity-parity');
+  await d.save();
+  const { comparison: c } = await comparisonArtifact();
+  expect(c.actual).toEqual({ length: 2, items: [{ alias: 1, kind: 'uuid' }, { alias: 2, kind: 'uuid' }] });
+  expect(c.expected).toEqual({ length: 2, items: [{ alias: 1, kind: 'uuid' }, { alias: 1, kind: 'uuid' }] });
+  expect(JSON.stringify(c)).not.toContain(id); expect(JSON.stringify(c)).not.toContain(other);
+});
+it('retains observed lengths, missing versus null, and exact timestamp differences', async () => {
+  for (const run of [
+    () => { const d = createPublicDataDiagnostics('ordinary');
+      expect(() => d.assertion('team-counts', () => d.comparison('players.team-count', [], 1, (a, e) => expect(a).toHaveLength(e)))).toThrow();
+      return d; },
+    () => { const d = createPublicDataDiagnostics('ordinary');
+      expect(() => d.assertion('candidate', () => d.comparison('candidate.fields', {}, { scoring_profile_id: null }, (a, e) => expect(a).toMatchObject(e)))).toThrow();
+      return d; },
+    () => { const d = createPublicDataDiagnostics('ordinary');
+      expect(() => d.assertion('discovery-times', () => d.comparison('discovery.started', '2026-10-08T18:00:00.000Z', '2026-10-08T18:00:00.123Z', (a, e) => expect(a).toBe(e)))).toThrow();
+      return d; },
+  ]) {
+    const d = run(); await d.save(); const { comparison: c } = await comparisonArtifact();
+    if (c.id === 'players.team-count') expect(c).toMatchObject({ actual: { length: 0 }, expected: 1 });
+    if (c.id === 'candidate.fields') expect(c).toMatchObject({ actual: { scoring_profile_id: { state: 'missing' } }, expected: { scoring_profile_id: null } });
+    if (c.id === 'discovery.started') expect(c).toMatchObject({ actual: { timestamp: '2026-10-08T18:00:00.000Z' }, expected: { timestamp: '2026-10-08T18:00:00.123Z' } });
+  }
+});
+function fullComparisonFixture() {
+  const time = '2026-10-08T18:00:00.123Z', mapping = fixture().mapping;
+  const witness: PublicCaptureWitness = { version: 'public-network-capture-v1',
+    work: { requestId: id, revision: 1, kind: 'core', externalLeagueId: mapping.scope.externalLeagueId, season: mapping.scope.season },
+    fence: { jobKey: 'league-administration-public-intake', workerId: id, generation: 1, deadlineAt: time },
+    dispatchNonce: id, mapping, attempts: { settings: { id, nonce: id }, players: { id, nonce: id }, managers: { id, nonce: id }, managersV2: { id, nonce: id } } };
+  const provenance = { origin: 'network' as const, requestStartedAt: time, requestCompletedAt: time, sourceObservedAt: time, checkedAt: time, acquisition: witness };
+  const settings: Extract<AcceptedLeagueSettingsRead, { status: 'available' }>['receipt'] = {
+    id, attemptId: id, ordinal: 1, legacyObservationId: id, provenance, sourceUpdatedAt: null,
+    rawContentHash: 'a'.repeat(64), configurationVersionId: id, configurationSemanticHash: 'b'.repeat(64) };
+  const roster: CurrentRosterCaptureReceipt = { id, attemptId: id, ordinal: 1, provenance,
+    configurationContentId: id, expectedTeamCount: 1, legacyObservationId: id };
+  const sourceTeam = { provider: 'sleeper' as const, resourceKind: 'team', nativeNamespace: 'fixture-team', nativeId: '1' };
+  const primaryOwner: TeamManagerRelationships['primaryOwner'] = { state: 'owned', manager: { providerManagerId: id,
+    sourceManager: { provider: 'sleeper', resourceKind: 'manager', nativeNamespace: 'fixture-manager', nativeId: '9' } } };
+  return { witness, provenance, mapping,
+    resources: { settings: { status: 'available', receipt: settings }, heldRoster: { status: 'available', receipt: roster },
+      teamManagers: { status: 'available', receipt: roster }, teamManagerEvidence: { status: 'available', receipt: roster, captureBinding: 'latest-for-current-source-mapping' },
+      directory: { status: 'available', observationId: id, acquisition: { id, legacyObservationId: id, sourceMapping: mapping } } },
+    parity: { sourceTeam, primaryOwner, coManagers: { state: 'known', completeness: 'complete', managers: [primaryOwner.manager] } },
+    lineage: { intake_id: id, resource: 'core', source_mapping: mapping, provenance, exact_witness: true, server_window: true, current_head: true } };
+}
+// Enumerate only this fixed synthetic contract fixture, never arbitrary live values.
+function leafPaths(value: unknown, path: (string | number)[] = []): (string | number)[][] {
+  if (value === null || typeof value !== 'object') return [path];
+  return Object.entries(value).flatMap(([key, child]) => leafPaths(child, [...path, Array.isArray(value) ? Number(key) : key]));
+}
+function atPath(value: unknown, path: readonly (string | number)[], projected = false): unknown {
+  return path.reduce<unknown>((current, key) => {
+    const record = current as Record<string | number, unknown>;
+    return projected && typeof key === 'number' ? (record.items as unknown[])[key] : record[key];
+  }, value);
+}
+it('exposes every retained receipt, provenance, capture and manager identity field within realistic full operands', async () => {
+  const f = fullComparisonFixture();
+  const cases = [
+    ['stored-resources.composition', 'stored-resources', f.resources],
+    ['lineage.witness', 'receipt-witness', f.lineage],
+    ['manager-evidence.parity', 'manager-parity', f.parity],
+  ] as const;
+  for (const [label, group, expected] of cases) {
+    for (const path of leafPaths(expected)) {
+      const actual = structuredClone(expected), old = atPath(actual, path);
+      const parent = atPath(actual, path.slice(0, -1)) as Record<string | number, unknown>;
+      parent[path.at(-1)!] = old === null ? false : typeof old === 'boolean' ? !old : typeof old === 'number' ? old + 1 : String(old) + '-changed';
+      const d = createPublicDataDiagnostics('ordinary');
+      expect(() => d.assertion(group, () => d.comparison(label, actual, expected, (a, e) => expect(a).toMatchObject(e)))).toThrow();
+      await d.save(); const { comparison: c } = await comparisonArtifact();
+      expect(c.truncated, label + ':' + path.join('.')).toBe(false);
+      expect(atPath(c.actual, path, true), label + ':' + path.join('.')).not.toEqual(atPath(c.expected, path, true));
+    }
+  }
+});
+it('retains receipt time and nonce relations without admitting unrelated fields into subset evidence', async () => {
+  const f = fullComparisonFixture(), actual = structuredClone(f.lineage);
+  Object.assign(actual.provenance.acquisition, { dispatchNonce: '99999999-9999-4999-8999-999999999999' });
+  actual.provenance.requestCompletedAt = '2026-10-08T18:00:00.124Z';
+  const oversized = { ...actual, players: Array.from({ length: 2000 }, () => ({ id: secret })) };
+  const d = createPublicDataDiagnostics('ordinary');
+  expect(() => d.assertion('receipt-witness', () => d.comparison('lineage.witness', oversized, f.lineage, (a, e) => expect(a).toMatchObject(e)))).toThrow();
+  await d.save(); const { comparison: c } = await comparisonArtifact();
+  expect(c.truncated).toBe(false);
+  expect(c.actual.provenance.requestCompletedAt).toEqual({ timestamp: '2026-10-08T18:00:00.124Z' });
+  expect(c.expected.provenance.requestCompletedAt).toEqual({ timestamp: '2026-10-08T18:00:00.123Z' });
+  expect(c.actual.provenance.acquisition.dispatchNonce).not.toEqual(c.expected.provenance.acquisition.dispatchNonce);
+  expect(c.actual.$omittedFieldCount).toBe(1);
+});
+it('never inspects hostile error payloads, getters, prototypes or serialization hooks in operand projections', async () => {
+  const touched = vi.fn(() => { throw new Error(secret); });
+  const operand = Object.create({ get status() { return touched(); } });
+  Object.defineProperties(operand, { id: { get: touched, enumerable: true }, [secret]: { value: secret, enumerable: true },
+    toJSON: { value: touched, enumerable: true }, valueOf: { value: touched, enumerable: true } });
+  const d = createPublicDataDiagnostics('ordinary');
+  expect(() => d.assertion('candidate', () => d.comparison('candidate.fields', operand, { id, status: 'available' },
+    () => expect(0).toBe(1)))).toThrow('comparison=candidate.fields');
+  await d.save(); const { comparison: c } = await comparisonArtifact();
+  expect(touched).not.toHaveBeenCalled();
+  expect(c.actual).toMatchObject({ id: { redacted: 'accessor' }, status: { state: 'missing' }, $redactedFieldCount: 3 });
+  const copy = d.snapshot(); copy.firstFailure!.comparison!.actual = secret;
+  await d.save(); expect((await comparisonArtifact()).comparison.actual).toEqual(c.actual);
+});
+it('rejects invalid comparison labels, scopes and non-assertion evidence without coercion or stale attribution', async () => {
+  const coerced = vi.fn(() => secret), bad = { toString: coerced };
+  const d = createPublicDataDiagnostics('ordinary');
+  expect(() => d.assertion('candidate', () => d.comparison(bad as never, 0, 1, (a, e) => expect(a).toBe(e)))).toThrow('boundary=case');
+  expect(coerced).not.toHaveBeenCalled(); expect(d.snapshot().firstFailure?.comparison).toBeUndefined();
+  const outside = createPublicDataDiagnostics('ordinary');
+  expect(() => outside.comparison('candidate.fields', 0, 1, (a, e) => expect(a).toBe(e))).toThrow('boundary=case');
+  const sql = createPublicDataDiagnostics('ordinary');
+  await expect(sql.observe('reader.settings', async () => { throw sqlError(); })).rejects.toThrow('sqlState=42501');
+  expect(() => sql.assertion('settings-value', () => sql.comparison('settings.value', 0, 1, (a, e) => expect(a).toBe(e)))).toThrow('sqlState=42501');
+  expect(sql.snapshot().firstFailure?.comparison).toBeUndefined();
+});
+it('makes truncation explicit for arrays, depth, node and total byte limits', async () => {
+  const nested: Record<string, unknown> = {}; let cursor = nested;
+  for (let i = 0; i < 20; i++) { const next = {}; cursor.value = next; cursor = next; }
+  for (const actual of [Array(17).fill(id), nested, Array.from({ length: 16 }, () => Array.from({ length: 16 }, () => Array(16).fill(id)))]) {
+    const d = createPublicDataDiagnostics('ordinary');
+    expect(() => d.assertion('receipt-provenance', () => d.comparison('receipt.acquisition', actual, null, (a, e) => expect(a).toEqual(e)))).toThrow();
+    await d.save(); expect((await comparisonArtifact()).comparison.truncated).toBe(true);
+  }
+});
+it('uses the actual installed timestamptz parser without losing milliseconds at both ordinary comparison sites', async () => {
+  const source = await readFile(new URL('./public-data-intake.integration-case.ts', import.meta.url), 'utf8');
+  const ordinary = source.slice(0, source.indexOf('/** AUTHORED, NOT EXECUTED. Real restricted LOGIN'));
+  const ast = ts.createSourceFile('ordinary.ts', ordinary, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const sites = new Map<string, ts.CallExpression>(); let matchers = 0;
+  const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+      if (node.expression.expression.getText(ast) === 'diagnostics' && node.expression.name.text === 'comparison') sites.set((node.arguments[0] as ts.StringLiteral).text, node);
+      if (ts.isCallExpression(node.expression.expression) && node.expression.expression.expression.getText(ast) === 'expect') {
+        matchers++;
+        const callback = node.parent;
+        expect(ts.isArrowFunction(callback) && ts.isCallExpression(callback.parent) && callback.parent.expression.getText(ast) === 'diagnostics.comparison').toBe(true);
+      }
+    }
+    ts.forEachChild(node, visit);
+  }; visit(ast);
+  expect(matchers).toBe(48); expect(sites.size).toBe(48);
+  for (const field of ['started', 'completed'] as const) {
+    const site = sites.get('discovery.' + field)!;
+    expect(site.arguments[1].getText(ast)).toBe('exactMatchupClockInstant(stored.' + field + ')');
+    expect(site.arguments[2].getText(ast)).toBe(field === 'started' ? 'original.requestStartedAt' : 'original.requestCompletedAt');
+    for (const fraction of ['000', '001', '123', '999']) {
+      const parsed = types.getTypeParser(1184)('2026-10-08 18:00:00.' + fraction + '+00');
+      const expected = '2026-10-08T18:00:00.' + fraction + 'Z';
+      expect(parsed).toBeInstanceOf(Date); expect(exactMatchupClockInstant(parsed)).toBe(expected);
+      expect(new Date(String(parsed)).toISOString()).toBe('2026-10-08T18:00:00.000Z');
+    }
+  }
+});
+
+it('uses a fixed UUID descriptor, records its calling group and never projects matcher objects', async () => {
+  const d = createPublicDataDiagnostics('ordinary'), pattern = expect.stringMatching(/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu);
+  const pass = vi.fn((a: string, e: unknown) => expect(a).toEqual(e));
+  d.assertion('canonical-ids', () => d.comparison('uuid.shape', id, pattern, pass));
+  expect(pass).toHaveBeenCalledOnce();
+  expect(() => d.assertion('receipt-identities', () => d.comparison('uuid.shape', secret, pattern, (a, e) => expect(a).toEqual(e)))).toThrow();
+  await d.save(); expect(await comparisonArtifact()).toMatchObject({ assertionCheckpoint: 'receipt-identities', comparison: {
+    id: 'uuid.shape', occurrence: 2, matcher: 'toEqual', actual: { kind: 'string' }, expected: { pattern: 'uuid' } } });
+});
+it('keeps the first comparison and never reads exception-supplied actual, expected, stack or message', async () => {
+  const d = createPublicDataDiagnostics('ordinary'), touched = vi.fn(() => { throw new Error(secret); });
+  const error = Object.defineProperties({ name: 'AssertionError' }, Object.fromEntries(
+    ['actual', 'expected', 'stack', 'message'].map(key => [key, { get: touched }])));
+  const first = (() => { try { d.assertion('dispatch-witness', () => d.comparison('dispatch.flags', { server_window: false }, { server_window: true }, () => { throw error; })); }
+    catch (caught) { return caught; } })();
+  expect(() => d.assertion('discovery-times', () => d.comparison('discovery.started', 1, 2, (a, e) => expect(a).toBe(e)))).toThrow(first as Error);
+  await d.save(); expect((await comparisonArtifact()).comparison.id).toBe('dispatch.flags');
+  expect(touched).not.toHaveBeenCalled();
+});
+it('marks unknown object and array field presence without serializing their names or values', async () => {
+  for (const actual of [{ status: 'complete', [secret]: secret }, Object.assign([id], { [secret]: secret })]) {
+    const d = createPublicDataDiagnostics('ordinary');
+    expect(() => d.assertion('receipt-provenance', () => d.comparison('receipt.acquisition', actual, null, (a, e) => expect(a).toEqual(e)))).toThrow();
+    await d.save(); expect((await comparisonArtifact()).comparison.actual.$redactedFieldCount).toBe(1);
+  }
 });

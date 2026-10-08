@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { exactMatchupClockInstant } from './exact-matchup-clock';
 import { readFile } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -31,8 +32,7 @@ describe('ordinary public DATA ingestion through the existing intake owner', () 
       const [runtimeSession] = await database.query("SELECT session_user AS role,current_user AS effective_role," +
         "current_setting('server_version') AS server_version,current_setting('server_version_num') AS server_version_num");
       diagnostics.assertion('runtime-role', () => {
-        expect({ role: runtimeSession.role, effective_role: runtimeSession.effective_role })
-          .toEqual({ role: 'league_one_runtime', effective_role: 'league_one_runtime' });
+        diagnostics.comparison('runtime.roles', { role: runtimeSession.role, effective_role: runtimeSession.effective_role }, { role: 'league_one_runtime', effective_role: 'league_one_runtime' }, (actual, expected) => expect(actual).toEqual(expected));
       });
       diagnostics.recordDatabaseVersion(runtimeSession);
       const receiptReader = createReceiptDiagnosticReader();
@@ -65,7 +65,7 @@ describe('ordinary public DATA ingestion through the existing intake owner', () 
         acquisition?: PublicCaptureWitness } }[] = [];
       const retained = <T extends { requestStartedAt: string; requestCompletedAt: string; acquisition?: PublicCaptureWitness }>(family: string, capture: T): T => {
         diagnostics.assertion('capture-witness', () => {
-          expect(capture.acquisition?.version).toBe('public-network-capture-v1');
+          diagnostics.comparison('capture.version', capture.acquisition?.version, 'public-network-capture-v1', (actual, expected) => expect(actual).toBe(expected));
         });
         captures.push({ family, capture }); return capture;
       };
@@ -86,28 +86,28 @@ describe('ordinary public DATA ingestion through the existing intake owner', () 
         diagnostics.checkOutcome(outcome);
         if (outcome.status === 'busy' || outcome.status === 'backoff') { await delay(1_000); continue; }
         diagnostics.assertion('step-progress', () => {
-          expect(outcome).toMatchObject({ status: 'progress', resource: stages[completed], providerRequests: stages[completed] === 'core' ? 2 : 1 });
+          diagnostics.comparison('step.progress', outcome, { status: 'progress', resource: stages[completed], providerRequests: stages[completed] === 'core' ? 2 : 1 }, (actual, expected) => expect(actual).toMatchObject(expected));
         });
         completed++;
       }
       diagnostics.assertion('journey-complete', () => {
-        expect(completed).toBe(stages.length);
+        diagnostics.comparison('journey.stage-count', completed, stages.length, (actual, expected) => expect(actual).toBe(expected));
       });
       const next = await intake.next(id);
-      diagnostics.assertion('journey-next', () => { expect(next).toBe('complete'); });
+      diagnostics.assertion('journey-next', () => { diagnostics.comparison('journey.next', next, 'complete', (actual, expected) => expect(actual).toBe(expected)); });
       diagnostics.assertion('fixture-requests', () => {
-        expect(requested).toEqual(expectedUrls);
-        expect(captures).toHaveLength(6);
+        diagnostics.comparison('fixture.urls', requested, expectedUrls, (actual, expected) => expect(actual).toEqual(expected));
+        diagnostics.comparison('fixture.capture-count', captures, 6, (actual, expected) => expect(actual).toHaveLength(expected));
       });
       const read = await diagnostics.observe('reader.intake', () => readPublicSleeperIntake(database, administration, id, { managerEvidenceVersion: 'v2' }));
       diagnostics.assertion('intake-readback', () => {
-        expect(read).toMatchObject({ status: 'available', request: { requested_username: username, external_manager_id: manager,
+        diagnostics.comparison('intake.readback', read, { status: 'available', request: { requested_username: username, external_manager_id: manager,
           username, seasons: [season], terminal: true, failure_count: 0 },
-          lists: [{ season }], rejected: [], leagues: [{ externalLeagueId: native, season, collection: 'complete' }] });
+          lists: [{ season }], rejected: [], leagues: [{ externalLeagueId: native, season, collection: 'complete' }] }, (actual, expected) => expect(actual).toMatchObject(expected));
       });
       if (read.status === 'missing') throw new Error('Ordinary stored request missing.');
       diagnostics.assertion('intake-population', () => {
-        expect(read.leagues).toHaveLength(1); expect(read.lists).toHaveLength(1);
+        diagnostics.comparison('intake.league-count', read.leagues, 1, (actual, expected) => expect(actual).toHaveLength(expected)); diagnostics.comparison('intake.list-count', read.lists, 1, (actual, expected) => expect(actual).toHaveLength(expected));
       });
       const mapping = await administration.readSourceMapping(native);
       if (!mapping) throw new Error('Ordinary canonical mapping missing.');
@@ -119,19 +119,19 @@ describe('ordinary public DATA ingestion through the existing intake owner', () 
         'JOIN public.league_administration_enrollments enrollment ON enrollment.league_id=league.id ' +
         'WHERE connection.provider=$1 AND connection.external_league_id=$2 AND season.season=$3', ['sleeper', native, season]);
       diagnostics.assertion('canonical-identity', () => {
-        expect(canonical).toMatchObject({ league_season_id: mapping.leagueSeasonId, connection_id: mapping.connectionId,
-          current_mapping_revision_id: mapping.revisionId, scoring_profile_id: null, active: false, evidence: 'public-data-intake-v1' });
+        diagnostics.comparison('canonical.identity', canonical, { league_season_id: mapping.leagueSeasonId, connection_id: mapping.connectionId,
+          current_mapping_revision_id: mapping.revisionId, scoring_profile_id: null, active: false, evidence: 'public-data-intake-v1' }, (actual, expected) => expect(actual).toMatchObject(expected));
       });
       const uuid = (value: unknown): string => {
-        expect(value).toEqual(expect.stringMatching(/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu));
+        diagnostics.comparison('uuid.shape', value, expect.stringMatching(/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu), (actual, expected) => expect(actual).toEqual(expected));
         return value as string;
       };
       diagnostics.assertion('canonical-ids', () => {
-        expect(new Set([canonical.league_id, canonical.league_season_id, canonical.connection_id].map(uuid)).size).toBe(3);
+        diagnostics.comparison('canonical.distinct-ids', new Set([canonical.league_id, canonical.league_season_id, canonical.connection_id].map(uuid)).size, 3, (actual, expected) => expect(actual).toBe(expected));
       });
       const enrollmentInventory = await administration.listEnrollmentInventory(season);
       diagnostics.assertion('enrollment-inventory', () => {
-        expect(enrollmentInventory.entries.some(entry => entry.intended.leagueId === canonical.league_id)).toBe(false);
+        diagnostics.comparison('enrollment.inactive', enrollmentInventory.entries.some(entry => entry.intended.leagueId === canonical.league_id), false, (actual, expected) => expect(actual).toBe(expected));
       });
       const settings = await diagnostics.observe('reader.settings', () => administration.readAcceptedLeagueSettings(mapping));
       const players = await diagnostics.observe('reader.players', () => administration.readAcceptedCurrentRoster(mapping));
@@ -140,49 +140,49 @@ describe('ordinary public DATA ingestion through the existing intake owner', () 
       if (settings.status !== 'available' || players.status !== 'available' || managers.status !== 'available'
         || coowners?.status !== 'available') throw new Error('Ordinary typed stored resources missing.');
       diagnostics.assertion('settings-value', () => {
-        expect(settings.value).toMatchObject({ sourceLeague: { provider: 'sleeper', nativeId: native }, season,
+        diagnostics.comparison('settings.value', settings.value, { sourceLeague: { provider: 'sleeper', nativeId: native }, season,
           scoring: { rules: { state: 'empty', value: {} } }, nativeSettings: { fields: { state: 'known', value: league.settings } },
-          slots: { state: 'known', value: [{ nativeCode: 'QB', count: 1 }, { nativeCode: 'BN', count: 1 }] } });
+          slots: { state: 'known', value: [{ nativeCode: 'QB', count: 1 }, { nativeCode: 'BN', count: 1 }] } }, (actual, expected) => expect(actual).toMatchObject(expected));
       });
       diagnostics.assertion('team-counts', () => {
-        expect(players.teams).toHaveLength(1); expect(managers.teams).toHaveLength(1); expect(coowners.teams).toHaveLength(1);
+        diagnostics.comparison('players.team-count', players.teams, 1, (actual, expected) => expect(actual).toHaveLength(expected)); diagnostics.comparison('managers.team-count', managers.teams, 1, (actual, expected) => expect(actual).toHaveLength(expected)); diagnostics.comparison('manager-evidence.team-count', coowners.teams, 1, (actual, expected) => expect(actual).toHaveLength(expected));
       });
       diagnostics.assertion('players-value', () => {
-        expect(players.teams[0]).toMatchObject({ externalRosterId: '1', players: [{ sourceEntity: { provider: 'sleeper', nativeId: '123' } }] });
+        diagnostics.comparison('players.value', players.teams[0], { externalRosterId: '1', players: [{ sourceEntity: { provider: 'sleeper', nativeId: '123' } }] }, (actual, expected) => expect(actual).toMatchObject(expected));
       });
       diagnostics.assertion('managers-value', () => {
-        expect(managers.teams[0]).toMatchObject({ sourceTeam: { nativeId: '1' },
+        diagnostics.comparison('managers.value', managers.teams[0], { sourceTeam: { nativeId: '1' },
           primaryOwner: { state: 'owned', manager: { sourceManager: { nativeId: manager } } },
-          coManagers: { state: 'known', completeness: 'complete', managers: [{ sourceManager: { nativeId: coManager } }] } });
+          coManagers: { state: 'known', completeness: 'complete', managers: [{ sourceManager: { nativeId: coManager } }] } }, (actual, expected) => expect(actual).toMatchObject(expected));
       });
       diagnostics.assertion('manager-receipts', () => {
-        expect(managers.teams[0].coManagers.sourceRefs).toEqual([managers.receipt.id]);
-        expect(coowners.teams[0].coManagers.sourceRefs).toEqual([coowners.receipt.id]);
-        expect(coowners.evidenceCompleteness).toBe('complete');
+        diagnostics.comparison('managers.receipt-refs', managers.teams[0].coManagers.sourceRefs, [managers.receipt.id], (actual, expected) => expect(actual).toEqual(expected));
+        diagnostics.comparison('manager-evidence.receipt-refs', coowners.teams[0].coManagers.sourceRefs, [coowners.receipt.id], (actual, expected) => expect(actual).toEqual(expected));
+        diagnostics.comparison('manager-evidence.completeness', coowners.evidenceCompleteness, 'complete', (actual, expected) => expect(actual).toBe(expected));
       });
       diagnostics.assertion('manager-parity', () => {
-        expect(coowners.teams[0]).toMatchObject({ sourceTeam: managers.teams[0].sourceTeam, primaryOwner: managers.teams[0].primaryOwner,
-          coManagers: { state: 'known', completeness: 'complete', managers: managers.teams[0].coManagers.managers } });
+        diagnostics.comparison('manager-evidence.parity', coowners.teams[0], { sourceTeam: managers.teams[0].sourceTeam, primaryOwner: managers.teams[0].primaryOwner,
+          coManagers: { state: 'known', completeness: 'complete', managers: managers.teams[0].coManagers.managers } }, (actual, expected) => expect(actual).toMatchObject(expected));
       });
       const teamId = diagnostics.assertion('team-identities', () => uuid(players.teams[0].seasonTeamId));
       diagnostics.assertion('team-identities', () => {
-        expect([managers.teams[0].seasonTeamId, coowners.teams[0].seasonTeamId]).toEqual([teamId, teamId]);
+        diagnostics.comparison('teams.identity-parity', [managers.teams[0].seasonTeamId, coowners.teams[0].seasonTeamId], [teamId, teamId], (actual, expected) => expect(actual).toEqual(expected));
       });
       const primary = managers.teams[0].primaryOwner, co = managers.teams[0].coManagers;
       if (primary.state !== 'owned' || co.state !== 'known') throw new Error('Ordinary manager relationships missing.');
       diagnostics.assertion('provider-manager-identities', () => {
-        expect(co.managers).toHaveLength(1);
-        expect(new Set([uuid(primary.manager.providerManagerId), uuid(co.managers[0].providerManagerId)]).size).toBe(2);
+        diagnostics.comparison('co-managers.count', co.managers, 1, (actual, expected) => expect(actual).toHaveLength(expected));
+        diagnostics.comparison('managers.distinct-ids', new Set([uuid(primary.manager.providerManagerId), uuid(co.managers[0].providerManagerId)]).size, 2, (actual, expected) => expect(actual).toBe(expected));
       });
       const [candidate] = await database.query('SELECT * FROM public.public_data_league_candidates WHERE intake_id=$1', [id]);
       diagnostics.assertion('candidate', () => {
-        expect(candidate).toMatchObject({ stage: 'complete', season, external_league_id: native, league_season_id: mapping.leagueSeasonId,
+        diagnostics.comparison('candidate.fields', candidate, { stage: 'complete', season, external_league_id: native, league_season_id: mapping.leagueSeasonId,
           settings_receipt_id: settings.receipt.id, players_receipt_id: players.receipt.id, managers_receipt_id: managers.receipt.id,
-          league_observation_id: settings.receipt.legacyObservationId, roster_observation_id: players.receipt.legacyObservationId });
+          league_observation_id: settings.receipt.legacyObservationId, roster_observation_id: players.receipt.legacyObservationId }, (actual, expected) => expect(actual).toMatchObject(expected));
       });
       const receipts = [settings.receipt, players.receipt, managers.receipt, coowners.receipt];
       diagnostics.assertion('receipt-identities', () => {
-        expect(new Set(receipts.map(receipt => uuid(receipt.id))).size).toBe(4);
+        diagnostics.comparison('receipts.distinct-ids', new Set(receipts.map(receipt => uuid(receipt.id))).size, 4, (actual, expected) => expect(actual).toBe(expected));
       });
       // v2 is latest-for-mapping evidence, not a fourth receipt stored on the candidate.
       // Its retained attempt must independently name this exact admitted core dispatch.
@@ -210,25 +210,25 @@ describe('ordinary public DATA ingestion through the existing intake owner', () 
         "AND dispatch.generation=(attempt.write_fence->>'generation')::integer WHERE receipt.id=ANY($1::uuid[])",
       [receipts.map(receipt => receipt.id)]);
       diagnostics.assertion('lineage-count', () => {
-        expect(lineage).toHaveLength(4);
+        diagnostics.comparison('lineage.count', lineage, 4, (actual, expected) => expect(actual).toHaveLength(expected));
       });
       for (const receipt of receipts) {
         const original = captures.find(entry => entry.capture.acquisition?.work.kind === 'core'
           && entry.family === (receipt.id === settings.receipt.id ? 'league' : 'rosters'))!.capture;
         diagnostics.assertion('receipt-provenance', () => {
-          expect(receipt.provenance).toMatchObject({ acquisition: original.acquisition,
+          diagnostics.comparison('receipt.provenance', receipt.provenance, { acquisition: original.acquisition,
             requestStartedAt: original.requestStartedAt, requestCompletedAt: original.requestCompletedAt,
-            sourceObservedAt: original.requestCompletedAt });
-          expect(receipt.provenance.acquisition).toEqual(original.acquisition);
+            sourceObservedAt: original.requestCompletedAt }, (actual, expected) => expect(actual).toMatchObject(expected));
+          diagnostics.comparison('receipt.acquisition', receipt.provenance.acquisition, original.acquisition, (actual, expected) => expect(actual).toEqual(expected));
         });
         diagnostics.assertion('receipt-witness', () => {
-          expect(lineage.find(row => row.id === receipt.id)).toMatchObject({ intake_id: id, resource: 'core',
-            source_mapping: mapping, provenance: receipt.provenance, exact_witness: true, server_window: true, current_head: true });
+          diagnostics.comparison('lineage.witness', lineage.find(row => row.id === receipt.id), { intake_id: id, resource: 'core',
+            source_mapping: mapping, provenance: receipt.provenance, exact_witness: true, server_window: true, current_head: true }, (actual, expected) => expect(actual).toMatchObject(expected));
         });
         if (receipt.id !== settings.receipt.id) {
           const population = lineage.find(row => row.id === receipt.id)!.population_evidence as { provenance: { acquisition: unknown } };
           diagnostics.assertion('population-witness', () => {
-            expect(population.provenance.acquisition).toEqual(original.acquisition);
+            diagnostics.comparison('population.acquisition', population.provenance.acquisition, original.acquisition, (actual, expected) => expect(actual).toEqual(expected));
           });
         }
       }
@@ -242,12 +242,12 @@ describe('ordinary public DATA ingestion through the existing intake owner', () 
           USING(worker_id,generation) WHERE dispatch.intake_id=$1 AND outcome.outcome='checkpoint-committed'
         ORDER BY dispatch.admitted_at`, [id]);
       diagnostics.assertion('dispatch-order', () => {
-        expect(outcomes.map(row => row.resource)).toEqual(stages);
+        diagnostics.comparison('dispatch.resources', outcomes.map(row => row.resource), stages, (actual, expected) => expect(actual).toEqual(expected));
       });
       for (const outcome of outcomes) {
         diagnostics.assertion('dispatch-witness', () => {
-          expect(outcome).toMatchObject({ exact_witness: true, server_window: true });
-          expect(outcome.capture_acquisition).toEqual(captures.find(entry => entry.capture.acquisition?.work.kind === outcome.resource)!.capture.acquisition);
+          diagnostics.comparison('dispatch.flags', outcome, { exact_witness: true, server_window: true }, (actual, expected) => expect(actual).toMatchObject(expected));
+          diagnostics.comparison('dispatch.acquisition', outcome.capture_acquisition, captures.find(entry => entry.capture.acquisition?.work.kind === outcome.resource)!.capture.acquisition, (actual, expected) => expect(actual).toEqual(expected));
         });
       }
       const discoveryTimes = await database.query(`SELECT 'identity' AS resource,request_started_at AS started,request_completed_at AS completed
@@ -255,42 +255,42 @@ describe('ordinary public DATA ingestion through the existing intake owner', () 
         SELECT 'leagues',request_started_at,request_completed_at FROM public.public_data_league_lists WHERE intake_id=$1 UNION ALL
         SELECT 'bootstrap',bootstrap_started_at,bootstrap_completed_at FROM public.public_data_league_candidates WHERE intake_id=$1`, [id]);
       diagnostics.assertion('discovery-count', () => {
-        expect(discoveryTimes).toHaveLength(3);
+        diagnostics.comparison('discovery.count', discoveryTimes, 3, (actual, expected) => expect(actual).toHaveLength(expected));
       });
       for (const stored of discoveryTimes) {
         const original = captures.find(entry => entry.capture.acquisition?.work.kind === stored.resource)!.capture;
         diagnostics.assertion('discovery-times', () => {
-          expect(new Date(String(stored.started)).toISOString()).toBe(original.requestStartedAt);
-          expect(new Date(String(stored.completed)).toISOString()).toBe(original.requestCompletedAt);
+          diagnostics.comparison('discovery.started', exactMatchupClockInstant(stored.started), original.requestStartedAt, (actual, expected) => expect(actual).toBe(expected));
+          diagnostics.comparison('discovery.completed', exactMatchupClockInstant(stored.completed), original.requestCompletedAt, (actual, expected) => expect(actual).toBe(expected));
         });
       }
       const storedResources = read.leagues[0].resources;
       diagnostics.assertion('stored-resources', () => {
-        expect(storedResources).toMatchObject({
+        diagnostics.comparison('stored-resources.composition', storedResources, {
           settings: { status: 'available', receipt: settings.receipt }, heldRoster: { status: 'available', receipt: players.receipt },
           teamManagers: { status: 'available', receipt: managers.receipt },
           teamManagerEvidence: { status: 'available', receipt: coowners.receipt, captureBinding: 'latest-for-current-source-mapping' },
           directory: { status: 'available', observationId: candidate.users_observation_id,
             acquisition: { id: candidate.users_capture_id, legacyObservationId: candidate.users_observation_id, sourceMapping: mapping } },
-        });
+        }, (actual, expected) => expect(actual).toMatchObject(expected));
       });
       const [directory] = await database.query('SELECT capture.id,capture.legacy_observation_id,capture.source_mapping,' +
         'capture.request_started_at::text,capture.request_completed_at::text,capture.source_observed_at::text ' +
         'FROM public.public_data_directory_captures capture WHERE capture.id=$1 AND capture.intake_id=$2', [candidate.users_capture_id, id]);
       diagnostics.assertion('directory-lineage', () => {
-        expect(directory).toMatchObject({ id: candidate.users_capture_id, legacy_observation_id: candidate.users_observation_id, source_mapping: mapping });
-        expect(Date.parse(String(directory.request_started_at))).toBeLessThanOrEqual(Date.parse(String(directory.request_completed_at)));
-        expect(directory.source_observed_at).toBe(directory.request_completed_at);
+        diagnostics.comparison('directory.lineage', directory, { id: candidate.users_capture_id, legacy_observation_id: candidate.users_observation_id, source_mapping: mapping }, (actual, expected) => expect(actual).toMatchObject(expected));
+        diagnostics.comparison('directory.time-order', Date.parse(String(directory.request_started_at)), Date.parse(String(directory.request_completed_at)), (actual, expected) => expect(actual).toBeLessThanOrEqual(expected));
+        diagnostics.comparison('directory.time-equality', directory.source_observed_at, directory.request_completed_at, (actual, expected) => expect(actual).toBe(expected));
       });
       const directoryOriginal = captures.find(entry => entry.family === 'users')!.capture;
       diagnostics.assertion('directory-times', () => {
-        expect(new Date(String(directory.request_started_at)).toISOString()).toBe(directoryOriginal.requestStartedAt);
-        expect(new Date(String(directory.request_completed_at)).toISOString()).toBe(directoryOriginal.requestCompletedAt);
+        diagnostics.comparison('directory.started', new Date(String(directory.request_started_at)).toISOString(), directoryOriginal.requestStartedAt, (actual, expected) => expect(actual).toBe(expected));
+        diagnostics.comparison('directory.completed', new Date(String(directory.request_completed_at)).toISOString(), directoryOriginal.requestCompletedAt, (actual, expected) => expect(actual).toBe(expected));
       });
       const finalSeason = await database.query('SELECT scoring_profile_id FROM public.league_seasons WHERE id=$1', [mapping.leagueSeasonId]);
-      diagnostics.assertion('final-profile', () => { expect(finalSeason[0].scoring_profile_id).toBeNull(); });
+      diagnostics.assertion('final-profile', () => { diagnostics.comparison('final.profile', finalSeason[0].scoring_profile_id, null, (actual) => expect(actual).toBeNull()); });
       const finalDispatches = await database.query('SELECT resource FROM public.public_data_dispatches WHERE intake_id=$1 ORDER BY admitted_at', [id]);
-      diagnostics.assertion('final-dispatch-order', () => { expect(finalDispatches).toEqual(stages.map(resource => ({ resource }))); });
+      diagnostics.assertion('final-dispatch-order', () => { diagnostics.comparison('final.dispatch-order', finalDispatches, stages.map(resource => ({ resource })), (actual, expected) => expect(actual).toEqual(expected)); });
     } catch (error) { throw diagnostics.failure('case', error); }
     finally { restoreFetch?.(); await diagnostics.save(); }
   }, 10 * 60_000);
