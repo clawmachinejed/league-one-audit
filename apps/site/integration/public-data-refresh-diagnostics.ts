@@ -29,7 +29,18 @@ const resources = new Set(['identity','leagues','bootstrap','core','users']);
 const expectedBoundaries = { 'admission-ack-loss': 'intake.admit', 'core-checkpoint-loss': 'intake.completeCore',
   'paired-cleanup-loss': 'intake.fail' } as const;
 type ExpectedFault = keyof typeof expectedBoundaries;
-type Failure = { phase: Phase; category: Category; sqlState: string | null; step: number; cycle: number };
+const assertionCheckpoints = ['runtime-role', 'capture-witness', 'step-progress', 'journey-complete', 'intake-readback',
+  'canonical-identity', 'canonical-ids', 'settings-value', 'team-counts', 'players-value', 'managers-value',
+  'manager-receipts', 'manager-parity', 'team-identities', 'provider-manager-identities', 'candidate',
+  'receipt-identities', 'lineage-count', 'receipt-provenance', 'receipt-witness', 'population-witness',
+  'dispatch-order', 'dispatch-witness', 'discovery-count', 'discovery-times', 'stored-resources',
+  'directory-lineage', 'directory-times', 'journey-next', 'fixture-requests', 'intake-population',
+  'enrollment-inventory', 'final-profile', 'final-dispatch-order'] as const;
+type AssertionCheckpoint = typeof assertionCheckpoints[number];
+type DatabaseVersion = Readonly<{ serverVersion: string; serverVersionNum: number }>;
+type Failure = { phase: Phase; category: Category; sqlState: string | null; step: number; cycle: number;
+  /** The owned synchronous assertion group, never an exception-derived label or source line. */
+  assertionCheckpoint?: AssertionCheckpoint };
 type Event = { sequence: number; step: number; cycle: number; phase: Phase; event: 'start' | 'return' | 'error' | 'expected-error';
   elapsedMs: number; durationMs?: number; status?: string; resource?: string; reason?: string;
   acceptance?: Record<string, string>; receipt?: ReceiptEvidence; category?: Category; sqlState?: string | null; fault?: ExpectedFault };
@@ -130,6 +141,7 @@ export function createPublicDataDiagnostics(kind: 'ordinary' | 'refresh') {
   let lastCompletedBoundary: Event | undefined;
   let firstFailure: Failure | undefined;
   let firstError: Error | undefined;
+  let databaseVersion: DatabaseVersion | undefined;
   const append = (event: Omit<Event, 'sequence' | 'step' | 'cycle' | 'elapsedMs'>) => {
     if (events.length === MAX_EVENTS) { events.shift(); droppedEvents++; }
     const entry = { sequence: ++sequence, step, cycle, elapsedMs: Math.max(0, Math.round(performance.now() - started)), ...event };
@@ -137,14 +149,18 @@ export function createPublicDataDiagnostics(kind: 'ordinary' | 'refresh') {
     if (event.event === 'return' && !event.phase.startsWith('jobs.') && event.phase !== 'refresh.select'
       && event.phase !== 'administration.receipt' && !['busy','backoff','idle'].includes(event.status ?? '')) lastCompletedBoundary = entry;
   };
-  const fail = (phase: Phase, error: unknown, category?: Category): Error => {
+  const fail = (phase: Phase, error: unknown, category?: Category, checkpoint?: AssertionCheckpoint): Error => {
     if (firstError) return firstError;
     if (!(phases as readonly unknown[]).includes(phase)) phase = 'case';
     if (category !== undefined && !['sql','abort','assertion','unexpected','incomplete'].includes(category)) category = 'unexpected';
     const detail = classification(error);
-    firstFailure = { phase, ...detail, ...(category ? { category } : {}), step, cycle };
+    const assertionCheckpoint = phase === 'case.assertion' && detail.category === 'assertion'
+      && typeof checkpoint === 'string' && (assertionCheckpoints as readonly string[]).includes(checkpoint) ? checkpoint : undefined;
+    firstFailure = { phase, ...detail, ...(category ? { category } : {}), step, cycle,
+      ...(assertionCheckpoint ? { assertionCheckpoint } : {}) };
     firstError = new Error('Public DATA diagnostic failure: boundary=' + phase + '; category=' + firstFailure.category
-      + '; sqlState=' + (firstFailure.sqlState ?? 'unknown') + '; step=' + step + '; cycle=' + cycle + '.');
+      + '; sqlState=' + (firstFailure.sqlState ?? 'unknown') + '; step=' + step + '; cycle=' + cycle
+      + (assertionCheckpoint ? '; assertionCheckpoint=' + assertionCheckpoint : '') + '.');
     sanitized.set(firstError, firstError);
     return firstError;
   };
@@ -223,13 +239,35 @@ export function createPublicDataDiagnostics(kind: 'ordinary' | 'refresh') {
       expected.set(error, { fault, used: false }); return error;
     },
     observe,
-    failure: fail,
+    assertion<T>(checkpoint: AssertionCheckpoint, action: () => T): T {
+      if (typeof checkpoint !== 'string' || !(assertionCheckpoints as readonly string[]).includes(checkpoint)) throw fail('case', undefined);
+      try { return action(); }
+      catch (error) { throw fail('case.assertion', error, undefined, checkpoint); }
+    },
+    recordDatabaseVersion(row: unknown) {
+      // Inspect own data descriptors only: no getters, prototype methods, raw errors or serialization hooks.
+      // This is the version from the case's existing restricted-role identity query, not another connection.
+      try {
+        if (!row || typeof row !== 'object' || Array.isArray(row) || databaseVersion) throw new Error();
+        const fields = Object.getOwnPropertyDescriptors(row);
+        if (Reflect.ownKeys(fields).sort().join(',') !== 'effective_role,role,server_version,server_version_num'
+          || Object.values(fields).some(field => !Object.hasOwn(field, 'value'))) throw new Error();
+        const text = fields.server_version.value, number = fields.server_version_num.value;
+        if (fields.role.value !== 'league_one_runtime' || fields.effective_role.value !== 'league_one_runtime'
+          || typeof text !== 'string' || text.length > 64 || typeof number !== 'string' || !/^[1-9][0-9]{5}$/u.test(number)) throw new Error();
+        const parts = /^([1-9][0-9])\.([0-9]{1,4})(?: \([0-9a-f]{7,40}\))?$/u.exec(text);
+        if (!parts || Number(parts[1]) * 10_000 + Number(parts[2]) !== Number(number)) throw new Error();
+        databaseVersion = Object.freeze({ serverVersion: text, serverVersionNum: Number(number) });
+      } catch { throw fail('case', undefined); }
+    },
+    failure: (phase: Phase, error: unknown, category?: Category) => fail(phase, error, category),
     checkOutcome(outcome: unknown) {
       append({ phase: 'coordinator', event: 'return', ...summary(outcome) });
       if (firstError) throw firstError;
       if (read(outcome, 'status') === 'unavailable' && expectedThisStep === 0) throw fail('coordinator', undefined, 'incomplete');
     },
-    snapshot() { return { kind: 'public-data-ingestion-diagnostics-v1', step, cycle, droppedEvents, lastCompletedBoundary: lastCompletedBoundary ?? null, firstFailure: firstFailure ?? null, events: [...events] }; },
+    snapshot() { return { kind: 'public-data-ingestion-diagnostics-v1', step, cycle, droppedEvents,
+      ...(databaseVersion ? { databaseVersion: { ...databaseVersion } } : {}), lastCompletedBoundary: lastCompletedBoundary ?? null, firstFailure: firstFailure ?? null, events: [...events] }; },
     async save() {
       try {
         const binding = qualificationBinding();

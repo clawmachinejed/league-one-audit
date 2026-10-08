@@ -386,3 +386,100 @@ it('does not read queued preserved evidence for a successful case or an invalid 
   vi.stubEnv(QUALIFICATION_CONTEXT_ENV, undefined); vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
   await other.d.save(); expect(other.query).not.toHaveBeenCalled();
 });
+
+
+it('retains a fixed synchronous assertion group without retaining the assertion message, values or stack', async () => {
+  const d = createPublicDataDiagnostics('ordinary');
+  const callback = vi.fn(() => { expect(secret).toBe('SYNTHETIC_EXPECTED'); });
+  const failure = (() => { try { d.assertion('settings-value', callback); } catch (error) { return error as Error; } })()!;
+  expect(callback).toHaveBeenCalledOnce();
+  expect(d.failure('case', failure)).toBe(failure);
+  expect(d.snapshot().firstFailure).toEqual({ phase: 'case.assertion', category: 'assertion', sqlState: null,
+    step: 0, cycle: 0, assertionCheckpoint: 'settings-value' });
+  expect(failure.message).toContain('assertionCheckpoint=settings-value');
+  for (const raw of [failure.message, failure.stack!, JSON.stringify(d.snapshot())]) {
+    expect(raw).not.toContain(secret); expect(raw).not.toContain('SYNTHETIC_EXPECTED');
+  }
+  await d.save();
+  const saved = JSON.parse(await readFile(join(directory, 'public-data-ingestion-diagnostics.json'), 'utf8'));
+  expect(saved.firstFailure).toEqual(d.snapshot().firstFailure);
+  expect(saved.contextDigest).toMatch(/^[0-9a-f]{64}$/u);
+});
+
+it('invokes an owned assertion group once, preserves its return and never leaves a stale group on later failures', () => {
+  const d = createPublicDataDiagnostics('ordinary'), value = {}, action = vi.fn(() => value);
+  expect(d.assertion('settings-value', action)).toBe(value); expect(action).toHaveBeenCalledOnce();
+  let error: unknown; try { expect(1).toBe(2); } catch (caught) { error = caught; }
+  d.failure('case', error);
+  expect(d.snapshot().firstFailure).toMatchObject({ phase: 'case', category: 'assertion' });
+  expect(d.snapshot().firstFailure).not.toHaveProperty('assertionCheckpoint');
+});
+
+it('preserves an earlier observed SQL failure over a later owned assertion and does not label non-assertion exceptions', async () => {
+  const d = createPublicDataDiagnostics('ordinary');
+  const first = await d.observe('intake.register', async () => { throw sqlError(); }).catch(error => error);
+  expect(() => d.assertion('candidate', () => { expect(1).toBe(2); })).toThrow(first);
+  expect(d.snapshot().firstFailure).toMatchObject({ phase: 'intake.register', category: 'sql', sqlState: '42501' });
+  expect(d.snapshot().firstFailure).not.toHaveProperty('assertionCheckpoint');
+  const other = createPublicDataDiagnostics('ordinary');
+  expect(() => other.assertion('candidate', () => { throw new Error(secret); })).toThrow('category=unexpected');
+  expect(other.snapshot().firstFailure).not.toHaveProperty('assertionCheckpoint');
+});
+
+it('rejects runtime-invalid assertion labels without coercion or callback execution and never reads assertion stacks', () => {
+  const hostile = { toString() { throw Error(secret); }, toJSON() { throw Error(secret); } };
+  for (const label of [secret, hostile, null, 1]) {
+    const action = vi.fn(), d = createPublicDataDiagnostics('ordinary');
+    expect(() => d.assertion(label as never, action)).toThrow('boundary=case; category=unexpected');
+    expect(action).not.toHaveBeenCalled(); expect(JSON.stringify(d.snapshot())).not.toContain(secret);
+  }
+  const stack = vi.fn(() => { throw Error(secret); }), message = vi.fn(() => { throw Error(secret); });
+  const error = Object.defineProperties({ name: 'AssertionError' }, { stack: { get: stack }, message: { get: message } });
+  const d = createPublicDataDiagnostics('ordinary');
+  expect(() => d.assertion('manager-parity', () => { throw error; })).toThrow('assertionCheckpoint=manager-parity');
+  expect(stack).not.toHaveBeenCalled(); expect(message).not.toHaveBeenCalled();
+});
+
+const databaseVersionRow = () => ({ role: 'league_one_runtime', effective_role: 'league_one_runtime',
+  server_version: '18.6 (4e955f5)', server_version_num: '180006' });
+
+it('retains only validated version primitives from the existing restricted identity row in context-bound evidence', async () => {
+  const d = createPublicDataDiagnostics('ordinary'), row = databaseVersionRow();
+  d.recordDatabaseVersion(row); row.server_version = secret;
+  const snapshot = d.snapshot(); snapshot.databaseVersion!.serverVersion = secret;
+  expect(d.snapshot().databaseVersion).toEqual({ serverVersion: '18.6 (4e955f5)', serverVersionNum: 180006 });
+  await d.save();
+  const raw = await readFile(join(directory, 'public-data-ingestion-diagnostics.json'), 'utf8'), saved = JSON.parse(raw);
+  expect(saved.databaseVersion).toEqual(d.snapshot().databaseVersion);
+  expect(saved.gitSha).toBe('a'.repeat(40)); expect(saved.contextDigest).toMatch(/^[0-9a-f]{64}$/u);
+  expect(raw).not.toContain(secret); expect(raw).not.toContain('league_one_runtime');
+});
+
+it('rejects malformed, extra, inherited, accessor or mismatched database version evidence without evaluating values', () => {
+  const getter = vi.fn(() => { throw Error(secret); });
+  const accessor = Object.defineProperty(databaseVersionRow(), 'server_version', { get: getter });
+  const value = { toString: getter, toJSON: getter };
+  const rows = [null, [], Object.create(databaseVersionRow()), accessor,
+    { ...databaseVersionRow(), server_version: value }, { ...databaseVersionRow(), server_version: secret },
+    { ...databaseVersionRow(), server_version: '18.6 (' + 'a'.repeat(100) + ')' },
+    { ...databaseVersionRow(), server_version_num: 180006 }, { ...databaseVersionRow(), server_version_num: '180007' },
+    { ...databaseVersionRow(), server_version_num: '0180006' }, { ...databaseVersionRow(), extra: secret },
+    { ...databaseVersionRow(), role: 'neondb_owner' }, { ...databaseVersionRow(), effective_role: 'neondb_owner' },
+    { ...databaseVersionRow(), [Symbol(secret)]: secret }];
+  for (const row of rows) {
+    const d = createPublicDataDiagnostics('ordinary');
+    expect(() => d.recordDatabaseVersion(row)).toThrow('boundary=case; category=unexpected');
+    expect(d.snapshot()).not.toHaveProperty('databaseVersion'); expect(JSON.stringify(d.snapshot())).not.toContain(secret);
+  }
+  expect(getter).not.toHaveBeenCalled();
+});
+
+it('keeps the first database version immutable and preserves an earlier failure if version recording later fails', () => {
+  const d = createPublicDataDiagnostics('ordinary'); d.recordDatabaseVersion(databaseVersionRow());
+  expect(() => d.recordDatabaseVersion({ ...databaseVersionRow(), server_version: '18.7', server_version_num: '180007' }))
+    .toThrow('boundary=case; category=unexpected');
+  expect(d.snapshot().databaseVersion).toEqual({ serverVersion: '18.6 (4e955f5)', serverVersionNum: 180006 });
+  const other = createPublicDataDiagnostics('ordinary'), first = other.failure('intake.register', sqlError());
+  expect(() => other.recordDatabaseVersion({ server_version: secret })).toThrow(first);
+  expect(other.snapshot().firstFailure).toMatchObject({ phase: 'intake.register', sqlState: '42501' });
+});
