@@ -9,6 +9,9 @@ import ts from 'typescript';
 import { types } from '@neondatabase/serverless';
 import { assertLiveJson } from './live-league-two';
 import { exactMatchupClockInstant } from './exact-matchup-clock';
+import { writeIntegrationArtifact } from './integration-artifacts';
+import { JOURNEY_LEAGUES, JOURNEY_MANAGER, JOURNEY_SEASON } from './public-data-live';
+import { readPublicSleeperIntake } from '../lib/league-administration/public-intake-reader';
 import type { AcceptedLeagueSettingsRead } from '../lib/aggregator/league-settings';
 import type { CurrentRosterCaptureReceipt } from '../lib/aggregator/season-overview-source-contracts';
 import type { PublicCaptureWitness } from '../lib/league-administration/contracts';
@@ -23,7 +26,7 @@ import type { PublicIntakeStore } from '../lib/league-administration/public-inta
 import type { PublicDataRefreshStore } from '../lib/league-administration/public-refresh-contracts';
 import type { NormalizedAdministrationObservation } from '../lib/league-administration/contracts';
 import { createPublicDataDiagnostics, observePublicDataDependencies } from './public-data-refresh-diagnostics';
-import { createQualificationContext, LIVE_PROFILE, JOURNEY_PROFILE, INGESTION_PROFILE, QUALIFICATION_CONTEXT_ENV } from './qualification-profile';
+import { createQualificationContext, qualificationDigest, LIVE_PROFILE, JOURNEY_PROFILE, INGESTION_PROFILE, QUALIFICATION_CONTEXT_ENV } from './qualification-profile';
 vi.mock('server-only', () => ({}));
 vi.mock('next/cache', () => ({ unstable_cache: (fn: unknown) => fn }));
 
@@ -824,4 +827,194 @@ it('uses one existing five-second bound for all live receipt reads and ignores l
   expect(f.diagnostics.snapshot().events.filter(event => event.receipt?.state === 'timeout')).toHaveLength(4);
   expect(f.diagnostics.failure('case', undefined)).toBe(failure);
   const snapshot = f.diagnostics.snapshot(); late.resolve([]); await Promise.resolve(); expect(f.diagnostics.snapshot()).toEqual(snapshot);
+});
+// Execute the maintained journey assertions and its actual catch/finally; never copy a SQL oracle.
+async function journeyAssertionFixture() {
+  const context = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)), 'a'.repeat(40), randomUUID(), JOURNEY_PROFILE);
+  vi.stubEnv(QUALIFICATION_CONTEXT_ENV, JSON.stringify(context));
+  const text = await readFile(new URL('./public-data.live-integration-case.ts', import.meta.url), 'utf8');
+  const tree = ts.createSourceFile('journey.ts', text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const declarations = new Map<string, string>(), checks = new Map<string, ts.CallExpression>();
+  let finalizer: ts.TryStatement | undefined;
+  const visit = (node: ts.Node) => {
+    if (ts.isVariableStatement(node)) for (const declaration of node.declarationList.declarations) {
+      if (ts.isIdentifier(declaration.name) && ['check', 'proveCollection', 'observedReaders'].includes(declaration.name.text)) declarations.set(declaration.name.text, node.getText(tree));
+    }
+    if (ts.isCallExpression(node) && node.expression.getText(tree) === 'check' && ts.isStringLiteral(node.arguments[1])) checks.set(node.arguments[1].text, node);
+    if (ts.isTryStatement(node) && node.finallyBlock?.statements[0]?.getText(tree) === 'globalThis.fetch = originalFetch;') finalizer = node;
+    ts.forEachChild(node, visit);
+  };
+  visit(tree); expect(declarations.size).toBe(3); expect(finalizer?.catchClause).toBeDefined();
+  const diagnostics = createPublicDataDiagnostics('journey'); for (let i = 0; i < 14; i++) diagnostics.beginStep(1);
+  const originalFetch = globalThis.fetch, guardedFetch = vi.fn<typeof fetch>(async () => { throw new Error(secret); });
+  vi.stubGlobal('fetch', guardedFetch);
+  const base = { diagnostics, expect, JOURNEY_LEAGUES, JOURNEY_MANAGER, JOURNEY_SEASON };
+  const compile = (bindings: Record<string, unknown>, code: string) => new Function(...Object.keys(bindings),
+    ts.transpile(code, { target: ts.ScriptTarget.ES2022 }));
+  const prove = async (read: unknown, actual?: { database: unknown; administration: unknown }) => {
+    const bindings = { ...base, readPublicSleeperIntake: actual ? readPublicSleeperIntake : vi.fn(async () => read), database: actual?.database ?? {}, administration: actual?.administration ?? {} };
+    return compile(bindings, declarations.get('check')! + '\n' + declarations.get('observedReaders')! + '\n' + declarations.get('proveCollection')! + '\nreturn proveCollection;')(...Object.values(bindings))(id, 1);
+  };
+  const selected = async (key: string, supplied: Record<string, unknown>) => {
+    const node = checks.get(key); expect(node).toBeDefined();
+    const bindings = { ...base, ...supplied };
+    return compile(bindings, declarations.get('check')! + '\nreturn (async () => { ' + node!.getText(tree) + '; })();')(...Object.values(bindings));
+  };
+  const run = async (action: () => Promise<unknown>) => {
+    const bindings = { ...base, action, originalFetch, writeIntegrationArtifact, qualificationDigest, binding: { context },
+      claims: 14, admissions: 14, finalized: false, changes: [], source: { snapshot: () => ({}) } };
+    const body = 'return (async () => { try { await diagnostics.observe("reader.intake", action); } '
+      + finalizer!.catchClause!.getText(tree) + ' finally ' + finalizer!.finallyBlock!.getText(tree) + ' })();';
+    let thrown: unknown;
+    try { await compile(bindings, body)(...Object.values(bindings)); } catch (error) { thrown = error; }
+    expect(thrown).toBeInstanceOf(Error); expect(globalThis.fetch).toBe(originalFetch); expect(guardedFetch).not.toHaveBeenCalled();
+    const raw = await readFile(join(directory, 'public-data-live-diagnostics.json'), 'utf8'), saved = JSON.parse(raw);
+    expect(Buffer.byteLength(raw)).toBeLessThanOrEqual(64 * 1024); expect(raw).not.toContain(secret);
+    expect(saved.firstFailure).toEqual(diagnostics.snapshot().firstFailure);
+    expect(diagnostics.failure('case', new Error(secret))).toBe(thrown);
+    return { raw, saved, thrown };
+  };
+  return { prove, selected, run, checks, tree };
+}
+const journeyRead = () => ({ status: 'available', request: { id, terminal: true, external_manager_id: JOURNEY_MANAGER,
+  seasons: [JOURNEY_SEASON], failure_count: 0 }, rejected: [], leagues: JOURNEY_LEAGUES.map(externalLeagueId => ({ externalLeagueId })), lists: [{ season: JOURNEY_SEASON }] });
+it.each(['status', 'header', 'league-order', 'list-count'] as const)('retains the actual journey first-readback %s mismatch through observe/catch/finally/save', async mode => {
+  const f = await journeyAssertionFixture(), read = journeyRead();
+  if (mode === 'status') read.status = 'partial';
+  if (mode === 'header') read.request.terminal = false;
+  if (mode === 'league-order') read.leagues.reverse();
+  if (mode === 'list-count') read.lists = [];
+  Object.assign(read, { arbitrary_secret_key: secret });
+  const { saved, raw } = await f.run(() => f.prove(read));
+  const label = mode === 'status' || mode === 'header' ? 'journey.intake.summary' : 'journey.intake.' + mode;
+  expect(saved.firstFailure).toMatchObject({ phase: 'case.assertion', category: 'assertion', step: 14, cycle: 1,
+    assertionCheckpoint: 'intake-readback', comparison: { id: label, matcher: mode === 'list-count' ? 'toHaveLength'
+      : mode === 'league-order' ? 'toEqual' : 'toMatchObject', occurrence: 1 } });
+  if (mode === 'status') expect(saved.firstFailure.comparison.actual.status).toBe('partial');
+  if (mode === 'header') expect(saved.firstFailure.comparison.actual.request.terminal).toBe(false);
+  if (mode === 'list-count') expect(saved.firstFailure.comparison.actual).toEqual({ length: 0 });
+  expect(raw).not.toContain('arbitrary_secret_key'); expect(raw).not.toContain(JOURNEY_MANAGER);
+});
+it.each([
+  ['journey.receipt.generation', 'toBe', { reader: { accepted: { acceptedGeneration: 2 } }, acceptedWrites: [{ acceptedGeneration: 1 }], i: 0 }],
+  ['journey.directory.fresh', 'not.toBe', { directoryCapture: { id }, firstDirectories: new Map([['league', id]]), leagueId: 'league' }],
+  ['journey.manager.uuid', 'toMatch', { manager: { providerManagerId: secret }, uuid: /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu }],
+  ['journey.settlement.spacing', 'toEqual', { spacing: { count: 27, bounded: false } }],
+] as const)('retains actual late %s assertion identity and unchanged matcher %s', async (label, matcher, bindings) => {
+  const f = await journeyAssertionFixture(), { saved } = await f.run(() => f.selected(label, bindings));
+  expect(saved.firstFailure).toMatchObject({ phase: 'case.assertion', category: 'assertion', comparison: { id: label, matcher, occurrence: 1 } });
+  if (matcher === 'not.toBe') expect(saved.firstFailure.comparison.actual).toEqual(saved.firstFailure.comparison.expected);
+  if (matcher === 'toMatch') expect(saved.firstFailure.comparison.expected).toEqual({ pattern: 'uuid' });
+});
+it('retains the exact actual history assertion while bounding and sanitizing large immutable-row differences', async () => {
+  const f = await journeyAssertionFixture();
+  const rows = Array.from({ length: 30 }, (_, n) => ({ id: String(n), payload: { private_key: secret }, name: secret }));
+  const { saved, raw } = await f.run(() => f.selected('journey.history.unchanged', {
+    database: { query: vi.fn(async () => rows) }, item: { sql: secret, args: [secret], rows: [] },
+  }));
+  expect(saved.firstFailure).toMatchObject({ assertionCheckpoint: 'stored-resources', comparison: { id: 'journey.history.unchanged',
+    matcher: 'toEqual', occurrence: 1, truncated: true, redacted: true } });
+  expect(raw).not.toContain('private_key'); expect(raw).not.toContain(secret);
+});
+it('requires every journey matcher to use owned comparison instrumentation and the matching closed matcher label', async () => {
+  const f = await journeyAssertionFixture();
+  const text = await readFile(new URL('./public-data-refresh-diagnostics.ts', import.meta.url), 'utf8');
+  const tree = ts.createSourceFile('diagnostics.ts', text, ts.ScriptTarget.Latest, true), labels = new Map<string, string>();
+  const collect = (node: ts.Node) => {
+    if (ts.isVariableDeclaration(node) && node.name.getText(tree) === 'comparisons' && node.initializer && ts.isAsExpression(node.initializer)
+      && ts.isObjectLiteralExpression(node.initializer.expression)) for (const property of node.initializer.expression.properties) {
+      if (ts.isPropertyAssignment(property) && ts.isStringLiteral(property.name) && ts.isStringLiteral(property.initializer)) labels.set(property.name.text, property.initializer.text);
+    }
+    ts.forEachChild(node, collect);
+  }; collect(tree);
+  expect(f.checks.size).toBe(67);
+  let count = 0;
+  const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node) && node.expression.getText(f.tree) === 'expect') {
+      count++; let parent: ts.Node | undefined = node, owner: ts.CallExpression | undefined;
+      while (parent) {
+        if (ts.isCallExpression(parent) && ['check', 'diagnostics.comparison'].includes(parent.expression.getText(f.tree))) { owner = parent; break; }
+        parent = parent.parent;
+      }
+      expect(owner, 'Every matcher needs an owned comparison.').toBeDefined();
+      if (owner?.expression.getText(f.tree) === 'check') {
+        let expression: ts.Node = node.parent; while (!ts.isCallExpression(expression)) expression = expression.parent;
+        const matcher = (expression as ts.CallExpression).expression.getText(f.tree).replace(/^expect\(a\)\./u, '');
+        const key = (owner.arguments[1] as ts.StringLiteral).text;
+        expect(matcher).toBe(labels.get(key));
+      }
+    }
+    ts.forEachChild(node, visit);
+  }; visit(f.tree); expect(count).toBe(68);
+});
+it('supplements a partial first readback with a bounded league alias and exact unavailable resource reason', async () => {
+  const f = await journeyAssertionFixture(), read = journeyRead(); read.status = 'partial';
+  Object.assign(read.leagues[2], { collection: 'complete', resources: {
+    settings: { status: 'available' }, teamManagers: { status: 'available' }, heldRoster: { status: 'unavailable', reason: 'intake-capture-not-current-head', retained: { payload: secret } },
+    directory: { status: 'available' }, teamManagerEvidence: { status: 'available' },
+  } });
+  const { saved, raw } = await f.run(() => f.prove(read)), evidence = saved.firstFailure.comparison;
+  expect(evidence.readback).toMatchObject({ length: 4, omitted: 0, truncated: false });
+  expect(evidence.readback.items[2]).toMatchObject({ ordinal: 3, externalLeagueId: { kind: 'native-id', alias: expect.any(Number) }, collection: 'complete',
+    resources: { heldRoster: { status: 'unavailable', reason: 'intake-capture-not-current-head' } } });
+  expect(new Set(evidence.readback.items.map((row: { externalLeagueId: { alias: number } }) => row.externalLeagueId.alias)).size).toBe(4);
+  expect(raw).not.toContain('retained'); expect(raw).not.toContain(secret);
+});
+it('never invokes supplemental getters and bounds foreign members and unknown reasons', async () => {
+  const f = await journeyAssertionFixture(), read = journeyRead(), getter = vi.fn(() => { throw new Error(secret); }); read.status = 'partial';
+  Object.assign(read.leagues[0], { resources: { heldRoster: { status: 'unavailable', reason: secret, payload: secret } } });
+  Object.defineProperty(read.leagues[1], 'resources', { get: getter });
+  read.leagues.push(...JOURNEY_LEAGUES.map(externalLeagueId => ({ externalLeagueId })));
+  const { saved, raw } = await f.run(() => f.prove(read)), evidence = saved.firstFailure.comparison;
+  expect(getter).not.toHaveBeenCalled(); expect(evidence).toMatchObject({ truncated: true, redacted: true });
+  expect(evidence.readback).toMatchObject({ length: 8, omitted: 4, truncated: true }); expect(evidence.readback.items).toHaveLength(4);
+  expect(evidence.readback.items[0].resources.heldRoster.reason).toBe('other'); expect(raw).not.toContain(secret);
+});
+it('keeps a swallowed actual typed-reader SQL failure first and adds the actual composed-reader partial summary without extra queries', async () => {
+  const f = await journeyAssertionFixture(), original = fixture().mapping;
+  const mapping = (native: string) => ({ ...original, scope: { ...original.scope, externalLeagueId: native, leagueKey: 'sleeper-' + native } });
+  const observed = { status: 'available', accepted: { observationIds: [id] } };
+  const admin = { readSourceMapping: vi.fn(async (native: string) => mapping(native)),
+    readAcceptedLeagueSettings: vi.fn(async () => observed), readAcceptedTeamManagers: vi.fn(async () => observed),
+    readAcceptedCurrentRoster: vi.fn(async () => { throw sqlError(); }), readAcceptedTeamManagerEvidence: vi.fn(async () => observed),
+    readSource: vi.fn(async () => ({ status: 'available', observationId: id })),
+  };
+  const query = vi.fn(async (sql: string) => {
+    if (sql.includes('read-request')) return [journeyRead().request];
+    if (sql.includes('read-lists')) return [{ season: JOURNEY_SEASON }];
+    if (sql.includes('read-candidates')) return JOURNEY_LEAGUES.map(native => ({ season: JOURNEY_SEASON, external_league_id: native,
+      name: secret, stage: 'complete', league_season_id: original.leagueSeasonId, settings_receipt_id: id, players_receipt_id: id,
+      managers_receipt_id: id, users_observation_id: id, directory_capture: { sourceMapping: mapping(native) } }));
+    if (sql.includes('read-rejections')) return [];
+    throw new Error('Unexpected offline query.');
+  });
+  const { saved, raw } = await f.run(() => f.prove(undefined, { database: { enabled: true, query }, administration: admin }));
+  expect(saved.firstFailure).toMatchObject({ phase: 'reader.players', category: 'sql', sqlState: '42501', step: 14, cycle: 1,
+    readbackComparison: { assertionCheckpoint: 'intake-readback', comparison: { id: 'journey.intake.summary', matcher: 'toMatchObject' } } });
+  expect(saved.firstFailure.comparison).toBeUndefined();
+  expect(saved.firstFailure.readbackComparison.comparison.readback.items).toHaveLength(4);
+  for (const entry of saved.firstFailure.readbackComparison.comparison.readback.items) expect(entry.resources.heldRoster).toEqual({ status: 'unavailable', reason: 'held-roster-read-failed' });
+  expect(query).toHaveBeenCalledTimes(4); expect(admin.readAcceptedCurrentRoster).toHaveBeenCalledTimes(4);
+  for (const [index, call] of admin.readAcceptedCurrentRoster.mock.calls.entries()) expect(call).toEqual([mapping(JOURNEY_LEAGUES[index]), { includeSeasonOverview: true }]);
+  expect(raw).not.toContain(secret);
+});
+it('refuses nested native-ID objects and keeps the fixed readback supplement small', async () => {
+  const f = await journeyAssertionFixture(), read = journeyRead(); read.status = 'partial';
+  Object.assign(read.leagues[0], { externalLeagueId: { payload: Array.from({ length: 50 }, () => ({ envelope: { name: secret, value: 'large'.repeat(1000) } })) } });
+  const { saved, raw } = await f.run(() => f.prove(read));
+  expect(saved.firstFailure.comparison.readback.items[0].externalLeagueId).toEqual({ redacted: 'invalid-native-id' });
+  expect(Buffer.byteLength(JSON.stringify(saved.firstFailure.comparison.readback))).toBeLessThan(4 * 1024);
+  expect(raw).not.toContain('large'); expect(raw).not.toContain(secret);
+});
+it('preserves the original assertion when a revoked proxy makes the fixed readback supplement uninspectable', async () => {
+  const context = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)), 'a'.repeat(40), randomUUID(), JOURNEY_PROFILE);
+  vi.stubEnv(QUALIFICATION_CONTEXT_ENV, JSON.stringify(context));
+  const { proxy, revoke } = Proxy.revocable([], {}); revoke();
+  const diagnostics = createPublicDataDiagnostics('journey'); let first: unknown;
+  try { diagnostics.assertion('intake-readback', () => diagnostics.comparison('journey.intake.summary', { status: 'partial', leagues: proxy },
+    { status: 'available' }, () => expect(false).toBe(true))); } catch (error) { first = error; }
+  await diagnostics.save(); const raw = await readFile(join(directory, 'public-data-live-diagnostics.json'), 'utf8'), saved = JSON.parse(raw);
+  expect(saved.firstFailure).toMatchObject({ category: 'assertion', comparison: { id: 'journey.intake.summary', matcher: 'toMatchObject',
+    readback: { state: 'unavailable', redacted: true } } });
+  expect(diagnostics.failure('case', new Error(secret))).toBe(first); expect(Buffer.byteLength(raw)).toBeLessThanOrEqual(64 * 1024);
 });

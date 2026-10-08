@@ -14,7 +14,7 @@ const phases = ['case', 'case.assertion', 'case.wrong-owner-negative', 'artifact
   'intake.register', 'intake.completeCore', 'intake.fail', 'administration.readSourceMapping',
   'administration.beginRosterCapture', 'administration.beginLeagueSettingsAttempt',
   'administration.beginTeamManagerEvidenceAttempt', 'administration.recordObservation', 'administration.receipt',
-  'source.identity', 'source.leagues', 'source.core', 'reader.intake', 'reader.refresh', 'reader.settings', 'reader.players', 'reader.managers', 'reader.manager-evidence'] as const;
+  'source.identity', 'source.leagues', 'source.core', 'reader.intake', 'reader.refresh', 'reader.directory', 'reader.settings', 'reader.players', 'reader.managers', 'reader.manager-evidence'] as const;
 type Phase = typeof phases[number];
 type Category = 'sql' | 'abort' | 'assertion' | 'unexpected' | 'incomplete';
 const sqlStates = new Set(['08000','08003','08006','22001','22003','22007','22023','22P02','23502','23503','23505','23514',
@@ -39,6 +39,75 @@ const assertionCheckpoints = ['runtime-role', 'capture-witness', 'step-progress'
 type AssertionCheckpoint = typeof assertionCheckpoints[number];
 // Closed identifiers describe existing matchers; Vitest alone decides whether they pass.
 const comparisons = {
+  // One fixed identifier for every former plain matcher in the opt-in live journey.
+  'journey.admission.work': 'toMatchObject',
+  'journey.refresh.selection': 'toMatchObject',
+  'journey.refresh.same-request': 'toBe',
+  'journey.refresh.fresh-request': 'not.toBe',
+  'journey.capture.count': 'toHaveLength',
+  'journey.intake.summary': 'toMatchObject',
+  'journey.intake.league-order': 'toEqual',
+  'journey.intake.list-count': 'toHaveLength',
+  'journey.discovery.row-count': 'toHaveLength',
+  'journey.discovery.started': 'toBe',
+  'journey.discovery.completed': 'toBe',
+  'journey.roster.bound': 'toBeLessThanOrEqual',
+  'journey.canonical.fields': 'toMatchObject',
+  'journey.canonical.uuid': 'toMatch',
+  'journey.canonical.stable': 'toEqual',
+  'journey.writer.count': 'toHaveLength',
+  'journey.teams.distinct': 'toBe',
+  'journey.team.uuid': 'toMatch',
+  'journey.team.stable': 'toBe',
+  'journey.manager.uuid': 'toMatch',
+  'journey.manager.reverse': 'toBe',
+  'journey.manager.stable': 'toBe',
+  'journey.candidate.fields': 'toMatchObject',
+  'journey.bootstrap.started': 'toBe',
+  'journey.bootstrap.completed': 'toBe',
+  'journey.receipts.distinct': 'toBe',
+  'journey.receipts.fresh': 'toBe',
+  'journey.lineage.count': 'toHaveLength',
+  'journey.attempts.distinct': 'toBe',
+  'journey.receipt.generation': 'toBe',
+  'journey.receipt.legacy': 'toBe',
+  'journey.receipt.writer': 'toBe',
+  'journey.receipt.observation-ids': 'toEqual',
+  'journey.receipt.provenance': 'toMatchObject',
+  'journey.lineage.witness': 'toMatchObject',
+  'journey.receipt.mapping': 'toBe',
+  'journey.population.witness': 'toMatchObject',
+  'journey.directory.lineage': 'toMatchObject',
+  'journey.directory.started': 'toBe',
+  'journey.directory.completed': 'toBe',
+  'journey.directory.observed': 'toBe',
+  'journey.directory.fresh': 'not.toBe',
+  'journey.intake.composed': 'toMatchObject',
+  'journey.leagues.distinct': 'toBe',
+  'journey.teams.all-distinct': 'toBe',
+  'journey.managers.accounts': 'toEqual',
+  'journey.dispatch.count': 'toHaveLength',
+  'journey.dispatch.flags': 'toMatchObject',
+  'journey.dispatch.capture': 'toEqual',
+  'journey.dispatch.work': 'toEqual',
+  'journey.history.intake-populated': 'toBeGreaterThan',
+  'journey.history.receipt-count': 'toHaveLength',
+  'journey.history.content-populated': 'toBeGreaterThan',
+  'journey.history.dispatch-count': 'toHaveLength',
+  'journey.history.unchanged': 'toEqual',
+  'journey.step.progress': 'toMatchObject',
+  'journey.step.admissions': 'toBe',
+  'journey.step.claims': 'toBe',
+  'journey.settlement.outcome': 'toEqual',
+  'journey.refresh.readback': 'toMatchObject',
+  'journey.refresh.cycle-count': 'toEqual',
+  'journey.refresh.disposition': 'toEqual',
+  'journey.settlement.spacing': 'toEqual',
+  'journey.settlement.claims': 'toBe',
+  'journey.settlement.admissions': 'toBe',
+  'journey.settlement.unfinished': 'toEqual',
+  'journey.capture.unchanged': 'toBe',
+
   'live.writer.input': 'toEqual',
   'live.identity.distinct-teams': 'toEqual', 'live.identity.reference': 'toEqual', 'live.identity.manager': 'toEqual',
   'live.json.type': 'toEqual', 'live.json.length': 'toEqual', 'live.json.key': 'toEqual', 'live.json.value': 'toEqual',
@@ -71,11 +140,11 @@ const comparisons = {
 type ComparisonId = keyof typeof comparisons;
 type SafeValue = null | boolean | number | string | SafeValue[] | { [key: string]: SafeValue };
 type ComparisonEvidence = { id: ComparisonId; matcher: typeof comparisons[ComparisonId]; occurrence: number;
-  actual: SafeValue; expected: SafeValue; truncated: boolean; redacted: boolean };
+  actual: SafeValue; expected: SafeValue; truncated: boolean; redacted: boolean; readback?: SafeValue };
 // Field names come from the ordinary fixture, typed readers and retained capture contracts.
 // Unknown keys/strings never become output. Aliases are shared across both operands of one comparison.
-const comparisonFields = new Set(('role effective_role status resource providerRequests request requested_username external_manager_id username seasons terminal failure_count lists rejected leagues externalLeagueId season collection league_id league_season_id connection_id current_mapping_revision_id scoring_profile_id active evidence sourceLeague provider nativeId scoring rules state value nativeSettings fields divisions slots nativeCode count externalRosterId players sourceEntity sourceTeam primaryOwner manager sourceManager coManagers completeness managers sourceRefs seasonTeamId providerManagerId stage external_league_id settings_receipt_id players_receipt_id managers_receipt_id league_observation_id roster_observation_id acquisition requestStartedAt requestCompletedAt sourceObservedAt intake_id source_mapping provenance exact_witness server_window current_head version work fence dispatchNonce mapping attempts requestId revision kind userId jobKey workerId generation deadlineAt connectionId leagueSeasonId revisionId scope leagueKey settings managersV2 id nonce receipt heldRoster teamManagers teamManagerEvidence captureBinding directory observationId legacyObservationId sourceMapping legacy_observation_id request_started_at request_completed_at source_observed_at recordedAt observedAt origin family week policy canonicalNormalizerVersion sourceAdapterVersion sport period ordinal scopeId attemptId acceptedGeneration normalizerVersion source sourceUpdatedAt rawContentHash configurationVersionId configurationSemanticHash configurationContentId expectedTeamCount checkedAt resourceKind nativeNamespace name artwork predecessor lifecycle seasonType visibility sourceAccess native grantsPrivateAccess teamCount dialect format statCatalog competition startPeriod playoffStartPeriod playoffTeamCount playoffFormat playoffRoundFormat playoffSeeding additionalMatch bestBall divisionCount leagueType rosterRules reserveSlotCount taxiSlotCount taxiYears taxiVeterans taxiDeadline reserveOut reserveSuspended reserveDoubtful maxSubstitutions substitutionLockWhenStarterActive substitutionStartTimeEligibility waivers budget type clearDays dailyEnabled dailyHour dailyDays tradeDeadline periods nflWeekMappings interpretation unsupportedScoringRules unknownSlots reasons sourcePath raw ordinal semantics externalManagerId externalManagerIds teams owner coOwners reason ids observationIds contentId contentHash envelope payload schemaVersion dialect completeness path length semanticHash').split(' '));
-const comparisonLiterals = new Set(('league_one_runtime public-network-capture-v1 progress complete available missing known unknown empty owned unowned sleeper nfl QB BN identity leagues bootstrap core users settings players managers managers-v1 managers-v2 league rosters network public-data-intake-v1 latest-for-current-source-mapping league-administration-public-intake sleeper-league-settings-v1 sleeper-current-players-v1 sleeper-current-team-managers-v1 sleeper-current-team-manager-evidence-v2 accepted preserved rejected stored unavailable changed unchanged replayed stale disabled scoring_profile_change_requires_explicit_compatibility_and_period_review team manager account scoring-entity absent null invalid partial co_managers_null co_managers_absent co_managers_invalid primary_owner_absent primary_owner_invalid ordered-occurrence public-endpoint flat-weights unverified limited regular in_season DEF RB WR TE FLEX SUPER_FLEX').split(' '));
+const comparisonFields = new Set(('resources target targetId configurationRevision cycleConfigurationRevision intake cycle number disposition cadenceSeconds outcome bounded exact_nonce attempt_id users_observation_id role effective_role status resource providerRequests request requested_username external_manager_id username seasons terminal failure_count lists rejected leagues externalLeagueId season collection league_id league_season_id connection_id current_mapping_revision_id scoring_profile_id active evidence sourceLeague provider nativeId scoring rules state value nativeSettings fields divisions slots nativeCode count externalRosterId players sourceEntity sourceTeam primaryOwner manager sourceManager coManagers completeness managers sourceRefs seasonTeamId providerManagerId stage external_league_id settings_receipt_id players_receipt_id managers_receipt_id league_observation_id roster_observation_id acquisition requestStartedAt requestCompletedAt sourceObservedAt intake_id source_mapping provenance exact_witness server_window current_head version work fence dispatchNonce mapping attempts requestId revision kind userId jobKey workerId generation deadlineAt connectionId leagueSeasonId revisionId scope leagueKey settings managersV2 id nonce receipt heldRoster teamManagers teamManagerEvidence captureBinding directory observationId legacyObservationId sourceMapping legacy_observation_id request_started_at request_completed_at source_observed_at recordedAt observedAt origin family week policy canonicalNormalizerVersion sourceAdapterVersion sport period ordinal scopeId attemptId acceptedGeneration normalizerVersion source sourceUpdatedAt rawContentHash configurationVersionId configurationSemanticHash configurationContentId expectedTeamCount checkedAt resourceKind nativeNamespace name artwork predecessor lifecycle seasonType visibility sourceAccess native grantsPrivateAccess teamCount dialect format statCatalog competition startPeriod playoffStartPeriod playoffTeamCount playoffFormat playoffRoundFormat playoffSeeding additionalMatch bestBall divisionCount leagueType rosterRules reserveSlotCount taxiSlotCount taxiYears taxiVeterans taxiDeadline reserveOut reserveSuspended reserveDoubtful maxSubstitutions substitutionLockWhenStarterActive substitutionStartTimeEligibility waivers budget type clearDays dailyEnabled dailyHour dailyDays tradeDeadline periods nflWeekMappings interpretation unsupportedScoringRules unknownSlots reasons sourcePath raw ordinal semantics externalManagerId externalManagerIds teams owner coOwners reason ids observationIds contentId contentHash envelope payload schemaVersion dialect completeness path length semanticHash').split(' '));
+const comparisonLiterals = new Set(('pending backoff checkpoint-committed league_one_runtime public-network-capture-v1 progress complete available missing known unknown empty owned unowned sleeper nfl QB BN identity leagues bootstrap core users settings players managers managers-v1 managers-v2 league rosters network public-data-intake-v1 latest-for-current-source-mapping league-administration-public-intake sleeper-league-settings-v1 sleeper-current-players-v1 sleeper-current-team-managers-v1 sleeper-current-team-manager-evidence-v2 accepted preserved rejected stored unavailable changed unchanged replayed stale disabled scoring_profile_change_requires_explicit_compatibility_and_period_review team manager account scoring-entity absent null invalid partial co_managers_null co_managers_absent co_managers_invalid primary_owner_absent primary_owner_invalid ordered-occurrence public-endpoint flat-weights unverified limited regular in_season DEF RB WR TE FLEX SUPER_FLEX').split(' '));
 function comparisonEvidence(id: ComparisonId, occurrence: number, actual: unknown, expected: unknown): ComparisonEvidence {
   const aliases = new Map<string, number>();
   let truncated = false, redacted = false;
@@ -151,12 +220,58 @@ function comparisonEvidence(id: ComparisonId, occurrence: number, actual: unknow
     } catch { return hidden('uninspectable'); }
     return hidden('no-length');
   };
+  // Only this fixed live-summary assertion gets supplemental resource statuses. Never
+  // traverse provider envelopes, payloads, retained resources or exception text.
+  const readbackSummary = (): SafeValue => {
+    const unreadable = Symbol('unreadable');
+    const own = (value: unknown, key: string): unknown => {
+      try {
+        if (!value || typeof value !== 'object') return undefined;
+        const descriptor = Object.getOwnPropertyDescriptor(value, key);
+        if (descriptor && !Object.hasOwn(descriptor, 'value')) { redacted = true; return unreadable; }
+        return descriptor?.value;
+      } catch { redacted = true; return unreadable; }
+    };
+    const fixedStatuses = new Set(['available', 'unavailable', 'partial', 'pending', 'missing', 'disabled', 'complete', 'capacity', 'bootstrap', 'core', 'users']);
+    const fixedReasons = new Set(['intake-capture-not-current-head', 'settings-read-failed', 'team-managers-read-failed',
+      'held-roster-read-failed', 'directory-read-failed', 'team-manager-evidence-read-failed',
+      'team-manager-evidence-unsupported', 'stored-source-unavailable', 'persistence_disabled']);
+    const token = (value: unknown, allowed: Set<string>): SafeValue => {
+      if (value === undefined || value === null) return null;
+      if (typeof value === 'string' && allowed.has(value)) return value;
+      redacted = true; return 'other';
+    };
+    const leagues = own(actual, 'leagues'), length = own(leagues, 'length');
+    if (!Array.isArray(leagues) || !Number.isSafeInteger(length) || Number(length) < 0) return { state: 'unavailable', redacted: true };
+    const total = Number(length), items: SafeValue[] = [];
+    if (total > 4) truncated = true;
+    for (let index = 0; index < Math.min(total, 4); index++) {
+      const league = own(leagues, String(index)), resources = own(league, 'resources');
+      const native = own(league, 'externalLeagueId');
+      const item: Record<string, SafeValue> = { ordinal: index + 1, externalLeagueId: typeof native === 'string' && /^[0-9]{1,32}$/u.test(native)
+        ? project(native) : hidden('invalid-native-id'), ...(league === unreadable || resources === unreadable ? { redacted: true } : {}),
+        collection: token(own(league, 'collection'), fixedStatuses), reason: token(own(league, 'reason'), fixedReasons) };
+      const summary: Record<string, SafeValue> = {};
+      for (const resource of ['settings', 'teamManagers', 'heldRoster', 'directory', 'teamManagerEvidence']) {
+        const value = own(resources, resource);
+        summary[resource] = { status: token(own(value, 'status'), fixedStatuses), reason: token(own(value, 'reason'), fixedReasons),
+          ...(value === unreadable ? { redacted: true } : {}) };
+      }
+      item.resources = summary; items.push(item);
+    }
+    return { length: total, items, omitted: Math.max(0, total - 4), truncated: total > 4 };
+  };
+  let readback: SafeValue | undefined;
+  if (id === 'journey.intake.summary') {
+    try { readback = readbackSummary(); }
+    catch { redacted = true; readback = { state: 'unavailable', redacted: true }; }
+  }
   const evidence: ComparisonEvidence = { id, matcher, occurrence,
     actual: matcher === 'toHaveLength' ? length(actual) : project(actual, matcher === 'toMatchObject' ? expected : undefined),
-    expected: id === 'uuid.shape' ? { pattern: 'uuid' } : project(expected), truncated, redacted };
+    expected: id === 'uuid.shape' || (id.startsWith('journey.') && matcher === 'toMatch') ? { pattern: 'uuid' } : project(expected), truncated, redacted, ...(readback ? { readback } : {}) };
   // Preserve explicit incompleteness rather than silently dropping fields to satisfy the artifact bound.
   if (Buffer.byteLength(JSON.stringify(evidence, null, 2), 'utf8') > 48 * 1_024) {
-    return { id, matcher, occurrence, actual: { truncated: true }, expected: { truncated: true }, truncated: true, redacted };
+    return { id, matcher, occurrence, actual: { truncated: true }, expected: { truncated: true }, truncated: true, redacted, ...(readback ? { readback } : {}) };
   }
   return evidence;
 }
@@ -164,7 +279,8 @@ function comparisonEvidence(id: ComparisonId, occurrence: number, actual: unknow
 type DatabaseVersion = Readonly<{ serverVersion: string; serverVersionNum: number }>;
 type Failure = { phase: Phase; category: Category; sqlState: string | null; step: number; cycle: number;
   /** The owned synchronous assertion group, never an exception-derived label or source line. */
-  assertionCheckpoint?: AssertionCheckpoint; comparison?: ComparisonEvidence };
+  assertionCheckpoint?: AssertionCheckpoint; comparison?: ComparisonEvidence;
+  readbackComparison?: { assertionCheckpoint: AssertionCheckpoint; comparison: ComparisonEvidence } };
 type Event = { sequence: number; step: number; cycle: number; phase: Phase; event: 'start' | 'return' | 'error' | 'expected-error';
   elapsedMs: number; durationMs?: number; status?: string; resource?: string; reason?: string;
   acceptance?: Record<string, string>; receipt?: ReceiptEvidence; category?: Category; sqlState?: string | null; fault?: ExpectedFault };
@@ -378,8 +494,14 @@ export function createPublicDataDiagnostics(kind: 'ordinary' | 'refresh' | 'live
       const occurrence = (comparisonCounts.get(id) ?? 0) + 1; comparisonCounts.set(id, occurrence);
       try { assertion(actual, expected); }
       catch (error) {
-        if (firstError) throw firstError;
         const evidence = classification(error).category === 'assertion' ? comparisonEvidence(id, occurrence, actual, expected) : undefined;
+        if (firstError) {
+          if (kind === 'journey' && id === 'journey.intake.summary' && evidence && firstFailure
+            && !firstFailure.comparison && !firstFailure.readbackComparison) {
+            firstFailure.readbackComparison = { assertionCheckpoint: activeCheckpoint, comparison: evidence };
+          }
+          throw firstError;
+        }
         throw fail('case.assertion', error, undefined, activeCheckpoint, evidence);
       }
     },

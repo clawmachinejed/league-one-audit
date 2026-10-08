@@ -29,6 +29,9 @@ describe(JOURNEY_SUITE, () => {
     const changes: { leagueId: string; family: string; content: 'changed' | 'unchanged' }[] = [];
     const equal = (id: Parameters<typeof diagnostics.comparison>[0], actual: unknown, expected: unknown) =>
       diagnostics.assertion('live-core', () => diagnostics.comparison(id, actual, expected, (a, e) => expect(a).toEqual(e)));
+    const check = <A, E>(checkpoint: Parameters<typeof diagnostics.assertion>[0], id: Parameters<typeof diagnostics.comparison>[0],
+      actual: A, expected: E, assertion: (actual: A, expected: E) => void) =>
+      diagnostics.assertion(checkpoint, () => diagnostics.comparison(id, actual, expected, assertion));
     let claims = 0, admissions = 0, currentRequest: string | undefined;
     let finalized = false;
     globalThis.fetch = source.fetch;
@@ -51,8 +54,8 @@ describe(JOURNEY_SUITE, () => {
         } },
         intake: { ...intake, admit: async (...args: Parameters<typeof intake.admit>) => {
           const work = args[0];
-          expect(work).toMatchObject({ requestId: currentRequest, kind: selectedStep.kind,
-            ...(selectedStep.leagueId ? { externalLeagueId: selectedStep.leagueId, season: JOURNEY_SEASON } : {}) });
+          check('live-core', 'journey.admission.work', work, { requestId: currentRequest, kind: selectedStep.kind,
+            ...(selectedStep.leagueId ? { externalLeagueId: selectedStep.leagueId, season: JOURNEY_SEASON } : {}) }, (a, e) => expect(a).toMatchObject(e));
           if (admissions >= 28) throw new Error('Live admission cap reached.');
           const result = await intake.admit(...args); if (result) admissions++; return result;
         } },
@@ -63,13 +66,22 @@ describe(JOURNEY_SUITE, () => {
         refresh: { ...refresh, select: async (...args: Parameters<typeof refresh.select>) => {
           const selection = await refresh.select(...args);
           if (selection.status === 'selected') {
-            expect(selection).toMatchObject({ targetId, cycle: 1, configurationRevision: 1, cycleConfigurationRevision: 1 });
-            if (currentRequest && currentRequest !== manualId) expect(selection.requestId).toBe(currentRequest);
-            expect(selection.requestId).not.toBe(manualId); currentRequest = selection.requestId;
+            check('journey-complete', 'journey.refresh.selection', selection, { targetId, cycle: 1, configurationRevision: 1, cycleConfigurationRevision: 1 }, (a, e) => expect(a).toMatchObject(e));
+            if (currentRequest && currentRequest !== manualId) check('journey-complete', 'journey.refresh.same-request', selection.requestId, currentRequest, (a, e) => expect(a).toBe(e));
+            check('journey-complete', 'journey.refresh.fresh-request', selection.requestId, manualId, (a, e) => expect(a).not.toBe(e)); currentRequest = selection.requestId;
           }
           return selection;
         } }, source: source.source, managerEvidenceVersion: 'v2',
       }, receiptReader);
+      // Observe the same reader calls before the composed reader converts failures to fixed reasons.
+      const observedReaders = { ...administration,
+        readSourceMapping: (...args: Parameters<typeof administration.readSourceMapping>) => diagnostics.observe('administration.readSourceMapping', () => administration.readSourceMapping(...args)),
+        readAcceptedLeagueSettings: (...args: Parameters<typeof administration.readAcceptedLeagueSettings>) => diagnostics.observe('reader.settings', () => administration.readAcceptedLeagueSettings(...args)),
+        readAcceptedCurrentRoster: (...args: Parameters<typeof administration.readAcceptedCurrentRoster>) => diagnostics.observe('reader.players', () => administration.readAcceptedCurrentRoster(...args)),
+        readAcceptedTeamManagers: (...args: Parameters<typeof administration.readAcceptedTeamManagers>) => diagnostics.observe('reader.managers', () => administration.readAcceptedTeamManagers(...args)),
+        readAcceptedTeamManagerEvidence: (...args: Parameters<NonNullable<typeof administration.readAcceptedTeamManagerEvidence>>) => diagnostics.observe('reader.manager-evidence', () => administration.readAcceptedTeamManagerEvidence!(...args)),
+        readSource: (...args: Parameters<typeof administration.readSource>) => diagnostics.observe('reader.directory', () => administration.readSource(...args)),
+      };
       const firstIdentity = new Map<string, unknown>();
       const firstReceipts = new Map<string, string[]>();
       const firstDirectories = new Map<string, string>();
@@ -82,22 +94,22 @@ describe(JOURNEY_SUITE, () => {
       const capture = (cycle: number, kind: string, leagueId: string | null, family: string) => {
         const rows = source.captures.filter(row => row.cycle === cycle && row.family === family && row.leagueId === leagueId
           && row.capture.acquisition?.work.kind === kind);
-        expect(rows).toHaveLength(1); return rows[0].capture;
+        check('capture-witness', 'journey.capture.count', rows, 1, (a, e) => expect(a).toHaveLength(e)); return rows[0].capture;
       };
       const proveCollection = async (requestId: string, cycle: 1 | 2) => {
-        const read = await readPublicSleeperIntake(database, administration, requestId, { managerEvidenceVersion: 'v2' });
-        expect(read).toMatchObject({ status: 'available', request: { id: requestId, terminal: true, external_manager_id: JOURNEY_MANAGER,
-          seasons: [JOURNEY_SEASON], failure_count: 0 }, rejected: [] });
+        const read = await readPublicSleeperIntake(database, observedReaders, requestId, { managerEvidenceVersion: 'v2' });
+        check('intake-readback', 'journey.intake.summary', read, { status: 'available', request: { id: requestId, terminal: true, external_manager_id: JOURNEY_MANAGER,
+          seasons: [JOURNEY_SEASON], failure_count: 0 }, rejected: [] }, (a, e) => expect(a).toMatchObject(e));
         if (read.status === 'missing') throw new Error('Missing live intake.');
-        expect(read.leagues.map(row => row.externalLeagueId)).toEqual([...JOURNEY_LEAGUES]);
-        expect(read.lists).toHaveLength(1);
+        check('intake-readback', 'journey.intake.league-order', read.leagues.map(row => row.externalLeagueId), [...JOURNEY_LEAGUES], (a, e) => expect(a).toEqual(e));
+        check('intake-readback', 'journey.intake.list-count', read.lists, 1, (a, e) => expect(a).toHaveLength(e));
         const identity = capture(cycle, 'identity', null, 'identity'), list = capture(cycle, 'leagues', null, 'leagues');
         const retainedIdentity = await database.query('SELECT payload,request_started_at,request_completed_at FROM public.public_data_identity_observations WHERE intake_id=$1', [requestId]);
         const retainedList = await database.query('SELECT payload,request_started_at,request_completed_at FROM public.public_data_league_lists WHERE intake_id=$1', [requestId]);
         for (const [stored, original] of [[retainedIdentity, identity], [retainedList, list]] as const) {
-          expect(stored).toHaveLength(1); assertLiveJson(stored[0].payload, original.payload, equal, 'directory');
-          expect(exactMatchupClockInstant(stored[0].request_started_at)).toBe(original.requestStartedAt);
-          expect(exactMatchupClockInstant(stored[0].request_completed_at)).toBe(original.requestCompletedAt);
+          check('discovery-times', 'journey.discovery.row-count', stored, 1, (a, e) => expect(a).toHaveLength(e)); assertLiveJson(stored[0].payload, original.payload, equal, 'directory');
+          check('discovery-times', 'journey.discovery.started', exactMatchupClockInstant(stored[0].request_started_at), original.requestStartedAt, (a, e) => expect(a).toBe(e));
+          check('discovery-times', 'journey.discovery.completed', exactMatchupClockInstant(stored[0].request_completed_at), original.requestCompletedAt, (a, e) => expect(a).toBe(e));
         }
         const allReceipts: string[] = [], allContents: string[] = [], allObservations: string[] = [];
         for (const leagueId of JOURNEY_LEAGUES) {
@@ -106,23 +118,23 @@ describe(JOURNEY_SUITE, () => {
           const users = capture(cycle, 'users', leagueId, 'users') as CapturedAdministrationDocument;
           const bootstrap = capture(cycle, 'bootstrap', leagueId, 'league');
           const raw = liveRawOracle(league.payload, roster.payload, users.payload, { leagueId, season: JOURNEY_SEASON });
-          expect(raw.metadata.totalRosters).toBeLessThanOrEqual(20);
-          const mapping = await administration.readSourceMapping(leagueId);
+          check('live-core', 'journey.roster.bound', raw.metadata.totalRosters, 20, (a, e) => expect(a).toBeLessThanOrEqual(e));
+          const mapping = await observedReaders.readSourceMapping(leagueId);
           if (!mapping) throw new Error('Missing live mapping.');
           const [canonical] = await database.query('SELECT league.id AS league_id,season.id AS league_season_id,connection.id AS connection_id,' +
             'season.scoring_profile_id,enrollment.active,enrollment.evidence FROM public.league_source_connections connection ' +
             'JOIN public.league_seasons season ON season.id=connection.league_season_id JOIN public.leagues league ON league.id=season.league_id ' +
             'JOIN public.league_administration_enrollments enrollment ON enrollment.league_id=league.id ' +
             "WHERE connection.provider='sleeper' AND connection.external_league_id=$1 AND season.season=$2", [leagueId, JOURNEY_SEASON]);
-          expect(canonical).toMatchObject({ league_season_id: mapping.leagueSeasonId, connection_id: mapping.connectionId,
-            scoring_profile_id: null, active: false, evidence: 'public-data-intake-v1' });
-          for (const id of [canonical.league_id, canonical.league_season_id, canonical.connection_id]) expect(id).toMatch(uuid);
-          if (cycle === 1) firstIdentity.set(leagueId, canonical); else expect(canonical).toEqual(firstIdentity.get(leagueId));
-          const settings = await administration.readAcceptedLeagueSettings(mapping);
-          const players = await administration.readAcceptedCurrentRoster(mapping);
-          const managers = await administration.readAcceptedTeamManagers(mapping);
-          const evidence = await administration.readAcceptedTeamManagerEvidence!(mapping);
-          const directory = await administration.readSource({ ...mapping.scope, family: 'users', week: null });
+          check('canonical-identity', 'journey.canonical.fields', canonical, { league_season_id: mapping.leagueSeasonId, connection_id: mapping.connectionId,
+            scoring_profile_id: null, active: false, evidence: 'public-data-intake-v1' }, (a, e) => expect(a).toMatchObject(e));
+          for (const id of [canonical.league_id, canonical.league_season_id, canonical.connection_id]) check('canonical-identity', 'journey.canonical.uuid', id, uuid, (a, e) => expect(a).toMatch(e));
+          if (cycle === 1) firstIdentity.set(leagueId, canonical); else check('canonical-identity', 'journey.canonical.stable', canonical, firstIdentity.get(leagueId), (a, e) => expect(a).toEqual(e));
+          const settings = await observedReaders.readAcceptedLeagueSettings(mapping);
+          const players = await observedReaders.readAcceptedCurrentRoster(mapping);
+          const managers = await observedReaders.readAcceptedTeamManagers(mapping);
+          const evidence = await observedReaders.readAcceptedTeamManagerEvidence!(mapping);
+          const directory = await observedReaders.readSource({ ...mapping.scope, family: 'users', week: null });
           equal('live.availability', [settings.status, players.status, managers.status, evidence.status, directory.status], Array(5).fill('available'));
           if (settings.status !== 'available' || players.status !== 'available' || managers.status !== 'available'
             || evidence.status !== 'available' || directory.status !== 'available') throw new Error('Missing live stored resource.');
@@ -130,7 +142,7 @@ describe(JOURNEY_SUITE, () => {
             const entries = writes.filter(row => row.input.envelope.family === document.family
               && row.input.envelope.scope.externalLeagueId === leagueId
               && row.input.envelope.provenance.acquisition?.work.requestId === requestId);
-            expect(entries).toHaveLength(1);
+            check('live-core', 'journey.writer.count', entries, 1, (a, e) => expect(a).toHaveLength(e));
             const write = entries[0];
             const normalized = normalizeLiveCapture(mapping.scope, document, write.input.envelope.provenance.checkedAt, raw.metadata.totalRosters);
             assertLiveJson(write.input.envelope, normalized.envelope, equal, 'population');
@@ -146,14 +158,14 @@ describe(JOURNEY_SUITE, () => {
           equal('live.settings.slots', settings.value.slots.value, raw.slots.map((nativeCode, ordinal) => ({ nativeCode, count: 1, ordinal, semantics: 'ordered-occurrence' })));
           equal('live.players.roster-ids', players.teams.map(team => team.externalRosterId).sort(), raw.teams.map(team => team.externalRosterId).sort());
           for (const reader of [managers, evidence]) equal('live.managers.roster-ids', reader.teams.map(team => team.sourceTeam.nativeId).sort(), raw.teams.map(team => team.externalRosterId).sort());
-          expect(new Set(players.teams.map(team => team.seasonTeamId)).size).toBe(raw.teams.length);
+          check('team-identities', 'journey.teams.distinct', new Set(players.teams.map(team => team.seasonTeamId)).size, raw.teams.length, (a, e) => expect(a).toBe(e));
           for (const team of raw.teams) {
             const held = players.teams.find(value => value.externalRosterId === team.externalRosterId)!;
             equal('live.players.ids', held.players.map(player => player.sourceEntity.nativeId).sort(), team.players);
-            expect(held.seasonTeamId).toMatch(uuid);
+            check('team-identities', 'journey.team.uuid', held.seasonTeamId, uuid, (a, e) => expect(a).toMatch(e));
             const key = leagueId + ':' + team.externalRosterId;
             if (cycle === 1) firstNativeTeams.set(key, held.seasonTeamId);
-            else if (firstNativeTeams.has(key)) expect(held.seasonTeamId).toBe(firstNativeTeams.get(key));
+            else if (firstNativeTeams.has(key)) check('team-identities', 'journey.team.stable', held.seasonTeamId, firstNativeTeams.get(key), (a, e) => expect(a).toBe(e));
             for (const reader of [managers, evidence]) {
               const stored = reader.teams.find(value => value.sourceTeam.nativeId === team.externalRosterId)!;
               equal('live.receipt.mapping', stored.seasonTeamId, held.seasonTeamId);
@@ -164,11 +176,11 @@ describe(JOURNEY_SUITE, () => {
               for (const manager of [stored.primaryOwner.manager, ...(stored.coManagers.managers ?? [])]) {
                 if (!manager) continue;
                 const native = manager.sourceManager.nativeId;
-                expect(manager.providerManagerId).toMatch(uuid);
-                if (reverseManagers.has(manager.providerManagerId)) expect(native).toBe(reverseManagers.get(manager.providerManagerId));
+                check('provider-manager-identities', 'journey.manager.uuid', manager.providerManagerId, uuid, (a, e) => expect(a).toMatch(e));
+                if (reverseManagers.has(manager.providerManagerId)) check('provider-manager-identities', 'journey.manager.reverse', native, reverseManagers.get(manager.providerManagerId), (a, e) => expect(a).toBe(e));
                 else reverseManagers.set(manager.providerManagerId, native);
                 equal('live.identity.reference', manager.sourceManager, { provider: 'sleeper', resourceKind: 'manager', nativeNamespace: 'account', nativeId: native });
-                if (firstManagers.has(native)) expect(manager.providerManagerId).toBe(firstManagers.get(native));
+                if (firstManagers.has(native)) check('provider-manager-identities', 'journey.manager.stable', manager.providerManagerId, firstManagers.get(native), (a, e) => expect(a).toBe(e));
                 else firstManagers.set(native, manager.providerManagerId);
               }
             }
@@ -183,18 +195,18 @@ describe(JOURNEY_SUITE, () => {
             { teams: [...(inputs[1].normalized.teamManagerEvidence?.teams ?? [])].sort((a, b) => a.externalRosterId.localeCompare(b.externalRosterId)), completeness: inputs[1].normalized.teamManagerEvidence?.status });
           assertLiveJson(directory.envelope.payload, users.payload, equal, 'directory');
           const [candidate] = await database.query('SELECT * FROM public.public_data_league_candidates WHERE intake_id=$1 AND external_league_id=$2', [requestId, leagueId]);
-          expect(candidate).toMatchObject({ stage: 'complete', league_season_id: mapping.leagueSeasonId,
+          check('live-core', 'journey.candidate.fields', candidate, { stage: 'complete', league_season_id: mapping.leagueSeasonId,
             settings_receipt_id: settings.receipt.id, players_receipt_id: players.receipt.id, managers_receipt_id: managers.receipt.id,
             league_observation_id: settings.receipt.legacyObservationId, roster_observation_id: players.receipt.legacyObservationId,
-            users_observation_id: directory.observationId, bootstrap_payload: bootstrap.payload });
-          expect(exactMatchupClockInstant(candidate.bootstrap_started_at)).toBe(bootstrap.requestStartedAt);
-          expect(exactMatchupClockInstant(candidate.bootstrap_completed_at)).toBe(bootstrap.requestCompletedAt);
+            users_observation_id: directory.observationId, bootstrap_payload: bootstrap.payload }, (a, e) => expect(a).toMatchObject(e));
+          check('live-core', 'journey.bootstrap.started', exactMatchupClockInstant(candidate.bootstrap_started_at), bootstrap.requestStartedAt, (a, e) => expect(a).toBe(e));
+          check('live-core', 'journey.bootstrap.completed', exactMatchupClockInstant(candidate.bootstrap_completed_at), bootstrap.requestCompletedAt, (a, e) => expect(a).toBe(e));
           const acceptedWrites = [inputs[0].write.result.leagueSettingsAcceptance, inputs[1].write.result.rosterAcceptance,
             inputs[1].write.result.teamManagerAcceptance, inputs[1].write.result.teamManagerEvidenceAcceptance];
           const readers = [settings, players, managers, evidence];
           equal('live.write', acceptedWrites.map(value => value?.status), Array(4).fill('accepted'));
-          const ids = readers.map(reader => reader.receipt.id); expect(new Set(ids).size).toBe(4); allReceipts.push(...ids);
-          if (cycle === 1) firstReceipts.set(leagueId, ids); else expect(ids.some(id => firstReceipts.get(leagueId)!.includes(id))).toBe(false);
+          const ids = readers.map(reader => reader.receipt.id); check('receipt-identities', 'journey.receipts.distinct', new Set(ids).size, 4, (a, e) => expect(a).toBe(e)); allReceipts.push(...ids);
+          if (cycle === 1) firstReceipts.set(leagueId, ids); else check('receipt-identities', 'journey.receipts.fresh', ids.some(id => firstReceipts.get(leagueId)!.includes(id)), false, (a, e) => expect(a).toBe(e));
           const lineage = await database.query(`SELECT receipt.id,attempt.id AS attempt_id,attempt.source_mapping,receipt.provenance,receipt.population_evidence,
             dispatch.intake_id,dispatch.resource,attempt.capture_nonce IS NOT NULL AND dispatch.capture_nonce IS NOT NULL
             AND receipt.provenance->'acquisition'->>'dispatchNonce'=dispatch.capture_nonce::text
@@ -210,62 +222,62 @@ describe(JOURNEY_SUITE, () => {
             JOIN public.league_roster_resource_scopes scope ON scope.id=attempt.scope_id JOIN public.public_data_dispatches dispatch
               ON dispatch.worker_id=attempt.write_fence->>'workerId' AND dispatch.generation=(attempt.write_fence->>'generation')::integer
             WHERE receipt.id=ANY($1::uuid[])`, [ids]);
-          expect(lineage).toHaveLength(4); expect(new Set(lineage.map(row => row.attempt_id)).size).toBe(4);
+          check('receipt-identities', 'journey.lineage.count', lineage, 4, (a, e) => expect(a).toHaveLength(e)); check('receipt-identities', 'journey.attempts.distinct', new Set(lineage.map(row => row.attempt_id)).size, 4, (a, e) => expect(a).toBe(e));
           for (const [i, reader] of readers.entries()) {
             const original = i === 0 ? league : roster, input = inputs[i === 0 ? 0 : 1];
             equal('live.receipt.provenance', reader.receipt.provenance, input.normalized.envelope.provenance);
-            expect(reader.accepted.acceptedGeneration).toBe(acceptedWrites[i]!.acceptedGeneration);
-            expect(reader.receipt.legacyObservationId).toBe(input.write.result.observationId);
+            check('receipt-identities', 'journey.receipt.generation', reader.accepted.acceptedGeneration, acceptedWrites[i]!.acceptedGeneration, (a, e) => expect(a).toBe(e));
+            check('receipt-identities', 'journey.receipt.legacy', reader.receipt.legacyObservationId, input.write.result.observationId, (a, e) => expect(a).toBe(e));
             allContents.push(reader.accepted.contentId); allObservations.push(reader.receipt.legacyObservationId);
-            expect(reader.receipt.id).toBe(acceptedWrites[i]!.receiptId);
-            expect(reader.accepted.observationIds).toEqual([reader.receipt.id]);
-            expect(reader.receipt.provenance).toMatchObject({ acquisition: original.acquisition,
-              requestStartedAt: original.requestStartedAt, requestCompletedAt: original.requestCompletedAt, sourceObservedAt: original.requestCompletedAt });
-            expect(lineage.find(row => row.id === reader.receipt.id)).toMatchObject({ attempt_id: reader.receipt.attemptId,
-              intake_id: requestId, resource: 'core', source_mapping: mapping, exact_witness: true, server_window: true, provenance: reader.receipt.provenance });
-            expect(reader.accepted.sourceMappingRevisionId).toBe(mapping.revisionId);
+            check('receipt-identities', 'journey.receipt.writer', reader.receipt.id, acceptedWrites[i]!.receiptId, (a, e) => expect(a).toBe(e));
+            check('receipt-identities', 'journey.receipt.observation-ids', reader.accepted.observationIds, [reader.receipt.id], (a, e) => expect(a).toEqual(e));
+            check('receipt-identities', 'journey.receipt.provenance', reader.receipt.provenance, { acquisition: original.acquisition,
+              requestStartedAt: original.requestStartedAt, requestCompletedAt: original.requestCompletedAt, sourceObservedAt: original.requestCompletedAt }, (a, e) => expect(a).toMatchObject(e));
+            check('receipt-identities', 'journey.lineage.witness', lineage.find(row => row.id === reader.receipt.id), { attempt_id: reader.receipt.attemptId,
+              intake_id: requestId, resource: 'core', source_mapping: mapping, exact_witness: true, server_window: true, provenance: reader.receipt.provenance }, (a, e) => expect(a).toMatchObject(e));
+            check('receipt-identities', 'journey.receipt.mapping', reader.accepted.sourceMappingRevisionId, mapping.revisionId, (a, e) => expect(a).toBe(e));
           }
           equal('live.receipt.hash', settings.receipt.rawContentHash, inputs[0].normalized.contentHash);
           for (const reader of [players, managers, evidence]) {
             equal('live.receipt.population', { configurationContentId: reader.receipt.configurationContentId, expectedTeamCount: reader.receipt.expectedTeamCount },
               { configurationContentId: settings.accepted.contentId, expectedTeamCount: raw.metadata.totalRosters });
-            expect(lineage.find(row => row.id === reader.receipt.id)!.population_evidence).toMatchObject({ provenance: { acquisition: league.acquisition } });
+            check('live-core', 'journey.population.witness', lineage.find(row => row.id === reader.receipt.id)!.population_evidence, { provenance: { acquisition: league.acquisition } }, (a, e) => expect(a).toMatchObject(e));
           }
           const [directoryCapture] = await database.query('SELECT * FROM public.public_data_directory_captures WHERE id=$1 AND intake_id=$2', [candidate.users_capture_id, requestId]);
-          expect(directoryCapture).toMatchObject({ legacy_observation_id: directory.observationId, source_mapping: mapping });
+          check('directory-lineage', 'journey.directory.lineage', directoryCapture, { legacy_observation_id: directory.observationId, source_mapping: mapping }, (a, e) => expect(a).toMatchObject(e));
           allContents.push(String(directoryCapture.content_id)); allObservations.push(String(directoryCapture.legacy_observation_id));
-          expect(exactMatchupClockInstant(directoryCapture.request_started_at)).toBe(users.requestStartedAt);
-          expect(exactMatchupClockInstant(directoryCapture.request_completed_at)).toBe(users.requestCompletedAt);
-          expect(exactMatchupClockInstant(directoryCapture.source_observed_at)).toBe(users.requestCompletedAt);
-          if (cycle === 1) firstDirectories.set(leagueId, String(directoryCapture.id)); else expect(directoryCapture.id).not.toBe(firstDirectories.get(leagueId));
+          check('directory-lineage', 'journey.directory.started', exactMatchupClockInstant(directoryCapture.request_started_at), users.requestStartedAt, (a, e) => expect(a).toBe(e));
+          check('directory-lineage', 'journey.directory.completed', exactMatchupClockInstant(directoryCapture.request_completed_at), users.requestCompletedAt, (a, e) => expect(a).toBe(e));
+          check('directory-lineage', 'journey.directory.observed', exactMatchupClockInstant(directoryCapture.source_observed_at), users.requestCompletedAt, (a, e) => expect(a).toBe(e));
+          if (cycle === 1) firstDirectories.set(leagueId, String(directoryCapture.id)); else check('directory-lineage', 'journey.directory.fresh', directoryCapture.id, firstDirectories.get(leagueId), (a, e) => expect(a).not.toBe(e));
           const composed = read.leagues.find(row => row.externalLeagueId === leagueId)!;
-          expect(composed).toMatchObject({ collection: 'complete', resources: {
+          check('intake-readback', 'journey.intake.composed', composed, { collection: 'complete', resources: {
             settings: { status: 'available', receipt: settings.receipt }, heldRoster: { status: 'available', receipt: players.receipt },
             teamManagers: { status: 'available', receipt: managers.receipt }, teamManagerEvidence: { status: 'available', receipt: evidence.receipt },
             directory: { status: 'available', observationId: directory.observationId, acquisition: { id: directoryCapture.id, sourceMapping: mapping } },
-          } });
+          } }, (a, e) => expect(a).toMatchObject(e));
         }
-        expect(new Set([...firstIdentity.values()].map(value => (value as DatabaseRow).league_id)).size).toBe(JOURNEY_LEAGUES.length);
-        expect(new Set(firstNativeTeams.values()).size).toBe(firstNativeTeams.size);
+        check('live-core', 'journey.leagues.distinct', new Set([...firstIdentity.values()].map(value => (value as DatabaseRow).league_id)).size, JOURNEY_LEAGUES.length, (a, e) => expect(a).toBe(e));
+        check('team-identities', 'journey.teams.all-distinct', new Set(firstNativeTeams.values()).size, firstNativeTeams.size, (a, e) => expect(a).toBe(e));
         const accountRows = await database.query("SELECT id,external_manager_id FROM public.league_source_manager_accounts WHERE provider='sleeper' AND id=ANY($1::uuid[]) ORDER BY external_manager_id", [[...reverseManagers.keys()]]);
-        expect(accountRows).toEqual([...firstManagers].map(([external_manager_id, id]) => ({ id, external_manager_id }))
-          .sort((a, b) => a.external_manager_id.localeCompare(b.external_manager_id)));
+        check('provider-manager-identities', 'journey.managers.accounts', accountRows, [...firstManagers].map(([external_manager_id, id]) => ({ id, external_manager_id }))
+          .sort((a, b) => a.external_manager_id.localeCompare(b.external_manager_id)), (a, e) => expect(a).toEqual(e));
         const dispatches = await database.query(`SELECT dispatch.resource,dispatch.work,outcome.capture_acquisition,
           outcome.outcome,outcome.capture_acquisition->>'dispatchNonce'=dispatch.capture_nonce::text AS exact_nonce,
           outcome.recorded_at BETWEEN dispatch.admitted_at AND dispatch.admitted_at+interval '30 seconds' AS server_window
           FROM public.public_data_dispatches dispatch LEFT JOIN public.public_data_dispatch_outcomes outcome USING(worker_id,generation)
           WHERE dispatch.intake_id=$1 ORDER BY dispatch.admitted_at`, [requestId]);
-        expect(dispatches).toHaveLength(14);
+        check('dispatch-witness', 'journey.dispatch.count', dispatches, 14, (a, e) => expect(a).toHaveLength(e));
         for (const [i, row] of dispatches.entries()) {
           const step = JOURNEY_STEPS[(cycle - 1) * 14 + i];
-          expect(row).toMatchObject({ resource: step.kind, outcome: 'checkpoint-committed', exact_nonce: true, server_window: true });
+          check('dispatch-witness', 'journey.dispatch.flags', row, { resource: step.kind, outcome: 'checkpoint-committed', exact_nonce: true, server_window: true }, (a, e) => expect(a).toMatchObject(e));
           const original = source.captures.find(entry => entry.cycle === cycle && entry.capture.acquisition?.work.kind === step.kind && entry.leagueId === (step.leagueId ?? null))!;
-          expect(row.capture_acquisition).toEqual(original.capture.acquisition); expect(row.work).toEqual(original.capture.acquisition!.work);
+          check('dispatch-witness', 'journey.dispatch.capture', row.capture_acquisition, original.capture.acquisition, (a, e) => expect(a).toEqual(e)); check('dispatch-witness', 'journey.dispatch.work', row.work, original.capture.acquisition!.work, (a, e) => expect(a).toEqual(e));
         }
         if (cycle === 1) {
           for (const table of ['public_data_intakes', 'public_data_identity_observations', 'public_data_league_lists', 'public_data_league_candidates', 'public_data_directory_captures', 'public_data_dispatches']) {
             const sql = `SELECT * FROM public.${table} WHERE ${table === 'public_data_intakes' ? 'id' : 'intake_id'}=$1 ORDER BY to_jsonb(${table})::text`;
-            const args = [requestId], rows = await database.query(sql, args); expect(rows.length).toBeGreaterThan(0); history.push({ sql, args, rows });
+            const args = [requestId], rows = await database.query(sql, args); check('stored-resources', 'journey.history.intake-populated', rows.length, 0, (a, e) => expect(a).toBeGreaterThan(e)); history.push({ sql, args, rows });
           }
           for (const [table, predicate] of [
             ['league_roster_capture_receipts', 'id=ANY($1::uuid[])'],
@@ -273,7 +285,7 @@ describe(JOURNEY_SUITE, () => {
             ['league_roster_resource_acceptances', 'receipt_id=ANY($1::uuid[])'],
           ]) {
             const sql = `SELECT * FROM public.${table} WHERE ${predicate} ORDER BY to_jsonb(${table})::text`, args = [allReceipts];
-            const rows = await database.query(sql, args); expect(rows).toHaveLength(16); history.push({ sql, args, rows });
+            const rows = await database.query(sql, args); check('stored-resources', 'journey.history.receipt-count', rows, 16, (a, e) => expect(a).toHaveLength(e)); history.push({ sql, args, rows });
           }
           for (const [table, column, ids] of [
             ['league_administration_contents', 'id', allContents],
@@ -285,11 +297,11 @@ describe(JOURNEY_SUITE, () => {
           ] as const) {
             const sql = `SELECT * FROM public.${table} WHERE ${column}=ANY($1::uuid[]) ORDER BY to_jsonb(${table})::text`;
             const args = [[...new Set(ids)]], rows = await database.query(sql, args);
-            expect(rows.length).toBeGreaterThan(0); history.push({ sql, args, rows });
+            check('stored-resources', 'journey.history.content-populated', rows.length, 0, (a, e) => expect(a).toBeGreaterThan(e)); history.push({ sql, args, rows });
           }
           const sql = 'SELECT outcome.* FROM public.public_data_dispatch_outcomes outcome JOIN public.public_data_dispatches dispatch USING(worker_id,generation) WHERE dispatch.intake_id=$1 ORDER BY outcome.worker_id,outcome.generation';
-          const args = [requestId], rows = await database.query(sql, args); expect(rows).toHaveLength(14); history.push({ sql, args, rows });
-        } else for (const item of history) expect(await database.query(item.sql, item.args)).toEqual(item.rows);
+          const args = [requestId], rows = await database.query(sql, args); check('stored-resources', 'journey.history.dispatch-count', rows, 14, (a, e) => expect(a).toHaveLength(e)); history.push({ sql, args, rows });
+        } else for (const item of history) check('stored-resources', 'journey.history.unchanged', await database.query(item.sql, item.args), item.rows, (a, e) => expect(a).toEqual(e));
       };
       await intake.submit({ id: manualId, username: JOURNEY_USERNAME, seasons: [JOURNEY_SEASON] });
       currentRequest = manualId;
@@ -308,8 +320,8 @@ describe(JOURNEY_SUITE, () => {
           : await runPublicDataRefreshStep(dependencies, AbortSignal.timeout(Math.max(1, Math.floor(Math.min(20_000, until - performance.now())))));
         diagnostics.checkOutcome(outcome);
         if (outcome.status === 'busy') { source.finishStep(false); notBefore = performance.now() + 1_000; continue; }
-        expect(outcome).toMatchObject({ status: 'progress', resource: selectedStep.kind, providerRequests: selectedStep.kind === 'core' ? 2 : 1 });
-        source.finishStep(true); completed++; expect(admissions).toBe(completed); expect(claims).toBe(completed);
+        check('step-progress', 'journey.step.progress', outcome, { status: 'progress', resource: selectedStep.kind, providerRequests: selectedStep.kind === 'core' ? 2 : 1 }, (a, e) => expect(a).toMatchObject(e));
+        source.finishStep(true); completed++; check('step-progress', 'journey.step.admissions', admissions, completed, (a, e) => expect(a).toBe(e)); check('step-progress', 'journey.step.claims', claims, completed, (a, e) => expect(a).toBe(e));
         process.stdout.write('PUBLIC_DATA_LIVE_PROGRESS ' + JSON.stringify({ step: completed, collection: selectedStep.cycle, resource: selectedStep.kind }) + '\n');
         // Real waiting after observed completion; never change the clock, DB admission or fence.
         notBefore = performance.now() + 60_000;
@@ -324,20 +336,20 @@ describe(JOURNEY_SUITE, () => {
       source.assertComplete();
       await waitForAdmission(); diagnostics.beginStep(2);
       const settled = await runPublicDataRefreshStep(dependencies, AbortSignal.timeout(Math.max(1, Math.floor(Math.min(20_000, until - performance.now())))));
-      diagnostics.checkOutcome(settled); expect(settled).toEqual({ status: 'backoff', providerRequests: 0 });
-      const composed = await diagnostics.observe('reader.refresh', () => readPublicDataRefresh(database, administration, targetId, { managerEvidenceVersion: 'v2' }));
-      expect(composed).toMatchObject({ status: 'available', target: { id: targetId, externalManagerId: JOURNEY_MANAGER,
+      diagnostics.checkOutcome(settled); check('journey-complete', 'journey.settlement.outcome', settled, { status: 'backoff', providerRequests: 0 }, (a, e) => expect(a).toEqual(e));
+      const composed = await diagnostics.observe('reader.refresh', () => readPublicDataRefresh(database, observedReaders, targetId, { managerEvidenceVersion: 'v2' }));
+      check('journey-complete', 'journey.refresh.readback', composed, { status: 'available', target: { id: targetId, externalManagerId: JOURNEY_MANAGER,
         cadenceSeconds: JOURNEY_CADENCE_SECONDS }, cycle: { number: 1, requestId: currentRequest, outcome: { disposition: 'complete' } },
-        intake: { status: 'available', request: { terminal: true } } });
-      expect(await database.query('SELECT cycle FROM public.public_data_refresh_cycles WHERE target_id=$1', [targetId])).toEqual([{ cycle: 1 }]);
-      expect(await database.query('SELECT disposition FROM public.public_data_refresh_cycle_outcomes WHERE target_id=$1', [targetId])).toEqual([{ disposition: 'complete' }]);
+        intake: { status: 'available', request: { terminal: true } } }, (a, e) => expect(a).toMatchObject(e));
+      check('journey-complete', 'journey.refresh.cycle-count', await database.query('SELECT cycle FROM public.public_data_refresh_cycles WHERE target_id=$1', [targetId]), [{ cycle: 1 }], (a, e) => expect(a).toEqual(e));
+      check('journey-complete', 'journey.refresh.disposition', await database.query('SELECT disposition FROM public.public_data_refresh_cycle_outcomes WHERE target_id=$1', [targetId]), [{ disposition: 'complete' }], (a, e) => expect(a).toEqual(e));
       const [spacing] = await database.query(`SELECT count(*)::int AS count,bool_and(gap>=interval '60 seconds') AS bounded FROM (
         SELECT admitted_at-lag(admitted_at) OVER (ORDER BY admitted_at) AS gap FROM public.public_data_dispatches) entries`);
-      expect(spacing).toEqual({ count: 28, bounded: true }); expect(claims).toBe(29); expect(admissions).toBe(28);
-      expect(await database.query(`SELECT dispatch.worker_id FROM public.public_data_dispatches dispatch LEFT JOIN public.public_data_dispatch_outcomes outcome
-        USING(worker_id,generation) WHERE outcome.worker_id IS NULL`)).toEqual([]);
+      check('journey-complete', 'journey.settlement.spacing', spacing, { count: 28, bounded: true }, (a, e) => expect(a).toEqual(e)); check('journey-complete', 'journey.settlement.claims', claims, 29, (a, e) => expect(a).toBe(e)); check('journey-complete', 'journey.settlement.admissions', admissions, 28, (a, e) => expect(a).toBe(e));
+      check('journey-complete', 'journey.settlement.unfinished', await database.query(`SELECT dispatch.worker_id FROM public.public_data_dispatches dispatch LEFT JOIN public.public_data_dispatch_outcomes outcome
+        USING(worker_id,generation) WHERE outcome.worker_id IS NULL`), [], (a, e) => expect(a).toEqual(e));
       source.assertComplete();
-      for (const row of source.captures) expect(qualificationDigest(row.capture.payload)).toBe(row.payloadDigest);
+      for (const row of source.captures) check('capture-witness', 'journey.capture.unchanged', qualificationDigest(row.capture.payload), row.payloadDigest, (a, e) => expect(a).toBe(e));
       finalized = true;
       process.stdout.write('PUBLIC_DATA_LIVE_PROGRESS ' + JSON.stringify({ step: 29, collection: 2, resource: 'settlement' }) + '\n');
     } catch (error) { throw diagnostics.failure('case', error); }
