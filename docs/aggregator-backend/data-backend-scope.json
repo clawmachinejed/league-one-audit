@@ -290,10 +290,10 @@
     {
       "path": "apps/site/e2e/my-fantasy.spec.ts",
       "resource": "Existing website regression evidence for the shared backend",
-      "purpose": "Keep the existing fake date while allowing initial fixture hydration before pausing browser timers; preserve all bounded polling, recovery, isolation and layout assertions. No product code, retries, timeout or worker-count relaxation.",
-      "proof": "Independent delayed-chunk replay reproduced startup stalling under a paused clock; targeted existing browser cases and changed-SHA review required. Separate ECONNRESET remains unresolved.",
-      "reviewer": "Independent GPT-6 Astra ultra review in Review new backend end to end (01a0f411-7133-7491-b693-4c89af678ca6)",
-      "reviewReference": "DATA-SCOPE-2026-10-06-BROWSER-STARTUP-CLOCK-01"
+      "purpose": "Keep the existing fake date while allowing initial fixture hydration before pausing browser timers; preserve all bounded polling, recovery, isolation and layout assertions. Synchronize pageIntroGeometry with a connected, nonempty, positive-size heading using the existing default polling bound; reacquire a replaced handle before measurement. Never poll for the expected style or relax exact typography/one-pixel geometry assertions. No product code, retries, timeout or worker-count relaxation.",
+      "proof": "Independent delayed-chunk replay reproduced startup stalling under a paused clock; targeted existing browser cases and changed-SHA review required. Historical separate ECONNRESET remains unproved as a source defect. The e36bfe9 full run passed unit/build but failed one desktop reference with six empty styles; preserved trace does not record connection state. Author and independent reviewer reproduced empty styles from a detached handle in Chromium with networking blocked; the maintained helper correction reacquires a valid snapshot. Final complete workflow remains separately source-bound.",
+      "reviewer": "Independent GPT-6 Astra ultra review in Review new backend end to end (01a0f411-7133-7491-b693-4c89af678ca6); astra_core_diagnosis for the connected-heading measurement correction",
+      "reviewReference": "DATA-SCOPE-2026-10-06-BROWSER-STARTUP-CLOCK-01; DATA-SCOPE-2026-10-08-INTRO-MEASUREMENT-01"
     },
     {
       "path": "apps/site/migrations/036_public_data_refresh.sql",

@@ -32,21 +32,30 @@ async function pageIntroGeometry(page: Page) {
   const intro = page.locator('#main-content [data-page-intro]:visible');
   await expect(intro).toHaveCount(1);
   await expect(intro).toBeVisible();
-  const title = await intro.evaluate(element => {
-    const heading = element.querySelector('h1')!;
-    const season = element.querySelector('p')!;
+  const readTitle = () => intro.evaluate(element => {
+    const heading = element.querySelector('h1');
+    const season = element.querySelector('p');
+    // Streaming may replace the resolved handle before this callback runs.
+    // Detached nodes have empty computed styles and are not layout evidence.
+    if (!element.isConnected || !heading?.isConnected || !season?.isConnected) return null;
     const style = getComputedStyle(heading);
     const seasonStyle = getComputedStyle(season);
     const headingBox = heading.getBoundingClientRect();
     const seasonBox = season.getBoundingClientRect();
-    return { typography: { fontSize: style.fontSize, lineHeight: style.lineHeight, fontWeight: style.fontWeight,
-      letterSpacing: style.letterSpacing, seasonSize: seasonStyle.fontSize, seasonLineHeight: seasonStyle.lineHeight },
+    if (headingBox.width <= 0 || headingBox.height <= 0 || seasonBox.width <= 0 || seasonBox.height <= 0) return null;
+    const typography = { fontSize: style.fontSize, lineHeight: style.lineHeight, fontWeight: style.fontWeight,
+      letterSpacing: style.letterSpacing, seasonSize: seasonStyle.fontSize, seasonLineHeight: seasonStyle.lineHeight };
+    if (Object.values(typography).some(value => !value)) return null;
+    return { typography,
     top: headingBox.top, left: headingBox.left, seasonGap: seasonBox.top - headingBox.bottom,
     seasonBottom: seasonBox.bottom, seasonText: season.textContent };
   });
+  let title: Awaited<ReturnType<typeof readTitle>> = null;
+  await expect.poll(async () => { title = await readTitle(); return title !== null; },
+    'Read heading geometry from the connected visible page').toBe(true);
   const selector = await page.getByRole('combobox', { name: 'Matchup week', exact: true }).boundingBox();
   expect(selector).not.toBeNull();
-  return { ...title, selectorTop: selector!.y, selectorRight: selector!.x + selector!.width };
+  return { ...title!, selectorTop: selector!.y, selectorRight: selector!.x + selector!.width };
 }
 
 async function expectFantasyWeek(page: Page, week: number) {
