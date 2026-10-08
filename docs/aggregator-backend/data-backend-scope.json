@@ -32,6 +32,22 @@
   ],
   "reviewedExtensions": [
     {
+      "path": "README.md",
+      "resource": "Current DATA work and existing source authority documentation",
+      "purpose": "Correct stale current-state descriptions of DATA scope, conditional account-backed My Fantasy behavior, and the accepted Neon registry versus database-disabled bootstrap IDs. Documentation only; no account implementation, source configuration or runtime change.",
+      "proof": "Source comparison against existing My Fantasy component/account guards, league administration registry and the current DATA evidence record; exact diff independently reviewed. No SQL or release qualification follows from corrected prose.",
+      "reviewer": "Independent GPT-6 Astra ultra reviewer /root/astra_core_diagnosis in DATA backend recovery",
+      "reviewReference": "DATA-SCOPE-2026-10-08-DOC-STATUS-CORRECTION-01"
+    },
+    {
+      "path": "docs/aggregator-backend/step-2-checklist.md",
+      "resource": "Historical Step 2 and B4 implementation status documentation",
+      "purpose": "Label the screen-cutover ledger historical/deferred for the current DATA outcome and correct the stale B4 not-started row to implemented internal source with incomplete SQL qualification and production coverage. Preserve prior source-bound evidence and pending obligations; documentation only.",
+      "proof": "Existing historical-continuity implementation/tests, authored B4 integration cases and preserved failed/partial SQL evidence; exact diff independently reviewed. This does not close B4 or DATA qualification or change the historical account ledger.",
+      "reviewer": "Independent GPT-6 Astra ultra reviewer /root/astra_core_diagnosis in DATA backend recovery",
+      "reviewReference": "DATA-SCOPE-2026-10-08-DOC-STATUS-CORRECTION-01"
+    },
+    {
       "path": "apps/site/integration/public-data-refresh-diagnostics.ts",
       "resource": "Diagnostic evidence for core settings, rosters, managers and directory ingestion",
       "purpose": "Observe only selected integration-case boundaries, retain bounded sanitized failures and exact fixed SQL acceptance reasons, and after the original failure read at most four exact immutable receipt/attempt bindings through the maintained diagnostic-only runtime reader under one five-second caller deadline. Preserve original results, assertions, admission and cleanup; no production behavior, migration or acceptance-predicate change.",

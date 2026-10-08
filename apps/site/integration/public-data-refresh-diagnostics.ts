@@ -1,4 +1,4 @@
-import type { ReceiptDiagnosticReader, ReceiptDiagnosticParameters } from './neon-integration-harness';
+import { ReceiptDiagnosticReadError, type ReceiptDiagnosticReader, type ReceiptDiagnosticParameters } from './neon-integration-harness';
 import { CURRENT_ROSTER_POLICY, currentRosterScope } from '../lib/aggregator/current-roster';
 import { LEAGUE_SETTINGS_POLICY, leagueSettingsScope } from '../lib/aggregator/league-settings';
 import { TEAM_MANAGERS_POLICY, TEAM_MANAGER_EVIDENCE_POLICY, teamManagersScope, teamManagerEvidenceScope } from '../lib/aggregator/team-managers';
@@ -47,6 +47,7 @@ const receiptResources = [
 type ReceiptResource = typeof receiptResources[number];
 type ObservationArguments = Parameters<PublicIntakeDependencies['administration']['recordObservation']>;
 type ReceiptEvidence = { state: 'available' | 'invalid-binding' | 'invalid-result' | 'error' | 'timeout';
+  boundary?: 'transaction' | 'result-validation';
   requestStartedAfterReservation?: boolean | null; requestStartMinusReservationMs?: number | null;
   requestStartMinusReservationClamped?: boolean | null };
 type PendingReceipt = { resource: ReceiptResource['resource']; reader: ReceiptDiagnosticReader; parameters: ReceiptDiagnosticParameters };
@@ -190,8 +191,13 @@ export function createPublicDataDiagnostics(kind: 'ordinary' | 'refresh') {
           const receipt = rows === timedOut || controller.signal.aborted ? { state: 'timeout' as const } : receiptEvidence(rows);
           append({ phase: 'administration.receipt', event: 'return', resource: item.resource, receipt });
         } catch (error) {
+          let boundary: ReceiptEvidence['boundary'];
+          try {
+            const candidate = error instanceof ReceiptDiagnosticReadError ? read(error, 'receiptBoundary') : undefined;
+            if (candidate === 'transaction' || candidate === 'result-validation') boundary = candidate;
+          } catch { /* Reject hostile prototype/property access without losing the primary failure. */ }
           append({ phase: 'administration.receipt', event: 'error', resource: item.resource,
-            receipt: { state: controller.signal.aborted ? 'timeout' : 'error' }, ...classification(error) });
+            receipt: { state: controller.signal.aborted ? 'timeout' : 'error', ...(boundary ? { boundary } : {}) }, ...classification(error) });
         }
       }
     } finally { clearTimeout(timer); }

@@ -557,6 +557,20 @@ async function queryAfterLock<Row extends DatabaseRow>(
 export type ReceiptDiagnosticParameters = readonly [receiptId: string, attemptId: string, scopeId: string,
   mapping: string, identity: string, ordinal: number, expectedGeneration: number];
 export type ReceiptDiagnosticReader = (parameters: ReceiptDiagnosticParameters, signal: AbortSignal) => Promise<readonly DatabaseRow[]>;
+/** Owned diagnostic boundaries only; never retain driver messages, causes or payloads. */
+export class ReceiptDiagnosticReadError extends Error {
+  readonly code?: string;
+  constructor(readonly receiptBoundary: 'transaction' | 'result-validation', error?: unknown) {
+    super(receiptBoundary === 'result-validation' ? 'Invalid bounded diagnostic transaction result.' : 'Bounded diagnostic transaction failed.');
+    for (const property of ['code', 'name'] as const) {
+      try {
+        const value = error && (typeof error === 'object' || typeof error === 'function') ? Reflect.get(error, property) : undefined;
+        if (property === 'code' && typeof value === 'string' && /^[0-9A-Z]{5}$/u.test(value)) this.code = value;
+        if (property === 'name' && (value === 'AbortError' || value === 'TimeoutError')) this.name = value;
+      } catch { /* An untrusted getter must not replace the diagnostic boundary. */ }
+    }
+  }
+}
 // Same immutable tables cover all four fixed core resources. PostgreSQL >= retains microsecond precision.
 // This clamped difference is request start minus reservation, not measured clock skew.
 const RECEIPT_QUERY = `WITH bound_receipt AS (
@@ -599,14 +613,19 @@ export function createReceiptDiagnosticReader(): ReceiptDiagnosticReader {
     signal.throwIfAborted();
     const sql = neon(env.runtimeDatabaseUrl);
     // Both lazy query objects are submitted in ONE read-only HTTP transaction.
-    const results = await sql.transaction([
-      sql.query("SELECT pg_catalog.set_config('statement_timeout','1000',true) AS diagnostic_statement_timeout"),
-      sql.query(RECEIPT_QUERY, [...parameters]),
-    ], { readOnly: true, fetchOptions: { signal } });
+    let results;
+    try {
+      results = await sql.transaction([
+        sql.query("SELECT pg_catalog.set_config('statement_timeout','1000',true) AS diagnostic_statement_timeout"),
+        sql.query(RECEIPT_QUERY, [...parameters]),
+      ], { readOnly: true, fetchOptions: { signal } });
+    } catch (error) { throw new ReceiptDiagnosticReadError('transaction', error); }
     signal.throwIfAborted();
+    // PostgreSQL renders the 1000-millisecond GUC as "1s". Verify its canonical
+    // result, not the input literal, before returning any receipt evidence.
     if (!Array.isArray(results) || results.length !== 2 || !Array.isArray(results[0]) || results[0].length !== 1
-      || results[0][0]?.diagnostic_statement_timeout !== '1000' || !Array.isArray(results[1]) || results[1].length > 1) {
-      throw new Error('Invalid bounded diagnostic transaction result.');
+      || results[0][0]?.diagnostic_statement_timeout !== '1s' || !Array.isArray(results[1]) || results[1].length > 1) {
+      throw new ReceiptDiagnosticReadError('result-validation');
     }
     return results[1];
   };

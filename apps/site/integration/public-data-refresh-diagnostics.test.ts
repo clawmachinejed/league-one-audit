@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto';
 import http from 'node:http';
 import https from 'node:https';
 import net from 'node:net';
-import type { ReceiptDiagnosticReader } from './neon-integration-harness';
+import { ReceiptDiagnosticReadError, type ReceiptDiagnosticReader } from './neon-integration-harness';
 import { runPublicDataRefreshStep, type PublicIntakeDependencies } from '../lib/league-administration/public-intake';
 import { createLeagueAdministrationStore } from '../lib/league-administration/store';
 import type { PublicIntakeStore } from '../lib/league-administration/public-intake-contracts';
@@ -310,6 +310,30 @@ it('rejects missing, ambiguous, nonfinite, unbounded, inconsistent and extra rec
     await f.writer(...f.args); await f.save();
     expect(f.d.snapshot().events.at(-1)?.receipt).toEqual({ state: 'invalid-result' });
     expect(JSON.stringify(f.d.snapshot())).not.toContain(secret);
+    await rm(join(directory, 'public-data-ingestion-diagnostics.json'));
+  }
+});
+it('records only owned receipt boundaries without leaking driver text or replacing the primary failure', async () => {
+  const cases = [
+    [new ReceiptDiagnosticReadError('transaction', sqlError()), 'transaction', 'sql', '42501'],
+    [new ReceiptDiagnosticReadError('transaction', new SyntaxError(secret)), 'transaction', 'unexpected', null],
+    [new ReceiptDiagnosticReadError('result-validation'), 'result-validation', 'unexpected', null],
+    [Object.defineProperty(new ReceiptDiagnosticReadError('transaction'), 'receiptBoundary',
+      { get: vi.fn().mockReturnValueOnce('transaction').mockReturnValue(secret) }), 'transaction', 'unexpected', null],
+    [Object.assign(new Error(secret), { receiptBoundary: 'result-validation' }), undefined, 'unexpected', null],
+    [new ReceiptDiagnosticReadError(secret as never), undefined, 'unexpected', null],
+    [new Proxy({}, { getPrototypeOf() { throw new Error(secret); } }), undefined, 'unexpected', null],
+  ] as const;
+  for (const [error, boundary, category, sqlState] of cases) {
+    const f = receiptFixture(); f.query.mockRejectedValue(error);
+    await f.writer(...f.args);
+    const original = f.d.failure('coordinator', undefined, 'incomplete');
+    await f.save();
+    const snapshot = f.d.snapshot(), receipt = snapshot.events.at(-1);
+    expect(receipt).toMatchObject({ phase: 'administration.receipt', category, sqlState, receipt: { state: 'error' } });
+    expect(receipt?.receipt?.boundary).toBe(boundary);
+    expect(() => f.d.checkOutcome({ status: 'unavailable' })).toThrow(original);
+    expect(JSON.stringify(snapshot)).not.toContain(secret);
     await rm(join(directory, 'public-data-ingestion-diagnostics.json'));
   }
 });

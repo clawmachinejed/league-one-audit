@@ -16,6 +16,7 @@ import {
   cleanIntegrationDatabase,
   createIndependentDatabase,
   createReceiptDiagnosticReader,
+  ReceiptDiagnosticReadError,
   createPinnedIntegrationDatabase,
   integrationEnvironment,
   prepareIntegrationDatabase,
@@ -841,7 +842,7 @@ const receiptRow = { request_started_after_reservation: false, request_start_min
   request_start_minus_reservation_clamped: false };
 function mockedReceiptHttp() {
   mocked.httpQuery.mockImplementation((query, params) => ({ query, params }));
-  mocked.transaction.mockResolvedValue([[{ diagnostic_statement_timeout: '1000' }], [receiptRow]]);
+  mocked.transaction.mockResolvedValue([[{ diagnostic_statement_timeout: '1s' }], [receiptRow]]);
   mocked.neon.mockReturnValue({ query: mocked.httpQuery, transaction: mocked.transaction });
 }
 it('lazily binds the fixed receipt HTTP read to one guarded runtime target and a read-only transaction', async () => {
@@ -883,23 +884,44 @@ it('performs no HTTP for an already aborted read and rejects malformed or oversi
   await expect(reader(receiptParameters, AbortSignal.abort())).rejects.toThrow();
   expect(mocked.neon).not.toHaveBeenCalled();
   for (const results of [[], [[]], [[], []], [[{ diagnostic_statement_timeout: 'wrong' }], []],
-    [[{ diagnostic_statement_timeout: '1000' }], [receiptRow, receiptRow]], [[{ diagnostic_statement_timeout: '1000' }], {}]]) {
+    [[{ diagnostic_statement_timeout: '1000' }], [receiptRow]], [[{ diagnostic_statement_timeout: '0' }], [receiptRow]],
+    [[{ diagnostic_statement_timeout: '1s' }], [receiptRow, receiptRow]], [[{ diagnostic_statement_timeout: '1s' }], {}]]) {
     mocked.transaction.mockResolvedValueOnce(results);
-    await expect(reader(receiptParameters, new AbortController().signal)).rejects.toThrow('Invalid bounded diagnostic');
+    await expect(reader(receiptParameters, new AbortController().signal)).rejects.toMatchObject({ receiptBoundary: 'result-validation', message: 'Invalid bounded diagnostic transaction result.' });
   }
 });
-it('uses installed Neon HTTP driver read-only headers, bound parameters and shared signal with no real transport', async () => {
+it('tags only diagnostic-owned transaction boundaries and retains no raw driver cause', async () => {
+  mockedReceiptHttp(); const reader = createReceiptDiagnosticReader();
+  for (const original of [Object.assign(new Error('fictional private driver data'), { code: '42501' }), new SyntaxError('fictional private body'),
+    Object.assign(new Error('fictional private abort'), { name: 'AbortError' }),
+    Object.defineProperties({}, { code: { get() { throw new Error('fictional private getter'); } }, name: { get() { throw new Error('fictional private getter'); } } })]) {
+    mocked.transaction.mockRejectedValueOnce(original);
+    const error = await reader(receiptParameters, new AbortController().signal).catch(error => error);
+    expect(error).toBeInstanceOf(ReceiptDiagnosticReadError);
+    expect(error).toMatchObject({ receiptBoundary: 'transaction', message: 'Bounded diagnostic transaction failed.' });
+    expect(error).not.toHaveProperty('cause');
+    expect(JSON.stringify(error)).not.toContain('fictional private');
+    if (original instanceof Error && 'code' in original) expect(error.code).toBe('42501');
+    if (original instanceof Error && original.name === 'AbortError') expect(error.name).toBe('AbortError');
+  }
+});
+it.each([-0.001, 0, 0.001])('retains the installed-driver receipt with PostgreSQL-normalized 1s timeout and %s ms comparison after fixture restoration', async difference => {
   const actual = await vi.importActual<typeof import('@neondatabase/serverless')>('@neondatabase/serverless');
   mocked.neon.mockImplementation(actual.neon);
   const fetch = vi.fn(async () => new Response(JSON.stringify({ results: [
-    { fields: [{ name: 'diagnostic_statement_timeout', dataTypeID: 25 }], rows: [['1000']], command: 'SELECT', rowCount: 1 },
+    { fields: [{ name: 'diagnostic_statement_timeout', dataTypeID: 25 }], rows: [['1s']], command: 'SELECT', rowCount: 1 },
     { fields: [{ name: 'request_started_after_reservation', dataTypeID: 16 },
       { name: 'request_start_minus_reservation_ms', dataTypeID: 701 },
-      { name: 'request_start_minus_reservation_clamped', dataTypeID: 16 }], rows: [['f','-0.001','f']], command: 'SELECT', rowCount: 1 },
+      { name: 'request_start_minus_reservation_clamped', dataTypeID: 16 }], rows: [[difference >= 0 ? 't' : 'f', String(difference), 'f']], command: 'SELECT', rowCount: 1 },
   ] })));
   vi.stubGlobal('fetch', fetch);
+  const reader = createReceiptDiagnosticReader();
+  const providerFetch = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Synthetic provider fixture only.'));
+  // The SQL case restores its provider fixture before draining receipt evidence.
+  providerFetch.mockRestore();
   const signal = new AbortController().signal;
-  expect(await createReceiptDiagnosticReader()(receiptParameters, signal)).toEqual([receiptRow]);
+  expect(await reader(receiptParameters, signal)).toEqual([{ ...receiptRow,
+    request_started_after_reservation: difference >= 0, request_start_minus_reservation_ms: difference }]);
   expect(fetch).toHaveBeenCalledOnce();
   const [, request] = fetch.mock.calls[0] as unknown as [string, RequestInit];
   expect(request.signal).toBe(signal);

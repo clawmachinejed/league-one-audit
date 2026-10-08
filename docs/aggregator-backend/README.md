@@ -2,7 +2,7 @@
 
 > **Current implementation scope:** [The data-backend contract](data-backend-scope.md) governs current work: official fantasy data acquisition, typed relational storage, refresh/recovery and backend readers. Website accounts/login, exclusive claims, onboarding/follows/membership entitlements, UX and new analytics/projections are deferred, not prerequisites. Earlier broader plans and the separate 108-obligation account ledger remain historical/deferred with their recorded pending statuses. This notice does not establish acceptance, SQL qualification or release authority.
 
-The [Step 2 implementation checklist](step-2-checklist.md) is the current screen-by-screen completion ledger. The [exact-period matchup shadow resource](exact-period-matchups.md) records the first Bundle 1 implementation boundary, its evidence and remaining qualification gates.
+The [DATA evidence record](data-backend-evidence.md) owns current candidate status, executed results and remaining DATA qualification. The [Step 2 implementation checklist](step-2-checklist.md) preserves the earlier screen-by-screen work and later reader-cutover gates; it is historical/deferred for this data-only outcome. The [exact-period matchup shadow resource](exact-period-matchups.md) records the first Bundle 1 implementation boundary, its evidence and remaining qualification gates.
 
 [Shared league-season and settings](league-season-settings.md) adds an internal
 identity/settings resource over the same capture and scoped acceptance machinery.
@@ -14,7 +14,7 @@ extends the same capture and scoped acceptance path with provider-qualified team
 relationships. Complete coverage names primary ownership only; optional co-manager
 groups preserve their own known/unknown state. Public/account readers remain unchanged.
 
-Status: proposed implementation contract, 28 September 2026. This package defines the backend foundation; it does not implement a connector, alter enrollment, run a migration, change a calculation, or establish production capacity.
+Historical design status, 28 September 2026: this package defined the backend foundation. Later source implementation and qualification are recorded separately in the current DATA evidence record. This design document itself does not establish installed migrations, production capacity or release authority.
 
 The first package-2 code slice is recorded in [retained roster implementation](roster-implementation.md). It adds common contract validators and an internal roster comparison through the existing store/reader path; the broader migration and read-service cutover remain pending.
 

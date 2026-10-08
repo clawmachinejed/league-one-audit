@@ -1,6 +1,16 @@
 # Ordinary ingestion proof and diagnostic correction
 
-Current status: the single approved ordinary database run at e44b24c failed and was fully cleaned up. The later sections preserve the earlier proposal and source-only evidence as history; the approved-run section at the end is current.
+Current status and the latest exact-source database evidence are maintained in [DATA evidence](data-backend-evidence.md). The October 8 run at `11376e19` failed and was fully cleaned up. The correction below is still awaiting a separately authorized PostgreSQL run; no ingestion or release qualification follows from it.
+
+## October 8 bounded receipt diagnostic correction
+
+PostgreSQL renders `set_config('statement_timeout','1000',true)` as the canonical value `1s`, while the diagnostic reader incorrectly required the input literal `1000`. The [PostgreSQL 18.6 configuration implementation](https://github.com/postgres/postgres/blob/REL_18_6/src/backend/utils/misc/guc.c) formats integer settings with their units. An offline reproduction with Node 24 and the installed Neon driver accepted the old mocked `1000` response and rejected the correct `1s` response. This confirms a diagnostic validator defect; the deleted run's raw response was not retained, so it does not establish the sole cause of that run's diagnostic errors or the cause of settings/manager preservation.
+
+The reader now accepts only canonical `1s`, with the existing timeout SQL, read-only transaction, query, receipt binding and shared deadline unchanged. A fixed owned `transaction` or `result-validation` boundary distinguishes a rejected driver transaction from our response-shape validator. `transaction` includes provider/query/HTTP parsing failures and does not identify those individually. Only existing allowlisted SQLSTATE and cancellation classifications are serialized; raw messages, causes, stacks and response bodies remain excluded. Serialization admits an owned, allowlisted boundary read once, including for hostile accessors. Regression coverage exercises the installed driver, actual restore-before-diagnostic-read order, fractional timing signs, malformed results, error redaction and original-failure precedence.
+
+## Historical correction record before October 8
+
+The remaining proposals, approvals, counts and continuation statements are retained for their named source and run. They do not authorize another database attempt or supersede the current DATA evidence record.
 
 This correction follows the resumed user direction: first prove one ordinary journey through the existing backend, then qualify recurrence and recovery. It does not add a second ingestion pipeline or remove requirements. The current [data-only contract](data-backend-scope.md) remains authoritative.
 
