@@ -352,8 +352,9 @@ describe('public data source to typed PostgreSQL readback and recovery', () => {
     });
     // Controlled source-clock regressions use the existing two core journeys in
     // this nonselected case. DB clocks, admission, lease timers and fence creation
-    // remain real. ±60 seconds exceeds the valid 25-second lease, so the old
-    // comparator failure is deterministic rather than a network-speed assumption.
+    // remain real. ±30 seconds exceeds the valid 25-second lease but remains
+    // below the real 60-second admission gap minus that prior lease. Thus this
+    // breaks the old same-capture comparator without reordering adjacent captures.
     // This is a source-capture clock oracle, not arbitrary whole-worker skew.
     // Only zero-argument application Date construction shifts after
     // the DB witness arrives; raw timestamps are never changed after capture.
@@ -436,7 +437,7 @@ describe('public data source to typed PostgreSQL readback and recovery', () => {
       // Identical witnessed bytes cannot revive the now-failed original owner.
       await expect(database.query('SELECT public.record_league_administration_observation($1::jsonb)', [guardedOriginalInput]))
         .rejects.toThrow(/fence.*(?:stale|expired)|lease/);
-      expect(await progress(dependencies, id, -60_000)).toMatchObject({ status: 'progress', resource: 'core' });
+      expect(await progress(dependencies, id, -30_000)).toMatchObject({ status: 'progress', resource: 'core' });
       expect(postCheckpointReplayProved).toBe(true);
       const read = await readPublicSleeperIntake(database, administration, id);
       if (read.status === 'missing') throw new Error('Missing public fixture readback.');
@@ -535,7 +536,7 @@ describe('public data source to typed PostgreSQL readback and recovery', () => {
       // Repeat the whole actual intake path, with normal admission waits, after
       // an official scoring correction that must not rewrite calculation rules.
       for (const resource of ['identity', 'leagues', 'bootstrap', 'core']) {
-        expect(await progress(dependencies, correctionId, resource === 'core' ? 60_000 : 0)).toMatchObject({ status: 'progress', resource });
+        expect(await progress(dependencies, correctionId, resource === 'core' ? 30_000 : 0)).toMatchObject({ status: 'progress', resource });
       }
       const corrected = await administration.readAcceptedLeagueSettings(mapping);
       if (corrected.status !== 'available') throw new Error('Missing official correction.');

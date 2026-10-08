@@ -30,7 +30,7 @@ describe('database-issued public acquisition boundary', () => {
     [{ witness: { ...witness, work: { ...work, revision: work.revision + 1 } } }],
     [{ witness: { ...witness, fence: { ...owner, generation: 2 } } }],
     [{ witness: { ...witness, attempts: { settings: { id: owner.workerId, nonce: witness.dispatchNonce } } } }],
-  ])('fails closed on absent, duplicate, malformed or foreign persisted witness: %#', async rows => {
+  ].map(rows => ({ rows })))('fails closed on absent, duplicate, malformed or foreign persisted witness: %#', async ({ rows }) => {
     const query = vi.fn(async () => rows);
     const store = createPublicIntakeStore({ enabled: true, query } as unknown as DatabaseClient);
     await expect(store.captureWitness!(work, null, owner)).rejects.toThrow();
