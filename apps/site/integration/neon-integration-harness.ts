@@ -591,7 +591,7 @@ const RECEIPT_QUERY = `WITH bound_receipt AS (
 SELECT request_started_after_reservation,
   CASE WHEN milliseconds IS NULL THEN NULL ELSE greatest(-60000,least(60000,milliseconds))::double precision END AS request_start_minus_reservation_ms,
   abs(milliseconds)>60000 AS request_start_minus_reservation_clamped FROM difference`;
-/** Captured only by the two selected cases after guarded setup and their runtime-role check.
+/** Captured only by selected integration cases after guarded setup and their runtime-role check.
  * No network until failed-case save; no URL or statement override, owned pool or WebSocket.
  * Local abort bounds caller wait. The server timeout bounds an executing SELECT, not service
  * queue time or remote cancellation. The existing supervisor still owns final cleanup. */

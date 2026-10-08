@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createProjectionStore } from '../lib/projection-store';
 import { createLeagueAdministrationStore } from '../lib/league-administration/store';
 import { recordCapturedAdministration } from '../lib/league-administration/runtime';
-import { createIndependentDatabase, ownerQuery, type IndependentDatabase } from './neon-integration-harness';
+import { createIndependentDatabase, createReceiptDiagnosticReader, ownerQuery, type IndependentDatabase } from './neon-integration-harness';
 import { createPublicDataDiagnostics } from './public-data-refresh-diagnostics';
 import { LIVE_SUITE, LIVE_TEST, qualificationDigest, requireLiveQualification } from './qualification-profile';
 import { writeIntegrationArtifact } from './integration-artifacts';
@@ -34,6 +34,7 @@ describe(LIVE_SUITE, () => {
         "current_setting('server_version') AS server_version,current_setting('server_version_num') AS server_version_num");
       equal('live.roles', { role: session.role, effective_role: session.effective_role }, { role: 'league_one_runtime', effective_role: 'league_one_runtime' });
       diagnostics.recordDatabaseVersion(session);
+      const receiptReader = createReceiptDiagnosticReader();
       const bootstrap = await capture('league'), metadata = liveLeagueMetadata(bootstrap.payload);
       const registered = await createProjectionStore(database).registerLeagueSeason({ mode: 'official-data',
         leagueKey: 'sleeper-' + LIVE_LEAGUE_ID, leagueName: metadata.name, sleeperLeagueId: LIVE_LEAGUE_ID, season: metadata.season });
@@ -63,7 +64,9 @@ describe(LIVE_SUITE, () => {
         assertLiveJson(args[0].envelope, input.envelope, equal, args[0].envelope.family === 'users' ? 'directory' : 'population');
         equal('live.writer.input', { contentHash: args[0].contentHash, semanticHash: args[0].semanticHash, status: args[0].status },
           { contentHash: input.contentHash, semanticHash: input.semanticHash, status: input.status });
-        return diagnostics.observe('administration.recordObservation', () => administration.recordObservation(...args));
+        const result = await diagnostics.observe('administration.recordObservation', () => administration.recordObservation(...args));
+        diagnostics.queueReceipts(receiptReader, args, result);
+        return result;
       } };
       const written = await diagnostics.observe('administration.recordObservation', () => recordCapturedAdministration(mapping.scope, [league, rosters, users], {
         store: observedStore, mapping, leagueSettingsAttempt: settingsAttempt, rosterAttempt: rosterAttempts.players,

@@ -1,6 +1,17 @@
 name: disposable-integration
 on:
   workflow_dispatch:
+    inputs:
+      profile:
+        description: SQL qualification profile for the reviewed source
+        type: choice
+        required: true
+        default: full
+        options:
+          - full
+          - data-core-ingestion-v1
+          - data-core-refresh-v1
+          - data-live-league-two-v1
   push:
     branches:
       - 'codex/integration-qualification-*'
@@ -41,9 +52,29 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - name: Run the disposable SQL gate
-        run: pnpm test:integration
+        shell: bash
+        run: |
+          case "$GITHUB_EVENT_NAME:$QUALIFICATION_PROFILE" in
+            push:|workflow_dispatch:full)
+              pnpm test:integration
+              ;;
+            workflow_dispatch:data-core-ingestion-v1)
+              pnpm test:integration --profile=data-core-ingestion-v1
+              ;;
+            workflow_dispatch:data-core-refresh-v1)
+              pnpm test:integration --profile=data-core-refresh-v1
+              ;;
+            workflow_dispatch:data-live-league-two-v1)
+              pnpm test:integration --profile=data-live-league-two-v1
+              ;;
+            *)
+              echo 'Unsupported qualification event or profile.' >&2
+              exit 1
+              ;;
+          esac
         env:
           CI: '1'
+          QUALIFICATION_PROFILE: ${{ inputs.profile }}
           NEON_TEST_AUTHORIZATION: ${{ vars.NEON_TEST_AUTHORIZATION }}
           NEON_TEST_API_KEY: ${{ secrets.NEON_TEST_API_KEY }}
           NEON_TEST_PROJECT_ID: ${{ vars.NEON_TEST_PROJECT_ID }}

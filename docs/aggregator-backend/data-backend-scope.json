@@ -32,6 +32,14 @@
   ],
   "reviewedExtensions": [
     {
+      "path": ".github/workflows/integration.yml",
+      "resource": "Bounded DATA SQL qualification through the existing protected CI credential",
+      "purpose": "Add a closed workflow_dispatch profile choice mapped to fixed existing supervisor commands. Reuse the existing integration-test environment and its project-only NEON_TEST_API_KEY; preserve manual default and push full-suite behavior, triggers, permissions, approval boundary, concurrency, immutable checkout and 50-minute job/30-minute work/40-minute lifecycle limits. No credential creation or rotation, new harness, arbitrary shell arguments or automatic retry.",
+      "proof": "Required evidence is exact workflow diff review, YAML validation and extracted-shell execution with a stub command for every allowed event/profile plus invalid values; no real supervisor or SQL in those checks. Protected-secret metadata confirms availability only, not key validity or a successful hosted run. Each SQL run still requires reviewed-source authorization and normal disposable cleanup evidence.",
+      "reviewer": "Independent GPT-6 Astra ultra reviewer /root/astra_def3_independent; root confirms explicit user process-improvement scope",
+      "reviewReference": "DATA-SCOPE-2026-10-08-REUSABLE-CI-QUALIFICATION-01"
+    },
+    {
       "path": "apps/site/migrations/039_public_data_capture_witness.sql",
       "resource": "Current public DATA capture causality on existing attempts and dispatches",
       "purpose": "Add immutable DB nonces only for future attempt/dispatch rows and one fixed exact witness read; update effective shared acceptance/checkpoint functions for witnessed public identity/list/bootstrap/core/users/exact-period captures. Preserve original provenance and legacy paths, admission, mapping, fences, ordinals, generations, immutable replay and server-clock age/expiry; no new pipeline/table, production application or automatic SQL run. Retain actual validated stage acquisition in one nullable column of existing immutable dispatch outcomes; historical rows remain NULL. Static full-input checks precede wrapper stripping, live checks follow immutable receipt replay.",

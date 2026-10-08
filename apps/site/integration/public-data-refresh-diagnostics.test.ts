@@ -18,6 +18,7 @@ import net from 'node:net';
 import { ReceiptDiagnosticReadError, type ReceiptDiagnosticReader } from './neon-integration-harness';
 import { runPublicDataRefreshStep, type PublicIntakeDependencies } from '../lib/league-administration/public-intake';
 import { createLeagueAdministrationStore } from '../lib/league-administration/store';
+import type { DatabaseRow } from '../lib/database';
 import type { PublicIntakeStore } from '../lib/league-administration/public-intake-contracts';
 import type { PublicDataRefreshStore } from '../lib/league-administration/public-refresh-contracts';
 import type { NormalizedAdministrationObservation } from '../lib/league-administration/contracts';
@@ -721,4 +722,103 @@ it('keeps live diagnostics out of full-profile evidence and saves a safe exact d
     if (target === 'tail') expect(comparison.actual.path.items).toContain(24);
     await rm(path);
   }
+});
+
+// Execute the maintained live closure/finally rather than a second diagnostic adapter.
+async function liveReceiptFixture() {
+  const context = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)), 'a'.repeat(40), randomUUID(), LIVE_PROFILE);
+  vi.stubEnv(QUALIFICATION_CONTEXT_ENV, JSON.stringify(context));
+  const source = await readFile(new URL('./league-two.live-integration-case.ts', import.meta.url), 'utf8');
+  const tree = ts.createSourceFile('live.ts', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const wrappers: string[] = [], finalizers: string[] = [];
+  const visit = (node: ts.Node) => {
+    if (ts.isVariableStatement(node) && node.declarationList.declarations.some(declaration =>
+      ts.isIdentifier(declaration.name) && declaration.name.text === 'observedStore')) wrappers.push(node.getText(tree));
+    if (ts.isTryStatement(node) && node.finallyBlock?.statements[0]?.getText(tree) === 'globalThis.fetch = originalFetch;') {
+      finalizers.push(node.finallyBlock.getText(tree));
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(tree); expect(wrappers).toHaveLength(1); expect(finalizers).toHaveLength(1);
+  const makeStore = new Function('administration', 'normalized', 'diagnostics', 'receiptReader', 'assertLiveJson', 'equal',
+    ts.transpile(wrappers[0], { target: ts.ScriptTarget.ES2022 }) + '\nreturn observedStore;') as
+    (...args: unknown[]) => PublicIntakeDependencies['administration'];
+  const runFinally = new Function('originalFetch', 'diagnostics', 'writeIntegrationArtifact', 'qualificationDigest', 'binding', 'source', 'captures',
+    'return (async () => ' + ts.transpile(finalizers[0], { target: ts.ScriptTarget.ES2022 }) + ')();') as (...args: unknown[]) => Promise<void>;
+  const settings = receiptFixture(receiptCases[0]), rosters = receiptFixture(receiptCases[1]);
+  for (const spec of receiptCases.slice(2)) {
+    const resource = receiptFixture(spec);
+    rosters.args[spec[1]] = resource.args[spec[1]];
+    Object.assign(rosters.result, resource.result);
+  }
+  const diagnostics = createPublicDataDiagnostics('live'), originalFetch = globalThis.fetch;
+  const read = vi.fn<ReceiptDiagnosticReader>(async () => {
+    expect(globalThis.fetch).toBe(originalFetch);
+    return [{ request_started_after_reservation: false, request_start_minus_reservation_ms: -0.001,
+      request_start_minus_reservation_clamped: false }];
+  });
+  const guard = vi.fn<typeof fetch>(async () => { throw new Error(secret); });
+  vi.stubGlobal('fetch', guard);
+  const administration = fixture().administration;
+  administration.recordObservation.mockImplementation(async input =>
+    (input.envelope.family === 'league' ? settings.result : rosters.result) as never);
+  const equal = (label: Parameters<typeof diagnostics.comparison>[0], actual: unknown, expected: unknown) =>
+    diagnostics.assertion('live-core', () => diagnostics.comparison(label, actual, expected, (a, e) => expect(a).toEqual(e)));
+  const store = makeStore(administration, [settings.args[0], rosters.args[0]], diagnostics, read, assertLiveJson, equal);
+  const write = async () => {
+    expect(await store.recordObservation(...settings.args)).toBe(settings.result);
+    expect(await store.recordObservation(...rosters.args)).toBe(rosters.result);
+    expect(administration.recordObservation.mock.calls).toEqual([settings.args, rosters.args]);
+    expect(read).not.toHaveBeenCalled();
+  };
+  const fail = () => {
+    try { equal('live.write', { settings: 'preserved' }, { settings: 'accepted' }); }
+    catch (error) { return error as Error; }
+    throw new Error('Expected original live comparison failure.');
+  };
+  const captureArtifact = vi.fn(async () => {});
+  const finalize = async () => {
+    await runFinally(originalFetch, diagnostics, captureArtifact, () => 'offline-context', { context }, { snapshot: () => ({}) }, []);
+    expect(globalThis.fetch).toBe(originalFetch); expect(guard).not.toHaveBeenCalled(); expect(captureArtifact).toHaveBeenCalledOnce();
+  };
+  return { diagnostics, read, write, fail, finalize, settings, rosters };
+}
+it('queues all four exact live receipt bindings and restores fetch before failed-case diagnostics without replacing the failure', async () => {
+  const f = await liveReceiptFixture(); await f.write(); const failure = f.fail(), original = f.diagnostics.snapshot().firstFailure;
+  await f.finalize();
+  expect(f.read).toHaveBeenCalledTimes(4);
+  expect(f.read.mock.calls.map(([parameters]) => parameters.slice(0, 3))).toEqual(Array(4).fill([id, f.settings.attempt.id, f.settings.attempt.scopeId]));
+  expect(f.read.mock.calls.map(([parameters]) => JSON.parse(parameters[4]).policy.coverageSpecId)).toEqual(receiptCases.map(spec => spec[4]));
+  for (const [parameters, signal] of f.read.mock.calls) {
+    expect(JSON.parse(parameters[3])).toEqual(f.settings.mapping); expect(parameters.slice(5)).toEqual([1, 0]); expect(signal.aborted).toBe(false);
+  }
+  expect(f.diagnostics.snapshot().firstFailure).toEqual(original); expect(f.diagnostics.failure('case', undefined)).toBe(failure);
+  const artifact = await readFile(join(directory, 'live-league-two-diagnostics.json'), 'utf8'), saved = JSON.parse(artifact);
+  expect(saved).toMatchObject({ caseKind: 'live', profile: LIVE_PROFILE, firstFailure: { comparison: { id: 'live.write' } } });
+  expect(saved.events.filter((event: { phase: string }) => event.phase === 'administration.receipt')).toEqual(receiptCases.map(spec =>
+    expect.objectContaining({ resource: spec[2], receipt: { state: 'available', requestStartedAfterReservation: false,
+      requestStartMinusReservationMs: -0.001, requestStartMinusReservationClamped: false } })));
+  for (const raw of [secret, id, f.settings.attempt.id, f.settings.mapping.connectionId]) expect(artifact).not.toContain(raw);
+});
+it('performs no live receipt reads when the case has no failure', async () => {
+  const f = await liveReceiptFixture(); await f.write(); await f.finalize(); expect(f.read).not.toHaveBeenCalled();
+  expect(f.diagnostics.snapshot().firstFailure).toBeNull();
+});
+it('keeps the original live comparison when a diagnostic read rejects', async () => {
+  const f = await liveReceiptFixture(); await f.write(); const failure = f.fail();
+  f.read.mockRejectedValue(new ReceiptDiagnosticReadError('transaction', sqlError()));
+  await f.finalize(); expect(f.read).toHaveBeenCalledTimes(4); expect(f.diagnostics.failure('case', undefined)).toBe(failure);
+  expect(f.diagnostics.snapshot().events.filter(event => event.receipt?.state === 'error')).toHaveLength(4);
+  expect(await readFile(join(directory, 'live-league-two-diagnostics.json'), 'utf8')).not.toContain(secret);
+});
+it('uses one existing five-second bound for all live receipt reads and ignores late results', async () => {
+  const f = await liveReceiptFixture(); await f.write(); const failure = f.fail(), late = Promise.withResolvers<readonly DatabaseRow[]>();
+  f.read.mockImplementation(() => late.promise); vi.useFakeTimers();
+  const saving = f.finalize(); let saved = false; void saving.then(() => { saved = true; });
+  await vi.advanceTimersByTimeAsync(4999); expect(saved).toBe(false);
+  await vi.advanceTimersByTimeAsync(1); await saving;
+  expect(f.read).toHaveBeenCalledOnce(); expect(f.read.mock.calls[0][1].aborted).toBe(true);
+  expect(f.diagnostics.snapshot().events.filter(event => event.receipt?.state === 'timeout')).toHaveLength(4);
+  expect(f.diagnostics.failure('case', undefined)).toBe(failure);
+  const snapshot = f.diagnostics.snapshot(); late.resolve([]); await Promise.resolve(); expect(f.diagnostics.snapshot()).toEqual(snapshot);
 });
