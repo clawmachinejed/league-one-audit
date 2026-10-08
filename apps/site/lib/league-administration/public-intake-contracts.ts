@@ -1,6 +1,7 @@
 import type { AdministrationSourceMapping } from './source-mapping';
 import type { AdministrationWriteFence } from './store-contracts';
 import type { CapturedAdministrationDocument } from './contracts';
+import type { PublicCaptureWitness } from './public-capture-witness';
 
 export const PUBLIC_INTAKE_JOB = 'league-administration-public-intake';
 export const PUBLIC_INTAKE_VERSION = 'sleeper-public-intake-v1';
@@ -9,7 +10,7 @@ export type PublicIntakeInput = Readonly<{ id: string; username: string; seasons
   exactPeriods?: readonly PublicExactPeriod[] }>;
 export type PublicIdentity = Readonly<{ userId: string; username: string; displayName: string; avatarUrl: string | null }>;
 export type PublicLeague = Readonly<{ id: string; name: string; season: string }>;
-export type PublicCapture<T> = Readonly<{ payload: unknown; requestStartedAt: string; requestCompletedAt: string }>
+export type PublicCapture<T> = Readonly<{ payload: unknown; requestStartedAt: string; requestCompletedAt: string; acquisition?: PublicCaptureWitness }>
   & (Readonly<{ value: T; diagnostic?: never }> | Readonly<{ value: null; diagnostic: 'invalid-source' }>);
 export type PublicIntakeWork = Readonly<{ requestId: string; revision: number }> & (
   | Readonly<{ kind: 'identity'; username: string }>
@@ -35,6 +36,9 @@ export type PublicIntakeStore = Readonly<{
   recover: (requestId: string, fence: AdministrationWriteFence) => Promise<void>;
   next: (requestId: string) => Promise<PublicIntakeWork | PublicIntakeDisposition>;
   admit: (work: PublicIntakeWork, fence: AdministrationWriteFence) => Promise<boolean>;
+  /** R039 only. Missing in explicitly legacy adapters; never invent a witness locally. */
+  captureWitness?: (work: PublicIntakeWork, mapping: AdministrationSourceMapping | null,
+    fence: AdministrationWriteFence) => Promise<PublicCaptureWitness>;
   recordIdentity: (work: Extract<PublicIntakeWork, { kind: 'identity' }>, capture: PublicCapture<PublicIdentity>, fence: AdministrationWriteFence) => Promise<void>;
   recordLeagues: (work: Extract<PublicIntakeWork, { kind: 'leagues' }>, capture: PublicCapture<readonly PublicLeague[]>, fence: AdministrationWriteFence) => Promise<void>;
   register: (work: Extract<PublicIntakeWork, { kind: 'bootstrap' | 'core' | 'users' }>, capture: CapturedAdministrationDocument,

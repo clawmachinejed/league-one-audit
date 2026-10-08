@@ -1,3 +1,5 @@
+import type { PublicCaptureWitness } from './public-capture-witness';
+
 /** Source evidence is independent of the internal league/season UUID and app accounts. */
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | readonly JsonValue[] | { readonly [key: string]: JsonValue };
@@ -25,6 +27,8 @@ export type AdministrationProvenance = Readonly<{
   /** Null when a cache cannot prove when the provider document was observed. */
   sourceObservedAt: string | null;
   checkedAt: string;
+  /** Original pre-HTTP capability; never changes provider content identity. */
+  acquisition?: PublicCaptureWitness;
 }>;
 
 export type AdministrationEnvelope = Readonly<{
@@ -212,4 +216,5 @@ export type CapturedAdministrationDocument = Readonly<{
   completeness?: 'complete' | 'partial';
   origin?: 'network' | 'cache' | 'bootstrap';
   sourceObservedAt?: string | null;
+  acquisition?: PublicCaptureWitness;
 }>;

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { readFile } from 'node:fs/promises';
 import type { DatabaseClient } from '../../database';
 import { createPublicIntakeStore } from './public-intake';
 import { normalizeAdministrationObservation } from '../normalize';
@@ -11,6 +12,42 @@ const fence = { jobKey: 'league-administration-public-intake', workerId: 'worker
 const league = { league_id: work.externalLeagueId, season: '2026', sport: 'nfl', name: 'Unrelated division league',
   total_rosters: 2, roster_positions: ['UNKNOWN_NATIVE_SLOT', 'BN'], settings: { divisions: 2 },
   scoring_settings: { rec_yd: 0.1, unsupported_bonus: 2 } };
+
+describe('database-issued public acquisition boundary', () => {
+  const owner = { ...fence, workerId: '55555555-5555-4555-8555-555555555555' };
+  const witness = { version: 'public-network-capture-v1', work, fence: owner,
+    dispatchNonce: '66666666-6666-4666-8666-666666666666', mapping: null, attempts: {} };
+  it('returns exactly one bound immutable witness from the fixed read without synthesizing it', async () => {
+    const raw = structuredClone(witness), query = vi.fn(async () => [{ witness: raw }]);
+    const store = createPublicIntakeStore({ enabled: true, query } as unknown as DatabaseClient);
+    const returned = await store.captureWitness!(work, null, owner);
+    expect(returned).toEqual(witness); expect(returned).not.toBe(raw);
+    expect(Object.isFrozen(returned.work)).toBe(true);
+    expect(query).toHaveBeenCalledExactlyOnceWith(expect.stringContaining('public.read_public_data_capture_witness($1::jsonb,$2::jsonb,$3::jsonb)'),
+      [JSON.stringify(work), null, JSON.stringify(owner)]);
+  });
+  it.each([[], [{ witness }, { witness }], [{ witness: null }], [{ witness: { ...witness, dispatchNonce: '' } }],
+    [{ witness: { ...witness, work: { ...work, revision: work.revision + 1 } } }],
+    [{ witness: { ...witness, fence: { ...owner, generation: 2 } } }],
+    [{ witness: { ...witness, attempts: { settings: { id: owner.workerId, nonce: witness.dispatchNonce } } } }],
+  ])('fails closed on absent, duplicate, malformed or foreign persisted witness: %#', async rows => {
+    const query = vi.fn(async () => rows);
+    const store = createPublicIntakeStore({ enabled: true, query } as unknown as DatabaseClient);
+    await expect(store.captureWitness!(work, null, owner)).rejects.toThrow();
+    expect(query).toHaveBeenCalledOnce();
+  });
+  it('keeps late-role capture grants schema-gated and private helpers denied', async () => {
+    const provision = await readFile(new URL('../../../scripts/provision-runtime-role.sql', import.meta.url), 'utf8');
+    const block = provision.match(/-- BEGIN OPTIONAL PUBLIC CAPTURE WITNESS GRANT([\s\S]*?)-- END OPTIONAL PUBLIC CAPTURE WITNESS GRANT/u)?.[1];
+    expect(block).toContain("to_regprocedure('public.read_public_data_capture_witness(jsonb,jsonb,jsonb)') IS NOT NULL");
+    expect(block).toContain('GRANT EXECUTE ON FUNCTION public.read_public_data_capture_witness(jsonb,jsonb,jsonb) TO league_one_runtime');
+    expect(block).not.toMatch(/GRANT (?:ALL|INSERT|UPDATE|DELETE|CREATE)/u);
+    expect(block).toContain("REVOKE ALL ON FUNCTION %s FROM league_one_runtime");
+    for (const helper of ['derive_public_data_capture_witness', 'assert_public_data_capture_witness',
+      'public_capture_after_reservation', 'assert_public_capture_observation', 'assert_public_capture_input_shape']) expect(block).toContain('public.' + helper + '(');
+    expect(block).toContain("has_function_privilege('league_one_runtime',helper,'EXECUTE')");
+  });
+});
 function fixture(existing = false) {
   const query = vi.fn(async (statement: string, parameters?: readonly unknown[]) => {
     void parameters; // Retain the transport argument for checkpoint assertions.

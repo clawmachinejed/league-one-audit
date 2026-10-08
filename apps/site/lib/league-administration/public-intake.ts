@@ -7,6 +7,8 @@ import type { CapturedAdministrationDocument } from './contracts';
 import { recordCapturedAdministration } from './runtime';
 import type { PublicDataRefreshOutcome, PublicDataRefreshSelected, PublicDataRefreshSelectionFailure, PublicDataRefreshStore } from './public-refresh-contracts';
 import { PUBLIC_INTAKE_JOB, type PublicIntakeOutcome, type PublicIntakeStore } from './public-intake-contracts';
+import { assertOriginalPublicCapture, validateRequestedPublicCaptureWitness, type PublicCaptureWitness } from './public-capture-witness';
+import type { AdministrationSourceMapping } from './source-mapping';
 
 type PublicIntakeCleanup = Readonly<{ intake: Pick<PublicIntakeStore, 'fail'>; jobs: Pick<ProjectionStore, 'failJob'>;
   refresh?: Pick<PublicDataRefreshStore, 'recordSelectionFailure'> }>;
@@ -15,8 +17,8 @@ export type PublicIntakeDependencies = Readonly<{
   administration: LeagueAdministrationStore;
   jobs: Pick<ProjectionStore, 'acquireJob' | 'completeJob' | 'failJob'>;
   source?: Readonly<{ identity: typeof capturePublicSleeperIdentity; leagues: typeof capturePublicSleeperLeagueList;
-    core: (leagueId: string, family: 'league' | 'rosters' | 'users', signal: AbortSignal) => Promise<CapturedAdministrationDocument>;
-    exactPeriod?: (leagueId: string, nativeWeek: number, signal: AbortSignal) => Promise<CapturedAdministrationDocument> }>;
+    core: (leagueId: string, family: 'league' | 'rosters' | 'users', signal: AbortSignal, witness?: PublicCaptureWitness) => Promise<CapturedAdministrationDocument>;
+    exactPeriod?: (leagueId: string, nativeWeek: number, signal: AbortSignal, witness?: PublicCaptureWitness) => Promise<CapturedAdministrationDocument> }>;
   now?: () => Date;
   /** Requires installed R035; adds evidence without replacing either v1 reservation. */
   managerEvidenceVersion?: 'v2';
@@ -52,9 +54,11 @@ async function runOwnedPublicIntakeStep(requestId: string | undefined,
   const phaseIntake = phase?.intake ?? intake;
   const now = dependencies.now ?? (() => new Date());
   const source = dependencies.source ?? { identity: capturePublicSleeperIdentity,
-    leagues: capturePublicSleeperLeagueList, core: capturePublicSleeperCore,
-    exactPeriod: (leagueId: string, nativeWeek: number, captureSignal: AbortSignal) =>
-      capturePublicSleeperCore(leagueId, 'matchups', captureSignal, nativeWeek) };
+    leagues: capturePublicSleeperLeagueList,
+    core: (leagueId: string, family: 'league' | 'rosters' | 'users', captureSignal: AbortSignal, witness?: PublicCaptureWitness) =>
+      capturePublicSleeperCore(leagueId, family, captureSignal, undefined, witness),
+    exactPeriod: (leagueId: string, nativeWeek: number, captureSignal: AbortSignal, witness?: PublicCaptureWitness) =>
+      capturePublicSleeperCore(leagueId, 'matchups', captureSignal, nativeWeek, witness) };
   signal.throwIfAborted();
   phaseSignal.throwIfAborted();
   const workerId = randomUUID();
@@ -109,15 +113,31 @@ async function runOwnedPublicIntakeStep(requestId: string | undefined,
     }
     selectionFailure = undefined; // Durable admission owns all subsequent failure/recovery accounting.
     signal.throwIfAborted();
+    const selectedWork = work;
+    const captureWitness = async (mapping: AdministrationSourceMapping | null, attempts: Readonly<Record<string, string>> = {}) => {
+      if (!intake.captureWitness) return undefined;
+      const value = await intake.captureWitness(selectedWork, mapping, fence);
+      signal.throwIfAborted();
+      return validateRequestedPublicCaptureWitness(value, selectedWork, mapping, fence, attempts);
+    };
     if (work.kind === 'identity') {
+      const witness = await captureWitness(null);
       requests++;
-      await intake.recordIdentity(work, await source.identity(work.username, signal), fence);
+      const capture = await (witness ? source.identity(work.username, signal, witness) : source.identity(work.username, signal));
+      if (witness) assertOriginalPublicCapture(capture, witness);
+      await intake.recordIdentity(work, capture, fence);
     } else if (work.kind === 'leagues') {
+      const witness = await captureWitness(null);
       requests++;
-      await intake.recordLeagues(work, await source.leagues(work.userId, work.season, signal), fence);
+      const capture = await (witness ? source.leagues(work.userId, work.season, signal, witness) : source.leagues(work.userId, work.season, signal));
+      if (witness) assertOriginalPublicCapture(capture, witness);
+      await intake.recordLeagues(work, capture, fence);
     } else if (work.kind === 'bootstrap') {
+      const witness = await captureWitness(null);
       requests++;
-      await intake.register(work, await source.core(work.externalLeagueId, 'league', signal), fence);
+      const capture = await source.core(work.externalLeagueId, 'league', signal, witness);
+      if (witness) assertOriginalPublicCapture(capture, witness);
+      await intake.register(work, capture, fence);
     } else {
       const mapping = await administration.readSourceMapping(work.externalLeagueId);
       if (!mapping || mapping.scope.season !== work.season || mapping.scope.externalLeagueId !== work.externalLeagueId) {
@@ -129,11 +149,12 @@ async function runOwnedPublicIntakeStep(requestId: string | undefined,
         if (!source.exactPeriod) throw new Error('Exact-period capture is unsupported by this source.');
         const settings = await administration.beginLeagueSettingsAttempt(mapping, randomUUID(), fence);
         const matchups = await administration.beginExactMatchupAttempt(mapping, work.nativeWeek, randomUUID(), fence);
+        const witness = await captureWitness(mapping, { settings: settings.id, matchups: matchups.id });
         // Both reservations precede both requests. No HTTP occurs inside a transaction.
         signal.throwIfAborted();
         requests += 2;
         const results = await Promise.allSettled([
-          source.core(work.externalLeagueId, 'league', signal), source.exactPeriod(work.externalLeagueId, work.nativeWeek, signal),
+          source.core(work.externalLeagueId, 'league', signal, witness), source.exactPeriod(work.externalLeagueId, work.nativeWeek, signal, witness),
         ]);
         const documents = results.flatMap((result, index) => {
           if (result.status !== 'fulfilled') return [];
@@ -145,7 +166,8 @@ async function runOwnedPublicIntakeStep(requestId: string | undefined,
           return [document];
         });
         const captured = await recordCapturedAdministration(mapping.scope, documents, { store: administration,
-          signal, fence, mapping, leagueSettingsAttempt: settings, matchupAttempt: { week: work.nativeWeek, attempt: matchups }, now });
+          signal, fence, mapping, leagueSettingsAttempt: settings, matchupAttempt: { week: work.nativeWeek, attempt: matchups }, now,
+          expectedAcquisition: witness });
         const league = captured.results.find(entry => entry.family === 'league')?.result;
         const matchup = captured.results.find(entry => entry.family === 'matchups')?.result;
         if (!league?.observationId || !matchup?.observationId || league.leagueSettingsAcceptance?.status !== 'accepted'
@@ -160,16 +182,18 @@ async function runOwnedPublicIntakeStep(requestId: string | undefined,
           if (!administration.beginTeamManagerEvidenceAttempt) throw new Error('Manager evidence v2 capture is unsupported by this store.');
           managerEvidenceAttempt = await administration.beginTeamManagerEvidenceAttempt(mapping, randomUUID(), fence);
         }
+        const witness = await captureWitness(mapping, { settings: settings.id, players: attempts.players.id,
+          managers: attempts.managers.id, ...(managerEvidenceAttempt ? { managersV2: managerEvidenceAttempt.id } : {}) });
         // The league request follows all resource reservations; its independently accepted
         // population proof belongs to this exact roster acquisition and mapping.
         requests += 2;
         const results = await Promise.allSettled([
-          source.core(work.externalLeagueId, 'league', signal), source.core(work.externalLeagueId, 'rosters', signal),
+          source.core(work.externalLeagueId, 'league', signal, witness), source.core(work.externalLeagueId, 'rosters', signal, witness),
         ]);
         const documents = results.flatMap(result => result.status === 'fulfilled' ? [result.value] : []);
         const captured = await recordCapturedAdministration(mapping.scope, documents, { store: administration,
           signal, fence, mapping, rosterAttempt: attempts.players, managerAttempt: attempts.managers,
-          leagueSettingsAttempt: settings, now,
+          leagueSettingsAttempt: settings, now, expectedAcquisition: witness,
           ...(managerEvidenceAttempt ? { managerEvidenceVersion: 'v2', managerEvidenceAttempt } : {}) });
         const league = captured.results.find(entry => entry.family === 'league')?.result;
         const roster = captured.results.find(entry => entry.family === 'rosters')?.result;
@@ -184,10 +208,11 @@ async function runOwnedPublicIntakeStep(requestId: string | undefined,
           receipts: { settings: league.leagueSettingsAcceptance.receiptId, players: roster.rosterAcceptance.receiptId,
             managers: roster.teamManagerAcceptance.receiptId } }, fence);
       } else {
+        const witness = await captureWitness(mapping);
         requests++;
-        const directoryCapture = await source.core(work.externalLeagueId, 'users', signal);
+        const directoryCapture = await source.core(work.externalLeagueId, 'users', signal, witness);
         const captured = await recordCapturedAdministration(mapping.scope, [directoryCapture],
-          { store: administration, signal, fence, now });
+          { store: administration, signal, fence, now, expectedAcquisition: witness });
         const entry = captured.results[0]?.result;
         if (entry && ['changed', 'unchanged', 'replayed'].includes(entry.status)) observations.users = entry.observationId;
         if (!observations.users) throw new Error('Directory evidence remains unavailable.');

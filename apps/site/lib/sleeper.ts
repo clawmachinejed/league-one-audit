@@ -1,4 +1,5 @@
 import 'server-only';
+import { publicCaptureForRequest, sealPublicCapture, type PublicCaptureWitness } from './league-administration/public-capture-witness';
 
 import { cache } from 'react';
 import { PLAYER_CACHE_SECONDS } from './sleeper-player-cache-policy';
@@ -293,42 +294,48 @@ export function normalizeSleeperUserLeagues(rows: unknown, season: string, asses
 
 /** Explicit backend collection uses the same transport without cache age ambiguity,
  * redirects or implicit retry. Each invocation makes at most one upstream GET. */
-export async function capturePublicSleeperIdentity(username: string, signal: AbortSignal) {
+export async function capturePublicSleeperIdentity(username: string, signal: AbortSignal, witness?: PublicCaptureWitness) {
   if (!/^[a-zA-Z0-9_]{1,100}$/u.test(username)) throw new Error('Invalid Sleeper username.');
+  const acquisition = publicCaptureForRequest(witness, 'identity', username);
   const requestStartedAt = new Date().toISOString();
   const payload = await fetchJson(`/user/${encodeURIComponent(username)}`, 0, signal, { redirect: 'error' });
   const requestCompletedAt = new Date().toISOString();
-  try { return { payload, value: normalizeSleeperUserIdentity(payload, username), requestStartedAt, requestCompletedAt }; }
-  catch { return { payload, value: null, diagnostic: 'invalid-source' as const, requestStartedAt, requestCompletedAt }; }
+  try { return sealPublicCapture({ payload, value: normalizeSleeperUserIdentity(payload, username), requestStartedAt, requestCompletedAt,
+    ...(acquisition ? { acquisition } : {}) }, acquisition); }
+  catch { return sealPublicCapture({ payload, value: null, diagnostic: 'invalid-source' as const, requestStartedAt, requestCompletedAt,
+    ...(acquisition ? { acquisition } : {}) }, acquisition); }
 }
 
-export async function capturePublicSleeperLeagueList(userId: string, season: number, signal: AbortSignal) {
+export async function capturePublicSleeperLeagueList(userId: string, season: number, signal: AbortSignal, witness?: PublicCaptureWitness) {
   if (!/^[1-9]\d{0,31}$/u.test(userId) || !Number.isInteger(season) || season < 1920 || season > 2200) {
     throw new Error('Invalid discovery source.');
   }
+  const acquisition = publicCaptureForRequest(witness, 'leagues', userId, season);
   const requestStartedAt = new Date().toISOString();
   const payload = await fetchJson(`/user/${userId}/leagues/nfl/${season}`, 0, signal, { redirect: 'error' });
   const requestCompletedAt = new Date().toISOString();
-  try { return { payload, value: normalizeSleeperUserLeagues(payload, String(season), requestCompletedAt, signal),
-    requestStartedAt, requestCompletedAt }; }
-  catch { return { payload, value: null, diagnostic: 'invalid-source' as const, requestStartedAt, requestCompletedAt }; }
+  try { return sealPublicCapture({ payload, value: normalizeSleeperUserLeagues(payload, String(season), requestCompletedAt, signal),
+    requestStartedAt, requestCompletedAt, ...(acquisition ? { acquisition } : {}) }, acquisition); }
+  catch { return sealPublicCapture({ payload, value: null, diagnostic: 'invalid-source' as const, requestStartedAt, requestCompletedAt,
+    ...(acquisition ? { acquisition } : {}) }, acquisition); }
 }
 
 export function capturePublicSleeperCore(leagueId: string, family: 'matchups', signal: AbortSignal,
-  nativeWeek: number): Promise<CapturedAdministrationDocument>;
+  nativeWeek: number, witness?: PublicCaptureWitness): Promise<CapturedAdministrationDocument>;
 export function capturePublicSleeperCore(leagueId: string, family: 'league' | 'rosters' | 'users',
-  signal: AbortSignal): Promise<CapturedAdministrationDocument>;
+  signal: AbortSignal, nativeWeek?: undefined, witness?: PublicCaptureWitness): Promise<CapturedAdministrationDocument>;
 export async function capturePublicSleeperCore(leagueId: string, family: 'league' | 'rosters' | 'users' | 'matchups',
-  signal: AbortSignal, nativeWeek?: number): Promise<CapturedAdministrationDocument> {
+  signal: AbortSignal, nativeWeek?: number, witness?: PublicCaptureWitness): Promise<CapturedAdministrationDocument> {
   if (!/^[1-9]\d{0,31}$/u.test(leagueId)) throw new Error('Invalid Sleeper league identity.');
   if (family === 'matchups' ? !Number.isInteger(nativeWeek) || Number(nativeWeek) < 1 || Number(nativeWeek) > 18
     : !['league', 'rosters', 'users'].includes(family) || nativeWeek !== undefined) throw new Error('Invalid public capture period.');
   signal.throwIfAborted();
+  const acquisition = publicCaptureForRequest(witness, family, leagueId, nativeWeek ?? null);
   const requestStartedAt = new Date().toISOString();
   const payload = await fetchJson(administrationPath(leagueId, family, nativeWeek ?? null), 0, signal, { redirect: 'error' });
   const requestCompletedAt = new Date().toISOString();
-  return { family, week: nativeWeek ?? null, payload, requestStartedAt, requestCompletedAt,
-    origin: 'network', sourceObservedAt: requestCompletedAt };
+  return sealPublicCapture({ family, week: nativeWeek ?? null, payload, requestStartedAt, requestCompletedAt,
+    origin: 'network' as const, sourceObservedAt: requestCompletedAt, ...(acquisition ? { acquisition } : {}) }, acquisition);
 }
 
 async function fetchExternalJson(url: string, revalidate = SCHEDULE_CACHE_SECONDS): Promise<unknown> {

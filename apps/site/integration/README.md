@@ -4,6 +4,8 @@
 
 The dedicated test project is `steep-glitter-44680287` (`league-one-integration-tests`). Its empty baseline must have no application relations, functions, custom types, managed `neon_auth` schema, or inherited application roles. Each run uses the repository's migrations and synthetic fixtures. The baseline is not a copy of retained accounts and is not the target of destructive tests.
 
+The current DATA result is recorded in [DATA evidence](../../../docs/aggregator-backend/data-backend-evidence.md). The last actual ordinary run at `de848347` failed and was fully cleaned up. R039 capture-witness enforcement and its updated SQL oracles are authored, not PostgreSQL-qualified. The ordinary selector remains one uninjected five-stage journey with six fixture provider calls, 25 collected cases and 24 filtered cases, and the original 10-minute case/9-minute work loop. Controlled clock offsets, invalid-witness/replay/expiry probes and role checks remain in other existing cases; an ordinary pass cannot qualify all migration guards. Selected module edits require a fresh LF source digest in the closed profile.
+
 The production/retained project `solitary-base-99261075`, its production branch `br-rapid-boat-avgeevye`, its retained branch `br-still-breeze-avaibago`, and the retained `projection_refactor_test` and `account_reset_integration_test` database names are explicitly denied. The shared SQL harness independently denies both branch IDs and both retained database names for every caller, including legacy migration and capacity commands, regardless of the supplied denylist or an old valid safety comment. Do not reset either retained database or rotate roles on that branch.
 
 ## One-time test infrastructure setup

@@ -11,6 +11,7 @@ import type { AdministrationWriteResult, AdministrationWriteFence, LeagueAdminis
 import { isAdministrationSourceMapping, type AdministrationSourceMapping } from './source-mapping';
 import type { RosterAttempt, RosterPopulationEvidence } from '../aggregator/current-roster';
 import { isCalculationSourceCapture, type CalculationSourceCapture, type CalculationSourceAssociation } from './calculation-capture';
+import { assertOriginalPublicCapture, type PublicCaptureWitness } from './public-capture-witness';
 
 /** Called by existing enrolled collectors before loading any roster document. */
 export async function captureAdministrationSourceMapping(externalLeagueId: string,
@@ -55,6 +56,8 @@ export async function recordCapturedAdministration(
     populationEvidence?: RosterPopulationEvidence;
     calendarEvidence?: SleeperCalendarEvidence;
     calculationCapture?: Readonly<{ week: number; reservation: CalculationSourceCapture }>;
+    /** Expected pre-HTTP context; never attached to an older document by this writer. */
+    expectedAcquisition?: PublicCaptureWitness;
     verify?: (document: CapturedAdministrationDocument, signal: AbortSignal) => Promise<CapturedAdministrationDocument> }> = {},
 ): Promise<AdministrationCaptureResult> {
   const signal = options.signal ?? AbortSignal.timeout(8_000);
@@ -84,6 +87,8 @@ export async function recordCapturedAdministration(
   const ordered = [...documents].sort((left, right) => Number(right.family === 'league') - Number(left.family === 'league'));
   for (const document of ordered) {
     signal.throwIfAborted();
+    if (options.expectedAcquisition !== undefined) assertOriginalPublicCapture(document, options.expectedAcquisition);
+    else if (document.acquisition !== undefined) throw new Error('Public capture requires its original acquisition context.');
     const origin = document.origin ?? 'cache';
     let normalized = normalizeAdministrationObservation({
       schemaVersion: ADMINISTRATION_SCHEMA_VERSION,
@@ -95,6 +100,7 @@ export async function recordCapturedAdministration(
         sourceObservedAt: document.sourceObservedAt !== undefined ? document.sourceObservedAt
           : origin === 'network' ? document.requestCompletedAt : null,
         checkedAt: now().toISOString(),
+        ...(document.acquisition !== undefined ? { acquisition: document.acquisition } : {}),
       },
       completeness: document.completeness ?? 'complete', payload: document.payload as JsonValue,
     }, { ...(expectedRosterCount === undefined ? {} : { expectedRosterCount }),

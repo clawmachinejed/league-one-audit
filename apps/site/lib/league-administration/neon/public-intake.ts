@@ -6,6 +6,8 @@ import { createProjectionStore } from '../../projection-store';
 import { normalizeAdministrationObservation } from '../normalize';
 import { ADMINISTRATION_DIALECT, ADMINISTRATION_NORMALIZER_VERSION, ADMINISTRATION_SCHEMA_VERSION, type JsonValue } from '../contracts';
 import { validatePublicIntake, type PublicIntakeStore, type PublicIntakeWork } from '../public-intake-contracts';
+import { parsePublicCaptureWitness } from '../public-capture-witness';
+import { compatibleRevision } from '../../projections/shared/revision-compatibility';
 
 function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid public intake record.');
@@ -62,6 +64,17 @@ export function createPublicIntakeStore(client: DatabaseClient): PublicIntakeSto
       const rows = await client.query(`/* public-data-intake:admit-dispatch */
         SELECT public.admit_public_data_dispatch($1::jsonb,$2::jsonb) AS admitted`, [JSON.stringify(work), JSON.stringify(fence)]);
       return rows[0]?.admitted === true;
+    },
+    async captureWitness(work, mapping, fence) {
+      const rows = await client.query(`/* public-data-intake:capture-witness */
+        SELECT public.read_public_data_capture_witness($1::jsonb,$2::jsonb,$3::jsonb) AS witness`,
+      [JSON.stringify(work), mapping ? JSON.stringify(mapping) : null, JSON.stringify(fence)]);
+      if (rows.length !== 1) throw new Error('Missing public capture witness.');
+      const witness = parsePublicCaptureWitness(rows[0].witness);
+      if (compatibleRevision(witness.work) !== compatibleRevision(work)
+        || compatibleRevision(witness.mapping) !== compatibleRevision(mapping)
+        || compatibleRevision(witness.fence) !== compatibleRevision(fence)) throw new Error('Wrong public capture witness.');
+      return witness;
     },
     async register(work, capture, fence) {
       const reject = () => checkpoint(work, { ...capture, diagnostic: 'invalid-source' }, fence);

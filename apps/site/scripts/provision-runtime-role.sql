@@ -442,6 +442,29 @@ DO $$ BEGIN
 END; $$;
 -- END OPTIONAL EXACT MATCHUP RESERVATION GRANT
 
+-- BEGIN OPTIONAL PUBLIC CAPTURE WITNESS GRANT
+-- R039 adds one bounded read of existing immutable admission/reservation rows.
+-- Late/repeated provisioning cannot expose its private validators or history DML.
+DO $$ DECLARE helper text; BEGIN
+  IF to_regprocedure('public.read_public_data_capture_witness(jsonb,jsonb,jsonb)') IS NOT NULL THEN
+    GRANT EXECUTE ON FUNCTION public.read_public_data_capture_witness(jsonb,jsonb,jsonb) TO league_one_runtime;
+    FOREACH helper IN ARRAY ARRAY['public.derive_public_data_capture_witness(jsonb,jsonb,jsonb)',
+      'public.assert_public_data_capture_witness(jsonb,jsonb,text,integer,jsonb)',
+      'public.public_capture_after_reservation(jsonb,uuid)',
+      'public.assert_public_capture_observation(jsonb,text)','public.assert_public_capture_input_shape(jsonb)'] LOOP
+      EXECUTE format('REVOKE ALL ON FUNCTION %s FROM league_one_runtime',helper);
+      IF has_function_privilege('league_one_runtime',helper,'EXECUTE') THEN
+        RAISE EXCEPTION 'league_one_runtime can execute private capture helper'; END IF;
+    END LOOP;
+    IF NOT has_function_privilege('league_one_runtime','public.read_public_data_capture_witness(jsonb,jsonb,jsonb)','EXECUTE')
+      OR has_table_privilege('league_one_runtime','public.league_roster_resource_attempts','INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN')
+      OR has_table_privilege('league_one_runtime','public.public_data_dispatches','INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN')
+      OR has_table_privilege('league_one_runtime','public.public_data_dispatch_outcomes','INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN') THEN
+      RAISE EXCEPTION 'league_one_runtime has incorrect capture witness privileges'; END IF;
+  END IF;
+END; $$;
+-- END OPTIONAL PUBLIC CAPTURE WITNESS GRANT
+
 -- Optional038 exact-period tasks/checkpoints extend existing public intake only.
 -- Their validators remain owner-only; SECURITY DEFINER intake functions evaluate
 -- the scope CHECK as their owner. Runtime cannot insert or mutate either table.

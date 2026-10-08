@@ -1,6 +1,6 @@
 # Ordinary ingestion proof and diagnostic correction
 
-Current status and the latest exact-source database evidence are maintained in [DATA evidence](data-backend-evidence.md). The October 8 run at `11376e19` failed and was fully cleaned up. The correction below is still awaiting a separately authorized PostgreSQL run; no ingestion or release qualification follows from it.
+Current status and the latest exact-source database evidence are maintained in [DATA evidence](data-backend-evidence.md). The October 8 runs at `11376e19` and corrected `de84834701aebe4b2a9e20ecbd690782bea6698b` both failed and were fully cleaned up. The latter returned actual bound receipt comparisons: settings `-164.709 ms` and manager evidence v2 `-194.661 ms`, both unclamped and false. Each required comparator failed; these differences do not measure clock skew or prove a sole cause. The current source repair uses DB-issued capture witnesses on the existing intake, with PostgreSQL acceptance still unqualified.
 
 ## October 8 bounded receipt diagnostic correction
 

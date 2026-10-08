@@ -11,9 +11,10 @@ import { readPublicDataRefresh } from '../lib/league-administration/public-refre
 import { recordCapturedAdministration } from '../lib/league-administration/runtime';
 import { PUBLIC_INTAKE_JOB, type PublicIntakeWork } from '../lib/league-administration/public-intake-contracts';
 import { capturePublicSleeperCore, capturePublicSleeperIdentity, capturePublicSleeperLeagueList } from '../lib/sleeper';
-import type { DatabaseClient, DatabaseRow } from '../lib/database';
+import type { DatabaseClient, DatabaseQueryOptions, DatabaseRow } from '../lib/database';
 import type { PublicDataRefreshConfiguration } from '../lib/league-administration/public-refresh-contracts';
 import { createPublicDataDiagnostics, observePublicDataDependencies } from './public-data-refresh-diagnostics';
+import type { PublicCaptureWitness } from '../lib/league-administration/public-capture-witness';
 
 
 /** AUTHORED / UNEXECUTED ordinary journey. Only source responses are fixtures;
@@ -55,10 +56,18 @@ describe('ordinary public DATA ingestion through the existing intake owner', () 
         throw new Error('Unexpected ordinary fixture source scope.');
       });
       restoreFetch = () => fetch.mockRestore();
+      const captures: { family: string; capture: { requestStartedAt: string; requestCompletedAt: string;
+        acquisition?: PublicCaptureWitness } }[] = [];
+      const retained = <T extends { requestStartedAt: string; requestCompletedAt: string; acquisition?: PublicCaptureWitness }>(family: string, capture: T): T => {
+        expect(capture.acquisition?.version).toBe('public-network-capture-v1');
+        captures.push({ family, capture }); return capture;
+      };
       const intake = createPublicIntakeStore(database), administration = createLeagueAdministrationStore(database);
       const dependencies = observePublicDataDependencies(diagnostics, {
         intake, administration, jobs: createProjectionStore(database), managerEvidenceVersion: 'v2',
-        source: { identity: capturePublicSleeperIdentity, leagues: capturePublicSleeperLeagueList, core: capturePublicSleeperCore },
+        source: { identity: async (...args) => retained('identity', await capturePublicSleeperIdentity(...args)),
+          leagues: async (...args) => retained('leagues', await capturePublicSleeperLeagueList(...args)),
+          core: async (id, family, signal, witness) => retained(family, await capturePublicSleeperCore(id, family, signal, undefined, witness)) },
       }, receiptReader);
       await intake.submit({ id, username, seasons: [season] });
       const stages = ['identity', 'leagues', 'bootstrap', 'core', 'users'];
@@ -75,6 +84,7 @@ describe('ordinary public DATA ingestion through the existing intake owner', () 
       expect(completed).toBe(stages.length);
       expect(await intake.next(id)).toBe('complete');
       expect(requested).toEqual(expectedUrls);
+      expect(captures).toHaveLength(6);
       const read = await diagnostics.observe('reader.intake', () => readPublicSleeperIntake(database, administration, id, { managerEvidenceVersion: 'v2' }));
       expect(read).toMatchObject({ status: 'available', request: { requested_username: username, external_manager_id: manager,
         username, seasons: [season], terminal: true, failure_count: 0 },
@@ -131,16 +141,68 @@ describe('ordinary public DATA ingestion through the existing intake owner', () 
       expect(new Set(receipts.map(receipt => uuid(receipt.id))).size).toBe(4);
       // v2 is latest-for-mapping evidence, not a fourth receipt stored on the candidate.
       // Its retained attempt must independently name this exact admitted core dispatch.
-      const lineage = await database.query('SELECT receipt.id,receipt.provenance,attempt.source_mapping,' +
-        'dispatch.intake_id,dispatch.resource,(receipt.provenance->>$2)::timestamptz>=dispatch.admitted_at AS fresh_dispatch ' +
+      const lineage = await database.query(`SELECT receipt.id,receipt.provenance,receipt.population_evidence,attempt.source_mapping,
+        dispatch.intake_id,dispatch.resource,
+        attempt.capture_nonce IS NOT NULL AND dispatch.capture_nonce IS NOT NULL
+          AND receipt.provenance->'acquisition'->>'dispatchNonce'=dispatch.capture_nonce::text
+          AND receipt.provenance->'acquisition'->'work'=dispatch.work
+          AND receipt.provenance->'acquisition'->'fence'=attempt.write_fence
+          AND receipt.provenance->'acquisition'->'mapping'=attempt.source_mapping
+          AND receipt.provenance->'acquisition'->'attempts'->CASE scope.identity->'policy'->>'canonicalNormalizerVersion'
+            WHEN 'sleeper-league-settings-v1' THEN 'settings' WHEN 'sleeper-current-players-v1' THEN 'players'
+            WHEN 'sleeper-current-team-managers-v1' THEN 'managers' ELSE 'managersV2' END
+            =jsonb_build_object('id',attempt.id,'nonce',attempt.capture_nonce) AS exact_witness,
+        attempt.reserved_at>=dispatch.admitted_at AND receipt.recorded_at>=attempt.reserved_at
+          AND receipt.recorded_at<=dispatch.admitted_at+interval '30 seconds' AS server_window,
+        EXISTS(SELECT 1 FROM public.league_roster_resource_acceptances accepted
+          JOIN public.league_roster_resource_heads head ON head.accepted_id=accepted.id AND head.scope_id=accepted.scope_id
+          WHERE accepted.receipt_id=receipt.id AND accepted.generation=head.generation
+            AND attempt.ordinal=head.latest_ordinal AND attempt.scope_id=head.scope_id) AS current_head ` +
         'FROM public.league_roster_capture_receipts receipt ' +
         'JOIN public.league_roster_resource_attempts attempt ON attempt.id=receipt.attempt_id ' +
-        'JOIN public.public_data_dispatches dispatch ON dispatch.worker_id=attempt.write_fence->>$3 ' +
-        'AND dispatch.generation=(attempt.write_fence->>$4)::integer WHERE receipt.id=ANY($1::uuid[])',
-      [receipts.map(receipt => receipt.id), 'requestStartedAt', 'workerId', 'generation']);
+        'JOIN public.league_roster_resource_scopes scope ON scope.id=attempt.scope_id ' +
+        "JOIN public.public_data_dispatches dispatch ON dispatch.worker_id=attempt.write_fence->>'workerId' " +
+        "AND dispatch.generation=(attempt.write_fence->>'generation')::integer WHERE receipt.id=ANY($1::uuid[])",
+      [receipts.map(receipt => receipt.id)]);
       expect(lineage).toHaveLength(4);
-      for (const receipt of receipts) expect(lineage.find(row => row.id === receipt.id)).toMatchObject({
-        intake_id: id, resource: 'core', source_mapping: mapping, provenance: receipt.provenance, fresh_dispatch: true });
+      for (const receipt of receipts) {
+        const original = captures.find(entry => entry.capture.acquisition?.work.kind === 'core'
+          && entry.family === (receipt.id === settings.receipt.id ? 'league' : 'rosters'))!.capture;
+        expect(receipt.provenance).toMatchObject({ acquisition: original.acquisition,
+          requestStartedAt: original.requestStartedAt, requestCompletedAt: original.requestCompletedAt,
+          sourceObservedAt: original.requestCompletedAt });
+        expect(receipt.provenance.acquisition).toEqual(original.acquisition);
+        expect(lineage.find(row => row.id === receipt.id)).toMatchObject({ intake_id: id, resource: 'core',
+          source_mapping: mapping, provenance: receipt.provenance, exact_witness: true, server_window: true, current_head: true });
+        if (receipt.id !== settings.receipt.id) {
+          const population = lineage.find(row => row.id === receipt.id)!.population_evidence as { provenance: { acquisition: unknown } };
+          expect(population.provenance.acquisition).toEqual(original.acquisition);
+        }
+      }
+      const outcomes = await database.query(`SELECT dispatch.resource,outcome.capture_acquisition,
+        outcome.capture_acquisition->>'dispatchNonce'=dispatch.capture_nonce::text
+          AND outcome.capture_acquisition->'work'=dispatch.work
+          AND outcome.capture_acquisition->'fence'->>'workerId'=dispatch.worker_id
+          AND outcome.capture_acquisition->'fence'->>'generation'=dispatch.generation::text AS exact_witness,
+        outcome.recorded_at BETWEEN dispatch.admitted_at AND dispatch.admitted_at+interval '30 seconds' AS server_window
+        FROM public.public_data_dispatches dispatch JOIN public.public_data_dispatch_outcomes outcome
+          USING(worker_id,generation) WHERE dispatch.intake_id=$1 AND outcome.outcome='checkpoint-committed'
+        ORDER BY dispatch.admitted_at`, [id]);
+      expect(outcomes.map(row => row.resource)).toEqual(stages);
+      for (const outcome of outcomes) {
+        expect(outcome).toMatchObject({ exact_witness: true, server_window: true });
+        expect(outcome.capture_acquisition).toEqual(captures.find(entry => entry.capture.acquisition?.work.kind === outcome.resource)!.capture.acquisition);
+      }
+      const discoveryTimes = await database.query(`SELECT 'identity' AS resource,request_started_at AS started,request_completed_at AS completed
+        FROM public.public_data_identity_observations WHERE intake_id=$1 UNION ALL
+        SELECT 'leagues',request_started_at,request_completed_at FROM public.public_data_league_lists WHERE intake_id=$1 UNION ALL
+        SELECT 'bootstrap',bootstrap_started_at,bootstrap_completed_at FROM public.public_data_league_candidates WHERE intake_id=$1`, [id]);
+      expect(discoveryTimes).toHaveLength(3);
+      for (const stored of discoveryTimes) {
+        const original = captures.find(entry => entry.capture.acquisition?.work.kind === stored.resource)!.capture;
+        expect(new Date(String(stored.started)).toISOString()).toBe(original.requestStartedAt);
+        expect(new Date(String(stored.completed)).toISOString()).toBe(original.requestCompletedAt);
+      }
       const storedResources = read.leagues[0].resources;
       expect(storedResources).toMatchObject({
         settings: { status: 'available', receipt: settings.receipt }, heldRoster: { status: 'available', receipt: players.receipt },
@@ -155,6 +217,9 @@ describe('ordinary public DATA ingestion through the existing intake owner', () 
       expect(directory).toMatchObject({ id: candidate.users_capture_id, legacy_observation_id: candidate.users_observation_id, source_mapping: mapping });
       expect(Date.parse(String(directory.request_started_at))).toBeLessThanOrEqual(Date.parse(String(directory.request_completed_at)));
       expect(directory.source_observed_at).toBe(directory.request_completed_at);
+      const directoryOriginal = captures.find(entry => entry.family === 'users')!.capture;
+      expect(new Date(String(directory.request_started_at)).toISOString()).toBe(directoryOriginal.requestStartedAt);
+      expect(new Date(String(directory.request_completed_at)).toISOString()).toBe(directoryOriginal.requestCompletedAt);
       expect((await database.query('SELECT scoring_profile_id FROM public.league_seasons WHERE id=$1', [mapping.leagueSeasonId]))[0].scoring_profile_id).toBeNull();
       expect(await database.query('SELECT resource FROM public.public_data_dispatches WHERE intake_id=$1 ORDER BY admitted_at', [id]))
         .toEqual(stages.map(resource => ({ resource })));
@@ -176,7 +241,89 @@ describe('public data source to typed PostgreSQL readback and recovery', () => {
     const database = connection.database;
     const jobs = createProjectionStore(database);
     const intake = createPublicIntakeStore(database);
-    const administration = createLeagueAdministrationStore(database);
+    let witnessGuardsExercised = false;
+    let allWitnessGuardsProved = false;
+    let guardedOriginalInput: string | undefined;
+    let latestWitnessInput: string | undefined, postCheckpointReplayProved = false;
+    const object = (value: unknown) => value as Record<string, unknown>;
+    const checkedClient: DatabaseClient = { ...database,
+      async query<Row extends DatabaseRow>(statement: string, parameters: readonly unknown[] = [], options?: DatabaseQueryOptions) {
+        if (statement.includes('/* league-administration:record-observation */')) {
+          const input = object(JSON.parse(String(parameters[0]))), envelope = object(input.envelope);
+          const acquisition = object(object(envelope.provenance).acquisition);
+          if (envelope.family === 'rosters' && acquisition?.version === 'public-network-capture-v1') latestWitnessInput = String(parameters[0]);
+          if (!witnessGuardsExercised && envelope.family === 'rosters' && acquisition?.version === 'public-network-capture-v1') {
+            witnessGuardsExercised = true;
+            guardedOriginalInput = String(parameters[0]);
+            const fence = object(input.writeFence);
+            const live = async () => expect((await database.query(`SELECT lease_owner=$1 AND attempt_count=$2
+              AND lease_until>clock_timestamp() AND $3::timestamptz>clock_timestamp() AS valid
+              FROM public.projection_jobs WHERE job_key=$4`, [fence.workerId, fence.generation, fence.deadlineAt, fence.jobKey]))[0].valid).toBe(true);
+            const history = () => database.query(`SELECT to_jsonb(attempt) AS attempt,scope.identity,to_jsonb(head) AS head,
+              (SELECT jsonb_agg(to_jsonb(receipt) ORDER BY receipt.id) FROM public.league_roster_capture_receipts receipt
+                WHERE receipt.attempt_id=attempt.id) AS receipts FROM public.league_roster_resource_attempts attempt
+              JOIN public.league_roster_resource_scopes scope ON scope.id=attempt.scope_id
+              JOIN public.league_roster_resource_heads head ON head.scope_id=scope.id
+              WHERE attempt.write_fence=$1::jsonb ORDER BY attempt.id`, [JSON.stringify(fence)]);
+            const replaceWitness = (witness: unknown) => {
+              const changed = structuredClone(input);
+              object(object(changed.envelope).provenance).acquisition = witness;
+              for (const key of ['rosterAcceptance', 'teamManagerAcceptance', 'teamManagerEvidenceAcceptance']) {
+                const population = object(object(changed[key]).population);
+                object(object(population.envelope).provenance).acquisition = witness;
+              }
+              return changed;
+            };
+            const changedNonce = structuredClone(acquisition);
+            object(object(changedNonce.attempts).managersV2).nonce = randomUUID();
+            const missingRole = structuredClone(acquisition); delete object(missingRole.attempts).managersV2;
+            const changedWork = structuredClone(acquisition); object(changedWork.work).revision = Number(object(changedWork.work).revision) + 1;
+            const changedMapping = structuredClone(acquisition); object(changedMapping.mapping).revisionId = randomUUID();
+            const mixedGroup = structuredClone(acquisition); object(object(mixedGroup.attempts).players).id = randomUUID();
+            const additionalRole = structuredClone(acquisition); object(additionalRole.attempts).matchups = { id: randomUUID(), nonce: randomUUID() };
+            const wrongPeriod = structuredClone(acquisition); object(wrongPeriod.work).nativeWeek = 7;
+            const oldGeneration = structuredClone(acquisition); object(oldGeneration.fence).generation = Number(fence.generation) + 1;
+            const mixedPopulation = structuredClone(input);
+            object(object(object(object(mixedPopulation.rosterAcceptance).population).envelope).provenance).acquisition = changedNonce;
+            const missingMain = structuredClone(input); delete object(object(missingMain.envelope).provenance).acquisition;
+            const missingAdditions = structuredClone(input);
+            for (const key of ['rosterAcceptance', 'teamManagerAcceptance', 'teamManagerEvidenceAcceptance']) delete missingAdditions[key];
+            const previous = await history(); expect(previous).toHaveLength(4); await live();
+            for (const invalid of [replaceWitness(null), replaceWitness(changedNonce), replaceWitness(missingRole),
+              replaceWitness(changedWork), replaceWitness(changedMapping), replaceWitness(mixedGroup),
+              replaceWitness({ ...acquisition, dispatchNonce: randomUUID() }), replaceWitness(additionalRole),
+              replaceWitness(wrongPeriod), replaceWitness(oldGeneration), missingAdditions, mixedPopulation, missingMain]) {
+              await expect(database.query(statement, [JSON.stringify(invalid)], options)).rejects.toThrow();
+            }
+            await live(); expect(await history()).toEqual(previous);
+            // Positive control uses the same still-valid fence and original input.
+            const result = await database.query<Row>(statement, parameters, options);
+            const accepted = object(result[0].result);
+            for (const key of ['rosterAcceptance', 'teamManagerAcceptance', 'teamManagerEvidenceAcceptance']) {
+              expect(accepted[key]).toMatchObject({ status: 'accepted' });
+            }
+            const saved = await history();
+            const replay = await database.query(statement, parameters, options);
+            for (const key of ['rosterAcceptance', 'teamManagerAcceptance', 'teamManagerEvidenceAcceptance']) {
+              expect(object(replay[0].result)[key]).toMatchObject({ status: 'accepted', reason: 'exact_receipt_replay',
+                receiptId: object(accepted[key]).receiptId });
+            }
+            const reserved = saved.find(row => object(object(row.identity).policy).canonicalNormalizerVersion === 'sleeper-current-team-manager-evidence-v2')!;
+            const originalAttempt = object(reserved.attempt), identity = object(reserved.identity);
+            await database.query('SELECT public.begin_current_roster_attempt($1::jsonb,$2::uuid,$3::jsonb,$4::jsonb,$5::jsonb)',
+              [JSON.stringify(originalAttempt.source_mapping), originalAttempt.id, JSON.stringify(identity.scope), JSON.stringify(identity.policy), JSON.stringify(fence)]);
+            await expect(database.query(statement, [JSON.stringify(replaceWitness(changedNonce))], options)).rejects.toThrow('receipt conflict');
+            await expect(ownerQuery('UPDATE public.league_roster_resource_attempts SET capture_nonce=gen_random_uuid() WHERE id=$1', [originalAttempt.id])).rejects.toThrow('immutable');
+            await expect(ownerQuery('UPDATE public.public_data_dispatches SET capture_nonce=gen_random_uuid() WHERE worker_id=$1 AND generation=$2', [fence.workerId, fence.generation])).rejects.toThrow('immutable');
+            expect(await history()).toEqual(saved);
+            allWitnessGuardsProved = true;
+            return result;
+          }
+        }
+        return database.query<Row>(statement, parameters, options);
+      },
+    };
+    const administration = createLeagueAdministrationStore(checkedClient);
     const id = randomUUID();
     const native = `9${BigInt(`0x${randomUUID().replaceAll('-', '').slice(0, 15)}`)}`;
     const season = 2181;
@@ -203,11 +350,56 @@ describe('public data source to typed PostgreSQL readback and recovery', () => {
       }
       throw new Error('Unexpected fixture provider scope.');
     });
-    const dependencies: PublicIntakeDependencies = { intake, jobs, administration };
-    const progress = async (selected = dependencies, requestId = id) => {
+    // Controlled source-clock regressions use the existing two core journeys in
+    // this nonselected case. DB clocks, admission, lease timers and fence creation
+    // remain real. ±60 seconds exceeds the valid 25-second lease, so the old
+    // comparator failure is deterministic rather than a network-speed assumption.
+    // This is a source-capture clock oracle, not arbitrary whole-worker skew.
+    // Only zero-argument application Date construction shifts after
+    // the DB witness arrives; raw timestamps are never changed after capture.
+    const RealDate = Date;
+    let requestedOffset = 0, captureOffset = 0;
+    const offsetCaptures: Awaited<ReturnType<typeof capturePublicSleeperCore>>[] = [];
+    const restoreClock = () => { globalThis.Date = RealDate; captureOffset = 0; };
+    const witnessedIntake = { ...intake,
+      captureWitness: async (...args: Parameters<NonNullable<typeof intake.captureWitness>>) => {
+        const witness = await intake.captureWitness!(...args);
+        if (args[0].kind === 'core' && requestedOffset !== 0) {
+          captureOffset = requestedOffset;
+          globalThis.Date = new Proxy(RealDate, { construct(target, values, newTarget) {
+            return Reflect.construct(target, values.length ? values : [RealDate.now() + captureOffset], newTarget);
+          } });
+        }
+        return witness;
+      },
+      completeCore: async (...args: Parameters<typeof intake.completeCore>) => {
+        restoreClock(); await intake.completeCore(...args);
+        if (args[0].kind === 'core') {
+          const repeated = await database.query('SELECT public.record_league_administration_observation($1::jsonb) AS result', [latestWitnessInput]);
+          for (const role of ['rosterAcceptance', 'teamManagerAcceptance', 'teamManagerEvidenceAcceptance']) {
+            expect(object(repeated[0].result)[role]).toMatchObject({ status: 'accepted', reason: 'exact_receipt_replay' });
+          }
+          await expect(intake.captureWitness!(args[0], args[1], args[3])).rejects.toThrow();
+          postCheckpointReplayProved = true;
+        }
+      },
+    };
+    const dependencies: PublicIntakeDependencies = { intake: witnessedIntake, jobs, administration, managerEvidenceVersion: 'v2',
+      now: () => new RealDate(RealDate.now() + captureOffset),
+      source: { identity: capturePublicSleeperIdentity, leagues: capturePublicSleeperLeagueList,
+        core: async (external, family, signal, witness) => {
+          const capture = await capturePublicSleeperCore(external, family, signal, undefined, witness);
+          if (captureOffset) offsetCaptures.push(capture);
+          return capture;
+        } },
+    };
+    const progress = async (selected = dependencies, requestId = id, offset = 0) => {
       const deadline = Date.now() + 150_000;
       while (Date.now() < deadline) {
-        const result = await runPublicIntakeStep(requestId, selected, new AbortController().signal);
+        requestedOffset = offset; restoreClock();
+        let result;
+        try { result = await runPublicIntakeStep(requestId, selected, new AbortController().signal); }
+        finally { restoreClock(); requestedOffset = 0; }
         if (!['busy', 'backoff'].includes(result.status)) return result;
         await delay(1_000);
       }
@@ -239,7 +431,13 @@ describe('public data source to typed PostgreSQL readback and recovery', () => {
       const beforeRetry = await administration.readAcceptedLeagueSettings(originalMapping);
       const beforeRetryRoster = await administration.readAcceptedCurrentRoster(originalMapping);
       expect(beforeRetry.status).toBe('available');
-      expect(await progress()).toMatchObject({ status: 'progress', resource: 'core' });
+      expect(witnessGuardsExercised).toBe(true);
+      expect(allWitnessGuardsProved).toBe(true);
+      // Identical witnessed bytes cannot revive the now-failed original owner.
+      await expect(database.query('SELECT public.record_league_administration_observation($1::jsonb)', [guardedOriginalInput]))
+        .rejects.toThrow(/fence.*(?:stale|expired)|lease/);
+      expect(await progress(dependencies, id, -60_000)).toMatchObject({ status: 'progress', resource: 'core' });
+      expect(postCheckpointReplayProved).toBe(true);
       const read = await readPublicSleeperIntake(database, administration, id);
       if (read.status === 'missing') throw new Error('Missing public fixture readback.');
       expect(read.leagues[0].resources).toMatchObject({ settings: { status: 'available' }, heldRoster: { status: 'available' },
@@ -252,14 +450,21 @@ describe('public data source to typed PostgreSQL readback and recovery', () => {
       if (beforeRetry.status !== 'available') throw new Error('Missing interrupted typed capture.');
       expect(candidate.settings_receipt_id).not.toBe(beforeRetry.receipt.id);
       const [freshness] = await database.query(`SELECT observed.origin AS original_origin,observed.request_started_at<clock_timestamp()-interval '30 seconds' AS original_old,
-        (receipt.provenance->>'requestStartedAt')::timestamptz>=dispatch.admitted_at AS fresh_dispatch
+        (receipt.provenance->>'requestStartedAt')::timestamptz<attempt.reserved_at AS old_comparator_fails,
+        receipt.provenance->'acquisition'->>'dispatchNonce'=dispatch.capture_nonce::text
+          AND receipt.recorded_at>=attempt.reserved_at AND attempt.reserved_at>=dispatch.admitted_at AS fresh_dispatch
         FROM public.league_roster_capture_receipts receipt
         JOIN public.league_roster_resource_attempts attempt ON attempt.id=receipt.attempt_id
         JOIN public.public_data_dispatches dispatch ON dispatch.worker_id=attempt.write_fence->>'workerId'
           AND dispatch.generation=(attempt.write_fence->>'generation')::integer
         JOIN public.league_administration_observations observed ON observed.id=receipt.legacy_observation_id
         WHERE receipt.id=$1`, [candidate.settings_receipt_id]);
-      expect(freshness).toEqual({ original_origin: 'cache', original_old: true, fresh_dispatch: true });
+      expect(freshness).toEqual({ original_origin: 'cache', original_old: true, old_comparator_fails: true, fresh_dispatch: true });
+      const negativeClock = await administration.readAcceptedLeagueSettings(originalMapping);
+      const negativeV2 = await administration.readAcceptedTeamManagerEvidence!(originalMapping);
+      if (negativeClock.status !== 'available' || negativeV2.status !== 'available') throw new Error('Clock-offset typed receipt missing.');
+      expect(negativeClock.receipt.provenance.requestStartedAt).toBe(offsetCaptures.find(capture => capture.family === 'league')?.requestStartedAt);
+      expect(negativeV2.receipt.provenance.requestCompletedAt).toBe(offsetCaptures.find(capture => capture.family === 'rosters')?.requestCompletedAt);
       expect((await administration.listEnrollmentInventory(season)).entries.some(entry => entry.intended.leagueId === registration.value.leagueId)).toBe(false);
       await expect(database.query('UPDATE public.public_data_intakes SET revision=revision+1 WHERE id=$1', [id])).rejects.toMatchObject({ code: '42501' });
       expect(await progress({ ...dependencies, intake: { ...intake, fail: async () => { throw new Error('old operation database deadline'); } } }))
@@ -330,11 +535,21 @@ describe('public data source to typed PostgreSQL readback and recovery', () => {
       // Repeat the whole actual intake path, with normal admission waits, after
       // an official scoring correction that must not rewrite calculation rules.
       for (const resource of ['identity', 'leagues', 'bootstrap', 'core']) {
-        expect(await progress(dependencies, correctionId)).toMatchObject({ status: 'progress', resource });
+        expect(await progress(dependencies, correctionId, resource === 'core' ? 60_000 : 0)).toMatchObject({ status: 'progress', resource });
       }
       const corrected = await administration.readAcceptedLeagueSettings(mapping);
       if (corrected.status !== 'available') throw new Error('Missing official correction.');
       expect(corrected.value.scoring.rules).toMatchObject({ value: { rec_yd: 0.2 } });
+      const positiveV2 = await administration.readAcceptedTeamManagerEvidence!(mapping);
+      if (positiveV2.status !== 'available') throw new Error('Forward-clock manager evidence missing.');
+      const forwardReceipts = await database.query(`SELECT id,
+        (provenance->>'requestCompletedAt')::timestamptz>recorded_at AS old_completion_comparator_fails,
+        provenance FROM public.league_roster_capture_receipts WHERE id=ANY($1::uuid[])`,
+      [[corrected.receipt.id, positiveV2.receipt.id]]);
+      expect(forwardReceipts).toHaveLength(2);
+      for (const retained of forwardReceipts) expect(retained.old_completion_comparator_fails).toBe(true);
+      expect(corrected.receipt.provenance.requestStartedAt).toBe(offsetCaptures.filter(capture => capture.family === 'league').at(-1)?.requestStartedAt);
+      expect(positiveV2.receipt.provenance.requestCompletedAt).toBe(offsetCaptures.filter(capture => capture.family === 'rosters').at(-1)?.requestCompletedAt);
       expect(await administration.readSource({ ...mapping.scope, family: 'league', week: null }))
         .toMatchObject({ status: 'conflict', reason: 'scoring_profile_change_requires_explicit_compatibility_and_period_review' });
       expect(await database.query('SELECT scoring_profile_id FROM public.league_seasons WHERE id=$1', [mapping.leagueSeasonId])).toEqual(originalProfile);
@@ -351,11 +566,10 @@ describe('public data source to typed PostgreSQL readback and recovery', () => {
       // A receipt from the former PUBLIC worker cannot authorize a new unfenced
       // writer's claimed same-batch population, even for identical official rules.
       const wrongOwner = await administration.beginRosterCapture(mapping, randomUUID(), randomUUID());
-      const rejectedOwner = await recordCapturedAdministration(mapping.scope,
+      await expect(recordCapturedAdministration(mapping.scope,
         [await capturePublicSleeperCore(native, 'rosters', new AbortController().signal)], { store: administration, mapping,
-          rosterAttempt: wrongOwner.players, managerAttempt: wrongOwner.managers, populationEvidence: retainedPopulation });
-      expect(rejectedOwner.results[0].result.rosterAcceptance?.status).toBe('preserved');
-      expect(rejectedOwner.results[0].result.teamManagerAcceptance?.status).toBe('preserved');
+          rosterAttempt: wrongOwner.players, managerAttempt: wrongOwner.managers, populationEvidence: retainedPopulation }))
+        .rejects.toThrow('unwitnessed capture cannot borrow witnessed population');
       // The no-population recovery path is also fenced by the latest settings
       // reservation; a pending newer settings acquisition cannot reuse old proof.
       await administration.beginLeagueSettingsAttempt(mapping, randomUUID());
@@ -368,7 +582,7 @@ describe('public data source to typed PostgreSQL readback and recovery', () => {
       expect(await administration.readAcceptedCurrentRoster(mapping)).toEqual(currentRoster);
       expect(await administration.readAcceptedTeamManagers(mapping)).toEqual(currentManagers);
 
-    } finally { fetch.mockRestore(); }
+    } finally { restoreClock(); fetch.mockRestore(); }
   }, 750_000);
 
   it('admits generation one after normal completed-job retention while preserving older dispatch history', async () => {
@@ -503,7 +717,9 @@ describe('public data source to typed PostgreSQL readback and recovery', () => {
       const fence = { jobKey: PUBLIC_INTAKE_JOB, workerId, generation: claim.attempt, deadlineAt: new Date(Date.now() + 8_000).toISOString() };
       registrationDeadline = Date.parse(fence.deadlineAt);
       expect(await intake.admit(work, fence)).toBe(true);
-      const capture = await capturePublicSleeperCore(native, 'league', new AbortController().signal);
+      const witness = await intake.captureWitness!(work, null, fence);
+      const capture = await capturePublicSleeperCore(native, 'league', new AbortController().signal, undefined, witness);
+      expect((capture as { acquisition?: PublicCaptureWitness }).acquisition).toEqual(witness);
       await blocker.database.query('BEGIN');
       blockerOpen = true;
       // No advisory lock here. The uncommitted unique league key makes the
@@ -1159,7 +1375,8 @@ describe('bounded public DATA refresh cycles through the existing intake owner',
             } catch (error) { callbackError = error; throw error; }
             return selected;
           } }, administration, jobs, managerEvidenceVersion: 'v2',
-          source: { identity: capturePublicSleeperIdentity, leagues: capturePublicSleeperLeagueList, core: capturePublicSleeperCore },
+          source: { identity: capturePublicSleeperIdentity, leagues: capturePublicSleeperLeagueList,
+            core: (id, family, signal, witness) => capturePublicSleeperCore(id, family, signal, undefined, witness) },
           intake: { ...intake,
             recover: async (requestId, fence) => {
               if (!unfinished || recoveryProved) return intake.recover(requestId, fence);
@@ -1749,7 +1966,18 @@ describe('explicit public native-period intake through retained typed receipts',
       }
       throw new Error('Unexpected exact-period provider scope.');
     });
-    const dependencies: PublicIntakeDependencies = { intake, administration, jobs };
+    const periodCaptures: { family: string; requestStartedAt: string; requestCompletedAt: string; acquisition?: PublicCaptureWitness }[] = [];
+    const dependencies: PublicIntakeDependencies = { intake, administration, jobs,
+      source: { identity: capturePublicSleeperIdentity, leagues: capturePublicSleeperLeagueList,
+        core: async (external, family, signal, witness) => {
+          const captured = await capturePublicSleeperCore(external, family, signal, undefined, witness);
+          periodCaptures.push(captured); return captured;
+        },
+        exactPeriod: async (external, week, signal, witness) => {
+          const captured = await capturePublicSleeperCore(external, 'matchups', signal, week, witness);
+          periodCaptures.push(captured); return captured;
+        } },
+    };
     const progress = async (selected = dependencies, workBudget = 20_000) => {
       const until = Date.now() + 10 * 60_000;
       while (Date.now() < until) {
@@ -1760,7 +1988,7 @@ describe('explicit public native-period intake through retained typed receipts',
       throw new Error('Real exact-period admission/backoff did not become due.');
     };
     await intake.submit({ id, username: native, seasons: [season], exactPeriods: [{ season, nativeWeek }] });
-    return { database, jobs, intake, administration, native, id, season, nativeWeek, league, rosters, matchups, registered, fault, fetch, dependencies, progress };
+    return { database, jobs, intake, administration, native, id, season, nativeWeek, league, rosters, matchups, registered, fault, fetch, dependencies, progress, periodCaptures };
   }
 
   it('enforces SQL selector validation and identical omitted/empty replay before mutation', async () => {
@@ -1771,6 +1999,8 @@ describe('explicit public native-period intake through retained typed receipts',
     const provision = await readFile(new URL('../scripts/provision-runtime-role.sql', import.meta.url), 'utf8');
     const grantBlock = provision.match(/-- BEGIN OPTIONAL EXACT MATCHUP RESERVATION GRANT([\s\S]*?)-- END OPTIONAL EXACT MATCHUP RESERVATION GRANT/u)?.[1];
     if (!grantBlock) throw new Error('Missing maintained exact-matchup provisioner block.');
+    const witnessGrant = provision.match(/-- BEGIN OPTIONAL PUBLIC CAPTURE WITNESS GRANT([\s\S]*?)-- END OPTIONAL PUBLIC CAPTURE WITNESS GRANT/u)?.[1];
+    if (!witnessGrant) throw new Error('Missing maintained capture-witness provisioner block.');
     try {
       await ownerQuery('REVOKE EXECUTE ON FUNCTION public.begin_exact_matchup_attempt(jsonb,uuid,integer,jsonb) FROM league_one_runtime');
       expect((await runtime.database.query("SELECT has_function_privilege(current_user,'public.begin_exact_matchup_attempt(jsonb,uuid,integer,jsonb)','EXECUTE') AS allowed"))[0].allowed).toBe(false);
@@ -1781,6 +2011,20 @@ describe('explicit public native-period intake through retained typed receipts',
       for (const signature of ['public.record_league_administration_observation_v30(jsonb)',
         'public.canonical_public_data_exact_periods(jsonb,integer[])', 'public.admit_public_data_dispatch_v34(jsonb,jsonb)']) {
         expect((await runtime.database.query("SELECT has_function_privilege(current_user,$1,'EXECUTE') AS allowed", [signature]))[0].allowed).toBe(false);
+      }
+      const witnessReader = 'public.read_public_data_capture_witness(jsonb,jsonb,jsonb)';
+      expect((await runtime.database.query("SELECT has_function_privilege(current_user,$1,'EXECUTE') AS allowed", [witnessReader]))[0].allowed).toBe(true);
+      await ownerQuery('REVOKE EXECUTE ON FUNCTION public.read_public_data_capture_witness(jsonb,jsonb,jsonb) FROM league_one_runtime');
+      await expect(runtime.database.query('SELECT public.read_public_data_capture_witness(NULL,NULL,NULL)')).rejects.toMatchObject({ code: '42501' });
+      await ownerQuery(witnessGrant); await ownerQuery(witnessGrant);
+      expect((await runtime.database.query("SELECT has_function_privilege(current_user,$1,'EXECUTE') AS allowed", [witnessReader]))[0].allowed).toBe(true);
+      for (const signature of ['public.derive_public_data_capture_witness(jsonb,jsonb,jsonb)',
+        'public.assert_public_data_capture_witness(jsonb,jsonb,text,integer,jsonb)', 'public.public_capture_after_reservation(jsonb,uuid)',
+        'public.assert_public_capture_observation(jsonb,text)', 'public.assert_public_capture_input_shape(jsonb)']) {
+        expect((await runtime.database.query("SELECT has_function_privilege(current_user,$1,'EXECUTE') AS allowed", [signature]))[0].allowed).toBe(false);
+      }
+      for (const table of ['league_roster_resource_attempts', 'public_data_dispatches', 'public_data_dispatch_outcomes']) {
+        expect((await runtime.database.query("SELECT has_table_privilege(current_user,$1,'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN') AS allowed", ['public.' + table]))[0].allowed).toBe(false);
       }
 
       expect((await runtime.database.query('SELECT session_user AS role'))[0].role).toBe('league_one_runtime');
@@ -1807,7 +2051,7 @@ describe('explicit public native-period intake through retained typed receipts',
       await runtime.database.query('ROLLBACK'); open = false;
     } finally {
       if (open) await runtime.database.query('ROLLBACK');
-      try { await ownerQuery(grantBlock); } finally { await runtime.close(); }
+      try { await ownerQuery(grantBlock); await ownerQuery(witnessGrant); } finally { await runtime.close(); }
     }
   });
 
@@ -1864,19 +2108,36 @@ describe('explicit public native-period intake through retained typed receipts',
       f.league.scoring_settings.rec = 2; // official correction, immutable calculation profile remains 1
       f.fault.managers = true; f.fault.directory = true;
       expect(await f.progress({ ...f.dependencies, intake: { ...intake, completeExactPeriod: async (work, source, capture, fence) => {
-        const [timing] = await database.query(`SELECT bool_and(attempt.reserved_at>=dispatch.admitted_at) AS after_admission,
-          max(attempt.reserved_at)<=min((receipt.provenance->>'requestStartedAt')::timestamptz) AS both_before_both,
-          count(*)::integer AS count FROM public.league_roster_capture_receipts receipt
+        const timing = await database.query(`SELECT receipt.id,receipt.provenance,attempt.id AS attempt_id,attempt.capture_nonce,
+          attempt.reserved_at>=dispatch.admitted_at AS after_admission,
+          receipt.recorded_at>=max(attempt.reserved_at) OVER ()
+            AND receipt.recorded_at<=dispatch.admitted_at+interval '30 seconds' AS server_window,
+          receipt.provenance->'acquisition'->>'dispatchNonce'=dispatch.capture_nonce::text
+            AND receipt.provenance->'acquisition'->'work'=dispatch.work
+            AND receipt.provenance->'acquisition'->'fence'=attempt.write_fence
+            AND receipt.provenance->'acquisition'->'mapping'=attempt.source_mapping AS exact_witness
+          FROM public.league_roster_capture_receipts receipt
           JOIN public.league_roster_resource_attempts attempt ON attempt.id=receipt.attempt_id
           JOIN public.public_data_dispatches dispatch ON dispatch.worker_id=attempt.write_fence->>'workerId'
             AND dispatch.generation=(attempt.write_fence->>'generation')::integer WHERE receipt.id=ANY($1::uuid[])`, [Object.values(capture.receipts)]);
-        expect(timing).toEqual({ after_admission: true, both_before_both: true, count: 2 });
+        expect(timing).toHaveLength(2);
+        const group = Object.fromEntries(timing.map(row => [row.id === capture.receipts.settings ? 'settings' : 'matchups',
+          { id: row.attempt_id, nonce: row.capture_nonce }]));
+        for (const row of timing) {
+          expect(row).toMatchObject({ after_admission: true, server_window: true, exact_witness: true });
+          const original = f.periodCaptures.find(entry => entry.acquisition?.fence.workerId === fence.workerId
+            && entry.family === (row.id === capture.receipts.settings ? 'league' : 'matchups'))!;
+          expect(original.acquisition?.attempts).toEqual(group);
+          expect((row.provenance as { acquisition: unknown }).acquisition).toEqual(original.acquisition);
+          expect(row.provenance).toMatchObject({ requestStartedAt: original.requestStartedAt,
+            requestCompletedAt: original.requestCompletedAt, sourceObservedAt: original.requestCompletedAt });
+        }
         await expect(intake.completeExactPeriod({ ...work, nativeWeek: f.nativeWeek + 1 }, source, capture, fence)).rejects.toThrow();
         await expect(intake.completeExactPeriod(work, { ...source, revisionId: randomUUID() }, capture, fence)).rejects.toThrow();
         await expect(intake.completeExactPeriod(work, source, { ...capture, receipts: { ...capture.receipts, matchups: randomUUID() } }, fence)).rejects.toThrow();
         await expect(intake.completeExactPeriod(work, source, capture, { ...fence, deadlineAt: new Date(Date.parse(fence.deadlineAt) - 1).toISOString() })).rejects.toThrow('observation mismatch');
         await administration.beginLeagueSettingsAttempt(source, randomUUID(), fence);
-        await expect(intake.completeExactPeriod(work, source, capture, fence)).rejects.toThrow('current dispatch-bound exact period receipt');
+        await expect(intake.completeExactPeriod(work, source, capture, fence)).rejects.toThrow(/current dispatch-bound exact period receipt|public capture resource group/);
         expect(await database.query('SELECT * FROM public.public_data_exact_period_checkpoints WHERE intake_id=$1', [id])).toHaveLength(0);
         negativesProved = true;
         throw new Error('Lost checkpoint after typed writes; newer pending settings reservation retained');

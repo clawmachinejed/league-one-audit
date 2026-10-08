@@ -11,6 +11,7 @@ import type { CapturedAdministrationDocument } from './runtime';
 import type { NormalizedAdministrationObservation } from './contracts';
 import { readAcceptedExactMatchupsRows } from './neon/exact-matchups';
 import { EXACT_MATCHUPS_POLICY, exactMatchupsScope } from '../aggregator/exact-matchups';
+import type { PublicCaptureWitness } from './public-capture-witness';
 
 vi.mock('server-only', () => ({}));
 vi.mock('next/cache', () => ({ unstable_cache: (fn: unknown) => fn }));
@@ -60,6 +61,45 @@ function fixture(kind: 'identity' | 'leagues' | 'bootstrap' | 'core' | 'users' =
 }
 
 describe('public official data intake through the existing worker/writer', () => {
+  it('waits for every reservation and the exact DB witness before starting either core HTTP request', async () => {
+    const f = fixture();
+    const ids = ['51111111-1111-4111-8111-111111111111', '52222222-2222-4222-8222-222222222222',
+      '53333333-3333-4333-8333-333333333333', '54444444-4444-4444-8444-444444444444'];
+    const token = (index: number) => ({ id: ids[index], scopeId: ids[index], ordinal: 1, expectedGeneration: 0 });
+    f.administration.beginRosterCapture.mockResolvedValue({ players: token(0), managers: token(1) });
+    f.administration.beginLeagueSettingsAttempt.mockResolvedValue(token(2));
+    let releaseReservation!: () => void, releaseWitness!: () => void;
+    const reservation = new Promise<void>(resolve => { releaseReservation = resolve; });
+    const witnessReady = new Promise<void>(resolve => { releaseWitness = resolve; });
+    const reserve = vi.fn(async () => { await reservation; return token(3); });
+    const captureWitness = vi.fn<NonNullable<PublicIntakeStore['captureWitness']>>(async (work, actualMapping, fence): Promise<PublicCaptureWitness> => {
+      await witnessReady;
+      return { version: 'public-network-capture-v1', work, mapping: actualMapping, fence,
+        dispatchNonce: '55555555-5555-4555-8555-555555555555', attempts: Object.fromEntries(
+          ['players', 'managers', 'settings', 'managersV2'].map((role, index) => [role, { id: ids[index], nonce: ids[index].replace(/^5/u, '6') }])) };
+    });
+    const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async url => new Response(JSON.stringify(
+      String(url).endsWith('/rosters') ? document('rosters').payload : league)));
+    try {
+      const running = runPublicIntakeStep(id, { ...f.dependencies, now: () => new Date(), source: undefined,
+        intake: { ...f.intake, captureWitness }, managerEvidenceVersion: 'v2',
+        administration: { ...f.administration, beginTeamManagerEvidenceAttempt: reserve } }, new AbortController().signal);
+      await vi.waitFor(() => expect(reserve).toHaveBeenCalledOnce());
+      expect(fetch).not.toHaveBeenCalled(); expect(captureWitness).not.toHaveBeenCalled();
+      releaseReservation();
+      await vi.waitFor(() => expect(captureWitness).toHaveBeenCalledOnce());
+      expect(fetch).not.toHaveBeenCalled();
+      releaseWitness();
+      expect(await running).toMatchObject({ status: 'progress', resource: 'core', providerRequests: 2 });
+      expect(fetch).toHaveBeenCalledTimes(2);
+      const captures = f.administration.recordObservation.mock.calls.map(call => call[0].envelope.provenance);
+      expect(captures).toHaveLength(2);
+      expect(captures[0].acquisition).toEqual(captures[1].acquisition);
+      expect(Object.keys(captures[0].acquisition!.attempts).sort()).toEqual(['managers', 'managersV2', 'players', 'settings']);
+      expect(captures.every(capture => capture.origin === 'network' && capture.requestStartedAt !== null)).toBe(true);
+      expect(f.intake.completeCore).toHaveBeenCalledOnce();
+    } finally { releaseReservation(); releaseWitness(); fetch.mockRestore(); }
+  });
   it('retains explicit distinct seasons and stable request identity', () => {
     expect(validatePublicIntake({ id, username: 'Any_Manager', seasons: [2026, 2025] }).seasons).toEqual([2025, 2026]);
     for (const seasons of [[], [2026, 2026], [2023, 2024, 2025, 2026], [2026.5]]) {

@@ -1,4 +1,5 @@
 import { compatibleRevision, compatibleScoringRulesHash } from '../projections/shared/revision-compatibility';
+import { publicCaptureForRequest, type PublicCaptureWitness } from './public-capture-witness';
 import { TEAM_MANAGERS_POLICY, TEAM_MANAGER_EVIDENCE_POLICY, type SourceTeamManagers, type TeamManagersNormalization,
   type SourceTeamManagerEvidence, type TeamManagerEvidenceNormalization } from '../aggregator/team-managers';
 import { LEAGUE_SETTINGS_POLICY, type SettingField, type LeagueSettingsNormalization,
@@ -181,6 +182,17 @@ function validateEnvelope(envelope: AdministrationEnvelope): void {
   else if (envelope.week !== null) invalid('invalid_scope', 'week', 'This family has a season scope rather than a weekly scope.');
   if (!['complete', 'partial'].includes(envelope.completeness)) invalid('invalid_completeness', 'completeness', 'Completeness must be stated explicitly.');
   const provenance = object(envelope.provenance, 'provenance');
+  if (provenance.acquisition !== undefined) {
+    try {
+      if (provenance.origin !== 'network'
+        || !['league', 'rosters', 'users', 'matchups'].includes(envelope.family)) throw new Error('scope');
+      publicCaptureForRequest(provenance.acquisition as PublicCaptureWitness,
+        envelope.family as 'league' | 'rosters' | 'users' | 'matchups', String(scope.externalLeagueId), envelope.week);
+      const witness = provenance.acquisition as PublicCaptureWitness;
+      if (witness.mapping && compatibleRevision(witness.mapping.scope) !== compatibleRevision(scope)) throw new Error('mapping');
+      if ('season' in witness.work && witness.work.season !== scope.season) throw new Error('season');
+    } catch { invalid('invalid_acquisition', 'provenance.acquisition', 'Expected the original exact public network acquisition.'); }
+  }
   if (!['network', 'cache', 'bootstrap'].includes(String(provenance.origin))) invalid('invalid_origin', 'provenance.origin', 'Expected a supported source origin.');
   const checked = time(provenance.checkedAt, 'provenance.checkedAt');
   const started = provenance.requestStartedAt === null ? null : time(provenance.requestStartedAt, 'provenance.requestStartedAt');
