@@ -1,6 +1,16 @@
 # DATA backend evidence and remaining qualification
 
-## Latest bounded milestone — R037 official preconfiguration, October 9, 2026
+## Bounded ingestion guards candidate — October 9, 2026
+
+**Data resource.** Restricted public DATA selection, retained refresh-cycle identity, optional public-function grants and explicit-period selector/replay boundaries. The existing three-case bundle is the smallest coherent selection; its second case depends on the first case's cycle.
+
+**Existing path.** The maintained closed profile, supervisor, reporter, isolated Neon harness and unchanged public-data intake cases exercise existing refresh/intake stores, SQL guards and stored reader. No runtime, migration, provider, product, scoring or scheduling change is included. Concurrent selectors share one owner/fence; the job-row oracle expires the two-second work deadline before any new selection write. Optional-grant restoration uses an existing restricted role, not newly provisioned-role evidence.
+
+**Persisted result.** Planned exact source/run/profile-bound report with 25 collected, three executed passes and 22 filtered, plus global cleanup acknowledgment and every existing supervisor closure/cleanup/revocation/deletion gate. This paragraph is a required result, not a claim that SQL has run. The three case bodies and their LF digest remain unchanged at preparation.
+
+**Real evidence and gaps.** Preimplementation checks agree on clean local and GitHub main 87da4d0cb909ee280e125e73ad10e1c3dbd7cd9f and Ready Vercel production 8C3YSnXRCbmPETftQgRtirfyck5e at that exact SHA, canonical repository, apps/site root, main and Node24. Existing protected integration-test metadata identifies the dedicated test project and unchanged reusable key. No competing owner observed in inspected worktrees, PRs, workflows and deployments; production cron logs and database leases were not inspected. Source review, non-SQL CI, exact-candidate browser preview, independent review and the single authorized bounded SQL execution remain pending. Keep prior source-bound passing evidence and pointers intact; no fresh-role, process-death, general owner-race, live acquisition, capacity, full privilege inventory or production qualification is implied.
+
+## Previous bounded milestone — R037 official preconfiguration, October 9, 2026
 
 **Both existing R037 cases passed in one isolated SQL run.** [Run 37922543557](https://github.com/clawmachinejed/league-one-audit/actions/runs/37922543557), attempt 1, executed exact reviewed source `cbfc938b6053cf9cb051b463d2de3ace451f6007` with the closed `data-official-preconfiguration-v1` profile: **25 collected, 2 executed passes, 23 filtered; zero selected skips, failures, retries, repeats or unhandled errors**. Vitest displays the 23 filtered cases as skipped; none of the selected cases skipped. The selected suite's before/after hooks each ran once. No new API key, production write or automatic SQL retry occurred.
 

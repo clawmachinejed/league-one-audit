@@ -11,13 +11,13 @@ import { createQualificationContext, markQualificationFailure, parseQualificatio
   validateQualificationArtifacts, validateQualificationReport, writeQualificationArtifact,
   LIVE_PROFILE, LIVE_MODULE, LIVE_FULL_NAME, LIVE_PATTERN, LIVE_SOURCE_DIGEST, qualificationIncludes, requireLiveQualification,
   JOURNEY_PROFILE, JOURNEY_MODULE, JOURNEY_FULL_NAME, JOURNEY_PATTERN, JOURNEY_SOURCE_DIGEST, requireJourneyQualification,
-  OFFICIAL_PROFILE, OFFICIAL_FULL_NAMES, OFFICIAL_PATTERN,
+  OFFICIAL_PROFILE, OFFICIAL_FULL_NAMES, OFFICIAL_PATTERN, GUARDS_PROFILE, GUARDS_FULL_NAMES, GUARDS_PATTERN,
   type QualificationBinding, type QualificationCase, type QualificationReport } from './qualification-profile';
 
 const directories: string[] = [];
 const exitCode = process.exitCode;
 afterEach(async () => { process.exitCode = exitCode; await Promise.all(directories.splice(0).map(path => rm(path, { recursive: true, force: true }))); });
-async function fixture(selected: boolean | typeof INGESTION_PROFILE | typeof OFFICIAL_PROFILE = false): Promise<QualificationBinding> {
+async function fixture(selected: boolean | typeof INGESTION_PROFILE | typeof OFFICIAL_PROFILE | typeof GUARDS_PROFILE = false): Promise<QualificationBinding> {
   const directory = await mkdtemp(join(tmpdir(), 'qualification-profile-')); directories.push(directory);
   await mkdir(join(directory, 'integration'));
   await writeFile(join(directory, SELECTED_MODULE), 'fixture\r\nsource\r\n');
@@ -31,12 +31,14 @@ function report(binding: QualificationBinding): QualificationReport {
   const selected = binding.context.profile !== 'full';
   const ingestion = binding.context.profile === INGESTION_PROFILE;
   const official = binding.context.profile === OFFICIAL_PROFILE;
+  const guards = binding.context.profile === GUARDS_PROFILE;
+  const inventory = guards ? [...GUARDS_FULL_NAMES, ...SELECTED_INVENTORY.filter(name => !GUARDS_FULL_NAMES.includes(name))] : SELECTED_INVENTORY;
   return { kind: 'integration-qualification-report-v1', contextDigest: qualificationDigest(binding.context), starts: 1, ends: 1,
-    reason: 'passed', unhandledErrors: 0, specifications: [{ path: SELECTED_MODULE, pattern: selected ? official ? OFFICIAL_PATTERN : ingestion ? INGESTION_PATTERN : SELECTED_PATTERN : null,
+    reason: 'passed', unhandledErrors: 0, specifications: [{ path: SELECTED_MODULE, pattern: selected ? guards ? GUARDS_PATTERN : official ? OFFICIAL_PATTERN : ingestion ? INGESTION_PATTERN : SELECTED_PATTERN : null,
       otherFilters: false }], collected: [SELECTED_MODULE], hooks: [{ key: 'suite:beforeAll', starts: 1, ends: 1 }],
     modules: [{ path: SELECTED_MODULE, state: 'passed', errors: 0, suites: [],
-      cases: (selected ? SELECTED_INVENTORY : ['fixture']).map((name, index) => {
-        const runs = !selected || (official ? OFFICIAL_FULL_NAMES.includes(name) : name === (ingestion ? INGESTION_FULL_NAME : SELECTED_FULL_NAME));
+      cases: (selected ? inventory : ['fixture']).map((name, index) => {
+        const runs = !selected || (guards ? GUARDS_FULL_NAMES.includes(name) : official ? OFFICIAL_FULL_NAMES.includes(name) : name === (ingestion ? INGESTION_FULL_NAME : SELECTED_FULL_NAME));
         return { id: 'case-' + index, name, state: runs ? 'passed' : 'skipped', mode: runs ? 'run' : 'skip',
           expectedFailure: false, configuredRetries: false, configuredRepeats: 0, errors: 0,
           readyEvents: 1, resultEvents: 1, diagnostic: runs ? {
@@ -149,6 +151,7 @@ it('pins the reviewed LF module digest and independently inventories all literal
     ts.forEachChild(node, child => visit(child, suites));
   };
   visit(tree, []);
+  expect(cases.filter(name => GUARDS_FULL_NAMES.includes(name))).toEqual(GUARDS_FULL_NAMES);
   expect(cases.sort()).toEqual(SELECTED_INVENTORY);
 });
 
@@ -202,9 +205,12 @@ it('binds the official pair to exactly two cases, one module and the complete re
     expect(() => validateQualificationReport(older.context, reverse)).toThrow();
   }
 });
-it('rejects either missing, skipped, retried or duplicated official case and any extra execution', async () => {
-  const binding = await fixture(OFFICIAL_PROFILE);
-  for (const name of OFFICIAL_FULL_NAMES) {
+it.each([
+  { profile: OFFICIAL_PROFILE, names: OFFICIAL_FULL_NAMES },
+  { profile: GUARDS_PROFILE, names: GUARDS_FULL_NAMES },
+] as const)('rejects missing, skipped, retried or duplicated cases and extra execution for $profile', async ({ profile, names }) => {
+  const binding = await fixture(profile);
+  for (const name of names) {
     const changes: ((r: QualificationReport) => void)[] = [
       r => { r.modules[0].cases = r.modules[0].cases.filter(test => test.name !== name); },
       r => { r.modules[0].cases.push({ ...r.modules[0].cases.find(test => test.name === name)! }); },
@@ -226,7 +232,7 @@ it('rejects either missing, skipped, retried or duplicated official case and any
       expect(() => validateQualificationReport(binding.context, evidence)).toThrow();
     }
   }
-  const extra = report(binding), filtered = extra.modules[0].cases.find(test => !OFFICIAL_FULL_NAMES.includes(test.name))!;
+  const extra = report(binding), filtered = extra.modules[0].cases.find(test => !names.includes(test.name))!;
   filtered.state = 'passed'; filtered.mode = 'run';
   filtered.diagnostic = { retryCount: 0, repeatCount: 0, flaky: false, duration: 1, startTime: 1234 };
   expect(() => validateQualificationReport(binding.context, extra)).toThrow();
@@ -235,11 +241,11 @@ it('rejects either missing, skipped, retried or duplicated official case and any
     expect(() => validateQualificationReport(binding.context, evidence)).toThrow();
   }
 });
-it('refuses official pair source drift before provisioning and keeps default full discovery unchanged', async () => {
+it.each([OFFICIAL_PROFILE, GUARDS_PROFILE] as const)('refuses %s source drift before provisioning and keeps default full discovery unchanged', async profile => {
   const binding = await fixture();
-  await expect(createQualificationContext(binding.directory, 'a'.repeat(40), randomUUID(), OFFICIAL_PROFILE)).rejects.toThrow('reviewed LF digest');
+  await expect(createQualificationContext(binding.directory, 'a'.repeat(40), randomUUID(), profile)).rejects.toThrow('reviewed LF digest');
   const site = fileURLToPath(new URL('..', import.meta.url));
-  const context = await createQualificationContext(site, 'a'.repeat(40), randomUUID(), OFFICIAL_PROFILE);
+  const context = await createQualificationContext(site, 'a'.repeat(40), randomUUID(), profile);
   expect(context.modules).toEqual([{ path: SELECTED_MODULE, sourceDigest: SELECTED_SOURCE_DIGEST }]);
   expect(qualificationIncludes({ [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(context),
     PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY: binding.directory })).toEqual(['integration/**/*.integration-case.ts']);
@@ -306,4 +312,47 @@ it.each([
   await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
   await qualificationCleanup(async () => undefined, binding);
   expect(await validateQualificationArtifacts(binding)).toMatchObject({ collected: 1, executed: 1, passed: 1, filtered: 0 });
+});
+
+it('binds the ingestion guards to exactly three source-ordered cases, excluding the fairness prerequisite', async () => {
+  expect(parseQualificationArguments(['--profile=' + GUARDS_PROFILE])).toBe(GUARDS_PROFILE);
+  expect(qualificationArguments(GUARDS_PROFILE, '/reporter').slice(4)).toEqual([SELECTED_MODULE, '--testNamePattern', GUARDS_PATTERN]);
+  for (const extra of ['--retry=1', '--testNamePattern=x', '--profile=' + OFFICIAL_PROFILE, '--sequence.shuffle']) {
+    expect(() => parseQualificationArguments(['--profile=' + GUARDS_PROFILE, extra])).toThrow();
+  }
+  const pattern = new RegExp(GUARDS_PATTERN);
+  expect(pattern.source).toBe(GUARDS_PATTERN);
+  expect(SELECTED_INVENTORY.filter(name => pattern.test(name.replaceAll(' > ', ' ')))).toEqual([...GUARDS_FULL_NAMES].sort());
+  for (const name of GUARDS_FULL_NAMES) {
+    expect(pattern.test('prefix ' + name.replaceAll(' > ', ' '))).toBe(false);
+    expect(pattern.test(name.replaceAll(' > ', ' ') + ' suffix')).toBe(false);
+  }
+  const fairness = SELECTED_INVENTORY.find(name => name.includes('monopolizing another verified target'))!;
+  expect(fairness).toBeDefined();
+  expect(pattern.test(fairness.replaceAll(' > ', ' '))).toBe(false);
+  const binding = await fixture(GUARDS_PROFILE), evidence = report(binding);
+  await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
+  await writeQualificationArtifact(binding, 'report', evidence);
+  await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
+  await qualificationCleanup(async () => {}, binding);
+  await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({
+    profile: GUARDS_PROFILE, collected: 25, executed: 3, passed: 3, skipped: 22, filtered: 22,
+  });
+  const reversed = report(binding); reversed.modules[0].cases.reverse();
+  expect(() => validateQualificationReport(binding.context, reversed)).toThrow('source order');
+  for (const older of [await fixture(true), await fixture(INGESTION_PROFILE), await fixture(OFFICIAL_PROFILE)]) {
+    expect(binding.context.profileDigest).not.toBe(older.context.profileDigest);
+    const substituted = report(older); substituted.contextDigest = qualificationDigest(binding.context);
+    substituted.specifications[0].pattern = GUARDS_PATTERN;
+    expect(() => validateQualificationReport(binding.context, substituted)).toThrow();
+    const reverse = structuredClone(evidence); reverse.contextDigest = qualificationDigest(older.context);
+    reverse.specifications[0].pattern = report(older).specifications[0].pattern;
+    expect(() => validateQualificationReport(older.context, reverse)).toThrow();
+  }
+  for (const pattern of [OFFICIAL_PATTERN, '.*']) {
+    const changed = report(binding); changed.specifications[0].pattern = pattern;
+    expect(() => validateQualificationReport(binding.context, changed)).toThrow();
+  }
+  await markQualificationFailure(binding, 'process-timeout');
+  await expect(validateQualificationArtifacts(binding)).rejects.toThrow('Sticky');
 });
