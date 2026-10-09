@@ -307,6 +307,24 @@ it('runs the fixed three-module core compatibility selection with actual beforeE
   await mkdir(join(directory, 'integration')); await mkdir(join(directory, 'artifacts'));
   const context = await createQualificationContext(site, 'a'.repeat(40), randomUUID(), CORE_COMPATIBILITY_PROFILE);
   for (const spec of CORE_COMPATIBILITY_MODULES) {
+    let objectCaseTable: string | undefined;
+    const objectTemplate = 'counts $label in cumulative PPG';
+    if (spec.path === 'integration/all-player-statistics.integration-case.ts') {
+      const source = await readFile(join(site, spec.path), 'utf8');
+      const tree = ts.createSourceFile(spec.path, source, ts.ScriptTarget.Latest, true);
+      const visit = (node: ts.Node) => {
+        if (ts.isCallExpression(node) && node.arguments[0] && ts.isStringLiteral(node.arguments[0]) && node.arguments[0].text === objectTemplate) {
+          expect(objectCaseTable).toBeUndefined();
+          expect(ts.isCallExpression(node.expression)).toBe(true);
+          const each = node.expression as ts.CallExpression;
+          expect(each.expression.getText(tree)).toBe('it.each');
+          objectCaseTable = each.arguments[0].getText(tree);
+        }
+        ts.forEachChild(node, visit);
+      };
+      visit(tree); expect(objectCaseTable).toBeDefined();
+    }
+    let objectCasesAdded = false;
     let body = 'import {it,expect,describe,beforeAll,afterAll,beforeEach} from ' + JSON.stringify(pathToFileURL(join(site, 'node_modules/vitest/dist/index.js')).href) + ';\n';
     body += 'let setup=0,executed=0,each=0;\n';
     for (const [suite, names] of Object.entries(Object.groupBy(spec.inventory, name => name.split(' > ')[0]))) {
@@ -316,6 +334,15 @@ it('runs the fixed three-module core compatibility selection with actual beforeE
         if (spec.beforeEach) body += 'beforeEach(()=>{expect(each++).toBe(executed)});';
       } else body += "beforeAll(()=>{throw Error('excluded suite hook ran')});afterAll(()=>{throw Error('excluded suite hook ran')});";
       for (const name of names!) {
+        if (objectCaseTable && name.startsWith(spec.suite + ' > counts ')) {
+          if (!objectCasesAdded) {
+            // Preserve the maintained it.each table/template so installed Vitest
+            // supplies quoting and truncation; literal test names cannot prove this.
+            body += 'it.each(' + objectCaseTable + ')(' + JSON.stringify(objectTemplate) + ",()=>{throw Error('filtered object case ran')});";
+            objectCasesAdded = true;
+          }
+          continue;
+        }
         const ordinal = (spec.names as readonly string[]).indexOf(name);
         body += 'it(' + JSON.stringify(name.split(' > ')[1]) + ',()=>{' + (ordinal < 0 ? "throw Error('filtered case ran')"
           : 'expect(setup).toBe(1);expect(executed++).toBe(' + ordinal + ')') + '});';

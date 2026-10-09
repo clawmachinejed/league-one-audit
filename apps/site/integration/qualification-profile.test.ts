@@ -676,9 +676,17 @@ it('independently inventories every compatibility case without loading SQL modul
             let name = template;
             if (value && ts.isStringLiteral(value)) name = name.replace('%s', value.text);
             else if (value && ts.isObjectLiteralExpression(value)) {
-              for (const field of value.properties) if (ts.isPropertyAssignment(field) && ts.isStringLiteral(field.initializer)) {
-                name = name.replace('$' + field.name.getText(tree), field.initializer.text);
-              }
+              expect(template).toBe('counts $label in cumulative PPG');
+              const label = value.properties.find(field => ts.isPropertyAssignment(field) && field.name.getText(tree) === 'label');
+              expect(label && ts.isPropertyAssignment(label) && ts.isStringLiteral(label.initializer)).toBe(true);
+              const text = ((label as ts.PropertyAssignment).initializer as ts.StringLiteral).text;
+              // Installed-Vitest runner coverage below the source inventory test
+              // proves these quoted/truncated object labels, including filtered cases.
+              const titles: Record<string, string> = {
+                'a zero-point partial appearance after published points': "counts 'a zero-point partial appearance after…' in cumulative PPG",
+                'a published zero-point appearance before partial points': "counts 'a published zero-point appearance bef…' in cumulative PPG",
+              };
+              name = titles[text]; expect(name).toBeDefined();
             } else expect(value).toBeUndefined();
             cases.push([...suites, name].join(' > '));
           }
