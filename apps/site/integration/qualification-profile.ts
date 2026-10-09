@@ -24,8 +24,8 @@ export const JOURNEY_SUITE = 'live public DATA intake and refresh through the ex
 export const JOURNEY_TEST = 'retains DannyPak discovery, all associated leagues and one complete refresh [live slow SQL]';
 export const JOURNEY_FULL_NAME = JOURNEY_SUITE + ' > ' + JOURNEY_TEST;
 export const JOURNEY_PATTERN = '^' + (JOURNEY_SUITE + ' ' + JOURNEY_TEST).replace(/[.*+?^{}$()|[\]\\]/gu, '\\$&') + '$';
-export type QualificationProfile = 'full' | typeof SELECTED_PROFILE | typeof INGESTION_PROFILE | typeof LIVE_PROFILE | typeof JOURNEY_PROFILE | typeof OFFICIAL_PROFILE | typeof GUARDS_PROFILE | typeof CONCURRENCY_PROFILE;
-export const SELECTED_SOURCE_DIGEST = 'a304cd43e98d5790eb76cbe01658df3e689e616f803dda02e4fb6f314ab8be03';
+export type QualificationProfile = 'full' | typeof SELECTED_PROFILE | typeof INGESTION_PROFILE | typeof LIVE_PROFILE | typeof JOURNEY_PROFILE | typeof OFFICIAL_PROFILE | typeof GUARDS_PROFILE | typeof CONCURRENCY_PROFILE | typeof LATE_WRITE_PROFILE;
+export const SELECTED_SOURCE_DIGEST = 'a169746dc89051995f655785131cdc6379059d2ae2c0b506e4049d53a7060ceb';
 export const SELECTED_MODULE = 'integration/public-data-intake.integration-case.ts';
 export const SELECTED_SUITE = 'bounded public DATA refresh cycles through the existing intake owner';
 export const SELECTED_TEST = 'refreshes two typed core cycles with real admission spacing, a correction and lost-checkpoint replay [focused slow SQL]';
@@ -67,7 +67,18 @@ export const CONCURRENCY_TESTS = [
 export const CONCURRENCY_FULL_NAMES = CONCURRENCY_TESTS.map(name => SELECTED_SUITE + ' > ' + name);
 export const CONCURRENCY_PATTERN = new RegExp('^(?:' + CONCURRENCY_TESTS.map(name => (SELECTED_SUITE + ' ' + name)
   .replace(/[.*+?^{}$()|[\]\\]/gu, '\\$&')).join('|') + ')$').source;
+export const LATE_WRITE_PROFILE = 'data-late-write-rollback-v1';
+export const LATE_WRITE_SUITE = 'public data source to typed PostgreSQL readback and recovery';
+export const LATE_WRITE_TESTS = [
+  'rejects a restricted bootstrap after an advisory wait expires without leaving identity or reservation',
+  'rolls back configured canonical registration and its reservation when an identity-row wait outlives the postcondition fence',
+  'rolls back official-only canonical registration and its reservation when an identity-row wait outlives the postcondition fence',
+] as const;
+export const LATE_WRITE_FULL_NAMES = LATE_WRITE_TESTS.map(name => LATE_WRITE_SUITE + ' > ' + name);
+export const LATE_WRITE_PATTERN = new RegExp('^(?:' + LATE_WRITE_TESTS.map(name => (LATE_WRITE_SUITE + ' ' + name)
+  .replace(/[.*+?^{}$()|[\]\\]/gu, '\\$&')).join('|') + ')$').source;
 function selectedCase(profile: QualificationProfile) {
+  if (profile === LATE_WRITE_PROFILE) return { names: LATE_WRITE_FULL_NAMES, pattern: LATE_WRITE_PATTERN };
   if (profile === CONCURRENCY_PROFILE) return { names: CONCURRENCY_FULL_NAMES, pattern: CONCURRENCY_PATTERN };
   if (profile === LIVE_PROFILE) return { names: [LIVE_FULL_NAME], pattern: LIVE_PATTERN };
   if (profile === JOURNEY_PROFILE) return { names: [JOURNEY_FULL_NAME], pattern: JOURNEY_PATTERN };
@@ -159,10 +170,11 @@ export function parseQualificationArguments(args: readonly string[]): Qualificat
   if (args.length === 1 && args[0] === '--profile=' + OFFICIAL_PROFILE) return OFFICIAL_PROFILE;
   if (args.length === 1 && args[0] === '--profile=' + GUARDS_PROFILE) return GUARDS_PROFILE;
   if (args.length === 1 && args[0] === '--profile=' + CONCURRENCY_PROFILE) return CONCURRENCY_PROFILE;
-  throw new Error('Only the closed data-refresh-concurrency-v1, data-ingestion-guards-v1, data-official-preconfiguration-v1, data-live-public-intake-v1, data-live-league-two-v1, data-core-refresh-v1 and data-core-ingestion-v1 qualification selectors are accepted.');
+  if (args.length === 1 && args[0] === '--profile=' + LATE_WRITE_PROFILE) return LATE_WRITE_PROFILE;
+  throw new Error('Only the closed data-late-write-rollback-v1, data-refresh-concurrency-v1, data-ingestion-guards-v1, data-official-preconfiguration-v1, data-live-public-intake-v1, data-live-league-two-v1, data-core-refresh-v1 and data-core-ingestion-v1 qualification selectors are accepted.');
 }
 export function qualificationArguments(profile: QualificationProfile, reporter: string): string[] {
-  assert(profile === 'full' || profile === SELECTED_PROFILE || profile === INGESTION_PROFILE || profile === LIVE_PROFILE || profile === JOURNEY_PROFILE || profile === OFFICIAL_PROFILE || profile === GUARDS_PROFILE || profile === CONCURRENCY_PROFILE, 'Unknown qualification profile.');
+  assert(profile === 'full' || profile === SELECTED_PROFILE || profile === INGESTION_PROFILE || profile === LIVE_PROFILE || profile === JOURNEY_PROFILE || profile === OFFICIAL_PROFILE || profile === GUARDS_PROFILE || profile === CONCURRENCY_PROFILE || profile === LATE_WRITE_PROFILE, 'Unknown qualification profile.');
   return ['--reporter', 'verbose', '--reporter', reporter,
     ...(profile === 'full' ? [] : [selectedModule(profile), '--testNamePattern', selectedCase(profile).pattern])];
 }
@@ -175,7 +187,7 @@ function validateContext(value: QualificationContext): QualificationContext {
   assert.equal(value.kind, 'integration-qualification-context-v1');
   for (const id of [value.runId, value.nonce]) assert.match(id, /^[0-9a-f]{8}-[0-9a-f-]{27}$/u);
   assert.match(value.gitSha, /^[0-9a-f]{40}$/u);
-  assert(value.profile === 'full' || value.profile === SELECTED_PROFILE || value.profile === INGESTION_PROFILE || value.profile === LIVE_PROFILE || value.profile === JOURNEY_PROFILE || value.profile === OFFICIAL_PROFILE || value.profile === GUARDS_PROFILE || value.profile === CONCURRENCY_PROFILE);
+  assert(value.profile === 'full' || value.profile === SELECTED_PROFILE || value.profile === INGESTION_PROFILE || value.profile === LIVE_PROFILE || value.profile === JOURNEY_PROFILE || value.profile === OFFICIAL_PROFILE || value.profile === GUARDS_PROFILE || value.profile === CONCURRENCY_PROFILE || value.profile === LATE_WRITE_PROFILE);
   assert.equal(value.profileDigest, profileDigest(value.profile));
   assert(Array.isArray(value.modules) && value.modules.length > 0 && value.modules.length <= 128);
   for (const entry of value.modules) {
@@ -291,15 +303,19 @@ export function validateQualificationReport(context: QualificationContext, repor
     }
     unique(entry.cases.map(test => test.name));
     if (context.profile !== 'full') sameInventory(entry.cases.map(test => test.name), selectedInventory(context.profile));
-    if (context.profile === CONCURRENCY_PROFILE) {
-      assert.deepEqual(entry.cases.filter(test => CONCURRENCY_FULL_NAMES.includes(test.name)).map(test => test.name),
-        CONCURRENCY_FULL_NAMES, 'Refresh concurrency cases must retain their source order.');
-      const suites = entry.suites.filter(suite => suite.name === SELECTED_SUITE);
-      assert.equal(suites.length, 1, 'Refresh concurrency requires its one shared suite.');
+    const sharedSuite = context.profile === CONCURRENCY_PROFILE
+      ? { names: CONCURRENCY_FULL_NAMES, suite: SELECTED_SUITE, label: 'Refresh concurrency' }
+      : context.profile === LATE_WRITE_PROFILE
+        ? { names: LATE_WRITE_FULL_NAMES, suite: LATE_WRITE_SUITE, label: 'Late-write rollback' } : undefined;
+    if (sharedSuite) {
+      assert.deepEqual(entry.cases.filter(test => sharedSuite.names.includes(test.name)).map(test => test.name),
+        sharedSuite.names, sharedSuite.label + ' cases must retain their source order.');
+      const suites = entry.suites.filter(suite => suite.name === sharedSuite.suite);
+      assert.equal(suites.length, 1, sharedSuite.label + ' requires its one shared suite.');
       assert.equal(suites[0].mode, 'run');
       const expectedHooks = ['beforeAll', 'afterAll'].map(name => suites[0].id + ':' + name);
       sameInventory(report.hooks.map(hook => hook.key), expectedHooks);
-      for (const hook of report.hooks) assert.equal(hook.starts, 1, 'Refresh concurrency hooks must execute exactly once.');
+      for (const hook of report.hooks) assert.equal(hook.starts, 1, sharedSuite.label + ' hooks must execute exactly once.');
     }
     if (context.profile === GUARDS_PROFILE) assert.deepEqual(entry.cases.filter(test => GUARDS_FULL_NAMES.includes(test.name))
       .map(test => test.name), GUARDS_FULL_NAMES, 'Ingestion guards must retain their source order.');

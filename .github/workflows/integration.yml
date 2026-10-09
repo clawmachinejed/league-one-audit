@@ -12,6 +12,7 @@ on:
           - data-core-ingestion-v1
           - data-core-refresh-v1
           - data-refresh-concurrency-v1
+          - data-late-write-rollback-v1
           - data-ingestion-guards-v1
           - data-official-preconfiguration-v1
           - data-live-league-two-v1
@@ -70,6 +71,9 @@ jobs:
               ;;
             workflow_dispatch:data-refresh-concurrency-v1)
               pnpm test:integration --profile=data-refresh-concurrency-v1
+              ;;
+            workflow_dispatch:data-late-write-rollback-v1)
+              pnpm test:integration --profile=data-late-write-rollback-v1
               ;;
             workflow_dispatch:data-ingestion-guards-v1)
               pnpm test:integration --profile=data-ingestion-guards-v1

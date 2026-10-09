@@ -13,12 +13,13 @@ import { createQualificationContext, markQualificationFailure, parseQualificatio
   JOURNEY_PROFILE, JOURNEY_MODULE, JOURNEY_FULL_NAME, JOURNEY_PATTERN, JOURNEY_SOURCE_DIGEST, requireJourneyQualification,
   OFFICIAL_PROFILE, OFFICIAL_FULL_NAMES, OFFICIAL_PATTERN, GUARDS_PROFILE, GUARDS_FULL_NAMES, GUARDS_PATTERN,
   CONCURRENCY_PROFILE, CONCURRENCY_FULL_NAMES, CONCURRENCY_PATTERN, SELECTED_SUITE,
+  LATE_WRITE_PROFILE, LATE_WRITE_FULL_NAMES, LATE_WRITE_PATTERN, LATE_WRITE_SUITE,
   type QualificationBinding, type QualificationCase, type QualificationReport } from './qualification-profile';
 
 const directories: string[] = [];
 const exitCode = process.exitCode;
 afterEach(async () => { process.exitCode = exitCode; await Promise.all(directories.splice(0).map(path => rm(path, { recursive: true, force: true }))); });
-async function fixture(selected: boolean | typeof INGESTION_PROFILE | typeof OFFICIAL_PROFILE | typeof GUARDS_PROFILE | typeof CONCURRENCY_PROFILE = false): Promise<QualificationBinding> {
+async function fixture(selected: boolean | typeof INGESTION_PROFILE | typeof OFFICIAL_PROFILE | typeof GUARDS_PROFILE | typeof CONCURRENCY_PROFILE | typeof LATE_WRITE_PROFILE = false): Promise<QualificationBinding> {
   const directory = await mkdtemp(join(tmpdir(), 'qualification-profile-')); directories.push(directory);
   await mkdir(join(directory, 'integration'));
   await writeFile(join(directory, SELECTED_MODULE), 'fixture\r\nsource\r\n');
@@ -34,13 +35,16 @@ function report(binding: QualificationBinding): QualificationReport {
   const official = binding.context.profile === OFFICIAL_PROFILE;
   const guards = binding.context.profile === GUARDS_PROFILE;
   const concurrency = binding.context.profile === CONCURRENCY_PROFILE;
-  const inventory = concurrency ? [...CONCURRENCY_FULL_NAMES, ...SELECTED_INVENTORY.filter(name => !CONCURRENCY_FULL_NAMES.includes(name))] : guards ? [...GUARDS_FULL_NAMES, ...SELECTED_INVENTORY.filter(name => !GUARDS_FULL_NAMES.includes(name))] : SELECTED_INVENTORY;
+  const lateWrite = binding.context.profile === LATE_WRITE_PROFILE;
+  const sharedSuite = concurrency || lateWrite;
+  const orderedNames = lateWrite ? LATE_WRITE_FULL_NAMES : CONCURRENCY_FULL_NAMES;
+  const inventory = sharedSuite ? [...orderedNames, ...SELECTED_INVENTORY.filter(name => !orderedNames.includes(name))] : guards ? [...GUARDS_FULL_NAMES, ...SELECTED_INVENTORY.filter(name => !GUARDS_FULL_NAMES.includes(name))] : SELECTED_INVENTORY;
   return { kind: 'integration-qualification-report-v1', contextDigest: qualificationDigest(binding.context), starts: 1, ends: 1,
-    reason: 'passed', unhandledErrors: 0, specifications: [{ path: SELECTED_MODULE, pattern: selected ? concurrency ? CONCURRENCY_PATTERN : guards ? GUARDS_PATTERN : official ? OFFICIAL_PATTERN : ingestion ? INGESTION_PATTERN : SELECTED_PATTERN : null,
-      otherFilters: false }], collected: [SELECTED_MODULE], hooks: concurrency ? ['beforeAll', 'afterAll'].map(name => ({ key: 'suite:' + name, starts: 1, ends: 1 })) : [{ key: 'suite:beforeAll', starts: 1, ends: 1 }],
-    modules: [{ path: SELECTED_MODULE, state: 'passed', errors: 0, suites: concurrency ? [{ id: 'suite', name: SELECTED_SUITE, mode: 'run', errors: 0 }] : [],
+    reason: 'passed', unhandledErrors: 0, specifications: [{ path: SELECTED_MODULE, pattern: selected ? lateWrite ? LATE_WRITE_PATTERN : concurrency ? CONCURRENCY_PATTERN : guards ? GUARDS_PATTERN : official ? OFFICIAL_PATTERN : ingestion ? INGESTION_PATTERN : SELECTED_PATTERN : null,
+      otherFilters: false }], collected: [SELECTED_MODULE], hooks: sharedSuite ? ['beforeAll', 'afterAll'].map(name => ({ key: 'suite:' + name, starts: 1, ends: 1 })) : [{ key: 'suite:beforeAll', starts: 1, ends: 1 }],
+    modules: [{ path: SELECTED_MODULE, state: 'passed', errors: 0, suites: sharedSuite ? [{ id: 'suite', name: lateWrite ? LATE_WRITE_SUITE : SELECTED_SUITE, mode: 'run', errors: 0 }] : [],
       cases: (selected ? inventory : ['fixture']).map((name, index) => {
-        const runs = !selected || (concurrency ? CONCURRENCY_FULL_NAMES.includes(name) : guards ? GUARDS_FULL_NAMES.includes(name) : official ? OFFICIAL_FULL_NAMES.includes(name) : name === (ingestion ? INGESTION_FULL_NAME : SELECTED_FULL_NAME));
+        const runs = !selected || (sharedSuite ? orderedNames.includes(name) : guards ? GUARDS_FULL_NAMES.includes(name) : official ? OFFICIAL_FULL_NAMES.includes(name) : name === (ingestion ? INGESTION_FULL_NAME : SELECTED_FULL_NAME));
         return { id: 'case-' + index, name, state: runs ? 'passed' : 'skipped', mode: runs ? 'run' : 'skip',
           expectedFailure: false, configuredRetries: false, configuredRepeats: 0, errors: 0,
           readyEvents: 1, resultEvents: 1, diagnostic: runs ? {
@@ -155,6 +159,7 @@ it('pins the reviewed LF module digest and independently inventories all literal
   visit(tree, []);
   expect(cases.filter(name => GUARDS_FULL_NAMES.includes(name))).toEqual(GUARDS_FULL_NAMES);
   expect(cases.filter(name => CONCURRENCY_FULL_NAMES.includes(name))).toEqual(CONCURRENCY_FULL_NAMES);
+  expect(cases.filter(name => LATE_WRITE_FULL_NAMES.includes(name))).toEqual(LATE_WRITE_FULL_NAMES);
   expect(cases.sort()).toEqual(SELECTED_INVENTORY);
 });
 
@@ -212,6 +217,7 @@ it.each([
   { profile: OFFICIAL_PROFILE, names: OFFICIAL_FULL_NAMES },
   { profile: GUARDS_PROFILE, names: GUARDS_FULL_NAMES },
   { profile: CONCURRENCY_PROFILE, names: CONCURRENCY_FULL_NAMES },
+  { profile: LATE_WRITE_PROFILE, names: LATE_WRITE_FULL_NAMES },
 ] as const)('rejects missing, skipped, retried or duplicated cases and extra execution for $profile', async ({ profile, names }) => {
   const binding = await fixture(profile);
   for (const name of names) {
@@ -245,7 +251,7 @@ it.each([
     expect(() => validateQualificationReport(binding.context, evidence)).toThrow();
   }
 });
-it.each([OFFICIAL_PROFILE, GUARDS_PROFILE, CONCURRENCY_PROFILE] as const)('refuses %s source drift before provisioning and keeps default full discovery unchanged', async profile => {
+it.each([OFFICIAL_PROFILE, GUARDS_PROFILE, CONCURRENCY_PROFILE, LATE_WRITE_PROFILE] as const)('refuses %s source drift before provisioning and keeps default full discovery unchanged', async profile => {
   const binding = await fixture();
   await expect(createQualificationContext(binding.directory, 'a'.repeat(40), randomUUID(), profile)).rejects.toThrow('reviewed LF digest');
   const site = fileURLToPath(new URL('..', import.meta.url));
@@ -406,6 +412,61 @@ it('binds five source-ordered refresh concurrency cases to one exact shared hook
     expect(binding.context.profileDigest).not.toBe(older.context.profileDigest);
     const substituted = report(older); substituted.contextDigest = qualificationDigest(binding.context);
     substituted.specifications[0].pattern = CONCURRENCY_PATTERN;
+    expect(() => validateQualificationReport(binding.context, substituted)).toThrow();
+    const reverse = structuredClone(evidence); reverse.contextDigest = qualificationDigest(older.context);
+    reverse.specifications[0].pattern = report(older).specifications[0].pattern;
+    expect(() => validateQualificationReport(older.context, reverse)).toThrow();
+  }
+  await markQualificationFailure(binding, 'process-timeout');
+  await expect(validateQualificationArtifacts(binding)).rejects.toThrow('Sticky');
+});
+
+it('binds three late-write rollback cases to their exact source order, shared hooks and isolated profile evidence', async () => {
+  expect(parseQualificationArguments(['--profile=' + LATE_WRITE_PROFILE])).toBe(LATE_WRITE_PROFILE);
+  expect(qualificationArguments(LATE_WRITE_PROFILE, '/reporter').slice(4)).toEqual([SELECTED_MODULE, '--testNamePattern', LATE_WRITE_PATTERN]);
+  for (const extra of ['--retry=1', '--repeat=1', '--testNamePattern=x', '--profile=' + CONCURRENCY_PROFILE, '--sequence.shuffle']) {
+    expect(() => parseQualificationArguments(['--profile=' + LATE_WRITE_PROFILE, extra])).toThrow();
+  }
+  expect(() => parseQualificationArguments(['--profile=data-late-write-rollback-v2'])).toThrow();
+  const pattern = new RegExp(LATE_WRITE_PATTERN);
+  expect(pattern.source).toBe(LATE_WRITE_PATTERN);
+  expect(SELECTED_INVENTORY.filter(name => pattern.test(name.replaceAll(' > ', ' ')))).toEqual([...LATE_WRITE_FULL_NAMES].sort());
+  for (const name of LATE_WRITE_FULL_NAMES) {
+    expect(pattern.test('prefix ' + name.replaceAll(' > ', ' '))).toBe(false);
+    expect(pattern.test(name.replaceAll(' > ', ' ') + ' suffix')).toBe(false);
+  }
+  const binding = await fixture(LATE_WRITE_PROFILE), evidence = report(binding);
+  await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
+  await writeQualificationArtifact(binding, 'report', evidence);
+  await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
+  await qualificationCleanup(async () => {}, binding);
+  await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({
+    profile: LATE_WRITE_PROFILE, collected: 25, executed: 3, passed: 3, skipped: 22, filtered: 22,
+  });
+  const changes: ((r: QualificationReport) => void)[] = [
+    r => { r.modules[0].cases.reverse(); },
+    r => { r.modules[0].suites = []; },
+    r => { r.modules[0].suites[0].name = SELECTED_SUITE; },
+    r => { r.modules[0].suites.push({ ...r.modules[0].suites[0], id: 'duplicate-suite' }); },
+    r => { r.modules[0].suites[0].mode = 'skip'; },
+    r => { r.hooks = []; },
+    r => { r.hooks.pop(); },
+    r => { r.hooks.push({ key: 'unrelated:beforeAll', starts: 1, ends: 1 }); },
+    r => { r.hooks[0].key = 'unrelated:beforeAll'; },
+    r => { r.hooks[0].starts = 2; r.hooks[0].ends = 2; },
+    r => { r.hooks[0].ends = 0; },
+    r => { r.unhandledErrors = 1; },
+    r => { r.specifications[0].otherFilters = true; },
+  ];
+  for (const change of changes) {
+    const changed = report(binding); change(changed);
+    expect(() => validateQualificationReport(binding.context, changed)).toThrow();
+  }
+  for (const older of [await fixture(), await fixture(true), await fixture(INGESTION_PROFILE),
+    await fixture(OFFICIAL_PROFILE), await fixture(GUARDS_PROFILE), await fixture(CONCURRENCY_PROFILE)]) {
+    expect(binding.context.profileDigest).not.toBe(older.context.profileDigest);
+    const substituted = report(older); substituted.contextDigest = qualificationDigest(binding.context);
+    substituted.specifications[0].pattern = LATE_WRITE_PATTERN;
     expect(() => validateQualificationReport(binding.context, substituted)).toThrow();
     const reverse = structuredClone(evidence); reverse.contextDigest = qualificationDigest(older.context);
     reverse.specifications[0].pattern = report(older).specifications[0].pattern;

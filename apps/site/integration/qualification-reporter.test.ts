@@ -9,7 +9,7 @@ import QualificationReporter from './qualification-reporter';
 import { createQualificationContext, qualificationArguments, qualificationDigest, qualificationSourceDigest, QUALIFICATION_CONTEXT_ENV,
   QUALIFICATION_FILES, INGESTION_PROFILE, INGESTION_FULL_NAME, SELECTED_FULL_NAME, SELECTED_INVENTORY, SELECTED_MODULE, SELECTED_PROFILE,
   OFFICIAL_PROFILE, OFFICIAL_SUITE, OFFICIAL_FULL_NAMES, GUARDS_PROFILE, GUARDS_FULL_NAMES,
-  CONCURRENCY_PROFILE, CONCURRENCY_FULL_NAMES,
+  CONCURRENCY_PROFILE, CONCURRENCY_FULL_NAMES, LATE_WRITE_PROFILE, LATE_WRITE_FULL_NAMES, LATE_WRITE_SUITE,
   validateQualificationArtifacts, type QualificationReport } from './qualification-profile';
 
 const directories: string[] = [];
@@ -22,21 +22,22 @@ afterEach(async () => { process.exitCode = originalExit; await Promise.all(direc
 
 /** Actual installed runner, synthetic modules only. No application or SQL imports;
  * outbound fetch/http/net are blocked before configuration and worker startup. */
-async function runFixture(kind: 'ordinary' | 'selected' | 'official' | 'guards' | 'concurrency' | 'teardown' | 'hook' | 'retry' | 'repeat' | 'unhandled' | 'timeout') {
+async function runFixture(kind: 'ordinary' | 'selected' | 'official' | 'guards' | 'concurrency' | 'late-write' | 'teardown' | 'hook' | 'retry' | 'repeat' | 'unhandled' | 'timeout') {
   const directory = await mkdtemp(join(tmpdir(), 'qualification-runner-')); directories.push(directory);
   await mkdir(join(directory, 'integration')); await mkdir(join(directory, 'artifacts'));
   const vitestImport = pathToFileURL(join(site, 'node_modules/vitest/dist/index.js')).href;
   let body = "import {it,expect,describe,beforeAll,afterAll} from " + JSON.stringify(vitestImport) + ";\n";
-  if (kind === 'concurrency') {
+  if (kind === 'concurrency' || kind === 'late-write') {
+    const selectedNames = kind === 'late-write' ? LATE_WRITE_FULL_NAMES : CONCURRENCY_FULL_NAMES;
     body += 'let setup=0,executed=0,retainedCycle;\n';
-    const inventory = [...CONCURRENCY_FULL_NAMES, ...SELECTED_INVENTORY.filter(name => !CONCURRENCY_FULL_NAMES.includes(name))];
+    const inventory = [...selectedNames, ...SELECTED_INVENTORY.filter(name => !selectedNames.includes(name))];
     for (const [suite, names] of Object.entries(Object.groupBy(inventory, name => name.split(' > ')[0]))) {
       body += 'describe(' + JSON.stringify(suite) + ',()=>{';
-      const selected = names!.some(name => CONCURRENCY_FULL_NAMES.includes(name));
-      body += selected ? 'beforeAll(()=>{setup++});afterAll(()=>{expect(setup).toBe(1);expect(executed).toBe(5)});'
+      const selected = names!.some(name => selectedNames.includes(name));
+      body += selected ? 'beforeAll(()=>{setup++});afterAll(()=>{expect(setup).toBe(1);expect(executed).toBe(' + selectedNames.length + ')});'
         : "beforeAll(()=>{throw Error('filtered suite hook unexpectedly ran')});";
       for (const name of names!) {
-        const ordinal = CONCURRENCY_FULL_NAMES.indexOf(name);
+        const ordinal = selectedNames.indexOf(name);
         body += 'it(' + JSON.stringify(name.split(' > ')[1]) + ',()=>{' + (ordinal >= 0
           ? 'expect(setup).toBe(1);expect(executed++).toBe(' + ordinal + ');' +
             (ordinal === 0 ? 'retainedCycle=1;' : 'expect(retainedCycle).toBe(1);')
@@ -98,8 +99,8 @@ async function runFixture(kind: 'ordinary' | 'selected' | 'official' | 'guards' 
   await writeFile(guard, "import {createRequire} from 'node:module';const require=createRequire(import.meta.url);" +
     "const deny=()=>{throw Error('NETWORK_BLOCKED_FIXTURE')};for(const m of ['http','https']){require(m).request=deny;require(m).get=deny;}" +
     "require('net').Socket.prototype.connect=deny;globalThis.fetch=deny;\n");
-  const context = await createQualificationContext(kind === 'selected' || kind === 'ordinary' || kind === 'official' || kind === 'guards' || kind === 'concurrency' ? site : directory, 'a'.repeat(40), randomUUID(),
-    kind === 'concurrency' ? CONCURRENCY_PROFILE : kind === 'guards' ? GUARDS_PROFILE : kind === 'official' ? OFFICIAL_PROFILE : kind === 'ordinary' ? INGESTION_PROFILE : kind === 'selected' ? SELECTED_PROFILE : 'full');
+  const context = await createQualificationContext(kind === 'selected' || kind === 'ordinary' || kind === 'official' || kind === 'guards' || kind === 'concurrency' || kind === 'late-write' ? site : directory, 'a'.repeat(40), randomUUID(),
+    kind === 'late-write' ? LATE_WRITE_PROFILE : kind === 'concurrency' ? CONCURRENCY_PROFILE : kind === 'guards' ? GUARDS_PROFILE : kind === 'official' ? OFFICIAL_PROFILE : kind === 'ordinary' ? INGESTION_PROFILE : kind === 'selected' ? SELECTED_PROFILE : 'full');
   // Only this no-SQL fixture substitutes synthetic source beneath the same closed case inventory.
   context.modules[0].sourceDigest = qualificationSourceDigest(body);
   const allow = new Set(['path','systemroot','windir','comspec','temp','tmp','tmpdir','home','userprofile','localappdata','appdata','pathext']);
@@ -194,4 +195,18 @@ it('executes five refresh concurrency cases in source order with one shared setu
   for (const hook of report.hooks) expect(hook).toMatchObject({ starts: 1, ends: 1 });
   await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({ profile: CONCURRENCY_PROFILE,
     collected: 25, executed: 5, passed: 5, skipped: 20, filtered: 20 });
+});
+
+it('executes only three late-write rollback cases in source order with exactly one selected suite hook pair', { timeout: 30_000 }, async () => {
+  const { child, binding, report } = await runFixture('late-write');
+  expect(child.status).toBe(0);
+  expect(report.modules[0].cases.filter(test => test.state === 'passed').map(test => test.name)).toEqual(LATE_WRITE_FULL_NAMES);
+  expect(report.modules[0].cases.filter(test => test.state === 'skipped')).toHaveLength(22);
+  const selectedSuite = report.modules[0].suites.find(suite => suite.name === LATE_WRITE_SUITE)!;
+  expect(selectedSuite).toMatchObject({ mode: 'run', errors: 0 });
+  expect(report.hooks).toEqual(['beforeAll', 'afterAll'].map(name => ({
+    key: selectedSuite.id + ':' + name, starts: 1, ends: 1,
+  })));
+  await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({ profile: LATE_WRITE_PROFILE,
+    collected: 25, executed: 3, passed: 3, skipped: 22, filtered: 22 });
 });

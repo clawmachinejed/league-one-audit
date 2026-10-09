@@ -32,6 +32,87 @@ import { createQualificationContext, qualificationDigest, LIVE_PROFILE, JOURNEY_
 vi.mock('server-only', () => ({}));
 vi.mock('next/cache', () => ({ unstable_cache: (fn: unknown) => fn }));
 
+// Run the maintained callback against driver-shaped timing fixtures. This checks
+// the oracle's control flow only; it does not qualify PostgreSQL lock behavior.
+async function advisoryWaitOracle(mode: 'expired-before-lock' | 'blocked' | 'late-block' | 'source-residue' | 'wrong-rejection' | 'unproved-expiry') {
+  const source = await readFile(new URL('./public-data-intake.integration-case.ts', import.meta.url), 'utf8');
+  const tree = ts.createSourceFile('advisory.ts', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  let body: ts.Block | undefined;
+  const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node) && node.expression.getText(tree) === 'it' && ts.isStringLiteral(node.arguments[0])
+      && node.arguments[0].text === 'rejects a restricted bootstrap after an advisory wait expires without leaving identity or reservation') {
+      const callback = node.arguments[1];
+      if (ts.isArrowFunction(callback) && ts.isBlock(callback.body)) body = callback.body;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(tree); expect(body).toBeDefined();
+  vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-09T12:00:00.000Z'));
+  const trace: string[] = [], pending = Promise.withResolvers<void>();
+  let deadline = 0;
+  const work = { requestId: id, revision: 0, kind: 'bootstrap', externalLeagueId: '8123', season: 2182 };
+  const query = vi.fn(async (sql: string, parameters?: readonly unknown[]) => {
+    if (sql === 'ROLLBACK') {
+      trace.push('release');
+      if (!['expired-before-lock', 'late-block'].includes(mode)) pending.reject(new Error(mode === 'wrong-rejection' ? 'matching admitted public dispatch required' : 'public intake lease lost'));
+    }
+    if (sql.includes('pg_backend_pid')) return [{ pid: sql.includes('session_user') ? 101 : 202,
+      role: 'league_one_runtime', effective_role: 'league_one_runtime' }];
+    if (sql.includes('pg_blocking_pids')) {
+      expect(parameters).toEqual([101, 202, new Date(deadline).toISOString()]);
+      if (mode === 'late-block') vi.setSystemTime(deadline + 1);
+      trace.push('observe');
+      return [{ blocked: mode !== 'expired-before-lock', live: Date.now() < deadline }];
+    }
+    if (sql.includes('clock_timestamp() >=')) {
+      trace.push('expiry');
+      if (mode === 'unproved-expiry') pending.reject(new Error('statement timeout'));
+      return [{ expired: mode !== 'unproved-expiry' && Date.now() >= deadline }];
+    }
+    if (sql.includes("SELECT 'intake' AS resource")) return ['intake', 'identity', 'list', 'candidate'].map(resource => ({ resource, value: { retained: true } }));
+    if (sql.includes('FROM public.league_source_connections') && mode === 'source-residue') return [{ id }];
+    return [];
+  });
+  const intake = { next: vi.fn(async () => work), register: vi.fn(async (_work: unknown, _capture: unknown, fence: { deadlineAt: string }) => {
+    trace.push('register'); deadline = Date.parse(fence.deadlineAt);
+    if (mode === 'expired-before-lock' || mode === 'late-block') { trace.push('settled'); throw new Error('public intake lease lost'); }
+    try { return await pending.promise; } finally { trace.push('settled'); }
+  }) };
+  const jobs = { acquireJob: vi.fn(async () => ({ kind: 'acquired', attempt: 1 })), failJob: vi.fn(async () => {}) };
+  const close = vi.fn(async () => { trace.push('close'); });
+  const bindings = { expect, randomUUID, vi, PUBLIC_INTAKE_JOB: 'league-administration-public-intake',
+    ownerQuery: vi.fn(async (sql: string) => sql.includes('RETURNING id') ? [{ id }] : []),
+    createPinnedIntegrationDatabase: vi.fn(async () => ({ database: { query }, close })),
+    createProjectionStore: () => jobs, createPublicIntakeStore: () => intake,
+    delay: async (milliseconds: number) => { vi.setSystemTime(Date.now() + milliseconds); } };
+  const execute = new Function(...Object.keys(bindings), ts.transpile(`return (async () => ${body!.getText(tree)})();`,
+    { target: ts.ScriptTarget.ES2022 }));
+  const outcome = await execute(...Object.values(bindings)).then(() => ({ ok: true }), (error: unknown) => ({ ok: false, error }));
+  return { outcome, query, intake, jobs, close, trace };
+}
+
+it('rejects an advisory oracle whose lease-lost error occurred before any lock wait', async () => {
+  const f = await advisoryWaitOracle('expired-before-lock');
+  expect(f.outcome).toMatchObject({ ok: false, error: { message: expect.stringContaining('Runtime must reach this advisory blocker') } });
+  expect(f.close).toHaveBeenCalledTimes(2);
+  expect(f.trace.indexOf('settled')).toBeLessThan(f.trace.indexOf('release'));
+  expect(f.jobs.failJob).toHaveBeenCalledOnce();
+});
+it('accepts only a witnessed advisory wait followed by database expiry and the lease rejection', async () => {
+  const f = await advisoryWaitOracle('blocked');
+  expect(f.outcome).toEqual({ ok: true });
+  expect(f.trace).toEqual(['register', 'observe', 'expiry', 'release', 'settled', 'close', 'close']);
+  expect(f.intake.next).toHaveBeenCalledTimes(2);
+  expect(f.close).toHaveBeenCalledTimes(2);
+});
+it.each(['late-block', 'source-residue', 'wrong-rejection', 'unproved-expiry'] as const)('rejects the advisory oracle with %s evidence', async mode => {
+  const f = await advisoryWaitOracle(mode);
+  expect(f.outcome).toMatchObject({ ok: false });
+  expect(f.close).toHaveBeenCalledTimes(2);
+  expect(f.jobs.failJob).toHaveBeenCalledOnce();
+  if (mode === 'unproved-expiry') expect(f.trace.indexOf('settled')).toBeLessThan(f.trace.indexOf('release'));
+});
+
 let directory: string;
 const outbound = vi.fn(() => { throw new Error('OFFLINE_NETWORK_DENIED'); });
 beforeEach(async () => {

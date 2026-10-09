@@ -698,29 +698,78 @@ describe('public data source to typed PostgreSQL readback and recovery', () => {
     await ownerQuery("INSERT INTO public.public_data_league_lists(intake_id,season,payload,request_started_at,request_completed_at) VALUES($1,$2,'[]',clock_timestamp(),clock_timestamp())", [id, season]);
     await ownerQuery("INSERT INTO public.public_data_league_candidates(intake_id,season,external_league_id,name) VALUES($1,$2,$3,'Lock fixture')", [id, season, native]);
     const blocker = await createPinnedIntegrationDatabase('owner');
-    const runtime = await createPinnedIntegrationDatabase('runtime');
+    let runtime: IndependentDatabase | undefined;
+    let jobs: ReturnType<typeof createProjectionStore> | undefined;
+    let pending: Promise<{ ok: true } | { ok: false; error: unknown }> | undefined;
+    let locked = false, acquired = false;
+    const workerId = randomUUID();
     try {
-      const jobs = createProjectionStore(runtime.database);
+      runtime = await createPinnedIntegrationDatabase('runtime');
+      // Bound failure cleanup while retaining the blocker until the pending
+      // statement settles. Never release a live mutation just to clean up.
+      await runtime.database.query("SET statement_timeout='8s'");
+      const [session] = await runtime.database.query('SELECT pg_backend_pid() AS pid,session_user AS role,current_user AS effective_role');
+      expect(session).toMatchObject({ role: 'league_one_runtime', effective_role: 'league_one_runtime' });
+      const [blocking] = await blocker.database.query('SELECT pg_backend_pid() AS pid');
+      expect(session.pid).not.toBe(blocking.pid);
+      jobs = createProjectionStore(runtime.database);
       const intake = createPublicIntakeStore(runtime.database);
-      const workerId = randomUUID();
+      const work = await intake.next(id);
+      if (typeof work === 'string' || work.kind !== 'bootstrap') throw new Error('Missing advisory bootstrap fixture.');
+      const retainedDiscovery = () => runtime!.database.query(`
+        SELECT 'intake' AS resource,to_jsonb(retained) AS value FROM public.public_data_intakes retained WHERE id=$1
+        UNION ALL SELECT 'identity',to_jsonb(retained) FROM public.public_data_identity_observations retained WHERE intake_id=$1
+        UNION ALL SELECT 'list',to_jsonb(retained) FROM public.public_data_league_lists retained WHERE intake_id=$1
+        UNION ALL SELECT 'candidate',to_jsonb(retained) FROM public.public_data_league_candidates retained WHERE intake_id=$1
+        ORDER BY resource`, [id]);
+      const discovery = await retainedDiscovery();
+      expect(discovery).toHaveLength(4);
+      const at = new Date().toISOString();
+      await blocker.database.query('BEGIN'); locked = true;
+      await blocker.database.query("SELECT pg_advisory_xact_lock(hashtextextended('account-league-enrollment',0))");
       const claim = await jobs.acquireJob({ jobKey: PUBLIC_INTAKE_JOB, jobType: PUBLIC_INTAKE_JOB, workerId,
         scheduledFor: new Date(Date.now() + 1_000).toISOString(), leaseSeconds: 25, payload: { requestId: id } });
       if (claim.kind !== 'acquired') throw new Error('Lock fixture owner unavailable.');
+      acquired = true;
+      // All fixture/session/lock preparation precedes the original one-second
+      // work fence. This negative guard fixture has no admission or capture witness.
       const fence = { jobKey: PUBLIC_INTAKE_JOB, workerId, generation: claim.attempt, deadlineAt: new Date(Date.now() + 1_000).toISOString() };
-      const work = await intake.next(id) as Extract<PublicIntakeWork, { kind: 'bootstrap' | 'core' | 'users' }>;
-      await blocker.database.query('BEGIN');
-      await blocker.database.query("SELECT pg_advisory_xact_lock(hashtextextended('account-league-enrollment',0))");
-      const at = new Date().toISOString();
-      const rejected = expect(intake.register(work, { family: 'league', week: null, origin: 'network', requestStartedAt: at, requestCompletedAt: at,
+      pending = intake.register(work, { family: 'league', week: null, origin: 'network', requestStartedAt: at, requestCompletedAt: at,
         payload: { league_id: native, season: String(season), sport: 'nfl', name: 'Lock fixture', total_rosters: 1,
-          settings: {}, scoring_settings: { rec: 1 }, roster_positions: ['QB'] } }, fence)).rejects.toThrow('lease lost');
-      await delay(1_200);
-      await blocker.database.query('ROLLBACK');
-      await rejected;
+          settings: {}, scoring_settings: { rec: 1 }, roster_positions: ['QB'] } }, fence)
+        .then(() => ({ ok: true as const }), error => ({ ok: false as const, error }));
+      let observed = false;
+      while (Date.now() < Date.parse(fence.deadlineAt)) {
+        const [state] = await blocker.database.query(`SELECT $2::integer=ANY(pg_blocking_pids($1::integer)) AS blocked,
+          clock_timestamp()<$3::timestamptz AS live`, [session.pid, blocking.pid, fence.deadlineAt]);
+        if (state.blocked === true && state.live === true) { observed = true; break; }
+        if (state.live !== true) break;
+        await delay(20);
+      }
+      expect(observed, 'Runtime must reach this advisory blocker before its original work fence expires.').toBe(true);
+      await delay(Math.max(0, Date.parse(fence.deadlineAt) - Date.now()) + 100);
+      const [expired] = await blocker.database.query('SELECT clock_timestamp() >= $1::timestamptz AS expired', [fence.deadlineAt]);
+      expect(expired.expired).toBe(true);
+      await blocker.database.query('ROLLBACK'); locked = false;
+      expect(await pending).toMatchObject({ ok: false, error: { message: expect.stringContaining('lease lost') } });
       expect(await runtime.database.query('SELECT id FROM public.leagues WHERE league_key=$1', [`sleeper-${native}`])).toHaveLength(0);
+      expect(await runtime.database.query("SELECT id FROM public.league_source_connections WHERE provider='sleeper' AND external_league_id=$1", [native])).toHaveLength(0);
       expect(await runtime.database.query('SELECT external_league_id FROM public.public_data_collection_reservations WHERE external_league_id=$1', [native])).toHaveLength(0);
-      await jobs.failJob(PUBLIC_INTAKE_JOB, workerId, 'expected expired registration fence');
-    } finally { await blocker.close(); await runtime.close(); }
+      expect(await runtime.database.query('SELECT worker_id FROM public.public_data_dispatches WHERE worker_id=$1 AND generation=$2', [workerId, claim.attempt])).toHaveLength(0);
+      expect(await retainedDiscovery()).toEqual(discovery);
+      expect(await intake.next(id)).toEqual(work);
+    } finally {
+      // On an assertion/read failure the still-blocked statement must first
+      // settle (at latest at statement_timeout), then release its blocker.
+      try { await pending; }
+      finally {
+        try { if (locked) await blocker.database.query('ROLLBACK'); }
+        finally {
+          try { if (acquired) await jobs!.failJob(PUBLIC_INTAKE_JOB, workerId, 'expected expired registration fence'); }
+          finally { await Promise.all([blocker.close(), runtime?.close()]); }
+        }
+      }
+    }
   });
 
   it.each(['configured', 'official-only'] as const)('rolls back %s canonical registration and its reservation when an identity-row wait outlives the postcondition fence', async mode => {
