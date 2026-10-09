@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -28,7 +28,9 @@ import type { PublicIntakeStore } from '../lib/league-administration/public-inta
 import type { PublicDataRefreshStore } from '../lib/league-administration/public-refresh-contracts';
 import type { NormalizedAdministrationObservation } from '../lib/league-administration/contracts';
 import { createPublicDataDiagnostics, observePublicDataDependencies } from './public-data-refresh-diagnostics';
-import { createQualificationContext, qualificationDigest, LIVE_PROFILE, JOURNEY_PROFILE, INGESTION_PROFILE, QUALIFICATION_CONTEXT_ENV } from './qualification-profile';
+import { createQualificationContext, qualificationDigest, LIVE_PROFILE, JOURNEY_PROFILE, INGESTION_PROFILE, QUALIFICATION_CONTEXT_ENV,
+  SELECTED_PROFILE, OFFICIAL_PROFILE, GUARDS_PROFILE, CONCURRENCY_PROFILE, LATE_WRITE_PROFILE, INTAKE_RECOVERY_PROFILE,
+  REFRESH_HISTORY_PROFILE, PERIOD_RECOVERY_PROFILE, PERIOD_EXHAUSTION_PROFILE, SELECTED_MODULE, type QualificationProfile } from './qualification-profile';
 vi.mock('server-only', () => ({}));
 vi.mock('next/cache', () => ({ unstable_cache: (fn: unknown) => fn }));
 
@@ -262,6 +264,97 @@ it('permits both fixed case artifacts in full mode, refuses overwrites and rejec
   await expect(createPublicDataDiagnostics('refresh').save()).rejects.toThrow('boundary=artifact.write');
   await expect(readFile(join(empty, 'public-data-refresh-diagnostics.json'))).rejects.toThrow();
 });
+
+// Explicit intended allowlist: the closeout repair adds only refresh/history.
+const diagnosticProfiles = ['full', SELECTED_PROFILE, INGESTION_PROFILE, LIVE_PROFILE, JOURNEY_PROFILE,
+  OFFICIAL_PROFILE, GUARDS_PROFILE, CONCURRENCY_PROFILE, LATE_WRITE_PROFILE, INTAKE_RECOVERY_PROFILE,
+  REFRESH_HISTORY_PROFILE, PERIOD_RECOVERY_PROFILE, PERIOD_EXHAUSTION_PROFILE] as const;
+const diagnosticKinds = ['ordinary', 'refresh', 'live', 'journey'] as const;
+const diagnosticArtifacts = { ordinary: 'public-data-ingestion-diagnostics.json', refresh: 'public-data-refresh-diagnostics.json',
+  live: 'live-league-two-diagnostics.json', journey: 'public-data-live-diagnostics.json' } as const;
+const permittedDiagnosticProfiles = {
+  ordinary: new Set<QualificationProfile>(['full', INGESTION_PROFILE]),
+  refresh: new Set<QualificationProfile>(['full', SELECTED_PROFILE, REFRESH_HISTORY_PROFILE]),
+  live: new Set<QualificationProfile>([LIVE_PROFILE]),
+  journey: new Set<QualificationProfile>([JOURNEY_PROFILE]),
+};
+it.each(diagnosticKinds.flatMap(kind => diagnosticProfiles.map(profile => ({ kind, profile }))))(
+  'keeps actual diagnostic artifact binding closed for $kind in $profile', async ({ kind, profile }) => {
+    const context = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)), 'a'.repeat(40), randomUUID(), profile);
+    vi.stubEnv(QUALIFICATION_CONTEXT_ENV, JSON.stringify(context));
+    const diagnostics = createPublicDataDiagnostics(kind);
+    if (!permittedDiagnosticProfiles[kind].has(profile)) {
+      await expect(diagnostics.save()).rejects.toThrow('boundary=artifact.write');
+      expect(await readdir(directory)).toEqual([]);
+      return;
+    }
+    await diagnostics.save();
+    const raw = await readFile(join(directory, diagnosticArtifacts[kind]), 'utf8');
+    expect(JSON.parse(raw)).toMatchObject({ kind: 'public-data-ingestion-diagnostics-v1', caseKind: kind,
+      profile, runId: context.runId, gitSha: context.gitSha, contextDigest: qualificationDigest(context), firstFailure: null });
+    expect(Buffer.byteLength(raw)).toBeLessThanOrEqual(64 * 1024);
+  });
+it('saves bounded refresh-history evidence at the failed-run coordinates and refuses an overwrite', async () => {
+  const context = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)), 'a'.repeat(40), randomUUID(), REFRESH_HISTORY_PROFILE);
+  vi.stubEnv(QUALIFICATION_CONTEXT_ENV, JSON.stringify(context));
+  const diagnostics = createPublicDataDiagnostics('refresh');
+  for (let index = 0; index < 687; index++) {
+    diagnostics.beginStep(2);
+    if (index === 0) diagnostics.checkOutcome({ status: 'progress', resource: 'core', providerRequests: 2 });
+    await diagnostics.observe('jobs.acquireJob', async () => ({ kind: 'busy', payload: secret }));
+  }
+  await diagnostics.save();
+  const artifact = join(directory, diagnosticArtifacts.refresh), raw = await readFile(artifact, 'utf8');
+  const report = JSON.parse(raw);
+  expect(report).toMatchObject({ kind: 'public-data-ingestion-diagnostics-v1', caseKind: 'refresh', profile: REFRESH_HISTORY_PROFILE,
+    runId: context.runId, gitSha: context.gitSha, contextDigest: qualificationDigest(context), firstFailure: null, step: 687, cycle: 2,
+    lastCompletedBoundary: { phase: 'coordinator', resource: 'core', status: 'progress' } });
+  expect(report.events).toHaveLength(128); expect(report.droppedEvents).toBeGreaterThan(0);
+  expect(Buffer.byteLength(raw)).toBeLessThanOrEqual(64 * 1024); expect(raw).not.toContain(secret);
+  await expect(createPublicDataDiagnostics('refresh').save()).rejects.toThrow('boundary=artifact.write');
+  expect(await readFile(artifact, 'utf8')).toBe(raw);
+});
+it.each(['missing-context', 'malformed-context', 'wrong-profile-digest', 'missing-directory', 'relative-directory', 'wrong-module'] as const)(
+  'rejects refresh-history diagnostic save with %s before writing an artifact', async mode => {
+    const context = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)), 'a'.repeat(40), randomUUID(), REFRESH_HISTORY_PROFILE);
+    const supplied = mode === 'malformed-context' ? '{' : JSON.stringify(mode === 'wrong-profile-digest'
+      ? { ...context, profileDigest: '0'.repeat(64) } : mode === 'wrong-module'
+        ? { ...context, modules: context.modules.map(entry => ({ ...entry, path: 'integration/unknown.integration-case.ts' })) } : context);
+    vi.stubEnv(QUALIFICATION_CONTEXT_ENV, mode === 'missing-context' ? undefined : supplied);
+    if (mode === 'missing-directory') vi.stubEnv('PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY', undefined);
+    if (mode === 'relative-directory') vi.stubEnv('PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY', 'relative-denied-artifact-directory');
+    await expect(createPublicDataDiagnostics('refresh').save()).rejects.toThrow('boundary=artifact.write');
+    expect(await readdir(directory)).toEqual([]);
+  });
+it('rejects refresh-history source drift before issuing a qualification context', async () => {
+  const siteRoot = join(directory, 'source'); await mkdir(join(siteRoot, 'integration'), { recursive: true });
+  const original = await readFile(new URL('./public-data-intake.integration-case.ts', import.meta.url), 'utf8');
+  await writeFile(join(siteRoot, SELECTED_MODULE), original);
+  await expect(createQualificationContext(siteRoot, 'a'.repeat(40), randomUUID(), REFRESH_HISTORY_PROFILE)).resolves.toMatchObject({ profile: REFRESH_HISTORY_PROFILE });
+  await writeFile(join(siteRoot, SELECTED_MODULE), original + '\n// Deliberate offline source-drift negative.\n');
+  await expect(createQualificationContext(siteRoot, 'a'.repeat(40), randomUUID(), REFRESH_HISTORY_PROFILE))
+    .rejects.toThrow('Selected qualification source differs from the reviewed LF digest');
+  expect(await readdir(directory)).toEqual(['source']);
+});
+it.each(['valid', 'invalid'] as const)('preserves the first refresh-history failure when its save binding is %s', async binding => {
+  const context = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)), 'a'.repeat(40), randomUUID(), REFRESH_HISTORY_PROFILE);
+  vi.stubEnv(QUALIFICATION_CONTEXT_ENV, JSON.stringify(binding === 'valid' ? context : { ...context, profileDigest: '0'.repeat(64) }));
+  const diagnostics = createPublicDataDiagnostics('refresh');
+  const failure = diagnostics.failure('intake.register', sqlError()), before = diagnostics.snapshot().firstFailure;
+  const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+  await expect(diagnostics.save()).resolves.toBeUndefined();
+  expect(diagnostics.snapshot().firstFailure).toEqual(before);
+  expect(diagnostics.failure('case', undefined)).toBe(failure);
+  if (binding === 'valid') {
+    const raw = await readFile(join(directory, diagnosticArtifacts.refresh), 'utf8');
+    expect(JSON.parse(raw)).toMatchObject({ profile: REFRESH_HISTORY_PROFILE, contextDigest: qualificationDigest(context), firstFailure: before });
+    expect(raw).not.toContain(secret); expect(stderr).not.toHaveBeenCalled();
+  } else {
+    expect(await readdir(directory)).toEqual([]);
+    expect(stderr).toHaveBeenCalledExactlyOnceWith('PUBLIC_DATA_DIAGNOSTIC_ARTIFACT_WRITE_FAILED\n');
+  }
+});
+
 it('rejects runtime-invalid labels before executing an action or leaking attacker-provided text', async () => {
   const hostile = { toString() { throw Error(secret); }, toJSON() { throw Error(secret); } };
   expect(() => createPublicDataDiagnostics(hostile as never)).toThrow('invalid case kind');
