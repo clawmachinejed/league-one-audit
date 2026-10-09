@@ -1,5 +1,7 @@
 import { compatibleRevision, compatibleScoringRulesHash } from '../projections/shared/revision-compatibility';
-import { TEAM_MANAGERS_POLICY, type SourceTeamManagers, type TeamManagersNormalization } from '../aggregator/team-managers';
+import { publicCaptureForRequest, type PublicCaptureWitness } from './public-capture-witness';
+import { TEAM_MANAGERS_POLICY, TEAM_MANAGER_EVIDENCE_POLICY, type SourceTeamManagers, type TeamManagersNormalization,
+  type SourceTeamManagerEvidence, type TeamManagerEvidenceNormalization } from '../aggregator/team-managers';
 import { LEAGUE_SETTINGS_POLICY, type SettingField, type LeagueSettingsNormalization,
   type LeagueSettingsValue, type NativePeriodReference } from '../aggregator/league-settings';
 import { normalizeSleeperScoringProfile } from '../projections/adapters/sleeper/scoring-profile';
@@ -180,6 +182,17 @@ function validateEnvelope(envelope: AdministrationEnvelope): void {
   else if (envelope.week !== null) invalid('invalid_scope', 'week', 'This family has a season scope rather than a weekly scope.');
   if (!['complete', 'partial'].includes(envelope.completeness)) invalid('invalid_completeness', 'completeness', 'Completeness must be stated explicitly.');
   const provenance = object(envelope.provenance, 'provenance');
+  if (provenance.acquisition !== undefined) {
+    try {
+      if (provenance.origin !== 'network'
+        || !['league', 'rosters', 'users', 'matchups'].includes(envelope.family)) throw new Error('scope');
+      publicCaptureForRequest(provenance.acquisition as PublicCaptureWitness,
+        envelope.family as 'league' | 'rosters' | 'users' | 'matchups', String(scope.externalLeagueId), envelope.week);
+      const witness = provenance.acquisition as PublicCaptureWitness;
+      if (witness.mapping && compatibleRevision(witness.mapping.scope) !== compatibleRevision(scope)) throw new Error('mapping');
+      if ('season' in witness.work && witness.work.season !== scope.season) throw new Error('season');
+    } catch { invalid('invalid_acquisition', 'provenance.acquisition', 'Expected the original exact public network acquisition.'); }
+  }
   if (!['network', 'cache', 'bootstrap'].includes(String(provenance.origin))) invalid('invalid_origin', 'provenance.origin', 'Expected a supported source origin.');
   const checked = time(provenance.checkedAt, 'provenance.checkedAt');
   const started = provenance.requestStartedAt === null ? null : time(provenance.requestStartedAt, 'provenance.requestStartedAt');
@@ -396,6 +409,67 @@ function normalizeTeamManagers(envelope: AdministrationEnvelope,
       if (primaryOwner.state === 'unknown') diagnostics.push({ code: 'owner_absent', path: `${path}.owner_id`, message: 'Primary ownership is unknown.' });
       if (coManagers.state === 'unknown') diagnostics.push({ code: coManagers.reason,
         path: `${path}.co_owners`, message: 'Co-manager inventory is unknown; absence cannot establish removal.' });
+      return { externalRosterId, primaryOwner, coManagers };
+    });
+    unique(teams, team => team.externalRosterId, 'payload');
+    return { version, status: diagnostics.length ? 'partial' : 'complete', teams, diagnostics };
+  } catch (error) {
+    if (!(error instanceof InvalidDocument)) throw error;
+    return { version, status: 'invalid', teams: null, diagnostics: [error.diagnostic] };
+  }
+}
+
+/** Field-level evidence shares the source boundary, but has its own acceptance identity. */
+function normalizeTeamManagerEvidence(envelope: AdministrationEnvelope,
+  expectations: AdministrationNormalizationExpectations): TeamManagerEvidenceNormalization {
+  const version = TEAM_MANAGER_EVIDENCE_POLICY.canonicalNormalizerVersion;
+  try {
+    validateEnvelope(envelope);
+    const raw = rows(envelope.payload, 'payload');
+    countMatches(raw.length, expectations, 'payload');
+    const diagnostics: AdministrationDiagnostic[] = [];
+    const teams: SourceTeamManagerEvidence[] = raw.map((entry, index) => {
+      const path = 'payload[' + index + ']';
+      const row = object(entry, path);
+      const externalRosterId = rosterIdentifier(row.roster_id, path + '.roster_id');
+      if (row.league_id !== undefined && row.league_id !== envelope.scope.externalLeagueId) {
+        invalid('foreign_roster_league', path + '.league_id', 'Roster league does not match its source scope.');
+      }
+      let primaryOwner: SourceTeamManagerEvidence['primaryOwner'];
+      if (row.owner_id === undefined) primaryOwner = { state: 'unknown', externalManagerId: null, reason: 'primary_owner_absent' };
+      else if (row.owner_id === null) primaryOwner = { state: 'unowned', externalManagerId: null };
+      else {
+        try { primaryOwner = { state: 'owned', externalManagerId: identifier(row.owner_id, path + '.owner_id') }; }
+        catch (error) {
+          if (!(error instanceof InvalidDocument)) throw error;
+          primaryOwner = { state: 'unknown', externalManagerId: null, reason: 'primary_owner_invalid' };
+        }
+      }
+      let coManagers: SourceTeamManagerEvidence['coManagers'];
+      if (row.co_owners == null) coManagers = { state: 'unknown', externalManagerIds: null,
+        reason: row.co_owners === null ? 'co_managers_null' : 'co_managers_absent' };
+      else if (!Array.isArray(row.co_owners)) coManagers = { state: 'unknown', externalManagerIds: null, reason: 'co_managers_invalid' };
+      else {
+        const ids = new Set<string>();
+        let partial = false;
+        for (const [memberIndex, member] of row.co_owners.entries()) {
+          try {
+            const nativeId = identifier(member, path + '.co_owners[' + memberIndex + ']');
+            if (ids.has(nativeId) || primaryOwner.state === 'owned' && primaryOwner.externalManagerId === nativeId) {
+              partial = true;
+            } else ids.add(nativeId);
+          } catch (error) {
+            if (!(error instanceof InvalidDocument)) throw error;
+            partial = true;
+          }
+        }
+        coManagers = partial ? { state: 'partial', externalManagerIds: [...ids], reason: 'co_managers_invalid_members' }
+          : { state: 'known', externalManagerIds: [...ids] };
+      }
+      if (primaryOwner.state === 'unknown') diagnostics.push({ code: primaryOwner.reason, path: path + '.owner_id',
+        message: 'Primary ownership is unknown; valid co-managers remain independent provider observations.' });
+      if (coManagers.state !== 'known') diagnostics.push({ code: coManagers.reason, path: path + '.co_owners',
+        message: 'Co-manager inventory is incomplete; retained IDs do not prove the absence of other co-managers.' });
       return { externalRosterId, primaryOwner, coManagers };
     });
     unique(teams, team => team.externalRosterId, 'payload');
@@ -656,7 +730,8 @@ export function normalizeAdministrationObservation(
   assertJson(input, 'envelope');
   const envelope = frozenCopy(input);
   const contentHash = compatibleRevision(envelope.payload);
-  const projection = envelope.family === 'rosters' ? { teamManagers: normalizeTeamManagers(envelope, expectations) }
+  const projection = envelope.family === 'rosters' ? { teamManagers: normalizeTeamManagers(envelope, expectations),
+    ...(expectations.managerEvidenceVersion === 'v2' ? { teamManagerEvidence: normalizeTeamManagerEvidence(envelope, expectations) } : {}) }
     : envelope.family === 'league' ? { leagueSettings: normalizeLeagueSettings(envelope) } : {};
   try {
     validateEnvelope(envelope);

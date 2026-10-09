@@ -3,6 +3,7 @@ import 'server-only';
 import { getDatabase, withDatabaseAbortSignal, type Database } from '../database';
 import { createLeagueAdministrationMethods } from './neon/administration';
 export { createAccountEnrollmentMethods as createAccountEnrollmentStore } from './neon/account-enrollment';
+export { createPublicIntakeStore, createPublicDataRefreshStore } from './neon/public-intake';
 import { createProjectionExactMatchupCompatibilityReader, createProjectionStore } from '../projection-store';
 import { createBundleOneReadService } from '../aggregator/bundle-one';
 import { EXACT_MATCHUPS_READ_SQL, readAcceptedExactMatchupsRows } from './neon/exact-matchups';
@@ -32,6 +33,8 @@ export function createLeagueAdministrationStore(database: Database): LeagueAdmin
     beginRosterAttempt: async () => { throw new Error('Administration persistence disabled.'); },
     beginRosterCapture: async () => { throw new Error('Administration persistence disabled.'); },
     readAcceptedTeamManagers: async () => ({ status: 'disabled' }),
+    beginTeamManagerEvidenceAttempt: async () => { throw new Error('Administration persistence disabled.'); },
+    readAcceptedTeamManagerEvidence: async () => ({ status: 'disabled' }),
     readAcceptedCurrentRoster: async () => ({ status: 'disabled' }),
     readSource: async () => ({ status: 'disabled' }),
     readSourceByConnection: async () => ({ status: 'disabled' }),

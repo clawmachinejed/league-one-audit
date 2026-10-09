@@ -2,7 +2,8 @@ import 'server-only';
 import type { DatabaseClient } from '../../database';
 import { CURRENT_ROSTER_POLICY, currentRosterScope, type RosterAttempt } from '../../aggregator/current-roster';
 import { TEAM_MANAGERS_POLICY, teamManagersScope, type AcceptedTeamManagersRead,
-  type ProviderManagerIdentity, type TeamManagerRelationships } from '../../aggregator/team-managers';
+  type ProviderManagerIdentity, type TeamManagerRelationships, TEAM_MANAGER_EVIDENCE_POLICY, teamManagerEvidenceScope,
+  teamManagerEvidenceCoverage, type AcceptedTeamManagerEvidenceRead, type TeamManagerEvidenceRelationships } from '../../aggregator/team-managers';
 import { assertAcceptedResource, assertProviderReference } from '../../aggregator/validation';
 import type { AcceptedResource } from '../../aggregator/contracts';
 import { isAdministrationSourceMapping, type AdministrationSourceMapping } from '../source-mapping';
@@ -31,23 +32,28 @@ function attempt(value: unknown): RosterAttempt {
 }
 
 export function teamManagerMethods(client: DatabaseClient) {
-  return {
-    async beginRosterCapture(mapping: AdministrationSourceMapping, playersId: string, managersId: string,
-      fence?: AdministrationWriteFence) {
+  async function beginCapture(mapping: AdministrationSourceMapping, playersId: string, managersId: string,
+      fence: AdministrationWriteFence | undefined) {
+      const managerPolicy = TEAM_MANAGERS_POLICY;
+      const managerScope = teamManagersScope(mapping);
       if (!isAdministrationSourceMapping(mapping) || playersId === managersId) throw new Error('Invalid roster capture identity.');
       // One transaction reserves both policies before the same existing HTTP call.
       const rows = await client.query(`/* league-administration:begin-roster-capture */
         SELECT public.begin_current_roster_attempt($1::jsonb,$2::uuid,$3::jsonb,$4::jsonb,$5::jsonb) AS players,
           public.begin_current_roster_attempt($1::jsonb,$6::uuid,$7::jsonb,$8::jsonb,$5::jsonb) AS managers`,
       [JSON.stringify(mapping), playersId, JSON.stringify(currentRosterScope(mapping)), JSON.stringify(CURRENT_ROSTER_POLICY),
-        fence ? JSON.stringify(fence) : null, managersId, JSON.stringify(teamManagersScope(mapping)), JSON.stringify(TEAM_MANAGERS_POLICY)]);
+        fence ? JSON.stringify(fence) : null, managersId, JSON.stringify(managerScope), JSON.stringify(managerPolicy)]);
       if (rows.length !== 1) throw new Error('Missing roster capture reservations.');
       const players = attempt(rows[0].players); const managers = attempt(rows[0].managers);
       if (players.id !== playersId || managers.id !== managersId || players.scopeId === managers.scopeId) throw new Error('Invalid roster capture reservations.');
       return { players, managers };
-    },
-    async readAcceptedTeamManagers(mapping: AdministrationSourceMapping): Promise<AcceptedTeamManagersRead> {
+    }
+  async function readManagers(mapping: AdministrationSourceMapping, evidence: false): Promise<AcceptedTeamManagersRead>;
+  async function readManagers(mapping: AdministrationSourceMapping, evidence: true): Promise<AcceptedTeamManagerEvidenceRead>;
+  async function readManagers(mapping: AdministrationSourceMapping, evidence: boolean): Promise<AcceptedTeamManagersRead | AcceptedTeamManagerEvidenceRead> {
       if (!isAdministrationSourceMapping(mapping)) return { status: 'unavailable', reason: 'invalid_mapping' };
+      const policy = evidence ? TEAM_MANAGER_EVIDENCE_POLICY : TEAM_MANAGERS_POLICY;
+      const scope = evidence ? teamManagerEvidenceScope(mapping) : teamManagersScope(mapping);
       try {
         const rows = await client.query(`/* league-administration:read-accepted-team-managers */
           SELECT scope.identity,accepted.generation,accepted.source_mapping_revision_id,
@@ -83,28 +89,31 @@ export function teamManagerMethods(client: DatabaseClient) {
             AND connection.current_mapping_revision_id=accepted.source_mapping_revision_id
           WHERE scope.identity=$1::jsonb AND connection.current_mapping_revision_id=$2::uuid
             AND connection.mapping_generation=$3 AND content.family='rosters' AND content.week=0`,
-        [JSON.stringify({ scope: teamManagersScope(mapping), policy: TEAM_MANAGERS_POLICY }), mapping.revisionId, mapping.generation]);
+        [JSON.stringify({ scope, policy }), mapping.revisionId, mapping.generation]);
         if (!rows.length) return { status: 'missing' };
         if (rows.length !== 1) throw new Error('Ambiguous manager head.');
         const row = rows[0];
         if (!isAdministrationSourceMapping(row.source_mapping) || compatibleRevision(row.source_mapping) !== compatibleRevision(mapping)
           || row.source_mapping_revision_id !== mapping.revisionId
-          || compatibleRevision(row.identity) !== compatibleRevision({ scope: teamManagersScope(mapping), policy: TEAM_MANAGERS_POLICY })
+          || compatibleRevision(row.identity) !== compatibleRevision({ scope, policy })
           || row.league_season_id !== mapping.leagueSeasonId || row.provider !== 'sleeper'
           || row.external_league_id !== mapping.scope.externalLeagueId || row.normalizer_version !== 'sleeper-administration-v1'
-          || row.completeness !== 'complete' || compatibleRevision(row.coverage) !== compatibleRevision({ periodIds: [], interval: null,
-            entitySet: 'full', fields: ['owner_id'], pagination: 'complete', nextCursor: null, completeness: 'complete', reasons: [] })) {
+          || row.completeness !== 'complete') {
           throw new Error('Invalid manager lineage.');
         }
         const provenance = object(row.provenance) as AdministrationEnvelope['provenance'];
         const normalized = normalizeAdministrationObservation({ schemaVersion: 'league-administration-v1',
           normalizerVersion: 'sleeper-administration-v1', dialect: 'sleeper-nfl-v1', scope: mapping.scope,
           family: 'rosters', week: null, completeness: 'complete', provenance,
-          payload: row.payload as AdministrationEnvelope['payload'] }, { expectedRosterCount: integer(row.expected_team_count) });
-        const projection = normalized.teamManagers;
+          payload: row.payload as AdministrationEnvelope['payload'] }, { expectedRosterCount: integer(row.expected_team_count), ...(evidence ? { managerEvidenceVersion: 'v2' as const } : {}) });
+        const projection = evidence ? normalized.teamManagerEvidence : normalized.teamManagers;
         if (!projection?.teams || projection.status === 'invalid' || normalized.contentHash !== row.content_hash
           || provenance.origin !== 'network' || !provenance.requestStartedAt || !provenance.requestCompletedAt || !provenance.sourceObservedAt
           || !Array.isArray(row.identities)) throw new Error('Invalid manager content.');
+        const coverage = evidence ? teamManagerEvidenceCoverage(normalized.teamManagerEvidence!)
+          : { periodIds: [], interval: null, entitySet: 'full', fields: ['owner_id'], pagination: 'complete',
+            nextCursor: null, completeness: 'complete', reasons: [] };
+        if (compatibleRevision(row.coverage) !== compatibleRevision(coverage)) throw new Error('Invalid manager coverage.');
         const identities = new Map<string, { id: string; sourceValue: unknown }>();
         for (const raw of row.identities) {
           const entry = object(raw);
@@ -131,9 +140,9 @@ export function teamManagerMethods(client: DatabaseClient) {
           if (memberships.has(key)) throw new Error('Duplicate membership.');
           memberships.set(key, { providerManagerId, sourceManager });
         }
-        const teams: TeamManagerRelationships[] = projection.teams.map(team => {
+        const teams: (TeamManagerRelationships | TeamManagerEvidenceRelationships)[] = projection.teams.map(team => {
           const identity = identities.get(team.externalRosterId);
-          if (!identity || compatibleRevision(identity.sourceValue) !== compatibleRevision(team) || team.primaryOwner.state === 'unknown') throw new Error('Unproved primary owner.');
+          if (!identity || compatibleRevision(identity.sourceValue) !== compatibleRevision(team) || !evidence && team.primaryOwner.state === 'unknown') throw new Error('Unproved primary owner.');
           const sourceTeam = { provider: 'sleeper' as const, resourceKind: 'team', nativeNamespace: JSON.stringify(['nfl', mapping.scope.season, mapping.scope.externalLeagueId]), nativeId: team.externalRosterId };
           assertProviderReference(sourceTeam);
           const manager = (role: string, nativeId: string) => {
@@ -146,23 +155,48 @@ export function teamManagerMethods(client: DatabaseClient) {
           const sourceRefs = [id(row.receipt_id)];
           return { seasonTeamId: identity.id, sourceTeam,
             primaryOwner: team.primaryOwner.state === 'owned'
-              ? { state: 'owned', manager: manager('owner', team.primaryOwner.externalManagerId) } : { state: 'unowned', manager: null },
+              ? { state: 'owned', manager: manager('owner', team.primaryOwner.externalManagerId) }
+              : team.primaryOwner.state === 'unknown' && 'reason' in team.primaryOwner
+                ? { state: 'unknown', manager: null, reason: team.primaryOwner.reason } : { state: 'unowned', manager: null },
             coManagers: team.coManagers.state === 'known' ? { state: 'known', completeness: 'complete', sourceRefs,
               observedAt: provenance.sourceObservedAt!, managers: team.coManagers.externalManagerIds.map(value => manager('co_owner', value)) }
+              : team.coManagers.state === 'partial' ? { state: 'partial', completeness: 'partial', sourceRefs,
+                observedAt: provenance.sourceObservedAt!, managers: team.coManagers.externalManagerIds.map(value => manager('co_owner', value)),
+                reason: team.coManagers.reason }
               : { state: 'unknown', completeness: 'unknown', sourceRefs, observedAt: provenance.sourceObservedAt!,
                 managers: null, reason: team.coManagers.reason },
             assurance: 'provider-observed', effectiveFrom: null, effectiveTo: null, effectiveEvidence: 'unknown' };
         });
         if (memberships.size) throw new Error('Unevidenced manager membership.');
-        const accepted: AcceptedResource = { scope: teamManagersScope(mapping), canonicalNormalizerVersion: TEAM_MANAGERS_POLICY.canonicalNormalizerVersion,
+        const accepted: AcceptedResource = { scope, canonicalNormalizerVersion: policy.canonicalNormalizerVersion,
           sourceMappingRevisionId: mapping.revisionId, contentId: id(row.content_id), observationIds: [id(row.receipt_id)],
-          validationVersion: TEAM_MANAGERS_POLICY.validationVersion, acceptedGeneration: integer(row.generation), verifiedAt: provenance.sourceObservedAt,
+          validationVersion: policy.validationVersion, acceptedGeneration: integer(row.generation), verifiedAt: provenance.sourceObservedAt,
           effectiveFrom: null, effectiveTo: null, effectiveEvidence: 'unknown' };
         assertAcceptedResource(accepted);
-        return { status: 'available', accepted, receipt: { id: id(row.receipt_id), attemptId: id(row.attempt_id), ordinal: integer(row.ordinal),
-          provenance, configurationContentId: id(row.configuration_content_id), expectedTeamCount: integer(row.expected_team_count),
-          legacyObservationId: id(row.legacy_observation_id) }, teams };
+        const receipt: Extract<AcceptedTeamManagersRead, { status: 'available' }>['receipt'] = { id: id(row.receipt_id),
+          attemptId: id(row.attempt_id), ordinal: integer(row.ordinal), provenance, configurationContentId: id(row.configuration_content_id),
+          expectedTeamCount: integer(row.expected_team_count), legacyObservationId: id(row.legacy_observation_id) };
+        return evidence ? { status: 'available', accepted, receipt, teams: teams as TeamManagerEvidenceRelationships[],
+          evidenceCompleteness: projection.status, evidenceReasons: coverage.reasons }
+          : { status: 'available', accepted, receipt, teams: teams as TeamManagerRelationships[] };
       } catch { return { status: 'unavailable', reason: 'team_manager_evidence_unavailable' }; }
+    }
+  return {
+    beginRosterCapture: (mapping: AdministrationSourceMapping, playersId: string, managersId: string, fence?: AdministrationWriteFence) =>
+      beginCapture(mapping, playersId, managersId, fence),
+    async beginTeamManagerEvidenceAttempt(mapping: AdministrationSourceMapping, evidenceId: string, fence?: AdministrationWriteFence) {
+      if (!isAdministrationSourceMapping(mapping)) throw new Error('Invalid manager evidence mapping.');
+      id(evidenceId);
+      const rows = await client.query(`/* league-administration:begin-team-manager-evidence */
+        SELECT public.begin_current_roster_attempt($1::jsonb,$2::uuid,$3::jsonb,$4::jsonb,$5::jsonb) AS evidence`,
+      [JSON.stringify(mapping), evidenceId, JSON.stringify(teamManagerEvidenceScope(mapping)),
+        JSON.stringify(TEAM_MANAGER_EVIDENCE_POLICY), fence ? JSON.stringify(fence) : null]);
+      if (rows.length !== 1) throw new Error('Missing manager evidence reservation.');
+      const reserved = attempt(rows[0].evidence);
+      if (reserved.id !== evidenceId) throw new Error('Invalid manager evidence reservation.');
+      return reserved;
     },
+    readAcceptedTeamManagers: (mapping: AdministrationSourceMapping) => readManagers(mapping, false),
+    readAcceptedTeamManagerEvidence: (mapping: AdministrationSourceMapping) => readManagers(mapping, true),
   };
 }

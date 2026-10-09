@@ -11,6 +11,8 @@ export type DatabaseQueryOptions = Readonly<{
 export type DatabaseStatement = Readonly<{
   statement: string;
   parameters: readonly unknown[];
+  /** An assertion in the same transaction, after the protected statement. */
+  verifyAfter?: Readonly<{ statement: string; parameters: readonly unknown[] }>;
 }>;
 
 export type DatabaseLockedQueryResult<Row extends DatabaseRow = DatabaseRow> =
@@ -102,11 +104,12 @@ export function createDatabase(databaseUrl: string | undefined = process.env.DAT
       const results = await sql.transaction((transaction) => [
         transaction.query(lock.statement, [...lock.parameters]),
         transaction.query(statement, [...parameters]),
+        ...(lock.verifyAfter ? [transaction.query(lock.verifyAfter.statement, [...lock.verifyAfter.parameters])] : []),
       ], {
         isolationLevel: 'ReadCommitted',
         ...(options.signal ? { fetchOptions: { signal: options.signal } } : {}),
       });
-      if (results.length !== 2) throw new Error('The locked database transaction returned invalid results.');
+      if (results.length !== (lock.verifyAfter ? 3 : 2)) throw new Error('The locked database transaction returned invalid results.');
       return [results[0], results[1]] as DatabaseLockedQueryResult<Row>;
     },
   };

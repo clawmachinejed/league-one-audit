@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Pool, type PoolClient } from '@neondatabase/serverless';
+import { Pool, neon, type PoolClient } from '@neondatabase/serverless';
 import { createIntegrationDatabaseOwnership, INTEGRATION_OWNER_ENV, type IntegrationSession } from './integration-database-ownership';
 import type { DatabaseClient, DatabaseQueryOptions, DatabaseRow, DatabaseStatement,
   DatabaseLockedQueryResult } from '../lib/database';
@@ -182,9 +182,10 @@ function parseDatabaseComment(value: unknown): DatabaseComment {
   };
 }
 
-async function connectionIdentity(pool: Pool, label: string): Promise<ConnectionIdentity> {
+async function connectionIdentity(pool: Pool, label: string, signal?: AbortSignal): Promise<ConnectionIdentity> {
   let rows: readonly QueryRow[];
   try {
+    signal?.throwIfAborted();
     const result = await pool.query(`
       SELECT current_database() AS database_name,
         current_user AS database_user,
@@ -194,8 +195,10 @@ async function connectionIdentity(pool: Pool, label: string): Promise<Connection
       FROM pg_database database
       WHERE database.datname = current_database()
     `);
+    signal?.throwIfAborted();
     rows = result.rows as QueryRow[];
   } catch {
+    signal?.throwIfAborted();
     throw new Error(`${label} could not verify the isolated database identity.`);
   }
   const row = rows[0];
@@ -235,17 +238,20 @@ function assertComment(env: IntegrationEnvironment, identity: ConnectionIdentity
   }
 }
 
-async function assertRestrictedAuthRole(pool: Pool): Promise<void> {
+async function assertRestrictedAuthRole(pool: Pool, signal?: AbortSignal): Promise<void> {
   let rows: readonly QueryRow[];
   try {
+    signal?.throwIfAborted();
     const result = await pool.query(`
       SELECT role.rolcanlogin, role.rolsuper, role.rolcreatedb, role.rolcreaterole,
         role.rolreplication, role.rolinherit, role.rolbypassrls,
         EXISTS (SELECT 1 FROM pg_auth_members WHERE member = role.oid) AS has_memberships
       FROM pg_roles role WHERE role.rolname = current_user
     `);
+    signal?.throwIfAborted();
     rows = result.rows as QueryRow[];
   } catch {
+    signal?.throwIfAborted();
     throw new Error('The auth connection could not verify its restricted role privileges.');
   }
   const role = rows[0];
@@ -268,7 +274,9 @@ function productionUrlIdentities(): readonly UrlIdentity[] {
 
 export async function assertSafeIntegrationDatabase(
   env = integrationEnvironment(),
+  signal?: AbortSignal,
 ): Promise<void> {
+  signal?.throwIfAborted();
   const ownerUrl = parseDatabaseUrl(env.ownerDatabaseUrl, 'Integration owner URL');
   const runtimeUrl = parseDatabaseUrl(env.runtimeDatabaseUrl, 'Integration runtime URL');
   // The standard runner requires this credential. Historical migration and
@@ -317,15 +325,17 @@ export async function assertSafeIntegrationDatabase(
   // branch-deletion fallback. The server deadline precedes the client deadline.
   const preflightLimits = { max: 1, connectionTimeoutMillis: 10_000,
     statement_timeout: 15_000, query_timeout: 20_000 };
+  signal?.throwIfAborted();
   const ownerPool = new Pool({ connectionString: env.ownerDatabaseUrl, ...preflightLimits });
   const runtimePool = new Pool({ connectionString: env.runtimeDatabaseUrl, ...preflightLimits });
   const authPool = authDatabaseUrl ? new Pool({ connectionString: authDatabaseUrl, ...preflightLimits }) : undefined;
   try {
     const [ownerIdentity, runtimeIdentity, authIdentity] = await Promise.all([
-      connectionIdentity(ownerPool, 'The owner connection'),
-      connectionIdentity(runtimePool, 'The runtime connection'),
-      authPool ? connectionIdentity(authPool, 'The auth connection') : undefined,
+      connectionIdentity(ownerPool, 'The owner connection', signal),
+      connectionIdentity(runtimePool, 'The runtime connection', signal),
+      authPool ? connectionIdentity(authPool, 'The auth connection', signal) : undefined,
     ]);
+    signal?.throwIfAborted();
     for (const identity of [ownerIdentity, runtimeIdentity, authIdentity]) {
       if (identity) assertNotDenied(env, [identity.database, identity.branch,
         identity.comment.branchId, identity.comment.branchName]);
@@ -344,20 +354,23 @@ export async function assertSafeIntegrationDatabase(
       if (authIdentity.user !== 'league_one_auth' || authIdentity.sessionUser !== 'league_one_auth') {
         throw new Error('The auth connection did not authenticate as the restricted league_one_auth role.');
       }
-      await assertRestrictedAuthRole(authPool);
+      await assertRestrictedAuthRole(authPool, signal);
     }
   } finally {
     await Promise.allSettled([ownerPool.end(), runtimePool.end(), authPool?.end()]);
   }
+  signal?.throwIfAborted();
 }
 
-async function resetIntegrationSchemas(pool: IntegrationSession): Promise<void> {
+async function resetIntegrationSchemas(pool: IntegrationSession, signal?: AbortSignal): Promise<void> {
   // Fixed application-owned schemas only, after the full existing target guards.
   // Never enumerate/drop other schemas (in particular managed neon_auth).
-  await pool.query('DROP SCHEMA IF EXISTS website_auth CASCADE');
-  await pool.query('DROP SCHEMA IF EXISTS public CASCADE');
-  await pool.query('CREATE SCHEMA public');
-  await pool.query('REVOKE CREATE ON SCHEMA public FROM PUBLIC');
+  for (const statement of ['DROP SCHEMA IF EXISTS website_auth CASCADE', 'DROP SCHEMA IF EXISTS public CASCADE',
+    'CREATE SCHEMA public', 'REVOKE CREATE ON SCHEMA public FROM PUBLIC']) {
+    signal?.throwIfAborted();
+    await pool.query(statement);
+    signal?.throwIfAborted();
+  }
 }
 
 async function applyMigrations(
@@ -491,13 +504,16 @@ export async function prepareIntegrationDatabase(options: Readonly<{
   }
 }
 
-export async function cleanIntegrationDatabase(options: Readonly<{ ownerProof?: string }> = {}): Promise<void> {
+export async function cleanIntegrationDatabase(options: Readonly<{ ownerProof?: string; signal?: AbortSignal }> = {}): Promise<void> {
   try {
+    options.signal?.throwIfAborted();
     const env = integrationEnvironment();
-    await assertSafeIntegrationDatabase(env);
+    await assertSafeIntegrationDatabase(env, options.signal);
+    options.signal?.throwIfAborted();
     const ownerPool = await databaseOwnership.acquire({ ownerDatabaseUrl: env.ownerDatabaseUrl,
-      expectedDatabase: env.expectedDatabase, expectedBranchId: env.expectedBranchId }, delegatedOwner(options.ownerProof));
-    await resetIntegrationSchemas(ownerPool);
+      expectedDatabase: env.expectedDatabase, expectedBranchId: env.expectedBranchId }, delegatedOwner(options.ownerProof), options.signal);
+    options.signal?.throwIfAborted();
+    await resetIntegrationSchemas(ownerPool, options.signal);
   } finally {
     await databaseOwnership.release();
   }
@@ -525,6 +541,10 @@ async function queryAfterLock<Row extends DatabaseRow>(
     options.signal?.throwIfAborted();
     const result = await client.query(statement, [...parameters]);
     options.signal?.throwIfAborted();
+    if (lock.verifyAfter) {
+      await client.query(lock.verifyAfter.statement, [...lock.verifyAfter.parameters]);
+      options.signal?.throwIfAborted();
+    }
     await client.query(savepoint ? `RELEASE SAVEPOINT ${savepoint}` : 'COMMIT');
     return [locked.rows, result.rows] as DatabaseLockedQueryResult<Row>;
   } catch (error) {
@@ -532,6 +552,83 @@ async function queryAfterLock<Row extends DatabaseRow>(
     if (savepoint) await client.query(`RELEASE SAVEPOINT ${savepoint}`);
     throw error;
   }
+}
+
+export type ReceiptDiagnosticParameters = readonly [receiptId: string, attemptId: string, scopeId: string,
+  mapping: string, identity: string, ordinal: number, expectedGeneration: number];
+export type ReceiptDiagnosticReader = (parameters: ReceiptDiagnosticParameters, signal: AbortSignal) => Promise<readonly DatabaseRow[]>;
+/** Owned diagnostic boundaries only; never retain driver messages, causes or payloads. */
+export class ReceiptDiagnosticReadError extends Error {
+  readonly code?: string;
+  constructor(readonly receiptBoundary: 'transaction' | 'result-validation', error?: unknown) {
+    super(receiptBoundary === 'result-validation' ? 'Invalid bounded diagnostic transaction result.' : 'Bounded diagnostic transaction failed.');
+    for (const property of ['code', 'name'] as const) {
+      try {
+        const value = error && (typeof error === 'object' || typeof error === 'function') ? Reflect.get(error, property) : undefined;
+        if (property === 'code' && typeof value === 'string' && /^[0-9A-Z]{5}$/u.test(value)) this.code = value;
+        if (property === 'name' && (value === 'AbortError' || value === 'TimeoutError')) this.name = value;
+      } catch { /* An untrusted getter must not replace the diagnostic boundary. */ }
+    }
+  }
+}
+// Same immutable tables cover all four fixed core resources. PostgreSQL >= retains microsecond precision.
+// This clamped difference is request start minus reservation, not measured clock skew.
+const RECEIPT_QUERY = `WITH bound_receipt AS (
+  SELECT (receipt.provenance->>'requestStartedAt')::timestamptz AS requested_at, attempt.reserved_at
+  FROM public.league_roster_capture_receipts receipt
+  JOIN public.league_roster_resource_attempts attempt ON attempt.id=receipt.attempt_id
+  JOIN public.league_roster_resource_scopes scope ON scope.id=attempt.scope_id
+  WHERE receipt.id=$1::uuid AND attempt.id=$2::uuid AND attempt.scope_id=$3::uuid
+    AND attempt.source_mapping=$4::jsonb AND scope.identity=$5::jsonb
+    AND scope.connection_id=($4::jsonb->>'connectionId')::uuid
+    AND scope.league_season_id=($4::jsonb->>'leagueSeasonId')::uuid
+    AND attempt.ordinal=$6::bigint AND attempt.expected_generation=$7::bigint
+  LIMIT 1
+), difference AS (
+  SELECT requested_at>=reserved_at AS request_started_after_reservation,
+    extract(epoch FROM (requested_at-reserved_at))*1000 AS milliseconds FROM bound_receipt
+)
+SELECT request_started_after_reservation,
+  CASE WHEN milliseconds IS NULL THEN NULL ELSE greatest(-60000,least(60000,milliseconds))::double precision END AS request_start_minus_reservation_ms,
+  abs(milliseconds)>60000 AS request_start_minus_reservation_clamped FROM difference`;
+/** Captured only by selected integration cases after guarded setup and their runtime-role check.
+ * No network until failed-case save; no URL or statement override, owned pool or WebSocket.
+ * Local abort bounds caller wait. The server timeout bounds an executing SELECT, not service
+ * queue time or remote cancellation. The existing supervisor still owns final cleanup. */
+export function createReceiptDiagnosticReader(): ReceiptDiagnosticReader {
+  const env = integrationEnvironment();
+  const runtime = parseDatabaseUrl(env.runtimeDatabaseUrl, 'Diagnostic runtime URL');
+  const owner = parseDatabaseUrl(env.ownerDatabaseUrl, 'Diagnostic owner URL');
+  const expectedDatabase = env.expectedDatabase.toLowerCase(), branchName = env.expectedBranchName.toLowerCase();
+  if (runtime.user !== 'league_one_runtime' || owner.user === runtime.user || runtime.target !== owner.target
+    || runtime.database !== expectedDatabase || !SAFE_NAME_PATTERN.test(expectedDatabase) || !SAFE_NAME_PATTERN.test(branchName)
+    || FORBIDDEN_NAMES.has(expectedDatabase) || FORBIDDEN_NAMES.has(branchName)) {
+    throw new Error('Diagnostic read requires the guarded isolated runtime identity.');
+  }
+  assertNotDenied(env, [expectedDatabase, env.expectedBranchId, branchName, runtime.endpoint, runtime.host, runtime.target]);
+  if (productionUrlIdentities().some(production => production.target === runtime.target)) {
+    throw new Error('Diagnostic runtime target matches a configured production identity.');
+  }
+  return async (parameters, signal) => {
+    signal.throwIfAborted();
+    const sql = neon(env.runtimeDatabaseUrl);
+    // Both lazy query objects are submitted in ONE read-only HTTP transaction.
+    let results;
+    try {
+      results = await sql.transaction([
+        sql.query("SELECT pg_catalog.set_config('statement_timeout','1000',true) AS diagnostic_statement_timeout"),
+        sql.query(RECEIPT_QUERY, [...parameters]),
+      ], { readOnly: true, fetchOptions: { signal } });
+    } catch (error) { throw new ReceiptDiagnosticReadError('transaction', error); }
+    signal.throwIfAborted();
+    // PostgreSQL renders the 1000-millisecond GUC as "1s". Verify its canonical
+    // result, not the input literal, before returning any receipt evidence.
+    if (!Array.isArray(results) || results.length !== 2 || !Array.isArray(results[0]) || results[0].length !== 1
+      || results[0][0]?.diagnostic_statement_timeout !== '1s' || !Array.isArray(results[1]) || results[1].length > 1) {
+      throw new ReceiptDiagnosticReadError('result-validation');
+    }
+    return results[1];
+  };
 }
 
 export function createIndependentDatabase(

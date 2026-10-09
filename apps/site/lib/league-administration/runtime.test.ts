@@ -195,6 +195,25 @@ describe('administration collection and enrollment composition', () => {
     expect(store.beginRosterAttempt).not.toHaveBeenCalled();
   });
 
+  it('retains typed official population when a scoring correction rejects only calculation compatibility', async () => {
+    const store = fakeStore();
+    const mapping = { connectionId: '11111111-1111-4111-8111-111111111111', leagueSeasonId: '22222222-2222-4222-8222-222222222222',
+      revisionId: '33333333-3333-4333-8333-333333333333', generation: 1, scope };
+    const rosterAttempt = { id: 'attempt', scopeId: 'scope', ordinal: 1, expectedGeneration: 0 };
+    vi.mocked(store.recordObservation).mockResolvedValueOnce({ status: 'rejected', observationId: 'official-correction',
+      leagueSettingsAcceptance: { status: 'accepted', receiptId: 'official-settings-receipt', acceptedGeneration: 2 } })
+      .mockResolvedValueOnce({ status: 'changed' });
+    const result = await recordCapturedAdministration(scope, [{ ...document, origin: 'network',
+      payload: { ...document.payload, scoring_settings: { pass_yd: 0.05 } } },
+      { family: 'rosters', week: null, payload: [{ roster_id: 1, players: [], owner_id: null }],
+        origin: 'network', requestStartedAt: time, requestCompletedAt: time }],
+      { store, mapping, rosterAttempt, now: () => new Date(time) });
+    expect(vi.mocked(store.recordObservation).mock.calls[1][3]?.population).toMatchObject({
+      observationId: 'official-correction', envelope: { payload: { scoring_settings: { pass_yd: 0.05 } } } });
+    expect(result.context).toBeUndefined();
+    expect(result.population?.observationId).toBe('official-correction');
+  });
+
   it('does not inspect inputs or construct storage when persistence is disabled', async () => {
     const store = createLeagueAdministrationStore({ enabled: false, reason: 'preview-persistence-disabled' });
     const unreadable = new Proxy({}, { get() { throw new Error('must not inspect'); } });
@@ -436,4 +455,35 @@ describe('calculation input source history', () => {
     }
     expect(store.recordObservation).not.toHaveBeenCalled();
   });
+});
+
+
+it('reserves sibling v2 before changed-cache verification while retaining both v1 attempts', async () => {
+  const store = fakeStore();
+  const mapping = { connectionId: '11111111-1111-4111-8111-111111111111', leagueSeasonId: '22222222-2222-4222-8222-222222222222',
+    revisionId: '33333333-3333-4333-8333-333333333333', generation: 1, scope };
+  const players = { id: 'players', scopeId: 'players', ordinal: 1, expectedGeneration: 0 };
+  const managers = { id: 'managers', scopeId: 'managers', ordinal: 1, expectedGeneration: 0 };
+  const evidence = { id: 'evidence', scopeId: 'evidence', ordinal: 1, expectedGeneration: 0 };
+  const reserve = vi.fn(async () => evidence);
+  vi.mocked(store.beginRosterCapture).mockResolvedValue({ players, managers });
+  vi.mocked(store.recordObservation).mockResolvedValueOnce({ status: 'stale', reason: 'unproven_cache_change' })
+    .mockResolvedValueOnce({ status: 'rejected', teamManagerEvidenceAcceptance: { status: 'accepted', receiptId: 'evidence-receipt', acceptedGeneration: 1 } });
+  const source = { family: 'rosters' as const, week: null, requestStartedAt: time, requestCompletedAt: time,
+    payload: [{ roster_id: 1, owner_id: 0, co_owners: ['co'] }] };
+  const verify = vi.fn(async () => {
+    expect(store.beginRosterCapture).toHaveBeenCalledOnce(); expect(reserve).toHaveBeenCalledOnce();
+    return { ...source, origin: 'network' as const, sourceObservedAt: time };
+  });
+  const result = await recordCapturedAdministration(scope, [source], { store: { ...store, beginTeamManagerEvidenceAttempt: reserve },
+    mapping, managerEvidenceVersion: 'v2', expectedRosterCount: 1, verify });
+  expect(verify).toHaveBeenCalledOnce();
+  expect(vi.mocked(store.recordObservation).mock.calls[0]).toHaveLength(3);
+  const call = vi.mocked(store.recordObservation).mock.calls[1];
+  expect(call[3]).toEqual({ attempt: players }); expect(call[4]).toEqual({ attempt: managers });
+  expect(call[10]).toEqual({ attempt: evidence });
+  expect(call[0].teamManagers).toMatchObject({ status: 'invalid', teams: null });
+  expect(call[0].teamManagerEvidence).toMatchObject({ status: 'partial', teams: [{
+    primaryOwner: { state: 'unknown', reason: 'primary_owner_invalid' }, coManagers: { state: 'known', externalManagerIds: ['co'] } }] });
+  expect(result.results[0].result.teamManagerEvidenceAcceptance?.status).toBe('accepted');
 });

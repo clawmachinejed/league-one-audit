@@ -47,11 +47,23 @@ export function assertDirectIntegrationOwnerUrl(databaseUrl: string): void {
   }
 }
 
+// Cleanup has independent local wait limits. An aborted work phase must still
+// roll back/release its own session; timeout is not proof of remote cancellation.
+async function boundedOwnershipCleanup<T>(action: () => Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([action(), new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error('Integration ownership cleanup deadline exceeded.')), 10_000);
+    })]);
+  } finally { clearTimeout(timer); }
+}
+
 /** One controller per harness process. Its pinned session survives prepare,
  * the test body and repeated migration preparations until explicit cleanup. */
 export function createIntegrationDatabaseOwnership() {
   type Lease = { pool: Pool; client: PoolClient; environment: Environment; delegated: string | undefined;
-    session: IntegrationSession; verify: () => Promise<void>; onLoss: () => void };
+    session: IntegrationSession; sessionFor: (signal?: AbortSignal) => IntegrationSession;
+    verify: (signal?: AbortSignal) => Promise<void>; onLoss: () => void };
   let lease: Lease | undefined;
   let lost = false;
   let acquiring = false;
@@ -63,18 +75,18 @@ export function createIntegrationDatabaseOwnership() {
     try {
       if (!lost) {
         const unlock = current.delegated === undefined ? 'pg_advisory_unlock' : 'pg_advisory_unlock_shared';
-        const result = await current.client.query(`SELECT ${unlock}(hashtextextended($1::text,0)) AS unlocked`, [INTEGRATION_MUTEX]);
+        const result = await boundedOwnershipCleanup(() => current.client.query(`SELECT ${unlock}(hashtextextended($1::text,0)) AS unlocked`, [INTEGRATION_MUTEX]));
         assert.equal(result.rows[0]?.unlocked, true);
       }
     } finally {
       current.client.off('error', current.onLoss); current.client.off('end', current.onLoss);
       current.pool.off('error', current.onLoss);
-      current.client.release(); await current.pool.end();
+      current.client.release(true); await boundedOwnershipCleanup(() => current.pool.end());
     }
   };
   return {
-    async acquire(environment: Environment, delegated?: string): Promise<IntegrationSession> {
-      healthy();
+    async acquire(environment: Environment, delegated?: string, signal?: AbortSignal): Promise<IntegrationSession> {
+      healthy(); signal?.throwIfAborted();
       assertDirectIntegrationOwnerUrl(environment.ownerDatabaseUrl);
       if (acquiring) throw new Error('Concurrent preparation in one integration harness is not supported.');
       if (lease) {
@@ -84,7 +96,9 @@ export function createIntegrationDatabaseOwnership() {
           throw new Error('Integration ownership target changed during the run.');
         }
         if (lease.delegated !== delegated) throw new Error('Integration ownership delegation changed during the run.');
-        await lease.verify(); return lease.session;
+        await lease.verify(signal);
+        healthy(); signal?.throwIfAborted();
+        return signal ? lease.sessionFor(signal) : lease.session;
       }
       acquiring = true;
       // Bound admission, migrations and cleanup below the integration hook
@@ -95,9 +109,17 @@ export function createIntegrationDatabaseOwnership() {
       pool.on('error', onLoss);
       let client: PoolClient | undefined;
       try {
-        client = await pool.connect(); client.on('error', onLoss); client.on('end', onLoss);
+        client = await pool.connect();
+        signal?.throwIfAborted(); healthy();
+        client.on('error', onLoss); client.on('end', onLoss);
         const pinned = client;
-        const raw: IntegrationQuery = async (statement, parameters = []) => (await pinned.query(statement, [...parameters])).rows;
+        const guardedRaw = (phaseSignal?: AbortSignal): IntegrationQuery => async (statement, parameters = []) => {
+          healthy(); phaseSignal?.throwIfAborted();
+          const result = await pinned.query(statement, [...parameters]);
+          healthy(); phaseSignal?.throwIfAborted();
+          return result.rows;
+        };
+        const raw = guardedRaw(signal);
         const target = { database: environment.expectedDatabase, branch: environment.expectedBranchId };
         let proof = delegated;
         if (proof === undefined) {
@@ -116,33 +138,51 @@ export function createIntegrationDatabaseOwnership() {
           if (result[0]?.owned !== true) throw new Error('Integration delegated ownership could not pin the shared mutex.');
         }
         const verifiedProof = proof;
-        const verify = async () => {
-          healthy();
-          try { await assertIntegrationOwner(raw, target, verifiedProof, delegated === undefined ? 'ExclusiveLock' : 'ShareLock'); }
-          catch (error) { lost = true; throw error; }
+        const verify = async (phaseSignal?: AbortSignal) => {
+          healthy(); phaseSignal?.throwIfAborted();
+          try { await assertIntegrationOwner(guardedRaw(phaseSignal), target, verifiedProof,
+            delegated === undefined ? 'ExclusiveLock' : 'ShareLock'); }
+          catch (error) { if (!phaseSignal?.aborted) lost = true; throw error; }
+          healthy(); phaseSignal?.throwIfAborted();
         };
-        await verify();
-        const query = new Proxy(pinned.query.bind(pinned), {
-          apply(fn, thisArgument, args) {
-            healthy();
-            // An aborted transaction cannot run the ownership SELECT. Only a
-            // transaction-wide rollback on this pinned connection can bypass it;
-            // every subsequent operation still verifies ownership, never reacquires.
-            if (args.length === 1 && args[0] === 'ROLLBACK') return Reflect.apply(fn, thisArgument, args);
-            // Delegated ownership can disappear independently of this connection.
-            // Revalidate before each schema/migration operation, never reacquire.
-            if (delegated !== undefined) return verify().then(() => Reflect.apply(fn, thisArgument, args));
-            return Reflect.apply(fn, thisArgument, args);
-          },
-        });
-        const session: IntegrationSession = { query, connect: async () => ({ query, release: () => undefined }) };
-        lease = { pool, client: pinned, environment: { ...environment }, delegated, session, verify, onLoss };
-        return session;
+        await verify(signal);
+        signal?.throwIfAborted();
+        const sessionFor = (phaseSignal?: AbortSignal): IntegrationSession => {
+          const query = new Proxy(pinned.query.bind(pinned), {
+            apply(fn, thisArgument, args) {
+              healthy();
+              // Exact local rollback remains available after work cancellation;
+              // variants must pass the ordinary ownership and phase guards.
+              if (args.length === 1 && args[0] === 'ROLLBACK') {
+                return boundedOwnershipCleanup(() => Reflect.apply(fn, thisArgument, args));
+              }
+              phaseSignal?.throwIfAborted();
+              const dispatch = () => {
+                // verify() can yield while the cleanup phase expires. This fence
+                // belongs immediately before driver IO, inside this abstraction.
+                healthy(); phaseSignal?.throwIfAborted();
+                return Reflect.apply(fn, thisArgument, args);
+              };
+              const result = delegated !== undefined ? verify(phaseSignal).then(dispatch) : dispatch();
+              if (!phaseSignal) return result;
+              return Promise.resolve(result).then(value => {
+                healthy(); phaseSignal.throwIfAborted(); return value;
+              });
+            },
+          });
+          return { query, connect: async () => {
+            healthy(); phaseSignal?.throwIfAborted();
+            return { query, release: () => undefined };
+          } };
+        };
+        const session = sessionFor();
+        lease = { pool, client: pinned, environment: { ...environment }, delegated, session, sessionFor, verify, onLoss };
+        return signal ? sessionFor(signal) : session;
       } catch (error) {
         // This process has not started a test body. Closing its own pinned
         // connection releases any just-acquired lock; never release another owner.
         client?.off('error', onLoss); client?.off('end', onLoss); pool.off('error', onLoss);
-        client?.release(); await pool.end(); throw error;
+        client?.release(true); await boundedOwnershipCleanup(() => pool.end()); throw error;
       } finally { acquiring = false; }
     },
     release: close,

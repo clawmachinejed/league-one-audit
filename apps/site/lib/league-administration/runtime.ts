@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { validateSleeperCalendarEvidence, type SleeperCalendarEvidence } from './period-mapping';
 
 import { ADMINISTRATION_SCHEMA_VERSION, ADMINISTRATION_NORMALIZER_VERSION, ADMINISTRATION_DIALECT,
-  type AdministrationScope, type AdministrationFamily, type JsonValue } from './contracts';
+  type AdministrationScope, type AdministrationFamily, type JsonValue, type CapturedAdministrationDocument } from './contracts';
 import { normalizeAdministrationObservation } from './normalize';
 import { createLeagueAdministrationStore } from './store';
 import { getDatabase, withDatabaseAbortSignal } from '../database';
@@ -11,6 +11,7 @@ import type { AdministrationWriteResult, AdministrationWriteFence, LeagueAdminis
 import { isAdministrationSourceMapping, type AdministrationSourceMapping } from './source-mapping';
 import type { RosterAttempt, RosterPopulationEvidence } from '../aggregator/current-roster';
 import { isCalculationSourceCapture, type CalculationSourceCapture, type CalculationSourceAssociation } from './calculation-capture';
+import { assertOriginalPublicCapture, type PublicCaptureWitness } from './public-capture-witness';
 
 /** Called by existing enrolled collectors before loading any roster document. */
 export async function captureAdministrationSourceMapping(externalLeagueId: string,
@@ -25,13 +26,7 @@ export async function beginCalculationSourceCapture(mapping: AdministrationSourc
 }
 
 /** These documents come from the existing official loaders, never from page reads. */
-export type CapturedAdministrationDocument = Readonly<{
-  family: AdministrationFamily; week: number | null; payload: unknown;
-  requestStartedAt: string; requestCompletedAt: string;
-  completeness?: 'complete' | 'partial';
-  origin?: 'network' | 'cache' | 'bootstrap';
-  sourceObservedAt?: string | null;
-}>;
+export type { CapturedAdministrationDocument } from './contracts';
 export type AdministrationCalculationContext = Readonly<{
   observationId: string; configurationVersionId: string; generation: number;
   sourceCapture?: CalculationSourceAssociation;
@@ -52,12 +47,17 @@ export async function recordCapturedAdministration(
     signal?: AbortSignal; expectedRosterCount?: number; mapping?: AdministrationSourceMapping | null;
     rosterAttempt?: RosterAttempt;
     managerAttempt?: RosterAttempt;
+    /** Explicit sibling evidence; primary-complete v1 remains independently reserved. */
+    managerEvidenceVersion?: 'v2';
+    managerEvidenceAttempt?: RosterAttempt;
     leagueSettingsAttempt?: RosterAttempt;
     matchupAttempt?: Readonly<{ week: number; attempt: RosterAttempt }>;
     transactionAttempt?: Readonly<{ week: number; attempt: RosterAttempt }>;
     populationEvidence?: RosterPopulationEvidence;
     calendarEvidence?: SleeperCalendarEvidence;
     calculationCapture?: Readonly<{ week: number; reservation: CalculationSourceCapture }>;
+    /** Expected pre-HTTP context; never attached to an older document by this writer. */
+    expectedAcquisition?: PublicCaptureWitness;
     verify?: (document: CapturedAdministrationDocument, signal: AbortSignal) => Promise<CapturedAdministrationDocument> }> = {},
 ): Promise<AdministrationCaptureResult> {
   const signal = options.signal ?? AbortSignal.timeout(8_000);
@@ -87,6 +87,8 @@ export async function recordCapturedAdministration(
   const ordered = [...documents].sort((left, right) => Number(right.family === 'league') - Number(left.family === 'league'));
   for (const document of ordered) {
     signal.throwIfAborted();
+    if (options.expectedAcquisition !== undefined) assertOriginalPublicCapture(document, options.expectedAcquisition);
+    else if (document.acquisition !== undefined) throw new Error('Public capture requires its original acquisition context.');
     const origin = document.origin ?? 'cache';
     let normalized = normalizeAdministrationObservation({
       schemaVersion: ADMINISTRATION_SCHEMA_VERSION,
@@ -98,9 +100,11 @@ export async function recordCapturedAdministration(
         sourceObservedAt: document.sourceObservedAt !== undefined ? document.sourceObservedAt
           : origin === 'network' ? document.requestCompletedAt : null,
         checkedAt: now().toISOString(),
+        ...(document.acquisition !== undefined ? { acquisition: document.acquisition } : {}),
       },
       completeness: document.completeness ?? 'complete', payload: document.payload as JsonValue,
-    }, expectedRosterCount === undefined ? undefined : { expectedRosterCount });
+    }, { ...(expectedRosterCount === undefined ? {} : { expectedRosterCount }),
+      ...(options.managerEvidenceVersion === 'v2' ? { managerEvidenceVersion: 'v2' as const } : {}) });
     let mapping = ['rosters', 'league'].includes(document.family)
       || document.family === 'transactions' && options.transactionAttempt?.week === document.week
       || (document.family === 'matchups' && (options.matchupAttempt?.week === document.week
@@ -108,6 +112,8 @@ export async function recordCapturedAdministration(
       ? options.mapping ?? undefined : undefined;
     let attempt = origin === 'network' && mapping && document.family === 'rosters' ? options.rosterAttempt : undefined;
     let managerAttempt = origin === 'network' && mapping && document.family === 'rosters' ? options.managerAttempt : undefined;
+    let managerEvidenceAttempt = options.managerEvidenceVersion === 'v2' && origin === 'network' && mapping
+      && document.family === 'rosters' ? options.managerEvidenceAttempt : undefined;
     let leagueSettingsAttempt = origin === 'network' && mapping && document.family === 'league' ? options.leagueSettingsAttempt : undefined;
     let matchupAttempt = origin === 'network' && mapping && document.family === 'matchups'
       && options.matchupAttempt?.week === document.week ? options.matchupAttempt.attempt : undefined;
@@ -127,7 +133,13 @@ export async function recordCapturedAdministration(
       && normalized.envelope.completeness === 'complete' && leaguePayload
       && leaguePayload.sport === 'nfl' && leaguePayload.season_type === 'regular'
       ? validateSleeperCalendarEvidence(options.calendarEvidence, String(scope.season)) ?? undefined : undefined;
-    const write = () => transactionAttempt
+    const write = () => managerEvidenceAttempt
+      ? store.recordObservation(normalized, options.fence, mapping,
+        attempt ? { attempt, ...(population ? { population } : {}) } : undefined,
+        managerAttempt ? { attempt: managerAttempt, ...(population ? { population } : {}) } : undefined,
+        undefined, undefined, undefined, undefined, undefined,
+        { attempt: managerEvidenceAttempt, ...(population ? { population } : {}) })
+      : transactionAttempt
       ? store.recordObservation(normalized, options.fence, mapping, undefined, undefined, undefined,
         undefined, undefined, undefined, { attempt: transactionAttempt })
       : calculationCapture
@@ -161,6 +173,10 @@ export async function recordCapturedAdministration(
       } else if (mapping && document.family === 'rosters') {
         const attempts = await store.beginRosterCapture(mapping, randomUUID(), randomUUID(), options.fence);
         attempt = attempts.players; managerAttempt = attempts.managers;
+        if (options.managerEvidenceVersion === 'v2') {
+          if (!store.beginTeamManagerEvidenceAttempt) throw new Error('Manager evidence v2 capture is unsupported by this store.');
+          managerEvidenceAttempt = await store.beginTeamManagerEvidenceAttempt(mapping, randomUUID(), options.fence);
+        }
       } else if (document.family === 'matchups' && options.mapping && document.week !== null) {
         mapping = options.mapping;
         matchupAttempt = await store.beginExactMatchupAttempt(mapping, document.week, randomUUID(), options.fence);
@@ -192,7 +208,8 @@ export async function recordCapturedAdministration(
         provenance: { origin: 'network', requestStartedAt: verified.requestStartedAt,
           requestCompletedAt: verified.requestCompletedAt, sourceObservedAt: verified.sourceObservedAt !== undefined
             ? verified.sourceObservedAt : verified.requestCompletedAt,
-          checkedAt: now().toISOString() } }, expectedRosterCount === undefined ? undefined : { expectedRosterCount });
+          checkedAt: now().toISOString() } }, { ...(expectedRosterCount === undefined ? {} : { expectedRosterCount }),
+        ...(options.managerEvidenceVersion === 'v2' ? { managerEvidenceVersion: 'v2' as const } : {}) });
       // Retain the pre-acquisition token through verification. A remap never
       // authorizes this older capture by substituting today's revision.
       result = await write();
@@ -209,7 +226,8 @@ export async function recordCapturedAdministration(
       if (normalized.status === 'accepted' && normalized.value?.family === 'league') {
         expectedRosterCount = normalized.value.totalRosters ?? undefined;
         if (normalized.envelope.provenance.origin === 'network'
-          && result.observationId && ['changed', 'unchanged', 'replayed'].includes(result.status)) {
+          && result.observationId && (['changed', 'unchanged', 'replayed'].includes(result.status)
+            || result.leagueSettingsAcceptance?.status === 'accepted')) {
           population = { observationId: result.observationId, contentHash: normalized.contentHash, envelope: normalized.envelope };
         }
       }

@@ -22,7 +22,7 @@
     "all-player:operate": "pnpm --filter @l1/site all-player:operate",
     "league-administration:operate": "pnpm --filter @l1/site league-administration:operate",
     "verify:dependencies": "pnpm peers check && node apps/site/scripts/verify-account-auth-dependencies.mjs",
-    "verify": "pnpm verify:dependencies && pnpm lint && pnpm typecheck && pnpm test && pnpm build",
+    "verify": "node scripts/check-data-backend-scope.mjs --governance-change data-backend-scope-v1 && pnpm verify:dependencies && pnpm lint && pnpm typecheck && pnpm test && pnpm build",
     "doctor": "node apps/site/scripts/doctor.mjs",
     "verify:full": "node apps/site/scripts/full-verify.mjs"
   }

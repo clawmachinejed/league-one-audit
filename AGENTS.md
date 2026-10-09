@@ -1,5 +1,14 @@
 # League One engineering rules
 
+## Current implementation scope: fantasy football data backend
+
+- Follow [the current data-backend contract](docs/aggregator-backend/data-backend-scope.md). The user's latest data-only direction takes precedence over older broader aggregator/account plans.
+- Implement only Sleeper identity and associated-league discovery through existing adapters, canonical relational identities and typed official resources, durable storage, refresh/retry/recovery and backend readers. Sleeper is the only implemented provider; League One/Two/Dynasty are regression customers, not eligibility standards.
+- Website UX, accounts/login, exclusive claims, onboarding, follows, user-membership entitlements, projections and analytics are deferred, not prerequisites. Preserve existing shared security, source permissions, database roles, compatibility and production behavior.
+- Before each increment, name its data resource, existing adapter/store/reader path, persisted result and real proof/gaps. Stop out-of-scope work before authoring it. A necessary shared-core dependency requires a specific file/purpose and independent reviewer confirmation; routine in-scope choices do not require user approval.
+- Run `node scripts/check-data-backend-scope.mjs --governance-change data-backend-scope-v1` and review the actual diff before publication and completion. This declaration covers only eight policy/notice paths, not reviewer approval or application changes. Preserved checkpoint hashes are not acceptance; source-only checks are not actual PostgreSQL qualification. Keep the old 108-obligation account ledger historical/deferred with its pending statuses.
+- Use gpt-6-astra with ultra reasoning for all delegated/automatic implementation of this outcome. No paid SQL run, credentials, provisioning, migration application or production release is authorized by this scope block.
+
 ## Authority and scope
 
 - The canonical application repository is `clawmachinejed/league-one-audit`. Repository contents plus freshly checked GitHub, Vercel, and live-site evidence are authoritative.

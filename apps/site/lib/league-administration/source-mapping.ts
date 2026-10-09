@@ -1,13 +1,5 @@
-import type { AdministrationScope } from './contracts';
-
-/** An enrolled mapping read before acquisition, never reconstructed after fetch. */
-export type AdministrationSourceMapping = Readonly<{
-  connectionId: string;
-  leagueSeasonId: string;
-  revisionId: string;
-  generation: number;
-  scope: AdministrationScope;
-}>;
+import type { AdministrationSourceMapping } from './contracts';
+export type { AdministrationSourceMapping } from './contracts';
 
 export function isAdministrationSourceMapping(value: unknown): value is AdministrationSourceMapping {
   if (!value || typeof value !== 'object') return false;

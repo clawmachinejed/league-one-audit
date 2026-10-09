@@ -1,7 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const runtime = vi.hoisted(() => ({ current: vi.fn(), future: vi.fn(), preflight: vi.fn(), runCurrent: vi.fn(), runFuture: vi.fn() }));
+const runtime = vi.hoisted(() => ({ current: vi.fn(), future: vi.fn(), preflight: vi.fn(), runCurrent: vi.fn(), runFuture: vi.fn(), registry: vi.fn(), maintenance: vi.fn(), data: vi.fn(), dataRuntimeLoaded: vi.fn() }));
 vi.mock('server-only', () => ({}));
+vi.mock('../../league-administration/registry', () => ({ loadIsolatedAdministrationRegistry: runtime.registry }));
+vi.mock('../../league-administration/maintenance', () => ({ runAdministrationMaintenance: runtime.maintenance }));
+vi.mock('../../league-administration/public-intake-runtime', () => {
+  runtime.dataRuntimeLoaded(); return { runSelectedPublicDataRefresh: runtime.data };
+});
 vi.mock('./projection-composition', () => ({
   createProductionProjectionDependencies: runtime.current,
 }));
@@ -36,6 +41,9 @@ function preflight(lane: 'current' | 'future') {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  runtime.registry.mockResolvedValue([]);
+  runtime.maintenance.mockResolvedValue(undefined);
+  runtime.data.mockResolvedValue({ status: 'idle', providerRequests: 0 });
   current.repository.enabled = true;
   current.lineupRepository.enabled = true;
   runtime.current.mockReturnValue(current);
@@ -180,5 +188,134 @@ describe('existing force maintenance dispatch', () => {
     await expect(runProductionProjectionSync({ force: true })).resolves.toEqual({ status: 'failed' });
     expect(JSON.stringify(current.logger.write.mock.calls)).not.toMatch(/secret|private-connection/);
     expect(runtime.future).not.toHaveBeenCalled();
+  });
+});
+
+describe('explicit DATA composition preserves projection and ordinary maintenance', () => {
+  const selection = { enabled: true } as const;
+  function pending() {
+    let resolve!: (value: unknown) => void;
+    const promise = new Promise(done => { resolve = done; });
+    return { promise, resolve };
+  }
+  it.each([undefined, true])('makes no recurrence call when selection is absent or force=%s', async force => {
+    vi.resetModules(); runtime.dataRuntimeLoaded.mockClear();
+    const isolated = await import('./projection-dispatch');
+    await isolated.runProductionProjectionSync(force ? { force, publicDataRefresh: selection } : {});
+    expect(runtime.dataRuntimeLoaded).not.toHaveBeenCalled(); expect(runtime.data).not.toHaveBeenCalled();
+  });
+  it('starts DATA before registry, drains it before maintenance, and keeps the original result/timestamp', async () => {
+    const data = pending(); runtime.data.mockReturnValue(data.promise);
+    runtime.registry.mockImplementation(async () => {
+      // A blocked registry cannot prevent the already-started lazy DATA import.
+      await vi.waitFor(() => expect(runtime.data).toHaveBeenCalledOnce()); return [];
+    });
+    const original = { status: 'failed' } as const; runtime.runCurrent.mockResolvedValue(original);
+    const invocationStartedAt = Date.now();
+    const call = runProductionProjectionSync({ publicDataRefresh: selection, invocationStartedAt });
+    await vi.waitFor(() => expect(runtime.runCurrent).toHaveBeenCalledOnce());
+    expect(runtime.maintenance).not.toHaveBeenCalled();
+    data.resolve({ status: 'unavailable', providerRequests: 2 });
+    expect(await call).toBe(original);
+    expect(runtime.data).toHaveBeenCalledExactlyOnceWith(selection, invocationStartedAt);
+    expect(runtime.maintenance).toHaveBeenCalledExactlyOnceWith([], invocationStartedAt);
+    expect(runtime.runCurrent).toHaveBeenCalledExactlyOnceWith(current, { invocationStartedAt });
+  });
+  it.each(['registry', 'projection'] as const)('drains DATA while preserving an original %s exception', async stage => {
+    const data = pending(); runtime.data.mockReturnValue(data.promise);
+    const error = new Error(stage + ' failed');
+    if (stage === 'registry') runtime.registry.mockRejectedValue(error); else runtime.runCurrent.mockRejectedValue(error);
+    let settled = false;
+    const call = runProductionProjectionSync({ publicDataRefresh: selection }).then(() => { settled = true; }, actual => { settled = true; return actual; });
+    await vi.waitFor(() => expect(runtime.registry).toHaveBeenCalledOnce());
+    expect(settled).toBe(false); expect(runtime.maintenance).not.toHaveBeenCalled();
+    data.resolve({ status: 'progress' });
+    expect(await call).toBe(error); expect(runtime.maintenance).not.toHaveBeenCalled();
+  });
+  it('handles a DATA rejection immediately while projection remains pending', async () => {
+    const projection = pending(); runtime.runCurrent.mockReturnValue(projection.promise);
+    runtime.data.mockRejectedValue(new Error('DATA failed before registry completed'));
+    const call = runProductionProjectionSync({ publicDataRefresh: selection });
+    await vi.waitFor(() => expect(runtime.runCurrent).toHaveBeenCalledOnce());
+    const original = { status: 'disabled' };
+    projection.resolve(original);
+    expect(await call).toBe(original); expect(runtime.maintenance).toHaveBeenCalledOnce();
+  });
+  it('preserves ordinary maintenance failure handling and still returns the original projection result', async () => {
+    runtime.maintenance.mockRejectedValue(new Error('ordinary maintenance failed'));
+    const original = { status: 'failed' }; runtime.runCurrent.mockResolvedValue(original);
+    expect(await runProductionProjectionSync({ publicDataRefresh: selection })).toBe(original);
+    expect(runtime.maintenance).toHaveBeenCalledOnce();
+    expect(current.logger.write).toHaveBeenCalledWith('warn', { stage: 'administration-maintenance', outcome: 'failed' });
+  });
+});
+
+describe('DATA failure observability remains sanitized and nonthrowing', () => {
+  it.each([false, true])('logs one bounded warning for rejection=%s without exposing source error text', async rejected => {
+    if (rejected) runtime.data.mockRejectedValue(new Error('secret-provider-payload'));
+    else runtime.data.mockResolvedValue({ status: 'unavailable', providerRequests: 0 });
+    const original = { status: 'failed' }; runtime.runCurrent.mockResolvedValue(original);
+    expect(await runProductionProjectionSync({ publicDataRefresh: { enabled: true } })).toBe(original);
+    expect(current.logger.write).toHaveBeenCalledExactlyOnceWith('warn', { stage: 'public-data-refresh', outcome: 'failed' });
+    expect(JSON.stringify(current.logger.write.mock.calls)).not.toContain('secret-provider-payload');
+  });
+  it('records setup failure before registry availability even when the fallback logger itself fails', async () => {
+    const original = new Error('registry original'); runtime.registry.mockRejectedValue(original);
+    runtime.data.mockRejectedValue(new Error('secret-provider-payload'));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => { throw new Error('logger unavailable'); });
+    try {
+      await expect(runProductionProjectionSync({ publicDataRefresh: { enabled: true } })).rejects.toBe(original);
+      expect(warn).toHaveBeenCalledExactlyOnceWith(JSON.stringify({ service: 'league-administration', stage: 'public-data-refresh', outcome: 'failed' }));
+    } finally { warn.mockRestore(); }
+  });
+  it('uses the existing safe logger so a logging error cannot replace an ordinary projection result', async () => {
+    runtime.data.mockRejectedValue(new Error('data failed'));
+    current.logger.write.mockImplementationOnce(() => { throw new Error('logger failed'); });
+    const original = { status: 'disabled' }; runtime.runCurrent.mockResolvedValue(original);
+    expect(await runProductionProjectionSync({ publicDataRefresh: { enabled: true } })).toBe(original);
+    expect(runtime.maintenance).toHaveBeenCalledOnce();
+  });
+});
+
+describe('bounded optional DATA module loading', () => {
+  it('settles dispatch and ordinary maintenance while the loader hangs, and suppresses startup after a late resolution', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+    const invocationStartedAt = Date.now(); let release!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    vi.doMock('../../league-administration/public-intake-runtime', async () => {
+      await held; return { runSelectedPublicDataRefresh: runtime.data };
+    });
+    vi.resetModules();
+    try {
+      const isolated = await import('./projection-dispatch');
+      const original = { status: 'failed' }; runtime.runCurrent.mockResolvedValue(original);
+      const call = isolated.runProductionProjectionSync({ invocationStartedAt, publicDataRefresh: { enabled: true } });
+      await vi.advanceTimersByTimeAsync(5_001);
+      expect(await call).toBe(original); expect(runtime.maintenance).toHaveBeenCalledExactlyOnceWith([], invocationStartedAt);
+      expect(runtime.data).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(18_000); release(); await vi.dynamicImportSettled();
+      expect(Date.now() - invocationStartedAt).toBeGreaterThan(22_000);
+      expect(runtime.data).not.toHaveBeenCalled(); expect(runtime.maintenance).toHaveBeenCalledOnce();
+      expect(current.logger.write).toHaveBeenCalledExactlyOnceWith('warn', { stage: 'public-data-refresh', outcome: 'failed' });
+    } finally {
+      release(); vi.useRealTimers();
+      vi.doMock('../../league-administration/public-intake-runtime', () => ({ runSelectedPublicDataRefresh: runtime.data }));
+      vi.resetModules();
+    }
+  });
+  it('does not race away an actual worker after its module has loaded', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+    const invocationStartedAt = Date.now(); let release!: (value: unknown) => void;
+    runtime.data.mockReturnValue(new Promise(resolve => { release = resolve; }));
+    try {
+      const isolated = await import('./projection-dispatch'); let settled = false;
+      const call = isolated.runProductionProjectionSync({ invocationStartedAt, publicDataRefresh: { enabled: true } }).then(result => { settled = true; return result; });
+      await vi.advanceTimersByTimeAsync(1);
+      expect(runtime.data).toHaveBeenCalledOnce();
+      await vi.advanceTimersByTimeAsync(23_000);
+      expect(settled).toBe(false); expect(runtime.maintenance).not.toHaveBeenCalled();
+      release({ status: 'unavailable', providerRequests: 0 }); await call;
+      expect(runtime.maintenance).toHaveBeenCalledOnce();
+    } finally { release?.({ status: 'unavailable', providerRequests: 0 }); vi.useRealTimers(); }
   });
 });

@@ -9,6 +9,11 @@ import { INTEGRATION_MUTEX, INTEGRATION_OWNER_ENV, assertIntegrationOwner } from
 import { superviseCapacityChild } from './collection-capacity-supervision';
 import { spawnIntegrationChild, stopIntegrationChildTree, verifyIntegrationChildTreeClosed } from './integration-child-process';
 import { createIntegrationArtifactDirectory, INTEGRATION_ARTIFACT_DIRECTORY_ENV } from './integration-artifacts';
+import { IntegrationDeadlineError, IntegrationLifecycleBudget, INTEGRATION_LIFECYCLE_MS,
+  INTEGRATION_TEARDOWN_RESERVE_MS } from './integration-lifecycle-budget';
+
+import { createQualificationContext, qualificationArguments, validateQualificationArtifacts, QUALIFICATION_CONTEXT_ENV,
+  type QualificationBinding, type QualificationContext, type QualificationProfile } from './qualification-profile';
 
 export const DISPOSABLE_AUTHORIZATION = 'I_AUTHORIZE_DISPOSABLE_TEST_BRANCHES';
 const protectedIdentities = ['solitary-base-99261075', 'br-rapid-boat-avgeevye', 'br-still-breeze-avaibago',
@@ -89,18 +94,36 @@ export type IntegrationRunReceipt = {
   diagnostics?: { stage: string; status?: number; code: string; requestId?: string }[];
   childClosureEvidence?: string;
   artifactDirectory?: string;
+  qualification?: 'unverified' | 'passed' | 'failed';
+  testContext?: QualificationContext;
+  testEvidence?: Awaited<ReturnType<typeof validateQualificationArtifacts>>;
+  testEvidenceFailure?: 'missing-or-invalid';
   cancellationReason?: 'deadline' | 'sigint' | 'sigterm' | 'requested' | 'ownership-lost';
+  lifecycle?: { limitMs: number; teardownReserveMs: number; elapsedMs: number };
+  unresolvedResources?: string[];
 };
 type Runtime = {
-  provision: () => Promise<void>; execute: () => Promise<{ passed: boolean; closed: boolean }>;
-  clean: () => Promise<void>; revoke: () => Promise<void>; close: () => Promise<void>; delete: () => Promise<void>;
+  provision: (signal: AbortSignal) => Promise<void>; execute: (signal: AbortSignal) => Promise<{ passed: boolean; closed: boolean }>;
+  shutdown?: (signal: AbortSignal) => Promise<{ closed: boolean }>;
+  clean: (signal: AbortSignal) => Promise<void>; revoke: (signal: AbortSignal) => Promise<void>;
+  close: (signal: AbortSignal) => Promise<void>; delete: (signal: AbortSignal) => Promise<void>;
 };
+
+function unresolvedResources(receipt: IntegrationRunReceipt): string[] {
+  return [
+    ...(!receipt.branchDeletionVerified && (receipt.attemptedBranchName || receipt.branchId) ? ['branch-deletion-unverified'] : []),
+    ...(!receipt.credentialsRevoked && receipt.branchId ? ['credential-revocation-unverified'] : []),
+    ...(!receipt.childClosed && receipt.tests !== 'not-run' ? ['child-closure-unverified'] : []),
+  ];
+}
 
 /** Always delete owned resources even after failed creation/setup; SQL cleanup
  * is allowed only after confirmed child closure. A cleanup failure cannot pass. */
 export async function runIntegrationLifecycle(runtime: Runtime, receipt: IntegrationRunReceipt,
-  journal: () => Promise<void>, signal?: AbortSignal): Promise<boolean> {
+  journal: (signal: AbortSignal) => Promise<void>, signal?: AbortSignal,
+  budget = new IntegrationLifecycleBudget()): Promise<boolean> {
   let provisioned = false;
+  receipt.qualification = 'unverified';
   const recordCancellation = () => {
     if (!signal?.aborted) return false;
     const previousReason = receipt.cancellationReason;
@@ -111,100 +134,143 @@ export async function runIntegrationLifecycle(runtime: Runtime, receipt: Integra
   };
   const fail = (stage: string, error: unknown) => {
     receipt.failures.push(stage);
+    if (error instanceof IntegrationDeadlineError) receipt.cancellationReason ??= 'deadline';
     if (error instanceof NeonApiError) (receipt.diagnostics ??= []).push({ stage, status: error.status,
       code: error.code, requestId: error.requestId });
     else if (error && typeof error === 'object' && 'code' in error && typeof error.code === 'string'
       && /^[A-Z0-9_]{1,64}$/u.test(error.code)) (receipt.diagnostics ??= []).push({ stage, code: error.code });
   };
-  const attempt = async (stage: string, action: () => Promise<void>) => {
+  const updateEvidence = () => {
+    receipt.lifecycle = { limitMs: INTEGRATION_LIFECYCLE_MS, teardownReserveMs: INTEGRATION_TEARDOWN_RESERVE_MS,
+      elapsedMs: Math.ceil(budget.elapsed()) };
+    // Every in-progress journal is conservative if the process/host is lost.
+    receipt.unresolvedResources = unresolvedResources(receipt);
+  };
+  const save = async (finalization = false) => {
+    updateEvidence();
+    await budget.run(journal, { capMs: 2_000, finalization });
+  };
+  const attempt = async (stage: string, action: (signal: AbortSignal) => Promise<void>, capMs: number) => {
     receipt.stage = stage;
-    try { await journal(); } catch (error) { fail('receipt', error); }
-    try { await action(); } catch (error) { fail(stage, error); }
+    try { await save(); } catch (error) { fail('receipt', error); }
+    try { await budget.run(action, { capMs }); } catch (error) { fail(stage, error); }
   };
   try {
-    receipt.stage = 'provision'; await journal(); await runtime.provision(); provisioned = true;
-    receipt.stage = 'tests'; await journal();
-    const result = await runtime.execute();
+    receipt.stage = 'provision'; await save(); await budget.run(runtime.provision, { work: true, signal }); provisioned = true;
+    receipt.tests = 'failed'; // Host loss during execution never looks like an unstarted/closed child.
+    receipt.stage = 'tests'; await save();
+    const result = await budget.run(runtime.execute, { work: true, signal });
     receipt.tests = result.passed ? 'passed' : 'failed'; receipt.childClosed = result.closed;
     if (!result.passed || !result.closed) receipt.failures.push('tests');
   } catch (error) { fail(receipt.stage, error); }
   finally {
-    if (provisioned && receipt.childClosed) {
-      await attempt('schema-cleanup', async () => { await runtime.clean(); receipt.schemaCleanupVerified = true; });
-      await attempt('credential-revocation', async () => { await runtime.revoke(); receipt.credentialsRevoked = true; });
+    if (runtime.shutdown) {
+      receipt.childClosed = false;
+      await attempt('child-shutdown', async phaseSignal => {
+        const outcome = await runtime.shutdown!(phaseSignal); phaseSignal.throwIfAborted();
+        receipt.childClosed = outcome.closed;
+        if (!outcome.closed) throw new Error('Child closure remains unverified.');
+      }, 30_000);
     }
-    await attempt('connection-close', runtime.close);
-    await attempt('branch-deletion', async () => { await runtime.delete(); receipt.branchDeletionVerified = true; });
+    if (provisioned && receipt.childClosed) {
+      await attempt('schema-cleanup', async phaseSignal => { await runtime.clean(phaseSignal); phaseSignal.throwIfAborted(); receipt.schemaCleanupVerified = true; }, 90_000);
+      await attempt('credential-revocation', async phaseSignal => { await runtime.revoke(phaseSignal); phaseSignal.throwIfAborted(); receipt.credentialsRevoked = true; }, 30_000);
+    }
+    await attempt('connection-close', runtime.close, 30_000);
+    await attempt('branch-deletion', async phaseSignal => { await runtime.delete(phaseSignal); phaseSignal.throwIfAborted(); receipt.branchDeletionVerified = true; }, budget.remaining());
     recordCancellation();
     receipt.finishedAt = new Date().toISOString(); receipt.stage = receipt.failures.length ? 'failed' : 'complete';
-    try { await journal(); } catch { receipt.failures.push('receipt'); }
+    try { await save(true); } catch { receipt.failures.push('receipt'); }
     // The deadline can fire while the final asynchronous receipt write is pending.
     const finalCancellationChanged = recordCancellation();
     if (finalCancellationChanged || (receipt.stage === 'complete' && receipt.failures.length)) {
       receipt.stage = 'failed';
-      try { await journal(); } catch { receipt.failures.push('receipt'); }
+      try { await save(true); } catch { receipt.failures.push('receipt'); }
     }
+    updateEvidence();
   }
   return receipt.tests === 'passed' && receipt.childClosed && receipt.schemaCleanupVerified
     && receipt.credentialsRevoked && receipt.branchDeletionVerified && receipt.failures.length === 0 && !signal?.aborted;
 }
 
 export async function runDisposableIntegration(options: { environment: NodeJS.ProcessEnv; gitSha: string;
-  journal: (receipt: IntegrationRunReceipt) => Promise<void>; signal: AbortSignal; output: (text: string) => void }) {
+  journal: (receipt: IntegrationRunReceipt, signal: AbortSignal) => Promise<void>; signal: AbortSignal;
+  output: (text: string) => void; budget?: IntegrationLifecycleBudget; profile?: QualificationProfile }) {
+  const budget = options.budget ?? new IntegrationLifecycleBudget();
   const config = disposableConfiguration(options.environment);
   const controller = new AbortController();
   const abort = () => controller.abort(integrationCancellationReason(options.signal.reason));
   options.signal.addEventListener('abort', abort, { once: true });
   if (options.signal.aborted) abort();
-  const api = new DisposableNeonApi({ apiKey: options.environment.NEON_TEST_API_KEY!, signal: controller.signal });
+  let api: DisposableNeonApi;
   const runId = randomUUID();
   const receipt: IntegrationRunReceipt = { kind: 'disposable-integration-v1', runId, gitSha: options.gitSha,
     projectId: config.projectId, parentBranchId: config.parentBranchId, startedAt: new Date().toISOString(),
     stage: 'preflight', tests: 'not-run', childClosed: false, schemaCleanupVerified: false,
     credentialsRevoked: false, branchDeletionVerified: false, failures: [], productionWrites: false };
-  const journal = async () => {
+  const journal = async (signal: AbortSignal) => {
     if (controller.signal.aborted) receipt.cancellationReason = integrationCancellationReason(controller.signal.reason);
-    await options.journal(receipt);
+    receipt.unresolvedResources = unresolvedResources(receipt);
+    receipt.lifecycle = { limitMs: INTEGRATION_LIFECYCLE_MS, teardownReserveMs: INTEGRATION_TEARDOWN_RESERVE_MS,
+      elapsedMs: Math.ceil(budget.elapsed()) };
+    await options.journal(receipt, signal);
   };
   let pool: Pool | undefined;
   let client: PoolClient | undefined;
   let proof: string | undefined;
   let childEnvironment: NodeJS.ProcessEnv | undefined;
+  let qualification: QualificationBinding;
   const savedEnvironment = { ...process.env };
   const secrets = [options.environment.NEON_TEST_API_KEY!];
   const safeOutput = (value: string) => options.output(redactIntegrationOutput(value, secrets));
   const onLoss = () => { ownerLost = true; controller.abort('ownership-lost'); };
   let ownerLost = false;
-  const query = async (sql: string, parameters: unknown[] = []) => {
+  const query = async (sql: string, parameters: unknown[] = [], signal: AbortSignal = controller.signal) => {
     if (!client || ownerLost) throw new Error('Disposable owner connection unavailable.');
-    if (receipt.stage === 'provision') controller.signal.throwIfAborted();
-    return client.query(sql, parameters);
+    signal.throwIfAborted();
+    const result = await client.query(sql, parameters);
+    signal.throwIfAborted();
+    return result;
   };
-  const verifyOwner = async () => {
-    await assertIntegrationOwner(async (sql, params) => (await query(sql, [...(params ?? [])])).rows,
+  const verifyOwner = async (signal: AbortSignal) => {
+    await assertIntegrationOwner(async (sql, params) => (await query(sql, [...(params ?? [])], signal)).rows,
       { database: config.databaseName, branch: receipt.branchId! }, proof, 'ShareLock');
   };
+  let childCompletion: Promise<{ passed: boolean; closed: boolean }> | undefined;
+  let childClosureEvidence: IntegrationRunReceipt['childClosureEvidence'];
   const runtime: Runtime = {
-    async provision() {
-      controller.signal.throwIfAborted();
+    async provision(signal) {
+      signal.addEventListener('abort', () => controller.abort(signal.reason instanceof IntegrationDeadlineError ? 'deadline' : signal.reason), { once: true });
+      signal.throwIfAborted();
+      api = new DisposableNeonApi({ apiKey: options.environment.NEON_TEST_API_KEY!, signal });
+      const save = () => budget.run(journal, { work: true, signal, capMs: 2_000 });
       receipt.provisionStep = 'artifact-directory';
-      receipt.artifactDirectory = await createIntegrationArtifactDirectory();
-      await journal();
+      const artifactDirectory = await createIntegrationArtifactDirectory();
+      signal.throwIfAborted();
+      receipt.artifactDirectory = artifactDirectory;
+      qualification = { directory: artifactDirectory, context: await createQualificationContext(
+        fileURLToPath(new URL('..', import.meta.url)), options.gitSha, runId, options.profile) };
+      receipt.testContext = qualification.context;
+      signal.throwIfAborted();
+      await save();
       controller.signal.throwIfAborted();
       receipt.provisionStep = 'api-target-validation';
       await api.validateTarget(config);
+      signal.throwIfAborted();
       receipt.provisionStep = 'branch-creation';
       const branch = await api.createBranch(config, runId, async intent => {
         controller.signal.throwIfAborted();
         receipt.attemptedBranchName = intent.branchName; receipt.expiresAt = intent.expiresAt;
-        await journal();
+        await save();
         controller.signal.throwIfAborted();
       });
+      signal.throwIfAborted();
       Object.assign(receipt, { branchId: branch.branchId, branchName: branch.branchName, expiresAt: branch.expiresAt });
-      await journal();
+      await save();
       controller.signal.throwIfAborted();
       receipt.provisionStep = 'child-owner-rotation';
       await api.rotateOwnerCredentials(config, branch);
+      signal.throwIfAborted();
       receipt.provisionStep = 'connection-uri';
       const ownerUrl = await api.getOwnerConnectionUri(config, branch);
       controller.signal.throwIfAborted();
@@ -214,7 +280,10 @@ export async function runDisposableIntegration(options: { environment: NodeJS.Pr
       pool = new Pool({ connectionString: ownerUrl, max: 1, connectionTimeoutMillis: 10_000,
         statement_timeout: 15_000, query_timeout: 20_000 });
       receipt.provisionStep = 'owner-connect';
-      pool.on('error', onLoss); client = await pool.connect(); client.on('error', onLoss); client.on('end', onLoss);
+      pool.on('error', onLoss);
+      const connected = await pool.connect();
+      if (signal.aborted) { connected.release(true); signal.throwIfAborted(); }
+      client = connected; client.on('error', onLoss); client.on('end', onLoss);
       controller.signal.throwIfAborted();
       receipt.provisionStep = 'empty-database-verification';
       await assertEmptyDisposableDatabase(query, { database: config.databaseName, branch: branch.branchId, owner: config.ownerRoleName });
@@ -248,22 +317,26 @@ export async function runDisposableIntegration(options: { environment: NodeJS.Pr
       secrets.push(generated.PROJECTION_INTEGRATION_RUNTIME_DATABASE_URL, generated.AUTH_RESET_INTEGRATION_DATABASE_URL);
       Object.assign(process.env, generated);
       receipt.provisionStep = 'guarded-auth-preflight';
-      await assertSafeIntegrationDatabase(integrationEnvironment());
+      await assertSafeIntegrationDatabase(integrationEnvironment(), signal);
       controller.signal.throwIfAborted();
       receipt.provisionStep = 'shared-ownership-transfer';
       await query('SELECT pg_advisory_lock_shared(hashtextextended($1::text,0))', [INTEGRATION_MUTEX]);
       assert.equal((await query('SELECT pg_advisory_unlock(hashtextextended($1::text,0)) AS unlocked', [INTEGRATION_MUTEX])).rows[0].unlocked, true);
       proof = JSON.stringify({ database: config.databaseName, branch: branch.branchId, ...identity, applicationName, lockMode: 'ShareLock' });
-      await verifyOwner();
-      childEnvironment = { ...integrationChildEnvironment(options.environment, receipt.artifactDirectory), ...generated, [INTEGRATION_OWNER_ENV]: proof };
+      await verifyOwner(signal);
+      childEnvironment = { ...integrationChildEnvironment(options.environment, receipt.artifactDirectory), ...generated, [INTEGRATION_OWNER_ENV]: proof,
+        [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(qualification.context) };
       receipt.provisionStep = 'complete';
     },
-    async execute() {
-      controller.signal.throwIfAborted(); await verifyOwner();
+    async execute(signal) {
+      controller.signal.throwIfAborted(); signal.throwIfAborted(); await verifyOwner(signal); signal.throwIfAborted();
       const child = spawnIntegrationChild(process.execPath, [fileURLToPath(new URL('../node_modules/vitest/vitest.mjs', import.meta.url)),
-        'run', '--config', fileURLToPath(new URL('../vitest.integration.config.ts', import.meta.url))],
+        'run', '--config', fileURLToPath(new URL('../vitest.integration.config.ts', import.meta.url)),
+        ...qualificationArguments(qualification.context.profile,
+          fileURLToPath(new URL('./qualification-reporter.ts', import.meta.url)))],
       { cwd: fileURLToPath(new URL('..', import.meta.url)), env: childEnvironment!, stdio: ['ignore', 'pipe', 'pipe'] });
-      const supervisor = superviseCapacityChild(child, controller.signal, pid => stopIntegrationChildTree(child, pid));
+      const childSignal = AbortSignal.any([signal, controller.signal]);
+      const supervisor = superviseCapacityChild(child, childSignal, pid => stopIntegrationChildTree(child, pid));
       // Redact complete lines, including values split across stream chunks.
       for (const stream of [child.stdout, child.stderr]) {
         let pending = '';
@@ -276,28 +349,44 @@ export async function runDisposableIntegration(options: { environment: NodeJS.Pr
         });
         stream?.on('end', () => { if (pending) safeOutput(pending); });
       }
-      const outcome = await supervisor.completion;
-      let closed = outcome.closed;
-      if (closed) { try { receipt.childClosureEvidence = await verifyIntegrationChildTreeClosed(child); } catch { closed = false; } }
-      return { passed: outcome.code === 0 && !outcome.childError && !controller.signal.aborted && !ownerLost, closed };
+      childCompletion = (async () => {
+        const outcome = await supervisor.completion;
+        let closed = outcome.closed;
+        if (closed) { try { childClosureEvidence = await verifyIntegrationChildTreeClosed(child); } catch { closed = false; } }
+        let evidenceValid = false;
+        // Reports precede close/timeout failures; validate only after tree closure.
+        if (closed) {
+          try { receipt.testEvidence = await validateQualificationArtifacts(qualification); evidenceValid = true; }
+          catch { receipt.testEvidenceFailure = 'missing-or-invalid'; }
+        }
+        return { passed: evidenceValid && outcome.code === 0 && !outcome.childError && !childSignal.aborted && !ownerLost, closed };
+      })();
+      return childCompletion;
     },
-    async clean() {
-      await verifyOwner(); await cleanIntegrationDatabase({ ownerProof: proof }); await verifyOwner();
+    async shutdown(signal) {
+      signal.throwIfAborted();
+      const outcome = childCompletion ? await childCompletion : { closed: true };
+      signal.throwIfAborted();
+      if (childClosureEvidence) receipt.childClosureEvidence = childClosureEvidence;
+      return outcome;
+    },
+    async clean(signal) {
+      await verifyOwner(signal); await cleanIntegrationDatabase({ ownerProof: proof, signal }); await verifyOwner(signal);
       const result = await query(`SELECT count(*)::int AS count FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-        WHERE n.nspname IN ('public','website_auth') AND c.relkind IN ('r','p','v','m','S','f')`);
+        WHERE n.nspname IN ('public','website_auth') AND c.relkind IN ('r','p','v','m','S','f')`, [], signal);
       assert.equal(result.rows[0].count, 0);
     },
-    async revoke() {
-      await verifyOwner();
-      await query('ALTER ROLE league_one_runtime NOLOGIN PASSWORD NULL; ALTER ROLE league_one_auth NOLOGIN PASSWORD NULL');
-      const result = await query("SELECT count(*)::int AS count FROM pg_roles WHERE rolname IN ('league_one_runtime','league_one_auth') AND rolcanlogin");
+    async revoke(signal) {
+      await verifyOwner(signal);
+      await query('ALTER ROLE league_one_runtime NOLOGIN PASSWORD NULL; ALTER ROLE league_one_auth NOLOGIN PASSWORD NULL', [], signal);
+      const result = await query("SELECT count(*)::int AS count FROM pg_roles WHERE rolname IN ('league_one_runtime','league_one_auth') AND rolcanlogin", [], signal);
       assert.equal(result.rows[0].count, 0);
     },
-    async close() {
+    async close(signal) {
       client?.off('error', onLoss); client?.off('end', onLoss); pool?.off('error', onLoss);
       let timer: ReturnType<typeof setTimeout> | undefined;
       try {
-        client?.release(); client = undefined;
+        signal.throwIfAborted(); client?.release(true); client = undefined;
         await Promise.race([pool?.end(), new Promise<never>((_, reject) => {
           timer = setTimeout(() => reject(new Error('Owner connection close deadline exceeded.')), 25_000);
         })]);
@@ -308,15 +397,17 @@ export async function runDisposableIntegration(options: { environment: NodeJS.Pr
         Object.assign(process.env, savedEnvironment);
       }
     },
-    async delete() {
+    async delete(signal) {
+      if (!api) throw new Error('No API creation attempted; deletion is unverified.');
+      await api.reconcileCreation(config, signal);
       const owned = api.ownedReceipts();
       for (const branch of owned) {
         Object.assign(receipt, { branchId: branch.branchId, branchName: branch.branchName, expiresAt: branch.expiresAt });
-        await api.deleteBranch(config, branch);
+        await api.deleteBranch(config, branch, signal);
       }
       if (owned.length === 0) throw new Error('No created branch identity; provisioning/deletion remains unverified.');
     },
   };
-  try { return { passed: await runIntegrationLifecycle(runtime, receipt, journal, controller.signal), receipt }; }
+  try { return { passed: await runIntegrationLifecycle(runtime, receipt, journal, controller.signal, budget), receipt }; }
   finally { options.signal.removeEventListener('abort', abort); }
 }

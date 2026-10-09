@@ -79,6 +79,7 @@ export class DisposableNeonApi {
   readonly #pollIntervalMs: number;
   readonly #signal: AbortSignal | undefined;
   readonly #owned = new Map<DisposableNeonBranchReceipt, DisposableNeonConfig>();
+  #pendingCreation?: { config: DisposableNeonConfig; branchName: string; expiresAt: string; startedAt: number };
 
   constructor(options: {
     apiKey: string;
@@ -105,7 +106,7 @@ export class DisposableNeonApi {
     return [...this.#owned.keys()];
   }
 
-  async request<T>(method: Method, path: string, body?: unknown): Promise<T> {
+  async request<T>(method: Method, path: string, body?: unknown, signal = this.#signal): Promise<T> {
     // There is no overrideable API origin, redirect following, or production-project access.
     const parsed = new URL(`${API_ORIGIN}${path}`);
     const pathname = path.split('?')[0];
@@ -119,17 +120,24 @@ export class DisposableNeonApi {
     const safePath = pathname;
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let cancel!: () => void;
     const timeout = new Promise<never>((_, reject) => {
+      cancel = () => {
+        controller.abort();
+        reject(new NeonApiError(method, safePath, undefined, 'REQUEST_ABORTED'));
+      };
       timer = setTimeout(() => {
         controller.abort();
         reject(new NeonApiError(method, safePath, undefined, 'REQUEST_TIMEOUT'));
       }, this.#requestTimeoutMs);
     });
     try {
+      if (signal?.aborted) throw new NeonApiError(method, safePath, undefined, 'REQUEST_CANCELLED');
+      signal?.addEventListener('abort', cancel, { once: true });
       return await Promise.race([timeout, (async () => {
         // Cancellation prevents new provisioning writes, while cleanup GET/DELETE
         // requests remain available. Already-sent writes must still be reconciled.
-        if (method === 'POST' && this.#signal?.aborted) {
+        if (method === 'POST' && signal?.aborted) {
           throw new NeonApiError(method, safePath, undefined, 'REQUEST_CANCELLED');
         }
         const response = await this.#fetch(parsed, {
@@ -156,6 +164,7 @@ export class DisposableNeonApi {
       throw new NeonApiError(method, safePath, undefined, 'REQUEST_FAILED');
     } finally {
       clearTimeout(timer);
+      signal?.removeEventListener('abort', cancel);
     }
   }
 
@@ -173,14 +182,14 @@ export class DisposableNeonApi {
     }
   }
 
-  async listBranches(config: DisposableNeonConfig): Promise<JsonObject[]> {
+  async listBranches(config: DisposableNeonConfig, signal = this.#signal): Promise<JsonObject[]> {
     requireConfig(config);
     const branches: JsonObject[] = [];
     const cursors = new Set<string>();
     let cursor: string | undefined;
     for (let page = 0; page < 100; page++) {
       const response = object(await this.request('GET', `/projects/${config.projectId}/branches?limit=100${
-        cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`));
+        cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`, undefined, signal));
       branches.push(...array(response.branches).map(object));
       const pagination = response.pagination ? object(response.pagination) : {};
       if (pagination.cursor === undefined || pagination.cursor === null || pagination.cursor === '') return branches;
@@ -193,7 +202,7 @@ export class DisposableNeonApi {
     throw new Error('Neon branch inventory exceeded its bounded page limit');
   }
 
-  async waitOperations(projectId: string, operations: unknown): Promise<void> {
+  async waitOperations(projectId: string, operations: unknown, signal = this.#signal): Promise<void> {
     const pending = array(operations).map(item => {
       const operation = object(item);
       if (typeof operation.id !== 'string' || !/^[a-zA-Z0-9-]{1,100}$/.test(operation.id)) {
@@ -201,7 +210,7 @@ export class DisposableNeonApi {
       }
       return operation;
     });
-    const deadline = Date.now() + this.#operationTimeoutMs;
+    const deadline = performance.now() + this.#operationTimeoutMs;
     while (pending.length) {
       for (let index = pending.length - 1; index >= 0; index--) {
         const operation = pending[index];
@@ -213,11 +222,11 @@ export class DisposableNeonApi {
         }
       }
       if (!pending.length) return;
-      if (Date.now() >= deadline) throw new Error('Neon operation deadline exceeded');
-      await this.#pause();
+      if (performance.now() >= deadline) throw new Error('Neon operation deadline exceeded');
+      await this.#pause(signal);
       for (let index = 0; index < pending.length; index++) {
         const id = pending[index].id;
-        const result = object(await this.request('GET', `/projects/${projectId}/operations/${id}`));
+        const result = object(await this.request('GET', `/projects/${projectId}/operations/${id}`, undefined, signal));
         const operation = object(result.operation);
         if (operation.id !== id || operation.project_id !== projectId) throw new Error('Neon operation identity mismatch');
         pending[index] = operation;
@@ -246,6 +255,8 @@ export class DisposableNeonApi {
     let receipt: DisposableNeonBranchReceipt;
     const previouslyOwned = this.#owned.size;
     try {
+      this.#assertNotCancelled();
+      this.#pendingCreation = { config, branchName, expiresAt, startedAt };
       response = object(await this.request('POST', `/projects/${config.projectId}/branches`, {
         branch: { name: branchName, parent_id: config.parentBranchId, init_source: 'parent-data', expires_at: expiresAt },
         endpoints: [{ type: 'read_write', autoscaling_limit_min_cu: 0.25,
@@ -256,11 +267,16 @@ export class DisposableNeonApi {
       // A known branch is already available to the caller's finally block. Do not
       // re-register it if a later identity/expiration assertion failed.
       if (this.#owned.size > previouslyOwned) throw error;
-      if (error instanceof NeonApiError && error.code === 'REQUEST_CANCELLED') throw error;
-      if (error instanceof NeonApiError && error.status !== undefined && error.status < 500 && error.code !== 'INVALID_JSON') throw error;
+      if (error instanceof NeonApiError && (error.code === 'REQUEST_CANCELLED'
+        || error.status !== undefined && error.status < 500 && error.code !== 'INVALID_JSON')) {
+        this.#pendingCreation = undefined; throw error;
+      }
+      // An aborted POST may already have committed. Teardown reconciles the
+      // journaled intent with its independent remaining-budget signal.
+      this.#assertNotCancelled();
       // An ambiguous POST may have committed. Reconcile by the unique preflight-absent name;
       // never retry after a lost result or a successful but malformed response.
-      const deadline = Date.now() + this.#operationTimeoutMs;
+      const deadline = performance.now() + this.#operationTimeoutMs;
       do {
         const matches = (await this.listBranches(config)).filter(branch => branch.name === branchName);
         if (matches.length > 1) throw new Error('Ambiguous Neon branch creation identity');
@@ -269,7 +285,7 @@ export class DisposableNeonApi {
           await this.#waitReady(config, receipt);
           return receipt;
         }
-        if (Date.now() >= deadline) throw new Error('Neon creation could not be reconciled; expiration remains the fallback');
+        if (performance.now() >= deadline) throw new Error('Neon creation could not be reconciled; expiration remains the fallback');
         await this.#pause();
       } while (true);
     }
@@ -321,11 +337,34 @@ export class DisposableNeonApi {
     } catch { throw new Error('Neon owner connection identity or TLS mismatch'); }
   }
 
-  async deleteBranch(config: DisposableNeonConfig, receipt: DisposableNeonBranchReceipt): Promise<void> {
+  /** Recover only this invocation's preflight-absent, durably journaled intent.
+   * No creation POST is retried and absence after ambiguity is not proof that a
+   * previously sent request can never finish. Unknown resources remain failed. */
+  async reconcileCreation(config: DisposableNeonConfig, signal = new AbortController().signal): Promise<void> {
+    const pending = this.#pendingCreation;
+    if (!pending) return;
+    if (Object.keys(config).some(key => config[key as keyof DisposableNeonConfig]
+      !== pending.config[key as keyof DisposableNeonConfig])) throw new Error('Creation reconciliation target changed.');
+    const deadline = performance.now() + this.#operationTimeoutMs;
+    do {
+      signal?.throwIfAborted();
+      const matches = (await this.listBranches(config, signal)).filter(branch => branch.name === pending.branchName);
+      signal?.throwIfAborted();
+      if (matches.length > 1) throw new Error('Ambiguous Neon branch creation identity');
+      if (matches.length === 1) {
+        this.#register(config, matches[0], pending.branchName, pending.expiresAt, pending.startedAt);
+        return;
+      }
+      if (performance.now() >= deadline) throw new Error('Creation remains unresolved; expiry is not cleanup evidence.');
+      await this.#pause(signal);
+    } while (true);
+  }
+
+  async deleteBranch(config: DisposableNeonConfig, receipt: DisposableNeonBranchReceipt, signal = new AbortController().signal): Promise<void> {
     this.#requireOwned(config, receipt);
     const path = `/projects/${config.projectId}/branches/${receipt.branchId}`;
     try {
-      const before = object(await this.request('GET', path));
+      const before = object(await this.request('GET', path, undefined, signal));
       this.#assertBranch(object(before.branch), receipt, false);
     } catch (error) {
       if (!(error instanceof NeonApiError && error.status === 404)) throw error;
@@ -333,7 +372,7 @@ export class DisposableNeonApi {
       return;
     }
     let result: unknown;
-    try { result = await this.request('DELETE', path); }
+    try { result = await this.request('DELETE', path, undefined, signal); }
     catch (error) {
       if (!(error instanceof NeonApiError) ||
         (error.status !== undefined && error.status < 500 && error.code !== 'INVALID_JSON')) throw error;
@@ -353,19 +392,19 @@ export class DisposableNeonApi {
         operations = candidates;
       } catch { /* Malformed success response: reconcile authoritative absence below. */ }
     }
-    if (operations) await this.waitOperations(config.projectId, operations);
-    const deadline = Date.now() + this.#operationTimeoutMs;
+    if (operations) await this.waitOperations(config.projectId, operations, signal);
+    const deadline = performance.now() + this.#operationTimeoutMs;
     do {
       try {
-        const result = object(await this.request('GET', path));
+        const result = object(await this.request('GET', path, undefined, signal));
         this.#assertBranch(object(result.branch), receipt, false);
       } catch (error) {
         if (!(error instanceof NeonApiError && error.status === 404)) throw error;
         this.#owned.delete(receipt);
         return;
       }
-      if (Date.now() >= deadline) throw new Error('Neon branch deletion remains unverified');
-      await this.#pause();
+      if (performance.now() >= deadline) throw new Error('Neon branch deletion remains unverified');
+      await this.#pause(signal);
     } while (true);
   }
 
@@ -382,6 +421,7 @@ export class DisposableNeonApi {
       branchId: branch.id, branchName: name, createdAt: branch.created_at, expiresAt });
     // Register before checking operations, expiry, endpoints, or readiness so failure still has a cleanup target.
     this.#owned.set(receipt, Object.freeze({ ...config }));
+    this.#pendingCreation = undefined;
     this.#assertBranch(branch, receipt);
     return receipt;
   }
@@ -418,7 +458,7 @@ export class DisposableNeonApi {
   }
 
   async #waitReady(config: DisposableNeonConfig, receipt: DisposableNeonBranchReceipt): Promise<void> {
-    const deadline = Date.now() + this.#operationTimeoutMs;
+    const deadline = performance.now() + this.#operationTimeoutMs;
     do {
       this.#assertNotCancelled();
       const response = object(await this.request('GET', `/projects/${config.projectId}/branches/${receipt.branchId}`));
@@ -428,13 +468,19 @@ export class DisposableNeonApi {
       this.#assertNotCancelled();
       if (branch.current_state === 'ready' && ['active', 'idle'].includes(String(endpoint.current_state)) &&
         !endpoint.pending_state && !endpoint.disabled) return;
-      if (Date.now() >= deadline) throw new Error('Disposable Neon readiness deadline exceeded');
+      if (performance.now() >= deadline) throw new Error('Disposable Neon readiness deadline exceeded');
       await this.#pause();
     } while (true);
   }
 
-  async #pause(): Promise<void> {
-    await new Promise(resolve => setTimeout(resolve, this.#pollIntervalMs));
+  async #pause(signal = this.#signal): Promise<void> {
+    signal?.throwIfAborted();
+    await new Promise<void>((resolve, reject) => {
+      const abort = () => { clearTimeout(timer); reject(new Error('Neon operation cancelled.')); };
+      const timer = setTimeout(() => { signal?.removeEventListener('abort', abort); resolve(); }, this.#pollIntervalMs);
+      signal?.addEventListener('abort', abort, { once: true });
+    });
+    signal?.throwIfAborted();
   }
 
   #assertNotCancelled(): void {
