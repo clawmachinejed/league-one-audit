@@ -15,7 +15,7 @@ import { capturePublicSleeperCore, capturePublicSleeperIdentity, capturePublicSl
 import type { DatabaseClient, DatabaseQueryOptions, DatabaseRow } from '../lib/database';
 import type { PublicDataRefreshConfiguration } from '../lib/league-administration/public-refresh-contracts';
 import { createPublicDataDiagnostics, observePublicDataDependencies } from './public-data-refresh-diagnostics';
-import type { PublicCaptureWitness } from '../lib/league-administration/public-capture-witness';
+import { assertOriginalPublicCapture, validateRequestedPublicCaptureWitness, type PublicCaptureWitness } from '../lib/league-administration/public-capture-witness';
 
 
 /** AUTHORED / UNEXECUTED ordinary journey. Only source responses are fixtures;
@@ -1265,11 +1265,23 @@ describe('bounded public DATA refresh cycles through the existing intake owner',
       revision = configured.value.configurationRevision; configuration = input;
       // Acquisition and checkpoint remain bound to the already admitted owner;
       // pausing prevents new admission but cannot rewrite this original fence.
-      const document = await capturePublicSleeperIdentity(work.username, AbortSignal.timeout(Math.max(1, Date.parse(owner.fence.deadlineAt) - Date.now())));
+      const witness = validateRequestedPublicCaptureWitness(await intake.captureWitness!(work, null, owner.fence), work, null, owner.fence);
+      const document = await capturePublicSleeperIdentity(work.username, AbortSignal.timeout(Math.max(1, Date.parse(owner.fence.deadlineAt) - Date.now())), witness);
+      assertOriginalPublicCapture(document, witness);
       await intake.recordIdentity(work, document, owner.fence);
+      expect(capture).toHaveBeenCalledTimes(1);
       expect(await intake.next(selected.requestId)).toMatchObject({ kind: 'leagues' });
       expect(await connection.database.query('SELECT outcome FROM public.public_data_dispatch_outcomes WHERE worker_id=$1 AND generation=$2',
         [owner.fence.workerId, owner.fence.generation])).toEqual([{ outcome: 'checkpoint-committed' }]);
+      expect(await connection.database.query(`SELECT outcome.capture_acquisition,
+        outcome.capture_acquisition->>'dispatchNonce'=dispatch.capture_nonce::text
+          AND outcome.capture_acquisition->'work'=dispatch.work
+          AND outcome.capture_acquisition->'fence'->>'workerId'=dispatch.worker_id
+          AND outcome.capture_acquisition->'fence'->>'generation'=dispatch.generation::text AS exact_witness
+        FROM public.public_data_dispatch_outcomes outcome JOIN public.public_data_dispatches dispatch
+          ON dispatch.worker_id=outcome.worker_id AND dispatch.generation=outcome.generation
+        WHERE outcome.worker_id=$1 AND outcome.generation=$2`, [owner.fence.workerId, owner.fence.generation]))
+        .toEqual([{ capture_acquisition: witness, exact_witness: true }]);
       expect(await connection.database.query('SELECT * FROM public.public_data_refresh_selection_failures WHERE worker_id=$1 AND generation=$2',
         [owner.fence.workerId, owner.fence.generation])).toEqual([]);
     } finally {

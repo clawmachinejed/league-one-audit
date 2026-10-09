@@ -7,6 +7,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import http from 'node:http';
 import ts from 'typescript';
 import { types } from '@neondatabase/serverless';
+import { capturePublicSleeperIdentity } from '../lib/sleeper';
+import { assertOriginalPublicCapture, validateRequestedPublicCaptureWitness } from '../lib/league-administration/public-capture-witness';
 import { assertLiveJson } from './live-league-two';
 import { exactMatchupClockInstant } from './exact-matchup-clock';
 import { writeIntegrationArtifact } from './integration-artifacts';
@@ -1144,3 +1146,106 @@ it.each([
   const f = await journeyAssertionFixture(), { saved } = await f.run(() => f.tail(change));
   expect(saved.firstFailure).toMatchObject({ category: 'assertion', step: 29, cycle: 2, comparison: { id: label } });
 });
+{
+// Execute the actual SQL case's changed capture/checkpoint/readback tail offline.
+// The transport and witness helpers are real; SQL and the HTTP response are fixtures.
+const source = await readFile(new URL('./public-data-intake.integration-case.ts', import.meta.url), 'utf8');
+const ast = ts.createSourceFile('case.ts', source, ts.ScriptTarget.Latest, true);
+let statements: readonly ts.Statement[] | undefined;
+const visit = (node: ts.Node) => {
+  if (ts.isCallExpression(node) && node.expression.getText(ast) === 'it'
+    && ts.isStringLiteral(node.arguments[0])
+    && node.arguments[0].text === 'retains a real admitted capture when a competing pause waits for that admission to commit') {
+    const body = (node.arguments[1] as ts.ArrowFunction).body as ts.Block;
+    const attempt = body.statements.find(ts.isTryStatement)!;
+    const start = attempt.tryBlock.statements.findIndex(statement => statement.getText(ast).startsWith('const witness ='));
+    if (start < 0) throw new Error('Actual witnessed capture tail is missing.');
+    statements = attempt.tryBlock.statements.slice(start);
+  }
+  ts.forEachChild(node, visit);
+};
+visit(ast);
+if (!statements?.length) throw new Error('Actual admission race case was not found.');
+const tail = ts.transpileModule(statements.map(statement => statement.getText(ast)).join('\n'),
+  { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
+const execute = new Function('bindings', `return (async () => { const { intake, work, owner, selected, connection, capture,
+  validateRequestedPublicCaptureWitness, capturePublicSleeperIdentity, assertOriginalPublicCapture, expect } = bindings;
+  ${tail} })();`) as (bindings: Record<string, unknown>) => Promise<void>;
+
+function fixture() {
+  const work = { requestId: '11111111-1111-4111-8111-111111111111', revision: 0, kind: 'identity' as const, username: 'fixture_manager' };
+  const fence = { jobKey: 'league-administration-public-intake', workerId: '22222222-2222-4222-8222-222222222222',
+    generation: 1, deadlineAt: new Date(Date.now() + 20_000).toISOString() };
+  const witness: PublicCaptureWitness = { version: 'public-network-capture-v1', work, fence,
+    dispatchNonce: '33333333-3333-4333-8333-333333333333', mapping: null, attempts: {} };
+  const events: string[] = [];
+  const capture = vi.fn<typeof fetch>(async input => {
+    expect(String(input)).toBe('https://api.sleeper.app/v1/user/fixture_manager');
+    events.push('GET'); return new Response(JSON.stringify({ user_id: '987654321', username: 'fixture_manager' }));
+  });
+  vi.stubGlobal('fetch', capture);
+  const intake = {
+    captureWitness: vi.fn(async () => { events.push('witness'); return witness; }),
+    recordIdentity: vi.fn(async (_work: unknown, document: { acquisition?: PublicCaptureWitness }, _fence: unknown) => {
+      expect(_work).toEqual(work); expect(_fence).toEqual(fence);
+      assertOriginalPublicCapture(document, witness); events.push('checkpoint');
+    }),
+    next: vi.fn(async () => ({ kind: 'leagues' })),
+  };
+  const query = vi.fn(async (sql: string): Promise<DatabaseRow[]> => {
+    if (sql.includes('SELECT outcome FROM')) return [{ outcome: 'checkpoint-committed' }];
+    if (sql.includes('SELECT outcome.capture_acquisition')) return [{ capture_acquisition: witness, exact_witness: true }];
+    if (sql.includes('public_data_refresh_selection_failures')) return [];
+    throw new Error('Unexpected offline readback.');
+  });
+  const bindings = { intake, work, owner: { fence }, selected: { requestId: work.requestId }, connection: { database: { query } },
+    capture, validateRequestedPublicCaptureWitness, capturePublicSleeperIdentity, assertOriginalPublicCapture, expect };
+  return { bindings, witness, intake, capture, events, query };
+}
+
+it('executes the witnessed SQL-case tail through the actual transport and original-capture seal', async () => {
+  const f = fixture(); await execute(f.bindings);
+  expect(f.events).toEqual(['witness', 'GET', 'checkpoint']);
+  expect(f.intake.captureWitness).toHaveBeenCalledExactlyOnceWith(f.bindings.work, null, f.bindings.owner.fence);
+  expect(f.intake.recordIdentity).toHaveBeenCalledExactlyOnceWith(f.bindings.work,
+    expect.objectContaining({ acquisition: f.witness }), f.bindings.owner.fence);
+  expect(f.query).toHaveBeenCalledTimes(3);
+});
+
+it('waits for the witness before issuing the capture GET', async () => {
+  const f = fixture(); let release!: (value: PublicCaptureWitness) => void;
+  f.intake.captureWitness.mockImplementation(() => new Promise(resolve => { release = resolve; }));
+  const pending = execute(f.bindings);
+  expect(f.capture).not.toHaveBeenCalled(); expect(f.intake.recordIdentity).not.toHaveBeenCalled();
+  release(f.witness); await pending; expect(f.capture).toHaveBeenCalledTimes(1);
+});
+
+it('refuses a witness for different work before any GET or checkpoint', async () => {
+  const f = fixture(); f.intake.captureWitness.mockResolvedValue({ ...f.witness, work: { ...f.witness.work, revision: 1 } });
+  await expect(execute(f.bindings)).rejects.toThrow('reservation group mismatch');
+  expect(f.capture).not.toHaveBeenCalled(); expect(f.intake.recordIdentity).not.toHaveBeenCalled();
+});
+
+it.each(['omitted', 'copied', 'retagged'] as const)('refuses a %s transport witness before checkpoint', async mode => {
+  const f = fixture();
+  f.bindings.capturePublicSleeperIdentity = async (username, signal, witness) => {
+    const document = await capturePublicSleeperIdentity(username, signal, mode === 'omitted' ? undefined : witness);
+    if (mode === 'omitted') return document;
+    return { ...document, acquisition: mode === 'retagged' ? { ...witness!, dispatchNonce: '44444444-4444-4444-8444-444444444444' } : document.acquisition };
+  };
+  await expect(execute(f.bindings)).rejects.toThrow();
+  expect(f.capture).toHaveBeenCalledTimes(1); expect(f.intake.recordIdentity).not.toHaveBeenCalled();
+});
+
+it.each(['missing', 'mismatched', 'duplicate'] as const)('rejects %s retained acquisition readback', async mode => {
+  const f = fixture(); const original = f.query.getMockImplementation()!;
+  f.query.mockImplementation(async sql => {
+    if (!sql.includes('SELECT outcome.capture_acquisition')) return original(sql);
+    const row = { capture_acquisition: mode === 'missing' ? null : f.witness, exact_witness: mode !== 'mismatched' };
+    return mode === 'duplicate' ? [row, row] : [row];
+  });
+  await expect(execute(f.bindings)).rejects.toThrow();
+  expect(f.intake.recordIdentity).toHaveBeenCalledTimes(1);
+});
+
+}
