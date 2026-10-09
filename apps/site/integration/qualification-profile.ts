@@ -24,8 +24,8 @@ export const JOURNEY_SUITE = 'live public DATA intake and refresh through the ex
 export const JOURNEY_TEST = 'retains DannyPak discovery, all associated leagues and one complete refresh [live slow SQL]';
 export const JOURNEY_FULL_NAME = JOURNEY_SUITE + ' > ' + JOURNEY_TEST;
 export const JOURNEY_PATTERN = '^' + (JOURNEY_SUITE + ' ' + JOURNEY_TEST).replace(/[.*+?^{}$()|[\]\\]/gu, '\\$&') + '$';
-export type QualificationProfile = 'full' | typeof SELECTED_PROFILE | typeof INGESTION_PROFILE | typeof LIVE_PROFILE | typeof JOURNEY_PROFILE;
-export const SELECTED_SOURCE_DIGEST = 'afb857bf98a17a82196433f3f684491e7671df6a1cdc5b96432c95efb2444f99';
+export type QualificationProfile = 'full' | typeof SELECTED_PROFILE | typeof INGESTION_PROFILE | typeof LIVE_PROFILE | typeof JOURNEY_PROFILE | typeof OFFICIAL_PROFILE;
+export const SELECTED_SOURCE_DIGEST = '399d9470f2256a8f08196a887ff9ccc43a76c94ce947e3d7c2e624670aa43479';
 export const SELECTED_MODULE = 'integration/public-data-intake.integration-case.ts';
 export const SELECTED_SUITE = 'bounded public DATA refresh cycles through the existing intake owner';
 export const SELECTED_TEST = 'refreshes two typed core cycles with real admission spacing, a correction and lost-checkpoint replay [focused slow SQL]';
@@ -36,12 +36,22 @@ export const INGESTION_SUITE = 'ordinary public DATA ingestion through the exist
 export const INGESTION_TEST = 'stores one public manager league through canonical bootstrap and typed backend readers [focused slow SQL]';
 export const INGESTION_FULL_NAME = INGESTION_SUITE + ' > ' + INGESTION_TEST;
 export const INGESTION_PATTERN = '^' + (INGESTION_SUITE + ' ' + INGESTION_TEST).replace(/[.*+?^{}$()|[\]\\]/gu, '\\$&') + '$';
+export const OFFICIAL_PROFILE = 'data-official-preconfiguration-v1';
+export const OFFICIAL_SUITE = 'official preconfiguration source normalization to restricted typed storage';
+export const OFFICIAL_TESTS = [
+  'recovers the same NULL-profile identity after canonical registration commits before the bootstrap checkpoint [focused slow SQL]',
+  'retains all nine missing/null/empty scoring and slot combinations, rejects malformed fields and versions later rules',
+] as const;
+export const OFFICIAL_FULL_NAMES = OFFICIAL_TESTS.map(name => OFFICIAL_SUITE + ' > ' + name);
+export const OFFICIAL_PATTERN = new RegExp('^(?:' + OFFICIAL_TESTS.map(name => (OFFICIAL_SUITE + ' ' + name)
+  .replace(/[.*+?^{}$()|[\]\\]/gu, '\\$&')).join('|') + ')$').source;
 function selectedCase(profile: QualificationProfile) {
-  if (profile === LIVE_PROFILE) return { name: LIVE_FULL_NAME, pattern: LIVE_PATTERN };
-  if (profile === JOURNEY_PROFILE) return { name: JOURNEY_FULL_NAME, pattern: JOURNEY_PATTERN };
+  if (profile === LIVE_PROFILE) return { names: [LIVE_FULL_NAME], pattern: LIVE_PATTERN };
+  if (profile === JOURNEY_PROFILE) return { names: [JOURNEY_FULL_NAME], pattern: JOURNEY_PATTERN };
+  if (profile === OFFICIAL_PROFILE) return { names: OFFICIAL_FULL_NAMES, pattern: OFFICIAL_PATTERN };
   assert(profile === SELECTED_PROFILE || profile === INGESTION_PROFILE, 'Unknown closed qualification profile.');
-  return profile === SELECTED_PROFILE ? { name: SELECTED_FULL_NAME, pattern: SELECTED_PATTERN }
-    : { name: INGESTION_FULL_NAME, pattern: INGESTION_PATTERN };
+  return profile === SELECTED_PROFILE ? { names: [SELECTED_FULL_NAME], pattern: SELECTED_PATTERN }
+    : { names: [INGESTION_FULL_NAME], pattern: INGESTION_PATTERN };
 }
 
 // Closed collected-case inventory, including the two-value it.each expansion.
@@ -70,10 +80,7 @@ export const SELECTED_INVENTORY = [
     'copies explicit periods into a new ordinary cycle and preserves original scope across replay and configuration CAS [R038 metadata only]',
     'counts paused synthetic metadata targets toward the total16 bound using a genuine restricted configure call',
   ].map(name => SELECTED_SUITE + ' > ' + name),
-  ...[
-    'recovers the same NULL-profile identity after canonical registration commits before the bootstrap checkpoint [focused slow SQL]',
-    'retains all nine missing/null/empty scoring and slot combinations, rejects malformed fields and versions later rules',
-  ].map(name => 'official preconfiguration source normalization to restricted typed storage > ' + name),
+  ...OFFICIAL_FULL_NAMES,
   ...[
     'enforces SQL selector validation and identical omitted/empty replay before mutation',
     'enforces twenty task ordinals, candidate lineage and immutable scope with rolled-back owner-only negative prerequisites',
@@ -125,10 +132,11 @@ export function parseQualificationArguments(args: readonly string[]): Qualificat
   if (args.length === 1 && args[0] === '--profile=' + INGESTION_PROFILE) return INGESTION_PROFILE;
   if (args.length === 1 && args[0] === '--profile=' + LIVE_PROFILE) return LIVE_PROFILE;
   if (args.length === 1 && args[0] === '--profile=' + JOURNEY_PROFILE) return JOURNEY_PROFILE;
-  throw new Error('Only the closed data-live-public-intake-v1, data-live-league-two-v1, data-core-refresh-v1 and data-core-ingestion-v1 qualification selectors are accepted.');
+  if (args.length === 1 && args[0] === '--profile=' + OFFICIAL_PROFILE) return OFFICIAL_PROFILE;
+  throw new Error('Only the closed data-official-preconfiguration-v1, data-live-public-intake-v1, data-live-league-two-v1, data-core-refresh-v1 and data-core-ingestion-v1 qualification selectors are accepted.');
 }
 export function qualificationArguments(profile: QualificationProfile, reporter: string): string[] {
-  assert(profile === 'full' || profile === SELECTED_PROFILE || profile === INGESTION_PROFILE || profile === LIVE_PROFILE || profile === JOURNEY_PROFILE, 'Unknown qualification profile.');
+  assert(profile === 'full' || profile === SELECTED_PROFILE || profile === INGESTION_PROFILE || profile === LIVE_PROFILE || profile === JOURNEY_PROFILE || profile === OFFICIAL_PROFILE, 'Unknown qualification profile.');
   return ['--reporter', 'verbose', '--reporter', reporter,
     ...(profile === 'full' ? [] : [selectedModule(profile), '--testNamePattern', selectedCase(profile).pattern])];
 }
@@ -141,7 +149,7 @@ function validateContext(value: QualificationContext): QualificationContext {
   assert.equal(value.kind, 'integration-qualification-context-v1');
   for (const id of [value.runId, value.nonce]) assert.match(id, /^[0-9a-f]{8}-[0-9a-f-]{27}$/u);
   assert.match(value.gitSha, /^[0-9a-f]{40}$/u);
-  assert(value.profile === 'full' || value.profile === SELECTED_PROFILE || value.profile === INGESTION_PROFILE || value.profile === LIVE_PROFILE || value.profile === JOURNEY_PROFILE);
+  assert(value.profile === 'full' || value.profile === SELECTED_PROFILE || value.profile === INGESTION_PROFILE || value.profile === LIVE_PROFILE || value.profile === JOURNEY_PROFILE || value.profile === OFFICIAL_PROFILE);
   assert.equal(value.profileDigest, profileDigest(value.profile));
   assert(Array.isArray(value.modules) && value.modules.length > 0 && value.modules.length <= 128);
   for (const entry of value.modules) {
@@ -263,7 +271,7 @@ export function validateQualificationReport(context: QualificationContext, repor
       ids.push(test.id); assert(typeof test.id === 'string' && test.id.length > 0);
       assert.equal(test.expectedFailure, false); zero(test.errors);
       assert.equal(test.configuredRetries, false); zero(test.configuredRepeats);
-      const selected = context.profile === 'full' || test.name === selectedCase(context.profile).name;
+      const selected = context.profile === 'full' || selectedCase(context.profile).names.includes(test.name);
       if (selected) {
         assert.equal(test.state, 'passed'); assert.equal(test.mode, 'run');
         assert.equal(test.readyEvents, 1); assert.equal(test.resultEvents, 1);

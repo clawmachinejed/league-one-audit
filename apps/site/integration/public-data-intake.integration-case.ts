@@ -1956,24 +1956,45 @@ describe('official preconfiguration source normalization to restricted typed sto
       expect(new Set(acceptedReceipts).size).toBe(9);
       expect(await profileSnapshot()).toEqual(profiles);
       const immutableReceipts = await database.query('SELECT * FROM league_roster_capture_receipts WHERE id=ANY($1::uuid[]) ORDER BY id', [acceptedReceipts]);
-      const acceptedBeforeInvalid = await database.query(`SELECT head.scope_id,head.accepted_id FROM league_roster_resource_heads head
-        JOIN league_roster_resource_scopes scope ON scope.id=head.scope_id WHERE scope.league_season_id=$1 ORDER BY head.scope_id`, [registered.value.leagueSeasonId]);
+      const legacyBeforeInvalid = await database.query(`SELECT accepted_observation_id FROM league_administration_heads
+        WHERE league_season_id=$1 AND family='league' AND week=0`, [registered.value.leagueSeasonId]);
+      expect(legacyBeforeInvalid).toEqual([{ accepted_observation_id: expect.stringMatching(/^[0-9a-f-]{36}$/u) }]);
+      const versionsBeforeInvalid = await database.query('SELECT id,scoring_profile_id FROM league_configuration_versions WHERE league_season_id=$1 ORDER BY id', [registered.value.leagueSeasonId]);
+      expect(versionsBeforeInvalid.length).toBeGreaterThan(0);
       for (const invalid of [{ scoring_settings: [] }, { scoring_settings: { pass_td: '4' } },
         { roster_positions: {} }, { roster_positions: [null] }]) {
         payload = { league_id: native, season: String(season), sport: 'nfl', name: 'Invalid preconfiguration',
           settings: {}, total_rosters: 1, ...invalid };
         const result = await write();
-        expect(result.results[0].result.leagueSettingsAcceptance?.status).not.toBe('accepted');
-        expect(await database.query(`SELECT head.scope_id,head.accepted_id FROM league_roster_resource_heads head
-          JOIN league_roster_resource_scopes scope ON scope.id=head.scope_id WHERE scope.league_season_id=$1 ORDER BY head.scope_id`, [registered.value.leagueSeasonId])).toEqual(acceptedBeforeInvalid);
+        // Identity coverage retains invalid optional source fields. Only the
+        // legacy configuration is rejected; its accepted observation stays put.
+        expect(result.results[0].result).toMatchObject({ status: 'rejected', leagueSettingsAcceptance: { status: 'accepted' } });
+        const read = await administration.readAcceptedLeagueSettings(mapping);
+        expect(read).toMatchObject({ status: 'available', receipt: {
+          id: result.results[0].result.leagueSettingsAcceptance?.receiptId, configurationVersionId: null },
+          comparison: { legacyConfiguration: 'rejected' } });
+        if (read.status !== 'available') throw new Error('Missing invalid optional-field evidence.');
+        expect('scoring_settings' in invalid ? read.value.scoring.rules : read.value.slots)
+          .toEqual({ sourcePath: 'scoring_settings' in invalid ? 'scoring_settings' : 'roster_positions',
+            state: 'invalid', value: null, raw: 'scoring_settings' in invalid ? invalid.scoring_settings : invalid.roster_positions });
+        expect(await database.query(`SELECT accepted_observation_id FROM league_administration_heads
+          WHERE league_season_id=$1 AND family='league' AND week=0`, [registered.value.leagueSeasonId])).toEqual(legacyBeforeInvalid);
+        expect(await database.query('SELECT id,scoring_profile_id FROM league_configuration_versions WHERE league_season_id=$1 ORDER BY id', [registered.value.leagueSeasonId])).toEqual(versionsBeforeInvalid);
+        expect(await profileSnapshot()).toEqual(profiles);
       }
       payload = { league_id: native, season: String(season), sport: 'nfl', name: 'Configured later official evidence',
         settings: {}, total_rosters: 1, scoring_settings: { pass_td: 7.037, rec: 0 }, roster_positions: ['QB', 'BN'] };
       const later = await write();
-      expect(later.results[0].result.leagueSettingsAcceptance?.status).toBe('accepted');
+      // Typed acceptance and legacy season-profile compatibility are independent.
+      expect(later.results[0].result).toMatchObject({ status: 'rejected',
+        reason: 'scoring_profile_change_requires_explicit_compatibility_and_period_review',
+        leagueSettingsAcceptance: { status: 'accepted' } });
       const read = await administration.readAcceptedLeagueSettings(mapping);
       expect(read).toMatchObject({ status: 'available', value: { scoring: { rules: { state: 'known', value: payload.scoring_settings } },
-        slots: { state: 'known' } }, comparison: { legacyConfiguration: 'rejected' } });
+        slots: { state: 'known', value: [
+          { nativeCode: 'QB', count: 1, ordinal: 0, semantics: 'ordered-occurrence' },
+          { nativeCode: 'BN', count: 1, ordinal: 1, semantics: 'ordered-occurrence' }] } },
+        comparison: { legacyConfiguration: 'equal' } });
       expect((await database.query('SELECT scoring_profile_id FROM league_seasons WHERE id=$1', [registered.value.leagueSeasonId]))[0])
         .toEqual({ scoring_profile_id: null });
       expect(await database.query(`SELECT version.scoring_profile_id FROM league_configuration_versions version

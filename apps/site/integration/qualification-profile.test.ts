@@ -11,17 +11,18 @@ import { createQualificationContext, markQualificationFailure, parseQualificatio
   validateQualificationArtifacts, validateQualificationReport, writeQualificationArtifact,
   LIVE_PROFILE, LIVE_MODULE, LIVE_FULL_NAME, LIVE_PATTERN, LIVE_SOURCE_DIGEST, qualificationIncludes, requireLiveQualification,
   JOURNEY_PROFILE, JOURNEY_MODULE, JOURNEY_FULL_NAME, JOURNEY_PATTERN, JOURNEY_SOURCE_DIGEST, requireJourneyQualification,
+  OFFICIAL_PROFILE, OFFICIAL_FULL_NAMES, OFFICIAL_PATTERN,
   type QualificationBinding, type QualificationCase, type QualificationReport } from './qualification-profile';
 
 const directories: string[] = [];
 const exitCode = process.exitCode;
 afterEach(async () => { process.exitCode = exitCode; await Promise.all(directories.splice(0).map(path => rm(path, { recursive: true, force: true }))); });
-async function fixture(selected: boolean | typeof INGESTION_PROFILE = false): Promise<QualificationBinding> {
+async function fixture(selected: boolean | typeof INGESTION_PROFILE | typeof OFFICIAL_PROFILE = false): Promise<QualificationBinding> {
   const directory = await mkdtemp(join(tmpdir(), 'qualification-profile-')); directories.push(directory);
   await mkdir(join(directory, 'integration'));
   await writeFile(join(directory, SELECTED_MODULE), 'fixture\r\nsource\r\n');
   const context = await createQualificationContext(selected ? fileURLToPath(new URL('..', import.meta.url)) : directory,
-    'a'.repeat(40), randomUUID(), selected === INGESTION_PROFILE ? INGESTION_PROFILE : selected ? SELECTED_PROFILE : 'full');
+    'a'.repeat(40), randomUUID(), typeof selected === 'string' ? selected : selected ? SELECTED_PROFILE : 'full');
   // Synthetic fixture context only; production creation verifies the pinned source digest.
   context.modules[0].sourceDigest = qualificationSourceDigest('fixture\nsource\n');
   return { directory, context };
@@ -29,12 +30,13 @@ async function fixture(selected: boolean | typeof INGESTION_PROFILE = false): Pr
 function report(binding: QualificationBinding): QualificationReport {
   const selected = binding.context.profile !== 'full';
   const ingestion = binding.context.profile === INGESTION_PROFILE;
+  const official = binding.context.profile === OFFICIAL_PROFILE;
   return { kind: 'integration-qualification-report-v1', contextDigest: qualificationDigest(binding.context), starts: 1, ends: 1,
-    reason: 'passed', unhandledErrors: 0, specifications: [{ path: SELECTED_MODULE, pattern: selected ? ingestion ? INGESTION_PATTERN : SELECTED_PATTERN : null,
+    reason: 'passed', unhandledErrors: 0, specifications: [{ path: SELECTED_MODULE, pattern: selected ? official ? OFFICIAL_PATTERN : ingestion ? INGESTION_PATTERN : SELECTED_PATTERN : null,
       otherFilters: false }], collected: [SELECTED_MODULE], hooks: [{ key: 'suite:beforeAll', starts: 1, ends: 1 }],
     modules: [{ path: SELECTED_MODULE, state: 'passed', errors: 0, suites: [],
       cases: (selected ? SELECTED_INVENTORY : ['fixture']).map((name, index) => {
-        const runs = !selected || name === (ingestion ? INGESTION_FULL_NAME : SELECTED_FULL_NAME);
+        const runs = !selected || (official ? OFFICIAL_FULL_NAMES.includes(name) : name === (ingestion ? INGESTION_FULL_NAME : SELECTED_FULL_NAME));
         return { id: 'case-' + index, name, state: runs ? 'passed' : 'skipped', mode: runs ? 'run' : 'skip',
           expectedFailure: false, configuredRetries: false, configuredRepeats: 0, errors: 0,
           readyEvents: 1, resultEvents: 1, diagnostic: runs ? {
@@ -170,6 +172,78 @@ it('keeps the ordinary selector closed and refuses cross-profile case evidence',
   expect(() => validateQualificationReport(refresh.context, evidence)).toThrow();
   evidence.contextDigest = qualificationDigest(refresh.context);
   expect(() => validateQualificationReport(refresh.context, evidence)).toThrow();
+});
+it('binds the official pair to exactly two cases, one module and the complete reviewed inventory', async () => {
+  expect(parseQualificationArguments(['--profile=' + OFFICIAL_PROFILE])).toBe(OFFICIAL_PROFILE);
+  expect(qualificationArguments(OFFICIAL_PROFILE, '/reporter').slice(4)).toEqual([SELECTED_MODULE, '--testNamePattern', OFFICIAL_PATTERN]);
+  for (const extra of ['--retry=1', '--testNamePattern=x', '--profile=' + INGESTION_PROFILE]) {
+    expect(() => parseQualificationArguments(['--profile=' + OFFICIAL_PROFILE, extra])).toThrow();
+  }
+  const pattern = new RegExp(OFFICIAL_PATTERN);
+  expect(pattern.source).toBe(OFFICIAL_PATTERN);
+  expect(SELECTED_INVENTORY.filter(name => pattern.test(name.replaceAll(' > ', ' ')))).toEqual([...OFFICIAL_FULL_NAMES].sort());
+  for (const name of OFFICIAL_FULL_NAMES) {
+    expect(pattern.test('prefix ' + name.replaceAll(' > ', ' '))).toBe(false);
+    expect(pattern.test(name.replaceAll(' > ', ' ') + ' suffix')).toBe(false);
+  }
+  const binding = await fixture(OFFICIAL_PROFILE), evidence = report(binding);
+  await writeQualificationArtifact(binding, 'report', evidence);
+  await qualificationCleanup(async () => {}, binding);
+  await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({
+    profile: OFFICIAL_PROFILE, collected: 25, executed: 2, passed: 2, skipped: 23, filtered: 23,
+  });
+  for (const older of [await fixture(true), await fixture(INGESTION_PROFILE)]) {
+    expect(binding.context.profileDigest).not.toBe(older.context.profileDigest);
+    const substituted = report(older); substituted.contextDigest = qualificationDigest(binding.context);
+    substituted.specifications[0].pattern = OFFICIAL_PATTERN;
+    expect(() => validateQualificationReport(binding.context, substituted)).toThrow();
+    const reverse = structuredClone(evidence); reverse.contextDigest = qualificationDigest(older.context);
+    reverse.specifications[0].pattern = report(older).specifications[0].pattern;
+    expect(() => validateQualificationReport(older.context, reverse)).toThrow();
+  }
+});
+it('rejects either missing, skipped, retried or duplicated official case and any extra execution', async () => {
+  const binding = await fixture(OFFICIAL_PROFILE);
+  for (const name of OFFICIAL_FULL_NAMES) {
+    const changes: ((r: QualificationReport) => void)[] = [
+      r => { r.modules[0].cases = r.modules[0].cases.filter(test => test.name !== name); },
+      r => { r.modules[0].cases.push({ ...r.modules[0].cases.find(test => test.name === name)! }); },
+      ...[(test: QualificationCase) => { test.state = 'skipped'; test.mode = 'skip'; test.diagnostic = null; },
+        (test: QualificationCase) => { test.state = 'pending'; },
+        (test: QualificationCase) => { test.state = 'failed'; },
+        (test: QualificationCase) => { test.expectedFailure = true; },
+        (test: QualificationCase) => { test.configuredRetries = true; },
+        (test: QualificationCase) => { test.configuredRepeats = 1; },
+        (test: QualificationCase) => { test.diagnostic!.retryCount = 1; },
+        (test: QualificationCase) => { test.diagnostic!.repeatCount = 1; },
+        (test: QualificationCase) => { test.diagnostic!.flaky = true; },
+        (test: QualificationCase) => { test.readyEvents = 0; },
+        (test: QualificationCase) => { test.resultEvents = 2; }]
+        .map(change => (r: QualificationReport) => change(r.modules[0].cases.find(test => test.name === name)!)),
+    ];
+    for (const change of changes) {
+      const evidence = report(binding); change(evidence);
+      expect(() => validateQualificationReport(binding.context, evidence)).toThrow();
+    }
+  }
+  const extra = report(binding), filtered = extra.modules[0].cases.find(test => !OFFICIAL_FULL_NAMES.includes(test.name))!;
+  filtered.state = 'passed'; filtered.mode = 'run';
+  filtered.diagnostic = { retryCount: 0, repeatCount: 0, flaky: false, duration: 1, startTime: 1234 };
+  expect(() => validateQualificationReport(binding.context, extra)).toThrow();
+  for (const pattern of [SELECTED_PATTERN, INGESTION_PATTERN, '.*']) {
+    const evidence = report(binding); evidence.specifications[0].pattern = pattern;
+    expect(() => validateQualificationReport(binding.context, evidence)).toThrow();
+  }
+});
+it('refuses official pair source drift before provisioning and keeps default full discovery unchanged', async () => {
+  const binding = await fixture();
+  await expect(createQualificationContext(binding.directory, 'a'.repeat(40), randomUUID(), OFFICIAL_PROFILE)).rejects.toThrow('reviewed LF digest');
+  const site = fileURLToPath(new URL('..', import.meta.url));
+  const context = await createQualificationContext(site, 'a'.repeat(40), randomUUID(), OFFICIAL_PROFILE);
+  expect(context.modules).toEqual([{ path: SELECTED_MODULE, sourceDigest: SELECTED_SOURCE_DIGEST }]);
+  expect(qualificationIncludes({ [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(context),
+    PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY: binding.directory })).toEqual(['integration/**/*.integration-case.ts']);
+  expect((await createQualificationContext(site, 'a'.repeat(40), randomUUID())).modules).toHaveLength(48);
 });
 it('excludes live source from generated full inventory and default discovery, requiring the exact bound opt-in', async () => {
   const binding = await fixture();

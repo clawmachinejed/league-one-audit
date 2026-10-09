@@ -8,6 +8,7 @@ import { afterEach, expect, it } from 'vitest';
 import QualificationReporter from './qualification-reporter';
 import { createQualificationContext, qualificationArguments, qualificationDigest, qualificationSourceDigest, QUALIFICATION_CONTEXT_ENV,
   QUALIFICATION_FILES, INGESTION_PROFILE, INGESTION_FULL_NAME, SELECTED_FULL_NAME, SELECTED_INVENTORY, SELECTED_MODULE, SELECTED_PROFILE,
+  OFFICIAL_PROFILE, OFFICIAL_SUITE, OFFICIAL_FULL_NAMES,
   validateQualificationArtifacts, type QualificationReport } from './qualification-profile';
 
 const directories: string[] = [];
@@ -20,12 +21,25 @@ afterEach(async () => { process.exitCode = originalExit; await Promise.all(direc
 
 /** Actual installed runner, synthetic modules only. No application or SQL imports;
  * outbound fetch/http/net are blocked before configuration and worker startup. */
-async function runFixture(kind: 'ordinary' | 'selected' | 'teardown' | 'hook' | 'retry' | 'repeat' | 'unhandled' | 'timeout') {
+async function runFixture(kind: 'ordinary' | 'selected' | 'official' | 'teardown' | 'hook' | 'retry' | 'repeat' | 'unhandled' | 'timeout') {
   const directory = await mkdtemp(join(tmpdir(), 'qualification-runner-')); directories.push(directory);
   await mkdir(join(directory, 'integration')); await mkdir(join(directory, 'artifacts'));
   const vitestImport = pathToFileURL(join(site, 'node_modules/vitest/dist/index.js')).href;
-  let body = "import {it,expect,describe,beforeAll} from " + JSON.stringify(vitestImport) + ";\n";
-  if (kind === 'selected' || kind === 'ordinary') {
+  let body = "import {it,expect,describe,beforeAll,afterAll} from " + JSON.stringify(vitestImport) + ";\n";
+  if (kind === 'official') {
+    body += 'let setup=0,executed=0;\n';
+    for (const [suite, names] of Object.entries(Object.groupBy(SELECTED_INVENTORY, name => name.split(' > ')[0]))) {
+      body += 'describe(' + JSON.stringify(suite) + ',()=>{';
+      body += suite === OFFICIAL_SUITE ? 'beforeAll(()=>{setup++});afterAll(()=>{expect(executed).toBe(2)});'
+        : "beforeAll(()=>{throw Error('filtered suite hook unexpectedly ran')});";
+      for (const name of names!) {
+        body += 'it(' + JSON.stringify(name.split(' > ')[1]) + ',()=>{' +
+          (OFFICIAL_FULL_NAMES.includes(name) ? 'expect(setup).toBe(1);executed++;'
+            : "throw Error('filtered case unexpectedly ran')") + '});';
+      }
+      body += '});\n';
+    }
+  } else if (kind === 'selected' || kind === 'ordinary') {
     for (const name of SELECTED_INVENTORY) {
       const parts = name.split(' > ');
       body += 'describe(' + JSON.stringify(parts[0]) + ',()=>{it(' + JSON.stringify(parts[1]) + ',()=>{' +
@@ -49,8 +63,8 @@ async function runFixture(kind: 'ordinary' | 'selected' | 'teardown' | 'hook' | 
   await writeFile(guard, "import {createRequire} from 'node:module';const require=createRequire(import.meta.url);" +
     "const deny=()=>{throw Error('NETWORK_BLOCKED_FIXTURE')};for(const m of ['http','https']){require(m).request=deny;require(m).get=deny;}" +
     "require('net').Socket.prototype.connect=deny;globalThis.fetch=deny;\n");
-  const context = await createQualificationContext(kind === 'selected' || kind === 'ordinary' ? site : directory, 'a'.repeat(40), randomUUID(),
-    kind === 'ordinary' ? INGESTION_PROFILE : kind === 'selected' ? SELECTED_PROFILE : 'full');
+  const context = await createQualificationContext(kind === 'selected' || kind === 'ordinary' || kind === 'official' ? site : directory, 'a'.repeat(40), randomUUID(),
+    kind === 'official' ? OFFICIAL_PROFILE : kind === 'ordinary' ? INGESTION_PROFILE : kind === 'selected' ? SELECTED_PROFILE : 'full');
   // Only this no-SQL fixture substitutes synthetic source beneath the same closed case inventory.
   context.modules[0].sourceDigest = qualificationSourceDigest(body);
   const allow = new Set(['path','systemroot','windir','comspec','temp','tmp','tmpdir','home','userprofile','localappdata','appdata','pathext']);
@@ -114,4 +128,13 @@ it('executes only the ordinary case among25 and rejects that report under the re
     collected: 25, executed: 1, passed: 1, filtered: 24 });
   const other = await createQualificationContext(site, binding.context.gitSha, binding.context.runId, SELECTED_PROFILE);
   await expect(validateQualificationArtifacts({ ...binding, context: other })).rejects.toThrow();
+});
+it('executes the official pair once with shared suite hooks and skips all23 unrelated cases and hooks', { timeout: 30_000 }, async () => {
+  const { child, binding, report } = await runFixture('official');
+  expect(child.status).toBe(0);
+  expect(report.modules[0].cases.filter(test => test.state === 'passed').map(test => test.name).sort()).toEqual([...OFFICIAL_FULL_NAMES].sort());
+  expect(report.hooks).toHaveLength(2);
+  for (const hook of report.hooks) expect(hook).toMatchObject({ starts: 1, ends: 1 });
+  await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({ profile: OFFICIAL_PROFILE,
+    collected: 25, executed: 2, passed: 2, skipped: 23, filtered: 23 });
 });

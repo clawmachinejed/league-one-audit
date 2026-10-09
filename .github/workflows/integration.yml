@@ -11,6 +11,7 @@ on:
           - full
           - data-core-ingestion-v1
           - data-core-refresh-v1
+          - data-official-preconfiguration-v1
           - data-live-league-two-v1
           - data-live-public-intake-v1
   push:
@@ -64,6 +65,9 @@ jobs:
               ;;
             workflow_dispatch:data-core-refresh-v1)
               pnpm test:integration --profile=data-core-refresh-v1
+              ;;
+            workflow_dispatch:data-official-preconfiguration-v1)
+              pnpm test:integration --profile=data-official-preconfiguration-v1
               ;;
             workflow_dispatch:data-live-league-two-v1)
               pnpm test:integration --profile=data-live-league-two-v1

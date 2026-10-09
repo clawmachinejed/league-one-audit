@@ -299,7 +299,7 @@ describe('disposable integration receipt ownership', () => {
   });
 });
 
-it.each(['data-core-refresh-v1','data-core-ingestion-v1'])('forwards only closed profile %s without changing lifecycle safeguards', async profile => {
+it.each(['data-core-refresh-v1','data-core-ingestion-v1','data-official-preconfiguration-v1'])('forwards only closed profile %s without changing lifecycle safeguards', async profile => {
   process.argv.push('--profile=' + profile); await import('./run-disposable-integration');
   expect(mocked.run.mock.calls[0][0].profile).toBe(profile); expect(process.exitCode).toBe(0);
 });
