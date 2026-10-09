@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import http from 'node:http';
 import ts from 'typescript';
 import { types } from '@neondatabase/serverless';
@@ -838,13 +838,13 @@ async function journeyAssertionFixture() {
   let finalizer: ts.TryStatement | undefined;
   const visit = (node: ts.Node) => {
     if (ts.isVariableStatement(node)) for (const declaration of node.declarationList.declarations) {
-      if (ts.isIdentifier(declaration.name) && ['check', 'proveCollection', 'observedReaders'].includes(declaration.name.text)) declarations.set(declaration.name.text, node.getText(tree));
+      if (ts.isIdentifier(declaration.name) && ['check', 'equal', 'proveCollection', 'observedReaders'].includes(declaration.name.text)) declarations.set(declaration.name.text, node.getText(tree));
     }
     if (ts.isCallExpression(node) && node.expression.getText(tree) === 'check' && ts.isStringLiteral(node.arguments[1])) checks.set(node.arguments[1].text, node);
     if (ts.isTryStatement(node) && node.finallyBlock?.statements[0]?.getText(tree) === 'globalThis.fetch = originalFetch;') finalizer = node;
     ts.forEachChild(node, visit);
   };
-  visit(tree); expect(declarations.size).toBe(3); expect(finalizer?.catchClause).toBeDefined();
+  visit(tree); expect(declarations.size).toBe(4); expect(finalizer?.catchClause).toBeDefined();
   const diagnostics = createPublicDataDiagnostics('journey'); for (let i = 0; i < 14; i++) diagnostics.beginStep(1);
   const originalFetch = globalThis.fetch, guardedFetch = vi.fn<typeof fetch>(async () => { throw new Error(secret); });
   vi.stubGlobal('fetch', guardedFetch);
@@ -860,6 +860,24 @@ async function journeyAssertionFixture() {
     const bindings = { ...base, ...supplied };
     return compile(bindings, declarations.get('check')! + '\nreturn (async () => { ' + node!.getText(tree) + '; })();')(...Object.values(bindings));
   };
+  const profile = async (canonical: DatabaseRow, initialRules: unknown, options: { cycle?: 1 | 2; first?: DatabaseRow; refreshedRules?: unknown } = {}) => {
+    const declaration = checks.get('journey.canonical.fields')!.parent.parent as ts.Block;
+    const statements = [...declaration.statements];
+    const start = statements.findIndex(statement => ts.isVariableStatement(statement)
+      && statement.declarationList.declarations.some(value => value.name.getText(tree) === '[canonical]'));
+    const end = statements.findIndex(statement => ts.isIfStatement(statement) && statement.getText(tree).includes("'journey.canonical.stable'"));
+    expect(start).toBeGreaterThanOrEqual(0); expect(end).toBeGreaterThan(start);
+    const query = vi.fn(async () => [canonical]);
+    const capture = vi.fn((cycle: number) => ({ payload: { scoring_settings: cycle === 1 ? initialRules : options.refreshedRules } }));
+    const bindings = { ...base, createHash, assertLiveJson, database: { query }, capture, cycle: options.cycle ?? 1,
+      leagueId: JOURNEY_LEAGUES[0], mapping: { leagueSeasonId: id, connectionId: id }, firstIdentity: new Map([[JOURNEY_LEAGUES[0], options.first]]),
+      uuid: /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu };
+    const code = declarations.get('check')! + '\n' + declarations.get('equal')! + '\nreturn (async () => { '
+      + statements.slice(start, end + 1).map(statement => statement.getText(tree)).join('\n') + ' })();';
+    await compile(bindings, code)(...Object.values(bindings));
+    expect(query).toHaveBeenCalledExactlyOnceWith(expect.stringContaining('LEFT JOIN public.scoring_profiles profile ON profile.id=season.scoring_profile_id'), [JOURNEY_LEAGUES[0], JOURNEY_SEASON]);
+    expect(capture).toHaveBeenCalledExactlyOnceWith(1, 'bootstrap', JOURNEY_LEAGUES[0], 'league');
+  };
   const run = async (action: () => Promise<unknown>) => {
     const bindings = { ...base, action, originalFetch, writeIntegrationArtifact, qualificationDigest, binding: { context },
       claims: 14, admissions: 14, finalized: false, changes: [], source: { snapshot: () => ({}) } };
@@ -874,7 +892,7 @@ async function journeyAssertionFixture() {
     expect(diagnostics.failure('case', new Error(secret))).toBe(thrown);
     return { raw, saved, thrown };
   };
-  return { prove, selected, run, checks, tree };
+  return { prove, selected, profile, run, checks, tree };
 }
 const journeyRead = () => ({ status: 'available', request: { id, terminal: true, external_manager_id: JOURNEY_MANAGER,
   seasons: [JOURNEY_SEASON], failure_count: 0 }, rejected: [], leagues: JOURNEY_LEAGUES.map(externalLeagueId => ({ externalLeagueId })), lists: [{ season: JOURNEY_SEASON }] });
@@ -927,7 +945,7 @@ it('requires every journey matcher to use owned comparison instrumentation and t
     }
     ts.forEachChild(node, collect);
   }; collect(tree);
-  expect(f.checks.size).toBe(67);
+  expect(f.checks.size).toBe(72);
   let count = 0;
   const visit = (node: ts.Node) => {
     if (ts.isCallExpression(node) && node.expression.getText(f.tree) === 'expect') {
@@ -945,7 +963,7 @@ it('requires every journey matcher to use owned comparison instrumentation and t
       }
     }
     ts.forEachChild(node, visit);
-  }; visit(f.tree); expect(count).toBe(68);
+  }; visit(f.tree); expect(count).toBe(73);
 });
 it('supplements a partial first readback with a bounded league alias and exact unavailable resource reason', async () => {
   const f = await journeyAssertionFixture(), read = journeyRead(); read.status = 'partial';
@@ -1017,4 +1035,56 @@ it('preserves the original assertion when a revoked proxy makes the fixed readba
   expect(saved.firstFailure).toMatchObject({ category: 'assertion', comparison: { id: 'journey.intake.summary', matcher: 'toMatchObject',
     readback: { state: 'unavailable', redacted: true } } });
   expect(diagnostics.failure('case', new Error(secret))).toBe(first); expect(Buffer.byteLength(raw)).toBeLessThanOrEqual(64 * 1024);
+});
+
+const profileRules = { rec: 1, unsupported_bonus: 2 };
+const profileRow = (rules: Record<string, number> | null | undefined): DatabaseRow => {
+  const configured = rules != null && Object.keys(rules).length > 0;
+  return { league_id: id, league_season_id: id, connection_id: id, scoring_profile_id: configured ? id : null,
+    profile_id: configured ? id : null, rules_hash: configured ? createHash('sha256').update(JSON.stringify(Object.fromEntries(Object.entries(rules).sort(([a], [b]) => a.localeCompare(b))))).digest('hex') : null,
+    profile_rules: configured ? rules : null, active: false, evidence: 'public-data-intake-v1' };
+};
+it.each([
+  { name: 'supported', rules: { rec: 1 } }, { name: 'unfamiliar numeric', rules: profileRules },
+  { name: 'absent', rules: undefined }, { name: 'null', rules: null }, { name: 'empty', rules: {} },
+] as { name: string; rules: Record<string, number> | null | undefined }[])('accepts the actual journey canonical oracle for initial $name registration evidence', async ({ rules }) => {
+  const f = await journeyAssertionFixture(); await f.profile(profileRow(rules), rules);
+});
+it.each([
+  ['missing profile', { scoring_profile_id: null }, 'journey.canonical.profile-present'],
+  ['numeric profile', { scoring_profile_id: 42 }, 'journey.canonical.profile-present'],
+  ['object profile', { scoring_profile_id: { payload: secret } }, 'journey.canonical.profile-present'],
+  ['invalid profile UUID', { scoring_profile_id: 'invalid' }, 'journey.canonical.profile-uuid'],
+  ['missing joined profile', { profile_id: null }, 'journey.canonical.profile-binding'],
+  ['wrong joined profile', { profile_id: '22222222-2222-4222-8222-222222222222' }, 'journey.canonical.profile-binding'],
+  ['wrong hash', { rules_hash: '0'.repeat(64) }, 'journey.canonical.profile-hash'],
+  ['missing hash', { rules_hash: null }, 'journey.canonical.profile-hash'],
+  ['missing rules', { profile_rules: null }, 'live.json.type'],
+  ['wrong numeric rule', { profile_rules: { rec: 1, unsupported_bonus: 3 } }, 'live.json.value'],
+  ['omitted unfamiliar rule', { profile_rules: { rec: 1 } }, 'live.json.length'],
+] as const)('rejects %s through the actual canonical oracle with bounded exact diagnostic', async (_name, change, label) => {
+  const f = await journeyAssertionFixture(), { saved, raw } = await f.run(() => f.profile({ ...profileRow(profileRules), ...change }, profileRules));
+  expect(saved.firstFailure.comparison.id).toBe(label);
+  expect(raw).not.toContain('unsupported_bonus'); expect(raw).not.toContain(id);
+  if (label === 'journey.canonical.profile-hash') expect(saved.firstFailure.comparison.expected).toMatchObject({ kind: 'string', alias: expect.any(Number) });
+});
+it.each(['scoring_profile_id', 'profile_id', 'rules_hash', 'profile_rules'] as const)('requires NULL %s for initially absent/null/empty profile evidence', async field => {
+  const f = await journeyAssertionFixture(), row = { ...profileRow(null), [field]: field === 'profile_rules' ? {} : id };
+  const { saved } = await f.run(() => f.profile(row, null)); expect(saved.firstFailure.comparison.id).toBe('journey.canonical.profile-empty');
+  expect(saved.firstFailure.comparison.actual[field]).not.toBeNull(); expect(saved.firstFailure.comparison.expected[field]).toBeNull();
+});
+it.each([
+  { name: 'same supported rules', initial: { rec: 1 }, refreshed: { rec: 1 } },
+  { name: 'changed supported rules', initial: { rec: 1 }, refreshed: { rec: 2 } },
+  { name: 'changed unfamiliar rules', initial: profileRules, refreshed: { different_unfamiliar: 9 } },
+  { name: 'initial NULL with later configured rules', initial: null, refreshed: profileRules },
+])('preserves initial immutable profile with $name on refresh', async ({ initial, refreshed }) => {
+  const f = await journeyAssertionFixture(), row = profileRow(initial);
+  await f.profile(row, initial, { cycle: 2, first: structuredClone(row), refreshedRules: refreshed });
+});
+it('rejects replacement of the original season profile even when replacement rules and hash are equal', async () => {
+  const f = await journeyAssertionFixture(), first = profileRow(profileRules), replacement = { ...first,
+    scoring_profile_id: '22222222-2222-4222-8222-222222222222', profile_id: '22222222-2222-4222-8222-222222222222' };
+  const { saved } = await f.run(() => f.profile(replacement, profileRules, { cycle: 2, first, refreshedRules: profileRules }));
+  expect(saved.firstFailure.comparison.id).toBe('journey.canonical.stable');
 });

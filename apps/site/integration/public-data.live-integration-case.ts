@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createIndependentDatabase, createReceiptDiagnosticReader, type IndependentDatabase } from './neon-integration-harness';
@@ -122,12 +122,27 @@ describe(JOURNEY_SUITE, () => {
           const mapping = await observedReaders.readSourceMapping(leagueId);
           if (!mapping) throw new Error('Missing live mapping.');
           const [canonical] = await database.query('SELECT league.id AS league_id,season.id AS league_season_id,connection.id AS connection_id,' +
-            'season.scoring_profile_id,enrollment.active,enrollment.evidence FROM public.league_source_connections connection ' +
+            'season.scoring_profile_id,profile.id AS profile_id,profile.rules_hash,profile.rules AS profile_rules,enrollment.active,enrollment.evidence FROM public.league_source_connections connection ' +
             'JOIN public.league_seasons season ON season.id=connection.league_season_id JOIN public.leagues league ON league.id=season.league_id ' +
             'JOIN public.league_administration_enrollments enrollment ON enrollment.league_id=league.id ' +
+            'LEFT JOIN public.scoring_profiles profile ON profile.id=season.scoring_profile_id ' +
             "WHERE connection.provider='sleeper' AND connection.external_league_id=$1 AND season.season=$2", [leagueId, JOURNEY_SEASON]);
           check('canonical-identity', 'journey.canonical.fields', canonical, { league_season_id: mapping.leagueSeasonId, connection_id: mapping.connectionId,
-            scoring_profile_id: null, active: false, evidence: 'public-data-intake-v1' }, (a, e) => expect(a).toMatchObject(e));
+            active: false, evidence: 'public-data-intake-v1' }, (a, e) => expect(a).toMatchObject(e));
+          // Public registration fixes the season profile from its first bootstrap, including unfamiliar numeric rules.
+          // Later official captures can change without rewriting that immutable profile.
+          const initialRules = (capture(1, 'bootstrap', leagueId, 'league').payload as { scoring_settings?: Record<string, number> | null }).scoring_settings;
+          if (initialRules !== undefined && initialRules !== null && Object.keys(initialRules).length > 0) {
+            const initialHash = createHash('sha256').update(JSON.stringify(Object.fromEntries(Object.entries(initialRules)
+              .sort(([left], [right]) => left.localeCompare(right))))).digest('hex');
+            check('canonical-identity', 'journey.canonical.profile-present', typeof canonical.scoring_profile_id === 'string', true, (a, e) => expect(a).toBe(e));
+            check('canonical-identity', 'journey.canonical.profile-uuid', canonical.scoring_profile_id, uuid, (a, e) => expect(a).toMatch(e));
+            check('canonical-identity', 'journey.canonical.profile-binding', canonical.profile_id, canonical.scoring_profile_id, (a, e) => expect(a).toBe(e));
+            check('canonical-identity', 'journey.canonical.profile-hash', canonical.rules_hash, initialHash, (a, e) => expect(a).toBe(e));
+            assertLiveJson(canonical.profile_rules, initialRules, equal, 'settings');
+          } else check('canonical-identity', 'journey.canonical.profile-empty', { scoring_profile_id: canonical.scoring_profile_id,
+            profile_id: canonical.profile_id, rules_hash: canonical.rules_hash, profile_rules: canonical.profile_rules },
+          { scoring_profile_id: null, profile_id: null, rules_hash: null, profile_rules: null }, (a, e) => expect(a).toEqual(e));
           for (const id of [canonical.league_id, canonical.league_season_id, canonical.connection_id]) check('canonical-identity', 'journey.canonical.uuid', id, uuid, (a, e) => expect(a).toMatch(e));
           if (cycle === 1) firstIdentity.set(leagueId, canonical); else check('canonical-identity', 'journey.canonical.stable', canonical, firstIdentity.get(leagueId), (a, e) => expect(a).toEqual(e));
           const settings = await observedReaders.readAcceptedLeagueSettings(mapping);
