@@ -356,7 +356,7 @@ describe(JOURNEY_SUITE, () => {
       check('journey-complete', 'journey.refresh.readback', composed, { status: 'available', target: { id: targetId, externalManagerId: JOURNEY_MANAGER,
         cadenceSeconds: JOURNEY_CADENCE_SECONDS }, cycle: { number: 1, requestId: currentRequest, outcome: { disposition: 'complete' } },
         intake: { status: 'available', request: { terminal: true } } }, (a, e) => expect(a).toMatchObject(e));
-      check('journey-complete', 'journey.refresh.cycle-count', await database.query('SELECT cycle FROM public.public_data_refresh_cycles WHERE target_id=$1', [targetId]), [{ cycle: 1 }], (a, e) => expect(a).toEqual(e));
+      check('journey-complete', 'journey.refresh.cycle-count', await database.query('SELECT cycle::integer AS cycle FROM public.public_data_refresh_cycles WHERE target_id=$1', [targetId]), [{ cycle: 1 }], (a, e) => expect(a).toEqual(e));
       check('journey-complete', 'journey.refresh.disposition', await database.query('SELECT disposition FROM public.public_data_refresh_cycle_outcomes WHERE target_id=$1', [targetId]), [{ disposition: 'complete' }], (a, e) => expect(a).toEqual(e));
       const [spacing] = await database.query(`SELECT count(*)::int AS count,bool_and(gap>=interval '60 seconds') AS bounded FROM (
         SELECT admitted_at-lag(admitted_at) OVER (ORDER BY admitted_at) AS gap FROM public.public_data_dispatches) entries`);

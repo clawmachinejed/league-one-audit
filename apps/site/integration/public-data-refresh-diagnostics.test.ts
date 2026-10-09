@@ -878,6 +878,38 @@ async function journeyAssertionFixture() {
     expect(query).toHaveBeenCalledExactlyOnceWith(expect.stringContaining('LEFT JOIN public.scoring_profiles profile ON profile.id=season.scoring_profile_id'), [JOURNEY_LEAGUES[0], JOURNEY_SEASON]);
     expect(capture).toHaveBeenCalledExactlyOnceWith(1, 'bootstrap', JOURNEY_LEAGUES[0], 'league');
   };
+  const tail = async (overrides: { cycles?: readonly string[]; disposition?: string; spacing?: boolean; count?: string; claims?: number;
+    admissions?: number; unfinished?: readonly DatabaseRow[]; payloadChanged?: boolean; providerRequests?: number; intakeStatus?: string } = {}) => {
+    const statements = [...finalizer!.tryBlock.statements];
+    const start = statements.findIndex(statement => ts.isVariableStatement(statement)
+      && statement.declarationList.declarations.some(value => value.name.getText(tree) === 'settled'));
+    expect(start).toBeGreaterThanOrEqual(0);
+    const parse = (oid: number, raw: string) => types.getTypeParser(oid, 'text')(raw);
+    const query = vi.fn(async (sql: string) => {
+      if (sql.includes('FROM public.public_data_refresh_cycles WHERE target_id=$1')) {
+        const oid = sql.includes('SELECT cycle::integer AS cycle') ? 23 : 20;
+        return (overrides.cycles ?? ['1']).map(value => ({ cycle: parse(oid, value) }));
+      }
+      if (sql.includes('SELECT disposition FROM public.public_data_refresh_cycle_outcomes')) return [{ disposition: parse(25, overrides.disposition ?? 'complete') }];
+      if (sql.includes("bool_and(gap>=interval '60 seconds')")) return [{ count: parse(sql.includes('count(*)::int') ? 23 : 20, overrides.count ?? '28'), bounded: parse(16, overrides.spacing === false ? 'f' : 't') }];
+      if (sql.includes('WHERE outcome.worker_id IS NULL')) return overrides.unfinished ?? [];
+      throw new Error('Unexpected offline final-tail query.');
+    });
+    const originalPayload = { payload: 'original' }, capturePayload = overrides.payloadChanged ? { payload: 'changed' } : originalPayload;
+    const source = { assertComplete: vi.fn(), captures: [{ capture: { payload: capturePayload }, payloadDigest: qualificationDigest(originalPayload) }] };
+    const step = vi.fn(async () => ({ status: 'backoff', providerRequests: overrides.providerRequests ?? 0 }));
+    const read = vi.fn(async () => ({ status: 'available', target: { id, externalManagerId: JOURNEY_MANAGER, cadenceSeconds: 3600 },
+      cycle: { number: 1, requestId: id, outcome: { disposition: 'complete' } },
+      intake: { status: overrides.intakeStatus ?? 'available', request: { terminal: true } } }));
+    for (let index = 14; index < 29; index++) diagnostics.beginStep(2);
+    const bindings = { ...base, runPublicDataRefreshStep: step, readPublicDataRefresh: read, database: { query }, dependencies: {}, observedReaders: {},
+      targetId: id, currentRequest: id, JOURNEY_CADENCE_SECONDS: 3600, until: performance.now() + 60_000,
+      claims: overrides.claims ?? 29, admissions: overrides.admissions ?? 28, source, qualificationDigest, finalized: false, process: { stdout: { write: vi.fn() } } };
+    const code = declarations.get('check')! + '\nreturn (async () => { ' + statements.slice(start).map(statement => statement.getText(tree)).join('\n') + '; return { finalized }; })();';
+    const result = await compile(bindings, code)(...Object.values(bindings));
+    expect(query).toHaveBeenCalledTimes(4); expect(step).toHaveBeenCalledOnce(); expect(read).toHaveBeenCalledOnce(); expect(source.assertComplete).toHaveBeenCalledOnce();
+    return result;
+  };
   const run = async (action: () => Promise<unknown>) => {
     const bindings = { ...base, action, originalFetch, writeIntegrationArtifact, qualificationDigest, binding: { context },
       claims: 14, admissions: 14, finalized: false, changes: [], source: { snapshot: () => ({}) } };
@@ -892,7 +924,7 @@ async function journeyAssertionFixture() {
     expect(diagnostics.failure('case', new Error(secret))).toBe(thrown);
     return { raw, saved, thrown };
   };
-  return { prove, selected, profile, run, checks, tree };
+  return { prove, selected, profile, tail, run, checks, tree };
 }
 const journeyRead = () => ({ status: 'available', request: { id, terminal: true, external_manager_id: JOURNEY_MANAGER,
   seasons: [JOURNEY_SEASON], failure_count: 0 }, rejected: [], leagues: JOURNEY_LEAGUES.map(externalLeagueId => ({ externalLeagueId })), lists: [{ season: JOURNEY_SEASON }] });
@@ -1087,4 +1119,28 @@ it('rejects replacement of the original season profile even when replacement rul
     scoring_profile_id: '22222222-2222-4222-8222-222222222222', profile_id: '22222222-2222-4222-8222-222222222222' };
   const { saved } = await f.run(() => f.profile(replacement, profileRules, { cycle: 2, first, refreshedRules: profileRules }));
   expect(saved.firstFailure.comparison.id).toBe('journey.canonical.stable');
+});
+it('executes the actual final journey tail with installed Neon parsers and reaches finalization without weakening strict numeric equality', async () => {
+  const f = await journeyAssertionFixture(); expect(await f.tail()).toEqual({ finalized: true });
+  expect(types.getTypeParser(20, 'text')('1')).toBe('1'); expect(types.getTypeParser(23, 'text')('1')).toBe(1);
+});
+it.each([
+  ['wrong cycle', { cycles: ['2'] }, 'journey.refresh.cycle-count'],
+  ['extra cycle', { cycles: ['1', '2'] }, 'journey.refresh.cycle-count'],
+  ['missing cycle', { cycles: [] }, 'journey.refresh.cycle-count'],
+  ['partial disposition', { disposition: 'partial' }, 'journey.refresh.disposition'],
+  ['short spacing', { spacing: false }, 'journey.settlement.spacing'],
+  ['missing dispatch', { count: '27' }, 'journey.settlement.spacing'],
+  ['extra dispatch', { count: '29' }, 'journey.settlement.spacing'],
+  ['missing claim', { claims: 28 }, 'journey.settlement.claims'],
+  ['extra claim', { claims: 30 }, 'journey.settlement.claims'],
+  ['missing admission', { admissions: 27 }, 'journey.settlement.admissions'],
+  ['extra admission', { admissions: 29 }, 'journey.settlement.admissions'],
+  ['unfinished dispatch', { unfinished: [{ worker_id: id }] }, 'journey.settlement.unfinished'],
+  ['changed retained payload', { payloadChanged: true }, 'journey.capture.unchanged'],
+  ['extra settlement GET', { providerRequests: 1 }, 'journey.settlement.outcome'],
+  ['partial composed readback', { intakeStatus: 'partial' }, 'journey.refresh.readback'],
+] as const)('refuses %s in the actual final journey tail and saves the precise failure', async (_name, change, label) => {
+  const f = await journeyAssertionFixture(), { saved } = await f.run(() => f.tail(change));
+  expect(saved.firstFailure).toMatchObject({ category: 'assertion', step: 29, cycle: 2, comparison: { id: label } });
 });
