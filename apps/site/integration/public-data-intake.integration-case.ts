@@ -2904,9 +2904,11 @@ describe('explicit native-week inventory upgrade over retained R039 capture', ()
       expect(afterRead.results).toEqual(beforeRead.results); expect(afterRead.mapping).toEqual(beforeRead.mapping);
       diagnostics.stage('permissions');
       const privileges = async () => {
+        diagnostics.stage('permissions-role');
         expect((await f.database.query(`SELECT role.rolsuper,role.rolcreatedb,role.rolcreaterole,role.rolinherit,role.rolbypassrls,
           EXISTS(SELECT 1 FROM pg_auth_members member WHERE member.member=role.oid) AS memberships FROM pg_roles role WHERE role.rolname=current_user`))[0])
           .toEqual({ rolsuper: false, rolcreatedb: false, rolcreaterole: false, rolinherit: false, rolbypassrls: false, memberships: false });
+        diagnostics.stage('permissions-functions-allowed');
         for (const signature of ['public.submit_public_data_intake(jsonb)','public.configure_public_data_refresh(jsonb)',
           'public.begin_exact_matchup_attempt(jsonb,uuid,integer,jsonb)','public.read_public_data_capture_witness(jsonb,jsonb,jsonb)']) {
           expect((await f.database.query("SELECT has_function_privilege(current_user,$1,'EXECUTE') AS allowed", [signature]))[0].allowed).toBe(true);
@@ -2914,24 +2916,34 @@ describe('explicit native-week inventory upgrade over retained R039 capture', ()
         for (const signature of ['public.canonical_public_data_exact_periods(jsonb,integer[])','public.public_data_exact_period_inventory_v40(uuid)',
           'public.validate_public_data_exact_period_task()','public.validate_public_data_exact_period_checkpoint()',
           'public.derive_public_data_capture_witness(jsonb,jsonb,jsonb)','public.fail_public_data_work(jsonb)']) {
+          diagnostics.stage('permissions-functions-denied');
           expect((await f.database.query("SELECT has_function_privilege(current_user,$1,'EXECUTE') AS allowed", [signature]))[0].allowed).toBe(false);
+          diagnostics.stage('permissions-public-acl');
           expect((await f.database.query(`SELECT COALESCE(bool_or(acl.grantee=0 AND acl.privilege_type='EXECUTE'),false) AS allowed
             FROM pg_proc procedure CROSS JOIN LATERAL aclexplode(COALESCE(procedure.proacl,acldefault('f',procedure.proowner))) acl
             WHERE procedure.oid=to_regprocedure($1)`, [signature]))[0].allowed).toBe(false);
         }
+        diagnostics.stage('permissions-tables');
         for (const table of ['public_data_exact_period_tasks','public_data_exact_period_checkpoints','public_data_dispatches',
           'public_data_dispatch_outcomes','league_roster_capture_receipts','league_roster_resource_acceptances']) {
           expect((await f.database.query("SELECT has_table_privilege(current_user,$1,'SELECT') AS readable,has_table_privilege(current_user,$1,'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN') AS writable", ['public.' + table]))[0])
             .toEqual({ readable: true, writable: false });
         }
+        diagnostics.stage('permissions-update-denial');
         await expect(f.database.query('UPDATE public.public_data_exact_period_tasks SET native_week=8 WHERE intake_id=$1', [id])).rejects.toMatchObject({ code: '42501' });
+        diagnostics.stage('permissions-delete-denial');
         await expect(f.database.query('DELETE FROM public.public_data_exact_period_checkpoints WHERE intake_id=$1', [id])).rejects.toMatchObject({ code: '42501' });
       };
       await privileges();
+      diagnostics.stage('permissions-provision-first');
       const provision = await readFile(new URL('../scripts/provision-runtime-role.sql', import.meta.url), 'utf8');
-      await owner.database.query(provision); await owner.database.query(provision); await privileges();
+      await owner.database.query(provision);
+      diagnostics.stage('permissions-provision-repeat');
+      await owner.database.query(provision); await privileges();
+      diagnostics.stage('permissions-history');
       await assertInventoryHistory(f.database, before);
-      const uniqueColumns = await f.database.query(`SELECT array_agg(attribute.attname ORDER BY key.ordinality) AS columns
+      diagnostics.stage('permissions-constraint');
+      const uniqueColumns = await f.database.query(`SELECT array_agg(attribute.attname::text ORDER BY key.ordinality) AS columns
         FROM pg_constraint constraint_row CROSS JOIN LATERAL unnest(constraint_row.conkey) WITH ORDINALITY key(number,ordinality)
         JOIN pg_attribute attribute ON attribute.attrelid=constraint_row.conrelid AND attribute.attnum=key.number
         WHERE constraint_row.conrelid='public.public_data_exact_period_tasks'::regclass AND constraint_row.contype='u'

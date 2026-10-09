@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { types } from '@neondatabase/serverless';
+import ts from 'typescript';
 import { mkdir, mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -130,4 +132,78 @@ it.each(['missing','malformed','wrong-context-digest'] as const)('refuses %s bin
   else vi.stubEnv(QUALIFICATION_CONTEXT_ENV, mode === 'malformed' ? secret : JSON.stringify({ ...context, profileDigest: '0'.repeat(64) }));
   await expect(createPublicInventoryDiagnostics('inventory').finish([])).rejects.toThrow('Public inventory proof failed at setup (unexpected).');
   expect(await readdir(directory)).toEqual([]);
+});
+
+
+it('executes the maintained constraint oracle with installed driver array decoding and a real assertion failure', async () => {
+  const source = await readFile(new URL('./public-data-intake.integration-case.ts', import.meta.url), 'utf8');
+  const tree = ts.createSourceFile('inventory.ts', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const blocks: ts.Block[] = [];
+  const visit = (node: ts.Node) => {
+    if (ts.isBlock(node) && node.statements.some(statement => ts.isVariableStatement(statement)
+      && statement.declarationList.declarations.some(declaration => declaration.name.getText(tree) === 'uniqueColumns'))) blocks.push(node);
+    ts.forEachChild(node, visit);
+  };
+  visit(tree); expect(blocks).toHaveLength(1);
+  const block = blocks[0], index = block.statements.findIndex(statement => ts.isVariableStatement(statement)
+    && statement.declarationList.declarations.some(declaration => declaration.name.getText(tree) === 'uniqueColumns'));
+  // Only the maintained stage, catalog query and assertion are evaluated. This
+  // test exercises the installed decoder boundary; it never executes SQL.
+  const body = block.statements.slice(index - 1, index + 2).map(statement => statement.getText(tree)).join('\n');
+  const oracle = new Function('f','diagnostics','expect', ts.transpile(
+    'return (async () => {' + body + '})();', { target: ts.ScriptTarget.ES2022 },
+  )) as (fixture: unknown, diagnostics: ReturnType<typeof createPublicInventoryDiagnostics>, assertion: typeof expect) => Promise<void>;
+  const wire = '{intake_id,season,external_league_id,native_week}';
+  const textArray = types.getTypeParser(1009, 'text')(wire), nameArray = types.getTypeParser(1003, 'text')(wire);
+  expect(textArray).toEqual(['intake_id','season','external_league_id','native_week']);
+  expect(typeof nameArray).toBe('string');
+  const fixture = (columns: unknown) => ({ database: { query: vi.fn(async (sql: string) => {
+    expect(sql).toContain('array_agg(attribute.attname::text ORDER BY key.ordinality)');
+    return [{ columns }];
+  }) } });
+  const diagnostics = createPublicInventoryDiagnostics('upgrade'), repaired = fixture(textArray);
+  await oracle(repaired, diagnostics, expect); expect(repaired.database.query).toHaveBeenCalledOnce();
+  let failure: unknown;
+  try { await oracle(fixture(nameArray), diagnostics, expect); } catch (error) { failure = error; }
+  expect(failure).toBeDefined(); expect(Object.getOwnPropertyDescriptor(failure, 'name')).toBeUndefined();
+  const safe = diagnostics.fail(failure);
+  expect(safe.message).toBe('Public inventory proof failed at permissions-constraint (assertion).');
+  await expect(diagnostics.finish([])).rejects.toBe(safe);
+  expect(await read('upgrade')).toMatchObject({ stage: 'permissions-constraint',
+    firstFailure: { stage: 'permissions-constraint', category: 'assertion', sqlState: null } });
+});
+
+it.each(['own-accessors','inherited-accessors','proxy','native-error-prototype-proxy','revoked-proxy'] as const)(
+  'does not consult caller-controlled names or prototype traps for %s', async mode => {
+    const access = vi.fn(() => { throw new Error(secret); });
+    const accessors = { code: { get: access }, name: { get: access }, message: { get: access }, cause: { get: access } };
+    const traps = { get: access, getPrototypeOf: access, getOwnPropertyDescriptor: access };
+    let error: unknown;
+    if (mode === 'own-accessors') error = Object.defineProperties(new Error(), accessors);
+    else if (mode === 'inherited-accessors') error = Object.create(Object.defineProperties({}, accessors));
+    else if (mode === 'native-error-prototype-proxy') error = Object.setPrototypeOf(new Error(), new Proxy({}, traps));
+    else if (mode === 'revoked-proxy') { const proxy = Proxy.revocable(new Error(), traps); proxy.revoke(); error = proxy.proxy; }
+    else error = new Proxy(new Error(), traps);
+    const diagnostics = createPublicInventoryDiagnostics('upgrade'); diagnostics.stage('permissions-role');
+    const safe = diagnostics.fail(error);
+    expect(safe.message).toBe('Public inventory proof failed at permissions-role (unexpected).');
+    await expect(diagnostics.finish([])).rejects.toBe(safe); expect(access).not.toHaveBeenCalled();
+    const artifact = await readFile(join(directory, filename('upgrade')), 'utf8'); expect(artifact).not.toContain(secret);
+    expect(JSON.parse(artifact)).toMatchObject({ firstFailure: { stage: 'permissions-role', category: 'unexpected', sqlState: null } });
+  },
+);
+
+it('retains a real assertion stage through later SQL, cleanup and artifact-write failures without exposing assertion values', async () => {
+  await createPublicInventoryDiagnostics('upgrade').finish([]);
+  const before = await readFile(join(directory, filename('upgrade')), 'utf8');
+  let failure: unknown;
+  try { expect({ source: secret }).toEqual({ source: 'expected' }); } catch (error) { failure = error; }
+  const diagnostics = createPublicInventoryDiagnostics('upgrade'); diagnostics.stage('permissions-constraint');
+  const safe = diagnostics.fail(failure); expect(diagnostics.fail(sqlError())).toBe(safe);
+  const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true), close = vi.fn(async () => {});
+  await expect(diagnostics.finish([async () => { throw sqlError(); }, close])).rejects.toBe(safe);
+  expect(close).toHaveBeenCalledOnce(); expect(stderr).toHaveBeenCalledExactlyOnceWith('PUBLIC_PERIOD_DIAGNOSTIC_ARTIFACT_WRITE_FAILED\n');
+  expect(safe.message).toBe('Public inventory proof failed at permissions-constraint (assertion).');
+  expect(safe.cause).toBeUndefined(); expect(safe.stack).not.toContain(secret); expect(JSON.stringify(safe)).not.toContain(secret);
+  expect(await readFile(join(directory, filename('upgrade')), 'utf8')).toBe(before);
 });

@@ -1,3 +1,5 @@
+import { isNativeError, isProxy } from 'node:util/types';
+import { chai } from 'vitest';
 import { qualificationBinding, qualificationDigest } from './qualification-profile';
 import { writeIntegrationArtifact } from './integration-artifacts';
 
@@ -9,10 +11,15 @@ const profiles = {
   upgrade: 'data-period-upgrade-v1',
 } as const;
 export type InventoryDiagnosticKind = keyof typeof profiles;
+const permissionStages = ['permissions-role','permissions-functions-allowed','permissions-functions-denied',
+  'permissions-public-acl','permissions-tables','permissions-update-denial','permissions-delete-denial',
+  'permissions-provision-first','permissions-provision-repeat','permissions-history','permissions-constraint'] as const;
+const assertionPrototype = chai.AssertionError.prototype;
 export type InventoryDiagnosticStage = 'setup' | 'discovery' | 'configuration' | 'acquisition' | 'recovery'
-  | 'readback' | 'history' | 'capacity' | 'downlevel' | 'migration' | 'permissions' | 'settlement' | 'cleanup' | 'complete';
+  | 'readback' | 'history' | 'capacity' | 'downlevel' | 'migration' | 'permissions' | 'settlement' | 'cleanup' | 'complete'
+  | typeof permissionStages[number];
 const stages = new Set<InventoryDiagnosticStage>(['setup','discovery','configuration','acquisition','recovery',
-  'readback','history','capacity','downlevel','migration','permissions','settlement','cleanup','complete']);
+  'readback','history','capacity','downlevel','migration','permissions','settlement','cleanup','complete',...permissionStages]);
 const states = new Set(['23502','23503','23505','23514','42501','42883','42P01','40P01','40001','57014','P0001','P0002']);
 
 /** Fixed-case, descriptor-only evidence. No source bodies, SQL, messages, IDs or caller-selected filenames. */
@@ -27,12 +34,15 @@ export function createPublicInventoryDiagnostics(kind: InventoryDiagnosticKind) 
   const fail = (error: unknown) => {
     if (original) return original;
     const own = (key: string): unknown => {
-      try { const property = error && typeof error === 'object' ? Object.getOwnPropertyDescriptor(error, key) : undefined;
+      try { const property = error && typeof error === 'object' && !isProxy(error) ? Object.getOwnPropertyDescriptor(error, key) : undefined;
         return property && 'value' in property ? property.value : undefined; } catch { return undefined; }
     };
     const code = own('code'), name = own('name');
+    // Native-brand checking excludes proxies. Compare one trusted prototype by
+    // identity; never invoke Chai's inherited name getter or walk caller prototypes.
+    const assertion = isNativeError(error) && Object.getPrototypeOf(error) === assertionPrototype;
     first = { stage, category: typeof code === 'string' && states.has(code) ? 'sql'
-      : name === 'AssertionError' ? 'assertion' : name === 'AbortError' || name === 'TimeoutError' ? 'abort' : 'unexpected',
+      : assertion || name === 'AssertionError' ? 'assertion' : name === 'AbortError' || name === 'TimeoutError' ? 'abort' : 'unexpected',
     sqlState: typeof code === 'string' && states.has(code) ? code : null };
     original = new Error(`Public inventory proof failed at ${stage} (${first.category}).`);
     return original;

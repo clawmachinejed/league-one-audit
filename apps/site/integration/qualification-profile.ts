@@ -26,7 +26,7 @@ export const JOURNEY_FULL_NAME = JOURNEY_SUITE + ' > ' + JOURNEY_TEST;
 export const JOURNEY_PATTERN = '^' + (JOURNEY_SUITE + ' ' + JOURNEY_TEST).replace(/[.*+?^{}$()|[\]\\]/gu, '\\$&') + '$';
 export type QualificationProfile = 'full' | typeof SELECTED_PROFILE | typeof INGESTION_PROFILE | typeof LIVE_PROFILE | typeof JOURNEY_PROFILE | typeof OFFICIAL_PROFILE | typeof GUARDS_PROFILE | typeof CONCURRENCY_PROFILE | typeof LATE_WRITE_PROFILE
   | typeof INTAKE_RECOVERY_PROFILE | typeof REFRESH_HISTORY_PROFILE | typeof PERIOD_RECOVERY_PROFILE | typeof PERIOD_EXHAUSTION_PROFILE | typeof PERIOD_INVENTORY_PROFILE | typeof PERIOD_CAPACITY_PROFILE | typeof PERIOD_UPGRADE_PROFILE;
-export const SELECTED_SOURCE_DIGEST = '46cc99e68ae41c921d682d70aecca8ed0e947b30eacceb94c670bcbb8411dc9c';
+export const SELECTED_SOURCE_DIGEST = '1a97a77e830ef1d8109acb222f6d5cc1322c19c5d4c055fa3d234661ada90c06';
 export const SELECTED_MODULE = 'integration/public-data-intake.integration-case.ts';
 export const SELECTED_SUITE = 'bounded public DATA refresh cycles through the existing intake owner';
 export const SELECTED_TEST = 'refreshes two typed core cycles with real admission spacing, a correction and lost-checkpoint replay [focused slow SQL]';
