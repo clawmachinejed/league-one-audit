@@ -12,7 +12,29 @@ function receiptBound<T extends { status: string }>(resource: T, expected: unkno
 }
 
 async function readExactPeriods(client: DatabaseClient, administration: LeagueAdministrationStore, requestId: string,
-  selection: readonly PublicExactPeriod[], candidates: readonly DatabaseRow[]) {
+  selection: readonly PublicExactPeriod[], candidates: readonly DatabaseRow[], seasons: readonly number[], discoveryComplete: boolean) {
+  const keyOf = (season: number, native: string, week: number) => `${season}:${native}:${week}`;
+  const candidateKeys = new Set<string>(); const seasonCounts = new Map<number, number>();
+  const expected = new Map<string, { provider: 'sleeper'; externalLeagueId: string; season: number; nativeWeek: number }>();
+  for (const candidate of candidates) {
+    const season = candidate.season; const native = candidate.external_league_id;
+    if (!Number.isInteger(season) || !seasons.includes(Number(season)) || typeof native !== 'string'
+      || !/^[1-9][0-9]{0,31}$/u.test(native) || candidateKeys.has(`${season}:${native}`)) {
+      throw new Error('Invalid stored exact-period candidate.');
+    }
+    candidateKeys.add(`${season}:${native}`);
+    const count = (seasonCounts.get(Number(season)) ?? 0) + 1;
+    if (count > 1000) throw new Error('Stored exact-period discovery capacity exceeded.');
+    seasonCounts.set(Number(season), count);
+    // Include discovery-capacity candidates. Their requested periods cannot
+    // disappear merely because ordinary core acquisition did not admit them.
+    for (const period of selection) if (period.season === season) {
+      expected.set(keyOf(period.season, native, period.nativeWeek), {
+        provider: 'sleeper', externalLeagueId: native, season: period.season, nativeWeek: period.nativeWeek,
+      });
+    }
+  }
+  const overCapacity = expected.size > 20;
   const rows = await client.query(`/* public-data-intake:read-exact-periods */
     SELECT task.ordinal,task.season,task.external_league_id,task.native_week,task.status,task.failure_count,task.reason,
       checkpoint.worker_id,checkpoint.generation,checkpoint.league_season_id,checkpoint.source_mapping,
@@ -29,10 +51,9 @@ async function readExactPeriods(client: DatabaseClient, administration: LeagueAd
   for (const row of rows) {
     const season = Number(row.season); const nativeWeek = Number(row.native_week); const ordinal = Number(row.ordinal);
     const identity = { provider: 'sleeper' as const, externalLeagueId: String(row.external_league_id), season, nativeWeek };
-    const key = season + ':' + identity.externalLeagueId;
+    const key = keyOf(season, identity.externalLeagueId, nativeWeek);
     if (!Number.isInteger(ordinal) || ordinal < 1 || ordinal > 20 || ordinals.has(ordinal) || identities.has(key)
-      || !selection.some(period => period.season === season && period.nativeWeek === nativeWeek)
-      || !candidates.some(candidate => candidate.season === season && candidate.external_league_id === identity.externalLeagueId)
+      || !expected.has(key)
       || !['pending', 'complete', 'unavailable'].includes(String(row.status))
       || !Number.isInteger(row.failure_count) || Number(row.failure_count) < 0 || Number(row.failure_count) > 5) {
       throw new Error('Invalid stored exact-period task.');
@@ -64,7 +85,23 @@ async function readExactPeriods(client: DatabaseClient, administration: LeagueAd
       periods.push({ ...task, resource: { status: 'unavailable' as const, reason: 'stored-period-source-unavailable' }, acquisition: null });
     }
   }
-  return periods;
+  for (const [key, identity] of expected) if (!identities.has(key)) {
+    const reason = overCapacity ? 'period-inventory-capacity' : 'period-inventory-missing-task';
+    periods.push({ ...identity, ordinal: null, collection: 'unavailable', failureCount: 0, reason,
+      phase: { status: 'unknown' as const, reason: 'native-period-phase-not-evidenced' as const },
+      resource: { status: 'unavailable' as const, reason }, acquisition: null });
+  }
+  periods.sort((left, right) => left.season - right.season
+    || (left.externalLeagueId < right.externalLeagueId ? -1 : left.externalLeagueId > right.externalLeagueId ? 1 : 0)
+    || left.nativeWeek - right.nativeWeek);
+  const complete = discoveryComplete && !overCapacity && rows.length === expected.size
+    && periods.every(period => period.collection === 'complete' && period.resource.status === 'available');
+  return { periods, inventory: { status: overCapacity ? 'capacity' as const : !discoveryComplete ? 'discovery-pending' as const
+    : complete ? 'complete' as const : 'incomplete' as const,
+  expectedCount: expected.size, storedCount: rows.length, missingCount: expected.size - identities.size,
+  taskLimit: 20 as const, discoveryComplete,
+  reason: overCapacity ? 'period-inventory-capacity' : !discoveryComplete ? 'period-inventory-discovery-pending'
+    : complete ? null : 'period-inventory-incomplete' } };
 }
 
 /** Backend-only stored read. No provider call, registration, calculation or write.
@@ -103,6 +140,15 @@ export async function readPublicSleeperIntake(client: DatabaseClient, administra
   const rejected = await client.query(`/* public-data-intake:read-rejections */
     SELECT revision,resource,source_scope,request_started_at,request_completed_at,reason
     FROM public.public_data_rejections WHERE intake_id=$1::uuid ORDER BY revision`, [requestId]);
+  const seasons = Array.isArray(header.seasons) ? header.seasons : [];
+  const allSeasons = seasons.length >= 1 && seasons.length <= 3
+    && seasons.every(season => Number.isInteger(season) && season >= 1920 && season <= 2200)
+    && new Set(seasons).size === seasons.length && lists.length === seasons.length
+    && new Set(lists.map(list => list.season)).size === seasons.length
+    && lists.every(list => seasons.includes(list.season));
+  // The <=54 selector and <=1000 members per season produce at most 54,000
+  // explicit entries. Only the <=20 stored tasks can read typed period resources.
+  const periodRead = selection.length ? await readExactPeriods(client, administration, requestId, selection, candidates, seasons, allSeasons) : undefined;
   const leagues = [];
   // Sequential bounded reads: at most twenty collected candidates. Retained excess
   // list members remain explicit capacity entries without fan-out or silent filtering.
@@ -147,18 +193,14 @@ export async function readPublicSleeperIntake(client: DatabaseClient, administra
         resources: null, reason: 'stored-source-unavailable' });
     }
   }
-  const exactPeriods = selection.length ? await readExactPeriods(client, administration, requestId, selection, candidates) : undefined;
-  const completePeriods = !exactPeriods || exactPeriods.every(period => period.resource.status === 'available')
-    && candidates.filter(candidate => candidate.stage !== 'capacity' && selection.some(period => period.season === candidate.season))
-      .every(candidate => exactPeriods.some(period => period.season === candidate.season && period.externalLeagueId === candidate.external_league_id));
+  const completePeriods = !periodRead || periodRead.inventory.status === 'complete';
   const completeResources = leagues.every(league => league.collection === 'complete' && league.resources
     && league.resources.settings.status === 'available' && league.resources.teamManagers.status === 'available'
     && league.resources.heldRoster.status === 'available' && league.resources.directory.status === 'available');
-  const allSeasons = Array.isArray(header.seasons) && lists.length === header.seasons.length;
   const status = !header.external_manager_id || !allSeasons ? header.terminal ? 'unavailable' : 'pending'
     : completeResources && completePeriods ? 'available' : header.terminal ? 'partial' : 'pending';
   return { status, readAt: new Date().toISOString(), request: header, lists, leagues, rejected,
-    ...(exactPeriods ? { exactPeriods } : {}),
+    ...(periodRead ? { exactPeriods: periodRead.periods, exactPeriodInventory: periodRead.inventory } : {}),
     freshness: 'Use each resource acceptance verifiedAt and each directory acquisition sourceObservedAt and list request_completed_at; this read does not refresh them.',
     coverage: { requested: ['identity', 'season-league-lists', 'league-settings', 'team-managers', 'held-rosters', 'manager-directory',
       ...(options.managerEvidenceVersion === 'v2' ? ['team-manager-evidence-v2'] : []), ...(selection.length ? ['exact-matchups'] : [])],

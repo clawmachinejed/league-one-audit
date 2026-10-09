@@ -47,19 +47,28 @@ export type PublicIntakeStore = Readonly<{
 /** An omitted or empty selector has exactly the old wire identity. */
 export function normalizePublicExactPeriods(value: unknown, seasons: readonly number[]): readonly PublicExactPeriod[] {
   if (value === undefined) return [];
-  if (!Array.isArray(value) || value.length > 3) throw new Error('Invalid public exact-period scope.');
+  // Selection is bounded by three declared seasons with eighteen native weeks
+  // each. The separate twenty-task limit applies only after league discovery.
+  if (!Array.isArray(value) || value.length > 54) throw new Error('Invalid public exact-period scope.');
+  if (value.length && (seasons.length < 1 || seasons.length > 3 || new Set(seasons).size !== seasons.length
+    || seasons.some(season => !Number.isInteger(season) || season < 1920 || season > 2200))) {
+    throw new Error('Invalid public exact-period season scope.');
+  }
   const periods = value.map((entry: unknown) => {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) throw new Error('Invalid public exact-period scope.');
     const period = entry as Record<string, unknown>;
     if (Object.keys(period).length !== 2 || !Object.hasOwn(period, 'season') || !Object.hasOwn(period, 'nativeWeek')
-      || !Number.isInteger(period.season) || !seasons.includes(Number(period.season))
+      || !Number.isInteger(period.season) || Number(period.season) < 1920 || Number(period.season) > 2200
+      || !seasons.includes(Number(period.season))
       || !Number.isInteger(period.nativeWeek) || Number(period.nativeWeek) < 1 || Number(period.nativeWeek) > 18) {
       throw new Error('Invalid public exact-period scope.');
     }
     return { season: Number(period.season), nativeWeek: Number(period.nativeWeek) };
   });
-  if (new Set(periods.map(period => period.season)).size !== periods.length) throw new Error('Duplicate public exact-period season.');
-  return periods.sort((left, right) => left.season - right.season);
+  if (new Set(periods.map(period => `${period.season}:${period.nativeWeek}`)).size !== periods.length) {
+    throw new Error('Duplicate public exact-period pair.');
+  }
+  return periods.sort((left, right) => left.season - right.season || left.nativeWeek - right.nativeWeek);
 }
 
 export function validatePublicIntake(input: PublicIntakeInput): PublicIntakeInput {

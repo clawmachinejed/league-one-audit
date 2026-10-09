@@ -25,8 +25,8 @@ export const JOURNEY_TEST = 'retains DannyPak discovery, all associated leagues 
 export const JOURNEY_FULL_NAME = JOURNEY_SUITE + ' > ' + JOURNEY_TEST;
 export const JOURNEY_PATTERN = '^' + (JOURNEY_SUITE + ' ' + JOURNEY_TEST).replace(/[.*+?^{}$()|[\]\\]/gu, '\\$&') + '$';
 export type QualificationProfile = 'full' | typeof SELECTED_PROFILE | typeof INGESTION_PROFILE | typeof LIVE_PROFILE | typeof JOURNEY_PROFILE | typeof OFFICIAL_PROFILE | typeof GUARDS_PROFILE | typeof CONCURRENCY_PROFILE | typeof LATE_WRITE_PROFILE
-  | typeof INTAKE_RECOVERY_PROFILE | typeof REFRESH_HISTORY_PROFILE | typeof PERIOD_RECOVERY_PROFILE | typeof PERIOD_EXHAUSTION_PROFILE;
-export const SELECTED_SOURCE_DIGEST = '899c526471fd9f9df3917a357721c52b249d44c7aed5660fb658dda39d675abf';
+  | typeof INTAKE_RECOVERY_PROFILE | typeof REFRESH_HISTORY_PROFILE | typeof PERIOD_RECOVERY_PROFILE | typeof PERIOD_EXHAUSTION_PROFILE | typeof PERIOD_INVENTORY_PROFILE | typeof PERIOD_CAPACITY_PROFILE | typeof PERIOD_UPGRADE_PROFILE;
+export const SELECTED_SOURCE_DIGEST = '46cc99e68ae41c921d682d70aecca8ed0e947b30eacceb94c670bcbb8411dc9c';
 export const SELECTED_MODULE = 'integration/public-data-intake.integration-case.ts';
 export const SELECTED_SUITE = 'bounded public DATA refresh cycles through the existing intake owner';
 export const SELECTED_TEST = 'refreshes two typed core cycles with real admission spacing, a correction and lost-checkpoint replay [focused slow SQL]';
@@ -83,6 +83,20 @@ export const REFRESH_HISTORY_PROFILE = 'data-refresh-history-v1';
 export const PERIOD_RECOVERY_PROFILE = 'data-period-recovery-v1';
 export const PERIOD_EXHAUSTION_PROFILE = 'data-period-exhaustion-v1';
 export const PERIOD_SUITE = 'explicit public native-period intake through retained typed receipts';
+export const PERIOD_INVENTORY_PROFILE = 'data-period-inventory-v1';
+export const PERIOD_CAPACITY_PROFILE = 'data-period-capacity-v1';
+export const PERIOD_UPGRADE_PROFILE = 'data-period-upgrade-v1';
+export const PERIOD_INVENTORY_SUITE = 'bounded explicit native-week inventory through existing DATA intake';
+export const PERIOD_UPGRADE_SUITE = 'explicit native-week inventory upgrade over retained R039 capture';
+export const PERIOD_INVENTORY_FULL_NAMES = [PERIOD_INVENTORY_SUITE + ' > retains two same-season weeks across recurring correction and lost-checkpoint recovery [inventory slow SQL]'];
+export const PERIOD_CAPACITY_NEW_NAMES = ['same-season expansion', 'cumulative seasons', 'all discovered candidates']
+  .map(name => PERIOD_INVENTORY_SUITE + ' > retains complete requested scope and rejects period acquisition over capacity: ' + name);
+export const PERIOD_CAPACITY_FULL_NAMES = [
+  PERIOD_SUITE + ' > enforces SQL selector validation and identical omitted/empty replay before mutation',
+  PERIOD_SUITE + ' > enforces twenty task ordinals, candidate lineage and immutable scope with rolled-back owner-only negative prerequisites',
+  ...PERIOD_CAPACITY_NEW_NAMES,
+];
+export const PERIOD_UPGRADE_FULL_NAMES = [PERIOD_UPGRADE_SUITE + ' > preserves a real single-week checkpoint across R040 and refuses downlevel multi-week mutation [upgrade slow SQL]'];
 // The configured registration case supplies fairness's genuine second identity.
 // The selector case retains the selection-failure history used by later assertions.
 export const INTAKE_RECOVERY_FULL_NAMES = [
@@ -121,8 +135,18 @@ export const CLOSEOUT_PROFILES = [
   { profile: PERIOD_EXHAUSTION_PROFILE, names: PERIOD_EXHAUSTION_FULL_NAMES, pattern: closedPattern(PERIOD_EXHAUSTION_FULL_NAMES),
     suites: [PERIOD_SUITE] },
 ] as const;
+// Inventory selections are separate from the historical four-profile closeout.
+export const INVENTORY_PROFILES = [
+  { profile: PERIOD_INVENTORY_PROFILE, names: PERIOD_INVENTORY_FULL_NAMES, pattern: closedPattern(PERIOD_INVENTORY_FULL_NAMES),
+    suites: [PERIOD_INVENTORY_SUITE] },
+  { profile: PERIOD_CAPACITY_PROFILE, names: PERIOD_CAPACITY_FULL_NAMES, pattern: closedPattern(PERIOD_CAPACITY_FULL_NAMES),
+    suites: [PERIOD_SUITE, PERIOD_INVENTORY_SUITE] },
+  { profile: PERIOD_UPGRADE_PROFILE, names: PERIOD_UPGRADE_FULL_NAMES, pattern: closedPattern(PERIOD_UPGRADE_FULL_NAMES),
+    suites: [PERIOD_UPGRADE_SUITE] },
+] as const;
+export const CLOSED_PROFILES = [...CLOSEOUT_PROFILES, ...INVENTORY_PROFILES] as const;
 function selectedCase(profile: QualificationProfile) {
-  const closeout = CLOSEOUT_PROFILES.find(selection => selection.profile === profile);
+  const closeout = CLOSED_PROFILES.find(selection => selection.profile === profile);
   if (closeout) return closeout;
   if (profile === LATE_WRITE_PROFILE) return { names: LATE_WRITE_FULL_NAMES, pattern: LATE_WRITE_PATTERN };
   if (profile === CONCURRENCY_PROFILE) return { names: CONCURRENCY_FULL_NAMES, pattern: CONCURRENCY_PATTERN };
@@ -137,7 +161,7 @@ function selectedCase(profile: QualificationProfile) {
 
 // Closed collected-case inventory, including the two-value it.each expansion.
 // Source changes require renewed review of both the inventory and source digest.
-export const SELECTED_INVENTORY = [
+export const PRE_INVENTORY_CASES = [
   INGESTION_FULL_NAME,
   ...[
     'binds typed receipts, preserves core through interruption, recovers once and permits explicit existing-consumer adoption',
@@ -169,6 +193,8 @@ export const SELECTED_INVENTORY = [
     'exhausts five real exact-period retries without closing core or fabricating a period checkpoint [focused slow SQL]',
   ].map(name => 'explicit public native-period intake through retained typed receipts > ' + name),
 ].sort();
+export const SELECTED_INVENTORY = [...PRE_INVENTORY_CASES, ...PERIOD_INVENTORY_FULL_NAMES,
+  ...PERIOD_CAPACITY_NEW_NAMES, ...PERIOD_UPGRADE_FULL_NAMES].sort();
 
 export type QualificationContext = {
   kind: 'integration-qualification-context-v1'; runId: string; nonce: string; gitSha: string;
@@ -209,7 +235,7 @@ function profileDigest(profile: QualificationProfile) {
 }
 export function parseQualificationArguments(args: readonly string[]): QualificationProfile {
   if (!args.length) return 'full';
-  const closeout = CLOSEOUT_PROFILES.find(selection => args.length === 1 && args[0] === '--profile=' + selection.profile);
+  const closeout = CLOSED_PROFILES.find(selection => args.length === 1 && args[0] === '--profile=' + selection.profile);
   if (closeout) return closeout.profile;
   if (args.length === 1 && args[0] === '--profile=' + SELECTED_PROFILE) return SELECTED_PROFILE;
   if (args.length === 1 && args[0] === '--profile=' + INGESTION_PROFILE) return INGESTION_PROFILE;
@@ -219,10 +245,10 @@ export function parseQualificationArguments(args: readonly string[]): Qualificat
   if (args.length === 1 && args[0] === '--profile=' + GUARDS_PROFILE) return GUARDS_PROFILE;
   if (args.length === 1 && args[0] === '--profile=' + CONCURRENCY_PROFILE) return CONCURRENCY_PROFILE;
   if (args.length === 1 && args[0] === '--profile=' + LATE_WRITE_PROFILE) return LATE_WRITE_PROFILE;
-  throw new Error('Only the closed data-intake-recovery-v1, data-refresh-history-v1, data-period-recovery-v1, data-period-exhaustion-v1, data-late-write-rollback-v1, data-refresh-concurrency-v1, data-ingestion-guards-v1, data-official-preconfiguration-v1, data-live-public-intake-v1, data-live-league-two-v1, data-core-refresh-v1 and data-core-ingestion-v1 qualification selectors are accepted.');
+  throw new Error('Only the closed data-period-inventory-v1, data-period-capacity-v1, data-period-upgrade-v1, data-intake-recovery-v1, data-refresh-history-v1, data-period-recovery-v1, data-period-exhaustion-v1, data-late-write-rollback-v1, data-refresh-concurrency-v1, data-ingestion-guards-v1, data-official-preconfiguration-v1, data-live-public-intake-v1, data-live-league-two-v1, data-core-refresh-v1 and data-core-ingestion-v1 qualification selectors are accepted.');
 }
 export function qualificationArguments(profile: QualificationProfile, reporter: string): string[] {
-  assert(profile === 'full' || profile === SELECTED_PROFILE || profile === INGESTION_PROFILE || profile === LIVE_PROFILE || profile === JOURNEY_PROFILE || profile === OFFICIAL_PROFILE || profile === GUARDS_PROFILE || profile === CONCURRENCY_PROFILE || profile === LATE_WRITE_PROFILE || CLOSEOUT_PROFILES.some(selection => selection.profile === profile), 'Unknown qualification profile.');
+  assert(profile === 'full' || profile === SELECTED_PROFILE || profile === INGESTION_PROFILE || profile === LIVE_PROFILE || profile === JOURNEY_PROFILE || profile === OFFICIAL_PROFILE || profile === GUARDS_PROFILE || profile === CONCURRENCY_PROFILE || profile === LATE_WRITE_PROFILE || CLOSED_PROFILES.some(selection => selection.profile === profile), 'Unknown qualification profile.');
   return ['--reporter', 'verbose', '--reporter', reporter,
     ...(profile === 'full' ? [] : [selectedModule(profile), '--testNamePattern', selectedCase(profile).pattern])];
 }
@@ -235,7 +261,7 @@ function validateContext(value: QualificationContext): QualificationContext {
   assert.equal(value.kind, 'integration-qualification-context-v1');
   for (const id of [value.runId, value.nonce]) assert.match(id, /^[0-9a-f]{8}-[0-9a-f-]{27}$/u);
   assert.match(value.gitSha, /^[0-9a-f]{40}$/u);
-  assert(value.profile === 'full' || value.profile === SELECTED_PROFILE || value.profile === INGESTION_PROFILE || value.profile === LIVE_PROFILE || value.profile === JOURNEY_PROFILE || value.profile === OFFICIAL_PROFILE || value.profile === GUARDS_PROFILE || value.profile === CONCURRENCY_PROFILE || value.profile === LATE_WRITE_PROFILE || CLOSEOUT_PROFILES.some(selection => selection.profile === value.profile));
+  assert(value.profile === 'full' || value.profile === SELECTED_PROFILE || value.profile === INGESTION_PROFILE || value.profile === LIVE_PROFILE || value.profile === JOURNEY_PROFILE || value.profile === OFFICIAL_PROFILE || value.profile === GUARDS_PROFILE || value.profile === CONCURRENCY_PROFILE || value.profile === LATE_WRITE_PROFILE || CLOSED_PROFILES.some(selection => selection.profile === value.profile));
   assert.equal(value.profileDigest, profileDigest(value.profile));
   assert(Array.isArray(value.modules) && value.modules.length > 0 && value.modules.length <= 128);
   for (const entry of value.modules) {
@@ -365,7 +391,7 @@ export function validateQualificationReport(context: QualificationContext, repor
       sameInventory(report.hooks.map(hook => hook.key), expectedHooks);
       for (const hook of report.hooks) assert.equal(hook.starts, 1, sharedSuite.label + ' hooks must execute exactly once.');
     }
-    const closeout = CLOSEOUT_PROFILES.find(selection => selection.profile === context.profile);
+    const closeout = CLOSED_PROFILES.find(selection => selection.profile === context.profile);
     if (closeout) {
       const selected = entry.cases.filter(test => closeout.names.includes(test.name));
       assert.deepEqual(selected.map(test => test.name), closeout.names, 'Closed cases must retain their source order.');

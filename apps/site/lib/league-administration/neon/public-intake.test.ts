@@ -187,11 +187,31 @@ describe('exact-period capability and checkpoint transport', () => {
     expect(query).toHaveBeenCalledOnce(); expect(query.mock.calls[0]).toEqual([expect.stringContaining('exact-period-capability')]);
   });
   it('checks both request/config scope columns and task/checkpoint tables before submitting selected scope unchanged', async () => {
-    const query = vi.fn(async () => [{ supported: true }]);
+    const query = vi.fn(async (sql: string) => sql.includes('capability') ? [{ supported: true }] : []);
     await createPublicIntakeStore({ enabled: true, query } as unknown as DatabaseClient).submit(selected);
     expect(query.mock.calls[0]).toEqual([expect.stringContaining('public_data_exact_period_checkpoints')]);
     expect(query).toHaveBeenLastCalledWith(expect.stringContaining('submit_public_data_intake'), [JSON.stringify(selected)]);
     expect(query).toHaveBeenCalledTimes(2);
+    expect(query.mock.calls[0][0]).not.toContain('public_data_exact_period_inventory_v40');
+  });
+  it.each([false, undefined, 'true'])('refuses multi-week scope before any mutation when R040 capability is %s', async supported => {
+    const query = vi.fn(async (sql: string) => sql.includes('capability') ? [{ supported }] : []);
+    await expect(createPublicIntakeStore({ enabled: true, query } as unknown as DatabaseClient).submit({ ...selected,
+      exactPeriods: [...selected.exactPeriods, { season: 2026, nativeWeek: 7 }] })).rejects.toThrow('R040');
+    expect(query).toHaveBeenCalledOnce();
+    expect(query.mock.calls[0][0]).toContain("to_regprocedure('public.public_data_exact_period_inventory_v40(uuid)')");
+    expect(query.mock.calls[0][0]).toContain("ARRAY['intake_id','season','external_league_id','native_week']");
+    expect(query.mock.calls[0][0]).toContain('bound.convalidated');
+    expect(query.mock.calls[0][0]).toContain('backing.indisvalid');
+    expect(query.mock.calls[0][0]).toContain('NOT EXISTS(SELECT 1 FROM pg_constraint legacy');
+    expect(query.mock.calls[0][0]).toContain('cardinality(legacy.conkey)=3');
+  });
+  it('submits canonical multi-week scope only after the installed helper and exact unique identity are confirmed', async () => {
+    const query = vi.fn(async () => [{ supported: true }]);
+    const exactPeriods = [{ season: 2026, nativeWeek: 7 }, { season: 2026, nativeWeek: 18 }];
+    await createPublicIntakeStore({ enabled: true, query } as unknown as DatabaseClient).submit({ ...selected, exactPeriods: [...exactPeriods].reverse() });
+    expect(query).toHaveBeenCalledTimes(2);
+    expect(query).toHaveBeenLastCalledWith(expect.stringContaining('submit_public_data_intake'), [JSON.stringify({ ...selected, exactPeriods })]);
   });
   it.each([{ nativeWeek: 0 }, { nativeWeek: '3' }, { nativeWeek: 19 }, { season: '2026' }, { externalLeagueId: 'x' }])('rejects malformed persisted period work before admission: %j', async patch => {
     const result = { requestId, revision: 3, kind: 'exact-matchups', externalLeagueId: work.externalLeagueId, season: 2026, nativeWeek: 18, ...patch };

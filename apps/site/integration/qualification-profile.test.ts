@@ -14,13 +14,13 @@ import { createQualificationContext, markQualificationFailure, parseQualificatio
   OFFICIAL_PROFILE, OFFICIAL_FULL_NAMES, OFFICIAL_PATTERN, GUARDS_PROFILE, GUARDS_FULL_NAMES, GUARDS_PATTERN,
   CONCURRENCY_PROFILE, CONCURRENCY_FULL_NAMES, CONCURRENCY_PATTERN, SELECTED_SUITE,
   LATE_WRITE_PROFILE, LATE_WRITE_FULL_NAMES, LATE_WRITE_PATTERN, LATE_WRITE_SUITE,
-  CLOSEOUT_PROFILES, INTAKE_RECOVERY_PROFILE, REFRESH_HISTORY_PROFILE, PERIOD_RECOVERY_PROFILE, PERIOD_EXHAUSTION_PROFILE,
+  CLOSEOUT_PROFILES, CLOSED_PROFILES, INVENTORY_PROFILES, PRE_INVENTORY_CASES, PERIOD_INVENTORY_PROFILE, PERIOD_CAPACITY_PROFILE, PERIOD_UPGRADE_PROFILE, INTAKE_RECOVERY_PROFILE, REFRESH_HISTORY_PROFILE, PERIOD_RECOVERY_PROFILE, PERIOD_EXHAUSTION_PROFILE,
   type QualificationBinding, type QualificationCase, type QualificationReport } from './qualification-profile';
 
 const directories: string[] = [];
 const exitCode = process.exitCode;
 afterEach(async () => { process.exitCode = exitCode; await Promise.all(directories.splice(0).map(path => rm(path, { recursive: true, force: true }))); });
-async function fixture(selected: boolean | typeof INGESTION_PROFILE | typeof OFFICIAL_PROFILE | typeof GUARDS_PROFILE | typeof CONCURRENCY_PROFILE | typeof LATE_WRITE_PROFILE | typeof CLOSEOUT_PROFILES[number]['profile'] = false): Promise<QualificationBinding> {
+async function fixture(selected: boolean | typeof INGESTION_PROFILE | typeof OFFICIAL_PROFILE | typeof GUARDS_PROFILE | typeof CONCURRENCY_PROFILE | typeof LATE_WRITE_PROFILE | typeof CLOSED_PROFILES[number]['profile'] = false): Promise<QualificationBinding> {
   const directory = await mkdtemp(join(tmpdir(), 'qualification-profile-')); directories.push(directory);
   await mkdir(join(directory, 'integration'));
   await writeFile(join(directory, SELECTED_MODULE), 'fixture\r\nsource\r\n');
@@ -31,7 +31,7 @@ async function fixture(selected: boolean | typeof INGESTION_PROFILE | typeof OFF
   return { directory, context };
 }
 function report(binding: QualificationBinding): QualificationReport {
-  const closeout = CLOSEOUT_PROFILES.find(selection => selection.profile === binding.context.profile);
+  const closeout = CLOSED_PROFILES.find(selection => selection.profile === binding.context.profile);
   if (closeout) {
     const suites = [...new Set(SELECTED_INVENTORY.map(name => name.split(' > ')[0]))].map((name, index) => ({
       id: 'suite-' + index, name, mode: (closeout.suites as readonly string[]).includes(name) ? 'run' : 'skip', errors: 0,
@@ -100,7 +100,7 @@ it('requires an exclusive post-cleanup acknowledgment bound to this report and i
   const completing = qualificationCleanup(() => deferred.promise, binding);
   await expect(readFile(join(binding.directory, QUALIFICATION_FILES.cleanup))).rejects.toThrow();
   deferred.resolve(); await completing;
-  expect(await validateQualificationArtifacts(binding)).toMatchObject({ profile: SELECTED_PROFILE, collected: 25, executed: 1, passed: 1, filtered: 24 });
+  expect(await validateQualificationArtifacts(binding)).toMatchObject({ profile: SELECTED_PROFILE, collected: 30, executed: 1, passed: 1, filtered: 29 });
   await expect(writeQualificationArtifact(binding, 'report', evidence)).rejects.toThrow();
   await expect(validateQualificationArtifacts({ ...binding, context: { ...binding.context, nonce: randomUUID() } })).rejects.toThrow();
   await markQualificationFailure(binding, 'process-timeout');
@@ -184,6 +184,9 @@ it('pins the reviewed LF module digest and independently inventories all literal
     expect(cases.filter(name => selection.names.includes(name))).toEqual(selection.names);
     expect(sourceOrdinals[index].map(ordinal => cases[ordinal])).toEqual(selection.names);
   }
+  for (const selection of INVENTORY_PROFILES) {
+    expect(cases.filter(name => selection.names.includes(name))).toEqual(selection.names);
+  }
   expect(cases.sort()).toEqual(SELECTED_INVENTORY);
 });
 
@@ -225,7 +228,7 @@ it('binds the official pair to exactly two cases, one module and the complete re
   await writeQualificationArtifact(binding, 'report', evidence);
   await qualificationCleanup(async () => {}, binding);
   await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({
-    profile: OFFICIAL_PROFILE, collected: 25, executed: 2, passed: 2, skipped: 23, filtered: 23,
+    profile: OFFICIAL_PROFILE, collected: 30, executed: 2, passed: 2, skipped: 28, filtered: 28,
   });
   for (const older of [await fixture(true), await fixture(INGESTION_PROFILE)]) {
     expect(binding.context.profileDigest).not.toBe(older.context.profileDigest);
@@ -242,7 +245,7 @@ it.each([
   { profile: GUARDS_PROFILE, names: GUARDS_FULL_NAMES },
   { profile: CONCURRENCY_PROFILE, names: CONCURRENCY_FULL_NAMES },
   { profile: LATE_WRITE_PROFILE, names: LATE_WRITE_FULL_NAMES },
-  ...CLOSEOUT_PROFILES,
+  ...CLOSED_PROFILES,
 ] as const)('rejects missing, skipped, retried or duplicated cases and extra execution for $profile', async ({ profile, names }) => {
   const binding = await fixture(profile);
   for (const name of names) {
@@ -276,7 +279,7 @@ it.each([
     expect(() => validateQualificationReport(binding.context, evidence)).toThrow();
   }
 });
-it.each([OFFICIAL_PROFILE, GUARDS_PROFILE, CONCURRENCY_PROFILE, LATE_WRITE_PROFILE, ...CLOSEOUT_PROFILES.map(selection => selection.profile)] as const)('refuses %s source drift before provisioning and keeps default full discovery unchanged', async profile => {
+it.each([OFFICIAL_PROFILE, GUARDS_PROFILE, CONCURRENCY_PROFILE, LATE_WRITE_PROFILE, ...CLOSED_PROFILES.map(selection => selection.profile)] as const)('refuses %s source drift before provisioning and keeps default full discovery unchanged', async profile => {
   const binding = await fixture();
   await expect(createQualificationContext(binding.directory, 'a'.repeat(40), randomUUID(), profile)).rejects.toThrow('reviewed LF digest');
   const site = fileURLToPath(new URL('..', import.meta.url));
@@ -371,7 +374,7 @@ it('binds the ingestion guards to exactly three source-ordered cases, excluding 
   await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
   await qualificationCleanup(async () => {}, binding);
   await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({
-    profile: GUARDS_PROFILE, collected: 25, executed: 3, passed: 3, skipped: 22, filtered: 22,
+    profile: GUARDS_PROFILE, collected: 30, executed: 3, passed: 3, skipped: 27, filtered: 27,
   });
   const reversed = report(binding); reversed.modules[0].cases.reverse();
   expect(() => validateQualificationReport(binding.context, reversed)).toThrow('source order');
@@ -415,7 +418,7 @@ it('binds five source-ordered refresh concurrency cases to one exact shared hook
   await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
   await qualificationCleanup(async () => {}, binding);
   await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({
-    profile: CONCURRENCY_PROFILE, collected: 25, executed: 5, passed: 5, skipped: 20, filtered: 20,
+    profile: CONCURRENCY_PROFILE, collected: 30, executed: 5, passed: 5, skipped: 25, filtered: 25,
   });
   const changes: ((r: QualificationReport) => void)[] = [
     r => { r.modules[0].cases.reverse(); },
@@ -466,7 +469,7 @@ it('binds three late-write rollback cases to their exact source order, shared ho
   await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
   await qualificationCleanup(async () => {}, binding);
   await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({
-    profile: LATE_WRITE_PROFILE, collected: 25, executed: 3, passed: 3, skipped: 22, filtered: 22,
+    profile: LATE_WRITE_PROFILE, collected: 30, executed: 3, passed: 3, skipped: 27, filtered: 27,
   });
   const changes: ((r: QualificationReport) => void)[] = [
     r => { r.modules[0].cases.reverse(); },
@@ -502,7 +505,7 @@ it('binds three late-write rollback cases to their exact source order, shared ho
 });
 
 
-it.each(CLOSEOUT_PROFILES)('keeps $profile closed with exact names, running suites, hooks and cleanup evidence', async selection => {
+it.each(CLOSED_PROFILES)('keeps $profile closed with exact names, running suites, hooks and cleanup evidence', async selection => {
   const { profile, names, pattern, suites } = selection;
   expect(parseQualificationArguments(['--profile=' + profile])).toBe(profile);
   expect(qualificationArguments(profile, '/reporter')).toEqual(['--reporter', 'verbose', '--reporter', '/reporter',
@@ -525,8 +528,8 @@ it.each(CLOSEOUT_PROFILES)('keeps $profile closed with exact names, running suit
   await writeQualificationArtifact(binding, 'report', evidence);
   await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
   await qualificationCleanup(async () => {}, binding);
-  await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({ profile, collected: 25,
-    executed: names.length, passed: names.length, skipped: 25 - names.length, filtered: 25 - names.length });
+  await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({ profile, collected: 30,
+    executed: names.length, passed: names.length, skipped: 30 - names.length, filtered: 30 - names.length });
   const changes: ((r: QualificationReport) => void)[] = [
     r => { r.modules[0].suites = []; },
     r => { r.modules[0].suites.find(suite => suite.mode === 'run')!.mode = 'skip'; },
@@ -554,10 +557,10 @@ it.each(CLOSEOUT_PROFILES)('keeps $profile closed with exact names, running suit
   await expect(validateQualificationArtifacts(binding)).rejects.toThrow('Sticky');
 });
 
-it.each(CLOSEOUT_PROFILES)('rejects cross-profile substitution in both directions for $profile', async selection => {
+it.each(CLOSED_PROFILES)('rejects cross-profile substitution in both directions for $profile', async selection => {
   const binding = await fixture(selection.profile), evidence = report(binding);
   for (const otherProfile of [false, true, INGESTION_PROFILE, OFFICIAL_PROFILE, GUARDS_PROFILE, CONCURRENCY_PROFILE,
-    LATE_WRITE_PROFILE, ...CLOSEOUT_PROFILES.filter(other => other.profile !== selection.profile).map(other => other.profile)] as const) {
+    LATE_WRITE_PROFILE, ...CLOSED_PROFILES.filter(other => other.profile !== selection.profile).map(other => other.profile)] as const) {
     const other = await fixture(otherProfile), otherReport = report(other);
     expect(binding.context.profileDigest).not.toBe(other.context.profileDigest);
     const substituted = structuredClone(otherReport);
@@ -576,8 +579,20 @@ it('covers eleven additional cases using four fixed dependency-closed selections
   ]);
   const previouslySelected = new Set([INGESTION_FULL_NAME, SELECTED_FULL_NAME, ...OFFICIAL_FULL_NAMES,
     ...GUARDS_FULL_NAMES, ...CONCURRENCY_FULL_NAMES, ...LATE_WRITE_FULL_NAMES]);
-  const remaining = SELECTED_INVENTORY.filter(name => !previouslySelected.has(name));
+  expect(PRE_INVENTORY_CASES).toHaveLength(25);
+  const remaining = PRE_INVENTORY_CASES.filter(name => !previouslySelected.has(name));
   expect(remaining).toHaveLength(11);
   const newlySelected = new Set(CLOSEOUT_PROFILES.flatMap(selection => selection.names).filter(name => !previouslySelected.has(name)));
   expect([...newlySelected].sort()).toEqual(remaining);
+});
+
+it('adds five inventory cases through three bounded closed selections without redefining historical coverage', () => {
+  expect(SELECTED_INVENTORY).toHaveLength(30);
+  expect(new Set(SELECTED_INVENTORY).size).toBe(30);
+  expect(INVENTORY_PROFILES.map(selection => [selection.profile, selection.names.length, selection.suites.length * 2])).toEqual([
+    [PERIOD_INVENTORY_PROFILE, 1, 2], [PERIOD_CAPACITY_PROFILE, 5, 4], [PERIOD_UPGRADE_PROFILE, 1, 2],
+  ]);
+  const added = SELECTED_INVENTORY.filter(name => !PRE_INVENTORY_CASES.includes(name));
+  expect(added).toHaveLength(5);
+  expect([...new Set(INVENTORY_PROFILES.flatMap(selection => selection.names))].filter(name => added.includes(name)).sort()).toEqual(added);
 });

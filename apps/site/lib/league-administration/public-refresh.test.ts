@@ -135,8 +135,24 @@ describe('explicit period recurrence scope', () => {
     expect(f.query).toHaveBeenCalledExactlyOnceWith(expect.stringContaining('configure_public_data_refresh'),
       [JSON.stringify(validatePublicDataRefresh(input, new Date(time)))]);
   });
+  it.each([false, true])('requires R040 before configuring canonical same-season multi-week recurrence: %s', async supported => {
+    vi.useFakeTimers(); vi.setSystemTime(new Date(time));
+    const exactPeriods = [{ season: 2026, nativeWeek: 7 }, { season: 2026, nativeWeek: 18 }];
+    const query = vi.fn(async (sql: string) => sql.includes('capability') ? [{ supported }]
+      : [{ result: { status: 'configured', targetId, configurationRevision: 1 } }]);
+    const configured = createPublicDataRefreshStore({ enabled: true, query } as unknown as DatabaseClient)
+      .configure({ ...input, exactPeriods: [...exactPeriods].reverse() });
+    if (!supported) { await expect(configured).rejects.toThrow('R040'); expect(query).toHaveBeenCalledOnce(); }
+    else {
+      await expect(configured).resolves.toMatchObject({ status: 'configured', configurationRevision: 1 });
+      expect(query).toHaveBeenLastCalledWith(expect.stringContaining('configure_public_data_refresh'),
+        [JSON.stringify({ ...validatePublicDataRefresh(input, new Date(time)), exactPeriods })]);
+    }
+    expect(query.mock.calls[0][0]).toContain('public.public_data_exact_period_inventory_v40(uuid)');
+  });
   it.each([false, true])('keeps current configuration separate from cycle period scope and rejects request mismatch=%s', async mismatch => {
-    const current = [{ season: 2026, nativeWeek: 1 }]; const original = [{ season: 2026, nativeWeek: 18 }];
+    const current = [{ season: 2026, nativeWeek: 1 }];
+    const original = [{ season: 2026, nativeWeek: 7 }, { season: 2026, nativeWeek: 18 }];
     const row = { ...targetRow(), current_cycle: '4', cycle_configuration_revision: '2', intake_id: requestId,
       cycle_created_at: time, due_at: time, selected_exact_periods: current, cycle_exact_periods: original, cycle_seasons: [2025, 2026] };
     const query = vi.fn(async (sql: string) => sql.includes('public-data-refresh:read') ? [row]

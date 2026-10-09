@@ -12,6 +12,7 @@ import type { NormalizedAdministrationObservation } from './contracts';
 import { readAcceptedExactMatchupsRows } from './neon/exact-matchups';
 import { EXACT_MATCHUPS_POLICY, exactMatchupsScope } from '../aggregator/exact-matchups';
 import type { PublicCaptureWitness } from './public-capture-witness';
+import { normalizeAdministrationObservation } from './normalize';
 
 vi.mock('server-only', () => ({}));
 vi.mock('next/cache', () => ({ unstable_cache: (fn: unknown) => fn }));
@@ -680,7 +681,12 @@ function periodFixture() {
 }
 
 describe('explicit exact-period intake composition', () => {
-  it('canonically selects at most one native period in each declared season and leaves old wire identity unchanged', () => {
+  it('accepts reordered distinct native weeks within one declared season', () => {
+    expect(validatePublicIntake({ id, username: 'Manager', seasons: [2026], exactPeriods: [
+      { season: 2026, nativeWeek: 18 }, { season: 2026, nativeWeek: 1 },
+    ] }).exactPeriods).toEqual([{ season: 2026, nativeWeek: 1 }, { season: 2026, nativeWeek: 18 }]);
+  });
+  it('canonically selects declared native periods and leaves old wire identity unchanged', () => {
     const old = { id, username: 'Manager', seasons: [2026, 2025, 2024] };
     expect(JSON.stringify(validatePublicIntake({ ...old, exactPeriods: [] }))).toBe(JSON.stringify(validatePublicIntake(old)));
     expect(validatePublicIntake({ ...old, exactPeriods: [{ season: 2026, nativeWeek: 18 }, { season: 2024, nativeWeek: 1 }] }))
@@ -689,9 +695,17 @@ describe('explicit exact-period intake composition', () => {
   it.each([null, {}, [null], [{ season: 2026 }], [{ season: '2026', nativeWeek: 1 }], [{ season: 2026, nativeWeek: '1' }],
     [{ season: 2026, nativeWeek: 0 }], [{ season: 2026, nativeWeek: 19 }], [{ season: 2026, nativeWeek: 1.5 }],
     [{ season: 2025, nativeWeek: 1 }], [{ season: 2026, nativeWeek: 1, extra: true }],
-    [{ season: 2026, nativeWeek: 1 }, { season: 2026, nativeWeek: 2 }],
-    [1, 2, 3, 4].map(nativeWeek => ({ season: 2026, nativeWeek }))])('rejects an invalid explicit period selection: %j', exactPeriods => {
+    [{ season: 2026, nativeWeek: 1 }, { season: 2026, nativeWeek: 1 }],
+    Array.from({ length: 55 }, (_, index) => ({ season: 2026, nativeWeek: index % 18 + 1 }))])('rejects an invalid explicit period selection: %j', exactPeriods => {
     expect(() => validatePublicIntake({ id, username: 'Manager', seasons: [2026], exactPeriods } as unknown as Parameters<typeof validatePublicIntake>[0])).toThrow();
+  });
+  it('retains all fifty-four explicit pairs before independent discovered-task capacity is known', () => {
+    const seasons = [2026, 2025, 2024];
+    const exactPeriods = seasons.flatMap(season => Array.from({ length: 18 }, (_, index) => ({ season, nativeWeek: 18 - index })));
+    const result = validatePublicIntake({ id, username: 'Manager', seasons, exactPeriods });
+    expect(result.exactPeriods).toEqual([...seasons].reverse().flatMap(season =>
+      Array.from({ length: 18 }, (_, index) => ({ season, nativeWeek: index + 1 }))));
+    expect(exactPeriods[0]).toEqual({ season: 2026, nativeWeek: 18 });
   });
   it('reserves settings and matchups before both GETs and writes same-capture population without managers or directory', async () => {
     const f = periodFixture();
@@ -805,10 +819,11 @@ async function storedPeriodFixture() {
   const header: Record<string, unknown> = { id, seasons: [2026], terminal: true, external_manager_id: '55', selected_exact_periods: exactSelection };
   const candidate: Record<string, unknown> = { season: 2026, external_league_id: native, name: league.name,
     stage: 'unavailable', league_season_id: mapping.leagueSeasonId };
+  const candidates = [candidate]; const lists = [{ season: 2026 }];
   const query = vi.fn(async (sql: string) => {
     if (sql.includes('read-request')) return [header];
-    if (sql.includes('read-lists')) return [{ season: 2026 }];
-    if (sql.includes('read-candidates')) return [candidate];
+    if (sql.includes('read-lists')) return lists;
+    if (sql.includes('read-candidates')) return candidates;
     if (sql.includes('read-exact-periods')) return tasks;
     if (sql.includes('read-rejections')) return [];
     throw new Error('Unexpected reader query');
@@ -819,7 +834,7 @@ async function storedPeriodFixture() {
     readSource: vi.fn(async () => { throw new Error('Optional directory invalid'); }),
   };
   const read = () => readPublicSleeperIntake({ enabled: true, query } as unknown as DatabaseClient, administration, id);
-  return { f, exactRow, task, tasks, header, candidate, query, administration, read };
+  return { f, exactRow, task, tasks, header, candidate, candidates, lists, query, administration, read };
 }
 
 describe('exact-period worker to typed stored reader with storage mocked', () => {
@@ -872,9 +887,11 @@ describe('exact-period worker to typed stored reader with storage mocked', () =>
     expect(f.query).toHaveBeenCalledTimes(4); expect(f.administration.readAcceptedExactMatchups).not.toHaveBeenCalled();
     expect(result.coverage.notRequested).toContain('exact-matchups');
   });
-  it.each(['duplicate', 'wrong-period', 'oversize'] as const)('rejects corrupt retained task scope: %s', async kind => {
+  it.each(['duplicate', 'wrong-period', 'wrong-season', 'unknown-league', 'oversize'] as const)('rejects corrupt retained task scope: %s', async kind => {
     const f = await storedPeriodFixture();
     if (kind === 'wrong-period') f.task.native_week = 17;
+    else if (kind === 'wrong-season') f.task.season = 2025;
+    else if (kind === 'unknown-league') f.task.external_league_id = '123456';
     else if (kind === 'duplicate') f.tasks.push({ ...f.task, ordinal: 2 });
     else f.tasks.push(...Array.from({ length: 20 }, (_, index) => ({ ...f.task, ordinal: index + 2 })));
     await expect(f.read()).rejects.toThrow(/Stored exact-period|Invalid stored exact-period/);
@@ -893,7 +910,117 @@ it('does not call a missing requested task complete even when every old core res
   expect(result.status).toBe('partial'); if (result.status === 'missing') throw new Error('Missing fixture');
   expect(result.leagues[0].resources).toMatchObject({ settings: { status: 'available' }, teamManagers: { status: 'available' },
     heldRoster: { status: 'available' }, directory: { status: 'available' } });
-  expect(result.exactPeriods).toEqual([]);
+  expect(result.exactPeriods).toMatchObject([{ ordinal: null, nativeWeek: 18,
+    resource: { status: 'unavailable', reason: 'period-inventory-missing-task' } }]);
+});
+
+it('exposes a missing requested week as an explicit unavailable inventory entry', async () => {
+  const f = await storedPeriodFixture(); f.tasks.length = 0;
+  const result = await f.read();
+  expect(result).toMatchObject({ status: 'partial', exactPeriods: [{ season: 2026, externalLeagueId: native,
+    nativeWeek: 18, ordinal: null, collection: 'unavailable', resource: { status: 'unavailable', reason: 'period-inventory-missing-task' }, acquisition: null }],
+  exactPeriodInventory: { status: 'incomplete', expectedCount: 1, storedCount: 0, missingCount: 1, discoveryComplete: true } });
+});
+
+describe('explicit multi-week inventory reader', () => {
+  it('completes two native weeks through the typed evidence reader without sharing their receipt identities', async () => {
+    const f = await storedPeriodFixture(); const secondReceipt = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+    f.header.selected_exact_periods = [{ season: 2026, nativeWeek: 18 }, { season: 2026, nativeWeek: 7 }];
+    const normalized = normalizeAdministrationObservation({ ...vi.mocked(f.f.administration.recordObservation).mock.calls[1][0].envelope,
+      week: 7 }, { expectedRosterCount: 1 });
+    if (normalized.status !== 'accepted') throw new Error('Second fixture period not accepted');
+    const second = { ...f.exactRow, identity: { scope: exactMatchupsScope(mapping, 7), policy: EXACT_MATCHUPS_POLICY },
+      receipt_id: secondReceipt, attempt_id: secondReceipt, legacy_observation_id: secondReceipt, week: 7,
+      content_hash: normalized.contentHash, semantic_hash: normalized.semanticHash, normalized_value: normalized.value,
+      coverage: { ...f.exactRow.coverage, periodIds: ['sleeper:matchup-week:7'] } };
+    f.tasks.push({ ...f.task, ordinal: 2, native_week: 7, matchups_receipt_id: secondReceipt });
+    f.administration.readAcceptedExactMatchups.mockImplementation(async (source, week) =>
+      readAcceptedExactMatchupsRows([week === 7 ? second : f.exactRow], source, week));
+    const result = await f.read();
+    expect(result).toMatchObject({ exactPeriodInventory: { status: 'complete', expectedCount: 2, storedCount: 2, missingCount: 0 },
+      exactPeriods: [{ nativeWeek: 7, resource: { status: 'available', value: { period: { nativeWeek: 7 } } }, acquisition: { matchupsReceiptId: secondReceipt } },
+        { nativeWeek: 18, resource: { status: 'available', value: { period: { nativeWeek: 18 } } }, acquisition: { matchupsReceiptId: periodReceipt } }] });
+    expect(f.administration.readAcceptedExactMatchups.mock.calls).toEqual([[mapping, 18], [mapping, 7]]);
+    second.receipt_id = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+    expect(await f.read()).toMatchObject({ exactPeriodInventory: { status: 'incomplete' }, exactPeriods: [
+      { nativeWeek: 7, resource: { status: 'unavailable', reason: 'intake-capture-not-current-head' } },
+      { nativeWeek: 18, resource: { status: 'available' }, acquisition: { matchupsReceiptId: periodReceipt } },
+    ] });
+  });
+  it('keeps two stored weeks distinct and returns canonical identity order independent of task ordinals', async () => {
+    const f = await storedPeriodFixture();
+    f.header.selected_exact_periods = [{ season: 2026, nativeWeek: 18 }, { season: 2026, nativeWeek: 7 }];
+    f.tasks.push({ ...f.task, ordinal: 2, native_week: 7, status: 'pending' });
+    const result = await f.read();
+    expect(result).toMatchObject({ exactPeriods: [
+      { nativeWeek: 7, ordinal: 2, collection: 'pending', resource: { status: 'unavailable' } },
+      { nativeWeek: 18, ordinal: 1, collection: 'complete', resource: { status: 'available' } },
+    ], exactPeriodInventory: { status: 'incomplete', expectedCount: 2, storedCount: 2, missingCount: 0 } });
+    expect(f.administration.readAcceptedExactMatchups).toHaveBeenCalledExactlyOnceWith(mapping, 18);
+  });
+  it('cannot cover a second requested week with the first available week', async () => {
+    const f = await storedPeriodFixture();
+    f.header.selected_exact_periods = [{ season: 2026, nativeWeek: 7 }, { season: 2026, nativeWeek: 18 }];
+    const result = await f.read();
+    expect(result).toMatchObject({ exactPeriods: [
+      { nativeWeek: 7, ordinal: null, resource: { status: 'unavailable', reason: 'period-inventory-missing-task' } },
+      { nativeWeek: 18, resource: { status: 'available' } },
+    ], exactPeriodInventory: { status: 'incomplete', expectedCount: 2, storedCount: 1, missingCount: 1 } });
+  });
+  it.each(['same-count-wrong-season', 'duplicate-list', 'missing-list'] as const)('requires exact declared discovery seasons: %s', async fault => {
+    const f = await storedPeriodFixture(); f.candidates.length = 0; f.tasks.length = 0;
+    if (fault === 'same-count-wrong-season') f.lists[0].season = 2025;
+    if (fault === 'missing-list') f.lists.length = 0;
+    if (fault === 'duplicate-list') { f.header.seasons = [2025, 2026]; f.lists.push({ season: 2026 }); }
+    expect(await f.read()).toMatchObject({ status: 'unavailable', exactPeriods: [],
+      exactPeriodInventory: { status: 'discovery-pending', expectedCount: 0, discoveryComplete: false } });
+  });
+  it('accepts an empty expected inventory only after every declared season list exists', async () => {
+    const f = await storedPeriodFixture(); f.candidates.length = 0; f.tasks.length = 0;
+    f.header.seasons = [2025, 2026]; f.lists.push({ season: 2025 });
+    f.header.selected_exact_periods = [{ season: 2026, nativeWeek: 18 }, { season: 2026, nativeWeek: 7 }];
+    expect(await f.read()).toMatchObject({ status: 'available', exactPeriods: [],
+      exactPeriodInventory: { status: 'complete', expectedCount: 0, storedCount: 0, discoveryComplete: true } });
+    expect(f.administration.readAcceptedExactMatchups).not.toHaveBeenCalled();
+  });
+  it.each(['eleven-by-two', 'six-plus-five-by-two', 'twenty-one-by-one'] as const)('retains every requested capacity entry without typed fan-out: %s', async shape => {
+    const f = await storedPeriodFixture(); f.candidates.length = 0; f.tasks.length = 0; f.header.terminal = false;
+    const split = shape === 'six-plus-five-by-two'; const count = shape === 'twenty-one-by-one' ? 21 : 11;
+    const weeks = shape === 'twenty-one-by-one' ? [18] : [7, 18];
+    const seasons = split ? [2025, 2026] : [2026];
+    f.header.seasons = seasons; f.header.selected_exact_periods = seasons.flatMap(season => weeks.map(nativeWeek => ({ season, nativeWeek })));
+    f.lists.splice(0, f.lists.length, ...seasons.map(season => ({ season })));
+    for (let index = 0; index < count; index++) f.candidates.push({ season: split && index < 6 ? 2025 : 2026,
+      external_league_id: String(1000 + index), name: 'Unrelated discovered league', stage: index >= 20 ? 'capacity' : 'bootstrap' });
+    const result = await f.read();
+    expect(result).toMatchObject({ status: 'pending', exactPeriodInventory: { status: 'capacity', expectedCount: count * weeks.length,
+      storedCount: 0, missingCount: count * weeks.length, taskLimit: 20, discoveryComplete: true, reason: 'period-inventory-capacity' } });
+    if (result.status === 'missing') throw new Error('Missing fixture');
+    expect(result.exactPeriods).toHaveLength(count * weeks.length);
+    expect(result.exactPeriods?.every(period => period.ordinal === null && period.collection === 'unavailable'
+      && period.resource.status === 'unavailable' && period.resource.reason === 'period-inventory-capacity' && period.acquisition === null)).toBe(true);
+    expect(result.leagues).toHaveLength(count); expect(f.administration.readAcceptedExactMatchups).not.toHaveBeenCalled();
+    expect(f.f.source.exactPeriod).toHaveBeenCalledOnce(); // Only fixture setup; the reader performs no acquisition.
+  });
+  it('preserves a prior complete capture while reporting full overcapacity inventory', async () => {
+    const f = await storedPeriodFixture();
+    for (let index = 0; index < 20; index++) f.candidates.push({ season: 2026, external_league_id: String(1000 + index),
+      name: 'Unacquired league', stage: 'capacity' });
+    const prior = structuredClone(f.task); const result = await f.read();
+    expect(result).toMatchObject({ status: 'partial', exactPeriodInventory: { status: 'capacity', expectedCount: 21, storedCount: 1, missingCount: 20 } });
+    if (result.status === 'missing') throw new Error('Missing fixture');
+    expect(result.exactPeriods?.find(period => period.externalLeagueId === native)).toMatchObject({ ordinal: 1,
+      collection: 'complete', resource: { status: 'available' }, acquisition: { matchupsReceiptId: periodReceipt } });
+    expect(f.task).toEqual(prior); expect(f.administration.readAcceptedExactMatchups).toHaveBeenCalledOnce();
+  });
+  it.each(['duplicate', 'undeclared-season', 'over-source-bound'] as const)('rejects corrupt candidate expansion before typed reads: %s', async fault => {
+    const f = await storedPeriodFixture();
+    if (fault === 'duplicate') f.candidates.push({ ...f.candidate });
+    else if (fault === 'undeclared-season') f.candidate.season = 2025;
+    else for (let index = 0; index < 1000; index++) f.candidates.push({ season: 2026, external_league_id: String(1000 + index), stage: 'capacity' });
+    await expect(f.read()).rejects.toThrow(/stored exact-period|Stored exact-period/);
+    expect(f.administration.readAcceptedExactMatchups).not.toHaveBeenCalled();
+  });
 });
 
 it('routes a selected recurring request through the same exact-period worker and original fence', async () => {

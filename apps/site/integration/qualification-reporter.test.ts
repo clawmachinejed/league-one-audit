@@ -11,7 +11,7 @@ import { createQualificationContext, qualificationArguments, qualificationDigest
   QUALIFICATION_FILES, INGESTION_PROFILE, INGESTION_FULL_NAME, SELECTED_FULL_NAME, SELECTED_INVENTORY, SELECTED_MODULE, SELECTED_PROFILE,
   OFFICIAL_PROFILE, OFFICIAL_SUITE, OFFICIAL_FULL_NAMES, GUARDS_PROFILE, GUARDS_FULL_NAMES,
   CONCURRENCY_PROFILE, CONCURRENCY_FULL_NAMES, LATE_WRITE_PROFILE, LATE_WRITE_FULL_NAMES, LATE_WRITE_SUITE,
-  CLOSEOUT_PROFILES, validateQualificationArtifacts, type QualificationReport } from './qualification-profile';
+  CLOSED_PROFILES, validateQualificationArtifacts, type QualificationReport } from './qualification-profile';
 
 const directories: string[] = [];
 const site = fileURLToPath(new URL('..', import.meta.url));
@@ -54,12 +54,12 @@ async function sourceCaseOrder(): Promise<string[]> {
 
 /** Actual installed runner, synthetic modules only. No application or SQL imports;
  * outbound fetch/http/net are blocked before configuration and worker startup. */
-async function runFixture(kind: 'ordinary' | 'selected' | 'official' | 'guards' | 'concurrency' | 'late-write' | 'teardown' | 'hook' | 'retry' | 'repeat' | 'unhandled' | 'timeout' | typeof CLOSEOUT_PROFILES[number]['profile'], order: 'source' | 'reversed' = 'source') {
+async function runFixture(kind: 'ordinary' | 'selected' | 'official' | 'guards' | 'concurrency' | 'late-write' | 'teardown' | 'hook' | 'retry' | 'repeat' | 'unhandled' | 'timeout' | typeof CLOSED_PROFILES[number]['profile'], order: 'source' | 'reversed' = 'source') {
   const directory = await mkdtemp(join(tmpdir(), 'qualification-runner-')); directories.push(directory);
   await mkdir(join(directory, 'integration')); await mkdir(join(directory, 'artifacts'));
   const vitestImport = pathToFileURL(join(site, 'node_modules/vitest/dist/index.js')).href;
   let body = "import {it,expect,describe,beforeAll,afterAll} from " + JSON.stringify(vitestImport) + ";\n";
-  const closeout = CLOSEOUT_PROFILES.find(selection => selection.profile === kind);
+  const closeout = CLOSED_PROFILES.find(selection => selection.profile === kind);
   if (closeout) {
     const inventory = await sourceCaseOrder();
     expect(inventory.filter(name => closeout.names.includes(name))).toEqual(closeout.names);
@@ -190,7 +190,7 @@ it('executes the closed selected case once and accounts for every filtered case 
   const { child, binding, report } = await runFixture('selected');
   expect(child.status).toBe(0);
   expect(report.modules[0].cases.filter(test => test.state === 'passed')).toHaveLength(1);
-  expect(report.modules[0].cases.filter(test => test.state === 'skipped')).toHaveLength(24);
+  expect(report.modules[0].cases.filter(test => test.state === 'skipped')).toHaveLength(29);
   await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({ profile: SELECTED_PROFILE });
 });
 it('rejects the reproduced zero-exit teardown gap after the actual installed runner closes', { timeout: 30_000 }, async () => {
@@ -219,68 +219,68 @@ it('fails synchronously before attempting a timeout marker write, even without i
   expect(process.exitCode).toBe(1); await reporting;
 });
 
-it('executes only the ordinary case among25 and rejects that report under the refresh profile', { timeout: 30_000 }, async () => {
+it('executes only the ordinary case among30 and rejects that report under the refresh profile', { timeout: 30_000 }, async () => {
   const { child, binding, report } = await runFixture('ordinary');
   expect(child.status).toBe(0);
   expect(report.modules[0].cases.filter(test => test.state === 'passed').map(test => test.name)).toEqual([INGESTION_FULL_NAME]);
   await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({ profile: INGESTION_PROFILE,
-    collected: 25, executed: 1, passed: 1, filtered: 24 });
+    collected: 30, executed: 1, passed: 1, filtered: 29 });
   const other = await createQualificationContext(site, binding.context.gitSha, binding.context.runId, SELECTED_PROFILE);
   await expect(validateQualificationArtifacts({ ...binding, context: other })).rejects.toThrow();
 });
-it('executes the official pair once with shared suite hooks and skips all23 unrelated cases and hooks', { timeout: 30_000 }, async () => {
+it('executes the official pair once with shared suite hooks and skips all28 unrelated cases and hooks', { timeout: 30_000 }, async () => {
   const { child, binding, report } = await runFixture('official');
   expect(child.status).toBe(0);
   expect(report.modules[0].cases.filter(test => test.state === 'passed').map(test => test.name).sort()).toEqual([...OFFICIAL_FULL_NAMES].sort());
   expect(report.hooks).toHaveLength(2);
   for (const hook of report.hooks) expect(hook).toMatchObject({ starts: 1, ends: 1 });
   await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({ profile: OFFICIAL_PROFILE,
-    collected: 25, executed: 2, passed: 2, skipped: 23, filtered: 23 });
+    collected: 30, executed: 2, passed: 2, skipped: 28, filtered: 28 });
 });
 
 it('executes the three ingestion guards in source order with the retained cycle dependency and both suite hooks', { timeout: 30_000 }, async () => {
   const { child, binding, report } = await runFixture('guards');
   expect(child.status).toBe(0);
   expect(report.modules[0].cases.filter(test => test.state === 'passed').map(test => test.name)).toEqual(GUARDS_FULL_NAMES);
-  expect(report.modules[0].cases.filter(test => test.state === 'skipped')).toHaveLength(22);
+  expect(report.modules[0].cases.filter(test => test.state === 'skipped')).toHaveLength(27);
   expect(report.hooks).toHaveLength(4);
   for (const hook of report.hooks) expect(hook).toMatchObject({ starts: 1, ends: 1 });
   await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({ profile: GUARDS_PROFILE,
-    collected: 25, executed: 3, passed: 3, skipped: 22, filtered: 22 });
+    collected: 30, executed: 3, passed: 3, skipped: 27, filtered: 27 });
 });
 
 it('executes five refresh concurrency cases in source order with one shared setup and teardown', { timeout: 30_000 }, async () => {
   const { child, binding, report } = await runFixture('concurrency');
   expect(child.status).toBe(0);
   expect(report.modules[0].cases.filter(test => test.state === 'passed').map(test => test.name)).toEqual(CONCURRENCY_FULL_NAMES);
-  expect(report.modules[0].cases.filter(test => test.state === 'skipped')).toHaveLength(20);
+  expect(report.modules[0].cases.filter(test => test.state === 'skipped')).toHaveLength(25);
   expect(report.hooks).toHaveLength(2);
   for (const hook of report.hooks) expect(hook).toMatchObject({ starts: 1, ends: 1 });
   await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({ profile: CONCURRENCY_PROFILE,
-    collected: 25, executed: 5, passed: 5, skipped: 20, filtered: 20 });
+    collected: 30, executed: 5, passed: 5, skipped: 25, filtered: 25 });
 });
 
 it('executes only three late-write rollback cases in source order with exactly one selected suite hook pair', { timeout: 30_000 }, async () => {
   const { child, binding, report } = await runFixture('late-write');
   expect(child.status).toBe(0);
   expect(report.modules[0].cases.filter(test => test.state === 'passed').map(test => test.name)).toEqual(LATE_WRITE_FULL_NAMES);
-  expect(report.modules[0].cases.filter(test => test.state === 'skipped')).toHaveLength(22);
+  expect(report.modules[0].cases.filter(test => test.state === 'skipped')).toHaveLength(27);
   const selectedSuite = report.modules[0].suites.find(suite => suite.name === LATE_WRITE_SUITE)!;
   expect(selectedSuite).toMatchObject({ mode: 'run', errors: 0 });
   expect(report.hooks).toEqual(['beforeAll', 'afterAll'].map(name => ({
     key: selectedSuite.id + ':' + name, starts: 1, ends: 1,
   })));
   await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({ profile: LATE_WRITE_PROFILE,
-    collected: 25, executed: 3, passed: 3, skipped: 22, filtered: 22 });
+    collected: 30, executed: 3, passed: 3, skipped: 27, filtered: 27 });
 });
 
 
-it.each(CLOSEOUT_PROFILES)('executes $profile in actual source topology with chronological async transitions and exact hooks', { timeout: 30_000 }, async selection => {
+it.each(CLOSED_PROFILES)('executes $profile in actual source topology with chronological async transitions and exact hooks', { timeout: 30_000 }, async selection => {
   const { child, binding, report } = await runFixture(selection.profile);
   expect(child.status).toBe(0);
   const selected = report.modules[0].cases.filter(test => test.state === 'passed');
   expect(selected.map(test => test.name)).toEqual(selection.names);
-  expect(report.modules[0].cases.filter(test => test.state === 'skipped')).toHaveLength(25 - selection.names.length);
+  expect(report.modules[0].cases.filter(test => test.state === 'skipped')).toHaveLength(30 - selection.names.length);
   const suites = report.modules[0].suites.filter(suite => suite.mode === 'run');
   expect(suites.map(suite => suite.name)).toEqual(selection.suites);
   expect(report.hooks).toEqual(suites.flatMap(suite => ['beforeAll', 'afterAll'].map(name => ({
@@ -290,11 +290,11 @@ it.each(CLOSEOUT_PROFILES)('executes $profile in actual source topology with chr
     expect(selected[index].diagnostic!.startTime).toBeGreaterThan(selected[index - 1].diagnostic!.startTime);
   }
   await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({ profile: selection.profile,
-    collected: 25, executed: selection.names.length, passed: selection.names.length,
-    skipped: 25 - selection.names.length, filtered: 25 - selection.names.length });
+    collected: 30, executed: selection.names.length, passed: selection.names.length,
+    skipped: 30 - selection.names.length, filtered: 30 - selection.names.length });
 });
 
-it.each(CLOSEOUT_PROFILES.filter(selection => selection.names.length > 1))(
+it.each(CLOSED_PROFILES.filter(selection => selection.names.length > 1))(
   'rejects a real installed-runner dependency-order violation for $profile', { timeout: 30_000 }, async selection => {
     const { child, binding, report } = await runFixture(selection.profile, 'reversed');
     expect(child.status).toBe(1);

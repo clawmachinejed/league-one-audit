@@ -1,9 +1,11 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { exactMatchupClockInstant } from './exact-matchup-clock';
+import { installAllPlayerScheduleTestClock } from './all-player-schedule-test-clock';
+import { createPublicInventoryDiagnostics, type InventoryDiagnosticKind } from './public-data-inventory-diagnostics';
 import { readFile } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { createIndependentDatabase, createPinnedIntegrationDatabase, createReceiptDiagnosticReader, ownerQuery, type IndependentDatabase } from './neon-integration-harness';
+import { createIndependentDatabase, createPinnedIntegrationDatabase, createReceiptDiagnosticReader, ownerQuery, prepareIntegrationDatabase, type IndependentDatabase } from './neon-integration-harness';
 import { createProjectionStore } from '../lib/projection-store';
 import { createPublicIntakeStore, createPublicDataRefreshStore, createLeagueAdministrationStore } from '../lib/league-administration/store';
 import { runPublicIntakeStep, runPublicDataRefreshStep, type PublicIntakeDependencies } from '../lib/league-administration/public-intake';
@@ -2085,7 +2087,7 @@ describe('explicit public native-period intake through retained typed receipts',
   beforeAll(() => { connection = createIndependentDatabase(); });
   afterAll(async () => connection.close());
 
-  async function fixture() {
+  async function fixture(weeks: readonly number[] = [7]) {
     const database = connection.database;
     expect((await database.query('SELECT session_user AS role'))[0].role).toBe('league_one_runtime');
     const jobs = createProjectionStore(database); const intake = createPublicIntakeStore(database);
@@ -2111,7 +2113,7 @@ describe('explicit public native-period intake through retained typed receipts',
       if (url.endsWith(`/user/${native}`)) return new Response(JSON.stringify({ user_id: native, username: native }));
       if (url.endsWith(`/user/${native}/leagues/nfl/${season}`)) return new Response(JSON.stringify([league]));
       if (url.endsWith(`/league/${native}`)) return new Response(JSON.stringify(league));
-      if (url.endsWith(`/league/${native}/matchups/${nativeWeek}`)) {
+      if (weeks.some(week => url.endsWith(`/league/${native}/matchups/${week}`))) {
         if (fault.matchups) throw new Error('Synthetic exact-period outage');
         return new Response(JSON.stringify(matchups));
       }
@@ -2144,7 +2146,7 @@ describe('explicit public native-period intake through retained typed receipts',
       }
       throw new Error('Real exact-period admission/backoff did not become due.');
     };
-    await intake.submit({ id, username: native, seasons: [season], exactPeriods: [{ season, nativeWeek }] });
+    await intake.submit({ id, username: native, seasons: [season], exactPeriods: weeks.map(nativeWeek => ({ season, nativeWeek })) });
     return { database, jobs, intake, administration, native, id, season, nativeWeek, league, rosters, matchups, registered, fault, fetch, dependencies, progress, periodCaptures };
   }
 
@@ -2190,7 +2192,7 @@ describe('explicit public native-period intake through retained typed receipts',
       const submit = (value: unknown) => runtime.database.query('SELECT public.submit_public_data_intake($1::jsonb)', [JSON.stringify(value)]);
       for (const exactPeriods of [null, {}, [{ season: 2179, nativeWeek: 0 }], [{ season: 2179, nativeWeek: 19 }],
         [{ season: 2179, nativeWeek: 1.5 }], [{ season: 2179, nativeWeek: '7' }], [{ season: 2181, nativeWeek: 7 }],
-        [{ season: 2179, nativeWeek: 7, extra: true }], [{ season: 2179, nativeWeek: 7 }, { season: 2179, nativeWeek: 8 }],
+        [{ season: 2179, nativeWeek: 7, extra: true }], [{ season: 2179, nativeWeek: 7 }, { season: 2179, nativeWeek: 7 }],
         [2177, 2178, 2179, 2180].map(season => ({ season, nativeWeek: 7 }))]) {
         await runtime.database.query('SAVEPOINT invalid_period_scope');
         try { await expect(submit({ ...input, exactPeriods })).rejects.toThrow(); }
@@ -2240,6 +2242,21 @@ describe('explicit public native-period intake through retained typed receipts',
       await owner.database.query('SAVEPOINT immutable_period_scope');
       try { await expect(owner.database.query("UPDATE public.public_data_intakes SET exact_periods='[]' WHERE id=$1", [id])).rejects.toThrow(); }
       finally { await owner.database.query('ROLLBACK TO SAVEPOINT immutable_period_scope'); await owner.database.query('RELEASE SAVEPOINT immutable_period_scope'); }
+      // Owner-only negative prerequisites: a terminal header with discovery and
+      // two declared keys cannot be complete when both actual task rows are absent.
+      // This deliberately synthetic state proves the SQL completion guard only.
+      const missingId = randomUUID();
+      await owner.database.query(`INSERT INTO public.public_data_intakes(id,username,seasons,exact_periods,terminal)
+        VALUES($1,'missing_period_fixture',ARRAY[$2]::integer[],jsonb_build_array(
+          jsonb_build_object('season',$2::integer,'nativeWeek',7),jsonb_build_object('season',$2::integer,'nativeWeek',8)),true)`, [missingId,season]);
+      await owner.database.query(`INSERT INTO public.public_data_identity_observations(intake_id,source_manager_account_id,username,display_name,payload,request_started_at,request_completed_at)
+        VALUES($1,$2,'missing_period_fixture','Fixture','{}',clock_timestamp(),clock_timestamp())`, [missingId,manager]);
+      await owner.database.query("INSERT INTO public.public_data_league_lists(intake_id,season,payload,request_started_at,request_completed_at) VALUES($1,$2,'[]',clock_timestamp(),clock_timestamp())", [missingId,season]);
+      await owner.database.query("INSERT INTO public.public_data_league_candidates(intake_id,season,external_league_id,name) VALUES($1,$2,'1','Missing inventory negative fixture')", [missingId,season]);
+      expect(await owner.database.query('SELECT * FROM public.public_data_exact_period_tasks WHERE intake_id=$1', [missingId])).toEqual([]);
+      expect(await owner.database.query('SELECT expected_count,stored_count,missing_count,extra_count,unfinished_count FROM public.public_data_exact_period_inventory_v40($1)', [missingId]))
+        .toEqual([{ expected_count: 2, stored_count: 0, missing_count: 2, extra_count: 0, unfinished_count: 0 }]);
+      expect(await createPublicIntakeStore(owner.database).next(missingId)).toBe('partial');
       await owner.database.query('ROLLBACK'); open = false;
     } finally { if (open) await owner.database.query('ROLLBACK'); await owner.close(); }
   });
@@ -2381,28 +2398,569 @@ describe('explicit public native-period intake through retained typed receipts',
   }, 18 * 60_000);
 
   it('exhausts five real exact-period retries without closing core or fabricating a period checkpoint [focused slow SQL]', async () => {
-    const f = await fixture();
+    const f = await fixture([7,8]);
     try {
-      f.fault.matchups = true;
       for (const resource of ['identity', 'leagues', 'bootstrap']) expect(await f.progress()).toMatchObject({ status: 'progress', resource });
+      expect(await f.progress()).toMatchObject({ status: 'progress', resource: 'exact-matchups', providerRequests: 2 });
+      const retained = await f.database.query('SELECT * FROM public.public_data_exact_period_checkpoints WHERE intake_id=$1', [f.id]);
+      expect(retained).toHaveLength(1);
+      expect(await f.intake.next(f.id)).toMatchObject({ kind: 'exact-matchups', nativeWeek: 8 });
+      f.fault.matchups = true;
       for (let attempt = 1; attempt <= 5; attempt++) {
         expect(await f.progress()).toMatchObject({ status: 'unavailable', resource: 'exact-matchups', providerRequests: 2 });
-        expect((await f.database.query('SELECT status,failure_count,reason FROM public.public_data_exact_period_tasks WHERE intake_id=$1', [f.id]))[0])
+        expect((await f.database.query('SELECT status,failure_count,reason FROM public.public_data_exact_period_tasks WHERE intake_id=$1 AND native_week=8', [f.id]))[0])
           .toEqual({ status: attempt < 5 ? 'pending' : 'unavailable', failure_count: attempt, reason: attempt < 5 ? null : 'period-capture-exhausted' });
-        expect(await f.database.query('SELECT * FROM public.public_data_exact_period_checkpoints WHERE intake_id=$1', [f.id])).toHaveLength(0);
+        expect(await f.database.query('SELECT * FROM public.public_data_exact_period_checkpoints WHERE intake_id=$1', [f.id])).toEqual(retained);
+        expect((await f.database.query('SELECT status,failure_count FROM public.public_data_exact_period_tasks WHERE intake_id=$1 AND native_week=7', [f.id]))[0])
+          .toEqual({ status: 'complete', failure_count: 0 });
       }
       expect(await f.intake.next(f.id)).toMatchObject({ kind: 'core' });
       for (const resource of ['core', 'users']) expect(await f.progress()).toMatchObject({ status: 'progress', resource });
       expect(await f.intake.next(f.id)).toBe('partial');
       expect(await readPublicSleeperIntake(f.database, f.administration, f.id)).toMatchObject({ status: 'partial',
-        exactPeriods: [{ collection: 'unavailable', failureCount: 5, resource: { status: 'unavailable' }, acquisition: null }],
+        exactPeriods: [{ nativeWeek: 7, collection: 'complete', failureCount: 0, resource: { status: 'available' },
+          acquisition: { matchupsReceiptId: retained[0].matchups_receipt_id, settingsReceiptId: retained[0].settings_receipt_id } },
+        { nativeWeek: 8, collection: 'unavailable', failureCount: 5, resource: { status: 'unavailable' }, acquisition: null }],
         leagues: [{ collection: 'complete', resources: { settings: { status: 'available' }, heldRoster: { status: 'available' } } }] });
+      expect(await f.database.query('SELECT * FROM public.public_data_exact_period_checkpoints WHERE intake_id=$1', [f.id])).toEqual(retained);
       const dispatches = await f.database.query(`SELECT resource,max_requests,admitted_at FROM public.public_data_dispatches WHERE intake_id=$1 ORDER BY admitted_at`, [f.id]);
-      expect(dispatches.filter(row => row.resource === 'exact-matchups')).toHaveLength(5);
+      expect(dispatches.filter(row => row.resource === 'exact-matchups')).toHaveLength(6);
       expect(dispatches.filter(row => row.resource === 'exact-matchups').every(row => row.max_requests === 2)).toBe(true);
       for (let index = 1; index < dispatches.length; index++) {
-        expect(new Date(String(dispatches[index].admitted_at)).getTime() - new Date(String(dispatches[index - 1].admitted_at)).getTime()).toBeGreaterThanOrEqual(60_000);
+        expect(Date.parse(exactMatchupClockInstant(dispatches[index].admitted_at)) - Date.parse(exactMatchupClockInstant(dispatches[index - 1].admitted_at))).toBeGreaterThanOrEqual(60_000);
       }
     } finally { f.fetch.mockRestore(); }
   }, 27 * 60_000);
+});
+
+function inventoryProofFixture(database: DatabaseClient) {
+  const season = 2176;
+  const native = `7${BigInt(`0x${randomUUID().replaceAll('-', '').slice(0, 15)}`)}`;
+  const manager = `8${BigInt(`0x${randomUUID().replaceAll('-', '').slice(0, 15)}`)}`;
+  const league = { league_id: native, season: String(season), sport: 'nfl', name: 'Unrelated explicit inventory fixture',
+    total_rosters: 2, settings: {}, scoring_settings: { rec: 1 }, roster_positions: ['QB','RB','BN'] };
+  const lists = new Map<number, readonly typeof league[]>([[season, [league]]]);
+  const state = { empty: false, cycle: 1 };
+  const requests: string[] = [];
+  const captures: (Awaited<ReturnType<typeof capturePublicSleeperCore>> & { acquisition?: PublicCaptureWitness })[] = [];
+  const matchups = (week: number) => [
+    { roster_id: 1, matchup_id: week === 7 ? 41 : 82, players: ['101','102'],
+      starters: [week === 7 ? '101' : '102','0'], starters_points: [week === 7 ? 8.25 : 2.5,null],
+      players_points: { '101': week === 7 ? 9.5 : 0, '102': week === 7 ? -1 : 3.5 },
+      points: week === 7 ? 8.25 : 2.5, ...(week === 7 ? { custom_points: state.cycle === 1 ? 0 : -2 } : {}) },
+    { roster_id: 2, matchup_id: week === 7 ? 41 : 82, players: ['103'], starters: ['103','0'],
+      starters_points: [week === 7 ? 4 : 6,null], players_points: { '103': week === 7 ? 4 : 6 }, points: week === 7 ? 4 : 6 },
+  ];
+  const rosters = [{ roster_id: 1, owner_id: manager, co_owners: [], players: ['101','102'], starters: ['101','0'], reserve: [], taxi: [] },
+    { roster_id: 2, owner_id: '556', co_owners: [], players: ['103'], starters: ['103','0'], reserve: [], taxi: [] }];
+  const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+    const url = String(input); requests.push(url);
+    if (url === `https://api.sleeper.app/v1/user/${manager}`) return new Response(JSON.stringify({ user_id: manager, username: manager }));
+    for (const [selectedSeason, values] of lists) {
+      if (url === `https://api.sleeper.app/v1/user/${manager}/leagues/nfl/${selectedSeason}`) return new Response(JSON.stringify(state.empty ? [] : values));
+    }
+    if (url === `https://api.sleeper.app/v1/league/${native}`) return new Response(JSON.stringify(league));
+    if (url === `https://api.sleeper.app/v1/league/${native}/rosters`) return new Response(JSON.stringify(rosters));
+    if (url === `https://api.sleeper.app/v1/league/${native}/users`) return new Response(JSON.stringify([{ user_id: manager, display_name: 'Inventory manager' }, { user_id: '556', display_name: 'Second manager' }]));
+    for (const week of [7,8]) if (url === `https://api.sleeper.app/v1/league/${native}/matchups/${week}`) return new Response(JSON.stringify(matchups(week)));
+    throw new Error('Unexpected bounded inventory fixture request.');
+  });
+  const administration = createLeagueAdministrationStore(database), intake = createPublicIntakeStore(database), jobs = createProjectionStore(database);
+  const source: NonNullable<PublicIntakeDependencies['source']> = {
+    identity: capturePublicSleeperIdentity, leagues: capturePublicSleeperLeagueList,
+    core: async (external, family, signal, witness) => {
+      const capture = await capturePublicSleeperCore(external, family, signal, undefined, witness); captures.push(capture); return capture;
+    },
+    exactPeriod: async (external, week, signal, witness) => {
+      const capture = await capturePublicSleeperCore(external, 'matchups', signal, week, witness); captures.push(capture); return capture;
+    },
+  };
+  const dependencies: PublicIntakeDependencies = { administration, intake, jobs, source };
+  return { database, season, native, manager, league, lists, state, requests, captures, matchups, fetch, administration, intake, jobs, dependencies };
+}
+type InventoryProofFixture = ReturnType<typeof inventoryProofFixture>;
+type InventoryDiagnostics = ReturnType<typeof createPublicInventoryDiagnostics>;
+async function inventoryVersion(database: DatabaseClient, diagnostics: InventoryDiagnostics) {
+  const [row] = await database.query("SELECT session_user AS role,current_user AS effective_role,current_setting('server_version') AS server_version,current_setting('server_version_num') AS server_version_num");
+  expect(row).toMatchObject({ role: 'league_one_runtime', effective_role: 'league_one_runtime' });
+  diagnostics.database(row);
+}
+async function inventoryManualProgress(f: InventoryProofFixture, id: string, until: number, diagnostics: InventoryDiagnostics) {
+  while (Date.now() < until) {
+    const result = await runPublicIntakeStep(id, f.dependencies, AbortSignal.timeout(20_000));
+    if (result.status === 'busy' || result.status === 'backoff') { await delay(1_000); continue; }
+    if (result.providerRequests) diagnostics.acquired();
+    return result;
+  }
+  throw new Error('Bounded inventory admission did not become due.');
+}
+async function inventoryClaim(f: InventoryProofFixture, until: number) {
+  while (Date.now() < until) {
+    const workerId = randomUUID();
+    const claim = await f.jobs.acquireJob({ jobKey: PUBLIC_INTAKE_JOB, jobType: PUBLIC_INTAKE_JOB, workerId,
+      scheduledFor: new Date().toISOString(), minimumIntervalSeconds: 60, leaseSeconds: 25, payload: { policy: 'public-data-intake-v1' } });
+    if (claim.kind !== 'acquired') { await delay(1_000); continue; }
+    return { jobKey: PUBLIC_INTAKE_JOB, workerId, generation: claim.attempt, deadlineAt: new Date(Date.now() + 20_000).toISOString() };
+  }
+  throw new Error('Bounded inventory owner did not become available.');
+}
+async function inventoryHistory(database: DatabaseClient, requestId: string) {
+  const definitions: { statement: string; parameters: readonly unknown[] }[] = [
+    ...['public_data_intakes','public_data_identity_observations','public_data_league_lists','public_data_league_candidates',
+      'public_data_exact_period_tasks','public_data_exact_period_checkpoints','public_data_dispatches'].map(table => ({
+      statement: `SELECT * FROM public.${table} WHERE ${table === 'public_data_intakes' ? 'id' : 'intake_id'}=$1 ORDER BY to_jsonb(${table})::text`, parameters: [requestId] })),
+    { statement: `SELECT outcome.* FROM public.public_data_dispatch_outcomes outcome JOIN public.public_data_dispatches dispatch
+      USING(worker_id,generation) WHERE dispatch.intake_id=$1 ORDER BY outcome.worker_id,outcome.generation`, parameters: [requestId] },
+  ];
+  const receipts = `SELECT settings_receipt_id AS id FROM public.public_data_exact_period_checkpoints WHERE intake_id=$1
+    UNION SELECT matchups_receipt_id FROM public.public_data_exact_period_checkpoints WHERE intake_id=$1`;
+  for (const [table, predicate] of [
+    ['league_roster_capture_receipts', `id IN (${receipts})`],
+    ['league_roster_resource_attempts', `id IN (SELECT attempt_id FROM public.league_roster_capture_receipts WHERE id IN (${receipts}))`],
+    ['league_roster_resource_acceptances', `receipt_id IN (${receipts})`],
+    ['league_administration_contents', `id IN (SELECT content_id FROM public.league_roster_capture_receipts WHERE id IN (${receipts}))`],
+    ['league_administration_observations', `id IN (SELECT legacy_observation_id FROM public.league_roster_capture_receipts WHERE id IN (${receipts}))`],
+    ['league_administration_team_entries', `content_id IN (SELECT content_id FROM public.league_roster_capture_receipts WHERE id IN (${receipts}))`],
+  ]) definitions.push({ statement: `SELECT * FROM public.${table} WHERE ${predicate} ORDER BY to_jsonb(${table})::text`, parameters: [requestId] });
+  const result = [];
+  for (const definition of definitions) {
+    const rows = await database.query(definition.statement, definition.parameters);
+    expect(rows.length, 'A retained inventory history assertion must contain actual rows.').toBeGreaterThan(0);
+    result.push({ ...definition, rows });
+  }
+  return result;
+}
+async function assertInventoryHistory(database: DatabaseClient, history: Awaited<ReturnType<typeof inventoryHistory>>) {
+  for (const entry of history) expect(await database.query(entry.statement, entry.parameters)).toEqual(entry.rows);
+}
+async function assertInventoryPeriods(f: InventoryProofFixture, id: string, weeks: readonly number[], expectedStatus: 'pending' | 'available') {
+  const read = await readPublicSleeperIntake(f.database, f.administration, id);
+  expect(read).toMatchObject({ status: expectedStatus, request: { exactPeriods: weeks.map(nativeWeek => ({ season: f.season, nativeWeek })) } });
+  if (read.status === 'missing' || !read.exactPeriods) throw new Error('Missing explicit inventory read.');
+  expect(read.exactPeriods.map(period => [period.season,period.externalLeagueId,period.nativeWeek]))
+    .toEqual(weeks.map(week => [f.season,f.native,week]));
+  const mapping = await f.administration.readSourceMapping(f.native);
+  if (!mapping) throw new Error('Missing exact inventory source mapping.');
+  const results = [];
+  for (const [index, week] of weeks.entries()) {
+    const exact = await f.administration.readAcceptedExactMatchups(mapping, week);
+    if (exact.status !== 'available') throw new Error('Missing typed exact inventory resource.');
+    expect(read.exactPeriods[index]).toMatchObject({ collection: 'complete', failureCount: expect.any(Number),
+      phase: { status: 'unknown', reason: 'native-period-phase-not-evidenced' }, resource: exact,
+      acquisition: { sourceMapping: mapping, matchupsReceiptId: exact.receipt.id,
+        configurationContentId: exact.receipt.configurationContentId, settingsReceiptId: expect.any(String) } });
+    expect(exact.value.period).toEqual({ source: { provider: 'sleeper', resourceKind: 'competition-period', nativeNamespace: f.native, nativeId: String(week) }, season: f.season, nativeWeek: week, nflWeekMappings: [] });
+    expect(exact.value.state).toEqual({ provider: 'unknown', local: 'unknown', reason: 'no_matchup_finality_evidence' });
+    expect(exact.value.teams.map(team => team.externalRosterId)).toEqual(['1','2']);
+    expect(new Set(exact.value.teams.map(team => team.seasonTeamId)).size).toBe(2);
+    expect(exact.value.teams[0]).toMatchObject({ nativeMatchupId: week === 7 ? '41' : '82', players: ['101','102'],
+      officialTeamPoints: week === 7 ? { raw: '8.25', custom: f.state.cycle === 1 ? '0' : '-2', effective: f.state.cycle === 1 ? '0' : '-2', adjustment: 'custom-override' }
+        : { raw: '2.5', custom: null, effective: '2.5', adjustment: 'none' },
+      starters: [{ index: 0, nativeSlot: null, playerExternalId: week === 7 ? '101' : '102', empty: false,
+        officialPoints: week === 7 ? '8.25' : '2.5', pointSource: 'starter-index' },
+      { index: 1, nativeSlot: null, playerExternalId: null, empty: true, officialPoints: null, pointSource: 'missing' }],
+      bench: null, nonstarters: { state: 'known', players: [{ playerExternalId: week === 7 ? '102' : '101', officialPoints: week === 7 ? '-1' : '0' }] },
+      officialPlayerPoints: week === 7 ? { '101': '9.5', '102': '-1' } : { '101': '0', '102': '3.5' } });
+    expect(exact.value.groups).toEqual([{ nativeMatchupId: week === 7 ? '41' : '82', identity: expect.any(String),
+      participantTeamIds: exact.value.teams.map(team => team.seasonTeamId).sort(), format: 'paired', resultSupport: 'supported' }]);
+    const [checkpoint] = await f.database.query(`SELECT checkpoint.*,settings.content_id AS configuration_content_id
+      FROM public.public_data_exact_period_checkpoints checkpoint JOIN public.public_data_exact_period_tasks task
+      ON task.intake_id=checkpoint.intake_id AND task.ordinal=checkpoint.task_ordinal
+      JOIN public.league_roster_capture_receipts settings ON settings.id=checkpoint.settings_receipt_id
+      WHERE task.intake_id=$1 AND task.native_week=$2`, [id,week]);
+    expect(checkpoint).toMatchObject({ matchups_receipt_id: exact.receipt.id, configuration_content_id: exact.receipt.configurationContentId,
+      source_mapping: mapping, league_season_id: mapping.leagueSeasonId });
+    const lineage = await f.database.query(`SELECT receipt.id,receipt.provenance,attempt.capture_nonce,attempt.id AS attempt_id,
+      attempt.reserved_at>=dispatch.admitted_at AS after_admission,
+      receipt.recorded_at>=attempt.reserved_at AND receipt.recorded_at<=dispatch.admitted_at+interval '30 seconds' AS server_window,
+      receipt.provenance->'acquisition'->>'dispatchNonce'=dispatch.capture_nonce::text
+        AND receipt.provenance->'acquisition'->'work'=dispatch.work
+        AND receipt.provenance->'acquisition'->'fence'=attempt.write_fence
+        AND receipt.provenance->'acquisition'->'mapping'=attempt.source_mapping AS exact_witness
+      FROM public.league_roster_capture_receipts receipt JOIN public.league_roster_resource_attempts attempt ON attempt.id=receipt.attempt_id
+      JOIN public.public_data_dispatches dispatch ON dispatch.worker_id=attempt.write_fence->>'workerId'
+        AND dispatch.generation=(attempt.write_fence->>'generation')::integer WHERE receipt.id=ANY($1::uuid[])`,
+    [[checkpoint.settings_receipt_id,checkpoint.matchups_receipt_id]]);
+    expect(lineage).toHaveLength(2);
+    const reservationGroup = Object.fromEntries(lineage.map(row => [row.id === checkpoint.settings_receipt_id ? 'settings' : 'matchups', { id: row.attempt_id, nonce: row.capture_nonce }]));
+    for (const row of lineage) {
+      expect(row).toMatchObject({ after_admission: true, server_window: true, exact_witness: true });
+      const original = f.captures.find(capture => capture.acquisition?.fence.workerId === checkpoint.worker_id
+        && capture.family === (row.id === checkpoint.settings_receipt_id ? 'league' : 'matchups'));
+      if (!original) throw new Error('Missing original sealed exact capture.');
+      expect(original.acquisition?.attempts).toEqual(reservationGroup);
+      expect(row.provenance).toMatchObject({ acquisition: original.acquisition, requestStartedAt: original.requestStartedAt,
+        requestCompletedAt: original.requestCompletedAt, sourceObservedAt: original.requestCompletedAt });
+    }
+    expect(await f.database.query('SELECT payload FROM public.league_administration_contents WHERE id=$1', [exact.accepted.contentId]))
+      .toEqual([{ payload: f.matchups(week) }]);
+    results.push(exact);
+  }
+  return { read, mapping, results };
+}
+
+describe('bounded explicit native-week inventory through existing DATA intake', () => {
+  let connection: IndependentDatabase;
+  beforeAll(() => { connection = createIndependentDatabase(); });
+  afterAll(async () => connection.close());
+
+  it('retains two same-season weeks across recurring correction and lost-checkpoint recovery [inventory slow SQL]', async () => {
+    const diagnostics = createPublicInventoryDiagnostics('inventory');
+    const database = connection.database, f = inventoryProofFixture(database);
+    const refresh = createPublicDataRefreshStore(database);
+    const identityRequestId = randomUUID(), targetId = randomUUID();
+    const periods = [7,8].map(nativeWeek => ({ season: f.season, nativeWeek }));
+    let revision = 0;
+    const configuration = { id: targetId, expectedRevision: 0, identityRequestId, seasons: [f.season], exactPeriods: [...periods].reverse(),
+      cadenceSeconds: 60, expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(), paused: false };
+    const until = Date.now() + 22 * 60_000;
+    let callbackError: unknown, lost = false, suppressed = false, recovered = false, cas = false, isolatedCorrection = false;
+    let unfinished: { work: Extract<PublicIntakeWork, { kind: 'exact-matchups' }>; fence: Parameters<typeof f.intake.completeExactPeriod>[3];
+      receipts: readonly string[]; state: DatabaseRow } | undefined;
+    const checked = async <T,>(action: () => Promise<T>): Promise<T> => {
+      try { return await action(); } catch (error) { callbackError = error; throw error; }
+    };
+    const requests: string[] = [];
+    const completed: string[] = [];
+    let firstHistory: Awaited<ReturnType<typeof inventoryHistory>> | undefined;
+    let firstReads: Awaited<ReturnType<typeof assertInventoryPeriods>> | undefined;
+    let firstRefreshHistory: readonly DatabaseRow[] | undefined;
+    const dependencies = { ...f.dependencies, refresh: { ...refresh, select: async (fence: Parameters<typeof refresh.select>[0]) => checked(async () => {
+      const selected = await refresh.select(fence);
+      if (completed.length === 1 && !firstHistory) {
+        firstHistory = await inventoryHistory(database, completed[0]);
+        firstRefreshHistory = await database.query(`SELECT cycle.*,outcome.disposition,outcome.recorded_at,outcome.next_due_at
+          FROM public.public_data_refresh_cycles cycle JOIN public.public_data_refresh_cycle_outcomes outcome USING(target_id,cycle)
+          WHERE cycle.target_id=$1 AND cycle.cycle=1`, [targetId]);
+        expect(firstRefreshHistory).toHaveLength(1);
+      }
+      if (selected.status === 'selected') {
+        expect(selected.targetId).toBe(targetId);
+        expect(selected.cycle).toBeLessThanOrEqual(2);
+        if (!requests.includes(selected.requestId)) requests.push(selected.requestId);
+        expect(await database.query('SELECT exact_periods FROM public.public_data_intakes WHERE id=$1', [selected.requestId])).toEqual([{ exact_periods: periods }]);
+        expect(selected.cycleConfigurationRevision).toBe(selected.cycle === 1 ? 1 : 3);
+      }
+      return selected;
+    }) }, intake: { ...f.intake,
+      recover: async (id: string, fence: Parameters<typeof f.intake.recover>[1]) => {
+        if (!unfinished || recovered) return f.intake.recover(id, fence);
+        return checked(async () => {
+          diagnostics.stage('recovery'); expect(id).toBe(unfinished!.work.requestId); expect(fence.workerId).not.toBe(unfinished!.fence.workerId);
+          expect(await database.query('SELECT revision,failure_count FROM public.public_data_intakes WHERE id=$1', [id])).toEqual([unfinished!.state]);
+          await f.intake.recover(id, fence);
+          const after = await database.query('SELECT revision,failure_count FROM public.public_data_intakes WHERE id=$1', [id]);
+          expect(after).toEqual([{ revision: Number(unfinished!.state.revision) + 1, failure_count: Number(unfinished!.state.failure_count) + 1 }]);
+          await f.intake.recover(id, fence); expect(await database.query('SELECT revision,failure_count FROM public.public_data_intakes WHERE id=$1', [id])).toEqual(after);
+          expect(await database.query('SELECT outcome FROM public.public_data_dispatch_outcomes WHERE worker_id=$1 AND generation=$2', [unfinished!.fence.workerId,unfinished!.fence.generation]))
+            .toEqual([{ outcome: 'recovered' }]);
+          expect(await f.intake.next(id)).toBe('backoff'); recovered = true;
+        });
+      },
+      completeExactPeriod: async (...args: Parameters<typeof f.intake.completeExactPeriod>) => {
+        const [work,,capture,fence] = args;
+        if (f.state.cycle === 2 && work.nativeWeek === 8 && !lost) {
+          await checked(async () => {
+            const [state] = await database.query('SELECT revision,failure_count FROM public.public_data_intakes WHERE id=$1', [work.requestId]);
+            unfinished = { work, fence, receipts: Object.values(capture.receipts), state };
+            expect(await database.query('SELECT id FROM public.league_roster_capture_receipts WHERE id=ANY($1::uuid[])', [unfinished.receipts])).toHaveLength(2);
+          });
+          lost = true; throw new Error('Injected inventory checkpoint loss after both typed receipts.');
+        }
+        await f.intake.completeExactPeriod(...args);
+        if (f.state.cycle === 2 && work.nativeWeek === 7) await checked(async () => {
+          if (!firstReads) throw new Error('Missing first-cycle exact-period heads.');
+          const corrected = await f.administration.readAcceptedExactMatchups(firstReads.mapping, 7);
+          expect(corrected.status).toBe('available');
+          if (corrected.status !== 'available') throw new Error('Missing corrected week.');
+          expect(corrected.accepted.contentId).not.toBe(firstReads.results[0].accepted.contentId);
+          // Before the second week's GET, its current accepted head and complete
+          // receipt lineage must still be exactly the first cycle's captured read.
+          expect(await f.administration.readAcceptedExactMatchups(firstReads.mapping, 8)).toEqual(firstReads.results[1]);
+          expect(f.requests.filter(url => url.endsWith('/matchups/8'))).toHaveLength(1);
+          isolatedCorrection = true;
+        });
+      },
+      fail: async (...args: Parameters<typeof f.intake.fail>) => {
+        if (unfinished && !suppressed && args[1].workerId === unfinished.fence.workerId && args[1].generation === unfinished.fence.generation) {
+          suppressed = true; throw new Error('Injected paired cleanup loss for one exact dispatch.');
+        }
+        await f.intake.fail(...args);
+      },
+    } };
+    try {
+      await inventoryVersion(database, diagnostics);
+      diagnostics.stage('discovery'); f.state.empty = true;
+      await f.intake.submit({ id: identityRequestId, username: f.manager, seasons: [f.season] });
+      for (const resource of ['identity','leagues']) expect(await inventoryManualProgress(f, identityRequestId, until, diagnostics)).toMatchObject({ status: 'progress', resource });
+      expect(await f.intake.next(identityRequestId)).toBe('complete'); f.state.empty = false;
+      diagnostics.stage('configuration'); revision = (await refresh.configure(configuration)).configurationRevision;
+      expect(revision).toBe(1);
+      expect(await refresh.configure({ ...configuration, exactPeriods: periods })).toMatchObject({ status: 'replayed', configurationRevision: 1 });
+      while (Date.now() < until && completed.length < 2) {
+        diagnostics.stage('acquisition');
+        const wasLost = lost, wasRecovered = recovered, beforeRequests = f.requests.length;
+        const result = await runPublicDataRefreshStep(dependencies, AbortSignal.timeout(20_000));
+        if (callbackError) throw callbackError;
+        if (result.providerRequests) diagnostics.acquired();
+        if (!wasLost && lost) {
+          expect(result).toMatchObject({ status: 'unavailable', resource: 'exact-matchups', providerRequests: 2 });
+          expect(suppressed).toBe(true);
+          expect(await database.query(`SELECT outcome.outcome FROM public.public_data_dispatches dispatch LEFT JOIN public.public_data_dispatch_outcomes outcome
+            USING(worker_id,generation) WHERE dispatch.worker_id=$1 AND dispatch.generation=$2`, [unfinished!.fence.workerId,unfinished!.fence.generation])).toEqual([{ outcome: null }]);
+          expect(await database.query(`SELECT checkpoint.task_ordinal FROM public.public_data_exact_period_checkpoints checkpoint JOIN public.public_data_exact_period_tasks task
+            ON task.intake_id=checkpoint.intake_id AND task.ordinal=checkpoint.task_ordinal WHERE task.intake_id=$1 AND task.native_week=8`, [unfinished!.work.requestId])).toEqual([]);
+        } else expect(result.status).not.toBe('unavailable');
+        if (!wasRecovered && recovered) { expect(result).toMatchObject({ status: 'backoff', providerRequests: 0 }); expect(f.requests).toHaveLength(beforeRequests); }
+        if (!cas && result.status === 'progress' && result.resource === 'identity') {
+          diagnostics.stage('configuration');
+          await expect(refresh.configure({ ...configuration, expectedRevision: revision, exactPeriods: [{ season: f.season, nativeWeek: 7 }] })).rejects.toThrow('unfinished refresh cycle');
+          revision = (await refresh.configure({ ...configuration, expectedRevision: revision, paused: true })).configurationRevision;
+          revision = (await refresh.configure({ ...configuration, expectedRevision: revision, exactPeriods: periods })).configurationRevision;
+          expect(revision).toBe(3); cas = true;
+          const read = await readPublicDataRefresh(database, f.administration, targetId);
+          expect(read).toMatchObject({ cycle: { configurationRevision: 1, exactPeriods: periods }, intake: { request: { exactPeriods: periods } } });
+        }
+        for (const id of requests) {
+          if (completed.includes(id) || (await f.intake.next(id)) !== 'complete') continue;
+          diagnostics.stage('readback');
+          const typed = await assertInventoryPeriods(f, id, [7,8], 'available');
+          expect(typed.read).toMatchObject({ exactPeriodInventory: { status: 'complete', expectedCount: 2, storedCount: 2, missingCount: 0, discoveryComplete: true } });
+          expect(await readPublicDataRefresh(database, f.administration, targetId)).toMatchObject({ cycle: { requestId: id, exactPeriods: periods }, intake: { status: 'available' } });
+          if (!firstReads) { firstReads = typed; f.state.cycle = 2; }
+          else {
+            expect(typed.mapping).toEqual(firstReads.mapping);
+            expect(typed.results[0].accepted.contentId).not.toBe(firstReads.results[0].accepted.contentId);
+            expect(typed.results[1].accepted.contentId).toBe(firstReads.results[1].accepted.contentId);
+            for (const [index, exact] of typed.results.entries()) {
+              expect(exact.receipt.id).not.toBe(firstReads.results[index].receipt.id);
+              expect(exact.receipt.attemptId).not.toBe(firstReads.results[index].receipt.attemptId);
+              expect(exact.value.teams.map(team => team.seasonTeamId)).toEqual(firstReads.results[index].value.teams.map(team => team.seasonTeamId));
+            }
+            expect(typed.results[1].value).toEqual(firstReads.results[1].value);
+            expect(unfinished).toBeDefined(); expect(unfinished!.receipts).not.toContain(typed.results[1].receipt.id);
+            expect(await database.query('SELECT id FROM public.league_roster_capture_receipts WHERE id=ANY($1::uuid[])', [unfinished!.receipts])).toHaveLength(2);
+          }
+          completed.push(id);
+        }
+        if (completed.length < 2) await delay(1_000);
+      }
+      expect(completed).toHaveLength(2); expect(requests).toEqual(completed);
+      expect(lost && suppressed && recovered && cas && isolatedCorrection).toBe(true);
+      if (!firstHistory || !firstRefreshHistory) throw new Error('Missing populated first-cycle history.');
+      diagnostics.stage('history'); await assertInventoryHistory(database, firstHistory);
+      expect(await database.query(`SELECT cycle.*,outcome.disposition,outcome.recorded_at,outcome.next_due_at
+        FROM public.public_data_refresh_cycles cycle JOIN public.public_data_refresh_cycle_outcomes outcome USING(target_id,cycle)
+        WHERE cycle.target_id=$1 AND cycle.cycle=1`, [targetId])).toEqual(firstRefreshHistory);
+      expect(f.requests).toHaveLength(24);
+      const dispatches = await database.query('SELECT intake_id,resource,admitted_at FROM public.public_data_dispatches WHERE intake_id=ANY($1::uuid[]) ORDER BY admitted_at', [[identityRequestId,...completed]]);
+      expect(dispatches).toHaveLength(17);
+      for (let index = 1; index < dispatches.length; index++) expect(Date.parse(exactMatchupClockInstant(dispatches[index].admitted_at)) - Date.parse(exactMatchupClockInstant(dispatches[index - 1].admitted_at))).toBeGreaterThanOrEqual(60_000);
+      expect(await database.query(`SELECT dispatch.worker_id FROM public.public_data_dispatches dispatch LEFT JOIN public.public_data_dispatch_outcomes outcome
+        USING(worker_id,generation) WHERE dispatch.intake_id=ANY($1::uuid[]) AND outcome.worker_id IS NULL`, [completed])).toEqual([]);
+      diagnostics.stage('settlement');
+      let settled = false;
+      while (Date.now() < until) {
+        const result = await runPublicDataRefreshStep(dependencies, AbortSignal.timeout(20_000)); if (callbackError) throw callbackError;
+        if (result.status === 'busy') { await delay(1_000); continue; }
+        expect(result).toEqual({ status: 'backoff', providerRequests: 0 }); settled = true; break;
+      }
+      expect(settled).toBe(true); expect(f.requests).toHaveLength(24);
+      expect(await database.query('SELECT cycle,disposition FROM public.public_data_refresh_cycle_outcomes WHERE target_id=$1 ORDER BY cycle', [targetId]))
+        .toEqual([{ cycle: 1, disposition: 'complete' }, { cycle: 2, disposition: 'complete' }]);
+      diagnostics.stage('complete');
+    } catch (error) { diagnostics.fail(error); }
+    finally { await diagnostics.finish([
+      () => f.fetch.mockRestore(),
+      async () => { if (revision) await refresh.configure({ ...configuration, expectedRevision: revision, paused: true }); },
+    ]); }
+  }, 23 * 60_000);
+
+  it.each(['same-season expansion','cumulative seasons','all discovered candidates'] as const)(
+    'retains complete requested scope and rejects period acquisition over capacity: %s', async mode => {
+      const kind: InventoryDiagnosticKind = mode === 'same-season expansion' ? 'capacity-same-season'
+        : mode === 'cumulative seasons' ? 'capacity-cumulative' : 'capacity-all-candidates';
+      const diagnostics = createPublicInventoryDiagnostics(kind);
+      const f = inventoryProofFixture(connection.database), id = randomUUID();
+      const seasons = mode === 'cumulative seasons' ? [f.season,f.season + 1] : [f.season];
+      const weeks = mode === 'all discovered candidates' ? [7] : [7,8];
+      const counts = mode === 'same-season expansion' ? [11] : mode === 'cumulative seasons' ? [6,5] : [21];
+      const periods = seasons.flatMap(season => weeks.map(nativeWeek => ({ season,nativeWeek })));
+      let offset = 0;
+      for (const [index, season] of seasons.entries()) f.lists.set(season, Array.from({ length: counts[index] }, () => ({
+        ...f.league, league_id: String(BigInt(f.native) + BigInt(offset++)), season: String(season) })));
+      const expected = seasons.flatMap(season => f.lists.get(season)!.flatMap(league => weeks.map(week => [season,league.league_id,week])));
+      const until = Date.now() + 5 * 60_000;
+      let fence: Awaited<ReturnType<typeof inventoryClaim>> | undefined;
+      try {
+        await inventoryVersion(f.database, diagnostics); diagnostics.stage('discovery');
+        await f.intake.submit({ id, username: f.manager, seasons, exactPeriods: [...periods].reverse() });
+        expect(await inventoryManualProgress(f, id, until, diagnostics)).toMatchObject({ status: 'progress', resource: 'identity' });
+        for (const season of seasons) {
+          expect(await f.intake.next(id)).toMatchObject({ kind: 'leagues', season });
+          expect(await inventoryManualProgress(f, id, until, diagnostics)).toMatchObject({ status: 'progress', resource: 'leagues' });
+        }
+        diagnostics.stage('capacity');
+        const candidates = await f.database.query('SELECT season,external_league_id,stage FROM public.public_data_league_candidates WHERE intake_id=$1 ORDER BY season,external_league_id', [id]);
+        expect(candidates.map(candidate => [candidate.season,candidate.external_league_id]))
+          .toEqual(seasons.flatMap(season => f.lists.get(season)!.map(league => [season,league.league_id])));
+        expect(candidates).toHaveLength(counts.reduce((sum,count) => sum + count, 0));
+        expect(candidates.filter(candidate => candidate.stage === 'bootstrap')).toHaveLength(Math.min(20,candidates.length));
+        expect(candidates.filter(candidate => candidate.stage === 'capacity')).toHaveLength(Math.max(0,candidates.length - 20));
+        expect(await f.database.query('SELECT season,payload FROM public.public_data_league_lists WHERE intake_id=$1 ORDER BY season', [id]))
+          .toEqual(seasons.map(season => ({ season,payload: f.lists.get(season) })));
+        expect(await f.database.query('SELECT exact_periods,terminal FROM public.public_data_intakes WHERE id=$1', [id]))
+          .toEqual([{ exact_periods: periods, terminal: false }]);
+        const tasks = await f.database.query('SELECT native_week,status,reason FROM public.public_data_exact_period_tasks WHERE intake_id=$1 ORDER BY ordinal', [id]);
+        expect(tasks).toEqual([]);
+        expect(await f.database.query('SELECT * FROM public.public_data_exact_period_checkpoints WHERE intake_id=$1', [id])).toEqual([]);
+        const read = await readPublicSleeperIntake(f.database, f.administration, id);
+        expect(read).toMatchObject({ status: 'pending', exactPeriodInventory: { status: 'capacity', expectedCount: expected.length,
+          storedCount: tasks.length, missingCount: expected.length - tasks.length, taskLimit: 20, discoveryComplete: true, reason: 'period-inventory-capacity' } });
+        if (read.status === 'missing' || !read.exactPeriods) throw new Error('Missing explicit capacity inventory.');
+        expect(read.exactPeriods.map(period => [period.season,period.externalLeagueId,period.nativeWeek])).toEqual(expected);
+        for (const period of read.exactPeriods) expect(period).toMatchObject({ collection: 'unavailable', reason: 'period-inventory-capacity',
+          resource: { status: 'unavailable' }, acquisition: null });
+        // Overflow is period-specific. Discovery is retained and the unchanged
+        // bounded core path remains eligible; this case does not collect that core.
+        const next = await f.intake.next(id); expect(next).toMatchObject({ kind: 'bootstrap' });
+        if (typeof next === 'string') throw new Error('Capacity incorrectly closed pending core.');
+        fence = await inventoryClaim(f, until);
+        await expect(f.intake.admit({ requestId: id, revision: next.revision, kind: 'exact-matchups',
+          season: seasons[0], externalLeagueId: String(expected[0][1]), nativeWeek: 7 }, fence)).rejects.toThrow();
+        expect(await f.database.query('SELECT * FROM public.public_data_dispatches WHERE worker_id=$1 AND generation=$2', [fence.workerId,fence.generation])).toEqual([]);
+        expect(await f.intake.next(id)).toEqual(next);
+        expect(f.requests).toHaveLength(1 + seasons.length);
+        expect(f.requests.every(url => !url.includes('/matchups/') && !url.includes('/league/'))).toBe(true);
+        expect(await f.database.query("SELECT resource FROM public.public_data_dispatches WHERE intake_id=$1 AND resource='exact-matchups'", [id])).toEqual([]);
+        diagnostics.stage('complete');
+      } catch (error) { diagnostics.fail(error); }
+      finally { await diagnostics.finish([
+        () => f.fetch.mockRestore(),
+        async () => { if (fence) await f.jobs.failJob(PUBLIC_INTAKE_JOB, fence.workerId, 'bounded capacity negative completed; core remains pending'); },
+      ]); }
+    }, 6 * 60_000);
+});
+
+describe('explicit native-week inventory upgrade over retained R039 capture', () => {
+  beforeAll(async () => prepareIntegrationDatabase({ throughMigration: '039_public_data_capture_witness.sql' }));
+  afterAll(async () => { await prepareIntegrationDatabase(); await installAllPlayerScheduleTestClock(); });
+
+  it('preserves a real single-week checkpoint across R040 and refuses downlevel multi-week mutation [upgrade slow SQL]', async () => {
+    const diagnostics = createPublicInventoryDiagnostics('upgrade');
+    const connection = createIndependentDatabase();
+    let owner: Awaited<ReturnType<typeof createPinnedIntegrationDatabase>> | undefined;
+    const f = inventoryProofFixture(connection.database), id = randomUUID(), expandedId = randomUUID(), targetId = randomUUID();
+    const single = [{ season: f.season, nativeWeek: 7 }], expanded = [...single,{ season: f.season, nativeWeek: 8 }];
+    const configuration = { id: targetId, expectedRevision: 0, identityRequestId: id, seasons: [f.season], exactPeriods: single,
+      cadenceSeconds: 60, expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(), paused: true };
+    const until = Date.now() + 9 * 60_000;
+    let transaction = false;
+    try {
+      owner = await createPinnedIntegrationDatabase('owner');
+      await inventoryVersion(f.database, diagnostics); diagnostics.stage('acquisition');
+      const omittedId = randomUUID();
+      await f.intake.submit({ id: omittedId, username: f.manager, seasons: [f.season] });
+      await f.intake.submit({ id: omittedId, username: f.manager, seasons: [f.season], exactPeriods: [] });
+      await f.intake.submit({ id, username: f.manager, seasons: [f.season], exactPeriods: single });
+      for (const resource of ['identity','leagues','bootstrap','exact-matchups']) expect(await inventoryManualProgress(f, id, until, diagnostics))
+        .toMatchObject({ status: 'progress', resource });
+      const beforeRead = await assertInventoryPeriods(f, id, [7], 'pending');
+      expect(await f.intake.next(id)).toMatchObject({ kind: 'core' });
+      const refresh = createPublicDataRefreshStore(f.database);
+      expect(await refresh.configure(configuration)).toMatchObject({ status: 'configured', configurationRevision: 1 });
+      const configurationHistory = await f.database.query('SELECT * FROM public.public_data_refresh_configurations WHERE target_id=$1 ORDER BY revision', [targetId]);
+      expect(configurationHistory).toHaveLength(1);
+      const before = await inventoryHistory(f.database, id);
+      diagnostics.stage('downlevel');
+      const observedStatements: string[] = [];
+      const observed: DatabaseClient = { ...f.database, async query<Row extends DatabaseRow = DatabaseRow>(statement: string, parameters: readonly unknown[] = [], options?: DatabaseQueryOptions) {
+        observedStatements.push(statement); return f.database.query<Row>(statement, parameters, options);
+      } };
+      await expect(createPublicIntakeStore(observed).submit({ id: expandedId, username: f.manager, seasons: [f.season], exactPeriods: expanded }))
+        .rejects.toThrow('Public multi-week inventory requires installed R040.');
+      await expect(createPublicDataRefreshStore(observed).configure({ ...configuration, expectedRevision: 1, exactPeriods: expanded }))
+        .rejects.toThrow('Public multi-week inventory requires installed R040.');
+      expect(observedStatements.some(statement => statement.includes('capability'))).toBe(true);
+      expect(observedStatements.some(statement => statement.includes('SELECT public.submit_public_data_intake') || statement.includes('SELECT public.configure_public_data_refresh'))).toBe(false);
+      expect(await f.database.query('SELECT id FROM public.public_data_intakes WHERE id=$1', [expandedId])).toEqual([]);
+      expect(await f.database.query('SELECT * FROM public.public_data_refresh_configurations WHERE target_id=$1 ORDER BY revision', [targetId])).toEqual(configurationHistory);
+      await assertInventoryHistory(f.database, before);
+      expect(f.requests).toHaveLength(5);
+      diagnostics.stage('migration');
+      const name = '040_public_data_exact_period_inventory.sql';
+      const migration = (await readFile(new URL(`../migrations/${name}`, import.meta.url), 'utf8')).replace(/\r\n?/gu, '\n');
+      expect(await owner.database.query('SELECT name FROM public.app_schema_migrations ORDER BY name DESC LIMIT 1')).toEqual([{ name: '039_public_data_capture_witness.sql' }]);
+      await owner.database.query('BEGIN'); transaction = true;
+      await owner.database.query("SELECT pg_advisory_xact_lock(hashtext('league-one-schema-migrations'))");
+      await owner.database.query(migration);
+      const checksum = createHash('sha256').update(migration).digest('hex');
+      await owner.database.query('INSERT INTO public.app_schema_migrations(name,checksum) VALUES($1,$2)', [name,checksum]);
+      await owner.database.query('COMMIT'); transaction = false;
+      expect(await owner.database.query('SELECT name,checksum FROM public.app_schema_migrations WHERE name=$1', [name])).toEqual([{ name,checksum }]);
+      await assertInventoryHistory(f.database, before);
+      expect(await f.database.query('SELECT * FROM public.public_data_refresh_configurations WHERE target_id=$1 ORDER BY revision', [targetId])).toEqual(configurationHistory);
+      const afterRead = await assertInventoryPeriods(f, id, [7], 'pending');
+      expect(afterRead.results).toEqual(beforeRead.results); expect(afterRead.mapping).toEqual(beforeRead.mapping);
+      diagnostics.stage('permissions');
+      const privileges = async () => {
+        expect((await f.database.query(`SELECT role.rolsuper,role.rolcreatedb,role.rolcreaterole,role.rolinherit,role.rolbypassrls,
+          EXISTS(SELECT 1 FROM pg_auth_members member WHERE member.member=role.oid) AS memberships FROM pg_roles role WHERE role.rolname=current_user`))[0])
+          .toEqual({ rolsuper: false, rolcreatedb: false, rolcreaterole: false, rolinherit: false, rolbypassrls: false, memberships: false });
+        for (const signature of ['public.submit_public_data_intake(jsonb)','public.configure_public_data_refresh(jsonb)',
+          'public.begin_exact_matchup_attempt(jsonb,uuid,integer,jsonb)','public.read_public_data_capture_witness(jsonb,jsonb,jsonb)']) {
+          expect((await f.database.query("SELECT has_function_privilege(current_user,$1,'EXECUTE') AS allowed", [signature]))[0].allowed).toBe(true);
+        }
+        for (const signature of ['public.canonical_public_data_exact_periods(jsonb,integer[])','public.public_data_exact_period_inventory_v40(uuid)',
+          'public.validate_public_data_exact_period_task()','public.validate_public_data_exact_period_checkpoint()',
+          'public.derive_public_data_capture_witness(jsonb,jsonb,jsonb)','public.fail_public_data_work(jsonb)']) {
+          expect((await f.database.query("SELECT has_function_privilege(current_user,$1,'EXECUTE') AS allowed", [signature]))[0].allowed).toBe(false);
+          expect((await f.database.query(`SELECT COALESCE(bool_or(acl.grantee=0 AND acl.privilege_type='EXECUTE'),false) AS allowed
+            FROM pg_proc procedure CROSS JOIN LATERAL aclexplode(COALESCE(procedure.proacl,acldefault('f',procedure.proowner))) acl
+            WHERE procedure.oid=to_regprocedure($1)`, [signature]))[0].allowed).toBe(false);
+        }
+        for (const table of ['public_data_exact_period_tasks','public_data_exact_period_checkpoints','public_data_dispatches',
+          'public_data_dispatch_outcomes','league_roster_capture_receipts','league_roster_resource_acceptances']) {
+          expect((await f.database.query("SELECT has_table_privilege(current_user,$1,'SELECT') AS readable,has_table_privilege(current_user,$1,'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN') AS writable", ['public.' + table]))[0])
+            .toEqual({ readable: true, writable: false });
+        }
+        await expect(f.database.query('UPDATE public.public_data_exact_period_tasks SET native_week=8 WHERE intake_id=$1', [id])).rejects.toMatchObject({ code: '42501' });
+        await expect(f.database.query('DELETE FROM public.public_data_exact_period_checkpoints WHERE intake_id=$1', [id])).rejects.toMatchObject({ code: '42501' });
+      };
+      await privileges();
+      const provision = await readFile(new URL('../scripts/provision-runtime-role.sql', import.meta.url), 'utf8');
+      await owner.database.query(provision); await owner.database.query(provision); await privileges();
+      await assertInventoryHistory(f.database, before);
+      const uniqueColumns = await f.database.query(`SELECT array_agg(attribute.attname ORDER BY key.ordinality) AS columns
+        FROM pg_constraint constraint_row CROSS JOIN LATERAL unnest(constraint_row.conkey) WITH ORDINALITY key(number,ordinality)
+        JOIN pg_attribute attribute ON attribute.attrelid=constraint_row.conrelid AND attribute.attnum=key.number
+        WHERE constraint_row.conrelid='public.public_data_exact_period_tasks'::regclass AND constraint_row.contype='u'
+        GROUP BY constraint_row.oid`);
+      expect(uniqueColumns).toEqual([{ columns: ['intake_id','season','external_league_id','native_week'] }]);
+      diagnostics.stage('acquisition');
+      for (const resource of ['core','users']) expect(await inventoryManualProgress(f, id, until, diagnostics)).toMatchObject({ status: 'progress', resource });
+      await assertInventoryPeriods(f, id, [7], 'available');
+      await assertInventoryHistory(f.database, before.filter(entry => entry.statement.includes('league_roster_')
+        || entry.statement.includes('league_administration_') || entry.statement.includes('public_data_exact_period_')
+        || entry.statement.includes('public_data_identity_observations') || entry.statement.includes('public_data_league_lists')));
+      diagnostics.stage('configuration');
+      await f.intake.submit({ id: expandedId, username: f.manager, seasons: [f.season], exactPeriods: [...expanded].reverse() });
+      await f.intake.submit({ id: expandedId, username: f.manager, seasons: [f.season], exactPeriods: expanded });
+      expect(await f.database.query('SELECT exact_periods FROM public.public_data_intakes WHERE id=$1', [expandedId])).toEqual([{ exact_periods: expanded }]);
+      expect(await refresh.configure({ ...configuration, expectedRevision: 1, exactPeriods: expanded })).toMatchObject({ status: 'configured', configurationRevision: 2 });
+      expect(await f.database.query('SELECT * FROM public.public_data_refresh_configurations WHERE target_id=$1 AND revision=1', [targetId])).toEqual(configurationHistory);
+      expect(await f.database.query('SELECT exact_periods FROM public.public_data_intakes WHERE id=$1', [omittedId])).toEqual([{ exact_periods: [] }]);
+      expect(f.requests).toHaveLength(8);
+      const admissions = await f.database.query('SELECT admitted_at FROM public.public_data_dispatches WHERE intake_id=$1 ORDER BY admitted_at', [id]);
+      expect(admissions).toHaveLength(6);
+      for (let index = 1; index < admissions.length; index++) expect(Date.parse(exactMatchupClockInstant(admissions[index].admitted_at)) - Date.parse(exactMatchupClockInstant(admissions[index - 1].admitted_at))).toBeGreaterThanOrEqual(60_000);
+      diagnostics.stage('complete');
+    } catch (error) { diagnostics.fail(error); }
+    finally { await diagnostics.finish([
+      () => f.fetch.mockRestore(),
+      async () => { if (transaction) await owner?.database.query('ROLLBACK'); },
+      async () => { await owner?.close(); },
+      () => connection.close(),
+    ]); }
+  }, 10 * 60_000);
 });

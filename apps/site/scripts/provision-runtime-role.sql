@@ -486,3 +486,17 @@ DO $$ DECLARE period_table text; BEGIN
       public.record_league_administration_observation_v30(jsonb) FROM league_one_runtime;
   END IF;
 END; $$;
+
+-- BEGIN OPTIONAL PUBLIC PERIOD INVENTORY DENIAL
+-- R040 adds a private aggregate used only by the existing SECURITY DEFINER intake.
+-- Exact-signature gating preserves provisioning against older additive schemas.
+DO $$ BEGIN
+  IF to_regprocedure('public.public_data_exact_period_inventory_v40(uuid)') IS NOT NULL THEN
+    REVOKE ALL ON FUNCTION public.public_data_exact_period_inventory_v40(uuid) FROM league_one_runtime;
+    IF has_function_privilege('league_one_runtime','public.public_data_exact_period_inventory_v40(uuid)','EXECUTE')
+      OR EXISTS(SELECT 1 FROM pg_catalog.pg_proc routine JOIN pg_catalog.pg_roles owner ON owner.oid=routine.proowner
+        WHERE routine.oid='public.public_data_exact_period_inventory_v40(uuid)'::regprocedure AND owner.rolname='league_one_runtime') THEN
+      RAISE EXCEPTION 'league_one_runtime can execute or owns private inventory helper'; END IF;
+  END IF;
+END; $$;
+-- END OPTIONAL PUBLIC PERIOD INVENTORY DENIAL

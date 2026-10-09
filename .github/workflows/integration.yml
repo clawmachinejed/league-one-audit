@@ -17,6 +17,9 @@ on:
           - data-refresh-history-v1
           - data-period-recovery-v1
           - data-period-exhaustion-v1
+          - data-period-inventory-v1
+          - data-period-capacity-v1
+          - data-period-upgrade-v1
           - data-ingestion-guards-v1
           - data-official-preconfiguration-v1
           - data-live-league-two-v1
@@ -90,6 +93,15 @@ jobs:
               ;;
             workflow_dispatch:data-period-exhaustion-v1)
               pnpm test:integration --profile=data-period-exhaustion-v1
+              ;;
+            workflow_dispatch:data-period-inventory-v1)
+              pnpm test:integration --profile=data-period-inventory-v1
+              ;;
+            workflow_dispatch:data-period-capacity-v1)
+              pnpm test:integration --profile=data-period-capacity-v1
+              ;;
+            workflow_dispatch:data-period-upgrade-v1)
+              pnpm test:integration --profile=data-period-upgrade-v1
               ;;
             workflow_dispatch:data-ingestion-guards-v1)
               pnpm test:integration --profile=data-ingestion-guards-v1

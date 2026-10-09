@@ -30,7 +30,7 @@ import type { NormalizedAdministrationObservation } from '../lib/league-administ
 import { createPublicDataDiagnostics, observePublicDataDependencies } from './public-data-refresh-diagnostics';
 import { createQualificationContext, qualificationDigest, LIVE_PROFILE, JOURNEY_PROFILE, INGESTION_PROFILE, QUALIFICATION_CONTEXT_ENV,
   SELECTED_PROFILE, OFFICIAL_PROFILE, GUARDS_PROFILE, CONCURRENCY_PROFILE, LATE_WRITE_PROFILE, INTAKE_RECOVERY_PROFILE,
-  REFRESH_HISTORY_PROFILE, PERIOD_RECOVERY_PROFILE, PERIOD_EXHAUSTION_PROFILE, SELECTED_MODULE, type QualificationProfile } from './qualification-profile';
+  REFRESH_HISTORY_PROFILE, PERIOD_RECOVERY_PROFILE, PERIOD_EXHAUSTION_PROFILE, PERIOD_INVENTORY_PROFILE, PERIOD_CAPACITY_PROFILE, PERIOD_UPGRADE_PROFILE, SELECTED_MODULE, type QualificationProfile } from './qualification-profile';
 vi.mock('server-only', () => ({}));
 vi.mock('next/cache', () => ({ unstable_cache: (fn: unknown) => fn }));
 
@@ -268,7 +268,8 @@ it('permits both fixed case artifacts in full mode, refuses overwrites and rejec
 // Explicit intended allowlist: the closeout repair adds only refresh/history.
 const diagnosticProfiles = ['full', SELECTED_PROFILE, INGESTION_PROFILE, LIVE_PROFILE, JOURNEY_PROFILE,
   OFFICIAL_PROFILE, GUARDS_PROFILE, CONCURRENCY_PROFILE, LATE_WRITE_PROFILE, INTAKE_RECOVERY_PROFILE,
-  REFRESH_HISTORY_PROFILE, PERIOD_RECOVERY_PROFILE, PERIOD_EXHAUSTION_PROFILE] as const;
+  REFRESH_HISTORY_PROFILE, PERIOD_RECOVERY_PROFILE, PERIOD_EXHAUSTION_PROFILE,
+  PERIOD_INVENTORY_PROFILE, PERIOD_CAPACITY_PROFILE, PERIOD_UPGRADE_PROFILE] as const;
 const diagnosticKinds = ['ordinary', 'refresh', 'live', 'journey'] as const;
 const diagnosticArtifacts = { ordinary: 'public-data-ingestion-diagnostics.json', refresh: 'public-data-refresh-diagnostics.json',
   live: 'live-league-two-diagnostics.json', journey: 'public-data-live-diagnostics.json' } as const;

@@ -5,7 +5,7 @@ import type { DatabaseClient, DatabaseRow, DatabaseQueryOptions } from '../../da
 import { createProjectionStore } from '../../projection-store';
 import { normalizeAdministrationObservation } from '../normalize';
 import { ADMINISTRATION_DIALECT, ADMINISTRATION_NORMALIZER_VERSION, ADMINISTRATION_SCHEMA_VERSION, type JsonValue } from '../contracts';
-import { validatePublicIntake, type PublicIntakeStore, type PublicIntakeWork } from '../public-intake-contracts';
+import { validatePublicIntake, type PublicExactPeriod, type PublicIntakeStore, type PublicIntakeWork } from '../public-intake-contracts';
 import { parsePublicCaptureWitness } from '../public-capture-witness';
 import { compatibleRevision } from '../../projections/shared/revision-compatibility';
 
@@ -15,15 +15,31 @@ function record(value: unknown): Record<string, unknown> {
 }
 
 /** Older JSON functions ignore unknown keys. Refuse explicit period scope before any mutation. */
-async function requireExactPeriodCapability(client: DatabaseClient): Promise<void> {
+async function requireExactPeriodCapability(client: DatabaseClient, periods: readonly PublicExactPeriod[]): Promise<void> {
+  const multiWeek = new Set(periods.map(period => period.season)).size !== periods.length;
   const rows = await client.query(`/* public-data-intake:exact-period-capability */
     SELECT to_regclass('public.public_data_exact_period_tasks') IS NOT NULL
       AND to_regclass('public.public_data_exact_period_checkpoints') IS NOT NULL
       AND EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.public_data_intakes')
         AND attname='exact_periods' AND NOT attisdropped)
       AND EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.public_data_refresh_configurations')
-        AND attname='exact_periods' AND NOT attisdropped) AS supported`);
-  if (rows.length !== 1 || rows[0].supported !== true) throw new Error('Public exact-period intake requires installed R038.');
+        AND attname='exact_periods' AND NOT attisdropped)
+      ${multiWeek ? `AND to_regprocedure('public.public_data_exact_period_inventory_v40(uuid)') IS NOT NULL
+      AND EXISTS(SELECT 1 FROM pg_constraint bound JOIN pg_index backing ON backing.indexrelid=bound.conindid
+        WHERE bound.conrelid=to_regclass('public.public_data_exact_period_tasks') AND bound.contype='u' AND bound.convalidated
+          AND backing.indisvalid AND backing.indisready AND backing.indisunique AND backing.indpred IS NULL AND backing.indexprs IS NULL
+          AND bound.conkey=ARRAY(SELECT attribute.attnum FROM unnest(ARRAY['intake_id','season','external_league_id','native_week'])
+            WITH ORDINALITY AS wanted(name,ordinal) JOIN pg_attribute attribute ON attribute.attrelid=bound.conrelid
+              AND attribute.attname=wanted.name AND NOT attribute.attisdropped ORDER BY wanted.ordinal)
+          AND cardinality(bound.conkey)=4)
+      AND NOT EXISTS(SELECT 1 FROM pg_constraint legacy
+        WHERE legacy.conrelid=to_regclass('public.public_data_exact_period_tasks') AND legacy.contype='u' AND legacy.convalidated
+          AND legacy.conkey=ARRAY(SELECT attribute.attnum FROM unnest(ARRAY['intake_id','season','external_league_id'])
+            WITH ORDINALITY AS wanted(name,ordinal) JOIN pg_attribute attribute ON attribute.attrelid=legacy.conrelid
+              AND attribute.attname=wanted.name AND NOT attribute.attisdropped ORDER BY wanted.ordinal)
+          AND cardinality(legacy.conkey)=3)` : ''} AS supported`);
+  if (rows.length !== 1 || rows[0].supported !== true) throw new Error(multiWeek
+    ? 'Public multi-week inventory requires installed R040.' : 'Public exact-period intake requires installed R038.');
 }
 
 export function createPublicIntakeStore(client: DatabaseClient): PublicIntakeStore {
@@ -35,7 +51,7 @@ export function createPublicIntakeStore(client: DatabaseClient): PublicIntakeSto
   return {
     async submit(input) {
       const validated = validatePublicIntake(input);
-      if (validated.exactPeriods?.length) await requireExactPeriodCapability(client);
+      if (validated.exactPeriods?.length) await requireExactPeriodCapability(client, validated.exactPeriods);
       await client.query(`/* public-data-intake:submit */ SELECT public.submit_public_data_intake($1::jsonb)`,
         [JSON.stringify(validated)]);
     },
@@ -142,7 +158,7 @@ export function createPublicDataRefreshStore(client: DatabaseClient): PublicData
   return {
     async configure(input) {
       const validated = validatePublicDataRefresh(input);
-      if (validated.exactPeriods?.length) await requireExactPeriodCapability(client);
+      if (validated.exactPeriods?.length) await requireExactPeriodCapability(client, validated.exactPeriods);
       const rows = await client.query('/* public-data-refresh:configure */ SELECT public.configure_public_data_refresh($1::jsonb) AS result',
         [JSON.stringify(validated)]);
       if (rows.length !== 1) throw new Error('Missing refresh configuration result.');
