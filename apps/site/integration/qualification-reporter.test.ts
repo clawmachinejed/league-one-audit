@@ -11,7 +11,7 @@ import { createQualificationContext, qualificationArguments, qualificationDigest
   QUALIFICATION_FILES, INGESTION_PROFILE, INGESTION_FULL_NAME, SELECTED_FULL_NAME, SELECTED_INVENTORY, SELECTED_MODULE, SELECTED_PROFILE,
   OFFICIAL_PROFILE, OFFICIAL_SUITE, OFFICIAL_FULL_NAMES, GUARDS_PROFILE, GUARDS_FULL_NAMES,
   CONCURRENCY_PROFILE, CONCURRENCY_FULL_NAMES, LATE_WRITE_PROFILE, LATE_WRITE_FULL_NAMES, LATE_WRITE_SUITE,
-  CLOSEOUT_PROFILES, validateQualificationArtifacts, type QualificationReport } from './qualification-profile';
+  CORE_COMPATIBILITY_PROFILE, CORE_COMPATIBILITY_MODULES, CLOSEOUT_PROFILES, validateQualificationArtifacts, type QualificationReport } from './qualification-profile';
 
 const directories: string[] = [];
 const site = fileURLToPath(new URL('..', import.meta.url));
@@ -301,3 +301,49 @@ it.each(CLOSEOUT_PROFILES.filter(selection => selection.names.length > 1))(
     expect(report.modules[0].cases.some(test => test.state === 'failed')).toBe(true);
     await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
   });
+
+it('runs the fixed three-module core compatibility selection with actual beforeEach reporting and blocked networking', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'core-compatibility-runner-')); directories.push(directory);
+  await mkdir(join(directory, 'integration')); await mkdir(join(directory, 'artifacts'));
+  const context = await createQualificationContext(site, 'a'.repeat(40), randomUUID(), CORE_COMPATIBILITY_PROFILE);
+  for (const spec of CORE_COMPATIBILITY_MODULES) {
+    let body = 'import {it,expect,describe,beforeAll,afterAll,beforeEach} from ' + JSON.stringify(pathToFileURL(join(site, 'node_modules/vitest/dist/index.js')).href) + ';\n';
+    body += 'let setup=0,executed=0,each=0;\n';
+    for (const [suite, names] of Object.entries(Object.groupBy(spec.inventory, name => name.split(' > ')[0]))) {
+      body += 'describe(' + JSON.stringify(suite) + ',()=>{';
+      if (suite === spec.suite) {
+        body += 'beforeAll(()=>{expect(setup++).toBe(0)});afterAll(()=>{expect(setup).toBe(1);expect(executed).toBe(' + spec.names.length + ');expect(each).toBe(' + (spec.beforeEach ? spec.names.length : 0) + ')});';
+        if (spec.beforeEach) body += 'beforeEach(()=>{expect(each++).toBe(executed)});';
+      } else body += "beforeAll(()=>{throw Error('excluded suite hook ran')});afterAll(()=>{throw Error('excluded suite hook ran')});";
+      for (const name of names!) {
+        const ordinal = (spec.names as readonly string[]).indexOf(name);
+        body += 'it(' + JSON.stringify(name.split(' > ')[1]) + ',()=>{' + (ordinal < 0 ? "throw Error('filtered case ran')"
+          : 'expect(setup).toBe(1);expect(executed++).toBe(' + ordinal + ')') + '});';
+      }
+      body += '});\n';
+    }
+    await writeFile(join(directory, spec.path), body);
+    // The actual reporter validates these synthetic bytes. SQL modules are never imported.
+    context.modules.find(module => module.path === spec.path)!.sourceDigest = qualificationSourceDigest(body);
+  }
+  await writeFile(join(directory, 'setup.ts'), 'import {qualificationBinding,qualificationCleanup} from ' + JSON.stringify(helperPath) +
+    ';export default function(){const binding=qualificationBinding();return async()=>qualificationCleanup(async()=>{},binding)}');
+  await writeFile(join(directory, 'config.mjs'), 'export default {test:{environment:"node",include:["integration/*.integration-case.ts"],globalSetup:["./setup.ts"],fileParallelism:false,maxWorkers:1}}');
+  const guard = join(directory, 'network-block.mjs');
+  await writeFile(guard, "import {createRequire} from 'node:module';const require=createRequire(import.meta.url);" +
+    "const deny=()=>{throw Error('NETWORK_BLOCKED_FIXTURE')};for(const m of ['http','https']){require(m).request=deny;require(m).get=deny;}" +
+    "require('net').Socket.prototype.connect=deny;globalThis.fetch=deny;");
+  const allow = new Set(['path','systemroot','windir','comspec','temp','tmp','tmpdir','home','userprofile','localappdata','appdata','pathext']);
+  const binding = { context, directory: join(directory, 'artifacts') };
+  const child = spawnSync(process.execPath, ['--import', pathToFileURL(guard).href, join(site, 'node_modules/vitest/vitest.mjs'),
+    'run', '--config', join(directory, 'config.mjs'), ...qualificationArguments(context.profile, reporterPath)],
+  { cwd: directory, env: { ...Object.fromEntries(Object.entries(process.env).filter(([key]) => allow.has(key.toLowerCase()))), NODE_ENV: 'test',
+    [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(context), PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY: binding.directory },
+    encoding: 'utf8', timeout: 20_000, windowsHide: true, maxBuffer: 2_000_000 });
+  expect(child.status, (child.stdout ?? '') + (child.stderr ?? '')).toBe(0);
+  expect(child.error).toBeUndefined();
+  const report: QualificationReport = JSON.parse(await readFile(join(binding.directory, QUALIFICATION_FILES.report), 'utf8'));
+  expect(report.hooks).toHaveLength(8);
+  expect(report.hooks.filter(hook => hook.key.endsWith(':beforeEach'))).toHaveLength(2);
+  await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({ collected: 89, executed: 7, passed: 7, filtered: 82 });
+}, 30_000);

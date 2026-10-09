@@ -10,6 +10,7 @@ export const QUALIFICATION_FILES = { report: 'qualification-report.json', cleanu
 export const QUALIFICATION_MAX_BYTES = 4 * 1024 * 1024;
 export const SELECTED_PROFILE = 'data-core-refresh-v1';
 export const INGESTION_PROFILE = 'data-core-ingestion-v1';
+export const CORE_COMPATIBILITY_PROFILE = 'data-core-compatibility-v1';
 export const LIVE_PROFILE = 'data-live-league-two-v1';
 export const LIVE_MODULE = 'integration/league-two.live-integration-case.ts';
 export const LIVE_SOURCE_DIGEST = 'bcb3bee63bf12658da7d099fd34397fada96757a5799e05a586456761b173f74';
@@ -25,7 +26,7 @@ export const JOURNEY_TEST = 'retains DannyPak discovery, all associated leagues 
 export const JOURNEY_FULL_NAME = JOURNEY_SUITE + ' > ' + JOURNEY_TEST;
 export const JOURNEY_PATTERN = '^' + (JOURNEY_SUITE + ' ' + JOURNEY_TEST).replace(/[.*+?^{}$()|[\]\\]/gu, '\\$&') + '$';
 export type QualificationProfile = 'full' | typeof SELECTED_PROFILE | typeof INGESTION_PROFILE | typeof LIVE_PROFILE | typeof JOURNEY_PROFILE | typeof OFFICIAL_PROFILE | typeof GUARDS_PROFILE | typeof CONCURRENCY_PROFILE | typeof LATE_WRITE_PROFILE
-  | typeof INTAKE_RECOVERY_PROFILE | typeof REFRESH_HISTORY_PROFILE | typeof PERIOD_RECOVERY_PROFILE | typeof PERIOD_EXHAUSTION_PROFILE;
+  | typeof CORE_COMPATIBILITY_PROFILE | typeof INTAKE_RECOVERY_PROFILE | typeof REFRESH_HISTORY_PROFILE | typeof PERIOD_RECOVERY_PROFILE | typeof PERIOD_EXHAUSTION_PROFILE;
 export const SELECTED_SOURCE_DIGEST = '899c526471fd9f9df3917a357721c52b249d44c7aed5660fb658dda39d675abf';
 export const SELECTED_MODULE = 'integration/public-data-intake.integration-case.ts';
 export const SELECTED_SUITE = 'bounded public DATA refresh cycles through the existing intake owner';
@@ -122,6 +123,7 @@ export const CLOSEOUT_PROFILES = [
     suites: [PERIOD_SUITE] },
 ] as const;
 function selectedCase(profile: QualificationProfile) {
+  if (profile === CORE_COMPATIBILITY_PROFILE) return { names: CORE_COMPATIBILITY_FULL_NAMES, pattern: CORE_COMPATIBILITY_PATTERN };
   const closeout = CLOSEOUT_PROFILES.find(selection => selection.profile === profile);
   if (closeout) return closeout;
   if (profile === LATE_WRITE_PROFILE) return { names: LATE_WRITE_FULL_NAMES, pattern: LATE_WRITE_PATTERN };
@@ -170,6 +172,99 @@ export const SELECTED_INVENTORY = [
   ].map(name => 'explicit public native-period intake through retained typed receipts > ' + name),
 ].sort();
 
+// This one fixed profile reuses the existing three modules and their shared harness.
+// Inventories include filtered cases; source order and each selected hook are part of the contract.
+export const CORE_COMPATIBILITY_MODULES = [
+  { path: "integration/all-player-pregame-empty.integration-case.ts", sourceDigest: "5a5db7170e981180c618d66a856d0b07daf4313378d9a67695a23800e32d58cb",
+    suite: "018 verified empty pregame outcome under the real SQL ownership guard", beforeEach: true,
+    names: [
+    "018 verified empty pregame outcome under the real SQL ownership guard > reports the initial genuine restricted LOGIN all-DATA/NULL zero-eligible pregame refusal",
+    "018 verified empty pregame outcome under the real SQL ownership guard > completes mixed configured plus DATA/NULL pregame without changing consumed request accounting or stored data",
+  ],
+    inventory: [
+    "018 verified empty pregame outcome under the real SQL ownership guard > reports the initial genuine restricted LOGIN all-DATA/NULL zero-eligible pregame refusal",
+    "018 verified empty pregame outcome under the real SQL ownership guard > completes mixed configured plus DATA/NULL pregame without changing consumed request accounting or stored data",
+    "018 verified empty pregame outcome under the real SQL ownership guard > keeps ordinary-missing-authority intended and refuses legacy pregame completion without data or accounting changes",
+    "018 verified empty pregame outcome under the real SQL ownership guard > keeps invalid-marker intended and refuses legacy pregame completion without data or accounting changes",
+    "018 verified empty pregame outcome under the real SQL ownership guard > keeps missing-source intended and refuses legacy pregame completion without data or accounting changes",
+    "018 verified empty pregame outcome under the real SQL ownership guard > keeps wrong-source intended and refuses legacy pregame completion without data or accounting changes",
+    "018 verified empty pregame outcome under the real SQL ownership guard > keeps wrong-season-source intended and refuses legacy pregame completion without data or accounting changes",
+    "018 verified empty pregame outcome under the real SQL ownership guard > refuses a array response presented as normal pregame emptiness",
+    "018 verified empty pregame outcome under the real SQL ownership guard > refuses a null response presented as normal pregame emptiness",
+    "018 verified empty pregame outcome under the real SQL ownership guard > refuses a invalid-json response presented as normal pregame emptiness",
+    "018 verified empty pregame outcome under the real SQL ownership guard > refuses a unreadable response presented as normal pregame emptiness",
+    "018 verified empty pregame outcome under the real SQL ownership guard > requires zero entries, a fresh proof, exact game count and an unmodified response",
+    "018 verified empty pregame outcome under the real SQL ownership guard > refuses a game beginning between application proof and SQL completion",
+    "018 verified empty pregame outcome under the real SQL ownership guard > rechecks kickoff after SQL proof queries wait inside the function",
+    "018 verified empty pregame outcome under the real SQL ownership guard > refuses a period rollover after application proof",
+    "018 verified empty pregame outcome under the real SQL ownership guard > rejects deadline at durable completion",
+    "018 verified empty pregame outcome under the real SQL ownership guard > rejects lease at durable completion",
+    "018 verified empty pregame outcome under the real SQL ownership guard > rejects takeover at durable completion",
+    "018 verified empty pregame outcome under the real SQL ownership guard > rejects unbudgeted at durable completion",
+    "018 verified empty pregame outcome under the real SQL ownership guard > rejects operator at durable completion",
+  ],
+  },
+  { path: "integration/all-player-statistics.integration-case.ts", sourceDigest: "e94b8c77e08e4bea7dec9027f7684ad69bf83de3f5224971b4e5a613f7169d38",
+    suite: "all-player statistics foundation", beforeEach: false,
+    names: [
+    "all-player statistics foundation > refuses all-DATA/NULL publication atomically under the first genuine restricted LOGIN admission",
+    "all-player statistics foundation > shares immutable raw content while separating scores by league scoring profile",
+    "all-player statistics foundation > uses complete owner-approved season membership without bootstrap names or later-season leakage",
+    "all-player statistics foundation > keeps configured publication ready through a genuine runtime replay after exact DATA/NULL enrollment",
+  ],
+    inventory: [
+    "all-player statistics foundation > refuses all-DATA/NULL publication atomically under the first genuine restricted LOGIN admission",
+    "all-player statistics foundation > reads canonical profiles, identities, game context, and runtime database identity",
+    "all-player statistics foundation > rejects forged eligibility counts and mismatched NFL game context in the database",
+    "all-player statistics foundation > requires provider-validated completeness evidence for an all-player parity observation",
+    "all-player statistics foundation > shares immutable raw content while separating scores by league scoring profile",
+    "all-player statistics foundation > uses complete owner-approved season membership without bootstrap names or later-season leakage",
+    "all-player statistics foundation > keeps configured publication ready through a genuine runtime replay after exact DATA/NULL enrollment",
+    "all-player statistics foundation > derives player total points and PPG from current pointers with profile isolation",
+    "all-player statistics foundation > combines published totals with only the newest compact partial-week correction",
+    "all-player statistics foundation > rejects a currently usable partial mapping that disagrees with its published canonical identity",
+    "all-player statistics foundation > counts a zero-point partial appearance after published points in cumulative PPG",
+    "all-player statistics foundation > counts a published zero-point appearance before partial points in cumulative PPG",
+    "all-player statistics foundation > retains each partial week across rollover, applies per-week corrections, and detects missing history",
+    "all-player statistics foundation > rejects self-consistent official points that omit an authoritative roster",
+    "all-player statistics foundation > enforces the scorer-version rule allowlist and preserves referenced parity evidence",
+    "all-player statistics foundation > rejects a physically complete score set that omits the other canonical profile",
+    "all-player statistics foundation > rejects a valid candidate paired with a correctly labelled empty peer profile",
+    "all-player statistics foundation > preserves canonical catalog metadata when a full-slate projection adds aliases",
+    "all-player statistics foundation > revalidates immutable parity from score-line identities after an unrelated alias is added",
+    "all-player statistics foundation > rolls back orphan content when an observation replay conflicts",
+    "all-player statistics foundation > rejects a forged score row whose breakdown belongs to another scoring profile",
+    "all-player statistics foundation > rejects a forged subset before the guarded current pointer can advance",
+    "all-player statistics foundation > replays idempotently and advances only immutable corrections",
+    "all-player statistics foundation > serializes concurrent replay and rolls back an equal-time conflicting correction",
+    "all-player statistics foundation > retains a newer partial observation without moving either last-verified pointer",
+    "all-player statistics foundation > rejects a cross-revision peer even when both profile sets are publication ready",
+    "all-player statistics foundation > enforces append-only history and a function-only runtime pointer",
+    "all-player statistics foundation > rejects expired and taken-over owners before raw writes or pointer movement",
+    "all-player statistics foundation > rechecks deadline changes after waiting for the initial job lock",
+    "all-player statistics foundation > rechecks takeover changes after waiting for the initial job lock",
+    "all-player statistics foundation > rolls back a deadline that expires inside the SQL pointer statement",
+    "all-player statistics foundation > rejects malformed direct-role claims and completion without ownership tokens",
+    "all-player statistics foundation > protects the durable global budget against generic runtime job mutation",
+    "all-player statistics foundation > rejects valid raw child append to sealed partial history",
+    "all-player statistics foundation > keeps new mapping writes strict after expiry while preserving exact historical replay",
+    "all-player statistics foundation > retains fresh parity verifications without copying unchanged score rows",
+    "all-player statistics foundation > preserves final capture evidence across a real takeover and failed correction",
+    "all-player statistics foundation > enforces one global request budget across failure and different periods",
+    "all-player statistics foundation > retains bounded preclaim diagnostics without mutating live ownership or request budgets",
+    "all-player statistics foundation > measures real retained partial history without publishing incomplete scores",
+    "all-player statistics foundation > keeps the pre-010 application store compatible with the expanded schema",
+    "all-player statistics foundation > measures explicitly synthetic complete shared and divergent profiles with retained corrections",
+    "all-player statistics foundation > enrolls Dynasty between complete batches, requires all canonical parity and preserves history through compensation",
+    "all-player statistics foundation > owner-only readiness refuses all-DATA/NULL copied negative prerequisites without publication",
+  ],
+  },
+  { path: SELECTED_MODULE, sourceDigest: SELECTED_SOURCE_DIGEST, suite: INGESTION_SUITE, beforeEach: false,
+    names: [INGESTION_FULL_NAME], inventory: SELECTED_INVENTORY },
+] as const;
+export const CORE_COMPATIBILITY_FULL_NAMES = CORE_COMPATIBILITY_MODULES.flatMap(module => [...module.names]);
+export const CORE_COMPATIBILITY_PATTERN = closedPattern(CORE_COMPATIBILITY_FULL_NAMES);
+
 export type QualificationContext = {
   kind: 'integration-qualification-context-v1'; runId: string; nonce: string; gitSha: string;
   profile: QualificationProfile; profileDigest: string; modules: { path: string; sourceDigest: string }[];
@@ -200,15 +295,26 @@ function selectedModule(profile: QualificationProfile) {
 function selectedDigest(profile: QualificationProfile) {
   return profile === JOURNEY_PROFILE ? JOURNEY_SOURCE_DIGEST : profile === LIVE_PROFILE ? LIVE_SOURCE_DIGEST : SELECTED_SOURCE_DIGEST;
 }
-function selectedInventory(profile: QualificationProfile) {
+function selectedModules(profile: QualificationProfile) {
+  return profile === CORE_COMPATIBILITY_PROFILE ? CORE_COMPATIBILITY_MODULES
+    : [{ path: selectedModule(profile), sourceDigest: selectedDigest(profile) }];
+}
+function selectedInventory(profile: QualificationProfile, path?: string): readonly string[] {
+  if (profile === CORE_COMPATIBILITY_PROFILE) {
+    const spec = CORE_COMPATIBILITY_MODULES.find(module => module.path === path);
+    assert(spec, 'Unexpected core compatibility module.'); return spec.inventory;
+  }
   return profile === JOURNEY_PROFILE ? [JOURNEY_FULL_NAME] : profile === LIVE_PROFILE ? [LIVE_FULL_NAME] : SELECTED_INVENTORY;
 }
 function profileDigest(profile: QualificationProfile) {
+  if (profile === CORE_COMPATIBILITY_PROFILE) return qualificationDigest({ version: 1, profile,
+    modules: CORE_COMPATIBILITY_MODULES, pattern: CORE_COMPATIBILITY_PATTERN });
   return qualificationDigest({ version: 1, profile, module: profile === 'full' ? null : selectedModule(profile),
     pattern: profile === 'full' ? null : selectedCase(profile).pattern, sourceDigest: profile === 'full' ? null : selectedDigest(profile), inventory: profile === 'full' ? null : selectedInventory(profile) });
 }
 export function parseQualificationArguments(args: readonly string[]): QualificationProfile {
   if (!args.length) return 'full';
+  if (args.length === 1 && args[0] === '--profile=' + CORE_COMPATIBILITY_PROFILE) return CORE_COMPATIBILITY_PROFILE;
   const closeout = CLOSEOUT_PROFILES.find(selection => args.length === 1 && args[0] === '--profile=' + selection.profile);
   if (closeout) return closeout.profile;
   if (args.length === 1 && args[0] === '--profile=' + SELECTED_PROFILE) return SELECTED_PROFILE;
@@ -219,12 +325,12 @@ export function parseQualificationArguments(args: readonly string[]): Qualificat
   if (args.length === 1 && args[0] === '--profile=' + GUARDS_PROFILE) return GUARDS_PROFILE;
   if (args.length === 1 && args[0] === '--profile=' + CONCURRENCY_PROFILE) return CONCURRENCY_PROFILE;
   if (args.length === 1 && args[0] === '--profile=' + LATE_WRITE_PROFILE) return LATE_WRITE_PROFILE;
-  throw new Error('Only the closed data-intake-recovery-v1, data-refresh-history-v1, data-period-recovery-v1, data-period-exhaustion-v1, data-late-write-rollback-v1, data-refresh-concurrency-v1, data-ingestion-guards-v1, data-official-preconfiguration-v1, data-live-public-intake-v1, data-live-league-two-v1, data-core-refresh-v1 and data-core-ingestion-v1 qualification selectors are accepted.');
+  throw new Error('Only the closed data-core-compatibility-v1, data-intake-recovery-v1, data-refresh-history-v1, data-period-recovery-v1, data-period-exhaustion-v1, data-late-write-rollback-v1, data-refresh-concurrency-v1, data-ingestion-guards-v1, data-official-preconfiguration-v1, data-live-public-intake-v1, data-live-league-two-v1, data-core-refresh-v1 and data-core-ingestion-v1 qualification selectors are accepted.');
 }
 export function qualificationArguments(profile: QualificationProfile, reporter: string): string[] {
-  assert(profile === 'full' || profile === SELECTED_PROFILE || profile === INGESTION_PROFILE || profile === LIVE_PROFILE || profile === JOURNEY_PROFILE || profile === OFFICIAL_PROFILE || profile === GUARDS_PROFILE || profile === CONCURRENCY_PROFILE || profile === LATE_WRITE_PROFILE || CLOSEOUT_PROFILES.some(selection => selection.profile === profile), 'Unknown qualification profile.');
+  assert(profile === 'full' || profile === CORE_COMPATIBILITY_PROFILE || profile === SELECTED_PROFILE || profile === INGESTION_PROFILE || profile === LIVE_PROFILE || profile === JOURNEY_PROFILE || profile === OFFICIAL_PROFILE || profile === GUARDS_PROFILE || profile === CONCURRENCY_PROFILE || profile === LATE_WRITE_PROFILE || CLOSEOUT_PROFILES.some(selection => selection.profile === profile), 'Unknown qualification profile.');
   return ['--reporter', 'verbose', '--reporter', reporter,
-    ...(profile === 'full' ? [] : [selectedModule(profile), '--testNamePattern', selectedCase(profile).pattern])];
+    ...(profile === 'full' ? [] : [...selectedModules(profile).map(module => module.path), '--testNamePattern', selectedCase(profile).pattern])];
 }
 function exactKeys(value: object, keys: string[]) {
   assert.deepEqual(Object.keys(value).sort(), keys.sort(), 'Malformed qualification evidence keys.');
@@ -235,7 +341,7 @@ function validateContext(value: QualificationContext): QualificationContext {
   assert.equal(value.kind, 'integration-qualification-context-v1');
   for (const id of [value.runId, value.nonce]) assert.match(id, /^[0-9a-f]{8}-[0-9a-f-]{27}$/u);
   assert.match(value.gitSha, /^[0-9a-f]{40}$/u);
-  assert(value.profile === 'full' || value.profile === SELECTED_PROFILE || value.profile === INGESTION_PROFILE || value.profile === LIVE_PROFILE || value.profile === JOURNEY_PROFILE || value.profile === OFFICIAL_PROFILE || value.profile === GUARDS_PROFILE || value.profile === CONCURRENCY_PROFILE || value.profile === LATE_WRITE_PROFILE || CLOSEOUT_PROFILES.some(selection => selection.profile === value.profile));
+  assert(value.profile === 'full' || value.profile === CORE_COMPATIBILITY_PROFILE || value.profile === SELECTED_PROFILE || value.profile === INGESTION_PROFILE || value.profile === LIVE_PROFILE || value.profile === JOURNEY_PROFILE || value.profile === OFFICIAL_PROFILE || value.profile === GUARDS_PROFILE || value.profile === CONCURRENCY_PROFILE || value.profile === LATE_WRITE_PROFILE || CLOSEOUT_PROFILES.some(selection => selection.profile === value.profile));
   assert.equal(value.profileDigest, profileDigest(value.profile));
   assert(Array.isArray(value.modules) && value.modules.length > 0 && value.modules.length <= 128);
   for (const entry of value.modules) {
@@ -246,7 +352,7 @@ function validateContext(value: QualificationContext): QualificationContext {
   unique(value.modules.map(module => module.path));
   if (value.profile === LIVE_PROFILE || value.profile === JOURNEY_PROFILE) assert.equal(value.modules[0].sourceDigest, selectedDigest(value.profile));
   if (value.profile === 'full') assert(value.modules.every(module => !module.path.endsWith('.live-integration-case.ts')));
-  if (value.profile !== 'full') assert.deepEqual(value.modules.map(module => module.path), [selectedModule(value.profile)]);
+  if (value.profile !== 'full') assert.deepEqual(value.modules.map(module => module.path), selectedModules(value.profile).map(module => module.path));
   return value;
 }
 export async function createQualificationContext(siteRoot: string, gitSha: string, runId: string,
@@ -259,13 +365,15 @@ export async function createQualificationContext(siteRoot: string, gitSha: strin
       else if (entry.isFile() && entry.name.endsWith('.integration-case.ts')) modules.push(path);
     }
   };
-  if (profile === 'full') await walk('integration'); else { selectedCase(profile); modules.push(selectedModule(profile)); }
+  if (profile === 'full') await walk('integration'); else { selectedCase(profile); modules.push(...selectedModules(profile).map(module => module.path)); }
   const context = validateContext({ kind: 'integration-qualification-context-v1', gitSha, runId, nonce: randomUUID(), profile,
     profileDigest: profileDigest(profile), modules: await Promise.all(modules.sort().map(async path => ({
       path, sourceDigest: qualificationSourceDigest(await readFile(join(siteRoot, path), 'utf8')),
     }))) });
-  if (profile !== 'full') assert.equal(context.modules[0].sourceDigest, selectedDigest(profile),
-    'Selected qualification source differs from the reviewed LF digest.');
+  if (profile !== 'full') for (const expected of selectedModules(profile)) {
+    assert.equal(context.modules.find(module => module.path === expected.path)?.sourceDigest, expected.sourceDigest,
+      'Selected qualification source differs from the reviewed LF digest.');
+  }
   return context;
 }
 /** Missing context preserves standalone use. Supplied but partial context fails before DB preparation. */
@@ -317,8 +425,8 @@ export async function qualificationCleanup(cleanup: () => Promise<void>, binding
     }
   } catch (error) { await markQualificationFailure(binding, 'cleanup-failure'); throw error; }
 }
-function unique(values: string[]): void { assert.equal(new Set(values).size, values.length, 'Duplicate qualification inventory.'); }
-function sameInventory(actual: string[], expected: string[]): void { unique(actual); assert.deepEqual([...actual].sort(), [...expected].sort()); }
+function unique(values: readonly string[]): void { assert.equal(new Set(values).size, values.length, 'Duplicate qualification inventory.'); }
+function sameInventory(actual: readonly string[], expected: readonly string[]): void { unique(actual); assert.deepEqual([...actual].sort(), [...expected].sort()); }
 function zero(value: unknown): void { assert.equal(value, 0); }
 export function validateQualificationReport(context: QualificationContext, report: QualificationReport): void {
   validateContext(context);
@@ -341,6 +449,7 @@ export function validateQualificationReport(context: QualificationContext, repor
     assert.equal(hook.starts, hook.ends);
   }
   const ids: string[] = [];
+  const compatibilityHooks: { key: string; starts: number; ends: number }[] = [];
   for (const entry of report.modules) {
     exactKeys(entry, ['path', 'state', 'errors', 'suites', 'cases']);
     assert.equal(entry.state, 'passed'); zero(entry.errors); assert(entry.cases.length > 0);
@@ -350,7 +459,22 @@ export function validateQualificationReport(context: QualificationContext, repor
       assert(suite.mode === 'run' || (context.profile !== 'full' && suite.mode === 'skip'));
     }
     unique(entry.cases.map(test => test.name));
-    if (context.profile !== 'full') sameInventory(entry.cases.map(test => test.name), selectedInventory(context.profile));
+    if (context.profile !== 'full') sameInventory(entry.cases.map(test => test.name), selectedInventory(context.profile, entry.path));
+    if (context.profile === CORE_COMPATIBILITY_PROFILE) {
+      const spec = CORE_COMPATIBILITY_MODULES.find(module => module.path === entry.path)!;
+      const selected = entry.cases.filter(test => (spec.names as readonly string[]).includes(test.name));
+      assert.deepEqual(selected.map(test => test.name), spec.names, 'Core compatibility cases must retain source order.');
+      const running = entry.suites.filter(suite => suite.mode === 'run');
+      assert.equal(running.length, 1); assert.equal(running[0].name, spec.suite);
+      assert.equal(entry.suites.filter(suite => suite.name === spec.suite).length, 1);
+      compatibilityHooks.push(...['beforeAll', 'afterAll'].map(name => ({ key: running[0].id + ':' + name, starts: 1, ends: 1 })));
+      if (spec.beforeEach) compatibilityHooks.push(...selected.map(test => ({ key: test.id + ':beforeEach', starts: 1, ends: 1 })));
+      for (let index = 1; index < selected.length; index++) {
+        const previous = selected[index - 1].diagnostic, current = selected[index].diagnostic;
+        assert(previous && current && current.startTime >= previous.startTime,
+          'Core compatibility cases must execute in chronological source order.');
+      }
+    }
     const sharedSuite = context.profile === CONCURRENCY_PROFILE
       ? { names: CONCURRENCY_FULL_NAMES, suite: SELECTED_SUITE, label: 'Refresh concurrency' }
       : context.profile === LATE_WRITE_PROFILE
@@ -411,6 +535,10 @@ export function validateQualificationReport(context: QualificationContext, repor
     }
   }
   unique(ids);
+  if (context.profile === CORE_COMPATIBILITY_PROFILE) {
+    sameInventory(report.hooks.map(hook => hook.key), compatibilityHooks.map(hook => hook.key));
+    for (const hook of report.hooks) assert.equal(hook.starts, 1, 'Core compatibility hooks must execute exactly once.');
+  }
 }
 /** Only after independently verified child-tree closure; a late timeout marker always wins. */
 export async function validateQualificationArtifacts(binding: QualificationBinding): Promise<{ profile: QualificationProfile; collected: number; executed: number; passed: number; skipped: number; filtered: number; reportDigest: string }> {
@@ -432,7 +560,8 @@ export async function validateQualificationArtifacts(binding: QualificationBindi
 /** The distinct live suffix never matches default full discovery. Only a validated bound profile opts in. */
 export function qualificationIncludes(environment: Record<string, string | undefined> = process.env): string[] {
   const profile = qualificationBinding(environment)?.context.profile;
-  return profile === LIVE_PROFILE ? [LIVE_MODULE] : profile === JOURNEY_PROFILE ? [JOURNEY_MODULE] : ['integration/**/*.integration-case.ts'];
+  return profile === CORE_COMPATIBILITY_PROFILE ? CORE_COMPATIBILITY_MODULES.map(module => module.path)
+    : profile === LIVE_PROFILE ? [LIVE_MODULE] : profile === JOURNEY_PROFILE ? [JOURNEY_MODULE] : ['integration/**/*.integration-case.ts'];
 }
 export function requireLiveQualification(environment: Record<string, string | undefined> = process.env): QualificationBinding {
   const binding = qualificationBinding(environment);

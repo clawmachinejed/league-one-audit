@@ -15,6 +15,7 @@ import { createQualificationContext, markQualificationFailure, parseQualificatio
   CONCURRENCY_PROFILE, CONCURRENCY_FULL_NAMES, CONCURRENCY_PATTERN, SELECTED_SUITE,
   LATE_WRITE_PROFILE, LATE_WRITE_FULL_NAMES, LATE_WRITE_PATTERN, LATE_WRITE_SUITE,
   CLOSEOUT_PROFILES, INTAKE_RECOVERY_PROFILE, REFRESH_HISTORY_PROFILE, PERIOD_RECOVERY_PROFILE, PERIOD_EXHAUSTION_PROFILE,
+  CORE_COMPATIBILITY_PROFILE, CORE_COMPATIBILITY_MODULES, CORE_COMPATIBILITY_FULL_NAMES, CORE_COMPATIBILITY_PATTERN,
   type QualificationBinding, type QualificationCase, type QualificationReport } from './qualification-profile';
 
 const directories: string[] = [];
@@ -580,4 +581,114 @@ it('covers eleven additional cases using four fixed dependency-closed selections
   expect(remaining).toHaveLength(11);
   const newlySelected = new Set(CLOSEOUT_PROFILES.flatMap(selection => selection.names).filter(name => !previouslySelected.has(name)));
   expect([...newlySelected].sort()).toEqual(remaining);
+});
+
+async function compatibilityFixture(): Promise<{ binding: QualificationBinding; evidence: QualificationReport }> {
+  const directory = await mkdtemp(join(tmpdir(), 'core-compatibility-profile-')); directories.push(directory);
+  const context = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)), 'a'.repeat(40), randomUUID(), CORE_COMPATIBILITY_PROFILE);
+  const modules = CORE_COMPATIBILITY_MODULES.map((spec, moduleIndex) => {
+    const suites = [...new Set(spec.inventory.map(name => name.split(' > ')[0]))].map((name, index) => ({
+      id: 'suite-' + moduleIndex + '-' + index, name, mode: name === spec.suite ? 'run' : 'skip', errors: 0,
+    }));
+    return { path: spec.path, state: 'passed', errors: 0, suites, cases: spec.inventory.map((name, index) => {
+      const selected = (spec.names as readonly string[]).includes(name);
+      return { id: 'case-' + moduleIndex + '-' + index, name, state: selected ? 'passed' : 'skipped', mode: selected ? 'run' : 'skip',
+        expectedFailure: false, configuredRetries: false, configuredRepeats: 0, errors: 0, readyEvents: 1, resultEvents: 1,
+        diagnostic: selected ? { retryCount: 0, repeatCount: 0, flaky: false, duration: 1, startTime: 1234 + index * 2 } : null };
+    }) };
+  });
+  return { binding: { context, directory }, evidence: { kind: 'integration-qualification-report-v1', contextDigest: qualificationDigest(context),
+    starts: 1, ends: 1, reason: 'passed', unhandledErrors: 0,
+    specifications: modules.map(module => ({ path: module.path, pattern: CORE_COMPATIBILITY_PATTERN, otherFilters: false })),
+    collected: modules.map(module => module.path), modules,
+    hooks: modules.flatMap((module, index) => [
+      ...['beforeAll', 'afterAll'].map(name => ({ key: module.suites.find(suite => suite.mode === 'run')!.id + ':' + name, starts: 1, ends: 1 })),
+      ...(CORE_COMPATIBILITY_MODULES[index].beforeEach ? module.cases.filter(test => test.diagnostic).map(test => ({ key: test.id + ':beforeEach', starts: 1, ends: 1 })) : []),
+    ]),
+  } };
+}
+it('binds the fixed core compatibility profile to three reviewed modules, seven cases and exact hooks', async () => {
+  const { binding, evidence } = await compatibilityFixture();
+  expect(parseQualificationArguments(['--profile=' + CORE_COMPATIBILITY_PROFILE])).toBe(CORE_COMPATIBILITY_PROFILE);
+  expect(qualificationArguments(CORE_COMPATIBILITY_PROFILE, '/reporter').slice(4)).toEqual([
+    ...CORE_COMPATIBILITY_MODULES.map(module => module.path), '--testNamePattern', CORE_COMPATIBILITY_PATTERN]);
+  for (const extra of ['--retry=1', '--testNamePattern=x', '--profile=' + INGESTION_PROFILE, '--sequence.shuffle']) {
+    expect(() => parseQualificationArguments(['--profile=' + CORE_COMPATIBILITY_PROFILE, extra])).toThrow();
+  }
+  const env = { [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(binding.context), PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY: binding.directory };
+  expect(qualificationIncludes(env)).toEqual(CORE_COMPATIBILITY_MODULES.map(module => module.path));
+  const pattern = new RegExp(CORE_COMPATIBILITY_PATTERN);
+  expect(CORE_COMPATIBILITY_MODULES.flatMap(module => module.inventory.filter(name => pattern.test(name.replaceAll(' > ', ' '))))).toEqual(CORE_COMPATIBILITY_FULL_NAMES);
+  expect(CORE_COMPATIBILITY_FULL_NAMES).toHaveLength(7);
+  expect(evidence.hooks).toHaveLength(8);
+  await writeQualificationArtifact(binding, 'report', evidence);
+  await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
+  await qualificationCleanup(async () => {}, binding);
+  await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({ collected: 89, executed: 7, passed: 7, skipped: 82, filtered: 82 });
+  const ordinary = await fixture(INGESTION_PROFILE);
+  expect(() => validateQualificationReport(ordinary.context, { ...evidence, contextDigest: qualificationDigest(ordinary.context) })).toThrow();
+});
+it('rejects compatibility module drift, missing prerequisite execution, extra cases, wrong hooks and chronological reorder', async () => {
+  const { binding, evidence } = await compatibilityFixture();
+  const changes: ((r: QualificationReport) => void)[] = [
+    r => { r.modules.pop(); }, r => { r.collected.reverse(); r.collected.pop(); },
+    r => { r.specifications[0].pattern = '.*'; }, r => { r.modules[1].cases.reverse(); },
+    r => { r.modules[1].cases.filter(test => test.diagnostic)[1].diagnostic!.startTime = 1; },
+    r => { r.hooks.pop(); }, r => { r.hooks[0].starts = 2; r.hooks[0].ends = 2; },
+    r => { r.hooks.push({ key: 'excluded:beforeAll', starts: 1, ends: 1 }); },
+    r => { r.modules[2].suites.find(suite => suite.mode === 'skip')!.mode = 'run'; },
+    r => { r.modules[0].cases[0].state = 'skipped'; }, r => { r.modules[1].cases[4].diagnostic!.retryCount = 1; },
+    r => { r.modules[1].cases[1].state = 'passed'; r.modules[1].cases[1].mode = 'run'; },
+    r => { r.modules[0].cases[0].id = r.modules[1].cases[0].id; },
+  ];
+  for (const change of changes) { const changed = structuredClone(evidence); change(changed); expect(() => validateQualificationReport(binding.context, changed)).toThrow(); }
+  const env = { PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY: binding.directory };
+  for (const modules of [binding.context.modules.slice(1), [...binding.context.modules].reverse(), [...binding.context.modules, binding.context.modules[0]]]) {
+    expect(() => qualificationBinding({ ...env, [QUALIFICATION_CONTEXT_ENV]: JSON.stringify({ ...binding.context, modules }) })).toThrow();
+  }
+  await mkdir(join(binding.directory, 'integration'));
+  for (const spec of CORE_COMPATIBILITY_MODULES) await writeFile(join(binding.directory, spec.path), await readFile(new URL('../' + spec.path, import.meta.url), 'utf8'));
+  for (const spec of CORE_COMPATIBILITY_MODULES) {
+    const path = join(binding.directory, spec.path), original = await readFile(path, 'utf8');
+    await writeFile(path, original + '\n// drift\n');
+    await expect(createQualificationContext(binding.directory, 'a'.repeat(40), randomUUID(), CORE_COMPATIBILITY_PROFILE)).rejects.toThrow('reviewed LF digest');
+    await writeFile(path, original);
+  }
+});
+it('independently inventories every compatibility case without loading SQL modules', async () => {
+  for (const spec of CORE_COMPATIBILITY_MODULES) {
+    const path = fileURLToPath(new URL('../' + spec.path, import.meta.url)), source = await readFile(path, 'utf8');
+    expect(qualificationSourceDigest(source)).toBe(spec.sourceDigest);
+    const tree = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true), cases: string[] = [];
+    const visit = (node: ts.Node, suites: string[]) => {
+      if (ts.isCallExpression(node)) {
+        const expression = node.expression;
+        if (ts.isIdentifier(expression) && expression.text === 'describe' && ts.isStringLiteral(node.arguments[0])) {
+          const suite = [...suites, node.arguments[0].text]; ts.forEachChild(node.arguments[1], child => visit(child, suite)); return;
+        }
+        const direct = ts.isIdentifier(expression) && expression.text === 'it';
+        const each = ts.isCallExpression(expression) && ts.isPropertyAccessExpression(expression.expression)
+          && expression.expression.expression.getText(tree) === 'it' && expression.expression.name.text === 'each';
+        if ((direct || each) && ts.isStringLiteral(node.arguments[0])) {
+          const template = node.arguments[0].text, argument = each && ts.isCallExpression(expression) ? expression.arguments[0] : undefined;
+          const values = argument && ts.isAsExpression(argument) ? argument.expression : argument;
+          for (const value of values && ts.isArrayLiteralExpression(values) ? values.elements : [undefined]) {
+            let name = template;
+            if (value && ts.isStringLiteral(value)) name = name.replace('%s', value.text);
+            else if (value && ts.isObjectLiteralExpression(value)) {
+              for (const field of value.properties) if (ts.isPropertyAssignment(field) && ts.isStringLiteral(field.initializer)) {
+                name = name.replace('$' + field.name.getText(tree), field.initializer.text);
+              }
+            } else expect(value).toBeUndefined();
+            cases.push([...suites, name].join(' > '));
+          }
+          return;
+        }
+      }
+      ts.forEachChild(node, child => visit(child, suites));
+    };
+    visit(tree, []);
+    expect([...cases].sort()).toEqual([...spec.inventory].sort());
+    expect(cases.filter(name => (spec.names as readonly string[]).includes(name))).toEqual(spec.names);
+  }
 });

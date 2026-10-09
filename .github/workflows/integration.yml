@@ -9,6 +9,7 @@ on:
         default: full
         options:
           - full
+          - data-core-compatibility-v1
           - data-core-ingestion-v1
           - data-core-refresh-v1
           - data-refresh-concurrency-v1
@@ -66,6 +67,9 @@ jobs:
           case "$GITHUB_EVENT_NAME:$QUALIFICATION_PROFILE" in
             push:|workflow_dispatch:full)
               pnpm test:integration
+              ;;
+            workflow_dispatch:data-core-compatibility-v1)
+              pnpm test:integration --profile=data-core-compatibility-v1
               ;;
             workflow_dispatch:data-core-ingestion-v1)
               pnpm test:integration --profile=data-core-ingestion-v1

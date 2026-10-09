@@ -29,7 +29,7 @@ import type { PublicDataRefreshStore } from '../lib/league-administration/public
 import type { NormalizedAdministrationObservation } from '../lib/league-administration/contracts';
 import { createPublicDataDiagnostics, observePublicDataDependencies } from './public-data-refresh-diagnostics';
 import { createQualificationContext, qualificationDigest, LIVE_PROFILE, JOURNEY_PROFILE, INGESTION_PROFILE, QUALIFICATION_CONTEXT_ENV,
-  SELECTED_PROFILE, OFFICIAL_PROFILE, GUARDS_PROFILE, CONCURRENCY_PROFILE, LATE_WRITE_PROFILE, INTAKE_RECOVERY_PROFILE,
+  CORE_COMPATIBILITY_PROFILE, SELECTED_PROFILE, OFFICIAL_PROFILE, GUARDS_PROFILE, CONCURRENCY_PROFILE, LATE_WRITE_PROFILE, INTAKE_RECOVERY_PROFILE,
   REFRESH_HISTORY_PROFILE, PERIOD_RECOVERY_PROFILE, PERIOD_EXHAUSTION_PROFILE, SELECTED_MODULE, type QualificationProfile } from './qualification-profile';
 vi.mock('server-only', () => ({}));
 vi.mock('next/cache', () => ({ unstable_cache: (fn: unknown) => fn }));
@@ -265,15 +265,15 @@ it('permits both fixed case artifacts in full mode, refuses overwrites and rejec
   await expect(readFile(join(empty, 'public-data-refresh-diagnostics.json'))).rejects.toThrow();
 });
 
-// Explicit intended allowlist: the closeout repair adds only refresh/history.
-const diagnosticProfiles = ['full', SELECTED_PROFILE, INGESTION_PROFILE, LIVE_PROFILE, JOURNEY_PROFILE,
+// Explicit intended allowlist: compatibility adds only ordinary/core-compatibility.
+const diagnosticProfiles = ['full', CORE_COMPATIBILITY_PROFILE, SELECTED_PROFILE, INGESTION_PROFILE, LIVE_PROFILE, JOURNEY_PROFILE,
   OFFICIAL_PROFILE, GUARDS_PROFILE, CONCURRENCY_PROFILE, LATE_WRITE_PROFILE, INTAKE_RECOVERY_PROFILE,
   REFRESH_HISTORY_PROFILE, PERIOD_RECOVERY_PROFILE, PERIOD_EXHAUSTION_PROFILE] as const;
 const diagnosticKinds = ['ordinary', 'refresh', 'live', 'journey'] as const;
 const diagnosticArtifacts = { ordinary: 'public-data-ingestion-diagnostics.json', refresh: 'public-data-refresh-diagnostics.json',
   live: 'live-league-two-diagnostics.json', journey: 'public-data-live-diagnostics.json' } as const;
 const permittedDiagnosticProfiles = {
-  ordinary: new Set<QualificationProfile>(['full', INGESTION_PROFILE]),
+  ordinary: new Set<QualificationProfile>(['full', INGESTION_PROFILE, CORE_COMPATIBILITY_PROFILE]),
   refresh: new Set<QualificationProfile>(['full', SELECTED_PROFILE, REFRESH_HISTORY_PROFILE]),
   live: new Set<QualificationProfile>([LIVE_PROFILE]),
   journey: new Set<QualificationProfile>([JOURNEY_PROFILE]),

@@ -18,6 +18,7 @@ import { runSyntheticCompleteCapacity } from './all-player-synthetic-capacity';
 import { enrollIntegrationSeason, registerEnrolledIntegrationSeason } from './administration-enrollment-fixture';
 import { verifyEnrolledPublication } from './enrolled-publication-fixture';
 import { rulesHash } from '../lib/projections/adapters/neon/database-values';
+import { readEnrollmentInventory } from '../lib/league-administration/neon/enrollment';
 import {
   createIndependentDatabase,
   createPinnedIntegrationDatabase,
@@ -629,6 +630,57 @@ describe('all-player statistics foundation', () => {
     expect((await database.database.query('SELECT scoring_profile_id FROM league_seasons WHERE id=$1', [registration.leagueSeasonId]))[0])
       .toEqual({ scoring_profile_id: null });
     expect(await database.database.query('SELECT * FROM current_all_player_league_scores WHERE league_season_id=$1', [registration.leagueSeasonId])).toEqual([]);
+
+    // Baseline reproduction before the additive compatibility repair. The real
+    // registry excludes unadopted DATA even when registration has a valid profile,
+    // but R037 still requires its profile/parity in legacy publication. Keep the
+    // explicit failure expectations until a supervised baseline run proves them.
+    const inventory = await readEnrollmentInventory(database.database, DATABASE_SEASON);
+    expect(inventory.entries.map(entry => entry.intended.leagueKey).sort()).toEqual(['league1', 'league2']);
+    expect(inventory.entries.every(entry => entry.status === 'ready')).toBe(true);
+    const publicationSnapshot = () => ownerQuery(`SELECT jsonb_build_object(
+      'contents',(SELECT COALESCE(jsonb_agg(to_jsonb(row) ORDER BY id),'[]') FROM all_player_stat_contents row),
+      'entries',(SELECT COALESCE(jsonb_agg(to_jsonb(row) ORDER BY all_player_stat_content_id,ordinal),'[]') FROM all_player_stat_entries row),
+      'observations',(SELECT COALESCE(jsonb_agg(to_jsonb(row) ORDER BY id),'[]') FROM all_player_stat_observations row),
+      'sets',(SELECT COALESCE(jsonb_agg(to_jsonb(row) ORDER BY id),'[]') FROM all_player_score_sets row),
+      'scores',(SELECT COALESCE(jsonb_agg(to_jsonb(row) ORDER BY all_player_score_set_id,ordinal),'[]') FROM all_player_scores row),
+      'verifications',(SELECT COALESCE(jsonb_agg(to_jsonb(row) ORDER BY all_player_stat_observation_id,all_player_score_set_id),'[]') FROM all_player_score_verifications row),
+      'pointers',(SELECT COALESCE(jsonb_agg(to_jsonb(row) ORDER BY provider,season,season_type,week,scoring_profile_id,scorer_version),'[]') FROM current_all_player_score_sets row),
+      'acceptances',(SELECT COALESCE(jsonb_agg(to_jsonb(row) ORDER BY id),'[]') FROM all_player_league_acceptances row),
+      'leagueHeads',(SELECT COALESCE(jsonb_agg(to_jsonb(row) ORDER BY league_season_id,provider,season,season_type,week,scorer_version),'[]') FROM current_all_player_league_scores row),
+      'job',(SELECT to_jsonb(row) FROM projection_jobs row WHERE job_key=$1)) AS state`, [fence.jobKey]);
+    for (const scenario of [
+      { name: 'shared', weight: 4, message: 'all-player score batch is missing a canonical scoring profile' },
+      { name: 'distinct', weight: 8, message: 'all-player score batch does not cover the canonical league scoring profiles' },
+    ] as const) {
+      const dataKey = `unadopted-data-nonnull-${scenario.name}`;
+      const data = stored(await store.registerLeagueSeason({ leagueKey: dataKey, leagueName: dataKey,
+        season: DATABASE_SEASON, sleeperLeagueId: dataKey, scoringRules: { pass_td: scenario.weight } }));
+      expect(data.scoringProfileId).toBeTruthy();
+      expect(profileIds.includes(data.scoringProfileId)).toBe(scenario.name === 'shared');
+      // Only enrollment metadata is owner-seeded. Registration, parity capture
+      // and the attempted atomic publication all use the restricted LOGIN.
+      await ownerQuery(`INSERT INTO league_administration_enrollments(league_id,provider,active,evidence)
+        VALUES($1,'sleeper',false,'public-data-intake-v1')`, [data.leagueId]);
+      await ownerQuery(`INSERT INTO league_administration_enrollment_seasons(league_id,season,provider,evidence)
+        VALUES($1,$2,'sleeper','public-data-intake-v1')`, [data.leagueId, DATABASE_SEASON]);
+      expect(await readEnrollmentInventory(database.database, DATABASE_SEASON)).toEqual(inventory);
+      expect(await readEnrollmentInventory(database.database, DATABASE_SEASON, { leagueKey: dataKey }))
+        .toEqual({ entries: [] });
+      const candidate = await batch(observation(1, `unadopted-data-nonnull-${scenario.name}`,
+        scenario.name === 'shared' ? '2026-09-15T00:00:04.000Z' : '2026-09-15T00:00:05.000Z'));
+      expect(candidate.scoreSets.map(set => set.scoringProfileId).sort()).toEqual([...profileIds].sort());
+      expect(candidate.scoreSets.every(set => set.quality === 'complete' && set.parityMismatchCount === 0)).toBe(true);
+      expect((await database.database.query('SELECT session_user AS role,current_user AS effective_role'))[0])
+        .toEqual({ role: 'league_one_runtime', effective_role: 'league_one_runtime' });
+      const beforeRejected = await publicationSnapshot();
+      await expect(store.recordAllPlayerBatch(candidate)).rejects.toMatchObject({ code: 'P0001', message: scenario.message });
+      expect(await publicationSnapshot()).toEqual(beforeRejected);
+      expect(await database.database.query('SELECT * FROM current_all_player_league_scores WHERE league_season_id=$1',
+        [data.leagueSeasonId])).toEqual([]);
+    }
+    // Immutable synthetic memberships remain until the guarded global teardown;
+    // this focused baseline profile runs no later configured-publication cases.
   });
 
   it('derives player total points and PPG from current pointers with profile isolation', async () => {

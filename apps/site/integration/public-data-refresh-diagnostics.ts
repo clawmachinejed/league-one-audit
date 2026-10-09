@@ -5,7 +5,7 @@ import { TEAM_MANAGERS_POLICY, TEAM_MANAGER_EVIDENCE_POLICY, teamManagersScope, 
 import { isAdministrationSourceMapping } from '../lib/league-administration/source-mapping';
 import type { PublicIntakeDependencies } from '../lib/league-administration/public-intake';
 import type { PublicDataRefreshStore } from '../lib/league-administration/public-refresh-contracts';
-import { qualificationBinding, qualificationDigest, REFRESH_HISTORY_PROFILE } from './qualification-profile';
+import { qualificationBinding, qualificationDigest, CORE_COMPATIBILITY_PROFILE, REFRESH_HISTORY_PROFILE } from './qualification-profile';
 import { writeIntegrationArtifact } from './integration-artifacts';
 
 const phases = ['case', 'case.assertion', 'case.wrong-owner-negative', 'artifact.write', 'coordinator',
@@ -539,7 +539,8 @@ export function createPublicDataDiagnostics(kind: 'ordinary' | 'refresh' | 'live
         const binding = qualificationBinding();
         if (!binding || ((kind === 'live' || kind === 'journey') && binding.context.profile !== caseProfiles[kind])
           || (binding.context.profile !== 'full' && binding.context.profile !== caseProfiles[kind]
-            && !(kind === 'refresh' && binding.context.profile === REFRESH_HISTORY_PROFILE))) {
+            && !(kind === 'refresh' && binding.context.profile === REFRESH_HISTORY_PROFILE)
+            && !(kind === 'ordinary' && binding.context.profile === CORE_COMPATIBILITY_PROFILE))) {
           throw new Error('Matching bound qualification context required.');
         }
         await captureReceipts();
