@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { readFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import { runPublicDataRefreshStep, runPublicIntakeStep, type PublicIntakeDependencies } from './public-intake';
 import type { PublicDataRefreshStore } from './public-refresh-contracts';
 import { validatePublicIntake, type PublicIntakeStore, type PublicIntakeWork } from './public-intake-contracts';
@@ -12,6 +13,7 @@ import type { NormalizedAdministrationObservation } from './contracts';
 import { readAcceptedExactMatchupsRows } from './neon/exact-matchups';
 import { EXACT_MATCHUPS_POLICY, exactMatchupsScope } from '../aggregator/exact-matchups';
 import type { PublicCaptureWitness } from './public-capture-witness';
+import type { AdministrationWriteFence, LeagueAdministrationStore } from './store-contracts';
 
 vi.mock('server-only', () => ({}));
 vi.mock('next/cache', () => ({ unstable_cache: (fn: unknown) => fn }));
@@ -934,4 +936,179 @@ it('cannot checkpoint the period when its settings response fails, even if a mat
   expect((await runPublicIntakeStep(id, f.dependencies, new AbortController().signal)).status).toBe('unavailable');
   expect(f.intake.completeExactPeriod).not.toHaveBeenCalled(); expect(f.intake.fail).toHaveBeenCalledOnce();
   expect(f.source.core).toHaveBeenCalledOnce(); expect(f.source.exactPeriod).toHaveBeenCalledOnce();
+});
+
+// Offline coordinator evidence: HTTP streams and storage are mocked. Transport,
+// capture seals, normalization and recordCapturedAdministration remain real;
+// these retained heads/checkpoints do not claim to exercise Neon or SQL receipts.
+function streamedIntakeFixture() {
+  const f = fixture();
+  const heads = new Map<string, { input: NormalizedAdministrationObservation; observationId: string }>();
+  const checkpoints = new Map<string, unknown>();
+  const reservations: Record<string, { id: string; nonce: string }> = {};
+  const witnesses: PublicCaptureWitness[] = [];
+  const reserve = (role: string, attemptId: string, fence?: AdministrationWriteFence) => {
+    expect(fence).toEqual(vi.mocked(f.intake.admit).mock.calls.at(-1)![1]);
+    reservations[role] = { id: attemptId, nonce: randomUUID() };
+    return { id: attemptId, scopeId: randomUUID(), ordinal: 1, expectedGeneration: 0 };
+  };
+  const administration = { ...f.dependencies.administration,
+    beginRosterCapture: vi.fn<LeagueAdministrationStore['beginRosterCapture']>(async (_mapping, players, managers, fence) => ({
+      players: reserve('players', players, fence), managers: reserve('managers', managers, fence) })),
+    beginLeagueSettingsAttempt: vi.fn<LeagueAdministrationStore['beginLeagueSettingsAttempt']>(async (_mapping, attemptId, fence) =>
+      reserve('settings', attemptId, fence)),
+    beginExactMatchupAttempt: vi.fn<LeagueAdministrationStore['beginExactMatchupAttempt']>(async (_mapping, _week, attemptId, fence) =>
+      reserve('matchups', attemptId, fence)),
+    recordObservation: vi.fn<LeagueAdministrationStore['recordObservation']>(async (input, fence, _mapping, players, managers, settings, matchups) => {
+      expect(input.status).toBe('accepted');
+      expect(input.envelope.provenance.acquisition).toEqual(witnesses.at(-1));
+      expect(fence).toEqual(witnesses.at(-1)!.fence);
+      const observationId = randomUUID();
+      heads.set(input.envelope.family, { input, observationId });
+      const accepted = (receiptId: string) => ({ status: 'accepted' as const, receiptId, acceptedGeneration: 1 });
+      return { status: 'changed', observationId, generation: 1,
+        ...(settings ? { leagueSettingsAcceptance: accepted(settings.attempt.id) } : {}),
+        ...(players ? { rosterAcceptance: accepted(players.attempt.id) } : {}),
+        ...(managers ? { teamManagerAcceptance: accepted(managers.attempt.id) } : {}),
+        ...(matchups ? { matchupAcceptance: accepted(matchups.attempt.id) } : {}) };
+    }),
+  };
+  const intake = { ...f.intake,
+    captureWitness: vi.fn<NonNullable<PublicIntakeStore['captureWitness']>>(async (work, actualMapping, fence) => {
+      const roles = work.kind === 'core' ? ['players', 'managers', 'settings']
+        : work.kind === 'exact-matchups' ? ['settings', 'matchups'] : [];
+      const witness: PublicCaptureWitness = { version: 'public-network-capture-v1', work, mapping: actualMapping, fence,
+        dispatchNonce: randomUUID(), attempts: Object.fromEntries(roles.map(role => [role, reservations[role]])) };
+      witnesses.push(witness);
+      return witness;
+    }),
+    completeCore: vi.fn<PublicIntakeStore['completeCore']>(async (...args) => {
+      checkpoints.set(args[0].kind, args[2]); await f.intake.completeCore(...args);
+    }),
+    completeExactPeriod: vi.fn<PublicIntakeStore['completeExactPeriod']>(async (...args) => {
+      checkpoints.set(args[0].kind, args[2]); await f.intake.completeExactPeriod(...args);
+    }),
+  };
+  const dependencies: PublicIntakeDependencies = { ...f.dependencies, administration, intake, source: undefined, now: () => new Date() };
+  const select = (kind: PublicIntakeWork['kind']) => f.setWork(kind === 'identity'
+    ? { requestId: id, revision: 10, kind, username: 'public_manager' }
+    : kind === 'leagues' ? { requestId: id, revision: 10, kind, userId: '55', season: 2026 }
+      : kind === 'exact-matchups' ? { ...periodWork, revision: 10 }
+        : { requestId: id, revision: 10, kind, externalLeagueId: native, season: 2026 });
+  const checkpointWrites = [intake.recordIdentity, intake.recordLeagues, intake.register, intake.completeCore, intake.completeExactPeriod];
+  return { ...f, intake, administration, dependencies, heads, checkpoints, witnesses, select, checkpointWrites,
+    run: () => runPublicIntakeStep(id, dependencies, new AbortController().signal) };
+}
+
+type IntakeResponseFailure = 'bytes' | 'values' | 'depth' | 'invalid-json';
+function streamedPublicResponse(payload: unknown, failure?: IntakeResponseFailure) {
+  let raw: string;
+  if (failure === 'invalid-json') raw = '{"unfinished":';
+  else {
+    let extra: unknown;
+    if (failure === 'bytes') extra = 'x'.repeat(8 * 1024 * 1024);
+    if (failure === 'values') extra = Array.from({ length: 250_000 }, () => null);
+    if (failure === 'depth') { extra = null; for (let level = 0; level < 64; level++) extra = [extra]; }
+    const withExtra = (value: unknown) => ({ ...(value as object), ignored_provider_metadata: extra });
+    raw = JSON.stringify(failure ? Array.isArray(payload) ? [withExtra(payload[0])] : withExtra(payload) : payload);
+  }
+  const bytes = new TextEncoder().encode(raw);
+  let offset = 0;
+  return new Response(new ReadableStream<Uint8Array>({ pull(controller) {
+    if (offset === bytes.length) { controller.close(); return; }
+    const end = Math.min(bytes.length, offset + 64 * 1024);
+    controller.enqueue(bytes.subarray(offset, end)); offset = end;
+  } }), { headers: { 'content-type': 'application/json', 'content-length': '1' } });
+}
+
+describe('public intake response bounds through real captures with offline stateful storage', () => {
+  const targets: readonly { kind: PublicIntakeWork['kind']; family: string; path: string }[] = [
+    { kind: 'identity', family: 'identity', path: '/user/public_manager' },
+    { kind: 'leagues', family: 'leagues', path: '/user/55/leagues/nfl/2026' },
+    { kind: 'bootstrap', family: 'league', path: '/league/' + native },
+    { kind: 'users', family: 'users', path: '/league/' + native + '/users' },
+    { kind: 'core', family: 'rosters', path: '/league/' + native + '/rosters' },
+    { kind: 'core', family: 'league', path: '/league/' + native },
+    { kind: 'exact-matchups', family: 'matchups', path: '/league/' + native + '/matchups/18' },
+    { kind: 'exact-matchups', family: 'league', path: '/league/' + native },
+  ];
+  const failures: readonly IntakeResponseFailure[] = ['bytes', 'values', 'depth', 'invalid-json'];
+  it.each(targets.flatMap(target => failures.map(failure => ({ ...target, failure }))))(
+    'fails $kind/$family on $failure, retains prior state and accepts only the fresh retry', async target => {
+      const f = streamedIntakeFixture();
+      let failResponse = false;
+      const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+        expect(init).toMatchObject({ cache: 'no-store', redirect: 'error', signal: expect.any(AbortSignal) });
+        expect(f.witnesses.length).toBeGreaterThan(0);
+        const path = new URL(String(url)).pathname.replace(/^\/v1/u, '');
+        const payload = path === '/user/public_manager' ? { user_id: '55', username: 'public_manager', display_name: 'Manager' }
+          : path.endsWith('/leagues/nfl/2026') ? [league] : path.endsWith('/rosters') ? document('rosters').payload
+            : path.endsWith('/users') ? document('users').payload : path.endsWith('/matchups/18') ? periodPayload : league;
+        return streamedPublicResponse(payload, failResponse && path === target.path ? target.failure : undefined);
+      });
+      try {
+        expect((await f.run()).status).toBe('progress'); // Accepted core before this failed refresh.
+        expect((await f.run()).status).toBe('progress'); // Accepted optional directory.
+        if (target.kind === 'exact-matchups') {
+          f.select('exact-matchups'); expect((await f.run()).status).toBe('progress');
+        }
+        const priorHeads = new Map(f.heads), priorCheckpoints = new Map(f.checkpoints);
+        f.select(target.kind);
+        f.checkpointWrites.forEach(write => vi.mocked(write).mockClear());
+        f.administration.recordObservation.mockClear(); vi.mocked(f.dependencies.jobs.completeJob).mockClear(); fetch.mockClear();
+        failResponse = true;
+        const providerRequests = ['core', 'exact-matchups'].includes(target.kind) ? 2 : 1;
+        expect(await f.run()).toEqual({ status: 'unavailable', resource: target.kind, providerRequests });
+        const failedWitness = f.witnesses.at(-1)!;
+        expect(f.intake.fail).toHaveBeenCalledExactlyOnceWith(failedWitness.work, failedWitness.fence);
+        expect(f.dependencies.jobs.failJob).toHaveBeenCalledExactlyOnceWith(failedWitness.fence.jobKey,
+          failedWitness.fence.workerId, 'public-data-intake-step-failed');
+        expect(f.dependencies.jobs.completeJob).not.toHaveBeenCalled();
+        f.checkpointWrites.forEach(write => expect(write).not.toHaveBeenCalled());
+        expect(f.checkpoints).toEqual(priorCheckpoints);
+        expect(f.heads.get(target.family)).toBe(priorHeads.get(target.family));
+        expect(f.administration.recordObservation.mock.calls.some(([input]) => input.envelope.family === target.family)).toBe(false);
+        // Existing sibling acceptance may advance independently; it never substitutes
+        // for the missing response or changes this request's prior core checkpoint.
+        for (const family of ['rosters', 'users']) {
+          if (!(target.kind === 'core' && target.family === 'league' && family === 'rosters')) {
+            expect(f.heads.get(family)).toBe(priorHeads.get(family));
+          }
+        }
+        expect(fetch).toHaveBeenCalledTimes(providerRequests);
+        f.administration.recordObservation.mockClear(); failResponse = false;
+        expect(await f.run()).toEqual({ status: 'progress', resource: target.kind, providerRequests });
+        const retryWitness = f.witnesses.at(-1)!;
+        expect(retryWitness.work).toEqual(failedWitness.work);
+        expect(retryWitness.dispatchNonce).not.toBe(failedWitness.dispatchNonce);
+        expect(retryWitness.fence.workerId).not.toBe(failedWitness.fence.workerId);
+        expect(f.dependencies.jobs.completeJob).toHaveBeenCalledExactlyOnceWith(retryWitness.fence.jobKey, retryWitness.fence.workerId);
+        expect(f.intake.fail).toHaveBeenCalledOnce(); expect(f.dependencies.jobs.failJob).toHaveBeenCalledOnce();
+        expect(fetch).toHaveBeenCalledTimes(providerRequests * 2);
+        expect(f.checkpointWrites.reduce((count, write) => count + vi.mocked(write).mock.calls.length, 0)).toBe(1);
+        if (target.kind === 'core' || target.kind === 'exact-matchups') {
+          const complete = target.kind === 'core' ? f.intake.completeCore : f.intake.completeExactPeriod;
+          expect(complete).toHaveBeenCalledWith(retryWitness.work, mapping,
+            expect.objectContaining({ receipts: Object.fromEntries(Object.entries(retryWitness.attempts).map(([role, attempt]) => [role, attempt.id])) }),
+            retryWitness.fence);
+          for (const [role, attempt] of Object.entries(retryWitness.attempts)) expect(attempt.id).not.toBe(failedWitness.attempts[role].id);
+        }
+        for (const [input, fence] of f.administration.recordObservation.mock.calls) {
+          const provenance = input.envelope.provenance;
+          expect(provenance.acquisition).toEqual(retryWitness); expect(fence).toEqual(retryWitness.fence);
+          expect(provenance.origin).toBe('network'); expect(provenance.sourceObservedAt).toBe(provenance.requestCompletedAt);
+          expect(Date.parse(provenance.requestCompletedAt!)).toBeGreaterThanOrEqual(Date.parse(provenance.requestStartedAt!));
+        }
+        if (target.kind === 'identity' || target.kind === 'leagues' || target.kind === 'bootstrap') {
+          const capture = target.kind === 'identity' ? vi.mocked(f.intake.recordIdentity).mock.calls[0][1]
+            : target.kind === 'leagues' ? vi.mocked(f.intake.recordLeagues).mock.calls[0][1] : vi.mocked(f.intake.register).mock.calls[0][1];
+          expect(capture.acquisition).toEqual(retryWitness); expect(Object.isFrozen(capture)).toBe(true);
+          if (target.kind !== 'bootstrap') expect(capture).not.toHaveProperty('diagnostic');
+          expect(Date.parse(capture.requestCompletedAt!)).toBeGreaterThanOrEqual(Date.parse(capture.requestStartedAt!));
+        }
+        if (target.kind === 'users') expect(f.intake.completeCore).toHaveBeenCalledWith(retryWitness.work, mapping,
+          { observations: { users: f.heads.get('users')!.observationId }, directoryCapture: expect.objectContaining({ acquisition: retryWitness }) },
+          retryWitness.fence);
+      } finally { fetch.mockRestore(); }
+    });
 });
