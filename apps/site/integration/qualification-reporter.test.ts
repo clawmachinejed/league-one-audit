@@ -5,29 +5,92 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterEach, expect, it } from 'vitest';
+import ts from 'typescript';
 import QualificationReporter from './qualification-reporter';
 import { createQualificationContext, qualificationArguments, qualificationDigest, qualificationSourceDigest, QUALIFICATION_CONTEXT_ENV,
   QUALIFICATION_FILES, INGESTION_PROFILE, INGESTION_FULL_NAME, SELECTED_FULL_NAME, SELECTED_INVENTORY, SELECTED_MODULE, SELECTED_PROFILE,
   OFFICIAL_PROFILE, OFFICIAL_SUITE, OFFICIAL_FULL_NAMES, GUARDS_PROFILE, GUARDS_FULL_NAMES,
   CONCURRENCY_PROFILE, CONCURRENCY_FULL_NAMES, LATE_WRITE_PROFILE, LATE_WRITE_FULL_NAMES, LATE_WRITE_SUITE,
-  validateQualificationArtifacts, type QualificationReport } from './qualification-profile';
+  CLOSEOUT_PROFILES, validateQualificationArtifacts, type QualificationReport } from './qualification-profile';
 
 const directories: string[] = [];
 const site = fileURLToPath(new URL('..', import.meta.url));
 const reporterPath = join(site, 'integration/qualification-reporter.ts');
 const helperPath = join(site, 'integration/qualification-profile.ts').replace(/\\/gu, '/');
-const evidenceDirectory = fileURLToPath(new URL('../../../test-results/qualification', import.meta.url));
+const evidenceDirectory = fileURLToPath(new URL('../../../test-results/data-backend/intake-closeout-runner-' + randomUUID() + '/', import.meta.url));
 const originalExit = process.exitCode;
 afterEach(async () => { process.exitCode = originalExit; await Promise.all(directories.splice(0).map(path => rm(path, { recursive: true, force: true }))); });
 
+/** Read declaration order without importing application, SQL, or harness modules. */
+async function sourceCaseOrder(): Promise<string[]> {
+  const path = join(site, SELECTED_MODULE), source = await readFile(path, 'utf8');
+  const tree = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true), cases: string[] = [];
+  const visit = (node: ts.Node, suites: string[]) => {
+    if (ts.isCallExpression(node)) {
+      const expression = node.expression;
+      if (ts.isIdentifier(expression) && expression.text === 'describe' && ts.isStringLiteral(node.arguments[0])) {
+        ts.forEachChild(node.arguments[1], child => visit(child, [...suites, node.arguments[0].getText(tree).slice(1, -1)])); return;
+      }
+      const direct = ts.isIdentifier(expression) && expression.text === 'it';
+      const each = ts.isCallExpression(expression) && ts.isPropertyAccessExpression(expression.expression)
+        && expression.expression.expression.getText(tree) === 'it' && expression.expression.name.text === 'each';
+      if ((direct || each) && ts.isStringLiteral(node.arguments[0])) {
+        const template = node.arguments[0].text;
+        const argument = each && ts.isCallExpression(expression) ? expression.arguments[0] : undefined;
+        const valuesNode = argument && ts.isAsExpression(argument) ? argument.expression : argument;
+        const values = valuesNode && ts.isArrayLiteralExpression(valuesNode)
+          ? valuesNode.elements.map(value => { expect(ts.isStringLiteral(value)).toBe(true); return (value as ts.StringLiteral).text; })
+          : [undefined];
+        for (const value of values) cases.push([...suites, value === undefined ? template : template.replace('%s', value)].join(' > '));
+        return;
+      }
+    }
+    ts.forEachChild(node, child => visit(child, suites));
+  };
+  visit(tree, []);
+  expect([...cases].sort()).toEqual(SELECTED_INVENTORY);
+  return cases;
+}
+
 /** Actual installed runner, synthetic modules only. No application or SQL imports;
  * outbound fetch/http/net are blocked before configuration and worker startup. */
-async function runFixture(kind: 'ordinary' | 'selected' | 'official' | 'guards' | 'concurrency' | 'late-write' | 'teardown' | 'hook' | 'retry' | 'repeat' | 'unhandled' | 'timeout') {
+async function runFixture(kind: 'ordinary' | 'selected' | 'official' | 'guards' | 'concurrency' | 'late-write' | 'teardown' | 'hook' | 'retry' | 'repeat' | 'unhandled' | 'timeout' | typeof CLOSEOUT_PROFILES[number]['profile'], order: 'source' | 'reversed' = 'source') {
   const directory = await mkdtemp(join(tmpdir(), 'qualification-runner-')); directories.push(directory);
   await mkdir(join(directory, 'integration')); await mkdir(join(directory, 'artifacts'));
   const vitestImport = pathToFileURL(join(site, 'node_modules/vitest/dist/index.js')).href;
   let body = "import {it,expect,describe,beforeAll,afterAll} from " + JSON.stringify(vitestImport) + ";\n";
-  if (kind === 'concurrency' || kind === 'late-write') {
+  const closeout = CLOSEOUT_PROFILES.find(selection => selection.profile === kind);
+  if (closeout) {
+    const inventory = await sourceCaseOrder();
+    expect(inventory.filter(name => closeout.names.includes(name))).toEqual(closeout.names);
+    if (order === 'reversed') {
+      expect(closeout.names.length).toBeGreaterThan(1);
+      const first = inventory.indexOf(closeout.names[0]), second = inventory.indexOf(closeout.names[1]);
+      [inventory[first], inventory[second]] = [inventory[second], inventory[first]];
+    }
+    body += 'let executed=0,lastCompleted=-1,activeSuite=-1,closedSuites=0;\n';
+    for (const [suite, names] of Object.entries(Object.groupBy(inventory, name => name.split(' > ')[0]))) {
+      body += 'describe(' + JSON.stringify(suite) + ',()=>{';
+      const suiteOrdinal = (closeout.suites as readonly string[]).indexOf(suite);
+      const ordinals = names!.map(name => closeout.names.indexOf(name)).filter(ordinal => ordinal >= 0);
+      if (suiteOrdinal >= 0) {
+        const first = Math.min(...ordinals), last = Math.max(...ordinals);
+        body += 'beforeAll(()=>{expect(closedSuites).toBe(' + suiteOrdinal + ');expect(activeSuite).toBe(-1);' +
+          'expect(executed).toBe(' + first + ');expect(lastCompleted).toBe(' + (first - 1) + ');activeSuite=' + suiteOrdinal + '});';
+        body += 'afterAll(()=>{expect(activeSuite).toBe(' + suiteOrdinal + ');expect(executed).toBe(' + (last + 1) + ');' +
+          'expect(lastCompleted).toBe(' + last + ');activeSuite=-1;closedSuites++});';
+      } else body += "beforeAll(()=>{throw Error('filtered suite beforeAll unexpectedly ran')});afterAll(()=>{throw Error('filtered suite afterAll unexpectedly ran')});";
+      for (const name of names!) {
+        const ordinal = closeout.names.indexOf(name);
+        body += 'it(' + JSON.stringify(name.split(' > ')[1]) + ',async()=>{' + (ordinal >= 0
+          ? 'expect(activeSuite).toBe(' + suiteOrdinal + ');expect(lastCompleted).toBe(' + (ordinal - 1) + ');' +
+            'expect(executed++).toBe(' + ordinal + ');await new Promise(resolve=>setTimeout(resolve,8));' +
+            'expect(lastCompleted).toBe(' + (ordinal - 1) + ');lastCompleted=' + ordinal + ';'
+          : "throw Error('filtered case unexpectedly ran')") + '});';
+      }
+      body += '});\n';
+    }
+  } else if (kind === 'concurrency' || kind === 'late-write') {
     const selectedNames = kind === 'late-write' ? LATE_WRITE_FULL_NAMES : CONCURRENCY_FULL_NAMES;
     body += 'let setup=0,executed=0,retainedCycle;\n';
     const inventory = [...selectedNames, ...SELECTED_INVENTORY.filter(name => !selectedNames.includes(name))];
@@ -99,8 +162,8 @@ async function runFixture(kind: 'ordinary' | 'selected' | 'official' | 'guards' 
   await writeFile(guard, "import {createRequire} from 'node:module';const require=createRequire(import.meta.url);" +
     "const deny=()=>{throw Error('NETWORK_BLOCKED_FIXTURE')};for(const m of ['http','https']){require(m).request=deny;require(m).get=deny;}" +
     "require('net').Socket.prototype.connect=deny;globalThis.fetch=deny;\n");
-  const context = await createQualificationContext(kind === 'selected' || kind === 'ordinary' || kind === 'official' || kind === 'guards' || kind === 'concurrency' || kind === 'late-write' ? site : directory, 'a'.repeat(40), randomUUID(),
-    kind === 'late-write' ? LATE_WRITE_PROFILE : kind === 'concurrency' ? CONCURRENCY_PROFILE : kind === 'guards' ? GUARDS_PROFILE : kind === 'official' ? OFFICIAL_PROFILE : kind === 'ordinary' ? INGESTION_PROFILE : kind === 'selected' ? SELECTED_PROFILE : 'full');
+  const context = await createQualificationContext(closeout || kind === 'selected' || kind === 'ordinary' || kind === 'official' || kind === 'guards' || kind === 'concurrency' || kind === 'late-write' ? site : directory, 'a'.repeat(40), randomUUID(),
+    closeout ? closeout.profile : kind === 'late-write' ? LATE_WRITE_PROFILE : kind === 'concurrency' ? CONCURRENCY_PROFILE : kind === 'guards' ? GUARDS_PROFILE : kind === 'official' ? OFFICIAL_PROFILE : kind === 'ordinary' ? INGESTION_PROFILE : kind === 'selected' ? SELECTED_PROFILE : 'full');
   // Only this no-SQL fixture substitutes synthetic source beneath the same closed case inventory.
   context.modules[0].sourceDigest = qualificationSourceDigest(body);
   const allow = new Set(['path','systemroot','windir','comspec','temp','tmp','tmpdir','home','userprofile','localappdata','appdata','pathext']);
@@ -111,12 +174,12 @@ async function runFixture(kind: 'ordinary' | 'selected' | 'official' | 'guards' 
     'run', '--config', join(directory, 'config.mjs'), ...qualificationArguments(context.profile, reporterPath)],
   { cwd: directory, env: environment, encoding: 'utf8', timeout: 20_000, windowsHide: true, maxBuffer: 2_000_000 });
   await mkdir(evidenceDirectory, { recursive: true });
-  await writeFile(join(evidenceDirectory, 'runner-' + kind + '.log'), (child.stdout ?? '') + (child.stderr ?? ''));
+  await writeFile(join(evidenceDirectory, 'runner-' + kind + '-' + order + '.log'), (child.stdout ?? '') + (child.stderr ?? ''));
   const binding = { directory: join(directory, 'artifacts'), context };
   const raw = await readFile(join(binding.directory, QUALIFICATION_FILES.report), 'utf8').catch(() => undefined);
   const report: QualificationReport | undefined = raw ? JSON.parse(raw) : undefined;
-  await writeFile(join(evidenceDirectory, 'runner-' + kind + '.json'), JSON.stringify({
-    kind, exitCode: child.status, childError: child.error?.message, report, sqlExecuted: false, networkBlocked: true,
+  await writeFile(join(evidenceDirectory, 'runner-' + kind + '-' + order + '.json'), JSON.stringify({
+    kind, order, exitCode: child.status, childError: child.error?.message, report, sqlExecuted: false, networkBlocked: true,
   }, null, 2));
   expect(child.error, child.stderr).toBeUndefined();
   expect(report, child.stderr).toBeDefined();
@@ -210,3 +273,31 @@ it('executes only three late-write rollback cases in source order with exactly o
   await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({ profile: LATE_WRITE_PROFILE,
     collected: 25, executed: 3, passed: 3, skipped: 22, filtered: 22 });
 });
+
+
+it.each(CLOSEOUT_PROFILES)('executes $profile in actual source topology with chronological async transitions and exact hooks', { timeout: 30_000 }, async selection => {
+  const { child, binding, report } = await runFixture(selection.profile);
+  expect(child.status).toBe(0);
+  const selected = report.modules[0].cases.filter(test => test.state === 'passed');
+  expect(selected.map(test => test.name)).toEqual(selection.names);
+  expect(report.modules[0].cases.filter(test => test.state === 'skipped')).toHaveLength(25 - selection.names.length);
+  const suites = report.modules[0].suites.filter(suite => suite.mode === 'run');
+  expect(suites.map(suite => suite.name)).toEqual(selection.suites);
+  expect(report.hooks).toEqual(suites.flatMap(suite => ['beforeAll', 'afterAll'].map(name => ({
+    key: suite.id + ':' + name, starts: 1, ends: 1,
+  }))));
+  for (let index = 1; index < selected.length; index++) {
+    expect(selected[index].diagnostic!.startTime).toBeGreaterThan(selected[index - 1].diagnostic!.startTime);
+  }
+  await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({ profile: selection.profile,
+    collected: 25, executed: selection.names.length, passed: selection.names.length,
+    skipped: 25 - selection.names.length, filtered: 25 - selection.names.length });
+});
+
+it.each(CLOSEOUT_PROFILES.filter(selection => selection.names.length > 1))(
+  'rejects a real installed-runner dependency-order violation for $profile', { timeout: 30_000 }, async selection => {
+    const { child, binding, report } = await runFixture(selection.profile, 'reversed');
+    expect(child.status).toBe(1);
+    expect(report.modules[0].cases.some(test => test.state === 'failed')).toBe(true);
+    await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
+  });

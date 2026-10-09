@@ -299,7 +299,7 @@ describe('disposable integration receipt ownership', () => {
   });
 });
 
-it.each(['data-core-refresh-v1','data-core-ingestion-v1','data-official-preconfiguration-v1','data-ingestion-guards-v1','data-refresh-concurrency-v1','data-late-write-rollback-v1'])('forwards only closed profile %s without changing lifecycle safeguards', async profile => {
+it.each(['data-core-refresh-v1','data-core-ingestion-v1','data-official-preconfiguration-v1','data-ingestion-guards-v1','data-refresh-concurrency-v1','data-late-write-rollback-v1','data-intake-recovery-v1','data-refresh-history-v1','data-period-recovery-v1','data-period-exhaustion-v1'])('forwards only closed profile %s without changing lifecycle safeguards', async profile => {
   process.argv.push('--profile=' + profile); await import('./run-disposable-integration');
   expect(mocked.run.mock.calls[0][0].profile).toBe(profile); expect(process.exitCode).toBe(0);
 });
@@ -314,3 +314,23 @@ it.each(['--retry=1', '--testNamePattern=anything', '--profile=data-core-refresh
     await expect(import('./run-disposable-integration')).rejects.toThrow('closed');
     expect(mocked.git).not.toHaveBeenCalled(); expect(mocked.run).not.toHaveBeenCalled();
   });
+
+
+const closeoutProfiles = ['data-intake-recovery-v1', 'data-refresh-history-v1',
+  'data-period-recovery-v1', 'data-period-exhaustion-v1'] as const;
+it.each(closeoutProfiles.flatMap(profile => ['--retry=1', '--repeat=1', '--testNamePattern=anything', '--config=custom',
+  '--reporter=custom', '--sequence.shuffle', '--profile=' + profile, '--profile=data-core-refresh-v1']
+  .map(extra => ({ profile, extra }))))('rejects $extra beside $profile before source, artifacts or provisioning', async ({ profile, extra }) => {
+  process.argv.push('--profile=' + profile, extra);
+  await expect(import('./run-disposable-integration')).rejects.toThrow('closed');
+  expect(mocked.git).not.toHaveBeenCalled(); expect(mocked.run).not.toHaveBeenCalled();
+  expect(mocked.mkdir).not.toHaveBeenCalled(); expect(mocked.writeFile).not.toHaveBeenCalled();
+});
+it.each(closeoutProfiles)('rejects unknown versions and split syntax for %s before source or provisioning', async profile => {
+  for (const args of [['--profile=' + profile.replace('-v1', '-v2')], ['--profile', profile]]) {
+    vi.resetModules(); process.argv = [process.execPath, 'run-disposable-integration.ts', ...args];
+    await expect(import('./run-disposable-integration')).rejects.toThrow('closed');
+    expect(mocked.git).not.toHaveBeenCalled(); expect(mocked.run).not.toHaveBeenCalled();
+    expect(mocked.mkdir).not.toHaveBeenCalled(); expect(mocked.writeFile).not.toHaveBeenCalled();
+  }
+});

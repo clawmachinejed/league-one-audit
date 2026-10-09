@@ -24,8 +24,9 @@ export const JOURNEY_SUITE = 'live public DATA intake and refresh through the ex
 export const JOURNEY_TEST = 'retains DannyPak discovery, all associated leagues and one complete refresh [live slow SQL]';
 export const JOURNEY_FULL_NAME = JOURNEY_SUITE + ' > ' + JOURNEY_TEST;
 export const JOURNEY_PATTERN = '^' + (JOURNEY_SUITE + ' ' + JOURNEY_TEST).replace(/[.*+?^{}$()|[\]\\]/gu, '\\$&') + '$';
-export type QualificationProfile = 'full' | typeof SELECTED_PROFILE | typeof INGESTION_PROFILE | typeof LIVE_PROFILE | typeof JOURNEY_PROFILE | typeof OFFICIAL_PROFILE | typeof GUARDS_PROFILE | typeof CONCURRENCY_PROFILE | typeof LATE_WRITE_PROFILE;
-export const SELECTED_SOURCE_DIGEST = 'a169746dc89051995f655785131cdc6379059d2ae2c0b506e4049d53a7060ceb';
+export type QualificationProfile = 'full' | typeof SELECTED_PROFILE | typeof INGESTION_PROFILE | typeof LIVE_PROFILE | typeof JOURNEY_PROFILE | typeof OFFICIAL_PROFILE | typeof GUARDS_PROFILE | typeof CONCURRENCY_PROFILE | typeof LATE_WRITE_PROFILE
+  | typeof INTAKE_RECOVERY_PROFILE | typeof REFRESH_HISTORY_PROFILE | typeof PERIOD_RECOVERY_PROFILE | typeof PERIOD_EXHAUSTION_PROFILE;
+export const SELECTED_SOURCE_DIGEST = '899c526471fd9f9df3917a357721c52b249d44c7aed5660fb658dda39d675abf';
 export const SELECTED_MODULE = 'integration/public-data-intake.integration-case.ts';
 export const SELECTED_SUITE = 'bounded public DATA refresh cycles through the existing intake owner';
 export const SELECTED_TEST = 'refreshes two typed core cycles with real admission spacing, a correction and lost-checkpoint replay [focused slow SQL]';
@@ -77,7 +78,52 @@ export const LATE_WRITE_TESTS = [
 export const LATE_WRITE_FULL_NAMES = LATE_WRITE_TESTS.map(name => LATE_WRITE_SUITE + ' > ' + name);
 export const LATE_WRITE_PATTERN = new RegExp('^(?:' + LATE_WRITE_TESTS.map(name => (LATE_WRITE_SUITE + ' ' + name)
   .replace(/[.*+?^{}$()|[\]\\]/gu, '\\$&')).join('|') + ')$').source;
+export const INTAKE_RECOVERY_PROFILE = 'data-intake-recovery-v1';
+export const REFRESH_HISTORY_PROFILE = 'data-refresh-history-v1';
+export const PERIOD_RECOVERY_PROFILE = 'data-period-recovery-v1';
+export const PERIOD_EXHAUSTION_PROFILE = 'data-period-exhaustion-v1';
+export const PERIOD_SUITE = 'explicit public native-period intake through retained typed receipts';
+// The configured registration case supplies fairness's genuine second identity.
+// The selector case retains the selection-failure history used by later assertions.
+export const INTAKE_RECOVERY_FULL_NAMES = [
+  LATE_WRITE_SUITE + ' > binds typed receipts, preserves core through interruption, recovers once and permits explicit existing-consumer adoption',
+  LATE_WRITE_SUITE + ' > admits generation one after normal completed-job retention while preserving older dispatch history',
+  LATE_WRITE_FULL_NAMES[1],
+  CONCURRENCY_FULL_NAMES[0],
+  SELECTED_SUITE + ' > defers a failed selection without giving it admission credit or monopolizing another verified target',
+  PERIOD_SUITE + ' > enforces twenty task ordinals, candidate lineage and immutable scope with rolled-back owner-only negative prerequisites',
+];
+// Keep both typed cycles before empty cycles and immutable-history/limit checks.
+// Metadata consumes the already-settled terminal cycle retained by pending capacity.
+export const REFRESH_HISTORY_FULL_NAMES = [
+  CONCURRENCY_FULL_NAMES[0], SELECTED_FULL_NAME,
+  ...[
+    'retains two empty-list cycles without relabeling previous typed data or replaying missed cadence slots [focused slow SQL]',
+    'refuses owner UPDATE and DELETE of existing immutable refresh history and preserves later-cycle rows',
+    'shares the existing sixteen-pending-request limit with manual submissions without spending admission credit',
+    'copies explicit periods into a new ordinary cycle and preserves original scope across replay and configuration CAS [R038 metadata only]',
+    'counts paused synthetic metadata targets toward the total16 bound using a genuine restricted configure call',
+  ].map(name => SELECTED_SUITE + ' > ' + name),
+];
+export const PERIOD_RECOVERY_FULL_NAMES = [PERIOD_SUITE + ' > binds both reservations, rejects stale/fenced receipts, recovers an observed lock expiry and lost acknowledgments, and preserves periods through core failure [focused slow SQL]'];
+export const PERIOD_EXHAUSTION_FULL_NAMES = [PERIOD_SUITE + ' > exhausts five real exact-period retries without closing core or fabricating a period checkpoint [focused slow SQL]'];
+function closedPattern(names: readonly string[]): string {
+  return new RegExp('^(?:' + names.map(name => name.replaceAll(' > ', ' ')
+    .replace(/[.*+?^{}$()|[\]\\]/gu, '\\$&')).join('|') + ')$').source;
+}
+export const CLOSEOUT_PROFILES = [
+  { profile: INTAKE_RECOVERY_PROFILE, names: INTAKE_RECOVERY_FULL_NAMES, pattern: closedPattern(INTAKE_RECOVERY_FULL_NAMES),
+    suites: [LATE_WRITE_SUITE, SELECTED_SUITE, PERIOD_SUITE] },
+  { profile: REFRESH_HISTORY_PROFILE, names: REFRESH_HISTORY_FULL_NAMES, pattern: closedPattern(REFRESH_HISTORY_FULL_NAMES),
+    suites: [SELECTED_SUITE] },
+  { profile: PERIOD_RECOVERY_PROFILE, names: PERIOD_RECOVERY_FULL_NAMES, pattern: closedPattern(PERIOD_RECOVERY_FULL_NAMES),
+    suites: [PERIOD_SUITE] },
+  { profile: PERIOD_EXHAUSTION_PROFILE, names: PERIOD_EXHAUSTION_FULL_NAMES, pattern: closedPattern(PERIOD_EXHAUSTION_FULL_NAMES),
+    suites: [PERIOD_SUITE] },
+] as const;
 function selectedCase(profile: QualificationProfile) {
+  const closeout = CLOSEOUT_PROFILES.find(selection => selection.profile === profile);
+  if (closeout) return closeout;
   if (profile === LATE_WRITE_PROFILE) return { names: LATE_WRITE_FULL_NAMES, pattern: LATE_WRITE_PATTERN };
   if (profile === CONCURRENCY_PROFILE) return { names: CONCURRENCY_FULL_NAMES, pattern: CONCURRENCY_PATTERN };
   if (profile === LIVE_PROFILE) return { names: [LIVE_FULL_NAME], pattern: LIVE_PATTERN };
@@ -163,6 +209,8 @@ function profileDigest(profile: QualificationProfile) {
 }
 export function parseQualificationArguments(args: readonly string[]): QualificationProfile {
   if (!args.length) return 'full';
+  const closeout = CLOSEOUT_PROFILES.find(selection => args.length === 1 && args[0] === '--profile=' + selection.profile);
+  if (closeout) return closeout.profile;
   if (args.length === 1 && args[0] === '--profile=' + SELECTED_PROFILE) return SELECTED_PROFILE;
   if (args.length === 1 && args[0] === '--profile=' + INGESTION_PROFILE) return INGESTION_PROFILE;
   if (args.length === 1 && args[0] === '--profile=' + LIVE_PROFILE) return LIVE_PROFILE;
@@ -171,10 +219,10 @@ export function parseQualificationArguments(args: readonly string[]): Qualificat
   if (args.length === 1 && args[0] === '--profile=' + GUARDS_PROFILE) return GUARDS_PROFILE;
   if (args.length === 1 && args[0] === '--profile=' + CONCURRENCY_PROFILE) return CONCURRENCY_PROFILE;
   if (args.length === 1 && args[0] === '--profile=' + LATE_WRITE_PROFILE) return LATE_WRITE_PROFILE;
-  throw new Error('Only the closed data-late-write-rollback-v1, data-refresh-concurrency-v1, data-ingestion-guards-v1, data-official-preconfiguration-v1, data-live-public-intake-v1, data-live-league-two-v1, data-core-refresh-v1 and data-core-ingestion-v1 qualification selectors are accepted.');
+  throw new Error('Only the closed data-intake-recovery-v1, data-refresh-history-v1, data-period-recovery-v1, data-period-exhaustion-v1, data-late-write-rollback-v1, data-refresh-concurrency-v1, data-ingestion-guards-v1, data-official-preconfiguration-v1, data-live-public-intake-v1, data-live-league-two-v1, data-core-refresh-v1 and data-core-ingestion-v1 qualification selectors are accepted.');
 }
 export function qualificationArguments(profile: QualificationProfile, reporter: string): string[] {
-  assert(profile === 'full' || profile === SELECTED_PROFILE || profile === INGESTION_PROFILE || profile === LIVE_PROFILE || profile === JOURNEY_PROFILE || profile === OFFICIAL_PROFILE || profile === GUARDS_PROFILE || profile === CONCURRENCY_PROFILE || profile === LATE_WRITE_PROFILE, 'Unknown qualification profile.');
+  assert(profile === 'full' || profile === SELECTED_PROFILE || profile === INGESTION_PROFILE || profile === LIVE_PROFILE || profile === JOURNEY_PROFILE || profile === OFFICIAL_PROFILE || profile === GUARDS_PROFILE || profile === CONCURRENCY_PROFILE || profile === LATE_WRITE_PROFILE || CLOSEOUT_PROFILES.some(selection => selection.profile === profile), 'Unknown qualification profile.');
   return ['--reporter', 'verbose', '--reporter', reporter,
     ...(profile === 'full' ? [] : [selectedModule(profile), '--testNamePattern', selectedCase(profile).pattern])];
 }
@@ -187,7 +235,7 @@ function validateContext(value: QualificationContext): QualificationContext {
   assert.equal(value.kind, 'integration-qualification-context-v1');
   for (const id of [value.runId, value.nonce]) assert.match(id, /^[0-9a-f]{8}-[0-9a-f-]{27}$/u);
   assert.match(value.gitSha, /^[0-9a-f]{40}$/u);
-  assert(value.profile === 'full' || value.profile === SELECTED_PROFILE || value.profile === INGESTION_PROFILE || value.profile === LIVE_PROFILE || value.profile === JOURNEY_PROFILE || value.profile === OFFICIAL_PROFILE || value.profile === GUARDS_PROFILE || value.profile === CONCURRENCY_PROFILE || value.profile === LATE_WRITE_PROFILE);
+  assert(value.profile === 'full' || value.profile === SELECTED_PROFILE || value.profile === INGESTION_PROFILE || value.profile === LIVE_PROFILE || value.profile === JOURNEY_PROFILE || value.profile === OFFICIAL_PROFILE || value.profile === GUARDS_PROFILE || value.profile === CONCURRENCY_PROFILE || value.profile === LATE_WRITE_PROFILE || CLOSEOUT_PROFILES.some(selection => selection.profile === value.profile));
   assert.equal(value.profileDigest, profileDigest(value.profile));
   assert(Array.isArray(value.modules) && value.modules.length > 0 && value.modules.length <= 128);
   for (const entry of value.modules) {
@@ -316,6 +364,25 @@ export function validateQualificationReport(context: QualificationContext, repor
       const expectedHooks = ['beforeAll', 'afterAll'].map(name => suites[0].id + ':' + name);
       sameInventory(report.hooks.map(hook => hook.key), expectedHooks);
       for (const hook of report.hooks) assert.equal(hook.starts, 1, sharedSuite.label + ' hooks must execute exactly once.');
+    }
+    const closeout = CLOSEOUT_PROFILES.find(selection => selection.profile === context.profile);
+    if (closeout) {
+      const selected = entry.cases.filter(test => closeout.names.includes(test.name));
+      assert.deepEqual(selected.map(test => test.name), closeout.names, 'Closed cases must retain their source order.');
+      const runningSuites = entry.suites.filter(suite => suite.mode === 'run');
+      sameInventory(runningSuites.map(suite => suite.name), [...closeout.suites]);
+      for (const name of closeout.suites) assert.equal(entry.suites.filter(suite => suite.name === name).length, 1,
+        'Closed qualification requires each selected suite exactly once.');
+      const expectedHooks = runningSuites.flatMap(suite => ['beforeAll', 'afterAll'].map(name => suite.id + ':' + name));
+      sameInventory(report.hooks.map(hook => hook.key), expectedHooks);
+      for (const hook of report.hooks) assert.equal(hook.starts, 1, 'Closed qualification hooks must execute exactly once.');
+      // allTests() reports declaration order; diagnostic start times independently
+      // reject reordered execution without changing the reporter or runner.
+      for (let index = 1; index < selected.length; index++) {
+        const previous = selected[index - 1].diagnostic, current = selected[index].diagnostic;
+        assert(previous && current && current.startTime >= previous.startTime,
+          'Closed cases must execute in chronological source order.');
+      }
     }
     if (context.profile === GUARDS_PROFILE) assert.deepEqual(entry.cases.filter(test => GUARDS_FULL_NAMES.includes(test.name))
       .map(test => test.name), GUARDS_FULL_NAMES, 'Ingestion guards must retain their source order.');

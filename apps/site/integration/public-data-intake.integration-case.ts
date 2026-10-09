@@ -1792,9 +1792,15 @@ describe('bounded public DATA refresh cycles through the existing intake owner',
     // Existing genuinely captured identity; all new configuration/cycle rows in
     // this metadata oracle roll back. No dispatch or provider credit is invented.
     const database = connection.database;
-    const settlement = await claim();
-    try { await createPublicDataRefreshStore(database).select(settlement.fence); }
-    finally { await settlement.jobs.failJob(PUBLIC_INTAKE_JOB, settlement.fence.workerId, 'period metadata cadence observation'); }
+    // The preceding capacity oracle already settled this terminal cycle. Selecting
+    // again could create a due unscoped cycle before the scoped configuration.
+    const settled = await database.query(`SELECT request.terminal,outcome.disposition
+      FROM public.public_data_refresh_targets target
+      JOIN public.public_data_refresh_cycles cycle ON cycle.target_id=target.id AND cycle.cycle=target.current_cycle
+      JOIN public.public_data_intakes request ON request.id=cycle.intake_id
+      LEFT JOIN public.public_data_refresh_cycle_outcomes outcome ON outcome.target_id=cycle.target_id AND outcome.cycle=cycle.cycle
+      WHERE target.id=$1`, [targetId]);
+    expect(settled).toEqual([{ terminal: true, disposition: 'complete' }]);
     const [due] = await database.query('SELECT greatest(0,extract(epoch FROM next_due_at-clock_timestamp())) AS seconds FROM public.public_data_refresh_targets WHERE id=$1', [targetId]);
     await delay(Number(due.seconds) * 1_000 + 100);
     const runtime = await createPinnedIntegrationDatabase('runtime');
